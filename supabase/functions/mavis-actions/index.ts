@@ -60,6 +60,7 @@ const PROFILE_ALLOWED = [
   "current_form", "current_bpm", "current_floor",
   "aura_power", "display_name", "operator_level", "operator_xp",
   "notification_settings",
+  "rank", "level", "xp", "xp_to_next_level", "pvp_rating", "gpr",
 ] as const;
 
 // ── Action executor ────────────────────────────────────────
