@@ -80,6 +80,103 @@ export type Database = {
         }
         Relationships: []
       }
+      approvals: {
+        Row: {
+          action_payload: Json
+          action_summary: string
+          action_type: string
+          created_at: string
+          expires_at: string | null
+          id: string
+          resolved_at: string | null
+          status: string
+          user_id: string
+          workspace_id: string | null
+        }
+        Insert: {
+          action_payload: Json
+          action_summary: string
+          action_type: string
+          created_at?: string
+          expires_at?: string | null
+          id?: string
+          resolved_at?: string | null
+          status?: string
+          user_id: string
+          workspace_id?: string | null
+        }
+        Update: {
+          action_payload?: Json
+          action_summary?: string
+          action_type?: string
+          created_at?: string
+          expires_at?: string | null
+          id?: string
+          resolved_at?: string | null
+          status?: string
+          user_id?: string
+          workspace_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "approvals_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      artifacts: {
+        Row: {
+          artifact_type: string
+          content: string
+          created_at: string
+          id: string
+          metadata: Json
+          tags: string[]
+          title: string
+          updated_at: string
+          user_id: string
+          version: number
+          workspace_id: string | null
+        }
+        Insert: {
+          artifact_type?: string
+          content?: string
+          created_at?: string
+          id?: string
+          metadata?: Json
+          tags?: string[]
+          title: string
+          updated_at?: string
+          user_id: string
+          version?: number
+          workspace_id?: string | null
+        }
+        Update: {
+          artifact_type?: string
+          content?: string
+          created_at?: string
+          id?: string
+          metadata?: Json
+          tags?: string[]
+          title?: string
+          updated_at?: string
+          user_id?: string
+          version?: number
+          workspace_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "artifacts_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       bpm_sessions: {
         Row: {
           bpm: number
@@ -364,6 +461,72 @@ export type Database = {
           updated_at?: string
           user_id?: string
           xp_earned?: number
+        }
+        Relationships: []
+      }
+      memories: {
+        Row: {
+          content: string
+          created_at: string
+          id: string
+          memory_type: string
+          metadata: Json
+          source: string
+          tags: string[]
+          title: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          content: string
+          created_at?: string
+          id?: string
+          memory_type?: string
+          metadata?: Json
+          source?: string
+          tags?: string[]
+          title?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          content?: string
+          created_at?: string
+          id?: string
+          memory_type?: string
+          metadata?: Json
+          source?: string
+          tags?: string[]
+          title?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      omnisync_snapshots: {
+        Row: {
+          condensed_comms: string
+          created_at: string
+          id: string
+          snapshot_data: Json
+          summary: string
+          user_id: string
+        }
+        Insert: {
+          condensed_comms?: string
+          created_at?: string
+          id?: string
+          snapshot_data?: Json
+          summary?: string
+          user_id: string
+        }
+        Update: {
+          condensed_comms?: string
+          created_at?: string
+          id?: string
+          snapshot_data?: Json
+          summary?: string
+          user_id?: string
         }
         Relationships: []
       }
@@ -857,6 +1020,119 @@ export type Database = {
           importance?: string
           title?: string
           updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      vault_media: {
+        Row: {
+          created_at: string
+          description: string
+          file_name: string
+          file_size: number
+          file_type: string
+          file_url: string
+          id: string
+          tags: string[]
+          user_id: string
+          vault_entry_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          description?: string
+          file_name: string
+          file_size?: number
+          file_type?: string
+          file_url: string
+          id?: string
+          tags?: string[]
+          user_id: string
+          vault_entry_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          description?: string
+          file_name?: string
+          file_size?: number
+          file_type?: string
+          file_url?: string
+          id?: string
+          tags?: string[]
+          user_id?: string
+          vault_entry_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "vault_media_vault_entry_id_fkey"
+            columns: ["vault_entry_id"]
+            isOneToOne: false
+            referencedRelation: "vault_entries"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      watchtower_briefs: {
+        Row: {
+          brief_date: string
+          content: string
+          created_at: string
+          id: string
+          read: boolean
+          summary: string
+          user_id: string
+        }
+        Insert: {
+          brief_date?: string
+          content: string
+          created_at?: string
+          id?: string
+          read?: boolean
+          summary?: string
+          user_id: string
+        }
+        Update: {
+          brief_date?: string
+          content?: string
+          created_at?: string
+          id?: string
+          read?: boolean
+          summary?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      workspaces: {
+        Row: {
+          color: string
+          created_at: string
+          description: string
+          icon: string
+          id: string
+          is_active: boolean
+          name: string
+          slug: string
+          user_id: string
+        }
+        Insert: {
+          color?: string
+          created_at?: string
+          description?: string
+          icon?: string
+          id?: string
+          is_active?: boolean
+          name: string
+          slug: string
+          user_id: string
+        }
+        Update: {
+          color?: string
+          created_at?: string
+          description?: string
+          icon?: string
+          id?: string
+          is_active?: boolean
+          name?: string
+          slug?: string
           user_id?: string
         }
         Relationships: []
