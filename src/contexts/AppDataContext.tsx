@@ -3,9 +3,9 @@ import { useProfile, type ProfileData } from "@/hooks/useProfile";
 import { useQuests, type Quest } from "@/hooks/useQuests";
 import {
   useTasks, useRituals, useJournal, useVault, useCouncils,
-  useSkills, useEnergySystems, useInventory, useAllies, useBpmSessions, useActivityLog, useStoreItems, useTransformations,
+  useSkills, useEnergySystems, useInventory, useAllies, useBpmSessions, useActivityLog, useStoreItems, useTransformations, useRankings,
   type Task, type Ritual, type JournalEntry, type VaultEntry,
-  type CouncilMember, type Skill, type EnergySystem, type InventoryItem, type Ally, type BpmSession, type StoreItem, type Transformation,
+  type CouncilMember, type Skill, type EnergySystem, type InventoryItem, type Ally, type BpmSession, type StoreItem, type Transformation, type RankingProfile,
 } from "@/hooks/useDataHooks";
 
 export interface ChatMessage {
@@ -111,12 +111,19 @@ interface AppDataContextType {
   updateStoreItem: (id: string, input: any) => Promise<void>;
   deleteStoreItem: (id: string) => Promise<void>;
 
-  // Transformations (Rankings/Forms)
+  // Transformations (Forms)
   transformations: Transformation[];
   transformationsLoading: boolean;
   createTransformation: (input: any) => Promise<Transformation | null>;
   updateTransformation: (id: string, input: any) => Promise<void>;
   deleteTransformation: (id: string) => Promise<void>;
+
+  // Rankings
+  rankings: RankingProfile[];
+  rankingsLoading: boolean;
+  createRanking: (input: any) => Promise<RankingProfile | null>;
+  updateRanking: (id: string, input: any) => Promise<void>;
+  deleteRanking: (id: string) => Promise<void>;
 
   // Activity log
   logActivity: (event_type: string, description: string, xp?: number) => Promise<void>;
@@ -165,15 +172,16 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
   const { data: bpmSessions, loading: bpmLoading, create: logBpmSession, refetch: refetchBpm } = useBpmSessions();
   const { data: storeItems, loading: storeLoading, create: createStoreItem, update: updateStoreItem, remove: deleteStoreItem, refetch: refetchStore } = useStoreItems();
   const { data: transformations, loading: transformationsLoading, create: createTransformation, update: updateTransformation, remove: deleteTransformation, refetch: refetchTransformations } = useTransformations();
+  const { data: rankings, loading: rankingsLoading, create: createRanking, update: updateRanking, remove: deleteRanking, refetch: refetchRankings } = useRankings();
   const { log: logActivity } = useActivityLog();
 
   const refetchAll = useCallback(async () => {
     await Promise.all([
       refetchProfile(), refetchQuests(), refetchTasks(), refetchRituals(),
       refetchJournal(), refetchVault(), refetchCouncils(), refetchSkills(),
-      refetchEnergy(), refetchInventory(), refetchAllies(), refetchBpm(), refetchStore(), refetchTransformations(),
+      refetchEnergy(), refetchInventory(), refetchAllies(), refetchBpm(), refetchStore(), refetchTransformations(), refetchRankings(),
     ]);
-  }, [refetchProfile, refetchQuests, refetchTasks, refetchRituals, refetchJournal, refetchVault, refetchCouncils, refetchSkills, refetchEnergy, refetchInventory, refetchAllies, refetchBpm, refetchStore, refetchTransformations]);
+  }, [refetchProfile, refetchQuests, refetchTasks, refetchRituals, refetchJournal, refetchVault, refetchCouncils, refetchSkills, refetchEnergy, refetchInventory, refetchAllies, refetchBpm, refetchStore, refetchTransformations, refetchRankings]);
 
   // MAVIS chat state
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([INITIAL_MAVIS_MSG]);
@@ -197,6 +205,7 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
         bpmSessions, bpmLoading, logBpmSession,
         storeItems, storeLoading, createStoreItem, updateStoreItem, deleteStoreItem,
         transformations, transformationsLoading, createTransformation, updateTransformation, deleteTransformation,
+        rankings, rankingsLoading, createRanking, updateRanking, deleteRanking,
         logActivity,
         refetchAll,
         chatMessages, setChatMessages, conversationId, setConversationId,

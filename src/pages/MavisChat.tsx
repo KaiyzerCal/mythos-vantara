@@ -32,6 +32,7 @@ function buildSystemPrompt(profile: any, mode: string, appContext: any, archived
   const inventoryList = (appContext.inventory || []).map((i: any) => `  • [${i.id}] ${i.name} | type:${i.type} | rarity:${i.rarity} | qty:${i.quantity} | equipped:${i.is_equipped}${i.effect ? ` | effect:${i.effect}` : ""}${i.description ? ` | desc: ${i.description}` : ""}`).join("\n");
   const ritualList = (appContext.rituals || []).map((r: any) => `  • [${r.id}] ${r.name} | type:${r.type} | streak:${r.streak} | done:${r.completed} | xp:${r.xp_reward}${r.description ? ` | desc: ${r.description}` : ""}`).join("\n");
   const transformList = (appContext.transformations || []).map((t: any) => `  • [${t.id}] ${t.name} | tier:${t.tier} | energy:${t.energy} | bpm:${t.bpm_range} | unlocked:${t.unlocked}${t.description ? ` | desc: ${t.description}` : ""}`).join("\n");
+  const rankingsList = (appContext.rankings || []).map((r: any) => `  • [${r.id}] ${r.display_name} | role:${r.role} | rank:${r.rank} | lv:${r.level} | gpr:${r.gpr} | pvp:${r.pvp} | jjk:${r.jjk_grade} | op:${r.op_tier} | influence:${r.influence} | self:${r.is_self}${r.notes ? ` | notes: ${r.notes}` : ""}`).join("\n");
   const bpmList = (appContext.bpmSessions || []).slice(0, 10).map((b: any) => `  • [${b.id}] ${b.bpm}bpm | form:${b.form} | dur:${b.duration}m${b.mood ? ` | mood:${b.mood}` : ""}${b.notes ? ` | notes: ${b.notes}` : ""}`).join("\n");
   const storeList = (appContext.storeItems || []).map((s: any) => `  • [${s.id}] ${s.name} | cat:${s.category} | price:${s.price} ${s.currency} | rarity:${s.rarity}${s.effect ? ` | effect:${s.effect}` : ""}${s.description ? ` | desc: ${s.description}` : ""}`).join("\n");
 
@@ -82,8 +83,10 @@ INVENTORY:
 ${inventoryList || "  None"}
 RITUALS:
 ${ritualList || "  None"}
-FORMS/TRANSFORMATIONS:
+FORMS/TRANSFORMATIONS (power forms — NOT rankings):
 ${transformList || "  None"}
+RANKINGS PROFILES (roster of people — separate from forms!):
+${rankingsList || "  None"}
 BPM SESSIONS (recent 10):
 ${bpmList || "  None"}
 STORE ITEMS:
@@ -93,8 +96,12 @@ ${archivedMemories ? `\nARCHIVED MEMORIES (from previous cleared threads — use
 ACTIONS — You can write directly to any part of the app. When you decide to create, update, or delete data, embed the action tag invisibly in your response. The user will NOT see these tags — only your visible reply. Always confirm in your visible text what you did.
 
 CRITICAL RULES FOR UNDERSTANDING INTENT:
-- "Rankings" = "Forms" = "Transformations" — they all refer to the same system. Use create_transformation/update_transformation/delete_transformation.
-- If the user says "add to my rankings" or "create a form" or "add a new transformation" — they ALL mean create_transformation.
+- "Rankings" and "Forms/Transformations" are DIFFERENT systems!
+  * "Rankings" = the roster of real people, NPCs, entities with GPR/PVP scores. Uses create_ranking, update_ranking, delete_ranking. Writes to rankings_profiles table.
+  * "Forms" = "Transformations" = power forms/modes like Super Saiyan etc. Uses create_transformation, update_transformation, delete_transformation. Writes to transformations table.
+- "Add someone to my rankings" → create_ranking (NOT create_transformation!)
+- "Create a new form/transformation" → create_transformation
+- Do NOT confuse these two systems. They are completely separate.
 - Do NOT ask the user to rephrase. Do NOT say you can't do something if there's a reasonable interpretation of their request.
 - If the user asks you to do ANYTHING that involves creating, editing, or deleting data — DO IT. Always include the :::ACTION::: tag. Never just describe what you would do.
 - "Add X to Y" = create. "Change X" or "edit X" or "modify X" = update. "Remove X" or "delete X" = delete.
@@ -139,6 +146,9 @@ Available actions (embed in response, never in a code block):
 :::ACTION{"type":"create_transformation","params":{"name":"...","tier":"...","form_order":0,"bpm_range":"65-75","energy":"Ki","jjk_grade":"Special Grade","op_tier":"God Tier","description":"...","unlocked":false,"category":"..."}}:::
 :::ACTION{"type":"update_transformation","params":{"transformation_id":"...","name":"...","unlocked":true,"description":"..."}}:::
 :::ACTION{"type":"delete_transformation","params":{"transformation_id":"..."}}:::
+:::ACTION{"type":"create_ranking","params":{"display_name":"...","role":"ally|enemy|npc|self","rank":"D|C|B|A|S|SS","level":1,"jjk_grade":"G4","op_tier":"Local","gpr":1000,"pvp":5000,"influence":"Local","notes":"...","is_self":false}}:::
+:::ACTION{"type":"update_ranking","params":{"ranking_id":"...","display_name":"...","rank":"S","gpr":5000}}:::
+:::ACTION{"type":"delete_ranking","params":{"ranking_id":"..."}}:::
 :::ACTION{"type":"create_store_item","params":{"name":"...","description":"...","price":100,"currency":"Codex Points","rarity":"common","category":"consumable","effect":"..."}}:::
 :::ACTION{"type":"update_store_item","params":{"item_id":"...","name":"...","price":100}}:::
 :::ACTION{"type":"delete_store_item","params":{"item_id":"..."}}:::
