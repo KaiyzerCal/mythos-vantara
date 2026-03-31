@@ -215,8 +215,8 @@ export default function MavisChat() {
               ? { Authorization: `Bearer ${session.access_token}` }
               : {},
           });
-          // Refetch relevant data so UI updates immediately
-          await Promise.all([refetchQuests(), refetchProfile()]);
+          // Refetch ALL data so every tab updates immediately
+          await refetchAll();
           setActionStatus(`✓ ${actions.map((a) => a.type).join(", ")}`);
           setTimeout(() => setActionStatus(null), 3000);
         } catch (actionErr) {
