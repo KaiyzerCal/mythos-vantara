@@ -303,6 +303,8 @@ export default function MavisChat() {
     setInput("");
     setActionStatus(null);
 
+    const convoId = await ensureConversation();
+
     const userMsg = {
       id: `u-${Date.now()}`,
       role: "user" as const,
@@ -312,6 +314,9 @@ export default function MavisChat() {
     };
     setChatMessages((prev) => [...prev, userMsg]);
     setIsLoading(true);
+
+    // Persist user message
+    if (convoId) persistMessage({ role: "user", content, mode: chatMode }, convoId);
 
     const apiMessages = [
       ...chatMessages
