@@ -332,10 +332,12 @@ async function executeAction(sb: ReturnType<typeof createClient>, userId: string
     // ── ENERGY ───────────────────────────────────────────
     case "update_energy": {
       if (!p.energy_id) return;
-      await sb.from("energy_systems").update({
-        current_value: Number(p.current_value),
-        updated_at: new Date().toISOString(),
-      }).eq("id", String(p.energy_id)).eq("user_id", userId);
+      const updates: Record<string, unknown> = {};
+      for (const key of ["current_value", "max_value", "status", "description", "color", "type"]) {
+        if (p[key] !== undefined) updates[key] = p[key];
+      }
+      updates.updated_at = new Date().toISOString();
+      await sb.from("energy_systems").update(updates).eq("id", String(p.energy_id)).eq("user_id", userId);
       return;
     }
 
