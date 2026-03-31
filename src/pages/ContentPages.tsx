@@ -132,6 +132,7 @@ export function VaultCodexPage() {
   const { vaultEntries, vaultLoading, createVaultEntry, updateVaultEntry, deleteVaultEntry } = useAppData();
   const [showCreate, setShowCreate] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
   const [catFilter, setCatFilter] = useState("all");
   const [form, setForm] = useState({ title: "", content: "", category: "personal", importance: "medium" });
 
