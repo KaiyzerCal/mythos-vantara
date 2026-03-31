@@ -141,7 +141,7 @@ export default function MavisChat() {
   const {
     profile, quests, tasks, skills, journalEntries, vaultEntries,
     chatMessages, setChatMessages, conversationId, setConversationId,
-    chatMode, setChatMode, refetchQuests, refetchProfile,
+    chatMode, setChatMode, refetchAll,
   } = useAppData();
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
