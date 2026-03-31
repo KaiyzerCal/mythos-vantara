@@ -77,34 +77,50 @@ export function JournalPage() {
         </HudCard>
       )}
       <div className="space-y-2">
-        {journalEntries.map((e, i) => (
+        {journalEntries.map((e, i) => {
+          const isExpanded = expandedId === e.id;
+          return (
           <motion.div key={e.id} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.03 }}>
-            <HudCard>
-              <div className="flex items-start gap-3">
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap mb-1">
-                    <h3 className="text-sm font-display font-bold">{e.title}</h3>
-                    <span className={`text-[9px] font-mono uppercase ${importanceColors[e.importance]}`}>{e.importance}</span>
-                    <span className="text-[9px] font-mono text-muted-foreground">{e.category}</span>
+            <HudCard className={`cursor-pointer transition-all ${isExpanded ? "border-primary/30" : ""}`}>
+              <div onClick={() => setExpandedId(isExpanded ? null : e.id)}>
+                <div className="flex items-start gap-3">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap mb-1">
+                      <h3 className="text-sm font-display font-bold">{e.title}</h3>
+                      <span className={`text-[9px] font-mono uppercase ${importanceColors[e.importance]}`}>{e.importance}</span>
+                      <span className="text-[9px] font-mono text-muted-foreground">{e.category}</span>
+                    </div>
+                    {e.content && <p className={`text-xs font-body text-muted-foreground ${isExpanded ? "whitespace-pre-wrap" : "line-clamp-2"}`}>{e.content}</p>}
+                    {isExpanded && (
+                      <div className="mt-3 space-y-1.5 border-t border-border/30 pt-2">
+                        <div className="grid grid-cols-2 gap-2 text-[10px] font-mono">
+                          <div><span className="text-muted-foreground">Category:</span> <span className="text-foreground">{e.category}</span></div>
+                          <div><span className="text-muted-foreground">Importance:</span> <span className={importanceColors[e.importance]}>{e.importance}</span></div>
+                          {e.mood && <div><span className="text-muted-foreground">Mood:</span> <span className="text-foreground">{e.mood}</span></div>}
+                          <div><span className="text-muted-foreground">XP Earned:</span> <span className="text-green-400">+{e.xp_earned}</span></div>
+                          <div className="col-span-2"><span className="text-muted-foreground">Created:</span> <span className="text-foreground">{new Date(e.created_at).toLocaleString()}</span></div>
+                        </div>
+                      </div>
+                    )}
+                    <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+                      {e.tags.map((t) => (
+                        <span key={t} className="text-[8px] font-mono text-primary/60 border border-primary/20 rounded px-1.5 py-0.5">#{t}</span>
+                      ))}
+                      {!isExpanded && e.mood && <span className="text-[9px] font-mono text-muted-foreground ml-auto">mood: {e.mood}</span>}
+                      {!isExpanded && <span className="text-[9px] font-mono text-muted-foreground">{new Date(e.created_at).toLocaleDateString()}</span>}
+                    </div>
                   </div>
-                  {e.content && <p className="text-xs font-body text-muted-foreground line-clamp-2">{e.content}</p>}
-                  <div className="flex items-center gap-2 mt-1.5 flex-wrap">
-                    {e.tags.map((t) => (
-                      <span key={t} className="text-[8px] font-mono text-primary/60 border border-primary/20 rounded px-1.5 py-0.5">#{t}</span>
-                    ))}
-                    {e.mood && <span className="text-[9px] font-mono text-muted-foreground ml-auto">mood: {e.mood}</span>}
-                    <span className="text-[9px] font-mono text-muted-foreground">{new Date(e.created_at).toLocaleDateString()}</span>
+                  <div className="flex flex-col items-end gap-1 shrink-0" onClick={(ev) => ev.stopPropagation()}>
+                    <span className="text-[10px] font-mono text-green-400">+{e.xp_earned} XP</span>
+                    <button onClick={() => handleEdit(e)} className="p-1 text-muted-foreground hover:text-primary transition-colors"><Edit2 size={12} /></button>
+                    <button onClick={() => deleteJournalEntry(e.id)} className="p-1 text-muted-foreground hover:text-destructive transition-colors"><Trash2 size={12} /></button>
                   </div>
-                </div>
-                <div className="flex flex-col items-end gap-1 shrink-0">
-                  <span className="text-[10px] font-mono text-green-400">+{e.xp_earned} XP</span>
-                  <button onClick={() => handleEdit(e)} className="p-1 text-muted-foreground hover:text-primary transition-colors"><Edit2 size={12} /></button>
-                  <button onClick={() => deleteJournalEntry(e.id)} className="p-1 text-muted-foreground hover:text-destructive transition-colors"><Trash2 size={12} /></button>
                 </div>
               </div>
             </HudCard>
           </motion.div>
-        ))}
+          );
+        })}
         {journalEntries.length === 0 && <p className="text-xs font-mono text-muted-foreground text-center py-8">No journal entries yet. Start logging your arc.</p>}
       </div>
     </div>
