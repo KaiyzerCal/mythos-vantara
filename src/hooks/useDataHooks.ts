@@ -299,7 +299,7 @@ export interface StoreItem {
 }
 export const useStoreItems = makeHook<StoreItem>("store_items");
 
-// ─── TRANSFORMATIONS (Rankings/Forms) ─────────────────────
+// ─── TRANSFORMATIONS (Forms) ──────────────────────────────
 export interface Transformation {
   id: string;
   user_id: string;
@@ -319,6 +319,27 @@ export interface Transformation {
   created_at: string;
 }
 export const useTransformations = makeHook<Transformation>("transformations");
+
+// ─── RANKINGS PROFILES ────────────────────────────────────
+export interface RankingProfile {
+  id: string;
+  user_id: string;
+  display_name: string;
+  role: string;
+  rank: string;
+  level: number;
+  jjk_grade: string;
+  op_tier: string;
+  gpr: number;
+  pvp: number;
+  influence: string;
+  notes: string;
+  is_self: boolean;
+  source_transformation_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+export const useRankings = makeHook<RankingProfile>("rankings_profiles");
 
 // ─── ACTIVITY LOG (append-only) ────────────────────────────
 export function useActivityLog() {

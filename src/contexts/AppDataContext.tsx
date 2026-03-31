@@ -3,9 +3,9 @@ import { useProfile, type ProfileData } from "@/hooks/useProfile";
 import { useQuests, type Quest } from "@/hooks/useQuests";
 import {
   useTasks, useRituals, useJournal, useVault, useCouncils,
-  useSkills, useEnergySystems, useInventory, useAllies, useBpmSessions, useActivityLog, useStoreItems, useTransformations,
+  useSkills, useEnergySystems, useInventory, useAllies, useBpmSessions, useActivityLog, useStoreItems, useTransformations, useRankings,
   type Task, type Ritual, type JournalEntry, type VaultEntry,
-  type CouncilMember, type Skill, type EnergySystem, type InventoryItem, type Ally, type BpmSession, type StoreItem, type Transformation,
+  type CouncilMember, type Skill, type EnergySystem, type InventoryItem, type Ally, type BpmSession, type StoreItem, type Transformation, type RankingProfile,
 } from "@/hooks/useDataHooks";
 
 export interface ChatMessage {
