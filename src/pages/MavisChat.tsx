@@ -119,6 +119,9 @@ Available actions (embed in response, never in a code block):
 :::ACTION{"type":"update_ally","params":{"ally_id":"...","affinity":75,"notes":"..."}}:::
 :::ACTION{"type":"create_ritual","params":{"name":"...","description":"...","type":"fitness|business|self_care|legal|other","xp_reward":25}}:::
 :::ACTION{"type":"complete_ritual","params":{"ritual_id":"..."}}:::
+:::ACTION{"type":"create_transformation","params":{"name":"...","tier":"...","form_order":0,"bpm_range":"65-75","energy":"Ki","jjk_grade":"Special Grade","op_tier":"God Tier","description":"...","unlocked":false,"category":"..."}}:::
+:::ACTION{"type":"update_transformation","params":{"transformation_id":"...","name":"...","unlocked":true,"description":"..."}}:::
+:::ACTION{"type":"delete_transformation","params":{"transformation_id":"..."}}:::
 :::ACTION{"type":"update_profile","params":{"arc_story":"...","current_form":"...","current_bpm":72,"fatigue":0,"full_cowl_sync":95}}:::
 :::ACTION{"type":"award_xp","params":{"amount":100}}:::
 
