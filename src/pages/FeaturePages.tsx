@@ -3,7 +3,7 @@
 // ============================================================
 import { useState, useRef, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Target, Plus, Trash2, CheckCircle2, Filter, Loader2, Users, MessageCircle, Send, X, Edit2 } from "lucide-react";
+import { Target, Plus, Trash2, CheckCircle2, Filter, Loader2, Users, MessageCircle, Send, Square, X, Edit2, ArrowDown } from "lucide-react";
 import { useAppData } from "@/contexts/AppDataContext";
 import { supabase } from "@/integrations/supabase/client";
 import { PageHeader, HudCard, ProgressBar, QuestTypeBadge, RarityBadge } from "@/components/SharedUI";
