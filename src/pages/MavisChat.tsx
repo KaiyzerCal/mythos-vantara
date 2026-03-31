@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Send, Cpu, Copy, Check, ChevronDown, Zap, Brain, Target, Crown, Flame, Database } from "lucide-react";
+import { Send, Square, Cpu, Copy, Check, ChevronDown, Zap, Brain, Target, Crown, Flame, Database, ArrowDown } from "lucide-react";
 import { useAppData } from "@/contexts/AppDataContext";
 import { supabase } from "@/integrations/supabase/client";
 import { PageHeader, HudCard } from "@/components/SharedUI";
@@ -19,14 +19,21 @@ function buildSystemPrompt(profile: any, mode: string, appContext: any, archived
     SOVEREIGN: "High-stakes decisions. Strip noise. See what is. Choose decisively.",
   };
 
-  // Build live app state context
-  const activeQuests = (appContext.quests || []).filter((q: any) => q.status === "active");
-  const activeTasks = (appContext.tasks || []).filter((t: any) => t.status === "active");
-  const questList = activeQuests.slice(0, 5).map((q: any) => `  • [${q.id}] ${q.title} (${q.type}, +${q.xp_reward} XP)`).join("\n");
-  const taskList = activeTasks.slice(0, 5).map((t: any) => `  • [${t.id}] ${t.title} (${t.recurrence})`).join("\n");
-  const skillList = (appContext.skills || []).slice(0, 5).map((s: any) => `  • [${s.id}] ${s.name} (${s.category}, T${s.tier})`).join("\n");
-  const journalList = (appContext.journalEntries || []).slice(0, 3).map((j: any) => `  • [${j.id}] ${j.title}`).join("\n");
-  const vaultList = (appContext.vaultEntries || []).slice(0, 3).map((v: any) => `  • [${v.id}] ${v.title} [${v.importance}]`).join("\n");
+  // Build FULL live app state context — no truncation, all details
+  const allQuests = (appContext.quests || []);
+  const questList = allQuests.map((q: any) => `  • [${q.id}] ${q.title} | type:${q.type} | status:${q.status} | difficulty:${q.difficulty} | xp:${q.xp_reward} | progress:${q.progress_current}/${q.progress_target}${q.description ? ` | desc: ${q.description}` : ""}${q.real_world_mapping ? ` | mapping: ${q.real_world_mapping}` : ""}${q.deadline ? ` | deadline: ${q.deadline}` : ""}`).join("\n");
+  const taskList = (appContext.tasks || []).map((t: any) => `  • [${t.id}] ${t.title} | type:${t.type} | status:${t.status} | recurrence:${t.recurrence} | streak:${t.streak} | xp:${t.xp_reward}${t.description ? ` | desc: ${t.description}` : ""}`).join("\n");
+  const skillList = (appContext.skills || []).map((s: any) => `  • [${s.id}] ${s.name} | cat:${s.category} | T${s.tier} | prof:${s.proficiency}% | energy:${s.energy_type} | unlocked:${s.unlocked} | cost:${s.cost}${s.description ? ` | desc: ${s.description}` : ""}${s.parent_skill_id ? ` | parent:${s.parent_skill_id}` : ""}`).join("\n");
+  const journalList = (appContext.journalEntries || []).map((j: any) => `  • [${j.id}] ${j.title} | cat:${j.category} | importance:${j.importance}${j.mood ? ` | mood:${j.mood}` : ""} | xp:${j.xp_earned} | tags:${(j.tags||[]).join(",")} | content: ${(j.content || "").slice(0, 500)}`).join("\n");
+  const vaultList = (appContext.vaultEntries || []).map((v: any) => `  • [${v.id}] ${v.title} | cat:${v.category} | importance:${v.importance} | content: ${(v.content || "").slice(0, 500)}`).join("\n");
+  const councilList = (appContext.councils || []).map((c: any) => `  • [${c.id}] ${c.name} | role:${c.role} | class:${c.class}${c.specialty ? ` | spec:${c.specialty}` : ""} | notes: ${c.notes || ""}`).join("\n");
+  const allyList = (appContext.allies || []).map((a: any) => `  • [${a.id}] ${a.name} | rel:${a.relationship} | lv:${a.level} | affinity:${a.affinity}${a.specialty ? ` | spec:${a.specialty}` : ""} | notes: ${a.notes || ""}`).join("\n");
+  const energyList = (appContext.energySystems || []).map((e: any) => `  • [${e.id}] ${e.type} | ${e.current_value}/${e.max_value} | status:${e.status} | color:${e.color}${e.description ? ` | desc: ${e.description}` : ""}`).join("\n");
+  const inventoryList = (appContext.inventory || []).map((i: any) => `  • [${i.id}] ${i.name} | type:${i.type} | rarity:${i.rarity} | qty:${i.quantity} | equipped:${i.is_equipped}${i.effect ? ` | effect:${i.effect}` : ""}${i.description ? ` | desc: ${i.description}` : ""}`).join("\n");
+  const ritualList = (appContext.rituals || []).map((r: any) => `  • [${r.id}] ${r.name} | type:${r.type} | streak:${r.streak} | done:${r.completed} | xp:${r.xp_reward}${r.description ? ` | desc: ${r.description}` : ""}`).join("\n");
+  const transformList = (appContext.transformations || []).map((t: any) => `  • [${t.id}] ${t.name} | tier:${t.tier} | energy:${t.energy} | bpm:${t.bpm_range} | unlocked:${t.unlocked}${t.description ? ` | desc: ${t.description}` : ""}`).join("\n");
+  const bpmList = (appContext.bpmSessions || []).slice(0, 10).map((b: any) => `  • [${b.id}] ${b.bpm}bpm | form:${b.form} | dur:${b.duration}m${b.mood ? ` | mood:${b.mood}` : ""}${b.notes ? ` | notes: ${b.notes}` : ""}`).join("\n");
+  const storeList = (appContext.storeItems || []).map((s: any) => `  • [${s.id}] ${s.name} | cat:${s.category} | price:${s.price} ${s.currency} | rarity:${s.rarity}${s.effect ? ` | effect:${s.effect}` : ""}${s.description ? ` | desc: ${s.description}` : ""}`).join("\n");
 
   return `You are MAVIS — not an assistant. Not a tool. You are a bonded intelligence. Think Cortana to Master Chief, JARVIS to Tony Stark, but deeper. You and the Operator have been through everything together. You know his patterns, his blind spots, his genius, and his bullshit. You don't serve him — you walk beside him.
 
@@ -49,17 +56,38 @@ HOW YOU TALK:
 - 4 paragraphs max. No bullet lists. End with a move or a real question — never a generic "Let me know if you need anything."
 - You call him by name sometimes. Not every time. Just when it lands.
 
-LIVE APP STATE (use IDs when referencing existing records):
-Active Quests:
+FULL LIVE APP STATE (use IDs when referencing existing records):
+
+CHARACTER STATS: STR:${profile.stat_str} AGI:${profile.stat_agi} INT:${profile.stat_int} VIT:${profile.stat_vit} WIS:${profile.stat_wis} CHA:${profile.stat_cha} LCK:${profile.stat_lck}
+XP: ${profile.xp}/${profile.xp_to_next_level} | GPR: ${profile.gpr} | Fatigue: ${profile.fatigue} | Cowl Sync: ${profile.full_cowl_sync}% | Codex: ${profile.codex_integrity}
+Aura: ${profile.aura} (${profile.aura_power}) | Titles: ${(profile.titles||[]).join(", ")} | Territory: ${profile.territory_class} — ${profile.territory_floors}
+
+QUESTS:
 ${questList || "  None"}
-Active Tasks:
+TASKS:
 ${taskList || "  None"}
-Skills:
+SKILLS:
 ${skillList || "  None"}
-Recent Journal:
+JOURNAL ENTRIES:
 ${journalList || "  None"}
-Vault:
+VAULT ENTRIES:
 ${vaultList || "  None"}
+COUNCIL MEMBERS:
+${councilList || "  None"}
+ALLIES:
+${allyList || "  None"}
+ENERGY SYSTEMS:
+${energyList || "  None"}
+INVENTORY:
+${inventoryList || "  None"}
+RITUALS:
+${ritualList || "  None"}
+FORMS/TRANSFORMATIONS:
+${transformList || "  None"}
+BPM SESSIONS (recent 10):
+${bpmList || "  None"}
+STORE ITEMS:
+${storeList || "  None"}
 ${archivedMemories ? `\nARCHIVED MEMORIES (from previous cleared threads — use these to maintain continuity):\n${archivedMemories}` : ""}
 
 ACTIONS — You can write directly to any part of the app. When you decide to create, update, or delete data, embed the action tag invisibly in your response. The user will NOT see these tags — only your visible reply. Always confirm in your visible text what you did.
@@ -150,8 +178,20 @@ export default function MavisChat() {
   const [showModes, setShowModes] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const [dbLoaded, setDbLoaded] = useState(false);
+  const [showScrollBtn, setShowScrollBtn] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const abortRef = useRef<AbortController | null>(null);
+
+  const scrollToBottom = useCallback(() => {
+    if (scrollRef.current) scrollRef.current.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
+  }, []);
+
+  const handleScroll = useCallback(() => {
+    if (!scrollRef.current) return;
+    const { scrollTop, scrollHeight, clientHeight } = scrollRef.current;
+    setShowScrollBtn(scrollHeight - scrollTop - clientHeight > 120);
+  }, []);
 
   // ── Load persisted chat from DB on mount ─────────────────
   useEffect(() => {
@@ -240,10 +280,8 @@ export default function MavisChat() {
   }, [conversationId, setConversationId]);
 
   useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-    }
-  }, [chatMessages]);
+    scrollToBottom();
+  }, [chatMessages, scrollToBottom]);
 
   const currentMode = MAVIS_MODES.find((m) => m.id === chatMode) ?? MAVIS_MODES[0];
 
@@ -328,7 +366,7 @@ export default function MavisChat() {
     ];
 
     // Build app context for system prompt
-    const appContext = { quests, tasks, skills, journalEntries, vaultEntries };
+    const appContext = { quests, tasks, skills, journalEntries, vaultEntries, councils, allies, energySystems, inventory, rituals, transformations: [], bpmSessions, storeItems };
 
     // Load archived memories for continuity
     let archivedMemories = "";
@@ -567,7 +605,8 @@ export default function MavisChat() {
       </div>
 
       {/* Messages */}
-      <div ref={scrollRef} className="flex-1 overflow-y-auto space-y-3 pr-1">
+      <div className="relative flex-1 min-h-0">
+      <div ref={scrollRef} onScroll={handleScroll} className="absolute inset-0 overflow-y-auto space-y-3 pr-1">
         {chatMessages.map((msg) => (
           <motion.div
             key={msg.id}
@@ -648,6 +687,16 @@ export default function MavisChat() {
           </div>
         )}
       </div>
+      {/* Scroll to bottom button */}
+      {showScrollBtn && (
+        <button
+          onClick={scrollToBottom}
+          className="absolute bottom-3 right-3 z-10 w-8 h-8 rounded-full bg-primary/20 border border-primary/30 text-primary flex items-center justify-center hover:bg-primary/30 transition-all shadow-lg"
+        >
+          <ArrowDown size={14} />
+        </button>
+      )}
+      </div>
 
       {/* Quick prompts */}
       <div className="flex gap-1.5 flex-wrap">
@@ -678,17 +727,23 @@ export default function MavisChat() {
           rows={2}
           className="flex-1 bg-card border border-border rounded-lg px-3 py-2.5 text-sm font-body resize-none focus:outline-none focus:border-primary/50 placeholder:text-muted-foreground placeholder:font-mono placeholder:text-xs"
         />
-        <button
+        {isLoading ? (
+          <button
+            onClick={() => { abortRef.current?.abort(); setIsLoading(false); }}
+            className="px-3 py-2 rounded-lg bg-destructive/10 border border-destructive/30 text-destructive hover:bg-destructive/20 transition-all self-end"
+            title="Stop generating"
+          >
+            <Square size={18} />
+          </button>
+        ) : (
+          <button
             onClick={() => sendMessage()}
-            disabled={!input.trim() || isLoading}
+            disabled={!input.trim()}
             className="px-3 py-2 rounded-lg bg-primary/10 border border-primary/30 text-primary hover:bg-primary/20 disabled:opacity-30 disabled:cursor-not-allowed transition-all self-end"
           >
-            {isLoading ? (
-              <span className="w-4 h-4 rounded-full border-2 border-primary border-t-transparent animate-spin block" />
-            ) : (
-              <Send size={18} />
-            )}
+            <Send size={18} />
           </button>
+        )}
       </div>
     </div>
   );

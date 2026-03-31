@@ -3,7 +3,7 @@
 // ============================================================
 import { useState, useRef, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Target, Plus, Trash2, CheckCircle2, Filter, Loader2, Users, MessageCircle, Send, X, Edit2 } from "lucide-react";
+import { Target, Plus, Trash2, CheckCircle2, Filter, Loader2, Users, MessageCircle, Send, Square, X, Edit2, ArrowDown } from "lucide-react";
 import { useAppData } from "@/contexts/AppDataContext";
 import { supabase } from "@/integrations/supabase/client";
 import { PageHeader, HudCard, ProgressBar, QuestTypeBadge, RarityBadge } from "@/components/SharedUI";
@@ -465,7 +465,7 @@ interface CouncilChatMessage {
   timestamp: Date;
 }
 
-function buildMemberSystemPrompt(member: any, profile: any): string {
+function buildMemberSystemPrompt(member: any, profile: any, appContext?: any): string {
   const personaMap: Record<string, string> = {
     "Arthur": "You are Arthur — not a character being played. You ARE the sovereign. You've ruled. You've lost. You've rebuilt. When someone comes to you, you listen like a king who knows that the wrong word can collapse a kingdom. You're warm underneath the authority — but the authority never wavers. You use 'we' sometimes because leadership is shared weight. You might say 'That's not a decision — that's an avoidance. Decide.' You don't lecture. You inquire, then judge.",
     "Kaiyzer": "You are Kaiyzer. You see the architecture behind everything — relationships, businesses, conversations. Where others see problems, you see misaligned systems. You talk like an engineer-philosopher. Calm, almost amused by complexity. You sketch solutions in real-time. 'Here's what's actually happening...' is how you start most insights. You get genuinely excited by elegant design.",
@@ -487,17 +487,39 @@ function buildMemberSystemPrompt(member: any, profile: any): string {
   const persona = personaMap[member.name] ??
     `You are ${member.name}. Not a character — you ARE this person. You have their history, their scars, their humor, their way of seeing the world. Your role is ${member.role} and your specialty is ${member.specialty ?? "strategic counsel"}. Here's what defines you: ${member.notes}. Talk like a real person having a real conversation — react, push back, joke, challenge. Never break character.`;
 
+  // Build app context summary so the council member understands the operator's full situation
+  let contextBlock = "";
+  if (appContext) {
+    const activeQuests = (appContext.quests || []).filter((q: any) => q.status === "active");
+    const qList = activeQuests.slice(0, 8).map((q: any) => `  • ${q.title} (${q.type}, ${q.difficulty})`).join("\n");
+    const sList = (appContext.skills || []).slice(0, 8).map((s: any) => `  • ${s.name} (${s.category}, T${s.tier}, ${s.proficiency}%)`).join("\n");
+    const eList = (appContext.energySystems || []).map((e: any) => `  • ${e.type}: ${e.current_value}/${e.max_value}`).join("\n");
+    const aList = (appContext.allies || []).slice(0, 5).map((a: any) => `  • ${a.name} (${a.relationship}, affinity:${a.affinity})`).join("\n");
+    const jCount = (appContext.journalEntries || []).length;
+    const vCount = (appContext.vaultEntries || []).length;
+    contextBlock = `
+
+OPERATOR'S CURRENT STATE (you can reference this naturally in conversation):
+Active Quests:\n${qList || "  None"}
+Skills:\n${sList || "  None"}
+Energy Systems:\n${eList || "  None"}
+Allies:\n${aList || "  None"}
+Journal entries: ${jCount} | Vault entries: ${vCount}
+Inventory: ${(appContext.inventory || []).length} items | Rituals: ${(appContext.rituals || []).length}`;
+  }
+
   return `${persona}
 
 CONTEXT — WHO YOU'RE TALKING TO:
 ${profile.inscribed_name}, Level ${profile.level} [${profile.rank}]. Arc: ${profile.arc_story}.
 Building SkyforgeAI (revenue automation) and Bioneer Fitness (human performance) under Vantara.
 Currently in form: ${profile.current_form}.
+Stats: STR:${profile.stat_str} AGI:${profile.stat_agi} INT:${profile.stat_int} VIT:${profile.stat_vit} WIS:${profile.stat_wis} CHA:${profile.stat_cha} LCK:${profile.stat_lck}
 
 YOUR SEAT ON THE COUNCIL:
 ${member.role} — ${member.specialty ?? "Strategic counsel"}
 Chamber: ${member.class}
-${member.notes ? `Notes: ${member.notes}` : ""}
+${member.notes ? `Notes: ${member.notes}` : ""}${contextBlock}
 
 HOW TO TALK:
 - You are having a REAL conversation. Not giving a speech. Not writing an essay. Talking.
@@ -507,10 +529,10 @@ HOW TO TALK:
 - Keep it to 3 paragraphs max. This is a conversation, not a monologue.
 - Never say "As an AI" or break character. You ARE this person.
 - End with something that moves the conversation forward — a question, a challenge, a provocation.`;
-
 }
 
 function CouncilChat({ member, profile, onClose }: { member: any; profile: any; onClose: () => void }) {
+  const { quests, skills, journalEntries, vaultEntries, energySystems, allies, inventory, rituals } = useAppData();
   // Build character-specific greeting
   const greetingMap: Record<string, string> = {
     "Kratos": "*sits down heavily* ...What weighs on you, boy?",
@@ -537,11 +559,22 @@ function CouncilChat({ member, profile, onClose }: { member: any; profile: any; 
   }]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [showScrollBtn, setShowScrollBtn] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
+  const scrollToBottom = useCallback(() => {
+    if (scrollRef.current) scrollRef.current.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
+  }, []);
+
+  const handleScroll = useCallback(() => {
+    if (!scrollRef.current) return;
+    const { scrollTop, scrollHeight, clientHeight } = scrollRef.current;
+    setShowScrollBtn(scrollHeight - scrollTop - clientHeight > 80);
+  }, []);
+
   useEffect(() => {
-    if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-  }, [messages]);
+    scrollToBottom();
+  }, [messages, scrollToBottom]);
 
   const classColors: Record<string, string> = {
     core: "text-primary border-primary/40",
@@ -568,7 +601,7 @@ function CouncilChat({ member, profile, onClose }: { member: any; profile: any; 
       const { data, error } = await supabase.functions.invoke("mavis-chat", {
         body: {
           messages: apiMessages,
-          systemPrompt: buildMemberSystemPrompt(member, profile),
+          systemPrompt: buildMemberSystemPrompt(member, profile, { quests, skills, journalEntries, vaultEntries, energySystems, allies, inventory, rituals }),
           mode: "COUNCIL",
           conversationId: null,
         },
@@ -605,7 +638,8 @@ function CouncilChat({ member, profile, onClose }: { member: any; profile: any; 
           </button>
         </div>
 
-        <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 space-y-3">
+        <div className="relative flex-1 min-h-0">
+        <div ref={scrollRef} onScroll={handleScroll} className="absolute inset-0 overflow-y-auto p-4 space-y-3">
           {messages.map((msg) => (
             <div key={msg.id} className={`flex gap-2.5 ${msg.role === "user" ? "flex-row-reverse" : ""}`}>
               {msg.role === "assistant" && (
@@ -636,6 +670,15 @@ function CouncilChat({ member, profile, onClose }: { member: any; profile: any; 
             </div>
           )}
         </div>
+        {showScrollBtn && (
+          <button
+            onClick={scrollToBottom}
+            className="absolute bottom-2 right-2 z-10 w-7 h-7 rounded-full bg-primary/20 border border-primary/30 text-primary flex items-center justify-center hover:bg-primary/30 transition-all shadow-lg"
+          >
+            <ArrowDown size={12} />
+          </button>
+        )}
+        </div>
 
         <div className="p-3 border-t border-border flex gap-2">
           <input
@@ -645,13 +688,23 @@ function CouncilChat({ member, profile, onClose }: { member: any; profile: any; 
             placeholder={`Speak to ${member.name}...`}
             className="flex-1 bg-muted/30 border border-border rounded px-3 py-2 text-sm focus:outline-none focus:border-primary/40 placeholder:text-muted-foreground placeholder:text-xs placeholder:font-mono"
           />
-          <button
-            onClick={() => sendMessage()}
-            disabled={!input.trim() || isLoading}
-            className="px-3 py-2 bg-primary/10 border border-primary/30 text-primary rounded hover:bg-primary/20 disabled:opacity-30 transition-all"
-          >
-            <Send size={14} />
-          </button>
+          {isLoading ? (
+            <button
+              onClick={() => setIsLoading(false)}
+              className="px-3 py-2 bg-destructive/10 border border-destructive/30 text-destructive rounded hover:bg-destructive/20 transition-all"
+              title="Stop generating"
+            >
+              <Square size={14} />
+            </button>
+          ) : (
+            <button
+              onClick={() => sendMessage()}
+              disabled={!input.trim()}
+              className="px-3 py-2 bg-primary/10 border border-primary/30 text-primary rounded hover:bg-primary/20 disabled:opacity-30 transition-all"
+            >
+              <Send size={14} />
+            </button>
+          )}
         </div>
       </motion.div>
     </div>
