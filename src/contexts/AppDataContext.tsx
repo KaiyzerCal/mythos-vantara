@@ -172,15 +172,16 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
   const { data: bpmSessions, loading: bpmLoading, create: logBpmSession, refetch: refetchBpm } = useBpmSessions();
   const { data: storeItems, loading: storeLoading, create: createStoreItem, update: updateStoreItem, remove: deleteStoreItem, refetch: refetchStore } = useStoreItems();
   const { data: transformations, loading: transformationsLoading, create: createTransformation, update: updateTransformation, remove: deleteTransformation, refetch: refetchTransformations } = useTransformations();
+  const { data: rankings, loading: rankingsLoading, create: createRanking, update: updateRanking, remove: deleteRanking, refetch: refetchRankings } = useRankings();
   const { log: logActivity } = useActivityLog();
 
   const refetchAll = useCallback(async () => {
     await Promise.all([
       refetchProfile(), refetchQuests(), refetchTasks(), refetchRituals(),
       refetchJournal(), refetchVault(), refetchCouncils(), refetchSkills(),
-      refetchEnergy(), refetchInventory(), refetchAllies(), refetchBpm(), refetchStore(), refetchTransformations(),
+      refetchEnergy(), refetchInventory(), refetchAllies(), refetchBpm(), refetchStore(), refetchTransformations(), refetchRankings(),
     ]);
-  }, [refetchProfile, refetchQuests, refetchTasks, refetchRituals, refetchJournal, refetchVault, refetchCouncils, refetchSkills, refetchEnergy, refetchInventory, refetchAllies, refetchBpm, refetchStore, refetchTransformations]);
+  }, [refetchProfile, refetchQuests, refetchTasks, refetchRituals, refetchJournal, refetchVault, refetchCouncils, refetchSkills, refetchEnergy, refetchInventory, refetchAllies, refetchBpm, refetchStore, refetchTransformations, refetchRankings]);
 
   // MAVIS chat state
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([INITIAL_MAVIS_MSG]);
