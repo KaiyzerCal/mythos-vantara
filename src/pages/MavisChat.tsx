@@ -501,7 +501,7 @@ export default function MavisChat() {
       </div>
 
       {/* Input — pinned to bottom with safe-area padding for mobile */}
-      <div className="flex gap-2 mt-auto pt-2 pb-[env(safe-area-inset-bottom,0.5rem)]">
+      <div className="flex gap-2 mt-auto pt-1 pb-[max(env(safe-area-inset-bottom),0.25rem)]">
         <textarea
           ref={inputRef}
           value={input}
