@@ -366,7 +366,7 @@ export default function MavisChat() {
     ];
 
     // Build app context for system prompt
-    const appContext = { quests, tasks, skills, journalEntries, vaultEntries, councils, allies, energySystems, inventory, rituals, transformations: [], bpmSessions, storeItems };
+    const appContext = { quests, tasks, skills, journalEntries, vaultEntries, councils, allies, energySystems, inventory, rituals, transformations, bpmSessions, storeItems };
 
     // Load archived memories for continuity
     let archivedMemories = "";
