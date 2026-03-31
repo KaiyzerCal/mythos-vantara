@@ -229,6 +229,7 @@ export default function MavisChat() {
         role: "assistant" as const,
         content: visibleContent,
         mode: chatMode,
+        model: fnData?.model ?? null,
         searched: wasSearched,
         actionsExecuted: actions.length,
         timestamp: new Date(),
@@ -383,7 +384,7 @@ export default function MavisChat() {
                   </span>
                 )}
                 {msg.mode && msg.role === "assistant" && !(msg as any).searched && !(msg as any).actionsExecuted && (
-                  <span className="text-[8px] font-mono text-muted-foreground/60">[{msg.mode}]</span>
+                  <span className="text-[8px] font-mono text-muted-foreground/60">[{msg.mode}]{(msg as any).model ? ` · ${(msg as any).model}` : ""}</span>
                 )}
                 <span className="text-[8px] font-mono text-muted-foreground/50 ml-auto">
                   {msg.timestamp.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
