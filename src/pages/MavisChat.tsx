@@ -323,7 +323,7 @@ export default function MavisChat() {
   };
 
   return (
-    <div className="flex flex-col h-[calc(100vh-6rem)] gap-3 pb-4">
+    <div className="flex flex-col h-[calc(100dvh-4rem)] gap-2 pb-0">
       <PageHeader
         title="MAVIS"
         subtitle={`Mode: ${currentMode.label} // Supreme Intelligence`}
