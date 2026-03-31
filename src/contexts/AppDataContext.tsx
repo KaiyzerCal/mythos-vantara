@@ -146,18 +146,26 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
   const { profile, loading: profileLoading, updateProfile, awardXP, refetchProfile } = useProfile();
   const { quests, loading: questsLoading, stats: questStats, createQuest, updateQuest, completeQuest, deleteQuest, refetch: refetchQuests } = useQuests();
 
-  const { data: tasks, loading: tasksLoading, create: createTask, update: updateTask, remove: deleteTask } = useTasks();
-  const { data: rituals, loading: ritualsLoading, create: createRitual, update: updateRitual, remove: deleteRitual } = useRituals();
-  const { data: journalEntries, loading: journalLoading, create: createJournalEntry, update: updateJournalEntry, remove: deleteJournalEntry } = useJournal();
-  const { data: vaultEntries, loading: vaultLoading, create: createVaultEntry, update: updateVaultEntry, remove: deleteVaultEntry } = useVault();
-  const { data: councils, loading: councilsLoading, create: createCouncilMember, update: updateCouncilMember, remove: deleteCouncilMember } = useCouncils();
-  const { data: skills, loading: skillsLoading, create: createSkill, update: updateSkill, remove: deleteSkill } = useSkills();
-  const { systems: energySystems, loading: energyLoading, updateEnergy, createEnergy, updateEnergyFull, deleteEnergy, seedDefaultEnergy } = useEnergySystems();
-  const { data: inventory, loading: inventoryLoading, create: createInventoryItem, update: updateInventoryItem, remove: deleteInventoryItem } = useInventory();
-  const { data: allies, loading: alliesLoading, create: createAlly, update: updateAlly, remove: deleteAlly } = useAllies();
-  const { data: bpmSessions, loading: bpmLoading, create: logBpmSession } = useBpmSessions();
-  const { data: storeItems, loading: storeLoading, create: createStoreItem, update: updateStoreItem, remove: deleteStoreItem } = useStoreItems();
+  const { data: tasks, loading: tasksLoading, create: createTask, update: updateTask, remove: deleteTask, refetch: refetchTasks } = useTasks();
+  const { data: rituals, loading: ritualsLoading, create: createRitual, update: updateRitual, remove: deleteRitual, refetch: refetchRituals } = useRituals();
+  const { data: journalEntries, loading: journalLoading, create: createJournalEntry, update: updateJournalEntry, remove: deleteJournalEntry, refetch: refetchJournal } = useJournal();
+  const { data: vaultEntries, loading: vaultLoading, create: createVaultEntry, update: updateVaultEntry, remove: deleteVaultEntry, refetch: refetchVault } = useVault();
+  const { data: councils, loading: councilsLoading, create: createCouncilMember, update: updateCouncilMember, remove: deleteCouncilMember, refetch: refetchCouncils } = useCouncils();
+  const { data: skills, loading: skillsLoading, create: createSkill, update: updateSkill, remove: deleteSkill, refetch: refetchSkills } = useSkills();
+  const { systems: energySystems, loading: energyLoading, updateEnergy, createEnergy, updateEnergyFull, deleteEnergy, seedDefaultEnergy, refetch: refetchEnergy } = useEnergySystems();
+  const { data: inventory, loading: inventoryLoading, create: createInventoryItem, update: updateInventoryItem, remove: deleteInventoryItem, refetch: refetchInventory } = useInventory();
+  const { data: allies, loading: alliesLoading, create: createAlly, update: updateAlly, remove: deleteAlly, refetch: refetchAllies } = useAllies();
+  const { data: bpmSessions, loading: bpmLoading, create: logBpmSession, refetch: refetchBpm } = useBpmSessions();
+  const { data: storeItems, loading: storeLoading, create: createStoreItem, update: updateStoreItem, remove: deleteStoreItem, refetch: refetchStore } = useStoreItems();
   const { log: logActivity } = useActivityLog();
+
+  const refetchAll = useCallback(async () => {
+    await Promise.all([
+      refetchProfile(), refetchQuests(), refetchTasks(), refetchRituals(),
+      refetchJournal(), refetchVault(), refetchCouncils(), refetchSkills(),
+      refetchEnergy(), refetchInventory(), refetchAllies(), refetchBpm(), refetchStore(),
+    ]);
+  }, [refetchProfile, refetchQuests, refetchTasks, refetchRituals, refetchJournal, refetchVault, refetchCouncils, refetchSkills, refetchEnergy, refetchInventory, refetchAllies, refetchBpm, refetchStore]);
 
   // MAVIS chat state
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([INITIAL_MAVIS_MSG]);
