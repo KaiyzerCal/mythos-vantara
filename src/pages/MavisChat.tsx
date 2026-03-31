@@ -229,6 +229,7 @@ export default function MavisChat() {
         role: "assistant" as const,
         content: visibleContent,
         mode: chatMode,
+        model: fnData?.model ?? null,
         searched: wasSearched,
         actionsExecuted: actions.length,
         timestamp: new Date(),
