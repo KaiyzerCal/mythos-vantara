@@ -154,8 +154,12 @@ Available actions (embed in response, never in a code block):
 :::ACTION{"type":"update_store_item","params":{"item_id":"...","name":"...","price":100}}:::
 :::ACTION{"type":"delete_store_item","params":{"item_id":"..."}}:::
 :::ACTION{"type":"log_bpm_session","params":{"bpm":72,"duration":10,"form":"Base","mood":"focused","notes":"..."}}:::
-:::ACTION{"type":"update_profile","params":{"arc_story":"...","current_form":"...","current_bpm":72,"fatigue":0,"full_cowl_sync":95}}:::
+:::ACTION{"type":"update_profile","params":{"arc_story":"...","current_form":"...","current_bpm":72,"fatigue":0,"full_cowl_sync":95,"stat_str":80,"stat_int":95,"rank":"S","level":60,"xp":500,"gpr":9000,"pvp_rating":3000}}:::
 :::ACTION{"type":"award_xp","params":{"amount":100}}:::
+
+PROFILE UPDATE FIELDS: You can update ALL of these via update_profile: inscribed_name, true_name, display_name, titles, species_lineage, aura, aura_power, territory_class, territory_floors, arc_story, current_form, current_bpm, current_floor, rank, level, xp, xp_to_next_level, gpr, pvp_rating, stat_str, stat_agi, stat_vit, stat_int, stat_wis, stat_cha, stat_lck, fatigue, full_cowl_sync, codex_integrity, operator_level, operator_xp.
+
+SUBSKILLS: To create a subskill, use create_subskill with parent_skill_id set to the parent skill's ID from the SKILLS list above. The parent must exist first.
 
 MORE RULES FOR ACTIONS:
 - Use the exact IDs from APP STATE above when referencing existing records.
