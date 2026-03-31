@@ -529,28 +529,45 @@ export function InventoryPage() {
         ))}
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-        {filtered.map((item) => (
-          <HudCard key={item.id} className={item.is_equipped ? "border-primary/30" : ""}>
-            <div className="flex items-start justify-between gap-2">
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-1.5 flex-wrap mb-1">
-                  <p className="text-sm font-display font-bold">{item.name}</p>
-                  {item.is_equipped && <span className="text-[8px] font-mono text-primary border border-primary/30 rounded px-1">EQUIPPED</span>}
+        {filtered.map((item) => {
+          const isExpanded = expandedId === item.id;
+          return (
+          <HudCard key={item.id} className={`cursor-pointer transition-all ${item.is_equipped ? "border-primary/30" : ""} ${isExpanded ? "border-primary/30" : ""}`}>
+            <div onClick={() => setExpandedId(isExpanded ? null : item.id)}>
+              <div className="flex items-start justify-between gap-2">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-1.5 flex-wrap mb-1">
+                    <p className="text-sm font-display font-bold">{item.name}</p>
+                    {item.is_equipped && <span className="text-[8px] font-mono text-primary border border-primary/30 rounded px-1">EQUIPPED</span>}
+                  </div>
+                  <RarityBadge rarity={item.rarity} />
+                  {item.description && <p className={`text-xs font-body text-muted-foreground mt-1 ${isExpanded ? "" : "line-clamp-2"}`}>{item.description}</p>}
+                  {item.effect && <p className="text-[10px] font-mono text-primary/60 mt-0.5">{item.effect}</p>}
+                  {isExpanded && (
+                    <div className="mt-2 space-y-1 border-t border-border/30 pt-2 text-[10px] font-mono">
+                      <div><span className="text-muted-foreground">Type:</span> <span className="text-foreground">{item.type}</span></div>
+                      <div><span className="text-muted-foreground">Rarity:</span> <span className="text-foreground">{item.rarity}</span></div>
+                      <div><span className="text-muted-foreground">Quantity:</span> <span className="text-foreground">{item.quantity}</span></div>
+                      {item.slot && <div><span className="text-muted-foreground">Slot:</span> <span className="text-foreground">{item.slot}</span></div>}
+                      {item.tier && <div><span className="text-muted-foreground">Tier:</span> <span className="text-foreground">{item.tier}</span></div>}
+                      <div><span className="text-muted-foreground">Obtained:</span> <span className="text-foreground">{new Date(item.obtained_at).toLocaleString()}</span></div>
+                    </div>
+                  )}
+                  {!isExpanded && (
+                    <p className="text-[9px] font-mono text-muted-foreground mt-1">
+                      {item.type} {item.quantity > 1 ? `× ${item.quantity}` : ""}
+                    </p>
+                  )}
                 </div>
-                <RarityBadge rarity={item.rarity} />
-                {item.description && <p className="text-xs font-body text-muted-foreground mt-1 line-clamp-2">{item.description}</p>}
-                {item.effect && <p className="text-[10px] font-mono text-primary/60 mt-0.5">{item.effect}</p>}
-                <p className="text-[9px] font-mono text-muted-foreground mt-1">
-                  {item.type} {item.quantity > 1 ? `× ${item.quantity}` : ""}
-                </p>
-              </div>
-              <div className="flex flex-col gap-1 shrink-0">
-                <button onClick={() => handleEdit(item)} className="p-1 text-muted-foreground hover:text-primary transition-colors"><Edit2 size={12} /></button>
-                <button onClick={() => deleteInventoryItem(item.id)} className="p-1 text-muted-foreground hover:text-destructive transition-colors"><Trash2 size={12} /></button>
+                <div className="flex flex-col gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
+                  <button onClick={() => handleEdit(item)} className="p-1 text-muted-foreground hover:text-primary transition-colors"><Edit2 size={12} /></button>
+                  <button onClick={() => deleteInventoryItem(item.id)} className="p-1 text-muted-foreground hover:text-destructive transition-colors"><Trash2 size={12} /></button>
+                </div>
               </div>
             </div>
           </HudCard>
-        ))}
+          );
+        })}
         {filtered.length === 0 && <p className="text-xs font-mono text-muted-foreground text-center py-8 col-span-3">Inventory empty.</p>}
       </div>
     </div>
