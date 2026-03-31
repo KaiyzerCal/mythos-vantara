@@ -143,12 +143,14 @@ export default function MavisChat() {
     profile, quests, tasks, skills, journalEntries, vaultEntries,
     chatMessages, setChatMessages, conversationId, setConversationId,
     chatMode, setChatMode, refetchAll,
+    rituals, councils, energySystems, inventory, allies, bpmSessions, storeItems,
   } = useAppData();
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [actionStatus, setActionStatus] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [showModes, setShowModes] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
