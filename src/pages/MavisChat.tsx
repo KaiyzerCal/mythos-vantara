@@ -119,7 +119,8 @@ Available actions (embed in response, never in a code block):
 :::ACTION{"type":"delete_task","params":{"task_id":"..."}}:::
 :::ACTION{"type":"update_task","params":{"task_id":"...","title":"...","status":"active|completed"}}:::
 :::ACTION{"type":"create_skill","params":{"name":"...","description":"...","category":"...","energy_type":"...","tier":1}}:::
-:::ACTION{"type":"update_skill","params":{"skill_id":"...","proficiency":50,"unlocked":true}}:::
+:::ACTION{"type":"create_subskill","params":{"name":"...","description":"...","category":"...","parent_skill_id":"<ID of parent skill from SKILLS list above>"}}:::
+:::ACTION{"type":"update_skill","params":{"skill_id":"...","proficiency":50,"unlocked":true,"name":"...","description":"..."}}:::
 :::ACTION{"type":"delete_skill","params":{"skill_id":"..."}}:::
 :::ACTION{"type":"create_journal","params":{"title":"...","content":"...","tags":["tag1"],"category":"personal|business|legal|evidence|achievement","importance":"low|medium|high|critical","xp_earned":10}}:::
 :::ACTION{"type":"update_journal","params":{"entry_id":"...","title":"...","content":"..."}}:::
