@@ -1,10 +1,11 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Send, Cpu, Copy, Check, ChevronDown, Zap, Brain, Target, Crown, Flame } from "lucide-react";
+import { Send, Cpu, Copy, Check, ChevronDown, Zap, Brain, Target, Crown, Flame, Database } from "lucide-react";
 import { useAppData } from "@/contexts/AppDataContext";
 import { supabase } from "@/integrations/supabase/client";
 import { PageHeader, HudCard } from "@/components/SharedUI";
 import ReactMarkdown from "react-markdown";
+import { toast } from "sonner";
 
 // ── MAVIS Modes (from Rork mavis-prime-config) ─────────────
 function buildSystemPrompt(profile: any, mode: string, appContext: any): string {
