@@ -129,11 +129,64 @@ function parseEmbeddedActions(text: string): { clean: string; actions: MavisActi
   return { clean, actions };
 }
 
+// ── Check if the latest user message has CRUD intent ────────
+function hasCrudIntent(message: string): boolean {
+  const lower = message.toLowerCase().trim();
+  
+  // Skip very short casual messages
+  if (lower.length < 4) return false;
+  
+  // Explicit "just do it" / "execute" messages — these reference a PENDING action
+  const executeTriggers = ["execute", "do it", "go ahead", "confirm", "run it", "yes do it", "proceed", "make it happen"];
+  if (executeTriggers.some((t) => lower === t || lower === t + " now" || lower === t + " please")) return true;
+  
+  // Skip greetings, status checks, questions, and casual chat
+  const casualPatterns = [
+    /^(hey|hi|hello|yo|sup|what'?s up|good morning|good evening|gm|gn)/,
+    /^(how are you|how's it going|what's good|status|check|tell me|explain|why|who|where|when|how|what do you think)/,
+    /^(thanks|thank you|ok|okay|cool|nice|got it|understood|bet|word|dope|fire)/,
+    /^(remember|recall|last time|previously)/,
+    /\?$/, // questions don't trigger CRUD
+  ];
+  if (casualPatterns.some((p) => p.test(lower))) return false;
+  
+  // CRUD action keywords
+  const crudTriggers = [
+    "create", "add", "make", "new", "build", "generate", "write", "log",
+    "update", "edit", "modify", "change", "set", "adjust", "rename",
+    "delete", "remove", "destroy", "clear", "drop",
+    "complete", "finish", "mark", "award", "give",
+    "equip", "unequip",
+  ];
+  
+  // Must have a CRUD verb
+  const words = lower.split(/\s+/);
+  const hasCrudVerb = crudTriggers.some((trigger) => words.some((w) => w === trigger || w.startsWith(trigger)));
+  if (!hasCrudVerb) return false;
+  
+  // Must reference an app entity
+  const entityKeywords = [
+    "quest", "task", "skill", "subskill", "journal", "vault", "council",
+    "inventory", "item", "energy", "ally", "allies", "ritual", "transformation",
+    "form", "ranking", "store", "bpm", "profile", "stat", "stats",
+    "xp", "level", "rank", "entry", "member", "session",
+  ];
+  return entityKeywords.some((entity) => lower.includes(entity));
+}
+
 async function inferActionsFromConversation(messages: Array<{ role: string; content: string }>): Promise<MavisAction[]> {
   const apiKey = Deno.env.get("OPENAI_API_KEY") ?? "";
   if (!apiKey || messages.length === 0) return [];
 
-  const recentMessages = messages.slice(-6).map((message) => ({
+  // Only infer if the latest user message has CRUD intent
+  const lastUserMsg = [...messages].reverse().find((m) => m.role === "user");
+  if (!lastUserMsg || !hasCrudIntent(lastUserMsg.content)) {
+    console.log("[mavis-chat] No CRUD intent detected, skipping action inference");
+    return [];
+  }
+
+  // Only use the last 4 messages to avoid stale context pollution
+  const recentMessages = messages.slice(-4).map((message) => ({
     role: message.role,
     content: String(message.content ?? ""),
   }));
@@ -143,8 +196,12 @@ Return JSON only in exactly this shape: {"actions":[{"type":"action_name","param
 If there is no clear action to execute, return {"actions":[]}.
 
 Rules:
-- If the latest user message is "execute", "do it", "go ahead", "confirm", or similar, infer the pending CRUD action from the immediately preceding conversation.
-- Prefer EXECUTING the user's intent rather than asking for confirmation.
+- ONLY look at the LATEST user message to determine what action to take.
+- If the latest user message is "execute", "do it", "go ahead", or similar, look at the IMMEDIATELY PRECEDING user message for the actual CRUD request. Ignore older history.
+- If the latest user message clearly requests creating, updating, or deleting something, infer that ONE action.
+- Do NOT infer multiple actions unless the user explicitly asked for multiple things in their LATEST message.
+- Do NOT infer actions from old conversation history that has already been addressed.
+- When in doubt, return {"actions":[]}.
 - Only use supported action types.
 - Use sensible defaults when the user omitted optional fields.
 - Preserve the user's naming as closely as possible.
@@ -181,12 +238,23 @@ Default params when missing:
 - create_transformation: {"tier":"Base","form_order":0,"bpm_range":"65–75","energy":"Ki","jjk_grade":"Special Grade","op_tier":"God Tier","unlocked":false}
 
 Extra guidance:
-- "inventory" means create_inventory_item, not store_item.
-- "store" means create_store_item, not inventory_item.
+- "inventory" or "item in my inventory" means create_inventory_item, not store_item.
+- "store" or "item in the store" means create_store_item, not inventory_item.
 - "rankings" means create_ranking, not create_transformation.
 - "forms" or "transformations" means create_transformation.
-- "journal entry about X" should create_journal with a title mentioning X.
-- "vault entry about X" should create_vault with a title mentioning X.`;
+- "journal entry about X" should create_journal with title mentioning X and content about X.
+- "vault entry about X" should create_vault with title mentioning X.
+- ALWAYS extract the item/entity NAME from the user message. "create an inventory item called Timekeeper's Watch" → name: "Timekeeper's Watch".
+- ALWAYS include "name", "title", or "display_name" in params — never omit the name the user specified.
+- For create_inventory_item: always include "name" param.
+- For create_store_item: always include "name" param.
+- For create_ranking: always include "display_name" param.
+- For create_journal: always include "title" param.
+- For create_vault: always include "title" param.
+- For create_quest: always include "title" param.
+- For create_skill: always include "name" param.
+- For create_council_member: always include "name" param.
+- For create_ally: always include "name" param.`;
 
   const response = await fetch(OPENAI_URL, {
     method: "POST",
