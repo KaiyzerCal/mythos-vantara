@@ -462,20 +462,33 @@ export default function MavisChat() {
       const rawContent = fnData?.content ?? "Systems error — unable to process request.";
       const wasSearched = fnData?.searched === true;
 
-      // Parse and strip action tags
-      const { clean: visibleContent, actions } = parseActions(rawContent);
+      // Parse and strip action tags; fall back to server-inferred actions when tags are missing
+      const parsedResponse = parseActions(rawContent);
+      const inferredActions = Array.isArray(fnData?.actions) ? fnData.actions : [];
+      const actions = parsedResponse.actions.length > 0 ? parsedResponse.actions : inferredActions;
+      const visibleContent = parsedResponse.clean;
 
       // Execute actions via mavis-actions edge function
       if (actions.length > 0) {
         setActionStatus(`Executing ${actions.length} action${actions.length > 1 ? "s" : ""}...`);
         try {
           const { data: { session } } = await supabase.auth.getSession();
-          await supabase.functions.invoke("mavis-actions", {
+          const { data: actionData, error: actionError } = await supabase.functions.invoke("mavis-actions", {
             body: { actions },
             headers: session?.access_token
               ? { Authorization: `Bearer ${session.access_token}` }
               : {},
           });
+          if (actionError) throw actionError;
+
+          const failedResults = Array.isArray(actionData?.results)
+            ? actionData.results.filter((result: any) => result?.success === false)
+            : [];
+
+          if (failedResults.length > 0) {
+            throw new Error(failedResults.map((result: any) => `${result.type}: ${result.error || "Unknown error"}`).join(" | "));
+          }
+
           // Refetch ALL data so every tab updates immediately
           await refetchAll();
           setActionStatus(`✓ ${actions.map((a) => a.type).join(", ")}`);
