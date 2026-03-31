@@ -280,10 +280,8 @@ export default function MavisChat() {
   }, [conversationId, setConversationId]);
 
   useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-    }
-  }, [chatMessages]);
+    scrollToBottom();
+  }, [chatMessages, scrollToBottom]);
 
   const currentMode = MAVIS_MODES.find((m) => m.id === chatMode) ?? MAVIS_MODES[0];
 
