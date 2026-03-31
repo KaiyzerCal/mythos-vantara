@@ -63,11 +63,123 @@ const PROFILE_ALLOWED = [
   "rank", "level", "xp", "xp_to_next_level", "pvp_rating", "gpr",
 ] as const;
 
+// ── Alias normalization ─────────────────────────────────────
+const ACTION_ALIASES: Record<string, string> = {
+  // Inventory
+  "create_item": "create_inventory_item",
+  "add_item": "create_inventory_item",
+  "add_inventory": "create_inventory_item",
+  "add_inventory_item": "create_inventory_item",
+  "new_item": "create_inventory_item",
+  "update_item": "update_inventory_item",
+  "edit_item": "update_inventory_item",
+  "delete_item": "delete_inventory_item",
+  "remove_item": "delete_inventory_item",
+  // Quests
+  "add_quest": "create_quest",
+  "new_quest": "create_quest",
+  "edit_quest": "update_quest",
+  "remove_quest": "delete_quest",
+  "finish_quest": "complete_quest",
+  // Tasks
+  "add_task": "create_task",
+  "new_task": "create_task",
+  "edit_task": "update_task",
+  "remove_task": "delete_task",
+  "finish_task": "complete_task",
+  // Skills
+  "add_skill": "create_skill",
+  "new_skill": "create_skill",
+  "edit_skill": "update_skill",
+  "remove_skill": "delete_skill",
+  "add_subskill": "create_subskill",
+  "new_subskill": "create_subskill",
+  // Journal
+  "add_journal": "create_journal",
+  "new_journal": "create_journal",
+  "create_journal_entry": "create_journal",
+  "add_journal_entry": "create_journal",
+  "edit_journal": "update_journal",
+  "remove_journal": "delete_journal",
+  "delete_journal_entry": "delete_journal",
+  // Vault
+  "add_vault": "create_vault",
+  "new_vault": "create_vault",
+  "create_vault_entry": "create_vault",
+  "add_vault_entry": "create_vault",
+  "edit_vault": "update_vault",
+  "remove_vault": "delete_vault",
+  "delete_vault_entry": "delete_vault",
+  // Council
+  "add_council": "create_council_member",
+  "create_council": "create_council_member",
+  "new_council": "create_council_member",
+  "add_council_member": "create_council_member",
+  "edit_council": "update_council_member",
+  "edit_council_member": "update_council_member",
+  "remove_council": "delete_council_member",
+  "remove_council_member": "delete_council_member",
+  // Allies
+  "add_ally": "create_ally",
+  "new_ally": "create_ally",
+  "edit_ally": "update_ally",
+  "remove_ally": "delete_ally",
+  // Energy
+  "edit_energy": "update_energy",
+  "create_energy": "create_energy_system",
+  "add_energy": "create_energy_system",
+  "new_energy": "create_energy_system",
+  // Transformations
+  "add_transformation": "create_transformation",
+  "add_form": "create_transformation",
+  "create_form": "create_transformation",
+  "new_form": "create_transformation",
+  "new_transformation": "create_transformation",
+  "edit_transformation": "update_transformation",
+  "edit_form": "update_transformation",
+  "remove_transformation": "delete_transformation",
+  "remove_form": "delete_transformation",
+  // Store
+  "add_store_item": "create_store_item",
+  "new_store_item": "create_store_item",
+  "edit_store_item": "update_store_item",
+  "remove_store_item": "delete_store_item",
+  // Rankings
+  "add_ranking": "create_ranking",
+  "new_ranking": "create_ranking",
+  "edit_ranking": "update_ranking",
+  "remove_ranking": "delete_ranking",
+  // Rituals
+  "add_ritual": "create_ritual",
+  "new_ritual": "create_ritual",
+  "edit_ritual": "update_ritual",
+  "remove_ritual": "delete_ritual",
+  "finish_ritual": "complete_ritual",
+  // Profile
+  "edit_profile": "update_profile",
+  "modify_profile": "update_profile",
+  "set_stats": "update_profile",
+  "update_stats": "update_profile",
+  // XP
+  "give_xp": "award_xp",
+  "add_xp": "award_xp",
+  // BPM
+  "add_bpm": "log_bpm_session",
+  "create_bpm": "log_bpm_session",
+  "log_bpm": "log_bpm_session",
+};
+
+function normalizeActionType(type: string): string {
+  const normalized = type.toLowerCase().trim();
+  return ACTION_ALIASES[normalized] || normalized;
+}
+
 // ── Action executor ────────────────────────────────────────
 async function executeAction(sb: ReturnType<typeof createClient>, userId: string, action: MavisAction) {
   const p = action.params || {};
+  const actionType = normalizeActionType(action.type);
 
-  switch (action.type) {
+  switch (actionType) {
 
     // ── QUESTS ───────────────────────────────────────────
     case "create_quest": {
@@ -341,7 +453,20 @@ async function executeAction(sb: ReturnType<typeof createClient>, userId: string
       return;
     }
 
-    // ── ALLIES ───────────────────────────────────────────
+    case "create_energy_system": {
+      const { error } = await sb.from("energy_systems").insert({
+        user_id: userId,
+        type: String(p.type || p.name || "New Energy"),
+        current_value: Number(p.current_value ?? 100),
+        max_value: Number(p.max_value ?? 100),
+        color: String(p.color || "#08C284"),
+        description: String(p.description || ""),
+        status: String(p.status || "developing"),
+      });
+      if (error) throw error;
+      await logActivity(sb, userId, "energy_created", `Energy system: ${String(p.type || p.name || "New Energy")}`, 0);
+      return;
+    }
     case "create_ally": {
       const { error } = await sb.from("allies").insert({
         user_id: userId,
