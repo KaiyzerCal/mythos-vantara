@@ -132,10 +132,7 @@ const MAVIS_MODES = [
 const QUICK_PROMPTS = [
   "What should I focus on today?",
   "Status check across all arcs",
-  "Create a quest for my next SkyforgeAI milestone",
   "Log a journal entry for this session",
-  "What's the play for Bioneer right now?",
-  "Analyze and suggest improvements to my active quests",
 ];
 
 export default function MavisChat() {
@@ -326,7 +323,7 @@ export default function MavisChat() {
   };
 
   return (
-    <div className="flex flex-col h-[calc(100vh-6rem)] gap-3 pb-4">
+    <div className="flex flex-col h-[calc(100dvh-4rem)] gap-2 pb-0">
       <PageHeader
         title="MAVIS"
         subtitle={`Mode: ${currentMode.label} // Supreme Intelligence`}
@@ -504,7 +501,7 @@ export default function MavisChat() {
       </div>
 
       {/* Input — pinned to bottom with safe-area padding for mobile */}
-      <div className="flex gap-2 mt-auto pt-2 pb-[env(safe-area-inset-bottom,0.5rem)]">
+      <div className="flex gap-2 mt-auto pt-1 pb-[max(env(safe-area-inset-bottom),0.25rem)]">
         <textarea
           ref={inputRef}
           value={input}
