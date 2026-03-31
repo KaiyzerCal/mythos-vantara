@@ -8,7 +8,7 @@ import ReactMarkdown from "react-markdown";
 import { toast } from "sonner";
 
 // ── MAVIS Modes (from Rork mavis-prime-config) ─────────────
-function buildSystemPrompt(profile: any, mode: string, appContext: any): string {
+function buildSystemPrompt(profile: any, mode: string, appContext: any, archivedMemories?: string): string {
   const modeFocus: Record<string, string> = {
     PRIME: "Full-spectrum awareness. Strategy, emotion, systems — all in view simultaneously.",
     ARCH: "Systems architecture and technical design. Think in frameworks, not features.",
