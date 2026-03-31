@@ -111,6 +111,13 @@ interface AppDataContextType {
   updateStoreItem: (id: string, input: any) => Promise<void>;
   deleteStoreItem: (id: string) => Promise<void>;
 
+  // Transformations (Rankings/Forms)
+  transformations: Transformation[];
+  transformationsLoading: boolean;
+  createTransformation: (input: any) => Promise<Transformation | null>;
+  updateTransformation: (id: string, input: any) => Promise<void>;
+  deleteTransformation: (id: string) => Promise<void>;
+
   // Activity log
   logActivity: (event_type: string, description: string, xp?: number) => Promise<void>;
 
