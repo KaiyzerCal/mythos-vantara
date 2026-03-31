@@ -252,7 +252,7 @@ export default function MavisChat() {
     } finally {
       setIsLoading(false);
     }
-  }, [input, chatMessages, isLoading, chatMode, profile, quests, tasks, skills, journalEntries, vaultEntries, conversationId, setChatMessages, setConversationId, refetchQuests, refetchProfile]);
+  }, [input, chatMessages, isLoading, chatMode, profile, quests, tasks, skills, journalEntries, vaultEntries, conversationId, setChatMessages, setConversationId, refetchAll]);
 
   const copyMessage = (id: string, content: string) => {
     navigator.clipboard.writeText(content);
