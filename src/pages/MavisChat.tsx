@@ -83,8 +83,10 @@ INVENTORY:
 ${inventoryList || "  None"}
 RITUALS:
 ${ritualList || "  None"}
-FORMS/TRANSFORMATIONS:
+FORMS/TRANSFORMATIONS (power forms — NOT rankings):
 ${transformList || "  None"}
+RANKINGS PROFILES (roster of people — separate from forms!):
+${rankingsList || "  None"}
 BPM SESSIONS (recent 10):
 ${bpmList || "  None"}
 STORE ITEMS:
