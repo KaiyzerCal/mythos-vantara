@@ -178,8 +178,20 @@ export default function MavisChat() {
   const [showModes, setShowModes] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const [dbLoaded, setDbLoaded] = useState(false);
+  const [showScrollBtn, setShowScrollBtn] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const abortRef = useRef<AbortController | null>(null);
+
+  const scrollToBottom = useCallback(() => {
+    if (scrollRef.current) scrollRef.current.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
+  }, []);
+
+  const handleScroll = useCallback(() => {
+    if (!scrollRef.current) return;
+    const { scrollTop, scrollHeight, clientHeight } = scrollRef.current;
+    setShowScrollBtn(scrollHeight - scrollTop - clientHeight > 120);
+  }, []);
 
   // ── Load persisted chat from DB on mount ─────────────────
   useEffect(() => {
