@@ -605,7 +605,8 @@ export default function MavisChat() {
       </div>
 
       {/* Messages */}
-      <div ref={scrollRef} className="flex-1 overflow-y-auto space-y-3 pr-1">
+      <div className="relative flex-1 min-h-0">
+      <div ref={scrollRef} onScroll={handleScroll} className="absolute inset-0 overflow-y-auto space-y-3 pr-1">
         {chatMessages.map((msg) => (
           <motion.div
             key={msg.id}
