@@ -146,6 +146,9 @@ Available actions (embed in response, never in a code block):
 :::ACTION{"type":"create_transformation","params":{"name":"...","tier":"...","form_order":0,"bpm_range":"65-75","energy":"Ki","jjk_grade":"Special Grade","op_tier":"God Tier","description":"...","unlocked":false,"category":"..."}}:::
 :::ACTION{"type":"update_transformation","params":{"transformation_id":"...","name":"...","unlocked":true,"description":"..."}}:::
 :::ACTION{"type":"delete_transformation","params":{"transformation_id":"..."}}:::
+:::ACTION{"type":"create_ranking","params":{"display_name":"...","role":"ally|enemy|npc|self","rank":"D|C|B|A|S|SS","level":1,"jjk_grade":"G4","op_tier":"Local","gpr":1000,"pvp":5000,"influence":"Local","notes":"...","is_self":false}}:::
+:::ACTION{"type":"update_ranking","params":{"ranking_id":"...","display_name":"...","rank":"S","gpr":5000}}:::
+:::ACTION{"type":"delete_ranking","params":{"ranking_id":"..."}}:::
 :::ACTION{"type":"create_store_item","params":{"name":"...","description":"...","price":100,"currency":"Codex Points","rarity":"common","category":"consumable","effect":"..."}}:::
 :::ACTION{"type":"update_store_item","params":{"item_id":"...","name":"...","price":100}}:::
 :::ACTION{"type":"delete_store_item","params":{"item_id":"..."}}:::
