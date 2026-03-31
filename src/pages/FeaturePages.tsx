@@ -465,7 +465,7 @@ interface CouncilChatMessage {
   timestamp: Date;
 }
 
-function buildMemberSystemPrompt(member: any, profile: any): string {
+function buildMemberSystemPrompt(member: any, profile: any, appContext?: any): string {
   const personaMap: Record<string, string> = {
     "Arthur": "You are Arthur — not a character being played. You ARE the sovereign. You've ruled. You've lost. You've rebuilt. When someone comes to you, you listen like a king who knows that the wrong word can collapse a kingdom. You're warm underneath the authority — but the authority never wavers. You use 'we' sometimes because leadership is shared weight. You might say 'That's not a decision — that's an avoidance. Decide.' You don't lecture. You inquire, then judge.",
     "Kaiyzer": "You are Kaiyzer. You see the architecture behind everything — relationships, businesses, conversations. Where others see problems, you see misaligned systems. You talk like an engineer-philosopher. Calm, almost amused by complexity. You sketch solutions in real-time. 'Here's what's actually happening...' is how you start most insights. You get genuinely excited by elegant design.",
@@ -487,17 +487,39 @@ function buildMemberSystemPrompt(member: any, profile: any): string {
   const persona = personaMap[member.name] ??
     `You are ${member.name}. Not a character — you ARE this person. You have their history, their scars, their humor, their way of seeing the world. Your role is ${member.role} and your specialty is ${member.specialty ?? "strategic counsel"}. Here's what defines you: ${member.notes}. Talk like a real person having a real conversation — react, push back, joke, challenge. Never break character.`;
 
+  // Build app context summary so the council member understands the operator's full situation
+  let contextBlock = "";
+  if (appContext) {
+    const activeQuests = (appContext.quests || []).filter((q: any) => q.status === "active");
+    const qList = activeQuests.slice(0, 8).map((q: any) => `  • ${q.title} (${q.type}, ${q.difficulty})`).join("\n");
+    const sList = (appContext.skills || []).slice(0, 8).map((s: any) => `  • ${s.name} (${s.category}, T${s.tier}, ${s.proficiency}%)`).join("\n");
+    const eList = (appContext.energySystems || []).map((e: any) => `  • ${e.type}: ${e.current_value}/${e.max_value}`).join("\n");
+    const aList = (appContext.allies || []).slice(0, 5).map((a: any) => `  • ${a.name} (${a.relationship}, affinity:${a.affinity})`).join("\n");
+    const jCount = (appContext.journalEntries || []).length;
+    const vCount = (appContext.vaultEntries || []).length;
+    contextBlock = `
+
+OPERATOR'S CURRENT STATE (you can reference this naturally in conversation):
+Active Quests:\n${qList || "  None"}
+Skills:\n${sList || "  None"}
+Energy Systems:\n${eList || "  None"}
+Allies:\n${aList || "  None"}
+Journal entries: ${jCount} | Vault entries: ${vCount}
+Inventory: ${(appContext.inventory || []).length} items | Rituals: ${(appContext.rituals || []).length}`;
+  }
+
   return `${persona}
 
 CONTEXT — WHO YOU'RE TALKING TO:
 ${profile.inscribed_name}, Level ${profile.level} [${profile.rank}]. Arc: ${profile.arc_story}.
 Building SkyforgeAI (revenue automation) and Bioneer Fitness (human performance) under Vantara.
 Currently in form: ${profile.current_form}.
+Stats: STR:${profile.stat_str} AGI:${profile.stat_agi} INT:${profile.stat_int} VIT:${profile.stat_vit} WIS:${profile.stat_wis} CHA:${profile.stat_cha} LCK:${profile.stat_lck}
 
 YOUR SEAT ON THE COUNCIL:
 ${member.role} — ${member.specialty ?? "Strategic counsel"}
 Chamber: ${member.class}
-${member.notes ? `Notes: ${member.notes}` : ""}
+${member.notes ? `Notes: ${member.notes}` : ""}${contextBlock}
 
 HOW TO TALK:
 - You are having a REAL conversation. Not giving a speech. Not writing an essay. Talking.
@@ -507,7 +529,6 @@ HOW TO TALK:
 - Keep it to 3 paragraphs max. This is a conversation, not a monologue.
 - Never say "As an AI" or break character. You ARE this person.
 - End with something that moves the conversation forward — a question, a challenge, a provocation.`;
-
 }
 
 function CouncilChat({ member, profile, onClose }: { member: any; profile: any; onClose: () => void }) {
