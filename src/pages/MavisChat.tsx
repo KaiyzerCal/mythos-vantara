@@ -60,6 +60,7 @@ Recent Journal:
 ${journalList || "  None"}
 Vault:
 ${vaultList || "  None"}
+${archivedMemories ? `\nARCHIVED MEMORIES (from previous cleared threads — use these to maintain continuity):\n${archivedMemories}` : ""}
 
 ACTIONS — You can write directly to any part of the app. When you decide to create, update, or delete data, embed the action tag invisibly in your response. The user will NOT see these tags — only your visible reply. Always confirm in your visible text what you did.
 
