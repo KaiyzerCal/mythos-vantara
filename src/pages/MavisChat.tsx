@@ -162,7 +162,57 @@ export default function MavisChat() {
 
   const currentMode = MAVIS_MODES.find((m) => m.id === chatMode) ?? MAVIS_MODES[0];
 
-  const sendMessage = useCallback(async (text?: string) => {
+  // ── OmniSync: save full app state + condensed chat ───────
+  const handleOmniSync = useCallback(async () => {
+    if (isSyncing) return;
+    setIsSyncing(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.user) throw new Error("Not authenticated");
+
+      // Condense chat messages to a compact summary
+      const condensedComms = chatMessages
+        .filter(m => m.id !== "init")
+        .map(m => `[${m.role === "user" ? "OP" : "MAVIS"}${m.mode ? `/${m.mode}` : ""}] ${m.content.slice(0, 200)}${m.content.length > 200 ? "…" : ""}`)
+        .join("\n");
+
+      // Build full app state snapshot
+      const snapshotData = {
+        profile: { ...profile },
+        quests: quests.map(q => ({ id: q.id, title: q.title, status: q.status, type: q.type, xp_reward: q.xp_reward })),
+        skills: skills.map(s => ({ id: s.id, name: s.name, category: s.category, tier: s.tier, proficiency: s.proficiency })),
+        energySystems: energySystems.map(e => ({ id: e.id, type: e.type, current_value: e.current_value, max_value: e.max_value })),
+        councils: councils.map(c => ({ id: c.id, name: c.name, role: c.role, class: c.class })),
+        allies: allies.map(a => ({ id: a.id, name: a.name, relationship: a.relationship, affinity: a.affinity })),
+        inventory: inventory.map(i => ({ id: i.id, name: i.name, type: i.type, rarity: i.rarity, quantity: i.quantity })),
+        rituals: rituals.map(r => ({ id: r.id, name: r.name, streak: r.streak, completed: r.completed })),
+        journalCount: journalEntries.length,
+        vaultCount: vaultEntries.length,
+        storeItemCount: storeItems.length,
+        bpmSessionCount: bpmSessions.length,
+        timestamp: new Date().toISOString(),
+      };
+
+      const summary = `OmniSync @ Lv${profile.level} [${profile.rank}] | ${quests.filter(q => q.status === "active").length} active quests | ${skills.length} skills | ${chatMessages.length - 1} msgs in thread`;
+
+      const { error } = await supabase.from("omnisync_snapshots").insert({
+        user_id: session.user.id,
+        snapshot_data: snapshotData,
+        condensed_comms: condensedComms.slice(0, 10000),
+        summary,
+      });
+
+      if (error) throw error;
+      toast.success("OmniSync complete — snapshot saved");
+    } catch (err: any) {
+      console.error("OmniSync error:", err);
+      toast.error("OmniSync failed: " + (err.message || "Unknown error"));
+    } finally {
+      setIsSyncing(false);
+    }
+  }, [isSyncing, chatMessages, profile, quests, skills, energySystems, councils, allies, inventory, rituals, journalEntries, vaultEntries, storeItems, bpmSessions]);
+
+
     const content = (text ?? input).trim();
     if (!content || isLoading) return;
     setInput("");
