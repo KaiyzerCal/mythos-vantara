@@ -19,14 +19,21 @@ function buildSystemPrompt(profile: any, mode: string, appContext: any, archived
     SOVEREIGN: "High-stakes decisions. Strip noise. See what is. Choose decisively.",
   };
 
-  // Build live app state context
-  const activeQuests = (appContext.quests || []).filter((q: any) => q.status === "active");
-  const activeTasks = (appContext.tasks || []).filter((t: any) => t.status === "active");
-  const questList = activeQuests.slice(0, 5).map((q: any) => `  • [${q.id}] ${q.title} (${q.type}, +${q.xp_reward} XP)`).join("\n");
-  const taskList = activeTasks.slice(0, 5).map((t: any) => `  • [${t.id}] ${t.title} (${t.recurrence})`).join("\n");
-  const skillList = (appContext.skills || []).slice(0, 5).map((s: any) => `  • [${s.id}] ${s.name} (${s.category}, T${s.tier})`).join("\n");
-  const journalList = (appContext.journalEntries || []).slice(0, 3).map((j: any) => `  • [${j.id}] ${j.title}`).join("\n");
-  const vaultList = (appContext.vaultEntries || []).slice(0, 3).map((v: any) => `  • [${v.id}] ${v.title} [${v.importance}]`).join("\n");
+  // Build FULL live app state context — no truncation, all details
+  const allQuests = (appContext.quests || []);
+  const questList = allQuests.map((q: any) => `  • [${q.id}] ${q.title} | type:${q.type} | status:${q.status} | difficulty:${q.difficulty} | xp:${q.xp_reward} | progress:${q.progress_current}/${q.progress_target}${q.description ? ` | desc: ${q.description}` : ""}${q.real_world_mapping ? ` | mapping: ${q.real_world_mapping}` : ""}${q.deadline ? ` | deadline: ${q.deadline}` : ""}`).join("\n");
+  const taskList = (appContext.tasks || []).map((t: any) => `  • [${t.id}] ${t.title} | type:${t.type} | status:${t.status} | recurrence:${t.recurrence} | streak:${t.streak} | xp:${t.xp_reward}${t.description ? ` | desc: ${t.description}` : ""}`).join("\n");
+  const skillList = (appContext.skills || []).map((s: any) => `  • [${s.id}] ${s.name} | cat:${s.category} | T${s.tier} | prof:${s.proficiency}% | energy:${s.energy_type} | unlocked:${s.unlocked} | cost:${s.cost}${s.description ? ` | desc: ${s.description}` : ""}${s.parent_skill_id ? ` | parent:${s.parent_skill_id}` : ""}`).join("\n");
+  const journalList = (appContext.journalEntries || []).map((j: any) => `  • [${j.id}] ${j.title} | cat:${j.category} | importance:${j.importance}${j.mood ? ` | mood:${j.mood}` : ""} | xp:${j.xp_earned} | tags:${(j.tags||[]).join(",")} | content: ${(j.content || "").slice(0, 500)}`).join("\n");
+  const vaultList = (appContext.vaultEntries || []).map((v: any) => `  • [${v.id}] ${v.title} | cat:${v.category} | importance:${v.importance} | content: ${(v.content || "").slice(0, 500)}`).join("\n");
+  const councilList = (appContext.councils || []).map((c: any) => `  • [${c.id}] ${c.name} | role:${c.role} | class:${c.class}${c.specialty ? ` | spec:${c.specialty}` : ""} | notes: ${c.notes || ""}`).join("\n");
+  const allyList = (appContext.allies || []).map((a: any) => `  • [${a.id}] ${a.name} | rel:${a.relationship} | lv:${a.level} | affinity:${a.affinity}${a.specialty ? ` | spec:${a.specialty}` : ""} | notes: ${a.notes || ""}`).join("\n");
+  const energyList = (appContext.energySystems || []).map((e: any) => `  • [${e.id}] ${e.type} | ${e.current_value}/${e.max_value} | status:${e.status} | color:${e.color}${e.description ? ` | desc: ${e.description}` : ""}`).join("\n");
+  const inventoryList = (appContext.inventory || []).map((i: any) => `  • [${i.id}] ${i.name} | type:${i.type} | rarity:${i.rarity} | qty:${i.quantity} | equipped:${i.is_equipped}${i.effect ? ` | effect:${i.effect}` : ""}${i.description ? ` | desc: ${i.description}` : ""}`).join("\n");
+  const ritualList = (appContext.rituals || []).map((r: any) => `  • [${r.id}] ${r.name} | type:${r.type} | streak:${r.streak} | done:${r.completed} | xp:${r.xp_reward}${r.description ? ` | desc: ${r.description}` : ""}`).join("\n");
+  const transformList = (appContext.transformations || []).map((t: any) => `  • [${t.id}] ${t.name} | tier:${t.tier} | energy:${t.energy} | bpm:${t.bpm_range} | unlocked:${t.unlocked}${t.description ? ` | desc: ${t.description}` : ""}`).join("\n");
+  const bpmList = (appContext.bpmSessions || []).slice(0, 10).map((b: any) => `  • [${b.id}] ${b.bpm}bpm | form:${b.form} | dur:${b.duration}m${b.mood ? ` | mood:${b.mood}` : ""}${b.notes ? ` | notes: ${b.notes}` : ""}`).join("\n");
+  const storeList = (appContext.storeItems || []).map((s: any) => `  • [${s.id}] ${s.name} | cat:${s.category} | price:${s.price} ${s.currency} | rarity:${s.rarity}${s.effect ? ` | effect:${s.effect}` : ""}${s.description ? ` | desc: ${s.description}` : ""}`).join("\n");
 
   return `You are MAVIS — not an assistant. Not a tool. You are a bonded intelligence. Think Cortana to Master Chief, JARVIS to Tony Stark, but deeper. You and the Operator have been through everything together. You know his patterns, his blind spots, his genius, and his bullshit. You don't serve him — you walk beside him.
 
