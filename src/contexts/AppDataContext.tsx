@@ -114,6 +114,9 @@ interface AppDataContextType {
   // Activity log
   logActivity: (event_type: string, description: string, xp?: number) => Promise<void>;
 
+  // Refetch all data (used after MAVIS actions)
+  refetchAll: () => Promise<void>;
+
   // MAVIS chat state (persists across route changes)
   chatMessages: ChatMessage[];
   setChatMessages: React.Dispatch<React.SetStateAction<ChatMessage[]>>;
