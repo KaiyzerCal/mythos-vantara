@@ -189,6 +189,7 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
         bpmSessions, bpmLoading, logBpmSession,
         storeItems, storeLoading, createStoreItem, updateStoreItem, deleteStoreItem,
         logActivity,
+        refetchAll,
         chatMessages, setChatMessages, conversationId, setConversationId,
         chatMode, setChatMode,
       }}
