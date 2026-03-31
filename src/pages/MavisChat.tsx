@@ -381,6 +381,9 @@ export default function MavisChat() {
       };
       setChatMessages((prev) => [...prev, assistantMsg]);
       if (fnData?.conversationId) setConversationId(fnData.conversationId);
+
+      // Persist assistant message
+      if (convoId) persistMessage({ role: "assistant", content: visibleContent, mode: chatMode }, convoId);
     } catch (err: any) {
       setChatMessages((prev) => [
         ...prev,
