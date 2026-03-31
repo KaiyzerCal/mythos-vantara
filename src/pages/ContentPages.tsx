@@ -193,25 +193,41 @@ export function VaultCodexPage() {
         ))}
       </div>
       <div className="space-y-2">
-        {filtered.map((e) => (
-          <HudCard key={e.id} className={importanceBorder[e.importance]}>
-            <div className="flex items-start gap-3">
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 mb-1">
-                  <h3 className="text-sm font-display font-bold">{e.title}</h3>
-                  <span className={`text-[9px] font-mono uppercase ${importanceColor[e.importance]}`}>{e.importance}</span>
-                  <span className="text-[9px] font-mono text-muted-foreground">{e.category}</span>
+        {filtered.map((e) => {
+          const isExpanded = expandedId === e.id;
+          return (
+          <HudCard key={e.id} className={`cursor-pointer transition-all ${importanceBorder[e.importance]} ${isExpanded ? "border-primary/30" : ""}`}>
+            <div onClick={() => setExpandedId(isExpanded ? null : e.id)}>
+              <div className="flex items-start gap-3">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-1">
+                    <h3 className="text-sm font-display font-bold">{e.title}</h3>
+                    <span className={`text-[9px] font-mono uppercase ${importanceColor[e.importance]}`}>{e.importance}</span>
+                    <span className="text-[9px] font-mono text-muted-foreground">{e.category}</span>
+                  </div>
+                  {e.content && <p className={`text-xs font-body text-muted-foreground ${isExpanded ? "whitespace-pre-wrap" : "line-clamp-3"}`}>{e.content}</p>}
+                  {isExpanded && (
+                    <div className="mt-3 space-y-1.5 border-t border-border/30 pt-2">
+                      <div className="grid grid-cols-2 gap-2 text-[10px] font-mono">
+                        <div><span className="text-muted-foreground">Category:</span> <span className="text-foreground">{e.category}</span></div>
+                        <div><span className="text-muted-foreground">Importance:</span> <span className={importanceColor[e.importance]}>{e.importance}</span></div>
+                        {e.attachments?.length > 0 && <div className="col-span-2"><span className="text-muted-foreground">Attachments:</span> <span className="text-foreground">{e.attachments.length} files</span></div>}
+                        <div className="col-span-2"><span className="text-muted-foreground">Created:</span> <span className="text-foreground">{new Date(e.created_at).toLocaleString()}</span></div>
+                        {e.updated_at !== e.created_at && <div className="col-span-2"><span className="text-muted-foreground">Updated:</span> <span className="text-foreground">{new Date(e.updated_at).toLocaleString()}</span></div>}
+                      </div>
+                    </div>
+                  )}
+                  {!isExpanded && <p className="text-[9px] font-mono text-muted-foreground/50 mt-1.5">{new Date(e.created_at).toLocaleDateString()}</p>}
                 </div>
-                {e.content && <p className="text-xs font-body text-muted-foreground line-clamp-3">{e.content}</p>}
-                <p className="text-[9px] font-mono text-muted-foreground/50 mt-1.5">{new Date(e.created_at).toLocaleDateString()}</p>
-              </div>
-              <div className="flex flex-col gap-1 shrink-0">
-                <button onClick={() => handleEdit(e)} className="p-1 text-muted-foreground hover:text-primary transition-colors"><Edit2 size={12} /></button>
-                <button onClick={() => deleteVaultEntry(e.id)} className="p-1 text-muted-foreground hover:text-destructive transition-colors"><Trash2 size={12} /></button>
+                <div className="flex flex-col gap-1 shrink-0" onClick={(ev) => ev.stopPropagation()}>
+                  <button onClick={() => handleEdit(e)} className="p-1 text-muted-foreground hover:text-primary transition-colors"><Edit2 size={12} /></button>
+                  <button onClick={() => deleteVaultEntry(e.id)} className="p-1 text-muted-foreground hover:text-destructive transition-colors"><Trash2 size={12} /></button>
+                </div>
               </div>
             </div>
           </HudCard>
-        ))}
+          );
+        })}
         {filtered.length === 0 && <p className="text-xs font-mono text-muted-foreground text-center py-8">Vault empty — classified knowledge awaits.</p>}
       </div>
     </div>
