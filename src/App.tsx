@@ -19,6 +19,7 @@ import BpmPage from "@/pages/BpmPage";
 import RankingsPage from "@/pages/RankingsPage";
 import TowerPage from "@/pages/TowerPage";
 import { AlliesPage, StorePage } from "@/pages/AlliesAndStore";
+import ScouterPage from "@/pages/ScouterPage";
 import ActivityLogPage from "@/pages/ActivityLogPage";
 
 const queryClient = new QueryClient();
