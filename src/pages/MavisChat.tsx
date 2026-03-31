@@ -113,12 +113,24 @@ Available actions (embed in response, never in a code block):
 :::ACTION{"type":"update_council_member","params":{"member_id":"...","notes":"..."}}:::
 :::ACTION{"type":"delete_council_member","params":{"member_id":"..."}}:::
 :::ACTION{"type":"create_inventory_item","params":{"name":"...","description":"...","type":"equipment|consumable|material|artifact","rarity":"common|rare|epic|legendary|mythic","quantity":1,"effect":"..."}}:::
+:::ACTION{"type":"update_inventory_item","params":{"item_id":"...","name":"...","quantity":1,"is_equipped":true}}:::
 :::ACTION{"type":"delete_inventory_item","params":{"item_id":"..."}}:::
 :::ACTION{"type":"update_energy","params":{"energy_id":"...","current_value":100}}:::
 :::ACTION{"type":"create_ally","params":{"name":"...","relationship":"ally|council|rival","level":1,"specialty":"...","affinity":50,"notes":"..."}}:::
 :::ACTION{"type":"update_ally","params":{"ally_id":"...","affinity":75,"notes":"..."}}:::
+:::ACTION{"type":"delete_ally","params":{"ally_id":"..."}}:::
 :::ACTION{"type":"create_ritual","params":{"name":"...","description":"...","type":"fitness|business|self_care|legal|other","xp_reward":25}}:::
+:::ACTION{"type":"update_ritual","params":{"ritual_id":"...","name":"...","description":"..."}}:::
+:::ACTION{"type":"delete_ritual","params":{"ritual_id":"..."}}:::
 :::ACTION{"type":"complete_ritual","params":{"ritual_id":"..."}}:::
+:::ACTION{"type":"create_transformation","params":{"name":"...","tier":"...","form_order":0,"bpm_range":"65-75","energy":"Ki","jjk_grade":"Special Grade","op_tier":"God Tier","description":"...","unlocked":false,"category":"..."}}:::
+:::ACTION{"type":"update_transformation","params":{"transformation_id":"...","name":"...","unlocked":true,"description":"..."}}:::
+:::ACTION{"type":"delete_transformation","params":{"transformation_id":"..."}}:::
+:::ACTION{"type":"create_store_item","params":{"name":"...","description":"...","price":100,"currency":"Codex Points","rarity":"common","category":"consumable","effect":"..."}}:::
+:::ACTION{"type":"update_store_item","params":{"item_id":"...","name":"...","price":100}}:::
+:::ACTION{"type":"delete_store_item","params":{"item_id":"..."}}:::
+:::ACTION{"type":"update_task","params":{"task_id":"...","title":"...","status":"active|completed"}}:::
+:::ACTION{"type":"log_bpm_session","params":{"bpm":72,"duration":10,"form":"Base","mood":"focused","notes":"..."}}:::
 :::ACTION{"type":"update_profile","params":{"arc_story":"...","current_form":"...","current_bpm":72,"fatigue":0,"full_cowl_sync":95}}:::
 :::ACTION{"type":"award_xp","params":{"amount":100}}:::
 
@@ -169,7 +181,7 @@ export default function MavisChat() {
     profile, quests, tasks, skills, journalEntries, vaultEntries,
     chatMessages, setChatMessages, conversationId, setConversationId,
     chatMode, setChatMode, refetchAll,
-    rituals, councils, energySystems, inventory, allies, bpmSessions, storeItems,
+    rituals, councils, energySystems, inventory, allies, bpmSessions, storeItems, transformations,
   } = useAppData();
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -366,7 +378,7 @@ export default function MavisChat() {
     ];
 
     // Build app context for system prompt
-    const appContext = { quests, tasks, skills, journalEntries, vaultEntries, councils, allies, energySystems, inventory, rituals, transformations: [], bpmSessions, storeItems };
+    const appContext = { quests, tasks, skills, journalEntries, vaultEntries, councils, allies, energySystems, inventory, rituals, transformations, bpmSessions, storeItems };
 
     // Load archived memories for continuity
     let archivedMemories = "";

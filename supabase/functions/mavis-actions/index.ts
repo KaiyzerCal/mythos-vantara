@@ -411,6 +411,147 @@ async function executeAction(sb: ReturnType<typeof createClient>, userId: string
       return;
     }
 
+    // ── TRANSFORMATIONS (Rankings/Forms) ─────────────────
+    case "create_transformation": {
+      const { error } = await sb.from("transformations").insert({
+        user_id: userId,
+        name: String(p.name || "New Form"),
+        tier: String(p.tier || "Base"),
+        form_order: Number(p.form_order || 0),
+        bpm_range: String(p.bpm_range || "65–75"),
+        energy: String(p.energy || "Ki"),
+        jjk_grade: String(p.jjk_grade || "Special Grade"),
+        op_tier: String(p.op_tier || "God Tier"),
+        description: p.description ? String(p.description) : null,
+        category: p.category ? String(p.category) : null,
+        unlocked: Boolean(p.unlocked ?? false),
+        active_buffs: p.active_buffs || [],
+        passive_buffs: p.passive_buffs || [],
+        abilities: p.abilities || [],
+      });
+      if (error) throw error;
+      await logActivity(sb, userId, "transformation_created", `Form created: ${String(p.name || "New Form")}`, 0);
+      return;
+    }
+
+    case "update_transformation": {
+      if (!p.transformation_id) return;
+      const updates: Record<string, unknown> = {};
+      for (const key of ["name", "tier", "form_order", "bpm_range", "energy", "jjk_grade", "op_tier", "description", "category", "unlocked", "active_buffs", "passive_buffs", "abilities"]) {
+        if (p[key] !== undefined) updates[key] = p[key];
+      }
+      await sb.from("transformations").update(updates).eq("id", String(p.transformation_id)).eq("user_id", userId);
+      await logActivity(sb, userId, "transformation_updated", `Form updated: ${String(p.name || p.transformation_id)}`, 0);
+      return;
+    }
+
+    case "delete_transformation": {
+      if (!p.transformation_id) return;
+      await sb.from("transformations").delete().eq("id", String(p.transformation_id)).eq("user_id", userId);
+      await logActivity(sb, userId, "transformation_deleted", "Form deleted", 0);
+      return;
+    }
+
+    // ── STORE ITEMS ──────────────────────────────────────
+    case "create_store_item": {
+      const { error } = await sb.from("store_items").insert({
+        user_id: userId,
+        name: String(p.name || "New Item"),
+        description: String(p.description || ""),
+        price: Number(p.price || 100),
+        currency: String(p.currency || "Codex Points"),
+        rarity: String(p.rarity || "common"),
+        category: String(p.category || "consumable"),
+        effect: p.effect ? String(p.effect) : null,
+        req_level: p.req_level ? Number(p.req_level) : null,
+        req_rank: p.req_rank ? String(p.req_rank) : null,
+      });
+      if (error) throw error;
+      await logActivity(sb, userId, "store_item_created", `Store item: ${String(p.name || "New Item")}`, 0);
+      return;
+    }
+
+    case "update_store_item": {
+      if (!p.item_id) return;
+      const updates: Record<string, unknown> = {};
+      for (const key of ["name", "description", "price", "currency", "rarity", "category", "effect", "req_level", "req_rank"]) {
+        if (p[key] !== undefined) updates[key] = p[key];
+      }
+      updates.updated_at = new Date().toISOString();
+      await sb.from("store_items").update(updates).eq("id", String(p.item_id)).eq("user_id", userId);
+      return;
+    }
+
+    case "delete_store_item": {
+      if (!p.item_id) return;
+      await sb.from("store_items").delete().eq("id", String(p.item_id)).eq("user_id", userId);
+      return;
+    }
+
+    // ── DELETE ALLY ──────────────────────────────────────
+    case "delete_ally": {
+      if (!p.ally_id) return;
+      await sb.from("allies").delete().eq("id", String(p.ally_id)).eq("user_id", userId);
+      await logActivity(sb, userId, "ally_deleted", "Ally removed", 0);
+      return;
+    }
+
+    // ── DELETE RITUAL ────────────────────────────────────
+    case "delete_ritual": {
+      if (!p.ritual_id) return;
+      await sb.from("rituals").delete().eq("id", String(p.ritual_id)).eq("user_id", userId);
+      return;
+    }
+
+    // ── UPDATE TASK ──────────────────────────────────────
+    case "update_task": {
+      if (!p.task_id) return;
+      const updates: Record<string, unknown> = {};
+      for (const key of ["title", "description", "type", "status", "recurrence", "xp_reward"]) {
+        if (p[key] !== undefined) updates[key] = p[key];
+      }
+      updates.updated_at = new Date().toISOString();
+      await sb.from("tasks").update(updates).eq("id", String(p.task_id)).eq("user_id", userId);
+      return;
+    }
+
+    // ── UPDATE INVENTORY ITEM ────────────────────────────
+    case "update_inventory_item": {
+      if (!p.item_id) return;
+      const updates: Record<string, unknown> = {};
+      for (const key of ["name", "description", "type", "rarity", "quantity", "effect", "slot", "tier", "is_equipped", "stat_effects"]) {
+        if (p[key] !== undefined) updates[key] = p[key];
+      }
+      await sb.from("inventory").update(updates).eq("id", String(p.item_id)).eq("user_id", userId);
+      return;
+    }
+
+    // ── UPDATE RITUAL ────────────────────────────────────
+    case "update_ritual": {
+      if (!p.ritual_id) return;
+      const updates: Record<string, unknown> = {};
+      for (const key of ["name", "description", "type", "category", "xp_reward"]) {
+        if (p[key] !== undefined) updates[key] = p[key];
+      }
+      await sb.from("rituals").update(updates).eq("id", String(p.ritual_id)).eq("user_id", userId);
+      return;
+    }
+
+    // ── BPM SESSION ──────────────────────────────────────
+    case "log_bpm_session": {
+      const { error } = await sb.from("bpm_sessions").insert({
+        user_id: userId,
+        bpm: Number(p.bpm || 72),
+        duration: Number(p.duration || 0),
+        form: String(p.form || "Base"),
+        mood: p.mood ? String(p.mood) : null,
+        notes: p.notes ? String(p.notes) : null,
+      });
+      if (error) throw error;
+      await logActivity(sb, userId, "bpm_logged", `BPM session: ${p.bpm}bpm`, 0);
+      return;
+    }
+
     default:
       throw new Error(`Unknown MAVIS action: ${action.type}`);
   }
