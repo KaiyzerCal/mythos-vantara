@@ -148,8 +148,95 @@ export default function MavisChat() {
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [showModes, setShowModes] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [dbLoaded, setDbLoaded] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  // ── Load persisted chat from DB on mount ─────────────────
+  useEffect(() => {
+    if (dbLoaded) return;
+    (async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session?.user) { setDbLoaded(true); return; }
+
+        // Find most recent conversation
+        const { data: convos } = await supabase
+          .from("chat_conversations")
+          .select("id, title")
+          .eq("user_id", session.user.id)
+          .order("updated_at", { ascending: false })
+          .limit(1);
+
+        if (!convos?.length) { setDbLoaded(true); return; }
+
+        const convoId = convos[0].id;
+        setConversationId(convoId);
+
+        // Load messages
+        const { data: msgs } = await supabase
+          .from("chat_messages")
+          .select("*")
+          .eq("conversation_id", convoId)
+          .eq("user_id", session.user.id)
+          .order("created_at", { ascending: true })
+          .limit(200);
+
+        if (msgs?.length) {
+          const restored = msgs.map((m: any) => ({
+            id: m.id,
+            role: m.role as "user" | "assistant",
+            content: m.content,
+            mode: m.mode ?? "PRIME",
+            timestamp: new Date(m.created_at),
+          }));
+          setChatMessages(restored);
+        }
+      } catch (err) {
+        console.error("Failed to restore chat:", err);
+      } finally {
+        setDbLoaded(true);
+      }
+    })();
+  }, [dbLoaded, setChatMessages, setConversationId]);
+
+  // ── Persist a single message to DB ───────────────────────
+  const persistMessage = useCallback(async (msg: { role: string; content: string; mode?: string }, convoId: string) => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.user) return;
+      await supabase.from("chat_messages").insert({
+        conversation_id: convoId,
+        user_id: session.user.id,
+        role: msg.role,
+        content: msg.content,
+        mode: msg.mode ?? "PRIME",
+      });
+    } catch (err) {
+      console.error("Failed to persist message:", err);
+    }
+  }, []);
+
+  // ── Ensure a conversation exists, return its ID ──────────
+  const ensureConversation = useCallback(async (): Promise<string | null> => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.user) return null;
+      if (conversationId) return conversationId;
+
+      const { data, error } = await supabase.from("chat_conversations").insert({
+        user_id: session.user.id,
+        title: `MAVIS Thread — ${new Date().toLocaleDateString()}`,
+      }).select("id").single();
+
+      if (error) throw error;
+      setConversationId(data.id);
+      return data.id;
+    } catch (err) {
+      console.error("Failed to create conversation:", err);
+      return null;
+    }
+  }, [conversationId, setConversationId]);
 
   useEffect(() => {
     if (scrollRef.current) {
