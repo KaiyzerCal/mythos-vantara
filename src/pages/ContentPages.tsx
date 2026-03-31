@@ -14,6 +14,7 @@ export function JournalPage() {
   const { journalEntries, journalLoading, createJournalEntry, updateJournalEntry, deleteJournalEntry, awardXP, logActivity } = useAppData();
   const [showCreate, setShowCreate] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
   const [form, setForm] = useState({ title: "", content: "", category: "personal", importance: "medium", mood: "", tags: "" });
 
   const resetForm = () => {
