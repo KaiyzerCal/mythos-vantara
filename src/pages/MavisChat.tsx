@@ -503,8 +503,8 @@ export default function MavisChat() {
         ))}
       </div>
 
-      {/* Input */}
-      <div className="flex gap-2">
+      {/* Input — pinned to bottom with safe-area padding for mobile */}
+      <div className="flex gap-2 mt-auto pt-2 pb-[env(safe-area-inset-bottom,0.5rem)]">
         <textarea
           ref={inputRef}
           value={input}
@@ -522,7 +522,7 @@ export default function MavisChat() {
         <button
             onClick={() => sendMessage()}
             disabled={!input.trim() || isLoading}
-            className="px-3 py-2 rounded-lg bg-primary/10 border border-primary/30 text-primary hover:bg-primary/20 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
+            className="px-3 py-2 rounded-lg bg-primary/10 border border-primary/30 text-primary hover:bg-primary/20 disabled:opacity-30 disabled:cursor-not-allowed transition-all self-end"
           >
             {isLoading ? (
               <span className="w-4 h-4 rounded-full border-2 border-primary border-t-transparent animate-spin block" />
