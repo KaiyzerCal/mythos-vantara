@@ -60,6 +60,7 @@ const PROFILE_ALLOWED = [
   "current_form", "current_bpm", "current_floor",
   "aura_power", "display_name", "operator_level", "operator_xp",
   "notification_settings",
+  "rank", "level", "xp", "xp_to_next_level", "pvp_rating", "gpr",
 ] as const;
 
 // ── Action executor ────────────────────────────────────────
@@ -162,8 +163,9 @@ async function executeAction(sb: ReturnType<typeof createClient>, userId: string
     }
 
     // ── SKILLS ───────────────────────────────────────────
-    case "create_skill": {
-      const { error } = await sb.from("skills").insert({
+    case "create_skill":
+    case "create_subskill": {
+      const insertData: Record<string, unknown> = {
         user_id: userId,
         name: String(p.name || "New Skill"),
         description: String(p.description || ""),
@@ -174,9 +176,12 @@ async function executeAction(sb: ReturnType<typeof createClient>, userId: string
         cost: Number(p.cost || 0),
         proficiency: Number(p.proficiency || 0),
         prerequisites: asStringArray(p.prerequisites),
-      });
+      };
+      if (p.parent_skill_id) insertData.parent_skill_id = String(p.parent_skill_id);
+      const { error } = await sb.from("skills").insert(insertData);
       if (error) throw error;
-      await logActivity(sb, userId, "skill_created", `Skill unlocked: ${String(p.name || "New Skill")}`, 0);
+      const label = p.parent_skill_id ? "Subskill" : "Skill";
+      await logActivity(sb, userId, "skill_created", `${label} unlocked: ${String(p.name || "New Skill")}`, 0);
       return;
     }
 
@@ -327,10 +332,12 @@ async function executeAction(sb: ReturnType<typeof createClient>, userId: string
     // ── ENERGY ───────────────────────────────────────────
     case "update_energy": {
       if (!p.energy_id) return;
-      await sb.from("energy_systems").update({
-        current_value: Number(p.current_value),
-        updated_at: new Date().toISOString(),
-      }).eq("id", String(p.energy_id)).eq("user_id", userId);
+      const updates: Record<string, unknown> = {};
+      for (const key of ["current_value", "max_value", "status", "description", "color", "type"]) {
+        if (p[key] !== undefined) updates[key] = p[key];
+      }
+      updates.updated_at = new Date().toISOString();
+      await sb.from("energy_systems").update(updates).eq("id", String(p.energy_id)).eq("user_id", userId);
       return;
     }
 
@@ -576,6 +583,8 @@ async function executeAction(sb: ReturnType<typeof createClient>, userId: string
     case "add_ally":
       return executeAction(sb, userId, { type: "create_ally", params: p });
     case "add_skill":
+    case "add_subskill":
+    case "create_subskill":
       return executeAction(sb, userId, { type: "create_skill", params: p });
     case "add_journal":
     case "create_journal_entry":
