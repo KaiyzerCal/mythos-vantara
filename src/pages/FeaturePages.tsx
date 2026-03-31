@@ -17,6 +17,7 @@ export function QuestsPage() {
   const [typeFilter, setTypeFilter] = useState<string>("all");
   const [statusFilter, setStatusFilter] = useState<string>("active");
   const [showCreate, setShowCreate] = useState(false);
+  const [expandedQuest, setExpandedQuest] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState({
     title: "", description: "", type: "daily", difficulty: "Normal", xp_reward: 100,
