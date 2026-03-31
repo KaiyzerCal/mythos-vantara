@@ -330,11 +330,31 @@ export default function MavisChat() {
     // Build app context for system prompt
     const appContext = { quests, tasks, skills, journalEntries, vaultEntries };
 
+    // Load archived memories for continuity
+    let archivedMemories = "";
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.user) {
+        const { data: memories } = await supabase
+          .from("memories")
+          .select("title, content, metadata, created_at")
+          .eq("user_id", session.user.id)
+          .eq("source", "mavis_chat_clear")
+          .order("created_at", { ascending: false })
+          .limit(3);
+        if (memories?.length) {
+          archivedMemories = memories.map((m: any) =>
+            `[${m.title}]\n${(m.metadata as any)?.topic_summary || m.content.slice(0, 1000)}`
+          ).join("\n---\n");
+        }
+      }
+    } catch {} // Non-critical
+
     try {
       const { data: fnData, error } = await supabase.functions.invoke("mavis-chat", {
         body: {
           messages: apiMessages,
-          systemPrompt: buildSystemPrompt(profile, chatMode, appContext),
+          systemPrompt: buildSystemPrompt(profile, chatMode, appContext, archivedMemories),
           mode: chatMode,
           conversationId,
         },
