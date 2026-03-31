@@ -132,10 +132,7 @@ const MAVIS_MODES = [
 const QUICK_PROMPTS = [
   "What should I focus on today?",
   "Status check across all arcs",
-  "Create a quest for my next SkyforgeAI milestone",
   "Log a journal entry for this session",
-  "What's the play for Bioneer right now?",
-  "Analyze and suggest improvements to my active quests",
 ];
 
 export default function MavisChat() {
