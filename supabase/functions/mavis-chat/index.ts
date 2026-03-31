@@ -238,12 +238,23 @@ Default params when missing:
 - create_transformation: {"tier":"Base","form_order":0,"bpm_range":"65–75","energy":"Ki","jjk_grade":"Special Grade","op_tier":"God Tier","unlocked":false}
 
 Extra guidance:
-- "inventory" means create_inventory_item, not store_item.
-- "store" means create_store_item, not inventory_item.
+- "inventory" or "item in my inventory" means create_inventory_item, not store_item.
+- "store" or "item in the store" means create_store_item, not inventory_item.
 - "rankings" means create_ranking, not create_transformation.
 - "forms" or "transformations" means create_transformation.
-- "journal entry about X" should create_journal with a title mentioning X.
-- "vault entry about X" should create_vault with a title mentioning X.`;
+- "journal entry about X" should create_journal with title mentioning X and content about X.
+- "vault entry about X" should create_vault with title mentioning X.
+- ALWAYS extract the item/entity NAME from the user message. "create an inventory item called Timekeeper's Watch" → name: "Timekeeper's Watch".
+- ALWAYS include "name", "title", or "display_name" in params — never omit the name the user specified.
+- For create_inventory_item: always include "name" param.
+- For create_store_item: always include "name" param.
+- For create_ranking: always include "display_name" param.
+- For create_journal: always include "title" param.
+- For create_vault: always include "title" param.
+- For create_quest: always include "title" param.
+- For create_skill: always include "name" param.
+- For create_council_member: always include "name" param.
+- For create_ally: always include "name" param.`;
 
   const response = await fetch(OPENAI_URL, {
     method: "POST",
