@@ -406,16 +406,62 @@ export default function MavisChat() {
     setTimeout(() => setCopiedId(null), 2000);
   };
 
-  const clearChat = () => {
+  const clearChat = useCallback(async () => {
+    // 1. Trigger OmniSync to preserve state + conversation
+    await handleOmniSync();
+
+    // 2. Save a detailed memory of the conversation for future reference
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.user && chatMessages.length > 1) {
+        const memoryContent = chatMessages
+          .filter(m => m.id !== "init")
+          .map(m => `[${m.role === "user" ? "OPERATOR" : "MAVIS"}] ${m.content}`)
+          .join("\n\n");
+
+        // Condense to key topics and details
+        const topicSummary = chatMessages
+          .filter(m => m.id !== "init")
+          .slice(-20)
+          .map(m => `${m.role === "user" ? "OP" : "M"}: ${m.content.slice(0, 300)}`)
+          .join("\n");
+
+        await supabase.from("memories").insert({
+          user_id: session.user.id,
+          title: `Chat Thread — ${new Date().toLocaleDateString()} ${new Date().toLocaleTimeString()}`,
+          content: memoryContent.slice(0, 50000),
+          memory_type: "conversation",
+          source: "mavis_chat_clear",
+          tags: ["chat_thread", "archived", chatMode.toLowerCase()],
+          metadata: {
+            message_count: chatMessages.length - 1,
+            modes_used: [...new Set(chatMessages.map(m => m.mode).filter(Boolean))],
+            cleared_at: new Date().toISOString(),
+            topic_summary: topicSummary.slice(0, 5000),
+          },
+        });
+
+        // Delete DB messages for this conversation
+        if (conversationId) {
+          await supabase.from("chat_messages").delete().eq("conversation_id", conversationId).eq("user_id", session.user.id);
+          await supabase.from("chat_conversations").delete().eq("id", conversationId).eq("user_id", session.user.id);
+        }
+      }
+    } catch (err) {
+      console.error("Memory save on clear failed:", err);
+    }
+
+    // 3. Reset local state
     setChatMessages([{
       id: "init",
       role: "assistant",
-      content: "Hey, I'm here. What's on your mind?",
+      content: "Thread archived to memory. I remember everything. What's next?",
       mode: "PRIME",
       timestamp: new Date(),
     }]);
     setConversationId(null);
-  };
+    toast.success("Thread archived — memories preserved");
+  }, [handleOmniSync, chatMessages, chatMode, conversationId, setChatMessages, setConversationId]);
 
   return (
     <div className="flex flex-col h-[calc(100dvh-4rem)] gap-2 pb-0">
