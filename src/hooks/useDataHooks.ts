@@ -299,6 +299,27 @@ export interface StoreItem {
 }
 export const useStoreItems = makeHook<StoreItem>("store_items");
 
+// ─── TRANSFORMATIONS (Rankings/Forms) ─────────────────────
+export interface Transformation {
+  id: string;
+  user_id: string;
+  name: string;
+  tier: string;
+  form_order: number;
+  bpm_range: string;
+  energy: string;
+  jjk_grade: string;
+  op_tier: string;
+  category: string | null;
+  description: string | null;
+  unlocked: boolean;
+  active_buffs: any;
+  passive_buffs: any;
+  abilities: any;
+  created_at: string;
+}
+export const useTransformations = makeHook<Transformation>("transformations");
+
 // ─── ACTIVITY LOG (append-only) ────────────────────────────
 export function useActivityLog() {
   const { user } = useAuth();
