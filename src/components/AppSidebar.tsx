@@ -31,7 +31,7 @@ const SECONDARY_NAV = [
 const UTILITY_NAV = [
   { to: "/rankings", icon: Medal, label: "Rankings" },
   { to: "/tower", icon: TowerControl, label: "Tower" },
-  { to: "/allies", icon: Shield, label: "Allies" },
+  { to: "/scouter", icon: Shield, label: "Scouter" },
   { to: "/bpm", icon: Activity, label: "BPM" },
   { to: "/store", icon: ShoppingBag, label: "Store" },
   { to: "/activity", icon: CheckSquare, label: "Activity Log" },
