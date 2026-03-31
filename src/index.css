@@ -1,0 +1,146 @@
+@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;600;700;800;900&family=Rajdhani:wght@300;400;500;600;700&family=Share+Tech+Mono&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 220 20% 10%;
+    --card: 220 10% 97%;
+    --card-foreground: 220 20% 10%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 220 20% 10%;
+    --primary: 45 90% 50%;
+    --primary-foreground: 220 20% 10%;
+    --secondary: 150 60% 35%;
+    --secondary-foreground: 0 0% 100%;
+    --muted: 220 10% 93%;
+    --muted-foreground: 220 15% 40%;
+    --accent: 45 90% 50%;
+    --accent-foreground: 220 20% 10%;
+    --destructive: 0 70% 50%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 220 10% 85%;
+    --input: 220 10% 85%;
+    --ring: 45 90% 50%;
+    --radius: 0.25rem;
+    --sidebar-background: 220 10% 96%;
+    --sidebar-foreground: 220 15% 25%;
+    --sidebar-primary: 45 90% 50%;
+    --sidebar-primary-foreground: 220 20% 10%;
+    --sidebar-accent: 220 10% 92%;
+    --sidebar-accent-foreground: 45 90% 50%;
+    --sidebar-border: 220 10% 85%;
+    --sidebar-ring: 45 90% 50%;
+    --neon-cyan: 185 80% 45%;
+    --neon-purple: 270 60% 55%;
+    --neon-gold: 45 90% 50%;
+    --neon-green: 150 70% 40%;
+    --neon-red: 0 85% 55%;
+    --glow-gold: 0 0 20px hsl(45 90% 50% / 0.4);
+    --glow-green: 0 0 20px hsl(150 70% 40% / 0.4);
+    --glow-subtle: 0 0 10px hsl(45 90% 50% / 0.15);
+  }
+
+  .dark {
+    --background: 228 55% 5%;
+    --foreground: 200 15% 88%;
+    --card: 228 45% 9%;
+    --card-foreground: 200 15% 88%;
+    --popover: 228 45% 9%;
+    --popover-foreground: 200 15% 88%;
+    --primary: 45 100% 55%;
+    --primary-foreground: 228 55% 5%;
+    --secondary: 150 80% 45%;
+    --secondary-foreground: 228 55% 5%;
+    --muted: 228 35% 13%;
+    --muted-foreground: 220 15% 50%;
+    --accent: 45 100% 55%;
+    --accent-foreground: 228 55% 5%;
+    --destructive: 0 70% 50%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 220 40% 16%;
+    --input: 220 40% 16%;
+    --ring: 45 100% 55%;
+    --radius: 0.25rem;
+    --sidebar-background: 228 50% 7%;
+    --sidebar-foreground: 200 15% 78%;
+    --sidebar-primary: 45 100% 55%;
+    --sidebar-primary-foreground: 228 55% 5%;
+    --sidebar-accent: 228 40% 12%;
+    --sidebar-accent-foreground: 45 100% 55%;
+    --sidebar-border: 220 40% 13%;
+    --sidebar-ring: 45 100% 55%;
+    --neon-cyan: 185 100% 55%;
+    --neon-purple: 270 80% 65%;
+    --neon-gold: 45 100% 55%;
+    --neon-green: 150 100% 48%;
+    --neon-red: 0 90% 58%;
+    --glow-gold: 0 0 25px hsl(45 100% 55% / 0.45);
+    --glow-green: 0 0 25px hsl(150 100% 48% / 0.4);
+    --glow-subtle: 0 0 12px hsl(45 100% 55% / 0.18);
+  }
+}
+
+@layer base {
+  * { @apply border-border; }
+  body { @apply bg-background text-foreground font-body antialiased; }
+  h1, h2, h3, h4, h5, h6 { @apply font-display; }
+}
+
+@layer utilities {
+  .glow-gold { box-shadow: var(--glow-gold); }
+  .glow-green { box-shadow: var(--glow-green); }
+  .glow-subtle { box-shadow: var(--glow-subtle); }
+
+  .dark .text-glow-gold { text-shadow: 0 0 12px hsl(45 100% 55% / 0.65); }
+  .dark .text-glow-green { text-shadow: 0 0 12px hsl(150 100% 48% / 0.65); }
+  .dark .text-glow-red { text-shadow: 0 0 12px hsl(0 90% 58% / 0.65); }
+  .text-glow-gold { text-shadow: none; color: hsl(var(--primary)); }
+  .text-glow-green { text-shadow: none; color: hsl(var(--secondary)); }
+  .text-glow-red { text-shadow: none; color: hsl(var(--destructive)); }
+
+  /* Rank-colored text */
+  .rank-sovereign { color: #FFD700; text-shadow: 0 0 14px rgba(255,215,0,0.7); }
+  .rank-sss { color: #FF4500; }
+  .rank-ss { color: #9400D3; }
+  .rank-s { color: #DC143C; }
+  .rank-a { color: #FF8C00; }
+  .rank-b { color: #228B22; }
+  .rank-c { color: #0000CD; }
+  .rank-d { color: #008B8B; }
+  .rank-e { color: #8B8B00; }
+  .rank-f { color: #666666; }
+
+  /* HUD border style */
+  .hud-border {
+    border: 1px solid hsl(var(--border));
+    border-top: 1px solid hsl(var(--primary) / 0.4);
+    background: hsl(var(--card));
+  }
+
+  /* Scan line overlay for cyberpunk effect */
+  .scan-overlay::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 2px,
+      hsl(var(--primary) / 0.015) 2px,
+      hsl(var(--primary) / 0.015) 4px
+    );
+    pointer-events: none;
+  }
+
+  /* Energy bar colors */
+  .energy-ki { background: #FFD700; }
+  .energy-aura { background: #00D9FF; }
+  .energy-nen { background: #4169E1; }
+  .energy-haki { background: #8B0000; }
+  .energy-emerald { background: #08C284; }
+  .energy-blackheart { background: #1a1a1a; border: 1px solid #333; }
+}
