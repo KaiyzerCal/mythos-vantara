@@ -163,8 +163,9 @@ async function executeAction(sb: ReturnType<typeof createClient>, userId: string
     }
 
     // ── SKILLS ───────────────────────────────────────────
-    case "create_skill": {
-      const { error } = await sb.from("skills").insert({
+    case "create_skill":
+    case "create_subskill": {
+      const insertData: Record<string, unknown> = {
         user_id: userId,
         name: String(p.name || "New Skill"),
         description: String(p.description || ""),
@@ -175,9 +176,12 @@ async function executeAction(sb: ReturnType<typeof createClient>, userId: string
         cost: Number(p.cost || 0),
         proficiency: Number(p.proficiency || 0),
         prerequisites: asStringArray(p.prerequisites),
-      });
+      };
+      if (p.parent_skill_id) insertData.parent_skill_id = String(p.parent_skill_id);
+      const { error } = await sb.from("skills").insert(insertData);
       if (error) throw error;
-      await logActivity(sb, userId, "skill_created", `Skill unlocked: ${String(p.name || "New Skill")}`, 0);
+      const label = p.parent_skill_id ? "Subskill" : "Skill";
+      await logActivity(sb, userId, "skill_created", `${label} unlocked: ${String(p.name || "New Skill")}`, 0);
       return;
     }
 
