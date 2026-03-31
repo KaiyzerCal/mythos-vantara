@@ -453,7 +453,20 @@ async function executeAction(sb: ReturnType<typeof createClient>, userId: string
       return;
     }
 
-    // ── ALLIES ───────────────────────────────────────────
+    case "create_energy_system": {
+      const { error } = await sb.from("energy_systems").insert({
+        user_id: userId,
+        type: String(p.type || p.name || "New Energy"),
+        current_value: Number(p.current_value ?? 100),
+        max_value: Number(p.max_value ?? 100),
+        color: String(p.color || "#08C284"),
+        description: String(p.description || ""),
+        status: String(p.status || "developing"),
+      });
+      if (error) throw error;
+      await logActivity(sb, userId, "energy_created", `Energy system: ${String(p.type || p.name || "New Energy")}`, 0);
+      return;
+    }
     case "create_ally": {
       const { error } = await sb.from("allies").insert({
         user_id: userId,
