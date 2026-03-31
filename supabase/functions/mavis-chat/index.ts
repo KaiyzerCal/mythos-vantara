@@ -33,6 +33,11 @@ const MODE_MODEL_MAP: Record<string, ModelRoute> = {
 
 const DEFAULT_ROUTE: ModelRoute = { provider: "openai", model: "gpt-4o-mini" };
 
+type MavisAction = {
+  type: string;
+  params: Record<string, unknown>;
+};
+
 // ── Get API key for provider ───────────────────────────────
 function getKeyAndUrl(provider: Provider): { apiKey: string; apiUrl: string } {
   switch (provider) {
@@ -102,6 +107,129 @@ function shouldForceGrok(message: string): boolean {
     "latest news", "what's going on", "today's news",
   ];
   return grokTriggers.some((t) => lower.includes(t));
+}
+
+function parseEmbeddedActions(text: string): { clean: string; actions: MavisAction[] } {
+  const actions: MavisAction[] = [];
+  const clean = text.replace(/:::ACTION(\{[\s\S]*?\}):::/g, (_, json) => {
+    try {
+      const parsed = JSON.parse(json);
+      if (parsed && typeof parsed.type === "string") {
+        actions.push({
+          type: parsed.type,
+          params: parsed.params && typeof parsed.params === "object" ? parsed.params : {},
+        });
+      }
+    } catch (error) {
+      console.warn("[mavis-chat] Failed to parse embedded action", error);
+    }
+    return "";
+  }).trim();
+
+  return { clean, actions };
+}
+
+async function inferActionsFromConversation(messages: Array<{ role: string; content: string }>): Promise<MavisAction[]> {
+  const apiKey = Deno.env.get("OPENAI_API_KEY") ?? "";
+  if (!apiKey || messages.length === 0) return [];
+
+  const recentMessages = messages.slice(-6).map((message) => ({
+    role: message.role,
+    content: String(message.content ?? ""),
+  }));
+
+  const extractorPrompt = `You convert chat intent into structured app CRUD actions.
+Return JSON only in exactly this shape: {"actions":[{"type":"action_name","params":{}}]}.
+If there is no clear action to execute, return {"actions":[]}.
+
+Rules:
+- If the latest user message is "execute", "do it", "go ahead", "confirm", or similar, infer the pending CRUD action from the immediately preceding conversation.
+- Prefer EXECUTING the user's intent rather than asking for confirmation.
+- Only use supported action types.
+- Use sensible defaults when the user omitted optional fields.
+- Preserve the user's naming as closely as possible.
+- Return valid JSON only. No markdown.
+
+Supported action types:
+create_quest, update_quest, complete_quest, delete_quest,
+create_task, complete_task, delete_task, update_task,
+create_skill, create_subskill, update_skill, delete_skill,
+create_journal, update_journal, delete_journal,
+create_vault, update_vault, delete_vault,
+create_council_member, update_council_member, delete_council_member,
+create_inventory_item, update_inventory_item, delete_inventory_item,
+update_energy, create_energy, delete_energy,
+create_ally, update_ally, delete_ally,
+create_ritual, update_ritual, delete_ritual, complete_ritual,
+create_transformation, update_transformation, delete_transformation,
+create_ranking, update_ranking, delete_ranking,
+create_store_item, update_store_item, delete_store_item,
+log_bpm_session, update_profile, award_xp.
+
+Default params when missing:
+- create_inventory_item: {"description":"","type":"equipment","rarity":"common","quantity":1}
+- create_store_item: {"description":"","price":100,"currency":"Codex Points","rarity":"common","category":"consumable"}
+- create_journal: {"content":"","tags":[],"category":"personal","importance":"medium","xp_earned":10}
+- create_vault: {"content":"","category":"personal","importance":"medium"}
+- create_skill: {"description":"","category":"General","energy_type":"Emerald Flames","tier":1}
+- create_quest: {"description":"","type":"side","difficulty":"Normal","xp_reward":100}
+- create_council_member: {"role":"Member","class":"advisory","notes":""}
+- create_ranking: {"role":"npc","rank":"D","level":1,"jjk_grade":"G4","op_tier":"Local","gpr":1000,"pvp":5000,"influence":"Local","notes":"","is_self":false}
+- create_energy: {"description":"","color":"#08C284","current_value":100,"max_value":100}
+- create_ally: {"relationship":"ally","level":1,"specialty":"General","affinity":50,"notes":""}
+- create_ritual: {"description":"","type":"other","xp_reward":25}
+- create_transformation: {"tier":"Base","form_order":0,"bpm_range":"65–75","energy":"Ki","jjk_grade":"Special Grade","op_tier":"God Tier","unlocked":false}
+
+Extra guidance:
+- "inventory" means create_inventory_item, not store_item.
+- "store" means create_store_item, not inventory_item.
+- "rankings" means create_ranking, not create_transformation.
+- "forms" or "transformations" means create_transformation.
+- "journal entry about X" should create_journal with a title mentioning X.
+- "vault entry about X" should create_vault with a title mentioning X.`;
+
+  const response = await fetch(OPENAI_URL, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model: "gpt-4o-mini",
+      temperature: 0,
+      response_format: { type: "json_object" },
+      messages: [
+        { role: "system", content: extractorPrompt },
+        {
+          role: "user",
+          content: `Infer actions from this conversation history:\n${JSON.stringify(recentMessages)}`,
+        },
+      ],
+    }),
+  });
+
+  if (!response.ok) {
+    console.error("[mavis-chat] action inference failed", response.status, await response.text());
+    return [];
+  }
+
+  const data = await response.json();
+  const raw = data.choices?.[0]?.message?.content;
+  if (!raw) return [];
+
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed?.actions)) return [];
+    return parsed.actions
+      .filter((action: any) => action && typeof action.type === "string")
+      .map((action: any) => ({
+        type: action.type,
+        params: action.params && typeof action.params === "object" ? action.params : {},
+      }));
+  } catch (error) {
+    console.error("[mavis-chat] could not parse inferred actions", error, raw);
+    return [];
+  }
 }
 
 // ── Call Anthropic (Messages API) ─────────────────────────
@@ -210,9 +338,15 @@ Deno.serve(async (req) => {
       content = await callOpenAICompatible(apiKey, apiUrl, route.model, fullSystemPrompt, messages);
     }
 
+    const parsedResponse = parseEmbeddedActions(content);
+    const inferredActions = parsedResponse.actions.length > 0
+      ? parsedResponse.actions
+      : await inferActionsFromConversation(messages);
+
     return new Response(
       JSON.stringify({
-        content,
+        content: parsedResponse.clean || content,
+        actions: inferredActions,
         mode,
         model: route.model,
         provider: route.provider,
