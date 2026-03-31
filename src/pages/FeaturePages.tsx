@@ -17,6 +17,7 @@ export function QuestsPage() {
   const [typeFilter, setTypeFilter] = useState<string>("all");
   const [statusFilter, setStatusFilter] = useState<string>("active");
   const [showCreate, setShowCreate] = useState(false);
+  const [expandedQuest, setExpandedQuest] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState({
     title: "", description: "", type: "daily", difficulty: "Normal", xp_reward: 100,
@@ -342,67 +343,95 @@ export function QuestsPage() {
 
       {/* Quest list */}
       <div className="space-y-2">
-        {filtered.map((q, i) => (
+        {filtered.map((q, i) => {
+          const isExpanded = expandedQuest === q.id;
+          return (
           <motion.div key={q.id} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.03 }}>
-            <HudCard className={q.status === "completed" ? "opacity-60" : ""}>
-              <div className="flex items-start gap-3">
-                <div className="flex flex-col gap-1 shrink-0 mt-0.5">
-                  <QuestTypeBadge type={q.type} />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <h3 className={`text-sm font-display font-bold ${q.status === "completed" ? "line-through text-muted-foreground" : ""}`}>{q.title}</h3>
-                    {q.difficulty !== "Normal" && (
-                      <span className={`text-[9px] font-mono uppercase border rounded px-1.5 py-0.5 ${
-                        q.difficulty === "Impossible" ? "text-red-400 border-red-700" :
-                        q.difficulty === "Extreme" ? "text-orange-400 border-orange-700" :
-                        q.difficulty === "Hard" ? "text-amber-400 border-amber-700" : "border-border text-muted-foreground"
-                      }`}>{q.difficulty}</span>
-                    )}
+            <HudCard className={`cursor-pointer transition-all ${q.status === "completed" ? "opacity-60" : ""} ${isExpanded ? "border-primary/30" : ""}`}>
+              <div onClick={() => setExpandedQuest(isExpanded ? null : q.id)}>
+                <div className="flex items-start gap-3">
+                  <div className="flex flex-col gap-1 shrink-0 mt-0.5">
+                    <QuestTypeBadge type={q.type} />
                   </div>
-                  {q.description && <p className="text-xs font-body text-muted-foreground mt-0.5 line-clamp-2">{q.description}</p>}
-                  {/* Show linked items */}
-                  <div className="flex items-center gap-1.5 mt-1 flex-wrap">
-                    {q.linked_skill_ids?.length > 0 && q.linked_skill_ids.map((sid: string) => {
-                      const sk = skills.find((s) => s.id === sid);
-                      return sk ? <span key={sid} className="text-[8px] font-mono text-primary/60 border border-primary/20 rounded px-1.5 py-0.5">⚡ {sk.name}</span> : null;
-                    })}
-                    {q.real_world_mapping?.startsWith("stat:") && (
-                      <span className="text-[8px] font-mono text-amber-400/80 border border-amber-700/30 rounded px-1.5 py-0.5">📊 {q.real_world_mapping.replace("stat:", "")} +1</span>
-                    )}
-                    {q.real_world_mapping?.startsWith("energy:") && (() => {
-                      const en = energySystems.find((e) => e.id === q.real_world_mapping?.replace("energy:", ""));
-                      return en ? <span className="text-[8px] font-mono border rounded px-1.5 py-0.5" style={{ color: en.color, borderColor: en.color + "44" }}>⚡ {en.type} +5</span> : null;
-                    })()}
-                    {q.real_world_mapping && !q.real_world_mapping.startsWith("stat:") && !q.real_world_mapping.startsWith("energy:") && (
-                      <span className="text-[10px] font-mono text-primary/60">↗ {q.real_world_mapping}</span>
-                    )}
-                    {q.codex_points_reward > 0 && (
-                      <span className="text-[8px] font-mono text-purple-400 border border-purple-700/30 rounded px-1.5 py-0.5">📜 +{q.codex_points_reward} CP</span>
-                    )}
-                    {(q.buff_effects as any[])?.length > 0 && (q.buff_effects as any[]).map((b: any, i: number) => (
-                      <span key={`b${i}`} className="text-[8px] font-mono text-green-400 border border-green-700/30 rounded px-1.5 py-0.5">▲ {b.label} +{b.value}{b.unit}</span>
-                    ))}
-                    {(q.debuff_effects as any[])?.length > 0 && (q.debuff_effects as any[]).map((d: any, i: number) => (
-                      <span key={`d${i}`} className="text-[8px] font-mono text-red-400 border border-red-700/30 rounded px-1.5 py-0.5">▼ {d.label} -{d.value}{d.unit}</span>
-                    ))}
-                    {(q.loot_rewards as any[])?.length > 0 && (q.loot_rewards as any[]).map((l: any, i: number) => (
-                      <span key={`l${i}`} className="text-[8px] font-mono text-amber-400 border border-amber-700/30 rounded px-1.5 py-0.5">🎁 {l.itemName} ×{l.quantity}</span>
-                    ))}
-                  </div>
-                  {q.progress_target > 1 && (
-                    <div className="mt-2">
-                      <ProgressBar value={q.progress_current} max={q.progress_target} showPercent height="xs" />
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <h3 className={`text-sm font-display font-bold ${q.status === "completed" ? "line-through text-muted-foreground" : ""}`}>{q.title}</h3>
+                      {q.difficulty !== "Normal" && (
+                        <span className={`text-[9px] font-mono uppercase border rounded px-1.5 py-0.5 ${
+                          q.difficulty === "Impossible" ? "text-red-400 border-red-700" :
+                          q.difficulty === "Extreme" ? "text-orange-400 border-orange-700" :
+                          q.difficulty === "Hard" ? "text-amber-400 border-amber-700" : "border-border text-muted-foreground"
+                        }`}>{q.difficulty}</span>
+                      )}
+                      <span className={`text-[9px] font-mono uppercase ${q.status === "completed" ? "text-green-400" : q.status === "failed" ? "text-red-400" : "text-muted-foreground"}`}>{q.status}</span>
                     </div>
-                  )}
-                </div>
-                <div className="flex flex-col items-end gap-1.5 shrink-0">
-                  <span className="text-xs font-mono text-primary">+{q.xp_reward} XP</span>
-                  {q.status === "active" && (
+                    {q.description && <p className={`text-xs font-body text-muted-foreground mt-0.5 ${isExpanded ? "" : "line-clamp-2"}`}>{q.description}</p>}
+                    
+                    {/* Expanded details */}
+                    {isExpanded && (
+                      <div className="mt-3 space-y-2 border-t border-border/30 pt-2">
+                        <div className="grid grid-cols-2 gap-2 text-[10px] font-mono">
+                          <div><span className="text-muted-foreground">Type:</span> <span className="text-foreground">{q.type}</span></div>
+                          <div><span className="text-muted-foreground">Difficulty:</span> <span className="text-foreground">{q.difficulty}</span></div>
+                          <div><span className="text-muted-foreground">XP Reward:</span> <span className="text-primary">+{q.xp_reward}</span></div>
+                          <div><span className="text-muted-foreground">Progress:</span> <span className="text-foreground">{q.progress_current}/{q.progress_target}</span></div>
+                          {q.codex_points_reward > 0 && <div><span className="text-muted-foreground">Codex Points:</span> <span className="text-purple-400">+{q.codex_points_reward}</span></div>}
+                          {q.category && <div><span className="text-muted-foreground">Category:</span> <span className="text-foreground">{q.category}</span></div>}
+                          {q.deadline && <div><span className="text-muted-foreground">Deadline:</span> <span className="text-foreground">{new Date(q.deadline).toLocaleDateString()}</span></div>}
+                          {q.real_world_mapping && <div className="col-span-2"><span className="text-muted-foreground">Mapping:</span> <span className="text-foreground">{q.real_world_mapping}</span></div>}
+                        </div>
+                        <div className="text-[9px] font-mono text-muted-foreground">Created: {new Date(q.created_at).toLocaleString()}</div>
+                      </div>
+                    )}
+
+                    {/* Show linked items */}
+                    <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+                      {q.linked_skill_ids?.length > 0 && q.linked_skill_ids.map((sid: string) => {
+                        const sk = skills.find((s) => s.id === sid);
+                        return sk ? <span key={sid} className="text-[8px] font-mono text-primary/60 border border-primary/20 rounded px-1.5 py-0.5">⚡ {sk.name}</span> : null;
+                      })}
+                      {q.real_world_mapping?.startsWith("stat:") && (
+                        <span className="text-[8px] font-mono text-amber-400/80 border border-amber-700/30 rounded px-1.5 py-0.5">📊 {q.real_world_mapping.replace("stat:", "")} +1</span>
+                      )}
+                      {q.real_world_mapping?.startsWith("energy:") && (() => {
+                        const en = energySystems.find((e) => e.id === q.real_world_mapping?.replace("energy:", ""));
+                        return en ? <span className="text-[8px] font-mono border rounded px-1.5 py-0.5" style={{ color: en.color, borderColor: en.color + "44" }}>⚡ {en.type} +5</span> : null;
+                      })()}
+                      {q.real_world_mapping && !q.real_world_mapping.startsWith("stat:") && !q.real_world_mapping.startsWith("energy:") && (
+                        <span className="text-[10px] font-mono text-primary/60">↗ {q.real_world_mapping}</span>
+                      )}
+                      {q.codex_points_reward > 0 && (
+                        <span className="text-[8px] font-mono text-purple-400 border border-purple-700/30 rounded px-1.5 py-0.5">📜 +{q.codex_points_reward} CP</span>
+                      )}
+                      {(q.buff_effects as any[])?.length > 0 && (q.buff_effects as any[]).map((b: any, bi: number) => (
+                        <span key={`b${bi}`} className="text-[8px] font-mono text-green-400 border border-green-700/30 rounded px-1.5 py-0.5">▲ {b.label} +{b.value}{b.unit}</span>
+                      ))}
+                      {(q.debuff_effects as any[])?.length > 0 && (q.debuff_effects as any[]).map((d: any, di: number) => (
+                        <span key={`d${di}`} className="text-[8px] font-mono text-red-400 border border-red-700/30 rounded px-1.5 py-0.5">▼ {d.label} -{d.value}{d.unit}</span>
+                      ))}
+                      {(q.loot_rewards as any[])?.length > 0 && (q.loot_rewards as any[]).map((l: any, li: number) => (
+                        <span key={`l${li}`} className="text-[8px] font-mono text-amber-400 border border-amber-700/30 rounded px-1.5 py-0.5">🎁 {l.itemName} ×{l.quantity}</span>
+                      ))}
+                    </div>
+                    {q.progress_target > 1 && (
+                      <div className="mt-2">
+                        <ProgressBar value={q.progress_current} max={q.progress_target} showPercent height="xs" />
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex flex-col items-end gap-1.5 shrink-0" onClick={(e) => e.stopPropagation()}>
+                    <span className="text-xs font-mono text-primary">+{q.xp_reward} XP</span>
                     <div className="flex gap-1">
-                      <button onClick={() => handleComplete(q)} className="p-1 text-green-400 hover:bg-green-400/10 rounded transition-all" title="Complete">
-                        <CheckCircle2 size={14} />
-                      </button>
+                      {q.status === "active" && (
+                        <button onClick={() => handleComplete(q)} className="p-1 text-green-400 hover:bg-green-400/10 rounded transition-all" title="Complete">
+                          <CheckCircle2 size={14} />
+                        </button>
+                      )}
+                      {q.status === "completed" && (
+                        <button onClick={() => updateQuest(q.id, { status: "active" })} className="p-1 text-amber-400 hover:bg-amber-400/10 rounded transition-all" title="Reactivate">
+                          <Target size={14} />
+                        </button>
+                      )}
                       <button onClick={() => handleEdit(q)} className="p-1 text-muted-foreground hover:text-primary hover:bg-primary/10 rounded transition-all" title="Edit">
                         <Edit2 size={14} />
                       </button>
@@ -410,12 +439,13 @@ export function QuestsPage() {
                         <Trash2 size={14} />
                       </button>
                     </div>
-                  )}
+                  </div>
                 </div>
               </div>
             </HudCard>
           </motion.div>
-        ))}
+          );
+        })}
         {filtered.length === 0 && (
           <p className="text-xs font-mono text-muted-foreground text-center py-8">No quests found — adjust filters or create a new quest.</p>
         )}
