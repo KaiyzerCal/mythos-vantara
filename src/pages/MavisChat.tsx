@@ -1,10 +1,11 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Send, Cpu, Copy, Check, ChevronDown, Zap, Brain, Target, Crown, Flame } from "lucide-react";
+import { Send, Cpu, Copy, Check, ChevronDown, Zap, Brain, Target, Crown, Flame, Database } from "lucide-react";
 import { useAppData } from "@/contexts/AppDataContext";
 import { supabase } from "@/integrations/supabase/client";
 import { PageHeader, HudCard } from "@/components/SharedUI";
 import ReactMarkdown from "react-markdown";
+import { toast } from "sonner";
 
 // ── MAVIS Modes (from Rork mavis-prime-config) ─────────────
 function buildSystemPrompt(profile: any, mode: string, appContext: any): string {
@@ -142,12 +143,14 @@ export default function MavisChat() {
     profile, quests, tasks, skills, journalEntries, vaultEntries,
     chatMessages, setChatMessages, conversationId, setConversationId,
     chatMode, setChatMode, refetchAll,
+    rituals, councils, energySystems, inventory, allies, bpmSessions, storeItems,
   } = useAppData();
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [actionStatus, setActionStatus] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [showModes, setShowModes] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -158,6 +161,57 @@ export default function MavisChat() {
   }, [chatMessages]);
 
   const currentMode = MAVIS_MODES.find((m) => m.id === chatMode) ?? MAVIS_MODES[0];
+
+  // ── OmniSync: save full app state + condensed chat ───────
+  const handleOmniSync = useCallback(async () => {
+    if (isSyncing) return;
+    setIsSyncing(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.user) throw new Error("Not authenticated");
+
+      // Condense chat messages to a compact summary
+      const condensedComms = chatMessages
+        .filter(m => m.id !== "init")
+        .map(m => `[${m.role === "user" ? "OP" : "MAVIS"}${m.mode ? `/${m.mode}` : ""}] ${m.content.slice(0, 200)}${m.content.length > 200 ? "…" : ""}`)
+        .join("\n");
+
+      // Build full app state snapshot
+      const snapshotData = {
+        profile: { ...profile },
+        quests: quests.map(q => ({ id: q.id, title: q.title, status: q.status, type: q.type, xp_reward: q.xp_reward })),
+        skills: skills.map(s => ({ id: s.id, name: s.name, category: s.category, tier: s.tier, proficiency: s.proficiency })),
+        energySystems: energySystems.map(e => ({ id: e.id, type: e.type, current_value: e.current_value, max_value: e.max_value })),
+        councils: councils.map(c => ({ id: c.id, name: c.name, role: c.role, class: c.class })),
+        allies: allies.map(a => ({ id: a.id, name: a.name, relationship: a.relationship, affinity: a.affinity })),
+        inventory: inventory.map(i => ({ id: i.id, name: i.name, type: i.type, rarity: i.rarity, quantity: i.quantity })),
+        rituals: rituals.map(r => ({ id: r.id, name: r.name, streak: r.streak, completed: r.completed })),
+        journalCount: journalEntries.length,
+        vaultCount: vaultEntries.length,
+        storeItemCount: storeItems.length,
+        bpmSessionCount: bpmSessions.length,
+        timestamp: new Date().toISOString(),
+      };
+
+      const summary = `OmniSync @ Lv${profile.level} [${profile.rank}] | ${quests.filter(q => q.status === "active").length} active quests | ${skills.length} skills | ${chatMessages.length - 1} msgs in thread`;
+
+      const { error } = await supabase.from("omnisync_snapshots").insert({
+        user_id: session.user.id,
+        snapshot_data: snapshotData,
+        condensed_comms: condensedComms.slice(0, 10000),
+        summary,
+      });
+
+      if (error) throw error;
+      toast.success("OmniSync complete — snapshot saved");
+    } catch (err: any) {
+      console.error("OmniSync error:", err);
+      toast.error("OmniSync failed: " + (err.message || "Unknown error"));
+    } finally {
+      setIsSyncing(false);
+    }
+  }, [isSyncing, chatMessages, profile, quests, skills, energySystems, councils, allies, inventory, rituals, journalEntries, vaultEntries, storeItems, bpmSessions]);
+
 
   const sendMessage = useCallback(async (text?: string) => {
     const content = (text ?? input).trim();
@@ -272,15 +326,29 @@ export default function MavisChat() {
   };
 
   return (
-    <div className="flex flex-col h-[calc(100vh-6rem)] gap-3">
+    <div className="flex flex-col h-[calc(100vh-6rem)] gap-3 pb-4">
       <PageHeader
         title="MAVIS"
         subtitle={`Mode: ${currentMode.label} // Supreme Intelligence`}
         icon={<Cpu size={18} />}
         actions={
-          <button onClick={clearChat} className="text-xs font-mono text-muted-foreground hover:text-destructive transition-colors">
-            Clear
-          </button>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={handleOmniSync}
+              disabled={isSyncing}
+              className="flex items-center gap-1.5 text-xs font-mono text-cyan-400 hover:text-cyan-300 border border-cyan-900/40 hover:border-cyan-400/40 rounded px-2 py-1 transition-all disabled:opacity-40"
+            >
+              {isSyncing ? (
+                <span className="w-3 h-3 rounded-full border-2 border-cyan-400 border-t-transparent animate-spin block" />
+              ) : (
+                <Database size={12} />
+              )}
+              OmniSync
+            </button>
+            <button onClick={clearChat} className="text-xs font-mono text-muted-foreground hover:text-destructive transition-colors">
+              Clear
+            </button>
+          </div>
         }
       />
 
@@ -435,8 +503,8 @@ export default function MavisChat() {
         ))}
       </div>
 
-      {/* Input */}
-      <div className="flex gap-2">
+      {/* Input — pinned to bottom with safe-area padding for mobile */}
+      <div className="flex gap-2 mt-auto pt-2 pb-[env(safe-area-inset-bottom,0.5rem)]">
         <textarea
           ref={inputRef}
           value={input}
@@ -454,7 +522,7 @@ export default function MavisChat() {
         <button
             onClick={() => sendMessage()}
             disabled={!input.trim() || isLoading}
-            className="px-3 py-2 rounded-lg bg-primary/10 border border-primary/30 text-primary hover:bg-primary/20 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
+            className="px-3 py-2 rounded-lg bg-primary/10 border border-primary/30 text-primary hover:bg-primary/20 disabled:opacity-30 disabled:cursor-not-allowed transition-all self-end"
           >
             {isLoading ? (
               <span className="w-4 h-4 rounded-full border-2 border-primary border-t-transparent animate-spin block" />
