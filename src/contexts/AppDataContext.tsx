@@ -3,9 +3,9 @@ import { useProfile, type ProfileData } from "@/hooks/useProfile";
 import { useQuests, type Quest } from "@/hooks/useQuests";
 import {
   useTasks, useRituals, useJournal, useVault, useCouncils,
-  useSkills, useEnergySystems, useInventory, useAllies, useBpmSessions, useActivityLog, useStoreItems,
+  useSkills, useEnergySystems, useInventory, useAllies, useBpmSessions, useActivityLog, useStoreItems, useTransformations,
   type Task, type Ritual, type JournalEntry, type VaultEntry,
-  type CouncilMember, type Skill, type EnergySystem, type InventoryItem, type Ally, type BpmSession, type StoreItem,
+  type CouncilMember, type Skill, type EnergySystem, type InventoryItem, type Ally, type BpmSession, type StoreItem, type Transformation,
 } from "@/hooks/useDataHooks";
 
 export interface ChatMessage {
@@ -111,6 +111,13 @@ interface AppDataContextType {
   updateStoreItem: (id: string, input: any) => Promise<void>;
   deleteStoreItem: (id: string) => Promise<void>;
 
+  // Transformations (Rankings/Forms)
+  transformations: Transformation[];
+  transformationsLoading: boolean;
+  createTransformation: (input: any) => Promise<Transformation | null>;
+  updateTransformation: (id: string, input: any) => Promise<void>;
+  deleteTransformation: (id: string) => Promise<void>;
+
   // Activity log
   logActivity: (event_type: string, description: string, xp?: number) => Promise<void>;
 
@@ -157,15 +164,16 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
   const { data: allies, loading: alliesLoading, create: createAlly, update: updateAlly, remove: deleteAlly, refetch: refetchAllies } = useAllies();
   const { data: bpmSessions, loading: bpmLoading, create: logBpmSession, refetch: refetchBpm } = useBpmSessions();
   const { data: storeItems, loading: storeLoading, create: createStoreItem, update: updateStoreItem, remove: deleteStoreItem, refetch: refetchStore } = useStoreItems();
+  const { data: transformations, loading: transformationsLoading, create: createTransformation, update: updateTransformation, remove: deleteTransformation, refetch: refetchTransformations } = useTransformations();
   const { log: logActivity } = useActivityLog();
 
   const refetchAll = useCallback(async () => {
     await Promise.all([
       refetchProfile(), refetchQuests(), refetchTasks(), refetchRituals(),
       refetchJournal(), refetchVault(), refetchCouncils(), refetchSkills(),
-      refetchEnergy(), refetchInventory(), refetchAllies(), refetchBpm(), refetchStore(),
+      refetchEnergy(), refetchInventory(), refetchAllies(), refetchBpm(), refetchStore(), refetchTransformations(),
     ]);
-  }, [refetchProfile, refetchQuests, refetchTasks, refetchRituals, refetchJournal, refetchVault, refetchCouncils, refetchSkills, refetchEnergy, refetchInventory, refetchAllies, refetchBpm, refetchStore]);
+  }, [refetchProfile, refetchQuests, refetchTasks, refetchRituals, refetchJournal, refetchVault, refetchCouncils, refetchSkills, refetchEnergy, refetchInventory, refetchAllies, refetchBpm, refetchStore, refetchTransformations]);
 
   // MAVIS chat state
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([INITIAL_MAVIS_MSG]);
@@ -188,6 +196,7 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
         allies, alliesLoading, createAlly, updateAlly, deleteAlly,
         bpmSessions, bpmLoading, logBpmSession,
         storeItems, storeLoading, createStoreItem, updateStoreItem, deleteStoreItem,
+        transformations, transformationsLoading, createTransformation, updateTransformation, deleteTransformation,
         logActivity,
         refetchAll,
         chatMessages, setChatMessages, conversationId, setConversationId,
