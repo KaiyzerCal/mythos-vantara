@@ -134,7 +134,7 @@ Available actions (embed in response, never in a code block):
 :::ACTION{"type":"create_inventory_item","params":{"name":"...","description":"...","type":"equipment|consumable|material|artifact","rarity":"common|rare|epic|legendary|mythic","quantity":1,"effect":"..."}}:::
 :::ACTION{"type":"update_inventory_item","params":{"item_id":"...","name":"...","quantity":1,"is_equipped":true}}:::
 :::ACTION{"type":"delete_inventory_item","params":{"item_id":"..."}}:::
-:::ACTION{"type":"update_energy","params":{"energy_id":"...","current_value":100}}:::
+:::ACTION{"type":"update_energy","params":{"energy_id":"...","current_value":100,"max_value":100,"status":"developing|active|mastered","description":"...","color":"#hex","type":"..."}}:::
 :::ACTION{"type":"create_energy","params":{"type":"...","description":"...","color":"#08C284","current_value":100,"max_value":100}}:::
 :::ACTION{"type":"delete_energy","params":{"energy_id":"..."}}:::
 :::ACTION{"type":"create_ally","params":{"name":"...","relationship":"ally|council|rival","level":1,"specialty":"...","affinity":50,"notes":"..."}}:::
