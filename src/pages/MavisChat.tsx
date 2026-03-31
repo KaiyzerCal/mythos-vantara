@@ -414,7 +414,9 @@ export default function MavisChat() {
     setIsLoading(true);
 
     // Persist user message
-    if (convoId) persistMessage({ role: "user", content, mode: chatMode }, convoId);
+    if (convoId) {
+      await persistMessage({ role: "user", content, mode: chatMode }, convoId);
+    }
 
     const apiMessages = [
       ...chatMessages
@@ -514,7 +516,9 @@ export default function MavisChat() {
       if (fnData?.conversationId) setConversationId(fnData.conversationId);
 
       // Persist assistant message
-      if (convoId) persistMessage({ role: "assistant", content: visibleContent, mode: chatMode }, convoId);
+      if (convoId) {
+        await persistMessage({ role: "assistant", content: visibleContent, mode: chatMode }, convoId);
+      }
     } catch (err: any) {
       setChatMessages((prev) => [
         ...prev,
