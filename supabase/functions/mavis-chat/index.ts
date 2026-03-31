@@ -6,6 +6,19 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
+// ── Model routing per mode ─────────────────────────────────
+const MODE_MODEL_MAP: Record<string, { provider: "lovable" | "openai"; model: string }> = {
+  PRIME:     { provider: "lovable", model: "openai/gpt-5-mini" },        // Full-spectrum — strong reasoning
+  ARCH:      { provider: "lovable", model: "google/gemini-2.5-pro" },    // Architecture — deep analysis
+  QUEST:     { provider: "lovable", model: "google/gemini-3-flash-preview" }, // Quick execution focus
+  FORGE:     { provider: "lovable", model: "google/gemini-2.5-flash" },  // Fitness — fast & capable
+  CODEX:     { provider: "lovable", model: "google/gemini-2.5-pro" },    // Knowledge — deep patterns
+  SOVEREIGN: { provider: "openai",  model: "gpt-4o" },                   // High-stakes — premium OpenAI
+};
+
+const DEFAULT_ROUTE = { provider: "lovable" as const, model: "google/gemini-3-flash-preview" };
+
+const LOVABLE_GATEWAY = "https://ai.gateway.lovable.dev/v1/chat/completions";
 const OPENAI_API_URL = "https://api.openai.com/v1/chat/completions";
 
 // ── Tavily web search ──────────────────────────────────────
@@ -67,8 +80,29 @@ Deno.serve(async (req) => {
   try {
     const { messages, systemPrompt, mode, conversationId } = await req.json();
 
-    const apiKey = Deno.env.get("OPENAI_API_KEY");
-    if (!apiKey) throw new Error("OPENAI_API_KEY not set");
+    // ── Resolve model route ──
+    const route = MODE_MODEL_MAP[mode] ?? DEFAULT_ROUTE;
+    console.log(`[mavis-chat] mode=${mode} → provider=${route.provider} model=${route.model}`);
+
+    // ── Resolve API key ──
+    let apiKey: string;
+    let apiUrl: string;
+
+    if (route.provider === "lovable") {
+      apiKey = Deno.env.get("LOVABLE_API_KEY") ?? "";
+      apiUrl = LOVABLE_GATEWAY;
+      if (!apiKey) throw new Error("LOVABLE_API_KEY not set");
+    } else {
+      apiKey = Deno.env.get("OPENAI_API_KEY") ?? "";
+      apiUrl = OPENAI_API_URL;
+      if (!apiKey) {
+        // Fallback to Lovable gateway if no OpenAI key
+        console.warn("OPENAI_API_KEY not set, falling back to Lovable gateway");
+        apiKey = Deno.env.get("LOVABLE_API_KEY") ?? "";
+        apiUrl = LOVABLE_GATEWAY;
+        if (!apiKey) throw new Error("No API key available");
+      }
+    }
 
     // ── Tavily search if needed ──
     let webSearchResults = "";
@@ -87,14 +121,14 @@ Deno.serve(async (req) => {
       ? `${systemPrompt}\n\n---\nWEB SEARCH RESULTS (use these to answer the user's current query):\n${webSearchResults}\n---`
       : systemPrompt;
 
-    const response = await fetch(OPENAI_API_URL, {
+    const response = await fetch(apiUrl, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         "Authorization": `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
-        model: "gpt-4o-mini",
+        model: route.model,
         messages: [
           { role: "system", content: fullSystemPrompt },
           ...messages.map((m: any) => ({
@@ -110,6 +144,20 @@ Deno.serve(async (req) => {
     if (!response.ok) {
       const err = await response.text();
       console.error("AI API error:", response.status, err);
+
+      if (response.status === 429) {
+        return new Response(
+          JSON.stringify({ error: "Rate limited — please wait a moment and try again." }),
+          { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+      if (response.status === 402) {
+        return new Response(
+          JSON.stringify({ error: "AI credits exhausted. Add funds in Settings → Workspace → Usage." }),
+          { status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
       throw new Error(`AI API error: ${err}`);
     }
 
@@ -120,6 +168,7 @@ Deno.serve(async (req) => {
       JSON.stringify({
         content,
         mode,
+        model: route.model,
         conversationId,
         searched: !!webSearchResults,
       }),
