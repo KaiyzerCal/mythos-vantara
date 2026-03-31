@@ -727,17 +727,23 @@ export default function MavisChat() {
           rows={2}
           className="flex-1 bg-card border border-border rounded-lg px-3 py-2.5 text-sm font-body resize-none focus:outline-none focus:border-primary/50 placeholder:text-muted-foreground placeholder:font-mono placeholder:text-xs"
         />
-        <button
+        {isLoading ? (
+          <button
+            onClick={() => { abortRef.current?.abort(); setIsLoading(false); }}
+            className="px-3 py-2 rounded-lg bg-destructive/10 border border-destructive/30 text-destructive hover:bg-destructive/20 transition-all self-end"
+            title="Stop generating"
+          >
+            <Square size={18} />
+          </button>
+        ) : (
+          <button
             onClick={() => sendMessage()}
-            disabled={!input.trim() || isLoading}
+            disabled={!input.trim()}
             className="px-3 py-2 rounded-lg bg-primary/10 border border-primary/30 text-primary hover:bg-primary/20 disabled:opacity-30 disabled:cursor-not-allowed transition-all self-end"
           >
-            {isLoading ? (
-              <span className="w-4 h-4 rounded-full border-2 border-primary border-t-transparent animate-spin block" />
-            ) : (
-              <Send size={18} />
-            )}
+            <Send size={18} />
           </button>
+        )}
       </div>
     </div>
   );
