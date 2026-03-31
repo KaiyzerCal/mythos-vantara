@@ -638,7 +638,8 @@ function CouncilChat({ member, profile, onClose }: { member: any; profile: any; 
           </button>
         </div>
 
-        <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 space-y-3">
+        <div className="relative flex-1 min-h-0">
+        <div ref={scrollRef} onScroll={handleScroll} className="absolute inset-0 overflow-y-auto p-4 space-y-3">
           {messages.map((msg) => (
             <div key={msg.id} className={`flex gap-2.5 ${msg.role === "user" ? "flex-row-reverse" : ""}`}>
               {msg.role === "assistant" && (
@@ -669,6 +670,15 @@ function CouncilChat({ member, profile, onClose }: { member: any; profile: any; 
             </div>
           )}
         </div>
+        {showScrollBtn && (
+          <button
+            onClick={scrollToBottom}
+            className="absolute bottom-2 right-2 z-10 w-7 h-7 rounded-full bg-primary/20 border border-primary/30 text-primary flex items-center justify-center hover:bg-primary/30 transition-all shadow-lg"
+          >
+            <ArrowDown size={12} />
+          </button>
+        )}
+        </div>
 
         <div className="p-3 border-t border-border flex gap-2">
           <input
@@ -678,13 +688,23 @@ function CouncilChat({ member, profile, onClose }: { member: any; profile: any; 
             placeholder={`Speak to ${member.name}...`}
             className="flex-1 bg-muted/30 border border-border rounded px-3 py-2 text-sm focus:outline-none focus:border-primary/40 placeholder:text-muted-foreground placeholder:text-xs placeholder:font-mono"
           />
-          <button
-            onClick={() => sendMessage()}
-            disabled={!input.trim() || isLoading}
-            className="px-3 py-2 bg-primary/10 border border-primary/30 text-primary rounded hover:bg-primary/20 disabled:opacity-30 transition-all"
-          >
-            <Send size={14} />
-          </button>
+          {isLoading ? (
+            <button
+              onClick={() => setIsLoading(false)}
+              className="px-3 py-2 bg-destructive/10 border border-destructive/30 text-destructive rounded hover:bg-destructive/20 transition-all"
+              title="Stop generating"
+            >
+              <Square size={14} />
+            </button>
+          ) : (
+            <button
+              onClick={() => sendMessage()}
+              disabled={!input.trim()}
+              className="px-3 py-2 bg-primary/10 border border-primary/30 text-primary rounded hover:bg-primary/20 disabled:opacity-30 transition-all"
+            >
+              <Send size={14} />
+            </button>
+          )}
         </div>
       </motion.div>
     </div>
