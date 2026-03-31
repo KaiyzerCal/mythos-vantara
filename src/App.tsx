@@ -19,6 +19,7 @@ import BpmPage from "@/pages/BpmPage";
 import RankingsPage from "@/pages/RankingsPage";
 import TowerPage from "@/pages/TowerPage";
 import { AlliesPage, StorePage } from "@/pages/AlliesAndStore";
+import ScouterPage from "@/pages/ScouterPage";
 import ActivityLogPage from "@/pages/ActivityLogPage";
 
 const queryClient = new QueryClient();
@@ -60,6 +61,7 @@ function AppContent() {
             <Route path="/rankings" element={<RankingsPage />} />
             <Route path="/tower" element={<TowerPage />} />
             <Route path="/allies" element={<AlliesPage />} />
+            <Route path="/scouter" element={<ScouterPage />} />
             <Route path="/bpm" element={<BpmPage />} />
             <Route path="/store" element={<StorePage />} />
             <Route path="/activity" element={<ActivityLogPage />} />

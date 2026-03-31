@@ -503,24 +503,69 @@ async function executeAction(sb: ReturnType<typeof createClient>, userId: string
       return;
     }
 
-    // ── ALIASES: rankings/forms → transformations ───────
+    // ── RANKINGS PROFILES (separate from transformations!) ─
     case "create_ranking":
-    case "create_form":
+    case "create_ranking_profile":
     case "add_ranking":
+    case "add_to_rankings": {
+      const { error } = await sb.from("rankings_profiles").insert({
+        user_id: userId,
+        display_name: String(p.display_name || p.name || "Unknown"),
+        role: String(p.role || "npc"),
+        rank: String(p.rank || "D"),
+        level: Number(p.level || 1),
+        jjk_grade: String(p.jjk_grade || "G4"),
+        op_tier: String(p.op_tier || "Local"),
+        gpr: Number(p.gpr || 1000),
+        pvp: Number(p.pvp || 5000),
+        influence: String(p.influence || "Local"),
+        notes: String(p.notes || ""),
+        is_self: Boolean(p.is_self || false),
+      });
+      if (error) throw error;
+      await logActivity(sb, userId, "ranking_created", `Ranking: ${String(p.display_name || p.name || "Unknown")}`, 0);
+      return;
+    }
+
+    case "update_ranking":
+    case "update_ranking_profile":
+    case "edit_ranking": {
+      const id = String(p.ranking_id || p.profile_id || p.id || "");
+      if (!id) return;
+      const updates: Record<string, unknown> = {};
+      for (const key of ["display_name", "role", "rank", "level", "jjk_grade", "op_tier", "gpr", "pvp", "influence", "notes", "is_self"]) {
+        if (p[key] !== undefined) updates[key] = p[key];
+      }
+      // Also accept "name" as alias for "display_name"
+      if (p.name !== undefined && !updates.display_name) updates.display_name = p.name;
+      updates.updated_at = new Date().toISOString();
+      await sb.from("rankings_profiles").update(updates).eq("id", id).eq("user_id", userId);
+      await logActivity(sb, userId, "ranking_updated", `Ranking updated: ${String(p.display_name || p.name || id)}`, 0);
+      return;
+    }
+
+    case "delete_ranking":
+    case "delete_ranking_profile":
+    case "remove_ranking": {
+      const id = String(p.ranking_id || p.profile_id || p.id || "");
+      if (!id) return;
+      await sb.from("rankings_profiles").delete().eq("id", id).eq("user_id", userId);
+      await logActivity(sb, userId, "ranking_deleted", "Ranking removed", 0);
+      return;
+    }
+
+    // ── ALIASES: forms → transformations ────────────────
+    case "create_form":
     case "add_form":
     case "add_transformation":
       return executeAction(sb, userId, { type: "create_transformation", params: p });
 
-    case "update_ranking":
     case "update_form":
-    case "edit_ranking":
     case "edit_form":
     case "edit_transformation":
       return executeAction(sb, userId, { type: "update_transformation", params: p });
 
-    case "delete_ranking":
     case "delete_form":
-    case "remove_ranking":
     case "remove_form":
     case "remove_transformation":
       return executeAction(sb, userId, { type: "delete_transformation", params: p });
