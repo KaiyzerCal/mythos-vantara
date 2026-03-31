@@ -14,6 +14,7 @@ export function JournalPage() {
   const { journalEntries, journalLoading, createJournalEntry, updateJournalEntry, deleteJournalEntry, awardXP, logActivity } = useAppData();
   const [showCreate, setShowCreate] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
   const [form, setForm] = useState({ title: "", content: "", category: "personal", importance: "medium", mood: "", tags: "" });
 
   const resetForm = () => {
@@ -76,34 +77,50 @@ export function JournalPage() {
         </HudCard>
       )}
       <div className="space-y-2">
-        {journalEntries.map((e, i) => (
+        {journalEntries.map((e, i) => {
+          const isExpanded = expandedId === e.id;
+          return (
           <motion.div key={e.id} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.03 }}>
-            <HudCard>
-              <div className="flex items-start gap-3">
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap mb-1">
-                    <h3 className="text-sm font-display font-bold">{e.title}</h3>
-                    <span className={`text-[9px] font-mono uppercase ${importanceColors[e.importance]}`}>{e.importance}</span>
-                    <span className="text-[9px] font-mono text-muted-foreground">{e.category}</span>
+            <HudCard className={`cursor-pointer transition-all ${isExpanded ? "border-primary/30" : ""}`}>
+              <div onClick={() => setExpandedId(isExpanded ? null : e.id)}>
+                <div className="flex items-start gap-3">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap mb-1">
+                      <h3 className="text-sm font-display font-bold">{e.title}</h3>
+                      <span className={`text-[9px] font-mono uppercase ${importanceColors[e.importance]}`}>{e.importance}</span>
+                      <span className="text-[9px] font-mono text-muted-foreground">{e.category}</span>
+                    </div>
+                    {e.content && <p className={`text-xs font-body text-muted-foreground ${isExpanded ? "whitespace-pre-wrap" : "line-clamp-2"}`}>{e.content}</p>}
+                    {isExpanded && (
+                      <div className="mt-3 space-y-1.5 border-t border-border/30 pt-2">
+                        <div className="grid grid-cols-2 gap-2 text-[10px] font-mono">
+                          <div><span className="text-muted-foreground">Category:</span> <span className="text-foreground">{e.category}</span></div>
+                          <div><span className="text-muted-foreground">Importance:</span> <span className={importanceColors[e.importance]}>{e.importance}</span></div>
+                          {e.mood && <div><span className="text-muted-foreground">Mood:</span> <span className="text-foreground">{e.mood}</span></div>}
+                          <div><span className="text-muted-foreground">XP Earned:</span> <span className="text-green-400">+{e.xp_earned}</span></div>
+                          <div className="col-span-2"><span className="text-muted-foreground">Created:</span> <span className="text-foreground">{new Date(e.created_at).toLocaleString()}</span></div>
+                        </div>
+                      </div>
+                    )}
+                    <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+                      {e.tags.map((t) => (
+                        <span key={t} className="text-[8px] font-mono text-primary/60 border border-primary/20 rounded px-1.5 py-0.5">#{t}</span>
+                      ))}
+                      {!isExpanded && e.mood && <span className="text-[9px] font-mono text-muted-foreground ml-auto">mood: {e.mood}</span>}
+                      {!isExpanded && <span className="text-[9px] font-mono text-muted-foreground">{new Date(e.created_at).toLocaleDateString()}</span>}
+                    </div>
                   </div>
-                  {e.content && <p className="text-xs font-body text-muted-foreground line-clamp-2">{e.content}</p>}
-                  <div className="flex items-center gap-2 mt-1.5 flex-wrap">
-                    {e.tags.map((t) => (
-                      <span key={t} className="text-[8px] font-mono text-primary/60 border border-primary/20 rounded px-1.5 py-0.5">#{t}</span>
-                    ))}
-                    {e.mood && <span className="text-[9px] font-mono text-muted-foreground ml-auto">mood: {e.mood}</span>}
-                    <span className="text-[9px] font-mono text-muted-foreground">{new Date(e.created_at).toLocaleDateString()}</span>
+                  <div className="flex flex-col items-end gap-1 shrink-0" onClick={(ev) => ev.stopPropagation()}>
+                    <span className="text-[10px] font-mono text-green-400">+{e.xp_earned} XP</span>
+                    <button onClick={() => handleEdit(e)} className="p-1 text-muted-foreground hover:text-primary transition-colors"><Edit2 size={12} /></button>
+                    <button onClick={() => deleteJournalEntry(e.id)} className="p-1 text-muted-foreground hover:text-destructive transition-colors"><Trash2 size={12} /></button>
                   </div>
-                </div>
-                <div className="flex flex-col items-end gap-1 shrink-0">
-                  <span className="text-[10px] font-mono text-green-400">+{e.xp_earned} XP</span>
-                  <button onClick={() => handleEdit(e)} className="p-1 text-muted-foreground hover:text-primary transition-colors"><Edit2 size={12} /></button>
-                  <button onClick={() => deleteJournalEntry(e.id)} className="p-1 text-muted-foreground hover:text-destructive transition-colors"><Trash2 size={12} /></button>
                 </div>
               </div>
             </HudCard>
           </motion.div>
-        ))}
+          );
+        })}
         {journalEntries.length === 0 && <p className="text-xs font-mono text-muted-foreground text-center py-8">No journal entries yet. Start logging your arc.</p>}
       </div>
     </div>
@@ -115,6 +132,7 @@ export function VaultCodexPage() {
   const { vaultEntries, vaultLoading, createVaultEntry, updateVaultEntry, deleteVaultEntry } = useAppData();
   const [showCreate, setShowCreate] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
   const [catFilter, setCatFilter] = useState("all");
   const [form, setForm] = useState({ title: "", content: "", category: "personal", importance: "medium" });
 
@@ -175,25 +193,41 @@ export function VaultCodexPage() {
         ))}
       </div>
       <div className="space-y-2">
-        {filtered.map((e) => (
-          <HudCard key={e.id} className={importanceBorder[e.importance]}>
-            <div className="flex items-start gap-3">
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 mb-1">
-                  <h3 className="text-sm font-display font-bold">{e.title}</h3>
-                  <span className={`text-[9px] font-mono uppercase ${importanceColor[e.importance]}`}>{e.importance}</span>
-                  <span className="text-[9px] font-mono text-muted-foreground">{e.category}</span>
+        {filtered.map((e) => {
+          const isExpanded = expandedId === e.id;
+          return (
+          <HudCard key={e.id} className={`cursor-pointer transition-all ${importanceBorder[e.importance]} ${isExpanded ? "border-primary/30" : ""}`}>
+            <div onClick={() => setExpandedId(isExpanded ? null : e.id)}>
+              <div className="flex items-start gap-3">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-1">
+                    <h3 className="text-sm font-display font-bold">{e.title}</h3>
+                    <span className={`text-[9px] font-mono uppercase ${importanceColor[e.importance]}`}>{e.importance}</span>
+                    <span className="text-[9px] font-mono text-muted-foreground">{e.category}</span>
+                  </div>
+                  {e.content && <p className={`text-xs font-body text-muted-foreground ${isExpanded ? "whitespace-pre-wrap" : "line-clamp-3"}`}>{e.content}</p>}
+                  {isExpanded && (
+                    <div className="mt-3 space-y-1.5 border-t border-border/30 pt-2">
+                      <div className="grid grid-cols-2 gap-2 text-[10px] font-mono">
+                        <div><span className="text-muted-foreground">Category:</span> <span className="text-foreground">{e.category}</span></div>
+                        <div><span className="text-muted-foreground">Importance:</span> <span className={importanceColor[e.importance]}>{e.importance}</span></div>
+                        {e.attachments?.length > 0 && <div className="col-span-2"><span className="text-muted-foreground">Attachments:</span> <span className="text-foreground">{e.attachments.length} files</span></div>}
+                        <div className="col-span-2"><span className="text-muted-foreground">Created:</span> <span className="text-foreground">{new Date(e.created_at).toLocaleString()}</span></div>
+                        {e.updated_at !== e.created_at && <div className="col-span-2"><span className="text-muted-foreground">Updated:</span> <span className="text-foreground">{new Date(e.updated_at).toLocaleString()}</span></div>}
+                      </div>
+                    </div>
+                  )}
+                  {!isExpanded && <p className="text-[9px] font-mono text-muted-foreground/50 mt-1.5">{new Date(e.created_at).toLocaleDateString()}</p>}
                 </div>
-                {e.content && <p className="text-xs font-body text-muted-foreground line-clamp-3">{e.content}</p>}
-                <p className="text-[9px] font-mono text-muted-foreground/50 mt-1.5">{new Date(e.created_at).toLocaleDateString()}</p>
-              </div>
-              <div className="flex flex-col gap-1 shrink-0">
-                <button onClick={() => handleEdit(e)} className="p-1 text-muted-foreground hover:text-primary transition-colors"><Edit2 size={12} /></button>
-                <button onClick={() => deleteVaultEntry(e.id)} className="p-1 text-muted-foreground hover:text-destructive transition-colors"><Trash2 size={12} /></button>
+                <div className="flex flex-col gap-1 shrink-0" onClick={(ev) => ev.stopPropagation()}>
+                  <button onClick={() => handleEdit(e)} className="p-1 text-muted-foreground hover:text-primary transition-colors"><Edit2 size={12} /></button>
+                  <button onClick={() => deleteVaultEntry(e.id)} className="p-1 text-muted-foreground hover:text-destructive transition-colors"><Trash2 size={12} /></button>
+                </div>
               </div>
             </div>
           </HudCard>
-        ))}
+          );
+        })}
         {filtered.length === 0 && <p className="text-xs font-mono text-muted-foreground text-center py-8">Vault empty — classified knowledge awaits.</p>}
       </div>
     </div>
@@ -434,6 +468,7 @@ export function InventoryPage() {
   const { inventory, inventoryLoading, createInventoryItem, updateInventoryItem, deleteInventoryItem } = useAppData();
   const [showCreate, setShowCreate] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
   const [typeFilter, setTypeFilter] = useState("all");
   const [form, setForm] = useState({ name: "", description: "", type: "equipment", rarity: "common", quantity: 1, effect: "" });
 
@@ -494,28 +529,45 @@ export function InventoryPage() {
         ))}
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-        {filtered.map((item) => (
-          <HudCard key={item.id} className={item.is_equipped ? "border-primary/30" : ""}>
-            <div className="flex items-start justify-between gap-2">
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-1.5 flex-wrap mb-1">
-                  <p className="text-sm font-display font-bold">{item.name}</p>
-                  {item.is_equipped && <span className="text-[8px] font-mono text-primary border border-primary/30 rounded px-1">EQUIPPED</span>}
+        {filtered.map((item) => {
+          const isExpanded = expandedId === item.id;
+          return (
+          <HudCard key={item.id} className={`cursor-pointer transition-all ${item.is_equipped ? "border-primary/30" : ""} ${isExpanded ? "border-primary/30" : ""}`}>
+            <div onClick={() => setExpandedId(isExpanded ? null : item.id)}>
+              <div className="flex items-start justify-between gap-2">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-1.5 flex-wrap mb-1">
+                    <p className="text-sm font-display font-bold">{item.name}</p>
+                    {item.is_equipped && <span className="text-[8px] font-mono text-primary border border-primary/30 rounded px-1">EQUIPPED</span>}
+                  </div>
+                  <RarityBadge rarity={item.rarity} />
+                  {item.description && <p className={`text-xs font-body text-muted-foreground mt-1 ${isExpanded ? "" : "line-clamp-2"}`}>{item.description}</p>}
+                  {item.effect && <p className="text-[10px] font-mono text-primary/60 mt-0.5">{item.effect}</p>}
+                  {isExpanded && (
+                    <div className="mt-2 space-y-1 border-t border-border/30 pt-2 text-[10px] font-mono">
+                      <div><span className="text-muted-foreground">Type:</span> <span className="text-foreground">{item.type}</span></div>
+                      <div><span className="text-muted-foreground">Rarity:</span> <span className="text-foreground">{item.rarity}</span></div>
+                      <div><span className="text-muted-foreground">Quantity:</span> <span className="text-foreground">{item.quantity}</span></div>
+                      {item.slot && <div><span className="text-muted-foreground">Slot:</span> <span className="text-foreground">{item.slot}</span></div>}
+                      {item.tier && <div><span className="text-muted-foreground">Tier:</span> <span className="text-foreground">{item.tier}</span></div>}
+                      <div><span className="text-muted-foreground">Obtained:</span> <span className="text-foreground">{new Date(item.obtained_at).toLocaleString()}</span></div>
+                    </div>
+                  )}
+                  {!isExpanded && (
+                    <p className="text-[9px] font-mono text-muted-foreground mt-1">
+                      {item.type} {item.quantity > 1 ? `× ${item.quantity}` : ""}
+                    </p>
+                  )}
                 </div>
-                <RarityBadge rarity={item.rarity} />
-                {item.description && <p className="text-xs font-body text-muted-foreground mt-1 line-clamp-2">{item.description}</p>}
-                {item.effect && <p className="text-[10px] font-mono text-primary/60 mt-0.5">{item.effect}</p>}
-                <p className="text-[9px] font-mono text-muted-foreground mt-1">
-                  {item.type} {item.quantity > 1 ? `× ${item.quantity}` : ""}
-                </p>
-              </div>
-              <div className="flex flex-col gap-1 shrink-0">
-                <button onClick={() => handleEdit(item)} className="p-1 text-muted-foreground hover:text-primary transition-colors"><Edit2 size={12} /></button>
-                <button onClick={() => deleteInventoryItem(item.id)} className="p-1 text-muted-foreground hover:text-destructive transition-colors"><Trash2 size={12} /></button>
+                <div className="flex flex-col gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
+                  <button onClick={() => handleEdit(item)} className="p-1 text-muted-foreground hover:text-primary transition-colors"><Edit2 size={12} /></button>
+                  <button onClick={() => deleteInventoryItem(item.id)} className="p-1 text-muted-foreground hover:text-destructive transition-colors"><Trash2 size={12} /></button>
+                </div>
               </div>
             </div>
           </HudCard>
-        ))}
+          );
+        })}
         {filtered.length === 0 && <p className="text-xs font-mono text-muted-foreground text-center py-8 col-span-3">Inventory empty.</p>}
       </div>
     </div>
