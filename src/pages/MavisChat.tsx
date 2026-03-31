@@ -141,7 +141,7 @@ export default function MavisChat() {
   const {
     profile, quests, tasks, skills, journalEntries, vaultEntries,
     chatMessages, setChatMessages, conversationId, setConversationId,
-    chatMode, setChatMode, refetchQuests, refetchProfile,
+    chatMode, setChatMode, refetchAll,
   } = useAppData();
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -215,8 +215,8 @@ export default function MavisChat() {
               ? { Authorization: `Bearer ${session.access_token}` }
               : {},
           });
-          // Refetch relevant data so UI updates immediately
-          await Promise.all([refetchQuests(), refetchProfile()]);
+          // Refetch ALL data so every tab updates immediately
+          await refetchAll();
           setActionStatus(`✓ ${actions.map((a) => a.type).join(", ")}`);
           setTimeout(() => setActionStatus(null), 3000);
         } catch (actionErr) {
@@ -252,7 +252,7 @@ export default function MavisChat() {
     } finally {
       setIsLoading(false);
     }
-  }, [input, chatMessages, isLoading, chatMode, profile, quests, tasks, skills, journalEntries, vaultEntries, conversationId, setChatMessages, setConversationId, refetchQuests, refetchProfile]);
+  }, [input, chatMessages, isLoading, chatMode, profile, quests, tasks, skills, journalEntries, vaultEntries, conversationId, setChatMessages, setConversationId, refetchAll]);
 
   const copyMessage = (id: string, content: string) => {
     navigator.clipboard.writeText(content);
