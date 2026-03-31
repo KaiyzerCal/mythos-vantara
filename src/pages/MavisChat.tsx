@@ -687,6 +687,16 @@ export default function MavisChat() {
           </div>
         )}
       </div>
+      {/* Scroll to bottom button */}
+      {showScrollBtn && (
+        <button
+          onClick={scrollToBottom}
+          className="absolute bottom-3 right-3 z-10 w-8 h-8 rounded-full bg-primary/20 border border-primary/30 text-primary flex items-center justify-center hover:bg-primary/30 transition-all shadow-lg"
+        >
+          <ArrowDown size={14} />
+        </button>
+      )}
+      </div>
 
       {/* Quick prompts */}
       <div className="flex gap-1.5 flex-wrap">
