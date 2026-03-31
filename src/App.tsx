@@ -61,6 +61,7 @@ function AppContent() {
             <Route path="/rankings" element={<RankingsPage />} />
             <Route path="/tower" element={<TowerPage />} />
             <Route path="/allies" element={<AlliesPage />} />
+            <Route path="/scouter" element={<ScouterPage />} />
             <Route path="/bpm" element={<BpmPage />} />
             <Route path="/store" element={<StorePage />} />
             <Route path="/activity" element={<ActivityLogPage />} />
