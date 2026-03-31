@@ -169,7 +169,7 @@ export default function MavisChat() {
     profile, quests, tasks, skills, journalEntries, vaultEntries,
     chatMessages, setChatMessages, conversationId, setConversationId,
     chatMode, setChatMode, refetchAll,
-    rituals, councils, energySystems, inventory, allies, bpmSessions, storeItems,
+    rituals, councils, energySystems, inventory, allies, bpmSessions, storeItems, transformations,
   } = useAppData();
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
