@@ -326,15 +326,29 @@ export default function MavisChat() {
   };
 
   return (
-    <div className="flex flex-col h-[calc(100vh-6rem)] gap-3">
+    <div className="flex flex-col h-[calc(100vh-6rem)] gap-3 pb-4">
       <PageHeader
         title="MAVIS"
         subtitle={`Mode: ${currentMode.label} // Supreme Intelligence`}
         icon={<Cpu size={18} />}
         actions={
-          <button onClick={clearChat} className="text-xs font-mono text-muted-foreground hover:text-destructive transition-colors">
-            Clear
-          </button>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={handleOmniSync}
+              disabled={isSyncing}
+              className="flex items-center gap-1.5 text-xs font-mono text-cyan-400 hover:text-cyan-300 border border-cyan-900/40 hover:border-cyan-400/40 rounded px-2 py-1 transition-all disabled:opacity-40"
+            >
+              {isSyncing ? (
+                <span className="w-3 h-3 rounded-full border-2 border-cyan-400 border-t-transparent animate-spin block" />
+              ) : (
+                <Database size={12} />
+              )}
+              OmniSync
+            </button>
+            <button onClick={clearChat} className="text-xs font-mono text-muted-foreground hover:text-destructive transition-colors">
+              Clear
+            </button>
+          </div>
         }
       />
 
