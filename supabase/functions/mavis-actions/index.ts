@@ -503,6 +503,135 @@ async function executeAction(sb: ReturnType<typeof createClient>, userId: string
       return;
     }
 
+    // ── ALIASES: rankings/forms → transformations ───────
+    case "create_ranking":
+    case "create_form":
+    case "add_ranking":
+    case "add_form":
+    case "add_transformation":
+      return executeAction(sb, userId, { type: "create_transformation", params: p });
+
+    case "update_ranking":
+    case "update_form":
+    case "edit_ranking":
+    case "edit_form":
+    case "edit_transformation":
+      return executeAction(sb, userId, { type: "update_transformation", params: p });
+
+    case "delete_ranking":
+    case "delete_form":
+    case "remove_ranking":
+    case "remove_form":
+    case "remove_transformation":
+      return executeAction(sb, userId, { type: "delete_transformation", params: p });
+
+    // ── ALIASES: other common phrasings ──────────────────
+    case "add_quest":
+      return executeAction(sb, userId, { type: "create_quest", params: p });
+    case "add_ally":
+      return executeAction(sb, userId, { type: "create_ally", params: p });
+    case "add_skill":
+      return executeAction(sb, userId, { type: "create_skill", params: p });
+    case "add_journal":
+    case "create_journal_entry":
+    case "add_journal_entry":
+      return executeAction(sb, userId, { type: "create_journal", params: p });
+    case "add_vault":
+    case "create_vault_entry":
+    case "add_vault_entry":
+      return executeAction(sb, userId, { type: "create_vault", params: p });
+    case "add_council_member":
+    case "add_council":
+    case "create_council":
+      return executeAction(sb, userId, { type: "create_council_member", params: p });
+    case "add_inventory_item":
+    case "add_item":
+    case "create_item":
+      return executeAction(sb, userId, { type: "create_inventory_item", params: p });
+    case "add_ritual":
+      return executeAction(sb, userId, { type: "create_ritual", params: p });
+    case "add_store_item":
+      return executeAction(sb, userId, { type: "create_store_item", params: p });
+    case "add_task":
+      return executeAction(sb, userId, { type: "create_task", params: p });
+    case "edit_quest":
+      return executeAction(sb, userId, { type: "update_quest", params: p });
+    case "edit_ally":
+      return executeAction(sb, userId, { type: "update_ally", params: p });
+    case "edit_skill":
+      return executeAction(sb, userId, { type: "update_skill", params: p });
+    case "edit_journal":
+    case "update_journal_entry":
+      return executeAction(sb, userId, { type: "update_journal", params: p });
+    case "edit_vault":
+    case "update_vault_entry":
+      return executeAction(sb, userId, { type: "update_vault", params: p });
+    case "edit_council_member":
+    case "edit_council":
+    case "update_council":
+      return executeAction(sb, userId, { type: "update_council_member", params: p });
+    case "edit_inventory_item":
+    case "edit_item":
+    case "update_item":
+      return executeAction(sb, userId, { type: "update_inventory_item", params: p });
+    case "edit_ritual":
+      return executeAction(sb, userId, { type: "update_ritual", params: p });
+    case "edit_store_item":
+      return executeAction(sb, userId, { type: "update_store_item", params: p });
+    case "edit_task":
+      return executeAction(sb, userId, { type: "update_task", params: p });
+    case "remove_quest":
+      return executeAction(sb, userId, { type: "delete_quest", params: p });
+    case "remove_ally":
+      return executeAction(sb, userId, { type: "delete_ally", params: p });
+    case "remove_skill":
+      return executeAction(sb, userId, { type: "delete_skill", params: p });
+    case "remove_journal":
+    case "delete_journal_entry":
+      return executeAction(sb, userId, { type: "delete_journal", params: p });
+    case "remove_vault":
+    case "delete_vault_entry":
+      return executeAction(sb, userId, { type: "delete_vault", params: p });
+    case "remove_council_member":
+    case "remove_council":
+    case "delete_council":
+      return executeAction(sb, userId, { type: "delete_council_member", params: p });
+    case "remove_inventory_item":
+    case "remove_item":
+    case "delete_item":
+      return executeAction(sb, userId, { type: "delete_inventory_item", params: p });
+    case "remove_ritual":
+      return executeAction(sb, userId, { type: "delete_ritual", params: p });
+    case "remove_store_item":
+      return executeAction(sb, userId, { type: "delete_store_item", params: p });
+    case "remove_task":
+      return executeAction(sb, userId, { type: "delete_task", params: p });
+
+    // ── CREATE ENERGY ────────────────────────────────────
+    case "create_energy":
+    case "add_energy": {
+      const { error } = await sb.from("energy_systems").insert({
+        user_id: userId,
+        type: String(p.type || p.name || "New Energy"),
+        description: String(p.description || ""),
+        color: String(p.color || "#08C284"),
+        current_value: Number(p.current_value ?? 100),
+        max_value: Number(p.max_value ?? 100),
+        status: String(p.status || "developing"),
+      });
+      if (error) throw error;
+      await logActivity(sb, userId, "energy_created", `Energy system: ${String(p.type || p.name || "New Energy")}`, 0);
+      return;
+    }
+
+    // ── DELETE ENERGY ────────────────────────────────────
+    case "delete_energy":
+    case "remove_energy": {
+      if (!p.energy_id) return;
+      await sb.from("energy_systems").delete().eq("id", String(p.energy_id)).eq("user_id", userId);
+      return;
+    }
+
     // ── UPDATE TASK ──────────────────────────────────────
     case "update_task": {
       if (!p.task_id) return;
