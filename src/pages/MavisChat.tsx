@@ -96,8 +96,12 @@ ${archivedMemories ? `\nARCHIVED MEMORIES (from previous cleared threads — use
 ACTIONS — You can write directly to any part of the app. When you decide to create, update, or delete data, embed the action tag invisibly in your response. The user will NOT see these tags — only your visible reply. Always confirm in your visible text what you did.
 
 CRITICAL RULES FOR UNDERSTANDING INTENT:
-- "Rankings" = "Forms" = "Transformations" — they all refer to the same system. Use create_transformation/update_transformation/delete_transformation.
-- If the user says "add to my rankings" or "create a form" or "add a new transformation" — they ALL mean create_transformation.
+- "Rankings" and "Forms/Transformations" are DIFFERENT systems!
+  * "Rankings" = the roster of real people, NPCs, entities with GPR/PVP scores. Uses create_ranking, update_ranking, delete_ranking. Writes to rankings_profiles table.
+  * "Forms" = "Transformations" = power forms/modes like Super Saiyan etc. Uses create_transformation, update_transformation, delete_transformation. Writes to transformations table.
+- "Add someone to my rankings" → create_ranking (NOT create_transformation!)
+- "Create a new form/transformation" → create_transformation
+- Do NOT confuse these two systems. They are completely separate.
 - Do NOT ask the user to rephrase. Do NOT say you can't do something if there's a reasonable interpretation of their request.
 - If the user asks you to do ANYTHING that involves creating, editing, or deleting data — DO IT. Always include the :::ACTION::: tag. Never just describe what you would do.
 - "Add X to Y" = create. "Change X" or "edit X" or "modify X" = update. "Remove X" or "delete X" = delete.
