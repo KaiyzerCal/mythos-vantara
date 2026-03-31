@@ -118,12 +118,14 @@ function parseActions(text: string): { clean: string; actions: any[] } {
 }
 
 const MAVIS_MODES = [
-  { id: "PRIME", label: "PRIME", icon: Crown, color: "text-primary", desc: "Full-spectrum awareness" },
-  { id: "ARCH", label: "ARCHITECT", icon: Brain, color: "text-purple-400", desc: "Systems & architecture" },
-  { id: "QUEST", label: "QUEST", icon: Target, color: "text-red-400", desc: "Goals & execution" },
-  { id: "FORGE", label: "FORGE", icon: Flame, color: "text-orange-400", desc: "Bioneer & fitness" },
-  { id: "CODEX", label: "CODEX", icon: Zap, color: "text-cyan-400", desc: "Knowledge & patterns" },
-  { id: "SOVEREIGN", label: "SOVEREIGN", icon: Crown, color: "text-amber-400", desc: "High-stakes decisions" },
+  { id: "PRIME", label: "PRIME", icon: Crown, color: "text-primary", desc: "GPT-4o-mini · General purpose" },
+  { id: "ARCH", label: "ARCHITECT", icon: Brain, color: "text-purple-400", desc: "Claude Sonnet · Deep reasoning" },
+  { id: "QUEST", label: "QUEST", icon: Target, color: "text-red-400", desc: "GPT-4o-mini · Goal execution" },
+  { id: "FORGE", label: "FORGE", icon: Flame, color: "text-orange-400", desc: "GPT-4o-mini · Fitness protocols" },
+  { id: "CODEX", label: "CODEX", icon: Zap, color: "text-cyan-400", desc: "Claude Sonnet · Knowledge synthesis" },
+  { id: "SOVEREIGN", label: "SOVEREIGN", icon: Crown, color: "text-amber-400", desc: "Claude Sonnet · High-stakes judgment" },
+  { id: "ENRYU", label: "ENRYU", icon: Flame, color: "text-red-500", desc: "GPT-4o-mini · Raw execution speed" },
+  { id: "WATCHTOWER", label: "WATCHTOWER", icon: Zap, color: "text-emerald-400", desc: "Grok · Live intelligence" },
 ];
 
 const QUICK_PROMPTS = [
