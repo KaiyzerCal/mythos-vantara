@@ -15,12 +15,10 @@ jobs:
       - name: Install Supabase CLI
         uses: supabase/setup-cli@v1
       - name: Deploy mavis-chat
-        run: supabase functions deploy mavis-chat --project-ref "$SUPABASE_PROJECT_REF"
+        run: supabase functions deploy mavis-chat --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
-          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
       - name: Deploy mavis-actions
-        run: supabase functions deploy mavis-actions --project-ref "$SUPABASE_PROJECT_REF"
+        run: supabase functions deploy mavis-actions --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
-          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
