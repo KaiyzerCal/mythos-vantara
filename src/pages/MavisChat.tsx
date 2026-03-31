@@ -120,10 +120,17 @@ Available actions (embed in response, never in a code block):
 :::ACTION{"type":"update_ally","params":{"ally_id":"...","affinity":75,"notes":"..."}}:::
 :::ACTION{"type":"delete_ally","params":{"ally_id":"..."}}:::
 :::ACTION{"type":"create_ritual","params":{"name":"...","description":"...","type":"fitness|business|self_care|legal|other","xp_reward":25}}:::
+:::ACTION{"type":"update_ritual","params":{"ritual_id":"...","name":"...","description":"..."}}:::
+:::ACTION{"type":"delete_ritual","params":{"ritual_id":"..."}}:::
 :::ACTION{"type":"complete_ritual","params":{"ritual_id":"..."}}:::
 :::ACTION{"type":"create_transformation","params":{"name":"...","tier":"...","form_order":0,"bpm_range":"65-75","energy":"Ki","jjk_grade":"Special Grade","op_tier":"God Tier","description":"...","unlocked":false,"category":"..."}}:::
 :::ACTION{"type":"update_transformation","params":{"transformation_id":"...","name":"...","unlocked":true,"description":"..."}}:::
 :::ACTION{"type":"delete_transformation","params":{"transformation_id":"..."}}:::
+:::ACTION{"type":"create_store_item","params":{"name":"...","description":"...","price":100,"currency":"Codex Points","rarity":"common","category":"consumable","effect":"..."}}:::
+:::ACTION{"type":"update_store_item","params":{"item_id":"...","name":"...","price":100}}:::
+:::ACTION{"type":"delete_store_item","params":{"item_id":"..."}}:::
+:::ACTION{"type":"update_task","params":{"task_id":"...","title":"...","status":"active|completed"}}:::
+:::ACTION{"type":"log_bpm_session","params":{"bpm":72,"duration":10,"form":"Base","mood":"focused","notes":"..."}}:::
 :::ACTION{"type":"update_profile","params":{"arc_story":"...","current_form":"...","current_bpm":72,"fatigue":0,"full_cowl_sync":95}}:::
 :::ACTION{"type":"award_xp","params":{"amount":100}}:::
 
