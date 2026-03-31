@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">VANTARA.EXE</string>
+    <string name="title_activity_main">VANTARA.EXE</string>
+    <string name="package_name">com.vantara.exe</string>
+    <string name="custom_url_scheme">com.vantara.exe</string>
+</resources>
