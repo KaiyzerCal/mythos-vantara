@@ -8,7 +8,7 @@ import ReactMarkdown from "react-markdown";
 import { toast } from "sonner";
 
 // ── MAVIS Modes (from Rork mavis-prime-config) ─────────────
-function buildSystemPrompt(profile: any, mode: string, appContext: any): string {
+function buildSystemPrompt(profile: any, mode: string, appContext: any, archivedMemories?: string): string {
   const modeFocus: Record<string, string> = {
     PRIME: "Full-spectrum awareness. Strategy, emotion, systems — all in view simultaneously.",
     ARCH: "Systems architecture and technical design. Think in frameworks, not features.",
@@ -60,6 +60,7 @@ Recent Journal:
 ${journalList || "  None"}
 Vault:
 ${vaultList || "  None"}
+${archivedMemories ? `\nARCHIVED MEMORIES (from previous cleared threads — use these to maintain continuity):\n${archivedMemories}` : ""}
 
 ACTIONS — You can write directly to any part of the app. When you decide to create, update, or delete data, embed the action tag invisibly in your response. The user will NOT see these tags — only your visible reply. Always confirm in your visible text what you did.
 
@@ -148,8 +149,95 @@ export default function MavisChat() {
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [showModes, setShowModes] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [dbLoaded, setDbLoaded] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  // ── Load persisted chat from DB on mount ─────────────────
+  useEffect(() => {
+    if (dbLoaded) return;
+    (async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session?.user) { setDbLoaded(true); return; }
+
+        // Find most recent conversation
+        const { data: convos } = await supabase
+          .from("chat_conversations")
+          .select("id, title")
+          .eq("user_id", session.user.id)
+          .order("updated_at", { ascending: false })
+          .limit(1);
+
+        if (!convos?.length) { setDbLoaded(true); return; }
+
+        const convoId = convos[0].id;
+        setConversationId(convoId);
+
+        // Load messages
+        const { data: msgs } = await supabase
+          .from("chat_messages")
+          .select("*")
+          .eq("conversation_id", convoId)
+          .eq("user_id", session.user.id)
+          .order("created_at", { ascending: true })
+          .limit(200);
+
+        if (msgs?.length) {
+          const restored = msgs.map((m: any) => ({
+            id: m.id,
+            role: m.role as "user" | "assistant",
+            content: m.content,
+            mode: m.mode ?? "PRIME",
+            timestamp: new Date(m.created_at),
+          }));
+          setChatMessages(restored);
+        }
+      } catch (err) {
+        console.error("Failed to restore chat:", err);
+      } finally {
+        setDbLoaded(true);
+      }
+    })();
+  }, [dbLoaded, setChatMessages, setConversationId]);
+
+  // ── Persist a single message to DB ───────────────────────
+  const persistMessage = useCallback(async (msg: { role: string; content: string; mode?: string }, convoId: string) => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.user) return;
+      await supabase.from("chat_messages").insert({
+        conversation_id: convoId,
+        user_id: session.user.id,
+        role: msg.role,
+        content: msg.content,
+        mode: msg.mode ?? "PRIME",
+      });
+    } catch (err) {
+      console.error("Failed to persist message:", err);
+    }
+  }, []);
+
+  // ── Ensure a conversation exists, return its ID ──────────
+  const ensureConversation = useCallback(async (): Promise<string | null> => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.user) return null;
+      if (conversationId) return conversationId;
+
+      const { data, error } = await supabase.from("chat_conversations").insert({
+        user_id: session.user.id,
+        title: `MAVIS Thread — ${new Date().toLocaleDateString()}`,
+      }).select("id").single();
+
+      if (error) throw error;
+      setConversationId(data.id);
+      return data.id;
+    } catch (err) {
+      console.error("Failed to create conversation:", err);
+      return null;
+    }
+  }, [conversationId, setConversationId]);
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -216,6 +304,8 @@ export default function MavisChat() {
     setInput("");
     setActionStatus(null);
 
+    const convoId = await ensureConversation();
+
     const userMsg = {
       id: `u-${Date.now()}`,
       role: "user" as const,
@@ -225,6 +315,9 @@ export default function MavisChat() {
     };
     setChatMessages((prev) => [...prev, userMsg]);
     setIsLoading(true);
+
+    // Persist user message
+    if (convoId) persistMessage({ role: "user", content, mode: chatMode }, convoId);
 
     const apiMessages = [
       ...chatMessages
@@ -237,11 +330,31 @@ export default function MavisChat() {
     // Build app context for system prompt
     const appContext = { quests, tasks, skills, journalEntries, vaultEntries };
 
+    // Load archived memories for continuity
+    let archivedMemories = "";
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.user) {
+        const { data: memories } = await supabase
+          .from("memories")
+          .select("title, content, metadata, created_at")
+          .eq("user_id", session.user.id)
+          .eq("source", "mavis_chat_clear")
+          .order("created_at", { ascending: false })
+          .limit(3);
+        if (memories?.length) {
+          archivedMemories = memories.map((m: any) =>
+            `[${m.title}]\n${(m.metadata as any)?.topic_summary || m.content.slice(0, 1000)}`
+          ).join("\n---\n");
+        }
+      }
+    } catch {} // Non-critical
+
     try {
       const { data: fnData, error } = await supabase.functions.invoke("mavis-chat", {
         body: {
           messages: apiMessages,
-          systemPrompt: buildSystemPrompt(profile, chatMode, appContext),
+          systemPrompt: buildSystemPrompt(profile, chatMode, appContext, archivedMemories),
           mode: chatMode,
           conversationId,
         },
@@ -289,6 +402,9 @@ export default function MavisChat() {
       };
       setChatMessages((prev) => [...prev, assistantMsg]);
       if (fnData?.conversationId) setConversationId(fnData.conversationId);
+
+      // Persist assistant message
+      if (convoId) persistMessage({ role: "assistant", content: visibleContent, mode: chatMode }, convoId);
     } catch (err: any) {
       setChatMessages((prev) => [
         ...prev,
@@ -303,7 +419,7 @@ export default function MavisChat() {
     } finally {
       setIsLoading(false);
     }
-  }, [input, chatMessages, isLoading, chatMode, profile, quests, tasks, skills, journalEntries, vaultEntries, conversationId, setChatMessages, setConversationId, refetchAll]);
+  }, [input, chatMessages, isLoading, chatMode, profile, quests, tasks, skills, journalEntries, vaultEntries, conversationId, setChatMessages, setConversationId, refetchAll, ensureConversation, persistMessage]);
 
   const copyMessage = (id: string, content: string) => {
     navigator.clipboard.writeText(content);
@@ -311,16 +427,62 @@ export default function MavisChat() {
     setTimeout(() => setCopiedId(null), 2000);
   };
 
-  const clearChat = () => {
+  const clearChat = useCallback(async () => {
+    // 1. Trigger OmniSync to preserve state + conversation
+    await handleOmniSync();
+
+    // 2. Save a detailed memory of the conversation for future reference
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.user && chatMessages.length > 1) {
+        const memoryContent = chatMessages
+          .filter(m => m.id !== "init")
+          .map(m => `[${m.role === "user" ? "OPERATOR" : "MAVIS"}] ${m.content}`)
+          .join("\n\n");
+
+        // Condense to key topics and details
+        const topicSummary = chatMessages
+          .filter(m => m.id !== "init")
+          .slice(-20)
+          .map(m => `${m.role === "user" ? "OP" : "M"}: ${m.content.slice(0, 300)}`)
+          .join("\n");
+
+        await supabase.from("memories").insert({
+          user_id: session.user.id,
+          title: `Chat Thread — ${new Date().toLocaleDateString()} ${new Date().toLocaleTimeString()}`,
+          content: memoryContent.slice(0, 50000),
+          memory_type: "conversation",
+          source: "mavis_chat_clear",
+          tags: ["chat_thread", "archived", chatMode.toLowerCase()],
+          metadata: {
+            message_count: chatMessages.length - 1,
+            modes_used: [...new Set(chatMessages.map(m => m.mode).filter(Boolean))],
+            cleared_at: new Date().toISOString(),
+            topic_summary: topicSummary.slice(0, 5000),
+          },
+        });
+
+        // Delete DB messages for this conversation
+        if (conversationId) {
+          await supabase.from("chat_messages").delete().eq("conversation_id", conversationId).eq("user_id", session.user.id);
+          await supabase.from("chat_conversations").delete().eq("id", conversationId).eq("user_id", session.user.id);
+        }
+      }
+    } catch (err) {
+      console.error("Memory save on clear failed:", err);
+    }
+
+    // 3. Reset local state
     setChatMessages([{
       id: "init",
       role: "assistant",
-      content: "Hey, I'm here. What's on your mind?",
+      content: "Thread archived to memory. I remember everything. What's next?",
       mode: "PRIME",
       timestamp: new Date(),
     }]);
     setConversationId(null);
-  };
+    toast.success("Thread archived — memories preserved");
+  }, [handleOmniSync, chatMessages, chatMode, conversationId, setChatMessages, setConversationId]);
 
   return (
     <div className="flex flex-col h-[calc(100dvh-4rem)] gap-2 pb-0">
