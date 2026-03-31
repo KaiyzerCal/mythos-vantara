@@ -113,10 +113,12 @@ Available actions (embed in response, never in a code block):
 :::ACTION{"type":"update_council_member","params":{"member_id":"...","notes":"..."}}:::
 :::ACTION{"type":"delete_council_member","params":{"member_id":"..."}}:::
 :::ACTION{"type":"create_inventory_item","params":{"name":"...","description":"...","type":"equipment|consumable|material|artifact","rarity":"common|rare|epic|legendary|mythic","quantity":1,"effect":"..."}}:::
+:::ACTION{"type":"update_inventory_item","params":{"item_id":"...","name":"...","quantity":1,"is_equipped":true}}:::
 :::ACTION{"type":"delete_inventory_item","params":{"item_id":"..."}}:::
 :::ACTION{"type":"update_energy","params":{"energy_id":"...","current_value":100}}:::
 :::ACTION{"type":"create_ally","params":{"name":"...","relationship":"ally|council|rival","level":1,"specialty":"...","affinity":50,"notes":"..."}}:::
 :::ACTION{"type":"update_ally","params":{"ally_id":"...","affinity":75,"notes":"..."}}:::
+:::ACTION{"type":"delete_ally","params":{"ally_id":"..."}}:::
 :::ACTION{"type":"create_ritual","params":{"name":"...","description":"...","type":"fitness|business|self_care|legal|other","xp_reward":25}}:::
 :::ACTION{"type":"complete_ritual","params":{"ritual_id":"..."}}:::
 :::ACTION{"type":"create_transformation","params":{"name":"...","tier":"...","form_order":0,"bpm_range":"65-75","energy":"Ki","jjk_grade":"Special Grade","op_tier":"God Tier","description":"...","unlocked":false,"category":"..."}}:::
