@@ -583,6 +583,8 @@ async function executeAction(sb: ReturnType<typeof createClient>, userId: string
     case "add_ally":
       return executeAction(sb, userId, { type: "create_ally", params: p });
     case "add_skill":
+    case "add_subskill":
+    case "create_subskill":
       return executeAction(sb, userId, { type: "create_skill", params: p });
     case "add_journal":
     case "create_journal_entry":
