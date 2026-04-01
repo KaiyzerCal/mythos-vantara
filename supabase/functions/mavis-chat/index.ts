@@ -174,7 +174,7 @@ function hasCrudIntent(message: string): boolean {
   return entityKeywords.some((entity) => lower.includes(entity));
 }
 
-async function inferActionsFromConversation(messages: Array<{ role: string; content: string }>): Promise<MavisAction[]> {
+async function inferActionsFromConversation(messages: Array<{ role: string; content: string }>, appState?: string): Promise<MavisAction[]> {
   const apiKey = Deno.env.get("OPENAI_API_KEY") ?? "";
   if (!apiKey || messages.length === 0) return [];
 
