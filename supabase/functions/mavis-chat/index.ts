@@ -421,7 +421,7 @@ Deno.serve(async (req) => {
     const parsedResponse = parseEmbeddedActions(content);
     const inferredActions = parsedResponse.actions.length > 0
       ? parsedResponse.actions
-      : await inferActionsFromConversation(messages);
+      : await inferActionsFromConversation(messages, appState);
 
     return new Response(
       JSON.stringify({
