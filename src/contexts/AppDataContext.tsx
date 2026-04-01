@@ -145,8 +145,8 @@ const AppDataContext = createContext<AppDataContextType | null>(null);
 
 export function useAppData(): AppDataContextType {
   const ctx = useContext(AppDataContext);
-  if (!ctx) throw new Error("useAppData must be used within AppDataProvider");
-  return ctx;
+  if (!ctx) throw new Error("useAppData must be used within AppDataProvider");  
+  return ctx;  
 }
 
 const INITIAL_MAVIS_MSG: ChatMessage = {
