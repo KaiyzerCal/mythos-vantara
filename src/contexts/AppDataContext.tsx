@@ -141,7 +141,7 @@ interface AppDataContextType {
   setChatMode: (mode: string) => void;
 }
 
-const AppDataContext = createContext<AppDataContextType | null>(null);
+export const AppDataContext = createContext<AppDataContextType | null>(null);
 
 export function useAppData(): AppDataContextType {
   const ctx = useContext(AppDataContext);

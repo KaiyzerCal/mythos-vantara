@@ -5,10 +5,10 @@ import {
   Medal, TowerControl, Activity, Settings, ChevronLeft, ChevronRight,
   LogOut, Cpu, Shield,
 } from "lucide-react";
-import { useState } from "react";
+import { useState, useContext } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useAuth } from "@/contexts/AuthContext";
-import { useAppData } from "@/contexts/AppDataContext";
+import { AppDataContext } from "@/contexts/AppDataContext";
 import { RANK_COLORS } from "@/types/rpg";
 
 const PRIMARY_NAV = [
@@ -80,14 +80,9 @@ function SectionLabel({ label, collapsed }: { label: string; collapsed: boolean 
 export default function AppSidebar() {
   const [collapsed, setCollapsed] = useState(false);
   const { signOut } = useAuth();
-  let profile: any = null;
-  try {
-    const ctx = useAppData();
-    profile = ctx.profile;
-  } catch {
-    // Context not yet available during auth transition
-    return null;
-  }
+  const appData = useContext(AppDataContext);
+  if (!appData) return null;
+  const { profile } = appData;
 
   const rankColor = RANK_COLORS[profile.rank as keyof typeof RANK_COLORS] ?? "#666";
 
