@@ -91,6 +91,7 @@ interface AppDataContextType {
   createInventoryItem: (input: any) => Promise<InventoryItem | null>;
   updateInventoryItem: (id: string, input: any) => Promise<void>;
   deleteInventoryItem: (id: string) => Promise<void>;
+  refetchInventory: () => Promise<void>;
 
   // Allies
   allies: Ally[];
@@ -200,7 +201,7 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
         councils, councilsLoading, createCouncilMember, updateCouncilMember, deleteCouncilMember,
         skills, skillsLoading, createSkill, updateSkill, deleteSkill,
         energySystems, energyLoading, updateEnergy, createEnergy, updateEnergyFull, deleteEnergy, seedDefaultEnergy,
-        inventory, inventoryLoading, createInventoryItem, updateInventoryItem, deleteInventoryItem,
+        inventory, inventoryLoading, createInventoryItem, updateInventoryItem, deleteInventoryItem, refetchInventory,
         allies, alliesLoading, createAlly, updateAlly, deleteAlly,
         bpmSessions, bpmLoading, logBpmSession,
         storeItems, storeLoading, createStoreItem, updateStoreItem, deleteStoreItem,
