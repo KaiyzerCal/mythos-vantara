@@ -254,7 +254,19 @@ Extra guidance:
 - For create_quest: always include "title" param.
 - For create_skill: always include "name" param.
 - For create_council_member: always include "name" param.
-- For create_ally: always include "name" param.`;
+- For create_ally: always include "name" param.
+- For update_quest, complete_quest, delete_quest: ALWAYS include "quest_id" from the APP STATE IDs below. If you cannot find the exact ID, include "quest_name" with the quest title so the backend can look it up.
+- For update_skill, delete_skill: include "skill_id". If unknown, include "skill_name".
+- For update_journal, delete_journal: include "entry_id". If unknown, include "entry_title".
+- For update_vault, delete_vault: include "entry_id". If unknown, include "entry_title".
+- For update_inventory_item, delete_inventory_item: include "item_id". If unknown, include "item_name".
+- For update_council_member, delete_council_member: include "member_id". If unknown, include "member_name".
+- For update_ally, delete_ally: include "ally_id". If unknown, include "ally_name".
+- For update_ranking, delete_ranking: include "ranking_id". If unknown, include "ranking_name".
+- For update_transformation, delete_transformation: include "transformation_id". If unknown, include "transformation_name".`;
+
+  // Append app state if available so inferrer can resolve names → IDs
+  const appStateContext = appState ? `\n\nAPP STATE (use these IDs in params):\n${appState}` : "";
 
   const response = await fetch(OPENAI_URL, {
     method: "POST",
