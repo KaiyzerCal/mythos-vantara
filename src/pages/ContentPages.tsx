@@ -465,12 +465,16 @@ export function SkillsPage() {
 
 // ─── InventoryPage ─────────────────────────────────────────
 export function InventoryPage() {
-  const { inventory, inventoryLoading, createInventoryItem, updateInventoryItem, deleteInventoryItem } = useAppData();
+  const { inventory, inventoryLoading, createInventoryItem, updateInventoryItem, deleteInventoryItem, refetchInventory } = useAppData();
   const [showCreate, setShowCreate] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [typeFilter, setTypeFilter] = useState("all");
   const [form, setForm] = useState({ name: "", description: "", type: "equipment", rarity: "common", quantity: 1, effect: "" });
+
+  useEffect(() => {
+    void refetchInventory();
+  }, [refetchInventory]);
 
   const types = ["all", "equipment", "consumable", "material", "artifact"];
   const filtered = inventory.filter((i) => typeFilter === "all" || i.type === typeFilter);
