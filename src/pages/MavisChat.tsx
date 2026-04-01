@@ -453,12 +453,27 @@ export default function MavisChat() {
     } catch {} // Non-critical
 
     try {
+      // Build compact app state for the inferrer (name→ID mapping)
+      const compactState = [
+        ...(quests || []).map((q: any) => `QUEST [${q.id}] "${q.title}" status:${q.status}`),
+        ...(tasks || []).map((t: any) => `TASK [${t.id}] "${t.title}" status:${t.status}`),
+        ...(skills || []).map((s: any) => `SKILL [${s.id}] "${s.name}"${s.parent_skill_id ? ` parent:${s.parent_skill_id}` : ""}`),
+        ...(journalEntries || []).map((j: any) => `JOURNAL [${j.id}] "${j.title}"`),
+        ...(vaultEntries || []).map((v: any) => `VAULT [${v.id}] "${v.title}"`),
+        ...(councils || []).map((c: any) => `COUNCIL [${c.id}] "${c.name}"`),
+        ...(allies || []).map((a: any) => `ALLY [${a.id}] "${a.name}"`),
+        ...(inventory || []).map((i: any) => `INVENTORY [${i.id}] "${i.name}"`),
+        ...(transformations || []).map((t: any) => `TRANSFORMATION [${t.id}] "${t.name}"`),
+        ...(storeItems || []).map((s: any) => `STORE [${s.id}] "${s.name}"`),
+      ].join("\n");
+
       const { data: fnData, error } = await supabase.functions.invoke("mavis-chat", {
         body: {
           messages: apiMessages,
           systemPrompt: buildSystemPrompt(profile, chatMode, appContext, archivedMemories),
           mode: chatMode,
           conversationId,
+          appState: compactState,
         },
       });
 
