@@ -402,8 +402,8 @@ export function SkillsPage() {
           const subs = getSubskills(s.id);
           const isExpanded = expandedSkills.has(s.id);
           return (
-            <div key={s.id} className="space-y-1">
-              <HudCard className={s.unlocked ? "" : "opacity-50"}>
+             <div key={s.id} className="space-y-1">
+              <HudCard className={`cursor-pointer transition-all ${s.unlocked ? "" : "opacity-50"} ${expandedDetail === s.id ? "ring-1 ring-primary/30" : ""}`} onClick={() => setExpandedDetail(expandedDetail === s.id ? null : s.id)}>
                 <div className="flex items-start gap-3">
                   <div className="w-8 h-8 rounded border border-primary/20 bg-primary/5 flex items-center justify-center shrink-0">
                     <Star size={14} className="text-primary" />
@@ -413,13 +413,22 @@ export function SkillsPage() {
                       <p className="text-sm font-display font-bold">{s.name}</p>
                       <span className="text-[9px] font-mono text-muted-foreground border border-border rounded px-1.5 py-0.5">T{s.tier}</span>
                       {subs.length > 0 && (
-                        <button onClick={() => toggleExpand(s.id)} className="text-[9px] font-mono text-primary/60 hover:text-primary transition-colors">
+                        <button onClick={(e) => { e.stopPropagation(); toggleExpand(s.id); }} className="text-[9px] font-mono text-primary/60 hover:text-primary transition-colors">
                           {isExpanded ? "▾" : "▸"} {subs.length} sub
                         </button>
                       )}
                     </div>
                     <p className="text-[10px] font-mono text-primary/60">{s.energy_type}</p>
-                    {s.description && <p className="text-xs font-body text-muted-foreground mt-1 line-clamp-2">{s.description}</p>}
+                    {s.description && <p className={`text-xs font-body text-muted-foreground mt-1 ${expandedDetail === s.id ? "" : "line-clamp-2"}`}>{s.description}</p>}
+                    {expandedDetail === s.id && (
+                      <div className="mt-2 space-y-1 text-[10px] font-mono text-muted-foreground">
+                        <p><span className="text-foreground/60">Category:</span> {s.category}</p>
+                        <p><span className="text-foreground/60">Energy:</span> {s.energy_type}</p>
+                        <p><span className="text-foreground/60">Tier:</span> {s.tier}</p>
+                        <p><span className="text-foreground/60">Proficiency:</span> {s.proficiency}%</p>
+                        <p><span className="text-foreground/60">Status:</span> {s.unlocked ? "Unlocked" : "Locked"}</p>
+                      </div>
+                    )}
                     {s.proficiency > 0 && (
                       <div className="mt-1.5">
                         <ProgressBar value={s.proficiency} max={100} height="xs" label={`${s.proficiency}% proficiency`} />
@@ -427,9 +436,9 @@ export function SkillsPage() {
                     )}
                   </div>
                   <div className="flex flex-col gap-1 shrink-0">
-                    <button onClick={() => handleAddSubskill(s.id)} className="p-1 text-muted-foreground hover:text-primary transition-colors" title="Add subskill"><Plus size={12} /></button>
-                    <button onClick={() => handleEdit(s)} className="p-1 text-muted-foreground hover:text-primary transition-colors"><Edit2 size={12} /></button>
-                    <button onClick={() => deleteSkill(s.id)} className="p-1 text-muted-foreground hover:text-destructive transition-colors"><Trash2 size={12} /></button>
+                    <button onClick={(e) => { e.stopPropagation(); handleAddSubskill(s.id); }} className="p-1 text-muted-foreground hover:text-primary transition-colors" title="Add subskill"><Plus size={12} /></button>
+                    <button onClick={(e) => { e.stopPropagation(); handleEdit(s); }} className="p-1 text-muted-foreground hover:text-primary transition-colors"><Edit2 size={12} /></button>
+                    <button onClick={(e) => { e.stopPropagation(); deleteSkill(s.id); }} className="p-1 text-muted-foreground hover:text-destructive transition-colors"><Trash2 size={12} /></button>
                   </div>
                 </div>
               </HudCard>
