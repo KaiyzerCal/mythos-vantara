@@ -80,7 +80,14 @@ function SectionLabel({ label, collapsed }: { label: string; collapsed: boolean 
 export default function AppSidebar() {
   const [collapsed, setCollapsed] = useState(false);
   const { signOut } = useAuth();
-  const { profile } = useAppData();
+  let profile: any = null;
+  try {
+    const ctx = useAppData();
+    profile = ctx.profile;
+  } catch {
+    // Context not yet available during auth transition
+    return null;
+  }
 
   const rankColor = RANK_COLORS[profile.rank as keyof typeof RANK_COLORS] ?? "#666";
 
