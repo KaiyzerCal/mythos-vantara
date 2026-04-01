@@ -279,7 +279,7 @@ Extra guidance:
       temperature: 0,
       response_format: { type: "json_object" },
       messages: [
-        { role: "system", content: extractorPrompt },
+        { role: "system", content: extractorPrompt + appStateContext },
         {
           role: "user",
           content: `Infer actions from this conversation history:\n${JSON.stringify(recentMessages)}`,
