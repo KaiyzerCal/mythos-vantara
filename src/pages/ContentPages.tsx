@@ -445,7 +445,7 @@ export function SkillsPage() {
               {/* Subskills */}
               {isExpanded && subs.map((sub) => (
                 <div key={sub.id} className="ml-6">
-                  <HudCard className="border-l-2 border-primary/20">
+                  <HudCard className={`border-l-2 border-primary/20 cursor-pointer transition-all ${expandedDetail === sub.id ? "ring-1 ring-primary/30" : ""}`} onClick={() => setExpandedDetail(expandedDetail === sub.id ? null : sub.id)}>
                     <div className="flex items-start gap-2">
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
@@ -453,12 +453,20 @@ export function SkillsPage() {
                           <span className="text-[8px] font-mono text-muted-foreground border border-border rounded px-1 py-0.5">T{sub.tier}</span>
                         </div>
                         <p className="text-[9px] font-mono text-primary/60">{sub.energy_type}</p>
-                        {sub.description && <p className="text-[10px] font-body text-muted-foreground mt-0.5">{sub.description}</p>}
+                        {sub.description && <p className={`text-[10px] font-body text-muted-foreground mt-0.5 ${expandedDetail === sub.id ? "" : "line-clamp-2"}`}>{sub.description}</p>}
+                        {expandedDetail === sub.id && (
+                          <div className="mt-1.5 space-y-0.5 text-[9px] font-mono text-muted-foreground">
+                            <p><span className="text-foreground/60">Category:</span> {sub.category}</p>
+                            <p><span className="text-foreground/60">Energy:</span> {sub.energy_type}</p>
+                            <p><span className="text-foreground/60">Tier:</span> {sub.tier}</p>
+                            <p><span className="text-foreground/60">Proficiency:</span> {sub.proficiency}%</p>
+                          </div>
+                        )}
                         {sub.proficiency > 0 && <ProgressBar value={sub.proficiency} max={100} height="xs" label={`${sub.proficiency}%`} />}
                       </div>
                       <div className="flex flex-col gap-0.5 shrink-0">
-                        <button onClick={() => handleEdit(sub)} className="p-0.5 text-muted-foreground hover:text-primary transition-colors"><Edit2 size={10} /></button>
-                        <button onClick={() => deleteSkill(sub.id)} className="p-0.5 text-muted-foreground hover:text-destructive transition-colors"><Trash2 size={10} /></button>
+                        <button onClick={(e) => { e.stopPropagation(); handleEdit(sub); }} className="p-0.5 text-muted-foreground hover:text-primary transition-colors"><Edit2 size={10} /></button>
+                        <button onClick={(e) => { e.stopPropagation(); deleteSkill(sub.id); }} className="p-0.5 text-muted-foreground hover:text-destructive transition-colors"><Trash2 size={10} /></button>
                       </div>
                     </div>
                   </HudCard>
