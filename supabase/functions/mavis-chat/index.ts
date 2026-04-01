@@ -153,7 +153,7 @@ function hasCrudIntent(message: string): boolean {
   // CRUD action keywords
   const crudTriggers = [
     "create", "add", "make", "new", "build", "generate", "write", "log",
-    "update", "edit", "modify", "change", "set", "adjust", "rename",
+    "update", "edit", "modify", "change", "set", "adjust", "rename", "raise", "lower", "increase", "decrease", "boost", "reduce",
     "delete", "remove", "destroy", "clear", "drop",
     "complete", "finish", "mark", "award", "give",
     "equip", "unequip",
@@ -170,6 +170,10 @@ function hasCrudIntent(message: string): boolean {
     "inventory", "item", "energy", "ally", "allies", "ritual", "transformation",
     "form", "ranking", "store", "bpm", "profile", "stat", "stats",
     "xp", "level", "rank", "entry", "member", "session",
+    "str", "agi", "vit", "int", "wis", "cha", "lck",
+    "strength", "agility", "vitality", "intelligence", "wisdom", "charisma", "luck",
+    "fatigue", "sync", "cowl", "codex", "integrity", "aura", "floor", "gpr", "pvp",
+    "character", "attribute", "attributes",
   ];
   return entityKeywords.some((entity) => lower.includes(entity));
 }
