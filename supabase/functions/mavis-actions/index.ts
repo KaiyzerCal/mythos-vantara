@@ -205,31 +205,47 @@ async function executeAction(sb: ReturnType<typeof createClient>, userId: string
     }
 
     case "update_quest": {
-      if (!p.quest_id) return;
+      let questId = String(p.quest_id || p.id || "");
+      if (!questId && p.quest_name) {
+        const { data: found } = await sb.from("quests").select("id").eq("user_id", userId).ilike("title", String(p.quest_name)).limit(1).single();
+        if (found) questId = found.id;
+      }
+      if (!questId) return;
       const updates: Record<string, unknown> = {};
       for (const key of ["title", "description", "type", "status", "difficulty", "xp_reward", "progress_current", "progress_target", "real_world_mapping", "category"]) {
         if (p[key] !== undefined) updates[key] = p[key];
       }
       updates.updated_at = new Date().toISOString();
-      const { error } = await sb.from("quests").update(updates).eq("id", String(p.quest_id)).eq("user_id", userId);
+      const { error } = await sb.from("quests").update(updates).eq("id", questId).eq("user_id", userId);
       if (error) throw error;
       return;
     }
 
     case "complete_quest": {
-      if (!p.quest_id) return;
-      const { data: quest } = await sb.from("quests").select("xp_reward, title").eq("id", String(p.quest_id)).eq("user_id", userId).single();
+      let questId = String(p.quest_id || p.id || "");
+      if (!questId && p.quest_name) {
+        const { data: found } = await sb.from("quests").select("id").eq("user_id", userId).ilike("title", String(p.quest_name)).limit(1).single();
+        if (found) questId = found.id;
+      }
+      if (!questId) return;
+      const { data: quest } = await sb.from("quests").select("xp_reward, title").eq("id", questId).eq("user_id", userId).single();
       if (!quest) return;
-      await sb.from("quests").update({ status: "completed", updated_at: new Date().toISOString() }).eq("id", String(p.quest_id)).eq("user_id", userId);
+      await sb.from("quests").update({ status: "completed", updated_at: new Date().toISOString() }).eq("id", questId).eq("user_id", userId);
       await awardXP(sb, userId, Number(quest.xp_reward || 0));
       await logActivity(sb, userId, "quest_completed", `Quest completed: ${quest.title}`, Number(quest.xp_reward || 0));
       return;
     }
 
     case "delete_quest": {
-      if (!p.quest_id) return;
-      await sb.from("quests").delete().eq("id", String(p.quest_id)).eq("user_id", userId);
-      await logActivity(sb, userId, "quest_deleted", "Quest deleted", 0);
+      let questId = String(p.quest_id || p.id || "");
+      if (!questId && p.quest_name) {
+        const { data: found } = await sb.from("quests").select("id").eq("user_id", userId).ilike("title", String(p.quest_name)).limit(1).single();
+        if (found) questId = found.id;
+      }
+      if (!questId) return;
+      const { data: quest } = await sb.from("quests").select("title").eq("id", questId).eq("user_id", userId).single();
+      await sb.from("quests").delete().eq("id", questId).eq("user_id", userId);
+      await logActivity(sb, userId, "quest_deleted", `Quest deleted: ${quest?.title || "Unknown"}`, 0);
       return;
     }
 
