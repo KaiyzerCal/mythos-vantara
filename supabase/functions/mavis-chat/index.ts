@@ -381,7 +381,7 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const { messages, systemPrompt, mode, conversationId } = await req.json();
+    const { messages, systemPrompt, mode, conversationId, appState } = await req.json();
 
     // ── Resolve route (with auto-Grok detection) ──
     let route = MODE_MODEL_MAP[mode] ?? DEFAULT_ROUTE;
