@@ -302,6 +302,7 @@ export function SkillsPage() {
   const [form, setForm] = useState({ name: "", description: "", category: "General", energy_type: "Emerald Flames", tier: 1, proficiency: 0, parent_skill_id: "" });
   const [seeding, setSeeding] = useState(false);
   const [expandedSkills, setExpandedSkills] = useState<Set<string>>(new Set());
+  const [expandedDetail, setExpandedDetail] = useState<string | null>(null);
 
   // Auto-seed skills on first load
   useEffect(() => {
