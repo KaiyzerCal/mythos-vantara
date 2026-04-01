@@ -174,7 +174,7 @@ function hasCrudIntent(message: string): boolean {
   return entityKeywords.some((entity) => lower.includes(entity));
 }
 
-async function inferActionsFromConversation(messages: Array<{ role: string; content: string }>): Promise<MavisAction[]> {
+async function inferActionsFromConversation(messages: Array<{ role: string; content: string }>, appState?: string): Promise<MavisAction[]> {
   const apiKey = Deno.env.get("OPENAI_API_KEY") ?? "";
   if (!apiKey || messages.length === 0) return [];
 
@@ -254,7 +254,19 @@ Extra guidance:
 - For create_quest: always include "title" param.
 - For create_skill: always include "name" param.
 - For create_council_member: always include "name" param.
-- For create_ally: always include "name" param.`;
+- For create_ally: always include "name" param.
+- For update_quest, complete_quest, delete_quest: ALWAYS include "quest_id" from the APP STATE IDs below. If you cannot find the exact ID, include "quest_name" with the quest title so the backend can look it up.
+- For update_skill, delete_skill: include "skill_id". If unknown, include "skill_name".
+- For update_journal, delete_journal: include "entry_id". If unknown, include "entry_title".
+- For update_vault, delete_vault: include "entry_id". If unknown, include "entry_title".
+- For update_inventory_item, delete_inventory_item: include "item_id". If unknown, include "item_name".
+- For update_council_member, delete_council_member: include "member_id". If unknown, include "member_name".
+- For update_ally, delete_ally: include "ally_id". If unknown, include "ally_name".
+- For update_ranking, delete_ranking: include "ranking_id". If unknown, include "ranking_name".
+- For update_transformation, delete_transformation: include "transformation_id". If unknown, include "transformation_name".`;
+
+  // Append app state if available so inferrer can resolve names → IDs
+  const appStateContext = appState ? `\n\nAPP STATE (use these IDs in params):\n${appState}` : "";
 
   const response = await fetch(OPENAI_URL, {
     method: "POST",
@@ -267,7 +279,7 @@ Extra guidance:
       temperature: 0,
       response_format: { type: "json_object" },
       messages: [
-        { role: "system", content: extractorPrompt },
+        { role: "system", content: extractorPrompt + appStateContext },
         {
           role: "user",
           content: `Infer actions from this conversation history:\n${JSON.stringify(recentMessages)}`,
@@ -369,7 +381,7 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const { messages, systemPrompt, mode, conversationId } = await req.json();
+    const { messages, systemPrompt, mode, conversationId, appState } = await req.json();
 
     // ── Resolve route (with auto-Grok detection) ──
     let route = MODE_MODEL_MAP[mode] ?? DEFAULT_ROUTE;
@@ -409,7 +421,7 @@ Deno.serve(async (req) => {
     const parsedResponse = parseEmbeddedActions(content);
     const inferredActions = parsedResponse.actions.length > 0
       ? parsedResponse.actions
-      : await inferActionsFromConversation(messages);
+      : await inferActionsFromConversation(messages, appState);
 
     return new Response(
       JSON.stringify({
