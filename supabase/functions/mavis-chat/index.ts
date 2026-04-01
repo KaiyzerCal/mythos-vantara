@@ -240,6 +240,7 @@ Default params when missing:
 - create_ally: {"relationship":"ally","level":1,"specialty":"General","affinity":50,"notes":""}
 - create_ritual: {"description":"","type":"other","xp_reward":25}
 - create_transformation: {"tier":"Base","form_order":0,"bpm_range":"65–75","energy":"Ki","jjk_grade":"Special Grade","op_tier":"God Tier","unlocked":false}
+- update_profile (character stats): use the DB column names: stat_str, stat_agi, stat_vit, stat_int, stat_wis, stat_cha, stat_lck, fatigue, full_cowl_sync, codex_integrity, current_bpm, current_floor, current_form, rank, level, xp, gpr, pvp_rating, aura, aura_power, arc_story, inscribed_name, titles, species_lineage, territory_class, territory_floors
 
 Extra guidance:
 - "inventory" or "item in my inventory" means create_inventory_item, not store_item.
@@ -267,7 +268,23 @@ Extra guidance:
 - For update_council_member, delete_council_member: include "member_id". If unknown, include "member_name".
 - For update_ally, delete_ally: include "ally_id". If unknown, include "ally_name".
 - For update_ranking, delete_ranking: include "ranking_id". If unknown, include "ranking_name".
-- For update_transformation, delete_transformation: include "transformation_id". If unknown, include "transformation_name".`;
+- For update_transformation, delete_transformation: include "transformation_id". If unknown, include "transformation_name".
+
+CHARACTER / STAT updates:
+- When the user says "set my STR to 80" or "change my strength to 80" → update_profile with {"stat_str": 80}
+- "raise my agility by 5" → update_profile with {"stat_agi": <current + 5>}. If you don't know current value, just set the mentioned value.
+- "set fatigue to 30" → update_profile with {"fatigue": 30}
+- "change my rank to A" → update_profile with {"rank": "A"}
+- "set my level to 60" → update_profile with {"level": 60}
+- "lower my fatigue" → update_profile with {"fatigue": 0} (reset to 0 if no value specified)
+- "boost my sync to 95" → update_profile with {"full_cowl_sync": 95}
+- "change my form to Sovereign Mode" → update_profile with {"current_form": "Sovereign Mode"}
+- "set my floor to 70" → update_profile with {"current_floor": 70}
+- "change my aura to Golden Flames" → update_profile with {"aura": "Golden Flames"}
+- "set my arc to The Final Ascent" → update_profile with {"arc_story": "The Final Ascent"}
+- Map user-friendly names: STR=stat_str, AGI=stat_agi, VIT=stat_vit, INT=stat_int, WIS=stat_wis, CHA=stat_cha, LCK=stat_lck, strength=stat_str, agility=stat_agi, vitality=stat_vit, intelligence=stat_int, wisdom=stat_wis, charisma=stat_cha, luck=stat_lck, sync/full cowl=full_cowl_sync, codex/integrity=codex_integrity, bpm=current_bpm, floor=current_floor, form=current_form`;
+
+
 
   // Append app state if available so inferrer can resolve names → IDs
   const appStateContext = appState ? `\n\nAPP STATE (use these IDs in params):\n${appState}` : "";
