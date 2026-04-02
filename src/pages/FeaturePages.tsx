@@ -491,21 +491,37 @@ function buildMemberSystemPrompt(member: any, profile: any, appContext?: any): s
   let contextBlock = "";
   if (appContext) {
     const activeQuests = (appContext.quests || []).filter((q: any) => q.status === "active");
-    const qList = activeQuests.slice(0, 8).map((q: any) => `  • ${q.title} (${q.type}, ${q.difficulty})`).join("\n");
-    const sList = (appContext.skills || []).slice(0, 8).map((s: any) => `  • ${s.name} (${s.category}, T${s.tier}, ${s.proficiency}%)`).join("\n");
-    const eList = (appContext.energySystems || []).map((e: any) => `  • ${e.type}: ${e.current_value}/${e.max_value}`).join("\n");
-    const aList = (appContext.allies || []).slice(0, 5).map((a: any) => `  • ${a.name} (${a.relationship}, affinity:${a.affinity})`).join("\n");
-    const jCount = (appContext.journalEntries || []).length;
-    const vCount = (appContext.vaultEntries || []).length;
+    const qList = activeQuests.slice(0, 10).map((q: any) => `  • ${q.title} (${q.type}, ${q.difficulty}, ${q.status})`).join("\n");
+    const sList = (appContext.skills || []).slice(0, 12).map((s: any) => `  • ${s.name} (${s.category}, T${s.tier}, ${s.proficiency}%${s.parent_skill_id ? ", subskill" : ""})`).join("\n");
+    const eList = (appContext.energySystems || []).map((e: any) => `  • ${e.type}: ${e.current_value}/${e.max_value} [${e.status}]`).join("\n");
+    const aList = (appContext.allies || []).slice(0, 8).map((a: any) => `  • ${a.name} (${a.relationship}, affinity:${a.affinity})`).join("\n");
+    const jRecent = (appContext.journalEntries || []).slice(0, 5).map((j: any) => `  • ${j.title} (${j.category}, ${j.importance})`).join("\n");
+    const vRecent = (appContext.vaultEntries || []).slice(0, 5).map((v: any) => `  • ${v.title} (${v.category}, ${v.importance})`).join("\n");
+    const rList = (appContext.rankings || []).slice(0, 10).map((r: any) => `  • ${r.display_name} [${r.role}] Lv${r.level} ${r.rank} GPR:${r.gpr} PvP:${r.pvp}`).join("\n");
+    const tList = (appContext.transformations || []).slice(0, 10).map((t: any) => `  • ${t.name} (${t.tier}, ${t.unlocked ? "unlocked" : "locked"}, ${t.energy})`).join("\n");
+    const invList = (appContext.inventory || []).slice(0, 10).map((i: any) => `  • ${i.name} (${i.type}, ${i.rarity}, qty:${i.quantity})`).join("\n");
+    const storeList = (appContext.storeItems || []).slice(0, 5).map((s: any) => `  • ${s.name} (${s.category}, ${s.rarity}, ${s.price} ${s.currency})`).join("\n");
+    const taskList = (appContext.tasks || []).filter((t: any) => t.status === "active").slice(0, 5).map((t: any) => `  • ${t.title} (${t.type}, ${t.recurrence})`).join("\n");
+    const bpmRecent = (appContext.bpmSessions || []).slice(0, 3).map((b: any) => `  • ${b.bpm}bpm in ${b.form} (${b.mood || "no mood"})`).join("\n");
+    const councilList = (appContext.councils || []).map((c: any) => `  • ${c.name} (${c.role}, ${c.class})`).join("\n");
     contextBlock = `
 
-OPERATOR'S CURRENT STATE (you can reference this naturally in conversation):
+OPERATOR'S FULL SYSTEM STATE (reference naturally in conversation):
+Character: Fatigue:${appContext.profile?.fatigue ?? "?"} | Sync:${appContext.profile?.full_cowl_sync ?? "?"}% | Codex:${appContext.profile?.codex_integrity ?? "?"}% | BPM:${appContext.profile?.current_bpm ?? "?"} | Floor:${appContext.profile?.current_floor ?? "?"} | GPR:${appContext.profile?.gpr ?? "?"} | PvP:${appContext.profile?.pvp_rating ?? "?"}
 Active Quests:\n${qList || "  None"}
 Skills:\n${sList || "  None"}
 Energy Systems:\n${eList || "  None"}
 Allies:\n${aList || "  None"}
-Journal entries: ${jCount} | Vault entries: ${vCount}
-Inventory: ${(appContext.inventory || []).length} items | Rituals: ${(appContext.rituals || []).length}`;
+Recent Journal:\n${jRecent || "  None"}
+Recent Vault:\n${vRecent || "  None"}
+Rankings/Roster:\n${rList || "  None"}
+Forms/Transformations:\n${tList || "  None"}
+Inventory:\n${invList || "  None"}
+Store:\n${storeList || "  None"}
+Active Tasks:\n${taskList || "  None"}
+Recent BPM:\n${bpmRecent || "  None"}
+Council Members:\n${councilList || "  None"}
+Rituals: ${(appContext.rituals || []).length} total`;
   }
 
   return `${persona}
