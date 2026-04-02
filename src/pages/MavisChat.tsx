@@ -509,7 +509,8 @@ export default function MavisChat() {
             throw new Error(failedResults.map((result: any) => `${result.type}: ${result.error || "Unknown error"}`).join(" | "));
           }
 
-          // Refetch ALL data so every tab updates immediately
+          // Small delay to ensure DB write propagation, then refetch ALL data
+          await new Promise(r => setTimeout(r, 300));
           await refetchAll();
           setActionStatus(`✓ ${actions.map((a) => a.type).join(", ")}`);
           setTimeout(() => setActionStatus(null), 3000);
