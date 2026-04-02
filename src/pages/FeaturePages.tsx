@@ -532,7 +532,7 @@ HOW TO TALK:
 }
 
 function CouncilChat({ member, profile, onClose }: { member: any; profile: any; onClose: () => void }) {
-  const { quests, skills, journalEntries, vaultEntries, energySystems, allies, inventory, rituals } = useAppData();
+  const { quests, skills, journalEntries, vaultEntries, energySystems, allies, inventory, rituals, transformations, rankings, storeItems, bpmSessions, tasks, councils } = useAppData();
   // Build character-specific greeting
   const greetingMap: Record<string, string> = {
     "Kratos": "*sits down heavily* ...What weighs on you, boy?",
