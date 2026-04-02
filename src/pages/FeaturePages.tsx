@@ -617,7 +617,7 @@ function CouncilChat({ member, profile, onClose }: { member: any; profile: any; 
       const { data, error } = await supabase.functions.invoke("mavis-chat", {
         body: {
           messages: apiMessages,
-          systemPrompt: buildMemberSystemPrompt(member, profile, { quests, skills, journalEntries, vaultEntries, energySystems, allies, inventory, rituals }),
+          systemPrompt: buildMemberSystemPrompt(member, profile, { quests, skills, journalEntries, vaultEntries, energySystems, allies, inventory, rituals, transformations, rankings, storeItems, bpmSessions, tasks, councils, profile }),
           mode: "COUNCIL",
           conversationId: null,
         },
