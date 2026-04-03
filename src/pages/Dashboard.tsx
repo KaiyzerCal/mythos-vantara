@@ -24,7 +24,7 @@ const QUICK_ACCESS = [
   { name: "Inventory", icon: Package, to: "/inventory", color: "text-amber-400" },
   { name: "Vault", icon: BookLock, to: "/vault", color: "text-red-600" },
   { name: "Councils", icon: Users, to: "/councils", color: "text-purple-400" },
-  { name: "Tasks", icon: CheckSquare, to: "/tasks", color: "text-green-400" },
+  { name: "Scouter", icon: Shield, to: "/scouter", color: "text-green-400" },
   { name: "Journal", icon: BookOpen, to: "/journal", color: "text-blue-400" },
   { name: "Rankings", icon: Medal, to: "/rankings", color: "text-amber-500" },
   { name: "Tower", icon: TowerControl, to: "/tower", color: "text-violet-400" },
