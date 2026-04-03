@@ -255,9 +255,6 @@ export default function MavisChat() {
   // ── Load persisted chat from DB on mount ─────────────────
   useEffect(() => {
     if (dbLoaded) return;
-    // If context already has real messages (beyond the init msg), skip DB load — state persists across route changes
-    const hasRealMessages = chatMessages.length > 1 || (chatMessages.length === 1 && chatMessages[0].id !== "init");
-    if (hasRealMessages) { setDbLoaded(true); return; }
     (async () => {
       try {
         const { data: { session } } = await supabase.auth.getSession();
@@ -274,7 +271,6 @@ export default function MavisChat() {
         if (!convos?.length) { setDbLoaded(true); return; }
 
         const convoId = convos[0].id;
-        setConversationId(convoId);
 
         // Load messages
         const { data: msgs } = await supabase
@@ -294,6 +290,7 @@ export default function MavisChat() {
             timestamp: new Date(m.created_at),
           }));
           setChatMessages(restored);
+          setConversationId(convoId);
         }
       } catch (err) {
         console.error("Failed to restore chat:", err);
@@ -301,7 +298,7 @@ export default function MavisChat() {
         setDbLoaded(true);
       }
     })();
-  }, [dbLoaded, setChatMessages, setConversationId]);
+  }, []);
 
   // ── Persist a single message to DB ───────────────────────
   const persistMessage = useCallback(async (msg: { role: string; content: string; mode?: string }, convoId: string) => {
