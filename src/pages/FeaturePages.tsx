@@ -806,6 +806,9 @@ function CouncilChat({ member, profile, onClose }: { member: any; profile: any; 
             <p className="text-sm font-display font-bold truncate">{member.name}</p>
             <p className="text-[10px] font-mono text-muted-foreground">{member.role} · {member.class}</p>
           </div>
+          <button onClick={clearCouncilChat} className="text-[10px] font-mono text-muted-foreground hover:text-destructive transition-colors mr-1">
+            Clear
+          </button>
           <button onClick={onClose} className="p-1.5 text-muted-foreground hover:text-foreground transition-colors">
             <X size={16} />
           </button>
