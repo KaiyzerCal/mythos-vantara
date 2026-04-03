@@ -272,6 +272,41 @@ export type Database = {
           },
         ]
       }
+      council_chat_messages: {
+        Row: {
+          content: string
+          council_member_id: string
+          created_at: string
+          id: string
+          role: string
+          user_id: string
+        }
+        Insert: {
+          content: string
+          council_member_id: string
+          created_at?: string
+          id?: string
+          role?: string
+          user_id: string
+        }
+        Update: {
+          content?: string
+          council_member_id?: string
+          created_at?: string
+          id?: string
+          role?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "council_chat_messages_council_member_id_fkey"
+            columns: ["council_member_id"]
+            isOneToOne: false
+            referencedRelation: "councils"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       councils: {
         Row: {
           avatar: string | null
