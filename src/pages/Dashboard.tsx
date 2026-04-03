@@ -28,7 +28,7 @@ const QUICK_ACCESS = [
   { name: "Journal", icon: BookOpen, to: "/journal", color: "text-blue-400" },
   { name: "Rankings", icon: Medal, to: "/rankings", color: "text-amber-500" },
   { name: "Tower", icon: TowerControl, to: "/tower", color: "text-violet-400" },
-  { name: "Allies", icon: Shield, to: "/allies", color: "text-emerald-400" },
+  { name: "Scouter", icon: Shield, to: "/scouter", color: "text-emerald-400" },
   { name: "BPM", icon: Activity, to: "/bpm", color: "text-rose-400" },
   { name: "Store", icon: ShoppingBag, to: "/store", color: "text-yellow-400" },
 ];
