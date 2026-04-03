@@ -660,7 +660,75 @@ function CouncilChat({ member, profile, onClose }: { member: any; profile: any; 
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [showScrollBtn, setShowScrollBtn] = useState(false);
+  const [dbLoaded, setDbLoaded] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  // ── Load persisted council chat from DB ──────────────────
+  useEffect(() => {
+    if (dbLoaded) return;
+    (async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session?.user) { setDbLoaded(true); return; }
+
+        const { data: msgs } = await supabase
+          .from("council_chat_messages")
+          .select("*")
+          .eq("council_member_id", member.id)
+          .eq("user_id", session.user.id)
+          .order("created_at", { ascending: true })
+          .limit(200);
+
+        if (msgs?.length) {
+          const restored: CouncilChatMessage[] = msgs.map((m: any) => ({
+            id: m.id,
+            role: m.role as "user" | "assistant",
+            content: m.content,
+            timestamp: new Date(m.created_at),
+          }));
+          setMessages(restored);
+        }
+      } catch (err) {
+        console.error("Failed to restore council chat:", err);
+      } finally {
+        setDbLoaded(true);
+      }
+    })();
+  }, [member.id]);
+
+  // ── Persist a council message to DB ──────────────────────
+  const persistCouncilMessage = useCallback(async (role: string, content: string) => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.user) return;
+      await supabase.from("council_chat_messages").insert({
+        user_id: session.user.id,
+        council_member_id: member.id,
+        role,
+        content,
+      });
+    } catch (err) {
+      console.error("Failed to persist council message:", err);
+    }
+  }, [member.id]);
+
+  // ── Clear council chat ───────────────────────────────────
+  const clearCouncilChat = useCallback(async () => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.user) {
+        await supabase.from("council_chat_messages")
+          .delete()
+          .eq("council_member_id", member.id)
+          .eq("user_id", session.user.id);
+      }
+    } catch (err) {
+      console.error("Failed to clear council chat:", err);
+    }
+    setMessages([{
+      id: "init", role: "assistant", content: greeting, timestamp: new Date(),
+    }]);
+  }, [member.id, greeting]);
 
   const scrollToBottom = useCallback(() => {
     if (scrollRef.current) scrollRef.current.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
@@ -692,6 +760,9 @@ function CouncilChat({ member, profile, onClose }: { member: any; profile: any; 
     setMessages((prev) => [...prev, userMsg]);
     setIsLoading(true);
 
+    // Persist user message
+    await persistCouncilMessage("user", content);
+
     const apiMessages = [
       ...messages.filter((m) => m.id !== "init").slice(-12).map((m) => ({ role: m.role, content: m.content })),
       { role: "user", content },
@@ -709,12 +780,14 @@ function CouncilChat({ member, profile, onClose }: { member: any; profile: any; 
       if (error) throw error;
       const reply = data?.content ?? "...";
       setMessages((prev) => [...prev, { id: `a-${Date.now()}`, role: "assistant", content: reply, timestamp: new Date() }]);
+      // Persist assistant message
+      await persistCouncilMessage("assistant", reply);
     } catch {
       setMessages((prev) => [...prev, { id: `err-${Date.now()}`, role: "assistant", content: "Connection lost.", timestamp: new Date() }]);
     } finally {
       setIsLoading(false);
     }
-  }, [input, messages, isLoading, member, profile]);
+  }, [input, messages, isLoading, member, profile, persistCouncilMessage]);
 
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-background/80 backdrop-blur-sm p-4">
