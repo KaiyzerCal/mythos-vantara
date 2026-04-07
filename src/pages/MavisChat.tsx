@@ -505,6 +505,7 @@ export default function MavisChat() {
       });
 
       if (error) throw error;
+      if (cancelledRef.current) return; // User pressed cancel
 
       const rawContent = fnData?.content ?? "Systems error — unable to process request.";
       const wasSearched = fnData?.searched === true;
