@@ -562,11 +562,13 @@ export default function MavisChat() {
       setChatMessages((prev) => [...prev, assistantMsg]);
       if (fnData?.conversationId) setConversationId(fnData.conversationId);
 
-      // Persist assistant message
+      // Persist assistant message + auto-save memories
       if (convoId) {
         await persistMessage({ role: "assistant", content: visibleContent, mode: chatMode }, convoId);
       }
+      saveMemoriesFromResponse(content, visibleContent);
     } catch (err: any) {
+      if (cancelledRef.current) return; // Cancelled — don't show error
       setChatMessages((prev) => [
         ...prev,
         {
@@ -579,8 +581,9 @@ export default function MavisChat() {
       ]);
     } finally {
       setIsLoading(false);
+      abortRef.current = null;
     }
-  }, [input, chatMessages, isLoading, chatMode, profile, quests, tasks, skills, journalEntries, vaultEntries, conversationId, setChatMessages, setConversationId, refetchAll, ensureConversation, persistMessage]);
+  }, [input, chatMessages, isLoading, chatMode, profile, quests, tasks, skills, journalEntries, vaultEntries, conversationId, setChatMessages, setConversationId, refetchAll, ensureConversation, persistMessage, saveMemoriesFromResponse]);
 
   const copyMessage = (id: string, content: string) => {
     navigator.clipboard.writeText(content);
