@@ -712,11 +712,34 @@ function CouncilChat({ member, profile, onClose }: { member: any; profile: any; 
     }
   }, [member.id]);
 
-  // ── Clear council chat ───────────────────────────────────
+  // ── Clear council chat (save memories first) ─────────────
   const clearCouncilChat = useCallback(async () => {
     try {
       const { data: { session } } = await supabase.auth.getSession();
       if (session?.user) {
+        // Save conversation as a memory before clearing
+        if (messages.length > 1) {
+          const memoryContent = messages
+            .filter(m => m.id !== "init")
+            .map(m => `[${m.role === "user" ? "OPERATOR" : member.name.toUpperCase()}] ${m.content}`)
+            .join("\n\n");
+
+          await supabase.from("memories").insert({
+            user_id: session.user.id,
+            title: `Council: ${member.name} — ${new Date().toLocaleDateString()}`,
+            content: memoryContent.slice(0, 50000),
+            memory_type: "conversation",
+            source: "council_chat_clear",
+            tags: ["council", member.name.toLowerCase(), "archived"],
+            metadata: {
+              council_member: member.name,
+              member_id: member.id,
+              message_count: messages.length - 1,
+              cleared_at: new Date().toISOString(),
+            },
+          });
+        }
+
         await supabase.from("council_chat_messages")
           .delete()
           .eq("council_member_id", member.id)
@@ -728,7 +751,8 @@ function CouncilChat({ member, profile, onClose }: { member: any; profile: any; 
     setMessages([{
       id: "init", role: "assistant", content: greeting, timestamp: new Date(),
     }]);
-  }, [member.id, greeting]);
+    toast.success("Thread archived — memories preserved");
+  }, [member.id, member.name, greeting, messages]);
 
   const scrollToBottom = useCallback(() => {
     if (scrollRef.current) scrollRef.current.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
