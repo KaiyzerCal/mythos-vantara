@@ -238,9 +238,11 @@ export default function MavisChat() {
   const [isSyncing, setIsSyncing] = useState(false);
   const [dbLoaded, setDbLoaded] = useState(false);
   const [showScrollBtn, setShowScrollBtn] = useState(false);
+  const [isComposing, setIsComposing] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const cancelledRef = useRef(false);
 
   const scrollToBottom = useCallback(() => {
     if (scrollRef.current) scrollRef.current.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
@@ -395,11 +397,39 @@ export default function MavisChat() {
   }, [isSyncing, chatMessages, profile, quests, skills, energySystems, councils, allies, inventory, rituals, journalEntries, vaultEntries, storeItems, bpmSessions]);
 
 
+  // ── Save important memories from conversation ─────────────
+  const saveMemoriesFromResponse = useCallback(async (userContent: string, assistantContent: string) => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.user) return;
+      
+      // Save memories for messages that contain meaningful information (people, places, decisions, key data)
+      const meaningfulPatterns = /\b(remember|important|key point|never forget|note to self|always|my name|i am|i'm from|i live|i work|my goal|my dream|my fear|decided|committed|promise|plan is|strategy is)\b/i;
+      const isUserMeaningful = meaningfulPatterns.test(userContent) || userContent.length > 200;
+      
+      if (isUserMeaningful) {
+        await supabase.from("memories").insert({
+          user_id: session.user.id,
+          title: `Key Info — ${new Date().toLocaleDateString()}`,
+          content: `USER: ${userContent}\n\nMAVIS: ${assistantContent.slice(0, 2000)}`,
+          memory_type: "key_information",
+          source: "mavis_auto_memory",
+          tags: ["auto_extracted", "key_info"],
+          metadata: { extracted_at: new Date().toISOString() },
+        });
+      }
+    } catch {} // Non-critical
+  }, []);
+
   const sendMessage = useCallback(async (text?: string) => {
     const content = (text ?? input).trim();
     if (!content || isLoading) return;
+    cancelledRef.current = false;
     setInput("");
     setActionStatus(null);
+
+    const abortController = new AbortController();
+    abortRef.current = abortController;
 
     const convoId = await ensureConversation();
 
@@ -438,9 +468,9 @@ export default function MavisChat() {
           .from("memories")
           .select("title, content, metadata, created_at")
           .eq("user_id", session.user.id)
-          .eq("source", "mavis_chat_clear")
+          .or("source.eq.mavis_chat_clear,source.eq.mavis_auto_memory,source.eq.council_chat_clear")
           .order("created_at", { ascending: false })
-          .limit(3);
+          .limit(5);
         if (memories?.length) {
           archivedMemories = memories.map((m: any) =>
             `[${m.title}]\n${(m.metadata as any)?.topic_summary || m.content.slice(0, 1000)}`
@@ -475,6 +505,7 @@ export default function MavisChat() {
       });
 
       if (error) throw error;
+      if (cancelledRef.current) return; // User pressed cancel
 
       const rawContent = fnData?.content ?? "Systems error — unable to process request.";
       const wasSearched = fnData?.searched === true;
@@ -531,11 +562,13 @@ export default function MavisChat() {
       setChatMessages((prev) => [...prev, assistantMsg]);
       if (fnData?.conversationId) setConversationId(fnData.conversationId);
 
-      // Persist assistant message
+      // Persist assistant message + auto-save memories
       if (convoId) {
         await persistMessage({ role: "assistant", content: visibleContent, mode: chatMode }, convoId);
       }
+      saveMemoriesFromResponse(content, visibleContent);
     } catch (err: any) {
+      if (cancelledRef.current) return; // Cancelled — don't show error
       setChatMessages((prev) => [
         ...prev,
         {
@@ -548,8 +581,9 @@ export default function MavisChat() {
       ]);
     } finally {
       setIsLoading(false);
+      abortRef.current = null;
     }
-  }, [input, chatMessages, isLoading, chatMode, profile, quests, tasks, skills, journalEntries, vaultEntries, conversationId, setChatMessages, setConversationId, refetchAll, ensureConversation, persistMessage]);
+  }, [input, chatMessages, isLoading, chatMode, profile, quests, tasks, skills, journalEntries, vaultEntries, conversationId, setChatMessages, setConversationId, refetchAll, ensureConversation, persistMessage, saveMemoriesFromResponse]);
 
   const copyMessage = (id: string, content: string) => {
     navigator.clipboard.writeText(content);
@@ -809,8 +843,10 @@ export default function MavisChat() {
           ref={inputRef}
           value={input}
           onChange={(e) => setInput(e.target.value)}
+          onCompositionStart={() => setIsComposing(true)}
+          onCompositionEnd={() => setIsComposing(false)}
           onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey) {
+            if (e.key === "Enter" && !e.shiftKey && !isComposing) {
               e.preventDefault();
               sendMessage();
             }
@@ -821,7 +857,11 @@ export default function MavisChat() {
         />
         {isLoading ? (
           <button
-            onClick={() => { abortRef.current?.abort(); setIsLoading(false); }}
+            onClick={() => {
+              cancelledRef.current = true;
+              abortRef.current?.abort();
+              setIsLoading(false);
+            }}
             className="px-3 py-2 rounded-lg bg-destructive/10 border border-destructive/30 text-destructive hover:bg-destructive/20 transition-all self-end"
             title="Stop generating"
           >

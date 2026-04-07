@@ -6,6 +6,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Target, Plus, Trash2, CheckCircle2, Filter, Loader2, Users, MessageCircle, Send, Square, X, Edit2, ArrowDown } from "lucide-react";
 import { useAppData } from "@/contexts/AppDataContext";
 import { supabase } from "@/integrations/supabase/client";
+import { toast } from "sonner";
 import { PageHeader, HudCard, ProgressBar, QuestTypeBadge, RarityBadge } from "@/components/SharedUI";
 import ReactMarkdown from "react-markdown";
 
@@ -712,11 +713,34 @@ function CouncilChat({ member, profile, onClose }: { member: any; profile: any; 
     }
   }, [member.id]);
 
-  // ── Clear council chat ───────────────────────────────────
+  // ── Clear council chat (save memories first) ─────────────
   const clearCouncilChat = useCallback(async () => {
     try {
       const { data: { session } } = await supabase.auth.getSession();
       if (session?.user) {
+        // Save conversation as a memory before clearing
+        if (messages.length > 1) {
+          const memoryContent = messages
+            .filter(m => m.id !== "init")
+            .map(m => `[${m.role === "user" ? "OPERATOR" : member.name.toUpperCase()}] ${m.content}`)
+            .join("\n\n");
+
+          await supabase.from("memories").insert({
+            user_id: session.user.id,
+            title: `Council: ${member.name} — ${new Date().toLocaleDateString()}`,
+            content: memoryContent.slice(0, 50000),
+            memory_type: "conversation",
+            source: "council_chat_clear",
+            tags: ["council", member.name.toLowerCase(), "archived"],
+            metadata: {
+              council_member: member.name,
+              member_id: member.id,
+              message_count: messages.length - 1,
+              cleared_at: new Date().toISOString(),
+            },
+          });
+        }
+
         await supabase.from("council_chat_messages")
           .delete()
           .eq("council_member_id", member.id)
@@ -728,7 +752,8 @@ function CouncilChat({ member, profile, onClose }: { member: any; profile: any; 
     setMessages([{
       id: "init", role: "assistant", content: greeting, timestamp: new Date(),
     }]);
-  }, [member.id, greeting]);
+    toast.success("Thread archived — memories preserved");
+  }, [member.id, member.name, greeting, messages]);
 
   const scrollToBottom = useCallback(() => {
     if (scrollRef.current) scrollRef.current.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
@@ -768,11 +793,31 @@ function CouncilChat({ member, profile, onClose }: { member: any; profile: any; 
       { role: "user", content },
     ];
 
+    // Load archived memories for this council member
+    let memoriesContext = "";
     try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.user) {
+        const { data: mems } = await supabase
+          .from("memories")
+          .select("title, content, metadata")
+          .eq("user_id", session.user.id)
+          .or(`source.eq.council_chat_clear,source.eq.mavis_chat_clear,source.eq.mavis_auto_memory`)
+          .order("created_at", { ascending: false })
+          .limit(5);
+        if (mems?.length) {
+          memoriesContext = "\n\nARCHIVED MEMORIES (past conversations and key info — reference naturally):\n" +
+            mems.map((m: any) => `[${m.title}]\n${(m.metadata as any)?.topic_summary || m.content.slice(0, 1000)}`).join("\n---\n");
+        }
+      }
+    } catch {} // Non-critical
+
+    try {
+      const systemPrompt = buildMemberSystemPrompt(member, profile, { quests, skills, journalEntries, vaultEntries, energySystems, allies, inventory, rituals, transformations, rankings, storeItems, bpmSessions, tasks, councils, profile }) + memoriesContext;
       const { data, error } = await supabase.functions.invoke("mavis-chat", {
         body: {
           messages: apiMessages,
-          systemPrompt: buildMemberSystemPrompt(member, profile, { quests, skills, journalEntries, vaultEntries, energySystems, allies, inventory, rituals, transformations, rankings, storeItems, bpmSessions, tasks, councils, profile }),
+          systemPrompt,
           mode: "COUNCIL",
           conversationId: null,
         },
@@ -787,7 +832,7 @@ function CouncilChat({ member, profile, onClose }: { member: any; profile: any; 
     } finally {
       setIsLoading(false);
     }
-  }, [input, messages, isLoading, member, profile, persistCouncilMessage]);
+  }, [input, messages, isLoading, member, profile, persistCouncilMessage, quests, skills, journalEntries, vaultEntries, energySystems, allies, inventory, rituals, transformations, rankings, storeItems, bpmSessions, tasks, councils]);
 
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-background/80 backdrop-blur-sm p-4">
