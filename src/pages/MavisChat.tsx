@@ -397,11 +397,39 @@ export default function MavisChat() {
   }, [isSyncing, chatMessages, profile, quests, skills, energySystems, councils, allies, inventory, rituals, journalEntries, vaultEntries, storeItems, bpmSessions]);
 
 
+  // ── Save important memories from conversation ─────────────
+  const saveMemoriesFromResponse = useCallback(async (userContent: string, assistantContent: string) => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.user) return;
+      
+      // Save memories for messages that contain meaningful information (people, places, decisions, key data)
+      const meaningfulPatterns = /\b(remember|important|key point|never forget|note to self|always|my name|i am|i'm from|i live|i work|my goal|my dream|my fear|decided|committed|promise|plan is|strategy is)\b/i;
+      const isUserMeaningful = meaningfulPatterns.test(userContent) || userContent.length > 200;
+      
+      if (isUserMeaningful) {
+        await supabase.from("memories").insert({
+          user_id: session.user.id,
+          title: `Key Info — ${new Date().toLocaleDateString()}`,
+          content: `USER: ${userContent}\n\nMAVIS: ${assistantContent.slice(0, 2000)}`,
+          memory_type: "key_information",
+          source: "mavis_auto_memory",
+          tags: ["auto_extracted", "key_info"],
+          metadata: { extracted_at: new Date().toISOString() },
+        });
+      }
+    } catch {} // Non-critical
+  }, []);
+
   const sendMessage = useCallback(async (text?: string) => {
     const content = (text ?? input).trim();
     if (!content || isLoading) return;
+    cancelledRef.current = false;
     setInput("");
     setActionStatus(null);
+
+    const abortController = new AbortController();
+    abortRef.current = abortController;
 
     const convoId = await ensureConversation();
 
