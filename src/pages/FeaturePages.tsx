@@ -793,11 +793,31 @@ function CouncilChat({ member, profile, onClose }: { member: any; profile: any; 
       { role: "user", content },
     ];
 
+    // Load archived memories for this council member
+    let memoriesContext = "";
     try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.user) {
+        const { data: mems } = await supabase
+          .from("memories")
+          .select("title, content, metadata")
+          .eq("user_id", session.user.id)
+          .or(`source.eq.council_chat_clear,source.eq.mavis_chat_clear,source.eq.mavis_auto_memory`)
+          .order("created_at", { ascending: false })
+          .limit(5);
+        if (mems?.length) {
+          memoriesContext = "\n\nARCHIVED MEMORIES (past conversations and key info — reference naturally):\n" +
+            mems.map((m: any) => `[${m.title}]\n${(m.metadata as any)?.topic_summary || m.content.slice(0, 1000)}`).join("\n---\n");
+        }
+      }
+    } catch {} // Non-critical
+
+    try {
+      const systemPrompt = buildMemberSystemPrompt(member, profile, { quests, skills, journalEntries, vaultEntries, energySystems, allies, inventory, rituals, transformations, rankings, storeItems, bpmSessions, tasks, councils, profile }) + memoriesContext;
       const { data, error } = await supabase.functions.invoke("mavis-chat", {
         body: {
           messages: apiMessages,
-          systemPrompt: buildMemberSystemPrompt(member, profile, { quests, skills, journalEntries, vaultEntries, energySystems, allies, inventory, rituals, transformations, rankings, storeItems, bpmSessions, tasks, councils, profile }),
+          systemPrompt,
           mode: "COUNCIL",
           conversationId: null,
         },
@@ -812,7 +832,7 @@ function CouncilChat({ member, profile, onClose }: { member: any; profile: any; 
     } finally {
       setIsLoading(false);
     }
-  }, [input, messages, isLoading, member, profile, persistCouncilMessage]);
+  }, [input, messages, isLoading, member, profile, persistCouncilMessage, quests, skills, journalEntries, vaultEntries, energySystems, allies, inventory, rituals, transformations, rankings, storeItems, bpmSessions, tasks, councils]);
 
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-background/80 backdrop-blur-sm p-4">
