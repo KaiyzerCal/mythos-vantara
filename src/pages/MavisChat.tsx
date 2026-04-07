@@ -468,9 +468,9 @@ export default function MavisChat() {
           .from("memories")
           .select("title, content, metadata, created_at")
           .eq("user_id", session.user.id)
-          .eq("source", "mavis_chat_clear")
+          .or("source.eq.mavis_chat_clear,source.eq.mavis_auto_memory,source.eq.council_chat_clear")
           .order("created_at", { ascending: false })
-          .limit(3);
+          .limit(5);
         if (memories?.length) {
           archivedMemories = memories.map((m: any) =>
             `[${m.title}]\n${(m.metadata as any)?.topic_summary || m.content.slice(0, 1000)}`
