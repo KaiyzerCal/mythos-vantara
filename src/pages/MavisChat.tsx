@@ -843,8 +843,10 @@ export default function MavisChat() {
           ref={inputRef}
           value={input}
           onChange={(e) => setInput(e.target.value)}
+          onCompositionStart={() => setIsComposing(true)}
+          onCompositionEnd={() => setIsComposing(false)}
           onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey) {
+            if (e.key === "Enter" && !e.shiftKey && !isComposing) {
               e.preventDefault();
               sendMessage();
             }
@@ -855,7 +857,11 @@ export default function MavisChat() {
         />
         {isLoading ? (
           <button
-            onClick={() => { abortRef.current?.abort(); setIsLoading(false); }}
+            onClick={() => {
+              cancelledRef.current = true;
+              abortRef.current?.abort();
+              setIsLoading(false);
+            }}
             className="px-3 py-2 rounded-lg bg-destructive/10 border border-destructive/30 text-destructive hover:bg-destructive/20 transition-all self-end"
             title="Stop generating"
           >
