@@ -238,9 +238,11 @@ export default function MavisChat() {
   const [isSyncing, setIsSyncing] = useState(false);
   const [dbLoaded, setDbLoaded] = useState(false);
   const [showScrollBtn, setShowScrollBtn] = useState(false);
+  const [isComposing, setIsComposing] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const cancelledRef = useRef(false);
 
   const scrollToBottom = useCallback(() => {
     if (scrollRef.current) scrollRef.current.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
