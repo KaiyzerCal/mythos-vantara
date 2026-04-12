@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Send, Square, Cpu, Copy, Check, ChevronDown, Zap, Brain, Target, Crown, Flame, Database, ArrowDown } from "lucide-react";
+import { Send, Square, Cpu, Copy, Check, ChevronDown, Zap, Brain, Target, Crown, Flame, Database, ArrowDown, Mic, MicOff, Volume2, VolumeX } from "lucide-react";
 import { useAppData } from "@/contexts/AppDataContext";
 import { supabase } from "@/integrations/supabase/client";
 import { PageHeader, HudCard } from "@/components/SharedUI";
