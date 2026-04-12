@@ -651,18 +651,24 @@ export default function MavisChat() {
       const actions = parsedResponse.actions.length > 0 ? parsedResponse.actions : inferredActions;
       const visibleContent = parsedResponse.clean;
 
+      console.log("[MAVIS] Parsed actions:", parsedResponse.actions.length, "Inferred actions:", inferredActions.length, "Total:", actions.length, actions);
+
       // Execute actions via mavis-actions edge function
       if (actions.length > 0) {
         setActionStatus(`Executing ${actions.length} action${actions.length > 1 ? "s" : ""}...`);
         try {
           const { data: { session } } = await supabase.auth.getSession();
+          if (!session?.access_token) {
+            console.error("[MAVIS] No session token available for action execution");
+            throw new Error("Not authenticated — please sign in again");
+          }
           const { data: actionData, error: actionError } = await supabase.functions.invoke("mavis-actions", {
             body: { actions },
-            headers: session?.access_token
-              ? { Authorization: `Bearer ${session.access_token}` }
-              : {},
+            headers: { Authorization: `Bearer ${session.access_token}` },
           });
           if (actionError) throw actionError;
+
+          console.log("[MAVIS] Action results:", actionData?.results);
 
           const failedResults = Array.isArray(actionData?.results)
             ? actionData.results.filter((result: any) => result?.success === false)
@@ -672,9 +678,11 @@ export default function MavisChat() {
             throw new Error(failedResults.map((result: any) => `${result.type}: ${result.error || "Unknown error"}`).join(" | "));
           }
 
-          // Small delay to ensure DB write propagation, then refetch ALL data
-          await new Promise(r => setTimeout(r, 300));
+          // Delay to ensure DB write propagation, then refetch ALL data
+          await new Promise(r => setTimeout(r, 500));
           await refetchAll();
+          // Secondary refetch after additional delay for reliability
+          setTimeout(() => { refetchAll(); }, 1500);
           setActionStatus(`✓ ${actions.map((a) => a.type).join(", ")}`);
           setTimeout(() => setActionStatus(null), 3000);
         } catch (actionErr) {
