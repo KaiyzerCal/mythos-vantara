@@ -599,6 +599,21 @@ export default function MavisChat() {
       }
     } catch {} // Non-critical
 
+    // Load vault media for AI awareness
+    let vaultMedia: any[] = [];
+    try {
+      const { data: { session: s2 } } = await supabase.auth.getSession();
+      if (s2?.user) {
+        const { data: mediaData } = await supabase
+          .from("vault_media")
+          .select("id, file_name, file_type, file_size, file_url, description, tags, vault_entry_id")
+          .eq("user_id", s2.user.id)
+          .order("created_at", { ascending: false })
+          .limit(50);
+        if (mediaData) vaultMedia = mediaData;
+      }
+    } catch {} // Non-critical
+
     try {
       // Build compact app state for the inferrer (name→ID mapping)
       const compactState = [
@@ -617,7 +632,7 @@ export default function MavisChat() {
       const { data: fnData, error } = await supabase.functions.invoke("mavis-chat", {
         body: {
           messages: apiMessages,
-          systemPrompt: buildSystemPrompt(profile, chatMode, appContext, archivedMemories),
+          systemPrompt: buildSystemPrompt(profile, chatMode, appContext, archivedMemories, vaultMedia),
           mode: chatMode,
           conversationId,
           appState: compactState,
