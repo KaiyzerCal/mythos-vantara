@@ -15,11 +15,14 @@ function makeHook<T extends { id: string }>(tableName: string) {
 
     const fetch = useCallback(async () => {
       if (!user) return;
-      const { data: rows } = await (supabase as any)
+      const { data: rows, error } = await (supabase as any)
         .from(tableName)
         .select("*")
         .eq("user_id", user.id)
         .order("created_at", { ascending: false });
+      if (error) {
+        console.error(`[useDataHooks] Error fetching ${tableName}:`, error);
+      }
       if (rows) setData(rows as unknown as T[]);
       setLoading(false);
     }, [user]);
