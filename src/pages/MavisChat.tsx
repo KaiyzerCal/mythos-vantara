@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Send, Square, Cpu, Copy, Check, ChevronDown, Zap, Brain, Target, Crown, Flame, Database, ArrowDown } from "lucide-react";
+import { Send, Square, Cpu, Copy, Check, ChevronDown, Zap, Brain, Target, Crown, Flame, Database, ArrowDown, Mic, MicOff, Volume2, VolumeX } from "lucide-react";
 import { useAppData } from "@/contexts/AppDataContext";
 import { supabase } from "@/integrations/supabase/client";
 import { PageHeader, HudCard } from "@/components/SharedUI";
@@ -8,7 +8,7 @@ import ReactMarkdown from "react-markdown";
 import { toast } from "sonner";
 
 // ── MAVIS Modes (from Rork mavis-prime-config) ─────────────
-function buildSystemPrompt(profile: any, mode: string, appContext: any, archivedMemories?: string): string {
+function buildSystemPrompt(profile: any, mode: string, appContext: any, archivedMemories?: string, vaultMedia?: any[]): string {
   const modeFocus: Record<string, string> = {
     PRIME: "Full-spectrum awareness. Strategy, emotion, systems — all in view simultaneously.",
     ARCH: "Systems architecture and technical design. Think in frameworks, not features.",
@@ -107,6 +107,7 @@ BPM SESSIONS (recent 10):
 ${bpmList || "  None"}
 STORE ITEMS:
 ${storeList || "  None"}
+${vaultMedia && vaultMedia.length > 0 ? `VAULT FILES (uploaded media, documents, images — you can reference, describe, and analyze these):\n${vaultMedia.map((m: any) => `  • [${m.id}] ${m.file_name} | type:${m.file_type} | size:${m.file_size}bytes | url:${m.file_url}${m.description ? ` | desc: ${m.description}` : ""}${(m.tags||[]).length ? ` | tags:${m.tags.join(",")}` : ""}${m.vault_entry_id ? ` | linked_to_vault:${m.vault_entry_id}` : ""}`).join("\n")}` : ""}
 ${archivedMemories ? `\nARCHIVED MEMORIES (from previous cleared threads — use these to maintain continuity):\n${archivedMemories}` : ""}
 
 ACTIONS — You can write directly to any part of the app. When you decide to create, update, or delete data, embed the action tag invisibly in your response. The user will NOT see these tags — only your visible reply. Always confirm in your visible text what you did.
@@ -244,10 +245,124 @@ export default function MavisChat() {
   const [dbLoaded, setDbLoaded] = useState(false);
   const [showScrollBtn, setShowScrollBtn] = useState(false);
   const [isComposing, setIsComposing] = useState(false);
+  const [isListening, setIsListening] = useState(false);
+  const [ttsEnabled, setTtsEnabled] = useState(true);
+  const [isSpeaking, setIsSpeaking] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const abortRef = useRef<AbortController | null>(null);
   const cancelledRef = useRef(false);
+  const recognitionRef = useRef<any>(null);
+  const utteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
+
+  // ── Speech Recognition (STT) ────────────────────────────
+  const startListening = useCallback(() => {
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      toast.error("Speech recognition not supported in this browser");
+      return;
+    }
+    const recognition = new SpeechRecognition();
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    recognition.lang = "en-US";
+    
+    let finalTranscript = "";
+    let interimTranscript = "";
+    
+    recognition.onresult = (event: any) => {
+      interimTranscript = "";
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        const transcript = event.results[i][0].transcript;
+        if (event.results[i].isFinal) {
+          finalTranscript += transcript + " ";
+        } else {
+          interimTranscript = transcript;
+        }
+      }
+      setInput(finalTranscript + interimTranscript);
+    };
+    
+    recognition.onerror = (event: any) => {
+      console.error("Speech recognition error:", event.error);
+      if (event.error !== "aborted") {
+        toast.error(`Voice error: ${event.error}`);
+      }
+      setIsListening(false);
+    };
+    
+    recognition.onend = () => {
+      setIsListening(false);
+    };
+    
+    recognitionRef.current = recognition;
+    recognition.start();
+    setIsListening(true);
+  }, []);
+
+  const stopListening = useCallback(() => {
+    if (recognitionRef.current) {
+      recognitionRef.current.stop();
+      recognitionRef.current = null;
+    }
+    setIsListening(false);
+  }, []);
+
+  // ── Text-to-Speech (TTS) ────────────────────────────────
+  const speakText = useCallback((text: string) => {
+    if (!ttsEnabled || !window.speechSynthesis) return;
+    
+    // Cancel any ongoing speech
+    window.speechSynthesis.cancel();
+    
+    // Clean text for speech (remove markdown, action tags, etc.)
+    const cleanText = text
+      .replace(/:::ACTION\{[\s\S]*?\}:::/g, "")
+      .replace(/\*\*(.*?)\*\*/g, "$1")
+      .replace(/\*(.*?)\*/g, "$1")
+      .replace(/`(.*?)`/g, "$1")
+      .replace(/#{1,6}\s/g, "")
+      .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
+      .replace(/[*_~`#]/g, "")
+      .trim();
+    
+    if (!cleanText) return;
+    
+    const utterance = new SpeechSynthesisUtterance(cleanText);
+    utterance.rate = 1.05;
+    utterance.pitch = 0.95;
+    utterance.volume = 0.9;
+    
+    // Try to pick a good voice
+    const voices = window.speechSynthesis.getVoices();
+    const preferred = voices.find(v => v.name.includes("Google") && v.lang.startsWith("en")) 
+      || voices.find(v => v.name.includes("Samantha"))
+      || voices.find(v => v.lang.startsWith("en") && v.localService);
+    if (preferred) utterance.voice = preferred;
+    
+    utterance.onstart = () => setIsSpeaking(true);
+    utterance.onend = () => setIsSpeaking(false);
+    utterance.onerror = () => setIsSpeaking(false);
+    
+    utteranceRef.current = utterance;
+    window.speechSynthesis.speak(utterance);
+  }, [ttsEnabled]);
+
+  const stopSpeaking = useCallback(() => {
+    window.speechSynthesis?.cancel();
+    setIsSpeaking(false);
+  }, []);
+
+  // Load voices on mount
+  useEffect(() => {
+    window.speechSynthesis?.getVoices();
+    const handleVoices = () => window.speechSynthesis?.getVoices();
+    window.speechSynthesis?.addEventListener?.("voiceschanged", handleVoices);
+    return () => {
+      window.speechSynthesis?.removeEventListener?.("voiceschanged", handleVoices);
+      window.speechSynthesis?.cancel();
+    };
+  }, []);
 
   const scrollToBottom = useCallback(() => {
     if (scrollRef.current) scrollRef.current.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
@@ -484,6 +599,21 @@ export default function MavisChat() {
       }
     } catch {} // Non-critical
 
+    // Load vault media for AI awareness
+    let vaultMedia: any[] = [];
+    try {
+      const { data: { session: s2 } } = await supabase.auth.getSession();
+      if (s2?.user) {
+        const { data: mediaData } = await supabase
+          .from("vault_media")
+          .select("id, file_name, file_type, file_size, file_url, description, tags, vault_entry_id")
+          .eq("user_id", s2.user.id)
+          .order("created_at", { ascending: false })
+          .limit(50);
+        if (mediaData) vaultMedia = mediaData;
+      }
+    } catch {} // Non-critical
+
     try {
       // Build compact app state for the inferrer (name→ID mapping)
       const compactState = [
@@ -502,7 +632,7 @@ export default function MavisChat() {
       const { data: fnData, error } = await supabase.functions.invoke("mavis-chat", {
         body: {
           messages: apiMessages,
-          systemPrompt: buildSystemPrompt(profile, chatMode, appContext, archivedMemories),
+          systemPrompt: buildSystemPrompt(profile, chatMode, appContext, archivedMemories, vaultMedia),
           mode: chatMode,
           conversationId,
           appState: compactState,
@@ -565,6 +695,8 @@ export default function MavisChat() {
         timestamp: new Date(),
       };
       setChatMessages((prev) => [...prev, assistantMsg]);
+      // Auto-speak the response if TTS is enabled
+      speakText(visibleContent);
       if (fnData?.conversationId) setConversationId(fnData.conversationId);
 
       // Persist assistant message + auto-save memories
@@ -588,7 +720,7 @@ export default function MavisChat() {
       setIsLoading(false);
       abortRef.current = null;
     }
-  }, [input, chatMessages, isLoading, chatMode, profile, quests, tasks, skills, journalEntries, vaultEntries, conversationId, setChatMessages, setConversationId, refetchAll, ensureConversation, persistMessage, saveMemoriesFromResponse]);
+  }, [input, chatMessages, isLoading, chatMode, profile, quests, tasks, skills, journalEntries, vaultEntries, conversationId, setChatMessages, setConversationId, refetchAll, ensureConversation, persistMessage, saveMemoriesFromResponse, speakText]);
 
   const copyMessage = (id: string, content: string) => {
     navigator.clipboard.writeText(content);
@@ -842,8 +974,54 @@ export default function MavisChat() {
         ))}
       </div>
 
+      {/* Voice controls */}
+      <div className="flex items-center gap-2 justify-end">
+        <button
+          onClick={() => {
+            if (isSpeaking) stopSpeaking();
+            setTtsEnabled(!ttsEnabled);
+          }}
+          className={`flex items-center gap-1 px-2 py-1 text-[9px] font-mono rounded border transition-all ${
+            ttsEnabled
+              ? "text-primary border-primary/30 bg-primary/5"
+              : "text-muted-foreground border-border/50"
+          }`}
+          title={ttsEnabled ? "Voice responses ON — click to mute" : "Voice responses OFF — click to enable"}
+        >
+          {ttsEnabled ? <Volume2 size={10} /> : <VolumeX size={10} />}
+          {ttsEnabled ? "Voice ON" : "Voice OFF"}
+        </button>
+        {isSpeaking && (
+          <button
+            onClick={stopSpeaking}
+            className="flex items-center gap-1 px-2 py-1 text-[9px] font-mono text-destructive border border-destructive/30 rounded animate-pulse"
+          >
+            <Square size={8} /> Stop
+          </button>
+        )}
+      </div>
+
       {/* Input — pinned to bottom with safe-area padding for mobile */}
       <div className="flex gap-2 mt-auto pt-1 pb-[max(env(safe-area-inset-bottom),0.25rem)]">
+        {/* Mic button */}
+        <button
+          onClick={() => {
+            if (isListening) {
+              stopListening();
+            } else {
+              startListening();
+            }
+          }}
+          className={`px-3 py-2 rounded-lg border transition-all self-end ${
+            isListening
+              ? "bg-destructive/10 border-destructive/30 text-destructive animate-pulse"
+              : "bg-muted/30 border-border text-muted-foreground hover:text-primary hover:border-primary/30"
+          }`}
+          title={isListening ? "Stop listening" : "Start voice input"}
+        >
+          {isListening ? <MicOff size={18} /> : <Mic size={18} />}
+        </button>
+
         <textarea
           ref={inputRef}
           value={input}
@@ -853,18 +1031,22 @@ export default function MavisChat() {
           onKeyDown={(e) => {
             if (e.key === "Enter" && !e.shiftKey && !isComposing) {
               e.preventDefault();
+              if (isListening) stopListening();
               sendMessage();
             }
           }}
-          placeholder={`MAVIS-${currentMode.label} awaiting input...`}
+          placeholder={isListening ? "Listening... speak now" : `MAVIS-${currentMode.label} awaiting input...`}
           rows={2}
-          className="flex-1 bg-card border border-border rounded-lg px-3 py-2.5 text-sm font-body resize-none focus:outline-none focus:border-primary/50 placeholder:text-muted-foreground placeholder:font-mono placeholder:text-xs"
+          className={`flex-1 bg-card border rounded-lg px-3 py-2.5 text-sm font-body resize-none focus:outline-none focus:border-primary/50 placeholder:text-muted-foreground placeholder:font-mono placeholder:text-xs ${
+            isListening ? "border-destructive/40" : "border-border"
+          }`}
         />
         {isLoading ? (
           <button
             onClick={() => {
               cancelledRef.current = true;
               abortRef.current?.abort();
+              stopSpeaking();
               setIsLoading(false);
             }}
             className="px-3 py-2 rounded-lg bg-destructive/10 border border-destructive/30 text-destructive hover:bg-destructive/20 transition-all self-end"
@@ -874,7 +1056,10 @@ export default function MavisChat() {
           </button>
         ) : (
           <button
-            onClick={() => sendMessage()}
+            onClick={() => {
+              if (isListening) stopListening();
+              sendMessage();
+            }}
             disabled={!input.trim()}
             className="px-3 py-2 rounded-lg bg-primary/10 border border-primary/30 text-primary hover:bg-primary/20 disabled:opacity-30 disabled:cursor-not-allowed transition-all self-end"
           >
