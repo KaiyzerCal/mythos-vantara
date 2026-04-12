@@ -679,6 +679,8 @@ export default function MavisChat() {
         timestamp: new Date(),
       };
       setChatMessages((prev) => [...prev, assistantMsg]);
+      // Auto-speak the response if TTS is enabled
+      speakText(visibleContent);
       if (fnData?.conversationId) setConversationId(fnData.conversationId);
 
       // Persist assistant message + auto-save memories
