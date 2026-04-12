@@ -107,6 +107,7 @@ BPM SESSIONS (recent 10):
 ${bpmList || "  None"}
 STORE ITEMS:
 ${storeList || "  None"}
+${vaultMedia && vaultMedia.length > 0 ? `VAULT FILES (uploaded media, documents, images — you can reference, describe, and analyze these):\n${vaultMedia.map((m: any) => `  • [${m.id}] ${m.file_name} | type:${m.file_type} | size:${m.file_size}bytes | url:${m.file_url}${m.description ? ` | desc: ${m.description}` : ""}${(m.tags||[]).length ? ` | tags:${m.tags.join(",")}` : ""}${m.vault_entry_id ? ` | linked_to_vault:${m.vault_entry_id}` : ""}`).join("\n")}` : ""}
 ${archivedMemories ? `\nARCHIVED MEMORIES (from previous cleared threads — use these to maintain continuity):\n${archivedMemories}` : ""}
 
 ACTIONS — You can write directly to any part of the app. When you decide to create, update, or delete data, embed the action tag invisibly in your response. The user will NOT see these tags — only your visible reply. Always confirm in your visible text what you did.
