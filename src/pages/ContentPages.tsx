@@ -2,12 +2,14 @@
 // VANTARA.EXE — Journal, VaultCodex, SkillsPage, InventoryPage
 // All with full edit/modify support + auto-seed for skills
 // ============================================================
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { motion } from "framer-motion";
-import { BookOpen, BookLock, Sparkles, Package, Plus, Trash2, Loader2, Star, Edit2 } from "lucide-react";
+import { BookOpen, BookLock, Sparkles, Package, Plus, Trash2, Loader2, Star, Edit2, Upload, FileText, Image, Film, Music, File, X, Eye } from "lucide-react";
 import { useAppData } from "@/contexts/AppDataContext";
 import { useAuth } from "@/contexts/AuthContext";
+import { supabase } from "@/integrations/supabase/client";
 import { PageHeader, HudCard, RarityBadge, ProgressBar } from "@/components/SharedUI";
+import { toast } from "sonner";
 
 // ─── JournalPage ───────────────────────────────────────────
 export function JournalPage() {
