@@ -2,12 +2,14 @@
 // VANTARA.EXE — Journal, VaultCodex, SkillsPage, InventoryPage
 // All with full edit/modify support + auto-seed for skills
 // ============================================================
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { motion } from "framer-motion";
-import { BookOpen, BookLock, Sparkles, Package, Plus, Trash2, Loader2, Star, Edit2 } from "lucide-react";
+import { BookOpen, BookLock, Sparkles, Package, Plus, Trash2, Loader2, Star, Edit2, Upload, FileText, Image, Film, Music, File, X, Eye } from "lucide-react";
 import { useAppData } from "@/contexts/AppDataContext";
 import { useAuth } from "@/contexts/AuthContext";
+import { supabase } from "@/integrations/supabase/client";
 import { PageHeader, HudCard, RarityBadge, ProgressBar } from "@/components/SharedUI";
+import { toast } from "sonner";
 
 // ─── JournalPage ───────────────────────────────────────────
 export function JournalPage() {
@@ -130,16 +132,38 @@ export function JournalPage() {
 // ─── VaultCodexPage ────────────────────────────────────────
 export function VaultCodexPage() {
   const { vaultEntries, vaultLoading, createVaultEntry, updateVaultEntry, deleteVaultEntry } = useAppData();
+  const { session } = useAuth();
   const [showCreate, setShowCreate] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [catFilter, setCatFilter] = useState("all");
   const [form, setForm] = useState({ title: "", content: "", category: "personal", importance: "medium" });
+  const [uploading, setUploading] = useState(false);
+  const [entryMedia, setEntryMedia] = useState<Record<string, any[]>>({});
+  const [showUploadFor, setShowUploadFor] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const categories = ["all", "legal", "business", "personal", "evidence", "achievement"];
   const filtered = vaultEntries.filter((e) => catFilter === "all" || e.category === catFilter);
   const importanceBorder: Record<string, string> = { critical: "border-red-700/50", high: "border-amber-700/50", medium: "border-border", low: "border-border/50" };
   const importanceColor: Record<string, string> = { critical: "text-red-400", high: "text-amber-400", medium: "text-blue-400", low: "text-muted-foreground" };
+
+  // Load media for all entries
+  useEffect(() => {
+    if (!session?.user?.id) return;
+    (async () => {
+      const { data } = await supabase.from("vault_media").select("*").eq("user_id", session.user.id).order("created_at", { ascending: false });
+      if (data) {
+        const grouped: Record<string, any[]> = {};
+        data.forEach((m: any) => {
+          const key = m.vault_entry_id || "__unlinked";
+          if (!grouped[key]) grouped[key] = [];
+          grouped[key].push(m);
+        });
+        setEntryMedia(grouped);
+      }
+    })();
+  }, [session?.user?.id, vaultEntries.length]);
 
   const resetForm = () => { setForm({ title: "", content: "", category: "personal", importance: "medium" }); setEditingId(null); setShowCreate(false); };
 
@@ -159,13 +183,161 @@ export function VaultCodexPage() {
     resetForm();
   };
 
+  const getFileIcon = (fileType: string) => {
+    if (fileType.startsWith("image")) return <Image size={14} className="text-emerald-400" />;
+    if (fileType.startsWith("video")) return <Film size={14} className="text-purple-400" />;
+    if (fileType.startsWith("audio")) return <Music size={14} className="text-amber-400" />;
+    if (fileType.includes("pdf") || fileType.includes("document")) return <FileText size={14} className="text-blue-400" />;
+    return <File size={14} className="text-muted-foreground" />;
+  };
+
+  const formatFileSize = (bytes: number) => {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1048576) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / 1048576).toFixed(1)} MB`;
+  };
+
+  const handleFileUpload = async (entryId: string | null, files: FileList) => {
+    if (!session?.user?.id || files.length === 0) return;
+    setUploading(true);
+    const userId = session.user.id;
+
+    try {
+      for (const file of Array.from(files)) {
+        if (file.size > 50 * 1024 * 1024) {
+          toast.error(`${file.name} exceeds 50MB limit`);
+          continue;
+        }
+
+        const filePath = `${userId}/${Date.now()}_${file.name}`;
+        const { error: uploadError } = await supabase.storage.from("vault-media").upload(filePath, file);
+        if (uploadError) {
+          toast.error(`Upload failed: ${uploadError.message}`);
+          continue;
+        }
+
+        const { data: urlData } = supabase.storage.from("vault-media").getPublicUrl(filePath);
+        const fileUrl = urlData?.publicUrl || filePath;
+
+        // Determine file type category
+        let fileType = "document";
+        if (file.type.startsWith("image/")) fileType = "image";
+        else if (file.type.startsWith("video/")) fileType = "video";
+        else if (file.type.startsWith("audio/")) fileType = "audio";
+        else if (file.type.includes("pdf")) fileType = "pdf";
+
+        await supabase.from("vault_media").insert({
+          user_id: userId,
+          vault_entry_id: entryId,
+          file_name: file.name,
+          file_url: fileUrl,
+          file_type: fileType,
+          file_size: file.size,
+          description: "",
+          tags: [],
+        });
+      }
+
+      // Reload media
+      const { data } = await supabase.from("vault_media").select("*").eq("user_id", userId).order("created_at", { ascending: false });
+      if (data) {
+        const grouped: Record<string, any[]> = {};
+        data.forEach((m: any) => {
+          const key = m.vault_entry_id || "__unlinked";
+          if (!grouped[key]) grouped[key] = [];
+          grouped[key].push(m);
+        });
+        setEntryMedia(grouped);
+      }
+
+      toast.success(`${files.length} file(s) uploaded`);
+    } catch (err) {
+      console.error("Upload error:", err);
+      toast.error("Upload failed");
+    } finally {
+      setUploading(false);
+      setShowUploadFor(null);
+    }
+  };
+
+  const deleteMedia = async (mediaId: string, filePath: string) => {
+    try {
+      // Extract the storage path from the URL
+      const pathMatch = filePath.match(/vault-media\/(.+)$/);
+      if (pathMatch) {
+        await supabase.storage.from("vault-media").remove([pathMatch[1]]);
+      }
+      await supabase.from("vault_media").delete().eq("id", mediaId);
+      
+      // Refresh
+      if (session?.user?.id) {
+        const { data } = await supabase.from("vault_media").select("*").eq("user_id", session.user.id).order("created_at", { ascending: false });
+        if (data) {
+          const grouped: Record<string, any[]> = {};
+          data.forEach((m: any) => {
+            const key = m.vault_entry_id || "__unlinked";
+            if (!grouped[key]) grouped[key] = [];
+            grouped[key].push(m);
+          });
+          setEntryMedia(grouped);
+        }
+      }
+      toast.success("File deleted");
+    } catch { toast.error("Delete failed"); }
+  };
+
   if (vaultLoading) return <div className="flex items-center justify-center h-40"><Loader2 className="animate-spin text-primary" size={24} /></div>;
+
+  // Standalone media (not linked to any entry)
+  const standaloneMedia = entryMedia["__unlinked"] || [];
 
   return (
     <div className="space-y-5">
       <PageHeader title="Vault Codex" subtitle="Classified knowledge & evidence repository" icon={<BookLock size={18} />}
-        actions={<button onClick={() => { resetForm(); setShowCreate(true); }} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono bg-primary/10 border border-primary/30 text-primary rounded"><Plus size={12} /> New Entry</button>}
+        actions={
+          <div className="flex gap-2">
+            <button
+              onClick={() => { setShowUploadFor("__standalone"); }}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono bg-muted/30 border border-border text-muted-foreground hover:text-primary hover:border-primary/30 rounded transition-all"
+            >
+              <Upload size={12} /> Upload Files
+            </button>
+            <button onClick={() => { resetForm(); setShowCreate(true); }} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono bg-primary/10 border border-primary/30 text-primary rounded">
+              <Plus size={12} /> New Entry
+            </button>
+          </div>
+        }
       />
+
+      {/* Standalone file upload */}
+      {showUploadFor === "__standalone" && (
+        <HudCard className="border-primary/20">
+          <div className="flex items-center justify-between mb-2">
+            <p className="text-[9px] font-mono text-primary uppercase tracking-widest">Upload Files to Vault</p>
+            <button onClick={() => setShowUploadFor(null)} className="text-muted-foreground hover:text-foreground"><X size={14} /></button>
+          </div>
+          <input
+            type="file"
+            ref={fileInputRef}
+            multiple
+            className="hidden"
+            accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.txt,.md,.csv,.json,.xls,.xlsx"
+            onChange={(e) => {
+              if (e.target.files) handleFileUpload(null, e.target.files);
+              e.target.value = "";
+            }}
+          />
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            disabled={uploading}
+            className="w-full py-6 border-2 border-dashed border-border hover:border-primary/40 rounded-lg flex flex-col items-center gap-2 transition-all"
+          >
+            {uploading ? <Loader2 className="animate-spin text-primary" size={24} /> : <Upload size={24} className="text-muted-foreground" />}
+            <span className="text-xs font-mono text-muted-foreground">{uploading ? "Uploading..." : "Click to select files (images, videos, audio, PDFs, docs)"}</span>
+          </button>
+        </HudCard>
+      )}
+
       {showCreate && (
         <HudCard className="border-primary/20">
           <p className="text-[9px] font-mono text-primary uppercase tracking-widest mb-3">{editingId ? "Edit Entry" : "New Entry"}</p>
@@ -187,14 +359,45 @@ export function VaultCodexPage() {
           </div>
         </HudCard>
       )}
+
       <div className="flex gap-1.5 flex-wrap">
         {categories.map((c) => (
           <button key={c} onClick={() => setCatFilter(c)} className={`px-2 py-1 text-[10px] font-mono uppercase rounded border transition-all ${catFilter === c ? "bg-primary/10 border-primary/30 text-primary" : "border-border/50 text-muted-foreground"}`}>{c}</button>
         ))}
       </div>
+
+      {/* Standalone media gallery */}
+      {standaloneMedia.length > 0 && (
+        <HudCard>
+          <p className="text-[9px] font-mono text-primary uppercase tracking-widest mb-2">Vault Files ({standaloneMedia.length})</p>
+          <div className="grid grid-cols-2 gap-2">
+            {standaloneMedia.map((m: any) => (
+              <div key={m.id} className="relative group border border-border/50 rounded-lg overflow-hidden">
+                {m.file_type === "image" ? (
+                  <img src={m.file_url} alt={m.file_name} className="w-full h-20 object-cover" />
+                ) : (
+                  <div className="w-full h-20 flex flex-col items-center justify-center gap-1 bg-muted/20">
+                    {getFileIcon(m.file_type)}
+                    <span className="text-[8px] font-mono text-muted-foreground truncate max-w-[90%]">{m.file_name}</span>
+                  </div>
+                )}
+                <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                  <a href={m.file_url} target="_blank" rel="noopener noreferrer" className="p-1 bg-primary/20 rounded"><Eye size={12} className="text-primary" /></a>
+                  <button onClick={() => deleteMedia(m.id, m.file_url)} className="p-1 bg-destructive/20 rounded"><Trash2 size={12} className="text-destructive" /></button>
+                </div>
+                <div className="px-1.5 py-1 bg-card">
+                  <p className="text-[8px] font-mono truncate text-muted-foreground">{formatFileSize(m.file_size)}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </HudCard>
+      )}
+
       <div className="space-y-2">
         {filtered.map((e) => {
           const isExpanded = expandedId === e.id;
+          const media = entryMedia[e.id] || [];
           return (
           <HudCard key={e.id} className={`cursor-pointer transition-all ${importanceBorder[e.importance]} ${isExpanded ? "border-primary/30" : ""}`}>
             <div onClick={() => setExpandedId(isExpanded ? null : e.id)}>
@@ -204,16 +407,60 @@ export function VaultCodexPage() {
                     <h3 className="text-sm font-display font-bold">{e.title}</h3>
                     <span className={`text-[9px] font-mono uppercase ${importanceColor[e.importance]}`}>{e.importance}</span>
                     <span className="text-[9px] font-mono text-muted-foreground">{e.category}</span>
+                    {media.length > 0 && <span className="text-[9px] font-mono text-emerald-400">📎 {media.length}</span>}
                   </div>
                   {e.content && <p className={`text-xs font-body text-muted-foreground ${isExpanded ? "whitespace-pre-wrap" : "line-clamp-3"}`}>{e.content}</p>}
                   {isExpanded && (
-                    <div className="mt-3 space-y-1.5 border-t border-border/30 pt-2">
+                    <div className="mt-3 space-y-2 border-t border-border/30 pt-2">
                       <div className="grid grid-cols-2 gap-2 text-[10px] font-mono">
                         <div><span className="text-muted-foreground">Category:</span> <span className="text-foreground">{e.category}</span></div>
                         <div><span className="text-muted-foreground">Importance:</span> <span className={importanceColor[e.importance]}>{e.importance}</span></div>
-                        {e.attachments?.length > 0 && <div className="col-span-2"><span className="text-muted-foreground">Attachments:</span> <span className="text-foreground">{e.attachments.length} files</span></div>}
                         <div className="col-span-2"><span className="text-muted-foreground">Created:</span> <span className="text-foreground">{new Date(e.created_at).toLocaleString()}</span></div>
-                        {e.updated_at !== e.created_at && <div className="col-span-2"><span className="text-muted-foreground">Updated:</span> <span className="text-foreground">{new Date(e.updated_at).toLocaleString()}</span></div>}
+                      </div>
+                      {/* Attached media */}
+                      {media.length > 0 && (
+                        <div className="space-y-1">
+                          <p className="text-[9px] font-mono text-primary uppercase">Attached Files</p>
+                          <div className="grid grid-cols-2 gap-1.5">
+                            {media.map((m: any) => (
+                              <div key={m.id} className="relative group border border-border/50 rounded overflow-hidden">
+                                {m.file_type === "image" ? (
+                                  <img src={m.file_url} alt={m.file_name} className="w-full h-16 object-cover" />
+                                ) : (
+                                  <div className="w-full h-16 flex flex-col items-center justify-center gap-1 bg-muted/20">
+                                    {getFileIcon(m.file_type)}
+                                    <span className="text-[7px] font-mono text-muted-foreground truncate max-w-[90%]">{m.file_name}</span>
+                                  </div>
+                                )}
+                                <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                                  <a href={m.file_url} target="_blank" rel="noopener noreferrer" className="p-1 bg-primary/20 rounded"><Eye size={10} className="text-primary" /></a>
+                                  <button onClick={(ev) => { ev.stopPropagation(); deleteMedia(m.id, m.file_url); }} className="p-1 bg-destructive/20 rounded"><Trash2 size={10} className="text-destructive" /></button>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      {/* Upload to this entry */}
+                      <div onClick={(ev) => ev.stopPropagation()}>
+                        <input
+                          type="file"
+                          id={`upload-${e.id}`}
+                          multiple
+                          className="hidden"
+                          accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.txt,.md,.csv,.json,.xls,.xlsx"
+                          onChange={(ev) => {
+                            if (ev.target.files) handleFileUpload(e.id, ev.target.files);
+                            ev.target.value = "";
+                          }}
+                        />
+                        <button
+                          onClick={() => document.getElementById(`upload-${e.id}`)?.click()}
+                          disabled={uploading}
+                          className="flex items-center gap-1 text-[9px] font-mono text-muted-foreground hover:text-primary transition-colors mt-1"
+                        >
+                          <Upload size={10} /> {uploading ? "Uploading..." : "Attach files"}
+                        </button>
                       </div>
                     </div>
                   )}
