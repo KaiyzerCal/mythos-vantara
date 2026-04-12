@@ -7,11 +7,15 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 
 // ─── helpers ───────────────────────────────────────────────
-function makeHook<T extends { id: string }>(tableName: string) {
+function makeHook<T extends { id: string }>(
+  tableName: string,
+  options?: { orderColumn?: string }
+) {
   return function useTableData() {
     const { user } = useAuth();
     const [data, setData] = useState<T[]>([]);
     const [loading, setLoading] = useState(true);
+    const orderColumn = options?.orderColumn ?? "created_at";
 
     const fetch = useCallback(async () => {
       if (!user) return;
@@ -19,13 +23,13 @@ function makeHook<T extends { id: string }>(tableName: string) {
         .from(tableName)
         .select("*")
         .eq("user_id", user.id)
-        .order("created_at", { ascending: false });
+        .order(orderColumn, { ascending: false });
       if (error) {
         console.error(`[useDataHooks] Error fetching ${tableName}:`, error);
       }
       if (rows) setData(rows as unknown as T[]);
       setLoading(false);
-    }, [user]);
+    }, [orderColumn, tableName, user]);
 
     useEffect(() => { fetch(); }, [fetch]);
 
@@ -254,7 +258,7 @@ export interface InventoryItem {
   is_equipped: boolean;
   obtained_at: string;
 }
-export const useInventory = makeHook<InventoryItem>("inventory");
+export const useInventory = makeHook<InventoryItem>("inventory", { orderColumn: "obtained_at" });
 
 // ─── ALLIES ────────────────────────────────────────────────
 export interface Ally {
