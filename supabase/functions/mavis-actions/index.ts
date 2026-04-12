@@ -51,6 +51,22 @@ async function awardXP(sb: ReturnType<typeof createClient>, userId: string, amou
   }).eq("id", userId);
 }
 
+// ── Name-based ID resolver ────────────────────────────────
+async function resolveId(
+  sb: ReturnType<typeof createClient>,
+  userId: string,
+  table: string,
+  idParam: string | undefined,
+  nameParam: string | undefined,
+  nameColumn = "name",
+  userColumn = "user_id"
+): Promise<string> {
+  if (idParam) return String(idParam);
+  if (!nameParam) return "";
+  const { data } = await sb.from(table).select("id").eq(userColumn, userId).ilike(nameColumn, String(nameParam)).limit(1).single();
+  return data?.id || "";
+}
+
 // ── Profile fields MAVIS is allowed to update ─────────────
 const PROFILE_ALLOWED = [
   "inscribed_name", "true_name", "titles", "species_lineage", "aura",
@@ -65,150 +81,51 @@ const PROFILE_ALLOWED = [
 
 // ── Alias normalization ─────────────────────────────────────
 const ACTION_ALIASES: Record<string, string> = {
-  // Inventory
-  "create_item": "create_inventory_item",
-  "add_item": "create_inventory_item",
-  "add_inventory": "create_inventory_item",
-  "add_inventory_item": "create_inventory_item",
-  "new_item": "create_inventory_item",
-  "update_item": "update_inventory_item",
-  "edit_item": "update_inventory_item",
-  "delete_item": "delete_inventory_item",
-  "remove_item": "delete_inventory_item",
-  // Quests
-  "add_quest": "create_quest",
-  "new_quest": "create_quest",
-  "edit_quest": "update_quest",
-  "remove_quest": "delete_quest",
-  "finish_quest": "complete_quest",
-  // Tasks
-  "add_task": "create_task",
-  "new_task": "create_task",
-  "edit_task": "update_task",
-  "remove_task": "delete_task",
-  "finish_task": "complete_task",
-  // Skills
-  "add_skill": "create_skill",
-  "new_skill": "create_skill",
-  "edit_skill": "update_skill",
-  "remove_skill": "delete_skill",
-  "add_subskill": "create_subskill",
-  "new_subskill": "create_subskill",
-  // Journal
-  "add_journal": "create_journal",
-  "new_journal": "create_journal",
-  "create_journal_entry": "create_journal",
-  "add_journal_entry": "create_journal",
-  "edit_journal": "update_journal",
-  "remove_journal": "delete_journal",
-  "delete_journal_entry": "delete_journal",
-  // Vault
-  "add_vault": "create_vault",
-  "new_vault": "create_vault",
-  "create_vault_entry": "create_vault",
-  "add_vault_entry": "create_vault",
-  "edit_vault": "update_vault",
-  "remove_vault": "delete_vault",
-  "delete_vault_entry": "delete_vault",
-  // Council
-  "add_council": "create_council_member",
-  "create_council": "create_council_member",
-  "new_council": "create_council_member",
-  "add_council_member": "create_council_member",
-  "edit_council": "update_council_member",
-  "edit_council_member": "update_council_member",
-  "remove_council": "delete_council_member",
-  "remove_council_member": "delete_council_member",
-  // Allies
-  "add_ally": "create_ally",
-  "new_ally": "create_ally",
-  "edit_ally": "update_ally",
-  "remove_ally": "delete_ally",
-  // Energy
-  "edit_energy": "update_energy",
-  "create_energy": "create_energy_system",
-  "add_energy": "create_energy_system",
-  "new_energy": "create_energy_system",
-  // Transformations
-  "add_transformation": "create_transformation",
-  "add_form": "create_transformation",
-  "create_form": "create_transformation",
-  "new_form": "create_transformation",
-  "new_transformation": "create_transformation",
-  "edit_transformation": "update_transformation",
-  "edit_form": "update_transformation",
-  "remove_transformation": "delete_transformation",
-  "remove_form": "delete_transformation",
-  // Store
-  "add_store_item": "create_store_item",
-  "new_store_item": "create_store_item",
-  "edit_store_item": "update_store_item",
-  "remove_store_item": "delete_store_item",
-  // Rankings
-  "add_ranking": "create_ranking",
-  "new_ranking": "create_ranking",
-  "edit_ranking": "update_ranking",
-  "remove_ranking": "delete_ranking",
-  // Rituals
-  "add_ritual": "create_ritual",
-  "new_ritual": "create_ritual",
-  "edit_ritual": "update_ritual",
-  "remove_ritual": "delete_ritual",
-  "finish_ritual": "complete_ritual",
-  // Profile / Character / Stats
-  "edit_profile": "update_profile",
-  "modify_profile": "update_profile",
-  "set_stats": "update_profile",
-  "update_stats": "update_profile",
-  "change_stats": "update_profile",
-  "modify_stats": "update_profile",
-  "edit_stats": "update_profile",
-  "update_character": "update_profile",
-  "edit_character": "update_profile",
-  "modify_character": "update_profile",
-  "change_character": "update_profile",
-  "set_stat": "update_profile",
-  "change_stat": "update_profile",
-  "update_stat": "update_profile",
-  "set_fatigue": "update_profile",
-  "change_fatigue": "update_profile",
-  "update_fatigue": "update_profile",
-  "set_level": "update_profile",
-  "change_level": "update_profile",
-  "set_rank": "update_profile",
-  "change_rank": "update_profile",
-  "set_str": "update_profile",
-  "set_agi": "update_profile",
-  "set_vit": "update_profile",
-  "set_int": "update_profile",
-  "set_wis": "update_profile",
-  "set_cha": "update_profile",
-  "set_lck": "update_profile",
-  "set_sync": "update_profile",
-  "change_sync": "update_profile",
-  "set_codex": "update_profile",
-  "change_codex": "update_profile",
-  "set_bpm": "update_profile",
-  "change_bpm": "update_profile",
-  "set_floor": "update_profile",
-  "change_floor": "update_profile",
-  "set_gpr": "update_profile",
-  "change_gpr": "update_profile",
-  "set_pvp": "update_profile",
-  "change_pvp": "update_profile",
-  "set_form": "update_profile",
-  "change_form": "update_profile",
-  "set_aura": "update_profile",
-  "change_aura": "update_profile",
-  "set_arc": "update_profile",
-  "change_arc": "update_profile",
-  // XP
-  "give_xp": "award_xp",
-  "add_xp": "award_xp",
-  // BPM
-  "add_bpm": "log_bpm_session",
-  "create_bpm": "log_bpm_session",
-  "log_bpm": "log_bpm_session",
+  "create_item": "create_inventory_item", "add_item": "create_inventory_item", "add_inventory": "create_inventory_item",
+  "add_inventory_item": "create_inventory_item", "new_item": "create_inventory_item",
+  "update_item": "update_inventory_item", "edit_item": "update_inventory_item",
+  "delete_item": "delete_inventory_item", "remove_item": "delete_inventory_item",
+  "add_quest": "create_quest", "new_quest": "create_quest", "edit_quest": "update_quest", "remove_quest": "delete_quest", "finish_quest": "complete_quest",
+  "add_task": "create_task", "new_task": "create_task", "edit_task": "update_task", "remove_task": "delete_task", "finish_task": "complete_task",
+  "add_skill": "create_skill", "new_skill": "create_skill", "edit_skill": "update_skill", "remove_skill": "delete_skill",
+  "add_subskill": "create_subskill", "new_subskill": "create_subskill",
+  "add_journal": "create_journal", "new_journal": "create_journal", "create_journal_entry": "create_journal", "add_journal_entry": "create_journal",
+  "edit_journal": "update_journal", "remove_journal": "delete_journal", "delete_journal_entry": "delete_journal",
+  "add_vault": "create_vault", "new_vault": "create_vault", "create_vault_entry": "create_vault", "add_vault_entry": "create_vault",
+  "edit_vault": "update_vault", "remove_vault": "delete_vault", "delete_vault_entry": "delete_vault",
+  "add_council": "create_council_member", "create_council": "create_council_member", "new_council": "create_council_member", "add_council_member": "create_council_member",
+  "edit_council": "update_council_member", "edit_council_member": "update_council_member",
+  "remove_council": "delete_council_member", "remove_council_member": "delete_council_member",
+  "add_ally": "create_ally", "new_ally": "create_ally", "edit_ally": "update_ally", "remove_ally": "delete_ally",
+  "edit_energy": "update_energy", "create_energy": "create_energy_system", "add_energy": "create_energy_system", "new_energy": "create_energy_system",
+  "add_transformation": "create_transformation", "add_form": "create_transformation", "create_form": "create_transformation",
+  "new_form": "create_transformation", "new_transformation": "create_transformation",
+  "edit_transformation": "update_transformation", "edit_form": "update_transformation",
+  "remove_transformation": "delete_transformation", "remove_form": "delete_transformation",
+  "add_store_item": "create_store_item", "new_store_item": "create_store_item",
+  "edit_store_item": "update_store_item", "remove_store_item": "delete_store_item",
+  "add_ranking": "create_ranking", "new_ranking": "create_ranking", "edit_ranking": "update_ranking", "remove_ranking": "delete_ranking",
+  "add_ritual": "create_ritual", "new_ritual": "create_ritual", "edit_ritual": "update_ritual", "remove_ritual": "delete_ritual", "finish_ritual": "complete_ritual",
+  "edit_profile": "update_profile", "modify_profile": "update_profile",
+  "set_stats": "update_profile", "update_stats": "update_profile", "change_stats": "update_profile", "modify_stats": "update_profile", "edit_stats": "update_profile",
+  "update_character": "update_profile", "edit_character": "update_profile", "modify_character": "update_profile", "change_character": "update_profile",
+  "set_stat": "update_profile", "change_stat": "update_profile", "update_stat": "update_profile",
+  "set_fatigue": "update_profile", "change_fatigue": "update_profile", "update_fatigue": "update_profile",
+  "set_level": "update_profile", "change_level": "update_profile",
+  "set_rank": "update_profile", "change_rank": "update_profile",
+  "set_str": "update_profile", "set_agi": "update_profile", "set_vit": "update_profile", "set_int": "update_profile",
+  "set_wis": "update_profile", "set_cha": "update_profile", "set_lck": "update_profile",
+  "set_sync": "update_profile", "change_sync": "update_profile",
+  "set_codex": "update_profile", "change_codex": "update_profile",
+  "set_bpm": "update_profile", "change_bpm": "update_profile",
+  "set_floor": "update_profile", "change_floor": "update_profile",
+  "set_gpr": "update_profile", "change_gpr": "update_profile",
+  "set_pvp": "update_profile", "change_pvp": "update_profile",
+  "set_form": "update_profile", "change_form": "update_profile",
+  "set_aura": "update_profile", "change_aura": "update_profile",
+  "set_arc": "update_profile", "change_arc": "update_profile",
+  "give_xp": "award_xp", "add_xp": "award_xp",
+  "add_bpm": "log_bpm_session", "create_bpm": "log_bpm_session", "log_bpm": "log_bpm_session",
 };
 
 function normalizeActionType(type: string): string {
@@ -247,11 +164,7 @@ async function executeAction(sb: ReturnType<typeof createClient>, userId: string
     }
 
     case "update_quest": {
-      let questId = String(p.quest_id || p.id || "");
-      if (!questId && p.quest_name) {
-        const { data: found } = await sb.from("quests").select("id").eq("user_id", userId).ilike("title", String(p.quest_name)).limit(1).single();
-        if (found) questId = found.id;
-      }
+      const questId = await resolveId(sb, userId, "quests", p.quest_id as string, (p.quest_name || p.title) as string, "title");
       if (!questId) return;
       const updates: Record<string, unknown> = {};
       for (const key of ["title", "description", "type", "status", "difficulty", "xp_reward", "progress_current", "progress_target", "real_world_mapping", "category"]) {
@@ -264,11 +177,7 @@ async function executeAction(sb: ReturnType<typeof createClient>, userId: string
     }
 
     case "complete_quest": {
-      let questId = String(p.quest_id || p.id || "");
-      if (!questId && p.quest_name) {
-        const { data: found } = await sb.from("quests").select("id").eq("user_id", userId).ilike("title", String(p.quest_name)).limit(1).single();
-        if (found) questId = found.id;
-      }
+      const questId = await resolveId(sb, userId, "quests", (p.quest_id || p.id) as string, (p.quest_name || p.title) as string, "title");
       if (!questId) return;
       const { data: quest } = await sb.from("quests").select("xp_reward, title").eq("id", questId).eq("user_id", userId).single();
       if (!quest) return;
@@ -279,11 +188,7 @@ async function executeAction(sb: ReturnType<typeof createClient>, userId: string
     }
 
     case "delete_quest": {
-      let questId = String(p.quest_id || p.id || "");
-      if (!questId && p.quest_name) {
-        const { data: found } = await sb.from("quests").select("id").eq("user_id", userId).ilike("title", String(p.quest_name)).limit(1).single();
-        if (found) questId = found.id;
-      }
+      const questId = await resolveId(sb, userId, "quests", (p.quest_id || p.id) as string, (p.quest_name || p.title) as string, "title");
       if (!questId) return;
       const { data: quest } = await sb.from("quests").select("title").eq("id", questId).eq("user_id", userId).single();
       await sb.from("quests").delete().eq("id", questId).eq("user_id", userId);
@@ -310,8 +215,9 @@ async function executeAction(sb: ReturnType<typeof createClient>, userId: string
     }
 
     case "complete_task": {
-      if (!p.task_id) return;
-      const { data: task } = await sb.from("tasks").select("xp_reward, title, recurrence, completed_count, streak").eq("id", String(p.task_id)).eq("user_id", userId).single();
+      const taskId = await resolveId(sb, userId, "tasks", (p.task_id || p.id) as string, (p.task_name || p.title) as string, "title");
+      if (!taskId) return;
+      const { data: task } = await sb.from("tasks").select("xp_reward, title, recurrence, completed_count, streak").eq("id", taskId).eq("user_id", userId).single();
       if (!task) return;
       const newStatus = task.recurrence === "once" ? "completed" : "active";
       await sb.from("tasks").update({
@@ -320,15 +226,28 @@ async function executeAction(sb: ReturnType<typeof createClient>, userId: string
         streak: (task.streak || 0) + 1,
         last_completed: new Date().toISOString(),
         updated_at: new Date().toISOString(),
-      }).eq("id", String(p.task_id)).eq("user_id", userId);
+      }).eq("id", taskId).eq("user_id", userId);
       await awardXP(sb, userId, Number(task.xp_reward || 0));
       await logActivity(sb, userId, "task_completed", `Task completed: ${task.title}`, Number(task.xp_reward || 0));
       return;
     }
 
+    case "update_task": {
+      const taskId = await resolveId(sb, userId, "tasks", (p.task_id || p.id) as string, (p.task_name || p.title) as string, "title");
+      if (!taskId) return;
+      const updates: Record<string, unknown> = {};
+      for (const key of ["title", "description", "type", "status", "recurrence", "xp_reward"]) {
+        if (p[key] !== undefined) updates[key] = p[key];
+      }
+      updates.updated_at = new Date().toISOString();
+      await sb.from("tasks").update(updates).eq("id", taskId).eq("user_id", userId);
+      return;
+    }
+
     case "delete_task": {
-      if (!p.task_id) return;
-      await sb.from("tasks").delete().eq("id", String(p.task_id)).eq("user_id", userId);
+      const taskId = await resolveId(sb, userId, "tasks", (p.task_id || p.id) as string, (p.task_name || p.title) as string, "title");
+      if (!taskId) return;
+      await sb.from("tasks").delete().eq("id", taskId).eq("user_id", userId);
       return;
     }
 
@@ -348,27 +267,34 @@ async function executeAction(sb: ReturnType<typeof createClient>, userId: string
         prerequisites: asStringArray(p.prerequisites),
       };
       if (p.parent_skill_id) insertData.parent_skill_id = String(p.parent_skill_id);
+      // If parent_skill_name provided but no ID, resolve it
+      if (!p.parent_skill_id && p.parent_skill_name) {
+        const parentId = await resolveId(sb, userId, "skills", undefined, p.parent_skill_name as string);
+        if (parentId) insertData.parent_skill_id = parentId;
+      }
       const { error } = await sb.from("skills").insert(insertData);
       if (error) throw error;
-      const label = p.parent_skill_id ? "Subskill" : "Skill";
+      const label = insertData.parent_skill_id ? "Subskill" : "Skill";
       await logActivity(sb, userId, "skill_created", `${label} unlocked: ${String(p.name || "New Skill")}`, 0);
       return;
     }
 
     case "update_skill": {
-      if (!p.skill_id) return;
+      const skillId = await resolveId(sb, userId, "skills", (p.skill_id || p.id) as string, (p.skill_name || p.name) as string);
+      if (!skillId) return;
       const updates: Record<string, unknown> = {};
       for (const key of ["name", "description", "category", "energy_type", "tier", "unlocked", "proficiency"]) {
         if (p[key] !== undefined) updates[key] = p[key];
       }
       updates.updated_at = new Date().toISOString();
-      await sb.from("skills").update(updates).eq("id", String(p.skill_id)).eq("user_id", userId);
+      await sb.from("skills").update(updates).eq("id", skillId).eq("user_id", userId);
       return;
     }
 
     case "delete_skill": {
-      if (!p.skill_id) return;
-      await sb.from("skills").delete().eq("id", String(p.skill_id)).eq("user_id", userId);
+      const skillId = await resolveId(sb, userId, "skills", (p.skill_id || p.id) as string, (p.skill_name || p.name) as string);
+      if (!skillId) return;
+      await sb.from("skills").delete().eq("id", skillId).eq("user_id", userId);
       return;
     }
 
@@ -392,19 +318,21 @@ async function executeAction(sb: ReturnType<typeof createClient>, userId: string
     }
 
     case "update_journal": {
-      if (!p.entry_id) return;
+      const entryId = await resolveId(sb, userId, "journal_entries", (p.entry_id || p.id) as string, (p.entry_title || p.title) as string, "title");
+      if (!entryId) return;
       const updates: Record<string, unknown> = {};
       for (const key of ["title", "content", "tags", "category", "importance", "mood"]) {
         if (p[key] !== undefined) updates[key] = key === "tags" ? asStringArray(p[key]) : p[key];
       }
       updates.updated_at = new Date().toISOString();
-      await sb.from("journal_entries").update(updates).eq("id", String(p.entry_id)).eq("user_id", userId);
+      await sb.from("journal_entries").update(updates).eq("id", entryId).eq("user_id", userId);
       return;
     }
 
     case "delete_journal": {
-      if (!p.entry_id) return;
-      await sb.from("journal_entries").delete().eq("id", String(p.entry_id)).eq("user_id", userId);
+      const entryId = await resolveId(sb, userId, "journal_entries", (p.entry_id || p.id) as string, (p.entry_title || p.title) as string, "title");
+      if (!entryId) return;
+      await sb.from("journal_entries").delete().eq("id", entryId).eq("user_id", userId);
       return;
     }
 
@@ -424,19 +352,21 @@ async function executeAction(sb: ReturnType<typeof createClient>, userId: string
     }
 
     case "update_vault": {
-      if (!p.entry_id) return;
+      const entryId = await resolveId(sb, userId, "vault_entries", (p.entry_id || p.id) as string, (p.entry_title || p.title) as string, "title");
+      if (!entryId) return;
       const updates: Record<string, unknown> = {};
       for (const key of ["title", "content", "category", "importance"]) {
         if (p[key] !== undefined) updates[key] = p[key];
       }
       updates.updated_at = new Date().toISOString();
-      await sb.from("vault_entries").update(updates).eq("id", String(p.entry_id)).eq("user_id", userId);
+      await sb.from("vault_entries").update(updates).eq("id", entryId).eq("user_id", userId);
       return;
     }
 
     case "delete_vault": {
-      if (!p.entry_id) return;
-      await sb.from("vault_entries").delete().eq("id", String(p.entry_id)).eq("user_id", userId);
+      const entryId = await resolveId(sb, userId, "vault_entries", (p.entry_id || p.id) as string, (p.entry_title || p.title) as string, "title");
+      if (!entryId) return;
+      await sb.from("vault_entries").delete().eq("id", entryId).eq("user_id", userId);
       return;
     }
 
@@ -457,19 +387,21 @@ async function executeAction(sb: ReturnType<typeof createClient>, userId: string
     }
 
     case "update_council_member": {
-      if (!p.member_id) return;
+      const memberId = await resolveId(sb, userId, "councils", (p.member_id || p.id) as string, (p.member_name || p.name) as string);
+      if (!memberId) return;
       const updates: Record<string, unknown> = {};
       for (const key of ["name", "role", "specialty", "class", "notes"]) {
         if (p[key] !== undefined) updates[key] = p[key];
       }
       updates.updated_at = new Date().toISOString();
-      await sb.from("councils").update(updates).eq("id", String(p.member_id)).eq("user_id", userId);
+      await sb.from("councils").update(updates).eq("id", memberId).eq("user_id", userId);
       return;
     }
 
     case "delete_council_member": {
-      if (!p.member_id) return;
-      await sb.from("councils").delete().eq("id", String(p.member_id)).eq("user_id", userId);
+      const memberId = await resolveId(sb, userId, "councils", (p.member_id || p.id) as string, (p.member_name || p.name) as string);
+      if (!memberId) return;
+      await sb.from("councils").delete().eq("id", memberId).eq("user_id", userId);
       return;
     }
 
@@ -493,21 +425,36 @@ async function executeAction(sb: ReturnType<typeof createClient>, userId: string
       return;
     }
 
+    case "update_inventory_item": {
+      const itemId = await resolveId(sb, userId, "inventory", (p.item_id || p.id) as string, (p.item_name || p.name) as string);
+      if (!itemId) return;
+      const updates: Record<string, unknown> = {};
+      for (const key of ["name", "description", "type", "rarity", "quantity", "effect", "slot", "tier", "is_equipped", "stat_effects"]) {
+        if (p[key] !== undefined) updates[key] = p[key];
+      }
+      await sb.from("inventory").update(updates).eq("id", itemId).eq("user_id", userId);
+      await logActivity(sb, userId, "item_updated", `Item updated: ${String(p.name || itemId)}`, 0);
+      return;
+    }
+
     case "delete_inventory_item": {
-      if (!p.item_id) return;
-      await sb.from("inventory").delete().eq("id", String(p.item_id)).eq("user_id", userId);
+      const itemId = await resolveId(sb, userId, "inventory", (p.item_id || p.id) as string, (p.item_name || p.name) as string);
+      if (!itemId) return;
+      await sb.from("inventory").delete().eq("id", itemId).eq("user_id", userId);
+      await logActivity(sb, userId, "item_deleted", "Item removed", 0);
       return;
     }
 
     // ── ENERGY ───────────────────────────────────────────
     case "update_energy": {
-      if (!p.energy_id) return;
+      const energyId = await resolveId(sb, userId, "energy_systems", (p.energy_id || p.id) as string, (p.energy_name || p.type || p.name) as string, "type");
+      if (!energyId) return;
       const updates: Record<string, unknown> = {};
       for (const key of ["current_value", "max_value", "status", "description", "color", "type"]) {
         if (p[key] !== undefined) updates[key] = p[key];
       }
       updates.updated_at = new Date().toISOString();
-      await sb.from("energy_systems").update(updates).eq("id", String(p.energy_id)).eq("user_id", userId);
+      await sb.from("energy_systems").update(updates).eq("id", energyId).eq("user_id", userId);
       return;
     }
 
@@ -525,6 +472,15 @@ async function executeAction(sb: ReturnType<typeof createClient>, userId: string
       await logActivity(sb, userId, "energy_created", `Energy system: ${String(p.type || p.name || "New Energy")}`, 0);
       return;
     }
+
+    case "delete_energy": {
+      const energyId = await resolveId(sb, userId, "energy_systems", (p.energy_id || p.id) as string, (p.energy_name || p.type || p.name) as string, "type");
+      if (!energyId) return;
+      await sb.from("energy_systems").delete().eq("id", energyId).eq("user_id", userId);
+      return;
+    }
+
+    // ── ALLIES ───────────────────────────────────────────
     case "create_ally": {
       const { error } = await sb.from("allies").insert({
         user_id: userId,
@@ -541,12 +497,21 @@ async function executeAction(sb: ReturnType<typeof createClient>, userId: string
     }
 
     case "update_ally": {
-      if (!p.ally_id) return;
+      const allyId = await resolveId(sb, userId, "allies", (p.ally_id || p.id) as string, (p.ally_name || p.name) as string);
+      if (!allyId) return;
       const updates: Record<string, unknown> = {};
       for (const key of ["name", "relationship", "level", "specialty", "affinity", "notes"]) {
         if (p[key] !== undefined) updates[key] = p[key];
       }
-      await sb.from("allies").update(updates).eq("id", String(p.ally_id)).eq("user_id", userId);
+      await sb.from("allies").update(updates).eq("id", allyId).eq("user_id", userId);
+      return;
+    }
+
+    case "delete_ally": {
+      const allyId = await resolveId(sb, userId, "allies", (p.ally_id || p.id) as string, (p.ally_name || p.name) as string);
+      if (!allyId) return;
+      await sb.from("allies").delete().eq("id", allyId).eq("user_id", userId);
+      await logActivity(sb, userId, "ally_deleted", "Ally removed", 0);
       return;
     }
 
@@ -587,21 +552,40 @@ async function executeAction(sb: ReturnType<typeof createClient>, userId: string
       return;
     }
 
+    case "update_ritual": {
+      const ritualId = await resolveId(sb, userId, "rituals", (p.ritual_id || p.id) as string, (p.ritual_name || p.name) as string);
+      if (!ritualId) return;
+      const updates: Record<string, unknown> = {};
+      for (const key of ["name", "description", "type", "category", "xp_reward"]) {
+        if (p[key] !== undefined) updates[key] = p[key];
+      }
+      await sb.from("rituals").update(updates).eq("id", ritualId).eq("user_id", userId);
+      return;
+    }
+
     case "complete_ritual": {
-      if (!p.ritual_id) return;
-      const { data: ritual } = await sb.from("rituals").select("xp_reward, name, streak").eq("id", String(p.ritual_id)).eq("user_id", userId).single();
+      const ritualId = await resolveId(sb, userId, "rituals", (p.ritual_id || p.id) as string, (p.ritual_name || p.name) as string);
+      if (!ritualId) return;
+      const { data: ritual } = await sb.from("rituals").select("xp_reward, name, streak").eq("id", ritualId).eq("user_id", userId).single();
       if (!ritual) return;
       await sb.from("rituals").update({
         completed: true,
         streak: (ritual.streak || 0) + 1,
         last_completed: new Date().toISOString(),
-      }).eq("id", String(p.ritual_id)).eq("user_id", userId);
+      }).eq("id", ritualId).eq("user_id", userId);
       await awardXP(sb, userId, Number(ritual.xp_reward || 0));
       await logActivity(sb, userId, "ritual_completed", `Ritual: ${ritual.name}`, Number(ritual.xp_reward || 0));
       return;
     }
 
-    // ── TRANSFORMATIONS (Rankings/Forms) ─────────────────
+    case "delete_ritual": {
+      const ritualId = await resolveId(sb, userId, "rituals", (p.ritual_id || p.id) as string, (p.ritual_name || p.name) as string);
+      if (!ritualId) return;
+      await sb.from("rituals").delete().eq("id", ritualId).eq("user_id", userId);
+      return;
+    }
+
+    // ── TRANSFORMATIONS ─────────────────────────────────
     case "create_transformation": {
       const { error } = await sb.from("transformations").insert({
         user_id: userId,
@@ -625,19 +609,21 @@ async function executeAction(sb: ReturnType<typeof createClient>, userId: string
     }
 
     case "update_transformation": {
-      if (!p.transformation_id) return;
+      const transformId = await resolveId(sb, userId, "transformations", (p.transformation_id || p.id) as string, (p.transformation_name || p.name) as string);
+      if (!transformId) return;
       const updates: Record<string, unknown> = {};
       for (const key of ["name", "tier", "form_order", "bpm_range", "energy", "jjk_grade", "op_tier", "description", "category", "unlocked", "active_buffs", "passive_buffs", "abilities"]) {
         if (p[key] !== undefined) updates[key] = p[key];
       }
-      await sb.from("transformations").update(updates).eq("id", String(p.transformation_id)).eq("user_id", userId);
-      await logActivity(sb, userId, "transformation_updated", `Form updated: ${String(p.name || p.transformation_id)}`, 0);
+      await sb.from("transformations").update(updates).eq("id", transformId).eq("user_id", userId);
+      await logActivity(sb, userId, "transformation_updated", `Form updated: ${String(p.name || transformId)}`, 0);
       return;
     }
 
     case "delete_transformation": {
-      if (!p.transformation_id) return;
-      await sb.from("transformations").delete().eq("id", String(p.transformation_id)).eq("user_id", userId);
+      const transformId = await resolveId(sb, userId, "transformations", (p.transformation_id || p.id) as string, (p.transformation_name || p.name) as string);
+      if (!transformId) return;
+      await sb.from("transformations").delete().eq("id", transformId).eq("user_id", userId);
       await logActivity(sb, userId, "transformation_deleted", "Form deleted", 0);
       return;
     }
@@ -662,38 +648,25 @@ async function executeAction(sb: ReturnType<typeof createClient>, userId: string
     }
 
     case "update_store_item": {
-      if (!p.item_id) return;
+      const itemId = await resolveId(sb, userId, "store_items", (p.item_id || p.id) as string, (p.item_name || p.name) as string);
+      if (!itemId) return;
       const updates: Record<string, unknown> = {};
       for (const key of ["name", "description", "price", "currency", "rarity", "category", "effect", "req_level", "req_rank"]) {
         if (p[key] !== undefined) updates[key] = p[key];
       }
       updates.updated_at = new Date().toISOString();
-      await sb.from("store_items").update(updates).eq("id", String(p.item_id)).eq("user_id", userId);
+      await sb.from("store_items").update(updates).eq("id", itemId).eq("user_id", userId);
       return;
     }
 
     case "delete_store_item": {
-      if (!p.item_id) return;
-      await sb.from("store_items").delete().eq("id", String(p.item_id)).eq("user_id", userId);
+      const itemId = await resolveId(sb, userId, "store_items", (p.item_id || p.id) as string, (p.item_name || p.name) as string);
+      if (!itemId) return;
+      await sb.from("store_items").delete().eq("id", itemId).eq("user_id", userId);
       return;
     }
 
-    // ── DELETE ALLY ──────────────────────────────────────
-    case "delete_ally": {
-      if (!p.ally_id) return;
-      await sb.from("allies").delete().eq("id", String(p.ally_id)).eq("user_id", userId);
-      await logActivity(sb, userId, "ally_deleted", "Ally removed", 0);
-      return;
-    }
-
-    // ── DELETE RITUAL ────────────────────────────────────
-    case "delete_ritual": {
-      if (!p.ritual_id) return;
-      await sb.from("rituals").delete().eq("id", String(p.ritual_id)).eq("user_id", userId);
-      return;
-    }
-
-    // ── RANKINGS PROFILES (separate from transformations!) ─
+    // ── RANKINGS PROFILES ────────────────────────────────
     case "create_ranking":
     case "create_ranking_profile":
     case "add_ranking":
@@ -718,188 +691,26 @@ async function executeAction(sb: ReturnType<typeof createClient>, userId: string
     }
 
     case "update_ranking":
-    case "update_ranking_profile":
-    case "edit_ranking": {
-      const id = String(p.ranking_id || p.profile_id || p.id || "");
-      if (!id) return;
+    case "update_ranking_profile": {
+      const rankingId = await resolveId(sb, userId, "rankings_profiles", (p.ranking_id || p.profile_id || p.id) as string, (p.ranking_name || p.display_name || p.name) as string, "display_name");
+      if (!rankingId) return;
       const updates: Record<string, unknown> = {};
       for (const key of ["display_name", "role", "rank", "level", "jjk_grade", "op_tier", "gpr", "pvp", "influence", "notes", "is_self"]) {
         if (p[key] !== undefined) updates[key] = p[key];
       }
-      // Also accept "name" as alias for "display_name"
       if (p.name !== undefined && !updates.display_name) updates.display_name = p.name;
       updates.updated_at = new Date().toISOString();
-      await sb.from("rankings_profiles").update(updates).eq("id", id).eq("user_id", userId);
-      await logActivity(sb, userId, "ranking_updated", `Ranking updated: ${String(p.display_name || p.name || id)}`, 0);
+      await sb.from("rankings_profiles").update(updates).eq("id", rankingId).eq("user_id", userId);
+      await logActivity(sb, userId, "ranking_updated", `Ranking updated: ${String(p.display_name || p.name || rankingId)}`, 0);
       return;
     }
 
     case "delete_ranking":
-    case "delete_ranking_profile":
-    case "remove_ranking": {
-      const id = String(p.ranking_id || p.profile_id || p.id || "");
-      if (!id) return;
-      await sb.from("rankings_profiles").delete().eq("id", id).eq("user_id", userId);
+    case "delete_ranking_profile": {
+      const rankingId = await resolveId(sb, userId, "rankings_profiles", (p.ranking_id || p.profile_id || p.id) as string, (p.ranking_name || p.display_name || p.name) as string, "display_name");
+      if (!rankingId) return;
+      await sb.from("rankings_profiles").delete().eq("id", rankingId).eq("user_id", userId);
       await logActivity(sb, userId, "ranking_deleted", "Ranking removed", 0);
-      return;
-    }
-
-    // ── ALIASES: forms → transformations ────────────────
-    case "create_form":
-    case "add_form":
-    case "add_transformation":
-      return executeAction(sb, userId, { type: "create_transformation", params: p });
-
-    case "update_form":
-    case "edit_form":
-    case "edit_transformation":
-      return executeAction(sb, userId, { type: "update_transformation", params: p });
-
-    case "delete_form":
-    case "remove_form":
-    case "remove_transformation":
-      return executeAction(sb, userId, { type: "delete_transformation", params: p });
-
-    // ── ALIASES: other common phrasings ──────────────────
-    case "add_quest":
-      return executeAction(sb, userId, { type: "create_quest", params: p });
-    case "add_ally":
-      return executeAction(sb, userId, { type: "create_ally", params: p });
-    case "add_skill":
-    case "add_subskill":
-    case "create_subskill":
-      return executeAction(sb, userId, { type: "create_skill", params: p });
-    case "add_journal":
-    case "create_journal_entry":
-    case "add_journal_entry":
-      return executeAction(sb, userId, { type: "create_journal", params: p });
-    case "add_vault":
-    case "create_vault_entry":
-    case "add_vault_entry":
-      return executeAction(sb, userId, { type: "create_vault", params: p });
-    case "add_council_member":
-    case "add_council":
-    case "create_council":
-      return executeAction(sb, userId, { type: "create_council_member", params: p });
-    case "add_inventory_item":
-    case "add_item":
-    case "create_item":
-      return executeAction(sb, userId, { type: "create_inventory_item", params: p });
-    case "add_ritual":
-      return executeAction(sb, userId, { type: "create_ritual", params: p });
-    case "add_store_item":
-      return executeAction(sb, userId, { type: "create_store_item", params: p });
-    case "add_task":
-      return executeAction(sb, userId, { type: "create_task", params: p });
-    case "edit_quest":
-      return executeAction(sb, userId, { type: "update_quest", params: p });
-    case "edit_ally":
-      return executeAction(sb, userId, { type: "update_ally", params: p });
-    case "edit_skill":
-      return executeAction(sb, userId, { type: "update_skill", params: p });
-    case "edit_journal":
-    case "update_journal_entry":
-      return executeAction(sb, userId, { type: "update_journal", params: p });
-    case "edit_vault":
-    case "update_vault_entry":
-      return executeAction(sb, userId, { type: "update_vault", params: p });
-    case "edit_council_member":
-    case "edit_council":
-    case "update_council":
-      return executeAction(sb, userId, { type: "update_council_member", params: p });
-    case "edit_inventory_item":
-    case "edit_item":
-    case "update_item":
-      return executeAction(sb, userId, { type: "update_inventory_item", params: p });
-    case "edit_ritual":
-      return executeAction(sb, userId, { type: "update_ritual", params: p });
-    case "edit_store_item":
-      return executeAction(sb, userId, { type: "update_store_item", params: p });
-    case "edit_task":
-      return executeAction(sb, userId, { type: "update_task", params: p });
-    case "remove_quest":
-      return executeAction(sb, userId, { type: "delete_quest", params: p });
-    case "remove_ally":
-      return executeAction(sb, userId, { type: "delete_ally", params: p });
-    case "remove_skill":
-      return executeAction(sb, userId, { type: "delete_skill", params: p });
-    case "remove_journal":
-    case "delete_journal_entry":
-      return executeAction(sb, userId, { type: "delete_journal", params: p });
-    case "remove_vault":
-    case "delete_vault_entry":
-      return executeAction(sb, userId, { type: "delete_vault", params: p });
-    case "remove_council_member":
-    case "remove_council":
-    case "delete_council":
-      return executeAction(sb, userId, { type: "delete_council_member", params: p });
-    case "remove_inventory_item":
-    case "remove_item":
-    case "delete_item":
-      return executeAction(sb, userId, { type: "delete_inventory_item", params: p });
-    case "remove_ritual":
-      return executeAction(sb, userId, { type: "delete_ritual", params: p });
-    case "remove_store_item":
-      return executeAction(sb, userId, { type: "delete_store_item", params: p });
-    case "remove_task":
-      return executeAction(sb, userId, { type: "delete_task", params: p });
-
-    // ── CREATE ENERGY ────────────────────────────────────
-    case "create_energy":
-    case "add_energy": {
-      const { error } = await sb.from("energy_systems").insert({
-        user_id: userId,
-        type: String(p.type || p.name || "New Energy"),
-        description: String(p.description || ""),
-        color: String(p.color || "#08C284"),
-        current_value: Number(p.current_value ?? 100),
-        max_value: Number(p.max_value ?? 100),
-        status: String(p.status || "developing"),
-      });
-      if (error) throw error;
-      await logActivity(sb, userId, "energy_created", `Energy system: ${String(p.type || p.name || "New Energy")}`, 0);
-      return;
-    }
-
-    // ── DELETE ENERGY ────────────────────────────────────
-    case "delete_energy":
-    case "remove_energy": {
-      if (!p.energy_id) return;
-      await sb.from("energy_systems").delete().eq("id", String(p.energy_id)).eq("user_id", userId);
-      return;
-    }
-
-    // ── UPDATE TASK ──────────────────────────────────────
-    case "update_task": {
-      if (!p.task_id) return;
-      const updates: Record<string, unknown> = {};
-      for (const key of ["title", "description", "type", "status", "recurrence", "xp_reward"]) {
-        if (p[key] !== undefined) updates[key] = p[key];
-      }
-      updates.updated_at = new Date().toISOString();
-      await sb.from("tasks").update(updates).eq("id", String(p.task_id)).eq("user_id", userId);
-      return;
-    }
-
-    // ── UPDATE INVENTORY ITEM ────────────────────────────
-    case "update_inventory_item": {
-      if (!p.item_id) return;
-      const updates: Record<string, unknown> = {};
-      for (const key of ["name", "description", "type", "rarity", "quantity", "effect", "slot", "tier", "is_equipped", "stat_effects"]) {
-        if (p[key] !== undefined) updates[key] = p[key];
-      }
-      await sb.from("inventory").update(updates).eq("id", String(p.item_id)).eq("user_id", userId);
-      return;
-    }
-
-    // ── UPDATE RITUAL ────────────────────────────────────
-    case "update_ritual": {
-      if (!p.ritual_id) return;
-      const updates: Record<string, unknown> = {};
-      for (const key of ["name", "description", "type", "category", "xp_reward"]) {
-        if (p[key] !== undefined) updates[key] = p[key];
-      }
-      await sb.from("rituals").update(updates).eq("id", String(p.ritual_id)).eq("user_id", userId);
       return;
     }
 
@@ -943,7 +754,6 @@ serve(async (req) => {
     const anonKey = Deno.env.get("SUPABASE_PUBLISHABLE_KEY") ?? Deno.env.get("SUPABASE_ANON_KEY") ?? "";
     const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
-    // Verify user identity
     const userClient = createClient(supabaseUrl, anonKey, {
       global: { headers: { Authorization: authHeader } },
       auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
@@ -959,7 +769,6 @@ serve(async (req) => {
 
     const userId = userData.user.id;
 
-    // Use service role to write data
     const adminClient = createClient(supabaseUrl, serviceRoleKey, {
       auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
     });
