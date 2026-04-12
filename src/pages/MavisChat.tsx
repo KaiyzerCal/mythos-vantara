@@ -958,8 +958,54 @@ export default function MavisChat() {
         ))}
       </div>
 
+      {/* Voice controls */}
+      <div className="flex items-center gap-2 justify-end">
+        <button
+          onClick={() => {
+            if (isSpeaking) stopSpeaking();
+            setTtsEnabled(!ttsEnabled);
+          }}
+          className={`flex items-center gap-1 px-2 py-1 text-[9px] font-mono rounded border transition-all ${
+            ttsEnabled
+              ? "text-primary border-primary/30 bg-primary/5"
+              : "text-muted-foreground border-border/50"
+          }`}
+          title={ttsEnabled ? "Voice responses ON — click to mute" : "Voice responses OFF — click to enable"}
+        >
+          {ttsEnabled ? <Volume2 size={10} /> : <VolumeX size={10} />}
+          {ttsEnabled ? "Voice ON" : "Voice OFF"}
+        </button>
+        {isSpeaking && (
+          <button
+            onClick={stopSpeaking}
+            className="flex items-center gap-1 px-2 py-1 text-[9px] font-mono text-destructive border border-destructive/30 rounded animate-pulse"
+          >
+            <Square size={8} /> Stop
+          </button>
+        )}
+      </div>
+
       {/* Input — pinned to bottom with safe-area padding for mobile */}
       <div className="flex gap-2 mt-auto pt-1 pb-[max(env(safe-area-inset-bottom),0.25rem)]">
+        {/* Mic button */}
+        <button
+          onClick={() => {
+            if (isListening) {
+              stopListening();
+            } else {
+              startListening();
+            }
+          }}
+          className={`px-3 py-2 rounded-lg border transition-all self-end ${
+            isListening
+              ? "bg-destructive/10 border-destructive/30 text-destructive animate-pulse"
+              : "bg-muted/30 border-border text-muted-foreground hover:text-primary hover:border-primary/30"
+          }`}
+          title={isListening ? "Stop listening" : "Start voice input"}
+        >
+          {isListening ? <MicOff size={18} /> : <Mic size={18} />}
+        </button>
+
         <textarea
           ref={inputRef}
           value={input}
@@ -969,18 +1015,22 @@ export default function MavisChat() {
           onKeyDown={(e) => {
             if (e.key === "Enter" && !e.shiftKey && !isComposing) {
               e.preventDefault();
+              if (isListening) stopListening();
               sendMessage();
             }
           }}
-          placeholder={`MAVIS-${currentMode.label} awaiting input...`}
+          placeholder={isListening ? "Listening... speak now" : `MAVIS-${currentMode.label} awaiting input...`}
           rows={2}
-          className="flex-1 bg-card border border-border rounded-lg px-3 py-2.5 text-sm font-body resize-none focus:outline-none focus:border-primary/50 placeholder:text-muted-foreground placeholder:font-mono placeholder:text-xs"
+          className={`flex-1 bg-card border rounded-lg px-3 py-2.5 text-sm font-body resize-none focus:outline-none focus:border-primary/50 placeholder:text-muted-foreground placeholder:font-mono placeholder:text-xs ${
+            isListening ? "border-destructive/40" : "border-border"
+          }`}
         />
         {isLoading ? (
           <button
             onClick={() => {
               cancelledRef.current = true;
               abortRef.current?.abort();
+              stopSpeaking();
               setIsLoading(false);
             }}
             className="px-3 py-2 rounded-lg bg-destructive/10 border border-destructive/30 text-destructive hover:bg-destructive/20 transition-all self-end"
@@ -990,7 +1040,10 @@ export default function MavisChat() {
           </button>
         ) : (
           <button
-            onClick={() => sendMessage()}
+            onClick={() => {
+              if (isListening) stopListening();
+              sendMessage();
+            }}
             disabled={!input.trim()}
             className="px-3 py-2 rounded-lg bg-primary/10 border border-primary/30 text-primary hover:bg-primary/20 disabled:opacity-30 disabled:cursor-not-allowed transition-all self-end"
           >
