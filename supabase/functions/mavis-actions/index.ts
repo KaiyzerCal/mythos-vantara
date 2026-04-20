@@ -134,7 +134,7 @@ function normalizeActionType(type: string): string {
 }
 
 // ── Action executor ────────────────────────────────────────
-async function executeAction(sb: ReturnType<typeof createClient>, userId: string, action: MavisAction) {
+async function executeAction(sb: any, userId: string, action: MavisAction) {
   const p = action.params || {};
   const actionType = normalizeActionType(action.type);
 
