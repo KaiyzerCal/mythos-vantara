@@ -25,7 +25,7 @@ function asStringArray(value: unknown): string[] {
   return [];
 }
 
-async function logActivity(sb: ReturnType<typeof createClient>, userId: string, eventType: string, description: string, xpAmount: number) {
+async function logActivity(sb: any, userId: string, eventType: string, description: string, xpAmount: number) {
   await sb.from("activity_log").insert({ user_id: userId, event_type: eventType, description, xp_amount: xpAmount });
 }
 
