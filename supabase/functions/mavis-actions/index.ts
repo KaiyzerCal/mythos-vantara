@@ -25,17 +25,17 @@ function asStringArray(value: unknown): string[] {
   return [];
 }
 
-async function logActivity(sb: ReturnType<typeof createClient>, userId: string, eventType: string, description: string, xpAmount: number) {
+async function logActivity(sb: any, userId: string, eventType: string, description: string, xpAmount: number) {
   await sb.from("activity_log").insert({ user_id: userId, event_type: eventType, description, xp_amount: xpAmount });
 }
 
-async function awardXP(sb: ReturnType<typeof createClient>, userId: string, amount: number) {
+async function awardXP(sb: any, userId: string, amount: number) {
   const { data: profile } = await sb.from("profiles").select("xp, xp_to_next_level, level, operator_xp, operator_level").eq("id", userId).single();
   if (!profile) return;
 
-  let xp = (profile.xp || 0) + amount;
-  let level = profile.level || 1;
-  let threshold = profile.xp_to_next_level || 500;
+  let xp: number = Number(profile.xp || 0) + amount;
+  let level: number = Number(profile.level || 1);
+  let threshold: number = Number(profile.xp_to_next_level || 500);
 
   while (xp >= threshold) {
     xp -= threshold;
@@ -47,13 +47,13 @@ async function awardXP(sb: ReturnType<typeof createClient>, userId: string, amou
     xp,
     level,
     xp_to_next_level: threshold,
-    operator_xp: (profile.operator_xp || 0) + amount,
+    operator_xp: Number(profile.operator_xp || 0) + amount,
   }).eq("id", userId);
 }
 
 // ── Name-based ID resolver ────────────────────────────────
 async function resolveId(
-  sb: ReturnType<typeof createClient>,
+  sb: any,
   userId: string,
   table: string,
   idParam: string | undefined,
@@ -64,7 +64,7 @@ async function resolveId(
   if (idParam) return String(idParam);
   if (!nameParam) return "";
   const { data } = await sb.from(table).select("id").eq(userColumn, userId).ilike(nameColumn, String(nameParam)).limit(1).single();
-  return data?.id || "";
+  return (data?.id as string) || "";
 }
 
 // ── Profile fields MAVIS is allowed to update ─────────────
@@ -134,7 +134,7 @@ function normalizeActionType(type: string): string {
 }
 
 // ── Action executor ────────────────────────────────────────
-async function executeAction(sb: ReturnType<typeof createClient>, userId: string, action: MavisAction) {
+async function executeAction(sb: any, userId: string, action: MavisAction) {
   const p = action.params || {};
   const actionType = normalizeActionType(action.type);
 
@@ -222,8 +222,8 @@ async function executeAction(sb: ReturnType<typeof createClient>, userId: string
       const newStatus = task.recurrence === "once" ? "completed" : "active";
       await sb.from("tasks").update({
         status: newStatus,
-        completed_count: (task.completed_count || 0) + 1,
-        streak: (task.streak || 0) + 1,
+        completed_count: Number(task.completed_count || 0) + 1,
+        streak: Number(task.streak || 0) + 1,
         last_completed: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       }).eq("id", taskId).eq("user_id", userId);
@@ -570,7 +570,7 @@ async function executeAction(sb: ReturnType<typeof createClient>, userId: string
       if (!ritual) return;
       await sb.from("rituals").update({
         completed: true,
-        streak: (ritual.streak || 0) + 1,
+        streak: Number(ritual.streak || 0) + 1,
         last_completed: new Date().toISOString(),
       }).eq("id", ritualId).eq("user_id", userId);
       await awardXP(sb, userId, Number(ritual.xp_reward || 0));
