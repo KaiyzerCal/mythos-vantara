@@ -871,12 +871,14 @@ function CouncilChat({ member, profile, onClose }: { member: any; profile: any; 
       setMessages((prev) => [...prev, { id: `a-${Date.now()}`, role: "assistant", content: reply, timestamp: new Date() }]);
       // Persist assistant message
       await persistCouncilMessage("assistant", reply);
+      // Speak the response if voice is enabled
+      speakText(reply);
     } catch {
       setMessages((prev) => [...prev, { id: `err-${Date.now()}`, role: "assistant", content: "Connection lost.", timestamp: new Date() }]);
     } finally {
       setIsLoading(false);
     }
-  }, [input, messages, isLoading, member, profile, persistCouncilMessage, quests, skills, journalEntries, vaultEntries, energySystems, allies, inventory, rituals, transformations, rankings, storeItems, bpmSessions, tasks, councils]);
+  }, [input, messages, isLoading, member, profile, persistCouncilMessage, quests, skills, journalEntries, vaultEntries, energySystems, allies, inventory, rituals, transformations, rankings, storeItems, bpmSessions, tasks, councils, speakText]);
 
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-background/80 backdrop-blur-sm p-4">
@@ -895,6 +897,30 @@ function CouncilChat({ member, profile, onClose }: { member: any; profile: any; 
             <p className="text-sm font-display font-bold truncate">{member.name}</p>
             <p className="text-[10px] font-mono text-muted-foreground">{member.role} · {member.class}</p>
           </div>
+          <button
+            onClick={() => {
+              if (isSpeaking) stopSpeaking();
+              setTtsEnabled((v) => !v);
+            }}
+            className={`flex items-center gap-1 px-2 py-1 text-[10px] font-mono rounded border transition-all mr-1 ${
+              ttsEnabled
+                ? "text-primary border-primary/30 bg-primary/5"
+                : "text-muted-foreground border-border/50"
+            }`}
+            title={ttsEnabled ? "Voice ON — click to mute" : "Voice OFF — click to enable"}
+          >
+            {ttsEnabled ? <Volume2 size={10} /> : <VolumeX size={10} />}
+            {ttsEnabled ? "Voice" : "Muted"}
+          </button>
+          {isSpeaking && (
+            <button
+              onClick={stopSpeaking}
+              className="p-1.5 text-destructive hover:text-destructive/80 transition-colors mr-1"
+              title="Stop speaking"
+            >
+              <Square size={14} />
+            </button>
+          )}
           <button onClick={clearCouncilChat} className="text-[10px] font-mono text-muted-foreground hover:text-destructive transition-colors mr-1">
             Clear
           </button>
