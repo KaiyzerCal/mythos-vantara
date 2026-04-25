@@ -6,50 +6,46 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-// ── LLM adapters ──────────────────────────────────────────────────────────────
+// ── LLM adapter — Lovable AI Gateway (free, no per-provider keys) ────────────
 
-async function callClaude(model: string, system: string, messages: any[]): Promise<string> {
-  const key = Deno.env.get("ANTHROPIC_API_KEY")!;
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "x-api-key": key, "anthropic-version": "2023-06-01" },
-    body: JSON.stringify({ model, max_tokens: 1024, system, messages }),
-  });
-  if (!res.ok) throw new Error(`Claude ${res.status}: ${await res.text()}`);
-  const d = await res.json();
-  return d.content[0].text;
-}
-
-async function callOpenAI(model: string, system: string, messages: any[]): Promise<string> {
-  const key = Deno.env.get("OPENAI_API") ?? Deno.env.get("OPENAI_API_KEY")!;
-  const res = await fetch("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
-    body: JSON.stringify({ model, messages: [{ role: "system", content: system }, ...messages] }),
-  });
-  if (!res.ok) throw new Error(`OpenAI ${res.status}: ${await res.text()}`);
-  const d = await res.json();
-  return d.choices[0].message.content;
-}
-
-async function callGrok(model: string, system: string, messages: any[]): Promise<string> {
-  const key = Deno.env.get("GROK_API_KEY")!;
-  const res = await fetch("https://api.x.ai/v1/chat/completions", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
-    body: JSON.stringify({ model, messages: [{ role: "system", content: system }, ...messages], max_tokens: 1024 }),
-  });
-  if (!res.ok) throw new Error(`Grok ${res.status}: ${await res.text()}`);
-  const d = await res.json();
-  return d.choices[0].message.content;
+function mapToGatewayModel(model: string): string {
+  // Map any persona-configured model to a supported Lovable AI Gateway model.
+  if (!model) return "google/gemini-2.5-flash";
+  const m = model.toLowerCase();
+  if (m.startsWith("google/")) return model;
+  if (m.startsWith("openai/")) return model;
+  if (m.includes("gpt-5")) return "openai/gpt-5";
+  if (m.includes("gpt-4") || m.includes("gpt-4o")) return "openai/gpt-5-mini";
+  if (m.includes("claude")) return "google/gemini-2.5-pro";
+  if (m.includes("grok")) return "google/gemini-2.5-flash";
+  if (m.includes("gemini-2.5-pro")) return "google/gemini-2.5-pro";
+  if (m.includes("gemini")) return "google/gemini-2.5-flash";
+  return "google/gemini-2.5-flash";
 }
 
 async function callLLM(model: string, system: string, messages: any[]): Promise<string> {
-  if (model.startsWith("claude")) return callClaude(model, system, messages);
-  if (model === "gpt-4o-mini") return callOpenAI("gpt-4o-mini", system, messages);
-  if (model.startsWith("grok")) return callGrok(model, system, messages);
-  // Fallback to claude-sonnet
-  return callClaude("claude-sonnet-4-20250514", system, messages);
+  const key = Deno.env.get("LOVABLE_API_KEY");
+  if (!key) throw new Error("LOVABLE_API_KEY is not configured");
+  const gatewayModel = mapToGatewayModel(model);
+
+  const res = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
+    body: JSON.stringify({
+      model: gatewayModel,
+      messages: [{ role: "system", content: system }, ...messages],
+    }),
+  });
+
+  if (!res.ok) {
+    const errText = await res.text();
+    if (res.status === 429) throw new Error("Rate limit reached. Please try again in a moment.");
+    if (res.status === 402) throw new Error("AI credits exhausted. Please add credits to continue.");
+    throw new Error(`AI Gateway ${res.status}: ${errText}`);
+  }
+
+  const d = await res.json();
+  return d.choices?.[0]?.message?.content ?? "";
 }
 
 // ── System prompt builder ─────────────────────────────────────────────────────
