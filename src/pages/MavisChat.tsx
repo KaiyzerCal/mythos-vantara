@@ -966,34 +966,41 @@ export default function MavisChat() {
       </div>
 
       {/* Voice controls */}
-      <div className="flex items-center gap-2 justify-end">
-        <button
-          onClick={() => {
-            if (isSpeaking) stopSpeaking();
+      <div className="flex items-center gap-2 justify-end flex-wrap">
+        <VoicePicker
+          enabled={ttsEnabled}
+          onToggle={() => {
+            if (ttsEnabled && isSpeaking) stopSpeaking();
             setTtsEnabled(!ttsEnabled);
           }}
-          className={`flex items-center gap-1 px-2 py-1 text-[9px] font-mono rounded border transition-all ${
-            ttsEnabled
-              ? "text-primary border-primary/30 bg-primary/5"
-              : "text-muted-foreground border-border/50"
-          }`}
-          title={ttsEnabled ? "Voice responses ON — click to mute" : "Voice responses OFF — click to enable"}
-        >
-          {ttsEnabled ? <Volume2 size={10} /> : <VolumeX size={10} />}
-          {ttsEnabled ? "Voice ON" : "Voice OFF"}
-        </button>
-        {isSpeaking && (
-          <button
-            onClick={stopSpeaking}
-            className="flex items-center gap-1 px-2 py-1 text-[9px] font-mono text-destructive border border-destructive/30 rounded animate-pulse"
-          >
-            <Square size={8} /> Stop
-          </button>
-        )}
+          voiceId={voiceId}
+          onVoiceChange={setVoiceId}
+          isSpeaking={isSpeaking}
+          isLoading={isVoiceLoading}
+          onStop={stopSpeaking}
+        />
       </div>
+
+      {/* Attachment tray (only when files present) */}
+      {(attachments.length > 0 || isUploading) && (
+        <div className="px-1">
+          <AttachmentTray
+            attachments={attachments}
+            isUploading={isUploading}
+            onUpload={upload}
+            onRemove={remove}
+            compact
+          />
+        </div>
+      )}
 
       {/* Input — pinned to bottom with safe-area padding for mobile */}
       <div className="flex gap-2 mt-auto pt-1 pb-[max(env(safe-area-inset-bottom),0.25rem)]">
+        <AttachButton
+          isUploading={isUploading}
+          onUpload={upload}
+          className="px-3 py-2 rounded-lg border bg-muted/30 border-border text-muted-foreground hover:text-primary hover:border-primary/30 transition-all self-end disabled:opacity-40"
+        />
         {/* Mic button */}
         <button
           onClick={() => {
