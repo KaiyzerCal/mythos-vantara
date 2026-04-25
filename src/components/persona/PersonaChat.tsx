@@ -63,6 +63,38 @@ export function PersonaChat({ persona, userId, onBack }: PersonaChatProps) {
     });
   }, [loadHistory, loadRelationshipState]);
 
+  // Live realtime updates for the relationship row — bond/trust/mood
+  // bars in the chat header reflect the current state immediately.
+  useEffect(() => {
+    const channel = supabase
+      .channel(`relstate-chat-${persona.id}-${userId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "relationship_states",
+          filter: `persona_id=eq.${persona.id}`,
+        },
+        (payload) => {
+          const next = (payload.new ?? payload.old) as any;
+          if (!next || next.user_id !== userId) return;
+          setRelState({
+            bond_level: next.bond_level ?? 0,
+            trust_level: next.trust_level ?? 50,
+            current_mood: next.current_mood ?? "neutral",
+            mood_reason: next.mood_reason ?? null,
+            total_interactions: next.total_interactions ?? 0,
+            last_interaction_at: next.last_interaction_at ?? null,
+          });
+        },
+      )
+      .subscribe();
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [persona.id, userId]);
+
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
@@ -97,16 +129,16 @@ export function PersonaChat({ persona, userId, onBack }: PersonaChatProps) {
       }
     }
 
+    // Optimistically bump the interaction counter for instant UI feedback
     const total = (relState?.total_interactions ?? 0) + 1;
-    if (total % 5 === 0) {
-      setIsUpdatingEmotion(true);
-      await triggerEmotionUpdate();
-      await refreshRelState();
-      setIsUpdatingEmotion(false);
-    } else {
-      setRelState((prev) => prev ? { ...prev, total_interactions: total } : prev);
-    }
-  }, [input, isLoading, sendMessage, triggerEmotionUpdate, refreshRelState, relState, attachments, ttsEnabled, voiceId, speak]);
+    setRelState((prev) => prev ? { ...prev, total_interactions: total } : prev);
+
+    // Trigger emotion analysis after every exchange (non-blocking) so
+    // bond/trust/mood reflect the live state of the relationship.
+    triggerEmotionUpdate().then(() => {
+      refreshRelState();
+    });
+  }, [input, isLoading, sendMessage, triggerEmotionUpdate, refreshRelState, relState, attachments, ttsEnabled, voiceId, speak, messages]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
