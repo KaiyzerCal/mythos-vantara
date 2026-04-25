@@ -164,6 +164,16 @@ export function PersonaChat({ persona, userId, onBack }: PersonaChatProps) {
           </div>
         </div>
 
+        <VoicePicker
+          value={voiceId}
+          onChange={setVoiceId}
+          autoSpeak={ttsEnabled}
+          onAutoSpeakChange={setTtsEnabled}
+          isSpeaking={isSpeaking}
+          isLoading={isVoiceLoading}
+          onStop={stopSpeaking}
+        />
+
         <button
           onClick={handleManualEmotionUpdate}
           disabled={isUpdatingEmotion}
