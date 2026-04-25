@@ -85,7 +85,7 @@ Rules:
     const newTrust = Math.min(100, Math.max(0, (relState?.trust_level ?? 50) + (analysis.trust_delta ?? 0)));
     const newBond = Math.min(100, Math.max(0, (relState?.bond_level ?? 0) + (analysis.bond_delta ?? 0)));
 
-    const updates: Promise<any>[] = [
+    const updates: any[] = [
       supabase.from("relationship_states").upsert({
         persona_id,
         user_id,
