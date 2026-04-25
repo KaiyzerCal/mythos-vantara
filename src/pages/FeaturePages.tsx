@@ -668,71 +668,37 @@ function CouncilChat({ member, profile, onClose }: { member: any; profile: any; 
   const [showScrollBtn, setShowScrollBtn] = useState(false);
   const [dbLoaded, setDbLoaded] = useState(false);
   const [ttsEnabled, setTtsEnabled] = useState(false);
-  const [isSpeaking, setIsSpeaking] = useState(false);
-  const voicePrefKey = `council-voice-gender-${member?.id ?? member?.name ?? "default"}`;
-  const [voiceGender, setVoiceGender] = useState<"male" | "female">(() => {
-    if (typeof window === "undefined") return "male";
+  const { speak, stop: stopSpeaking, isSpeaking, isLoading: isVoiceLoading } = useElevenLabsTts();
+  const { attachments, isUploading, upload, remove } = useChatAttachments("council", member?.id ?? null);
+
+  // Voice preference per council member (persisted in localStorage)
+  const voicePrefKey = `council-voice-id-${member?.id ?? member?.name ?? "default"}`;
+  const [voiceId, setVoiceId] = useState<string>(() => {
+    if (typeof window === "undefined") return DEFAULT_VOICE_BY_GENDER.male;
     const saved = window.localStorage.getItem(voicePrefKey);
-    return saved === "female" ? "female" : "male";
+    if (saved && findVoice(saved)) return saved;
+    // Migrate from old gender-only pref + persisted DB voice_id
+    const dbVoice: string | undefined = (member as any)?.voice_id;
+    if (dbVoice && findVoice(dbVoice)) return dbVoice;
+    const oldGender = window.localStorage.getItem(`council-voice-gender-${member?.id ?? member?.name ?? "default"}`);
+    return DEFAULT_VOICE_BY_GENDER[(oldGender === "female" ? "female" : "male") as VoiceGender];
   });
   useEffect(() => {
     if (typeof window !== "undefined") {
-      window.localStorage.setItem(voicePrefKey, voiceGender);
+      window.localStorage.setItem(voicePrefKey, voiceId);
     }
-  }, [voiceGender, voicePrefKey]);
+    // Persist on the council row too (best-effort)
+    if (member?.id) {
+      supabase.from("councils").update({ voice_id: voiceId }).eq("id", member.id).then(() => {});
+    }
+  }, [voiceId, voicePrefKey, member?.id]);
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  // ── Text-to-Speech ────────────────────────────
-  const pickVoice = useCallback((gender: "male" | "female"): SpeechSynthesisVoice | null => {
-    const voices = window.speechSynthesis.getVoices().filter(v => v.lang.startsWith("en"));
-    if (!voices.length) return null;
-    const maleHints = ["male", "david", "daniel", "alex", "fred", "george", "james", "tom", "mark", "guy", "ryan"];
-    const femaleHints = ["female", "samantha", "victoria", "karen", "moira", "tessa", "fiona", "susan", "zira", "linda", "jenny", "aria"];
-    const hints = gender === "male" ? maleHints : femaleHints;
-    const antiHints = gender === "male" ? femaleHints : maleHints;
-    const lower = (s: string) => s.toLowerCase();
-    const match = voices.find(v => hints.some(h => lower(v.name).includes(h)))
-      || voices.find(v => !antiHints.some(h => lower(v.name).includes(h)));
-    return match || voices[0];
-  }, []);
-
   const speakText = useCallback((text: string) => {
-    if (!ttsEnabled || !window.speechSynthesis) return;
-    window.speechSynthesis.cancel();
-    // Strip markdown/action tags for cleaner speech
-    const clean = text
-      .replace(/\*[^*]+\*/g, "")
-      .replace(/[#*_`>~]/g, "")
-      .replace(/\[[^\]]+\]\([^)]+\)/g, "")
-      .replace(/\s+/g, " ")
-      .trim();
-    if (!clean) return;
-    const utterance = new SpeechSynthesisUtterance(clean);
-    utterance.rate = 1;
-    utterance.pitch = voiceGender === "female" ? 1.1 : 0.9;
-    utterance.volume = 1;
-    const chosen = pickVoice(voiceGender);
-    if (chosen) utterance.voice = chosen;
-    utterance.onstart = () => setIsSpeaking(true);
-    utterance.onend = () => setIsSpeaking(false);
-    utterance.onerror = () => setIsSpeaking(false);
-    window.speechSynthesis.speak(utterance);
-  }, [ttsEnabled, voiceGender, pickVoice]);
-
-  const stopSpeaking = useCallback(() => {
-    window.speechSynthesis?.cancel();
-    setIsSpeaking(false);
-  }, []);
-
-  useEffect(() => {
-    window.speechSynthesis?.getVoices();
-    const handleVoices = () => window.speechSynthesis?.getVoices();
-    window.speechSynthesis?.addEventListener?.("voiceschanged", handleVoices);
-    return () => {
-      window.speechSynthesis?.removeEventListener?.("voiceschanged", handleVoices);
-      window.speechSynthesis?.cancel();
-    };
-  }, []);
+    if (!ttsEnabled) return;
+    const gender = findVoice(voiceId)?.gender ?? "male";
+    speak(text, { voiceId, gender });
+  }, [ttsEnabled, voiceId, speak]);
 
   // ── Load persisted council chat from DB ──────────────────
   useEffect(() => {
