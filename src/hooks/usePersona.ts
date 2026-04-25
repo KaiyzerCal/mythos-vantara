@@ -19,12 +19,12 @@ export function usePersona(personaId: string, userId: string) {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const sendMessage = useCallback(async (message: string): Promise<string | null> => {
+  const sendMessage = useCallback(async (message: string, attachmentIds?: string[]): Promise<string | null> => {
     setIsLoading(true);
     setError(null);
     try {
       const { data, error: fnError } = await supabase.functions.invoke("mavis-persona-router", {
-        body: { persona_id: personaId, user_id: userId, message },
+        body: { persona_id: personaId, user_id: userId, message, attachment_ids: attachmentIds },
       });
       if (fnError) throw new Error(fnError.message);
       return data?.response ?? null;
