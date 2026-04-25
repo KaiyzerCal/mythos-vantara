@@ -34,9 +34,42 @@ export function PersonaCard({ persona, userId, onChat, onDelete }: PersonaCardPr
   const [avatarUrl, setAvatarUrl] = useState<string | null>(persona.avatar_key ?? null);
   const { loadRelationshipState } = usePersona(persona.id, userId);
 
+  // Initial fetch
   useEffect(() => {
     loadRelationshipState().then(setRelState);
   }, [loadRelationshipState]);
+
+  // Live updates — bond/trust/mood reflect the current state of the
+  // relationship as the user chats with this persona anywhere in the app.
+  useEffect(() => {
+    const channel = supabase
+      .channel(`relstate-${persona.id}-${userId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "relationship_states",
+          filter: `persona_id=eq.${persona.id}`,
+        },
+        (payload) => {
+          const next = (payload.new ?? payload.old) as any;
+          if (!next || next.user_id !== userId) return;
+          setRelState({
+            bond_level: next.bond_level ?? 0,
+            trust_level: next.trust_level ?? 50,
+            current_mood: next.current_mood ?? "neutral",
+            mood_reason: next.mood_reason ?? null,
+            total_interactions: next.total_interactions ?? 0,
+            last_interaction_at: next.last_interaction_at ?? null,
+          });
+        },
+      )
+      .subscribe();
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [persona.id, userId]);
 
   const handleAvatarChange = async (url: string | null) => {
     setAvatarUrl(url);
