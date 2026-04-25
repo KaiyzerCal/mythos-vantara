@@ -210,6 +210,63 @@ export type Database = {
         }
         Relationships: []
       }
+      chat_attachments: {
+        Row: {
+          chat_kind: string
+          created_at: string
+          error_message: string | null
+          extracted_text: string
+          file_name: string
+          file_size: number
+          file_type: string
+          file_url: string
+          id: string
+          metadata: Json
+          mime_type: string
+          processing_status: string
+          storage_path: string
+          thread_ref: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          chat_kind: string
+          created_at?: string
+          error_message?: string | null
+          extracted_text?: string
+          file_name: string
+          file_size?: number
+          file_type?: string
+          file_url: string
+          id?: string
+          metadata?: Json
+          mime_type?: string
+          processing_status?: string
+          storage_path: string
+          thread_ref: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          chat_kind?: string
+          created_at?: string
+          error_message?: string | null
+          extracted_text?: string
+          file_name?: string
+          file_size?: number
+          file_type?: string
+          file_url?: string
+          id?: string
+          metadata?: Json
+          mime_type?: string
+          processing_status?: string
+          storage_path?: string
+          thread_ref?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       chat_conversations: {
         Row: {
           created_at: string
@@ -319,6 +376,8 @@ export type Database = {
           specialty: string | null
           updated_at: string
           user_id: string
+          voice_id: string | null
+          voice_settings: Json
         }
         Insert: {
           avatar?: string | null
@@ -331,6 +390,8 @@ export type Database = {
           specialty?: string | null
           updated_at?: string
           user_id: string
+          voice_id?: string | null
+          voice_settings?: Json
         }
         Update: {
           avatar?: string | null
@@ -343,6 +404,8 @@ export type Database = {
           specialty?: string | null
           updated_at?: string
           user_id?: string
+          voice_id?: string | null
+          voice_settings?: Json
         }
         Relationships: []
       }
@@ -653,6 +716,8 @@ export type Database = {
           system_prompt: string
           updated_at: string
           user_id: string
+          voice_id: string | null
+          voice_settings: Json
         }
         Insert: {
           archetype: string
@@ -668,6 +733,8 @@ export type Database = {
           system_prompt: string
           updated_at?: string
           user_id: string
+          voice_id?: string | null
+          voice_settings?: Json
         }
         Update: {
           archetype?: string
@@ -683,6 +750,8 @@ export type Database = {
           system_prompt?: string
           updated_at?: string
           user_id?: string
+          voice_id?: string | null
+          voice_settings?: Json
         }
         Relationships: []
       }
