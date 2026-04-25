@@ -15,8 +15,31 @@ const corsHeaders = {
 // Edge's TTS endpoint — this token is a public, hardcoded value used by every
 // Edge browser install for the Read Aloud feature. Not a secret.
 const TRUSTED_CLIENT_TOKEN = "6A5AA1D4EAFF4E9FB37E23D68491D6F4";
-const WS_URL =
-  `wss://speech.platform.bing.com/consumer/speech/synthesize/readaloud/edge/v1?TrustedClientToken=${TRUSTED_CLIENT_TOKEN}`;
+const SEC_MS_GEC_VERSION = "1-130.0.2849.68";
+
+// Microsoft now requires a Sec-MS-GEC token: SHA256 hex of
+// `${windowsFileTimeTicks(rounded to 5 min)}${TRUSTED_CLIENT_TOKEN}`.
+async function generateSecMsGec(): Promise<string> {
+  const ticks = Math.floor(Date.now() / 1000) + 11644473600; // unix → Windows file time seconds
+  const rounded = ticks - (ticks % 300); // round down to 5 min
+  const windowsTicks = rounded * 10_000_000; // → 100ns ticks
+  const data = new TextEncoder().encode(`${windowsTicks}${TRUSTED_CLIENT_TOKEN}`);
+  const hash = await crypto.subtle.digest("SHA-256", data);
+  return Array.from(new Uint8Array(hash))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("")
+    .toUpperCase();
+}
+
+function buildWsUrl(connectionId: string, secMsGec: string): string {
+  return (
+    `wss://speech.platform.bing.com/consumer/speech/synthesize/readaloud/edge/v1` +
+    `?TrustedClientToken=${TRUSTED_CLIENT_TOKEN}` +
+    `&Sec-MS-GEC=${secMsGec}` +
+    `&Sec-MS-GEC-Version=${SEC_MS_GEC_VERSION}` +
+    `&ConnectionId=${connectionId}`
+  );
+}
 
 // Default voices per gender — top neural voices Edge ships.
 const DEFAULT_FEMALE = "en-US-AriaNeural";
