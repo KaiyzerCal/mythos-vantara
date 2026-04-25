@@ -933,6 +933,22 @@ function CouncilChat({ member, profile, onClose }: { member: any; profile: any; 
             {ttsEnabled ? <Volume2 size={10} /> : <VolumeX size={10} />}
             {ttsEnabled ? "Voice" : "Muted"}
           </button>
+          {ttsEnabled && (
+            <button
+              onClick={() => {
+                if (isSpeaking) stopSpeaking();
+                setVoiceGender((g) => (g === "male" ? "female" : "male"));
+              }}
+              className={`flex items-center gap-1 px-2 py-1 text-[10px] font-mono rounded border transition-all mr-1 ${
+                voiceGender === "female"
+                  ? "text-pink-400 border-pink-400/30 bg-pink-400/5"
+                  : "text-blue-400 border-blue-400/30 bg-blue-400/5"
+              }`}
+              title={`Voice: ${voiceGender === "male" ? "Male" : "Female"} — click to switch`}
+            >
+              {voiceGender === "male" ? "♂ Male" : "♀ Female"}
+            </button>
+          )}
           {isSpeaking && (
             <button
               onClick={stopSpeaking}
