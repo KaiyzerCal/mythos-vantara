@@ -608,6 +608,7 @@ export default function MavisChat() {
         ...(storeItems || []).map((s: any) => `STORE [${s.id}] "${s.name}"`),
       ].join("\n");
 
+      const attachmentIds = attachments.map((a) => a.id);
       const { data: fnData, error } = await supabase.functions.invoke("mavis-chat", {
         body: {
           messages: apiMessages,
@@ -615,6 +616,9 @@ export default function MavisChat() {
           mode: chatMode,
           conversationId,
           appState: compactState,
+          chatKind: "mavis",
+          threadRef: "main",
+          attachmentIds,
         },
       });
 
