@@ -664,9 +664,33 @@ function CouncilChat({ member, profile, onClose }: { member: any; profile: any; 
   const [dbLoaded, setDbLoaded] = useState(false);
   const [ttsEnabled, setTtsEnabled] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
+  const voicePrefKey = `council-voice-gender-${member?.id ?? member?.name ?? "default"}`;
+  const [voiceGender, setVoiceGender] = useState<"male" | "female">(() => {
+    if (typeof window === "undefined") return "male";
+    const saved = window.localStorage.getItem(voicePrefKey);
+    return saved === "female" ? "female" : "male";
+  });
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem(voicePrefKey, voiceGender);
+    }
+  }, [voiceGender, voicePrefKey]);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   // ── Text-to-Speech ────────────────────────────
+  const pickVoice = useCallback((gender: "male" | "female"): SpeechSynthesisVoice | null => {
+    const voices = window.speechSynthesis.getVoices().filter(v => v.lang.startsWith("en"));
+    if (!voices.length) return null;
+    const maleHints = ["male", "david", "daniel", "alex", "fred", "george", "james", "tom", "mark", "guy", "ryan"];
+    const femaleHints = ["female", "samantha", "victoria", "karen", "moira", "tessa", "fiona", "susan", "zira", "linda", "jenny", "aria"];
+    const hints = gender === "male" ? maleHints : femaleHints;
+    const antiHints = gender === "male" ? femaleHints : maleHints;
+    const lower = (s: string) => s.toLowerCase();
+    const match = voices.find(v => hints.some(h => lower(v.name).includes(h)))
+      || voices.find(v => !antiHints.some(h => lower(v.name).includes(h)));
+    return match || voices[0];
+  }, []);
+
   const speakText = useCallback((text: string) => {
     if (!ttsEnabled || !window.speechSynthesis) return;
     window.speechSynthesis.cancel();
@@ -680,18 +704,15 @@ function CouncilChat({ member, profile, onClose }: { member: any; profile: any; 
     if (!clean) return;
     const utterance = new SpeechSynthesisUtterance(clean);
     utterance.rate = 1;
-    utterance.pitch = 1;
+    utterance.pitch = voiceGender === "female" ? 1.1 : 0.9;
     utterance.volume = 1;
-    const voices = window.speechSynthesis.getVoices();
-    const preferred = voices.find(v => v.name.includes("Google") && v.lang.startsWith("en"))
-      || voices.find(v => v.name.includes("Samantha"))
-      || voices.find(v => v.lang.startsWith("en") && v.localService);
-    if (preferred) utterance.voice = preferred;
+    const chosen = pickVoice(voiceGender);
+    if (chosen) utterance.voice = chosen;
     utterance.onstart = () => setIsSpeaking(true);
     utterance.onend = () => setIsSpeaking(false);
     utterance.onerror = () => setIsSpeaking(false);
     window.speechSynthesis.speak(utterance);
-  }, [ttsEnabled]);
+  }, [ttsEnabled, voiceGender, pickVoice]);
 
   const stopSpeaking = useCallback(() => {
     window.speechSynthesis?.cancel();
@@ -912,6 +933,22 @@ function CouncilChat({ member, profile, onClose }: { member: any; profile: any; 
             {ttsEnabled ? <Volume2 size={10} /> : <VolumeX size={10} />}
             {ttsEnabled ? "Voice" : "Muted"}
           </button>
+          {ttsEnabled && (
+            <button
+              onClick={() => {
+                if (isSpeaking) stopSpeaking();
+                setVoiceGender((g) => (g === "male" ? "female" : "male"));
+              }}
+              className={`flex items-center gap-1 px-2 py-1 text-[10px] font-mono rounded border transition-all mr-1 ${
+                voiceGender === "female"
+                  ? "text-pink-400 border-pink-400/30 bg-pink-400/5"
+                  : "text-blue-400 border-blue-400/30 bg-blue-400/5"
+              }`}
+              title={`Voice: ${voiceGender === "male" ? "Male" : "Female"} — click to switch`}
+            >
+              {voiceGender === "male" ? "♂ Male" : "♀ Female"}
+            </button>
+          )}
           {isSpeaking && (
             <button
               onClick={stopSpeaking}
