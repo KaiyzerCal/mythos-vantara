@@ -201,7 +201,8 @@ Deno.serve(async (req) => {
 
     const ssml = buildSsml({ text, voice, rate, pitch, volume });
     const audio = await synthesize(ssml);
-    const audioContent = base64Encode(audio);
+    // base64Encode wants ArrayBuffer; pass the underlying buffer slice.
+    const audioContent = base64Encode(audio.buffer.slice(audio.byteOffset, audio.byteOffset + audio.byteLength) as ArrayBuffer);
 
     return new Response(
       JSON.stringify({ audioContent, mime: "audio/mpeg", voice }),
