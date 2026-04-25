@@ -1,5 +1,11 @@
-// Curated ElevenLabs voice catalog used across Council, Persona, and MAVIS chats.
-// All IDs are publicly available preset voices on ElevenLabs.
+// Curated voice catalog used across Council, Persona, and MAVIS chats.
+//
+// Two providers are listed side by side:
+//   • Edge neural voices (id prefixed with "edge:") — FREE, no API key.
+//   • ElevenLabs preset voices (raw id) — premium, requires credits.
+//
+// Defaults point at Edge so voice works out of the box at no cost. Users can
+// pick an ElevenLabs voice from the dropdown once credits are funded.
 
 export type VoiceGender = "male" | "female";
 
@@ -8,37 +14,84 @@ export interface VoiceOption {
   name: string;
   gender: VoiceGender;
   description: string;
+  provider: "edge" | "elevenlabs";
 }
 
-export const VOICE_CATALOG: VoiceOption[] = [
-  // Male
-  { id: "JBFqnCBsd6RMkjVDRZzb", name: "George",   gender: "male",   description: "Warm, mature British narrator" },
-  { id: "nPczCjzI2devNBz1zQrb", name: "Brian",    gender: "male",   description: "Deep, resonant American" },
-  { id: "TX3LPaxmHKxFdv7VOQHJ", name: "Liam",     gender: "male",   description: "Confident, articulate American" },
-  { id: "onwK4e9ZLuTAKqWW03F9", name: "Daniel",   gender: "male",   description: "Authoritative British news anchor" },
-  { id: "iP95p4xoKVk53GoZ742B", name: "Chris",    gender: "male",   description: "Casual, friendly American" },
-  { id: "cjVigY5qzO86Huf0OWal", name: "Eric",     gender: "male",   description: "Smooth, measured American" },
-  { id: "bIHbv24MWmeRgasZH58o", name: "Will",     gender: "male",   description: "Energetic, expressive young American" },
-  { id: "N2lVS1w4EtoT3dr4eOWO", name: "Callum",   gender: "male",   description: "Intense, raspy character voice" },
-  { id: "IKne3meq5aSn9XLyUdCD", name: "Charlie",  gender: "male",   description: "Natural, conversational Australian" },
-  { id: "CwhRBWXzGAHq8TQ4Fs17", name: "Roger",    gender: "male",   description: "Classic American announcer" },
-  { id: "pqHfZKP75CvOlQylNhV4", name: "Bill",     gender: "male",   description: "Trustworthy older American" },
+const edge = (
+  voiceName: string,
+  display: string,
+  gender: VoiceGender,
+  description: string,
+): VoiceOption => ({
+  id: `edge:${voiceName}`,
+  name: display,
+  gender,
+  description,
+  provider: "edge",
+});
 
-  // Female
-  { id: "EXAVITQu4vr4xnSDxMaL", name: "Sarah",    gender: "female", description: "Soft, professional young American" },
-  { id: "FGY2WhTYpPnrIDTdsKH5", name: "Laura",    gender: "female", description: "Upbeat, friendly American" },
-  { id: "Xb7hH8MSUJpSbSDYk0k2", name: "Alice",    gender: "female", description: "Confident British" },
-  { id: "XrExE9yKIg1WjnnlVkGX", name: "Matilda",  gender: "female", description: "Warm, narrative American" },
-  { id: "cgSgspJ2msm6clMCkdW9", name: "Jessica",  gender: "female", description: "Expressive, conversational young American" },
-  { id: "pFZP5JQG7iQjIQuC4Bku", name: "Lily",     gender: "female", description: "Gentle, calm British" },
-  { id: "SAz9YHcvj6GT2YYXdXww", name: "River",    gender: "female", description: "Smooth, neutral American" },
-  { id: "21m00Tcm4TlvDq8ikWAM", name: "Rachel",   gender: "female", description: "Calm, narration-quality American" },
-  { id: "AZnzlk1XvdvUeBnXmlld", name: "Domi",     gender: "female", description: "Strong, confident American" },
+const eleven = (
+  id: string,
+  name: string,
+  gender: VoiceGender,
+  description: string,
+): VoiceOption => ({
+  id,
+  name,
+  gender,
+  description,
+  provider: "elevenlabs",
+});
+
+export const VOICE_CATALOG: VoiceOption[] = [
+  // ── Edge neural (FREE) — Male ────────────────────────────
+  edge("en-US-GuyNeural",         "Guy (Free)",         "male", "Warm, natural American — Edge neural"),
+  edge("en-US-ChristopherNeural", "Christopher (Free)", "male", "Confident, mature American — Edge neural"),
+  edge("en-US-EricNeural",        "Eric (Free)",        "male", "Smooth, friendly American — Edge neural"),
+  edge("en-US-DavisNeural",       "Davis (Free)",       "male", "Casual, conversational American — Edge neural"),
+  edge("en-US-RogerNeural",       "Roger (Free)",       "male", "Classic announcer American — Edge neural"),
+  edge("en-US-AndrewNeural",      "Andrew (Free)",      "male", "Articulate, professional American — Edge neural"),
+  edge("en-US-BrianNeural",       "Brian (Free)",       "male", "Deep, resonant American — Edge neural"),
+  edge("en-GB-RyanNeural",        "Ryan (Free)",        "male", "Crisp British — Edge neural"),
+  edge("en-GB-ThomasNeural",      "Thomas (Free)",      "male", "Calm British — Edge neural"),
+  edge("en-AU-WilliamNeural",     "William (Free)",     "male", "Easy-going Australian — Edge neural"),
+
+  // ── Edge neural (FREE) — Female ──────────────────────────
+  edge("en-US-AriaNeural",        "Aria (Free)",        "female", "Expressive, lifelike American — Edge neural"),
+  edge("en-US-JennyNeural",       "Jenny (Free)",       "female", "Friendly, approachable American — Edge neural"),
+  edge("en-US-MichelleNeural",    "Michelle (Free)",    "female", "Warm, clear American — Edge neural"),
+  edge("en-US-AvaNeural",         "Ava (Free)",         "female", "Bright, modern American — Edge neural"),
+  edge("en-US-EmmaNeural",        "Emma (Free)",        "female", "Soft, conversational American — Edge neural"),
+  edge("en-US-SaraNeural",        "Sara (Free)",        "female", "Smooth, narration American — Edge neural"),
+  edge("en-GB-SoniaNeural",       "Sonia (Free)",       "female", "Confident British — Edge neural"),
+  edge("en-GB-LibbyNeural",       "Libby (Free)",       "female", "Gentle British — Edge neural"),
+  edge("en-AU-NatashaNeural",     "Natasha (Free)",     "female", "Lively Australian — Edge neural"),
+  edge("en-IE-EmilyNeural",       "Emily (Free)",       "female", "Lilting Irish — Edge neural"),
+
+  // ── ElevenLabs (premium, requires credits) — Male ────────
+  eleven("JBFqnCBsd6RMkjVDRZzb", "George (Premium)",   "male", "Warm, mature British narrator — ElevenLabs"),
+  eleven("nPczCjzI2devNBz1zQrb", "Brian (Premium)",    "male", "Deep, resonant American — ElevenLabs"),
+  eleven("TX3LPaxmHKxFdv7VOQHJ", "Liam (Premium)",     "male", "Confident, articulate American — ElevenLabs"),
+  eleven("onwK4e9ZLuTAKqWW03F9", "Daniel (Premium)",   "male", "Authoritative British anchor — ElevenLabs"),
+  eleven("iP95p4xoKVk53GoZ742B", "Chris (Premium)",    "male", "Casual, friendly American — ElevenLabs"),
+  eleven("bIHbv24MWmeRgasZH58o", "Will (Premium)",     "male", "Energetic young American — ElevenLabs"),
+  eleven("N2lVS1w4EtoT3dr4eOWO", "Callum (Premium)",   "male", "Intense, raspy character — ElevenLabs"),
+  eleven("IKne3meq5aSn9XLyUdCD", "Charlie (Premium)",  "male", "Natural Australian — ElevenLabs"),
+
+  // ── ElevenLabs (premium, requires credits) — Female ──────
+  eleven("EXAVITQu4vr4xnSDxMaL", "Sarah (Premium)",    "female", "Soft, professional American — ElevenLabs"),
+  eleven("FGY2WhTYpPnrIDTdsKH5", "Laura (Premium)",    "female", "Upbeat, friendly American — ElevenLabs"),
+  eleven("Xb7hH8MSUJpSbSDYk0k2", "Alice (Premium)",    "female", "Confident British — ElevenLabs"),
+  eleven("XrExE9yKIg1WjnnlVkGX", "Matilda (Premium)",  "female", "Warm, narrative American — ElevenLabs"),
+  eleven("cgSgspJ2msm6clMCkdW9", "Jessica (Premium)",  "female", "Expressive young American — ElevenLabs"),
+  eleven("pFZP5JQG7iQjIQuC4Bku", "Lily (Premium)",     "female", "Gentle, calm British — ElevenLabs"),
+  eleven("SAz9YHcvj6GT2YYXdXww", "River (Premium)",    "female", "Smooth, neutral American — ElevenLabs"),
 ];
 
+// Defaults point to FREE Edge neural voices so playback works without credits.
 export const DEFAULT_VOICE_BY_GENDER: Record<VoiceGender, string> = {
-  male: "JBFqnCBsd6RMkjVDRZzb",     // George
-  female: "EXAVITQu4vr4xnSDxMaL",   // Sarah
+  male: "edge:en-US-GuyNeural",
+  female: "edge:en-US-AriaNeural",
 };
 
 export function findVoice(id?: string | null): VoiceOption | undefined {
@@ -48,4 +101,12 @@ export function findVoice(id?: string | null): VoiceOption | undefined {
 
 export function voicesByGender(gender: VoiceGender): VoiceOption[] {
   return VOICE_CATALOG.filter((v) => v.gender === gender);
+}
+
+// Helpers for the playback hook to know which backend to call.
+export function isEdgeVoice(id?: string | null): boolean {
+  return !!id && id.startsWith("edge:");
+}
+export function edgeVoiceName(id: string): string {
+  return id.replace(/^edge:/, "");
 }
