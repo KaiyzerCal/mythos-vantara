@@ -1,8 +1,10 @@
 import { useState, useEffect } from "react";
 import { Heart, Shield, MessageCircle, Trash2, Clock } from "lucide-react";
 import { HudCard, ProgressBar } from "@/components/SharedUI";
+import { AvatarUploader } from "@/components/AvatarUploader";
 import { cn } from "@/lib/utils";
 import { usePersona } from "@/hooks/usePersona";
+import { supabase } from "@/integrations/supabase/client";
 import type { ForgedPersona } from "@/hooks/usePersonaForge";
 import type { RelationshipState } from "@/hooks/usePersona";
 
@@ -29,11 +31,17 @@ interface PersonaCardProps {
 
 export function PersonaCard({ persona, userId, onChat, onDelete }: PersonaCardProps) {
   const [relState, setRelState] = useState<RelationshipState | null>(null);
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(persona.avatar_key ?? null);
   const { loadRelationshipState } = usePersona(persona.id, userId);
 
   useEffect(() => {
     loadRelationshipState().then(setRelState);
   }, [loadRelationshipState]);
+
+  const handleAvatarChange = async (url: string | null) => {
+    setAvatarUrl(url);
+    await supabase.from("personas").update({ avatar_key: url }).eq("id", persona.id);
+  };
 
   const mood = relState?.current_mood ?? "neutral";
   const bond = relState?.bond_level ?? 0;
@@ -48,13 +56,14 @@ export function PersonaCard({ persona, userId, onChat, onDelete }: PersonaCardPr
     <HudCard glowColor={persona.role === "girlfriend" || persona.role === "companion" ? "purple" : "none"}>
       <div className="flex items-start justify-between mb-3">
         <div className="flex items-center gap-2.5">
-          {/* Avatar placeholder — circular with role color accent */}
-          <div className={cn(
-            "w-10 h-10 rounded-full border-2 flex items-center justify-center font-display font-bold text-base shrink-0",
-            roleStyle
-          )}>
-            {persona.name[0].toUpperCase()}
-          </div>
+          <AvatarUploader
+            value={avatarUrl}
+            onChange={handleAvatarChange}
+            scope={`persona/${persona.id}`}
+            fallback={persona.name}
+            sizeClass="w-10 h-10"
+            ringClass={cn("border-2", roleStyle.split(" ").find((c) => c.startsWith("border-")) ?? "border-border")}
+          />
           <div>
             <p className="font-display font-bold text-sm text-foreground">{persona.name}</p>
             <p className="text-[9px] font-mono text-muted-foreground uppercase tracking-widest">{persona.archetype}</p>

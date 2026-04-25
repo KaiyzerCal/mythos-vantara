@@ -2,6 +2,7 @@ import { motion } from "framer-motion";
 import { Crown, Copy, User, Zap, Star, Shield, Flame, Activity, TrendingUp } from "lucide-react";
 import { useAppData } from "@/contexts/AppDataContext";
 import { PageHeader, HudCard, ProgressBar, StatBadge, RankBadge, EnergyBar } from "@/components/SharedUI";
+import { AvatarUploader } from "@/components/AvatarUploader";
 import { RANK_COLORS, calculateXPForLevel } from "@/types/rpg";
 import { useState } from "react";
 
@@ -24,7 +25,7 @@ const CORE_STATS = [
 const STAT_MAX = 100;
 
 export default function CharacterPage() {
-  const { profile, quests, skills, energySystems } = useAppData();
+  const { profile, quests, skills, energySystems, updateProfile } = useAppData();
   const [copied, setCopied] = useState(false);
 
   const rankColor = RANK_COLORS[profile.rank as keyof typeof RANK_COLORS] ?? "#FFD700";
@@ -82,12 +83,37 @@ export default function CharacterPage() {
         <HudCard className="relative overflow-hidden">
           <div className="absolute inset-0 bg-gradient-to-br from-primary/5 to-transparent pointer-events-none" />
           <div className="relative flex flex-col sm:flex-row sm:items-center gap-4">
-            <div
-              className="w-20 h-20 rounded-xl border-2 flex items-center justify-center shrink-0"
-              style={{ borderColor: rankColor + "77", background: rankColor + "11" }}
-            >
-              <Crown size={40} style={{ color: rankColor }} />
-            </div>
+            {profile.avatar_url ? (
+              <AvatarUploader
+                value={profile.avatar_url}
+                onChange={(url) => updateProfile({ avatar_url: url })}
+                scope="character"
+                fallback={profile.inscribed_name}
+                sizeClass="w-20 h-20"
+                ringClass=""
+                shape="square"
+              />
+            ) : (
+              <div className="relative group">
+                <div
+                  className="w-20 h-20 rounded-xl border-2 flex items-center justify-center shrink-0"
+                  style={{ borderColor: rankColor + "77", background: rankColor + "11" }}
+                >
+                  <Crown size={40} style={{ color: rankColor }} />
+                </div>
+                <div className="absolute inset-0">
+                  <AvatarUploader
+                    value={null}
+                    onChange={(url) => updateProfile({ avatar_url: url })}
+                    scope="character"
+                    fallback=""
+                    sizeClass="w-20 h-20"
+                    ringClass="border-transparent"
+                    shape="square"
+                  />
+                </div>
+              </div>
+            )}
             <div className="flex-1">
               <div className="flex flex-wrap items-center gap-2 mb-1">
                 <h2 className="font-display text-2xl font-bold" style={{ color: rankColor }}>

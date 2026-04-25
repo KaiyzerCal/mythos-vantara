@@ -8,6 +8,7 @@ import { useAppData } from "@/contexts/AppDataContext";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { PageHeader, HudCard, ProgressBar, QuestTypeBadge, RarityBadge } from "@/components/SharedUI";
+import { AvatarUploader } from "@/components/AvatarUploader";
 import ReactMarkdown from "react-markdown";
 import { useElevenLabsTts } from "@/hooks/useElevenLabsTts";
 import { useChatAttachments } from "@/hooks/useChatAttachments";
@@ -1111,8 +1112,16 @@ export function CouncilsPage() {
                   onClick={() => setActiveChat(m)}
                 >
                   <div className="flex items-start gap-3">
-                    <div className={`w-9 h-9 rounded border flex items-center justify-center font-display font-bold text-sm shrink-0 ${classColors[m.class]}`} style={{ borderColor: "currentColor", opacity: 0.8 }}>
-                      {m.name[0]}
+                    <div onClick={(e) => e.stopPropagation()}>
+                      <AvatarUploader
+                        value={m.avatar ?? null}
+                        onChange={(url) => updateCouncilMember(m.id, { avatar: url })}
+                        scope={`council/${m.id}`}
+                        fallback={m.name}
+                        sizeClass="w-9 h-9"
+                        ringClass={`border ${classColors[m.class]}`}
+                        shape="square"
+                      />
                     </div>
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-display font-bold">{m.name}</p>
