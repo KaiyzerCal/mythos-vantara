@@ -22,6 +22,7 @@ import { AlliesPage, StorePage } from "@/pages/AlliesAndStore";
 import ScouterPage from "@/pages/ScouterPage";
 import ActivityLogPage from "@/pages/ActivityLogPage";
 import PersonasPage from "@/pages/PersonasPage";
+import PersonaRelationshipsPage from "@/pages/PersonaRelationshipsPage";
 
 const queryClient = new QueryClient();
 
@@ -67,6 +68,7 @@ function AppContent() {
             <Route path="/store" element={<StorePage />} />
             <Route path="/activity" element={<ActivityLogPage />} />
             <Route path="/personas" element={<PersonasPage />} />
+            <Route path="/persona-relationships" element={<PersonaRelationshipsPage />} />
             <Route path="/settings" element={<SettingsPage />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
