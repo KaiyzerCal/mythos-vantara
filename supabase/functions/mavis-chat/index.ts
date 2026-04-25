@@ -50,18 +50,25 @@ function routeToProvider(mode: string, message: string): Provider {
 // ============================================================
 // PROVIDER ADAPTERS
 // ============================================================
-async function callOpenAI(messages: any[], system: string, key: string): Promise<string> {
+async function callOpenAI(messages: any[], system: string, key: string, model = "gpt-4o-mini"): Promise<string> {
   const res = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
     body: JSON.stringify({
-      model: "gpt-4o",
+      model,
       messages: [{ role: "system", content: system }, ...messages],
       max_tokens: 2048,
       temperature: 0.85,
     }),
   });
-  if (!res.ok) throw new Error(`OpenAI ${res.status}: ${await res.text()}`);
+  if (!res.ok) {
+    const errText = await res.text();
+    if (res.status === 429 && model !== "gpt-4o-mini") {
+      console.log(`OpenAI ${model} rate-limited, falling back to gpt-4o-mini`);
+      return callOpenAI(messages, system, key, "gpt-4o-mini");
+    }
+    throw new Error(`OpenAI ${res.status}: ${errText}`);
+  }
   const d = await res.json();
   return d.choices?.[0]?.message?.content ?? "";
 }
