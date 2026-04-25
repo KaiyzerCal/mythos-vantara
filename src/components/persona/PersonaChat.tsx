@@ -5,6 +5,12 @@ import { HudCard } from "@/components/SharedUI";
 import { usePersona } from "@/hooks/usePersona";
 import type { ForgedPersona } from "@/hooks/usePersonaForge";
 import type { RelationshipState, PersonaMessage } from "@/hooks/usePersona";
+import { useElevenLabsTts } from "@/hooks/useElevenLabsTts";
+import { useChatAttachments } from "@/hooks/useChatAttachments";
+import { VoicePicker } from "@/components/chat/VoicePicker";
+import { AttachmentTray, AttachButton } from "@/components/chat/AttachmentTray";
+import { DEFAULT_VOICE_BY_GENDER, findVoice } from "@/lib/voiceCatalog";
+import { supabase } from "@/integrations/supabase/client";
 
 const MOOD_EMOJI: Record<string, string> = {
   happy: "😊", sad: "😔", excited: "⚡", frustrated: "😤",
@@ -31,10 +37,23 @@ export function PersonaChat({ persona, userId, onBack }: PersonaChatProps) {
   const [input, setInput] = useState("");
   const [relState, setRelState] = useState<RelationshipState | null>(null);
   const [isUpdatingEmotion, setIsUpdatingEmotion] = useState(false);
+  const [ttsEnabled, setTtsEnabled] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
   const { sendMessage, triggerEmotionUpdate, loadHistory, loadRelationshipState, isLoading } = usePersona(persona.id, userId);
+  const { speak, stop: stopSpeaking, isSpeaking, isLoading: isVoiceLoading } = useElevenLabsTts();
+  const { attachments, isUploading, upload, remove } = useChatAttachments("persona", persona.id);
+
+  // Voice preference for this persona — sourced from DB, persisted on change.
+  const initialVoice =
+    (persona as any)?.voice_id && findVoice((persona as any).voice_id)
+      ? (persona as any).voice_id
+      : DEFAULT_VOICE_BY_GENDER.female;
+  const [voiceId, setVoiceId] = useState<string>(initialVoice);
+  useEffect(() => {
+    supabase.from("personas").update({ voice_id: voiceId }).eq("id", persona.id).then(() => {});
+  }, [voiceId, persona.id]);
 
   // Load history and relationship state on mount
   useEffect(() => {
@@ -44,7 +63,6 @@ export function PersonaChat({ persona, userId, onBack }: PersonaChatProps) {
     });
   }, [loadHistory, loadRelationshipState]);
 
-  // Scroll to bottom when messages change
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
@@ -61,12 +79,16 @@ export function PersonaChat({ persona, userId, onBack }: PersonaChatProps) {
     setInput("");
     setMessages((prev) => [...prev, { role: "user", content: trimmed }]);
 
-    const response = await sendMessage(trimmed);
+    const attachmentIds = attachments.map((a) => a.id);
+    const response = await sendMessage(trimmed, attachmentIds);
     if (response) {
       setMessages((prev) => [...prev, { role: "assistant", content: response }]);
+      if (ttsEnabled) {
+        const gender = findVoice(voiceId)?.gender ?? "female";
+        speak(response, { voiceId, gender });
+      }
     }
 
-    // Trigger emotion update every 5 messages (approximate — fire and forget)
     const total = (relState?.total_interactions ?? 0) + 1;
     if (total % 5 === 0) {
       setIsUpdatingEmotion(true);
@@ -74,10 +96,9 @@ export function PersonaChat({ persona, userId, onBack }: PersonaChatProps) {
       await refreshRelState();
       setIsUpdatingEmotion(false);
     } else {
-      // Just bump the interaction count locally
       setRelState((prev) => prev ? { ...prev, total_interactions: total } : prev);
     }
-  }, [input, isLoading, sendMessage, triggerEmotionUpdate, refreshRelState, relState]);
+  }, [input, isLoading, sendMessage, triggerEmotionUpdate, refreshRelState, relState, attachments, ttsEnabled, voiceId, speak]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
