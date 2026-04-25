@@ -629,6 +629,7 @@ ${fmtMemories}
     const openaiKey  = Deno.env.get("OPENAI_API") ?? Deno.env.get("OPENAI_API_KEY") ?? "";
     const claudeKey  = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
     const grokKey    = Deno.env.get("GROK_API_KEY") ?? "";
+    const lovableKey = Deno.env.get("LOVABLE_API_KEY") ?? "";
     const tavilyKey  = Deno.env.get("Tavily_API") ?? Deno.env.get("TAVILY_API_KEY") ?? "";
 
     // ── Web search if needed ────────────────────────────────
