@@ -91,11 +91,19 @@ Deno.serve(async (req) => {
         : DEFAULT_MALE;
 
     const settings = body.voice_settings ?? {};
-    const stability = typeof settings.stability === "number" ? settings.stability : 0.5;
-    const similarity = typeof settings.similarity_boost === "number" ? settings.similarity_boost : 0.75;
-    const style = typeof settings.style === "number" ? settings.style : 0.3;
+    // Defaults tuned for natural, organic, human-feeling delivery:
+    // lower stability = more expressive variation between phrases,
+    // moderate style = personality without theatrics,
+    // speaker boost on for clarity and presence.
+    const stability = typeof settings.stability === "number" ? settings.stability : 0.35;
+    const similarity = typeof settings.similarity_boost === "number" ? settings.similarity_boost : 0.78;
+    const style = typeof settings.style === "number" ? settings.style : 0.45;
     const speed = typeof settings.speed === "number" ? Math.max(0.7, Math.min(1.2, settings.speed)) : 1.0;
-    const model_id = typeof body.model_id === "string" ? body.model_id : "eleven_turbo_v2_5";
+    const use_speaker_boost = settings.use_speaker_boost !== false;
+    // eleven_multilingual_v2 produces noticeably more lifelike, conversational
+    // prosody than the turbo models — the small latency cost is worth it for
+    // natural human-feeling speech.
+    const model_id = typeof body.model_id === "string" ? body.model_id : "eleven_multilingual_v2";
 
     const url = `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}?output_format=mp3_44100_128`;
     const ttsRes = await fetch(url, {
@@ -107,11 +115,13 @@ Deno.serve(async (req) => {
       body: JSON.stringify({
         text,
         model_id,
+        previous_text: typeof body.previous_text === "string" ? body.previous_text.slice(0, 500) : undefined,
+        next_text: typeof body.next_text === "string" ? body.next_text.slice(0, 500) : undefined,
         voice_settings: {
           stability,
           similarity_boost: similarity,
           style,
-          use_speaker_boost: true,
+          use_speaker_boost,
           speed,
         },
       }),
