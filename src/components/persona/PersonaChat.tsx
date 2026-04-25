@@ -5,6 +5,12 @@ import { HudCard } from "@/components/SharedUI";
 import { usePersona } from "@/hooks/usePersona";
 import type { ForgedPersona } from "@/hooks/usePersonaForge";
 import type { RelationshipState, PersonaMessage } from "@/hooks/usePersona";
+import { useElevenLabsTts } from "@/hooks/useElevenLabsTts";
+import { useChatAttachments } from "@/hooks/useChatAttachments";
+import { VoicePicker } from "@/components/chat/VoicePicker";
+import { AttachmentTray, AttachButton } from "@/components/chat/AttachmentTray";
+import { DEFAULT_VOICE_BY_GENDER, findVoice } from "@/lib/voiceCatalog";
+import { supabase } from "@/integrations/supabase/client";
 
 const MOOD_EMOJI: Record<string, string> = {
   happy: "😊", sad: "😔", excited: "⚡", frustrated: "😤",
