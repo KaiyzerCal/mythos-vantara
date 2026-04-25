@@ -252,13 +252,26 @@ export default function MavisChat() {
   const [isComposing, setIsComposing] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const [ttsEnabled, setTtsEnabled] = useState(false);
-  const [isSpeaking, setIsSpeaking] = useState(false);
+  const [voiceId, setVoiceId] = useState<string>(DEFAULT_VOICE_BY_GENDER.female);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const abortRef = useRef<AbortController | null>(null);
   const cancelledRef = useRef(false);
   const recognitionRef = useRef<any>(null);
-  const utteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
+
+  // ElevenLabs TTS + chat attachments
+  const { speak, stop: stopSpeaking, isSpeaking, isLoading: isVoiceLoading } = useElevenLabsTts();
+  const { attachments, isUploading, upload, remove, clear: clearAttachments } = useChatAttachments("mavis", "main");
+
+  // Persist voice preference in localStorage so it survives reloads
+  useEffect(() => {
+    const saved = localStorage.getItem("mavis-voice-id");
+    if (saved && findVoice(saved)) setVoiceId(saved);
+    const savedTts = localStorage.getItem("mavis-voice-enabled");
+    if (savedTts === "true") setTtsEnabled(true);
+  }, []);
+  useEffect(() => { localStorage.setItem("mavis-voice-id", voiceId); }, [voiceId]);
+  useEffect(() => { localStorage.setItem("mavis-voice-enabled", String(ttsEnabled)); }, [ttsEnabled]);
 
   // ── Speech Recognition (STT) ────────────────────────────
   const startListening = useCallback(() => {
