@@ -49,7 +49,21 @@ function routeToProvider(mode: string, message: string): Provider {
 
 // ============================================================
 // PROVIDER ADAPTERS
+// Throw ProviderUnavailableError on credit/quota/auth failures
+// so the cascade can move to the next provider.
 // ============================================================
+class ProviderUnavailableError extends Error {
+  constructor(public providerName: string, public reason: string, public status: number) {
+    super(`${providerName} unavailable (${status}): ${reason}`);
+  }
+}
+
+function isUnfundedStatus(status: number, body: string): boolean {
+  if ([401, 402, 403, 429].includes(status)) return true;
+  const b = body.toLowerCase();
+  return b.includes("credit") || b.includes("quota") || b.includes("billing") || b.includes("payment") || b.includes("insufficient");
+}
+
 async function callOpenAI(messages: any[], system: string, key: string, model = "gpt-4o-mini"): Promise<string> {
   const res = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
@@ -63,9 +77,8 @@ async function callOpenAI(messages: any[], system: string, key: string, model = 
   });
   if (!res.ok) {
     const errText = await res.text();
-    if (res.status === 429 && model !== "gpt-4o-mini") {
-      console.log(`OpenAI ${model} rate-limited, falling back to gpt-4o-mini`);
-      return callOpenAI(messages, system, key, "gpt-4o-mini");
+    if (isUnfundedStatus(res.status, errText)) {
+      throw new ProviderUnavailableError("openai", errText.slice(0, 200), res.status);
     }
     throw new Error(`OpenAI ${res.status}: ${errText}`);
   }
@@ -88,7 +101,13 @@ async function callClaude(messages: any[], system: string, key: string): Promise
       messages: messages.map((m: any) => ({ role: m.role, content: m.content })),
     }),
   });
-  if (!res.ok) throw new Error(`Claude ${res.status}: ${await res.text()}`);
+  if (!res.ok) {
+    const errText = await res.text();
+    if (isUnfundedStatus(res.status, errText)) {
+      throw new ProviderUnavailableError("claude", errText.slice(0, 200), res.status);
+    }
+    throw new Error(`Claude ${res.status}: ${errText}`);
+  }
   const d = await res.json();
   return d.content?.[0]?.text ?? "";
 }
@@ -104,9 +123,75 @@ async function callGrok(messages: any[], system: string, key: string): Promise<s
       temperature: 0.7,
     }),
   });
-  if (!res.ok) throw new Error(`Grok ${res.status}: ${await res.text()}`);
+  if (!res.ok) {
+    const errText = await res.text();
+    if (isUnfundedStatus(res.status, errText)) {
+      throw new ProviderUnavailableError("grok", errText.slice(0, 200), res.status);
+    }
+    throw new Error(`Grok ${res.status}: ${errText}`);
+  }
   const d = await res.json();
   return d.choices?.[0]?.message?.content ?? "";
+}
+
+async function callLovableGateway(messages: any[], system: string, key: string, model = "google/gemini-2.5-flash"): Promise<string> {
+  const res = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
+    body: JSON.stringify({
+      model,
+      messages: [{ role: "system", content: system }, ...messages],
+    }),
+  });
+  if (!res.ok) {
+    const errText = await res.text();
+    if (res.status === 429) throw new Error("Lovable AI rate limit reached. Try again shortly.");
+    if (res.status === 402) throw new Error("Lovable AI credits exhausted. Add credits in workspace settings.");
+    throw new Error(`Lovable AI Gateway ${res.status}: ${errText}`);
+  }
+  const d = await res.json();
+  return d.choices?.[0]?.message?.content ?? "";
+}
+
+// Cascade: primary provider → OpenAI → Lovable AI Gateway (free)
+async function callWithFallback(
+  primary: Provider,
+  messages: any[],
+  system: string,
+  keys: { openai: string; claude: string; grok: string; lovable: string },
+): Promise<{ content: string; provider: string }> {
+  // Tier 1 — primary
+  try {
+    if (primary === "claude" && keys.claude) {
+      return { content: await callClaude(messages, system, keys.claude), provider: "claude" };
+    }
+    if (primary === "grok" && keys.grok) {
+      return { content: await callGrok(messages, system, keys.grok), provider: "grok" };
+    }
+    if (primary === "openai" && keys.openai) {
+      return { content: await callOpenAI(messages, system, keys.openai), provider: "openai" };
+    }
+  } catch (err: any) {
+    if (!(err instanceof ProviderUnavailableError)) throw err;
+    console.warn(`[fallback] ${primary} unfunded (${err.status}) → trying OpenAI`);
+  }
+
+  // Tier 2 — OpenAI
+  if (keys.openai && primary !== "openai") {
+    try {
+      return { content: await callOpenAI(messages, system, keys.openai), provider: "openai" };
+    } catch (err: any) {
+      if (!(err instanceof ProviderUnavailableError)) throw err;
+      console.warn(`[fallback] OpenAI unfunded (${err.status}) → trying Lovable AI Gateway`);
+    }
+  }
+
+  // Tier 3 — Lovable AI Gateway (free)
+  if (keys.lovable) {
+    return { content: await callLovableGateway(messages, system, keys.lovable), provider: "lovable-ai" };
+  }
+
+  throw new Error("All AI providers unavailable (no funded keys, no Lovable AI Gateway).");
 }
 
 // ============================================================
@@ -544,6 +629,7 @@ ${fmtMemories}
     const openaiKey  = Deno.env.get("OPENAI_API") ?? Deno.env.get("OPENAI_API_KEY") ?? "";
     const claudeKey  = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
     const grokKey    = Deno.env.get("GROK_API_KEY") ?? "";
+    const lovableKey = Deno.env.get("LOVABLE_API_KEY") ?? "";
     const tavilyKey  = Deno.env.get("Tavily_API") ?? Deno.env.get("TAVILY_API_KEY") ?? "";
 
     // ── Web search if needed ────────────────────────────────
@@ -599,38 +685,14 @@ ${fmtMemories}
       webSearchResults ? `\n---\nWEB SEARCH:\n${webSearchResults}\n---` : "",
     ].filter(Boolean).join("\n\n");
 
-    // ── Route and call ──────────────────────────────────────
+    // ── Route and call (with cascading fallback) ────────────
     const provider = routeToProvider(mode ?? "PRIME", lastUserMsg?.content ?? "");
-    let content = "";
-    let usedProvider = provider;
-
-    try {
-      if (provider === "claude" && claudeKey) {
-        content = await callClaude(messages, fullPrompt, claudeKey);
-      } else if (provider === "grok" && grokKey) {
-        content = await callGrok(messages, fullPrompt, grokKey);
-      } else if (openaiKey) {
-        content = await callOpenAI(messages, fullPrompt, openaiKey);
-        usedProvider = "openai";
-      } else if (claudeKey) {
-        content = await callClaude(messages, fullPrompt, claudeKey);
-        usedProvider = "claude";
-      } else if (grokKey) {
-        content = await callGrok(messages, fullPrompt, grokKey);
-        usedProvider = "grok";
-      } else {
-        throw new Error("No AI API keys configured.");
-      }
-    } catch (aiErr: any) {
-      // Fallback chain on error
-      console.error(`Primary provider ${provider} failed:`, aiErr.message);
-      if (openaiKey && provider !== "openai") {
-        content = await callOpenAI(messages, fullPrompt, openaiKey);
-        usedProvider = "openai";
-      } else {
-        throw aiErr;
-      }
-    }
+    const { content, provider: usedProvider } = await callWithFallback(
+      provider,
+      messages,
+      fullPrompt,
+      { openai: openaiKey, claude: claudeKey, grok: grokKey, lovable: lovableKey },
+    );
 
     return new Response(
       JSON.stringify({ content, mode, conversationId, searched: !!webSearchResults, provider: usedProvider }),

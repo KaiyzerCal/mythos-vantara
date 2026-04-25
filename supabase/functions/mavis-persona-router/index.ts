@@ -6,10 +6,21 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-// ── LLM adapter — Lovable AI Gateway (free, no per-provider keys) ────────────
+// ── LLM cascade: configured-provider → OpenAI → Lovable AI Gateway ───────────
+
+class ProviderUnavailableError extends Error {
+  constructor(public providerName: string, public reason: string, public status: number) {
+    super(`${providerName} unavailable (${status}): ${reason}`);
+  }
+}
+
+function isUnfundedStatus(status: number, body: string): boolean {
+  if ([401, 402, 403, 429].includes(status)) return true;
+  const b = body.toLowerCase();
+  return b.includes("credit") || b.includes("quota") || b.includes("billing") || b.includes("payment") || b.includes("insufficient");
+}
 
 function mapToGatewayModel(model: string): string {
-  // Map any persona-configured model to a supported Lovable AI Gateway model.
   if (!model) return "google/gemini-2.5-flash";
   const m = model.toLowerCase();
   if (m.startsWith("google/")) return model;
@@ -23,29 +34,101 @@ function mapToGatewayModel(model: string): string {
   return "google/gemini-2.5-flash";
 }
 
-async function callLLM(model: string, system: string, messages: any[]): Promise<string> {
-  const key = Deno.env.get("LOVABLE_API_KEY");
-  if (!key) throw new Error("LOVABLE_API_KEY is not configured");
-  const gatewayModel = mapToGatewayModel(model);
+async function callClaude(model: string, system: string, messages: any[], key: string): Promise<string> {
+  const res = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "x-api-key": key, "anthropic-version": "2023-06-01" },
+    body: JSON.stringify({ model, max_tokens: 1024, system, messages }),
+  });
+  if (!res.ok) {
+    const errText = await res.text();
+    if (isUnfundedStatus(res.status, errText)) throw new ProviderUnavailableError("claude", errText.slice(0, 200), res.status);
+    throw new Error(`Claude ${res.status}: ${errText}`);
+  }
+  const d = await res.json();
+  return d.content?.[0]?.text ?? "";
+}
 
+async function callOpenAI(model: string, system: string, messages: any[], key: string): Promise<string> {
+  const res = await fetch("https://api.openai.com/v1/chat/completions", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
+    body: JSON.stringify({ model, messages: [{ role: "system", content: system }, ...messages], max_tokens: 1024 }),
+  });
+  if (!res.ok) {
+    const errText = await res.text();
+    if (isUnfundedStatus(res.status, errText)) throw new ProviderUnavailableError("openai", errText.slice(0, 200), res.status);
+    throw new Error(`OpenAI ${res.status}: ${errText}`);
+  }
+  const d = await res.json();
+  return d.choices?.[0]?.message?.content ?? "";
+}
+
+async function callGrok(model: string, system: string, messages: any[], key: string): Promise<string> {
+  const res = await fetch("https://api.x.ai/v1/chat/completions", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
+    body: JSON.stringify({ model, messages: [{ role: "system", content: system }, ...messages], max_tokens: 1024 }),
+  });
+  if (!res.ok) {
+    const errText = await res.text();
+    if (isUnfundedStatus(res.status, errText)) throw new ProviderUnavailableError("grok", errText.slice(0, 200), res.status);
+    throw new Error(`Grok ${res.status}: ${errText}`);
+  }
+  const d = await res.json();
+  return d.choices?.[0]?.message?.content ?? "";
+}
+
+async function callLovableGateway(model: string, system: string, messages: any[], key: string): Promise<string> {
   const res = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
     body: JSON.stringify({
-      model: gatewayModel,
+      model: mapToGatewayModel(model),
       messages: [{ role: "system", content: system }, ...messages],
     }),
   });
-
   if (!res.ok) {
     const errText = await res.text();
-    if (res.status === 429) throw new Error("Rate limit reached. Please try again in a moment.");
-    if (res.status === 402) throw new Error("AI credits exhausted. Please add credits to continue.");
-    throw new Error(`AI Gateway ${res.status}: ${errText}`);
+    if (res.status === 429) throw new Error("Lovable AI rate limit reached. Try again shortly.");
+    if (res.status === 402) throw new Error("Lovable AI credits exhausted. Add credits in workspace settings.");
+    throw new Error(`Lovable AI Gateway ${res.status}: ${errText}`);
   }
-
   const d = await res.json();
   return d.choices?.[0]?.message?.content ?? "";
+}
+
+async function callLLM(model: string, system: string, messages: any[]): Promise<string> {
+  const openaiKey  = Deno.env.get("OPENAI_API") ?? Deno.env.get("OPENAI_API_KEY") ?? "";
+  const claudeKey  = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
+  const grokKey    = Deno.env.get("GROK_API_KEY") ?? "";
+  const lovableKey = Deno.env.get("LOVABLE_API_KEY") ?? "";
+
+  // Tier 1 — provider implied by the persona's configured model
+  const m = (model || "").toLowerCase();
+  try {
+    if (m.startsWith("claude") && claudeKey) return await callClaude(model, system, messages, claudeKey);
+    if ((m.startsWith("gpt") || m.startsWith("openai/")) && openaiKey) return await callOpenAI(model, system, messages, openaiKey);
+    if (m.startsWith("grok") && grokKey) return await callGrok(model, system, messages, grokKey);
+  } catch (err: any) {
+    if (!(err instanceof ProviderUnavailableError)) throw err;
+    console.warn(`[persona-router fallback] ${err.providerName} unfunded (${err.status}) → trying OpenAI`);
+  }
+
+  // Tier 2 — OpenAI
+  if (openaiKey) {
+    try {
+      return await callOpenAI("gpt-4o-mini", system, messages, openaiKey);
+    } catch (err: any) {
+      if (!(err instanceof ProviderUnavailableError)) throw err;
+      console.warn(`[persona-router fallback] OpenAI unfunded (${err.status}) → trying Lovable AI Gateway`);
+    }
+  }
+
+  // Tier 3 — Lovable AI Gateway (free)
+  if (lovableKey) return await callLovableGateway(model, system, messages, lovableKey);
+
+  throw new Error("All AI providers unavailable (no funded keys, no Lovable AI Gateway).");
 }
 
 // ── System prompt builder ─────────────────────────────────────────────────────
