@@ -353,7 +353,7 @@ serve(async (req) => {
     // ── Load data ───────────────────────────────────────────
     const sb = createClient(supabaseUrl, serviceKey, { auth: { persistSession: false } });
 
-    const { messages, systemPrompt: clientSystemPrompt, mode, conversationId, appState } = await req.json();
+    const { messages, systemPrompt: clientSystemPrompt, mode, conversationId, appState, attachmentIds, chatKind, threadRef } = await req.json();
 
     // Fetch profile from DB (don't trust client-sent profile)
     const { data: profile } = await sb.from("profiles").select("*").eq("id", user.id).single();
