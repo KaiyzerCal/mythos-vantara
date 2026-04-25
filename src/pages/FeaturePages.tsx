@@ -950,31 +950,43 @@ function CouncilChat({ member, profile, onClose }: { member: any; profile: any; 
         )}
         </div>
 
-        <div className="p-3 border-t border-border flex gap-2">
-          <input
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); } }}
-            placeholder={`Speak to ${member.name}...`}
-            className="flex-1 bg-muted/30 border border-border rounded px-3 py-2 text-sm focus:outline-none focus:border-primary/40 placeholder:text-muted-foreground placeholder:text-xs placeholder:font-mono"
-          />
-          {isLoading ? (
-            <button
-              onClick={() => setIsLoading(false)}
-              className="px-3 py-2 bg-destructive/10 border border-destructive/30 text-destructive rounded hover:bg-destructive/20 transition-all"
-              title="Stop generating"
-            >
-              <Square size={14} />
-            </button>
-          ) : (
-            <button
-              onClick={() => sendMessage()}
-              disabled={!input.trim()}
-              className="px-3 py-2 bg-primary/10 border border-primary/30 text-primary rounded hover:bg-primary/20 disabled:opacity-30 transition-all"
-            >
-              <Send size={14} />
-            </button>
+        <div className="p-3 border-t border-border space-y-2">
+          {attachments.length > 0 && (
+            <AttachmentTray
+              attachments={attachments}
+              isUploading={isUploading}
+              onUpload={upload}
+              onRemove={remove}
+              compact
+            />
           )}
+          <div className="flex gap-2">
+            <AttachButton isUploading={isUploading} onUpload={upload} />
+            <input
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); } }}
+              placeholder={`Speak to ${member.name}...`}
+              className="flex-1 bg-muted/30 border border-border rounded px-3 py-2 text-sm focus:outline-none focus:border-primary/40 placeholder:text-muted-foreground placeholder:text-xs placeholder:font-mono"
+            />
+            {isLoading ? (
+              <button
+                onClick={() => setIsLoading(false)}
+                className="px-3 py-2 bg-destructive/10 border border-destructive/30 text-destructive rounded hover:bg-destructive/20 transition-all"
+                title="Stop generating"
+              >
+                <Square size={14} />
+              </button>
+            ) : (
+              <button
+                onClick={() => sendMessage()}
+                disabled={!input.trim()}
+                className="px-3 py-2 bg-primary/10 border border-primary/30 text-primary rounded hover:bg-primary/20 disabled:opacity-30 transition-all"
+              >
+                <Send size={14} />
+              </button>
+            )}
+          </div>
         </div>
       </motion.div>
     </div>
