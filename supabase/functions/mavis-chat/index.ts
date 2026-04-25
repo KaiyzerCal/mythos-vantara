@@ -352,7 +352,186 @@ serve(async (req) => {
     const { data: profile } = await sb.from("profiles").select("*").eq("id", user.id).single();
     if (!profile) throw new Error("Profile not found");
 
-    // ── PULL COMPLETE APP DATA SERVER-SIDE (authoritative, always fresh) ──
+    // ── PULL APP DATA SERVER-SIDE (compact summaries by default, deep detail on demand) ──
+    const lastUserMsgEarly = [...(messages || [])].reverse().find((m: any) => m.role === "user");
+    const q = (lastUserMsgEarly?.content || "").toLowerCase();
+    const wants = {
+      journal:    /\bjournal|diary|entry|entries|wrote|writing\b/.test(q),
+      vault:      /\bvault|evidence|document|legal|file\b/.test(q),
+      quest:      /\bquest|mission|objective\b/.test(q),
+      task:       /\btask|todo|to-do|habit\b/.test(q),
+      skill:      /\bskill|ability|proficienc/.test(q),
+      inventory:  /\binventor|item|gear|equipment|loot\b/.test(q),
+      energy:     /\benergy|aura|ki|chakra|nen|haki|mana|cursed|vril|ichor\b/.test(q),
+      transform:  /\bform|transform|ascen|tier|saiyan|spartan|sovereign|regalia/.test(q),
+      ranking:    /\brank|scouter|roster|gpr|pvp|opponent|enem/.test(q),
+      bpm:        /\bbpm|heart|pulse|session\b/.test(q),
+      store:      /\bstore|shop|buy|purchase|price\b/.test(q),
+      ally:       /\bally|allies|companion|harem\b/.test(q),
+      ritual:     /\britual|practice|routine|streak\b/.test(q),
+      council:    /\bcouncil|advisor|member\b/.test(q),
+      activity:   /\bactivity|log|history|recent\b/.test(q),
+      memory:     /\bmemor|remember|recall|past conversation\b/.test(q),
+    };
+    const lim = (key: keyof typeof wants, deep: number, shallow: number) => wants[key] ? deep : shallow;
+
+    const [
+      questsRes, tasksRes, skillsRes, journalRes, vaultRes, councilsRes,
+      alliesRes, energyRes, inventoryRes, ritualsRes, transformationsRes,
+      rankingsRes, bpmRes, storeRes, currenciesRes, vaultMediaRes,
+      activityRes, memoriesRes,
+    ] = await Promise.all([
+      sb.from("quests").select("id,title,description,type,status,difficulty,xp_reward,progress_current,progress_target,deadline,real_world_mapping").eq("user_id", user.id).order("created_at", { ascending: false }).limit(lim("quest", 25, 10)),
+      sb.from("tasks").select("id,title,description,type,status,recurrence,xp_reward,streak,completed_count").eq("user_id", user.id).order("created_at", { ascending: false }).limit(lim("task", 20, 8)),
+      sb.from("skills").select("id,name,description,category,tier,proficiency,energy_type,unlocked,parent_skill_id,cost").eq("user_id", user.id).order("created_at", { ascending: false }).limit(lim("skill", 30, 12)),
+      sb.from("journal_entries").select("id,title,content,category,importance,mood,tags,xp_earned").eq("user_id", user.id).order("created_at", { ascending: false }).limit(lim("journal", 15, 5)),
+      sb.from("vault_entries").select("id,title,content,category,importance,attachments").eq("user_id", user.id).order("created_at", { ascending: false }).limit(lim("vault", 15, 5)),
+      sb.from("councils").select("id,name,role,class,specialty,notes").eq("user_id", user.id),
+      sb.from("allies").select("id,name,relationship,level,specialty,affinity,notes").eq("user_id", user.id).limit(lim("ally", 25, 10)),
+      sb.from("energy_systems").select("id,type,current_value,max_value,status,description").eq("user_id", user.id),
+      sb.from("inventory").select("id,name,description,type,rarity,quantity,is_equipped,slot,tier,effect,stat_effects").eq("user_id", user.id).limit(lim("inventory", 40, 15)),
+      sb.from("rituals").select("id,name,description,type,xp_reward,completed,streak").eq("user_id", user.id),
+      sb.from("transformations").select("id,name,tier,form_order,bpm_range,energy,jjk_grade,op_tier,description,unlocked,active_buffs,passive_buffs,abilities").eq("user_id", user.id).order("form_order", { ascending: true }),
+      sb.from("rankings_profiles").select("id,display_name,role,rank,level,gpr,pvp,jjk_grade,op_tier,influence,is_self,notes").eq("user_id", user.id).limit(lim("ranking", 30, 12)),
+      sb.from("bpm_sessions").select("id,bpm,form,duration,mood,notes").eq("user_id", user.id).order("created_at", { ascending: false }).limit(lim("bpm", 15, 5)),
+      sb.from("store_items").select("id,name,description,price,currency,rarity,category,effect").eq("user_id", user.id).limit(lim("store", 20, 6)),
+      sb.from("currencies").select("name,amount,icon").eq("user_id", user.id),
+      sb.from("vault_media").select("id,file_name,file_type,description,vault_entry_id").eq("user_id", user.id).order("created_at", { ascending: false }).limit(lim("vault", 15, 5)),
+      sb.from("activity_log").select("event_type,xp_amount,description,created_at").eq("user_id", user.id).order("created_at", { ascending: false }).limit(lim("activity", 12, 4)),
+      sb.from("memories").select("title,content,metadata,source").eq("user_id", user.id).order("created_at", { ascending: false }).limit(lim("memory", 6, 2)),
+    ]);
+
+    const dbState = {
+      quests: questsRes.data || [], tasks: tasksRes.data || [], skills: skillsRes.data || [],
+      journalEntries: journalRes.data || [], vaultEntries: vaultRes.data || [], councils: councilsRes.data || [],
+      allies: alliesRes.data || [], energySystems: energyRes.data || [], inventory: inventoryRes.data || [],
+      rituals: ritualsRes.data || [], transformations: transformationsRes.data || [], rankings: rankingsRes.data || [],
+      bpmSessions: bpmRes.data || [], storeItems: storeRes.data || [], currencies: currenciesRes.data || [],
+      vaultMedia: vaultMediaRes.data || [], activityLog: activityRes.data || [], memories: memoriesRes.data || [],
+    };
+
+    // Adaptive: full content when user is asking for it, short preview otherwise
+    const journalLen = wants.journal ? 500 : 100;
+    const vaultLen   = wants.vault ? 500 : 100;
+    const questDescLen = wants.quest ? 200 : 60;
+
+    const fmtJournal = dbState.journalEntries.map((j: any) =>
+      `  • [${j.id}] "${j.title}" [${j.category}/${j.importance}${j.mood ? `/${j.mood}` : ""}]\n      ${(j.content || "(empty)").slice(0, journalLen)}`
+    ).join("\n").slice(0, 6000) || "  None";
+    const fmtVault = dbState.vaultEntries.map((v: any) =>
+      `  • [${v.id}] "${v.title}" [${v.category}/${v.importance}]\n      ${(v.content || "(empty)").slice(0, vaultLen)}`
+    ).join("\n").slice(0, 6000) || "  None";
+    const fmtQuests = dbState.quests.map((q: any) =>
+      `  • [${q.id}] "${q.title}" [${q.status}/${q.type}/${q.difficulty}] xp:${q.xp_reward} ${q.progress_current}/${q.progress_target}${q.description ? ` — ${q.description.slice(0, questDescLen)}` : ""}`
+    ).join("\n") || "  None";
+    const fmtTasks = dbState.tasks.map((t: any) =>
+      `  • [${t.id}] "${t.title}" [${t.status}/${t.recurrence}] xp:${t.xp_reward} streak:${t.streak}`
+    ).join("\n") || "  None";
+    const fmtSkills = dbState.skills.map((s: any) =>
+      `  • [${s.id}] ${s.name} (${s.category}, T${s.tier}, ${s.proficiency}%, ${s.energy_type}${s.unlocked ? "" : ", locked"})${s.parent_skill_id ? ` ↳p:${s.parent_skill_id}` : ""}${wants.skill && s.description ? ` — ${s.description.slice(0, 100)}` : ""}`
+    ).join("\n") || "  None";
+    const fmtCouncils = dbState.councils.map((c: any) =>
+      `  • [${c.id}] ${c.name} — ${c.role} (${c.class}${c.specialty ? `, ${c.specialty}` : ""})${wants.council && c.notes ? ` — ${c.notes.slice(0, 150)}` : ""}`
+    ).join("\n") || "  None";
+    const fmtAllies = dbState.allies.map((a: any) =>
+      `  • [${a.id}] ${a.name} | ${a.relationship} | Lv${a.level} aff:${a.affinity}${wants.ally && a.notes ? ` — ${a.notes.slice(0, 120)}` : ""}`
+    ).join("\n") || "  None";
+    const fmtEnergy = dbState.energySystems.map((e: any) =>
+      `  • [${e.id}] ${e.type}: ${e.current_value}/${e.max_value} [${e.status}]${wants.energy && e.description ? ` — ${e.description.slice(0, 150)}` : ""}`
+    ).join("\n") || "  None";
+    const fmtInventory = dbState.inventory.map((i: any) => {
+      const eff = wants.inventory && Array.isArray(i.stat_effects) && i.stat_effects.length ? ` [${i.stat_effects.map((x: any) => `${x.label}:${x.value}${x.unit}`).join(",")}]` : "";
+      return `  • [${i.id}] ${i.name} (${i.type}/${i.rarity}, ×${i.quantity}${i.is_equipped ? ", EQ" : ""})${i.effect ? ` ${i.effect}` : ""}${eff}${wants.inventory && i.description ? ` — ${i.description.slice(0, 100)}` : ""}`;
+    }).join("\n") || "  None";
+    const fmtRituals = dbState.rituals.map((r: any) =>
+      `  • [${r.id}] ${r.completed ? "✓" : "○"} "${r.name}" (${r.type}, streak:${r.streak})`
+    ).join("\n") || "  None";
+    const fmtTransforms = dbState.transformations.map((t: any) => {
+      if (!wants.transform) return `  • [${t.id}] ${t.name} [${t.tier}, ${t.unlocked ? "UNLOCKED" : "locked"}] ${t.energy} ${t.bpm_range}bpm`;
+      const buffs = Array.isArray(t.active_buffs) ? t.active_buffs.map((b: any) => `${b.label}:${b.value}${b.unit}`).join(", ") : "";
+      const abs = Array.isArray(t.abilities) ? t.abilities.map((a: any) => `${a.title}(${a.irl})`).join(", ") : "";
+      return `  • [${t.id}] ${t.name} [${t.tier}, ${t.unlocked ? "UNLOCKED" : "locked"}] ${t.energy} ${t.bpm_range}bpm ${t.jjk_grade}/${t.op_tier}${t.description ? ` — ${t.description.slice(0, 150)}` : ""}${buffs ? ` | Buffs: ${buffs}` : ""}${abs ? ` | Abilities: ${abs}` : ""}`;
+    }).join("\n") || "  None";
+    const fmtRankings = dbState.rankings.map((r: any) =>
+      `  • [${r.id}] ${r.display_name} [${r.role}${r.is_self ? "/SELF" : ""}] Lv${r.level} ${r.rank} GPR:${r.gpr} PvP:${r.pvp}${wants.ranking && r.notes ? ` — ${r.notes.slice(0, 120)}` : ""}`
+    ).join("\n") || "  None";
+    const fmtBpm = dbState.bpmSessions.map((b: any) =>
+      `  • ${b.bpm}bpm ${b.form} ${b.duration}m${b.mood ? ` (${b.mood})` : ""}`
+    ).join("\n") || "  None";
+    const fmtStore = dbState.storeItems.map((s: any) =>
+      `  • [${s.id}] ${s.name} (${s.rarity}) ${s.price} ${s.currency}${s.effect ? ` — ${s.effect}` : ""}`
+    ).join("\n") || "  None";
+    const fmtCurrencies = dbState.currencies.map((c: any) => `${c.icon}${c.name}:${c.amount}`).join(" | ") || "None";
+    const fmtVaultMedia = dbState.vaultMedia.map((m: any) =>
+      `  • [${m.id}] ${m.file_name} (${m.file_type})${m.description ? ` — ${m.description.slice(0, 100)}` : ""}`
+    ).join("\n") || "  None";
+    const fmtActivity = dbState.activityLog.map((a: any) =>
+      `  • ${new Date(a.created_at).toISOString().slice(0,16)} [${a.event_type}] +${a.xp_amount}XP — ${a.description}`
+    ).join("\n") || "  None";
+    const fmtMemories = dbState.memories.map((m: any) =>
+      `  • [${m.source}] ${m.title}: ${(((m.metadata as any)?.topic_summary) || m.content || "").slice(0, 200)}`
+    ).join("\n") || "  None";
+
+    const authoritativeContext = `
+═══ LIVE BACKEND STATE (server-fetched) ═══
+This is the user's real data. Reference it when answering. The user is asking about: ${Object.keys(wants).filter(k => (wants as any)[k]).join(", ") || "general"}.
+
+PROFILE: ${profile.inscribed_name} | Lv${profile.level}[${profile.rank}] | ${profile.current_form} | BPM:${profile.current_bpm} Floor:${profile.current_floor}
+Stats: STR${profile.stat_str}/AGI${profile.stat_agi}/VIT${profile.stat_vit}/INT${profile.stat_int}/WIS${profile.stat_wis}/CHA${profile.stat_cha}/LCK${profile.stat_lck} | Aura:${profile.aura} | GPR:${profile.gpr} PvP:${profile.pvp_rating}
+Arc: ${profile.arc_story} | Currencies: ${fmtCurrencies}
+
+QUESTS (${dbState.quests.length}):
+${fmtQuests}
+
+TASKS (${dbState.tasks.length}):
+${fmtTasks}
+
+SKILLS (${dbState.skills.length}):
+${fmtSkills}
+
+JOURNAL (${dbState.journalEntries.length}${wants.journal ? ", FULL" : ", preview"}):
+${fmtJournal}
+
+VAULT (${dbState.vaultEntries.length}${wants.vault ? ", FULL" : ", preview"}):
+${fmtVault}
+
+COUNCIL (${dbState.councils.length}):
+${fmtCouncils}
+
+ALLIES (${dbState.allies.length}):
+${fmtAllies}
+
+ENERGY (${dbState.energySystems.length}):
+${fmtEnergy}
+
+INVENTORY (${dbState.inventory.length}):
+${fmtInventory}
+
+RITUALS (${dbState.rituals.length}):
+${fmtRituals}
+
+FORMS/TRANSFORMATIONS (${dbState.transformations.length})${wants.transform ? " — DEEP" : ""}:
+${fmtTransforms}
+
+RANKINGS/SCOUTER (${dbState.rankings.length}):
+${fmtRankings}
+
+BPM (${dbState.bpmSessions.length}):
+${fmtBpm}
+
+STORE (${dbState.storeItems.length}):
+${fmtStore}
+
+VAULT MEDIA (${dbState.vaultMedia.length}):
+${fmtVaultMedia}
+
+ACTIVITY (${dbState.activityLog.length}):
+${fmtActivity}
+
+MEMORIES (${dbState.memories.length}):
+${fmtMemories}
+═══ END STATE ═══
+`;
     // This guarantees the AI sees ALL data even if the client forgets to send it.
     const [
       questsRes, tasksRes, skillsRes, journalRes, vaultRes, councilsRes,
