@@ -246,7 +246,7 @@ export default function MavisChat() {
   const [showScrollBtn, setShowScrollBtn] = useState(false);
   const [isComposing, setIsComposing] = useState(false);
   const [isListening, setIsListening] = useState(false);
-  const [ttsEnabled, setTtsEnabled] = useState(true);
+  const [ttsEnabled, setTtsEnabled] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);

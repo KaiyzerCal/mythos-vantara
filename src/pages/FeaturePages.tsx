@@ -3,7 +3,7 @@
 // ============================================================
 import { useState, useRef, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Target, Plus, Trash2, CheckCircle2, Filter, Loader2, Users, MessageCircle, Send, Square, X, Edit2, ArrowDown } from "lucide-react";
+import { Target, Plus, Trash2, CheckCircle2, Filter, Loader2, Users, MessageCircle, Send, Square, X, Edit2, ArrowDown, Volume2, VolumeX } from "lucide-react";
 import { useAppData } from "@/contexts/AppDataContext";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
@@ -662,7 +662,51 @@ function CouncilChat({ member, profile, onClose }: { member: any; profile: any; 
   const [isLoading, setIsLoading] = useState(false);
   const [showScrollBtn, setShowScrollBtn] = useState(false);
   const [dbLoaded, setDbLoaded] = useState(false);
+  const [ttsEnabled, setTtsEnabled] = useState(false);
+  const [isSpeaking, setIsSpeaking] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  // ── Text-to-Speech ────────────────────────────
+  const speakText = useCallback((text: string) => {
+    if (!ttsEnabled || !window.speechSynthesis) return;
+    window.speechSynthesis.cancel();
+    // Strip markdown/action tags for cleaner speech
+    const clean = text
+      .replace(/\*[^*]+\*/g, "")
+      .replace(/[#*_`>~]/g, "")
+      .replace(/\[[^\]]+\]\([^)]+\)/g, "")
+      .replace(/\s+/g, " ")
+      .trim();
+    if (!clean) return;
+    const utterance = new SpeechSynthesisUtterance(clean);
+    utterance.rate = 1;
+    utterance.pitch = 1;
+    utterance.volume = 1;
+    const voices = window.speechSynthesis.getVoices();
+    const preferred = voices.find(v => v.name.includes("Google") && v.lang.startsWith("en"))
+      || voices.find(v => v.name.includes("Samantha"))
+      || voices.find(v => v.lang.startsWith("en") && v.localService);
+    if (preferred) utterance.voice = preferred;
+    utterance.onstart = () => setIsSpeaking(true);
+    utterance.onend = () => setIsSpeaking(false);
+    utterance.onerror = () => setIsSpeaking(false);
+    window.speechSynthesis.speak(utterance);
+  }, [ttsEnabled]);
+
+  const stopSpeaking = useCallback(() => {
+    window.speechSynthesis?.cancel();
+    setIsSpeaking(false);
+  }, []);
+
+  useEffect(() => {
+    window.speechSynthesis?.getVoices();
+    const handleVoices = () => window.speechSynthesis?.getVoices();
+    window.speechSynthesis?.addEventListener?.("voiceschanged", handleVoices);
+    return () => {
+      window.speechSynthesis?.removeEventListener?.("voiceschanged", handleVoices);
+      window.speechSynthesis?.cancel();
+    };
+  }, []);
 
   // ── Load persisted council chat from DB ──────────────────
   useEffect(() => {
@@ -827,12 +871,14 @@ function CouncilChat({ member, profile, onClose }: { member: any; profile: any; 
       setMessages((prev) => [...prev, { id: `a-${Date.now()}`, role: "assistant", content: reply, timestamp: new Date() }]);
       // Persist assistant message
       await persistCouncilMessage("assistant", reply);
+      // Speak the response if voice is enabled
+      speakText(reply);
     } catch {
       setMessages((prev) => [...prev, { id: `err-${Date.now()}`, role: "assistant", content: "Connection lost.", timestamp: new Date() }]);
     } finally {
       setIsLoading(false);
     }
-  }, [input, messages, isLoading, member, profile, persistCouncilMessage, quests, skills, journalEntries, vaultEntries, energySystems, allies, inventory, rituals, transformations, rankings, storeItems, bpmSessions, tasks, councils]);
+  }, [input, messages, isLoading, member, profile, persistCouncilMessage, quests, skills, journalEntries, vaultEntries, energySystems, allies, inventory, rituals, transformations, rankings, storeItems, bpmSessions, tasks, councils, speakText]);
 
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-background/80 backdrop-blur-sm p-4">
@@ -851,6 +897,30 @@ function CouncilChat({ member, profile, onClose }: { member: any; profile: any; 
             <p className="text-sm font-display font-bold truncate">{member.name}</p>
             <p className="text-[10px] font-mono text-muted-foreground">{member.role} · {member.class}</p>
           </div>
+          <button
+            onClick={() => {
+              if (isSpeaking) stopSpeaking();
+              setTtsEnabled((v) => !v);
+            }}
+            className={`flex items-center gap-1 px-2 py-1 text-[10px] font-mono rounded border transition-all mr-1 ${
+              ttsEnabled
+                ? "text-primary border-primary/30 bg-primary/5"
+                : "text-muted-foreground border-border/50"
+            }`}
+            title={ttsEnabled ? "Voice ON — click to mute" : "Voice OFF — click to enable"}
+          >
+            {ttsEnabled ? <Volume2 size={10} /> : <VolumeX size={10} />}
+            {ttsEnabled ? "Voice" : "Muted"}
+          </button>
+          {isSpeaking && (
+            <button
+              onClick={stopSpeaking}
+              className="p-1.5 text-destructive hover:text-destructive/80 transition-colors mr-1"
+              title="Stop speaking"
+            >
+              <Square size={14} />
+            </button>
+          )}
           <button onClick={clearCouncilChat} className="text-[10px] font-mono text-muted-foreground hover:text-destructive transition-colors mr-1">
             Clear
           </button>
