@@ -6,6 +6,11 @@ import { supabase } from "@/integrations/supabase/client";
 import { PageHeader, HudCard } from "@/components/SharedUI";
 import ReactMarkdown from "react-markdown";
 import { toast } from "sonner";
+import { useElevenLabsTts } from "@/hooks/useElevenLabsTts";
+import { useChatAttachments } from "@/hooks/useChatAttachments";
+import { VoicePicker } from "@/components/chat/VoicePicker";
+import { AttachmentTray, AttachButton } from "@/components/chat/AttachmentTray";
+import { DEFAULT_VOICE_BY_GENDER, findVoice } from "@/lib/voiceCatalog";
 
 // ── MAVIS Modes (from Rork mavis-prime-config) ─────────────
 function buildSystemPrompt(profile: any, mode: string, appContext: any, archivedMemories?: string, vaultMedia?: any[]): string {
@@ -247,13 +252,26 @@ export default function MavisChat() {
   const [isComposing, setIsComposing] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const [ttsEnabled, setTtsEnabled] = useState(false);
-  const [isSpeaking, setIsSpeaking] = useState(false);
+  const [voiceId, setVoiceId] = useState<string>(DEFAULT_VOICE_BY_GENDER.female);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const abortRef = useRef<AbortController | null>(null);
   const cancelledRef = useRef(false);
   const recognitionRef = useRef<any>(null);
-  const utteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
+
+  // ElevenLabs TTS + chat attachments
+  const { speak, stop: stopSpeaking, isSpeaking, isLoading: isVoiceLoading } = useElevenLabsTts();
+  const { attachments, isUploading, upload, remove } = useChatAttachments("mavis", "main");
+
+  // Persist voice preference in localStorage so it survives reloads
+  useEffect(() => {
+    const saved = localStorage.getItem("mavis-voice-id");
+    if (saved && findVoice(saved)) setVoiceId(saved);
+    const savedTts = localStorage.getItem("mavis-voice-enabled");
+    if (savedTts === "true") setTtsEnabled(true);
+  }, []);
+  useEffect(() => { localStorage.setItem("mavis-voice-id", voiceId); }, [voiceId]);
+  useEffect(() => { localStorage.setItem("mavis-voice-enabled", String(ttsEnabled)); }, [ttsEnabled]);
 
   // ── Speech Recognition (STT) ────────────────────────────
   const startListening = useCallback(() => {
@@ -308,14 +326,9 @@ export default function MavisChat() {
     setIsListening(false);
   }, []);
 
-  // ── Text-to-Speech (TTS) ────────────────────────────────
+  // ── Text-to-Speech via ElevenLabs ───────────────────────
   const speakText = useCallback((text: string) => {
-    if (!ttsEnabled || !window.speechSynthesis) return;
-    
-    // Cancel any ongoing speech
-    window.speechSynthesis.cancel();
-    
-    // Clean text for speech (remove markdown, action tags, etc.)
+    if (!ttsEnabled) return;
     const cleanText = text
       .replace(/:::ACTION\{[\s\S]*?\}:::/g, "")
       .replace(/\*\*(.*?)\*\*/g, "$1")
@@ -325,44 +338,10 @@ export default function MavisChat() {
       .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
       .replace(/[*_~`#]/g, "")
       .trim();
-    
     if (!cleanText) return;
-    
-    const utterance = new SpeechSynthesisUtterance(cleanText);
-    utterance.rate = 1.05;
-    utterance.pitch = 0.95;
-    utterance.volume = 0.9;
-    
-    // Try to pick a good voice
-    const voices = window.speechSynthesis.getVoices();
-    const preferred = voices.find(v => v.name.includes("Google") && v.lang.startsWith("en")) 
-      || voices.find(v => v.name.includes("Samantha"))
-      || voices.find(v => v.lang.startsWith("en") && v.localService);
-    if (preferred) utterance.voice = preferred;
-    
-    utterance.onstart = () => setIsSpeaking(true);
-    utterance.onend = () => setIsSpeaking(false);
-    utterance.onerror = () => setIsSpeaking(false);
-    
-    utteranceRef.current = utterance;
-    window.speechSynthesis.speak(utterance);
-  }, [ttsEnabled]);
-
-  const stopSpeaking = useCallback(() => {
-    window.speechSynthesis?.cancel();
-    setIsSpeaking(false);
-  }, []);
-
-  // Load voices on mount
-  useEffect(() => {
-    window.speechSynthesis?.getVoices();
-    const handleVoices = () => window.speechSynthesis?.getVoices();
-    window.speechSynthesis?.addEventListener?.("voiceschanged", handleVoices);
-    return () => {
-      window.speechSynthesis?.removeEventListener?.("voiceschanged", handleVoices);
-      window.speechSynthesis?.cancel();
-    };
-  }, []);
+    const gender = findVoice(voiceId)?.gender ?? "female";
+    speak(cleanText, { voiceId, gender });
+  }, [ttsEnabled, voiceId, speak]);
 
   const scrollToBottom = useCallback(() => {
     if (scrollRef.current) scrollRef.current.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
@@ -629,6 +608,7 @@ export default function MavisChat() {
         ...(storeItems || []).map((s: any) => `STORE [${s.id}] "${s.name}"`),
       ].join("\n");
 
+      const attachmentIds = attachments.map((a) => a.id);
       const { data: fnData, error } = await supabase.functions.invoke("mavis-chat", {
         body: {
           messages: apiMessages,
@@ -636,6 +616,9 @@ export default function MavisChat() {
           mode: chatMode,
           conversationId,
           appState: compactState,
+          chatKind: "mavis",
+          threadRef: "main",
+          attachmentIds,
         },
       });
 
@@ -728,7 +711,7 @@ export default function MavisChat() {
       setIsLoading(false);
       abortRef.current = null;
     }
-  }, [input, chatMessages, isLoading, chatMode, profile, quests, tasks, skills, journalEntries, vaultEntries, conversationId, setChatMessages, setConversationId, refetchAll, ensureConversation, persistMessage, saveMemoriesFromResponse, speakText]);
+  }, [input, chatMessages, isLoading, chatMode, profile, quests, tasks, skills, journalEntries, vaultEntries, conversationId, setChatMessages, setConversationId, refetchAll, ensureConversation, persistMessage, saveMemoriesFromResponse, speakText, attachments]);
 
   const copyMessage = (id: string, content: string) => {
     navigator.clipboard.writeText(content);
@@ -983,34 +966,41 @@ export default function MavisChat() {
       </div>
 
       {/* Voice controls */}
-      <div className="flex items-center gap-2 justify-end">
-        <button
-          onClick={() => {
-            if (isSpeaking) stopSpeaking();
+      <div className="flex items-center gap-2 justify-end flex-wrap">
+        <VoicePicker
+          enabled={ttsEnabled}
+          onToggle={() => {
+            if (ttsEnabled && isSpeaking) stopSpeaking();
             setTtsEnabled(!ttsEnabled);
           }}
-          className={`flex items-center gap-1 px-2 py-1 text-[9px] font-mono rounded border transition-all ${
-            ttsEnabled
-              ? "text-primary border-primary/30 bg-primary/5"
-              : "text-muted-foreground border-border/50"
-          }`}
-          title={ttsEnabled ? "Voice responses ON — click to mute" : "Voice responses OFF — click to enable"}
-        >
-          {ttsEnabled ? <Volume2 size={10} /> : <VolumeX size={10} />}
-          {ttsEnabled ? "Voice ON" : "Voice OFF"}
-        </button>
-        {isSpeaking && (
-          <button
-            onClick={stopSpeaking}
-            className="flex items-center gap-1 px-2 py-1 text-[9px] font-mono text-destructive border border-destructive/30 rounded animate-pulse"
-          >
-            <Square size={8} /> Stop
-          </button>
-        )}
+          voiceId={voiceId}
+          onVoiceChange={setVoiceId}
+          isSpeaking={isSpeaking}
+          isLoading={isVoiceLoading}
+          onStop={stopSpeaking}
+        />
       </div>
+
+      {/* Attachment tray (only when files present) */}
+      {(attachments.length > 0 || isUploading) && (
+        <div className="px-1">
+          <AttachmentTray
+            attachments={attachments}
+            isUploading={isUploading}
+            onUpload={upload}
+            onRemove={remove}
+            compact
+          />
+        </div>
+      )}
 
       {/* Input — pinned to bottom with safe-area padding for mobile */}
       <div className="flex gap-2 mt-auto pt-1 pb-[max(env(safe-area-inset-bottom),0.25rem)]">
+        <AttachButton
+          isUploading={isUploading}
+          onUpload={upload}
+          className="px-3 py-2 rounded-lg border bg-muted/30 border-border text-muted-foreground hover:text-primary hover:border-primary/30 transition-all self-end disabled:opacity-40"
+        />
         {/* Mic button */}
         <button
           onClick={() => {
