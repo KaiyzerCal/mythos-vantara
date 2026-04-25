@@ -13,16 +13,49 @@ const corsHeaders = {
 const DEFAULT_MALE = "JBFqnCBsd6RMkjVDRZzb"; // George
 const DEFAULT_FEMALE = "EXAVITQu4vr4xnSDxMaL"; // Sarah
 
+// Strip markup, code, emojis, stage directions — anything a person wouldn't
+// actually voice in a casual back-and-forth — and add light prosody cues so
+// ElevenLabs delivers a relaxed, human-sounding read instead of a TTS recital.
 function clean(text: string): string {
-  return text
+  let t = text
+    // Remove fenced code blocks and inline code entirely
     .replace(/```[\s\S]*?```/g, "")
+    .replace(/`[^`]*`/g, "")
+    // Custom action tags should never be spoken
     .replace(/:::ACTION[\s\S]*?:::/g, "")
-    .replace(/\*[^*]+\*/g, "")
-    .replace(/[#*_`>~]/g, "")
-    .replace(/\[[^\]]+\]\(([^)]+)\)/g, "")
+    .replace(/<[^>]+>/g, "")
+    // Drop bracketed stage directions like *smiles*, _whispers_, (laughs)
+    .replace(/\*[^*\n]+\*/g, "")
+    .replace(/_[^_\n]+_/g, "")
+    .replace(/\((?:laughs?|smiles?|sighs?|whispers?|chuckles?|grins?|pauses?)[^)]*\)/gi, "")
+    // Markdown links → keep label text only
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
+    // Headings, list bullets, blockquotes, emphasis marks
+    .replace(/^\s{0,3}#{1,6}\s+/gm, "")
+    .replace(/^\s*[-*+]\s+/gm, "")
+    .replace(/^\s*>\s?/gm, "")
+    .replace(/[#*_~>]/g, "")
+    // Strip emoji / pictographs — they read as awkward names otherwise
+    .replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{1F000}-\u{1F2FF}]/gu, "")
+    // Common chat shorthands → spoken forms
+    .replace(/\bw\/\b/gi, "with")
+    .replace(/\bw\/o\b/gi, "without")
+    .replace(/\b&\b/g, "and")
+    // Ellipses → natural pause
+    .replace(/\.{3,}/g, "…")
+    // Em/en dashes → comma pause feels more conversational
+    .replace(/\s*[—–]\s*/g, ", ")
+    // Collapse whitespace, but preserve sentence breaks
+    .replace(/[ \t]+/g, " ")
+    .replace(/\n{2,}/g, ". ")
+    .replace(/\n/g, " ")
+    .replace(/\s+([,.!?;:])/g, "$1")
     .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, 4500);
+    .trim();
+
+  // Soft pause after sentence-ending punctuation for breathing room.
+  t = t.replace(/([.!?])\s+(?=[A-Z0-9"'])/g, "$1  ");
+  return t.slice(0, 4500);
 }
 
 Deno.serve(async (req) => {
