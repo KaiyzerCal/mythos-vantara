@@ -261,7 +261,7 @@ export default function MavisChat() {
 
   // ElevenLabs TTS + chat attachments
   const { speak, stop: stopSpeaking, isSpeaking, isLoading: isVoiceLoading } = useElevenLabsTts();
-  const { attachments, isUploading, upload, remove, clear: clearAttachments } = useChatAttachments("mavis", "main");
+  const { attachments, isUploading, upload, remove } = useChatAttachments("mavis", "main");
 
   // Persist voice preference in localStorage so it survives reloads
   useEffect(() => {
