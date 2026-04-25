@@ -565,6 +565,127 @@ export type Database = {
         }
         Relationships: []
       }
+      persona_conversations: {
+        Row: {
+          content: string
+          created_at: string
+          id: string
+          persona_id: string
+          role: string
+          user_id: string
+        }
+        Insert: {
+          content: string
+          created_at?: string
+          id?: string
+          persona_id: string
+          role: string
+          user_id: string
+        }
+        Update: {
+          content?: string
+          created_at?: string
+          id?: string
+          persona_id?: string
+          role?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "persona_conversations_persona_id_fkey"
+            columns: ["persona_id"]
+            isOneToOne: false
+            referencedRelation: "personas"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      persona_memories: {
+        Row: {
+          content: string
+          created_at: string
+          id: string
+          importance: number
+          memory_type: string
+          persona_id: string
+          user_id: string
+        }
+        Insert: {
+          content: string
+          created_at?: string
+          id?: string
+          importance?: number
+          memory_type: string
+          persona_id: string
+          user_id: string
+        }
+        Update: {
+          content?: string
+          created_at?: string
+          id?: string
+          importance?: number
+          memory_type?: string
+          persona_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "persona_memories_persona_id_fkey"
+            columns: ["persona_id"]
+            isOneToOne: false
+            referencedRelation: "personas"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      personas: {
+        Row: {
+          archetype: string
+          avatar_key: string | null
+          created_at: string
+          embodiment_endpoint: string | null
+          id: string
+          is_active: boolean
+          model: string
+          name: string
+          personality: Json
+          role: string
+          system_prompt: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          archetype: string
+          avatar_key?: string | null
+          created_at?: string
+          embodiment_endpoint?: string | null
+          id?: string
+          is_active?: boolean
+          model?: string
+          name: string
+          personality?: Json
+          role: string
+          system_prompt: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          archetype?: string
+          avatar_key?: string | null
+          created_at?: string
+          embodiment_endpoint?: string | null
+          id?: string
+          is_active?: boolean
+          model?: string
+          name?: string
+          personality?: Json
+          role?: string
+          system_prompt?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       profiles: {
         Row: {
           arc_story: string
@@ -804,6 +925,56 @@ export type Database = {
           user_id?: string
         }
         Relationships: []
+      }
+      relationship_states: {
+        Row: {
+          bond_level: number
+          created_at: string
+          current_mood: string
+          id: string
+          last_interaction_at: string | null
+          mood_reason: string | null
+          persona_id: string
+          total_interactions: number
+          trust_level: number
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          bond_level?: number
+          created_at?: string
+          current_mood?: string
+          id?: string
+          last_interaction_at?: string | null
+          mood_reason?: string | null
+          persona_id: string
+          total_interactions?: number
+          trust_level?: number
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          bond_level?: number
+          created_at?: string
+          current_mood?: string
+          id?: string
+          last_interaction_at?: string | null
+          mood_reason?: string | null
+          persona_id?: string
+          total_interactions?: number
+          trust_level?: number
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "relationship_states_persona_id_fkey"
+            columns: ["persona_id"]
+            isOneToOne: false
+            referencedRelation: "personas"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       rituals: {
         Row: {
