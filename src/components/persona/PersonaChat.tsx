@@ -85,7 +85,15 @@ export function PersonaChat({ persona, userId, onBack }: PersonaChatProps) {
       setMessages((prev) => [...prev, { role: "assistant", content: response }]);
       if (ttsEnabled) {
         const gender = findVoice(voiceId)?.gender ?? "female";
-        speak(response, { voiceId, gender });
+        // Pass the previous assistant turn so ElevenLabs stitches prosody —
+        // the conversation flows like a continuous human exchange instead
+        // of disjointed one-off reads.
+        const lastAssistant = [...messages].reverse().find((m) => m.role === "assistant")?.content;
+        speak(response, {
+          voiceId,
+          gender,
+          previousText: lastAssistant,
+        });
       }
     }
 

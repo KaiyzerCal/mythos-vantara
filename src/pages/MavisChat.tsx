@@ -340,8 +340,13 @@ export default function MavisChat() {
       .trim();
     if (!cleanText) return;
     const gender = findVoice(voiceId)?.gender ?? "female";
-    speak(cleanText, { voiceId, gender });
-  }, [ttsEnabled, voiceId, speak]);
+    // Use the prior assistant turn as stitching context so MAVIS sounds like
+    // she's continuing the same conversation, not starting fresh each reply.
+    const previousText = [...chatMessages]
+      .reverse()
+      .find((m: any) => m.role === "assistant")?.content;
+    speak(cleanText, { voiceId, gender, previousText });
+  }, [ttsEnabled, voiceId, speak, chatMessages]);
 
   const scrollToBottom = useCallback(() => {
     if (scrollRef.current) scrollRef.current.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
