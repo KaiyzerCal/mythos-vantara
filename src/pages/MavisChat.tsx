@@ -326,14 +326,9 @@ export default function MavisChat() {
     setIsListening(false);
   }, []);
 
-  // ── Text-to-Speech (TTS) ────────────────────────────────
+  // ── Text-to-Speech via ElevenLabs ───────────────────────
   const speakText = useCallback((text: string) => {
-    if (!ttsEnabled || !window.speechSynthesis) return;
-    
-    // Cancel any ongoing speech
-    window.speechSynthesis.cancel();
-    
-    // Clean text for speech (remove markdown, action tags, etc.)
+    if (!ttsEnabled) return;
     const cleanText = text
       .replace(/:::ACTION\{[\s\S]*?\}:::/g, "")
       .replace(/\*\*(.*?)\*\*/g, "$1")
@@ -343,44 +338,10 @@ export default function MavisChat() {
       .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
       .replace(/[*_~`#]/g, "")
       .trim();
-    
     if (!cleanText) return;
-    
-    const utterance = new SpeechSynthesisUtterance(cleanText);
-    utterance.rate = 1.05;
-    utterance.pitch = 0.95;
-    utterance.volume = 0.9;
-    
-    // Try to pick a good voice
-    const voices = window.speechSynthesis.getVoices();
-    const preferred = voices.find(v => v.name.includes("Google") && v.lang.startsWith("en")) 
-      || voices.find(v => v.name.includes("Samantha"))
-      || voices.find(v => v.lang.startsWith("en") && v.localService);
-    if (preferred) utterance.voice = preferred;
-    
-    utterance.onstart = () => setIsSpeaking(true);
-    utterance.onend = () => setIsSpeaking(false);
-    utterance.onerror = () => setIsSpeaking(false);
-    
-    utteranceRef.current = utterance;
-    window.speechSynthesis.speak(utterance);
-  }, [ttsEnabled]);
-
-  const stopSpeaking = useCallback(() => {
-    window.speechSynthesis?.cancel();
-    setIsSpeaking(false);
-  }, []);
-
-  // Load voices on mount
-  useEffect(() => {
-    window.speechSynthesis?.getVoices();
-    const handleVoices = () => window.speechSynthesis?.getVoices();
-    window.speechSynthesis?.addEventListener?.("voiceschanged", handleVoices);
-    return () => {
-      window.speechSynthesis?.removeEventListener?.("voiceschanged", handleVoices);
-      window.speechSynthesis?.cancel();
-    };
-  }, []);
+    const gender = findVoice(voiceId)?.gender ?? "female";
+    speak(cleanText, { voiceId, gender });
+  }, [ttsEnabled, voiceId, speak]);
 
   const scrollToBottom = useCallback(() => {
     if (scrollRef.current) scrollRef.current.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
