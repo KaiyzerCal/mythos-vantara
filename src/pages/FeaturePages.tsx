@@ -662,7 +662,51 @@ function CouncilChat({ member, profile, onClose }: { member: any; profile: any; 
   const [isLoading, setIsLoading] = useState(false);
   const [showScrollBtn, setShowScrollBtn] = useState(false);
   const [dbLoaded, setDbLoaded] = useState(false);
+  const [ttsEnabled, setTtsEnabled] = useState(false);
+  const [isSpeaking, setIsSpeaking] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  // ── Text-to-Speech ────────────────────────────
+  const speakText = useCallback((text: string) => {
+    if (!ttsEnabled || !window.speechSynthesis) return;
+    window.speechSynthesis.cancel();
+    // Strip markdown/action tags for cleaner speech
+    const clean = text
+      .replace(/\*[^*]+\*/g, "")
+      .replace(/[#*_`>~]/g, "")
+      .replace(/\[[^\]]+\]\([^)]+\)/g, "")
+      .replace(/\s+/g, " ")
+      .trim();
+    if (!clean) return;
+    const utterance = new SpeechSynthesisUtterance(clean);
+    utterance.rate = 1;
+    utterance.pitch = 1;
+    utterance.volume = 1;
+    const voices = window.speechSynthesis.getVoices();
+    const preferred = voices.find(v => v.name.includes("Google") && v.lang.startsWith("en"))
+      || voices.find(v => v.name.includes("Samantha"))
+      || voices.find(v => v.lang.startsWith("en") && v.localService);
+    if (preferred) utterance.voice = preferred;
+    utterance.onstart = () => setIsSpeaking(true);
+    utterance.onend = () => setIsSpeaking(false);
+    utterance.onerror = () => setIsSpeaking(false);
+    window.speechSynthesis.speak(utterance);
+  }, [ttsEnabled]);
+
+  const stopSpeaking = useCallback(() => {
+    window.speechSynthesis?.cancel();
+    setIsSpeaking(false);
+  }, []);
+
+  useEffect(() => {
+    window.speechSynthesis?.getVoices();
+    const handleVoices = () => window.speechSynthesis?.getVoices();
+    window.speechSynthesis?.addEventListener?.("voiceschanged", handleVoices);
+    return () => {
+      window.speechSynthesis?.removeEventListener?.("voiceschanged", handleVoices);
+      window.speechSynthesis?.cancel();
+    };
+  }, []);
 
   // ── Load persisted council chat from DB ──────────────────
   useEffect(() => {
