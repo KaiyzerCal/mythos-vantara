@@ -856,6 +856,8 @@ function CouncilChat({ member, profile, onClose }: { member: any; profile: any; 
           systemPrompt,
           mode: "COUNCIL",
           conversationId: null,
+          chatKind: "council",
+          threadRef: member.id,
         },
       });
       if (error) throw error;
