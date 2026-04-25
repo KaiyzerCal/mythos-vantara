@@ -6,6 +6,11 @@ import { supabase } from "@/integrations/supabase/client";
 import { PageHeader, HudCard } from "@/components/SharedUI";
 import ReactMarkdown from "react-markdown";
 import { toast } from "sonner";
+import { useElevenLabsTts } from "@/hooks/useElevenLabsTts";
+import { useChatAttachments } from "@/hooks/useChatAttachments";
+import { VoicePicker } from "@/components/chat/VoicePicker";
+import { AttachmentTray, AttachButton } from "@/components/chat/AttachmentTray";
+import { DEFAULT_VOICE_BY_GENDER, findVoice } from "@/lib/voiceCatalog";
 
 // ── MAVIS Modes (from Rork mavis-prime-config) ─────────────
 function buildSystemPrompt(profile: any, mode: string, appContext: any, archivedMemories?: string, vaultMedia?: any[]): string {
