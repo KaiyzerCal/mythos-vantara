@@ -2,6 +2,7 @@ import { motion } from "framer-motion";
 import { Crown, Copy, User, Zap, Star, Shield, Flame, Activity, TrendingUp } from "lucide-react";
 import { useAppData } from "@/contexts/AppDataContext";
 import { PageHeader, HudCard, ProgressBar, StatBadge, RankBadge, EnergyBar } from "@/components/SharedUI";
+import { AvatarUploader } from "@/components/AvatarUploader";
 import { RANK_COLORS, calculateXPForLevel } from "@/types/rpg";
 import { useState } from "react";
 
