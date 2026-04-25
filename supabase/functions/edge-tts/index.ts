@@ -118,7 +118,8 @@ function newRequestId(): string {
 // prefixed with a small text header; we strip the header and concat.
 async function synthesize(ssml: string): Promise<Uint8Array> {
   const requestId = newRequestId();
-  const ws = new WebSocket(WS_URL);
+  const secMsGec = await generateSecMsGec();
+  const ws = new WebSocket(buildWsUrl(requestId, secMsGec));
   ws.binaryType = "arraybuffer";
 
   const audioChunks: Uint8Array[] = [];
