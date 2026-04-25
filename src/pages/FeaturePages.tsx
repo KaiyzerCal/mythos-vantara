@@ -3,12 +3,17 @@
 // ============================================================
 import { useState, useRef, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Target, Plus, Trash2, CheckCircle2, Filter, Loader2, Users, MessageCircle, Send, Square, X, Edit2, ArrowDown, Volume2, VolumeX } from "lucide-react";
+import { Target, Plus, Trash2, CheckCircle2, Filter, Loader2, Users, MessageCircle, Send, Square, X, Edit2, ArrowDown } from "lucide-react";
 import { useAppData } from "@/contexts/AppDataContext";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { PageHeader, HudCard, ProgressBar, QuestTypeBadge, RarityBadge } from "@/components/SharedUI";
 import ReactMarkdown from "react-markdown";
+import { useElevenLabsTts } from "@/hooks/useElevenLabsTts";
+import { useChatAttachments } from "@/hooks/useChatAttachments";
+import { VoicePicker } from "@/components/chat/VoicePicker";
+import { AttachmentTray, AttachButton } from "@/components/chat/AttachmentTray";
+import { DEFAULT_VOICE_BY_GENDER, findVoice, type VoiceGender } from "@/lib/voiceCatalog";
 
 const QUEST_TYPES = ["all", "main", "epic", "side", "daily"] as const;
 const QUEST_STATUSES = ["all", "active", "completed", "failed", "locked"] as const;
