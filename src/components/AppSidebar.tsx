@@ -3,7 +3,7 @@ import {
   LayoutDashboard, User, Target, CheckSquare, Users, Flame,
   Zap, Sparkles, Package, BookOpen, BookLock, ShoppingBag,
   Medal, TowerControl, Activity, Settings, ChevronLeft, ChevronRight,
-  LogOut, Cpu, Shield,
+  LogOut, Cpu, Shield, HeartPulse,
 } from "lucide-react";
 import { useState, useContext } from "react";
 import { motion, AnimatePresence } from "framer-motion";
@@ -29,6 +29,7 @@ const SECONDARY_NAV = [
 ];
 
 const UTILITY_NAV = [
+  { to: "/personas", icon: HeartPulse, label: "Personas" },
   { to: "/rankings", icon: Medal, label: "Rankings" },
   { to: "/tower", icon: TowerControl, label: "Tower" },
   { to: "/scouter", icon: Shield, label: "Scouter" },
