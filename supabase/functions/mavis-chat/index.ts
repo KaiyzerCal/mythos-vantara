@@ -685,38 +685,14 @@ ${fmtMemories}
       webSearchResults ? `\n---\nWEB SEARCH:\n${webSearchResults}\n---` : "",
     ].filter(Boolean).join("\n\n");
 
-    // ── Route and call ──────────────────────────────────────
+    // ── Route and call (with cascading fallback) ────────────
     const provider = routeToProvider(mode ?? "PRIME", lastUserMsg?.content ?? "");
-    let content = "";
-    let usedProvider = provider;
-
-    try {
-      if (provider === "claude" && claudeKey) {
-        content = await callClaude(messages, fullPrompt, claudeKey);
-      } else if (provider === "grok" && grokKey) {
-        content = await callGrok(messages, fullPrompt, grokKey);
-      } else if (openaiKey) {
-        content = await callOpenAI(messages, fullPrompt, openaiKey);
-        usedProvider = "openai";
-      } else if (claudeKey) {
-        content = await callClaude(messages, fullPrompt, claudeKey);
-        usedProvider = "claude";
-      } else if (grokKey) {
-        content = await callGrok(messages, fullPrompt, grokKey);
-        usedProvider = "grok";
-      } else {
-        throw new Error("No AI API keys configured.");
-      }
-    } catch (aiErr: any) {
-      // Fallback chain on error
-      console.error(`Primary provider ${provider} failed:`, aiErr.message);
-      if (openaiKey && provider !== "openai") {
-        content = await callOpenAI(messages, fullPrompt, openaiKey);
-        usedProvider = "openai";
-      } else {
-        throw aiErr;
-      }
-    }
+    const { content, provider: usedProvider } = await callWithFallback(
+      provider,
+      messages,
+      fullPrompt,
+      { openai: openaiKey, claude: claudeKey, grok: grokKey, lovable: lovableKey },
+    );
 
     return new Response(
       JSON.stringify({ content, mode, conversationId, searched: !!webSearchResults, provider: usedProvider }),
