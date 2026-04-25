@@ -97,16 +97,16 @@ export function PersonaChat({ persona, userId, onBack }: PersonaChatProps) {
       }
     }
 
+    // Optimistically bump the interaction counter for instant UI feedback
     const total = (relState?.total_interactions ?? 0) + 1;
-    if (total % 5 === 0) {
-      setIsUpdatingEmotion(true);
-      await triggerEmotionUpdate();
-      await refreshRelState();
-      setIsUpdatingEmotion(false);
-    } else {
-      setRelState((prev) => prev ? { ...prev, total_interactions: total } : prev);
-    }
-  }, [input, isLoading, sendMessage, triggerEmotionUpdate, refreshRelState, relState, attachments, ttsEnabled, voiceId, speak]);
+    setRelState((prev) => prev ? { ...prev, total_interactions: total } : prev);
+
+    // Trigger emotion analysis after every exchange (non-blocking) so
+    // bond/trust/mood reflect the live state of the relationship.
+    triggerEmotionUpdate().then(() => {
+      refreshRelState();
+    });
+  }, [input, isLoading, sendMessage, triggerEmotionUpdate, refreshRelState, relState, attachments, ttsEnabled, voiceId, speak, messages]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
