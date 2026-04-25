@@ -164,6 +164,19 @@ export function PersonaChat({ persona, userId, onBack }: PersonaChatProps) {
           </div>
         </div>
 
+        <VoicePicker
+          enabled={ttsEnabled}
+          onToggle={() => {
+            if (ttsEnabled && isSpeaking) stopSpeaking();
+            setTtsEnabled((v) => !v);
+          }}
+          voiceId={voiceId}
+          onVoiceChange={setVoiceId}
+          isSpeaking={isSpeaking}
+          isLoading={isVoiceLoading}
+          onStop={stopSpeaking}
+        />
+
         <button
           onClick={handleManualEmotionUpdate}
           disabled={isUpdatingEmotion}
@@ -230,33 +243,45 @@ export function PersonaChat({ persona, userId, onBack }: PersonaChatProps) {
       </div>
 
       {/* Input */}
-      <div className="flex items-end gap-2 pt-4 mt-4 border-t border-border">
-        <textarea
-          ref={inputRef}
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={handleKeyDown}
-          placeholder={`Message ${persona.name}...`}
-          rows={1}
-          className={cn(
-            "flex-1 resize-none bg-muted/30 border border-border rounded-lg px-3 py-2 text-sm font-body text-foreground",
-            "placeholder:text-muted-foreground focus:outline-none focus:border-primary/50 transition-colors",
-            "max-h-32 scrollbar-thin"
-          )}
-          style={{ minHeight: "40px" }}
-          onInput={(e) => {
-            const t = e.currentTarget;
-            t.style.height = "auto";
-            t.style.height = Math.min(t.scrollHeight, 128) + "px";
-          }}
-        />
-        <button
-          onClick={handleSend}
-          disabled={!input.trim() || isLoading}
-          className="p-2.5 rounded-lg border border-primary/30 bg-primary/10 text-primary hover:bg-primary/20 transition-colors disabled:opacity-40 disabled:cursor-not-allowed shrink-0"
-        >
-          <Send size={14} />
-        </button>
+      <div className="pt-4 mt-4 border-t border-border space-y-2">
+        {(attachments.length > 0 || isUploading) && (
+          <AttachmentTray
+            attachments={attachments}
+            isUploading={isUploading}
+            onUpload={upload}
+            onRemove={remove}
+            compact
+          />
+        )}
+        <div className="flex items-end gap-2">
+          <AttachButton isUploading={isUploading} onUpload={upload} />
+          <textarea
+            ref={inputRef}
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={handleKeyDown}
+            placeholder={`Message ${persona.name}...`}
+            rows={1}
+            className={cn(
+              "flex-1 resize-none bg-muted/30 border border-border rounded-lg px-3 py-2 text-sm font-body text-foreground",
+              "placeholder:text-muted-foreground focus:outline-none focus:border-primary/50 transition-colors",
+              "max-h-32 scrollbar-thin"
+            )}
+            style={{ minHeight: "40px" }}
+            onInput={(e) => {
+              const t = e.currentTarget;
+              t.style.height = "auto";
+              t.style.height = Math.min(t.scrollHeight, 128) + "px";
+            }}
+          />
+          <button
+            onClick={handleSend}
+            disabled={!input.trim() || isLoading}
+            className="p-2.5 rounded-lg border border-primary/30 bg-primary/10 text-primary hover:bg-primary/20 transition-colors disabled:opacity-40 disabled:cursor-not-allowed shrink-0"
+          >
+            <Send size={14} />
+          </button>
+        </div>
       </div>
     </div>
   );
