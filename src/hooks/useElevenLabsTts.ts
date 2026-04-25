@@ -10,6 +10,12 @@ interface TtsOptions {
   stability?: number;
   similarity?: number;
   style?: number;
+  useSpeakerBoost?: boolean;
+  modelId?: string;
+  // Optional surrounding context for request stitching — keeps prosody
+  // continuous across turns so the conversation flows like a real one.
+  previousText?: string;
+  nextText?: string;
 }
 
 export function useElevenLabsTts() {
