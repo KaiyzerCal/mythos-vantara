@@ -889,46 +889,15 @@ function CouncilChat({ member, profile, onClose }: { member: any; profile: any; 
             <p className="text-sm font-display font-bold truncate">{member.name}</p>
             <p className="text-[10px] font-mono text-muted-foreground">{member.role} · {member.class}</p>
           </div>
-          <button
-            onClick={() => {
-              if (isSpeaking) stopSpeaking();
-              setTtsEnabled((v) => !v);
-            }}
-            className={`flex items-center gap-1 px-2 py-1 text-[10px] font-mono rounded border transition-all mr-1 ${
-              ttsEnabled
-                ? "text-primary border-primary/30 bg-primary/5"
-                : "text-muted-foreground border-border/50"
-            }`}
-            title={ttsEnabled ? "Voice ON — click to mute" : "Voice OFF — click to enable"}
-          >
-            {ttsEnabled ? <Volume2 size={10} /> : <VolumeX size={10} />}
-            {ttsEnabled ? "Voice" : "Muted"}
-          </button>
-          {ttsEnabled && (
-            <button
-              onClick={() => {
-                if (isSpeaking) stopSpeaking();
-                setVoiceGender((g) => (g === "male" ? "female" : "male"));
-              }}
-              className={`flex items-center gap-1 px-2 py-1 text-[10px] font-mono rounded border transition-all mr-1 ${
-                voiceGender === "female"
-                  ? "text-pink-400 border-pink-400/30 bg-pink-400/5"
-                  : "text-blue-400 border-blue-400/30 bg-blue-400/5"
-              }`}
-              title={`Voice: ${voiceGender === "male" ? "Male" : "Female"} — click to switch`}
-            >
-              {voiceGender === "male" ? "♂ Male" : "♀ Female"}
-            </button>
-          )}
-          {isSpeaking && (
-            <button
-              onClick={stopSpeaking}
-              className="p-1.5 text-destructive hover:text-destructive/80 transition-colors mr-1"
-              title="Stop speaking"
-            >
-              <Square size={14} />
-            </button>
-          )}
+          <VoicePicker
+            enabled={ttsEnabled}
+            onToggle={() => { if (isSpeaking) stopSpeaking(); setTtsEnabled((v) => !v); }}
+            voiceId={voiceId}
+            onVoiceChange={(id) => { if (isSpeaking) stopSpeaking(); setVoiceId(id); }}
+            isSpeaking={isSpeaking}
+            isLoading={isVoiceLoading}
+            onStop={stopSpeaking}
+          />
           <button onClick={clearCouncilChat} className="text-[10px] font-mono text-muted-foreground hover:text-destructive transition-colors mr-1">
             Clear
           </button>
