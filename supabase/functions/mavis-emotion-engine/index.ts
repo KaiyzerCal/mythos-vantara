@@ -153,7 +153,7 @@ Rules:
     const newMood = MOODS.includes(analysis.new_mood) ? analysis.new_mood : currentMood;
     const moodReason = typeof analysis.mood_reason === "string" ? analysis.mood_reason.slice(0, 280) : null;
 
-    const writes: Promise<unknown>[] = [
+    const writes: any[] = [
       supabase.from("relationship_states").upsert(
         {
           persona_id,
