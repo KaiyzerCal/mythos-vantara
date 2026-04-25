@@ -760,6 +760,7 @@ export type Database = {
           arc_story: string
           aura: string
           aura_power: string
+          avatar_url: string | null
           codex_integrity: number
           created_at: string
           current_bpm: number
@@ -797,6 +798,7 @@ export type Database = {
           arc_story?: string
           aura?: string
           aura_power?: string
+          avatar_url?: string | null
           codex_integrity?: number
           created_at?: string
           current_bpm?: number
@@ -834,6 +836,7 @@ export type Database = {
           arc_story?: string
           aura?: string
           aura_power?: string
+          avatar_url?: string | null
           codex_integrity?: number
           created_at?: string
           current_bpm?: number
