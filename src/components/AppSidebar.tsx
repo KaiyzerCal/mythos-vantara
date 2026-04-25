@@ -30,6 +30,7 @@ const SECONDARY_NAV = [
 
 const UTILITY_NAV = [
   { to: "/personas", icon: HeartPulse, label: "Personas" },
+  { to: "/persona-relationships", icon: HeartPulse, label: "Relationships" },
   { to: "/rankings", icon: Medal, label: "Rankings" },
   { to: "/tower", icon: TowerControl, label: "Tower" },
   { to: "/scouter", icon: Shield, label: "Scouter" },
