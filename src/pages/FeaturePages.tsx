@@ -697,8 +697,13 @@ function CouncilChat({ member, profile, onClose }: { member: any; profile: any; 
   const speakText = useCallback((text: string) => {
     if (!ttsEnabled) return;
     const gender = findVoice(voiceId)?.gender ?? "male";
-    speak(text, { voiceId, gender });
-  }, [ttsEnabled, voiceId, speak]);
+    // Stitch with the prior assistant turn so multi-message exchanges sound
+    // like a continuous, natural conversation rather than isolated reads.
+    const previousText = [...messages]
+      .reverse()
+      .find((m) => m.role === "assistant")?.content;
+    speak(text, { voiceId, gender, previousText });
+  }, [ttsEnabled, voiceId, speak, messages]);
 
   // ── Load persisted council chat from DB ──────────────────
   useEffect(() => {

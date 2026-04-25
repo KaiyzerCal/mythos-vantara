@@ -10,6 +10,12 @@ interface TtsOptions {
   stability?: number;
   similarity?: number;
   style?: number;
+  useSpeakerBoost?: boolean;
+  modelId?: string;
+  // Optional surrounding context for request stitching — keeps prosody
+  // continuous across turns so the conversation flows like a real one.
+  previousText?: string;
+  nextText?: string;
 }
 
 export function useElevenLabsTts() {
@@ -38,10 +44,16 @@ export function useElevenLabsTts() {
           text,
           gender,
           voice_id,
+          model_id: options.modelId ?? "eleven_multilingual_v2",
+          previous_text: options.previousText,
+          next_text: options.nextText,
           voice_settings: {
-            stability: options.stability ?? 0.5,
-            similarity_boost: options.similarity ?? 0.75,
-            style: options.style ?? 0.3,
+            // Defaults aligned with the edge function — natural, conversational
+            // delivery with expressive variation rather than flat narration.
+            stability: options.stability ?? 0.35,
+            similarity_boost: options.similarity ?? 0.78,
+            style: options.style ?? 0.45,
+            use_speaker_boost: options.useSpeakerBoost ?? true,
             speed: options.speed ?? 1.0,
           },
         },
