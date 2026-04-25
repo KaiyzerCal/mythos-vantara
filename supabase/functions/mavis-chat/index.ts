@@ -353,7 +353,7 @@ serve(async (req) => {
     // ── Load data ───────────────────────────────────────────
     const sb = createClient(supabaseUrl, serviceKey, { auth: { persistSession: false } });
 
-    const { messages, systemPrompt: clientSystemPrompt, mode, conversationId, appState } = await req.json();
+    const { messages, systemPrompt: clientSystemPrompt, mode, conversationId, appState, attachmentIds, chatKind, threadRef } = await req.json();
 
     // Fetch profile from DB (don't trust client-sent profile)
     const { data: profile } = await sb.from("profiles").select("*").eq("id", user.id).single();
@@ -562,9 +562,40 @@ ${fmtMemories}
       ? clientSystemPrompt
       : buildMavisPrompt(profile, mode ?? "PRIME", appState ?? {}, callerName, isCaliyah);
 
+    // ── Attachments uploaded to this thread ────────────────
+    let attachmentsBlock = "";
+    try {
+      let q = sb.from("chat_attachments")
+        .select("id,file_name,mime_type,extracted_text,processing_status,created_at")
+        .eq("user_id", user.id)
+        .order("created_at", { ascending: false })
+        .limit(20);
+      if (Array.isArray(attachmentIds) && attachmentIds.length > 0) {
+        q = q.in("id", attachmentIds);
+      } else if (chatKind && threadRef) {
+        q = q.eq("chat_kind", chatKind).eq("thread_ref", String(threadRef));
+      } else {
+        q = q.eq("chat_kind", "mavis");
+      }
+      const { data: atts } = await q;
+      if (atts && atts.length > 0) {
+        attachmentsBlock = "\n═══ FILES UPLOADED TO THIS CHAT (read & reference) ═══\n" +
+          atts.map((a: any) => {
+            const status = a.processing_status === "done"
+              ? ""
+              : ` [${a.processing_status}]`;
+            const txt = (a.extracted_text || "").slice(0, 6000);
+            return `\n📎 ${a.file_name} (${a.mime_type})${status}\n${txt || "(no extracted content yet)"}\n---`;
+          }).join("");
+      }
+    } catch (e) {
+      console.warn("attachment load failed", (e as any)?.message);
+    }
+
     const fullPrompt = [
       baseSystem,
       authoritativeContext,
+      attachmentsBlock,
       webSearchResults ? `\n---\nWEB SEARCH:\n${webSearchResults}\n---` : "",
     ].filter(Boolean).join("\n\n");
 
