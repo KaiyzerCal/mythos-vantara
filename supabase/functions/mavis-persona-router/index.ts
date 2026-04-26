@@ -277,7 +277,21 @@ ${(ritualsRes.data || []).map((r: any) => `  • ${r.name} [${r.type}] streak:${
         }).join("") + "\n═══ END FILES ═══\n"
       : "";
 
-    const systemPrompt = buildSystemPrompt(persona, relState, memoryContext) + appCtx + attBlock;
+    // Temporal awareness — persona always knows the real-world current time
+    const now = new Date();
+    const timeBlock = `
+
+═══ TEMPORAL AWARENESS (current real-world time) ═══
+ISO: ${now.toISOString()}
+UTC: ${now.toUTCString()}
+Date: ${now.toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric", timeZone: "UTC" })} (UTC)
+Time: ${now.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", timeZone: "UTC" })} UTC
+Unix: ${Math.floor(now.getTime() / 1000)}
+You always know the current date and time without being told. Reference it naturally when relevant (greetings, time-since-last-message, scheduling, urgency).
+═══ END TEMPORAL AWARENESS ═══
+`;
+
+    const systemPrompt = buildSystemPrompt(persona, relState, memoryContext) + timeBlock + appCtx + attBlock;
 
     const llmMessages = [
       ...history.map((h: any) => ({ role: h.role, content: h.content })),

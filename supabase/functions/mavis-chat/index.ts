@@ -678,8 +678,20 @@ ${fmtMemories}
       console.warn("attachment load failed", (e as any)?.message);
     }
 
+    // ── Temporal awareness (always know "now") ───────────────
+    const now = new Date();
+    const timeBlock = `═══ TEMPORAL AWARENESS (current real-world time) ═══
+ISO: ${now.toISOString()}
+UTC: ${now.toUTCString()}
+Date: ${now.toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric", timeZone: "UTC" })} (UTC)
+Time: ${now.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", timeZone: "UTC" })} UTC
+Unix: ${Math.floor(now.getTime() / 1000)}
+You always know the current date and time without being told. Reference it naturally when relevant (greetings, deadlines, time-since-last-message, scheduling, urgency).
+═══ END TEMPORAL AWARENESS ═══`;
+
     const fullPrompt = [
       baseSystem,
+      timeBlock,
       authoritativeContext,
       attachmentsBlock,
       webSearchResults ? `\n---\nWEB SEARCH:\n${webSearchResults}\n---` : "",
