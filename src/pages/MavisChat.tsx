@@ -1,6 +1,6 @@
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Send, Square, Cpu, Copy, Check, ChevronDown, Zap, Brain, Target, Crown, Flame, Database, ArrowDown, Mic, MicOff, Volume2, VolumeX } from "lucide-react";
+import { Send, Square, Cpu, Copy, Check, ChevronDown, Zap, Brain, Target, Crown, Flame, Database, Mic, MicOff } from "lucide-react";
 import { useAppData } from "@/contexts/AppDataContext";
 import { supabase } from "@/integrations/supabase/client";
 import { PageHeader, HudCard } from "@/components/SharedUI";
@@ -11,6 +11,8 @@ import { useChatAttachments } from "@/hooks/useChatAttachments";
 import { VoicePicker } from "@/components/chat/VoicePicker";
 import { AttachmentTray, AttachButton } from "@/components/chat/AttachmentTray";
 import { DEFAULT_VOICE_BY_GENDER, findVoice } from "@/lib/voiceCatalog";
+import { ScrollProgressBar, BackToTopButton, ScrollToBottomButton, EndOfFeed } from "@/components/chat/ScrollKit";
+import { SessionBlock, groupMessagesIntoSessions } from "@/components/chat/SessionBlock";
 
 // ── MAVIS Modes (from Rork mavis-prime-config) ─────────────
 function buildSystemPrompt(profile: any, mode: string, appContext: any, archivedMemories?: string, vaultMedia?: any[]): string {
@@ -249,6 +251,8 @@ export default function MavisChat() {
   const [isSyncing, setIsSyncing] = useState(false);
   const [dbLoaded, setDbLoaded] = useState(false);
   const [showScrollBtn, setShowScrollBtn] = useState(false);
+  const [scrollProgress, setScrollProgress] = useState(0);
+  const [showBackToTop, setShowBackToTop] = useState(false);
   const [isComposing, setIsComposing] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const [ttsEnabled, setTtsEnabled] = useState(false);
@@ -352,10 +356,17 @@ export default function MavisChat() {
     if (scrollRef.current) scrollRef.current.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
   }, []);
 
+  const scrollToTop = useCallback(() => {
+    scrollRef.current?.scrollTo({ top: 0, behavior: "smooth" });
+  }, []);
+
   const handleScroll = useCallback(() => {
     if (!scrollRef.current) return;
     const { scrollTop, scrollHeight, clientHeight } = scrollRef.current;
+    const scrollable = scrollHeight - clientHeight;
     setShowScrollBtn(scrollHeight - scrollTop - clientHeight > 120);
+    setScrollProgress(scrollable > 0 ? Math.round((scrollTop / scrollable) * 100) : 100);
+    setShowBackToTop(scrollTop > 200);
   }, []);
 
   // ── Load persisted chat from DB on mount ─────────────────
@@ -449,6 +460,14 @@ export default function MavisChat() {
   }, [chatMessages, scrollToBottom]);
 
   const currentMode = MAVIS_MODES.find((m) => m.id === chatMode) ?? MAVIS_MODES[0];
+
+  const sessions = useMemo(() => groupMessagesIntoSessions(chatMessages), [chatMessages]);
+  const initMessage = useMemo(() => chatMessages.find((m) => m.id === "init"), [chatMessages]);
+  const nonInitCount = useMemo(() => chatMessages.filter((m) => m.id !== "init").length, [chatMessages]);
+  const lastMessageTime = useMemo(() => {
+    const last = [...chatMessages].reverse().find((m) => m.id !== "init");
+    return last?.timestamp;
+  }, [chatMessages]);
 
   // ── OmniSync: save full app state + condensed chat ───────
   const handleOmniSync = useCallback(async () => {
@@ -865,96 +884,115 @@ export default function MavisChat() {
 
       {/* Messages */}
       <div className="relative flex-1 min-h-0">
-      <div ref={scrollRef} onScroll={handleScroll} className="absolute inset-0 overflow-y-auto space-y-3 pr-1">
-        {chatMessages.map((msg) => (
-          <motion.div
-            key={msg.id}
-            initial={{ opacity: 0, y: 8 }}
-            animate={{ opacity: 1, y: 0 }}
-            className={`flex gap-3 ${msg.role === "user" ? "flex-row-reverse" : ""}`}
-          >
-            {/* Avatar */}
-            <div
-              className={`w-7 h-7 rounded shrink-0 flex items-center justify-center text-xs font-display font-bold border ${
-                msg.role === "assistant"
-                  ? "bg-primary/10 border-primary/30 text-primary"
-                  : "bg-muted/50 border-border text-muted-foreground"
-              }`}
+        <ScrollProgressBar progress={scrollProgress} />
+        <BackToTopButton visible={showBackToTop} onClick={scrollToTop} />
+        <div ref={scrollRef} onScroll={handleScroll} className="absolute inset-0 overflow-y-auto space-y-3 pr-1 pt-0.5 scrollbar-thin">
+          {/* Init message rendered outside session blocks */}
+          {initMessage && (
+            <motion.div
+              key={initMessage.id}
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="flex gap-3"
             >
-              {msg.role === "assistant" ? "M" : "V"}
-            </div>
-
-            {/* Bubble */}
-            <div
-              className={`relative group max-w-[82%] rounded-lg px-3 py-2.5 ${
-                msg.role === "user"
-                  ? "bg-primary/10 border border-primary/20 text-foreground"
-                  : "hud-border text-foreground"
-              }`}
-            >
-              {msg.role === "assistant" ? (
+              <div className="w-7 h-7 rounded shrink-0 flex items-center justify-center text-xs font-display font-bold border bg-primary/10 border-primary/30 text-primary">M</div>
+              <div className="relative group max-w-[82%] rounded-lg px-3 py-2.5 hud-border text-foreground">
                 <div className="prose prose-sm prose-invert max-w-none text-xs font-body leading-relaxed">
-                  <ReactMarkdown>{msg.content}</ReactMarkdown>
+                  <ReactMarkdown>{initMessage.content}</ReactMarkdown>
                 </div>
-              ) : (
-                <p className="text-xs font-body leading-relaxed">{msg.content}</p>
-              )}
-              <div className="flex items-center justify-between mt-1.5 gap-2 flex-wrap">
-                {(msg as any).searched && (
-                  <span className="text-[8px] font-mono text-cyan-400 border border-cyan-900/40 rounded px-1.5 py-0.5">
-                    🔍 web search
-                  </span>
-                )}
-                {(msg as any).actionsExecuted > 0 && (
-                  <span className="text-[8px] font-mono text-primary border border-primary/30 rounded px-1.5 py-0.5">
-                    ⚡ {(msg as any).actionsExecuted} action{(msg as any).actionsExecuted > 1 ? "s" : ""} executed
-                  </span>
-                )}
-                {msg.mode && msg.role === "assistant" && !(msg as any).searched && !(msg as any).actionsExecuted && (
-                  <span className="text-[8px] font-mono text-muted-foreground/60">[{msg.mode}]{(msg as any).model ? ` · ${(msg as any).model}` : ""}</span>
-                )}
-                <span className="text-[8px] font-mono text-muted-foreground/50 ml-auto">
-                  {msg.timestamp.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                <span className="text-[8px] font-mono text-muted-foreground/50">
+                  {initMessage.timestamp.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                 </span>
               </div>
-              {/* Copy button */}
-              <button
-                onClick={() => copyMessage(msg.id, msg.content)}
-                className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-primary"
-              >
-                {copiedId === msg.id ? <Check size={10} /> : <Copy size={10} />}
-              </button>
-            </div>
-          </motion.div>
-        ))}
+            </motion.div>
+          )}
 
-        {/* Loading indicator */}
-        {isLoading && (
-          <div className="flex gap-3">
-            <div className="w-7 h-7 rounded bg-primary/10 border border-primary/30 flex items-center justify-center text-xs font-display text-primary">M</div>
-            <div className="hud-border rounded-lg px-3 py-2.5">
-              <div className="flex gap-1">
-                {[0, 1, 2].map((i) => (
-                  <span
-                    key={i}
-                    className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse"
-                    style={{ animationDelay: `${i * 0.2}s` }}
-                  />
+          {/* Session blocks — one per consecutive mode run */}
+          {sessions.map((session, idx) => {
+            const isLive = idx === sessions.length - 1;
+            return (
+              <SessionBlock
+                key={session.id}
+                session={session}
+                isLive={isLive}
+                hasVoice={ttsEnabled}
+                defaultExpanded={isLive}
+              >
+                {session.messages.map((msg: any) => (
+                  <motion.div
+                    key={msg.id}
+                    initial={{ opacity: 0, y: 8 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className={`flex gap-3 ${msg.role === "user" ? "flex-row-reverse" : ""}`}
+                  >
+                    <div className={`w-7 h-7 rounded shrink-0 flex items-center justify-center text-xs font-display font-bold border ${
+                      msg.role === "assistant"
+                        ? "bg-primary/10 border-primary/30 text-primary"
+                        : "bg-muted/50 border-border text-muted-foreground"
+                    }`}>
+                      {msg.role === "assistant" ? "M" : "V"}
+                    </div>
+                    <div className={`relative group max-w-[82%] rounded-lg px-3 py-2.5 ${
+                      msg.role === "user"
+                        ? "bg-primary/10 border border-primary/20 text-foreground"
+                        : "hud-border text-foreground"
+                    }`}>
+                      {msg.role === "assistant" ? (
+                        <div className="prose prose-sm prose-invert max-w-none text-xs font-body leading-relaxed">
+                          <ReactMarkdown>{msg.content}</ReactMarkdown>
+                        </div>
+                      ) : (
+                        <p className="text-xs font-body leading-relaxed">{msg.content}</p>
+                      )}
+                      <div className="flex items-center justify-between mt-1.5 gap-2 flex-wrap">
+                        {(msg as any).searched && (
+                          <span className="text-[8px] font-mono text-cyan-400 border border-cyan-900/40 rounded px-1.5 py-0.5">
+                            🔍 web search
+                          </span>
+                        )}
+                        {(msg as any).actionsExecuted > 0 && (
+                          <span className="text-[8px] font-mono text-primary border border-primary/30 rounded px-1.5 py-0.5">
+                            ⚡ {(msg as any).actionsExecuted} action{(msg as any).actionsExecuted > 1 ? "s" : ""} executed
+                          </span>
+                        )}
+                        {msg.mode && msg.role === "assistant" && !(msg as any).searched && !(msg as any).actionsExecuted && (
+                          <span className="text-[8px] font-mono text-muted-foreground/60">[{msg.mode}]{(msg as any).model ? ` · ${(msg as any).model}` : ""}</span>
+                        )}
+                        <span className="text-[8px] font-mono text-muted-foreground/50 ml-auto">
+                          {msg.timestamp.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                        </span>
+                      </div>
+                      <button
+                        onClick={() => copyMessage(msg.id, msg.content)}
+                        className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-primary"
+                      >
+                        {copiedId === msg.id ? <Check size={10} /> : <Copy size={10} />}
+                      </button>
+                    </div>
+                  </motion.div>
                 ))}
+              </SessionBlock>
+            );
+          })}
+
+          {!isLoading && nonInitCount > 0 && (
+            <EndOfFeed messageCount={nonInitCount} lastUpdated={lastMessageTime} />
+          )}
+
+          {isLoading && (
+            <div className="flex gap-3">
+              <div className="w-7 h-7 rounded bg-primary/10 border border-primary/30 flex items-center justify-center text-xs font-display text-primary">M</div>
+              <div className="hud-border rounded-lg px-3 py-2.5">
+                <div className="flex gap-1">
+                  {[0, 1, 2].map((i) => (
+                    <span key={i} className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse" style={{ animationDelay: `${i * 0.2}s` }} />
+                  ))}
+                </div>
               </div>
             </div>
-          </div>
-        )}
-      </div>
-      {/* Scroll to bottom button */}
-      {showScrollBtn && (
-        <button
-          onClick={scrollToBottom}
-          className="absolute bottom-3 right-3 z-10 w-8 h-8 rounded-full bg-primary/20 border border-primary/30 text-primary flex items-center justify-center hover:bg-primary/30 transition-all shadow-lg"
-        >
-          <ArrowDown size={14} />
-        </button>
-      )}
+          )}
+        </div>
+        <ScrollToBottomButton visible={showScrollBtn} onClick={scrollToBottom} />
       </div>
 
       {/* Quick prompts */}
