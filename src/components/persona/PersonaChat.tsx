@@ -3,6 +3,7 @@ import { Send, ArrowLeft, Zap, RefreshCw } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { HudCard } from "@/components/SharedUI";
 import { usePersona } from "@/hooks/usePersona";
+import { useScrollKit, ScrollProgressBar, BackToTopButton, ScrollToBottomButton, EndOfFeed } from "@/components/chat/ScrollKit";
 import type { ForgedPersona } from "@/hooks/usePersonaForge";
 import type { RelationshipState, PersonaMessage } from "@/hooks/usePersona";
 import { useElevenLabsTts } from "@/hooks/useElevenLabsTts";
@@ -38,7 +39,7 @@ export function PersonaChat({ persona, userId, onBack }: PersonaChatProps) {
   const [relState, setRelState] = useState<RelationshipState | null>(null);
   const [isUpdatingEmotion, setIsUpdatingEmotion] = useState(false);
   const [ttsEnabled, setTtsEnabled] = useState(false);
-  const bottomRef = useRef<HTMLDivElement>(null);
+  const { scrollRef, progress, showBackToTop, showBackToBottom, handleScroll, scrollToTop, scrollToBottom } = useScrollKit();
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
   const { sendMessage, triggerEmotionUpdate, loadHistory, loadRelationshipState, isLoading } = usePersona(persona.id, userId);
@@ -96,8 +97,8 @@ export function PersonaChat({ persona, userId, onBack }: PersonaChatProps) {
   }, [persona.id, userId]);
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+    scrollToBottom();
+  }, [messages, scrollToBottom]);
 
   const refreshRelState = useCallback(async () => {
     const rel = await loadRelationshipState();
@@ -228,58 +229,70 @@ export function PersonaChat({ persona, userId, onBack }: PersonaChatProps) {
       </div>
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto space-y-3 pr-1 scrollbar-thin min-h-0">
-        {messages.length === 0 && (
-          <div className="flex items-center justify-center h-full">
-            <p className="text-xs font-mono text-muted-foreground text-center">
-              No messages yet. Say hello to {persona.name}.
-            </p>
-          </div>
-        )}
-        {messages.map((msg, i) => (
-          <div
-            key={i}
-            className={cn(
-              "flex",
-              msg.role === "user" ? "justify-end" : "justify-start"
-            )}
-          >
-            {msg.role === "assistant" && (
-              <div className={cn(
-                "w-6 h-6 rounded-full border flex items-center justify-center font-display text-[10px] font-bold shrink-0 mr-2 mt-0.5",
-                "border-current", roleColor
-              )}>
-                {persona.name[0].toUpperCase()}
-              </div>
-            )}
+      <div className="relative flex-1 min-h-0">
+        <ScrollProgressBar progress={progress} />
+        <BackToTopButton visible={showBackToTop} onClick={scrollToTop} />
+        <div
+          ref={scrollRef}
+          onScroll={handleScroll}
+          className="absolute inset-0 overflow-y-auto space-y-3 pr-1 pt-0.5 scrollbar-thin"
+        >
+          {messages.length === 0 && (
+            <div className="flex items-center justify-center h-full">
+              <p className="text-xs font-mono text-muted-foreground text-center">
+                No messages yet. Say hello to {persona.name}.
+              </p>
+            </div>
+          )}
+          {messages.map((msg, i) => (
             <div
+              key={i}
               className={cn(
-                "max-w-[75%] rounded-lg px-3 py-2 text-sm font-body leading-relaxed",
-                msg.role === "user"
-                  ? "bg-primary/15 border border-primary/25 text-foreground rounded-tr-none"
-                  : "hud-border text-foreground rounded-tl-none"
+                "flex",
+                msg.role === "user" ? "justify-end" : "justify-start"
               )}
             >
-              {msg.content}
+              {msg.role === "assistant" && (
+                <div className={cn(
+                  "w-6 h-6 rounded-full border flex items-center justify-center font-display text-[10px] font-bold shrink-0 mr-2 mt-0.5",
+                  "border-current", roleColor
+                )}>
+                  {persona.name[0].toUpperCase()}
+                </div>
+              )}
+              <div
+                className={cn(
+                  "max-w-[75%] rounded-lg px-3 py-2 text-sm font-body leading-relaxed",
+                  msg.role === "user"
+                    ? "bg-primary/15 border border-primary/25 text-foreground rounded-tr-none"
+                    : "hud-border text-foreground rounded-tl-none"
+                )}
+              >
+                {msg.content}
+              </div>
             </div>
-          </div>
-        ))}
+          ))}
 
-        {isLoading && (
-          <div className="flex justify-start">
-            <div className={cn("w-6 h-6 rounded-full border flex items-center justify-center font-display text-[10px] font-bold shrink-0 mr-2 mt-0.5 border-current", roleColor)}>
-              {persona.name[0].toUpperCase()}
+          {!isLoading && messages.length > 0 && (
+            <EndOfFeed messageCount={messages.length} />
+          )}
+
+          {isLoading && (
+            <div className="flex justify-start">
+              <div className={cn("w-6 h-6 rounded-full border flex items-center justify-center font-display text-[10px] font-bold shrink-0 mr-2 mt-0.5 border-current", roleColor)}>
+                {persona.name[0].toUpperCase()}
+              </div>
+              <div className="hud-border rounded-lg rounded-tl-none px-3 py-2">
+                <span className="flex gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground animate-bounce" style={{ animationDelay: "0ms" }} />
+                  <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground animate-bounce" style={{ animationDelay: "150ms" }} />
+                  <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground animate-bounce" style={{ animationDelay: "300ms" }} />
+                </span>
+              </div>
             </div>
-            <div className="hud-border rounded-lg rounded-tl-none px-3 py-2">
-              <span className="flex gap-1">
-                <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground animate-bounce" style={{ animationDelay: "0ms" }} />
-                <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground animate-bounce" style={{ animationDelay: "150ms" }} />
-                <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground animate-bounce" style={{ animationDelay: "300ms" }} />
-              </span>
-            </div>
-          </div>
-        )}
-        <div ref={bottomRef} />
+          )}
+        </div>
+        <ScrollToBottomButton visible={showBackToBottom} onClick={scrollToBottom} />
       </div>
 
       {/* Input */}
