@@ -32,6 +32,7 @@ interface PersonaCardProps {
 export function PersonaCard({ persona, userId, onChat, onDelete }: PersonaCardProps) {
   const [relState, setRelState] = useState<RelationshipState | null>(null);
   const [avatarUrl, setAvatarUrl] = useState<string | null>(persona.avatar_key ?? null);
+  const [reasonExpanded, setReasonExpanded] = useState(false);
   const { loadRelationshipState } = usePersona(persona.id, userId);
 
   // Initial fetch
@@ -147,11 +148,22 @@ export function PersonaCard({ persona, userId, onChat, onDelete }: PersonaCardPr
         </span>
       </div>
 
-      {/* Mood reason if present */}
+      {/* Mood reason if present — click to expand/collapse full summary */}
       {relState?.mood_reason && (
-        <p className="text-[10px] font-mono text-muted-foreground italic mb-3 line-clamp-2">
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            setReasonExpanded((v) => !v);
+          }}
+          className={cn(
+            "w-full text-left text-[10px] font-mono text-muted-foreground italic mb-3 cursor-pointer hover:text-foreground transition-colors",
+            !reasonExpanded && "line-clamp-2"
+          )}
+          title={reasonExpanded ? "Click to collapse" : "Click to read full summary"}
+        >
           "{relState.mood_reason}"
-        </p>
+        </button>
       )}
 
       {/* Actions */}
