@@ -17,6 +17,7 @@ export interface PersonaMessage {
 
 export function usePersona(personaId: string, userId: string) {
   const [isLoading, setIsLoading] = useState(false);
+  const [isFinetuning, setIsFinetuning] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const sendMessage = useCallback(async (message: string, attachmentIds?: string[]): Promise<string | null> => {
@@ -67,5 +68,56 @@ export function usePersona(personaId: string, userId: string) {
     return data as RelationshipState | null;
   }, [personaId, userId]);
 
-  return { sendMessage, triggerEmotionUpdate, loadHistory, loadRelationshipState, isLoading, error };
+  const loadConversationCount = useCallback(async (): Promise<number> => {
+    const { count } = await supabase
+      .from("persona_conversations")
+      .select("id", { count: "exact", head: true })
+      .eq("persona_id", personaId)
+      .eq("user_id", userId)
+      .eq("role", "user");
+    return count ?? 0;
+  }, [personaId, userId]);
+
+  // Submits a fine-tune job for this NAVI — requires 50+ conversations.
+  const triggerFinetune = useCallback(async (): Promise<{ success: boolean; message: string; job_id?: string; examples?: number }> => {
+    setIsFinetuning(true);
+    try {
+      const { data, error: fnError } = await supabase.functions.invoke("navi-finetune-pipeline", {
+        body: { persona_id: personaId, user_id: userId },
+      });
+      if (fnError) throw new Error(fnError.message);
+      if (data?.error) throw new Error(data.error);
+      return { success: true, message: `Training started with ${data.examples} examples`, job_id: data.job_id, examples: data.examples };
+    } catch (e: any) {
+      return { success: false, message: e.message };
+    } finally {
+      setIsFinetuning(false);
+    }
+  }, [personaId, userId]);
+
+  // Polls OpenAI for the current fine-tune job status and updates the persona row.
+  const checkFinetuneStatus = useCallback(async (): Promise<string | null> => {
+    try {
+      const { data } = await supabase.functions.invoke("navi-finetune-check", {
+        body: { persona_id: personaId },
+      });
+      const result = data?.results?.[0];
+      return result?.status ?? null;
+    } catch {
+      return null;
+    }
+  }, [personaId]);
+
+  return {
+    sendMessage,
+    triggerEmotionUpdate,
+    loadHistory,
+    loadRelationshipState,
+    loadConversationCount,
+    triggerFinetune,
+    checkFinetuneStatus,
+    isLoading,
+    isFinetuning,
+    error,
+  };
 }
