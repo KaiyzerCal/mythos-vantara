@@ -5,7 +5,9 @@ import { PersonaCard } from "@/components/persona/PersonaCard";
 import { PersonaChat } from "@/components/persona/PersonaChat";
 import { usePersonaForge } from "@/hooks/usePersonaForge";
 import { useAuth } from "@/contexts/AuthContext";
+import { supabase } from "@/integrations/supabase/client";
 import type { ForgedPersona } from "@/hooks/usePersonaForge";
+import type { NaviNotification } from "@/components/persona/PersonaCard";
 
 // ─── Forge Panel ────────────────────────────────────────────
 function ForgePanel({ onForged }: { onForged: (p: ForgedPersona) => void }) {
@@ -73,6 +75,8 @@ export default function PersonasPage() {
   const [personas, setPersonas] = useState<ForgedPersona[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [activeChat, setActiveChat] = useState<ForgedPersona | null>(null);
+  // Map of persona_id → latest unread heartbeat notification
+  const [notifications, setNotifications] = useState<Record<string, NaviNotification>>({});
 
   const loadPersonas = useCallback(async () => {
     if (!user) return;
@@ -82,7 +86,61 @@ export default function PersonasPage() {
     setIsLoading(false);
   }, [user, listPersonas]);
 
-  useEffect(() => { loadPersonas(); }, [loadPersonas]);
+  // Load unread notifications on mount
+  const loadNotifications = useCallback(async () => {
+    if (!user) return;
+    const { data } = await supabase
+      .from("navi_notifications")
+      .select("id, persona_id, message, created_at, is_read")
+      .eq("user_id", user.id)
+      .eq("is_read", false)
+      .eq("notification_type", "heartbeat")
+      .order("created_at", { ascending: false });
+    if (!data) return;
+    // Keep only the latest unread per persona
+    const map: Record<string, NaviNotification> = {};
+    for (const n of data) {
+      if (!map[n.persona_id]) map[n.persona_id] = n as NaviNotification;
+    }
+    setNotifications(map);
+  }, [user]);
+
+  useEffect(() => {
+    loadPersonas();
+    loadNotifications();
+  }, [loadPersonas, loadNotifications]);
+
+  // Realtime subscription — new heartbeat messages arrive instantly
+  useEffect(() => {
+    if (!user) return;
+    const channel = supabase
+      .channel(`navi-notifications-${user.id}`)
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "navi_notifications", filter: `user_id=eq.${user.id}` },
+        (payload) => {
+          const n = payload.new as any;
+          if (n.notification_type !== "heartbeat" || n.is_read) return;
+          setNotifications((prev) => ({
+            ...prev,
+            [n.persona_id]: { id: n.id, message: n.message, created_at: n.created_at, is_read: false },
+          }));
+        },
+      )
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [user]);
+
+  const handleNotificationRead = useCallback(async (notifId: string) => {
+    await supabase.from("navi_notifications").update({ is_read: true }).eq("id", notifId);
+    setNotifications((prev) => {
+      const next = { ...prev };
+      for (const pid of Object.keys(next)) {
+        if (next[pid].id === notifId) delete next[pid];
+      }
+      return next;
+    });
+  }, []);
 
   const handleForged = (persona: ForgedPersona) => {
     setPersonas((prev) => [persona, ...prev]);
@@ -148,6 +206,8 @@ export default function PersonasPage() {
               userId={user.id}
               onChat={setActiveChat}
               onDelete={handleDelete}
+              notification={notifications[persona.id] ?? null}
+              onNotificationRead={handleNotificationRead}
             />
           ))}
         </div>

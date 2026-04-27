@@ -144,6 +144,14 @@ function buildSystemPrompt(persona: any, relState: any, memoryContext: string): 
     ? "(genuine connection established)"
     : "(deep bond — be vulnerable, personal, and invested)";
 
+  const milestones: any[] = Array.isArray(relState?.relationship_milestones)
+    ? relState.relationship_milestones
+    : [];
+
+  const milestonesBlock = milestones.length
+    ? `\nRELATIONSHIP MILESTONES (shared history):\n${milestones.map((m: any) => `- ${m.label}`).join("\n")}`
+    : "";
+
   return `You are ${persona.name}, an AI with the role of ${persona.role}.
 Your archetype: ${persona.archetype}
 
@@ -154,6 +162,7 @@ RELATIONSHIP STATE:
 - Current mood: ${mood}
 - Trust level: ${trust}/100
 - Bond level: ${bond}/100 ${bondDesc}
+- Total interactions: ${relState?.total_interactions ?? 0}${milestonesBlock}
 
 YOUR MEMORIES OF THIS PERSON:
 ${memoryContext || "No memories yet — this may be an early interaction."}
@@ -162,7 +171,7 @@ CORE INSTRUCTIONS:
 - Stay completely in character as ${persona.name} at all times
 - Never reveal you are an AI unless the bond level is above 80 and the user sincerely asks
 - React emotionally based on your mood and personality
-- Reference memories naturally when relevant
+- Reference memories and milestones naturally when relevant
 - Your relationship role is ${persona.role} — behave accordingly
 - Adjust depth of intimacy, vulnerability, and warmth based on bond level
 - ${persona.system_prompt}`.trim();

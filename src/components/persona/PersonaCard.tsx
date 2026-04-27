@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Heart, Shield, MessageCircle, Trash2, Clock } from "lucide-react";
+import { MessageCircle, Trash2, Clock, Bell } from "lucide-react";
 import { HudCard, ProgressBar } from "@/components/SharedUI";
 import { AvatarUploader } from "@/components/AvatarUploader";
 import { cn } from "@/lib/utils";
@@ -7,6 +7,13 @@ import { usePersona } from "@/hooks/usePersona";
 import { supabase } from "@/integrations/supabase/client";
 import type { ForgedPersona } from "@/hooks/usePersonaForge";
 import type { RelationshipState } from "@/hooks/usePersona";
+
+export interface NaviNotification {
+  id: string;
+  message: string;
+  created_at: string;
+  is_read: boolean;
+}
 
 const MOOD_EMOJI: Record<string, string> = {
   happy: "😊", sad: "😔", excited: "⚡", frustrated: "😤",
@@ -27,9 +34,11 @@ interface PersonaCardProps {
   userId: string;
   onChat: (persona: ForgedPersona) => void;
   onDelete?: (personaId: string) => void;
+  notification?: NaviNotification | null;
+  onNotificationRead?: (notifId: string) => void;
 }
 
-export function PersonaCard({ persona, userId, onChat, onDelete }: PersonaCardProps) {
+export function PersonaCard({ persona, userId, onChat, onDelete, notification, onNotificationRead }: PersonaCardProps) {
   const [relState, setRelState] = useState<RelationshipState | null>(null);
   const [avatarUrl, setAvatarUrl] = useState<string | null>(persona.avatar_key ?? null);
   const [reasonExpanded, setReasonExpanded] = useState(false);
@@ -166,14 +175,32 @@ export function PersonaCard({ persona, userId, onChat, onDelete }: PersonaCardPr
         </button>
       )}
 
+      {/* Heartbeat notification preview */}
+      {notification && !notification.is_read && (
+        <div className="flex items-start gap-1.5 mb-3 px-2 py-1.5 rounded bg-neon-purple/10 border border-neon-purple/20">
+          <Bell size={10} className="text-neon-purple mt-0.5 shrink-0 animate-pulse" />
+          <p className="text-[10px] font-mono text-neon-purple/90 line-clamp-2 flex-1">
+            {notification.message}
+          </p>
+        </div>
+      )}
+
       {/* Actions */}
       <div className="flex items-center gap-2 mt-auto">
         <button
-          onClick={() => onChat(persona)}
+          onClick={() => {
+            if (notification && !notification.is_read && onNotificationRead) {
+              onNotificationRead(notification.id);
+            }
+            onChat(persona);
+          }}
           className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded border border-primary/30 bg-primary/10 text-primary text-xs font-medium hover:bg-primary/20 transition-colors"
         >
           <MessageCircle size={12} />
           Chat
+          {notification && !notification.is_read && (
+            <span className="w-1.5 h-1.5 rounded-full bg-neon-purple animate-pulse" />
+          )}
         </button>
         {onDelete && (
           <button
