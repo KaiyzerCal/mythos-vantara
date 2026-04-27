@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { Send, ArrowLeft, Zap, RefreshCw } from "lucide-react";
+import { Send, ArrowLeft, Zap, RefreshCw, Brain, Loader2 } from "lucide-react";
+import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { HudCard } from "@/components/SharedUI";
 import { usePersona } from "@/hooks/usePersona";
@@ -42,7 +43,11 @@ export function PersonaChat({ persona, userId, onBack }: PersonaChatProps) {
   const { scrollRef, progress, showBackToTop, showBackToBottom, handleScroll, scrollToTop, scrollToBottom } = useScrollKit();
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
-  const { sendMessage, triggerEmotionUpdate, loadHistory, loadRelationshipState, isLoading } = usePersona(persona.id, userId);
+  const { sendMessage, triggerEmotionUpdate, loadHistory, loadRelationshipState, loadConversationCount, triggerFinetune, checkFinetuneStatus, isLoading, isFinetuning } = usePersona(persona.id, userId);
+
+  // Fine-tune state — seeded from persona prop, refreshed after training actions
+  const [finetuneStatus, setFinetuneStatus] = useState<string>(persona.finetune_status ?? "none");
+  const [convCount, setConvCount] = useState<number>(0);
   const { speak, stop: stopSpeaking, isSpeaking, isLoading: isVoiceLoading } = useElevenLabsTts();
   const { attachments, isUploading, upload, remove } = useChatAttachments("persona", persona.id);
 
@@ -56,13 +61,14 @@ export function PersonaChat({ persona, userId, onBack }: PersonaChatProps) {
     supabase.from("personas").update({ voice_id: voiceId }).eq("id", persona.id).then(() => {});
   }, [voiceId, persona.id]);
 
-  // Load history and relationship state on mount
+  // Load history, relationship state, and conversation count on mount
   useEffect(() => {
-    Promise.all([loadHistory(), loadRelationshipState()]).then(([hist, rel]) => {
+    Promise.all([loadHistory(), loadRelationshipState(), loadConversationCount()]).then(([hist, rel, count]) => {
       setMessages(hist);
       setRelState(rel);
+      setConvCount(count);
     });
-  }, [loadHistory, loadRelationshipState]);
+  }, [loadHistory, loadRelationshipState, loadConversationCount]);
 
   // Live realtime updates for the relationship row — bond/trust/mood
   // bars in the chat header reflect the current state immediately.
@@ -155,6 +161,22 @@ export function PersonaChat({ persona, userId, onBack }: PersonaChatProps) {
     setIsUpdatingEmotion(false);
   };
 
+  const handleTrain = useCallback(async () => {
+    const result = await triggerFinetune();
+    if (result.success) {
+      setFinetuneStatus("training");
+      toast.success(`Training ${persona.name} — ${result.examples} examples submitted`);
+    } else {
+      toast.error(`Training failed: ${result.message}`);
+    }
+  }, [triggerFinetune, persona.name]);
+
+  const handleCheckTraining = useCallback(async () => {
+    const status = await checkFinetuneStatus();
+    if (status) setFinetuneStatus(status);
+    if (status === "deployed") toast.success(`${persona.name} is now running on her fine-tuned model`);
+  }, [checkFinetuneStatus, persona.name]);
+
   const mood = relState?.current_mood ?? "neutral";
   const bond = relState?.bond_level ?? 0;
   const trust = relState?.trust_level ?? 50;
@@ -226,6 +248,36 @@ export function PersonaChat({ persona, userId, onBack }: PersonaChatProps) {
         >
           <Zap size={13} />
         </button>
+
+        {/* Fine-tune controls */}
+        {finetuneStatus === "training" ? (
+          <button
+            onClick={handleCheckTraining}
+            className="flex items-center gap-1 px-2 py-1 rounded border border-amber-500/30 text-amber-400 text-[9px] font-mono hover:border-amber-400/50 transition-colors"
+            title="Check training status"
+          >
+            <Loader2 size={9} className="animate-spin" />
+            TRAINING
+          </button>
+        ) : finetuneStatus === "deployed" ? (
+          <span
+            className="flex items-center gap-1 px-2 py-1 rounded border border-neon-green/30 text-neon-green text-[9px] font-mono"
+            title={`Running on fine-tuned model (${persona.finetune_examples ?? "?"} examples)`}
+          >
+            <Brain size={9} />
+            TRAINED
+          </span>
+        ) : convCount >= 50 ? (
+          <button
+            onClick={handleTrain}
+            disabled={isFinetuning}
+            className="flex items-center gap-1 px-2 py-1 rounded border border-primary/30 text-primary text-[9px] font-mono hover:border-primary/50 hover:bg-primary/5 transition-colors disabled:opacity-40"
+            title={`Train ${persona.name} on ${convCount} conversations`}
+          >
+            {isFinetuning ? <Loader2 size={9} className="animate-spin" /> : <Brain size={9} />}
+            TRAIN
+          </button>
+        ) : null}
       </div>
 
       {/* Messages */}

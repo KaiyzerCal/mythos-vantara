@@ -12,6 +12,11 @@ export interface ForgedPersona {
   avatar_key: string | null;
   is_active: boolean;
   created_at: string;
+  // Fine-tuning lifecycle
+  finetune_status: "none" | "training" | "deployed" | "failed";
+  finetune_model: string | null;
+  finetune_examples: number | null;
+  last_finetuned_at: string | null;
 }
 
 export function usePersonaForge() {

@@ -108,7 +108,7 @@ async function callLLM(model: string, system: string, messages: any[]): Promise<
   const m = (model || "").toLowerCase();
   try {
     if (m.startsWith("claude") && claudeKey) return await callClaude(model, system, messages, claudeKey);
-    if ((m.startsWith("gpt") || m.startsWith("openai/")) && openaiKey) return await callOpenAI(model, system, messages, openaiKey);
+    if ((m.startsWith("gpt") || m.startsWith("openai/") || m.startsWith("ft:")) && openaiKey) return await callOpenAI(model, system, messages, openaiKey);
     if (m.startsWith("grok") && grokKey) return await callGrok(model, system, messages, grokKey);
   } catch (err: any) {
     if (!(err instanceof ProviderUnavailableError)) throw err;
@@ -194,11 +194,25 @@ serve(async (req) => {
 
     if (!persona) return new Response(JSON.stringify({ error: "Persona not found" }), { status: 404, headers: corsHeaders });
 
-    // Load relationship state, conversation history, top memories, attachments, AND full app context in parallel
-    const [relRes, histRes, memRes, attRes, profileRes, questsRes, skillsRes, journalRes, vaultRes, inventoryRes, energyRes, transformationsRes, rankingsRes, councilsRes, alliesRes, ritualsRes] = await Promise.all([
+    // Embed the user message for semantic memory search — runs in parallel with all DB fetches.
+    const openaiKey = Deno.env.get("OPENAI_API") ?? Deno.env.get("OPENAI_API_KEY") ?? "";
+    const embedMessagePromise: Promise<number[] | null> = openaiKey
+      ? fetch("https://api.openai.com/v1/embeddings", {
+          method: "POST",
+          headers: { "Authorization": `Bearer ${openaiKey}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ model: "text-embedding-3-small", input: message }),
+        })
+          .then((r) => (r.ok ? r.json() : null))
+          .then((d) => d?.data?.[0]?.embedding ?? null)
+          .catch(() => null)
+      : Promise.resolve(null);
+
+    // Load relationship state, conversation history, attachments, AND full app context in parallel.
+    // Memory query is intentionally excluded here — it runs after embedding resolves.
+    const [queryEmbedding, relRes, histRes, attRes, profileRes, questsRes, skillsRes, journalRes, vaultRes, inventoryRes, energyRes, transformationsRes, rankingsRes, councilsRes, alliesRes, ritualsRes] = await Promise.all([
+      embedMessagePromise,
       supabase.from("relationship_states").select("*").eq("persona_id", persona_id).eq("user_id", user_id).single(),
       supabase.from("persona_conversations").select("role, content").eq("persona_id", persona_id).eq("user_id", user_id).order("created_at", { ascending: false }).limit(20),
-      supabase.from("persona_memories").select("content, memory_type, importance").eq("persona_id", persona_id).eq("user_id", user_id).order("importance", { ascending: false }).limit(10),
       (Array.isArray(attachment_ids) && attachment_ids.length > 0
         ? supabase.from("chat_attachments").select("id,file_name,mime_type,extracted_text,processing_status").eq("user_id", user_id).in("id", attachment_ids)
         : supabase.from("chat_attachments").select("id,file_name,mime_type,extracted_text,processing_status").eq("user_id", user_id).eq("chat_kind", "persona").eq("thread_ref", persona_id).order("created_at", { ascending: false }).limit(10)),
@@ -218,6 +232,24 @@ serve(async (req) => {
 
     const relState = relRes.data;
     const history = (histRes.data ?? []).reverse();
+
+    // Semantic search if we have an embedding, importance-ranked fallback if not.
+    const memRes = queryEmbedding
+      ? await supabase.rpc("search_persona_memories", {
+          p_persona_id: persona_id,
+          p_user_id: user_id,
+          query_embedding: queryEmbedding,
+          match_threshold: 0.72,
+          match_count: 8,
+        })
+      : await supabase
+          .from("persona_memories")
+          .select("content, memory_type, importance")
+          .eq("persona_id", persona_id)
+          .eq("user_id", user_id)
+          .order("importance", { ascending: false })
+          .limit(10);
+
     const memories = memRes.data ?? [];
     const attachments = attRes.data ?? [];
     const profile = profileRes.data;
@@ -298,7 +330,12 @@ You always know the current date and time without being told. Reference it natur
       { role: "user", content: message },
     ];
 
-    const response = await callLLM(persona.model, systemPrompt, llmMessages);
+    // Use the fine-tuned model when it's deployed; fall back to the configured base model.
+    const activeModel = (persona.finetune_status === "deployed" && persona.finetune_model)
+      ? persona.finetune_model
+      : persona.model;
+
+    const response = await callLLM(activeModel, systemPrompt, llmMessages);
 
     // Save messages and update relationship state in parallel
     await Promise.all([

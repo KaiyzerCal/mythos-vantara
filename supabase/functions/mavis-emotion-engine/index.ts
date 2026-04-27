@@ -169,13 +169,38 @@ Rules:
     ];
 
     if (analysis.memory_to_save && typeof analysis.memory_to_save === "string") {
+      const memoryText = analysis.memory_to_save.slice(0, 1000);
+
+      // Embed the memory so the router can do semantic similarity search later.
+      // Falls back to storing without a vector if OpenAI is unavailable.
+      let embedding: number[] | null = null;
+      const openaiKey = Deno.env.get("OPENAI_API") ?? Deno.env.get("OPENAI_API_KEY") ?? "";
+      if (openaiKey) {
+        try {
+          const embRes = await fetch("https://api.openai.com/v1/embeddings", {
+            method: "POST",
+            headers: { "Authorization": `Bearer ${openaiKey}`, "Content-Type": "application/json" },
+            body: JSON.stringify({ model: "text-embedding-3-small", input: memoryText }),
+          });
+          if (embRes.ok) {
+            const embData = await embRes.json();
+            embedding = embData?.data?.[0]?.embedding ?? null;
+          } else {
+            console.warn("emotion-engine: embedding API returned", embRes.status);
+          }
+        } catch (e) {
+          console.warn("emotion-engine: embedding failed, storing without vector:", e);
+        }
+      }
+
       writes.push(
         supabase.from("persona_memories").insert({
           persona_id,
           user_id,
           memory_type: analysis.memory_type ?? "episodic",
-          content: analysis.memory_to_save.slice(0, 1000),
+          content: memoryText,
           importance: clampInt(analysis.memory_importance ?? 5, 1, 10),
+          ...(embedding ? { embedding } : {}),
         }),
       );
     }
