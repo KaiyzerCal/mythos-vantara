@@ -48,7 +48,7 @@ export function usePersonaForge() {
       .eq("user_id", userId)
       .eq("is_active", true)
       .order("created_at", { ascending: false });
-    return (data ?? []) as ForgedPersona[];
+    return (data ?? []) as unknown as ForgedPersona[];
   }, []);
 
   const deletePersona = useCallback(async (personaId: string): Promise<void> => {
