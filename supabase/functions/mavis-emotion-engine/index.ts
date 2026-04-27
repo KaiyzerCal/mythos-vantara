@@ -153,6 +153,49 @@ Rules:
     const newMood = MOODS.includes(analysis.new_mood) ? analysis.new_mood : currentMood;
     const moodReason = typeof analysis.mood_reason === "string" ? analysis.mood_reason.slice(0, 280) : null;
 
+    // ── Milestone detection ────────────────────────────────────
+    // Check bond, trust, interaction, and emotional thresholds.
+    // Append any newly crossed milestones to the relationship_milestones JSONB array.
+    const existingMilestones: any[] = Array.isArray(relState?.relationship_milestones)
+      ? relState.relationship_milestones
+      : [];
+    const reachedTypes = new Set(existingMilestones.map((m: any) => m.type));
+
+    const BOND_MILESTONES  = [25, 50, 75, 100];
+    const TRUST_MILESTONES = [25, 50, 75, 100];
+    const INTERACTION_MILESTONES = [10, 25, 50, 100, 250, 500];
+
+    const newMilestones: any[] = [];
+    const now = new Date().toISOString();
+    const totalInteractions = (relState?.total_interactions ?? 0) + 1;
+
+    for (const threshold of BOND_MILESTONES) {
+      const key = `bond_${threshold}`;
+      if (!reachedTypes.has(key) && currentBond < threshold && newBond >= threshold) {
+        newMilestones.push({ type: key, label: `Bond reached ${threshold}`, reached_at: now });
+      }
+    }
+    for (const threshold of TRUST_MILESTONES) {
+      const key = `trust_${threshold}`;
+      if (!reachedTypes.has(key) && currentTrust < threshold && newTrust >= threshold) {
+        newMilestones.push({ type: key, label: `Trust reached ${threshold}`, reached_at: now });
+      }
+    }
+    for (const threshold of INTERACTION_MILESTONES) {
+      const key = `interactions_${threshold}`;
+      if (!reachedTypes.has(key) && totalInteractions >= threshold) {
+        newMilestones.push({ type: key, label: `${threshold} interactions`, reached_at: now });
+      }
+    }
+    if (!reachedTypes.has("first_loving") && newMood === "loving") {
+      newMilestones.push({ type: "first_loving", label: "First loving moment", reached_at: now });
+    }
+    if (!reachedTypes.has("first_vulnerable") && (analysis.trust_delta ?? 0) >= 5) {
+      newMilestones.push({ type: "first_vulnerable", label: "First moment of deep vulnerability", reached_at: now });
+    }
+
+    const updatedMilestones = [...existingMilestones, ...newMilestones];
+
     const writes: any[] = [
       supabase.from("relationship_states").upsert(
         {
@@ -162,6 +205,7 @@ Rules:
           mood_reason: moodReason,
           trust_level: newTrust,
           bond_level: newBond,
+          ...(newMilestones.length ? { relationship_milestones: updatedMilestones } : {}),
           updated_at: new Date().toISOString(),
         },
         { onConflict: "persona_id,user_id" },
@@ -215,6 +259,7 @@ Rules:
         trust: newTrust,
         bond: newBond,
         deltas: { trust: trustDelta, bond: bondDelta },
+        milestones_unlocked: newMilestones,
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );

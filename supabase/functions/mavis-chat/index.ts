@@ -502,6 +502,46 @@ serve(async (req) => {
       vaultMedia: vaultMediaRes.data || [], activityLog: activityRes.data || [], memories: memoriesRes.data || [],
     };
 
+    // ── NAVI Ecosystem Context ──────────────────────────────────────────────────
+    // Load the user's active NAVIs and their relationship states so MAVIS is aware
+    // of the user's companion network — bonds formed, moods, milestones reached.
+    let naviBlock = "";
+    try {
+      const [naviPersonasRes, naviRelationsRes] = await Promise.all([
+        sb.from("personas").select("id, name, role, archetype, finetune_status").eq("user_id", user.id).eq("is_active", true).order("created_at", { ascending: false }).limit(10),
+        sb.from("relationship_states").select("persona_id, bond_level, trust_level, current_mood, total_interactions, last_interaction_at, relationship_milestones").eq("user_id", user.id),
+      ]);
+
+      const naviPersonas  = naviPersonasRes.data ?? [];
+      const naviRelations = naviRelationsRes.data ?? [];
+
+      if (naviPersonas.length) {
+        const relByPersona = new Map(naviRelations.map((r: any) => [r.persona_id, r]));
+        const naviLines = naviPersonas.map((p: any) => {
+          const rel = relByPersona.get(p.id) as any;
+          const bond = rel?.bond_level ?? 0;
+          const trust = rel?.trust_level ?? 50;
+          const mood  = rel?.current_mood ?? "neutral";
+          const interactions = rel?.total_interactions ?? 0;
+          const lastSeen = rel?.last_interaction_at
+            ? `${Math.floor((Date.now() - new Date(rel.last_interaction_at).getTime()) / (1000 * 60 * 60 * 24))}d ago`
+            : "never";
+          const milestones: any[] = Array.isArray(rel?.relationship_milestones) ? rel.relationship_milestones : [];
+          const milestoneStr = milestones.length ? ` | milestones: ${milestones.map((m: any) => m.label).join(", ")}` : "";
+          const finetuned = p.finetune_status === "deployed" ? " [fine-tuned]" : "";
+          return `  • ${p.name} (${p.role}/${p.archetype})${finetuned} — bond:${bond} trust:${trust} mood:${mood} interactions:${interactions} last:${lastSeen}${milestoneStr}`;
+        }).join("\n");
+
+        naviBlock = `\n═══ NAVI COMPANION ECOSYSTEM (${naviPersonas.length} active) ═══
+The user has forged these AI companions (NAVIs) within your platform:
+${naviLines}
+When relevant, acknowledge the user's companion network — the bonds they've built, the personas they've shaped. This is part of their story.
+═══ END NAVI ECOSYSTEM ═══`;
+      }
+    } catch (e) {
+      console.warn("[mavis-chat] NAVI ecosystem load failed:", (e as any)?.message);
+    }
+
     // Adaptive: full content when user is asking for it, short preview otherwise
     const journalLen = wants.journal ? 500 : 100;
     const vaultLen   = wants.vault ? 500 : 100;
@@ -693,6 +733,7 @@ You always know the current date and time without being told. Reference it natur
       baseSystem,
       timeBlock,
       authoritativeContext,
+      naviBlock,
       attachmentsBlock,
       webSearchResults ? `\n---\nWEB SEARCH:\n${webSearchResults}\n---` : "",
     ].filter(Boolean).join("\n\n");
