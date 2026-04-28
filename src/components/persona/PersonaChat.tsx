@@ -179,9 +179,79 @@ export function PersonaChat({ persona, userId, onBack }: PersonaChatProps) {
     if (status === "deployed") toast.success(`${persona.name} is now running on her fine-tuned model`);
   }, [checkFinetuneStatus, persona.name]);
 
-  const mood = relState?.current_mood ?? "neutral";
-  const bond = relState?.bond_level ?? 0;
-  const trust = relState?.trust_level ?? 50;
+  // ── OmniSync: snapshot the persona thread + relationship state to memories ──
+  const handleOmniSync = useCallback(async () => {
+    if (isSyncing) return;
+    setIsSyncing(true);
+    try {
+      const condensed = messages
+        .map((m) => `[${m.role === "user" ? "OP" : persona.name.toUpperCase()}] ${m.content.slice(0, 300)}${m.content.length > 300 ? "…" : ""}`)
+        .join("\n");
+      const summary = `OmniSync · ${persona.name} | bond:${bond} trust:${trust} mood:${mood} | ${messages.length} msgs`;
+      const { error: snapErr } = await supabase.from("omnisync_snapshots").insert({
+        user_id: userId,
+        snapshot_data: { persona_id: persona.id, persona_name: persona.name, bond, trust, mood, message_count: messages.length, timestamp: new Date().toISOString() },
+        condensed_comms: condensed.slice(0, 10000),
+        summary,
+      });
+      if (snapErr) throw snapErr;
+      toast.success(`OmniSync complete — ${persona.name} thread snapshot saved`);
+    } catch (e: any) {
+      toast.error("OmniSync failed: " + (e.message ?? "Unknown error"));
+    } finally {
+      setIsSyncing(false);
+    }
+  }, [isSyncing, messages, persona, userId, bond, trust, mood]);
+
+  // ── Clear: archive the thread to memories, then wipe persona_conversations ──
+  const handleClear = useCallback(async () => {
+    try {
+      // Archive to long-term memory before deletion so the persona can recall it later
+      if (messages.length > 0) {
+        const fullThread = messages
+          .map((m) => `[${m.role === "user" ? "OPERATOR" : persona.name.toUpperCase()}] ${m.content}`)
+          .join("\n\n");
+        const topicSummary = messages
+          .slice(-20)
+          .map((m) => `${m.role === "user" ? "OP" : "P"}: ${m.content.slice(0, 300)}`)
+          .join("\n");
+        await supabase.from("memories").insert({
+          user_id: userId,
+          title: `Persona: ${persona.name} — ${new Date().toLocaleDateString()} ${new Date().toLocaleTimeString()}`,
+          content: fullThread.slice(0, 50000),
+          memory_type: "conversation",
+          source: "persona_chat_clear",
+          tags: ["persona", persona.name.toLowerCase(), persona.role, "archived"],
+          metadata: {
+            persona_id: persona.id,
+            persona_name: persona.name,
+            message_count: messages.length,
+            cleared_at: new Date().toISOString(),
+            topic_summary: topicSummary.slice(0, 5000),
+            bond, trust, mood,
+          },
+        });
+      }
+      // OmniSync as well so app-state is captured
+      await handleOmniSync();
+      // Wipe the persona conversation rows
+      await supabase
+        .from("persona_conversations")
+        .delete()
+        .eq("persona_id", persona.id)
+        .eq("user_id", userId);
+      setMessages([]);
+      toast.success("Thread archived — memories preserved");
+    } catch (e: any) {
+      toast.error("Clear failed: " + (e.message ?? "Unknown error"));
+    }
+  }, [messages, persona, userId, bond, trust, mood, handleOmniSync]);
+
+  const handleStop = useCallback(() => {
+    cancelledRef.current = true;
+    if (isSpeaking) stopSpeaking();
+  }, [isSpeaking, stopSpeaking]);
+
   const roleColor = ROLE_COLOR_CLASS[persona.role] ?? ROLE_COLOR_CLASS.custom;
 
   return (
