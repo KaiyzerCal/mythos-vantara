@@ -116,12 +116,14 @@ export function PersonaChat({ persona, userId, onBack }: PersonaChatProps) {
   const handleSend = useCallback(async () => {
     const trimmed = input.trim();
     if (!trimmed || isLoading) return;
+    cancelledRef.current = false;
 
     setInput("");
     setMessages((prev) => [...prev, { role: "user", content: trimmed }]);
 
     const attachmentIds = attachments.map((a) => a.id);
     const response = await sendMessage(trimmed, attachmentIds);
+    if (cancelledRef.current) return;
     if (response) {
       setMessages((prev) => [...prev, { role: "assistant", content: response }]);
       if (ttsEnabled) {
