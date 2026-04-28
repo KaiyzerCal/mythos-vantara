@@ -100,16 +100,23 @@ export function PersonaCard({ persona, userId, onChat, onDelete, notification, o
 
   return (
     <HudCard glowColor={persona.role === "girlfriend" || persona.role === "companion" ? "purple" : "none"}>
+      <div
+        className="cursor-pointer"
+        onClick={() => setCardExpanded((v) => !v)}
+        title={cardExpanded ? "Click to collapse" : "Click to see full details"}
+      >
       <div className="flex items-start justify-between mb-3">
         <div className="flex items-center gap-2.5">
-          <AvatarUploader
-            value={avatarUrl}
-            onChange={handleAvatarChange}
-            scope={`persona/${persona.id}`}
-            fallback={persona.name}
-            sizeClass="w-10 h-10"
-            ringClass={cn("border-2", roleStyle.split(" ").find((c) => c.startsWith("border-")) ?? "border-border")}
-          />
+          <div onClick={(e) => e.stopPropagation()}>
+            <AvatarUploader
+              value={avatarUrl}
+              onChange={handleAvatarChange}
+              scope={`persona/${persona.id}`}
+              fallback={persona.name}
+              sizeClass="w-10 h-10"
+              ringClass={cn("border-2", roleStyle.split(" ").find((c) => c.startsWith("border-")) ?? "border-border")}
+            />
+          </div>
           <div>
             <p className="font-display font-bold text-sm text-foreground">{persona.name}</p>
             <p className="text-[9px] font-mono text-muted-foreground uppercase tracking-widest">{persona.archetype}</p>
@@ -125,6 +132,7 @@ export function PersonaCard({ persona, userId, onChat, onDelete, notification, o
           )}>
             {persona.role}
           </span>
+          {cardExpanded ? <ChevronUp size={10} className="text-muted-foreground mt-0.5" /> : <ChevronDown size={10} className="text-muted-foreground mt-0.5" />}
         </div>
       </div>
 
