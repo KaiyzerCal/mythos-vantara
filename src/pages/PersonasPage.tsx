@@ -89,7 +89,7 @@ export default function PersonasPage() {
   // Load unread notifications on mount
   const loadNotifications = useCallback(async () => {
     if (!user) return;
-    const { data } = await supabase
+    const { data } = await (supabase as any)
       .from("navi_notifications")
       .select("id, persona_id, message, created_at, is_read")
       .eq("user_id", user.id)
@@ -132,7 +132,7 @@ export default function PersonasPage() {
   }, [user]);
 
   const handleNotificationRead = useCallback(async (notifId: string) => {
-    await supabase.from("navi_notifications").update({ is_read: true }).eq("id", notifId);
+    await (supabase as any).from("navi_notifications").update({ is_read: true }).eq("id", notifId);
     setNotifications((prev) => {
       const next = { ...prev };
       for (const pid of Object.keys(next)) {

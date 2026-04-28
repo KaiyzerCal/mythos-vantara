@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { Send, ArrowLeft, Zap, RefreshCw, Brain, Loader2 } from "lucide-react";
+import { Send, ArrowLeft, Zap, RefreshCw, Brain, Loader2, Database, Square } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { HudCard } from "@/components/SharedUI";
@@ -40,6 +40,8 @@ export function PersonaChat({ persona, userId, onBack }: PersonaChatProps) {
   const [relState, setRelState] = useState<RelationshipState | null>(null);
   const [isUpdatingEmotion, setIsUpdatingEmotion] = useState(false);
   const [ttsEnabled, setTtsEnabled] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const cancelledRef = useRef(false);
   const { scrollRef, progress, showBackToTop, showBackToBottom, handleScroll, scrollToTop, scrollToBottom } = useScrollKit();
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -114,12 +116,14 @@ export function PersonaChat({ persona, userId, onBack }: PersonaChatProps) {
   const handleSend = useCallback(async () => {
     const trimmed = input.trim();
     if (!trimmed || isLoading) return;
+    cancelledRef.current = false;
 
     setInput("");
     setMessages((prev) => [...prev, { role: "user", content: trimmed }]);
 
     const attachmentIds = attachments.map((a) => a.id);
     const response = await sendMessage(trimmed, attachmentIds);
+    if (cancelledRef.current) return;
     if (response) {
       setMessages((prev) => [...prev, { role: "assistant", content: response }]);
       if (ttsEnabled) {
@@ -180,6 +184,80 @@ export function PersonaChat({ persona, userId, onBack }: PersonaChatProps) {
   const mood = relState?.current_mood ?? "neutral";
   const bond = relState?.bond_level ?? 0;
   const trust = relState?.trust_level ?? 50;
+
+  // ── OmniSync: snapshot the persona thread + relationship state to memories ──
+  const handleOmniSync = useCallback(async () => {
+    if (isSyncing) return;
+    setIsSyncing(true);
+    try {
+      const condensed = messages
+        .map((m) => `[${m.role === "user" ? "OP" : persona.name.toUpperCase()}] ${m.content.slice(0, 300)}${m.content.length > 300 ? "…" : ""}`)
+        .join("\n");
+      const summary = `OmniSync · ${persona.name} | bond:${bond} trust:${trust} mood:${mood} | ${messages.length} msgs`;
+      const { error: snapErr } = await supabase.from("omnisync_snapshots").insert({
+        user_id: userId,
+        snapshot_data: { persona_id: persona.id, persona_name: persona.name, bond, trust, mood, message_count: messages.length, timestamp: new Date().toISOString() },
+        condensed_comms: condensed.slice(0, 10000),
+        summary,
+      });
+      if (snapErr) throw snapErr;
+      toast.success(`OmniSync complete — ${persona.name} thread snapshot saved`);
+    } catch (e: any) {
+      toast.error("OmniSync failed: " + (e.message ?? "Unknown error"));
+    } finally {
+      setIsSyncing(false);
+    }
+  }, [isSyncing, messages, persona, userId, bond, trust, mood]);
+
+  // ── Clear: archive the thread to memories, then wipe persona_conversations ──
+  const handleClear = useCallback(async () => {
+    try {
+      // Archive to long-term memory before deletion so the persona can recall it later
+      if (messages.length > 0) {
+        const fullThread = messages
+          .map((m) => `[${m.role === "user" ? "OPERATOR" : persona.name.toUpperCase()}] ${m.content}`)
+          .join("\n\n");
+        const topicSummary = messages
+          .slice(-20)
+          .map((m) => `${m.role === "user" ? "OP" : "P"}: ${m.content.slice(0, 300)}`)
+          .join("\n");
+        await supabase.from("memories").insert({
+          user_id: userId,
+          title: `Persona: ${persona.name} — ${new Date().toLocaleDateString()} ${new Date().toLocaleTimeString()}`,
+          content: fullThread.slice(0, 50000),
+          memory_type: "conversation",
+          source: "persona_chat_clear",
+          tags: ["persona", persona.name.toLowerCase(), persona.role, "archived"],
+          metadata: {
+            persona_id: persona.id,
+            persona_name: persona.name,
+            message_count: messages.length,
+            cleared_at: new Date().toISOString(),
+            topic_summary: topicSummary.slice(0, 5000),
+            bond, trust, mood,
+          },
+        });
+      }
+      // OmniSync as well so app-state is captured
+      await handleOmniSync();
+      // Wipe the persona conversation rows
+      await supabase
+        .from("persona_conversations")
+        .delete()
+        .eq("persona_id", persona.id)
+        .eq("user_id", userId);
+      setMessages([]);
+      toast.success("Thread archived — memories preserved");
+    } catch (e: any) {
+      toast.error("Clear failed: " + (e.message ?? "Unknown error"));
+    }
+  }, [messages, persona, userId, bond, trust, mood, handleOmniSync]);
+
+  const handleStop = useCallback(() => {
+    cancelledRef.current = true;
+    if (isSpeaking) stopSpeaking();
+  }, [isSpeaking, stopSpeaking]);
+
   const roleColor = ROLE_COLOR_CLASS[persona.role] ?? ROLE_COLOR_CLASS.custom;
 
   return (
@@ -247,6 +325,24 @@ export function PersonaChat({ persona, userId, onBack }: PersonaChatProps) {
           title="Update emotional state"
         >
           <Zap size={13} />
+        </button>
+
+        <button
+          onClick={handleOmniSync}
+          disabled={isSyncing}
+          className="flex items-center gap-1 px-2 py-1 rounded border border-cyan-900/40 text-cyan-400 text-[9px] font-mono hover:border-cyan-400/50 transition-colors disabled:opacity-40"
+          title="OmniSync — snapshot this thread to memory"
+        >
+          {isSyncing ? <Loader2 size={9} className="animate-spin" /> : <Database size={9} />}
+          SYNC
+        </button>
+
+        <button
+          onClick={handleClear}
+          className="px-2 py-1 rounded border border-border text-[9px] font-mono text-muted-foreground hover:text-destructive hover:border-destructive/40 transition-colors"
+          title="Archive thread to memory and clear"
+        >
+          CLEAR
         </button>
 
         {/* Fine-tune controls */}
@@ -379,13 +475,23 @@ export function PersonaChat({ persona, userId, onBack }: PersonaChatProps) {
               t.style.height = Math.min(t.scrollHeight, 128) + "px";
             }}
           />
-          <button
-            onClick={handleSend}
-            disabled={!input.trim() || isLoading}
-            className="p-2.5 rounded-lg border border-primary/30 bg-primary/10 text-primary hover:bg-primary/20 transition-colors disabled:opacity-40 disabled:cursor-not-allowed shrink-0"
-          >
-            <Send size={14} />
-          </button>
+          {isLoading ? (
+            <button
+              onClick={handleStop}
+              className="p-2.5 rounded-lg border border-destructive/30 bg-destructive/10 text-destructive hover:bg-destructive/20 transition-colors shrink-0"
+              title="Stop"
+            >
+              <Square size={14} />
+            </button>
+          ) : (
+            <button
+              onClick={handleSend}
+              disabled={!input.trim()}
+              className="p-2.5 rounded-lg border border-primary/30 bg-primary/10 text-primary hover:bg-primary/20 transition-colors disabled:opacity-40 disabled:cursor-not-allowed shrink-0"
+            >
+              <Send size={14} />
+            </button>
+          )}
         </div>
       </div>
     </div>

@@ -96,8 +96,13 @@ function RelationshipRow({ row }: { row: RowAggregate }) {
 
   return (
     <HudCard>
-      {/* Header row */}
-      <div className="flex items-start justify-between gap-3">
+      {/* Header row — entire row clickable to expand */}
+      <button
+        type="button"
+        onClick={() => setExpanded((e) => !e)}
+        className="w-full text-left flex items-start justify-between gap-3 cursor-pointer"
+        title={expanded ? "Click to collapse" : "Click to see full details"}
+      >
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2 flex-wrap">
             <p className="font-display text-sm font-bold text-foreground truncate">{persona.name}</p>
@@ -114,14 +119,10 @@ function RelationshipRow({ row }: { row: RowAggregate }) {
             {persona.archetype} · {persona.model}
           </p>
         </div>
-        <button
-          onClick={() => setExpanded((e) => !e)}
-          className="shrink-0 p-1.5 rounded hover:bg-muted/50 text-muted-foreground hover:text-primary transition-colors"
-          aria-label={expanded ? "Collapse" : "Expand"}
-        >
+        <span className="shrink-0 p-1.5 rounded text-muted-foreground">
           {expanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-        </button>
-      </div>
+        </span>
+      </button>
 
       {/* Stats row */}
       <div className="grid grid-cols-2 gap-3 mt-3">
