@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { MessageCircle, Trash2, Clock, Bell } from "lucide-react";
+import { MessageCircle, Trash2, Clock, Bell, ChevronDown, ChevronUp, Cpu } from "lucide-react";
 import { HudCard, ProgressBar } from "@/components/SharedUI";
 import { AvatarUploader } from "@/components/AvatarUploader";
 import { cn } from "@/lib/utils";
