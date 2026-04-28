@@ -398,8 +398,12 @@ BPM / PROFILE / XP:
 :::ACTION{"type":"log_bpm_session","params":{"bpm":120,"form":"Base","duration":15,"mood":"focused","notes":"..."}}:::
 :::ACTION{"type":"update_profile","params":{"arc_story":"...","current_form":"...","fatigue":0,"full_cowl_sync":95,"codex_integrity":97,"inscribed_name":"...","level":54,"rank":"S"}}:::
 :::ACTION{"type":"award_xp","params":{"amount":100}}:::
+PERSONAS (Persona Forge / Persona Tab):
+:::ACTION{"type":"forge_persona","params":{"description":"Full natural-language spec of the persona — name, role (girlfriend/friend/mentor/rival/companion/custom), tone, quirks, values, communication style, archetype, etc. Be vivid and specific."}}:::
+:::ACTION{"type":"delete_persona","params":{"persona_name":"..."}}:::
+When the operator asks you to create/forge/build/spawn a persona, ALWAYS emit a forge_persona action with a rich description — this routes through the SAME pipeline as the Persona Forge tab, so the new persona appears in the roster with full chat, voice, memory, and relationship capabilities.
 
-RULES: Use exact IDs from the LIVE BACKEND STATE block above. Never claim an action without emitting the tag. Chain as many tags as needed in one response. complete_quest handles XP automatically. You have write access to every page and section of the app — quests, tasks, skills, journal, vault, council, inventory, energy, allies, rituals, forms/transformations, scouter/rankings, store, BPM, and the operator profile itself.
+RULES: Use exact IDs from the LIVE BACKEND STATE block above. Never claim an action without emitting the tag. Chain as many tags as needed in one response. complete_quest handles XP automatically. You have write access to every page and section of the app — quests, tasks, skills, journal, vault, council, inventory, energy, allies, rituals, forms/transformations, scouter/rankings, store, BPM, personas, and the operator profile itself.
 
 ---
 

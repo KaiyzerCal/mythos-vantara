@@ -714,6 +714,43 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
       return;
     }
 
+    // ── PERSONA FORGE ────────────────────────────────────
+    case "forge_persona":
+    case "create_persona":
+    case "new_persona":
+    case "add_persona": {
+      const description = String(p.description || p.prompt || p.spec || p.name || "").trim();
+      if (!description) throw new Error("forge_persona requires a 'description' parameter");
+      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+      const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+      const res = await fetch(`${supabaseUrl}/functions/v1/mavis-persona-forge`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${serviceRoleKey}`,
+          "apikey": serviceRoleKey,
+        },
+        body: JSON.stringify({ user_id: userId, description }),
+      });
+      if (!res.ok) {
+        const txt = await res.text();
+        throw new Error(`persona-forge failed (${res.status}): ${txt}`);
+      }
+      const data = await res.json();
+      if (data?.error) throw new Error(typeof data.error === "string" ? data.error : JSON.stringify(data.error));
+      const personaName = data?.persona?.name || "New Persona";
+      await logActivity(sb, userId, "persona_forged", `Persona forged via MAVIS: ${personaName}`, 0);
+      return;
+    }
+
+    case "delete_persona": {
+      const personaId = await resolveId(sb, userId, "personas", (p.persona_id || p.id) as string, (p.persona_name || p.name) as string);
+      if (!personaId) return;
+      await sb.from("personas").update({ is_active: false }).eq("id", personaId).eq("user_id", userId);
+      await logActivity(sb, userId, "persona_deleted", `Persona archived: ${String(p.persona_name || p.name || personaId)}`, 0);
+      return;
+    }
+
     // ── BPM SESSION ──────────────────────────────────────
     case "log_bpm_session": {
       const { error } = await sb.from("bpm_sessions").insert({
