@@ -365,17 +365,41 @@ COUNCIL:
 :::ACTION{"type":"create_council_member","params":{"name":"...","role":"...","specialty":"...","class":"core|advisory|think-tank|shadows","notes":"..."}}:::
 :::ACTION{"type":"update_council_member","params":{"member_id":"...","notes":"..."}}:::
 :::ACTION{"type":"delete_council_member","params":{"member_id":"..."}}:::
-OTHER:
-:::ACTION{"type":"create_inventory_item","params":{"name":"...","type":"equipment|consumable|artifact","rarity":"common|rare|epic|legendary|mythic","quantity":1}}:::
+INVENTORY:
+:::ACTION{"type":"create_inventory_item","params":{"name":"...","description":"...","type":"equipment|consumable|artifact","rarity":"common|rare|epic|legendary|mythic","quantity":1,"slot":"...","tier":"...","effect":"...","is_equipped":false}}:::
+:::ACTION{"type":"update_inventory_item","params":{"item_id":"...","name":"...","quantity":1,"is_equipped":true,"effect":"..."}}:::
+:::ACTION{"type":"delete_inventory_item","params":{"item_id":"..."}}:::
+ENERGY:
+:::ACTION{"type":"create_energy_system","params":{"type":"...","current_value":100,"max_value":100,"color":"#08C284","description":"...","status":"developing|mastered|locked"}}:::
 :::ACTION{"type":"update_energy","params":{"energy_id":"...","current_value":100}}:::
+:::ACTION{"type":"delete_energy","params":{"energy_id":"..."}}:::
+ALLIES:
 :::ACTION{"type":"create_ally","params":{"name":"...","relationship":"ally|council|rival","specialty":"...","affinity":50,"notes":"..."}}:::
 :::ACTION{"type":"update_ally","params":{"ally_id":"...","affinity":75,"notes":"..."}}:::
-:::ACTION{"type":"create_ritual","params":{"name":"...","type":"fitness|business|self_care|legal|other","xp_reward":25}}:::
+:::ACTION{"type":"delete_ally","params":{"ally_id":"..."}}:::
+RITUALS:
+:::ACTION{"type":"create_ritual","params":{"name":"...","description":"...","type":"fitness|business|self_care|legal|other","xp_reward":25}}:::
+:::ACTION{"type":"update_ritual","params":{"ritual_id":"...","name":"...","xp_reward":25}}:::
 :::ACTION{"type":"complete_ritual","params":{"ritual_id":"..."}}:::
-:::ACTION{"type":"update_profile","params":{"arc_story":"...","current_form":"...","fatigue":0,"full_cowl_sync":95,"codex_integrity":97}}:::
+:::ACTION{"type":"delete_ritual","params":{"ritual_id":"..."}}:::
+TRANSFORMATIONS / FORMS:
+:::ACTION{"type":"create_transformation","params":{"name":"...","tier":"...","form_order":1,"bpm_range":"60-200","energy":"Emerald Flames","jjk_grade":"Special Grade","op_tier":"God Tier","description":"...","unlocked":false,"abilities":[],"active_buffs":[],"passive_buffs":[]}}:::
+:::ACTION{"type":"update_transformation","params":{"transformation_id":"...","unlocked":true,"description":"..."}}:::
+:::ACTION{"type":"delete_transformation","params":{"transformation_id":"..."}}:::
+RANKINGS / SCOUTER:
+:::ACTION{"type":"create_ranking_profile","params":{"display_name":"...","role":"npc|ally|rival","rank":"D","level":1,"gpr":1000,"pvp":5000,"jjk_grade":"G4","op_tier":"Local","influence":"Local","is_self":false,"notes":"..."}}:::
+:::ACTION{"type":"update_ranking_profile","params":{"ranking_id":"...","rank":"S","level":80,"gpr":9999}}:::
+:::ACTION{"type":"delete_ranking_profile","params":{"ranking_id":"..."}}:::
+STORE:
+:::ACTION{"type":"create_store_item","params":{"name":"...","description":"...","price":100,"currency":"Codex Points","rarity":"common","category":"consumable","effect":"..."}}:::
+:::ACTION{"type":"update_store_item","params":{"store_item_id":"...","price":150}}:::
+:::ACTION{"type":"delete_store_item","params":{"store_item_id":"..."}}:::
+BPM / PROFILE / XP:
+:::ACTION{"type":"log_bpm_session","params":{"bpm":120,"form":"Base","duration":15,"mood":"focused","notes":"..."}}:::
+:::ACTION{"type":"update_profile","params":{"arc_story":"...","current_form":"...","fatigue":0,"full_cowl_sync":95,"codex_integrity":97,"inscribed_name":"...","level":54,"rank":"S"}}:::
 :::ACTION{"type":"award_xp","params":{"amount":100}}:::
 
-RULES: Use exact IDs. Never claim an action without the tag. Chain as many as needed. complete_quest handles XP automatically.
+RULES: Use exact IDs from the LIVE BACKEND STATE block above. Never claim an action without emitting the tag. Chain as many tags as needed in one response. complete_quest handles XP automatically. You have write access to every page and section of the app — quests, tasks, skills, journal, vault, council, inventory, energy, allies, rituals, forms/transformations, scouter/rankings, store, BPM, and the operator profile itself.
 
 ---
 
