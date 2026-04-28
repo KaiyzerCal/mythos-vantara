@@ -940,6 +940,15 @@ function CouncilChat({ member, profile, onClose }: { member: any; profile: any; 
             isLoading={isVoiceLoading}
             onStop={stopSpeaking}
           />
+          <button
+            onClick={handleOmniSync}
+            disabled={isSyncing}
+            className="flex items-center gap-1 text-[10px] font-mono text-cyan-400 hover:text-cyan-300 border border-cyan-900/40 hover:border-cyan-400/40 rounded px-1.5 py-0.5 transition-all disabled:opacity-40 mr-1"
+            title="OmniSync — snapshot thread to memory"
+          >
+            {isSyncing ? <Loader2 size={9} className="animate-spin" /> : <Database size={9} />}
+            SYNC
+          </button>
           <button onClick={clearCouncilChat} className="text-[10px] font-mono text-muted-foreground hover:text-destructive transition-colors mr-1">
             Clear
           </button>
@@ -980,6 +989,15 @@ function CouncilChat({ member, profile, onClose }: { member: any; profile: any; 
             </div>
           )}
         </div>
+        {showBackToTop && (
+          <button
+            onClick={scrollToTop}
+            className="absolute top-2 right-2 z-10 w-7 h-7 rounded-full bg-primary/20 border border-primary/30 text-primary flex items-center justify-center hover:bg-primary/30 transition-all shadow-lg"
+            title="Scroll to top"
+          >
+            <ArrowUp size={12} />
+          </button>
+        )}
         {showScrollBtn && (
           <button
             onClick={scrollToBottom}
@@ -1011,7 +1029,7 @@ function CouncilChat({ member, profile, onClose }: { member: any; profile: any; 
             />
             {isLoading ? (
               <button
-                onClick={() => setIsLoading(false)}
+                onClick={() => { cancelledRef.current = true; setIsLoading(false); }}
                 className="px-3 py-2 bg-destructive/10 border border-destructive/30 text-destructive rounded hover:bg-destructive/20 transition-all"
                 title="Stop generating"
               >
