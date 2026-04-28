@@ -42,12 +42,15 @@ export function PersonaCard({ persona, userId, onChat, onDelete, notification, o
   const [relState, setRelState] = useState<RelationshipState | null>(null);
   const [avatarUrl, setAvatarUrl] = useState<string | null>(persona.avatar_key ?? null);
   const [reasonExpanded, setReasonExpanded] = useState(false);
-  const { loadRelationshipState } = usePersona(persona.id, userId);
+  const [cardExpanded, setCardExpanded] = useState(false);
+  const [msgCount, setMsgCount] = useState<number>(0);
+  const { loadRelationshipState, loadConversationCount } = usePersona(persona.id, userId);
 
   // Initial fetch
   useEffect(() => {
     loadRelationshipState().then(setRelState);
-  }, [loadRelationshipState]);
+    loadConversationCount().then(setMsgCount);
+  }, [loadRelationshipState, loadConversationCount]);
 
   // Live updates — bond/trust/mood reflect the current state of the
   // relationship as the user chats with this persona anywhere in the app.
