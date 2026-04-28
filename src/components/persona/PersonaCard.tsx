@@ -157,16 +157,55 @@ export function PersonaCard({ persona, userId, onChat, onDelete, notification, o
       </div>
 
       {/* Stats row */}
-      <div className="flex items-center gap-3 mb-3 text-[10px] font-mono text-muted-foreground">
+      <div className="flex items-center gap-3 mb-3 text-[10px] font-mono text-muted-foreground flex-wrap">
         <span className="flex items-center gap-1">
           <MessageCircle size={10} />
-          {relState?.total_interactions ?? 0} interactions
+          {msgCount} msgs
         </span>
         <span className="flex items-center gap-1">
           <Clock size={10} />
           {lastSeen}
         </span>
+        <span className="flex items-center gap-1">
+          <Cpu size={10} />
+          {persona.model}
+        </span>
       </div>
+      </div>
+
+      {/* Expanded details */}
+      {cardExpanded && (
+        <div className="mb-3 pt-2 border-t border-border/40 space-y-2">
+          <div>
+            <p className="text-[9px] font-mono text-muted-foreground uppercase mb-0.5">Archetype</p>
+            <p className="text-[11px] font-body text-foreground">{persona.archetype}</p>
+          </div>
+          <div>
+            <p className="text-[9px] font-mono text-muted-foreground uppercase mb-0.5">Role · Model</p>
+            <p className="text-[11px] font-mono text-foreground">{persona.role} · {persona.model}</p>
+          </div>
+          <div>
+            <p className="text-[9px] font-mono text-muted-foreground uppercase mb-0.5">Total Interactions</p>
+            <p className="text-[11px] font-mono text-foreground">{relState?.total_interactions ?? 0} (rel) · {msgCount} (logged)</p>
+          </div>
+          {persona.personality && Object.keys(persona.personality).length > 0 && (
+            <div>
+              <p className="text-[9px] font-mono text-muted-foreground uppercase mb-0.5">Personality</p>
+              <pre className="text-[10px] font-mono text-foreground/80 whitespace-pre-wrap break-words bg-muted/30 rounded p-1.5">{JSON.stringify(persona.personality, null, 2)}</pre>
+            </div>
+          )}
+          {persona.system_prompt && (
+            <div>
+              <p className="text-[9px] font-mono text-muted-foreground uppercase mb-0.5">System Prompt</p>
+              <p className="text-[10px] font-body text-foreground/80 whitespace-pre-wrap">{persona.system_prompt}</p>
+            </div>
+          )}
+          <div>
+            <p className="text-[9px] font-mono text-muted-foreground uppercase mb-0.5">Forged</p>
+            <p className="text-[10px] font-mono text-foreground">{new Date(persona.created_at).toLocaleString()}</p>
+          </div>
+        </div>
+      )}
 
       {/* Mood reason if present — click to expand/collapse full summary */}
       {relState?.mood_reason && (
