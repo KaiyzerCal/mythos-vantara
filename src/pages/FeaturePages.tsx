@@ -902,6 +902,7 @@ function CouncilChat({ member, profile, onClose }: { member: any; profile: any; 
         },
       });
       if (error) throw error;
+      if (cancelledRef.current) return;
       const reply = data?.content ?? "...";
       setMessages((prev) => [...prev, { id: `a-${Date.now()}`, role: "assistant", content: reply, timestamp: new Date() }]);
       // Persist assistant message
@@ -909,6 +910,7 @@ function CouncilChat({ member, profile, onClose }: { member: any; profile: any; 
       // Speak the response if voice is enabled
       speakText(reply);
     } catch {
+      if (cancelledRef.current) return;
       setMessages((prev) => [...prev, { id: `err-${Date.now()}`, role: "assistant", content: "Connection lost.", timestamp: new Date() }]);
     } finally {
       setIsLoading(false);
