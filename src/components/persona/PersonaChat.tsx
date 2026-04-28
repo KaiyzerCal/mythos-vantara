@@ -40,6 +40,8 @@ export function PersonaChat({ persona, userId, onBack }: PersonaChatProps) {
   const [relState, setRelState] = useState<RelationshipState | null>(null);
   const [isUpdatingEmotion, setIsUpdatingEmotion] = useState(false);
   const [ttsEnabled, setTtsEnabled] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const cancelledRef = useRef(false);
   const { scrollRef, progress, showBackToTop, showBackToBottom, handleScroll, scrollToTop, scrollToBottom } = useScrollKit();
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
