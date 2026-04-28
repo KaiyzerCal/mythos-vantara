@@ -473,13 +473,23 @@ export function PersonaChat({ persona, userId, onBack }: PersonaChatProps) {
               t.style.height = Math.min(t.scrollHeight, 128) + "px";
             }}
           />
-          <button
-            onClick={handleSend}
-            disabled={!input.trim() || isLoading}
-            className="p-2.5 rounded-lg border border-primary/30 bg-primary/10 text-primary hover:bg-primary/20 transition-colors disabled:opacity-40 disabled:cursor-not-allowed shrink-0"
-          >
-            <Send size={14} />
-          </button>
+          {isLoading ? (
+            <button
+              onClick={handleStop}
+              className="p-2.5 rounded-lg border border-destructive/30 bg-destructive/10 text-destructive hover:bg-destructive/20 transition-colors shrink-0"
+              title="Stop"
+            >
+              <Square size={14} />
+            </button>
+          ) : (
+            <button
+              onClick={handleSend}
+              disabled={!input.trim()}
+              className="p-2.5 rounded-lg border border-primary/30 bg-primary/10 text-primary hover:bg-primary/20 transition-colors disabled:opacity-40 disabled:cursor-not-allowed shrink-0"
+            >
+              <Send size={14} />
+            </button>
+          )}
         </div>
       </div>
     </div>
