@@ -263,6 +263,22 @@ serve(async (req) => {
     const attachments = attRes.data ?? [];
     const profile = profileRes.data;
 
+    // Cross-thread archived memories — anything OmniSynced/cleared from this
+    // persona, MAVIS chat, or council chats. Lets the persona recall and
+    // reference past conversations even after threads were cleared.
+    const { data: archivedMems } = await supabase
+      .from("memories")
+      .select("title, content, metadata, source, created_at")
+      .eq("user_id", user_id)
+      .in("source", ["persona_chat_clear", "mavis_chat_clear", "mavis_auto_memory", "council_chat_clear"])
+      .order("created_at", { ascending: false })
+      .limit(8);
+    const archivedBlock = (archivedMems && archivedMems.length > 0)
+      ? "\n═══ ARCHIVED MEMORIES (past conversations across all chats — reference naturally when relevant) ═══\n" +
+        archivedMems.map((m: any) => `[${m.title}] (${m.source})\n${(m.metadata as any)?.topic_summary || (m.content || "").slice(0, 1200)}`).join("\n---\n") +
+        "\n═══ END ARCHIVED MEMORIES ═══\n"
+      : "";
+
     const memoryContext = memories.map((m: any) => `[${m.memory_type}] ${m.content}`).join("\n");
 
     // App-context block — gives the persona awareness of the user's full state
@@ -332,7 +348,7 @@ You always know the current date and time without being told. Reference it natur
 ═══ END TEMPORAL AWARENESS ═══
 `;
 
-    const systemPrompt = buildSystemPrompt(persona, relState, memoryContext) + timeBlock + appCtx + attBlock;
+    const systemPrompt = buildSystemPrompt(persona, relState, memoryContext) + timeBlock + appCtx + attBlock + archivedBlock;
 
     const llmMessages = [
       ...history.map((h: any) => ({ role: h.role, content: h.content })),
