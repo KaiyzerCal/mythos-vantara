@@ -3,7 +3,7 @@
 // ============================================================
 import { useState, useRef, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Target, Plus, Trash2, CheckCircle2, Filter, Loader2, Users, MessageCircle, Send, Square, X, Edit2, ArrowDown } from "lucide-react";
+import { Target, Plus, Trash2, CheckCircle2, Filter, Loader2, Users, MessageCircle, Send, Square, X, Edit2, ArrowDown, ArrowUp, Database } from "lucide-react";
 import { useAppData } from "@/contexts/AppDataContext";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
@@ -667,6 +667,9 @@ function CouncilChat({ member, profile, onClose }: { member: any; profile: any; 
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [showScrollBtn, setShowScrollBtn] = useState(false);
+  const [showBackToTop, setShowBackToTop] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const cancelledRef = useRef(false);
   const [dbLoaded, setDbLoaded] = useState(false);
   const [ttsEnabled, setTtsEnabled] = useState(false);
   const { speak, stop: stopSpeaking, isSpeaking, isLoading: isVoiceLoading } = useElevenLabsTts();
@@ -805,7 +808,38 @@ function CouncilChat({ member, profile, onClose }: { member: any; profile: any; 
     if (!scrollRef.current) return;
     const { scrollTop, scrollHeight, clientHeight } = scrollRef.current;
     setShowScrollBtn(scrollHeight - scrollTop - clientHeight > 80);
+    setShowBackToTop(scrollTop > 200);
   }, []);
+
+  const scrollToTop = useCallback(() => {
+    scrollRef.current?.scrollTo({ top: 0, behavior: "smooth" });
+  }, []);
+
+  // ── OmniSync this council member's thread ─────────────────
+  const handleOmniSync = useCallback(async () => {
+    if (isSyncing) return;
+    setIsSyncing(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.user) throw new Error("Not authenticated");
+      const condensed = messages
+        .filter((m) => m.id !== "init")
+        .map((m) => `[${m.role === "user" ? "OP" : member.name.toUpperCase()}] ${m.content.slice(0, 300)}${m.content.length > 300 ? "…" : ""}`)
+        .join("\n");
+      const { error } = await supabase.from("omnisync_snapshots").insert({
+        user_id: session.user.id,
+        snapshot_data: { council_member_id: member.id, council_member: member.name, message_count: messages.length - 1, timestamp: new Date().toISOString() },
+        condensed_comms: condensed.slice(0, 10000),
+        summary: `OmniSync · Council ${member.name} | ${messages.length - 1} msgs`,
+      });
+      if (error) throw error;
+      toast.success(`OmniSync complete — ${member.name} thread saved`);
+    } catch (e: any) {
+      toast.error("OmniSync failed: " + (e.message ?? "Unknown error"));
+    } finally {
+      setIsSyncing(false);
+    }
+  }, [isSyncing, messages, member]);
 
   useEffect(() => {
     scrollToBottom();
