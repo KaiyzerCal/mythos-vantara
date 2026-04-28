@@ -221,7 +221,7 @@ serve(async (req) => {
     const [queryEmbedding, relRes, histRes, attRes, profileRes, questsRes, skillsRes, journalRes, vaultRes, inventoryRes, energyRes, transformationsRes, rankingsRes, councilsRes, alliesRes, ritualsRes] = await Promise.all([
       embedMessagePromise,
       supabase.from("relationship_states").select("*").eq("persona_id", persona_id).eq("user_id", user_id).single(),
-      supabase.from("persona_conversations").select("role, content").eq("persona_id", persona_id).eq("user_id", user_id).order("created_at", { ascending: false }).limit(20),
+      supabase.from("persona_conversations").select("role, content").eq("persona_id", persona_id).eq("user_id", user_id).order("created_at", { ascending: false }).limit(50),
       (Array.isArray(attachment_ids) && attachment_ids.length > 0
         ? supabase.from("chat_attachments").select("id,file_name,mime_type,extracted_text,processing_status").eq("user_id", user_id).in("id", attachment_ids)
         : supabase.from("chat_attachments").select("id,file_name,mime_type,extracted_text,processing_status").eq("user_id", user_id).eq("chat_kind", "persona").eq("thread_ref", persona_id).order("created_at", { ascending: false }).limit(10)),
