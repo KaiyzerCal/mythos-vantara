@@ -860,6 +860,7 @@ function CouncilChat({ member, profile, onClose }: { member: any; profile: any; 
     const userMsg: CouncilChatMessage = { id: `u-${Date.now()}`, role: "user", content, timestamp: new Date() };
     setMessages((prev) => [...prev, userMsg]);
     setIsLoading(true);
+    cancelledRef.current = false;
 
     // Persist user message
     await persistCouncilMessage("user", content);
