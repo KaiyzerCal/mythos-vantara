@@ -325,6 +325,24 @@ export function PersonaChat({ persona, userId, onBack }: PersonaChatProps) {
           <Zap size={13} />
         </button>
 
+        <button
+          onClick={handleOmniSync}
+          disabled={isSyncing}
+          className="flex items-center gap-1 px-2 py-1 rounded border border-cyan-900/40 text-cyan-400 text-[9px] font-mono hover:border-cyan-400/50 transition-colors disabled:opacity-40"
+          title="OmniSync — snapshot this thread to memory"
+        >
+          {isSyncing ? <Loader2 size={9} className="animate-spin" /> : <Database size={9} />}
+          SYNC
+        </button>
+
+        <button
+          onClick={handleClear}
+          className="px-2 py-1 rounded border border-border text-[9px] font-mono text-muted-foreground hover:text-destructive hover:border-destructive/40 transition-colors"
+          title="Archive thread to memory and clear"
+        >
+          CLEAR
+        </button>
+
         {/* Fine-tune controls */}
         {finetuneStatus === "training" ? (
           <button
