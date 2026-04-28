@@ -179,6 +179,10 @@ export function PersonaChat({ persona, userId, onBack }: PersonaChatProps) {
     if (status === "deployed") toast.success(`${persona.name} is now running on her fine-tuned model`);
   }, [checkFinetuneStatus, persona.name]);
 
+  const mood = relState?.current_mood ?? "neutral";
+  const bond = relState?.bond_level ?? 0;
+  const trust = relState?.trust_level ?? 50;
+
   // ── OmniSync: snapshot the persona thread + relationship state to memories ──
   const handleOmniSync = useCallback(async () => {
     if (isSyncing) return;
