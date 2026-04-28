@@ -54,7 +54,7 @@ export function usePersona(personaId: string, userId: string) {
       .eq("persona_id", personaId)
       .eq("user_id", userId)
       .order("created_at", { ascending: true })
-      .limit(50);
+      .limit(500);
     return (data ?? []) as PersonaMessage[];
   }, [personaId, userId]);
 

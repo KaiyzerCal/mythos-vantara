@@ -221,7 +221,7 @@ serve(async (req) => {
     const [queryEmbedding, relRes, histRes, attRes, profileRes, questsRes, skillsRes, journalRes, vaultRes, inventoryRes, energyRes, transformationsRes, rankingsRes, councilsRes, alliesRes, ritualsRes] = await Promise.all([
       embedMessagePromise,
       supabase.from("relationship_states").select("*").eq("persona_id", persona_id).eq("user_id", user_id).single(),
-      supabase.from("persona_conversations").select("role, content").eq("persona_id", persona_id).eq("user_id", user_id).order("created_at", { ascending: false }).limit(20),
+      supabase.from("persona_conversations").select("role, content").eq("persona_id", persona_id).eq("user_id", user_id).order("created_at", { ascending: false }).limit(50),
       (Array.isArray(attachment_ids) && attachment_ids.length > 0
         ? supabase.from("chat_attachments").select("id,file_name,mime_type,extracted_text,processing_status").eq("user_id", user_id).in("id", attachment_ids)
         : supabase.from("chat_attachments").select("id,file_name,mime_type,extracted_text,processing_status").eq("user_id", user_id).eq("chat_kind", "persona").eq("thread_ref", persona_id).order("created_at", { ascending: false }).limit(10)),
@@ -262,6 +262,22 @@ serve(async (req) => {
     const memories = memRes.data ?? [];
     const attachments = attRes.data ?? [];
     const profile = profileRes.data;
+
+    // Cross-thread archived memories — anything OmniSynced/cleared from this
+    // persona, MAVIS chat, or council chats. Lets the persona recall and
+    // reference past conversations even after threads were cleared.
+    const { data: archivedMems } = await supabase
+      .from("memories")
+      .select("title, content, metadata, source, created_at")
+      .eq("user_id", user_id)
+      .in("source", ["persona_chat_clear", "mavis_chat_clear", "mavis_auto_memory", "council_chat_clear"])
+      .order("created_at", { ascending: false })
+      .limit(8);
+    const archivedBlock = (archivedMems && archivedMems.length > 0)
+      ? "\n═══ ARCHIVED MEMORIES (past conversations across all chats — reference naturally when relevant) ═══\n" +
+        archivedMems.map((m: any) => `[${m.title}] (${m.source})\n${(m.metadata as any)?.topic_summary || (m.content || "").slice(0, 1200)}`).join("\n---\n") +
+        "\n═══ END ARCHIVED MEMORIES ═══\n"
+      : "";
 
     const memoryContext = memories.map((m: any) => `[${m.memory_type}] ${m.content}`).join("\n");
 
@@ -332,7 +348,7 @@ You always know the current date and time without being told. Reference it natur
 ═══ END TEMPORAL AWARENESS ═══
 `;
 
-    const systemPrompt = buildSystemPrompt(persona, relState, memoryContext) + timeBlock + appCtx + attBlock;
+    const systemPrompt = buildSystemPrompt(persona, relState, memoryContext) + timeBlock + appCtx + attBlock + archivedBlock;
 
     const llmMessages = [
       ...history.map((h: any) => ({ role: h.role, content: h.content })),

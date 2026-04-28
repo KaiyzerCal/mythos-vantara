@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { MessageCircle, Trash2, Clock, Bell } from "lucide-react";
+import { MessageCircle, Trash2, Clock, Bell, ChevronDown, ChevronUp, Cpu } from "lucide-react";
 import { HudCard, ProgressBar } from "@/components/SharedUI";
 import { AvatarUploader } from "@/components/AvatarUploader";
 import { cn } from "@/lib/utils";
@@ -42,12 +42,15 @@ export function PersonaCard({ persona, userId, onChat, onDelete, notification, o
   const [relState, setRelState] = useState<RelationshipState | null>(null);
   const [avatarUrl, setAvatarUrl] = useState<string | null>(persona.avatar_key ?? null);
   const [reasonExpanded, setReasonExpanded] = useState(false);
-  const { loadRelationshipState } = usePersona(persona.id, userId);
+  const [cardExpanded, setCardExpanded] = useState(false);
+  const [msgCount, setMsgCount] = useState<number>(0);
+  const { loadRelationshipState, loadConversationCount } = usePersona(persona.id, userId);
 
   // Initial fetch
   useEffect(() => {
     loadRelationshipState().then(setRelState);
-  }, [loadRelationshipState]);
+    loadConversationCount().then(setMsgCount);
+  }, [loadRelationshipState, loadConversationCount]);
 
   // Live updates — bond/trust/mood reflect the current state of the
   // relationship as the user chats with this persona anywhere in the app.
@@ -97,16 +100,23 @@ export function PersonaCard({ persona, userId, onChat, onDelete, notification, o
 
   return (
     <HudCard glowColor={persona.role === "girlfriend" || persona.role === "companion" ? "purple" : "none"}>
+      <div
+        className="cursor-pointer"
+        onClick={() => setCardExpanded((v) => !v)}
+        title={cardExpanded ? "Click to collapse" : "Click to see full details"}
+      >
       <div className="flex items-start justify-between mb-3">
         <div className="flex items-center gap-2.5">
-          <AvatarUploader
-            value={avatarUrl}
-            onChange={handleAvatarChange}
-            scope={`persona/${persona.id}`}
-            fallback={persona.name}
-            sizeClass="w-10 h-10"
-            ringClass={cn("border-2", roleStyle.split(" ").find((c) => c.startsWith("border-")) ?? "border-border")}
-          />
+          <div onClick={(e) => e.stopPropagation()}>
+            <AvatarUploader
+              value={avatarUrl}
+              onChange={handleAvatarChange}
+              scope={`persona/${persona.id}`}
+              fallback={persona.name}
+              sizeClass="w-10 h-10"
+              ringClass={cn("border-2", roleStyle.split(" ").find((c) => c.startsWith("border-")) ?? "border-border")}
+            />
+          </div>
           <div>
             <p className="font-display font-bold text-sm text-foreground">{persona.name}</p>
             <p className="text-[9px] font-mono text-muted-foreground uppercase tracking-widest">{persona.archetype}</p>
@@ -122,6 +132,7 @@ export function PersonaCard({ persona, userId, onChat, onDelete, notification, o
           )}>
             {persona.role}
           </span>
+          {cardExpanded ? <ChevronUp size={10} className="text-muted-foreground mt-0.5" /> : <ChevronDown size={10} className="text-muted-foreground mt-0.5" />}
         </div>
       </div>
 
@@ -146,16 +157,55 @@ export function PersonaCard({ persona, userId, onChat, onDelete, notification, o
       </div>
 
       {/* Stats row */}
-      <div className="flex items-center gap-3 mb-3 text-[10px] font-mono text-muted-foreground">
+      <div className="flex items-center gap-3 mb-3 text-[10px] font-mono text-muted-foreground flex-wrap">
         <span className="flex items-center gap-1">
           <MessageCircle size={10} />
-          {relState?.total_interactions ?? 0} interactions
+          {msgCount} msgs
         </span>
         <span className="flex items-center gap-1">
           <Clock size={10} />
           {lastSeen}
         </span>
+        <span className="flex items-center gap-1">
+          <Cpu size={10} />
+          {persona.model}
+        </span>
       </div>
+      </div>
+
+      {/* Expanded details */}
+      {cardExpanded && (
+        <div className="mb-3 pt-2 border-t border-border/40 space-y-2">
+          <div>
+            <p className="text-[9px] font-mono text-muted-foreground uppercase mb-0.5">Archetype</p>
+            <p className="text-[11px] font-body text-foreground">{persona.archetype}</p>
+          </div>
+          <div>
+            <p className="text-[9px] font-mono text-muted-foreground uppercase mb-0.5">Role · Model</p>
+            <p className="text-[11px] font-mono text-foreground">{persona.role} · {persona.model}</p>
+          </div>
+          <div>
+            <p className="text-[9px] font-mono text-muted-foreground uppercase mb-0.5">Total Interactions</p>
+            <p className="text-[11px] font-mono text-foreground">{relState?.total_interactions ?? 0} (rel) · {msgCount} (logged)</p>
+          </div>
+          {persona.personality && Object.keys(persona.personality).length > 0 && (
+            <div>
+              <p className="text-[9px] font-mono text-muted-foreground uppercase mb-0.5">Personality</p>
+              <pre className="text-[10px] font-mono text-foreground/80 whitespace-pre-wrap break-words bg-muted/30 rounded p-1.5">{JSON.stringify(persona.personality, null, 2)}</pre>
+            </div>
+          )}
+          {persona.system_prompt && (
+            <div>
+              <p className="text-[9px] font-mono text-muted-foreground uppercase mb-0.5">System Prompt</p>
+              <p className="text-[10px] font-body text-foreground/80 whitespace-pre-wrap">{persona.system_prompt}</p>
+            </div>
+          )}
+          <div>
+            <p className="text-[9px] font-mono text-muted-foreground uppercase mb-0.5">Forged</p>
+            <p className="text-[10px] font-mono text-foreground">{new Date(persona.created_at).toLocaleString()}</p>
+          </div>
+        </div>
+      )}
 
       {/* Mood reason if present — click to expand/collapse full summary */}
       {relState?.mood_reason && (
