@@ -98,12 +98,10 @@ async function callLovableGateway(model: string, system: string, messages: any[]
   return d.choices?.[0]?.message?.content ?? "";
 }
 
-// Cascade order (cheapest/free → premium):
-//   1. Lovable Gemini Flash (free quota) — default for all personas
-//   2. OpenAI gpt-4o-mini
-//   3. Claude Haiku
-//   4. Claude Sonnet
-//   5. Provider implied by the persona's configured model (last resort if all cheap tiers fail)
+// Cascade order:
+//   1. Lovable Gemini Flash (free) — every persona starts here
+//   2. The persona's MAVIS-chosen `model` (claude / openai / grok) — chosen at forge time as the persona's signature voice
+//   3. Generic safety net: OpenAI mini → Claude Haiku → Claude Sonnet → Grok
 async function callLLM(model: string, system: string, messages: any[]): Promise<string> {
   const openaiKey  = Deno.env.get("OPENAI_API") ?? Deno.env.get("OPENAI_API_KEY") ?? "";
   const claudeKey  = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
@@ -115,49 +113,41 @@ async function callLLM(model: string, system: string, messages: any[]): Promise<
     try {
       return await callLovableGateway("google/gemini-2.5-flash", system, messages, lovableKey);
     } catch (err: any) {
-      console.warn(`[persona-router fallback] Lovable Gemini Flash failed (${err.message}) → trying OpenAI`);
+      console.warn(`[persona-router] Gemini Flash failed (${err.message}) → falling back to persona's chosen model: ${model}`);
     }
   }
 
-  // Tier 2 — OpenAI gpt-4o-mini
-  if (openaiKey) {
-    try {
-      return await callOpenAI("gpt-4o-mini", system, messages, openaiKey);
-    } catch (err: any) {
-      if (!(err instanceof ProviderUnavailableError)) throw err;
-      console.warn(`[persona-router fallback] OpenAI unfunded (${err.status}) → trying Claude Haiku`);
-    }
-  }
-
-  // Tier 3 — Claude Haiku
-  if (claudeKey) {
-    try {
-      return await callClaude("claude-3-5-haiku-latest", system, messages, claudeKey);
-    } catch (err: any) {
-      if (!(err instanceof ProviderUnavailableError)) throw err;
-      console.warn(`[persona-router fallback] Claude Haiku unfunded (${err.status}) → trying Claude Sonnet`);
-    }
-  }
-
-  // Tier 4 — Claude Sonnet
-  if (claudeKey) {
-    try {
-      return await callClaude("claude-sonnet-4-5", system, messages, claudeKey);
-    } catch (err: any) {
-      if (!(err instanceof ProviderUnavailableError)) throw err;
-      console.warn(`[persona-router fallback] Claude Sonnet unfunded (${err.status}) → trying persona's configured provider`);
-    }
-  }
-
-  // Tier 5 — Persona's configured provider (last resort)
+  // Tier 2 — Persona's MAVIS-chosen fallback model
   const m = (model || "").toLowerCase();
   try {
-    if (m.startsWith("claude") && claudeKey) return await callClaude(model, system, messages, claudeKey);
-    if ((m.startsWith("gpt") || m.startsWith("openai/") || m.startsWith("ft:")) && openaiKey) return await callOpenAI(model, system, messages, openaiKey);
-    if (m.startsWith("grok") && grokKey) return await callGrok(model, system, messages, grokKey);
+    if (m.startsWith("claude") && claudeKey) {
+      return await callClaude(model, system, messages, claudeKey);
+    }
+    if ((m.startsWith("gpt") || m.startsWith("openai/") || m.startsWith("ft:")) && openaiKey) {
+      return await callOpenAI(model, system, messages, openaiKey);
+    }
+    if (m.startsWith("grok") && grokKey) {
+      return await callGrok(model, system, messages, grokKey);
+    }
   } catch (err: any) {
     if (!(err instanceof ProviderUnavailableError)) throw err;
-    console.warn(`[persona-router fallback] persona-configured ${err.providerName} unfunded (${err.status})`);
+    console.warn(`[persona-router] persona-chosen ${err.providerName} unfunded (${err.status}) → safety net`);
+  }
+
+  // Tier 3 — Generic safety net (skip whichever the persona already tried)
+  if (openaiKey && !m.startsWith("gpt") && !m.startsWith("openai/") && !m.startsWith("ft:")) {
+    try { return await callOpenAI("gpt-4o-mini", system, messages, openaiKey); }
+    catch (err: any) { if (!(err instanceof ProviderUnavailableError)) throw err; }
+  }
+  if (claudeKey && !m.startsWith("claude")) {
+    try { return await callClaude("claude-3-5-haiku-latest", system, messages, claudeKey); }
+    catch (err: any) { if (!(err instanceof ProviderUnavailableError)) throw err; }
+    try { return await callClaude("claude-sonnet-4-5", system, messages, claudeKey); }
+    catch (err: any) { if (!(err instanceof ProviderUnavailableError)) throw err; }
+  }
+  if (grokKey && !m.startsWith("grok")) {
+    try { return await callGrok("grok-3-mini", system, messages, grokKey); }
+    catch (err: any) { if (!(err instanceof ProviderUnavailableError)) throw err; }
   }
 
   throw new Error("All AI providers unavailable (no funded keys, no Lovable AI Gateway).");
