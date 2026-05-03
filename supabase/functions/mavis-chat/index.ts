@@ -86,7 +86,7 @@ async function callOpenAI(messages: any[], system: string, key: string, model = 
   return d.choices?.[0]?.message?.content ?? "";
 }
 
-async function callClaude(messages: any[], system: string, key: string): Promise<string> {
+async function callClaude(messages: any[], system: string, key: string, model = "claude-3-5-haiku-latest"): Promise<string> {
   const res = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: {
@@ -95,7 +95,7 @@ async function callClaude(messages: any[], system: string, key: string): Promise
       "anthropic-version": "2023-06-01",
     },
     body: JSON.stringify({
-      model: "claude-sonnet-4-5",
+      model,
       max_tokens: 2048,
       system,
       messages: messages.map((m: any) => ({ role: m.role, content: m.content })),
