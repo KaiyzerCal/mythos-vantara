@@ -86,7 +86,7 @@ async function callOpenAI(messages: any[], system: string, key: string, model = 
   return d.choices?.[0]?.message?.content ?? "";
 }
 
-async function callClaude(messages: any[], system: string, key: string): Promise<string> {
+async function callClaude(messages: any[], system: string, key: string, model = "claude-3-5-haiku-latest"): Promise<string> {
   const res = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: {
@@ -95,7 +95,7 @@ async function callClaude(messages: any[], system: string, key: string): Promise
       "anthropic-version": "2023-06-01",
     },
     body: JSON.stringify({
-      model: "claude-sonnet-4-5",
+      model,
       max_tokens: 2048,
       system,
       messages: messages.map((m: any) => ({ role: m.role, content: m.content })),
@@ -153,42 +153,85 @@ async function callLovableGateway(messages: any[], system: string, key: string, 
   return d.choices?.[0]?.message?.content ?? "";
 }
 
-// Cascade: primary provider → OpenAI → Lovable AI Gateway (free)
+// Cascade order (cheapest/free → premium):
+//   1. Lovable Gemini Flash (free quota)
+//   2. OpenAI gpt-4o-mini
+//   3. Claude Haiku
+//   4. Claude Sonnet
+//   5. Grok (last resort, real-time persona-routed default)
+// If `primary` explicitly requests claude/grok (mode-routed), try that first,
+// then fall through the standard cascade.
 async function callWithFallback(
   primary: Provider,
   messages: any[],
   system: string,
   keys: { openai: string; claude: string; grok: string; lovable: string },
 ): Promise<{ content: string; provider: string }> {
-  // Tier 1 — primary
-  try {
-    if (primary === "claude" && keys.claude) {
-      return { content: await callClaude(messages, system, keys.claude), provider: "claude" };
-    }
-    if (primary === "grok" && keys.grok) {
-      return { content: await callGrok(messages, system, keys.grok), provider: "grok" };
-    }
-    if (primary === "openai" && keys.openai) {
-      return { content: await callOpenAI(messages, system, keys.openai), provider: "openai" };
-    }
-  } catch (err: any) {
-    if (!(err instanceof ProviderUnavailableError)) throw err;
-    console.warn(`[fallback] ${primary} unfunded (${err.status}) → trying OpenAI`);
-  }
-
-  // Tier 2 — OpenAI
-  if (keys.openai && primary !== "openai") {
+  // Tier 0 — honor explicit non-default routing (Claude for deep reasoning, Grok for real-time)
+  if (primary === "claude" && keys.claude) {
     try {
-      return { content: await callOpenAI(messages, system, keys.openai), provider: "openai" };
+      return { content: await callClaude(messages, system, keys.claude, "claude-sonnet-4-5"), provider: "claude-sonnet" };
     } catch (err: any) {
       if (!(err instanceof ProviderUnavailableError)) throw err;
-      console.warn(`[fallback] OpenAI unfunded (${err.status}) → trying Lovable AI Gateway`);
+      console.warn(`[fallback] claude-sonnet unfunded (${err.status}) → cascading`);
+    }
+  }
+  if (primary === "grok" && keys.grok) {
+    try {
+      return { content: await callGrok(messages, system, keys.grok), provider: "grok" };
+    } catch (err: any) {
+      if (!(err instanceof ProviderUnavailableError)) throw err;
+      console.warn(`[fallback] grok unfunded (${err.status}) → cascading`);
     }
   }
 
-  // Tier 3 — Lovable AI Gateway (free)
+  // Tier 1 — Lovable Gemini Flash (free)
   if (keys.lovable) {
-    return { content: await callLovableGateway(messages, system, keys.lovable), provider: "lovable-ai" };
+    try {
+      return { content: await callLovableGateway(messages, system, keys.lovable, "google/gemini-2.5-flash"), provider: "lovable-gemini-flash" };
+    } catch (err: any) {
+      console.warn(`[fallback] Lovable Gemini Flash failed (${err.message}) → trying OpenAI`);
+    }
+  }
+
+  // Tier 2 — OpenAI (gpt-4o-mini, cheap)
+  if (keys.openai) {
+    try {
+      return { content: await callOpenAI(messages, system, keys.openai, "gpt-4o-mini"), provider: "openai-mini" };
+    } catch (err: any) {
+      if (!(err instanceof ProviderUnavailableError)) throw err;
+      console.warn(`[fallback] OpenAI unfunded (${err.status}) → trying Claude Haiku`);
+    }
+  }
+
+  // Tier 3 — Claude Haiku (cheap)
+  if (keys.claude) {
+    try {
+      return { content: await callClaude(messages, system, keys.claude, "claude-3-5-haiku-latest"), provider: "claude-haiku" };
+    } catch (err: any) {
+      if (!(err instanceof ProviderUnavailableError)) throw err;
+      console.warn(`[fallback] Claude Haiku unfunded (${err.status}) → trying Claude Sonnet`);
+    }
+  }
+
+  // Tier 4 — Claude Sonnet (premium)
+  if (keys.claude) {
+    try {
+      return { content: await callClaude(messages, system, keys.claude, "claude-sonnet-4-5"), provider: "claude-sonnet" };
+    } catch (err: any) {
+      if (!(err instanceof ProviderUnavailableError)) throw err;
+      console.warn(`[fallback] Claude Sonnet unfunded (${err.status}) → trying Grok`);
+    }
+  }
+
+  // Tier 5 — Grok (last resort)
+  if (keys.grok) {
+    try {
+      return { content: await callGrok(messages, system, keys.grok), provider: "grok" };
+    } catch (err: any) {
+      if (!(err instanceof ProviderUnavailableError)) throw err;
+      console.warn(`[fallback] Grok unfunded (${err.status})`);
+    }
   }
 
   throw new Error("All AI providers unavailable (no funded keys, no Lovable AI Gateway).");
