@@ -49,14 +49,16 @@ The JSON must match this exact shape:
     "triggers": string[]
   },
   "system_prompt": string,
-  "model": "claude-sonnet-4-20250514" | "gpt-4o-mini" | "grok-3-mini",
+  "model": "claude-sonnet-4-5" | "claude-3-5-haiku-latest" | "gpt-4o-mini" | "gpt-4o" | "grok-3-mini",
   "avatar_key": string | null
 }
 
-Model selection rules:
-- Intimate/emotional roles (girlfriend, companion) → claude-sonnet-4-20250514
-- Casual/friend roles → gpt-4o-mini
-- Rival/edgy/unfiltered roles → grok-3-mini
+IMPORTANT — model selection is the persona's SIGNATURE FALLBACK voice. Every persona starts on the free Gemini Flash tier; when that's unavailable, the system switches to the model YOU pick here. Choose the one that best matches this persona's soul:
+- Intimate / emotional / vulnerable / deep-companion roles (girlfriend, soulmate, therapist) → claude-sonnet-4-5
+- Warm / supportive / everyday-friend / mentor roles → claude-3-5-haiku-latest
+- Casual / playful / quick-witted / light roles → gpt-4o-mini
+- Sharp / strategic / high-reasoning / serious-mentor roles → gpt-4o
+- Rival / edgy / unfiltered / provocative / chaotic roles → grok-3-mini
 
 Make the system_prompt rich, specific, and in-character. Make the persona feel like a real distinct personality.`,
         messages: [{ role: "user", content: description }],
