@@ -40,10 +40,10 @@ export async function submitProposalsForApproval(
     user_id: userId,
     action_type: p.type,
     action_summary: p.summary ?? `${proposedBy} proposes: ${p.type}`,
-    action_payload: { type: p.type, params: p.params, proposed_by: proposedBy },
+    action_payload: { type: p.type, params: p.params, proposed_by: proposedBy } as any,
     status: "pending",
   }));
-  const { error } = await supabase.from("approvals").insert(rows);
+  const { error } = await supabase.from("approvals").insert(rows as any);
   if (error) {
     console.error("[proposeAction] insert failed:", error.message);
     return 0;
