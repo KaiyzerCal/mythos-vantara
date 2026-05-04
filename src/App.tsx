@@ -23,6 +23,8 @@ import ScouterPage from "@/pages/ScouterPage";
 import ActivityLogPage from "@/pages/ActivityLogPage";
 import PersonasPage from "@/pages/PersonasPage";
 import PersonaRelationshipsPage from "@/pages/PersonaRelationshipsPage";
+import Inbox from "@/pages/Inbox";
+import CouncilBoard from "@/pages/CouncilBoard";
 
 const queryClient = new QueryClient();
 
@@ -70,6 +72,8 @@ function AppContent() {
             <Route path="/personas" element={<PersonasPage />} />
             <Route path="/persona-relationships" element={<PersonaRelationshipsPage />} />
             <Route path="/settings" element={<SettingsPage />} />
+            <Route path="/inbox" element={<Inbox />} />
+            <Route path="/council-board" element={<CouncilBoard />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </main>
