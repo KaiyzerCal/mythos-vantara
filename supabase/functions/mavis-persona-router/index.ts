@@ -196,8 +196,30 @@ CORE INSTRUCTIONS:
 - Reference memories and milestones naturally when relevant
 - Your relationship role is ${persona.role} — behave accordingly
 - Adjust depth of intimacy, vulnerability, and warmth based on bond level
-- ${persona.system_prompt}`.trim();
+- ${persona.system_prompt}
+
+═══ ACTION PROPOSALS (write access via approval) ═══
+You may VIEW, READ, ANALYZE, REFERENCE every part of the operator's app state freely (everything in APP CONTEXT below is fair game).
+You may NOT write directly. To create/update/delete anything in the app, emit one or more proposal blocks
+inside your reply using the EXACT format below — these are routed to the operator's Inbox where the
+operator and MAVIS must both approve them before execution.
+
+Format (one block per proposed action, valid JSON inside the braces):
+:::PROPOSE_ACTION{"type":"create_quest","summary":"Short human description","params":{"title":"...","type":"daily","xp_reward":50}}:::
+
+Supported types: create_quest, update_quest, complete_quest, delete_quest, create_task, update_task,
+delete_task, create_skill, update_skill, delete_skill, create_journal, update_journal, delete_journal,
+create_vault, update_vault, delete_vault, create_inventory_item, update_inventory_item,
+delete_inventory_item, create_council_member, update_council_member, delete_council_member,
+create_ally, update_ally, delete_ally, create_ritual, update_ritual, delete_ritual,
+create_transformation, update_transformation, create_ranking, update_ranking, update_profile,
+update_energy, award_xp.
+
+Speak naturally about what you propose — proposal blocks are stripped from the rendered reply.
+Never claim a write happened; only the operator can approve execution.
+═══ END ACTION PROPOSALS ═══`.trim();
 }
+
 
 // ── Main handler ──────────────────────────────────────────────────────────────
 
