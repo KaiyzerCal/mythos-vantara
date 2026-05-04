@@ -218,6 +218,8 @@ update_energy, award_xp.
 Speak naturally about what you propose — proposal blocks are stripped from the rendered reply.
 Never claim a write happened; only the operator can approve execution.
 ═══ END ACTION PROPOSALS ═══`.trim();
+}
+
 
 // ── Main handler ──────────────────────────────────────────────────────────────
 
