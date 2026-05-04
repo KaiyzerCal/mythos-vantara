@@ -279,19 +279,22 @@ export default function Inbox() {
                             </p>
                           )}
                           {a.status === "pending" && (
-                            <div className="flex gap-2">
+                            <div className="flex gap-2 items-center">
                               <button
+                                disabled={executingId === a.id}
                                 onClick={() => resolveApproval(a.id, "approved")}
-                                className="flex items-center gap-1.5 px-3 py-1.5 rounded text-[10px] font-mono bg-green-500/10 border border-green-500/30 text-green-400 hover:bg-green-500/20 transition-colors"
+                                className="flex items-center gap-1.5 px-3 py-1.5 rounded text-[10px] font-mono bg-green-500/10 border border-green-500/30 text-green-400 hover:bg-green-500/20 transition-colors disabled:opacity-50"
                               >
-                                <CheckCircle size={10} /> Approve
+                                <CheckCircle size={10} /> {executingId === a.id ? "MAVIS reviewing…" : "Approve & Execute"}
                               </button>
                               <button
+                                disabled={executingId === a.id}
                                 onClick={() => resolveApproval(a.id, "rejected")}
-                                className="flex items-center gap-1.5 px-3 py-1.5 rounded text-[10px] font-mono bg-red-500/10 border border-red-500/30 text-red-400 hover:bg-red-500/20 transition-colors"
+                                className="flex items-center gap-1.5 px-3 py-1.5 rounded text-[10px] font-mono bg-red-500/10 border border-red-500/30 text-red-400 hover:bg-red-500/20 transition-colors disabled:opacity-50"
                               >
                                 Reject
                               </button>
+                              <span className="text-[9px] font-mono text-muted-foreground ml-auto">requires MAVIS co-sign</span>
                             </div>
                           )}
                         </div>
