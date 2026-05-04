@@ -3,6 +3,30 @@ import { parseActions } from "./parseActions";
 import { executeActions } from "./actionExecutor";
 import type { ExecutionResult } from "./types";
 
+/**
+ * Low-level AI invocation — calls the mavis-chat edge function and returns
+ * the raw text response. Used by CouncilBoard and other multi-agent flows.
+ */
+export async function invokeAI(
+  systemPrompt: string,
+  messages: { role: string; content: string }[],
+  mode = "PRIME",
+  chatKind = "council",
+): Promise<string> {
+  const { data: fnData, error } = await supabase.functions.invoke("mavis-chat", {
+    body: {
+      messages,
+      systemPrompt,
+      mode,
+      chatKind,
+      threadRef: "council-board",
+      attachmentIds: [],
+    },
+  });
+  if (error) throw error;
+  return (fnData as any)?.content ?? "[No response]";
+}
+
 export interface ChatServiceOptions {
   mode: string;
   conversationId?: string | null;

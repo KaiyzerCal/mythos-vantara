@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
+import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { Send, Square, Cpu, Copy, Check, ChevronDown, Zap, Brain, Target, Crown, Flame, Database, Mic, MicOff } from "lucide-react";
+import { Send, Square, Cpu, Copy, Check, ChevronDown, Zap, Brain, Target, Crown, Flame, Database, Mic, MicOff, Users } from "lucide-react";
 import { useAppData } from "@/contexts/AppDataContext";
 import { supabase } from "@/integrations/supabase/client";
 import { PageHeader, HudCard } from "@/components/SharedUI";
@@ -15,9 +16,10 @@ import { ScrollProgressBar, BackToTopButton, ScrollToBottomButton, EndOfFeed } f
 import { SessionBlock, groupMessagesIntoSessions } from "@/components/chat/SessionBlock";
 
 // ── MAVIS modules ───────────────────────────────────────────
-import { buildSystemPrompt } from "@/mavis/buildSystemPrompt";
+import { buildSystemPromptFromSnapshot } from "@/mavis/buildSystemPrompt";
 import { setDefaultHandler } from "@/mavis/actionExecutor";
 import { sendChatMessage } from "@/mavis/chatService";
+import { loadFullAppContext } from "@/mavis/appContextLoader";
 import type { ExecutionResult } from "@/mavis/types";
 
 const MAVIS_MODES = [
@@ -38,6 +40,7 @@ const QUICK_PROMPTS = [
 ];
 
 export default function MavisChat() {
+  const navigate = useNavigate();
   const {
     profile, quests, tasks, skills, journalEntries, vaultEntries,
     chatMessages, setChatMessages, conversationId, setConversationId,
@@ -388,58 +391,73 @@ export default function MavisChat() {
       .slice(-18)
       .map((m) => ({ role: m.role, content: m.content }));
 
-    const appContext = { quests, tasks, skills, journalEntries, vaultEntries, councils, allies, energySystems, inventory, rituals, transformations, bpmSessions, storeItems };
+    // Load full app context fresh from Supabase — ensures AI always sees latest data
+    const { data: { session: authSession } } = await supabase.auth.getSession();
+    const userId = authSession?.user?.id;
 
-    // Load archived memories for continuity
-    let archivedMemories = "";
-    try {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (session?.user) {
-        const { data: memories } = await supabase
-          .from("memories")
-          .select("title, content, metadata, created_at")
-          .eq("user_id", session.user.id)
-          .or("source.eq.mavis_chat_clear,source.eq.mavis_auto_memory,source.eq.council_chat_clear")
-          .order("created_at", { ascending: false })
-          .limit(5);
-        if (memories?.length) {
-          archivedMemories = memories.map((m: any) =>
+    // Load archived memories and vault media in parallel with full app context
+    const [fullCtx, memoriesRes, vaultMediaRes] = await Promise.all([
+      userId ? loadFullAppContext(userId) : Promise.resolve(null),
+      (async () => {
+        if (!userId) return "";
+        try {
+          const { data: memories } = await supabase
+            .from("memories")
+            .select("title, content, metadata, created_at")
+            .eq("user_id", userId)
+            .or("source.eq.mavis_chat_clear,source.eq.mavis_auto_memory,source.eq.council_chat_clear")
+            .order("created_at", { ascending: false })
+            .limit(5);
+          return (memories ?? []).map((m: any) =>
             `[${m.title}]\n${(m.metadata as any)?.topic_summary || m.content.slice(0, 1000)}`
           ).join("\n---\n");
-        }
-      }
-    } catch {} // Non-critical
+        } catch { return ""; }
+      })(),
+      (async () => {
+        if (!userId) return [];
+        try {
+          const { data } = await supabase
+            .from("vault_media")
+            .select("id, file_name, file_type, file_size, file_url, description, tags, vault_entry_id")
+            .eq("user_id", userId)
+            .order("created_at", { ascending: false })
+            .limit(50);
+          return data ?? [];
+        } catch { return []; }
+      })(),
+    ]);
 
-    // Load vault media for AI awareness
-    let vaultMedia: any[] = [];
+    const archivedMemories = memoriesRes as string;
+    const vaultMedia = vaultMediaRes as any[];
+
+    // Build compact ID→name map for edge function action inference
+    const compactState = [
+      ...(quests || []).map((q: any) => `QUEST [${q.id}] "${q.title}" status:${q.status}`),
+      ...(tasks || []).map((t: any) => `TASK [${t.id}] "${t.title}" status:${t.status}`),
+      ...(skills || []).map((s: any) => `SKILL [${s.id}] "${s.name}"${s.parent_skill_id ? ` parent:${s.parent_skill_id}` : ""}`),
+      ...(journalEntries || []).map((j: any) => `JOURNAL [${j.id}] "${j.title}"`),
+      ...(vaultEntries || []).map((v: any) => `VAULT [${v.id}] "${v.title}"`),
+      ...(councils || []).map((c: any) => `COUNCIL [${c.id}] "${c.name}"`),
+      ...(allies || []).map((a: any) => `ALLY [${a.id}] "${a.name}"`),
+      ...(inventory || []).map((i: any) => `INVENTORY [${i.id}] "${i.name}"`),
+      ...(transformations || []).map((t: any) => `TRANSFORMATION [${t.id}] "${t.name}"`),
+      ...(storeItems || []).map((s: any) => `STORE [${s.id}] "${s.name}"`),
+    ].join("\n");
+
     try {
-      const { data: { session: s2 } } = await supabase.auth.getSession();
-      if (s2?.user) {
-        const { data: mediaData } = await supabase
-          .from("vault_media")
-          .select("id, file_name, file_type, file_size, file_url, description, tags, vault_entry_id")
-          .eq("user_id", s2.user.id)
-          .order("created_at", { ascending: false })
-          .limit(50);
-        if (mediaData) vaultMedia = mediaData;
-      }
-    } catch {} // Non-critical
-
-    try {
-      const compactState = [
-        ...(quests || []).map((q: any) => `QUEST [${q.id}] "${q.title}" status:${q.status}`),
-        ...(tasks || []).map((t: any) => `TASK [${t.id}] "${t.title}" status:${t.status}`),
-        ...(skills || []).map((s: any) => `SKILL [${s.id}] "${s.name}"${s.parent_skill_id ? ` parent:${s.parent_skill_id}` : ""}`),
-        ...(journalEntries || []).map((j: any) => `JOURNAL [${j.id}] "${j.title}"`),
-        ...(vaultEntries || []).map((v: any) => `VAULT [${v.id}] "${v.title}"`),
-        ...(councils || []).map((c: any) => `COUNCIL [${c.id}] "${c.name}"`),
-        ...(allies || []).map((a: any) => `ALLY [${a.id}] "${a.name}"`),
-        ...(inventory || []).map((i: any) => `INVENTORY [${i.id}] "${i.name}"`),
-        ...(transformations || []).map((t: any) => `TRANSFORMATION [${t.id}] "${t.name}"`),
-        ...(storeItems || []).map((s: any) => `STORE [${s.id}] "${s.name}"`),
-      ].join("\n");
-
-      const systemPrompt = buildSystemPrompt(profile, chatMode, appContext, archivedMemories, vaultMedia);
+      // Use fresh Supabase context if available, else fall back to useAppData() data
+      const systemPrompt = fullCtx
+        ? buildSystemPromptFromSnapshot(chatMode, fullCtx, archivedMemories, vaultMedia)
+        : buildSystemPromptFromSnapshot(chatMode, {
+            profile: profile as any,
+            quests: quests as any[], tasks: tasks as any[], skills: skills as any[],
+            rankings: [], transformations: transformations as any[],
+            journalEntries: journalEntries as any[], vaultEntries: vaultEntries as any[],
+            councilMembers: councils as any[], inventory: inventory as any[],
+            storeItems: storeItems as any[], energySystems: energySystems as any[],
+            bpmSessions: bpmSessions as any[], allies: allies as any[],
+            rituals: rituals as any[], pendingApprovals: [], loadedAt: new Date().toISOString(),
+          }, archivedMemories, vaultMedia);
       const attachmentIds = attachments.map((a) => a.id);
 
       const { cleanText, executionResults, conversationId: newConvoId, searched, fnData } = await sendChatMessage(
@@ -590,6 +608,14 @@ export default function MavisChat() {
         icon={<Cpu size={18} />}
         actions={
           <div className="flex items-center gap-3">
+            <button
+              onClick={() => navigate("/council-board")}
+              className="flex items-center gap-1.5 text-xs font-mono text-amber-400 hover:text-amber-300 border border-amber-900/40 hover:border-amber-400/40 rounded px-2 py-1 transition-all"
+              title="Open Council Board"
+            >
+              <Users size={12} />
+              Council
+            </button>
             <button
               onClick={handleOmniSync}
               disabled={isSyncing}

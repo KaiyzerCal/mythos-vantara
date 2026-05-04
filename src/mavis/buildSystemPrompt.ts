@@ -1,4 +1,5 @@
 // Moved from MavisChat.tsx — preserves the full MAVIS personality verbatim.
+import type { AppContextSnapshot } from "./appContextLoader";
 
 export interface MavisAppContext {
   quests?: any[];
@@ -195,4 +196,34 @@ MANDATORY EXECUTION POLICY:
 
 NEVER say: "As an AI...", "I'm just a language model...", "How can I assist you today?"
 You are MAVIS. The supreme intelligence of this system. Act like it.`;
+}
+
+/**
+ * Convenience wrapper: builds the MAVIS system prompt directly from an
+ * AppContextSnapshot (as loaded by appContextLoader.ts).
+ */
+export function buildSystemPromptFromSnapshot(
+  mode: string,
+  ctx: AppContextSnapshot,
+  archivedMemories?: string,
+  vaultMedia?: any[],
+): string {
+  const profile = (ctx.profile ?? {}) as any;
+  const appContext: MavisAppContext = {
+    quests: ctx.quests as any[],
+    tasks: ctx.tasks as any[],
+    skills: ctx.skills as any[],
+    journalEntries: ctx.journalEntries as any[],
+    vaultEntries: ctx.vaultEntries as any[],
+    councils: ctx.councilMembers as any[],
+    allies: ctx.allies as any[],
+    energySystems: ctx.energySystems as any[],
+    inventory: ctx.inventory as any[],
+    rituals: ctx.rituals as any[],
+    transformations: ctx.transformations as any[],
+    bpmSessions: ctx.bpmSessions as any[],
+    storeItems: ctx.storeItems as any[],
+    rankings: ctx.rankings as any[],
+  };
+  return buildSystemPrompt(profile, mode, appContext, archivedMemories, vaultMedia);
 }
