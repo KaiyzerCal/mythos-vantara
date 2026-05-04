@@ -126,14 +126,17 @@ export function PersonaChat({ persona, userId, onBack }: PersonaChatProps) {
     const response = await sendMessage(trimmed, attachmentIds);
     if (cancelledRef.current) return;
     if (response) {
-      setMessages((prev) => [...prev, { role: "assistant", content: response }]);
+      // Strip proposal blocks before display, queue them in approvals.
+      const { cleanText, proposals } = parseProposedActions(response);
+      if (proposals.length > 0) {
+        const queued = await submitProposalsForApproval(userId, persona.name, proposals);
+        if (queued > 0) toast.success(`${persona.name} proposed ${queued} action${queued > 1 ? "s" : ""} — awaiting approval in Inbox`);
+      }
+      setMessages((prev) => [...prev, { role: "assistant", content: cleanText || response }]);
       if (ttsEnabled) {
         const gender = findVoice(voiceId)?.gender ?? "female";
-        // Pass the previous assistant turn so ElevenLabs stitches prosody —
-        // the conversation flows like a continuous human exchange instead
-        // of disjointed one-off reads.
         const lastAssistant = [...messages].reverse().find((m) => m.role === "assistant")?.content;
-        speak(response, {
+        speak(cleanText || response, {
           voiceId,
           gender,
           previousText: lastAssistant,
