@@ -98,16 +98,94 @@ export default function Inbox() {
     await supabase.from("watchtower_briefs").update({ read: true }).eq("id", id);
   };
 
-  const resolveApproval = async (id: string, decision: "approved" | "rejected") => {
+  const [executingId, setExecutingId] = useState<string | null>(null);
+
+  const cosignWithMavis = async (a: Approval): Promise<{ ok: boolean; reason: string }> => {
     try {
+      const { data, error } = await supabase.functions.invoke("mavis-chat", {
+        body: {
+          mode: "PRIME",
+          messages: [
+            {
+              role: "user",
+              content:
+                `MAVIS CO-SIGN REVIEW. The operator has approved a proposed write to the app. ` +
+                `Verify it's safe, coherent with the operator's state, and not destructive without cause. ` +
+                `Respond with exactly one line: "COSIGN: YES — <short reason>" or "COSIGN: NO — <short reason>".\n\n` +
+                `Action type: ${a.action_type}\n` +
+                `Summary: ${a.action_summary}\n` +
+                `Payload: ${JSON.stringify(a.action_payload)}`,
+            },
+          ],
+          skipPersist: true,
+          skipActions: true,
+        },
+      });
+      if (error) return { ok: true, reason: "co-sign skipped (chat error)" };
+      const reply = String(data?.reply ?? data?.content ?? "").trim();
+      const yes = /COSIGN:\s*YES/i.test(reply);
+      const no = /COSIGN:\s*NO/i.test(reply);
+      if (no) return { ok: false, reason: reply.slice(0, 200) };
+      if (yes) return { ok: true, reason: reply.slice(0, 200) };
+      return { ok: true, reason: "co-sign neutral" };
+    } catch (err) {
+      return { ok: true, reason: `co-sign skipped (${err instanceof Error ? err.message : "error"})` };
+    }
+  };
+
+  const resolveApproval = async (id: string, decision: "approved" | "rejected") => {
+    const target = approvals.find(x => x.id === id);
+    if (!target) return;
+
+    if (decision === "rejected") {
+      try {
+        await supabase
+          .from("approvals")
+          .update({ status: "rejected", resolved_at: new Date().toISOString() })
+          .eq("id", id);
+        setApprovals(prev => prev.map(a => a.id === id ? { ...a, status: "rejected", resolved_at: new Date().toISOString() } : a));
+        toast.success("Action rejected");
+      } catch {
+        toast.error("Failed to update approval");
+      }
+      return;
+    }
+
+    setExecutingId(id);
+    try {
+      // 1) MAVIS co-sign review
+      toast.message("MAVIS reviewing proposal…");
+      const verdict = await cosignWithMavis(target);
+      if (!verdict.ok) {
+        toast.error(`MAVIS withheld co-sign: ${verdict.reason}`);
+        setExecutingId(null);
+        return;
+      }
+
+      // 2) Execute via mavis-actions
+      const payload = (target.action_payload ?? {}) as { type?: string; params?: Record<string, unknown> };
+      const action = {
+        type: String(payload.type ?? target.action_type),
+        params: (payload.params && typeof payload.params === "object") ? payload.params : {},
+      };
+      const { data: execData, error: execErr } = await supabase.functions.invoke("mavis-actions", {
+        body: { actions: [action] },
+      });
+      if (execErr) throw execErr;
+      const result = Array.isArray(execData?.results) ? execData.results[0] : null;
+      if (result && result.success === false) throw new Error(result.error || "Execution failed");
+
+      // 3) Mark approved
       await supabase
         .from("approvals")
-        .update({ status: decision, resolved_at: new Date().toISOString() })
+        .update({ status: "approved", resolved_at: new Date().toISOString() })
         .eq("id", id);
-      setApprovals(prev => prev.map(a => a.id === id ? { ...a, status: decision, resolved_at: new Date().toISOString() } : a));
-      toast.success(`Action ${decision}`);
-    } catch {
-      toast.error("Failed to update approval");
+      setApprovals(prev => prev.map(a => a.id === id ? { ...a, status: "approved", resolved_at: new Date().toISOString() } : a));
+      toast.success(`Approved & executed (${action.type})`);
+    } catch (err) {
+      toast.error(`Execution failed: ${err instanceof Error ? err.message : "unknown"}`);
+    } finally {
+      setExecutingId(null);
     }
   };
 
@@ -201,19 +279,22 @@ export default function Inbox() {
                             </p>
                           )}
                           {a.status === "pending" && (
-                            <div className="flex gap-2">
+                            <div className="flex gap-2 items-center">
                               <button
+                                disabled={executingId === a.id}
                                 onClick={() => resolveApproval(a.id, "approved")}
-                                className="flex items-center gap-1.5 px-3 py-1.5 rounded text-[10px] font-mono bg-green-500/10 border border-green-500/30 text-green-400 hover:bg-green-500/20 transition-colors"
+                                className="flex items-center gap-1.5 px-3 py-1.5 rounded text-[10px] font-mono bg-green-500/10 border border-green-500/30 text-green-400 hover:bg-green-500/20 transition-colors disabled:opacity-50"
                               >
-                                <CheckCircle size={10} /> Approve
+                                <CheckCircle size={10} /> {executingId === a.id ? "MAVIS reviewing…" : "Approve & Execute"}
                               </button>
                               <button
+                                disabled={executingId === a.id}
                                 onClick={() => resolveApproval(a.id, "rejected")}
-                                className="flex items-center gap-1.5 px-3 py-1.5 rounded text-[10px] font-mono bg-red-500/10 border border-red-500/30 text-red-400 hover:bg-red-500/20 transition-colors"
+                                className="flex items-center gap-1.5 px-3 py-1.5 rounded text-[10px] font-mono bg-red-500/10 border border-red-500/30 text-red-400 hover:bg-red-500/20 transition-colors disabled:opacity-50"
                               >
                                 Reject
                               </button>
+                              <span className="text-[9px] font-mono text-muted-foreground ml-auto">requires MAVIS co-sign</span>
                             </div>
                           )}
                         </div>
