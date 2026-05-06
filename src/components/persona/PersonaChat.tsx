@@ -14,6 +14,7 @@ import { AttachmentTray, AttachButton } from "@/components/chat/AttachmentTray";
 import { DEFAULT_VOICE_BY_GENDER, findVoice } from "@/lib/voiceCatalog";
 import { supabase } from "@/integrations/supabase/client";
 import { parseProposedActions, submitProposalsForApproval } from "@/mavis/proposeAction";
+import { CopyButton } from "@/components/chat/CopyButton";
 
 const MOOD_EMOJI: Record<string, string> = {
   happy: "😊", sad: "😔", excited: "⚡", frustrated: "😤",
