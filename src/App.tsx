@@ -1,11 +1,27 @@
+import { useEffect } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Route, Routes } from "react-router-dom";
 import { Toaster } from "@/components/ui/toaster";
-import { ThemeProvider } from "next-themes";
+import { ThemeProvider, useTheme } from "next-themes";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import { AppDataProvider } from "@/contexts/AppDataContext";
 import AppSidebar from "@/components/AppSidebar";
 import { Loader2 } from "lucide-react";
+
+/** Sync the mobile browser chrome (status bar) color with the active theme.
+ *  Critical for Android — Chrome reads <meta name="theme-color"> dynamically. */
+function ThemeColorSync() {
+  const { resolvedTheme } = useTheme();
+  useEffect(() => {
+    const color = resolvedTheme === "light" ? "#ffffff" : "#0a0d1f";
+    document.querySelectorAll('meta[name="theme-color"]').forEach((el) => el.remove());
+    const meta = document.createElement("meta");
+    meta.name = "theme-color";
+    meta.content = color;
+    document.head.appendChild(meta);
+  }, [resolvedTheme]);
+  return null;
+}
 
 // Pages
 import { AuthPage, NotFound, SettingsPage } from "@/pages/UtilityPages";
