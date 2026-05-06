@@ -359,6 +359,7 @@ export default function CouncilBoard() {
                     <span className="text-[9px] font-mono text-muted-foreground/50 ml-auto">
                       {new Date(msg.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                     </span>
+                    <CopyButton content={msg.content} />
                   </div>
                   <p className="text-xs font-body text-foreground/90 leading-relaxed whitespace-pre-wrap">
                     {msg.content}
