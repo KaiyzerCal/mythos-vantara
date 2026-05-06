@@ -415,13 +415,17 @@ export function PersonaChat({ persona, userId, onBack }: PersonaChatProps) {
               )}
               <div
                 className={cn(
-                  "max-w-[75%] rounded-lg px-3 py-2 text-sm font-body leading-relaxed",
+                  "group relative max-w-[75%] rounded-lg px-3 py-2 text-sm font-body leading-relaxed whitespace-pre-wrap",
                   msg.role === "user"
                     ? "bg-primary/15 border border-primary/25 text-foreground rounded-tr-none"
                     : "hud-border text-foreground rounded-tl-none"
                 )}
               >
                 {msg.content}
+                <CopyButton
+                  content={msg.content}
+                  className="absolute -top-2 -right-2 opacity-0 group-hover:opacity-100 focus:opacity-100 bg-card border border-border"
+                />
               </div>
             </div>
           ))}
