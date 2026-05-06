@@ -12,6 +12,7 @@ import type { CouncilMember } from "@/mavis/councilPersona";
 import { parseProposedActions, submitProposalsForApproval } from "@/mavis/proposeAction";
 import { ScrollProgressBar, BackToTopButton, ScrollToBottomButton, EndOfFeed } from "@/components/chat/ScrollKit";
 import { AttachmentTray, AttachButton } from "@/components/chat/AttachmentTray";
+import { CopyButton } from "@/components/chat/CopyButton";
 import { useChatAttachments } from "@/hooks/useChatAttachments";
 import { toast } from "sonner";
 
