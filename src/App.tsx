@@ -101,6 +101,7 @@ function AppContent() {
 const App = () => (
   <QueryClientProvider client={queryClient}>
     <ThemeProvider attribute="class" defaultTheme="dark" enableSystem={false} storageKey="vantara-theme">
+      <ThemeColorSync />
       <Toaster />
       <BrowserRouter>
         <AuthProvider>
