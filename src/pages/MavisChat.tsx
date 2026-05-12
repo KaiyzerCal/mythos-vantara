@@ -20,7 +20,10 @@ import { buildSystemPromptFromSnapshot } from "@/mavis/buildSystemPrompt";
 import { setDefaultHandler } from "@/mavis/actionExecutor";
 import { sendChatMessage } from "@/mavis/chatService";
 import { loadFullAppContext } from "@/mavis/appContextLoader";
+import { initSession } from "@/mavis/memoryEngine";
 import type { ExecutionResult } from "@/mavis/types";
+// Trigger skill self-registration
+import "@/mavis/skills/_loader";
 
 const MAVIS_MODES = [
   { id: "PRIME", label: "PRIME", icon: Crown, color: "text-primary", desc: "GPT-4o-mini · General purpose" },
@@ -198,6 +201,9 @@ export default function MavisChat() {
       try {
         const { data: { session } } = await supabase.auth.getSession();
         if (!session?.user) { setDbLoaded(true); return; }
+
+        // Init three-layer memory engine for this session
+        initSession(session.user.id);
 
         const { data: convos } = await supabase
           .from("chat_conversations")
@@ -446,7 +452,7 @@ export default function MavisChat() {
 
     try {
       // Use fresh Supabase context if available, else fall back to useAppData() data
-      const systemPrompt = fullCtx
+      const systemPrompt = await (fullCtx
         ? buildSystemPromptFromSnapshot(chatMode, fullCtx, archivedMemories, vaultMedia)
         : buildSystemPromptFromSnapshot(chatMode, {
             profile: profile as any,
@@ -457,7 +463,7 @@ export default function MavisChat() {
             storeItems: storeItems as any[], energySystems: energySystems as any[],
             bpmSessions: bpmSessions as any[], allies: allies as any[],
             rituals: rituals as any[], pendingApprovals: [], loadedAt: new Date().toISOString(),
-          }, archivedMemories, vaultMedia);
+          }, archivedMemories, vaultMedia));
       const attachmentIds = attachments.map((a) => a.id);
 
       const { cleanText, executionResults, conversationId: newConvoId, searched, fnData } = await sendChatMessage(
