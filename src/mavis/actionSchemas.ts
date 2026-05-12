@@ -76,6 +76,22 @@ export const UpdateProfileSchema = z.object({ type: z.literal("update_profile"),
 // AWARD XP
 export const AwardXpSchema = z.object({ type: z.literal("award_xp"), amount: z.number().int().min(1), reason: z.string().optional(), source: z.string().optional() });
 
+// NORA TWEET — queue a tweet for Nora Vale's Twitter account (requires_confirmation by default)
+export const NoraTweetSchema = z.object({
+  type: z.literal("nora_tweet"),
+  content: z.string().min(1).max(280),
+  replyToTweetId: z.string().optional(),
+});
+
+// CREATE SKILL DEFINITION — MAVIS writes a new runtime skill to the database
+export const CreateSkillDefinitionSchema = z.object({
+  type: z.literal("create_skill_definition"),
+  name: z.string().min(1),
+  description: z.string().min(1),
+  keywords: z.array(z.string()).min(1),
+  prompt_template: z.string().min(10),
+});
+
 // PROPOSE PRODUCT — autonomous product creation (routes to mavis_tasks requires_confirmation)
 // MAVIS emits this when she detects a revenue opportunity worth pursuing.
 // Operator approves in Inbox Task Log → executor creates Stripe product + content.
@@ -107,6 +123,8 @@ export const ActionSchema = z.discriminatedUnion("type", [
   UpdateProfileSchema,
   AwardXpSchema,
   ProposeProductSchema,
+  NoraTweetSchema,
+  CreateSkillDefinitionSchema,
 ]);
 
 export type ValidatedAction = z.infer<typeof ActionSchema>;

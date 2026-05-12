@@ -1,10 +1,10 @@
 // MAVIS Product Creator
-// Generates product content via Claude, creates Stripe product + payment link.
-// Called by mavis-task-executor when a create_product task is approved and pending.
+// Generates product content via Claude, publishes to Gumroad (primary).
+// Falls back to draft mode if GUMROAD_ACCESS_TOKEN not set.
 //
 // Required env vars:
-//   ANTHROPIC_API_KEY  — always required (content generation)
-//   STRIPE_SECRET_KEY  — required for live Stripe products; if missing, stores draft
+//   ANTHROPIC_API_KEY      — always required (content generation)
+//   GUMROAD_ACCESS_TOKEN   — for live Gumroad publishing
 //
 // Request body:
 //   { userId, title, description, audience?, price_cents?, category? }
@@ -16,8 +16,8 @@ const supabase = createClient(
   Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
 );
 
-const ANTHROPIC_KEY = Deno.env.get("ANTHROPIC_API_KEY")!;
-const STRIPE_KEY = Deno.env.get("STRIPE_SECRET_KEY");
+const ANTHROPIC_KEY  = Deno.env.get("ANTHROPIC_API_KEY")!;
+const GUMROAD_TOKEN  = Deno.env.get("GUMROAD_ACCESS_TOKEN");
 
 // ─────────────────────────────────────────────────────────────
 // CONTENT GENERATION
@@ -62,62 +62,43 @@ async function generateProductContent(
 }
 
 // ─────────────────────────────────────────────────────────────
-// STRIPE INTEGRATION
+// GUMROAD INTEGRATION
 // ─────────────────────────────────────────────────────────────
 
-interface StripeResult {
-  productId: string;
-  priceId: string;
+interface GumroadResult {
+  gumroadProductId: string;
+  gumroadUrl: string;
   paymentLink: string;
 }
 
-async function createStripeProduct(
+async function createGumroadProduct(
   title: string,
   description: string,
   priceCents: number,
-): Promise<StripeResult> {
-  const headers = {
-    "Authorization": `Bearer ${STRIPE_KEY}`,
-    "Content-Type": "application/x-www-form-urlencoded",
+): Promise<GumroadResult> {
+  const body = new URLSearchParams({
+    access_token: GUMROAD_TOKEN!,
+    name: title,
+    description: description.slice(0, 2000),
+    price: String(priceCents),
+    published: "true",
+  });
+
+  const res = await fetch("https://api.gumroad.com/v2/products", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body,
+  });
+
+  if (!res.ok) throw new Error(`Gumroad create failed: ${await res.text()}`);
+  const data = await res.json();
+  if (!data.success) throw new Error(`Gumroad error: ${JSON.stringify(data)}`);
+
+  return {
+    gumroadProductId: data.product.id,
+    gumroadUrl: data.product.short_url,
+    paymentLink: data.product.short_url,
   };
-
-  // 1. Create product
-  const productRes = await fetch("https://api.stripe.com/v1/products", {
-    method: "POST",
-    headers,
-    body: new URLSearchParams({ name: title, description: description.slice(0, 500) }),
-  });
-  if (!productRes.ok) throw new Error(`Stripe product create failed: ${await productRes.text()}`);
-  const product = await productRes.json();
-
-  // 2. Create price
-  const priceRes = await fetch("https://api.stripe.com/v1/prices", {
-    method: "POST",
-    headers,
-    body: new URLSearchParams({
-      product: product.id,
-      unit_amount: String(priceCents),
-      currency: "usd",
-    }),
-  });
-  if (!priceRes.ok) throw new Error(`Stripe price create failed: ${await priceRes.text()}`);
-  const price = await priceRes.json();
-
-  // 3. Create payment link
-  const linkRes = await fetch("https://api.stripe.com/v1/payment_links", {
-    method: "POST",
-    headers,
-    body: new URLSearchParams({
-      "line_items[0][price]": price.id,
-      "line_items[0][quantity]": "1",
-      "after_completion[type]": "redirect",
-      "after_completion[redirect][url]": "https://vantara.app/purchase-complete",
-    }),
-  });
-  if (!linkRes.ok) throw new Error(`Stripe payment link create failed: ${await linkRes.text()}`);
-  const link = await linkRes.json();
-
-  return { productId: product.id, priceId: price.id, paymentLink: link.url };
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -160,21 +141,20 @@ Deno.serve(async (req) => {
     const content = await generateProductContent(title, description, audience, category);
     if (!content) throw new Error("Content generation returned empty string");
 
-    // 2. Create Stripe product (or mark as draft if no key)
-    let stripeProductId: string | null = null;
-    let stripePriceId: string | null = null;
+    // 2. Publish to Gumroad (or mark as draft if no key)
+    let gumroadProductId: string | null = null;
+    let gumroadUrl: string | null = null;
     let paymentLink: string | null = null;
     let productStatus = "draft";
 
-    if (STRIPE_KEY) {
-      const stripe = await createStripeProduct(title, description || title, price_cents);
-      stripeProductId = stripe.productId;
-      stripePriceId = stripe.priceId;
-      paymentLink = stripe.paymentLink;
+    if (GUMROAD_TOKEN) {
+      const gumroad = await createGumroadProduct(title, description || title, price_cents);
+      gumroadProductId = gumroad.gumroadProductId;
+      gumroadUrl = gumroad.gumroadUrl;
+      paymentLink = gumroad.paymentLink;
       productStatus = "active";
     } else {
-      // No Stripe key — store as draft with placeholder link
-      paymentLink = `[STRIPE_NOT_CONFIGURED — add STRIPE_SECRET_KEY to deploy]`;
+      paymentLink = "[GUMROAD_ACCESS_TOKEN not configured — product saved as draft]";
     }
 
     // 3. Store in mavis_products
@@ -188,8 +168,8 @@ Deno.serve(async (req) => {
         category,
         content,
         price_cents,
-        stripe_product_id: stripeProductId,
-        stripe_price_id: stripePriceId,
+        gumroad_product_id: gumroadProductId,
+        gumroad_url: gumroadUrl,
         payment_link: paymentLink,
         status: productStatus,
       })
@@ -198,11 +178,11 @@ Deno.serve(async (req) => {
 
     if (dbError) throw dbError;
 
-    // 4. Log to mavis_tasks result (caller updates the task row)
     return new Response(JSON.stringify({
       success: true,
       productId: product?.id,
-      stripeProductId,
+      gumroadProductId,
+      gumroadUrl,
       paymentLink,
       status: productStatus,
       contentPreview: content.slice(0, 300) + "…",
