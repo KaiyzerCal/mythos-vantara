@@ -1,5 +1,7 @@
 // Moved from MavisChat.tsx — preserves the full MAVIS personality verbatim.
 import type { AppContextSnapshot } from "./appContextLoader";
+import { getStandingOrders } from "./standingOrders";
+import { buildMemoryContext } from "./memoryEngine";
 
 export interface MavisAppContext {
   quests?: any[];
@@ -199,15 +201,15 @@ You are MAVIS. The supreme intelligence of this system. Act like it.`;
 }
 
 /**
- * Convenience wrapper: builds the MAVIS system prompt directly from an
- * AppContextSnapshot (as loaded by appContextLoader.ts).
+ * Async wrapper: builds the MAVIS system prompt from an AppContextSnapshot.
+ * Injects standing orders and the three-layer memory context on every call.
  */
-export function buildSystemPromptFromSnapshot(
+export async function buildSystemPromptFromSnapshot(
   mode: string,
   ctx: AppContextSnapshot,
   archivedMemories?: string,
   vaultMedia?: any[],
-): string {
+): Promise<string> {
   const profile = (ctx.profile ?? {}) as any;
   const appContext: MavisAppContext = {
     quests: ctx.quests as any[],
@@ -225,5 +227,17 @@ export function buildSystemPromptFromSnapshot(
     storeItems: ctx.storeItems as any[],
     rankings: ctx.rankings as any[],
   };
-  return buildSystemPrompt(profile, mode, appContext, archivedMemories, vaultMedia);
+
+  const [memoryContext, standingOrders] = await Promise.all([
+    buildMemoryContext(),
+    Promise.resolve(getStandingOrders()),
+  ]);
+
+  const base = buildSystemPrompt(profile, mode, appContext, archivedMemories, vaultMedia);
+
+  const extras: string[] = [];
+  if (standingOrders) extras.push(`\n\n${standingOrders}`);
+  if (memoryContext) extras.push(`\n\nMEMORY CONTEXT (three-layer — use this):\n${memoryContext}`);
+
+  return base + extras.join("");
 }
