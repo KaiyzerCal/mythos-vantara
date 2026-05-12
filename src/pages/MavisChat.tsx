@@ -21,6 +21,7 @@ import { setDefaultHandler, registerActionHandler } from "@/mavis/actionExecutor
 import { sendChatMessage } from "@/mavis/chatService";
 import { loadFullAppContext } from "@/mavis/appContextLoader";
 import { initSession } from "@/mavis/memoryEngine";
+import { loadRuntimeSkills } from "@/mavis/skills/_registry";
 import type { ExecutionResult } from "@/mavis/types";
 // Trigger skill self-registration
 import "@/mavis/skills/_loader";
@@ -93,7 +94,7 @@ export default function MavisChat() {
       }
     });
 
-    // propose_product — queues a create_product task for operator approval in Inbox
+    // propose_product — queues create_product task for operator approval in Inbox
     registerActionHandler("propose_product", async (payload) => {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session?.user) throw new Error("Not authenticated");
@@ -104,6 +105,36 @@ export default function MavisChat() {
         payload,
         status: "requires_confirmation",
       });
+      if (error) throw error;
+    });
+
+    // nora_tweet — queues a tweet for Nora Vale for operator approval
+    registerActionHandler("nora_tweet", async (payload) => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.user) throw new Error("Not authenticated");
+      const { error } = await supabase.from("mavis_tasks").insert({
+        user_id: session.user.id,
+        type: "nora_tweet",
+        description: `Nora tweet: "${String(payload.content).slice(0, 60)}…"`,
+        payload,
+        status: "requires_confirmation",
+      });
+      if (error) throw error;
+    });
+
+    // create_skill_definition — MAVIS writes a new runtime skill to the DB
+    registerActionHandler("create_skill_definition", async (payload) => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.user) throw new Error("Not authenticated");
+      const { error } = await supabase.from("mavis_skill_definitions").upsert({
+        user_id: session.user.id,
+        name: payload.name,
+        description: payload.description,
+        keywords: payload.keywords,
+        prompt_template: payload.prompt_template,
+        is_active: true,
+        updated_at: new Date().toISOString(),
+      }, { onConflict: "user_id,name" });
       if (error) throw error;
     });
   }, []);
@@ -216,8 +247,9 @@ export default function MavisChat() {
         const { data: { session } } = await supabase.auth.getSession();
         if (!session?.user) { setDbLoaded(true); return; }
 
-        // Init three-layer memory engine for this session
+        // Init three-layer memory engine + load DB-backed runtime skills
         initSession(session.user.id);
+        loadRuntimeSkills(session.user.id).catch(err => console.warn("[Skills] Runtime load failed:", err));
 
         const { data: convos } = await supabase
           .from("chat_conversations")

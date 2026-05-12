@@ -219,22 +219,61 @@ const handleCreateProduct: TaskHandler = async (task) => {
   return { success: true, output: data };
 };
 
-// send_announcement — calls mavis-announce edge function
+// send_announcement — email via Resend + Nora tweet via mavis-nora-post
 const handleSendAnnouncement: TaskHandler = async (task) => {
   const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
   const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+  const results: unknown[] = [];
 
-  const res = await fetch(`${supabaseUrl}/functions/v1/mavis-announce`, {
+  // Email announcement
+  const emailRes = await fetch(`${supabaseUrl}/functions/v1/mavis-announce`, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "Authorization": `Bearer ${serviceKey}`,
-    },
+    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${serviceKey}` },
     body: JSON.stringify({ userId: task.user_id, ...task.payload }),
   });
+  results.push({ channel: "email", ...(await emailRes.json()) });
 
+  // Nora Vale tweet
+  const p = task.payload as { title?: string; paymentLink?: string; priceCents?: number };
+  if (p.title && p.paymentLink) {
+    const price = `$${((p.priceCents ?? 2900) / 100).toFixed(0)}`;
+    const tweetContent = `Just dropped: "${p.title}" — ${price}\n\nBuilt this for anyone who's been asking about this. Grab it here: ${p.paymentLink}`;
+    const tweetRes = await fetch(`${supabaseUrl}/functions/v1/mavis-nora-post`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${serviceKey}` },
+      body: JSON.stringify({ userId: task.user_id, content: tweetContent }),
+    });
+    results.push({ channel: "twitter_nora", ...(await tweetRes.json()) });
+  }
+
+  return { success: true, output: results };
+};
+
+// nora_tweet — Nora posts arbitrary content on Twitter/X
+const handleNoraTweet: TaskHandler = async (task) => {
+  const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+  const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+  const res = await fetch(`${supabaseUrl}/functions/v1/mavis-nora-post`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${serviceKey}` },
+    body: JSON.stringify({ userId: task.user_id, ...task.payload }),
+  });
   const data = await res.json();
-  if (!res.ok) return { success: false, error: data.error ?? `announce returned ${res.status}` };
+  if (!res.ok) return { success: false, error: data.error ?? `nora-post returned ${res.status}` };
+  return { success: true, output: data };
+};
+
+// demand_scan — fires the demand detection scan
+const handleDemandScan: TaskHandler = async (task) => {
+  const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+  const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+  const res = await fetch(`${supabaseUrl}/functions/v1/mavis-demand-scan`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${serviceKey}` },
+    body: JSON.stringify({ userId: task.user_id }),
+  });
+  const data = await res.json();
+  if (!res.ok) return { success: false, error: data.error ?? `demand-scan returned ${res.status}` };
   return { success: true, output: data };
 };
 
@@ -250,6 +289,8 @@ const HANDLERS: Record<string, TaskHandler> = {
   idle_quest_alert: handleIdleQuestAlert,
   create_product: handleCreateProduct,
   send_announcement: handleSendAnnouncement,
+  nora_tweet: handleNoraTweet,
+  demand_scan: handleDemandScan,
 };
 
 // ─────────────────────────────────────────────────────────────
