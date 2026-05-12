@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { PageHeader } from "@/components/SharedUI";
-import { Inbox as InboxIcon, Eye, CheckCircle, Clock, AlertCircle, BookOpen } from "lucide-react";
+import { Inbox as InboxIcon, Eye, CheckCircle, Clock, AlertCircle, BookOpen, ListTodo, XCircle, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { motion, AnimatePresence } from "framer-motion";
 
@@ -28,7 +28,21 @@ interface WatchtowerBrief {
   user_id: string;
 }
 
-type InboxTab = "approvals" | "briefs";
+interface MavisTask {
+  id: string;
+  type: string;
+  description: string | null;
+  payload: Record<string, unknown>;
+  status: string;
+  scheduled_at: string | null;
+  started_at: string | null;
+  completed_at: string | null;
+  result: Record<string, unknown> | null;
+  revenue_generated: number;
+  created_at: string;
+}
+
+type InboxTab = "approvals" | "briefs" | "tasks";
 
 function timeAgo(iso: string): string {
   const diff = Date.now() - new Date(iso).getTime();
@@ -50,12 +64,26 @@ function statusBadge(status: string) {
   return map[status] ?? "text-muted-foreground border-border";
 }
 
+function taskStatusStyle(status: string) {
+  const map: Record<string, { icon: React.ReactNode; color: string; badge: string }> = {
+    pending:                { icon: <Clock size={12} />, color: "text-amber-400", badge: "text-amber-400 border-amber-500/30 bg-amber-500/5" },
+    running:                { icon: <Loader2 size={12} className="animate-spin" />, color: "text-blue-400", badge: "text-blue-400 border-blue-500/30 bg-blue-500/5" },
+    completed:              { icon: <CheckCircle size={12} />, color: "text-green-400", badge: "text-green-400 border-green-500/30 bg-green-500/5" },
+    failed:                 { icon: <XCircle size={12} />, color: "text-red-400", badge: "text-red-400 border-red-500/30 bg-red-500/5" },
+    cancelled:              { icon: <XCircle size={12} />, color: "text-muted-foreground", badge: "text-muted-foreground border-border bg-muted/10" },
+    requires_confirmation:  { icon: <AlertCircle size={12} />, color: "text-orange-400", badge: "text-orange-400 border-orange-500/30 bg-orange-500/5" },
+  };
+  return map[status] ?? map.pending;
+}
+
 export default function Inbox() {
   const [tab, setTab] = useState<InboxTab>("approvals");
   const [approvals, setApprovals] = useState<Approval[]>([]);
   const [briefs, setBriefs] = useState<WatchtowerBrief[]>([]);
+  const [tasks, setTasks] = useState<MavisTask[]>([]);
   const [loading, setLoading] = useState(true);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [cancellingId, setCancellingId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -64,7 +92,7 @@ export default function Inbox() {
       if (!session?.user) return;
       const uid = session.user.id;
 
-      const [approvalsRes, briefsRes] = await Promise.all([
+      const [approvalsRes, briefsRes, tasksRes] = await Promise.all([
         supabase
           .from("approvals")
           .select("*")
@@ -77,6 +105,12 @@ export default function Inbox() {
           .eq("user_id", uid)
           .order("brief_date", { ascending: false })
           .limit(50),
+        supabase
+          .from("mavis_tasks")
+          .select("*")
+          .eq("user_id", uid)
+          .order("created_at", { ascending: false })
+          .limit(100),
       ]);
 
       if (approvalsRes.error) console.warn("[Inbox] approvals:", approvalsRes.error.message);
@@ -84,6 +118,9 @@ export default function Inbox() {
 
       if (briefsRes.error) console.warn("[Inbox] briefs:", briefsRes.error.message);
       else setBriefs((briefsRes.data ?? []) as WatchtowerBrief[]);
+
+      if (tasksRes.error) console.warn("[Inbox] tasks:", tasksRes.error.message);
+      else setTasks((tasksRes.data ?? []) as MavisTask[]);
     } catch (err) {
       console.error("[Inbox] load error:", err);
     } finally {
@@ -96,6 +133,31 @@ export default function Inbox() {
   const markBriefRead = async (id: string) => {
     setBriefs(prev => prev.map(b => b.id === id ? { ...b, read: true } : b));
     await supabase.from("watchtower_briefs").update({ read: true }).eq("id", id);
+  };
+
+  const cancelTask = async (id: string) => {
+    setCancellingId(id);
+    try {
+      await supabase.from("mavis_tasks").update({ status: "cancelled" }).eq("id", id);
+      setTasks(prev => prev.map(t => t.id === id ? { ...t, status: "cancelled" } : t));
+      toast.success("Task cancelled");
+    } catch {
+      toast.error("Failed to cancel task");
+    } finally {
+      setCancellingId(null);
+    }
+  };
+
+  const runTaskNow = async (id: string) => {
+    try {
+      toast.message("Triggering task executor…");
+      const { error } = await supabase.functions.invoke("mavis-task-executor");
+      if (error) throw error;
+      toast.success("Executor fired — refresh to see results");
+      setTimeout(load, 3000);
+    } catch (err) {
+      toast.error(`Executor error: ${err instanceof Error ? err.message : "unknown"}`);
+    }
   };
 
   const [executingId, setExecutingId] = useState<string | null>(null);
@@ -191,6 +253,7 @@ export default function Inbox() {
 
   const unreadBriefs = briefs.filter(b => !b.read).length;
   const pendingApprovals = approvals.filter(a => a.status === "pending").length;
+  const activeTasks = tasks.filter(t => t.status === "pending" || t.status === "running" || t.status === "requires_confirmation").length;
 
   return (
     <div className="flex flex-col gap-4">
@@ -226,6 +289,17 @@ export default function Inbox() {
           {unreadBriefs > 0 && (
             <span className="ml-2 px-1.5 py-0.5 rounded-full bg-cyan-500/20 text-cyan-400 text-[9px]">
               {unreadBriefs}
+            </span>
+          )}
+        </button>
+        <button
+          onClick={() => setTab("tasks")}
+          className={`px-4 py-2 text-xs font-mono border-b-2 transition-colors ${tab === "tasks" ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"}`}
+        >
+          Task Log
+          {activeTasks > 0 && (
+            <span className="ml-2 px-1.5 py-0.5 rounded-full bg-primary/20 text-primary text-[9px]">
+              {activeTasks}
             </span>
           )}
         </button>
@@ -349,6 +423,95 @@ export default function Inbox() {
                   </AnimatePresence>
                 </motion.div>
               ))}
+            </motion.div>
+          )}
+          {tab === "tasks" && (
+            <motion.div key="tasks" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="flex flex-col gap-2">
+              <div className="flex items-center justify-between mb-1">
+                <p className="text-[10px] font-mono text-muted-foreground">
+                  {tasks.length} task{tasks.length !== 1 ? "s" : ""} · {activeTasks} active
+                </p>
+                <button
+                  onClick={() => runTaskNow("")}
+                  className="text-[10px] font-mono text-primary hover:text-primary/80 transition-colors border border-primary/30 px-2 py-1 rounded"
+                >
+                  Run Executor Now
+                </button>
+              </div>
+
+              {tasks.length === 0 && (
+                <p className="text-xs font-mono text-muted-foreground text-center py-12">No tasks logged yet. MAVIS will populate this as she works.</p>
+              )}
+
+              {tasks.map(t => {
+                const style = taskStatusStyle(t.status);
+                return (
+                  <motion.div key={t.id} layout className="border border-border rounded-lg overflow-hidden">
+                    <button
+                      onClick={() => setExpandedId(expandedId === t.id ? null : t.id)}
+                      className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-muted/20 transition-colors"
+                    >
+                      <span className={style.color}>{style.icon}</span>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-mono font-medium truncate">
+                          {t.description ?? t.type}
+                        </p>
+                        <p className="text-[10px] font-mono text-muted-foreground">
+                          {t.type} · {timeAgo(t.created_at)}
+                          {t.revenue_generated > 0 && (
+                            <span className="ml-2 text-green-400">+${Number(t.revenue_generated).toFixed(2)}</span>
+                          )}
+                        </p>
+                      </div>
+                      <span className={`text-[9px] font-mono px-2 py-0.5 rounded border ${style.badge}`}>
+                        {t.status.replace("_", " ")}
+                      </span>
+                    </button>
+
+                    <AnimatePresence>
+                      {expandedId === t.id && (
+                        <motion.div
+                          initial={{ height: 0 }} animate={{ height: "auto" }} exit={{ height: 0 }}
+                          className="overflow-hidden border-t border-border"
+                        >
+                          <div className="px-4 py-3 space-y-2">
+                            {Object.keys(t.payload ?? {}).length > 0 && (
+                              <div>
+                                <p className="text-[9px] font-mono text-muted-foreground mb-1">PAYLOAD</p>
+                                <pre className="text-[10px] font-mono text-muted-foreground bg-muted/10 rounded p-2 overflow-x-auto whitespace-pre-wrap">
+                                  {JSON.stringify(t.payload, null, 2)}
+                                </pre>
+                              </div>
+                            )}
+                            {t.result && Object.keys(t.result).length > 0 && (
+                              <div>
+                                <p className="text-[9px] font-mono text-muted-foreground mb-1">RESULT</p>
+                                <pre className="text-[10px] font-mono text-muted-foreground bg-muted/10 rounded p-2 overflow-x-auto whitespace-pre-wrap">
+                                  {JSON.stringify(t.result, null, 2)}
+                                </pre>
+                              </div>
+                            )}
+                            <div className="flex gap-2 items-center text-[9px] font-mono text-muted-foreground">
+                              {t.started_at && <span>Started {timeAgo(t.started_at)}</span>}
+                              {t.completed_at && <span>· Completed {timeAgo(t.completed_at)}</span>}
+                              {t.scheduled_at && <span>· Scheduled {timeAgo(t.scheduled_at)}</span>}
+                            </div>
+                            {(t.status === "pending" || t.status === "requires_confirmation") && (
+                              <button
+                                disabled={cancellingId === t.id}
+                                onClick={() => cancelTask(t.id)}
+                                className="text-[10px] font-mono text-red-400 hover:text-red-300 border border-red-500/20 px-2 py-1 rounded transition-colors disabled:opacity-40"
+                              >
+                                {cancellingId === t.id ? "Cancelling…" : "Cancel Task"}
+                              </button>
+                            )}
+                          </div>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </motion.div>
+                );
+              })}
             </motion.div>
           )}
         </AnimatePresence>
