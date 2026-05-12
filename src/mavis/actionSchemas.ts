@@ -94,7 +94,8 @@ export const CreateSkillDefinitionSchema = z.object({
 
 // PROPOSE PRODUCT — autonomous product creation (routes to mavis_tasks requires_confirmation)
 // MAVIS emits this when she detects a revenue opportunity worth pursuing.
-// Operator approves in Inbox Task Log → executor creates Stripe product + content.
+// Operator approves in Inbox Task Log → executor creates product + PDF content.
+// platform: "gumroad" (default, digital products) | "stripe" (services/subscriptions)
 export const ProposeProductSchema = z.object({
   type: z.literal("propose_product"),
   title: z.string().min(1),
@@ -102,6 +103,7 @@ export const ProposeProductSchema = z.object({
   audience: z.string().optional(),
   price_cents: z.number().int().min(100).max(50000).optional(),
   category: z.enum(["guide", "prompt_pack", "template", "framework", "mini_course"]).optional(),
+  platform: z.enum(["gumroad", "stripe"]).optional(),
 });
 
 // UNION — ALL SCHEMAS
