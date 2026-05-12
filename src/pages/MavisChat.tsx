@@ -17,7 +17,7 @@ import { SessionBlock, groupMessagesIntoSessions } from "@/components/chat/Sessi
 
 // ── MAVIS modules ───────────────────────────────────────────
 import { buildSystemPromptFromSnapshot } from "@/mavis/buildSystemPrompt";
-import { setDefaultHandler } from "@/mavis/actionExecutor";
+import { setDefaultHandler, registerActionHandler } from "@/mavis/actionExecutor";
 import { sendChatMessage } from "@/mavis/chatService";
 import { loadFullAppContext } from "@/mavis/appContextLoader";
 import { initSession } from "@/mavis/memoryEngine";
@@ -91,6 +91,20 @@ export default function MavisChat() {
       if (failed.length > 0) {
         throw new Error(failed.map((r: any) => `${r.type}: ${r.error || "Unknown error"}`).join(" | "));
       }
+    });
+
+    // propose_product — queues a create_product task for operator approval in Inbox
+    registerActionHandler("propose_product", async (payload) => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.user) throw new Error("Not authenticated");
+      const { error } = await supabase.from("mavis_tasks").insert({
+        user_id: session.user.id,
+        type: "create_product",
+        description: `Product proposal: "${payload.title}" — $${((Number(payload.price_cents) || 2900) / 100).toFixed(2)}`,
+        payload,
+        status: "requires_confirmation",
+      });
+      if (error) throw error;
     });
   }, []);
 

@@ -76,6 +76,18 @@ export const UpdateProfileSchema = z.object({ type: z.literal("update_profile"),
 // AWARD XP
 export const AwardXpSchema = z.object({ type: z.literal("award_xp"), amount: z.number().int().min(1), reason: z.string().optional(), source: z.string().optional() });
 
+// PROPOSE PRODUCT — autonomous product creation (routes to mavis_tasks requires_confirmation)
+// MAVIS emits this when she detects a revenue opportunity worth pursuing.
+// Operator approves in Inbox Task Log → executor creates Stripe product + content.
+export const ProposeProductSchema = z.object({
+  type: z.literal("propose_product"),
+  title: z.string().min(1),
+  description: z.string().min(1),
+  audience: z.string().optional(),
+  price_cents: z.number().int().min(100).max(50000).optional(),
+  category: z.enum(["guide", "prompt_pack", "template", "framework", "mini_course"]).optional(),
+});
+
 // UNION — ALL SCHEMAS
 export const ActionSchema = z.discriminatedUnion("type", [
   CreateQuestSchema, UpdateQuestSchema, DeleteQuestSchema,
@@ -94,6 +106,7 @@ export const ActionSchema = z.discriminatedUnion("type", [
   LogBpmSchema,
   UpdateProfileSchema,
   AwardXpSchema,
+  ProposeProductSchema,
 ]);
 
 export type ValidatedAction = z.infer<typeof ActionSchema>;
