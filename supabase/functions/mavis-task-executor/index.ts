@@ -180,13 +180,62 @@ const handleIdleQuestAlert: TaskHandler = async (_task) => {
   return { success: true, output: { acknowledged: true } };
 };
 
-// create_product — STUB (Phase 2 — wires to Stripe Products API + Claude content gen)
+// create_product — calls mavis-product-creator edge function
+// Requires STRIPE_SECRET_KEY to publish live; stores as draft otherwise
 const handleCreateProduct: TaskHandler = async (task) => {
-  console.log(`[TaskExecutor] create_product stub — payload:`, task.payload);
-  return {
-    success: false,
-    error: "create_product not yet implemented — Phase 2. Configure Stripe Products API first.",
-  };
+  const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+  const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+
+  const res = await fetch(`${supabaseUrl}/functions/v1/mavis-product-creator`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${serviceKey}`,
+    },
+    body: JSON.stringify({ userId: task.user_id, ...task.payload }),
+  });
+
+  const data = await res.json();
+  if (!res.ok || !data.success) {
+    return { success: false, error: data.error ?? `product-creator returned ${res.status}` };
+  }
+
+  // Auto-queue an announcement if Stripe product was created live
+  if (data.stripeProductId && task.payload.title) {
+    await supabase.from("mavis_tasks").insert({
+      user_id: task.user_id,
+      type: "send_announcement",
+      description: `Announce product: "${task.payload.title}"`,
+      payload: {
+        title: task.payload.title,
+        description: task.payload.description ?? "",
+        paymentLink: data.paymentLink,
+        priceCents: task.payload.price_cents ?? 2900,
+      },
+      status: "pending",
+    });
+  }
+
+  return { success: true, output: data };
+};
+
+// send_announcement — calls mavis-announce edge function
+const handleSendAnnouncement: TaskHandler = async (task) => {
+  const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+  const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+
+  const res = await fetch(`${supabaseUrl}/functions/v1/mavis-announce`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${serviceKey}`,
+    },
+    body: JSON.stringify({ userId: task.user_id, ...task.payload }),
+  });
+
+  const data = await res.json();
+  if (!res.ok) return { success: false, error: data.error ?? `announce returned ${res.status}` };
+  return { success: true, output: data };
 };
 
 // ─────────────────────────────────────────────────────────────
@@ -200,6 +249,7 @@ const HANDLERS: Record<string, TaskHandler> = {
   revenue_snapshot: handleRevenueSnapshot,
   idle_quest_alert: handleIdleQuestAlert,
   create_product: handleCreateProduct,
+  send_announcement: handleSendAnnouncement,
 };
 
 // ─────────────────────────────────────────────────────────────

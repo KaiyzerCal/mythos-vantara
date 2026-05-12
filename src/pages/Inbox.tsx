@@ -135,6 +135,16 @@ export default function Inbox() {
     await supabase.from("watchtower_briefs").update({ read: true }).eq("id", id);
   };
 
+  const approveTask = async (id: string) => {
+    try {
+      await supabase.from("mavis_tasks").update({ status: "pending" }).eq("id", id);
+      setTasks(prev => prev.map(t => t.id === id ? { ...t, status: "pending" } : t));
+      toast.success("Task approved — executor will run it next cycle");
+    } catch {
+      toast.error("Failed to approve task");
+    }
+  };
+
   const cancelTask = async (id: string) => {
     setCancellingId(id);
     try {
@@ -497,13 +507,23 @@ export default function Inbox() {
                               {t.scheduled_at && <span>· Scheduled {timeAgo(t.scheduled_at)}</span>}
                             </div>
                             {(t.status === "pending" || t.status === "requires_confirmation") && (
-                              <button
-                                disabled={cancellingId === t.id}
-                                onClick={() => cancelTask(t.id)}
-                                className="text-[10px] font-mono text-red-400 hover:text-red-300 border border-red-500/20 px-2 py-1 rounded transition-colors disabled:opacity-40"
-                              >
-                                {cancellingId === t.id ? "Cancelling…" : "Cancel Task"}
-                              </button>
+                              <div className="flex gap-2">
+                                {t.status === "requires_confirmation" && (
+                                  <button
+                                    onClick={() => approveTask(t.id)}
+                                    className="text-[10px] font-mono text-green-400 hover:text-green-300 border border-green-500/20 px-2 py-1 rounded transition-colors"
+                                  >
+                                    Approve & Queue
+                                  </button>
+                                )}
+                                <button
+                                  disabled={cancellingId === t.id}
+                                  onClick={() => cancelTask(t.id)}
+                                  className="text-[10px] font-mono text-red-400 hover:text-red-300 border border-red-500/20 px-2 py-1 rounded transition-colors disabled:opacity-40"
+                                >
+                                  {cancellingId === t.id ? "Cancelling…" : "Cancel"}
+                                </button>
+                              </div>
                             )}
                           </div>
                         </motion.div>
