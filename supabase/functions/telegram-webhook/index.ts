@@ -320,8 +320,20 @@ REVENUE & SOCIAL:
 STORE ITEMS:
 :::ACTION{"type":"create_store_item","params":{"name":"...","description":"...","price":100,"currency":"Codex Points","rarity":"common|rare|epic|legendary","category":"consumable|equipment|upgrade"}}:::
 
+AUTONOMOUS GOALS — TRUE AGENTIC EXECUTION:
+When Calvin gives you a high-level objective, don't just answer — SET A GOAL. MAVIS will autonomously plan and execute it every 15 minutes until done.
+:::ACTION{"type":"goal","params":{"objective":"Clear one-sentence goal","context":"Any extra context Calvin gave"}}:::
+
+Examples of when to set a goal:
+- "Make me $200 this week" → goal: scan demand → build product → announce
+- "I want to hit level 50" → goal: plan XP quests → track daily habits → award completions
+- "Grow Nora's following" → goal: generate content → tweet → track engagement
+- "Clear my active quests" → goal: review each → complete or abandon based on status
+
+Goals run every 15 min in background. Check progress with /orders.
+
 Use IDs from LIVE CONTEXT when updating/deleting. You may chain multiple :::ACTION::: tags in one response.
-CONFIRM-gated (auto-queued to Inbox): deletes, award_xp ≥500, vault updates.`;
+CONFIRM-gated (auto-queued to Inbox): deletes, award_xp ≥500, vault updates, create_product.`;
 }
 
 // ─────────────────────────────────────────────────────────────
