@@ -53,7 +53,7 @@ async function generateProductContent(
     },
     body: JSON.stringify({
       model: "claude-sonnet-4-6",
-      max_tokens: 4000,
+      max_tokens: 8000,
       system: `You are creating a premium digital product. Write with authority, specificity, and practical depth. No filler. Target: ${audience || "ambitious builders"}. Format: ${formats[category] ?? formats.guide}`,
       messages: [{
         role: "user",
@@ -246,9 +246,10 @@ async function generatePDF(
 
     } else if (block.type === "bullet") {
       const lines = wrapText(block.text, regular, 10.5, contentW - 16);
-      ensureSpace(lines.length * 16 + 4);
-      page.drawText("•", { x: margin, y, size: 10.5, font: bold, color: purple });
+      ensureSpace(32);
+      page.drawText("-", { x: margin, y, size: 10.5, font: bold, color: purple });
       for (const line of lines) {
+        if (y - 16 < margin + 30) { page = ensureSpace(16); }
         page.drawText(line, { x: margin + 14, y, size: 10.5, font: regular, color: dark });
         y -= 16;
       }
@@ -256,8 +257,9 @@ async function generatePDF(
 
     } else if (block.type === "body") {
       const lines = wrapText(block.text, regular, 11, contentW);
-      ensureSpace(lines.length * 17 + 8);
+      ensureSpace(25);
       for (const line of lines) {
+        if (y - 17 < margin + 30) { page = ensureSpace(17); }
         page.drawText(line, { x: margin, y, size: 11, font: regular, color: dark });
         y -= 17;
       }
