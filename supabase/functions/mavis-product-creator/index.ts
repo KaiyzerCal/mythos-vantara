@@ -483,6 +483,7 @@ Deno.serve(async (req) => {
       stripe_price_id: stripePriceId,
       payment_link: paymentLink,
       pdf_url: pdfUrl,
+      platform,
       status: "active",
     }).eq("id", productId);
 
