@@ -562,6 +562,392 @@ export type Database = {
         }
         Relationships: []
       }
+      mavis_consolidation_log: {
+        Row: {
+          created_at: string | null
+          id: string
+          knowledge_entries_created: number | null
+          messages_processed: number | null
+          session_date: string
+          summary: string | null
+          tacit_entries_created: number | null
+          user_id: string
+        }
+        Insert: {
+          created_at?: string | null
+          id?: string
+          knowledge_entries_created?: number | null
+          messages_processed?: number | null
+          session_date: string
+          summary?: string | null
+          tacit_entries_created?: number | null
+          user_id: string
+        }
+        Update: {
+          created_at?: string | null
+          id?: string
+          knowledge_entries_created?: number | null
+          messages_processed?: number | null
+          session_date?: string
+          summary?: string | null
+          tacit_entries_created?: number | null
+          user_id?: string
+        }
+        Relationships: []
+      }
+      mavis_knowledge: {
+        Row: {
+          category: string
+          content: string
+          created_at: string | null
+          id: string
+          last_referenced: string | null
+          related_ids: string[] | null
+          tags: string[] | null
+          title: string
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          category: string
+          content: string
+          created_at?: string | null
+          id?: string
+          last_referenced?: string | null
+          related_ids?: string[] | null
+          tags?: string[] | null
+          title: string
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          category?: string
+          content?: string
+          created_at?: string | null
+          id?: string
+          last_referenced?: string | null
+          related_ids?: string[] | null
+          tags?: string[] | null
+          title?: string
+          updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
+      mavis_memory: {
+        Row: {
+          consolidated: boolean | null
+          content: string
+          created_at: string | null
+          id: string
+          importance_score: number | null
+          role: string
+          session_id: string
+          timestamp: number
+          user_id: string
+        }
+        Insert: {
+          consolidated?: boolean | null
+          content: string
+          created_at?: string | null
+          id?: string
+          importance_score?: number | null
+          role: string
+          session_id: string
+          timestamp: number
+          user_id: string
+        }
+        Update: {
+          consolidated?: boolean | null
+          content?: string
+          created_at?: string | null
+          id?: string
+          importance_score?: number | null
+          role?: string
+          session_id?: string
+          timestamp?: number
+          user_id?: string
+        }
+        Relationships: []
+      }
+      mavis_products: {
+        Row: {
+          audience: string | null
+          category: string | null
+          content: string
+          created_at: string | null
+          description: string | null
+          gumroad_product_id: string | null
+          gumroad_url: string | null
+          id: string
+          payment_link: string | null
+          pdf_url: string | null
+          platform: string | null
+          price_cents: number
+          revenue_total: number
+          sales_count: number
+          status: string
+          stripe_price_id: string | null
+          stripe_product_id: string | null
+          title: string
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          audience?: string | null
+          category?: string | null
+          content: string
+          created_at?: string | null
+          description?: string | null
+          gumroad_product_id?: string | null
+          gumroad_url?: string | null
+          id?: string
+          payment_link?: string | null
+          pdf_url?: string | null
+          platform?: string | null
+          price_cents?: number
+          revenue_total?: number
+          sales_count?: number
+          status?: string
+          stripe_price_id?: string | null
+          stripe_product_id?: string | null
+          title: string
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          audience?: string | null
+          category?: string | null
+          content?: string
+          created_at?: string | null
+          description?: string | null
+          gumroad_product_id?: string | null
+          gumroad_url?: string | null
+          id?: string
+          payment_link?: string | null
+          pdf_url?: string | null
+          platform?: string | null
+          price_cents?: number
+          revenue_total?: number
+          sales_count?: number
+          status?: string
+          stripe_price_id?: string | null
+          stripe_product_id?: string | null
+          title?: string
+          updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
+      mavis_revenue: {
+        Row: {
+          amount: number
+          created_at: string | null
+          currency: string | null
+          description: string | null
+          gumroad_sale_id: string | null
+          id: string
+          source: string
+          stripe_payment_id: string | null
+          task_id: string | null
+          user_id: string
+        }
+        Insert: {
+          amount: number
+          created_at?: string | null
+          currency?: string | null
+          description?: string | null
+          gumroad_sale_id?: string | null
+          id?: string
+          source: string
+          stripe_payment_id?: string | null
+          task_id?: string | null
+          user_id: string
+        }
+        Update: {
+          amount?: number
+          created_at?: string | null
+          currency?: string | null
+          description?: string | null
+          gumroad_sale_id?: string | null
+          id?: string
+          source?: string
+          stripe_payment_id?: string | null
+          task_id?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "mavis_revenue_task_id_fkey"
+            columns: ["task_id"]
+            isOneToOne: false
+            referencedRelation: "mavis_tasks"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      mavis_skill_definitions: {
+        Row: {
+          created_at: string | null
+          description: string
+          id: string
+          invocation_count: number
+          is_active: boolean
+          keywords: string[]
+          name: string
+          prompt_template: string
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          created_at?: string | null
+          description: string
+          id?: string
+          invocation_count?: number
+          is_active?: boolean
+          keywords?: string[]
+          name: string
+          prompt_template: string
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          created_at?: string | null
+          description?: string
+          id?: string
+          invocation_count?: number
+          is_active?: boolean
+          keywords?: string[]
+          name?: string
+          prompt_template?: string
+          updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
+      mavis_social_posts: {
+        Row: {
+          content: string
+          created_at: string | null
+          engagement: Json | null
+          id: string
+          persona: string
+          platform: string
+          posted_at: string | null
+          status: string
+          thread_parent_id: string | null
+          tweet_id: string | null
+          user_id: string
+        }
+        Insert: {
+          content: string
+          created_at?: string | null
+          engagement?: Json | null
+          id?: string
+          persona?: string
+          platform?: string
+          posted_at?: string | null
+          status?: string
+          thread_parent_id?: string | null
+          tweet_id?: string | null
+          user_id: string
+        }
+        Update: {
+          content?: string
+          created_at?: string | null
+          engagement?: Json | null
+          id?: string
+          persona?: string
+          platform?: string
+          posted_at?: string | null
+          status?: string
+          thread_parent_id?: string | null
+          tweet_id?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
+      mavis_tacit: {
+        Row: {
+          category: string
+          confidence: number | null
+          created_at: string | null
+          id: string
+          key: string
+          source: string | null
+          updated_at: string | null
+          user_id: string
+          value: string
+        }
+        Insert: {
+          category: string
+          confidence?: number | null
+          created_at?: string | null
+          id?: string
+          key: string
+          source?: string | null
+          updated_at?: string | null
+          user_id: string
+          value: string
+        }
+        Update: {
+          category?: string
+          confidence?: number | null
+          created_at?: string | null
+          id?: string
+          key?: string
+          source?: string | null
+          updated_at?: string | null
+          user_id?: string
+          value?: string
+        }
+        Relationships: []
+      }
+      mavis_tasks: {
+        Row: {
+          completed_at: string | null
+          created_at: string | null
+          description: string | null
+          id: string
+          payload: Json | null
+          result: Json | null
+          revenue_generated: number | null
+          scheduled_at: string | null
+          started_at: string | null
+          status: string
+          type: string
+          user_id: string
+        }
+        Insert: {
+          completed_at?: string | null
+          created_at?: string | null
+          description?: string | null
+          id?: string
+          payload?: Json | null
+          result?: Json | null
+          revenue_generated?: number | null
+          scheduled_at?: string | null
+          started_at?: string | null
+          status?: string
+          type: string
+          user_id: string
+        }
+        Update: {
+          completed_at?: string | null
+          created_at?: string | null
+          description?: string | null
+          id?: string
+          payload?: Json | null
+          result?: Json | null
+          revenue_generated?: number | null
+          scheduled_at?: string | null
+          started_at?: string | null
+          status?: string
+          type?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       memories: {
         Row: {
           content: string
