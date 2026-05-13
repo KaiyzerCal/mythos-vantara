@@ -509,14 +509,97 @@ async function executeActions(actions: ParsedAction[], chatId: string): Promise<
 }
 
 // ─────────────────────────────────────────────────────────────
+// PERSONA SESSION STATE
+// Active persona is stored in mavis_memory with session_id "telegram-state-<chatId>"
+// so it persists across restarts.
+// ─────────────────────────────────────────────────────────────
+
+const STATE_PREFIX = "telegram-state-";
+
+interface PersonaState {
+  persona_id: string;
+  persona_name: string;
+}
+
+async function getActivePersona(chatId: string): Promise<PersonaState | null> {
+  try {
+    const { data } = await supabase
+      .from("mavis_memory")
+      .select("content")
+      .eq("user_id", OPERATOR_USER_ID)
+      .eq("session_id", `${STATE_PREFIX}${chatId}`)
+      .eq("role", "system")
+      .order("timestamp", { ascending: false })
+      .limit(1)
+      .single();
+    if (!data?.content) return null;
+    return JSON.parse(data.content) as PersonaState;
+  } catch { return null; }
+}
+
+async function setActivePersona(chatId: string, state: PersonaState | null): Promise<void> {
+  try {
+    // Delete any existing state first
+    await supabase
+      .from("mavis_memory")
+      .delete()
+      .eq("user_id", OPERATOR_USER_ID)
+      .eq("session_id", `${STATE_PREFIX}${chatId}`)
+      .eq("role", "system");
+
+    if (state) {
+      await supabase.from("mavis_memory").insert({
+        user_id: OPERATOR_USER_ID,
+        session_id: `${STATE_PREFIX}${chatId}`,
+        role: "system",
+        content: JSON.stringify(state),
+        timestamp: Date.now(),
+      });
+    }
+  } catch { /* non-fatal */ }
+}
+
+// ─────────────────────────────────────────────────────────────
+// PERSONA MESSAGE ROUTING
+// Calls mavis-persona-router directly — full relationship state,
+// semantic memory, bond/trust/mood, and app context.
+// ─────────────────────────────────────────────────────────────
+
+async function callPersona(personaId: string, message: string, chatId: string): Promise<string> {
+  const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+  const serviceKey  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+
+  const res = await fetch(`${supabaseUrl}/functions/v1/mavis-persona-router`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${serviceKey}`,
+    },
+    body: JSON.stringify({
+      persona_id: personaId,
+      user_id: OPERATOR_USER_ID,
+      message,
+      chat_id: chatId,
+    }),
+  });
+
+  if (!res.ok) {
+    const errText = await res.text();
+    throw new Error(`persona-router error ${res.status}: ${errText}`);
+  }
+  const data = await res.json();
+  return String(data?.reply ?? data?.content ?? data?.message ?? "[No response from persona]");
+}
+
+// ─────────────────────────────────────────────────────────────
 // COMMAND HANDLERS
 // ─────────────────────────────────────────────────────────────
 
-async function handleCommand(command: string, chatId: string): Promise<string | null> {
+async function handleCommand(command: string, chatId: string, fullText: string): Promise<string | null> {
   switch (command.toLowerCase()) {
     case "/start":
     case "/help":
-      return `*MAVIS Online — Telegram Interface*\n\nI have full access to your Vantara data. Ask me anything.\n\nCommands:\n/brief — morning brief\n/quests — active quests\n/energy — energy status\n/revenue — revenue report\n/tasks — run pending tasks now\n\nOr just talk to me.`;
+      return `MAVIS Online — Telegram Interface\n\nI have full access to your Vantara data. Ask me anything.\n\nCommands:\n/brief — morning brief\n/quests — active quests\n/energy — energy status\n/revenue — revenue report\n/tasks — run pending tasks now\n/personas — list your personas\n/switch [name] — talk to a persona\n/mavis — return to MAVIS\n\nOr just talk to me.`;
 
     case "/brief":
       return null; // Let MAVIS generate naturally with context
@@ -524,23 +607,22 @@ async function handleCommand(command: string, chatId: string): Promise<string | 
     case "/quests": {
       const { data } = await supabase.from("quests").select("title,status,deadline").eq("user_id", OPERATOR_USER_ID).eq("status", "active").limit(10);
       if (!data?.length) return "No active quests.";
-      return `*Active Quests (${data.length})*\n${data.map((q: any) => `• ${q.title}${q.deadline ? ` — due ${q.deadline.slice(0, 10)}` : ""}`).join("\n")}`;
+      return `Active Quests (${data.length})\n${data.map((q: any) => `• ${q.title}${q.deadline ? ` — due ${q.deadline.slice(0, 10)}` : ""}`).join("\n")}`;
     }
 
     case "/energy": {
       const { data } = await supabase.from("energy_systems").select("type,current_value,max_value,status").eq("user_id", OPERATOR_USER_ID);
       if (!data?.length) return "No energy systems logged.";
-      return `*Energy Status*\n${data.map((e: any) => `• ${e.type}: ${e.current_value}/${e.max_value} (${e.status})`).join("\n")}`;
+      return `Energy Status\n${data.map((e: any) => `• ${e.type}: ${e.current_value}/${e.max_value} (${e.status})`).join("\n")}`;
     }
 
     case "/revenue": {
       const { data } = await supabase.from("mavis_revenue").select("amount,source").eq("user_id", OPERATOR_USER_ID);
       const total = (data ?? []).reduce((s: number, r: any) => s + Number(r.amount), 0);
-      return `*Revenue Total*\n$${total.toFixed(2)} across ${data?.length ?? 0} events.`;
+      return `Revenue Total\n$${total.toFixed(2)} across ${data?.length ?? 0} events.`;
     }
 
     case "/tasks": {
-      // Trigger task executor
       const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
       const serviceKey  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
       await fetch(`${supabaseUrl}/functions/v1/mavis-task-executor`, {
@@ -548,6 +630,44 @@ async function handleCommand(command: string, chatId: string): Promise<string | 
         headers: { Authorization: `Bearer ${serviceKey}` },
       });
       return "Task executor fired. Check Inbox for results.";
+    }
+
+    case "/personas": {
+      const { data } = await supabase
+        .from("personas")
+        .select("name, role, archetype")
+        .eq("user_id", OPERATOR_USER_ID)
+        .eq("is_active", true)
+        .order("created_at", { ascending: false })
+        .limit(15);
+      if (!data?.length) return "No personas forged yet. Ask MAVIS to create one.";
+      return `Your Personas\n${data.map((p: any) => `• ${p.name} — ${p.role}${p.archetype ? ` (${p.archetype})` : ""}`).join("\n")}\n\nUse /switch [name] to talk to one.`;
+    }
+
+    case "/mavis": {
+      const current = await getActivePersona(chatId);
+      await setActivePersona(chatId, null);
+      if (current) return `Returning to MAVIS. ${current.persona_name} is standing by.`;
+      return "MAVIS online. What do you need?";
+    }
+
+    case "/switch": {
+      const nameQuery = fullText.replace(/^\/switch\s*/i, "").trim();
+      if (!nameQuery) return "Usage: /switch [persona name]";
+
+      const { data } = await supabase
+        .from("personas")
+        .select("id, name, role")
+        .eq("user_id", OPERATOR_USER_ID)
+        .eq("is_active", true)
+        .ilike("name", `%${nameQuery}%`)
+        .limit(1)
+        .single();
+
+      if (!data) return `No persona found matching "${nameQuery}". Use /personas to see your roster.`;
+
+      await setActivePersona(chatId, { persona_id: data.id, persona_name: data.name });
+      return `Switching to ${data.name} (${data.role}). Say hi — they remember everything.`;
     }
 
     default:
@@ -588,7 +708,7 @@ Deno.serve(async (req) => {
   // ── Commands ───────────────────────────────────────────────
   if (text.startsWith("/")) {
     const command = text.split(" ")[0].split("@")[0]; // strip bot username if present
-    const cmdResponse = await handleCommand(command, chatId);
+    const cmdResponse = await handleCommand(command, chatId, text);
     if (cmdResponse) {
       await sendPlain(chatId, cmdResponse);
       return new Response("OK");
@@ -600,7 +720,17 @@ Deno.serve(async (req) => {
   await sendTyping(chatId);
 
   try {
-    // ── Load history + context ─────────────────────────────
+    // ── Check for active persona ───────────────────────────
+    const activePersona = await getActivePersona(chatId);
+
+    if (activePersona) {
+      // ── PERSONA MODE: route through mavis-persona-router ──
+      const reply = await callPersona(activePersona.persona_id, text, chatId);
+      await sendPlain(chatId, reply);
+      return new Response("OK");
+    }
+
+    // ── MAVIS MODE: full pipeline ──────────────────────────
     const [history, context] = await Promise.all([
       loadHistory(chatId),
       loadContext(),
@@ -648,7 +778,7 @@ Deno.serve(async (req) => {
       const parts: string[] = [];
       if (executed > 0) parts.push(`${executed} action${executed !== 1 ? "s" : ""} executed`);
       if (queued > 0)   parts.push(`${queued} queued in Inbox`);
-      if (parts.length) actionSummary = `\n\n_[${parts.join(" · ")}]_`;
+      if (parts.length) actionSummary = `\n\n[${parts.join(" · ")}]`;
     }
 
     // ── Strip action tags and send ─────────────────────────
@@ -658,7 +788,7 @@ Deno.serve(async (req) => {
     await persistMessage(chatId, "assistant", cleanResponse);
 
     // ── Reply ──────────────────────────────────────────────
-    await sendPlain(chatId, cleanResponse + actionSummary.replace(/_/g, ""));
+    await sendPlain(chatId, cleanResponse + actionSummary);
 
   } catch (err) {
     console.error("[Telegram] Error:", err);
