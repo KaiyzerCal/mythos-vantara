@@ -509,6 +509,151 @@ async function executeActions(actions: ParsedAction[], chatId: string): Promise<
 }
 
 // ─────────────────────────────────────────────────────────────
+// TELEGRAM FILE DOWNLOAD
+// ─────────────────────────────────────────────────────────────
+
+async function downloadTelegramFile(fileId: string): Promise<{ bytes: ArrayBuffer; filePath: string } | null> {
+  try {
+    const infoRes = await fetch(`${TELEGRAM_API}/getFile?file_id=${encodeURIComponent(fileId)}`);
+    const info = await infoRes.json();
+    if (!info.ok || !info.result?.file_path) return null;
+    const filePath: string = info.result.file_path;
+    const fileRes = await fetch(`https://api.telegram.org/file/bot${BOT_TOKEN}/${filePath}`);
+    if (!fileRes.ok) return null;
+    return { bytes: await fileRes.arrayBuffer(), filePath };
+  } catch { return null; }
+}
+
+// ─────────────────────────────────────────────────────────────
+// VOICE → TEXT  (OpenAI Whisper, falls back to ElevenLabs Scribe)
+// ─────────────────────────────────────────────────────────────
+
+async function transcribeVoice(fileId: string): Promise<string | null> {
+  const dl = await downloadTelegramFile(fileId);
+  if (!dl) return null;
+
+  const ext = dl.filePath.split(".").pop() ?? "ogg";
+  const mimeMap: Record<string, string> = {
+    ogg: "audio/ogg", mp3: "audio/mpeg", mp4: "audio/mp4",
+    m4a: "audio/mp4", wav: "audio/wav", webm: "audio/webm",
+  };
+  const mime = mimeMap[ext] ?? "audio/ogg";
+  const blob = new Blob([dl.bytes], { type: mime });
+
+  // Try OpenAI Whisper first
+  if (AI_KEYS.openai) {
+    try {
+      const fd = new FormData();
+      fd.append("file", blob, `voice.${ext}`);
+      fd.append("model", "whisper-1");
+      fd.append("language", "en");
+      const res = await fetch("https://api.openai.com/v1/audio/transcriptions", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${AI_KEYS.openai}` },
+        body: fd,
+      });
+      if (res.ok) {
+        const d = await res.json();
+        return String(d.text ?? "").trim() || null;
+      }
+    } catch { /* fall through */ }
+  }
+
+  // Fallback: ElevenLabs Scribe (if key exists)
+  const elevenKey = Deno.env.get("ELEVENLABS_API_KEY");
+  if (elevenKey) {
+    try {
+      const fd = new FormData();
+      fd.append("file", blob, `voice.${ext}`);
+      fd.append("model_id", "scribe_v1");
+      const res = await fetch("https://api.elevenlabs.io/v1/speech-to-text", {
+        method: "POST",
+        headers: { "xi-api-key": elevenKey },
+        body: fd,
+      });
+      if (res.ok) {
+        const d = await res.json();
+        return String(d.text ?? "").trim() || null;
+      }
+    } catch { /* give up */ }
+  }
+
+  return null;
+}
+
+// ─────────────────────────────────────────────────────────────
+// PHOTO → DESCRIPTION  (Claude Haiku vision)
+// ─────────────────────────────────────────────────────────────
+
+async function describePhoto(fileId: string, caption?: string): Promise<string> {
+  if (!AI_KEYS.claude) return "[Photo received — no vision key configured]";
+  const dl = await downloadTelegramFile(fileId);
+  if (!dl) return "[Photo received — could not download]";
+
+  const ext = dl.filePath.split(".").pop()?.toLowerCase() ?? "jpg";
+  const mediaType = ext === "png" ? "image/png" : ext === "gif" ? "image/gif" : ext === "webp" ? "image/webp" : "image/jpeg";
+
+  // Convert ArrayBuffer to base64 (Deno-safe chunked approach)
+  const uint8 = new Uint8Array(dl.bytes);
+  let binary = "";
+  for (let i = 0; i < uint8.length; i += 8192) {
+    binary += String.fromCharCode(...uint8.subarray(i, i + 8192));
+  }
+  const b64 = btoa(binary);
+
+  const userQuestion = caption?.trim() || "Describe this image in detail. What do you see?";
+
+  try {
+    const res = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": AI_KEYS.claude,
+        "anthropic-version": "2023-06-01",
+      },
+      body: JSON.stringify({
+        model: "claude-3-5-haiku-latest",
+        max_tokens: 1024,
+        messages: [{
+          role: "user",
+          content: [
+            { type: "image", source: { type: "base64", media_type: mediaType, data: b64 } },
+            { type: "text", text: userQuestion },
+          ],
+        }],
+      }),
+    });
+    if (!res.ok) return `[Photo analysis failed: ${res.status}]`;
+    const d = await res.json();
+    return d.content?.[0]?.text ?? "[No description returned]";
+  } catch (e) {
+    return `[Photo analysis error: ${(e as Error).message}]`;
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+// DOCUMENT → TEXT  (text files read directly; others acknowledged)
+// ─────────────────────────────────────────────────────────────
+
+async function extractDocument(fileId: string, fileName: string, mimeType: string): Promise<string> {
+  const isText = mimeType.startsWith("text/") ||
+    ["application/json", "application/xml", "application/javascript", "application/typescript"].includes(mimeType);
+
+  if (isText) {
+    const dl = await downloadTelegramFile(fileId);
+    if (!dl) return `[Document "${fileName}" — download failed]`;
+    try {
+      const text = new TextDecoder().decode(dl.bytes);
+      const truncated = text.length > 12000 ? text.slice(0, 12000) + "\n…(truncated)" : text;
+      return `[Document: ${fileName}]\n${truncated}`;
+    } catch { return `[Document "${fileName}" — could not decode]`; }
+  }
+
+  // For PDFs and other binary types, just acknowledge
+  return `[${fileName} (${mimeType}) received — I can read .txt, .json, .md, .csv files inline. For PDFs, upload through the app for full extraction.]`;
+}
+
+// ─────────────────────────────────────────────────────────────
 // PERSONA SESSION STATE
 // Active persona is stored in mavis_memory with session_id "telegram-state-<chatId>"
 // so it persists across restarts.
@@ -691,7 +836,6 @@ Deno.serve(async (req) => {
   if (!message) return new Response("OK"); // callback queries, channel posts, etc. — ignore
 
   const chatId   = String(message.chat?.id ?? "");
-  const text     = message.text ?? "";
   const fromId   = String(message.from?.id ?? "");
 
   // ── Identity gate ─────────────────────────────────────────
@@ -700,15 +844,52 @@ Deno.serve(async (req) => {
     return new Response("OK");
   }
 
-  if (!text.trim()) {
-    await sendPlain(chatId, "Send text to talk to MAVIS.");
+  // ── Resolve message text from all supported input types ───
+  // text → direct message
+  // caption → text attached to a photo/document
+  // voice/audio → transcribe with Whisper
+  // photo → describe with Claude vision
+  // document → extract text content
+  let inputText = (message.text ?? message.caption ?? "").trim();
+  let mediaContext = ""; // extra context injected before user message for MAVIS
+
+  if (!inputText && message.voice) {
+    await sendTyping(chatId);
+    const transcript = await transcribeVoice(message.voice.file_id);
+    if (!transcript) {
+      await sendPlain(chatId, "Couldn't transcribe that voice message. Check that OPENAI_API is set, or type it instead.");
+      return new Response("OK");
+    }
+    inputText = transcript;
+    mediaContext = "[Voice message transcribed by Whisper]\n";
+  } else if (!inputText && message.audio) {
+    await sendTyping(chatId);
+    const transcript = await transcribeVoice(message.audio.file_id);
+    inputText = transcript ?? "[Audio file received — transcription failed]";
+    if (transcript) mediaContext = "[Audio transcribed by Whisper]\n";
+  } else if (message.photo) {
+    await sendTyping(chatId);
+    const largest = message.photo[message.photo.length - 1];
+    const description = await describePhoto(largest.file_id, inputText || undefined);
+    mediaContext = `[Photo shared by operator — vision analysis below]\n${description}\n\n`;
+    if (!inputText) inputText = "I just sent you a photo.";
+  } else if (message.document) {
+    await sendTyping(chatId);
+    const doc = message.document;
+    const extracted = await extractDocument(doc.file_id, doc.file_name ?? "file", doc.mime_type ?? "application/octet-stream");
+    mediaContext = extracted + "\n\n";
+    if (!inputText) inputText = `I uploaded a file: ${doc.file_name ?? "file"}`;
+  }
+
+  if (!inputText) {
+    await sendPlain(chatId, "Send text, a voice message, a photo, or a file.");
     return new Response("OK");
   }
 
   // ── Commands ───────────────────────────────────────────────
-  if (text.startsWith("/")) {
-    const command = text.split(" ")[0].split("@")[0]; // strip bot username if present
-    const cmdResponse = await handleCommand(command, chatId, text);
+  if (message.text?.startsWith("/")) {
+    const command = message.text.split(" ")[0].split("@")[0];
+    const cmdResponse = await handleCommand(command, chatId, message.text);
     if (cmdResponse) {
       await sendPlain(chatId, cmdResponse);
       return new Response("OK");
@@ -725,7 +906,8 @@ Deno.serve(async (req) => {
 
     if (activePersona) {
       // ── PERSONA MODE: route through mavis-persona-router ──
-      const reply = await callPersona(activePersona.persona_id, text, chatId);
+      const personaMessage = mediaContext ? `${mediaContext}${inputText}` : inputText;
+      const reply = await callPersona(activePersona.persona_id, personaMessage, chatId);
       await sendPlain(chatId, reply);
       return new Response("OK");
     }
@@ -737,12 +919,15 @@ Deno.serve(async (req) => {
     ]);
 
     // ── Persist user message ───────────────────────────────
-    await persistMessage(chatId, "user", text);
+    await persistMessage(chatId, "user", inputText);
 
     // ── Build messages array ───────────────────────────────
+    // mediaContext (photo description, transcript note, file content) is prepended
+    // so MAVIS has full context but the persisted message stays clean.
+    const userContent = mediaContext ? `${mediaContext}${inputText}` : inputText;
     const messages = [
       ...history,
-      { role: "user", content: text },
+      { role: "user", content: userContent },
     ];
 
     // ── Call MAVIS ─────────────────────────────────────────
