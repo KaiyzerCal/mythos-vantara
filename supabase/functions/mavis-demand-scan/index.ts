@@ -2,7 +2,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-const XAI_API_KEY = Deno.env.get("XAI_API_KEY");
+const GROK_API_KEY = Deno.env.get("GROK_API_KEY") ?? Deno.env.get("XAI_API_KEY");
 const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY");
 const TELEGRAM_OPERATOR_USER_ID = Deno.env.get("TELEGRAM_OPERATOR_USER_ID");
 
@@ -27,10 +27,10 @@ async function callGrok(prompt: string): Promise<string> {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${XAI_API_KEY}`,
+      Authorization: `Bearer ${GROK_API_KEY}`,
     },
     body: JSON.stringify({
-      model: "grok-beta",
+      model: "grok-3-mini",
       messages: [{ role: "user", content: prompt }],
       temperature: 0.7,
     }),
@@ -52,7 +52,7 @@ async function callClaude(prompt: string): Promise<string> {
       "anthropic-version": "2023-06-01",
     },
     body: JSON.stringify({
-      model: "claude-haiku-4-5-20251001",
+      model: "claude-3-5-haiku-latest",
       max_tokens: 2048,
       messages: [{ role: "user", content: prompt }],
     }),
@@ -77,7 +77,7 @@ Deno.serve(async (req) => {
     let userId: string | undefined;
     try {
       const body = await req.json();
-      userId = body?.userId;
+      userId = body?.userId ?? body?.user_id;
     } catch {
       // body is optional — ignore parse errors
     }
@@ -154,7 +154,7 @@ Respond with ONLY the JSON array, no explanation.`;
 
     // 4. Call AI (Grok preferred, Claude fallback)
     let rawResponse: string;
-    if (XAI_API_KEY) {
+    if (GROK_API_KEY) {
       rawResponse = await callGrok(prompt);
     } else if (ANTHROPIC_API_KEY) {
       rawResponse = await callClaude(prompt);
