@@ -123,8 +123,8 @@ async function loadContext(): Promise<string> {
     supabase.from("quests").select("id,title,status,type,deadline").eq("user_id", uid).eq("status", "active").limit(8),
     supabase.from("tasks").select("id,title,status,recurrence,streak").eq("user_id", uid).eq("status", "active").limit(10),
     supabase.from("energy_systems").select("type,current_value,max_value,status").eq("user_id", uid).limit(5),
-    supabase.from("skills").select("title,level,category").eq("user_id", uid).order("level", { ascending: false }).limit(8),
-    supabase.from("rankings_profiles").select("title,tier,rank_score").eq("user_id", uid).limit(5),
+    supabase.from("skills").select("name,category,tier,proficiency").eq("user_id", uid).order("proficiency", { ascending: false }).limit(8),
+    supabase.from("rankings_profiles").select("display_name,role,rank,gpr").eq("user_id", uid).limit(5),
     supabase.from("mavis_revenue").select("amount,source,created_at").eq("user_id", uid).order("created_at", { ascending: false }).limit(5),
     supabase.from("mavis_tacit").select("category,key,value").eq("user_id", uid).eq("category", "hard_rule"),
   ]);
@@ -160,11 +160,11 @@ async function loadContext(): Promise<string> {
   }
 
   if (skills.length > 0) {
-    lines.push(`TOP SKILLS: ${skills.map((s: any) => `${s.title} Lv${s.level}`).join(", ")}`);
+    lines.push(`TOP SKILLS: ${skills.map((s: any) => `${s.name} T${s.tier ?? "?"} ${s.proficiency ?? 0}%`).join(", ")}`);
   }
 
   if (rankings.length > 0) {
-    lines.push(`RANKINGS: ${rankings.map((r: any) => `${r.title} T${r.tier}`).join(", ")}`);
+    lines.push(`RANKINGS: ${rankings.map((r: any) => `${r.display_name} [${r.role}] ${r.rank ?? ""} GPR:${r.gpr ?? 0}`).join(", ")}`);
   }
 
   if (totalRevenue > 0) {
