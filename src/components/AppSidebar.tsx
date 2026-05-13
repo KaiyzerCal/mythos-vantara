@@ -3,7 +3,7 @@ import {
   LayoutDashboard, User, Target, CheckSquare, Users, Flame,
   Zap, Sparkles, Package, BookOpen, BookLock, ShoppingBag,
   Medal, TowerControl, Activity, Settings, ChevronLeft, ChevronRight,
-  LogOut, Cpu, Shield, HeartPulse,
+  LogOut, Cpu, Shield, HeartPulse, Inbox,
 } from "lucide-react";
 import { useState, useContext } from "react";
 import { motion, AnimatePresence } from "framer-motion";
@@ -15,6 +15,7 @@ const PRIMARY_NAV = [
   { to: "/", icon: LayoutDashboard, label: "Dashboard" },
   { to: "/character", icon: User, label: "Character" },
   { to: "/mavis", icon: Cpu, label: "MAVIS" },
+  { to: "/inbox", icon: Inbox, label: "Inbox" },
   { to: "/quests", icon: Target, label: "Quests" },
   { to: "/councils", icon: Users, label: "Councils" },
 ];

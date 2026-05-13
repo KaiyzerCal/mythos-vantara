@@ -890,7 +890,14 @@ async function handleCommand(command: string, chatId: string, fullText: string):
         },
         body: JSON.stringify({ user_id: OPERATOR_USER_ID }),
       });
-      if (!res.ok) return `Demand scan failed (${res.status}). Check secrets.`;
+      if (!res.ok) {
+        try {
+          const errData = await res.json();
+          return `Demand scan failed (${res.status}): ${errData.error ?? errData.message ?? "unknown error"}`;
+        } catch {
+          return `Demand scan failed (${res.status}).`;
+        }
+      }
       const data = await res.json();
       const proposals = (data.proposals ?? []) as any[];
       if (!proposals.length) return "No strong product opportunities detected right now. Try again after more activity.";
