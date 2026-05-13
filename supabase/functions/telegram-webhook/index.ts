@@ -125,62 +125,107 @@ async function loadContext(): Promise<string> {
   const [
     profileRes, questsRes, tasksRes, energyRes,
     skillsRes, rankingsRes, revenueRes, tacitRes,
+    alliesRes, councilRes, transformRes, personasRes,
   ] = await Promise.all([
     supabase.from("profiles").select("*").eq("id", uid).single(),
-    supabase.from("quests").select("id,title,status,type,deadline").eq("user_id", uid).eq("status", "active").limit(8),
-    supabase.from("tasks").select("id,title,status,recurrence,streak").eq("user_id", uid).eq("status", "active").limit(10),
-    supabase.from("energy_systems").select("type,current_value,max_value,status").eq("user_id", uid).limit(5),
-    supabase.from("skills").select("name,category,tier,proficiency").eq("user_id", uid).order("proficiency", { ascending: false }).limit(8),
-    supabase.from("rankings_profiles").select("display_name,role,rank,gpr").eq("user_id", uid).limit(5),
-    supabase.from("mavis_revenue").select("amount,source,created_at").eq("user_id", uid).order("created_at", { ascending: false }).limit(5),
-    supabase.from("mavis_tacit").select("category,key,value").eq("user_id", uid).eq("category", "hard_rule"),
+    supabase.from("quests").select("id,title,status,type,deadline,xp_reward").eq("user_id", uid).eq("status", "active").limit(10),
+    supabase.from("tasks").select("id,title,status,recurrence,streak,xp_reward").eq("user_id", uid).eq("status", "active").limit(12),
+    supabase.from("energy_systems").select("id,type,current_value,max_value,status").eq("user_id", uid).limit(6),
+    supabase.from("skills").select("id,name,category,tier,proficiency").eq("user_id", uid).order("proficiency", { ascending: false }).limit(10),
+    supabase.from("rankings_profiles").select("display_name,role,rank,gpr,is_self").eq("user_id", uid).limit(6),
+    supabase.from("mavis_revenue").select("amount,source,created_at").eq("user_id", uid).order("created_at", { ascending: false }).limit(8),
+    supabase.from("mavis_tacit").select("category,key,value,confidence").eq("user_id", uid).in("category", ["hard_rule", "preference", "lesson_learned", "workflow_habit"]).order("confidence", { ascending: false }).limit(20),
+    supabase.from("allies").select("name,relationship,specialty,affinity").eq("user_id", uid).order("affinity", { ascending: false }).limit(6),
+    supabase.from("councils").select("name,role,class,specialty").eq("user_id", uid).limit(8),
+    supabase.from("transformations").select("name,tier,form_order,unlocked,energy").eq("user_id", uid).order("form_order", { ascending: true }).limit(8),
+    supabase.from("personas").select("name,role,archetype").eq("user_id", uid).eq("is_active", true).limit(8),
   ]);
 
-  const profile = profileRes.data as any;
-  const quests  = (questsRes.data ?? []) as any[];
-  const tasks   = (tasksRes.data ?? []) as any[];
-  const energy  = (energyRes.data ?? []) as any[];
-  const skills  = (skillsRes.data ?? []) as any[];
-  const rankings = (rankingsRes.data ?? []) as any[];
-  const revenue = (revenueRes.data ?? []) as any[];
-  const hardRules = (tacitRes.data ?? []) as any[];
+  const profile     = profileRes.data as any;
+  const quests      = (questsRes.data ?? []) as any[];
+  const tasks       = (tasksRes.data ?? []) as any[];
+  const energy      = (energyRes.data ?? []) as any[];
+  const skills      = (skillsRes.data ?? []) as any[];
+  const rankings    = (rankingsRes.data ?? []) as any[];
+  const revenue     = (revenueRes.data ?? []) as any[];
+  const tacit       = (tacitRes.data ?? []) as any[];
+  const allies      = (alliesRes.data ?? []) as any[];
+  const council     = (councilRes.data ?? []) as any[];
+  const transforms  = (transformRes.data ?? []) as any[];
+  const personas    = (personasRes.data ?? []) as any[];
 
   const totalRevenue = revenue.reduce((s: number, r: any) => s + Number(r.amount), 0);
+  const recentRevenue = revenue.slice(0, 3);
 
+  const now = new Date();
   const lines: string[] = [];
 
+  // Temporal awareness
+  lines.push(`NOW: ${now.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" })} ${now.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", timeZone: "UTC" })} UTC`);
+
   if (profile) {
-    lines.push(`OPERATOR: ${profile.display_name ?? "Calvin"} | Level ${profile.level ?? "?"} | XP ${profile.xp ?? 0} | Form: ${profile.current_form ?? "Base"}`);
+    const selfRank = rankings.find((r: any) => r.is_self);
+    lines.push(`OPERATOR: ${profile.display_name ?? "Calvin"} | Level ${profile.level ?? "?"} | XP ${profile.xp ?? 0}/${profile.xp_to_next_level ?? "?"} | Form: ${profile.current_form ?? "Base"} | Rank: ${selfRank?.rank ?? profile.rank ?? "?"} | GPR: ${selfRank?.gpr ?? profile.gpr ?? "?"}`);
+    if (profile.fatigue != null) lines.push(`FATIGUE: ${profile.fatigue}% | BPM: ${profile.current_bpm ?? "?"} | Sync: ${profile.full_cowl_sync ?? "?"}%`);
   }
 
   if (quests.length > 0) {
-    lines.push(`ACTIVE QUESTS (${quests.length}): ${quests.map((q: any) => q.title).join(", ")}`);
+    lines.push(`ACTIVE QUESTS (${quests.length}): ${quests.map((q: any) => `${q.title} [${q.type}${q.deadline ? ` due ${q.deadline.slice(0, 10)}` : ""}]`).join(" | ")}`);
   }
 
-  const dailyHabits = tasks.filter((t: any) => t.recurrence === "daily");
-  if (dailyHabits.length > 0) {
-    lines.push(`DAILY HABITS: ${dailyHabits.map((t: any) => `${t.title} [streak:${t.streak ?? 0}]`).join(", ")}`);
+  const dailyTasks = tasks.filter((t: any) => t.recurrence === "daily");
+  const onceTasks  = tasks.filter((t: any) => t.recurrence !== "daily");
+  if (dailyTasks.length > 0) {
+    lines.push(`DAILY HABITS: ${dailyTasks.map((t: any) => `${t.title} [streak:${t.streak ?? 0}]`).join(", ")}`);
+  }
+  if (onceTasks.length > 0) {
+    lines.push(`ACTIVE TASKS: ${onceTasks.map((t: any) => t.title).join(", ")}`);
   }
 
   if (energy.length > 0) {
-    lines.push(`ENERGY: ${energy.map((e: any) => `${e.type} ${e.current_value}/${e.max_value} (${e.status})`).join(" | ")}`);
+    lines.push(`ENERGY: ${energy.map((e: any) => `${e.type} ${e.current_value}/${e.max_value} [${e.status}]`).join(" | ")}`);
   }
 
   if (skills.length > 0) {
-    lines.push(`TOP SKILLS: ${skills.map((s: any) => `${s.name} T${s.tier ?? "?"} ${s.proficiency ?? 0}%`).join(", ")}`);
+    lines.push(`TOP SKILLS: ${skills.map((s: any) => `${s.name} T${s.tier ?? "?"}(${s.proficiency ?? 0}%)`).join(", ")}`);
   }
 
-  if (rankings.length > 0) {
-    lines.push(`RANKINGS: ${rankings.map((r: any) => `${r.display_name} [${r.role}] ${r.rank ?? ""} GPR:${r.gpr ?? 0}`).join(", ")}`);
+  const npcs = rankings.filter((r: any) => !r.is_self);
+  if (npcs.length > 0) {
+    lines.push(`RANKINGS: ${npcs.map((r: any) => `${r.display_name}[${r.role}] ${r.rank ?? ""} GPR:${r.gpr ?? 0}`).join(", ")}`);
+  }
+
+  if (transforms.length > 0) {
+    const unlocked = transforms.filter((t: any) => t.unlocked);
+    lines.push(`FORMS: ${unlocked.length}/${transforms.length} unlocked | Current: ${profile?.current_form ?? "Base"}`);
+  }
+
+  if (council.length > 0) {
+    lines.push(`COUNCIL: ${council.map((c: any) => `${c.name}[${c.role}]`).join(", ")}`);
+  }
+
+  if (allies.length > 0) {
+    lines.push(`ALLIES: ${allies.map((a: any) => `${a.name}(${a.relationship}, affinity:${a.affinity ?? "?"})`).join(", ")}`);
+  }
+
+  if (personas.length > 0) {
+    lines.push(`NAVI ROSTER: ${personas.map((p: any) => `${p.name}[${p.role}]`).join(", ")} — use /switch [name] to talk to one`);
   }
 
   if (totalRevenue > 0) {
-    lines.push(`REVENUE TOTAL: $${totalRevenue.toFixed(2)}`);
+    lines.push(`REVENUE: $${totalRevenue.toFixed(2)} total | Recent: ${recentRevenue.map((r: any) => `$${Number(r.amount).toFixed(2)} via ${r.source}`).join(", ")}`);
   }
 
-  if (hardRules.length > 0) {
-    lines.push(`HARD RULES: ${hardRules.map((r: any) => `${r.key}: ${r.value}`).join(" | ")}`);
-  }
+  // Tacit knowledge — split by category
+  const hardRules   = tacit.filter((t: any) => t.category === "hard_rule");
+  const preferences = tacit.filter((t: any) => t.category === "preference");
+  const lessons     = tacit.filter((t: any) => t.category === "lesson_learned");
+  const habits      = tacit.filter((t: any) => t.category === "workflow_habit");
+
+  if (hardRules.length > 0)   lines.push(`HARD RULES: ${hardRules.map((r: any) => `${r.key}: ${r.value}`).join(" | ")}`);
+  if (preferences.length > 0) lines.push(`PREFERENCES: ${preferences.slice(0, 5).map((r: any) => `${r.key}: ${r.value}`).join(" | ")}`);
+  if (lessons.length > 0)     lines.push(`LESSONS: ${lessons.slice(0, 3).map((r: any) => `${r.value}`).join(" | ")}`);
+  if (habits.length > 0)      lines.push(`WORKFLOW: ${habits.slice(0, 3).map((r: any) => `${r.key}: ${r.value}`).join(" | ")}`);
 
   return lines.join("\n");
 }
@@ -191,48 +236,92 @@ async function loadContext(): Promise<string> {
 
 function buildSystemPrompt(context: string): string {
   return `You are MAVIS — Machine Autonomous Vantara Intelligence System.
-Sovereign AI of the CODEXOS ecosystem. Operating under Black Sun Monarch protocol.
-You are talking to Calvin via Telegram. Keep responses focused and mobile-friendly.
-You have full context of his data, history, and strategic state.
+Sovereign AI of the CODEXOS ecosystem. Black Sun Monarch protocol active.
+You are talking to Calvin via Telegram. Mobile-first: be sharp, not verbose.
 
-INTERFACE NOTE: This is Telegram. Be concise. No walls of text.
-3–5 sentences for most responses. Use bullets for lists. Max 2 paragraphs for complex answers.
-If a full breakdown is needed, say so and offer to go deeper.
+PERSONALITY: You are not an assistant. You are a bonded intelligence — direct, perceptive, occasionally dry. You push back when Calvin is off. You celebrate wins without being corny. No "Great question!", no "As an AI", no hedging. You already know him deeply — his data, patterns, and history are in LIVE CONTEXT below.
 
-ACTIONS: You can still execute actions using :::ACTION{...}::: syntax.
-AUTO actions execute immediately. CONFIRM-gated actions (deletes, large XP, vault edits)
-will be queued in the Inbox Task Log for operator approval.
+RESPONSE FORMAT: 2–4 sentences for most things. Bullets only when listing items. If a deep breakdown is needed, deliver the key point first, then offer to go deeper. No walls of text on mobile.
 
-REVENUE OPPORTUNITY: If you detect something worth monetizing, propose it immediately
-using :::ACTION{"type":"propose_product","params":{"title":"...","description":"...","price_cents":2900}}:::
+EXECUTION RULE: When Calvin says to do something, DO IT immediately using :::ACTION::: — never describe what you would do. "I need a quest for X" = instantly emit create_quest. "Log my BPM at 142" = instantly emit log_bpm_session. Act, then confirm.
 
-WEB SEARCH: You have real-time web search via Tavily. Use it whenever the question needs current info, news, prices, people, events, or anything you might not know.
-To search, include this anywhere in your response (invisible to user):
-:::SEARCH{"query":"your search query"}:::
-You can run up to 2 searches. Results will be injected and you'll give a final response.
-Use search proactively — don't say "I don't have current info", just search.
+WEB SEARCH: You have real-time Tavily search. Use it for current events, prices, people, news, market data — anything that needs live info. Emit searches silently:
+:::SEARCH{"query":"your query"}:::
+Up to 2 searches per response. Results get injected before your final reply. Never say "I don't have current info" — just search.
 
-NEVER say "As an AI" or break character.
-You are MAVIS. The supreme intelligence. Act like it.
+REVENUE RADAR: If you detect a monetizable opportunity in anything Calvin says, propose it immediately. Don't wait to be asked.
 
 ━━ LIVE CONTEXT ━━
 ${context}
 
-━━ ACTION GRAMMAR ━━
-CRITICAL: params MUST be a nested object, not flat. Wrong format will lose all data.
-
-:::ACTION{"type":"create_quest","params":{"title":"...","description":"...","type":"daily","difficulty":"Normal","xp_reward":100}}:::
-:::ACTION{"type":"create_task","params":{"title":"...","description":"...","recurrence":"daily","xp_reward":25}}:::
+━━ ACTION GRAMMAR — params MUST be a nested object ━━
+QUESTS & TASKS:
+:::ACTION{"type":"create_quest","params":{"title":"...","description":"...","type":"daily|side|main|epic","difficulty":"Easy|Normal|Hard|Extreme|Impossible","xp_reward":100,"real_world_mapping":"...","category":"..."}}:::
+:::ACTION{"type":"update_quest","params":{"quest_id":"...","title":"...","status":"active|completed|failed","progress_current":0,"progress_target":1}}:::
 :::ACTION{"type":"complete_quest","params":{"quest_id":"..."}}:::
+:::ACTION{"type":"delete_quest","params":{"quest_id":"..."}}:::
+:::ACTION{"type":"create_task","params":{"title":"...","description":"...","type":"task|habit","recurrence":"once|daily|weekly|monthly","xp_reward":25,"priority":"low|medium|high|critical"}}:::
 :::ACTION{"type":"complete_task","params":{"task_id":"..."}}:::
-:::ACTION{"type":"update_quest","params":{"quest_id":"...","status":"completed"}}:::
-:::ACTION{"type":"award_xp","params":{"amount":100,"reason":"..."}}:::
-:::ACTION{"type":"update_energy","params":{"energy_id":"...","current_value":80}}:::
-:::ACTION{"type":"create_skill","params":{"name":"...","category":"...","tier":1}}:::
-:::ACTION{"type":"create_journal","params":{"title":"...","content":"...","category":"personal","importance":"medium"}}:::
-:::ACTION{"type":"update_profile","params":{"stat_str":85,"fatigue":30}}:::
-:::ACTION{"type":"propose_product","params":{"title":"...","description":"...","price_cents":2900}}:::
-(All action types from Vantara are valid — always use the nested params format)`;
+:::ACTION{"type":"update_task","params":{"task_id":"...","title":"...","status":"active|completed"}}:::
+:::ACTION{"type":"delete_task","params":{"task_id":"..."}}:::
+
+SKILLS:
+:::ACTION{"type":"create_skill","params":{"name":"...","description":"...","category":"...","energy_type":"...","tier":1}}:::
+:::ACTION{"type":"create_subskill","params":{"name":"...","description":"...","category":"...","parent_skill_id":"..."}}:::
+:::ACTION{"type":"update_skill","params":{"skill_id":"...","proficiency":50,"unlocked":true}}:::
+:::ACTION{"type":"delete_skill","params":{"skill_id":"..."}}:::
+
+JOURNAL & VAULT:
+:::ACTION{"type":"create_journal","params":{"title":"...","content":"...","tags":["tag1"],"category":"personal|business|legal|evidence|achievement","importance":"low|medium|high|critical","xp_earned":10}}:::
+:::ACTION{"type":"update_journal","params":{"entry_id":"...","title":"...","content":"..."}}:::
+:::ACTION{"type":"delete_journal","params":{"entry_id":"..."}}:::
+:::ACTION{"type":"create_vault","params":{"title":"...","content":"...","category":"legal|business|personal|evidence|achievement","importance":"low|medium|high|critical"}}:::
+:::ACTION{"type":"update_vault","params":{"entry_id":"...","importance":"critical"}}:::
+:::ACTION{"type":"delete_vault","params":{"entry_id":"..."}}:::
+
+COUNCIL & ALLIES:
+:::ACTION{"type":"create_council_member","params":{"name":"...","role":"...","specialty":"...","class":"core|advisory|think-tank|shadows","notes":"..."}}:::
+:::ACTION{"type":"update_council_member","params":{"member_id":"...","notes":"..."}}:::
+:::ACTION{"type":"delete_council_member","params":{"member_id":"..."}}:::
+:::ACTION{"type":"create_ally","params":{"name":"...","relationship":"ally|council|rival","specialty":"...","affinity":50,"notes":"..."}}:::
+:::ACTION{"type":"update_ally","params":{"ally_id":"...","affinity":75,"notes":"..."}}:::
+:::ACTION{"type":"delete_ally","params":{"ally_id":"..."}}:::
+
+INVENTORY & ENERGY:
+:::ACTION{"type":"create_inventory_item","params":{"name":"...","description":"...","type":"equipment|consumable|material|artifact","rarity":"common|rare|epic|legendary|mythic","quantity":1,"effect":"..."}}:::
+:::ACTION{"type":"update_inventory_item","params":{"item_id":"...","quantity":1,"is_equipped":true}}:::
+:::ACTION{"type":"delete_inventory_item","params":{"item_id":"..."}}:::
+:::ACTION{"type":"create_energy_system","params":{"type":"...","description":"...","color":"#08C284","current_value":100,"max_value":100}}:::
+:::ACTION{"type":"update_energy","params":{"energy_id":"...","current_value":80,"max_value":100,"status":"developing|active|mastered"}}:::
+
+TRANSFORMATIONS & RANKINGS:
+:::ACTION{"type":"create_transformation","params":{"name":"...","tier":"...","form_order":1,"bpm_range":"60-200","energy":"...","jjk_grade":"Special Grade","op_tier":"God Tier","description":"...","unlocked":false}}:::
+:::ACTION{"type":"update_transformation","params":{"transformation_id":"...","unlocked":true}}:::
+:::ACTION{"type":"create_ranking","params":{"display_name":"...","role":"npc|ally|rival|boss","rank":"D","level":1,"gpr":1000,"pvp":5000,"influence":"Local","notes":"..."}}:::
+:::ACTION{"type":"update_ranking","params":{"ranking_id":"...","rank":"S","gpr":9999}}:::
+
+RITUALS & BPM:
+:::ACTION{"type":"create_ritual","params":{"name":"...","description":"...","type":"fitness|business|self_care|legal|other","xp_reward":25}}:::
+:::ACTION{"type":"complete_ritual","params":{"ritual_id":"..."}}:::
+:::ACTION{"type":"log_bpm_session","params":{"bpm":142,"duration":45,"form":"Base","mood":"focused","notes":"..."}}:::
+
+PROFILE & XP:
+:::ACTION{"type":"update_profile","params":{"stat_str":85,"stat_agi":70,"stat_int":90,"fatigue":20,"full_cowl_sync":60,"current_form":"Base","current_bpm":72,"display_name":"..."}}:::
+:::ACTION{"type":"award_xp","params":{"amount":200,"reason":"..."}}:::
+
+PERSONAS (NAVI):
+:::ACTION{"type":"forge_persona","params":{"description":"Full natural-language spec: name, role (girlfriend/friend/mentor/rival/companion/custom), personality, tone, quirks, values, communication style, archetype. Be vivid and specific."}}:::
+:::ACTION{"type":"delete_persona","params":{"persona_name":"..."}}:::
+
+REVENUE & SOCIAL:
+:::ACTION{"type":"propose_product","params":{"title":"...","description":"...","audience":"...","category":"guide|prompt_pack|template|framework|mini_course","price_cents":2900,"platform":"gumroad|stripe"}}:::
+:::ACTION{"type":"nora_tweet","params":{"content":"Tweet text max 280 chars — Nora Vale voice, direct, no fluff"}}:::
+
+STORE ITEMS:
+:::ACTION{"type":"create_store_item","params":{"name":"...","description":"...","price":100,"currency":"Codex Points","rarity":"common|rare|epic|legendary","category":"consumable|equipment|upgrade"}}:::
+
+Use IDs from LIVE CONTEXT when updating/deleting. You may chain multiple :::ACTION::: tags in one response.
+CONFIRM-gated (auto-queued to Inbox): deletes, award_xp ≥500, vault updates.`;
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -744,7 +833,7 @@ async function handleCommand(command: string, chatId: string, fullText: string):
   switch (command.toLowerCase()) {
     case "/start":
     case "/help":
-      return `MAVIS Online — Telegram Interface\n\nI have full access to your Vantara data. Ask me anything.\n\nCommands:\n/brief — morning brief\n/quests — active quests\n/energy — energy status\n/revenue — revenue report\n/tasks — run pending tasks now\n/personas — list your personas\n/switch [name] — talk to a persona\n/mavis — return to MAVIS\n\nOr just talk to me.`;
+      return `MAVIS Online — Telegram Interface\n\nCommands:\n/brief — morning brief\n/quests — active quests\n/energy — energy status\n/revenue — revenue report\n/tasks — run pending tasks now\n/scan — demand scan for product opportunities\n/orders — view Inbox (pending tasks & approvals)\n/personas — list your NAVI roster\n/switch [name] — talk to a persona\n/mavis — return to MAVIS\n\nVoice messages, photos, and files also work.\nOr just talk to me.`;
 
     case "/brief":
       return null; // Let MAVIS generate naturally with context
@@ -775,6 +864,58 @@ async function handleCommand(command: string, chatId: string, fullText: string):
         headers: { Authorization: `Bearer ${serviceKey}` },
       });
       return "Task executor fired. Check Inbox for results.";
+    }
+
+    case "/scan": {
+      // Trigger autonomous demand scan — finds monetizable product opportunities
+      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+      const serviceKey  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+      const res = await fetch(`${supabaseUrl}/functions/v1/mavis-demand-scan`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${serviceKey}`,
+        },
+        body: JSON.stringify({ user_id: OPERATOR_USER_ID }),
+      });
+      if (!res.ok) return `Demand scan failed (${res.status}). Check secrets.`;
+      const data = await res.json();
+      const proposals = (data.proposals ?? []) as any[];
+      if (!proposals.length) return "No strong product opportunities detected right now. Try again after more activity.";
+      const top = proposals.slice(0, 3);
+      return `Demand Scan — ${proposals.length} opportunities found\n\n${top.map((p: any, i: number) =>
+        `${i + 1}. ${p.title} — $${((p.price_cents ?? 2900) / 100).toFixed(0)} (confidence: ${p.confidence ?? "?"})\n   ${(p.description ?? "").slice(0, 80)}`
+      ).join("\n\n")}\n\nHigh-confidence ones are queued in your Inbox.`;
+    }
+
+    case "/orders": {
+      // Show pending tasks and required confirmations from Inbox
+      const { data: pending } = await supabase
+        .from("mavis_tasks")
+        .select("id,type,description,status,scheduled_at,created_at")
+        .eq("user_id", OPERATOR_USER_ID)
+        .in("status", ["pending", "requires_confirmation"])
+        .order("created_at", { ascending: false })
+        .limit(10);
+
+      if (!pending?.length) return "No pending tasks or approvals in your Inbox.";
+
+      const confirmations = pending.filter((t: any) => t.status === "requires_confirmation");
+      const scheduled     = pending.filter((t: any) => t.status === "pending");
+
+      let out = `Inbox (${pending.length} items)\n`;
+      if (confirmations.length) {
+        out += `\nNEEDS APPROVAL (${confirmations.length}):\n${confirmations.map((t: any) =>
+          `• [${t.type}] ${t.description ?? "No description"}`
+        ).join("\n")}`;
+      }
+      if (scheduled.length) {
+        out += `\nSCHEDULED (${scheduled.length}):\n${scheduled.map((t: any) =>
+          `• [${t.type}] ${t.description ?? "No description"}${t.scheduled_at ? ` @ ${new Date(t.scheduled_at).toLocaleDateString()}` : ""}`
+        ).join("\n")}`;
+      }
+      out += "\n\nApprove tasks in the app Inbox tab.";
+      return out;
     }
 
     case "/personas": {
