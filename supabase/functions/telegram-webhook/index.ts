@@ -834,7 +834,7 @@ async function callPersona(personaId: string, message: string, chatId: string): 
     throw new Error(`persona-router error ${res.status}: ${errText}`);
   }
   const data = await res.json();
-  return String(data?.reply ?? data?.content ?? data?.message ?? "[No response from persona]");
+  return String(data?.response ?? data?.reply ?? data?.content ?? data?.message ?? "[No response from persona]");
 }
 
 // ─────────────────────────────────────────────────────────────
