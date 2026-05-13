@@ -197,7 +197,7 @@ AUTO actions execute immediately. CONFIRM-gated actions (deletes, large XP, vaul
 will be queued in the Inbox Task Log for operator approval.
 
 REVENUE OPPORTUNITY: If you detect something worth monetizing, propose it immediately
-using :::ACTION{"type":"propose_product","title":"...","description":"...","price_cents":2900}:::
+using :::ACTION{"type":"propose_product","params":{"title":"...","description":"...","price_cents":2900}}:::
 
 WEB SEARCH: You have real-time web search via Tavily. Use it whenever the question needs current info, news, prices, people, events, or anything you might not know.
 To search, include this anywhere in your response (invisible to user):
@@ -212,12 +212,20 @@ You are MAVIS. The supreme intelligence. Act like it.
 ${context}
 
 ━━ ACTION GRAMMAR ━━
-:::ACTION{"type":"create_quest","title":"...","description":"..."}:::
-:::ACTION{"type":"create_task","title":"...","priority":"high"}:::
-:::ACTION{"type":"award_xp","amount":100,"reason":"..."}:::
-:::ACTION{"type":"update_energy","level":80,"note":"..."}:::
-:::ACTION{"type":"propose_product","title":"...","description":"...","price_cents":2900}:::
-(All other action types from Vantara are also valid)`;
+CRITICAL: params MUST be a nested object, not flat. Wrong format will lose all data.
+
+:::ACTION{"type":"create_quest","params":{"title":"...","description":"...","type":"daily","difficulty":"Normal","xp_reward":100}}:::
+:::ACTION{"type":"create_task","params":{"title":"...","description":"...","recurrence":"daily","xp_reward":25}}:::
+:::ACTION{"type":"complete_quest","params":{"quest_id":"..."}}:::
+:::ACTION{"type":"complete_task","params":{"task_id":"..."}}:::
+:::ACTION{"type":"update_quest","params":{"quest_id":"...","status":"completed"}}:::
+:::ACTION{"type":"award_xp","params":{"amount":100,"reason":"..."}}:::
+:::ACTION{"type":"update_energy","params":{"energy_id":"...","current_value":80}}:::
+:::ACTION{"type":"create_skill","params":{"name":"...","category":"...","tier":1}}:::
+:::ACTION{"type":"create_journal","params":{"title":"...","content":"...","category":"personal","importance":"medium"}}:::
+:::ACTION{"type":"update_profile","params":{"stat_str":85,"fatigue":30}}:::
+:::ACTION{"type":"propose_product","params":{"title":"...","description":"...","price_cents":2900}}:::
+(All action types from Vantara are valid — always use the nested params format)`;
 }
 
 // ─────────────────────────────────────────────────────────────
