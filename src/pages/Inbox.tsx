@@ -84,6 +84,9 @@ export default function Inbox() {
   const [loading, setLoading] = useState(true);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [cancellingId, setCancellingId] = useState<string | null>(null);
+  const [retryingId, setRetryingId] = useState<string | null>(null);
+  type TaskFilter = "active" | "completed" | "failed" | "all";
+  const [taskFilter, setTaskFilter] = useState<TaskFilter>("active");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -142,6 +145,19 @@ export default function Inbox() {
       toast.success("Task approved — executor will run it next cycle");
     } catch {
       toast.error("Failed to approve task");
+    }
+  };
+
+  const retryTask = async (id: string) => {
+    setRetryingId(id);
+    try {
+      await supabase.from("mavis_tasks").update({ status: "pending", result: null }).eq("id", id);
+      setTasks(prev => prev.map(t => t.id === id ? { ...t, status: "pending", result: null } : t));
+      toast.success("Task re-queued — executor will retry it next cycle");
+    } catch {
+      toast.error("Failed to retry task");
+    } finally {
+      setRetryingId(null);
     }
   };
 
@@ -437,10 +453,32 @@ export default function Inbox() {
           )}
           {tab === "tasks" && (
             <motion.div key="tasks" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="flex flex-col gap-2">
-              <div className="flex items-center justify-between mb-1">
-                <p className="text-[10px] font-mono text-muted-foreground">
-                  {tasks.length} task{tasks.length !== 1 ? "s" : ""} · {activeTasks} active
-                </p>
+              {/* Filter bar */}
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex gap-1">
+                  {(["active", "completed", "failed", "all"] as const).map(f => {
+                    const counts: Record<string, number> = {
+                      active:    tasks.filter(t => ["pending","running","requires_confirmation"].includes(t.status)).length,
+                      completed: tasks.filter(t => t.status === "completed").length,
+                      failed:    tasks.filter(t => t.status === "failed").length,
+                      all:       tasks.length,
+                    };
+                    return (
+                      <button
+                        key={f}
+                        onClick={() => setTaskFilter(f)}
+                        className={`px-2 py-1 rounded text-[10px] font-mono border transition-colors ${
+                          taskFilter === f
+                            ? "border-primary/50 text-primary bg-primary/10"
+                            : "border-border text-muted-foreground hover:text-foreground"
+                        }`}
+                      >
+                        {f.charAt(0).toUpperCase() + f.slice(1)}
+                        <span className="ml-1 opacity-60">{counts[f]}</span>
+                      </button>
+                    );
+                  })}
+                </div>
                 <button
                   onClick={() => runTaskNow("")}
                   className="text-[10px] font-mono text-primary hover:text-primary/80 transition-colors border border-primary/30 px-2 py-1 rounded"
@@ -449,11 +487,19 @@ export default function Inbox() {
                 </button>
               </div>
 
-              {tasks.length === 0 && (
-                <p className="text-xs font-mono text-muted-foreground text-center py-12">No tasks logged yet. MAVIS will populate this as she works.</p>
-              )}
-
-              {tasks.map(t => {
+              {(() => {
+                const filtered = tasks.filter(t => {
+                  if (taskFilter === "active")    return ["pending","running","requires_confirmation"].includes(t.status);
+                  if (taskFilter === "completed") return t.status === "completed";
+                  if (taskFilter === "failed")    return t.status === "failed";
+                  return true;
+                });
+                if (filtered.length === 0) return (
+                  <p className="text-xs font-mono text-muted-foreground text-center py-12">
+                    No {taskFilter === "all" ? "" : taskFilter} tasks.
+                  </p>
+                );
+                return <>{filtered.map(t => {
                 const style = taskStatusStyle(t.status);
                 return (
                   <motion.div key={t.id} layout className="border border-border rounded-lg overflow-hidden">
@@ -525,13 +571,32 @@ export default function Inbox() {
                                 </button>
                               </div>
                             )}
+                            {t.status === "failed" && (
+                              <div className="flex gap-2">
+                                <button
+                                  disabled={retryingId === t.id}
+                                  onClick={() => retryTask(t.id)}
+                                  className="text-[10px] font-mono text-amber-400 hover:text-amber-300 border border-amber-500/20 px-2 py-1 rounded transition-colors disabled:opacity-40"
+                                >
+                                  {retryingId === t.id ? "Re-queuing…" : "Retry"}
+                                </button>
+                                <button
+                                  disabled={cancellingId === t.id}
+                                  onClick={() => cancelTask(t.id)}
+                                  className="text-[10px] font-mono text-red-400 hover:text-red-300 border border-red-500/20 px-2 py-1 rounded transition-colors disabled:opacity-40"
+                                >
+                                  {cancellingId === t.id ? "Cancelling…" : "Dismiss"}
+                                </button>
+                              </div>
+                            )}
                           </div>
                         </motion.div>
                       )}
                     </AnimatePresence>
                   </motion.div>
-                );
-              })}
+                );})}
+                </>;
+              })()}
             </motion.div>
           )}
         </AnimatePresence>
