@@ -770,6 +770,40 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
       return;
     }
 
+    // ── NORA TWEET — queue for confirmation then fire via task executor ──
+    case "nora_tweet": {
+      const content = String(p.content ?? (action as any).content ?? "").slice(0, 280);
+      if (!content) throw new Error("nora_tweet requires content");
+      const { error } = await sb.from("mavis_tasks").insert({
+        user_id: userId,
+        type: "nora_tweet",
+        description: `Nora tweet: "${content.slice(0, 60)}${content.length > 60 ? "…" : ""}"`,
+        payload: { content, reply_to_tweet_id: p.replyToTweetId ?? (action as any).replyToTweetId ?? null },
+        status: "requires_confirmation",
+      });
+      if (error) throw error;
+      await logActivity(sb, userId, "nora_tweet_queued", `Tweet queued: ${content.slice(0, 60)}`, 0);
+      return;
+    }
+
+    // ── PROPOSE PRODUCT — queue for operator approval ──────────────────
+    case "propose_product": {
+      const title       = String(p.title ?? (action as any).title ?? "New Product");
+      const description = String(p.description ?? (action as any).description ?? "");
+      const priceCents  = Number(p.price_cents ?? (action as any).price_cents ?? 2900);
+      const payload = { ...p, ...(action as any), type: "propose_product", title, description, price_cents: priceCents };
+      const { error } = await sb.from("mavis_tasks").insert({
+        user_id: userId,
+        type: "create_product",
+        description: `Product proposal: "${title}" — $${(priceCents / 100).toFixed(2)}`,
+        payload,
+        status: "requires_confirmation",
+      });
+      if (error) throw error;
+      await logActivity(sb, userId, "product_proposed", `Product proposed: ${title}`, 0);
+      return;
+    }
+
     default:
       throw new Error(`Unknown MAVIS action: ${action.type}`);
   }
