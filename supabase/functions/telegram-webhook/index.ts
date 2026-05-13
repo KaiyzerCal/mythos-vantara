@@ -20,7 +20,14 @@ const supabase = createClient(
 const BOT_TOKEN        = Deno.env.get("TELEGRAM_BOT_TOKEN")!;
 const OPERATOR_CHAT_ID = Deno.env.get("TELEGRAM_OPERATOR_CHAT_ID")!;
 const OPERATOR_USER_ID = Deno.env.get("TELEGRAM_OPERATOR_USER_ID")!;
-const ANTHROPIC_KEY    = Deno.env.get("ANTHROPIC_API_KEY")!;
+
+// ── Provider keys (same as mavis-chat cascade) ────────────────
+const AI_KEYS = {
+  claude:  Deno.env.get("ANTHROPIC_API_KEY") ?? "",
+  openai:  Deno.env.get("OPENAI_API") ?? Deno.env.get("OPENAI_API_KEY") ?? "",
+  grok:    Deno.env.get("GROK_API_KEY") ?? "",
+  lovable: Deno.env.get("LOVABLE_API_KEY") ?? "",
+};
 
 const TELEGRAM_API = `https://api.telegram.org/bot${BOT_TOKEN}`;
 const SESSION_PREFIX = "telegram-";
@@ -229,31 +236,129 @@ CRITICAL: params MUST be a nested object, not flat. Wrong format will lose all d
 }
 
 // ─────────────────────────────────────────────────────────────
-// CLAUDE
+// MULTI-PROVIDER AI CASCADE
+// Same order as mavis-chat: Gemini Flash (free) → OpenAI mini → Claude Haiku → Claude Sonnet → Grok
+// Only burns paid credits when cheaper options are unavailable.
 // ─────────────────────────────────────────────────────────────
+
+class ProviderUnavailableError extends Error {
+  constructor(public providerName: string, public status: number) {
+    super(`${providerName} unavailable (${status})`);
+  }
+}
+
+function isQuotaError(status: number, body: string): boolean {
+  if ([401, 402, 403, 429].includes(status)) return true;
+  const b = body.toLowerCase();
+  return b.includes("credit") || b.includes("quota") || b.includes("billing") || b.includes("insufficient");
+}
+
+async function tryGeminiFlash(system: string, messages: { role: string; content: string }[]): Promise<string> {
+  if (!AI_KEYS.lovable) throw new ProviderUnavailableError("lovable", 0);
+  const res = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${AI_KEYS.lovable}` },
+    body: JSON.stringify({
+      model: "google/gemini-2.5-flash",
+      messages: [{ role: "system", content: system }, ...messages],
+      max_tokens: 1024,
+    }),
+  });
+  if (!res.ok) {
+    const t = await res.text();
+    throw new ProviderUnavailableError("lovable", res.status);
+  }
+  const d = await res.json();
+  return d.choices?.[0]?.message?.content ?? "";
+}
+
+async function tryOpenAI(system: string, messages: { role: string; content: string }[]): Promise<string> {
+  if (!AI_KEYS.openai) throw new ProviderUnavailableError("openai", 0);
+  const res = await fetch("https://api.openai.com/v1/chat/completions", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${AI_KEYS.openai}` },
+    body: JSON.stringify({
+      model: "gpt-4o-mini",
+      messages: [{ role: "system", content: system }, ...messages],
+      max_tokens: 1024,
+    }),
+  });
+  if (!res.ok) {
+    const t = await res.text();
+    if (isQuotaError(res.status, t)) throw new ProviderUnavailableError("openai", res.status);
+    throw new Error(`OpenAI ${res.status}: ${t}`);
+  }
+  const d = await res.json();
+  return d.choices?.[0]?.message?.content ?? "";
+}
+
+async function tryClaude(system: string, messages: { role: string; content: string }[], model = "claude-3-5-haiku-latest"): Promise<string> {
+  if (!AI_KEYS.claude) throw new ProviderUnavailableError("claude", 0);
+  const res = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-api-key": AI_KEYS.claude,
+      "anthropic-version": "2023-06-01",
+    },
+    body: JSON.stringify({
+      model,
+      max_tokens: 1024,
+      system,
+      messages: messages.map(m => ({ role: m.role, content: m.content })),
+    }),
+  });
+  if (!res.ok) {
+    const t = await res.text();
+    if (isQuotaError(res.status, t)) throw new ProviderUnavailableError("claude", res.status);
+    throw new Error(`Claude ${res.status}: ${t}`);
+  }
+  const d = await res.json();
+  return d.content?.[0]?.text ?? "";
+}
+
+async function tryGrok(system: string, messages: { role: string; content: string }[]): Promise<string> {
+  if (!AI_KEYS.grok) throw new ProviderUnavailableError("grok", 0);
+  const res = await fetch("https://api.x.ai/v1/chat/completions", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${AI_KEYS.grok}` },
+    body: JSON.stringify({
+      model: "grok-3-mini",
+      messages: [{ role: "system", content: system }, ...messages],
+      max_tokens: 1024,
+    }),
+  });
+  if (!res.ok) {
+    const t = await res.text();
+    if (isQuotaError(res.status, t)) throw new ProviderUnavailableError("grok", res.status);
+    throw new Error(`Grok ${res.status}: ${t}`);
+  }
+  const d = await res.json();
+  return d.choices?.[0]?.message?.content ?? "";
+}
 
 async function callClaude(
   systemPrompt: string,
   messages: { role: string; content: string }[],
 ): Promise<string> {
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-api-key": ANTHROPIC_KEY,
-      "anthropic-version": "2023-06-01",
-    },
-    body: JSON.stringify({
-      model: "claude-sonnet-4-6",
-      max_tokens: 1024,
-      system: systemPrompt,
-      messages: messages.map(m => ({ role: m.role, content: m.content })),
-    }),
-  });
+  // Tier 1 — Lovable Gemini Flash (free quota)
+  try { return await tryGeminiFlash(systemPrompt, messages); }
+  catch (e) { if (!(e instanceof ProviderUnavailableError)) throw e; console.warn("[MAVIS-TG] Gemini Flash unavailable → OpenAI mini"); }
 
-  if (!res.ok) throw new Error(`Claude error ${res.status}: ${await res.text()}`);
-  const data = await res.json();
-  return data?.content?.[0]?.text ?? "[No response]";
+  // Tier 2 — OpenAI gpt-4o-mini (cheap)
+  try { return await tryOpenAI(systemPrompt, messages); }
+  catch (e) { if (!(e instanceof ProviderUnavailableError)) throw e; console.warn("[MAVIS-TG] OpenAI mini unavailable → Claude Haiku"); }
+
+  // Tier 3 — Claude Haiku (cheap)
+  try { return await tryClaude(systemPrompt, messages, "claude-3-5-haiku-latest"); }
+  catch (e) { if (!(e instanceof ProviderUnavailableError)) throw e; console.warn("[MAVIS-TG] Claude Haiku unavailable → Claude Sonnet"); }
+
+  // Tier 4 — Claude Sonnet (premium, last paid resort)
+  try { return await tryClaude(systemPrompt, messages, "claude-sonnet-4-5"); }
+  catch (e) { if (!(e instanceof ProviderUnavailableError)) throw e; console.warn("[MAVIS-TG] Claude Sonnet unavailable → Grok"); }
+
+  // Tier 5 — Grok (final fallback)
+  return await tryGrok(systemPrompt, messages);
 }
 
 // ─────────────────────────────────────────────────────────────
