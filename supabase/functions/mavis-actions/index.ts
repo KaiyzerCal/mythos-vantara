@@ -791,27 +791,35 @@ serve(async (req) => {
     const anonKey = Deno.env.get("SUPABASE_PUBLISHABLE_KEY") ?? Deno.env.get("SUPABASE_ANON_KEY") ?? "";
     const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
-    const userClient = createClient(supabaseUrl, anonKey, {
-      global: { headers: { Authorization: authHeader } },
-      auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
-    });
-
-    const { data: userData, error: userError } = await userClient.auth.getUser(token);
-    if (userError || !userData?.user?.id) {
-      return new Response(JSON.stringify({ error: "Unauthorized" }), {
-        status: 401,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-    const userId = userData.user.id;
-
     const adminClient = createClient(supabaseUrl, serviceRoleKey, {
       auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
     });
 
+    // Parse body early — needed for service-role userId pass-through
     const body = await req.json();
     const actions = Array.isArray(body?.actions) ? (body.actions as MavisAction[]) : [];
+
+    let userId: string;
+
+    if (token === serviceRoleKey && body.userId) {
+      // Server-to-server call (telegram-webhook, task-executor, etc.)
+      // Trust the userId from the body when the service role key is presented
+      userId = String(body.userId);
+    } else {
+      // Normal frontend call — validate the user's JWT
+      const userClient = createClient(supabaseUrl, anonKey, {
+        global: { headers: { Authorization: authHeader } },
+        auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
+      });
+      const { data: userData, error: userError } = await userClient.auth.getUser(token);
+      if (userError || !userData?.user?.id) {
+        return new Response(JSON.stringify({ error: "Unauthorized" }), {
+          status: 401,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      userId = userData.user.id;
+    }
 
     const results: Array<{ type: string; success: boolean; error?: string }> = [];
     for (const action of actions) {
