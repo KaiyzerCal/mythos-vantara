@@ -71,6 +71,20 @@ async function generateProductContent(
 // Converts Claude's markdown-style content into a professional PDF.
 // ─────────────────────────────────────────────────────────────
 
+// WinAnsi (pdf-lib StandardFonts) only supports Latin-1 (U+0000–U+00FF).
+// Replace common Unicode chars with ASCII equivalents, strip the rest.
+function sanitizeForPDF(text: string): string {
+  return text
+    .replace(/[‘’]/g, "'")   // smart single quotes
+    .replace(/[“”]/g, '"')   // smart double quotes
+    .replace(/–/g, "-")           // en dash
+    .replace(/—/g, "--")          // em dash
+    .replace(/…/g, "...")         // ellipsis
+    .replace(/•/g, "*")           // bullet
+    .replace(/ /g, " ")          // non-breaking space
+    .replace(/[^\x00-\xFF]/g, "");     // strip anything outside Latin-1
+}
+
 function wrapText(text: string, font: Awaited<ReturnType<PDFDocument["embedFont"]>>, size: number, maxWidth: number): string[] {
   const words = text.split(" ");
   const lines: string[] = [];
@@ -101,6 +115,10 @@ async function generatePDF(
   category: string,
   content: string,
 ): Promise<Uint8Array> {
+  title       = sanitizeForPDF(title);
+  description = sanitizeForPDF(description);
+  content     = sanitizeForPDF(content);
+
   const doc = await PDFDocument.create();
 
   const W = 612, H = 792;          // US Letter
