@@ -199,6 +199,12 @@ will be queued in the Inbox Task Log for operator approval.
 REVENUE OPPORTUNITY: If you detect something worth monetizing, propose it immediately
 using :::ACTION{"type":"propose_product","title":"...","description":"...","price_cents":2900}:::
 
+WEB SEARCH: You have real-time web search via Tavily. Use it whenever the question needs current info, news, prices, people, events, or anything you might not know.
+To search, include this anywhere in your response (invisible to user):
+:::SEARCH{"query":"your search query"}:::
+You can run up to 2 searches. Results will be injected and you'll give a final response.
+Use search proactively — don't say "I don't have current info", just search.
+
 NEVER say "As an AI" or break character.
 You are MAVIS. The supreme intelligence. Act like it.
 
@@ -240,6 +246,59 @@ async function callClaude(
   if (!res.ok) throw new Error(`Claude error ${res.status}: ${await res.text()}`);
   const data = await res.json();
   return data?.content?.[0]?.text ?? "[No response]";
+}
+
+// ─────────────────────────────────────────────────────────────
+// WEB SEARCH (Tavily)
+// MAVIS triggers search with :::SEARCH{"query":"..."}:::
+// Results are injected and Claude gives a final response.
+// ─────────────────────────────────────────────────────────────
+
+const TAVILY_KEY = Deno.env.get("TAVILY_API_KEY");
+const SEARCH_REGEX = /:::SEARCH\{([\s\S]*?)\}:::/g;
+
+async function searchWeb(query: string): Promise<string> {
+  if (!TAVILY_KEY) return "";
+  try {
+    const res = await fetch("https://api.tavily.com/search", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        api_key: TAVILY_KEY,
+        query,
+        search_depth: "basic",
+        max_results: 5,
+        include_answer: true,
+      }),
+    });
+    const data = await res.json();
+    const answer  = data.answer ?? "";
+    const results = (data.results ?? []) as any[];
+    let out = answer ? `Answer: ${answer}\n\n` : "";
+    out += results.map((r: any) =>
+      `• ${r.title}\n  ${r.url}\n  ${(r.content ?? "").slice(0, 250)}`
+    ).join("\n\n");
+    return out.trim();
+  } catch { return ""; }
+}
+
+function parseSearchQueries(text: string): string[] {
+  const queries: string[] = [];
+  const re = new RegExp(SEARCH_REGEX.source, "g");
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text)) !== null) {
+    try {
+      const obj = JSON.parse(`{${m[1]}}`);
+      if (obj.query) queries.push(obj.query);
+    } catch {
+      queries.push(m[1]);
+    }
+  }
+  return queries;
+}
+
+function stripSearchTags(text: string): string {
+  return text.replace(new RegExp(SEARCH_REGEX.source, "g"), "").replace(/\n{3,}/g, "\n\n").trim();
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -445,7 +504,27 @@ Deno.serve(async (req) => {
 
     // ── Call MAVIS ─────────────────────────────────────────
     const systemPrompt = buildSystemPrompt(context);
-    const rawResponse  = await callClaude(systemPrompt, messages);
+    let rawResponse    = await callClaude(systemPrompt, messages);
+
+    // ── Web search pass ────────────────────────────────────
+    if (TAVILY_KEY) {
+      const queries = parseSearchQueries(rawResponse).slice(0, 2);
+      if (queries.length > 0) {
+        const searchResults = await Promise.all(queries.map(async (q) => {
+          const result = await searchWeb(q);
+          return `SEARCH: "${q}"\n${result}`;
+        }));
+        const injected = searchResults.filter(Boolean).join("\n\n---\n\n");
+        if (injected) {
+          const searchMessages = [
+            ...messages,
+            { role: "assistant", content: stripSearchTags(rawResponse) },
+            { role: "user",      content: `Web search results:\n\n${injected}\n\nNow give your final response using these results.` },
+          ];
+          rawResponse = await callClaude(systemPrompt, searchMessages);
+        }
+      }
+    }
 
     // ── Execute actions ────────────────────────────────────
     const actions = parseActions(rawResponse);
