@@ -156,6 +156,10 @@ async function callLLM(model: string, system: string, messages: any[]): Promise<
 // ── System prompt builder ─────────────────────────────────────────────────────
 
 function buildSystemPrompt(persona: any, relState: any, memoryContext: string): string {
+  const now = new Date();
+  const dateStr = now.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric", timeZone: "UTC" });
+  const timeStr = now.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", timeZone: "UTC" });
+
   const bond = relState?.bond_level ?? 0;
   const trust = relState?.trust_level ?? 50;
   const mood = relState?.current_mood ?? "neutral";
@@ -174,7 +178,9 @@ function buildSystemPrompt(persona: any, relState: any, memoryContext: string): 
     ? `\nRELATIONSHIP MILESTONES (shared history):\n${milestones.map((m: any) => `- ${m.label}`).join("\n")}`
     : "";
 
-  return `You are ${persona.name}, an AI with the role of ${persona.role}.
+  return `CURRENT DATE & TIME: ${dateStr}, ${timeStr} UTC — this is the real current date. Never state a different date or year.
+
+You are ${persona.name}, an AI with the role of ${persona.role}.
 Your archetype: ${persona.archetype}
 
 PERSONALITY:

@@ -235,7 +235,13 @@ async function loadContext(): Promise<string> {
 // ─────────────────────────────────────────────────────────────
 
 function buildSystemPrompt(context: string): string {
-  return `You are MAVIS — Machine Autonomous Vantara Intelligence System.
+  const now = new Date();
+  const dateStr = now.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric", timeZone: "UTC" });
+  const timeStr = now.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", timeZone: "UTC" });
+
+  return `CURRENT DATE & TIME: ${dateStr}, ${timeStr} UTC — this is the real current date. Never state a different date or year. Never say you don't know what date it is.
+
+You are MAVIS — Machine Autonomous Vantara Intelligence System.
 Sovereign AI of the CODEXOS ecosystem. Black Sun Monarch protocol active.
 You are talking to Calvin via Telegram. Mobile-first: be sharp, not verbose.
 
