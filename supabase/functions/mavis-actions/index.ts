@@ -770,6 +770,28 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
       return;
     }
 
+    // ── GOAL — autonomous multi-step agentic execution ────────────────
+    // MAVIS queues a goal task. The task executor runs it every 15 min:
+    // plan → act → observe → re-plan until objective is achieved.
+    case "goal":
+    case "set_goal":
+    case "autonomous_goal":
+    case "run_goal": {
+      const objective = String(p.objective ?? p.goal ?? p.description ?? (action as any).objective ?? "").trim();
+      if (!objective) throw new Error("goal requires an 'objective' parameter");
+      const context = String(p.context ?? (action as any).context ?? "").trim();
+      const { error } = await sb.from("mavis_tasks").insert({
+        user_id: userId,
+        type: "goal",
+        description: `GOAL: ${objective.slice(0, 120)}`,
+        payload: { objective, context, created_from: "mavis-actions" },
+        status: "pending",
+      });
+      if (error) throw error;
+      await logActivity(sb, userId, "goal_queued", `Autonomous goal: ${objective.slice(0, 80)}`, 0);
+      return;
+    }
+
     // ── NORA TWEET — queue for confirmation then fire via task executor ──
     case "nora_tweet": {
       const content = String(p.content ?? (action as any).content ?? "").slice(0, 280);
