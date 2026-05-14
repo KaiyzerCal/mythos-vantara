@@ -140,9 +140,9 @@ async function callLLM(model: string, system: string, messages: any[]): Promise<
     catch (err: any) { if (!(err instanceof ProviderUnavailableError)) throw err; }
   }
   if (claudeKey && !m.startsWith("claude")) {
-    try { return await callClaude("claude-3-5-haiku-latest", system, messages, claudeKey); }
+    try { return await callClaude("claude-haiku-4-5-20251001", system, messages, claudeKey); }
     catch (err: any) { if (!(err instanceof ProviderUnavailableError)) throw err; }
-    try { return await callClaude("claude-sonnet-4-5", system, messages, claudeKey); }
+    try { return await callClaude("claude-sonnet-4-6", system, messages, claudeKey); }
     catch (err: any) { if (!(err instanceof ProviderUnavailableError)) throw err; }
   }
   if (grokKey && !m.startsWith("grok")) {

@@ -399,7 +399,7 @@ async function tryOpenAI(system: string, messages: { role: string; content: stri
   return d.choices?.[0]?.message?.content ?? "";
 }
 
-async function tryClaude(system: string, messages: { role: string; content: string }[], model = "claude-3-5-haiku-latest"): Promise<string> {
+async function tryClaude(system: string, messages: { role: string; content: string }[], model = "claude-haiku-4-5-20251001"): Promise<string> {
   if (!AI_KEYS.claude) throw new ProviderUnavailableError("claude", 0);
   const res = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
@@ -457,11 +457,11 @@ async function callClaude(
   catch (e) { if (!(e instanceof ProviderUnavailableError)) throw e; console.warn("[MAVIS-TG] OpenAI mini unavailable → Claude Haiku"); }
 
   // Tier 3 — Claude Haiku (cheap)
-  try { return await tryClaude(systemPrompt, messages, "claude-3-5-haiku-latest"); }
+  try { return await tryClaude(systemPrompt, messages, "claude-haiku-4-5-20251001"); }
   catch (e) { if (!(e instanceof ProviderUnavailableError)) throw e; console.warn("[MAVIS-TG] Claude Haiku unavailable → Claude Sonnet"); }
 
   // Tier 4 — Claude Sonnet (premium, last paid resort)
-  try { return await tryClaude(systemPrompt, messages, "claude-sonnet-4-5"); }
+  try { return await tryClaude(systemPrompt, messages, "claude-sonnet-4-6"); }
   catch (e) { if (!(e instanceof ProviderUnavailableError)) throw e; console.warn("[MAVIS-TG] Claude Sonnet unavailable → Grok"); }
 
   // Tier 5 — Grok (final fallback)
@@ -726,7 +726,7 @@ async function describePhoto(fileId: string, caption?: string): Promise<string> 
         "anthropic-version": "2023-06-01",
       },
       body: JSON.stringify({
-        model: "claude-3-5-haiku-latest",
+        model: "claude-haiku-4-5-20251001",
         max_tokens: 1024,
         messages: [{
           role: "user",
