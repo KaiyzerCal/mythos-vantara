@@ -44,6 +44,8 @@ async function generateProductContent(
     mini_course: "a 5-module mini course. Each: ## Module N: Title, learning objective, 200-word lesson, and one exercise.",
   };
 
+  if (!ANTHROPIC_KEY) throw new Error("ANTHROPIC_API_KEY not configured");
+
   const res = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: {
@@ -62,8 +64,15 @@ async function generateProductContent(
     }),
   });
 
+  if (!res.ok) {
+    const errText = await res.text();
+    throw new Error(`Claude API ${res.status}: ${errText.slice(0, 300)}`);
+  }
+
   const data = await res.json();
-  return data?.content?.[0]?.text ?? "";
+  const text = (data?.content?.[0]?.text ?? "").trim();
+  if (!text) throw new Error(`Claude returned empty content (finish_reason: ${data?.stop_reason ?? "unknown"})`);
+  return text;
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -407,15 +416,7 @@ async function publishToStripe(
 Deno.serve(async (req) => {
   if (req.method !== "POST") return new Response("Method not allowed", { status: 405 });
 
-  let body: {
-    userId: string;
-    title: string;
-    description?: string;
-    audience?: string;
-    price_cents?: number;
-    category?: string;
-    platform?: "gumroad" | "stripe";
-  };
+  let body: Record<string, unknown>;
 
   try {
     body = await req.json();
@@ -423,15 +424,13 @@ Deno.serve(async (req) => {
     return new Response(JSON.stringify({ error: "Invalid JSON body" }), { status: 400 });
   }
 
-  const {
-    userId,
-    title,
-    description = "",
-    audience = "ambitious professionals",
-    price_cents = 2900,
-    category = "guide",
-    platform = "gumroad",
-  } = body;
+  const userId       = String(body.userId ?? "");
+  const title        = String(body.title ?? "");
+  const description  = String(body.description ?? "");
+  const audience     = String(body.audience ?? body.target_audience ?? "ambitious professionals");
+  const price_cents  = Number(body.price_cents ?? 2900);
+  const category     = String(body.category ?? "guide");
+  const platform     = String(body.platform ?? "gumroad") as "gumroad" | "stripe";
 
   if (!userId || !title) {
     return new Response(JSON.stringify({ error: "userId and title are required" }), { status: 400 });
