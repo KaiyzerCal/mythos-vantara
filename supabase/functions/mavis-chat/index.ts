@@ -86,7 +86,7 @@ async function callOpenAI(messages: any[], system: string, key: string, model = 
   return d.choices?.[0]?.message?.content ?? "";
 }
 
-async function callClaude(messages: any[], system: string, key: string, model = "claude-3-5-haiku-latest"): Promise<string> {
+async function callClaude(messages: any[], system: string, key: string, model = "claude-haiku-4-5-20251001"): Promise<string> {
   const res = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: {
@@ -170,7 +170,7 @@ async function callWithFallback(
   // Tier 0 — honor explicit non-default routing (Claude for deep reasoning, Grok for real-time)
   if (primary === "claude" && keys.claude) {
     try {
-      return { content: await callClaude(messages, system, keys.claude, "claude-sonnet-4-5"), provider: "claude-sonnet" };
+      return { content: await callClaude(messages, system, keys.claude, "claude-sonnet-4-6"), provider: "claude-sonnet" };
     } catch (err: any) {
       if (!(err instanceof ProviderUnavailableError)) throw err;
       console.warn(`[fallback] claude-sonnet unfunded (${err.status}) → cascading`);
@@ -207,7 +207,7 @@ async function callWithFallback(
   // Tier 3 — Claude Haiku (cheap)
   if (keys.claude) {
     try {
-      return { content: await callClaude(messages, system, keys.claude, "claude-3-5-haiku-latest"), provider: "claude-haiku" };
+      return { content: await callClaude(messages, system, keys.claude, "claude-haiku-4-5-20251001"), provider: "claude-haiku" };
     } catch (err: any) {
       if (!(err instanceof ProviderUnavailableError)) throw err;
       console.warn(`[fallback] Claude Haiku unfunded (${err.status}) → trying Claude Sonnet`);
@@ -217,7 +217,7 @@ async function callWithFallback(
   // Tier 4 — Claude Sonnet (premium)
   if (keys.claude) {
     try {
-      return { content: await callClaude(messages, system, keys.claude, "claude-sonnet-4-5"), provider: "claude-sonnet" };
+      return { content: await callClaude(messages, system, keys.claude, "claude-sonnet-4-6"), provider: "claude-sonnet" };
     } catch (err: any) {
       if (!(err instanceof ProviderUnavailableError)) throw err;
       console.warn(`[fallback] Claude Sonnet unfunded (${err.status}) → trying Grok`);
