@@ -467,7 +467,7 @@ Deno.serve(async (req) => {
       .select("id")
       .single();
 
-    if (insertErr || !product) throw insertErr ?? new Error("DB insert failed");
+    if (insertErr || !product) throw new Error(insertErr?.message ?? insertErr?.details ?? "DB insert failed");
     const productId = product.id;
 
     // ── 3. Generate PDF ──────────────────────────────────────
@@ -523,7 +523,7 @@ Deno.serve(async (req) => {
     console.error("[ProductCreator]", err);
     return new Response(JSON.stringify({
       success: false,
-      error: err instanceof Error ? err.message : String(err),
+      error: err instanceof Error ? err.message : (typeof err === "object" ? JSON.stringify(err) : String(err)),
     }), { status: 500, headers: { "Content-Type": "application/json" } });
   }
 });

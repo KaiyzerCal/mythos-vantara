@@ -570,7 +570,7 @@ const handleCreateProduct: TaskHandler = async (task) => {
       "Content-Type": "application/json",
       "Authorization": `Bearer ${serviceKey}`,
     },
-    body: JSON.stringify({ userId: task.user_id, ...flat }),
+    body: JSON.stringify({ ...flat, userId: task.user_id }),
   });
 
   const data = await res.json();
