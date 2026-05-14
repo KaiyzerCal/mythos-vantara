@@ -52,8 +52,8 @@ async function generateProductContent(
       "anthropic-version": "2023-06-01",
     },
     body: JSON.stringify({
-      model: "claude-sonnet-4-6",
-      max_tokens: 8000,
+      model: "claude-3-5-haiku-latest",
+      max_tokens: 6000,
       system: `You are creating a premium digital product. Write with authority, specificity, and practical depth. No filler. Target: ${audience || "ambitious builders"}. Format: ${formats[category] ?? formats.guide}`,
       messages: [{
         role: "user",
