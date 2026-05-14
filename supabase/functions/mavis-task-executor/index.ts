@@ -558,13 +558,19 @@ const handleCreateProduct: TaskHandler = async (task) => {
   const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
   const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
+  // Flatten payload — accept both { title, ... } and { type, params: { title, ... } }
+  const raw = task.payload as Record<string, unknown>;
+  const flat = (raw.params && typeof raw.params === "object")
+    ? raw.params as Record<string, unknown>
+    : raw;
+
   const res = await fetch(`${supabaseUrl}/functions/v1/mavis-product-creator`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       "Authorization": `Bearer ${serviceKey}`,
     },
-    body: JSON.stringify({ userId: task.user_id, ...task.payload }),
+    body: JSON.stringify({ userId: task.user_id, ...flat }),
   });
 
   const data = await res.json();
@@ -573,16 +579,16 @@ const handleCreateProduct: TaskHandler = async (task) => {
   }
 
   // Auto-queue an announcement if Stripe product was created live
-  if (data.stripeProductId && task.payload.title) {
+  if (data.stripeProductId && flat.title) {
     await supabase.from("mavis_tasks").insert({
       user_id: task.user_id,
       type: "send_announcement",
-      description: `Announce product: "${task.payload.title}"`,
+      description: `Announce product: "${flat.title}"`,
       payload: {
-        title: task.payload.title,
-        description: task.payload.description ?? "",
+        title: flat.title,
+        description: flat.description ?? "",
         paymentLink: data.paymentLink,
-        priceCents: task.payload.price_cents ?? 2900,
+        priceCents: flat.price_cents ?? 2900,
       },
       status: "pending",
     });

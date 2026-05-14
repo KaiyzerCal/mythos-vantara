@@ -573,11 +573,18 @@ async function executeActions(actions: ParsedAction[], chatId: string): Promise<
 
     // propose_product always queues as requires_confirmation
     if (type === "propose_product") {
+      // Flatten nested params so handleCreateProduct receives { title, description, ... }
+      const raw = action.payload as Record<string, unknown>;
+      const flat = (raw.params && typeof raw.params === "object")
+        ? raw.params as Record<string, unknown>
+        : raw;
+      const proposalTitle = String(flat.title ?? raw.title ?? "New Product");
+      const priceCents = Number(flat.price_cents ?? raw.price_cents ?? 2900);
       await supabase.from("mavis_tasks").insert({
         user_id: OPERATOR_USER_ID,
         type: "create_product",
-        description: `Product proposal: "${action.payload.title}" — $${((Number(action.payload.price_cents) || 2900) / 100).toFixed(2)}`,
-        payload: action.payload,
+        description: `Product proposal: "${proposalTitle}" — $${(priceCents / 100).toFixed(2)}`,
+        payload: { ...flat, price_cents: priceCents },
         status: "requires_confirmation",
       });
       queued++;
