@@ -578,8 +578,8 @@ const handleCreateProduct: TaskHandler = async (task) => {
     return { success: false, error: data.error ?? `product-creator returned ${res.status}` };
   }
 
-  // Auto-queue an announcement if Stripe product was created live
-  if (data.stripeProductId && flat.title) {
+  // Auto-queue an announcement for any successfully created product
+  if ((data.gumroadProductId || data.stripeProductId) && data.paymentLink && flat.title) {
     await supabase.from("mavis_tasks").insert({
       user_id: task.user_id,
       type: "send_announcement",
