@@ -70,6 +70,7 @@ export default function KnowledgeGraph() {
   const [draftTitle, setDraftTitle] = useState("");
   const [draftContent, setDraftContent] = useState("");
   const [draftTags, setDraftTags]   = useState("");
+  const [dbError, setDbError]       = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const loadNotes = useCallback(async () => {
@@ -84,8 +85,12 @@ export default function KnowledgeGraph() {
         .order("updated_at", { ascending: false });
       if (error) {
         console.error("[KnowledgeGraph] loadNotes error:", error);
-        if (error.code === "42P01") toast.error("Run the Knowledge Graph SQL in Supabase first — table does not exist yet.");
-        else toast.error(`Load failed: ${error.message}`);
+        const msg = error.code === "42P01"
+          ? "Tables not found. Run the Knowledge Graph SQL in your Supabase SQL Editor first."
+          : `Database error: ${error.message}`;
+        setDbError(msg);
+      } else {
+        setDbError(null);
       }
       setNotes((data ?? []) as Note[]);
     } catch (e) {
@@ -250,6 +255,13 @@ export default function KnowledgeGraph() {
           }
         />
       </div>
+
+      {dbError && (
+        <div className="mt-2 px-4 py-3 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 text-xs font-mono flex items-start gap-2">
+          <span className="shrink-0 font-bold">ERROR</span>
+          <span>{dbError}</span>
+        </div>
+      )}
 
       <div className="flex flex-1 gap-0 border border-border rounded-lg overflow-hidden mt-2" style={{ minHeight: 600 }}>
         {/* ── LEFT PANEL: Note list ── */}
