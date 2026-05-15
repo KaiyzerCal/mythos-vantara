@@ -3,7 +3,7 @@ import {
   LayoutDashboard, User, Target, CheckSquare, Users, Flame,
   Zap, Sparkles, Package, BookOpen, BookLock, ShoppingBag,
   Medal, TowerControl, Activity, Settings, ChevronLeft, ChevronRight,
-  LogOut, Cpu, Shield, HeartPulse, Inbox,
+  LogOut, Cpu, Shield, HeartPulse, Inbox, Network,
 } from "lucide-react";
 import { useState, useContext } from "react";
 import { motion, AnimatePresence } from "framer-motion";
@@ -21,6 +21,7 @@ const PRIMARY_NAV = [
 ];
 
 const SECONDARY_NAV = [
+  { to: "/knowledge", icon: Network, label: "Knowledge" },
   { to: "/forms", icon: Flame, label: "Forms" },
   { to: "/energy", icon: Zap, label: "Energy" },
   { to: "/skills", icon: Sparkles, label: "Skills" },

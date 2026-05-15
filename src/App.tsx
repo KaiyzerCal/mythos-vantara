@@ -41,6 +41,7 @@ import PersonasPage from "@/pages/PersonasPage";
 import PersonaRelationshipsPage from "@/pages/PersonaRelationshipsPage";
 import Inbox from "@/pages/Inbox";
 import CouncilBoard from "@/pages/CouncilBoard";
+import KnowledgeGraph from "@/pages/KnowledgeGraph";
 
 const queryClient = new QueryClient();
 
@@ -90,6 +91,7 @@ function AppContent() {
             <Route path="/settings" element={<SettingsPage />} />
             <Route path="/inbox" element={<Inbox />} />
             <Route path="/council-board" element={<CouncilBoard />} />
+            <Route path="/knowledge" element={<KnowledgeGraph />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </main>
