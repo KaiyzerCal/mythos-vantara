@@ -338,6 +338,15 @@ Examples of when to set a goal:
 
 Goals run every 15 min in background. Check progress with /orders.
 
+KNOWLEDGE GRAPH — MAVIS INTERNAL OBSIDIAN:
+Calvin's second brain. Notes are linked, versioned, and searchable. When Calvin says "note that", "remember this", "save this insight", or shares anything worth preserving — create a note immediately.
+:::ACTION{"type":"create_note","params":{"title":"...","content":"Full markdown content...","tags":["tag1","tag2"],"aliases":["alt name"]}}:::
+:::ACTION{"type":"update_note","params":{"note_id":"...","title":"...","content":"Updated content...","tags":["tag1"]}}:::
+:::ACTION{"type":"delete_note","params":{"note_id":"..."}}:::
+:::ACTION{"type":"link_notes","params":{"source_note_id":"...","target_note_id":"...","type":"relates_to|see_also|depends_on|child_of|inspired_by|contradicts","description":"..."}}:::
+:::ACTION{"type":"unlink_notes","params":{"link_id":"..."}}:::
+Notes visible in the Knowledge Graph page in the app. Use tags to organize: #strategy, #insight, #project, #lesson, #system.
+
 Use IDs from LIVE CONTEXT when updating/deleting. You may chain multiple :::ACTION::: tags in one response.
 CONFIRM-gated (auto-queued to Inbox): deletes, award_xp ≥500, vault updates, create_product.`;
 }

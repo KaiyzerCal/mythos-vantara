@@ -826,6 +826,94 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
       return;
     }
 
+    // ── KNOWLEDGE GRAPH ──────────────────────────────────
+    case "create_note":
+    case "new_note":
+    case "add_note": {
+      const now = new Date().toISOString();
+      const { data: noteData, error } = await sb.from("mavis_notes").insert({
+        user_id: userId,
+        title: String(p.title || "Untitled Note"),
+        content: String(p.content || ""),
+        tags: asStringArray(p.tags),
+        aliases: asStringArray(p.aliases),
+        properties: (p.properties && typeof p.properties === "object") ? p.properties : {},
+        created_at: now,
+        updated_at: now,
+      }).select("id").single();
+      if (error) throw error;
+      await logActivity(sb, userId, "note_created", `Note created: ${String(p.title || "Untitled Note")}`, 0);
+      return;
+    }
+
+    case "update_note":
+    case "edit_note": {
+      const noteId = await resolveId(sb, userId, "mavis_notes", (p.note_id || p.id) as string, (p.note_title || p.title) as string, "title");
+      if (!noteId) return;
+      // Snapshot current version before updating
+      const { data: current } = await sb.from("mavis_notes").select("title,content").eq("id", noteId).eq("user_id", userId).single();
+      if (current) {
+        const { data: lastVer } = await sb.from("mavis_note_versions").select("version_number").eq("note_id", noteId).order("version_number", { ascending: false }).limit(1).single();
+        const nextVer = ((lastVer?.version_number as number) ?? 0) + 1;
+        await sb.from("mavis_note_versions").insert({
+          note_id: noteId,
+          title: current.title,
+          content: current.content,
+          version_number: nextVer,
+        });
+      }
+      const updates: Record<string, unknown> = { updated_at: new Date().toISOString() };
+      if (p.title !== undefined) updates.title = String(p.title);
+      if (p.content !== undefined) updates.content = String(p.content);
+      if (p.tags !== undefined) updates.tags = asStringArray(p.tags);
+      if (p.aliases !== undefined) updates.aliases = asStringArray(p.aliases);
+      if (p.properties !== undefined && typeof p.properties === "object") updates.properties = p.properties;
+      await sb.from("mavis_notes").update(updates).eq("id", noteId).eq("user_id", userId);
+      await logActivity(sb, userId, "note_updated", `Note updated: ${String(p.title || noteId)}`, 0);
+      return;
+    }
+
+    case "delete_note":
+    case "remove_note": {
+      const noteId = await resolveId(sb, userId, "mavis_notes", (p.note_id || p.id) as string, (p.note_title || p.title) as string, "title");
+      if (!noteId) return;
+      await sb.from("mavis_note_links").delete().or(`source_note_id.eq.${noteId},target_note_id.eq.${noteId}`);
+      await sb.from("mavis_note_versions").delete().eq("note_id", noteId);
+      await sb.from("mavis_notes").delete().eq("id", noteId).eq("user_id", userId);
+      await logActivity(sb, userId, "note_deleted", `Note deleted: ${String(p.title || noteId)}`, 0);
+      return;
+    }
+
+    case "link_notes":
+    case "add_note_link": {
+      const sourceId = await resolveId(sb, userId, "mavis_notes", p.source_note_id as string, p.source_note as string, "title");
+      const targetId = await resolveId(sb, userId, "mavis_notes", p.target_note_id as string, p.target_note as string, "title");
+      if (!sourceId || !targetId) throw new Error("link_notes: could not resolve source or target note");
+      const { error } = await sb.from("mavis_note_links").insert({
+        source_note_id: sourceId,
+        target_note_id: targetId,
+        type: String(p.type || "relates_to"),
+        description: p.description ? String(p.description) : null,
+      });
+      if (error) throw error;
+      return;
+    }
+
+    case "unlink_notes":
+    case "remove_note_link": {
+      const linkId = p.link_id ? String(p.link_id) : null;
+      if (linkId) {
+        await sb.from("mavis_note_links").delete().eq("id", linkId);
+      } else {
+        const sourceId = await resolveId(sb, userId, "mavis_notes", p.source_note_id as string, p.source_note as string, "title");
+        const targetId = await resolveId(sb, userId, "mavis_notes", p.target_note_id as string, p.target_note as string, "title");
+        if (sourceId && targetId) {
+          await sb.from("mavis_note_links").delete().eq("source_note_id", sourceId).eq("target_note_id", targetId);
+        }
+      }
+      return;
+    }
+
     default:
       throw new Error(`Unknown MAVIS action: ${action.type}`);
   }
