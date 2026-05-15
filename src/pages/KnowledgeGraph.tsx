@@ -1,6 +1,10 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { PageHeader } from "@/components/SharedUI";
+
+// mavis_notes tables are not in the generated Supabase types yet —
+// cast to any so queries compile until types are regenerated.
+const db = supabase as any;
 import {
   Network, Plus, Search, Tag, Link2, Trash2, Save,
   ChevronRight, X, Edit3, Clock, Hash, ArrowRight,
@@ -70,14 +74,24 @@ export default function KnowledgeGraph() {
 
   const loadNotes = useCallback(async () => {
     setLoading(true);
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session) return;
-    const { data } = await supabase
-      .from("mavis_notes")
-      .select("*")
-      .eq("user_id", session.user.id)
-      .order("updated_at", { ascending: false });
-    setNotes((data ?? []) as Note[]);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) { setLoading(false); return; }
+      const { data, error } = await db
+        .from("mavis_notes")
+        .select("*")
+        .eq("user_id", session.user.id)
+        .order("updated_at", { ascending: false });
+      if (error) {
+        console.error("[KnowledgeGraph] loadNotes error:", error);
+        if (error.code === "42P01") toast.error("Run the Knowledge Graph SQL in Supabase first — table does not exist yet.");
+        else toast.error(`Load failed: ${error.message}`);
+      }
+      setNotes((data ?? []) as Note[]);
+    } catch (e) {
+      console.error("[KnowledgeGraph] loadNotes exception:", e);
+      toast.error("Knowledge Graph failed to load — check console.");
+    }
     setLoading(false);
   }, []);
 
@@ -92,10 +106,10 @@ export default function KnowledgeGraph() {
     setShowVersions(false);
 
     const [linksRes, versionsRes] = await Promise.all([
-      supabase.from("mavis_note_links").select("*")
+      db.from("mavis_note_links").select("*")
         .or(`source_note_id.eq.${note.id},target_note_id.eq.${note.id}`)
         .order("created_at", { ascending: false }),
-      supabase.from("mavis_note_versions").select("*")
+      db.from("mavis_note_versions").select("*")
         .eq("note_id", note.id)
         .order("version_number", { ascending: false })
         .limit(10),
@@ -105,22 +119,32 @@ export default function KnowledgeGraph() {
   }, []);
 
   const createNote = async () => {
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session) return;
-    const { data, error } = await supabase.from("mavis_notes").insert({
-      user_id: session.user.id,
-      title: "Untitled Note",
-      content: "",
-      tags: [],
-      properties: {},
-      aliases: [],
-    }).select().single();
-    if (error) { toast.error("Failed to create note"); return; }
-    const note = data as Note;
-    setNotes(prev => [note, ...prev]);
-    loadNoteDetail(note);
-    setEditing(true);
-    setTimeout(() => textareaRef.current?.focus(), 100);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) { toast.error("Not logged in"); return; }
+      const { data, error } = await db.from("mavis_notes").insert({
+        user_id: session.user.id,
+        title: "Untitled Note",
+        content: "",
+        tags: [],
+        properties: {},
+        aliases: [],
+      }).select().single();
+      if (error) {
+        console.error("[KnowledgeGraph] createNote error:", error);
+        if (error.code === "42P01") toast.error("Table missing — run the Knowledge Graph SQL in Supabase SQL Editor first.");
+        else toast.error(`Failed to create note: ${error.message}`);
+        return;
+      }
+      const note = data as Note;
+      setNotes(prev => [note, ...prev]);
+      loadNoteDetail(note);
+      setEditing(true);
+      setTimeout(() => textareaRef.current?.focus(), 100);
+    } catch (e) {
+      console.error("[KnowledgeGraph] createNote exception:", e);
+      toast.error("Unexpected error — check console.");
+    }
   };
 
   const saveNote = async () => {
@@ -131,7 +155,7 @@ export default function KnowledgeGraph() {
 
     // Save version snapshot first
     const versionNum = (versions[0]?.version_number ?? 0) + 1;
-    await supabase.from("mavis_note_versions").insert({
+    await db.from("mavis_note_versions").insert({
       note_id: selected.id,
       title: selected.title,
       content: selected.content,
@@ -139,7 +163,7 @@ export default function KnowledgeGraph() {
     });
 
     const tags = draftTags.split(",").map(t => t.trim()).filter(Boolean);
-    const { data, error } = await supabase.from("mavis_notes")
+    const { data, error } = await db.from("mavis_notes")
       .update({ title: draftTitle, content: draftContent, tags, updated_at: new Date().toISOString() })
       .eq("id", selected.id)
       .select().single();
@@ -155,7 +179,7 @@ export default function KnowledgeGraph() {
   };
 
   const deleteNote = async (id: string) => {
-    const { error } = await supabase.from("mavis_notes").delete().eq("id", id);
+    const { error } = await db.from("mavis_notes").delete().eq("id", id);
     if (error) { toast.error("Failed to delete note"); return; }
     setNotes(prev => prev.filter(n => n.id !== id));
     if (selected?.id === id) { setSelected(null); setLinks([]); setVersions([]); }
@@ -168,7 +192,7 @@ export default function KnowledgeGraph() {
     if (!target) { toast.error(`No note found matching "${linkTarget}"`); return; }
     const { data: { session } } = await supabase.auth.getSession();
     if (!session) return;
-    const { error } = await supabase.from("mavis_note_links").insert({
+    const { error } = await db.from("mavis_note_links").insert({
       source_note_id: selected.id,
       target_note_id: target.id,
       type: linkType,
@@ -186,7 +210,7 @@ export default function KnowledgeGraph() {
   };
 
   const removeLink = async (linkId: string) => {
-    await supabase.from("mavis_note_links").delete().eq("id", linkId);
+    await db.from("mavis_note_links").delete().eq("id", linkId);
     setLinks(prev => prev.filter(l => l.id !== linkId));
     toast.success("Link removed");
   };
