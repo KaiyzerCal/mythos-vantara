@@ -3,12 +3,18 @@
 // ============================================================
 import { useState, useRef, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Target, Plus, Trash2, CheckCircle2, Filter, Loader2, Users, MessageCircle, Send, Square, X, Edit2, ArrowDown, Volume2, VolumeX } from "lucide-react";
+import { Target, Plus, Trash2, CheckCircle2, Filter, Loader2, Users, MessageCircle, Send, Square, X, Edit2, ArrowDown, ArrowUp, Database } from "lucide-react";
 import { useAppData } from "@/contexts/AppDataContext";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { PageHeader, HudCard, ProgressBar, QuestTypeBadge, RarityBadge } from "@/components/SharedUI";
+import { AvatarUploader } from "@/components/AvatarUploader";
 import ReactMarkdown from "react-markdown";
+import { useElevenLabsTts } from "@/hooks/useElevenLabsTts";
+import { useChatAttachments } from "@/hooks/useChatAttachments";
+import { VoicePicker } from "@/components/chat/VoicePicker";
+import { AttachmentTray, AttachButton } from "@/components/chat/AttachmentTray";
+import { DEFAULT_VOICE_BY_GENDER, findVoice, type VoiceGender } from "@/lib/voiceCatalog";
 
 const QUEST_TYPES = ["all", "main", "epic", "side", "daily"] as const;
 const QUEST_STATUSES = ["all", "active", "completed", "failed", "locked"] as const;
@@ -661,73 +667,47 @@ function CouncilChat({ member, profile, onClose }: { member: any; profile: any; 
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [showScrollBtn, setShowScrollBtn] = useState(false);
+  const [showBackToTop, setShowBackToTop] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const cancelledRef = useRef(false);
   const [dbLoaded, setDbLoaded] = useState(false);
   const [ttsEnabled, setTtsEnabled] = useState(false);
-  const [isSpeaking, setIsSpeaking] = useState(false);
-  const voicePrefKey = `council-voice-gender-${member?.id ?? member?.name ?? "default"}`;
-  const [voiceGender, setVoiceGender] = useState<"male" | "female">(() => {
-    if (typeof window === "undefined") return "male";
+  const { speak, stop: stopSpeaking, isSpeaking, isLoading: isVoiceLoading } = useElevenLabsTts();
+  const { attachments, isUploading, upload, remove } = useChatAttachments("council", member?.id ?? null);
+
+  // Voice preference per council member (persisted in localStorage)
+  const voicePrefKey = `council-voice-id-${member?.id ?? member?.name ?? "default"}`;
+  const [voiceId, setVoiceId] = useState<string>(() => {
+    if (typeof window === "undefined") return DEFAULT_VOICE_BY_GENDER.male;
     const saved = window.localStorage.getItem(voicePrefKey);
-    return saved === "female" ? "female" : "male";
+    if (saved && findVoice(saved)) return saved;
+    // Migrate from old gender-only pref + persisted DB voice_id
+    const dbVoice: string | undefined = (member as any)?.voice_id;
+    if (dbVoice && findVoice(dbVoice)) return dbVoice;
+    const oldGender = window.localStorage.getItem(`council-voice-gender-${member?.id ?? member?.name ?? "default"}`);
+    return DEFAULT_VOICE_BY_GENDER[(oldGender === "female" ? "female" : "male") as VoiceGender];
   });
   useEffect(() => {
     if (typeof window !== "undefined") {
-      window.localStorage.setItem(voicePrefKey, voiceGender);
+      window.localStorage.setItem(voicePrefKey, voiceId);
     }
-  }, [voiceGender, voicePrefKey]);
+    // Persist on the council row too (best-effort)
+    if (member?.id) {
+      supabase.from("councils").update({ voice_id: voiceId }).eq("id", member.id).then(() => {});
+    }
+  }, [voiceId, voicePrefKey, member?.id]);
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  // ── Text-to-Speech ────────────────────────────
-  const pickVoice = useCallback((gender: "male" | "female"): SpeechSynthesisVoice | null => {
-    const voices = window.speechSynthesis.getVoices().filter(v => v.lang.startsWith("en"));
-    if (!voices.length) return null;
-    const maleHints = ["male", "david", "daniel", "alex", "fred", "george", "james", "tom", "mark", "guy", "ryan"];
-    const femaleHints = ["female", "samantha", "victoria", "karen", "moira", "tessa", "fiona", "susan", "zira", "linda", "jenny", "aria"];
-    const hints = gender === "male" ? maleHints : femaleHints;
-    const antiHints = gender === "male" ? femaleHints : maleHints;
-    const lower = (s: string) => s.toLowerCase();
-    const match = voices.find(v => hints.some(h => lower(v.name).includes(h)))
-      || voices.find(v => !antiHints.some(h => lower(v.name).includes(h)));
-    return match || voices[0];
-  }, []);
-
   const speakText = useCallback((text: string) => {
-    if (!ttsEnabled || !window.speechSynthesis) return;
-    window.speechSynthesis.cancel();
-    // Strip markdown/action tags for cleaner speech
-    const clean = text
-      .replace(/\*[^*]+\*/g, "")
-      .replace(/[#*_`>~]/g, "")
-      .replace(/\[[^\]]+\]\([^)]+\)/g, "")
-      .replace(/\s+/g, " ")
-      .trim();
-    if (!clean) return;
-    const utterance = new SpeechSynthesisUtterance(clean);
-    utterance.rate = 1;
-    utterance.pitch = voiceGender === "female" ? 1.1 : 0.9;
-    utterance.volume = 1;
-    const chosen = pickVoice(voiceGender);
-    if (chosen) utterance.voice = chosen;
-    utterance.onstart = () => setIsSpeaking(true);
-    utterance.onend = () => setIsSpeaking(false);
-    utterance.onerror = () => setIsSpeaking(false);
-    window.speechSynthesis.speak(utterance);
-  }, [ttsEnabled, voiceGender, pickVoice]);
-
-  const stopSpeaking = useCallback(() => {
-    window.speechSynthesis?.cancel();
-    setIsSpeaking(false);
-  }, []);
-
-  useEffect(() => {
-    window.speechSynthesis?.getVoices();
-    const handleVoices = () => window.speechSynthesis?.getVoices();
-    window.speechSynthesis?.addEventListener?.("voiceschanged", handleVoices);
-    return () => {
-      window.speechSynthesis?.removeEventListener?.("voiceschanged", handleVoices);
-      window.speechSynthesis?.cancel();
-    };
-  }, []);
+    if (!ttsEnabled) return;
+    const gender = findVoice(voiceId)?.gender ?? "male";
+    // Stitch with the prior assistant turn so multi-message exchanges sound
+    // like a continuous, natural conversation rather than isolated reads.
+    const previousText = [...messages]
+      .reverse()
+      .find((m) => m.role === "assistant")?.content;
+    speak(text, { voiceId, gender, previousText });
+  }, [ttsEnabled, voiceId, speak, messages]);
 
   // ── Load persisted council chat from DB ──────────────────
   useEffect(() => {
@@ -828,7 +808,38 @@ function CouncilChat({ member, profile, onClose }: { member: any; profile: any; 
     if (!scrollRef.current) return;
     const { scrollTop, scrollHeight, clientHeight } = scrollRef.current;
     setShowScrollBtn(scrollHeight - scrollTop - clientHeight > 80);
+    setShowBackToTop(scrollTop > 200);
   }, []);
+
+  const scrollToTop = useCallback(() => {
+    scrollRef.current?.scrollTo({ top: 0, behavior: "smooth" });
+  }, []);
+
+  // ── OmniSync this council member's thread ─────────────────
+  const handleOmniSync = useCallback(async () => {
+    if (isSyncing) return;
+    setIsSyncing(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.user) throw new Error("Not authenticated");
+      const condensed = messages
+        .filter((m) => m.id !== "init")
+        .map((m) => `[${m.role === "user" ? "OP" : member.name.toUpperCase()}] ${m.content.slice(0, 300)}${m.content.length > 300 ? "…" : ""}`)
+        .join("\n");
+      const { error } = await supabase.from("omnisync_snapshots").insert({
+        user_id: session.user.id,
+        snapshot_data: { council_member_id: member.id, council_member: member.name, message_count: messages.length - 1, timestamp: new Date().toISOString() },
+        condensed_comms: condensed.slice(0, 10000),
+        summary: `OmniSync · Council ${member.name} | ${messages.length - 1} msgs`,
+      });
+      if (error) throw error;
+      toast.success(`OmniSync complete — ${member.name} thread saved`);
+    } catch (e: any) {
+      toast.error("OmniSync failed: " + (e.message ?? "Unknown error"));
+    } finally {
+      setIsSyncing(false);
+    }
+  }, [isSyncing, messages, member]);
 
   useEffect(() => {
     scrollToBottom();
@@ -849,6 +860,7 @@ function CouncilChat({ member, profile, onClose }: { member: any; profile: any; 
     const userMsg: CouncilChatMessage = { id: `u-${Date.now()}`, role: "user", content, timestamp: new Date() };
     setMessages((prev) => [...prev, userMsg]);
     setIsLoading(true);
+    cancelledRef.current = false;
 
     // Persist user message
     await persistCouncilMessage("user", content);
@@ -885,9 +897,12 @@ function CouncilChat({ member, profile, onClose }: { member: any; profile: any; 
           systemPrompt,
           mode: "COUNCIL",
           conversationId: null,
+          chatKind: "council",
+          threadRef: member.id,
         },
       });
       if (error) throw error;
+      if (cancelledRef.current) return;
       const reply = data?.content ?? "...";
       setMessages((prev) => [...prev, { id: `a-${Date.now()}`, role: "assistant", content: reply, timestamp: new Date() }]);
       // Persist assistant message
@@ -895,6 +910,7 @@ function CouncilChat({ member, profile, onClose }: { member: any; profile: any; 
       // Speak the response if voice is enabled
       speakText(reply);
     } catch {
+      if (cancelledRef.current) return;
       setMessages((prev) => [...prev, { id: `err-${Date.now()}`, role: "assistant", content: "Connection lost.", timestamp: new Date() }]);
     } finally {
       setIsLoading(false);
@@ -918,46 +934,24 @@ function CouncilChat({ member, profile, onClose }: { member: any; profile: any; 
             <p className="text-sm font-display font-bold truncate">{member.name}</p>
             <p className="text-[10px] font-mono text-muted-foreground">{member.role} · {member.class}</p>
           </div>
+          <VoicePicker
+            enabled={ttsEnabled}
+            onToggle={() => { if (isSpeaking) stopSpeaking(); setTtsEnabled((v) => !v); }}
+            voiceId={voiceId}
+            onVoiceChange={(id) => { if (isSpeaking) stopSpeaking(); setVoiceId(id); }}
+            isSpeaking={isSpeaking}
+            isLoading={isVoiceLoading}
+            onStop={stopSpeaking}
+          />
           <button
-            onClick={() => {
-              if (isSpeaking) stopSpeaking();
-              setTtsEnabled((v) => !v);
-            }}
-            className={`flex items-center gap-1 px-2 py-1 text-[10px] font-mono rounded border transition-all mr-1 ${
-              ttsEnabled
-                ? "text-primary border-primary/30 bg-primary/5"
-                : "text-muted-foreground border-border/50"
-            }`}
-            title={ttsEnabled ? "Voice ON — click to mute" : "Voice OFF — click to enable"}
+            onClick={handleOmniSync}
+            disabled={isSyncing}
+            className="flex items-center gap-1 text-[10px] font-mono text-cyan-400 hover:text-cyan-300 border border-cyan-900/40 hover:border-cyan-400/40 rounded px-1.5 py-0.5 transition-all disabled:opacity-40 mr-1"
+            title="OmniSync — snapshot thread to memory"
           >
-            {ttsEnabled ? <Volume2 size={10} /> : <VolumeX size={10} />}
-            {ttsEnabled ? "Voice" : "Muted"}
+            {isSyncing ? <Loader2 size={9} className="animate-spin" /> : <Database size={9} />}
+            SYNC
           </button>
-          {ttsEnabled && (
-            <button
-              onClick={() => {
-                if (isSpeaking) stopSpeaking();
-                setVoiceGender((g) => (g === "male" ? "female" : "male"));
-              }}
-              className={`flex items-center gap-1 px-2 py-1 text-[10px] font-mono rounded border transition-all mr-1 ${
-                voiceGender === "female"
-                  ? "text-pink-400 border-pink-400/30 bg-pink-400/5"
-                  : "text-blue-400 border-blue-400/30 bg-blue-400/5"
-              }`}
-              title={`Voice: ${voiceGender === "male" ? "Male" : "Female"} — click to switch`}
-            >
-              {voiceGender === "male" ? "♂ Male" : "♀ Female"}
-            </button>
-          )}
-          {isSpeaking && (
-            <button
-              onClick={stopSpeaking}
-              className="p-1.5 text-destructive hover:text-destructive/80 transition-colors mr-1"
-              title="Stop speaking"
-            >
-              <Square size={14} />
-            </button>
-          )}
           <button onClick={clearCouncilChat} className="text-[10px] font-mono text-muted-foreground hover:text-destructive transition-colors mr-1">
             Clear
           </button>
@@ -998,6 +992,15 @@ function CouncilChat({ member, profile, onClose }: { member: any; profile: any; 
             </div>
           )}
         </div>
+        {showBackToTop && (
+          <button
+            onClick={scrollToTop}
+            className="absolute top-2 right-2 z-10 w-7 h-7 rounded-full bg-primary/20 border border-primary/30 text-primary flex items-center justify-center hover:bg-primary/30 transition-all shadow-lg"
+            title="Scroll to top"
+          >
+            <ArrowUp size={12} />
+          </button>
+        )}
         {showScrollBtn && (
           <button
             onClick={scrollToBottom}
@@ -1008,31 +1011,43 @@ function CouncilChat({ member, profile, onClose }: { member: any; profile: any; 
         )}
         </div>
 
-        <div className="p-3 border-t border-border flex gap-2">
-          <input
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); } }}
-            placeholder={`Speak to ${member.name}...`}
-            className="flex-1 bg-muted/30 border border-border rounded px-3 py-2 text-sm focus:outline-none focus:border-primary/40 placeholder:text-muted-foreground placeholder:text-xs placeholder:font-mono"
-          />
-          {isLoading ? (
-            <button
-              onClick={() => setIsLoading(false)}
-              className="px-3 py-2 bg-destructive/10 border border-destructive/30 text-destructive rounded hover:bg-destructive/20 transition-all"
-              title="Stop generating"
-            >
-              <Square size={14} />
-            </button>
-          ) : (
-            <button
-              onClick={() => sendMessage()}
-              disabled={!input.trim()}
-              className="px-3 py-2 bg-primary/10 border border-primary/30 text-primary rounded hover:bg-primary/20 disabled:opacity-30 transition-all"
-            >
-              <Send size={14} />
-            </button>
+        <div className="p-3 border-t border-border space-y-2">
+          {attachments.length > 0 && (
+            <AttachmentTray
+              attachments={attachments}
+              isUploading={isUploading}
+              onUpload={upload}
+              onRemove={remove}
+              compact
+            />
           )}
+          <div className="flex gap-2">
+            <AttachButton isUploading={isUploading} onUpload={upload} />
+            <input
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); } }}
+              placeholder={`Speak to ${member.name}...`}
+              className="flex-1 bg-muted/30 border border-border rounded px-3 py-2 text-sm focus:outline-none focus:border-primary/40 placeholder:text-muted-foreground placeholder:text-xs placeholder:font-mono"
+            />
+            {isLoading ? (
+              <button
+                onClick={() => { cancelledRef.current = true; setIsLoading(false); }}
+                className="px-3 py-2 bg-destructive/10 border border-destructive/30 text-destructive rounded hover:bg-destructive/20 transition-all"
+                title="Stop generating"
+              >
+                <Square size={14} />
+              </button>
+            ) : (
+              <button
+                onClick={() => sendMessage()}
+                disabled={!input.trim()}
+                className="px-3 py-2 bg-primary/10 border border-primary/30 text-primary rounded hover:bg-primary/20 disabled:opacity-30 transition-all"
+              >
+                <Send size={14} />
+              </button>
+            )}
+          </div>
         </div>
       </motion.div>
     </div>
@@ -1152,8 +1167,16 @@ export function CouncilsPage() {
                   onClick={() => setActiveChat(m)}
                 >
                   <div className="flex items-start gap-3">
-                    <div className={`w-9 h-9 rounded border flex items-center justify-center font-display font-bold text-sm shrink-0 ${classColors[m.class]}`} style={{ borderColor: "currentColor", opacity: 0.8 }}>
-                      {m.name[0]}
+                    <div onClick={(e) => e.stopPropagation()}>
+                      <AvatarUploader
+                        value={m.avatar ?? null}
+                        onChange={(url) => updateCouncilMember(m.id, { avatar: url })}
+                        scope={`council/${m.id}`}
+                        fallback={m.name}
+                        sizeClass="w-9 h-9"
+                        ringClass={`border ${classColors[m.class]}`}
+                        shape="square"
+                      />
                     </div>
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-display font-bold">{m.name}</p>

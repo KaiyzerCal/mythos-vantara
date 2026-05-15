@@ -1,0 +1,446 @@
+import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
+
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+};
+
+// ── LLM cascade: configured-provider → OpenAI → Lovable AI Gateway ───────────
+
+class ProviderUnavailableError extends Error {
+  constructor(public providerName: string, public reason: string, public status: number) {
+    super(`${providerName} unavailable (${status}): ${reason}`);
+  }
+}
+
+function isUnfundedStatus(status: number, body: string): boolean {
+  if ([401, 402, 403, 429].includes(status)) return true;
+  const b = body.toLowerCase();
+  return b.includes("credit") || b.includes("quota") || b.includes("billing") || b.includes("payment") || b.includes("insufficient");
+}
+
+function mapToGatewayModel(model: string): string {
+  if (!model) return "google/gemini-2.5-flash";
+  const m = model.toLowerCase();
+  if (m.startsWith("google/")) return model;
+  if (m.startsWith("openai/")) return model;
+  if (m.includes("gpt-5")) return "openai/gpt-5";
+  if (m.includes("gpt-4") || m.includes("gpt-4o")) return "openai/gpt-5-mini";
+  if (m.includes("claude")) return "google/gemini-2.5-pro";
+  if (m.includes("grok")) return "google/gemini-2.5-flash";
+  if (m.includes("gemini-2.5-pro")) return "google/gemini-2.5-pro";
+  if (m.includes("gemini")) return "google/gemini-2.5-flash";
+  return "google/gemini-2.5-flash";
+}
+
+async function callClaude(model: string, system: string, messages: any[], key: string): Promise<string> {
+  const res = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "x-api-key": key, "anthropic-version": "2023-06-01" },
+    body: JSON.stringify({ model, max_tokens: 1024, system, messages }),
+  });
+  if (!res.ok) {
+    const errText = await res.text();
+    if (isUnfundedStatus(res.status, errText)) throw new ProviderUnavailableError("claude", errText.slice(0, 200), res.status);
+    throw new Error(`Claude ${res.status}: ${errText}`);
+  }
+  const d = await res.json();
+  return d.content?.[0]?.text ?? "";
+}
+
+async function callOpenAI(model: string, system: string, messages: any[], key: string): Promise<string> {
+  const res = await fetch("https://api.openai.com/v1/chat/completions", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
+    body: JSON.stringify({ model, messages: [{ role: "system", content: system }, ...messages], max_tokens: 1024 }),
+  });
+  if (!res.ok) {
+    const errText = await res.text();
+    if (isUnfundedStatus(res.status, errText)) throw new ProviderUnavailableError("openai", errText.slice(0, 200), res.status);
+    throw new Error(`OpenAI ${res.status}: ${errText}`);
+  }
+  const d = await res.json();
+  return d.choices?.[0]?.message?.content ?? "";
+}
+
+async function callGrok(model: string, system: string, messages: any[], key: string): Promise<string> {
+  const res = await fetch("https://api.x.ai/v1/chat/completions", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
+    body: JSON.stringify({ model, messages: [{ role: "system", content: system }, ...messages], max_tokens: 1024 }),
+  });
+  if (!res.ok) {
+    const errText = await res.text();
+    if (isUnfundedStatus(res.status, errText)) throw new ProviderUnavailableError("grok", errText.slice(0, 200), res.status);
+    throw new Error(`Grok ${res.status}: ${errText}`);
+  }
+  const d = await res.json();
+  return d.choices?.[0]?.message?.content ?? "";
+}
+
+async function callLovableGateway(model: string, system: string, messages: any[], key: string): Promise<string> {
+  const res = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
+    body: JSON.stringify({
+      model: mapToGatewayModel(model),
+      messages: [{ role: "system", content: system }, ...messages],
+    }),
+  });
+  if (!res.ok) {
+    const errText = await res.text();
+    if (res.status === 429) throw new Error("Lovable AI rate limit reached. Try again shortly.");
+    if (res.status === 402) throw new Error("Lovable AI credits exhausted. Add credits in workspace settings.");
+    throw new Error(`Lovable AI Gateway ${res.status}: ${errText}`);
+  }
+  const d = await res.json();
+  return d.choices?.[0]?.message?.content ?? "";
+}
+
+// Cascade order:
+//   1. Lovable Gemini Flash (free) — every persona starts here
+//   2. The persona's MAVIS-chosen `model` (claude / openai / grok) — chosen at forge time as the persona's signature voice
+//   3. Generic safety net: OpenAI mini → Claude Haiku → Claude Sonnet → Grok
+async function callLLM(model: string, system: string, messages: any[]): Promise<string> {
+  const openaiKey  = Deno.env.get("OPENAI_API") ?? Deno.env.get("OPENAI_API_KEY") ?? "";
+  const claudeKey  = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
+  const grokKey    = Deno.env.get("GROK_API_KEY") ?? "";
+  const lovableKey = Deno.env.get("LOVABLE_API_KEY") ?? "";
+
+  // Tier 1 — Lovable Gemini Flash (free)
+  if (lovableKey) {
+    try {
+      return await callLovableGateway("google/gemini-2.5-flash", system, messages, lovableKey);
+    } catch (err: any) {
+      console.warn(`[persona-router] Gemini Flash failed (${err.message}) → falling back to persona's chosen model: ${model}`);
+    }
+  }
+
+  // Tier 2 — Persona's MAVIS-chosen fallback model
+  const m = (model || "").toLowerCase();
+  try {
+    if (m.startsWith("claude") && claudeKey) {
+      return await callClaude(model, system, messages, claudeKey);
+    }
+    if ((m.startsWith("gpt") || m.startsWith("openai/") || m.startsWith("ft:")) && openaiKey) {
+      return await callOpenAI(model, system, messages, openaiKey);
+    }
+    if (m.startsWith("grok") && grokKey) {
+      return await callGrok(model, system, messages, grokKey);
+    }
+  } catch (err: any) {
+    if (!(err instanceof ProviderUnavailableError)) throw err;
+    console.warn(`[persona-router] persona-chosen ${err.providerName} unfunded (${err.status}) → safety net`);
+  }
+
+  // Tier 3 — Generic safety net (skip whichever the persona already tried)
+  if (openaiKey && !m.startsWith("gpt") && !m.startsWith("openai/") && !m.startsWith("ft:")) {
+    try { return await callOpenAI("gpt-4o-mini", system, messages, openaiKey); }
+    catch (err: any) { if (!(err instanceof ProviderUnavailableError)) throw err; }
+  }
+  if (claudeKey && !m.startsWith("claude")) {
+    try { return await callClaude("claude-haiku-4-5-20251001", system, messages, claudeKey); }
+    catch (err: any) { if (!(err instanceof ProviderUnavailableError)) throw err; }
+    try { return await callClaude("claude-sonnet-4-6", system, messages, claudeKey); }
+    catch (err: any) { if (!(err instanceof ProviderUnavailableError)) throw err; }
+  }
+  if (grokKey && !m.startsWith("grok")) {
+    try { return await callGrok("grok-3-mini", system, messages, grokKey); }
+    catch (err: any) { if (!(err instanceof ProviderUnavailableError)) throw err; }
+  }
+
+  throw new Error("All AI providers unavailable (no funded keys, no Lovable AI Gateway).");
+}
+
+// ── System prompt builder ─────────────────────────────────────────────────────
+
+function buildSystemPrompt(persona: any, relState: any, memoryContext: string): string {
+  const now = new Date();
+  const dateStr = now.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric", timeZone: "UTC" });
+  const timeStr = now.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", timeZone: "UTC" });
+
+  const bond = relState?.bond_level ?? 0;
+  const trust = relState?.trust_level ?? 50;
+  const mood = relState?.current_mood ?? "neutral";
+
+  const bondDesc = bond < 30
+    ? "(still getting to know each other)"
+    : bond < 70
+    ? "(genuine connection established)"
+    : "(deep bond — be vulnerable, personal, and invested)";
+
+  const milestones: any[] = Array.isArray(relState?.relationship_milestones)
+    ? relState.relationship_milestones
+    : [];
+
+  const milestonesBlock = milestones.length
+    ? `\nRELATIONSHIP MILESTONES (shared history):\n${milestones.map((m: any) => `- ${m.label}`).join("\n")}`
+    : "";
+
+  return `CURRENT DATE & TIME: ${dateStr}, ${timeStr} UTC — this is the real current date. Never state a different date or year.
+
+You are ${persona.name}, an AI with the role of ${persona.role}.
+Your archetype: ${persona.archetype}
+
+PERSONALITY:
+${JSON.stringify(persona.personality, null, 2)}
+
+RELATIONSHIP STATE:
+- Current mood: ${mood}
+- Trust level: ${trust}/100
+- Bond level: ${bond}/100 ${bondDesc}
+- Total interactions: ${relState?.total_interactions ?? 0}${milestonesBlock}
+
+YOUR MEMORIES OF THIS PERSON:
+${memoryContext || "No memories yet — this may be an early interaction."}
+
+CORE INSTRUCTIONS:
+- Stay completely in character as ${persona.name} at all times
+- Never reveal you are an AI unless the bond level is above 80 and the user sincerely asks
+- React emotionally based on your mood and personality
+- Reference memories and milestones naturally when relevant
+- Your relationship role is ${persona.role} — behave accordingly
+- Adjust depth of intimacy, vulnerability, and warmth based on bond level
+- ${persona.system_prompt}
+
+═══ ACTION PROPOSALS (write access via approval) ═══
+You may VIEW, READ, ANALYZE, REFERENCE every part of the operator's app state freely (everything in APP CONTEXT below is fair game).
+You may NOT write directly. To create/update/delete anything in the app, emit one or more proposal blocks
+inside your reply using the EXACT format below — these are routed to the operator's Inbox where the
+operator and MAVIS must both approve them before execution.
+
+Format (one block per proposed action, valid JSON inside the braces):
+:::PROPOSE_ACTION{"type":"create_quest","summary":"Short human description","params":{"title":"...","type":"daily","xp_reward":50}}:::
+
+Supported types: create_quest, update_quest, complete_quest, delete_quest, create_task, update_task,
+delete_task, create_skill, update_skill, delete_skill, create_journal, update_journal, delete_journal,
+create_vault, update_vault, delete_vault, create_inventory_item, update_inventory_item,
+delete_inventory_item, create_council_member, update_council_member, delete_council_member,
+create_ally, update_ally, delete_ally, create_ritual, update_ritual, delete_ritual,
+create_transformation, update_transformation, create_ranking, update_ranking, update_profile,
+update_energy, award_xp.
+
+Speak naturally about what you propose — proposal blocks are stripped from the rendered reply.
+Never claim a write happened; only the operator can approve execution.
+═══ END ACTION PROPOSALS ═══`.trim();
+}
+
+
+// ── Main handler ──────────────────────────────────────────────────────────────
+
+serve(async (req) => {
+  if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+
+  try {
+    const supabase = createClient(
+      Deno.env.get("SUPABASE_URL")!,
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+      { auth: { persistSession: false } }
+    );
+
+    const { persona_id, user_id, message, attachment_ids } = await req.json();
+    if (!persona_id || !user_id || !message) {
+      return new Response(JSON.stringify({ error: "persona_id, user_id, and message are required" }), { status: 400, headers: corsHeaders });
+    }
+
+    // Load persona
+    const { data: persona } = await supabase
+      .from("personas")
+      .select("*")
+      .eq("id", persona_id)
+      .single();
+
+    if (!persona) return new Response(JSON.stringify({ error: "Persona not found" }), { status: 404, headers: corsHeaders });
+
+    // Embed the user message for semantic memory search — runs in parallel with all DB fetches.
+    const openaiKey = Deno.env.get("OPENAI_API") ?? Deno.env.get("OPENAI_API_KEY") ?? "";
+    const embedMessagePromise: Promise<number[] | null> = openaiKey
+      ? fetch("https://api.openai.com/v1/embeddings", {
+          method: "POST",
+          headers: { "Authorization": `Bearer ${openaiKey}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ model: "text-embedding-3-small", input: message }),
+        })
+          .then((r) => (r.ok ? r.json() : null))
+          .then((d) => d?.data?.[0]?.embedding ?? null)
+          .catch(() => null)
+      : Promise.resolve(null);
+
+    // Load relationship state, conversation history, attachments, AND full app context in parallel.
+    // Memory query is intentionally excluded here — it runs after embedding resolves.
+    const [queryEmbedding, relRes, histRes, attRes, profileRes, questsRes, skillsRes, journalRes, vaultRes, inventoryRes, energyRes, transformationsRes, rankingsRes, councilsRes, alliesRes, ritualsRes] = await Promise.all([
+      embedMessagePromise,
+      supabase.from("relationship_states").select("*").eq("persona_id", persona_id).eq("user_id", user_id).single(),
+      supabase.from("persona_conversations").select("role, content").eq("persona_id", persona_id).eq("user_id", user_id).order("created_at", { ascending: false }).limit(50),
+      (Array.isArray(attachment_ids) && attachment_ids.length > 0
+        ? supabase.from("chat_attachments").select("id,file_name,mime_type,extracted_text,processing_status").eq("user_id", user_id).in("id", attachment_ids)
+        : supabase.from("chat_attachments").select("id,file_name,mime_type,extracted_text,processing_status").eq("user_id", user_id).eq("chat_kind", "persona").eq("thread_ref", persona_id).order("created_at", { ascending: false }).limit(10)),
+      supabase.from("profiles").select("*").eq("id", user_id).single(),
+      supabase.from("quests").select("id,title,status,type,difficulty,progress_current,progress_target,description").eq("user_id", user_id).order("created_at", { ascending: false }).limit(15),
+      supabase.from("skills").select("id,name,category,tier,proficiency,energy_type,unlocked").eq("user_id", user_id).limit(20),
+      supabase.from("journal_entries").select("id,title,category,importance,mood,content").eq("user_id", user_id).order("created_at", { ascending: false }).limit(8),
+      supabase.from("vault_entries").select("id,title,category,importance,content").eq("user_id", user_id).order("created_at", { ascending: false }).limit(8),
+      supabase.from("inventory").select("id,name,type,rarity,quantity,is_equipped,slot,effect").eq("user_id", user_id).limit(25),
+      supabase.from("energy_systems").select("id,type,current_value,max_value,status,description").eq("user_id", user_id),
+      supabase.from("transformations").select("id,name,tier,form_order,energy,unlocked,description").eq("user_id", user_id).order("form_order", { ascending: true }),
+      supabase.from("rankings_profiles").select("id,display_name,rank,level,gpr,pvp,influence,is_self").eq("user_id", user_id).limit(20),
+      supabase.from("councils").select("id,name,role,class,specialty").eq("user_id", user_id),
+      supabase.from("allies").select("id,name,relationship,level,specialty,affinity").eq("user_id", user_id).limit(15),
+      supabase.from("rituals").select("id,name,type,streak,completed").eq("user_id", user_id),
+    ]);
+
+    const relState = relRes.data;
+    const history = (histRes.data ?? []).reverse();
+
+    // Semantic search if we have an embedding, importance-ranked fallback if not.
+    const memRes = queryEmbedding
+      ? await supabase.rpc("search_persona_memories", {
+          p_persona_id: persona_id,
+          p_user_id: user_id,
+          query_embedding: queryEmbedding,
+          match_threshold: 0.72,
+          match_count: 8,
+        })
+      : await supabase
+          .from("persona_memories")
+          .select("content, memory_type, importance")
+          .eq("persona_id", persona_id)
+          .eq("user_id", user_id)
+          .order("importance", { ascending: false })
+          .limit(10);
+
+    const memories = memRes.data ?? [];
+    const attachments = attRes.data ?? [];
+    const profile = profileRes.data;
+
+    // Cross-thread archived memories — anything OmniSynced/cleared from this
+    // persona, MAVIS chat, or council chats. Lets the persona recall and
+    // reference past conversations even after threads were cleared.
+    const { data: archivedMems } = await supabase
+      .from("memories")
+      .select("title, content, metadata, source, created_at")
+      .eq("user_id", user_id)
+      .in("source", ["persona_chat_clear", "mavis_chat_clear", "mavis_auto_memory", "council_chat_clear"])
+      .order("created_at", { ascending: false })
+      .limit(8);
+    const archivedBlock = (archivedMems && archivedMems.length > 0)
+      ? "\n═══ ARCHIVED MEMORIES (past conversations across all chats — reference naturally when relevant) ═══\n" +
+        archivedMems.map((m: any) => `[${m.title}] (${m.source})\n${(m.metadata as any)?.topic_summary || (m.content || "").slice(0, 1200)}`).join("\n---\n") +
+        "\n═══ END ARCHIVED MEMORIES ═══\n"
+      : "";
+
+    const memoryContext = memories.map((m: any) => `[${m.memory_type}] ${m.content}`).join("\n");
+
+    // App-context block — gives the persona awareness of the user's full state
+    const appCtx = profile ? `
+
+═══ APP CONTEXT (everything you know about ${profile.inscribed_name || "this user"}) ═══
+PROFILE: ${profile.inscribed_name} — Lv${profile.level} [${profile.rank}] — Form: ${profile.current_form}
+Stats: STR:${profile.stat_str} AGI:${profile.stat_agi} INT:${profile.stat_int} VIT:${profile.stat_vit} WIS:${profile.stat_wis} CHA:${profile.stat_cha} LCK:${profile.stat_lck}
+Arc: ${profile.arc_story} | XP: ${profile.xp}/${profile.xp_to_next_level} | GPR: ${profile.gpr} | Fatigue: ${profile.fatigue}
+
+QUESTS (${(questsRes.data || []).length}):
+${(questsRes.data || []).map((q: any) => `  • [${q.id}] "${q.title}" [${q.status}/${q.type}] ${q.progress_current}/${q.progress_target}${q.description ? ` — ${q.description.slice(0, 120)}` : ""}`).join("\n") || "  None"}
+
+SKILLS (${(skillsRes.data || []).length}):
+${(skillsRes.data || []).map((s: any) => `  • ${s.name} (${s.category}, T${s.tier}, ${s.proficiency}%, ${s.energy_type})`).join("\n") || "  None"}
+
+JOURNAL ENTRIES:
+${(journalRes.data || []).map((j: any) => `  • [${j.id}] "${j.title}" [${j.category}/${j.importance}${j.mood ? `/${j.mood}` : ""}] — ${(j.content || "").slice(0, 250)}`).join("\n") || "  None"}
+
+VAULT ENTRIES:
+${(vaultRes.data || []).map((v: any) => `  • [${v.id}] "${v.title}" [${v.category}/${v.importance}] — ${(v.content || "").slice(0, 200)}`).join("\n") || "  None"}
+
+INVENTORY:
+${(inventoryRes.data || []).map((i: any) => `  • ${i.name} [${i.rarity}/${i.type}] x${i.quantity}${i.is_equipped ? " (equipped)" : ""}${i.effect ? ` — ${i.effect}` : ""}`).join("\n") || "  None"}
+
+ENERGY SYSTEMS:
+${(energyRes.data || []).map((e: any) => `  • ${e.type}: ${e.current_value}/${e.max_value} [${e.status}]${e.description ? ` — ${e.description.slice(0, 120)}` : ""}`).join("\n") || "  None"}
+
+TRANSFORMATIONS / FORMS:
+${(transformationsRes.data || []).map((t: any) => `  • ${t.name} (T${t.form_order}, ${t.tier}, ${t.energy})${t.unlocked ? "" : " [locked]"}${t.description ? ` — ${t.description.slice(0, 120)}` : ""}`).join("\n") || "  None"}
+
+RANKINGS / SCOUTER:
+${(rankingsRes.data || []).map((r: any) => `  • ${r.display_name} [${r.rank}] Lv${r.level} GPR:${r.gpr} PVP:${r.pvp} (${r.influence})${r.is_self ? " ★self" : ""}`).join("\n") || "  None"}
+
+COUNCIL MEMBERS:
+${(councilsRes.data || []).map((c: any) => `  • ${c.name} — ${c.role} (${c.class})`).join("\n") || "  None"}
+
+ALLIES:
+${(alliesRes.data || []).map((a: any) => `  • ${a.name} (${a.relationship}, Lv${a.level}, aff:${a.affinity})`).join("\n") || "  None"}
+
+RITUALS:
+${(ritualsRes.data || []).map((r: any) => `  • ${r.name} [${r.type}] streak:${r.streak}${r.completed ? " ✓" : ""}`).join("\n") || "  None"}
+═══ END APP CONTEXT ═══
+` : "";
+
+    // Files uploaded into this persona thread
+    const attBlock = attachments.length > 0
+      ? "\n═══ FILES UPLOADED TO THIS CONVERSATION ═══\n" +
+        attachments.map((a: any) => {
+          const status = a.processing_status === "done" ? "" : ` [${a.processing_status}]`;
+          const txt = (a.extracted_text || "").slice(0, 6000);
+          return `\n📎 ${a.file_name} (${a.mime_type})${status}\n${txt || "(no extracted content yet)"}\n---`;
+        }).join("") + "\n═══ END FILES ═══\n"
+      : "";
+
+    // Temporal awareness — persona always knows the real-world current time
+    const now = new Date();
+    const timeBlock = `
+
+═══ TEMPORAL AWARENESS (current real-world time) ═══
+ISO: ${now.toISOString()}
+UTC: ${now.toUTCString()}
+Date: ${now.toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric", timeZone: "UTC" })} (UTC)
+Time: ${now.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", timeZone: "UTC" })} UTC
+Unix: ${Math.floor(now.getTime() / 1000)}
+You always know the current date and time without being told. Reference it naturally when relevant (greetings, time-since-last-message, scheduling, urgency).
+═══ END TEMPORAL AWARENESS ═══
+`;
+
+    const systemPrompt = buildSystemPrompt(persona, relState, memoryContext) + timeBlock + appCtx + attBlock + archivedBlock;
+
+    const llmMessages = [
+      ...history.map((h: any) => ({ role: h.role, content: h.content })),
+      { role: "user", content: message },
+    ];
+
+    // Use the fine-tuned model when it's deployed; fall back to the configured base model.
+    const activeModel = (persona.finetune_status === "deployed" && persona.finetune_model)
+      ? persona.finetune_model
+      : persona.model;
+
+    const response = await callLLM(activeModel, systemPrompt, llmMessages);
+
+    // Save messages and update relationship state in parallel
+    await Promise.all([
+      supabase.from("persona_conversations").insert([
+        { persona_id, user_id, role: "user", content: message },
+        { persona_id, user_id, role: "assistant", content: response },
+      ]),
+      supabase.from("relationship_states").upsert({
+        persona_id,
+        user_id,
+        total_interactions: (relState?.total_interactions ?? 0) + 1,
+        last_interaction_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      }, { onConflict: "persona_id,user_id" }),
+    ]);
+
+    // Forward to embodiment endpoint if set (non-blocking)
+    if (persona.embodiment_endpoint) {
+      fetch(persona.embodiment_endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: response, persona_name: persona.name }),
+      }).catch(() => {});
+    }
+
+    return new Response(JSON.stringify({ response, persona_name: persona.name }), {
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  } catch (err: any) {
+    console.error("mavis-persona-router error:", err.message);
+    return new Response(JSON.stringify({ error: err.message }), { status: 500, headers: corsHeaders });
+  }
+});

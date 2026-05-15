@@ -3,7 +3,7 @@ import {
   LayoutDashboard, User, Target, CheckSquare, Users, Flame,
   Zap, Sparkles, Package, BookOpen, BookLock, ShoppingBag,
   Medal, TowerControl, Activity, Settings, ChevronLeft, ChevronRight,
-  LogOut, Cpu, Shield,
+  LogOut, Cpu, Shield, HeartPulse, Inbox, Network,
 } from "lucide-react";
 import { useState, useContext } from "react";
 import { motion, AnimatePresence } from "framer-motion";
@@ -15,11 +15,13 @@ const PRIMARY_NAV = [
   { to: "/", icon: LayoutDashboard, label: "Dashboard" },
   { to: "/character", icon: User, label: "Character" },
   { to: "/mavis", icon: Cpu, label: "MAVIS" },
+  { to: "/inbox", icon: Inbox, label: "Inbox" },
   { to: "/quests", icon: Target, label: "Quests" },
   { to: "/councils", icon: Users, label: "Councils" },
 ];
 
 const SECONDARY_NAV = [
+  { to: "/knowledge", icon: Network, label: "Knowledge" },
   { to: "/forms", icon: Flame, label: "Forms" },
   { to: "/energy", icon: Zap, label: "Energy" },
   { to: "/skills", icon: Sparkles, label: "Skills" },
@@ -29,6 +31,8 @@ const SECONDARY_NAV = [
 ];
 
 const UTILITY_NAV = [
+  { to: "/personas", icon: HeartPulse, label: "Personas" },
+  { to: "/persona-relationships", icon: HeartPulse, label: "Relationships" },
   { to: "/rankings", icon: Medal, label: "Rankings" },
   { to: "/tower", icon: TowerControl, label: "Tower" },
   { to: "/scouter", icon: Shield, label: "Scouter" },

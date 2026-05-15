@@ -6,6 +6,7 @@ import { motion } from "framer-motion";
 import { Shield, Plus, Trash2, Heart, Loader2, Edit2, ShoppingBag, Lock, CheckCircle2 } from "lucide-react";
 import { useAppData } from "@/contexts/AppDataContext";
 import { PageHeader, HudCard, ProgressBar, RarityBadge } from "@/components/SharedUI";
+import { AvatarUploader } from "@/components/AvatarUploader";
 
 export function AlliesPage() {
   const { allies, alliesLoading, createAlly, updateAlly, deleteAlly } = useAppData();
@@ -91,10 +92,14 @@ export function AlliesPage() {
         {filtered.map((ally) => (
           <HudCard key={ally.id}>
             <div className="flex items-start gap-3">
-              <div className={`w-10 h-10 rounded-full border-2 flex items-center justify-center font-display font-bold shrink-0 ${RELATIONSHIP_COLORS[ally.relationship]}`}
-                style={{ borderColor: "currentColor", opacity: 0.8, background: "currentColor", color: "hsl(var(--background))" }}>
-                {ally.name[0]}
-              </div>
+              <AvatarUploader
+                value={ally.avatar ?? null}
+                onChange={(url) => updateAlly(ally.id, { avatar: url })}
+                scope={`ally/${ally.id}`}
+                fallback={ally.name}
+                sizeClass="w-10 h-10"
+                ringClass={`border-2 ${RELATIONSHIP_COLORS[ally.relationship]}`}
+              />
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
                   <p className={`text-sm font-display font-bold ${RELATIONSHIP_COLORS[ally.relationship]}`}>{ally.name}</p>

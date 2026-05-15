@@ -1,11 +1,27 @@
+import { useEffect } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Route, Routes } from "react-router-dom";
 import { Toaster } from "@/components/ui/toaster";
-import { ThemeProvider } from "next-themes";
+import { ThemeProvider, useTheme } from "next-themes";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import { AppDataProvider } from "@/contexts/AppDataContext";
 import AppSidebar from "@/components/AppSidebar";
 import { Loader2 } from "lucide-react";
+
+/** Sync the mobile browser chrome (status bar) color with the active theme.
+ *  Critical for Android — Chrome reads <meta name="theme-color"> dynamically. */
+function ThemeColorSync() {
+  const { resolvedTheme } = useTheme();
+  useEffect(() => {
+    const color = resolvedTheme === "light" ? "#ffffff" : "#0a0d1f";
+    document.querySelectorAll('meta[name="theme-color"]').forEach((el) => el.remove());
+    const meta = document.createElement("meta");
+    meta.name = "theme-color";
+    meta.content = color;
+    document.head.appendChild(meta);
+  }, [resolvedTheme]);
+  return null;
+}
 
 // Pages
 import { AuthPage, NotFound, SettingsPage } from "@/pages/UtilityPages";
@@ -21,6 +37,11 @@ import TowerPage from "@/pages/TowerPage";
 import { AlliesPage, StorePage } from "@/pages/AlliesAndStore";
 import ScouterPage from "@/pages/ScouterPage";
 import ActivityLogPage from "@/pages/ActivityLogPage";
+import PersonasPage from "@/pages/PersonasPage";
+import PersonaRelationshipsPage from "@/pages/PersonaRelationshipsPage";
+import Inbox from "@/pages/Inbox";
+import CouncilBoard from "@/pages/CouncilBoard";
+import KnowledgeGraph from "@/pages/KnowledgeGraph";
 
 const queryClient = new QueryClient();
 
@@ -65,7 +86,12 @@ function AppContent() {
             <Route path="/bpm" element={<BpmPage />} />
             <Route path="/store" element={<StorePage />} />
             <Route path="/activity" element={<ActivityLogPage />} />
+            <Route path="/personas" element={<PersonasPage />} />
+            <Route path="/persona-relationships" element={<PersonaRelationshipsPage />} />
             <Route path="/settings" element={<SettingsPage />} />
+            <Route path="/inbox" element={<Inbox />} />
+            <Route path="/council-board" element={<CouncilBoard />} />
+            <Route path="/knowledge" element={<KnowledgeGraph />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </main>
@@ -77,6 +103,7 @@ function AppContent() {
 const App = () => (
   <QueryClientProvider client={queryClient}>
     <ThemeProvider attribute="class" defaultTheme="dark" enableSystem={false} storageKey="vantara-theme">
+      <ThemeColorSync />
       <Toaster />
       <BrowserRouter>
         <AuthProvider>

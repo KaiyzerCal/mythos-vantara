@@ -135,7 +135,11 @@ function normalizeActionType(type: string): string {
 
 // ── Action executor ────────────────────────────────────────
 async function executeAction(sb: any, userId: string, action: MavisAction) {
-  const p = action.params || {};
+  // Support both nested { type, params: {...} } and flat { type, title, ... } formats.
+  // Telegram/Claude may send flat; frontend always sends nested.
+  const p: Record<string, unknown> = (action.params && typeof action.params === "object")
+    ? action.params as Record<string, unknown>
+    : (({ type: _t, params: _p, ...rest }) => rest)(action as any);
   const actionType = normalizeActionType(action.type);
 
   switch (actionType) {
@@ -714,6 +718,43 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
       return;
     }
 
+    // ── PERSONA FORGE ────────────────────────────────────
+    case "forge_persona":
+    case "create_persona":
+    case "new_persona":
+    case "add_persona": {
+      const description = String(p.description || p.prompt || p.spec || p.name || "").trim();
+      if (!description) throw new Error("forge_persona requires a 'description' parameter");
+      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+      const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+      const res = await fetch(`${supabaseUrl}/functions/v1/mavis-persona-forge`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${serviceRoleKey}`,
+          "apikey": serviceRoleKey,
+        },
+        body: JSON.stringify({ user_id: userId, description }),
+      });
+      if (!res.ok) {
+        const txt = await res.text();
+        throw new Error(`persona-forge failed (${res.status}): ${txt}`);
+      }
+      const data = await res.json();
+      if (data?.error) throw new Error(typeof data.error === "string" ? data.error : JSON.stringify(data.error));
+      const personaName = data?.persona?.name || "New Persona";
+      await logActivity(sb, userId, "persona_forged", `Persona forged via MAVIS: ${personaName}`, 0);
+      return;
+    }
+
+    case "delete_persona": {
+      const personaId = await resolveId(sb, userId, "personas", (p.persona_id || p.id) as string, (p.persona_name || p.name) as string);
+      if (!personaId) return;
+      await sb.from("personas").update({ is_active: false }).eq("id", personaId).eq("user_id", userId);
+      await logActivity(sb, userId, "persona_deleted", `Persona archived: ${String(p.persona_name || p.name || personaId)}`, 0);
+      return;
+    }
+
     // ── BPM SESSION ──────────────────────────────────────
     case "log_bpm_session": {
       const { error } = await sb.from("bpm_sessions").insert({
@@ -726,6 +767,150 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
       });
       if (error) throw error;
       await logActivity(sb, userId, "bpm_logged", `BPM session: ${p.bpm}bpm`, 0);
+      return;
+    }
+
+    // ── GOAL — autonomous multi-step agentic execution ────────────────
+    // MAVIS queues a goal task. The task executor runs it every 15 min:
+    // plan → act → observe → re-plan until objective is achieved.
+    case "goal":
+    case "set_goal":
+    case "autonomous_goal":
+    case "run_goal": {
+      const objective = String(p.objective ?? p.goal ?? p.description ?? (action as any).objective ?? "").trim();
+      if (!objective) throw new Error("goal requires an 'objective' parameter");
+      const context = String(p.context ?? (action as any).context ?? "").trim();
+      const { error } = await sb.from("mavis_tasks").insert({
+        user_id: userId,
+        type: "goal",
+        description: `GOAL: ${objective.slice(0, 120)}`,
+        payload: { objective, context, created_from: "mavis-actions" },
+        status: "pending",
+      });
+      if (error) throw error;
+      await logActivity(sb, userId, "goal_queued", `Autonomous goal: ${objective.slice(0, 80)}`, 0);
+      return;
+    }
+
+    // ── NORA TWEET — queue for confirmation then fire via task executor ──
+    case "nora_tweet": {
+      const content = String(p.content ?? (action as any).content ?? "").slice(0, 280);
+      if (!content) throw new Error("nora_tweet requires content");
+      const { error } = await sb.from("mavis_tasks").insert({
+        user_id: userId,
+        type: "nora_tweet",
+        description: `Nora tweet: "${content.slice(0, 60)}${content.length > 60 ? "…" : ""}"`,
+        payload: { content, reply_to_tweet_id: p.replyToTweetId ?? (action as any).replyToTweetId ?? null },
+        status: "requires_confirmation",
+      });
+      if (error) throw error;
+      await logActivity(sb, userId, "nora_tweet_queued", `Tweet queued: ${content.slice(0, 60)}`, 0);
+      return;
+    }
+
+    // ── PROPOSE PRODUCT — queue for operator approval ──────────────────
+    case "propose_product": {
+      const title       = String(p.title ?? (action as any).title ?? "New Product");
+      const description = String(p.description ?? (action as any).description ?? "");
+      const priceCents  = Number(p.price_cents ?? (action as any).price_cents ?? 2900);
+      const payload = { ...p, ...(action as any), type: "propose_product", title, description, price_cents: priceCents };
+      const { error } = await sb.from("mavis_tasks").insert({
+        user_id: userId,
+        type: "create_product",
+        description: `Product proposal: "${title}" — $${(priceCents / 100).toFixed(2)}`,
+        payload,
+        status: "requires_confirmation",
+      });
+      if (error) throw error;
+      await logActivity(sb, userId, "product_proposed", `Product proposed: ${title}`, 0);
+      return;
+    }
+
+    // ── KNOWLEDGE GRAPH ──────────────────────────────────
+    case "create_note":
+    case "new_note":
+    case "add_note": {
+      const now = new Date().toISOString();
+      const { data: noteData, error } = await sb.from("mavis_notes").insert({
+        user_id: userId,
+        title: String(p.title || "Untitled Note"),
+        content: String(p.content || ""),
+        tags: asStringArray(p.tags),
+        aliases: asStringArray(p.aliases),
+        properties: (p.properties && typeof p.properties === "object") ? p.properties : {},
+        created_at: now,
+        updated_at: now,
+      }).select("id").single();
+      if (error) throw error;
+      await logActivity(sb, userId, "note_created", `Note created: ${String(p.title || "Untitled Note")}`, 0);
+      return;
+    }
+
+    case "update_note":
+    case "edit_note": {
+      const noteId = await resolveId(sb, userId, "mavis_notes", (p.note_id || p.id) as string, (p.note_title || p.title) as string, "title");
+      if (!noteId) return;
+      // Snapshot current version before updating
+      const { data: current } = await sb.from("mavis_notes").select("title,content").eq("id", noteId).eq("user_id", userId).single();
+      if (current) {
+        const { data: lastVer } = await sb.from("mavis_note_versions").select("version_number").eq("note_id", noteId).order("version_number", { ascending: false }).limit(1).single();
+        const nextVer = ((lastVer?.version_number as number) ?? 0) + 1;
+        await sb.from("mavis_note_versions").insert({
+          note_id: noteId,
+          title: current.title,
+          content: current.content,
+          version_number: nextVer,
+        });
+      }
+      const updates: Record<string, unknown> = { updated_at: new Date().toISOString() };
+      if (p.title !== undefined) updates.title = String(p.title);
+      if (p.content !== undefined) updates.content = String(p.content);
+      if (p.tags !== undefined) updates.tags = asStringArray(p.tags);
+      if (p.aliases !== undefined) updates.aliases = asStringArray(p.aliases);
+      if (p.properties !== undefined && typeof p.properties === "object") updates.properties = p.properties;
+      await sb.from("mavis_notes").update(updates).eq("id", noteId).eq("user_id", userId);
+      await logActivity(sb, userId, "note_updated", `Note updated: ${String(p.title || noteId)}`, 0);
+      return;
+    }
+
+    case "delete_note":
+    case "remove_note": {
+      const noteId = await resolveId(sb, userId, "mavis_notes", (p.note_id || p.id) as string, (p.note_title || p.title) as string, "title");
+      if (!noteId) return;
+      await sb.from("mavis_note_links").delete().or(`source_note_id.eq.${noteId},target_note_id.eq.${noteId}`);
+      await sb.from("mavis_note_versions").delete().eq("note_id", noteId);
+      await sb.from("mavis_notes").delete().eq("id", noteId).eq("user_id", userId);
+      await logActivity(sb, userId, "note_deleted", `Note deleted: ${String(p.title || noteId)}`, 0);
+      return;
+    }
+
+    case "link_notes":
+    case "add_note_link": {
+      const sourceId = await resolveId(sb, userId, "mavis_notes", p.source_note_id as string, p.source_note as string, "title");
+      const targetId = await resolveId(sb, userId, "mavis_notes", p.target_note_id as string, p.target_note as string, "title");
+      if (!sourceId || !targetId) throw new Error("link_notes: could not resolve source or target note");
+      const { error } = await sb.from("mavis_note_links").insert({
+        source_note_id: sourceId,
+        target_note_id: targetId,
+        type: String(p.type || "relates_to"),
+        description: p.description ? String(p.description) : null,
+      });
+      if (error) throw error;
+      return;
+    }
+
+    case "unlink_notes":
+    case "remove_note_link": {
+      const linkId = p.link_id ? String(p.link_id) : null;
+      if (linkId) {
+        await sb.from("mavis_note_links").delete().eq("id", linkId);
+      } else {
+        const sourceId = await resolveId(sb, userId, "mavis_notes", p.source_note_id as string, p.source_note as string, "title");
+        const targetId = await resolveId(sb, userId, "mavis_notes", p.target_note_id as string, p.target_note as string, "title");
+        if (sourceId && targetId) {
+          await sb.from("mavis_note_links").delete().eq("source_note_id", sourceId).eq("target_note_id", targetId);
+        }
+      }
       return;
     }
 
@@ -754,27 +939,35 @@ serve(async (req) => {
     const anonKey = Deno.env.get("SUPABASE_PUBLISHABLE_KEY") ?? Deno.env.get("SUPABASE_ANON_KEY") ?? "";
     const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
-    const userClient = createClient(supabaseUrl, anonKey, {
-      global: { headers: { Authorization: authHeader } },
-      auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
-    });
-
-    const { data: userData, error: userError } = await userClient.auth.getUser(token);
-    if (userError || !userData?.user?.id) {
-      return new Response(JSON.stringify({ error: "Unauthorized" }), {
-        status: 401,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-    const userId = userData.user.id;
-
     const adminClient = createClient(supabaseUrl, serviceRoleKey, {
       auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
     });
 
+    // Parse body early — needed for service-role userId pass-through
     const body = await req.json();
     const actions = Array.isArray(body?.actions) ? (body.actions as MavisAction[]) : [];
+
+    let userId: string;
+
+    if (token === serviceRoleKey && body.userId) {
+      // Server-to-server call (telegram-webhook, task-executor, etc.)
+      // Trust the userId from the body when the service role key is presented
+      userId = String(body.userId);
+    } else {
+      // Normal frontend call — validate the user's JWT
+      const userClient = createClient(supabaseUrl, anonKey, {
+        global: { headers: { Authorization: authHeader } },
+        auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
+      });
+      const { data: userData, error: userError } = await userClient.auth.getUser(token);
+      if (userError || !userData?.user?.id) {
+        return new Response(JSON.stringify({ error: "Unauthorized" }), {
+          status: 401,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      userId = userData.user.id;
+    }
 
     const results: Array<{ type: string; success: boolean; error?: string }> = [];
     for (const action of actions) {

@@ -49,7 +49,21 @@ function routeToProvider(mode: string, message: string): Provider {
 
 // ============================================================
 // PROVIDER ADAPTERS
+// Throw ProviderUnavailableError on credit/quota/auth failures
+// so the cascade can move to the next provider.
 // ============================================================
+class ProviderUnavailableError extends Error {
+  constructor(public providerName: string, public reason: string, public status: number) {
+    super(`${providerName} unavailable (${status}): ${reason}`);
+  }
+}
+
+function isUnfundedStatus(status: number, body: string): boolean {
+  if ([401, 402, 403, 429].includes(status)) return true;
+  const b = body.toLowerCase();
+  return b.includes("credit") || b.includes("quota") || b.includes("billing") || b.includes("payment") || b.includes("insufficient");
+}
+
 async function callOpenAI(messages: any[], system: string, key: string, model = "gpt-4o-mini"): Promise<string> {
   const res = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
@@ -63,9 +77,8 @@ async function callOpenAI(messages: any[], system: string, key: string, model = 
   });
   if (!res.ok) {
     const errText = await res.text();
-    if (res.status === 429 && model !== "gpt-4o-mini") {
-      console.log(`OpenAI ${model} rate-limited, falling back to gpt-4o-mini`);
-      return callOpenAI(messages, system, key, "gpt-4o-mini");
+    if (isUnfundedStatus(res.status, errText)) {
+      throw new ProviderUnavailableError("openai", errText.slice(0, 200), res.status);
     }
     throw new Error(`OpenAI ${res.status}: ${errText}`);
   }
@@ -73,7 +86,7 @@ async function callOpenAI(messages: any[], system: string, key: string, model = 
   return d.choices?.[0]?.message?.content ?? "";
 }
 
-async function callClaude(messages: any[], system: string, key: string): Promise<string> {
+async function callClaude(messages: any[], system: string, key: string, model = "claude-haiku-4-5-20251001"): Promise<string> {
   const res = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: {
@@ -82,13 +95,19 @@ async function callClaude(messages: any[], system: string, key: string): Promise
       "anthropic-version": "2023-06-01",
     },
     body: JSON.stringify({
-      model: "claude-sonnet-4-5",
+      model,
       max_tokens: 2048,
       system,
       messages: messages.map((m: any) => ({ role: m.role, content: m.content })),
     }),
   });
-  if (!res.ok) throw new Error(`Claude ${res.status}: ${await res.text()}`);
+  if (!res.ok) {
+    const errText = await res.text();
+    if (isUnfundedStatus(res.status, errText)) {
+      throw new ProviderUnavailableError("claude", errText.slice(0, 200), res.status);
+    }
+    throw new Error(`Claude ${res.status}: ${errText}`);
+  }
   const d = await res.json();
   return d.content?.[0]?.text ?? "";
 }
@@ -104,9 +123,118 @@ async function callGrok(messages: any[], system: string, key: string): Promise<s
       temperature: 0.7,
     }),
   });
-  if (!res.ok) throw new Error(`Grok ${res.status}: ${await res.text()}`);
+  if (!res.ok) {
+    const errText = await res.text();
+    if (isUnfundedStatus(res.status, errText)) {
+      throw new ProviderUnavailableError("grok", errText.slice(0, 200), res.status);
+    }
+    throw new Error(`Grok ${res.status}: ${errText}`);
+  }
   const d = await res.json();
   return d.choices?.[0]?.message?.content ?? "";
+}
+
+async function callLovableGateway(messages: any[], system: string, key: string, model = "google/gemini-2.5-flash"): Promise<string> {
+  const res = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
+    body: JSON.stringify({
+      model,
+      messages: [{ role: "system", content: system }, ...messages],
+    }),
+  });
+  if (!res.ok) {
+    const errText = await res.text();
+    if (res.status === 429) throw new Error("Lovable AI rate limit reached. Try again shortly.");
+    if (res.status === 402) throw new Error("Lovable AI credits exhausted. Add credits in workspace settings.");
+    throw new Error(`Lovable AI Gateway ${res.status}: ${errText}`);
+  }
+  const d = await res.json();
+  return d.choices?.[0]?.message?.content ?? "";
+}
+
+// Cascade order (cheapest/free → premium):
+//   1. Lovable Gemini Flash (free quota)
+//   2. OpenAI gpt-4o-mini
+//   3. Claude Haiku
+//   4. Claude Sonnet
+//   5. Grok (last resort, real-time persona-routed default)
+// If `primary` explicitly requests claude/grok (mode-routed), try that first,
+// then fall through the standard cascade.
+async function callWithFallback(
+  primary: Provider,
+  messages: any[],
+  system: string,
+  keys: { openai: string; claude: string; grok: string; lovable: string },
+): Promise<{ content: string; provider: string }> {
+  // Tier 0 — honor explicit non-default routing (Claude for deep reasoning, Grok for real-time)
+  if (primary === "claude" && keys.claude) {
+    try {
+      return { content: await callClaude(messages, system, keys.claude, "claude-sonnet-4-6"), provider: "claude-sonnet" };
+    } catch (err: any) {
+      if (!(err instanceof ProviderUnavailableError)) throw err;
+      console.warn(`[fallback] claude-sonnet unfunded (${err.status}) → cascading`);
+    }
+  }
+  if (primary === "grok" && keys.grok) {
+    try {
+      return { content: await callGrok(messages, system, keys.grok), provider: "grok" };
+    } catch (err: any) {
+      if (!(err instanceof ProviderUnavailableError)) throw err;
+      console.warn(`[fallback] grok unfunded (${err.status}) → cascading`);
+    }
+  }
+
+  // Tier 1 — Lovable Gemini Flash (free)
+  if (keys.lovable) {
+    try {
+      return { content: await callLovableGateway(messages, system, keys.lovable, "google/gemini-2.5-flash"), provider: "lovable-gemini-flash" };
+    } catch (err: any) {
+      console.warn(`[fallback] Lovable Gemini Flash failed (${err.message}) → trying OpenAI`);
+    }
+  }
+
+  // Tier 2 — OpenAI (gpt-4o-mini, cheap)
+  if (keys.openai) {
+    try {
+      return { content: await callOpenAI(messages, system, keys.openai, "gpt-4o-mini"), provider: "openai-mini" };
+    } catch (err: any) {
+      if (!(err instanceof ProviderUnavailableError)) throw err;
+      console.warn(`[fallback] OpenAI unfunded (${err.status}) → trying Claude Haiku`);
+    }
+  }
+
+  // Tier 3 — Claude Haiku (cheap)
+  if (keys.claude) {
+    try {
+      return { content: await callClaude(messages, system, keys.claude, "claude-haiku-4-5-20251001"), provider: "claude-haiku" };
+    } catch (err: any) {
+      if (!(err instanceof ProviderUnavailableError)) throw err;
+      console.warn(`[fallback] Claude Haiku unfunded (${err.status}) → trying Claude Sonnet`);
+    }
+  }
+
+  // Tier 4 — Claude Sonnet (premium)
+  if (keys.claude) {
+    try {
+      return { content: await callClaude(messages, system, keys.claude, "claude-sonnet-4-6"), provider: "claude-sonnet" };
+    } catch (err: any) {
+      if (!(err instanceof ProviderUnavailableError)) throw err;
+      console.warn(`[fallback] Claude Sonnet unfunded (${err.status}) → trying Grok`);
+    }
+  }
+
+  // Tier 5 — Grok (last resort)
+  if (keys.grok) {
+    try {
+      return { content: await callGrok(messages, system, keys.grok), provider: "grok" };
+    } catch (err: any) {
+      if (!(err instanceof ProviderUnavailableError)) throw err;
+      console.warn(`[fallback] Grok unfunded (${err.status})`);
+    }
+  }
+
+  throw new Error("All AI providers unavailable (no funded keys, no Lovable AI Gateway).");
 }
 
 // ============================================================
@@ -280,17 +408,45 @@ COUNCIL:
 :::ACTION{"type":"create_council_member","params":{"name":"...","role":"...","specialty":"...","class":"core|advisory|think-tank|shadows","notes":"..."}}:::
 :::ACTION{"type":"update_council_member","params":{"member_id":"...","notes":"..."}}:::
 :::ACTION{"type":"delete_council_member","params":{"member_id":"..."}}:::
-OTHER:
-:::ACTION{"type":"create_inventory_item","params":{"name":"...","type":"equipment|consumable|artifact","rarity":"common|rare|epic|legendary|mythic","quantity":1}}:::
+INVENTORY:
+:::ACTION{"type":"create_inventory_item","params":{"name":"...","description":"...","type":"equipment|consumable|artifact","rarity":"common|rare|epic|legendary|mythic","quantity":1,"slot":"...","tier":"...","effect":"...","is_equipped":false}}:::
+:::ACTION{"type":"update_inventory_item","params":{"item_id":"...","name":"...","quantity":1,"is_equipped":true,"effect":"..."}}:::
+:::ACTION{"type":"delete_inventory_item","params":{"item_id":"..."}}:::
+ENERGY:
+:::ACTION{"type":"create_energy_system","params":{"type":"...","current_value":100,"max_value":100,"color":"#08C284","description":"...","status":"developing|mastered|locked"}}:::
 :::ACTION{"type":"update_energy","params":{"energy_id":"...","current_value":100}}:::
+:::ACTION{"type":"delete_energy","params":{"energy_id":"..."}}:::
+ALLIES:
 :::ACTION{"type":"create_ally","params":{"name":"...","relationship":"ally|council|rival","specialty":"...","affinity":50,"notes":"..."}}:::
 :::ACTION{"type":"update_ally","params":{"ally_id":"...","affinity":75,"notes":"..."}}:::
-:::ACTION{"type":"create_ritual","params":{"name":"...","type":"fitness|business|self_care|legal|other","xp_reward":25}}:::
+:::ACTION{"type":"delete_ally","params":{"ally_id":"..."}}:::
+RITUALS:
+:::ACTION{"type":"create_ritual","params":{"name":"...","description":"...","type":"fitness|business|self_care|legal|other","xp_reward":25}}:::
+:::ACTION{"type":"update_ritual","params":{"ritual_id":"...","name":"...","xp_reward":25}}:::
 :::ACTION{"type":"complete_ritual","params":{"ritual_id":"..."}}:::
-:::ACTION{"type":"update_profile","params":{"arc_story":"...","current_form":"...","fatigue":0,"full_cowl_sync":95,"codex_integrity":97}}:::
+:::ACTION{"type":"delete_ritual","params":{"ritual_id":"..."}}:::
+TRANSFORMATIONS / FORMS:
+:::ACTION{"type":"create_transformation","params":{"name":"...","tier":"...","form_order":1,"bpm_range":"60-200","energy":"Emerald Flames","jjk_grade":"Special Grade","op_tier":"God Tier","description":"...","unlocked":false,"abilities":[],"active_buffs":[],"passive_buffs":[]}}:::
+:::ACTION{"type":"update_transformation","params":{"transformation_id":"...","unlocked":true,"description":"..."}}:::
+:::ACTION{"type":"delete_transformation","params":{"transformation_id":"..."}}:::
+RANKINGS / SCOUTER:
+:::ACTION{"type":"create_ranking_profile","params":{"display_name":"...","role":"npc|ally|rival","rank":"D","level":1,"gpr":1000,"pvp":5000,"jjk_grade":"G4","op_tier":"Local","influence":"Local","is_self":false,"notes":"..."}}:::
+:::ACTION{"type":"update_ranking_profile","params":{"ranking_id":"...","rank":"S","level":80,"gpr":9999}}:::
+:::ACTION{"type":"delete_ranking_profile","params":{"ranking_id":"..."}}:::
+STORE:
+:::ACTION{"type":"create_store_item","params":{"name":"...","description":"...","price":100,"currency":"Codex Points","rarity":"common","category":"consumable","effect":"..."}}:::
+:::ACTION{"type":"update_store_item","params":{"store_item_id":"...","price":150}}:::
+:::ACTION{"type":"delete_store_item","params":{"store_item_id":"..."}}:::
+BPM / PROFILE / XP:
+:::ACTION{"type":"log_bpm_session","params":{"bpm":120,"form":"Base","duration":15,"mood":"focused","notes":"..."}}:::
+:::ACTION{"type":"update_profile","params":{"arc_story":"...","current_form":"...","fatigue":0,"full_cowl_sync":95,"codex_integrity":97,"inscribed_name":"...","level":54,"rank":"S"}}:::
 :::ACTION{"type":"award_xp","params":{"amount":100}}:::
+PERSONAS (Persona Forge / Persona Tab):
+:::ACTION{"type":"forge_persona","params":{"description":"Full natural-language spec of the persona — name, role (girlfriend/friend/mentor/rival/companion/custom), tone, quirks, values, communication style, archetype, etc. Be vivid and specific."}}:::
+:::ACTION{"type":"delete_persona","params":{"persona_name":"..."}}:::
+When the operator asks you to create/forge/build/spawn a persona, ALWAYS emit a forge_persona action with a rich description — this routes through the SAME pipeline as the Persona Forge tab, so the new persona appears in the roster with full chat, voice, memory, and relationship capabilities.
 
-RULES: Use exact IDs. Never claim an action without the tag. Chain as many as needed. complete_quest handles XP automatically.
+RULES: Use exact IDs from the LIVE BACKEND STATE block above. Never claim an action without emitting the tag. Chain as many tags as needed in one response. complete_quest handles XP automatically. You have write access to every page and section of the app — quests, tasks, skills, journal, vault, council, inventory, energy, allies, rituals, forms/transformations, scouter/rankings, store, BPM, personas, and the operator profile itself.
 
 ---
 
@@ -353,7 +509,7 @@ serve(async (req) => {
     // ── Load data ───────────────────────────────────────────
     const sb = createClient(supabaseUrl, serviceKey, { auth: { persistSession: false } });
 
-    const { messages, systemPrompt: clientSystemPrompt, mode, conversationId, appState } = await req.json();
+    const { messages, systemPrompt: clientSystemPrompt, mode, conversationId, appState, attachmentIds, chatKind, threadRef } = await req.json();
 
     // Fetch profile from DB (don't trust client-sent profile)
     const { data: profile } = await sb.from("profiles").select("*").eq("id", user.id).single();
@@ -416,6 +572,46 @@ serve(async (req) => {
       bpmSessions: bpmRes.data || [], storeItems: storeRes.data || [], currencies: currenciesRes.data || [],
       vaultMedia: vaultMediaRes.data || [], activityLog: activityRes.data || [], memories: memoriesRes.data || [],
     };
+
+    // ── NAVI Ecosystem Context ──────────────────────────────────────────────────
+    // Load the user's active NAVIs and their relationship states so MAVIS is aware
+    // of the user's companion network — bonds formed, moods, milestones reached.
+    let naviBlock = "";
+    try {
+      const [naviPersonasRes, naviRelationsRes] = await Promise.all([
+        sb.from("personas").select("id, name, role, archetype, finetune_status").eq("user_id", user.id).eq("is_active", true).order("created_at", { ascending: false }).limit(10),
+        sb.from("relationship_states").select("persona_id, bond_level, trust_level, current_mood, total_interactions, last_interaction_at, relationship_milestones").eq("user_id", user.id),
+      ]);
+
+      const naviPersonas  = naviPersonasRes.data ?? [];
+      const naviRelations = naviRelationsRes.data ?? [];
+
+      if (naviPersonas.length) {
+        const relByPersona = new Map(naviRelations.map((r: any) => [r.persona_id, r]));
+        const naviLines = naviPersonas.map((p: any) => {
+          const rel = relByPersona.get(p.id) as any;
+          const bond = rel?.bond_level ?? 0;
+          const trust = rel?.trust_level ?? 50;
+          const mood  = rel?.current_mood ?? "neutral";
+          const interactions = rel?.total_interactions ?? 0;
+          const lastSeen = rel?.last_interaction_at
+            ? `${Math.floor((Date.now() - new Date(rel.last_interaction_at).getTime()) / (1000 * 60 * 60 * 24))}d ago`
+            : "never";
+          const milestones: any[] = Array.isArray(rel?.relationship_milestones) ? rel.relationship_milestones : [];
+          const milestoneStr = milestones.length ? ` | milestones: ${milestones.map((m: any) => m.label).join(", ")}` : "";
+          const finetuned = p.finetune_status === "deployed" ? " [fine-tuned]" : "";
+          return `  • ${p.name} (${p.role}/${p.archetype})${finetuned} — bond:${bond} trust:${trust} mood:${mood} interactions:${interactions} last:${lastSeen}${milestoneStr}`;
+        }).join("\n");
+
+        naviBlock = `\n═══ NAVI COMPANION ECOSYSTEM (${naviPersonas.length} active) ═══
+The user has forged these AI companions (NAVIs) within your platform:
+${naviLines}
+When relevant, acknowledge the user's companion network — the bonds they've built, the personas they've shaped. This is part of their story.
+═══ END NAVI ECOSYSTEM ═══`;
+      }
+    } catch (e) {
+      console.warn("[mavis-chat] NAVI ecosystem load failed:", (e as any)?.message);
+    }
 
     // Adaptive: full content when user is asking for it, short preview otherwise
     const journalLen = wants.journal ? 500 : 100;
@@ -544,6 +740,7 @@ ${fmtMemories}
     const openaiKey  = Deno.env.get("OPENAI_API") ?? Deno.env.get("OPENAI_API_KEY") ?? "";
     const claudeKey  = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
     const grokKey    = Deno.env.get("GROK_API_KEY") ?? "";
+    const lovableKey = Deno.env.get("LOVABLE_API_KEY") ?? "";
     const tavilyKey  = Deno.env.get("Tavily_API") ?? Deno.env.get("TAVILY_API_KEY") ?? "";
 
     // ── Web search if needed ────────────────────────────────
@@ -562,44 +759,64 @@ ${fmtMemories}
       ? clientSystemPrompt
       : buildMavisPrompt(profile, mode ?? "PRIME", appState ?? {}, callerName, isCaliyah);
 
+    // ── Attachments uploaded to this thread ────────────────
+    let attachmentsBlock = "";
+    try {
+      let q = sb.from("chat_attachments")
+        .select("id,file_name,mime_type,extracted_text,processing_status,created_at")
+        .eq("user_id", user.id)
+        .order("created_at", { ascending: false })
+        .limit(20);
+      if (Array.isArray(attachmentIds) && attachmentIds.length > 0) {
+        q = q.in("id", attachmentIds);
+      } else if (chatKind && threadRef) {
+        q = q.eq("chat_kind", chatKind).eq("thread_ref", String(threadRef));
+      } else {
+        q = q.eq("chat_kind", "mavis");
+      }
+      const { data: atts } = await q;
+      if (atts && atts.length > 0) {
+        attachmentsBlock = "\n═══ FILES UPLOADED TO THIS CHAT (read & reference) ═══\n" +
+          atts.map((a: any) => {
+            const status = a.processing_status === "done"
+              ? ""
+              : ` [${a.processing_status}]`;
+            const txt = (a.extracted_text || "").slice(0, 6000);
+            return `\n📎 ${a.file_name} (${a.mime_type})${status}\n${txt || "(no extracted content yet)"}\n---`;
+          }).join("");
+      }
+    } catch (e) {
+      console.warn("attachment load failed", (e as any)?.message);
+    }
+
+    // ── Temporal awareness (always know "now") ───────────────
+    const now = new Date();
+    const timeBlock = `═══ TEMPORAL AWARENESS (current real-world time) ═══
+ISO: ${now.toISOString()}
+UTC: ${now.toUTCString()}
+Date: ${now.toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric", timeZone: "UTC" })} (UTC)
+Time: ${now.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", timeZone: "UTC" })} UTC
+Unix: ${Math.floor(now.getTime() / 1000)}
+You always know the current date and time without being told. Reference it naturally when relevant (greetings, deadlines, time-since-last-message, scheduling, urgency).
+═══ END TEMPORAL AWARENESS ═══`;
+
     const fullPrompt = [
       baseSystem,
+      timeBlock,
       authoritativeContext,
+      naviBlock,
+      attachmentsBlock,
       webSearchResults ? `\n---\nWEB SEARCH:\n${webSearchResults}\n---` : "",
     ].filter(Boolean).join("\n\n");
 
-    // ── Route and call ──────────────────────────────────────
+    // ── Route and call (with cascading fallback) ────────────
     const provider = routeToProvider(mode ?? "PRIME", lastUserMsg?.content ?? "");
-    let content = "";
-    let usedProvider = provider;
-
-    try {
-      if (provider === "claude" && claudeKey) {
-        content = await callClaude(messages, fullPrompt, claudeKey);
-      } else if (provider === "grok" && grokKey) {
-        content = await callGrok(messages, fullPrompt, grokKey);
-      } else if (openaiKey) {
-        content = await callOpenAI(messages, fullPrompt, openaiKey);
-        usedProvider = "openai";
-      } else if (claudeKey) {
-        content = await callClaude(messages, fullPrompt, claudeKey);
-        usedProvider = "claude";
-      } else if (grokKey) {
-        content = await callGrok(messages, fullPrompt, grokKey);
-        usedProvider = "grok";
-      } else {
-        throw new Error("No AI API keys configured.");
-      }
-    } catch (aiErr: any) {
-      // Fallback chain on error
-      console.error(`Primary provider ${provider} failed:`, aiErr.message);
-      if (openaiKey && provider !== "openai") {
-        content = await callOpenAI(messages, fullPrompt, openaiKey);
-        usedProvider = "openai";
-      } else {
-        throw aiErr;
-      }
-    }
+    const { content, provider: usedProvider } = await callWithFallback(
+      provider,
+      messages,
+      fullPrompt,
+      { openai: openaiKey, claude: claudeKey, grok: grokKey, lovable: lovableKey },
+    );
 
     return new Response(
       JSON.stringify({ content, mode, conversationId, searched: !!webSearchResults, provider: usedProvider }),

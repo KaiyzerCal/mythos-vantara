@@ -37,6 +37,7 @@ export interface ProfileData {
   pvp_rating: number;
   // Meta
   display_name: string | null;
+  avatar_url: string | null;
   operator_level: number;
   operator_xp: number;
   onboarding_done: boolean;
@@ -78,6 +79,7 @@ const defaults: ProfileData = {
   gpr: 8847,
   pvp_rating: 2240,
   display_name: null,
+  avatar_url: null,
   operator_level: 1,
   operator_xp: 0,
   onboarding_done: false,
