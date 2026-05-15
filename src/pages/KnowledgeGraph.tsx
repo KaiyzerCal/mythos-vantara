@@ -133,7 +133,6 @@ export default function KnowledgeGraph() {
     const versionNum = (versions[0]?.version_number ?? 0) + 1;
     await supabase.from("mavis_note_versions").insert({
       note_id: selected.id,
-      user_id: session.user.id,
       title: selected.title,
       content: selected.content,
       version_number: versionNum,
@@ -170,7 +169,6 @@ export default function KnowledgeGraph() {
     const { data: { session } } = await supabase.auth.getSession();
     if (!session) return;
     const { error } = await supabase.from("mavis_note_links").insert({
-      user_id: session.user.id,
       source_note_id: selected.id,
       target_note_id: target.id,
       type: linkType,
