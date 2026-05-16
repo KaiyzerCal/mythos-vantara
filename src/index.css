@@ -138,6 +138,136 @@
     pointer-events: none;
   }
 
+  /* ── MAVIS prose — used in chat messages, briefs, notes ── */
+  .mavis-prose {
+    @apply max-w-none font-body;
+    font-size: 0.8125rem;   /* 13px — readable without competing with UI */
+    line-height: 1.65;
+    color: hsl(var(--foreground) / 0.9);
+  }
+
+  .mavis-prose h1,
+  .mavis-prose h2 {
+    @apply font-display;
+    font-size: 0.9375rem;   /* 15px */
+    font-weight: 700;
+    color: hsl(var(--primary));
+    margin: 1.1em 0 0.35em;
+    letter-spacing: 0.01em;
+  }
+
+  .mavis-prose h3 {
+    @apply font-display;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: hsl(var(--primary) / 0.8);
+    margin: 0.9em 0 0.25em;
+  }
+
+  .mavis-prose p {
+    margin: 0 0 0.65em;
+  }
+
+  .mavis-prose ul,
+  .mavis-prose ol {
+    margin: 0.4em 0 0.65em;
+    padding-left: 1.4em;
+  }
+
+  .mavis-prose li {
+    margin-bottom: 0.2em;
+  }
+
+  .mavis-prose ul > li::marker {
+    color: hsl(var(--primary) / 0.7);
+  }
+
+  .mavis-prose ol > li::marker {
+    color: hsl(var(--primary) / 0.7);
+    font-weight: 600;
+  }
+
+  .mavis-prose strong {
+    color: hsl(var(--foreground));
+    font-weight: 700;
+  }
+
+  .mavis-prose em {
+    color: hsl(var(--muted-foreground));
+    font-style: italic;
+  }
+
+  .mavis-prose code {
+    @apply font-mono;
+    font-size: 0.78em;
+    background: hsl(var(--muted));
+    color: hsl(var(--neon-purple));
+    border-radius: 3px;
+    padding: 0.1em 0.35em;
+  }
+
+  .mavis-prose pre {
+    background: hsl(var(--muted));
+    border: 1px solid hsl(var(--border));
+    border-radius: 6px;
+    padding: 0.75em 1em;
+    overflow-x: auto;
+    margin: 0.65em 0;
+  }
+
+  .mavis-prose pre code {
+    background: transparent;
+    padding: 0;
+    color: hsl(var(--foreground) / 0.85);
+    font-size: 0.8em;
+  }
+
+  .mavis-prose a {
+    color: hsl(var(--neon-cyan));
+    text-decoration: none;
+  }
+
+  .mavis-prose a:hover {
+    text-decoration: underline;
+  }
+
+  .mavis-prose blockquote {
+    border-left: 3px solid hsl(var(--primary) / 0.4);
+    padding-left: 0.85em;
+    color: hsl(var(--muted-foreground));
+    margin: 0.65em 0;
+    font-style: italic;
+  }
+
+  .mavis-prose hr {
+    border-color: hsl(var(--border));
+    margin: 1em 0;
+  }
+
+  .mavis-prose table {
+    font-size: 0.78em;
+    width: 100%;
+    border-collapse: collapse;
+    margin: 0.65em 0;
+  }
+
+  .mavis-prose th {
+    @apply font-display;
+    background: hsl(var(--muted));
+    color: hsl(var(--primary));
+    padding: 0.4em 0.75em;
+    text-align: left;
+    font-size: 0.75em;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+
+  .mavis-prose td {
+    padding: 0.35em 0.75em;
+    border-bottom: 1px solid hsl(var(--border) / 0.5);
+    color: hsl(var(--foreground) / 0.85);
+  }
+
   /* Energy bar colors */
   .energy-ki { background: #FFD700; }
   .energy-aura { background: #00D9FF; }
