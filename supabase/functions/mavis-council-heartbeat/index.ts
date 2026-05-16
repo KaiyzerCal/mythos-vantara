@@ -78,6 +78,17 @@ async function loadContext(uid: string): Promise<string> {
     if (p.fatigue != null) lines.push(`VITALS: Fatigue ${p.fatigue}% | BPM ${p.current_bpm ?? "?"} | Full Cowl ${p.full_cowl_sync ?? "?"}%`);
   }
 
+  // Surface CRITICAL overdue quests (>7 days) prominently so council acts on them
+  const todayIso   = now.toISOString().slice(0, 10);
+  const criticalOverdue = quests.filter((q: any) => q.deadline && q.deadline < todayIso &&
+    Math.floor((now.getTime() - new Date(q.deadline + "T00:00:00Z").getTime()) / 86400000) > 7);
+  if (criticalOverdue.length > 0) {
+    lines.push(`⛔ CRITICAL OVERDUE (${criticalOverdue.length}) — IMMEDIATE ATTENTION REQUIRED:\n${criticalOverdue.map((q: any) => {
+      const daysLate = Math.floor((now.getTime() - new Date(q.deadline + "T00:00:00Z").getTime()) / 86400000);
+      return `  !! ${q.title} — ${daysLate} DAYS LATE`;
+    }).join("\n")}`);
+  }
+
   if (quests.length > 0) lines.push(`ACTIVE QUESTS (${quests.length}):\n${quests.map((q: any) => `  - [${q.type}] ${q.title}${q.deadline ? ` (due ${q.deadline.slice(0, 10)})` : ""}`).join("\n")}`);
   if (tasks.length > 0)  lines.push(`ACTIVE TASKS: ${tasks.map((t: any) => `${t.title} [${t.recurrence}, streak:${t.streak ?? 0}]`).join(", ")}`);
   if (energy.length > 0) lines.push(`ENERGY: ${energy.map((e: any) => `${e.type} ${e.current_value}/${e.max_value} [${e.status}]`).join(" | ")}`);
@@ -519,6 +530,32 @@ async function executeActions(
       const params = action.params ?? {};
       params.amount = Math.min(Number(params.amount ?? 50), 100);
       action.params = params;
+    }
+
+    // Deduplication guard (Moltbook pattern) — prevent council from re-creating
+    // quests or tasks that already exist with a similar title in the last 14 days.
+    if (type === "create_quest" || type === "create_task") {
+      const table    = type === "create_quest" ? "quests" : "tasks";
+      const title    = String((action.params as any)?.title ?? "").trim().toLowerCase().slice(0, 40);
+      const cutoff   = new Date(Date.now() - 14 * 86400000).toISOString();
+      if (title.length >= 4) {
+        const { data: existing } = await supabase
+          .from(table)
+          .select("id, title")
+          .eq("user_id", userId)
+          .gte("created_at", cutoff)
+          .ilike("title", `%${title.slice(0, 30)}%`)
+          .limit(1);
+        if (existing?.length) {
+          // Convert to a notify instead of creating a duplicate
+          if (BOT_TOKEN && CHAT_ID) {
+            await sendTelegram(`[${member.name}] Skipped duplicate ${type.replace("create_", "")} — "${(action.params as any)?.title}" already exists.`);
+          }
+          console.log(`[council-heartbeat] dedup: skipped ${type} "${(action.params as any)?.title}"`);
+          executed++;
+          continue;
+        }
+      }
     }
 
     // Route standard actions through mavis-actions
