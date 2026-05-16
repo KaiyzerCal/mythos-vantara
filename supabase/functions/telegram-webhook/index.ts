@@ -231,10 +231,63 @@ async function loadContext(): Promise<string> {
 }
 
 // ─────────────────────────────────────────────────────────────
+// KNOWLEDGE GRAPH RETRIEVAL
+// Keyword-searches mavis_notes and returns relevant excerpts so
+// MAVIS can reference stored knowledge in every response.
+// ─────────────────────────────────────────────────────────────
+
+const STOPWORDS = new Set([
+  "the","and","for","are","but","not","you","all","can","had","her","was",
+  "one","our","out","day","get","has","him","his","how","its","may","new",
+  "now","old","see","two","way","who","did","let","put","too","use","say",
+  "she","via","what","with","have","this","will","your","from","they","know",
+  "want","been","good","much","some","time","very","when","come","here","just",
+  "like","long","make","many","more","only","over","such","take","than","then",
+  "them","well","were","also","into","that","there","about","after","could",
+  "first","never","right","think","which","would","should","their","these",
+  "those","other","still","where","doing","going","need","said","tell","told",
+]);
+
+function extractKeywords(text: string): string[] {
+  return [...new Set(
+    text.toLowerCase()
+      .replace(/[^a-z0-9\s]/g, " ")
+      .split(/\s+/)
+      .filter(w => w.length >= 4 && !STOPWORDS.has(w))
+  )].slice(0, 6);
+}
+
+async function loadKnowledgeContext(message: string): Promise<string> {
+  const keywords = extractKeywords(message);
+  if (keywords.length === 0) return "";
+  try {
+    const orParts = keywords.flatMap(kw => [
+      `title.ilike.%${kw}%`,
+      `content.ilike.%${kw}%`,
+    ]);
+    const { data, error } = await supabase
+      .from("mavis_notes")
+      .select("id, title, content, tags, updated_at")
+      .eq("user_id", OPERATOR_USER_ID)
+      .or(orParts.join(","))
+      .order("updated_at", { ascending: false })
+      .limit(4);
+    if (error || !data?.length) return "";
+    return (data as any[]).map((n: any) => {
+      const preview = (n.content ?? "").replace(/\n+/g, " ").slice(0, 300);
+      const tags = Array.isArray(n.tags) && n.tags.length > 0 ? ` [${n.tags.join(", ")}]` : "";
+      return `• ${n.title}${tags}: ${preview}${(n.content?.length ?? 0) > 300 ? "…" : ""}`;
+    }).join("\n");
+  } catch {
+    return "";
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
 // SYSTEM PROMPT
 // ─────────────────────────────────────────────────────────────
 
-function buildSystemPrompt(context: string): string {
+function buildSystemPrompt(context: string, knowledgeCtx: string): string {
   const now = new Date();
   const dateStr = now.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric", timeZone: "UTC" });
   const timeStr = now.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", timeZone: "UTC" });
@@ -259,7 +312,7 @@ REVENUE RADAR: If you detect a monetizable opportunity in anything Calvin says, 
 
 ━━ LIVE CONTEXT ━━
 ${context}
-
+${knowledgeCtx ? `\n━━ KNOWLEDGE GRAPH MEMORY ━━\nRelevant notes from your second brain (use this knowledge naturally in responses):\n${knowledgeCtx}` : ""}
 ━━ ACTION GRAMMAR — params MUST be a nested object ━━
 QUESTS & TASKS:
 :::ACTION{"type":"create_quest","params":{"title":"...","description":"...","type":"daily|side|main|epic","difficulty":"Easy|Normal|Hard|Extreme|Impossible","xp_reward":100,"real_world_mapping":"...","category":"..."}}:::
@@ -1095,9 +1148,10 @@ Deno.serve(async (req) => {
     }
 
     // ── MAVIS MODE: full pipeline ──────────────────────────
-    const [history, context] = await Promise.all([
+    const [history, context, knowledgeCtx] = await Promise.all([
       loadHistory(chatId),
       loadContext(),
+      loadKnowledgeContext(inputText),
     ]);
 
     // ── Persist user message ───────────────────────────────
@@ -1113,7 +1167,7 @@ Deno.serve(async (req) => {
     ];
 
     // ── Call MAVIS ─────────────────────────────────────────
-    const systemPrompt = buildSystemPrompt(context);
+    const systemPrompt = buildSystemPrompt(context, knowledgeCtx);
     let rawResponse    = await callClaude(systemPrompt, messages);
 
     // ── Web search pass ────────────────────────────────────

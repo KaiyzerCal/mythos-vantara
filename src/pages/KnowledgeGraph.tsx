@@ -53,7 +53,16 @@ async function kgCall(action: string, params: Record<string, unknown> = {}) {
   const { data, error } = await supabase.functions.invoke("mavis-knowledge", {
     body: { action, ...params },
   });
-  if (error) throw error;
+  if (error) {
+    // FunctionsHttpError.context is the raw Response — extract the real message.
+    let detail = error.message;
+    try {
+      const body = await (error as any).context?.json?.();
+      if (body?.error) detail = body.error;
+      else if (body?.message) detail = body.message;
+    } catch { /* body already consumed or not JSON */ }
+    throw new Error(detail);
+  }
   if (data?.error) throw new Error(data.error);
   return data;
 }

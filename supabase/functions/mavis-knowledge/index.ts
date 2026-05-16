@@ -21,12 +21,47 @@ function json(data: unknown, status = 200) {
   });
 }
 
+// Verify JWT locally using SUPABASE_JWT_SECRET — avoids a network round-trip to
+// the auth service, which can fail transiently inside edge functions.
 async function getUserId(req: Request): Promise<string | null> {
-  const auth = req.headers.get("Authorization") ?? "";
-  const token = auth.replace("Bearer ", "");
-  if (!token) return null;
-  const { data } = await supabase.auth.getUser(token);
-  return data?.user?.id ?? null;
+  try {
+    const auth = req.headers.get("Authorization") ?? "";
+    const token = auth.replace(/^Bearer\s+/i, "").trim();
+    if (!token) return null;
+
+    const parts = token.split(".");
+    if (parts.length !== 3) return null;
+
+    const secret = Deno.env.get("SUPABASE_JWT_SECRET");
+    if (secret) {
+      const key = await crypto.subtle.importKey(
+        "raw",
+        new TextEncoder().encode(secret),
+        { name: "HMAC", hash: "SHA-256" },
+        false,
+        ["verify"],
+      );
+
+      const signedPart = new TextEncoder().encode(`${parts[0]}.${parts[1]}`);
+      const b64 = parts[2].replace(/-/g, "+").replace(/_/g, "/");
+      const padded = b64 + "=".repeat((4 - (b64.length % 4)) % 4);
+      const sig = Uint8Array.from(atob(padded), (c) => c.charCodeAt(0));
+
+      const valid = await crypto.subtle.verify("HMAC", key, sig, signedPart);
+      if (!valid) return null;
+
+      const payloadB64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
+      const payload = JSON.parse(atob(payloadB64 + "=".repeat((4 - (payloadB64.length % 4)) % 4)));
+      if (payload.exp && payload.exp < Math.floor(Date.now() / 1000)) return null;
+      return payload.sub ?? null;
+    }
+
+    // Fallback: validate via auth API (slower but safe)
+    const { data } = await supabase.auth.getUser(token);
+    return data?.user?.id ?? null;
+  } catch {
+    return null;
+  }
 }
 
 Deno.serve(async (req) => {
@@ -36,7 +71,7 @@ Deno.serve(async (req) => {
   if (!userId) return json({ error: "Unauthorized" }, 401);
 
   let body: Record<string, unknown> = {};
-  try { body = await req.json(); } catch { /* GET-style calls have no body */ }
+  try { body = await req.json(); } catch { /* no body on GET-style calls */ }
 
   const action = String(body.action ?? "");
 
@@ -78,7 +113,7 @@ Deno.serve(async (req) => {
       const noteId = String(body.note_id ?? "");
       if (!noteId) return json({ error: "note_id required" }, 400);
 
-      // snapshot current version first
+      // Snapshot current version before overwriting
       const { data: current } = await supabase
         .from("mavis_notes")
         .select("title, content")
