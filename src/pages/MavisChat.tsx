@@ -818,7 +818,7 @@ export default function MavisChat() {
                         : "hud-border text-foreground"
                     }`}>
                       {msg.role === "assistant" ? (
-                        <div className="prose prose-sm prose-invert max-w-none text-xs font-body leading-relaxed">
+                        <div className="mavis-prose">
                           <ReactMarkdown>{msg.content}</ReactMarkdown>
                         </div>
                       ) : (
