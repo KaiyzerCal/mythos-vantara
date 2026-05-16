@@ -788,6 +788,26 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
         status: "pending",
       });
       if (error) throw error;
+
+      // Insert into mavis_goals for tracking + fire decomposition engine
+      const { data: goalRecord } = await sb.from("mavis_goals").insert({
+        user_id:   userId,
+        objective: objective.slice(0, 500),
+        context:   context.slice(0, 500),
+        status:    "active",
+      }).select("id").single();
+
+      // Fire goal decomposition engine asynchronously (non-blocking)
+      if (goalRecord?.id) {
+        const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+        const serviceKey  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+        fetch(`${supabaseUrl}/functions/v1/mavis-goal-engine`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${serviceKey}` },
+          body: JSON.stringify({ goal_id: goalRecord.id, objective, context, user_id: userId }),
+        }).catch(() => {});
+      }
+
       await logActivity(sb, userId, "goal_queued", `Autonomous goal: ${objective.slice(0, 80)}`, 0);
       return;
     }

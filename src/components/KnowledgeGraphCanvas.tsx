@@ -28,6 +28,7 @@ interface Props {
   notes: CanvasNote[];
   links: CanvasLink[];
   selectedId?: string;
+  filterTag?: string;
   onSelectNote: (note: CanvasNote) => void;
 }
 
@@ -49,7 +50,7 @@ const DAMPING    = 0.87;
 const CENTER_G   = 0.011;
 const BASE_R     = 7;
 
-export default function KnowledgeGraphCanvas({ notes, links, selectedId, onSelectNote }: Props) {
+export default function KnowledgeGraphCanvas({ notes, links, selectedId, filterTag, onSelectNote }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef    = useRef<HTMLCanvasElement>(null);
   const nodesRef     = useRef<GNode[]>([]);
@@ -57,11 +58,13 @@ export default function KnowledgeGraphCanvas({ notes, links, selectedId, onSelec
   const rafRef       = useRef<number>(0);
   const hoverIdRef   = useRef<string | null>(null);
   const selectedRef  = useRef<string | undefined>(selectedId);
+  const filterTagRef = useRef<string | undefined>(filterTag);
   const transformRef = useRef({ x: 0, y: 0, scale: 1 });
   const dragRef      = useRef<{ startX: number; startY: number; lastX: number; lastY: number; moved: boolean } | null>(null);
   const dimRef       = useRef({ W: 800, H: 500 });
 
   useEffect(() => { selectedRef.current = selectedId; }, [selectedId]);
+  useEffect(() => { filterTagRef.current = filterTag; }, [filterTag]);
 
   // ── Simulation + render loop ──────────────────────────────
   useEffect(() => {
@@ -148,6 +151,7 @@ export default function KnowledgeGraphCanvas({ notes, links, selectedId, onSelec
       const { x: tx, y: ty, scale } = transformRef.current;
       const hovId    = hoverIdRef.current;
       const selId    = selectedRef.current;
+      const ftag     = filterTagRef.current;
 
       ctx.clearRect(0, 0, W, H);
       ctx.fillStyle = "#080b18";
@@ -184,10 +188,12 @@ export default function KnowledgeGraphCanvas({ notes, links, selectedId, onSelec
 
       // Nodes
       for (const n of nodes) {
-        const isSel = n.id === selId;
-        const isHov = n.id === hovId;
-        const color  = tagColor(n.tags);
-        const r      = BASE_R + Math.sqrt(n.connections) * 2 + (isSel ? 4 : isHov ? 2 : 0);
+        const isSel    = n.id === selId;
+        const isHov    = n.id === hovId;
+        const isMatch  = !ftag || n.tags.includes(ftag);
+        const color    = tagColor(n.tags);
+        const r        = BASE_R + Math.sqrt(n.connections) * 2 + (isSel ? 4 : isHov ? 2 : 0);
+        ctx.globalAlpha = isMatch ? 1 : 0.15;
 
         // Radial glow
         const gr = ctx.createRadialGradient(n.x, n.y, 0, n.x, n.y, r * 3);
@@ -216,6 +222,7 @@ export default function KnowledgeGraphCanvas({ notes, links, selectedId, onSelec
           ctx.fillStyle = isSel ? "#ffffff" : "#c4b5fd";
           ctx.fillText(label, n.x, n.y + r + 12);
         }
+        ctx.globalAlpha = 1;
       }
 
       ctx.restore();

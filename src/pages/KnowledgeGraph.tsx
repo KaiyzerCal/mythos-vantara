@@ -90,6 +90,7 @@ export default function KnowledgeGraph() {
   const [view, setView]             = useState<"list" | "graph">("list");
   const [allLinks, setAllLinks]     = useState<NoteLink[]>([]);
   const [loadingGraph, setLoadingGraph] = useState(false);
+  const [filterTag, setFilterTag]   = useState<string>("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const loadNotes = useCallback(async () => {
@@ -263,6 +264,8 @@ export default function KnowledgeGraph() {
     n.aliases.some(a => a.toLowerCase().includes(search.toLowerCase()))
   );
 
+  const allTags = Array.from(new Set(notes.flatMap(n => n.tags))).sort();
+
   const outgoingLinks = links
     .filter(l => l.source_note_id === selected?.id)
     .map(l => ({ link: l, other: notes.find(n => n.id === l.target_note_id) }))
@@ -315,22 +318,41 @@ export default function KnowledgeGraph() {
 
       {/* ── GRAPH VIEW ─────────────────────────────────────── */}
       {view === "graph" && (
-        <div className="flex-1 border border-border rounded-lg overflow-hidden mt-2" style={{ minHeight: 600 }}>
-          {loadingGraph ? (
-            <div className="flex items-center justify-center h-full">
-              <span className="w-5 h-5 rounded-full border-2 border-primary border-t-transparent animate-spin" />
-            </div>
-          ) : (
-            <KnowledgeGraphCanvas
-              notes={notes}
-              links={allLinks}
-              selectedId={selected?.id}
-              onSelectNote={(canvasNote) => {
-                const full = notes.find(n => n.id === canvasNote.id);
-                if (full) { loadNoteDetail(full); setView("list"); }
-              }}
-            />
-          )}
+        <div className="flex flex-col flex-1 gap-2 mt-2">
+          <div className="flex items-center gap-2">
+            <Hash size={11} className="text-muted-foreground" />
+            <select
+              value={filterTag}
+              onChange={e => setFilterTag(e.target.value)}
+              className="text-[10px] font-mono bg-muted/20 border border-border rounded px-2 py-1 text-muted-foreground focus:outline-none focus:border-primary/50"
+            >
+              <option value="">All tags</option>
+              {allTags.map(t => <option key={t} value={t}>{t}</option>)}
+            </select>
+            {filterTag && (
+              <button onClick={() => setFilterTag("")} className="text-[10px] font-mono text-muted-foreground hover:text-foreground">
+                clear
+              </button>
+            )}
+          </div>
+          <div className="flex-1 border border-border rounded-lg overflow-hidden" style={{ minHeight: 580 }}>
+            {loadingGraph ? (
+              <div className="flex items-center justify-center h-full">
+                <span className="w-5 h-5 rounded-full border-2 border-primary border-t-transparent animate-spin" />
+              </div>
+            ) : (
+              <KnowledgeGraphCanvas
+                notes={notes}
+                links={allLinks}
+                selectedId={selected?.id}
+                filterTag={filterTag || undefined}
+                onSelectNote={(canvasNote) => {
+                  const full = notes.find(n => n.id === canvasNote.id);
+                  if (full) { loadNoteDetail(full); setView("list"); }
+                }}
+              />
+            )}
+          </div>
         </div>
       )}
 
