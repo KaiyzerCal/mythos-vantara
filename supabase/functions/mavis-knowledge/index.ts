@@ -1,6 +1,7 @@
 // MAVIS Knowledge Graph Edge Function
 // Bypasses PostgREST schema cache by using the service-role admin client directly.
 // All reads/writes go through Postgres, not the REST layer.
+// Embedding generation uses OpenAI text-embedding-3-small (1536 dims).
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
@@ -56,12 +57,45 @@ async function getUserId(req: Request): Promise<string | null> {
       return payload.sub ?? null;
     }
 
-    // Fallback: validate via auth API (slower but safe)
+    // Fallback: validate via auth API
     const { data } = await supabase.auth.getUser(token);
     return data?.user?.id ?? null;
   } catch {
     return null;
   }
+}
+
+// ── Embedding generation ───────────────────────────────────────
+async function generateEmbedding(text: string): Promise<number[] | null> {
+  const openaiKey = Deno.env.get("OPENAI_API") ?? Deno.env.get("OPENAI_API_KEY");
+  if (!openaiKey) return null;
+  try {
+    const res = await fetch("https://api.openai.com/v1/embeddings", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${openaiKey}`,
+      },
+      body: JSON.stringify({
+        model: "text-embedding-3-small",
+        input: text.slice(0, 8000),
+      }),
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data.data?.[0]?.embedding ?? null;
+  } catch { return null; }
+}
+
+function noteEmbedText(title: string, content: string, tags: string[] = []): string {
+  const tagStr = tags.length > 0 ? `\nTags: ${tags.join(", ")}` : "";
+  return `${title}\n\n${content}${tagStr}`.slice(0, 8000);
+}
+
+async function embedNote(noteId: string, title: string, content: string, tags: string[] = []): Promise<void> {
+  const embedding = await generateEmbedding(noteEmbedText(title, content, tags));
+  if (!embedding) return;
+  await supabase.from("mavis_notes").update({ embedding }).eq("id", noteId);
 }
 
 Deno.serve(async (req) => {
@@ -80,23 +114,70 @@ Deno.serve(async (req) => {
     if (action === "list_notes") {
       const { data, error } = await supabase
         .from("mavis_notes")
-        .select("*")
+        .select("id, title, content, tags, aliases, properties, created_at, updated_at")
         .eq("user_id", userId)
         .order("updated_at", { ascending: false });
       if (error) throw error;
       return json({ notes: data ?? [] });
     }
 
+    // ── SEMANTIC SEARCH ────────────────────────────────────
+    if (action === "semantic_search") {
+      const query = String(body.query ?? "");
+      if (!query) return json({ error: "query required" }, 400);
+      const embedding = await generateEmbedding(query);
+      if (!embedding) return json({ notes: [], fallback: true });
+      const { data, error } = await supabase.rpc("match_mavis_notes", {
+        query_embedding: embedding,
+        match_user_id: userId,
+        match_threshold: Number(body.threshold ?? 0.45),
+        match_count: Number(body.limit ?? 5),
+      });
+      if (error) throw error;
+      return json({ notes: data ?? [] });
+    }
+
+    // ── BACKFILL EMBEDDINGS ────────────────────────────────
+    // Generates embeddings for all notes that don't have one yet.
+    // Call once after enabling pgvector to embed existing notes.
+    if (action === "backfill_embeddings") {
+      const { data: notes, error } = await supabase
+        .from("mavis_notes")
+        .select("id, title, content, tags")
+        .eq("user_id", userId)
+        .is("embedding", null)
+        .limit(50);
+      if (error) throw error;
+      if (!notes?.length) return json({ backfilled: 0, message: "All notes already embedded" });
+
+      let backfilled = 0;
+      for (const note of notes as any[]) {
+        const embedding = await generateEmbedding(
+          noteEmbedText(note.title, note.content, note.tags ?? [])
+        );
+        if (embedding) {
+          await supabase.from("mavis_notes").update({ embedding }).eq("id", note.id);
+          backfilled++;
+        }
+      }
+      const remaining = (notes.length) - backfilled;
+      return json({ backfilled, remaining, message: remaining > 0 ? "Call again to continue" : "Done" });
+    }
+
     // ── CREATE NOTE ────────────────────────────────────────
     if (action === "create_note") {
       const now = new Date().toISOString();
+      const title   = String(body.title ?? "Untitled Note");
+      const content = String(body.content ?? "");
+      const tags    = Array.isArray(body.tags) ? body.tags : [];
+
       const { data, error } = await supabase
         .from("mavis_notes")
         .insert({
           user_id:    userId,
-          title:      String(body.title ?? "Untitled Note"),
-          content:    String(body.content ?? ""),
-          tags:       Array.isArray(body.tags) ? body.tags : [],
+          title,
+          content,
+          tags,
           aliases:    Array.isArray(body.aliases) ? body.aliases : [],
           properties: (body.properties && typeof body.properties === "object") ? body.properties : {},
           created_at: now,
@@ -105,6 +186,9 @@ Deno.serve(async (req) => {
         .select()
         .single();
       if (error) throw error;
+
+      // Generate embedding in background (non-blocking)
+      embedNote(data.id, title, content, tags).catch(() => {});
       return json({ note: data });
     }
 
@@ -150,6 +234,16 @@ Deno.serve(async (req) => {
         .select()
         .single();
       if (error) throw error;
+
+      // Re-embed if content changed
+      if (body.title !== undefined || body.content !== undefined) {
+        embedNote(
+          noteId,
+          String(updates.title ?? current?.title ?? ""),
+          String(updates.content ?? current?.content ?? ""),
+          Array.isArray(updates.tags) ? updates.tags as string[] : [],
+        ).catch(() => {});
+      }
       return json({ note: data });
     }
 
