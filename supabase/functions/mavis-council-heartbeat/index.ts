@@ -667,6 +667,21 @@ Deno.serve(async (req) => {
     try { body = await req.json(); } catch { /* no body */ }
     const forceAll = body.force === true;
 
+    // Karma decay mode — apply weekly decay to inactive members
+    if (body.karma_decay === true) {
+      const sevenDaysAgo = new Date(now.getTime() - 7 * 86400000).toISOString();
+      const inactive = (allMembers as any[]).filter((m: any) =>
+        m.last_heartbeat_at && new Date(m.last_heartbeat_at) < new Date(sevenDaysAgo)
+      );
+      for (const m of inactive) {
+        const decayed = Math.max(0, Math.floor((m.karma ?? 0) * 0.95));
+        if (decayed < (m.karma ?? 0)) {
+          await supabase.from("councils").update({ karma: decayed }).eq("id", m.id);
+        }
+      }
+      return new Response(JSON.stringify({ ok: true, decay_applied: inactive.length }), { headers: { "Content-Type": "application/json" } });
+    }
+
     const dueMembers = forceAll
       ? allMembers
       : (allMembers as any[]).filter((m: any) => {
