@@ -138,10 +138,27 @@ async function loadMemberActivity(memberId: string): Promise<any[]> {
 }
 
 // ─────────────────────────────────────────────────────────────
-// PER-AGENT MEMORY — each member's persistent knowledge bank
+// PER-AGENT MEMORY — semantic search over member's knowledge bank
+// Falls back to chronological if no OpenAI key or embedding fails.
 // ─────────────────────────────────────────────────────────────
 
-async function loadMemberMemory(memberId: string): Promise<any[]> {
+async function loadMemberMemory(memberId: string, contextQuery?: string): Promise<any[]> {
+  // Semantic search: find memories most relevant to current context
+  if (contextQuery && OPENAI_KEY) {
+    try {
+      const embedding = await generateEmbedding(contextQuery.slice(0, 2000));
+      if (embedding) {
+        const { data } = await supabase.rpc("match_council_memory", {
+          query_embedding: embedding,
+          match_threshold: 0.5,
+          match_count:     8,
+          p_member_id:     memberId,
+        });
+        if (data?.length) return data as any[];
+      }
+    } catch { /* fall through to chronological */ }
+  }
+  // Fallback: most recent memories
   const { data } = await supabase
     .from("mavis_council_memory")
     .select("content, tags, created_at")
@@ -272,13 +289,13 @@ Your job is to review Calvin's current state through the lens of your specialty 
 and take meaningful action when warranted. You operate independently.
 
 EVALUATOR RULES:
+0. MESSAGES FIRST — if you have unread messages from colleagues, address them BEFORE anything else. If a colleague explicitly requests an action, execute it immediately using :::ACTION{...}::: syntax. Reply with council_message or council_notify as appropriate.
 1. Only act when something genuinely needs attention in YOUR domain
 2. Don't repeat actions from your recent history — check before acting
 3. Be specific and actionable — vague suggestions are worthless
 4. If there's nothing worth doing right now, say so briefly
 5. One or two focused actions beat scattered noise
 6. Match your tone and voice to your role and personality
-7. Read your colleague messages carefully — respond or act on them if relevant
 
 ━━ CALVIN'S CURRENT STATE ━━
 ${context}
@@ -583,9 +600,11 @@ async function logActivity(
 // ─────────────────────────────────────────────────────────────
 
 async function runMemberHeartbeat(member: any, userId: string, context: string): Promise<string> {
+  // Use the member's specialty as the semantic query anchor — surfaces domain-relevant memories
+  const memoryQuery = `${member.specialty ?? member.role} ${context.slice(0, 500)}`;
   const [recentActivity, memories, unreadMessages, impactReport] = await Promise.all([
     loadMemberActivity(member.id),
-    loadMemberMemory(member.id),
+    loadMemberMemory(member.id, memoryQuery),
     loadUnreadMessages(member.id),
     loadActionImpact(member.id, userId),
   ]);

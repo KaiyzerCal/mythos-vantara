@@ -127,7 +127,46 @@ Deno.serve(async (req) => {
         ? productsData.map((p: { title: string }) => p.title)
         : [];
 
-    // 3. Build prompt
+    // 3. Load revenue sources and past proposal outcomes for price optimisation
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+    const [revenueRes, pastProposalsRes] = await Promise.all([
+      supabase.from("mavis_revenue").select("source, amount").eq("user_id", userId).gte("created_at", thirtyDaysAgo).limit(50),
+      supabase.from("mavis_tasks").select("payload, status").eq("user_id", userId).eq("type", "create_product").limit(50),
+    ]);
+
+    // Tally revenue by source keyword
+    const revenueBySource: Record<string, number> = {};
+    for (const r of (revenueRes.data ?? []) as any[]) {
+      const src = String(r.source ?? "other").toLowerCase();
+      revenueBySource[src] = (revenueBySource[src] ?? 0) + Number(r.amount ?? 0);
+    }
+
+    // Tally proposal hit rate by category
+    const proposalCounts: Record<string, number> = {};
+    const proposalSales: Record<string, number> = {};
+    for (const t of (pastProposalsRes.data ?? []) as any[]) {
+      const cat = String((t.payload as any)?.category ?? "other").toLowerCase();
+      proposalCounts[cat] = (proposalCounts[cat] ?? 0) + 1;
+      if (t.status === "completed") proposalSales[cat] = (proposalSales[cat] ?? 0) + 1;
+    }
+
+    const hitRateLines: string[] = [];
+    for (const cat of Object.keys(proposalCounts)) {
+      const total = proposalCounts[cat];
+      const sold  = proposalSales[cat] ?? 0;
+      hitRateLines.push(`  ${cat}: ${sold}/${total} proposals sold (${Math.round((sold / total) * 100)}% hit rate)`);
+    }
+    const revenueLines: string[] = Object.entries(revenueBySource)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5)
+      .map(([src, amt]) => `  ${src}: $${amt.toFixed(2)}`);
+
+    const performanceBlock = [
+      hitRateLines.length > 0 ? `Past proposal hit rates (boost confidence for proven categories):\n${hitRateLines.join("\n")}` : "",
+      revenueLines.length > 0 ? `Top revenue sources last 30 days:\n${revenueLines.join("\n")}` : "",
+    ].filter(Boolean).join("\n\n");
+
+    // 4. Build prompt
     const skillsList = skills.join("\n- ");
     const existingList =
       existingTitles.length > 0
@@ -140,7 +179,7 @@ Deno.serve(async (req) => {
 And these existing products (do NOT duplicate these):
 ${existingList}
 
-Identify the top 5 trending pain points right now in these niches that could become a $19–$97 digital product (guide, prompt pack, template, framework, or mini course).
+${performanceBlock ? `PERFORMANCE DATA — use this to calibrate your confidence scores:\n${performanceBlock}\n\n` : ""}Identify the top 5 trending pain points right now in these niches that could become a $19–$97 digital product (guide, prompt pack, template, framework, or mini course).
 
 For each, return a JSON array with objects containing exactly these fields:
 - title (string)
@@ -148,7 +187,7 @@ For each, return a JSON array with objects containing exactly these fields:
 - target_audience (string)
 - price_cents (integer, e.g. 2700 for $27)
 - category (string, one of: guide, prompt_pack, template, framework, mini_course)
-- confidence (integer 1–10)
+- confidence (integer 1–10, boosted for categories with proven sales history)
 
 Respond with ONLY the JSON array, no explanation.`;
 
