@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { Send, ArrowLeft, Users, Database, Square, Mic, MicOff } from "lucide-react";
+import { Send, ArrowLeft, Users, Database, Square, Mic, MicOff, Zap, ChevronDown, ChevronUp } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { loadFullAppContext } from "@/mavis/appContextLoader";
 import {
@@ -9,6 +9,8 @@ import {
   type CouncilBoardMessage,
 } from "@/mavis/councilBoardService";
 import type { CouncilMember } from "@/mavis/councilPersona";
+import type { UnifiedPersona } from "@/mavis/agentTypes";
+import { loadPersonaAgents } from "@/mavis/agentLoader";
 import { parseProposedActions, submitProposalsForApproval } from "@/mavis/proposeAction";
 import { ScrollProgressBar, BackToTopButton, ScrollToBottomButton, EndOfFeed } from "@/components/chat/ScrollKit";
 import { AttachmentTray, AttachButton } from "@/components/chat/AttachmentTray";
@@ -16,19 +18,33 @@ import { CopyButton } from "@/components/chat/CopyButton";
 import { useChatAttachments } from "@/hooks/useChatAttachments";
 import { toast } from "sonner";
 
-// ── Speaker styling by hash ──────────────────────────────────────────
+// ── Speaker styling ───────────────────────────────────────────────────────
 const MEMBER_COLORS = [
-  { border: "border-blue-500/40", badge: "bg-blue-600", label: "text-blue-400" },
-  { border: "border-green-500/40", badge: "bg-green-600", label: "text-green-400" },
+  { border: "border-blue-500/40",   badge: "bg-blue-600",   label: "text-blue-400"   },
+  { border: "border-green-500/40",  badge: "bg-green-600",  label: "text-green-400"  },
   { border: "border-orange-500/40", badge: "bg-orange-600", label: "text-orange-400" },
-  { border: "border-pink-500/40", badge: "bg-pink-600", label: "text-pink-400" },
-  { border: "border-cyan-500/40", badge: "bg-cyan-600", label: "text-cyan-400" },
-  { border: "border-rose-500/40", badge: "bg-rose-600", label: "text-rose-400" },
+  { border: "border-pink-500/40",   badge: "bg-pink-600",   label: "text-pink-400"   },
+  { border: "border-cyan-500/40",   badge: "bg-cyan-600",   label: "text-cyan-400"   },
+  { border: "border-rose-500/40",   badge: "bg-rose-600",   label: "text-rose-400"   },
 ];
 
-function speakerStyle(speakerId: string, isUser: boolean) {
-  if (isUser) return { border: "border-primary/30", badge: "bg-primary/80", label: "text-primary" };
+const PERSONA_COLORS = [
+  { border: "border-amber-500/40",   badge: "bg-amber-600",   label: "text-amber-400"   },
+  { border: "border-yellow-500/40",  badge: "bg-yellow-600",  label: "text-yellow-400"  },
+  { border: "border-lime-500/40",    badge: "bg-lime-600",    label: "text-lime-400"    },
+  { border: "border-emerald-500/40", badge: "bg-emerald-600", label: "text-emerald-400" },
+];
+
+function speakerStyle(speakerId: string, isUser: boolean, speakerType?: string) {
+  if (isUser)         return { border: "border-primary/30",    badge: "bg-primary/80",  label: "text-primary"    };
   if (speakerId === "mavis") return { border: "border-purple-500/40", badge: "bg-purple-700", label: "text-purple-300" };
+  if (speakerId === "system") return { border: "border-gray-500/30", badge: "bg-gray-600",  label: "text-gray-400"   };
+
+  if (speakerType === "persona") {
+    const hash = speakerId.split("").reduce((a, c) => a + c.charCodeAt(0), 0);
+    return PERSONA_COLORS[hash % PERSONA_COLORS.length];
+  }
+
   const hash = speakerId.split("").reduce((a, c) => a + c.charCodeAt(0), 0);
   return MEMBER_COLORS[hash % MEMBER_COLORS.length];
 }
@@ -38,28 +54,31 @@ const THREAD_REF = "council-board";
 
 export default function CouncilBoard() {
   const navigate = useNavigate();
-  const [messages, setMessages] = useState<CouncilBoardMessage[]>([]);
-  const [input, setInput] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [councilMembers, setCouncilMembers] = useState<CouncilMember[]>([]);
-  const [userId, setUserId] = useState<string | null>(null);
-  const [conversationId, setConversationId] = useState<string | null>(null);
-  const [isComposing, setIsComposing] = useState(false);
-  const [isSyncing, setIsSyncing] = useState(false);
-  const [showScrollBtn, setShowScrollBtn] = useState(false);
-  const [scrollProgress, setScrollProgress] = useState(0);
-  const [showBackToTop, setShowBackToTop] = useState(false);
-  const [isListening, setIsListening] = useState(false);
+  const [messages,         setMessages]         = useState<CouncilBoardMessage[]>([]);
+  const [input,            setInput]            = useState("");
+  const [loading,          setLoading]          = useState(false);
+  const [councilMembers,   setCouncilMembers]   = useState<CouncilMember[]>([]);
+  const [personas,         setPersonas]         = useState<UnifiedPersona[]>([]);
+  const [summonedIds,      setSummonedIds]      = useState<string[]>([]);
+  const [showPersonaPanel, setShowPersonaPanel] = useState(false);
+  const [userId,           setUserId]           = useState<string | null>(null);
+  const [conversationId,   setConversationId]   = useState<string | null>(null);
+  const [isComposing,      setIsComposing]      = useState(false);
+  const [isSyncing,        setIsSyncing]        = useState(false);
+  const [showScrollBtn,    setShowScrollBtn]    = useState(false);
+  const [scrollProgress,   setScrollProgress]   = useState(0);
+  const [showBackToTop,    setShowBackToTop]    = useState(false);
+  const [isListening,      setIsListening]      = useState(false);
 
-  const cancelledRef = useRef(false);
-  const scrollRef = useRef<HTMLDivElement>(null);
-  const bottomRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const cancelledRef   = useRef(false);
+  const scrollRef      = useRef<HTMLDivElement>(null);
+  const bottomRef      = useRef<HTMLDivElement>(null);
+  const inputRef       = useRef<HTMLTextAreaElement>(null);
   const recognitionRef = useRef<any>(null);
 
   const { attachments, isUploading, upload, remove } = useChatAttachments("council", THREAD_REF);
 
-  // ── Load user, members, and persisted thread ────────────────────
+  // ── Load user, members, personas, and persisted thread ───────────
   useEffect(() => {
     (async () => {
       const { data: { session } } = await supabase.auth.getSession();
@@ -67,11 +86,18 @@ export default function CouncilBoard() {
       const uid = session.user.id;
       setUserId(uid);
 
+      // Load council members
       try {
         const { data: members } = await supabase
           .from("councils").select("*").eq("user_id", uid).order("name");
         setCouncilMembers((members ?? []) as CouncilMember[]);
       } catch { toast.error("Failed to load council members"); }
+
+      // Load personas (for summon panel)
+      try {
+        const plist = await loadPersonaAgents(uid);
+        setPersonas(plist.filter(p => p.canJoinCouncil));
+      } catch { /* non-fatal */ }
 
       // Restore most recent council-board conversation
       try {
@@ -91,16 +117,16 @@ export default function CouncilBoard() {
           .order("created_at", { ascending: true }).limit(400);
         if (msgs?.length) {
           const restored: CouncilBoardMessage[] = msgs.map((m: any) => {
-            // Encode speaker info in mode field as `speakerId|speakerName|speakerRole`
-            const parts = (m.mode ?? "").split("|");
-            const isUser = m.role === "user";
+            const parts   = (m.mode ?? "").split("|");
+            const isUser  = m.role === "user";
             return {
-              id: m.id,
-              speakerId: isUser ? "user" : (parts[0] || "mavis"),
+              id:          m.id,
+              speakerId:   isUser ? "user" : (parts[0] || "mavis"),
               speakerName: isUser ? "Sovereign" : (parts[1] || "MAVIS"),
               speakerRole: isUser ? "You" : (parts[2] || "Supreme Intelligence"),
-              content: m.content,
-              timestamp: new Date(m.created_at).getTime(),
+              speakerType: isUser ? "user" : (parts[3] || "mavis") as any,
+              content:     m.content,
+              timestamp:   new Date(m.created_at).getTime(),
               isUser,
             };
           });
@@ -127,20 +153,17 @@ export default function CouncilBoard() {
     try {
       await supabase.from("chat_messages").insert({
         conversation_id: cid, user_id: uid,
-        role: m.isUser ? "user" : "assistant",
+        role:    m.isUser ? "user" : "assistant",
         content: m.content,
-        mode: m.isUser ? "USER" : `${m.speakerId}|${m.speakerName}|${m.speakerRole}`,
+        // Encode: speakerId|speakerName|speakerRole|speakerType
+        mode: m.isUser ? "USER" : `${m.speakerId}|${m.speakerName}|${m.speakerRole}|${m.speakerType ?? "council"}`,
       });
     } catch (err) { console.error(err); }
   }, []);
 
-  const scrollToBottom = useCallback(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, []);
-  const scrollToTop = useCallback(() => {
-    scrollRef.current?.scrollTo({ top: 0, behavior: "smooth" });
-  }, []);
-  const handleScroll = useCallback(() => {
+  const scrollToBottom = useCallback(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, []);
+  const scrollToTop    = useCallback(() => { scrollRef.current?.scrollTo({ top: 0, behavior: "smooth" }); }, []);
+  const handleScroll   = useCallback(() => {
     if (!scrollRef.current) return;
     const { scrollTop, scrollHeight, clientHeight } = scrollRef.current;
     const scrollable = scrollHeight - clientHeight;
@@ -150,6 +173,31 @@ export default function CouncilBoard() {
   }, []);
 
   useEffect(() => { scrollToBottom(); }, [messages, scrollToBottom]);
+
+  // ── Summon / un-summon persona ────────────────────────────────────
+  const handleSummon = useCallback((persona: UnifiedPersona) => {
+    setSummonedIds(prev => {
+      if (prev.includes(persona.id)) return prev;
+      const updated = [...prev, persona.id];
+      toast.success(`⚡ ${persona.name} has entered the council chamber`);
+      setMessages(m => [...m, {
+        id:          makeId(),
+        speakerId:   "system",
+        speakerName: "Council",
+        speakerRole: "System",
+        speakerType: "mavis",
+        content:     `${persona.name} has been summoned into the session.`,
+        timestamp:   Date.now(),
+        isUser:      false,
+        summoned:    true,
+      }]);
+      return updated;
+    });
+  }, []);
+
+  const handleUnsummon = useCallback((personaId: string) => {
+    setSummonedIds(prev => prev.filter(id => id !== personaId));
+  }, []);
 
   // ── Speech-to-text ─────────────────────────────────────────────
   const startListening = useCallback(() => {
@@ -178,7 +226,7 @@ export default function CouncilBoard() {
     setIsListening(false);
   }, []);
 
-  // ── OmniSync ─────────────────────────────────────────────────────
+  // ── OmniSync ──────────────────────────────────────────────────────
   const handleOmniSync = useCallback(async () => {
     if (isSyncing || !userId) return;
     setIsSyncing(true);
@@ -200,7 +248,7 @@ export default function CouncilBoard() {
     } finally { setIsSyncing(false); }
   }, [isSyncing, userId, messages, councilMembers]);
 
-  // ── Clear: archive then wipe ─────────────────────────────────────
+  // ── Clear: archive then wipe ──────────────────────────────────────
   const handleClear = useCallback(async () => {
     if (!userId) return;
     try {
@@ -209,13 +257,13 @@ export default function CouncilBoard() {
         const fullThread = messages
           .map(m => `[${m.speakerName} — ${m.speakerRole}] ${m.content}`).join("\n\n");
         await supabase.from("memories").insert({
-          user_id: userId,
-          title: `Council Board — ${new Date().toLocaleDateString()} ${new Date().toLocaleTimeString()}`,
-          content: fullThread.slice(0, 50000),
+          user_id:     userId,
+          title:       `Council Board — ${new Date().toLocaleDateString()} ${new Date().toLocaleTimeString()}`,
+          content:     fullThread.slice(0, 50000),
           memory_type: "conversation",
-          source: "council_chat_clear",
-          tags: ["council-board", "archived"],
-          metadata: { message_count: messages.length, cleared_at: new Date().toISOString() },
+          source:      "council_chat_clear",
+          tags:        ["council-board", "archived"],
+          metadata:    { message_count: messages.length, cleared_at: new Date().toISOString() },
         });
       }
       if (conversationId) {
@@ -224,13 +272,14 @@ export default function CouncilBoard() {
       }
       setMessages([]);
       setConversationId(null);
+      setSummonedIds([]);
       toast.success("Thread archived — memories preserved");
     } catch (e: any) {
       toast.error("Clear failed: " + (e?.message ?? "unknown"));
     }
   }, [userId, messages, conversationId, handleOmniSync]);
 
-  // ── Send ─────────────────────────────────────────────────────────
+  // ── Send ──────────────────────────────────────────────────────────
   const handleSend = useCallback(async () => {
     if (!input.trim() || loading || !userId) return;
     const text = input.trim();
@@ -242,19 +291,29 @@ export default function CouncilBoard() {
 
     const userMsg: CouncilBoardMessage = {
       id: makeId(), speakerId: "user", speakerName: "Sovereign",
-      speakerRole: "You", content: text, timestamp: Date.now(), isUser: true,
+      speakerRole: "You", speakerType: "user", content: text, timestamp: Date.now(), isUser: true,
     };
     setMessages(prev => [...prev, userMsg]);
     if (cid) await persist(cid, userId, userMsg);
 
     try {
       const appContext = await loadFullAppContext(userId);
-      const result = await sendCouncilMessage(text, messages, councilMembers, appContext);
+
+      // Build summoned personas list
+      const summonedPersonas = personas.filter(p => summonedIds.includes(p.id));
+
+      const result = await sendCouncilMessage(
+        text,
+        messages,
+        councilMembers,
+        appContext,
+        { summonedPersonas },
+      );
       if (cancelledRef.current) return;
 
       const newMsgs: CouncilBoardMessage[] = [];
 
-      // MAVIS reply — parse proposals
+      // MAVIS reply
       const mavis = parseProposedActions(result.mavisResponse);
       if (mavis.proposals.length > 0) {
         const n = await submitProposalsForApproval(userId, "MAVIS", mavis.proposals);
@@ -262,11 +321,12 @@ export default function CouncilBoard() {
       }
       newMsgs.push({
         id: makeId(), speakerId: "mavis", speakerName: "MAVIS",
-        speakerRole: "Supreme Intelligence", content: mavis.cleanText || result.mavisResponse,
+        speakerRole: "Supreme Intelligence", speakerType: "mavis",
+        content: mavis.cleanText || result.mavisResponse,
         timestamp: Date.now(), isUser: false,
       });
 
-      // Each council member — parse proposals
+      // Council member replies
       for (const r of result.memberResponses) {
         const parsed = parseProposedActions(r.response);
         if (parsed.proposals.length > 0) {
@@ -275,9 +335,21 @@ export default function CouncilBoard() {
         }
         newMsgs.push({
           id: makeId(), speakerId: r.member.id, speakerName: r.member.name,
-          speakerRole: r.member.role ?? "Council Member",
+          speakerRole: r.member.role ?? "Council Member", speakerType: "council",
           content: parsed.cleanText || r.response,
           timestamp: Date.now(), isUser: false,
+        });
+      }
+
+      // Persona replies (summoned)
+      for (const r of (result.personaResponses ?? [])) {
+        const parsed = parseProposedActions(r.response);
+        newMsgs.push({
+          id: makeId(), speakerId: r.persona.id, speakerName: r.persona.name,
+          speakerRole: r.persona.role ?? "Persona", speakerType: "persona",
+          content: parsed.cleanText || r.response,
+          timestamp: Date.now(), isUser: false,
+          summoned: r.summoned,
         });
       }
 
@@ -289,13 +361,17 @@ export default function CouncilBoard() {
       toast.error("Council session error — " + (err?.message ?? "unknown"));
       setMessages(prev => [...prev, {
         id: makeId(), speakerId: "system", speakerName: "System", speakerRole: "Error",
+        speakerType: "mavis",
         content: "The council session encountered an error. Please try again.",
         timestamp: Date.now(), isUser: false,
       }]);
     } finally {
       setLoading(false);
     }
-  }, [input, loading, userId, messages, councilMembers, ensureConversation, persist]);
+  }, [input, loading, userId, messages, councilMembers, personas, summonedIds, ensureConversation, persist]);
+
+  const activeSummonedPersonas = personas.filter(p => summonedIds.includes(p.id));
+  const availablePersonas      = personas.filter(p => !summonedIds.includes(p.id));
 
   return (
     <div className="flex flex-col h-[calc(100dvh-4rem)] gap-0">
@@ -308,9 +384,23 @@ export default function CouncilBoard() {
         <div className="flex-1 min-w-0">
           <h1 className="text-sm font-mono font-bold text-primary">Council Board</h1>
           <p className="text-[10px] font-mono text-muted-foreground truncate">
-            {councilMembers.length} member{councilMembers.length !== 1 ? "s" : ""} · MAVIS presiding
+            {councilMembers.length} member{councilMembers.length !== 1 ? "s" : ""}
+            {activeSummonedPersonas.length > 0 && ` · ${activeSummonedPersonas.length} persona${activeSummonedPersonas.length > 1 ? "s" : ""} summoned`}
+            {" · MAVIS presiding"}
           </p>
         </div>
+        {/* Persona summon toggle */}
+        {personas.length > 0 && (
+          <button
+            onClick={() => setShowPersonaPanel(v => !v)}
+            className="flex items-center gap-1 text-[10px] font-mono text-amber-400 hover:text-amber-300 border border-amber-900/40 hover:border-amber-400/40 rounded px-2 py-1 transition-all"
+            title="Summon personas"
+          >
+            <Zap size={10} />
+            Summon
+            {showPersonaPanel ? <ChevronUp size={10} /> : <ChevronDown size={10} />}
+          </button>
+        )}
         <button
           onClick={handleOmniSync}
           disabled={isSyncing}
@@ -326,6 +416,52 @@ export default function CouncilBoard() {
         </button>
       </div>
 
+      {/* Persona summon panel */}
+      <AnimatePresence>
+        {showPersonaPanel && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            className="overflow-hidden border-b border-border bg-amber-950/10"
+          >
+            <div className="px-4 py-2 space-y-1.5">
+              <p className="text-[10px] font-mono text-amber-400/70 uppercase tracking-wider">Summon into session</p>
+              <div className="flex flex-wrap gap-1.5">
+                {availablePersonas.map(p => (
+                  <button
+                    key={p.id}
+                    onClick={() => handleSummon(p)}
+                    className="flex items-center gap-1 text-[10px] font-mono text-amber-300 border border-amber-700/40 bg-amber-900/20 hover:bg-amber-800/30 hover:border-amber-500/50 rounded px-2 py-1 transition-all"
+                  >
+                    <Zap size={8} /> {p.name}
+                    {p.role && <span className="text-amber-500/60 ml-0.5">· {p.role}</span>}
+                  </button>
+                ))}
+                {availablePersonas.length === 0 && (
+                  <span className="text-[10px] font-mono text-muted-foreground/50">All personas are in session.</span>
+                )}
+              </div>
+              {activeSummonedPersonas.length > 0 && (
+                <div className="flex flex-wrap gap-1.5 pt-1 border-t border-amber-900/30">
+                  <span className="text-[10px] font-mono text-amber-500/50 self-center">In session:</span>
+                  {activeSummonedPersonas.map(p => (
+                    <button
+                      key={p.id}
+                      onClick={() => handleUnsummon(p.id)}
+                      className="flex items-center gap-1 text-[10px] font-mono text-amber-200 border border-amber-500/40 bg-amber-800/30 hover:bg-red-900/30 hover:border-red-500/40 hover:text-red-300 rounded px-2 py-1 transition-all"
+                      title="Remove from session"
+                    >
+                      {p.name} ×
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Messages */}
       <div className="relative flex-1 min-h-0">
         <ScrollProgressBar progress={scrollProgress} />
@@ -338,12 +474,17 @@ export default function CouncilBoard() {
               <p className="text-[11px] font-mono text-muted-foreground/60">
                 MAVIS responds first — council members weigh in based on relevance.
               </p>
+              {personas.length > 0 && (
+                <p className="text-[10px] font-mono text-amber-500/50">
+                  {personas.length} persona{personas.length !== 1 ? "s" : ""} available to summon via ⚡
+                </p>
+              )}
             </div>
           )}
 
           <AnimatePresence initial={false}>
             {messages.map(msg => {
-              const style = speakerStyle(msg.speakerId, msg.isUser);
+              const style = speakerStyle(msg.speakerId, msg.isUser, msg.speakerType);
               return (
                 <motion.div
                   key={msg.id}
@@ -355,6 +496,17 @@ export default function CouncilBoard() {
                     <span className={`text-[9px] font-mono font-bold px-2 py-0.5 rounded text-white ${style.badge}`}>
                       {msg.speakerName}
                     </span>
+                    {/* Agent type badge */}
+                    {msg.speakerType === "council" && (
+                      <span className="text-[8px] font-mono px-1.5 py-0.5 rounded bg-purple-900/40 text-purple-400 border border-purple-700/30">
+                        COUNCIL
+                      </span>
+                    )}
+                    {msg.speakerType === "persona" && (
+                      <span className="text-[8px] font-mono px-1.5 py-0.5 rounded bg-amber-900/40 text-amber-400 border border-amber-700/30">
+                        {msg.summoned ? "⚡ SUMMONED" : "PERSONA"}
+                      </span>
+                    )}
                     <span className={`text-[9px] font-mono ${style.label}`}>{msg.speakerRole}</span>
                     <span className="text-[9px] font-mono text-muted-foreground/50 ml-auto">
                       {new Date(msg.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
