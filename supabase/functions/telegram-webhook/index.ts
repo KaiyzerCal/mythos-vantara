@@ -1174,7 +1174,7 @@ async function handleCommand(command: string, chatId: string, fullText: string):
   switch (command.toLowerCase()) {
     case "/start":
     case "/help":
-      return `MAVIS Online — Telegram Interface\n\nCommands:\n/brief — morning brief\n/quests — active quests\n/energy — energy status\n/revenue — revenue report\n/tasks — run pending tasks now\n/scan — demand scan for product opportunities\n/orders — view Inbox (pending tasks & approvals)\n/council — trigger council member check-ins now\n/daily — save today's activity log to Knowledge Graph\n/personas — list your NAVI roster\n/switch [name] — talk to a persona\n/mavis — return to MAVIS\n\nVoice messages, photos, and files also work.\nOr just talk to me.\n\nKnowledge Graph: ask "show notes tagged #strategy" or "find notes about leadership this month" to query your second brain.`;
+      return `MAVIS Online — Telegram Interface\n\nCommands:\n/brief — morning brief\n/quests — active quests\n/energy — energy status\n/revenue — revenue report\n/tasks — run pending tasks now\n/scan — demand scan for product opportunities\n/orders — view Inbox (pending tasks & approvals)\n/council — trigger council member check-ins now\n/daily — save today's activity log to Knowledge Graph\n/review — surface notes due for spaced repetition\n/weekly — generate weekly review summary\n/monthly — generate monthly review summary\n/goals — view active goals and quest progress\n/personas — list your NAVI roster\n/switch [name] — talk to a persona\n/mavis — return to MAVIS\n\nVoice messages, photos, and files also work.\nOr just talk to me.\n\nKnowledge Graph: ask "show notes tagged #strategy" or "find notes about leadership this month" to query your second brain.`;
 
     case "/brief":
       return null; // Let MAVIS generate naturally with context
@@ -1327,6 +1327,81 @@ async function handleCommand(command: string, chatId: string, fullText: string):
       } catch (e) {
         return `Daily note error: ${(e as Error).message}`;
       }
+    }
+
+    case "/review": {
+      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+      const serviceKey  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+      try {
+        const res = await fetch(`${supabaseUrl}/functions/v1/mavis-spaced-repetition`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${serviceKey}` },
+        });
+        const d = await res.json();
+        if (!res.ok) return `Spaced repetition error (${res.status}): ${d.error ?? "unknown"}`;
+        if (d.message?.includes("No notes")) return "No notes due for review today. All caught up.";
+        return `Reviewing ${d.reviewed ?? 0} note(s). Check your messages above.`;
+      } catch (e) { return `Review error: ${(e as Error).message}`; }
+    }
+
+    case "/weekly": {
+      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+      const serviceKey  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+      try {
+        const res = await fetch(`${supabaseUrl}/functions/v1/mavis-periodic-review`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${serviceKey}` },
+          body: JSON.stringify({ type: "weekly" }),
+        });
+        const d = await res.json();
+        if (!res.ok) return `Weekly review error (${res.status}): ${d.error ?? "unknown"}`;
+        if (d.message?.includes("already exists")) return `Weekly review already saved: ${d.title}`;
+        return `Weekly review saved — ${d.title}. ${d.quests_logged ?? 0} quest(s), $${Number(d.revenue_total ?? 0).toFixed(2)} revenue.`;
+      } catch (e) { return `Weekly review error: ${(e as Error).message}`; }
+    }
+
+    case "/monthly": {
+      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+      const serviceKey  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+      try {
+        const res = await fetch(`${supabaseUrl}/functions/v1/mavis-periodic-review`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${serviceKey}` },
+          body: JSON.stringify({ type: "monthly" }),
+        });
+        const d = await res.json();
+        if (!res.ok) return `Monthly review error (${res.status}): ${d.error ?? "unknown"}`;
+        if (d.message?.includes("already exists")) return `Monthly review already saved: ${d.title}`;
+        return `Monthly review saved — ${d.title}. ${d.quests_logged ?? 0} quest(s), $${Number(d.revenue_total ?? 0).toFixed(2)} revenue.`;
+      } catch (e) { return `Monthly review error: ${(e as Error).message}`; }
+    }
+
+    case "/goals": {
+      const { data: goals } = await supabase
+        .from("mavis_goals")
+        .select("id, objective, status, decomposed, quest_ids, created_at")
+        .eq("user_id", OPERATOR_USER_ID)
+        .in("status", ["active", "completed"])
+        .order("created_at", { ascending: false })
+        .limit(10);
+
+      if (!goals?.length) return "No goals set. Tell MAVIS a high-level objective and she'll break it into quests.";
+
+      const lines = await Promise.all((goals as any[]).map(async (g: any) => {
+        const questCount = Array.isArray(g.quest_ids) ? g.quest_ids.length : 0;
+        let completedCount = 0;
+        if (questCount > 0) {
+          const { count } = await supabase
+            .from("quests").select("id", { count: "exact", head: true })
+            .in("id", g.quest_ids).eq("status", "completed");
+          completedCount = count ?? 0;
+        }
+        const statusEmoji = g.status === "completed" ? "✓" : g.decomposed ? "◉" : "○";
+        const progress    = questCount > 0 ? ` [${completedCount}/${questCount} quests]` : " [decomposing...]";
+        return `${statusEmoji} ${g.objective.slice(0, 70)}${progress}`;
+      }));
+
+      return `Active Goals (${goals.length})\n\n${lines.join("\n")}\n\nSet a new goal: "MAVIS, goal: [your objective]"`;
     }
 
     case "/mavis": {
