@@ -1503,8 +1503,40 @@ Deno.serve(async (req) => {
   try { update = await req.json(); }
   catch { return new Response("Bad request", { status: 400 }); }
 
+  // ── Handle inline keyboard callback queries (SR mastery feedback) ──
+  if (update?.callback_query) {
+    const cq   = update.callback_query;
+    const data = String(cq.data ?? "");
+    const cbChatId = String(cq.message?.chat?.id ?? "");
+
+    if (data.startsWith("sr_master:") || data.startsWith("sr_forget:")) {
+      const noteId  = data.split(":")[1];
+      const master  = data.startsWith("sr_master:");
+      const now     = new Date();
+      const newInterval = master ? 90 : 7;
+      const nextReview  = new Date(now.getTime() + newInterval * 86400000).toISOString();
+
+      await supabase.from("mavis_notes").update({
+        last_reviewed_at:     now.toISOString(),
+        next_review_at:       nextReview,
+        review_interval_days: newInterval,
+      }).eq("id", noteId);
+
+      // Answer the callback to remove the loading spinner
+      await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/answerCallbackQuery`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          callback_query_id: cq.id,
+          text: master ? "Marked mastered — next review in 90 days." : "Reset — review again in 7 days.",
+        }),
+      }).catch(() => {});
+    }
+    return new Response("OK");
+  }
+
   const message = update?.message ?? update?.edited_message;
-  if (!message) return new Response("OK"); // callback queries, channel posts, etc. — ignore
+  if (!message) return new Response("OK");
 
   const chatId   = String(message.chat?.id ?? "");
   const fromId   = String(message.from?.id ?? "");
