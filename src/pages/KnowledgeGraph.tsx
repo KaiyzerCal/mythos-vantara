@@ -1,10 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { PageHeader } from "@/components/SharedUI";
-
-// mavis_notes tables are not in the generated Supabase types yet —
-// cast to any so queries compile until types are regenerated.
-const db = supabase as any;
 import {
   Network, Plus, Search, Tag, Link2, Trash2, Save,
   ChevronRight, X, Edit3, Clock, Hash, ArrowRight,
@@ -53,6 +49,15 @@ function timeAgo(iso: string): string {
   return `${Math.floor(h / 24)}d ago`;
 }
 
+async function kgCall(action: string, params: Record<string, unknown> = {}) {
+  const { data, error } = await supabase.functions.invoke("mavis-knowledge", {
+    body: { action, ...params },
+  });
+  if (error) throw error;
+  if (data?.error) throw new Error(data.error);
+  return data;
+}
+
 export default function KnowledgeGraph() {
   const [notes, setNotes]           = useState<Note[]>([]);
   const [selected, setSelected]     = useState<Note | null>(null);
@@ -76,26 +81,13 @@ export default function KnowledgeGraph() {
   const loadNotes = useCallback(async () => {
     setLoading(true);
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) { setLoading(false); return; }
-      const { data, error } = await db
-        .from("mavis_notes")
-        .select("*")
-        .eq("user_id", session.user.id)
-        .order("updated_at", { ascending: false });
-      if (error) {
-        console.error("[KnowledgeGraph] loadNotes error:", error);
-        const msg = error.code === "42P01"
-          ? "Tables not found. Run the Knowledge Graph SQL in your Supabase SQL Editor first."
-          : `Database error: ${error.message}`;
-        setDbError(msg);
-      } else {
-        setDbError(null);
-      }
-      setNotes((data ?? []) as Note[]);
+      const result = await kgCall("list_notes");
+      setNotes((result.notes ?? []) as Note[]);
+      setDbError(null);
     } catch (e) {
-      console.error("[KnowledgeGraph] loadNotes exception:", e);
-      toast.error("Knowledge Graph failed to load — check console.");
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error("[KnowledgeGraph] loadNotes:", msg);
+      setDbError(`Failed to load notes: ${msg}`);
     }
     setLoading(false);
   }, []);
@@ -110,117 +102,109 @@ export default function KnowledgeGraph() {
     setEditing(false);
     setShowVersions(false);
 
-    const [linksRes, versionsRes] = await Promise.all([
-      db.from("mavis_note_links").select("*")
-        .or(`source_note_id.eq.${note.id},target_note_id.eq.${note.id}`)
-        .order("created_at", { ascending: false }),
-      db.from("mavis_note_versions").select("*")
-        .eq("note_id", note.id)
-        .order("version_number", { ascending: false })
-        .limit(10),
-    ]);
-    setLinks((linksRes.data ?? []) as NoteLink[]);
-    setVersions((versionsRes.data ?? []) as NoteVersion[]);
+    try {
+      const [linksRes, versionsRes] = await Promise.all([
+        kgCall("get_links", { note_id: note.id }),
+        kgCall("get_versions", { note_id: note.id }),
+      ]);
+      setLinks((linksRes.links ?? []) as NoteLink[]);
+      setVersions((versionsRes.versions ?? []) as NoteVersion[]);
+    } catch (e) {
+      console.error("[KnowledgeGraph] loadNoteDetail:", e);
+    }
   }, []);
 
   const createNote = async () => {
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) { toast.error("Not logged in"); return; }
-      const { data, error } = await db.from("mavis_notes").insert({
-        user_id: session.user.id,
+      const result = await kgCall("create_note", {
         title: "Untitled Note",
         content: "",
         tags: [],
         properties: {},
         aliases: [],
-      }).select().single();
-      if (error) {
-        console.error("[KnowledgeGraph] createNote error:", error);
-        if (error.code === "42P01") toast.error("Table missing — run the Knowledge Graph SQL in Supabase SQL Editor first.");
-        else toast.error(`Failed to create note: ${error.message}`);
-        return;
-      }
-      const note = data as Note;
+      });
+      const note = result.note as Note;
       setNotes(prev => [note, ...prev]);
       loadNoteDetail(note);
       setEditing(true);
       setTimeout(() => textareaRef.current?.focus(), 100);
     } catch (e) {
-      console.error("[KnowledgeGraph] createNote exception:", e);
-      toast.error("Unexpected error — check console.");
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error("[KnowledgeGraph] createNote:", msg);
+      toast.error(`Failed to create note: ${msg}`);
     }
   };
 
   const saveNote = async () => {
     if (!selected) return;
     setSaving(true);
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session) { setSaving(false); return; }
-
-    // Save version snapshot first
-    const versionNum = (versions[0]?.version_number ?? 0) + 1;
-    await db.from("mavis_note_versions").insert({
-      note_id: selected.id,
-      title: selected.title,
-      content: selected.content,
-      version_number: versionNum,
-    });
-
-    const tags = draftTags.split(",").map(t => t.trim()).filter(Boolean);
-    const { data, error } = await db.from("mavis_notes")
-      .update({ title: draftTitle, content: draftContent, tags, updated_at: new Date().toISOString() })
-      .eq("id", selected.id)
-      .select().single();
-
-    if (error) { toast.error("Failed to save"); setSaving(false); return; }
-    const updated = data as Note;
-    setSelected(updated);
-    setNotes(prev => prev.map(n => n.id === updated.id ? updated : n));
-    setEditing(false);
+    try {
+      const tags = draftTags.split(",").map(t => t.trim()).filter(Boolean);
+      const result = await kgCall("update_note", {
+        note_id: selected.id,
+        title: draftTitle,
+        content: draftContent,
+        tags,
+      });
+      const updated = result.note as Note;
+      setSelected(updated);
+      setNotes(prev => prev.map(n => n.id === updated.id ? updated : n));
+      setEditing(false);
+      toast.success("Note saved");
+      loadNoteDetail(updated);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error("[KnowledgeGraph] saveNote:", msg);
+      toast.error(`Failed to save: ${msg}`);
+    }
     setSaving(false);
-    toast.success("Note saved");
-    loadNoteDetail(updated);
   };
 
   const deleteNote = async (id: string) => {
-    const { error } = await db.from("mavis_notes").delete().eq("id", id);
-    if (error) { toast.error("Failed to delete note"); return; }
-    setNotes(prev => prev.filter(n => n.id !== id));
-    if (selected?.id === id) { setSelected(null); setLinks([]); setVersions([]); }
-    toast.success("Note deleted");
+    try {
+      await kgCall("delete_note", { note_id: id });
+      setNotes(prev => prev.filter(n => n.id !== id));
+      if (selected?.id === id) { setSelected(null); setLinks([]); setVersions([]); }
+      toast.success("Note deleted");
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      toast.error(`Failed to delete note: ${msg}`);
+    }
   };
 
   const addLink = async () => {
     if (!selected || !linkTarget) return;
     const target = notes.find(n => n.title.toLowerCase().includes(linkTarget.toLowerCase()) && n.id !== selected.id);
     if (!target) { toast.error(`No note found matching "${linkTarget}"`); return; }
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session) return;
-    const { error } = await db.from("mavis_note_links").insert({
-      source_note_id: selected.id,
-      target_note_id: target.id,
-      type: linkType,
-      description: linkDesc || null,
-    });
-    if (error) {
-      if (error.code === "23505") toast.error("Link already exists");
-      else toast.error("Failed to create link");
-      return;
+    try {
+      await kgCall("create_link", {
+        source_note_id: selected.id,
+        target_note_id: target.id,
+        type: linkType,
+        description: linkDesc || null,
+      });
+      toast.success(`Linked to "${target.title}"`);
+      setShowLinkModal(false);
+      setLinkTarget(""); setLinkDesc(""); setLinkType("relates_to");
+      loadNoteDetail(selected);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      if (msg.includes("unique") || msg.includes("duplicate")) toast.error("Link already exists");
+      else toast.error(`Failed to create link: ${msg}`);
     }
-    toast.success(`Linked to "${target.title}"`);
-    setShowLinkModal(false);
-    setLinkTarget(""); setLinkDesc(""); setLinkType("relates_to");
-    loadNoteDetail(selected);
   };
 
   const removeLink = async (linkId: string) => {
-    await db.from("mavis_note_links").delete().eq("id", linkId);
-    setLinks(prev => prev.filter(l => l.id !== linkId));
-    toast.success("Link removed");
+    try {
+      await kgCall("delete_link", { link_id: linkId });
+      setLinks(prev => prev.filter(l => l.id !== linkId));
+      toast.success("Link removed");
+    } catch (e) {
+      toast.error("Failed to remove link");
+    }
   };
 
-  const restoreVersion = async (v: NoteVersion) => {
+  const restoreVersion = (v: NoteVersion) => {
     setDraftTitle(v.title);
     setDraftContent(v.content);
     setEditing(true);
