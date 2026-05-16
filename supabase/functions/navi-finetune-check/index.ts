@@ -85,6 +85,20 @@ serve(async (req) => {
             })
             .eq("id", persona.id);
 
+          // Telegram notification so operator knows a persona upgraded
+          const botToken = Deno.env.get("TELEGRAM_BOT_TOKEN");
+          const chatId   = Deno.env.get("TELEGRAM_OPERATOR_CHAT_ID");
+          if (botToken && chatId) {
+            await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                chat_id: chatId,
+                text: `PERSONA UPGRADED\n\n${persona.name} is now running on their fine-tuned model.\nModel: ${fineTunedModel}\n\nConversation quality has been personalized to your interaction history.`,
+              }),
+            }).catch(() => {});
+          }
+
           console.log(`[navi-finetune-check] ${persona.name}: deployed → ${fineTunedModel}`);
           results.push({ id: persona.id, name: persona.name, status: "deployed", model: fineTunedModel });
 

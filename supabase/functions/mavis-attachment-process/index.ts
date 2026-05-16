@@ -196,6 +196,46 @@ Deno.serve(async (req) => {
       })
       .eq("id", attachmentId);
 
+    // Auto-create a Knowledge Graph note for non-trivial extracted content
+    if (extracted.length > 100 && kind !== "other") {
+      (async () => {
+        try {
+          const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+          const serviceKey  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+          const title       = attachment.file_name.replace(/\.[^.]+$/, "").slice(0, 120);
+          const tagMap: Record<string, string[]> = {
+            image: ["attachment", "image"],
+            audio: ["attachment", "audio", "transcript"],
+            video: ["attachment", "video", "transcript"],
+            pdf:   ["attachment", "document"],
+            text:  ["attachment", "document"],
+          };
+          // Create note in knowledge graph
+          const noteRes = await fetch(`${supabaseUrl}/functions/v1/mavis-knowledge`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${serviceKey}` },
+            body: JSON.stringify({
+              action:  "create_note",
+              user_id: userId,
+              title,
+              content: `# ${title}\n\n*Source: ${attachment.file_name} (${kind})*\n\n---\n\n${extracted.slice(0, 8000)}`,
+              tags:    tagMap[kind] ?? ["attachment"],
+              properties: { source_attachment_id: attachmentId, mime_type: attachment.mime_type },
+              aliases: [],
+            }),
+          });
+          if (noteRes.ok) {
+            const noteData = await noteRes.json();
+            const noteId   = noteData?.note?.id;
+            // Update attachment row with the linked note id
+            if (noteId) {
+              await sb.from("chat_attachments").update({ linked_note_id: noteId }).eq("id", attachmentId).catch(() => {});
+            }
+          }
+        } catch { /* non-critical */ }
+      })();
+    }
+
     return new Response(
       JSON.stringify({ ok: true, length: extracted.length, kind }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } },

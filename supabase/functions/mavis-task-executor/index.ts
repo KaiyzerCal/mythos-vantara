@@ -686,11 +686,11 @@ Deno.serve(async (req) => {
   const errors: unknown[] = [];
 
   try {
-    // Fetch pending tasks that are either unscheduled or scheduled for now/past
+    // Fetch pending AND approved tasks (approved = operator confirmed a requires_confirmation item)
     const { data: pendingTasks, error: fetchErr } = await supabase
       .from("mavis_tasks")
       .select("*")
-      .eq("status", "pending")
+      .in("status", ["pending", "approved"])
       .or(`scheduled_at.is.null,scheduled_at.lte.${now}`)
       .order("created_at", { ascending: true })
       .limit(20);

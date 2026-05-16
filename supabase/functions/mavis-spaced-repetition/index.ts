@@ -26,6 +26,28 @@ async function sendTelegram(text: string): Promise<void> {
   }).catch(() => {});
 }
 
+async function sendNoteWithButtons(note: any, index: number, total: number): Promise<void> {
+  if (!BOT_TOKEN || !CHAT_ID) return;
+  const preview = (note.content ?? "").replace(/#+\s/g, "").replace(/\n+/g, " ").trim().slice(0, 300);
+  const tags    = note.tags?.length ? ` [${note.tags.slice(0, 3).join(", ")}]` : "";
+  const days    = note.review_interval_days ?? 7;
+  const text    = `REVIEW ${index}/${total} — ${note.title}${tags}\n\n${preview}${preview.length >= 300 ? "…" : ""}\n\n(Interval: every ${days} days)`;
+  await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      chat_id: CHAT_ID,
+      text: text.length > 4096 ? text.slice(0, 4056) + "…" : text,
+      reply_markup: {
+        inline_keyboard: [[
+          { text: "✓ Mastered", callback_data: `sr_master:${note.id}` },
+          { text: "✗ Forgotten", callback_data: `sr_forget:${note.id}` },
+        ]],
+      },
+    }),
+  }).catch(() => {});
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, {
@@ -77,17 +99,11 @@ Deno.serve(async (req) => {
 
     const toReview = eligible.slice(0, 3);
 
-    // Format and send review message
-    const lines = ["MAVIS REVIEW — Daily Knowledge Refresh\n"];
+    // Send each note as a separate message with mastery feedback buttons
+    await sendTelegram(`MAVIS REVIEW — ${toReview.length} note${toReview.length !== 1 ? "s" : ""} due today`);
     for (let i = 0; i < toReview.length; i++) {
-      const n = toReview[i];
-      const preview = (n.content ?? "").replace(/#+\s/g, "").replace(/\n+/g, " ").trim().slice(0, 280);
-      const tags    = n.tags?.length ? ` [${n.tags.slice(0, 3).join(", ")}]` : "";
-      const days    = n.review_interval_days ?? 7;
-      lines.push(`${i + 1}. ${n.title}${tags}\n${preview}${preview.length >= 280 ? "…" : ""}\n(Interval: every ${days} days)\n`);
+      await sendNoteWithButtons(toReview[i], i + 1, toReview.length);
     }
-
-    await sendTelegram(lines.join("\n"));
 
     // Update review state for each surfaced note
     const updates = toReview.map(async (n: any) => {

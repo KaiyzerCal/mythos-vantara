@@ -219,6 +219,46 @@ Deno.serve(async (req) => {
 
     const content = contentParts.join("\n\n").trim();
 
+    // Extract tacit lessons from synthesis (non-blocking)
+    if (synthesis) {
+      (async () => {
+        try {
+          let raw = "";
+          const extractSystem = `Extract 1-3 actionable lessons or patterns from this ${reviewType} review synthesis. Only extract genuinely new insights worth retaining long-term. Respond with ONLY a JSON array (may be empty):
+[{"category":"lesson_learned|preference|workflow_habit","key":"short identifier","value":"concise actionable statement"}]`;
+          if (LOVABLE_KEY) {
+            const r = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+              method: "POST",
+              headers: { "Content-Type": "application/json", Authorization: `Bearer ${LOVABLE_KEY}` },
+              body: JSON.stringify({ model: "google/gemini-2.5-flash", max_tokens: 300,
+                messages: [{ role: "system", content: extractSystem }, { role: "user", content: synthesis }] }),
+            });
+            if (r.ok) { const d = await r.json(); raw = d.choices?.[0]?.message?.content ?? ""; }
+          }
+          if (!raw && ANTHROPIC_KEY) {
+            const r = await fetch("https://api.anthropic.com/v1/messages", {
+              method: "POST",
+              headers: { "Content-Type": "application/json", "x-api-key": ANTHROPIC_KEY, "anthropic-version": "2023-06-01" },
+              body: JSON.stringify({ model: "claude-haiku-4-5-20251001", max_tokens: 300, system: extractSystem,
+                messages: [{ role: "user", content: synthesis }] }),
+            });
+            if (r.ok) { const d = await r.json(); raw = d.content?.[0]?.text ?? ""; }
+          }
+          const arrMatch = raw.match(/\[[\s\S]*\]/);
+          if (!arrMatch) return;
+          const items = JSON.parse(arrMatch[0]) as any[];
+          for (const item of items.slice(0, 3)) {
+            if (!item.category || !item.key || !item.value) continue;
+            await supabase.from("mavis_tacit").upsert({
+              user_id: uid, category: String(item.category),
+              key: `${reviewType}_${now.toISOString().slice(0, 10)}_${String(item.key).slice(0, 60)}`,
+              value: String(item.value).slice(0, 500),
+            }, { onConflict: "user_id,key", ignoreDuplicates: false });
+          }
+        } catch { /* non-critical */ }
+      })();
+    }
+
     // Create note
     const { data: noteData, error: noteError } = await supabase
       .from("mavis_notes")
