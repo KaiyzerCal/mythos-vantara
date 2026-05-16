@@ -260,6 +260,22 @@ Deno.serve(async (req) => {
       return json({ ok: true });
     }
 
+    // ── LIST LINKS (all for this user, for graph view) ────
+    if (action === "list_links") {
+      const { data: noteIds } = await supabase
+        .from("mavis_notes")
+        .select("id")
+        .eq("user_id", userId);
+      if (!noteIds?.length) return json({ links: [] });
+      const ids = (noteIds as any[]).map(n => n.id);
+      const { data, error } = await supabase
+        .from("mavis_note_links")
+        .select("*")
+        .in("source_note_id", ids);
+      if (error) throw error;
+      return json({ links: data ?? [] });
+    }
+
     // ── GET LINKS ──────────────────────────────────────────
     if (action === "get_links") {
       const noteId = String(body.note_id ?? "");

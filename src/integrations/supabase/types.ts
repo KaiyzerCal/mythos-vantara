@@ -752,6 +752,7 @@ export type Database = {
           aliases: string[]
           content: string
           created_at: string
+          embedding: string | null
           id: string
           properties: Json
           tags: string[]
@@ -763,6 +764,7 @@ export type Database = {
           aliases?: string[]
           content?: string
           created_at?: string
+          embedding?: string | null
           id?: string
           properties?: Json
           tags?: string[]
@@ -774,6 +776,7 @@ export type Database = {
           aliases?: string[]
           content?: string
           created_at?: string
+          embedding?: string | null
           id?: string
           properties?: Json
           tags?: string[]
@@ -1976,7 +1979,21 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      match_mavis_notes: {
+        Args: {
+          match_count?: number
+          match_threshold?: number
+          match_user_id: string
+          query_embedding: string
+        }
+        Returns: {
+          content: string
+          id: string
+          similarity: number
+          tags: string[]
+          title: string
+        }[]
+      }
     }
     Enums: {
       app_role: "owner" | "user"
