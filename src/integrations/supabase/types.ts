@@ -670,6 +670,119 @@ export type Database = {
         }
         Relationships: []
       }
+      mavis_note_links: {
+        Row: {
+          created_at: string
+          description: string | null
+          id: string
+          source_note_id: string
+          target_note_id: string
+          type: string
+        }
+        Insert: {
+          created_at?: string
+          description?: string | null
+          id?: string
+          source_note_id: string
+          target_note_id: string
+          type?: string
+        }
+        Update: {
+          created_at?: string
+          description?: string | null
+          id?: string
+          source_note_id?: string
+          target_note_id?: string
+          type?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "mavis_note_links_source_note_id_fkey"
+            columns: ["source_note_id"]
+            isOneToOne: false
+            referencedRelation: "mavis_notes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "mavis_note_links_target_note_id_fkey"
+            columns: ["target_note_id"]
+            isOneToOne: false
+            referencedRelation: "mavis_notes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      mavis_note_versions: {
+        Row: {
+          content: string
+          created_at: string
+          id: string
+          note_id: string
+          title: string
+          version_number: number
+        }
+        Insert: {
+          content: string
+          created_at?: string
+          id?: string
+          note_id: string
+          title: string
+          version_number: number
+        }
+        Update: {
+          content?: string
+          created_at?: string
+          id?: string
+          note_id?: string
+          title?: string
+          version_number?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "mavis_note_versions_note_id_fkey"
+            columns: ["note_id"]
+            isOneToOne: false
+            referencedRelation: "mavis_notes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      mavis_notes: {
+        Row: {
+          aliases: string[]
+          content: string
+          created_at: string
+          id: string
+          properties: Json
+          tags: string[]
+          title: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          aliases?: string[]
+          content?: string
+          created_at?: string
+          id?: string
+          properties?: Json
+          tags?: string[]
+          title?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          aliases?: string[]
+          content?: string
+          created_at?: string
+          id?: string
+          properties?: Json
+          tags?: string[]
+          title?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       mavis_products: {
         Row: {
           audience: string | null
