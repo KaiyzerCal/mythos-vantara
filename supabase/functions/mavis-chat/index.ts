@@ -818,6 +818,77 @@ You always know the current date and time without being told. Reference it natur
       { openai: openaiKey, claude: claudeKey, grok: grokKey, lovable: lovableKey },
     );
 
+    // ── Tacit learning (non-blocking) ───────────────────────
+    // Extract preferences/rules/lessons from this exchange and store in mavis_tacit.
+    const lastUserContent = lastUserMsg?.content ?? "";
+    if (lastUserContent.length > 20 && content.length > 20) {
+      (async () => {
+        try {
+          const extractKey = lovableKey || claudeKey || openaiKey;
+          if (!extractKey) return;
+
+          const extractPrompt = `You are analyzing a conversation between an operator and MAVIS (their bonded AI). Extract any new preferences, rules, lessons, or recurring patterns revealed in this exchange. Only extract something if it's genuinely new information about the operator's preferences or principles — not generic facts.
+
+Respond with ONLY a JSON array (may be empty):
+[{"category":"preference|hard_rule|lesson_learned|workflow_habit","key":"short identifier","value":"concise statement"}]
+
+Examples:
+- User says "I hate when you use bullet points" → {"category":"preference","key":"formatting","value":"Avoid bullet points — operator prefers prose"}
+- User corrects a deadline → {"category":"workflow_habit","key":"deadline_style","value":"Operator sets deadlines 2 days before actual due date as buffer"}
+- User shares a lesson from a failure → {"category":"lesson_learned","key":"pitch_timing","value":"Don't pitch investors before product has traction"}`;
+
+          let raw = "";
+          if (lovableKey) {
+            const r = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+              method: "POST",
+              headers: { "Content-Type": "application/json", Authorization: `Bearer ${lovableKey}` },
+              body: JSON.stringify({ model: "google/gemini-2.5-flash", max_tokens: 300,
+                messages: [{ role: "system", content: extractPrompt },
+                  { role: "user", content: `Operator: ${lastUserContent.slice(0, 800)}\nMAVIS: ${content.slice(0, 800)}` }] }),
+            });
+            if (r.ok) { const d = await r.json(); raw = d.choices?.[0]?.message?.content ?? ""; }
+          }
+          if (!raw && claudeKey) {
+            const r = await fetch("https://api.anthropic.com/v1/messages", {
+              method: "POST",
+              headers: { "Content-Type": "application/json", "x-api-key": claudeKey, "anthropic-version": "2023-06-01" },
+              body: JSON.stringify({ model: "claude-haiku-4-5-20251001", max_tokens: 300, system: extractPrompt,
+                messages: [{ role: "user", content: `Operator: ${lastUserContent.slice(0, 800)}\nMAVIS: ${content.slice(0, 800)}` }] }),
+            });
+            if (r.ok) { const d = await r.json(); raw = d.content?.[0]?.text ?? ""; }
+          }
+
+          const arrMatch = raw.match(/\[[\s\S]*\]/);
+          if (!arrMatch) return;
+          const items = JSON.parse(arrMatch[0]) as any[];
+          for (const item of items.slice(0, 3)) {
+            if (!item.category || !item.key || !item.value) continue;
+            await sb.from("mavis_tacit").upsert({
+              user_id:  user.id,
+              category: String(item.category),
+              key:      String(item.key).slice(0, 100),
+              value:    String(item.value).slice(0, 500),
+            }, { onConflict: "user_id,key", ignoreDuplicates: false });
+          }
+        } catch { /* non-critical — never surface to user */ }
+      })();
+    }
+
+    // ── Operator bond increment (non-blocking) ──────────────
+    (async () => {
+      try {
+        const { data: existing } = await sb.from("mavis_bond").select("id, interaction_count, bond_level, trust_level").eq("user_id", user.id).single();
+        if (existing) {
+          const newCount = (existing.interaction_count ?? 0) + 1;
+          const newBond  = Math.min(100, Math.floor(newCount / 10));
+          const newTrust = Math.min(100, Math.floor(newCount / 20));
+          await sb.from("mavis_bond").update({ interaction_count: newCount, bond_level: newBond, trust_level: newTrust, last_interaction_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq("id", existing.id);
+        } else {
+          await sb.from("mavis_bond").insert({ user_id: user.id, interaction_count: 1, bond_level: 0, trust_level: 0 });
+        }
+      } catch { /* non-critical */ }
+    })();
+
     return new Response(
       JSON.stringify({ content, mode, conversationId, searched: !!webSearchResults, provider: usedProvider }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }

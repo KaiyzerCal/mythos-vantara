@@ -951,6 +951,26 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
       return;
     }
 
+    // ── LOG EXPENSE ──────────────────────────────────────────────────────
+    case "log_expense":
+    case "expense": {
+      const description = String(p.description ?? p.title ?? (action as any).description ?? "").trim();
+      const amount      = Number(p.amount ?? (action as any).amount ?? 0);
+      if (!description || amount <= 0) throw new Error("expense requires description and amount > 0");
+      const { error } = await sb.from("mavis_expenses").insert({
+        user_id:      userId,
+        description:  description.slice(0, 200),
+        amount,
+        currency:     String(p.currency ?? "USD"),
+        category:     String(p.category ?? "general"),
+        source:       String(p.source ?? ""),
+        expense_date: p.date ? String(p.date) : new Date().toISOString().slice(0, 10),
+      });
+      if (error) throw error;
+      await logActivity(sb, userId, "expense_logged", `Expense: $${amount.toFixed(2)} — ${description.slice(0, 60)}`, 0);
+      return;
+    }
+
     default:
       throw new Error(`Unknown MAVIS action: ${action.type}`);
   }

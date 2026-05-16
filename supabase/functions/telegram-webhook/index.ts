@@ -1174,10 +1174,20 @@ async function handleCommand(command: string, chatId: string, fullText: string):
   switch (command.toLowerCase()) {
     case "/start":
     case "/help":
-      return `MAVIS Online — Telegram Interface\n\nCommands:\n/brief — morning brief\n/quests — active quests\n/energy — energy status\n/revenue — revenue report\n/tasks — run pending tasks now\n/scan — demand scan for product opportunities\n/orders — view Inbox (pending tasks & approvals)\n/council — trigger council member check-ins now\n/daily — save today's activity log to Knowledge Graph\n/review — surface notes due for spaced repetition\n/weekly — generate weekly review summary\n/monthly — generate monthly review summary\n/goals — view active goals and quest progress\n/personas — list your NAVI roster\n/switch [name] — talk to a persona\n/mavis — return to MAVIS\n\nVoice messages, photos, and files also work.\nOr just talk to me.\n\nKnowledge Graph: ask "show notes tagged #strategy" or "find notes about leadership this month" to query your second brain.`;
+      return `MAVIS Online — Telegram Interface\n\nCommands:\n/brief — morning brief (overdue, approvals, SR, revenue)\n/quests — active quests\n/energy — energy status\n/revenue — revenue report\n/expense [amount] [desc] — log an expense\n/tasks — run pending tasks now\n/scan — demand scan for product opportunities\n/orders — view Inbox (pending tasks & approvals)\n/approve [id] — approve a pending item\n/reject [id] — reject a pending item\n/council — trigger council member check-ins now\n/daily — save today's activity log to Knowledge Graph\n/review — surface notes due for spaced repetition\n/weekly — generate weekly review summary\n/monthly — generate monthly review summary\n/goals — view active goals and quest progress\n/personas — list your NAVI roster\n/switch [name] — talk to a persona\n/mavis — return to MAVIS\n\nVoice messages, photos, and files also work.\nOr just talk to me.\n\nKnowledge Graph: ask "show notes tagged #strategy" or "find notes about leadership this month" to query your second brain.`;
 
-    case "/brief":
-      return null; // Let MAVIS generate naturally with context
+    case "/brief": {
+      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+      const serviceKey  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+      try {
+        const res = await fetch(`${supabaseUrl}/functions/v1/mavis-morning-brief`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${serviceKey}` },
+        });
+        if (!res.ok) return `Morning brief failed (${res.status}).`;
+        return null; // brief sends its own Telegram message directly
+      } catch (e) { return `Brief error: ${(e as Error).message}`; }
+    }
 
     case "/quests": {
       const { data } = await supabase.from("quests").select("title,status,deadline").eq("user_id", OPERATOR_USER_ID).eq("status", "active").limit(10);
@@ -1283,8 +1293,8 @@ async function handleCommand(command: string, chatId: string, fullText: string):
       let out = `Inbox (${pending.length} items)\n`;
       if (confirmations.length) {
         out += `\nNEEDS APPROVAL (${confirmations.length}):\n${confirmations.map((t: any) =>
-          `• [${t.type}] ${t.description ?? "No description"}`
-        ).join("\n")}`;
+          `• [${t.type}] ${t.description ?? "No description"}\n  ID: ${t.id.slice(0, 8)}`
+        ).join("\n")}\n→ Use /approve [id] or /reject [id]`;
       }
       if (scheduled.length) {
         out += `\nSCHEDULED (${scheduled.length}):\n${scheduled.map((t: any) =>
@@ -1327,6 +1337,52 @@ async function handleCommand(command: string, chatId: string, fullText: string):
       } catch (e) {
         return `Daily note error: ${(e as Error).message}`;
       }
+    }
+
+    case "/approve": {
+      const idPrefix = fullText.replace(/^\/approve\s*/i, "").trim();
+      if (!idPrefix) return "Usage: /approve [task ID prefix from /orders]";
+      const { data: tasks } = await supabase
+        .from("mavis_tasks").select("id, type, description")
+        .eq("user_id", OPERATOR_USER_ID).eq("status", "requires_confirmation").limit(20);
+      const match = (tasks ?? []).find((t: any) => t.id.startsWith(idPrefix));
+      if (!match) return `No pending item found matching ID "${idPrefix}". Use /orders to see IDs.`;
+      await supabase.from("mavis_tasks").update({ status: "approved" }).eq("id", match.id);
+      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+      const serviceKey  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+      fetch(`${supabaseUrl}/functions/v1/mavis-task-executor`, {
+        method: "POST", headers: { Authorization: `Bearer ${serviceKey}` },
+      }).catch(() => {});
+      return `Approved: [${match.type}] ${(match.description ?? "").slice(0, 80)}\nTask executor notified.`;
+    }
+
+    case "/reject": {
+      const idPrefix = fullText.replace(/^\/reject\s*/i, "").trim();
+      if (!idPrefix) return "Usage: /reject [task ID prefix from /orders]";
+      const { data: tasks } = await supabase
+        .from("mavis_tasks").select("id, type, description")
+        .eq("user_id", OPERATOR_USER_ID).eq("status", "requires_confirmation").limit(20);
+      const match = (tasks ?? []).find((t: any) => t.id.startsWith(idPrefix));
+      if (!match) return `No pending item found matching ID "${idPrefix}". Use /orders to see IDs.`;
+      await supabase.from("mavis_tasks").update({ status: "cancelled" }).eq("id", match.id);
+      return `Rejected: [${match.type}] ${(match.description ?? "").slice(0, 80)}`;
+    }
+
+    case "/expense": {
+      const args = fullText.replace(/^\/expense\s*/i, "").trim();
+      if (!args) return "Usage: /expense [amount] [description]\nExample: /expense 49.99 Notion subscription";
+      const parts   = args.split(/\s+/);
+      const amount  = parseFloat(parts[0]);
+      const desc    = parts.slice(1).join(" ").trim();
+      if (isNaN(amount) || amount <= 0) return "Invalid amount. Usage: /expense [amount] [description]";
+      if (!desc) return "Please include a description. Usage: /expense [amount] [description]";
+      const { error } = await supabase.from("mavis_expenses").insert({
+        user_id: OPERATOR_USER_ID, description: desc.slice(0, 200), amount,
+        currency: "USD", category: "general", source: "telegram",
+        expense_date: new Date().toISOString().slice(0, 10),
+      });
+      if (error) return `Failed to log expense: ${error.message}`;
+      return `Expense logged: -$${amount.toFixed(2)} — ${desc}`;
     }
 
     case "/review": {
