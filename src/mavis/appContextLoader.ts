@@ -17,6 +17,7 @@ export interface AppContextSnapshot {
   allies: unknown[];
   rituals: unknown[];
   pendingApprovals: unknown[];
+  personas: unknown[];
   loadedAt: string;
 }
 
@@ -69,6 +70,7 @@ export async function loadFullAppContext(userId: string): Promise<AppContextSnap
     allies,
     rituals,
     pendingApprovals,
+    personas,
   ] = await Promise.all([
     safeProfile(userId),
     safeQuery("quests", userId),
@@ -86,6 +88,7 @@ export async function loadFullAppContext(userId: string): Promise<AppContextSnap
     safeQuery("allies", userId),
     safeQuery("rituals", userId),
     safeQuery("approvals", userId),
+    safeQuery("personas", userId),
   ]);
 
   return {
@@ -105,6 +108,7 @@ export async function loadFullAppContext(userId: string): Promise<AppContextSnap
     allies,
     rituals,
     pendingApprovals,
+    personas,
     loadedAt: new Date().toISOString(),
   };
 }
