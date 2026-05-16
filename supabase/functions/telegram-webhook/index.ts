@@ -953,7 +953,7 @@ async function handleCommand(command: string, chatId: string, fullText: string):
   switch (command.toLowerCase()) {
     case "/start":
     case "/help":
-      return `MAVIS Online — Telegram Interface\n\nCommands:\n/brief — morning brief\n/quests — active quests\n/energy — energy status\n/revenue — revenue report\n/tasks — run pending tasks now\n/scan — demand scan for product opportunities\n/orders — view Inbox (pending tasks & approvals)\n/personas — list your NAVI roster\n/switch [name] — talk to a persona\n/mavis — return to MAVIS\n\nVoice messages, photos, and files also work.\nOr just talk to me.`;
+      return `MAVIS Online — Telegram Interface\n\nCommands:\n/brief — morning brief\n/quests — active quests\n/energy — energy status\n/revenue — revenue report\n/tasks — run pending tasks now\n/scan — demand scan for product opportunities\n/orders — view Inbox (pending tasks & approvals)\n/council — trigger council member check-ins now\n/personas — list your NAVI roster\n/switch [name] — talk to a persona\n/mavis — return to MAVIS\n\nVoice messages, photos, and files also work.\nOr just talk to me.`;
 
     case "/brief":
       return null; // Let MAVIS generate naturally with context
@@ -984,6 +984,35 @@ async function handleCommand(command: string, chatId: string, fullText: string):
         headers: { Authorization: `Bearer ${serviceKey}` },
       });
       return "Task executor fired. Check Inbox for results.";
+    }
+
+    case "/council": {
+      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+      const serviceKey  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+      // Show council status first
+      const { data: members } = await supabase
+        .from("councils")
+        .select("name, role, specialty, karma, heartbeat_enabled, last_heartbeat_at")
+        .eq("user_id", OPERATOR_USER_ID)
+        .order("karma", { ascending: false });
+
+      if (!members?.length) return "No council members. Ask MAVIS to create some.";
+
+      // Trigger heartbeat for all due members (force = false, respects intervals)
+      fetch(`${supabaseUrl}/functions/v1/mavis-council-heartbeat`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${serviceKey}` },
+        body: JSON.stringify({ force: true }),
+      }).catch(() => {});
+
+      const roster = (members as any[]).map((m: any) => {
+        const last = m.last_heartbeat_at
+          ? `last active ${Math.floor((Date.now() - new Date(m.last_heartbeat_at).getTime()) / 3600000)}h ago`
+          : "never activated";
+        return `• ${m.name} [${m.role}] — ${m.specialty ?? "general"} | karma: ${m.karma ?? 0} | ${last}`;
+      }).join("\n");
+
+      return `Council awakening...\n\n${roster}\n\nEach member is evaluating your state. Expect messages shortly.`;
     }
 
     case "/scan": {
