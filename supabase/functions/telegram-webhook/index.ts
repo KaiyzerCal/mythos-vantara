@@ -281,7 +281,127 @@ function extractKeywords(text: string): string[] {
   )].slice(0, 6);
 }
 
+// ─────────────────────────────────────────────────────────────
+// DATAVIEW QUERIES — natural language note filtering
+// "show notes tagged #strategy", "find notes from this month", etc.
+// ─────────────────────────────────────────────────────────────
+
+const DATAVIEW_PATTERNS = [
+  /show\s+(?:me\s+)?(?:all\s+)?notes?\s+/i,
+  /find\s+(?:all\s+)?notes?\s+/i,
+  /list\s+(?:all\s+)?(?:my\s+)?notes?\s+/i,
+  /notes?\s+tagged?\s+/i,
+  /notes?\s+(?:about|on|from|with)\s+/i,
+  /filter\s+notes?\s+/i,
+  /search\s+(?:my\s+)?notes?\s+/i,
+  /what\s+notes?\s+(?:do\s+i\s+have|are\s+there)/i,
+];
+
+interface DataviewQuery {
+  tags: string[];
+  keywords: string[];
+  dateFrom: Date | null;
+  dateTo: Date | null;
+}
+
+function detectDataviewQuery(text: string): DataviewQuery | null {
+  const isDataview = DATAVIEW_PATTERNS.some(p => p.test(text));
+  if (!isDataview) return null;
+
+  const lower = text.toLowerCase();
+
+  // Extract #hashtags
+  const tags: string[] = [];
+  const hashTags = text.match(/#(\w+)/g);
+  if (hashTags) tags.push(...hashTags.map(t => t.slice(1).toLowerCase()));
+
+  // "tagged X", "tag X", "with tag X"
+  for (const m of lower.matchAll(/(?:tagged?\s+|with\s+tag\s+)(\w+)/g)) {
+    if (!tags.includes(m[1])) tags.push(m[1]);
+  }
+
+  // Date range parsing
+  let dateFrom: Date | null = null;
+  let dateTo: Date | null   = null;
+  const now = new Date();
+
+  if (lower.includes("today")) {
+    dateFrom = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+    dateTo   = new Date(dateFrom.getTime() + 86400000);
+  } else if (lower.includes("this week")) {
+    dateFrom = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - now.getUTCDay()));
+    dateTo   = now;
+  } else if (lower.includes("last week")) {
+    const thisWeekStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - now.getUTCDay()));
+    dateTo   = thisWeekStart;
+    dateFrom = new Date(thisWeekStart.getTime() - 7 * 86400000);
+  } else if (lower.includes("this month")) {
+    dateFrom = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+    dateTo   = now;
+  } else if (lower.includes("last month")) {
+    const m = now.getUTCMonth() === 0 ? 11 : now.getUTCMonth() - 1;
+    const y = now.getUTCMonth() === 0 ? now.getUTCFullYear() - 1 : now.getUTCFullYear();
+    dateFrom = new Date(Date.UTC(y, m, 1));
+    dateTo   = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+  }
+
+  // Keywords from "about X" / "on X" patterns
+  const keywords: string[] = [];
+  const aboutMatch = lower.match(/(?:about|on|regarding)\s+([a-z0-9 ]+?)(?:\s+(?:from|tagged?|this|last|created)|$)/);
+  if (aboutMatch) {
+    const words = aboutMatch[1].trim().split(/\s+/)
+      .filter(w => w.length >= 4 && !STOPWORDS.has(w) && !["week", "month", "year", "note", "notes"].includes(w));
+    keywords.push(...words.slice(0, 3));
+  }
+
+  if (tags.length === 0 && keywords.length === 0 && !dateFrom) return null;
+  return { tags, keywords, dateFrom, dateTo };
+}
+
+async function runDataviewQuery(query: DataviewQuery): Promise<string> {
+  let q: any = supabase
+    .from("mavis_notes")
+    .select("id, title, content, tags, updated_at")
+    .eq("user_id", OPERATOR_USER_ID)
+    .order("updated_at", { ascending: false })
+    .limit(10);
+
+  if (query.tags.length > 0)  q = q.overlaps("tags", query.tags);
+  if (query.dateFrom)         q = q.gte("updated_at", query.dateFrom.toISOString());
+  if (query.dateTo)           q = q.lte("updated_at", query.dateTo.toISOString());
+
+  const { data, error } = await q;
+  if (error || !data?.length) return "";
+
+  let filtered = data as any[];
+
+  // In-memory keyword filter
+  if (query.keywords.length > 0) {
+    const kwFiltered = filtered.filter((n: any) => {
+      const blob = `${n.title} ${n.content ?? ""}`.toLowerCase();
+      return query.keywords.some(kw => blob.includes(kw));
+    });
+    if (kwFiltered.length > 0) filtered = kwFiltered;
+  }
+
+  const filterDesc: string[] = [];
+  if (query.tags.length)    filterDesc.push(`tagged [${query.tags.join(", ")}]`);
+  if (query.keywords.length) filterDesc.push(`about "${query.keywords.join(" ")}"`);
+  if (query.dateFrom) {
+    filterDesc.push(`from ${query.dateFrom.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" })}`);
+  }
+
+  return `DATAVIEW — ${filtered.length} note(s) ${filterDesc.join(", ")}:\n${formatNotes(filtered, false)}`;
+}
+
 async function loadKnowledgeContext(message: string): Promise<string> {
+  // ── Dataview query detection (explicit note filtering) ───
+  const dvQuery = detectDataviewQuery(message);
+  if (dvQuery) {
+    const results = await runDataviewQuery(dvQuery);
+    if (results) return results;
+  }
+
   // ── Semantic search (primary) ────────────────────────────
   const embedding = await generateEmbedding(message);
   if (embedding) {
@@ -656,7 +776,90 @@ function stripActions(text: string): string {
   return text.replace(new RegExp(ACTION_REGEX.source, "g"), "").replace(/\n{3,}/g, "\n\n").trim();
 }
 
-async function executeActions(actions: ParsedAction[], chatId: string): Promise<{ executed: number; queued: number }> {
+// ─────────────────────────────────────────────────────────────
+// COUNCIL VOTING — governance gate for high-stakes actions
+// Epic quests, 500+ XP awards, and critical vault creates are
+// put to a council vote before execution.
+// ─────────────────────────────────────────────────────────────
+
+function isHighStakeAction(payload: Record<string, unknown>): boolean {
+  const type   = String(payload.type ?? "");
+  const params = (payload.params as Record<string, unknown>) ?? {};
+  if (type === "create_quest" && String(params.type ?? "") === "epic") return true;
+  if (type === "award_xp" && Number(params.amount ?? 0) >= 500) return true;
+  if (type === "create_vault" && String(params.importance ?? "") === "critical") return true;
+  return false;
+}
+
+async function runCouncilVote(
+  action: Record<string, unknown>,
+  chatId: string,
+  context: string,
+): Promise<{ approved: boolean; voteText: string }> {
+  const { data: members } = await supabase
+    .from("councils")
+    .select("name, role, specialty, character_notes")
+    .eq("user_id", OPERATOR_USER_ID)
+    .eq("heartbeat_enabled", true)
+    .limit(6);
+
+  if (!members?.length) {
+    return { approved: true, voteText: "No council configured for voting — auto-approved." };
+  }
+
+  const params     = (action.params as Record<string, unknown>) ?? {};
+  const actionType = String(action.type ?? "");
+  const actionDesc = actionType === "create_quest"
+    ? `Create an EPIC quest: "${params.title ?? "?"}"`
+    : actionType === "award_xp"
+    ? `Award ${params.amount ?? "?"} XP — reason: "${params.reason ?? "?"}"`
+    : actionType === "create_vault"
+    ? `Create a CRITICAL vault entry: "${params.title ?? "?"}"`
+    : JSON.stringify(action).slice(0, 200);
+
+  const voteQuestion = `Calvin wants to: ${actionDesc}
+
+Context snapshot:
+${context.slice(0, 600)}
+
+Should this action proceed?
+
+Reply EXACTLY as:
+VOTE: YES
+[one sentence reason]
+OR:
+VOTE: NO
+[one sentence reason]`;
+
+  const votePromises = (members as any[]).map(async (m: any) => {
+    const sys = `You are ${m.name} (${m.role}${m.specialty ? `, specialty: ${m.specialty}` : ""}).${m.character_notes ? " " + m.character_notes : ""} You are a council member casting a decisive vote. Be brief.`;
+    try {
+      const res = await callClaude(sys, [{ role: "user", content: voteQuestion }]);
+      const upper = res.toUpperCase();
+      const vote  = upper.includes("VOTE: YES") ? "YES" : upper.includes("VOTE: NO") ? "NO" : "ABSTAIN";
+      const reason = res.replace(/VOTE:\s*(YES|NO)/i, "").trim().slice(0, 120);
+      return { name: m.name as string, vote, reason };
+    } catch {
+      return { name: m.name as string, vote: "ABSTAIN", reason: "unavailable" };
+    }
+  });
+
+  const settled = await Promise.allSettled(votePromises);
+  const votes   = settled
+    .filter(r => r.status === "fulfilled")
+    .map(r => (r as PromiseFulfilledResult<any>).value);
+
+  const yeas     = votes.filter(v => v.vote === "YES").length;
+  const nays     = votes.filter(v => v.vote === "NO").length;
+  const approved = yeas > nays;
+
+  const voteLines = votes.map(v => `• ${v.name}: ${v.vote}${v.reason ? ` — ${v.reason}` : ""}`).join("\n");
+  const voteText  = `COUNCIL VOTE: ${actionDesc}\n\n${voteLines}\n\nResult: ${yeas} YES / ${nays} NO → ${approved ? "APPROVED" : "REJECTED"}`;
+
+  return { approved, voteText };
+}
+
+async function executeActions(actions: ParsedAction[], chatId: string, context = ""): Promise<{ executed: number; queued: number }> {
   let executed = 0;
   let queued = 0;
 
@@ -684,6 +887,24 @@ async function executeActions(actions: ParsedAction[], chatId: string): Promise<
       });
       queued++;
       continue;
+    }
+
+    // Council vote gate for high-stakes actions
+    if (isHighStakeAction(action.payload)) {
+      const { approved, voteText } = await runCouncilVote(action.payload, chatId, context);
+      await sendPlain(chatId, voteText);
+      if (!approved) {
+        await supabase.from("mavis_tasks").insert({
+          user_id: OPERATOR_USER_ID,
+          type: "council_rejected",
+          description: `Council voted NO on: ${type}`,
+          payload: { ...action.payload, vote_summary: voteText.slice(0, 400) },
+          status: "requires_confirmation",
+        });
+        queued++;
+        continue;
+      }
+      // Approved — fall through to normal execution
     }
 
     if (needsConfirm(action.payload)) {
@@ -953,7 +1174,7 @@ async function handleCommand(command: string, chatId: string, fullText: string):
   switch (command.toLowerCase()) {
     case "/start":
     case "/help":
-      return `MAVIS Online — Telegram Interface\n\nCommands:\n/brief — morning brief\n/quests — active quests\n/energy — energy status\n/revenue — revenue report\n/tasks — run pending tasks now\n/scan — demand scan for product opportunities\n/orders — view Inbox (pending tasks & approvals)\n/council — trigger council member check-ins now\n/personas — list your NAVI roster\n/switch [name] — talk to a persona\n/mavis — return to MAVIS\n\nVoice messages, photos, and files also work.\nOr just talk to me.`;
+      return `MAVIS Online — Telegram Interface\n\nCommands:\n/brief — morning brief\n/quests — active quests\n/energy — energy status\n/revenue — revenue report\n/tasks — run pending tasks now\n/scan — demand scan for product opportunities\n/orders — view Inbox (pending tasks & approvals)\n/council — trigger council member check-ins now\n/daily — save today's activity log to Knowledge Graph\n/personas — list your NAVI roster\n/switch [name] — talk to a persona\n/mavis — return to MAVIS\n\nVoice messages, photos, and files also work.\nOr just talk to me.\n\nKnowledge Graph: ask "show notes tagged #strategy" or "find notes about leadership this month" to query your second brain.`;
 
     case "/brief":
       return null; // Let MAVIS generate naturally with context
@@ -1084,6 +1305,28 @@ async function handleCommand(command: string, chatId: string, fullText: string):
         .limit(15);
       if (!data?.length) return "No personas forged yet. Ask MAVIS to create one.";
       return `Your Personas\n${data.map((p: any) => `• ${p.name} — ${p.role}${p.archetype ? ` (${p.archetype})` : ""}`).join("\n")}\n\nUse /switch [name] to talk to one.`;
+    }
+
+    case "/daily": {
+      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+      const serviceKey  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+      try {
+        const res = await fetch(`${supabaseUrl}/functions/v1/mavis-daily-notes`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${serviceKey}` },
+        });
+        if (!res.ok) return `Daily note generation failed (${res.status}).`;
+        const d = await res.json();
+        if (d.message?.includes("already exists")) return "Today's daily log already exists in your Knowledge Graph.";
+        const parts: string[] = [`Daily log saved — ${d.date ?? "today"}`];
+        if (d.quests_logged > 0)  parts.push(`${d.quests_logged} quest(s)`);
+        if (d.tasks_logged > 0)   parts.push(`${d.tasks_logged} task(s)`);
+        if (d.xp_total > 0)       parts.push(`+${d.xp_total} XP`);
+        if (d.revenue_total > 0)  parts.push(`$${Number(d.revenue_total).toFixed(2)} revenue`);
+        return parts.join(" | ");
+      } catch (e) {
+        return `Daily note error: ${(e as Error).message}`;
+      }
     }
 
     case "/mavis": {
@@ -1257,7 +1500,7 @@ Deno.serve(async (req) => {
     let actionSummary = "";
 
     if (actions.length > 0) {
-      const { executed, queued } = await executeActions(actions, chatId);
+      const { executed, queued } = await executeActions(actions, chatId, context);
       const parts: string[] = [];
       if (executed > 0) parts.push(`${executed} action${executed !== 1 ? "s" : ""} executed`);
       if (queued > 0)   parts.push(`${queued} queued in Inbox`);
