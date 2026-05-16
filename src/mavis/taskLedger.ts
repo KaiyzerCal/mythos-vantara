@@ -30,11 +30,11 @@ export async function createTask(userId: string, task: LedgerTask): Promise<stri
         user_id: userId,
         type: task.type,
         description: task.description,
-        payload: task.payload ?? {},
+        payload: task.payload ?? {} as any,
         status: task.status ?? "pending",
         scheduled_at: task.scheduledAt,
         revenue_generated: task.revenueGenerated ?? 0,
-      })
+      } as any)
       .select("id")
       .single();
     if (error || !data) return null;
@@ -74,9 +74,9 @@ export async function completeTask(
   await supabase.from("mavis_tasks").update({
     status: "completed",
     completed_at: new Date().toISOString(),
-    result: result ?? {},
+    result: result ?? {} as any,
     revenue_generated: revenueGenerated ?? 0,
-  }).eq("id", taskId);
+  } as any).eq("id", taskId);
 }
 
 export async function cancelTask(taskId: string): Promise<void> {
