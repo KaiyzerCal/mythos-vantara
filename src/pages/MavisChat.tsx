@@ -102,9 +102,9 @@ export default function MavisChat() {
         user_id: session.user.id,
         type: "create_product",
         description: `Product proposal: "${payload.title}" — $${((Number(payload.price_cents) || 2900) / 100).toFixed(2)}`,
-        payload,
+        payload: payload as any,
         status: "requires_confirmation",
-      });
+      } as any);
       if (error) throw error;
     });
 
@@ -116,9 +116,9 @@ export default function MavisChat() {
         user_id: session.user.id,
         type: "nora_tweet",
         description: `Nora tweet: "${String(payload.content).slice(0, 60)}…"`,
-        payload,
+        payload: payload as any,
         status: "requires_confirmation",
-      });
+      } as any);
       if (error) throw error;
     });
 
@@ -134,7 +134,7 @@ export default function MavisChat() {
         prompt_template: payload.prompt_template,
         is_active: true,
         updated_at: new Date().toISOString(),
-      }, { onConflict: "user_id,name" });
+      } as any, { onConflict: "user_id,name" });
       if (error) throw error;
     });
   }, []);
