@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
+import ReactMarkdown from "react-markdown";
 import { supabase } from "@/integrations/supabase/client";
 import { PageHeader } from "@/components/SharedUI";
 import { Inbox as InboxIcon, Eye, CheckCircle, Clock, AlertCircle, BookOpen, ListTodo, XCircle, Loader2 } from "lucide-react";
@@ -442,7 +443,9 @@ export default function Inbox() {
                         className="overflow-hidden border-t border-border"
                       >
                         <div className="px-4 py-3">
-                          <p className="text-xs font-body text-foreground/90 leading-relaxed whitespace-pre-wrap">{b.content}</p>
+                          <div className="mavis-prose">
+                            <ReactMarkdown>{b.content}</ReactMarkdown>
+                          </div>
                         </div>
                       </motion.div>
                     )}
