@@ -24,6 +24,22 @@ const OPENAI_KEY       = Deno.env.get("OPENAI_API") ?? Deno.env.get("OPENAI_API_
 const LOVABLE_KEY      = Deno.env.get("LOVABLE_API_KEY") ?? "";
 
 // ─────────────────────────────────────────────────────────────
+// KARMA GATES — minimum karma to execute each action type
+// Members earn karma by taking useful actions. New members start
+// at 0 and unlock capabilities as they prove themselves.
+// ─────────────────────────────────────────────────────────────
+
+const KARMA_GATES: Record<string, number> = {
+  council_notify:  0,
+  council_remember: 0,
+  council_message: 25,
+  create_task:     25,
+  create_note:     50,
+  create_quest:    75,
+  award_xp:        100,
+};
+
+// ─────────────────────────────────────────────────────────────
 // CONTEXT LOADER
 // Focused subset — enough for each member to evaluate their domain.
 // ─────────────────────────────────────────────────────────────
@@ -151,6 +167,63 @@ async function loadUnreadMessages(memberId: string): Promise<any[]> {
 }
 
 // ─────────────────────────────────────────────────────────────
+// ACTION IMPACT — evaluate outcomes of past proposals
+// Cross-references quests/tasks this member created against
+// their current status so members can calibrate quality.
+// ─────────────────────────────────────────────────────────────
+
+async function loadActionImpact(memberId: string, userId: string): Promise<string> {
+  const since = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString();
+  const { data: activities } = await supabase
+    .from("mavis_council_activity")
+    .select("actions_taken")
+    .eq("council_member_id", memberId)
+    .gte("created_at", since)
+    .order("created_at", { ascending: false })
+    .limit(10);
+
+  if (!activities?.length) return "No past actions to evaluate.";
+
+  const questTitles: string[] = [];
+  const taskTitles: string[] = [];
+  for (const act of activities as any[]) {
+    const actions = Array.isArray(act.actions_taken) ? act.actions_taken : [];
+    for (const a of actions) {
+      if (a.type === "create_quest" && a.params?.title) questTitles.push(String(a.params.title).slice(0, 60));
+      if (a.type === "create_task"  && a.params?.title) taskTitles.push(String(a.params.title).slice(0, 60));
+    }
+  }
+
+  const lines: string[] = [];
+
+  if (questTitles.length > 0) {
+    const { data: quests } = await supabase
+      .from("quests").select("title, status")
+      .eq("user_id", userId).in("title", questTitles.slice(0, 10));
+    if (quests?.length) {
+      const done    = (quests as any[]).filter(q => q.status === "completed");
+      const active  = (quests as any[]).filter(q => q.status === "active");
+      lines.push(`Quests you proposed: ${quests.length} — ${done.length} completed, ${active.length} in progress`);
+      if (done.length > 0) lines.push(`Completed: ${done.map((q: any) => q.title).join(", ")}`);
+    }
+  }
+
+  if (taskTitles.length > 0) {
+    const { data: tasks } = await supabase
+      .from("tasks").select("title, status, streak")
+      .eq("user_id", userId).in("title", taskTitles.slice(0, 10));
+    if (tasks?.length) {
+      const done  = (tasks as any[]).filter(t => t.status === "completed");
+      const habit = (tasks as any[]).filter(t => (t.streak ?? 0) > 1);
+      lines.push(`Tasks you proposed: ${tasks.length} — ${done.length} completed`);
+      if (habit.length > 0) lines.push(`Habit streaks building: ${habit.map((t: any) => `${t.title} (${t.streak}x)`).join(", ")}`);
+    }
+  }
+
+  return lines.length > 0 ? lines.join("\n") : "No trackable past actions found yet.";
+}
+
+// ─────────────────────────────────────────────────────────────
 // CHARACTER PROMPT (ElizaOS evaluator pattern)
 // Each member gets a specialized system prompt that encodes
 // their identity, domain, and evaluator criteria.
@@ -170,6 +243,7 @@ function buildMemberPrompt(
   recentActivity: any[],
   memories: any[],
   unreadMessages: any[],
+  impactReport: string,
 ): string {
   const activityBlock = recentActivity.length > 0
     ? recentActivity.map((a: any) => `• ${a.summary ?? "acted"} (${timeAgoShort(a.created_at)}, ${a.actions_executed} action(s))`).join("\n")
@@ -188,6 +262,7 @@ function buildMemberPrompt(
 IDENTITY:
 Role: ${member.role} | Class: ${member.class ?? "core"} | Specialty: ${member.specialty ?? "general"}
 Karma: ${member.karma ?? 0} (earned by taking genuinely useful actions)
+Unlocked actions: ${Object.entries(KARMA_GATES).filter(([, req]) => (member.karma ?? 0) >= req).map(([a]) => a).join(", ") || "council_notify, council_remember only"}
 ${member.notes ? `Notes: ${member.notes}` : ""}
 ${member.character_notes ? `Character: ${member.character_notes}` : ""}
 
@@ -216,6 +291,9 @@ ${memoriesBlock}
 
 ━━ MESSAGES FROM COLLEAGUES ━━
 ${messagesBlock}
+
+━━ IMPACT REPORT (outcomes of your past proposals — 14 days) ━━
+${impactReport}
 
 ━━ AVAILABLE ACTIONS ━━
 You MUST use the exact :::ACTION{...}::: syntax. params is always a nested object.
@@ -348,6 +426,18 @@ async function executeActions(
 
   for (const action of actions) {
     const type = String(action.type ?? "");
+
+    // Karma gate — block actions the member hasn't earned yet
+    const karmaRequired = KARMA_GATES[type] ?? 75;
+    if ((member.karma ?? 0) < karmaRequired) {
+      await supabase.from("mavis_council_memory").insert({
+        user_id:           userId,
+        council_member_id: member.id,
+        content:           `Karma-blocked action: ${type} (need ${karmaRequired}, have ${member.karma ?? 0}). Keep taking useful actions to unlock.`,
+        tags:              ["karma-blocked"],
+      }).catch(() => {});
+      continue;
+    }
 
     // council_remember: store in member's personal memory bank
     if (type === "council_remember") {
@@ -493,12 +583,13 @@ async function logActivity(
 // ─────────────────────────────────────────────────────────────
 
 async function runMemberHeartbeat(member: any, userId: string, context: string): Promise<string> {
-  const [recentActivity, memories, unreadMessages] = await Promise.all([
+  const [recentActivity, memories, unreadMessages, impactReport] = await Promise.all([
     loadMemberActivity(member.id),
     loadMemberMemory(member.id),
     loadUnreadMessages(member.id),
+    loadActionImpact(member.id, userId),
   ]);
-  const systemPrompt = buildMemberPrompt(member, context, recentActivity, memories, unreadMessages);
+  const systemPrompt = buildMemberPrompt(member, context, recentActivity, memories, unreadMessages, impactReport);
 
   let rawResponse = "";
   try {
