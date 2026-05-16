@@ -231,10 +231,36 @@ async function loadContext(): Promise<string> {
 }
 
 // ─────────────────────────────────────────────────────────────
-// KNOWLEDGE GRAPH RETRIEVAL
-// Keyword-searches mavis_notes and returns relevant excerpts so
-// MAVIS can reference stored knowledge in every response.
+// KNOWLEDGE GRAPH RETRIEVAL — semantic similarity + keyword fallback
+// Primary: embed the message → cosine similarity via match_mavis_notes RPC
+// Fallback: ilike keyword search (no OpenAI key or notes not yet embedded)
 // ─────────────────────────────────────────────────────────────
+
+async function generateEmbedding(text: string): Promise<number[] | null> {
+  if (!AI_KEYS.openai) return null;
+  try {
+    const res = await fetch("https://api.openai.com/v1/embeddings", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${AI_KEYS.openai}`,
+      },
+      body: JSON.stringify({ model: "text-embedding-3-small", input: text.slice(0, 8000) }),
+    });
+    if (!res.ok) return null;
+    const d = await res.json();
+    return d.data?.[0]?.embedding ?? null;
+  } catch { return null; }
+}
+
+function formatNotes(notes: any[], semantic: boolean): string {
+  return notes.map((n: any) => {
+    const preview = (n.content ?? "").replace(/\n+/g, " ").slice(0, 300);
+    const tags    = Array.isArray(n.tags) && n.tags.length > 0 ? ` [${n.tags.join(", ")}]` : "";
+    const score   = semantic && n.similarity != null ? ` (${Math.round(n.similarity * 100)}% match)` : "";
+    return `• ${n.title}${tags}${score}: ${preview}${(n.content?.length ?? 0) > 300 ? "…" : ""}`;
+  }).join("\n");
+}
 
 const STOPWORDS = new Set([
   "the","and","for","are","but","not","you","all","can","had","her","was",
@@ -250,14 +276,27 @@ const STOPWORDS = new Set([
 
 function extractKeywords(text: string): string[] {
   return [...new Set(
-    text.toLowerCase()
-      .replace(/[^a-z0-9\s]/g, " ")
-      .split(/\s+/)
+    text.toLowerCase().replace(/[^a-z0-9\s]/g, " ").split(/\s+/)
       .filter(w => w.length >= 4 && !STOPWORDS.has(w))
   )].slice(0, 6);
 }
 
 async function loadKnowledgeContext(message: string): Promise<string> {
+  // ── Semantic search (primary) ────────────────────────────
+  const embedding = await generateEmbedding(message);
+  if (embedding) {
+    try {
+      const { data, error } = await supabase.rpc("match_mavis_notes", {
+        query_embedding: embedding,
+        match_user_id:   OPERATOR_USER_ID,
+        match_threshold: 0.45,
+        match_count:     5,
+      });
+      if (!error && data?.length) return formatNotes(data as any[], true);
+    } catch { /* fall through to keyword */ }
+  }
+
+  // ── Keyword fallback ────────────────────────────────────
   const keywords = extractKeywords(message);
   if (keywords.length === 0) return "";
   try {
@@ -267,20 +306,14 @@ async function loadKnowledgeContext(message: string): Promise<string> {
     ]);
     const { data, error } = await supabase
       .from("mavis_notes")
-      .select("id, title, content, tags, updated_at")
+      .select("id, title, content, tags")
       .eq("user_id", OPERATOR_USER_ID)
       .or(orParts.join(","))
       .order("updated_at", { ascending: false })
       .limit(4);
     if (error || !data?.length) return "";
-    return (data as any[]).map((n: any) => {
-      const preview = (n.content ?? "").replace(/\n+/g, " ").slice(0, 300);
-      const tags = Array.isArray(n.tags) && n.tags.length > 0 ? ` [${n.tags.join(", ")}]` : "";
-      return `• ${n.title}${tags}: ${preview}${(n.content?.length ?? 0) > 300 ? "…" : ""}`;
-    }).join("\n");
-  } catch {
-    return "";
-  }
+    return formatNotes(data as any[], false);
+  } catch { return ""; }
 }
 
 // ─────────────────────────────────────────────────────────────

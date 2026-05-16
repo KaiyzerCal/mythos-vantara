@@ -85,6 +85,7 @@ export default function KnowledgeGraph() {
   const [draftContent, setDraftContent] = useState("");
   const [draftTags, setDraftTags]   = useState("");
   const [dbError, setDbError]       = useState<string | null>(null);
+  const [syncing, setSyncing]       = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const loadNotes = useCallback(async () => {
@@ -142,6 +143,24 @@ export default function KnowledgeGraph() {
       console.error("[KnowledgeGraph] createNote:", msg);
       toast.error(`Failed to create note: ${msg}`);
     }
+  };
+
+  const syncEmbeddings = async () => {
+    setSyncing(true);
+    try {
+      let total = 0;
+      for (let i = 0; i < 10; i++) {
+        const result = await kgCall("backfill_embeddings");
+        total += result.backfilled ?? 0;
+        if (!result.backfilled || result.message === "All notes already embedded") break;
+      }
+      if (total > 0) toast.success(`Embedded ${total} note${total !== 1 ? "s" : ""} — MAVIS memory upgraded`);
+      else toast.success("All notes already have embeddings");
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      toast.error(`Sync failed: ${msg}`);
+    }
+    setSyncing(false);
   };
 
   const saveNote = async () => {
@@ -242,9 +261,16 @@ export default function KnowledgeGraph() {
           subtitle="MAVIS native knowledge base — notes, links, versions"
           icon={<Network size={18} />}
           actions={
-            <button onClick={createNote} className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-mono bg-primary/10 border border-primary/30 text-primary hover:bg-primary/20 transition-colors">
-              <Plus size={12} /> New Note
-            </button>
+            <div className="flex items-center gap-2">
+              <button onClick={syncEmbeddings} disabled={syncing} title="Generate semantic embeddings for all notes so MAVIS can search by meaning"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-mono bg-muted/20 border border-border text-muted-foreground hover:text-primary hover:border-primary/30 transition-colors disabled:opacity-50">
+                {syncing ? <span className="w-3 h-3 rounded-full border border-primary border-t-transparent animate-spin" /> : <Network size={12} />}
+                {syncing ? "Syncing…" : "Sync Embeddings"}
+              </button>
+              <button onClick={createNote} className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-mono bg-primary/10 border border-primary/30 text-primary hover:bg-primary/20 transition-colors">
+                <Plus size={12} /> New Note
+              </button>
+            </div>
           }
         />
       </div>
