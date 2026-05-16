@@ -332,6 +332,7 @@ Deno.serve(async (req) => {
 
   } catch (err) {
     console.error("[mavis-knowledge]", err);
-    return json({ error: err instanceof Error ? err.message : String(err) }, 500);
+    const msg = err instanceof Error ? err.message : typeof err === "object" && err !== null ? JSON.stringify(err) : String(err);
+    return json({ error: msg }, 500);
   }
 });

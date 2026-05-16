@@ -792,6 +792,23 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
       return;
     }
 
+    // ── COUNCIL NOTIFY — direct Telegram from a council member ──────────
+    case "council_notify": {
+      const msg = String(p.message ?? (action as any).message ?? "").slice(0, 1000);
+      if (!msg) break;
+      const botToken = Deno.env.get("TELEGRAM_BOT_TOKEN");
+      const chatId   = Deno.env.get("TELEGRAM_OPERATOR_CHAT_ID");
+      if (botToken && chatId) {
+        await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ chat_id: chatId, text: msg }),
+        });
+        await logActivity(sb, userId, "council_notify", `Council alert: ${msg.slice(0, 80)}`, 1);
+      }
+      break;
+    }
+
     // ── NORA TWEET — queue for confirmation then fire via task executor ──
     case "nora_tweet": {
       const content = String(p.content ?? (action as any).content ?? "").slice(0, 280);
