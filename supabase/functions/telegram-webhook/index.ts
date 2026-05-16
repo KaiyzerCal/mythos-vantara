@@ -103,14 +103,25 @@ async function loadHistory(chatId: string, limit = 12): Promise<{ role: string; 
   } catch { return []; }
 }
 
+function scoreImportance(text: string): number {
+  const lower = text.toLowerCase();
+  const HIGH = ["goal","decide","decided","contract","revenue","critical","never","always","promise","commit","committed","deadline","milestone","must","rule","principle"];
+  const MED  = ["quest","task","project","plan","build","launch","strategy","system","habit","ritual"];
+  if (HIGH.some(w => lower.includes(w))) return Math.min(9, 7 + HIGH.filter(w => lower.includes(w)).length);
+  if (MED.some(w => lower.includes(w)))  return 5 + (MED.filter(w => lower.includes(w)).length > 1 ? 1 : 0);
+  return 3;
+}
+
 async function persistMessage(chatId: string, role: string, content: string): Promise<void> {
   try {
     await supabase.from("mavis_memory").insert({
-      user_id: OPERATOR_USER_ID,
-      session_id: `${SESSION_PREFIX}${chatId}`,
+      user_id:          OPERATOR_USER_ID,
+      session_id:       `${SESSION_PREFIX}${chatId}`,
       role,
       content,
-      timestamp: Date.now(),
+      timestamp:        Date.now(),
+      importance_score: scoreImportance(content),
+      consolidated:     false,
     });
   } catch { /* non-fatal */ }
 }
@@ -1174,7 +1185,7 @@ async function handleCommand(command: string, chatId: string, fullText: string):
   switch (command.toLowerCase()) {
     case "/start":
     case "/help":
-      return `MAVIS Online — Telegram Interface\n\nCommands:\n/brief — morning brief (overdue, approvals, SR, revenue, goals)\n/quests — active quests\n/energy — energy status\n/revenue — revenue report\n/expense [amount] [desc] — log an expense\n/tasks — run pending tasks now\n/scan — demand scan for product opportunities\n/orders — view Inbox (pending tasks & approvals)\n/approve [id] — approve a pending item\n/reject [id] — reject a pending item\n/preview [id] — preview full content before approving\n/council — council status + trigger check-ins\n/daily — save today's activity log to Knowledge Graph\n/review — surface notes due for spaced repetition\n/weekly — generate weekly review summary\n/monthly — generate monthly review summary\n/goals — view active goals and quest progress\n/search [query] — search your Knowledge Graph\n/note [title] — fetch a specific note\n/addnote [title] | [content] — quick note to Knowledge Graph\n/personas — list your NAVI roster\n/switch [name] — talk to a persona\n/mavis — return to MAVIS\n\nVoice messages, photos, and files also work.\nOr just talk to me.`;
+      return `MAVIS Online — Telegram Interface\n\nCommands:\n/brief — morning brief (overdue, approvals, SR, revenue, goals)\n/quests — active quests\n/energy — energy status\n/revenue — revenue report\n/expense [amount] [desc] — log an expense\n/tasks — run pending tasks now\n/scan — demand scan for product opportunities\n/orders — view Inbox (pending tasks & approvals)\n/approve [id] — approve a pending item\n/reject [id] — reject a pending item\n/preview [id] — preview full content before approving\n/council — council status + trigger check-ins\n/daily — save today's activity log to Knowledge Graph\n/review — surface notes due for spaced repetition\n/weekly — generate weekly review summary\n/monthly — generate monthly review summary\n/goals — view active goals and quest progress\n/search [query] — search your Knowledge Graph\n/note [title] — fetch a specific note\n/addnote [title] | [content] — quick note to Knowledge Graph\n/personas — list your NAVI roster\n/switch [name] — talk to a persona\n/mavis — return to MAVIS\n/ingest [url or text] — save a URL or text to your Knowledge Graph\n\nVoice messages, photos, and files also work.\nOr just talk to me.`;
 
     case "/brief": {
       const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
@@ -1421,6 +1432,31 @@ async function handleCommand(command: string, chatId: string, fullText: string):
 
       if (!res.ok) return `Failed to create note (${res.status}).`;
       return `Note saved: "${title}"\n${content ? content.slice(0, 100) + (content.length > 100 ? "…" : "") : "(no content)"}\n\nView in Knowledge Graph tab.`;
+    }
+
+    case "/ingest": {
+      const raw = fullText.replace(/^\/ingest\s*/i, "").trim();
+      if (!raw) return "Usage: /ingest [url or text]\nExamples:\n  /ingest https://example.com/article\n  /ingest Key insight from today's meeting: always validate before building";
+
+      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+      const serviceKey  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+
+      try {
+        const res = await fetch(`${supabaseUrl}/functions/v1/mavis-ingest`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${serviceKey}` },
+          body: JSON.stringify({
+            type:    raw.startsWith("http://") || raw.startsWith("https://") ? "url" : "text",
+            content: raw,
+            user_id: OPERATOR_USER_ID,
+          }),
+        });
+        if (!res.ok) return `Ingest failed (${res.status}).`;
+        const data = await res.json();
+        return data.message ?? `Ingested and saved to Knowledge Graph: "${String(data.title ?? raw).slice(0, 80)}"`;
+      } catch (e) {
+        return `Ingest error: ${(e as Error).message}`;
+      }
     }
 
     case "/scan": {

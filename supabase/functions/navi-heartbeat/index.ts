@@ -29,6 +29,8 @@ serve(async (req) => {
 
     const lovableKey = Deno.env.get("LOVABLE_API_KEY") ?? "";
     const openaiKey  = Deno.env.get("OPENAI_API") ?? Deno.env.get("OPENAI_API_KEY") ?? "";
+    const botToken   = Deno.env.get("TELEGRAM_BOT_TOKEN") ?? "";
+    const chatId     = Deno.env.get("TELEGRAM_OPERATOR_CHAT_ID") ?? "";
 
     // Load all relationships with sufficient bond and a known last interaction
     const { data: relationships } = await supabase
@@ -178,6 +180,15 @@ Return ONLY the message text. No quotes, no JSON, no explanation.`;
           message,
           notification_type: "heartbeat",
         });
+
+        // Push to Telegram so the operator actually sees it
+        if (botToken && chatId) {
+          await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ chat_id: chatId, text: `${persona.name}: ${message}` }),
+          }).catch(() => {});
+        }
 
         sent++;
         results.push({

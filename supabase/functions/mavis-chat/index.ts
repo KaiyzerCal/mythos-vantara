@@ -1,6 +1,17 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 
+// ── Memory importance scoring (Felix pattern) ──────────────────
+// Pure keyword heuristic — no AI call needed.
+function scoreImportance(text: string): number {
+  const lower = text.toLowerCase();
+  const HIGH = ["goal","decide","decided","contract","revenue","critical","never","always","promise","commit","committed","deadline","milestone","must","rule","principle"];
+  const MED  = ["quest","task","project","plan","build","launch","strategy","system","habit","ritual"];
+  if (HIGH.some(w => lower.includes(w))) return Math.min(9, 7 + HIGH.filter(w => lower.includes(w)).length);
+  if (MED.some(w => lower.includes(w)))  return 5 + (MED.filter(w => lower.includes(w)).length > 1 ? 1 : 0);
+  return 3;
+}
+
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
@@ -910,6 +921,60 @@ Examples:
       })();
     }
 
+    // ── Bootstrap fact extractor (ElizaOS pattern, non-blocking) ─
+    // Extracts decisions, commitments, named entities → mavis_knowledge
+    if (lastUserContent.length > 30 && content.length > 30) {
+      (async () => {
+        try {
+          const extractKey = lovableKey || claudeKey || openaiKey;
+          if (!extractKey) return;
+
+          const factPrompt = `Extract concrete facts, decisions, or commitments from this conversation that would be valuable to remember long-term. Only extract things that are genuinely significant (real decisions, named projects, specific plans, key context). Skip pleasantries and generic statements.
+
+Respond with ONLY a JSON array (may be empty []):
+[{"title":"short fact title","content":"full context in 1-3 sentences","tags":["tag1","tag2"]}]`;
+
+          let raw = "";
+          if (lovableKey) {
+            const r = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+              method: "POST",
+              headers: { "Content-Type": "application/json", Authorization: `Bearer ${lovableKey}` },
+              body: JSON.stringify({ model: "google/gemini-2.5-flash", max_tokens: 400,
+                messages: [{ role: "system", content: factPrompt },
+                  { role: "user", content: `Operator: ${lastUserContent.slice(0, 1000)}\nMAVIS: ${content.slice(0, 1000)}` }] }),
+            });
+            if (r.ok) { const d = await r.json(); raw = d.choices?.[0]?.message?.content ?? ""; }
+          }
+          if (!raw && claudeKey) {
+            const r = await fetch("https://api.anthropic.com/v1/messages", {
+              method: "POST",
+              headers: { "Content-Type": "application/json", "x-api-key": claudeKey, "anthropic-version": "2023-06-01" },
+              body: JSON.stringify({ model: "claude-haiku-4-5-20251001", max_tokens: 400, system: factPrompt,
+                messages: [{ role: "user", content: `Operator: ${lastUserContent.slice(0, 1000)}\nMAVIS: ${content.slice(0, 1000)}` }] }),
+            });
+            if (r.ok) { const d = await r.json(); raw = d.content?.[0]?.text ?? ""; }
+          }
+
+          const arrMatch = raw.match(/\[[\s\S]*\]/);
+          if (!arrMatch) return;
+          const facts = JSON.parse(arrMatch[0]) as any[];
+          const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+          const serviceKey  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+          for (const f of facts.slice(0, 2)) {
+            if (!f.title || !f.content) continue;
+            await fetch(`${supabaseUrl}/functions/v1/mavis-knowledge`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json", Authorization: `Bearer ${serviceKey}` },
+              body: JSON.stringify({ action: "create_note", userId: user.id,
+                title: String(f.title).slice(0, 120),
+                content: String(f.content).slice(0, 1000),
+                tags: Array.isArray(f.tags) ? [...f.tags, "auto-extracted"] : ["auto-extracted"] }),
+            }).catch(() => {});
+          }
+        } catch { /* non-critical */ }
+      })();
+    }
+
     // ── Operator bond increment (non-blocking) ──────────────
     (async () => {
       try {
@@ -922,6 +987,36 @@ Examples:
         } else {
           await sb.from("mavis_bond").insert({ user_id: user.id, interaction_count: 1, bond_level: 0, trust_level: 0 });
         }
+      } catch { /* non-critical */ }
+    })();
+
+    // ── mavis_memory persistence (Felix pattern, non-blocking) ──
+    // Persist both sides of each exchange so nightly consolidation
+    // and /recall can access web-app conversations.
+    (async () => {
+      try {
+        const sessionId = (conversationId as string | undefined) ?? "web-chat";
+        const ts = Date.now();
+        await sb.from("mavis_memory").insert([
+          {
+            user_id:          user.id,
+            session_id:       sessionId,
+            role:             "user",
+            content:          lastUserContent.slice(0, 4000),
+            timestamp:        ts,
+            importance_score: scoreImportance(lastUserContent),
+            consolidated:     false,
+          },
+          {
+            user_id:          user.id,
+            session_id:       sessionId,
+            role:             "assistant",
+            content:          content.slice(0, 4000),
+            timestamp:        ts + 1,
+            importance_score: scoreImportance(content),
+            consolidated:     false,
+          },
+        ]);
       } catch { /* non-critical */ }
     })();
 
