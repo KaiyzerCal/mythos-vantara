@@ -138,9 +138,22 @@ Deno.serve(async (req) => {
     }
 
     if (overdue.length > 0) {
-      sections.push(`OVERDUE QUESTS (${overdue.length})\n${overdue.map((q: any) =>
-        `• ${q.title} — was due ${q.deadline}`
-      ).join("\n")}`);
+      const todayMs = now.getTime();
+      const critical: string[] = [];
+      const flagged:  string[] = [];
+      const normal:   string[] = [];
+      for (const q of overdue as any[]) {
+        const daysLate = Math.floor((todayMs - new Date(q.deadline + "T00:00:00Z").getTime()) / 86400000);
+        const line = `• ${q.title} — was due ${q.deadline} (${daysLate}d late)`;
+        if (daysLate > 7)       critical.push(line);
+        else if (daysLate >= 2) flagged.push(line);
+        else                    normal.push(line);
+      }
+      const overdueLines: string[] = [];
+      if (critical.length) overdueLines.push(`⛔ CRITICAL (${critical.length}):\n${critical.join("\n")}`);
+      if (flagged.length)  overdueLines.push(`⚠ FLAGGED (${flagged.length}):\n${flagged.join("\n")}`);
+      if (normal.length)   overdueLines.push(normal.join("\n"));
+      sections.push(`OVERDUE QUESTS (${overdue.length})\n${overdueLines.join("\n")}`);
     }
 
     if (tasks.length > 0) {
