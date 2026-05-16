@@ -3,7 +3,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { PageHeader } from "@/components/SharedUI";
 import {
   Network, Plus, Search, Link2, Trash2, Save,
-  X, Edit3, Clock, Hash, ArrowRight, List, GitGraph,
+  X, Edit3, Clock, Hash, ArrowRight, ArrowLeft, List, GitGraph,
 } from "lucide-react";
 import { toast } from "sonner";
 import { motion, AnimatePresence } from "framer-motion";
@@ -263,12 +263,15 @@ export default function KnowledgeGraph() {
     n.aliases.some(a => a.toLowerCase().includes(search.toLowerCase()))
   );
 
-  const linkedNotes = links.map(link => {
-    const otherId = link.source_note_id === selected?.id ? link.target_note_id : link.source_note_id;
-    const direction = link.source_note_id === selected?.id ? "outgoing" : "incoming";
-    const other = notes.find(n => n.id === otherId);
-    return { link, other, direction };
-  }).filter(x => x.other);
+  const outgoingLinks = links
+    .filter(l => l.source_note_id === selected?.id)
+    .map(l => ({ link: l, other: notes.find(n => n.id === l.target_note_id) }))
+    .filter(x => x.other);
+
+  const backlinks = links
+    .filter(l => l.target_note_id === selected?.id)
+    .map(l => ({ link: l, other: notes.find(n => n.id === l.source_note_id) }))
+    .filter(x => x.other);
 
   return (
     <div className="flex flex-col gap-0 h-full">
@@ -378,7 +381,7 @@ export default function KnowledgeGraph() {
 
           <div className="p-2 border-t border-border">
             <p className="text-[9px] font-mono text-muted-foreground text-center">
-              {notes.length} note{notes.length !== 1 ? "s" : ""} · {links.length} links
+              {notes.length} note{notes.length !== 1 ? "s" : ""} · {outgoingLinks.length + backlinks.length} links
             </p>
           </div>
         </div>
@@ -507,34 +510,64 @@ export default function KnowledgeGraph() {
                       </div>
                     </div>
                   ) : (
-                    <div className="flex flex-col h-full">
-                      <div className="px-3 py-2 border-b border-border">
-                        <span className="text-[10px] font-mono text-muted-foreground">Linked Notes ({linkedNotes.length})</span>
+                    <div className="flex flex-col h-full overflow-y-auto">
+                      {/* Outgoing links */}
+                      <div className="px-3 py-2 border-b border-border bg-muted/5 flex items-center gap-1.5">
+                        <ArrowRight size={9} className="text-primary" />
+                        <span className="text-[10px] font-mono text-muted-foreground">Links ({outgoingLinks.length})</span>
                       </div>
-                      <div className="flex-1 overflow-y-auto">
-                        {linkedNotes.length === 0 ? (
-                          <div className="flex flex-col items-center gap-2 py-6 px-3">
-                            <Link2 size={16} className="text-muted-foreground/30" />
-                            <p className="text-[9px] font-mono text-muted-foreground text-center">No links yet. Use the Link button to connect notes.</p>
-                          </div>
-                        ) : linkedNotes.map(({ link, other, direction }) => (
-                          <div key={link.id} className="px-3 py-2 border-b border-border/50 group">
-                            <div className="flex items-start gap-1.5">
-                              <ArrowRight size={10} className={`shrink-0 mt-0.5 ${direction === "outgoing" ? "text-primary" : "text-muted-foreground rotate-180"}`} />
-                              <div className="flex-1 min-w-0">
-                                <button onClick={() => other && loadNoteDetail(other)} className="text-[10px] font-mono text-foreground hover:text-primary transition-colors text-left truncate block w-full">
-                                  {other?.title}
-                                </button>
-                                <span className="text-[8px] font-mono text-muted-foreground">{link.type.replace(/_/g, " ")} · {direction}</span>
-                                {link.description && <p className="text-[8px] font-mono text-muted-foreground/70 truncate">{link.description}</p>}
-                              </div>
-                              <button onClick={() => removeLink(link.id)} className="opacity-0 group-hover:opacity-100 transition-opacity">
-                                <X size={8} className="text-red-400" />
+                      {outgoingLinks.length === 0 ? (
+                        <div className="px-3 py-3 border-b border-border/40">
+                          <p className="text-[9px] font-mono text-muted-foreground/60 text-center">No outgoing links.</p>
+                        </div>
+                      ) : outgoingLinks.map(({ link, other }) => (
+                        <div key={link.id} className="px-3 py-2 border-b border-border/40 group">
+                          <div className="flex items-start gap-1.5">
+                            <ArrowRight size={9} className="shrink-0 mt-0.5 text-primary" />
+                            <div className="flex-1 min-w-0">
+                              <button onClick={() => other && loadNoteDetail(other)} className="text-[10px] font-mono text-foreground hover:text-primary transition-colors text-left truncate block w-full">
+                                {other?.title}
                               </button>
+                              <span className="text-[8px] font-mono text-muted-foreground">{link.type.replace(/_/g, " ")}</span>
+                              {link.description && <p className="text-[8px] font-mono text-muted-foreground/70 truncate">{link.description}</p>}
+                            </div>
+                            <button onClick={() => removeLink(link.id)} className="opacity-0 group-hover:opacity-100 transition-opacity">
+                              <X size={8} className="text-red-400" />
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+
+                      {/* Backlinks */}
+                      <div className="px-3 py-2 border-b border-border bg-muted/5 flex items-center gap-1.5">
+                        <ArrowLeft size={9} className="text-muted-foreground" />
+                        <span className="text-[10px] font-mono text-muted-foreground">Backlinks ({backlinks.length})</span>
+                      </div>
+                      {backlinks.length === 0 ? (
+                        <div className="px-3 py-3">
+                          <p className="text-[9px] font-mono text-muted-foreground/60 text-center">Nothing links here yet.</p>
+                        </div>
+                      ) : backlinks.map(({ link, other }) => (
+                        <div key={link.id} className="px-3 py-2 border-b border-border/40 group">
+                          <div className="flex items-start gap-1.5">
+                            <ArrowLeft size={9} className="shrink-0 mt-0.5 text-muted-foreground" />
+                            <div className="flex-1 min-w-0">
+                              <button onClick={() => other && loadNoteDetail(other)} className="text-[10px] font-mono text-foreground hover:text-primary transition-colors text-left truncate block w-full">
+                                {other?.title}
+                              </button>
+                              <span className="text-[8px] font-mono text-muted-foreground">{link.type.replace(/_/g, " ")} · referenced here</span>
+                              {link.description && <p className="text-[8px] font-mono text-muted-foreground/70 truncate">{link.description}</p>}
                             </div>
                           </div>
-                        ))}
-                      </div>
+                        </div>
+                      ))}
+
+                      {outgoingLinks.length === 0 && backlinks.length === 0 && (
+                        <div className="flex flex-col items-center gap-2 py-6 px-3">
+                          <Link2 size={16} className="text-muted-foreground/30" />
+                          <p className="text-[9px] font-mono text-muted-foreground text-center">No links yet. Use the Link button or ask MAVIS to link notes.</p>
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>

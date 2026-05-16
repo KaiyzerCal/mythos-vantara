@@ -82,6 +82,30 @@ async function loadContext(uid: string): Promise<string> {
 }
 
 // ─────────────────────────────────────────────────────────────
+// EMBEDDING — for per-agent memory semantic search
+// ─────────────────────────────────────────────────────────────
+
+async function generateEmbedding(text: string): Promise<number[] | null> {
+  if (!OPENAI_KEY) return null;
+  try {
+    const res = await fetch("https://api.openai.com/v1/embeddings", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${OPENAI_KEY}` },
+      body: JSON.stringify({ model: "text-embedding-3-small", input: text.slice(0, 8000) }),
+    });
+    if (!res.ok) return null;
+    const d = await res.json();
+    return d.data?.[0]?.embedding ?? null;
+  } catch { return null; }
+}
+
+async function embedMemory(memoryId: string, content: string): Promise<void> {
+  const embedding = await generateEmbedding(content);
+  if (!embedding) return;
+  await supabase.from("mavis_council_memory").update({ embedding }).eq("id", memoryId);
+}
+
+// ─────────────────────────────────────────────────────────────
 // MEMBER ACTIVITY LOG (last 7 days of this member's actions)
 // ─────────────────────────────────────────────────────────────
 
@@ -94,6 +118,35 @@ async function loadMemberActivity(memberId: string): Promise<any[]> {
     .gte("created_at", since)
     .order("created_at", { ascending: false })
     .limit(5);
+  return (data ?? []) as any[];
+}
+
+// ─────────────────────────────────────────────────────────────
+// PER-AGENT MEMORY — each member's persistent knowledge bank
+// ─────────────────────────────────────────────────────────────
+
+async function loadMemberMemory(memberId: string): Promise<any[]> {
+  const { data } = await supabase
+    .from("mavis_council_memory")
+    .select("content, tags, created_at")
+    .eq("council_member_id", memberId)
+    .order("created_at", { ascending: false })
+    .limit(8);
+  return (data ?? []) as any[];
+}
+
+// ─────────────────────────────────────────────────────────────
+// INTER-AGENT MESSAGES — async mail between council members
+// ─────────────────────────────────────────────────────────────
+
+async function loadUnreadMessages(memberId: string): Promise<any[]> {
+  const { data } = await supabase
+    .from("mavis_council_messages")
+    .select("from_member_name, content, created_at")
+    .eq("to_member_id", memberId)
+    .eq("read", false)
+    .order("created_at", { ascending: true })
+    .limit(10);
   return (data ?? []) as any[];
 }
 
@@ -111,10 +164,24 @@ function timeAgoShort(iso: string): string {
   return `${Math.floor(h / 24)}d ago`;
 }
 
-function buildMemberPrompt(member: any, context: string, recentActivity: any[]): string {
+function buildMemberPrompt(
+  member: any,
+  context: string,
+  recentActivity: any[],
+  memories: any[],
+  unreadMessages: any[],
+): string {
   const activityBlock = recentActivity.length > 0
     ? recentActivity.map((a: any) => `• ${a.summary ?? "acted"} (${timeAgoShort(a.created_at)}, ${a.actions_executed} action(s))`).join("\n")
     : "No recent activity — first check-in or dormant period.";
+
+  const memoriesBlock = memories.length > 0
+    ? memories.map((m: any) => `• [${timeAgoShort(m.created_at)}]${m.tags?.length ? ` [${m.tags.join(", ")}]` : ""} ${m.content}`).join("\n")
+    : "No stored memories yet — use council_remember to start building your knowledge bank.";
+
+  const messagesBlock = unreadMessages.length > 0
+    ? unreadMessages.map((m: any) => `• From ${m.from_member_name} (${timeAgoShort(m.created_at)}): ${m.content}`).join("\n")
+    : "No new messages from colleagues.";
 
   return `You are ${member.name}, an autonomous council member in Calvin's CODEXOS system.
 
@@ -136,12 +203,19 @@ EVALUATOR RULES:
 4. If there's nothing worth doing right now, say so briefly
 5. One or two focused actions beat scattered noise
 6. Match your tone and voice to your role and personality
+7. Read your colleague messages carefully — respond or act on them if relevant
 
 ━━ CALVIN'S CURRENT STATE ━━
 ${context}
 
 ━━ YOUR RECENT ACTIVITY (past 7 days) ━━
 ${activityBlock}
+
+━━ YOUR PERSONAL MEMORY (your own knowledge bank across check-ins) ━━
+${memoriesBlock}
+
+━━ MESSAGES FROM COLLEAGUES ━━
+${messagesBlock}
 
 ━━ AVAILABLE ACTIONS ━━
 You MUST use the exact :::ACTION{...}::: syntax. params is always a nested object.
@@ -160,6 +234,12 @@ Direct alert to Calvin via Telegram:
 
 XP award (use sparingly, max 100 per heartbeat, only when clearly deserved):
 :::ACTION{"type":"award_xp","params":{"amount":50,"reason":"..."}}:::
+
+Store something in your personal memory (patterns, lessons, observations worth retaining):
+:::ACTION{"type":"council_remember","params":{"content":"What you want to remember","tags":["optional","tags"]}}:::
+
+Send an async message to another council member (they'll see it in their next check-in):
+:::ACTION{"type":"council_message","params":{"to":"ExactMemberName","message":"Your message to them"}}:::
 
 After acting (or deciding not to act), write 1-3 sentences about what you observed and why you acted (or didn't).
 Be direct and in-character.`;
@@ -269,6 +349,53 @@ async function executeActions(
   for (const action of actions) {
     const type = String(action.type ?? "");
 
+    // council_remember: store in member's personal memory bank
+    if (type === "council_remember") {
+      const content = String(action.params?.content ?? "").trim();
+      if (content) {
+        const { data: mem } = await supabase
+          .from("mavis_council_memory")
+          .insert({
+            user_id:           userId,
+            council_member_id: member.id,
+            content:           content.slice(0, 2000),
+            tags:              Array.isArray(action.params?.tags) ? action.params.tags : [],
+          })
+          .select("id")
+          .single();
+        if (mem?.id) embedMemory(mem.id, content).catch(() => {});
+        executed++;
+      }
+      continue;
+    }
+
+    // council_message: send async message to another council member
+    if (type === "council_message") {
+      const toName  = String(action.params?.to ?? "").trim();
+      const content = String(action.params?.message ?? "").trim();
+      if (toName && content) {
+        const { data: recipient } = await supabase
+          .from("councils")
+          .select("id, name")
+          .eq("user_id", userId)
+          .ilike("name", `%${toName}%`)
+          .limit(1)
+          .single();
+        if (recipient) {
+          await supabase.from("mavis_council_messages").insert({
+            user_id:          userId,
+            from_member_id:   member.id,
+            from_member_name: member.name,
+            to_member_id:     recipient.id,
+            to_member_name:   (recipient as any).name,
+            content:          content.slice(0, 2000),
+          });
+          executed++;
+        }
+      }
+      continue;
+    }
+
     // council_notify: send Telegram message directly
     if (type === "council_notify") {
       const msg = action.params?.message ?? action.message ?? "";
@@ -366,8 +493,12 @@ async function logActivity(
 // ─────────────────────────────────────────────────────────────
 
 async function runMemberHeartbeat(member: any, userId: string, context: string): Promise<string> {
-  const recentActivity = await loadMemberActivity(member.id);
-  const systemPrompt   = buildMemberPrompt(member, context, recentActivity);
+  const [recentActivity, memories, unreadMessages] = await Promise.all([
+    loadMemberActivity(member.id),
+    loadMemberMemory(member.id),
+    loadUnreadMessages(member.id),
+  ]);
+  const systemPrompt = buildMemberPrompt(member, context, recentActivity, memories, unreadMessages);
 
   let rawResponse = "";
   try {
@@ -382,6 +513,14 @@ async function runMemberHeartbeat(member: any, userId: string, context: string):
   const { executed, notified } = await executeActions(actions, member, userId);
 
   await logActivity(member.id, member.name, userId, summary, actions, executed);
+
+  // Mark delivered messages as read
+  if (unreadMessages.length > 0) {
+    await supabase.from("mavis_council_messages")
+      .update({ read: true })
+      .eq("to_member_id", member.id)
+      .eq("read", false);
+  }
 
   // Update last_heartbeat_at and karma
   await supabase.from("councils")
