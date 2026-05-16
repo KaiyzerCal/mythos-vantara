@@ -2,11 +2,12 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { PageHeader } from "@/components/SharedUI";
 import {
-  Network, Plus, Search, Tag, Link2, Trash2, Save,
-  ChevronRight, X, Edit3, Clock, Hash, ArrowRight,
+  Network, Plus, Search, Link2, Trash2, Save,
+  X, Edit3, Clock, Hash, ArrowRight, List, GitGraph,
 } from "lucide-react";
 import { toast } from "sonner";
 import { motion, AnimatePresence } from "framer-motion";
+import KnowledgeGraphCanvas from "@/components/KnowledgeGraphCanvas";
 
 interface Note {
   id: string;
@@ -86,6 +87,9 @@ export default function KnowledgeGraph() {
   const [draftTags, setDraftTags]   = useState("");
   const [dbError, setDbError]       = useState<string | null>(null);
   const [syncing, setSyncing]       = useState(false);
+  const [view, setView]             = useState<"list" | "graph">("list");
+  const [allLinks, setAllLinks]     = useState<NoteLink[]>([]);
+  const [loadingGraph, setLoadingGraph] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const loadNotes = useCallback(async () => {
@@ -161,6 +165,19 @@ export default function KnowledgeGraph() {
       toast.error(`Sync failed: ${msg}`);
     }
     setSyncing(false);
+  };
+
+  const switchToGraph = async () => {
+    setView("graph");
+    if (allLinks.length > 0) return; // already loaded
+    setLoadingGraph(true);
+    try {
+      const result = await kgCall("list_links");
+      setAllLinks((result.links ?? []) as NoteLink[]);
+    } catch (e) {
+      toast.error("Couldn't load graph links");
+    }
+    setLoadingGraph(false);
   };
 
   const saveNote = async () => {
@@ -262,7 +279,18 @@ export default function KnowledgeGraph() {
           icon={<Network size={18} />}
           actions={
             <div className="flex items-center gap-2">
-              <button onClick={syncEmbeddings} disabled={syncing} title="Generate semantic embeddings for all notes so MAVIS can search by meaning"
+              {/* View toggle */}
+              <div className="flex items-center border border-border rounded overflow-hidden">
+                <button onClick={() => setView("list")}
+                  className={`flex items-center gap-1 px-2.5 py-1.5 text-[10px] font-mono transition-colors ${view === "list" ? "bg-primary/20 text-primary" : "text-muted-foreground hover:text-foreground"}`}>
+                  <List size={11} /> List
+                </button>
+                <button onClick={switchToGraph}
+                  className={`flex items-center gap-1 px-2.5 py-1.5 text-[10px] font-mono transition-colors border-l border-border ${view === "graph" ? "bg-primary/20 text-primary" : "text-muted-foreground hover:text-foreground"}`}>
+                  <GitGraph size={11} /> Graph
+                </button>
+              </div>
+              <button onClick={syncEmbeddings} disabled={syncing} title="Generate semantic embeddings so MAVIS searches by meaning"
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-mono bg-muted/20 border border-border text-muted-foreground hover:text-primary hover:border-primary/30 transition-colors disabled:opacity-50">
                 {syncing ? <span className="w-3 h-3 rounded-full border border-primary border-t-transparent animate-spin" /> : <Network size={12} />}
                 {syncing ? "Syncing…" : "Sync Embeddings"}
@@ -282,7 +310,29 @@ export default function KnowledgeGraph() {
         </div>
       )}
 
-      <div className="flex flex-1 gap-0 border border-border rounded-lg overflow-hidden mt-2" style={{ minHeight: 600 }}>
+      {/* ── GRAPH VIEW ─────────────────────────────────────── */}
+      {view === "graph" && (
+        <div className="flex-1 border border-border rounded-lg overflow-hidden mt-2" style={{ minHeight: 600 }}>
+          {loadingGraph ? (
+            <div className="flex items-center justify-center h-full">
+              <span className="w-5 h-5 rounded-full border-2 border-primary border-t-transparent animate-spin" />
+            </div>
+          ) : (
+            <KnowledgeGraphCanvas
+              notes={notes}
+              links={allLinks}
+              selectedId={selected?.id}
+              onSelectNote={(canvasNote) => {
+                const full = notes.find(n => n.id === canvasNote.id);
+                if (full) { loadNoteDetail(full); setView("list"); }
+              }}
+            />
+          )}
+        </div>
+      )}
+
+      {/* ── LIST VIEW ─────────────────────────────────────── */}
+      {view === "list" && <div className="flex flex-1 gap-0 border border-border rounded-lg overflow-hidden mt-2" style={{ minHeight: 600 }}>
         {/* ── LEFT PANEL: Note list ── */}
         <div className="w-64 shrink-0 border-r border-border flex flex-col bg-sidebar">
           <div className="p-2 border-b border-border">
@@ -492,7 +542,7 @@ export default function KnowledgeGraph() {
             </div>
           )}
         </div>
-      </div>
+      </div>}
 
       {/* ── Link Modal ── */}
       <AnimatePresence>
