@@ -40,7 +40,7 @@ Deno.serve(async (req) => {
 
     const [
       approvalsRes, questsRes, tasksRes, srRes,
-      revenueRes, expensesRes, councilRes, bondRes,
+      revenueRes, expensesRes, councilRes, bondRes, goalsRes,
     ] = await Promise.all([
       // Pending approvals
       supabase.from("mavis_tasks")
@@ -100,6 +100,14 @@ Deno.serve(async (req) => {
         .select("interaction_count, bond_level, trust_level")
         .eq("user_id", uid)
         .single(),
+
+      // Active goals with quest_ids for progress calculation
+      supabase.from("mavis_goals")
+        .select("id, objective, status, quest_ids, decomposed")
+        .eq("user_id", uid)
+        .eq("status", "active")
+        .order("created_at", { ascending: true })
+        .limit(5),
     ]);
 
     const approvals = (approvalsRes.data ?? []) as any[];
@@ -110,6 +118,7 @@ Deno.serve(async (req) => {
     const expenses  = (expensesRes.data ?? []) as any[];
     const council   = (councilRes.data ?? []) as any[];
     const bond      = bondRes.data as any;
+    const goals     = (goalsRes.data ?? []) as any[];
 
     const totalRevenue  = revenue.reduce((s: number, r: any) => s + Number(r.amount), 0);
     const totalExpenses = expenses.reduce((s: number, e: any) => s + Number(e.amount), 0);
@@ -164,6 +173,28 @@ Deno.serve(async (req) => {
 
     if (bond) {
       sections.push(`OPERATOR BOND\nInteractions: ${bond.interaction_count} · Bond: ${bond.bond_level} · Trust: ${bond.trust_level}`);
+    }
+
+    // Goal progress — compute quest completion % for each active goal
+    if (goals.length > 0) {
+      const goalLines = await Promise.all(goals.map(async (g: any) => {
+        const questIds = Array.isArray(g.quest_ids) ? g.quest_ids : [];
+        let completedCount = 0;
+        let totalCount     = questIds.length;
+        if (totalCount > 0) {
+          const { count } = await supabase
+            .from("quests")
+            .select("id", { count: "exact", head: true })
+            .in("id", questIds)
+            .eq("status", "completed");
+          completedCount = count ?? 0;
+        }
+        const pct     = totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : 0;
+        const bar     = totalCount > 0 ? `${completedCount}/${totalCount} quests (${pct}%)` : (g.decomposed ? "decomposing..." : "queued");
+        const urgency = pct < 25 && totalCount > 0 ? " ←" : "";
+        return `• ${g.objective.slice(0, 65)} — ${bar}${urgency}`;
+      }));
+      sections.push(`ACTIVE GOALS (${goals.length})\n${goalLines.join("\n")}\n→ /goals for full detail`);
     }
 
     if (sections.length === 2) {

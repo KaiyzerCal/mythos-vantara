@@ -750,6 +750,41 @@ ${fmtMemories}
       webSearchResults = await tavilySearch(lastUserMsg.content, tavilyKey);
     }
 
+    // ── Knowledge Graph semantic search ────────────────────
+    // Embed the user's message and pull the most relevant notes from the
+    // second brain — inject as grounded knowledge context in the prompt.
+    let knowledgeBlock = "";
+    if (lastUserMsg && openaiKey && (mode ?? "PRIME") !== "COUNCIL") {
+      try {
+        const embRes = await fetch("https://api.openai.com/v1/embeddings", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${openaiKey}` },
+          body: JSON.stringify({ model: "text-embedding-3-small", input: lastUserMsg.content.slice(0, 8000) }),
+        });
+        if (embRes.ok) {
+          const embData = await embRes.json();
+          const embedding = embData.data?.[0]?.embedding;
+          if (embedding) {
+            const { data: notes } = await sb.rpc("match_mavis_notes", {
+              query_embedding: embedding,
+              match_user_id:   user.id,
+              match_threshold: 0.45,
+              match_count:     5,
+            });
+            if (notes?.length) {
+              const noteLines = (notes as any[]).map((n: any) => {
+                const preview = (n.content ?? "").replace(/\n+/g, " ").slice(0, 400);
+                const tags    = Array.isArray(n.tags) && n.tags.length > 0 ? ` [${n.tags.join(", ")}]` : "";
+                const score   = n.similarity != null ? ` (${Math.round(n.similarity * 100)}% match)` : "";
+                return `• ${n.title}${tags}${score}: ${preview}${(n.content?.length ?? 0) > 400 ? "…" : ""}`;
+              }).join("\n");
+              knowledgeBlock = `\n═══ KNOWLEDGE GRAPH — RELEVANT NOTES ═══\n${noteLines}\n═══ END KNOWLEDGE ═══`;
+            }
+          }
+        }
+      } catch { /* non-fatal — proceed without KG context */ }
+    }
+
     // ── Build system prompt ─────────────────────────────────
     // For COUNCIL mode: use the client's persona-rich system prompt as the base,
     // then append the authoritative DB context so the council member has full app awareness.
@@ -805,6 +840,7 @@ You always know the current date and time without being told. Reference it natur
       timeBlock,
       authoritativeContext,
       naviBlock,
+      knowledgeBlock,
       attachmentsBlock,
       webSearchResults ? `\n---\nWEB SEARCH:\n${webSearchResults}\n---` : "",
     ].filter(Boolean).join("\n\n");
