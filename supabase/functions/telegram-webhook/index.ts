@@ -1174,7 +1174,7 @@ async function handleCommand(command: string, chatId: string, fullText: string):
   switch (command.toLowerCase()) {
     case "/start":
     case "/help":
-      return `MAVIS Online — Telegram Interface\n\nCommands:\n/brief — morning brief (overdue, approvals, SR, revenue)\n/quests — active quests\n/energy — energy status\n/revenue — revenue report\n/expense [amount] [desc] — log an expense\n/tasks — run pending tasks now\n/scan — demand scan for product opportunities\n/orders — view Inbox (pending tasks & approvals)\n/approve [id] — approve a pending item\n/reject [id] — reject a pending item\n/council — trigger council member check-ins now\n/daily — save today's activity log to Knowledge Graph\n/review — surface notes due for spaced repetition\n/weekly — generate weekly review summary\n/monthly — generate monthly review summary\n/goals — view active goals and quest progress\n/personas — list your NAVI roster\n/switch [name] — talk to a persona\n/mavis — return to MAVIS\n\nVoice messages, photos, and files also work.\nOr just talk to me.\n\nKnowledge Graph: ask "show notes tagged #strategy" or "find notes about leadership this month" to query your second brain.`;
+      return `MAVIS Online — Telegram Interface\n\nCommands:\n/brief — morning brief (overdue, approvals, SR, revenue, goals)\n/quests — active quests\n/energy — energy status\n/revenue — revenue report\n/expense [amount] [desc] — log an expense\n/tasks — run pending tasks now\n/scan — demand scan for product opportunities\n/orders — view Inbox (pending tasks & approvals)\n/approve [id] — approve a pending item\n/reject [id] — reject a pending item\n/preview [id] — preview full content before approving\n/council — council status + trigger check-ins\n/daily — save today's activity log to Knowledge Graph\n/review — surface notes due for spaced repetition\n/weekly — generate weekly review summary\n/monthly — generate monthly review summary\n/goals — view active goals and quest progress\n/search [query] — search your Knowledge Graph\n/note [title] — fetch a specific note\n/addnote [title] | [content] — quick note to Knowledge Graph\n/personas — list your NAVI roster\n/switch [name] — talk to a persona\n/mavis — return to MAVIS\n\nVoice messages, photos, and files also work.\nOr just talk to me.`;
 
     case "/brief": {
       const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
@@ -1220,30 +1220,207 @@ async function handleCommand(command: string, chatId: string, fullText: string):
     case "/council": {
       const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
       const serviceKey  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-      // Show council status first
-      const { data: members } = await supabase
-        .from("councils")
-        .select("name, role, specialty, karma, heartbeat_enabled, last_heartbeat_at")
-        .eq("user_id", OPERATOR_USER_ID)
-        .order("karma", { ascending: false });
 
-      if (!members?.length) return "No council members. Ask MAVIS to create some.";
+      // Load members + unread message counts in parallel
+      const [membersRes, unreadRes, recentActivityRes] = await Promise.all([
+        supabase
+          .from("councils")
+          .select("id, name, role, specialty, karma, heartbeat_enabled, last_heartbeat_at")
+          .eq("user_id", OPERATOR_USER_ID)
+          .order("karma", { ascending: false }),
+        supabase
+          .from("mavis_council_messages")
+          .select("to_member_id")
+          .eq("user_id", OPERATOR_USER_ID)
+          .eq("read", false),
+        supabase
+          .from("mavis_council_activity")
+          .select("council_member_id, actions_executed")
+          .eq("user_id", OPERATOR_USER_ID)
+          .gte("created_at", new Date(Date.now() - 7 * 86400000).toISOString()),
+      ]);
 
-      // Trigger heartbeat for all due members (force = false, respects intervals)
+      if (!membersRes.data?.length) return "No council members. Ask MAVIS to create some.";
+
+      // Count unread messages and recent actions per member
+      const unreadByMember: Record<string, number> = {};
+      for (const m of (unreadRes.data ?? []) as any[]) {
+        unreadByMember[m.to_member_id] = (unreadByMember[m.to_member_id] ?? 0) + 1;
+      }
+      const actionsByMember: Record<string, number> = {};
+      for (const a of (recentActivityRes.data ?? []) as any[]) {
+        actionsByMember[a.council_member_id] = (actionsByMember[a.council_member_id] ?? 0) + Number(a.actions_executed ?? 0);
+      }
+
+      // Trigger heartbeats (non-blocking)
       fetch(`${supabaseUrl}/functions/v1/mavis-council-heartbeat`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${serviceKey}` },
         body: JSON.stringify({ force: true }),
       }).catch(() => {});
 
-      const roster = (members as any[]).map((m: any) => {
-        const last = m.last_heartbeat_at
-          ? `last active ${Math.floor((Date.now() - new Date(m.last_heartbeat_at).getTime()) / 3600000)}h ago`
-          : "never activated";
-        return `• ${m.name} [${m.role}] — ${m.specialty ?? "general"} | karma: ${m.karma ?? 0} | ${last}`;
+      const roster = (membersRes.data as any[]).map((m: any) => {
+        const lastHours = m.last_heartbeat_at
+          ? Math.floor((Date.now() - new Date(m.last_heartbeat_at).getTime()) / 3600000)
+          : null;
+        const lastStr    = lastHours !== null ? `${lastHours}h ago` : "never";
+        const unread     = unreadByMember[m.id] ? ` | ${unreadByMember[m.id]} unread msg` : "";
+        const actions7d  = actionsByMember[m.id] ? ` | ${actionsByMember[m.id]} actions/7d` : "";
+        return `• ${m.name} [${m.role}] | karma: ${m.karma ?? 0} | last: ${lastStr}${actions7d}${unread}`;
       }).join("\n");
 
-      return `Council awakening...\n\n${roster}\n\nEach member is evaluating your state. Expect messages shortly.`;
+      return `Council Status\n\n${roster}\n\nAwakening all members now — expect messages shortly.`;
+    }
+
+    case "/preview": {
+      const idPrefix = fullText.replace(/^\/preview\s*/i, "").trim();
+      if (!idPrefix) return "Usage: /preview [task ID prefix from /orders]";
+      const { data: tasks } = await supabase
+        .from("mavis_tasks")
+        .select("id, type, description, status, payload, created_at")
+        .eq("user_id", OPERATOR_USER_ID)
+        .in("status", ["requires_confirmation", "pending"])
+        .limit(20);
+      const match = (tasks ?? []).find((t: any) => t.id.startsWith(idPrefix));
+      if (!match) return `No pending item found matching ID "${idPrefix}". Use /orders to see IDs.`;
+
+      const payload = match.payload as Record<string, unknown>;
+      const lines: string[] = [
+        `PREVIEW — [${match.type}]`,
+        `Status: ${match.status}`,
+        `Created: ${new Date(match.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", timeZone: "UTC" })} UTC`,
+        `ID: ${match.id.slice(0, 8)}`,
+        "─────────────",
+      ];
+
+      if (match.type === "nora_tweet" || (payload?.category as string)?.includes("tweet")) {
+        lines.push(`TWEET CONTENT:\n${payload?.content ?? payload?.text ?? match.description ?? "(no content)"}`);
+      } else if (match.type === "create_product") {
+        lines.push(`TITLE: ${payload?.title ?? "?"}`);
+        lines.push(`PRICE: $${((Number(payload?.price_cents ?? 0)) / 100).toFixed(2)}`);
+        lines.push(`AUDIENCE: ${payload?.target_audience ?? "?"}`);
+        lines.push(`CATEGORY: ${payload?.category ?? "?"}`);
+        lines.push(`DESCRIPTION:\n${payload?.description ?? "(none)"}`);
+      } else {
+        // Generic: pretty-print payload fields
+        for (const [k, v] of Object.entries(payload ?? {})) {
+          if (v !== null && v !== undefined && String(v).length > 0) {
+            lines.push(`${k.toUpperCase()}: ${String(v).slice(0, 200)}`);
+          }
+        }
+      }
+
+      lines.push("─────────────");
+      lines.push("/approve " + match.id.slice(0, 8) + " | /reject " + match.id.slice(0, 8));
+      return lines.join("\n");
+    }
+
+    case "/search": {
+      const query = fullText.replace(/^\/search\s*/i, "").trim();
+      if (!query) return "Usage: /search [query]\nExample: /search productivity systems";
+
+      // Try semantic search first
+      if (AI_KEYS.openai) {
+        try {
+          const embRes = await fetch("https://api.openai.com/v1/embeddings", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${AI_KEYS.openai}` },
+            body: JSON.stringify({ model: "text-embedding-3-small", input: query }),
+          });
+          if (embRes.ok) {
+            const embData = await embRes.json();
+            const embedding = embData.data?.[0]?.embedding;
+            if (embedding) {
+              const { data: notes } = await supabase.rpc("match_mavis_notes", {
+                query_embedding: embedding,
+                match_user_id:   OPERATOR_USER_ID,
+                match_threshold: 0.40,
+                match_count:     5,
+              });
+              if (notes?.length) {
+                const lines = (notes as any[]).map((n: any) => {
+                  const preview = (n.content ?? "").replace(/\n+/g, " ").slice(0, 200);
+                  const tags    = Array.isArray(n.tags) && n.tags.length ? ` [${n.tags.join(", ")}]` : "";
+                  const pct     = n.similarity != null ? ` (${Math.round(n.similarity * 100)}%)` : "";
+                  return `• ${n.title}${tags}${pct}\n  ${preview}${(n.content?.length ?? 0) > 200 ? "…" : ""}`;
+                });
+                return `KG Search — "${query}" — ${notes.length} result(s)\n\n${lines.join("\n\n")}`;
+              }
+            }
+          }
+        } catch { /* fall through to keyword */ }
+      }
+
+      // Keyword fallback
+      const keywords = query.toLowerCase().split(/\s+/).filter(w => w.length >= 3).slice(0, 4);
+      if (!keywords.length) return "No usable keywords in query.";
+      const orParts = keywords.flatMap(kw => [`title.ilike.%${kw}%`, `content.ilike.%${kw}%`]);
+      const { data: kw_notes } = await supabase
+        .from("mavis_notes")
+        .select("title, content, tags")
+        .eq("user_id", OPERATOR_USER_ID)
+        .or(orParts.join(","))
+        .order("updated_at", { ascending: false })
+        .limit(5);
+
+      if (!kw_notes?.length) return `No notes found for "${query}".`;
+      const kwLines = (kw_notes as any[]).map((n: any) => {
+        const preview = (n.content ?? "").replace(/\n+/g, " ").slice(0, 200);
+        const tags    = Array.isArray(n.tags) && n.tags.length ? ` [${n.tags.join(", ")}]` : "";
+        return `• ${n.title}${tags}\n  ${preview}${(n.content?.length ?? 0) > 200 ? "…" : ""}`;
+      });
+      return `KG Search — "${query}" — ${kw_notes.length} result(s)\n\n${kwLines.join("\n\n")}`;
+    }
+
+    case "/note": {
+      const titleQuery = fullText.replace(/^\/note\s*/i, "").trim();
+      if (!titleQuery) return "Usage: /note [title or keyword]\nExample: /note productivity";
+
+      const { data: found } = await supabase
+        .from("mavis_notes")
+        .select("id, title, content, tags, updated_at")
+        .eq("user_id", OPERATOR_USER_ID)
+        .ilike("title", `%${titleQuery}%`)
+        .order("updated_at", { ascending: false })
+        .limit(1)
+        .single();
+
+      if (!found) return `No note found matching "${titleQuery}". Try /search for broader results.`;
+
+      const content  = (found.content ?? "").slice(0, 800);
+      const tags     = Array.isArray(found.tags) && found.tags.length ? `\nTags: ${found.tags.join(", ")}` : "";
+      const updated  = new Date(found.updated_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
+      return `${found.title}${tags}\nUpdated: ${updated}\n─────────────\n${content}${(found.content?.length ?? 0) > 800 ? "\n\n…[truncated — open app for full note]" : ""}`;
+    }
+
+    case "/addnote": {
+      const raw = fullText.replace(/^\/addnote\s*/i, "").trim();
+      if (!raw) return "Usage: /addnote [title] | [content]\nExample: /addnote Key insight | Always ship before optimising.";
+
+      const pipeIdx = raw.indexOf("|");
+      const title   = (pipeIdx > -1 ? raw.slice(0, pipeIdx) : raw).trim();
+      const content = (pipeIdx > -1 ? raw.slice(pipeIdx + 1) : "").trim();
+
+      if (!title) return "Please provide a title. Usage: /addnote [title] | [content]";
+
+      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+      const serviceKey  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+
+      const res = await fetch(`${supabaseUrl}/functions/v1/mavis-knowledge`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${serviceKey}` },
+        body: JSON.stringify({
+          action:  "create_note",
+          user_id: OPERATOR_USER_ID,
+          title:   title.slice(0, 120),
+          content: content || title,
+          tags:    ["telegram", "quick-note"],
+          aliases: [],
+        }),
+      });
+
+      if (!res.ok) return `Failed to create note (${res.status}).`;
+      return `Note saved: "${title}"\n${content ? content.slice(0, 100) + (content.length > 100 ? "…" : "") : "(no content)"}\n\nView in Knowledge Graph tab.`;
     }
 
     case "/scan": {
