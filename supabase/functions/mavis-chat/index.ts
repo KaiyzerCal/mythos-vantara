@@ -97,7 +97,7 @@ async function callOpenAI(messages: any[], system: string, key: string, model = 
   return d.choices?.[0]?.message?.content ?? "";
 }
 
-async function callClaude(messages: any[], system: string, key: string, model = "claude-haiku-4-5-20251001"): Promise<string> {
+async function callClaude(messages: any[], system: string, key: string, model = "claude-haiku-4-5-20251001", useThinking = false): Promise<string> {
   const res = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: {
@@ -107,7 +107,8 @@ async function callClaude(messages: any[], system: string, key: string, model = 
     },
     body: JSON.stringify({
       model,
-      max_tokens: 2048,
+      max_tokens: useThinking ? 16000 : 2048,
+      ...(useThinking ? { thinking: { type: "enabled", budget_tokens: 8000 } } : {}),
       system,
       messages: messages.map((m: any) => ({ role: m.role, content: m.content })),
     }),
@@ -120,7 +121,9 @@ async function callClaude(messages: any[], system: string, key: string, model = 
     throw new Error(`Claude ${res.status}: ${errText}`);
   }
   const d = await res.json();
-  return d.content?.[0]?.text ?? "";
+  // Filter out thinking blocks — return only text content blocks
+  const blocks: any[] = Array.isArray(d.content) ? d.content : [];
+  return blocks.filter((b: any) => b.type === "text").map((b: any) => b.text).join("") || "";
 }
 
 async function callGrok(messages: any[], system: string, key: string): Promise<string> {
@@ -177,11 +180,12 @@ async function callWithFallback(
   messages: any[],
   system: string,
   keys: { openai: string; claude: string; grok: string; lovable: string },
+  useThinking = false,
 ): Promise<{ content: string; provider: string }> {
   // Tier 0 — honor explicit non-default routing (Claude for deep reasoning, Grok for real-time)
   if (primary === "claude" && keys.claude) {
     try {
-      return { content: await callClaude(messages, system, keys.claude, "claude-sonnet-4-6"), provider: "claude-sonnet" };
+      return { content: await callClaude(messages, system, keys.claude, "claude-sonnet-4-6", useThinking), provider: useThinking ? "claude-sonnet-thinking" : "claude-sonnet" };
     } catch (err: any) {
       if (!(err instanceof ProviderUnavailableError)) throw err;
       console.warn(`[fallback] claude-sonnet unfunded (${err.status}) → cascading`);
@@ -807,9 +811,10 @@ ${fmtMemories}
 
     // ── Attachments uploaded to this thread ────────────────
     let attachmentsBlock = "";
+    const visionImages: { url: string; mime: string }[] = [];
     try {
       let q = sb.from("chat_attachments")
-        .select("id,file_name,mime_type,extracted_text,processing_status,created_at")
+        .select("id,file_name,mime_type,file_url,extracted_text,processing_status,created_at")
         .eq("user_id", user.id)
         .order("created_at", { ascending: false })
         .limit(20);
@@ -822,13 +827,21 @@ ${fmtMemories}
       }
       const { data: atts } = await q;
       if (atts && atts.length > 0) {
+        for (const a of atts as any[]) {
+          // Collect image URLs for multimodal vision pass-through
+          if (a.mime_type?.startsWith("image/") && a.file_url) {
+            visionImages.push({ url: a.file_url, mime: a.mime_type });
+          }
+        }
         attachmentsBlock = "\n═══ FILES UPLOADED TO THIS CHAT (read & reference) ═══\n" +
-          atts.map((a: any) => {
-            const status = a.processing_status === "done"
-              ? ""
-              : ` [${a.processing_status}]`;
+          (atts as any[]).map((a: any) => {
+            const status = a.processing_status === "done" ? "" : ` [${a.processing_status}]`;
+            const isImage = a.mime_type?.startsWith("image/");
             const txt = (a.extracted_text || "").slice(0, 6000);
-            return `\n📎 ${a.file_name} (${a.mime_type})${status}\n${txt || "(no extracted content yet)"}\n---`;
+            const body = isImage && visionImages.length > 0
+              ? "(image passed directly to vision model)"
+              : txt || "(no extracted content yet)";
+            return `\n📎 ${a.file_name} (${a.mime_type})${status}\n${body}\n---`;
           }).join("");
       }
     } catch (e) {
@@ -856,31 +869,79 @@ You always know the current date and time without being told. Reference it natur
       webSearchResults ? `\n---\nWEB SEARCH:\n${webSearchResults}\n---` : "",
     ].filter(Boolean).join("\n\n");
 
+    // ── Vision: inject image URLs into last user message ────
+    // Promotes text-only messages to multimodal when image attachments exist.
+    let callMessages = [...(messages || [])];
+    if (visionImages.length > 0) {
+      const lastIdx = callMessages.map((m: any) => m.role).lastIndexOf("user");
+      if (lastIdx >= 0) {
+        const lastMsg = callMessages[lastIdx];
+        const textContent = typeof lastMsg.content === "string" ? lastMsg.content : "";
+        callMessages[lastIdx] = {
+          ...lastMsg,
+          content: [
+            { type: "text", text: textContent },
+            ...visionImages.map((img: any) => ({
+              type: "image_url",
+              image_url: { url: img.url },
+            })),
+          ],
+        };
+      }
+    }
+
     // ── Route and call (with cascading fallback) ────────────
+    const modeUpper = (mode ?? "PRIME").toUpperCase();
+    const useThinking = ["ARCH", "SOVEREIGN"].includes(modeUpper);
     const provider = routeToProvider(mode ?? "PRIME", lastUserMsg?.content ?? "");
     const { content, provider: usedProvider } = await callWithFallback(
       provider,
-      messages,
+      callMessages,
       fullPrompt,
       { openai: openaiKey, claude: claudeKey, grok: grokKey, lovable: lovableKey },
+      useThinking,
     );
 
     // ── Tacit learning (non-blocking) ───────────────────────
     // Extract preferences/rules/lessons from this exchange and store in mavis_tacit.
-    const lastUserContent = lastUserMsg?.content ?? "";
+    const lastUserContent = typeof lastUserMsg?.content === "string"
+      ? lastUserMsg.content
+      : (Array.isArray(lastUserMsg?.content)
+          ? (lastUserMsg.content as any[]).find((b: any) => b.type === "text")?.text ?? ""
+          : "");
+
+    // ── Immediate correction capture (no AI needed) ─────────
+    // When operator explicitly corrects MAVIS, store the raw correction instantly
+    // without waiting for the async AI extraction pipeline.
+    const CORRECTION_RE = /\b(no[,.]?\s+that'?s?\s+wrong|that'?s?\s+not\s+right|not\s+what\s+i\s+(said|meant|wanted)|stop\s+(doing|saying|using|calling)\s+\w|don'?t\s+(do|say|use|call)\s+\w|never\s+(do|say|use|call)\s+\w|i\s+(hate|dislike)\s+when\s+you|you'?re\s+wrong|wrong\s+answer|incorrect[,.]?\s+\w|that'?s?\s+incorrect)\b/i;
+    if (lastUserContent.length > 5 && CORRECTION_RE.test(lastUserContent)) {
+      (async () => {
+        try {
+          await sb.from("mavis_tacit").insert({
+            user_id:  user.id,
+            category: "correction",
+            key:      `correction_${Date.now()}`,
+            value:    `[OPERATOR CORRECTION] User said: "${lastUserContent.slice(0, 300)}" | Context: "${content.slice(0, 200)}"`,
+          });
+        } catch { /* non-critical */ }
+      })();
+    }
+
     if (lastUserContent.length > 20 && content.length > 20) {
       (async () => {
         try {
           const extractKey = lovableKey || claudeKey || openaiKey;
           if (!extractKey) return;
 
-          const extractPrompt = `You are analyzing a conversation between an operator and MAVIS (their bonded AI). Extract any new preferences, rules, lessons, or recurring patterns revealed in this exchange. Only extract something if it's genuinely new information about the operator's preferences or principles — not generic facts.
+          const extractPrompt = `You are analyzing a conversation between an operator and MAVIS (their bonded AI). Extract any new preferences, rules, lessons, corrections, or recurring patterns revealed in this exchange. Only extract something if it's genuinely new information about the operator's preferences or principles — not generic facts.
 
 Respond with ONLY a JSON array (may be empty):
-[{"category":"preference|hard_rule|lesson_learned|workflow_habit","key":"short identifier","value":"concise statement"}]
+[{"category":"preference|hard_rule|lesson_learned|workflow_habit|correction","key":"short identifier","value":"concise statement"}]
 
 Examples:
 - User says "I hate when you use bullet points" → {"category":"preference","key":"formatting","value":"Avoid bullet points — operator prefers prose"}
+- User says "no, that's wrong — the deadline is Friday not Thursday" → {"category":"correction","key":"deadline_thursday","value":"Operator corrected: deadline is Friday, not Thursday — double-check dates"}
+- User says "stop calling me Calvin in every response" → {"category":"hard_rule","key":"name_overuse","value":"Do not repeat operator's name repeatedly in responses"}
 - User corrects a deadline → {"category":"workflow_habit","key":"deadline_style","value":"Operator sets deadlines 2 days before actual due date as buffer"}
 - User shares a lesson from a failure → {"category":"lesson_learned","key":"pitch_timing","value":"Don't pitch investors before product has traction"}`;
 
