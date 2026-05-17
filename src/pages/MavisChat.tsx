@@ -496,6 +496,7 @@ export default function MavisChat() {
       ...(storeItems || []).map((s: any) => `STORE [${s.id}] "${s.name}"`),
     ].join("\n");
 
+    let streamingId = "";
     try {
       // Use fresh Supabase context if available, else fall back to useAppData() data
       const systemPrompt = await (fullCtx
@@ -513,7 +514,7 @@ export default function MavisChat() {
       const attachmentIds = attachments.map((a) => a.id);
 
       // Add a streaming placeholder bubble so the user sees tokens as they arrive
-      const streamingId = `streaming-${Date.now()}`;
+      streamingId = `streaming-${Date.now()}`;
       setChatMessages((prev) => [...prev, {
         id: streamingId,
         role: "assistant" as const,
@@ -540,6 +541,7 @@ export default function MavisChat() {
             m.id === streamingId ? { ...m, content: accumulated } : m
           ));
         },
+        abortController.signal,
       );
 
       if (cancelledRef.current) {
@@ -597,7 +599,11 @@ export default function MavisChat() {
       }
       saveMemoriesFromResponse(content, cleanText);
     } catch (err: any) {
-      if (cancelledRef.current) return;
+      if (cancelledRef.current || err?.name === "AbortError") {
+        if (streamingId) setChatMessages((prev) => prev.filter((m) => m.id !== streamingId));
+        return;
+      }
+      if (streamingId) setChatMessages((prev) => prev.filter((m) => m.id !== streamingId));
       setChatMessages((prev) => [
         ...prev,
         {

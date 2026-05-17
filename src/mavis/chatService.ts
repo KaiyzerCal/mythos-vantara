@@ -58,6 +58,7 @@ export async function streamChatMessage(
   history: Array<{ role: string; content: string }>,
   options: ChatServiceOptions,
   onToken: (token: string, accumulated: string) => void,
+  signal?: AbortSignal,
 ): Promise<ChatServiceResult> {
   const messages = [...history, { role: "user", content: userText }];
   const { data: { session } } = await supabase.auth.getSession();
@@ -81,6 +82,7 @@ export async function streamChatMessage(
       attachmentIds: options.attachmentIds ?? [],
       stream: true,
     }),
+    signal,
   });
 
   if (!res.ok) {
