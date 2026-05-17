@@ -4,6 +4,7 @@ import {
   Zap, Sparkles, Package, BookOpen, BookLock, ShoppingBag,
   Medal, TowerControl, Activity, Settings, ChevronLeft, ChevronRight,
   LogOut, Cpu, Shield, HeartPulse, Inbox, Network,
+  UserCheck, BarChart2, Repeat2, Heart,
 } from "lucide-react";
 import { useState, useContext } from "react";
 import { motion, AnimatePresence } from "framer-motion";
@@ -28,6 +29,13 @@ const SECONDARY_NAV = [
   { to: "/inventory", icon: Package, label: "Inventory" },
   { to: "/journal", icon: BookOpen, label: "Journal" },
   { to: "/vault", icon: BookLock, label: "Vault Codex" },
+];
+
+const INTEL_NAV = [
+  { to: "/contacts", icon: UserCheck, label: "Contacts" },
+  { to: "/analytics", icon: BarChart2, label: "Analytics" },
+  { to: "/repurpose", icon: Repeat2, label: "Repurpose" },
+  { to: "/health", icon: Heart, label: "Health" },
 ];
 
 const UTILITY_NAV = [
@@ -162,6 +170,9 @@ export default function AppSidebar() {
 
         <SectionLabel label="Systems" collapsed={collapsed} />
         {SECONDARY_NAV.map((item) => <NavItem key={item.to} {...item} collapsed={collapsed} />)}
+
+        <SectionLabel label="Intel" collapsed={collapsed} />
+        {INTEL_NAV.map((item) => <NavItem key={item.to} {...item} collapsed={collapsed} />)}
 
         <SectionLabel label="Utilities" collapsed={collapsed} />
         {UTILITY_NAV.map((item) => <NavItem key={item.to} {...item} collapsed={collapsed} />)}
