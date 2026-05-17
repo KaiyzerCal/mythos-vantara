@@ -696,7 +696,24 @@ serve(async (req) => {
     const sb = createClient(supabaseUrl, serviceKey, { auth: { persistSession: false } });
 
     const reqBody = await req.json();
-    const { messages, systemPrompt: clientSystemPrompt, mode, conversationId, appState, attachmentIds, chatKind, threadRef, stream: isStreaming } = reqBody;
+    const { messages: rawMessages, systemPrompt: clientSystemPrompt, mode, conversationId, appState, attachmentIds, chatKind, threadRef, stream: isStreaming } = reqBody;
+
+    // Trim conversation history to stay within token budget.
+    // Rough heuristic: 1 token ≈ 4 chars. Keep newest messages up to ~20K
+    // tokens of history — leaves headroom for the large system prompt + response.
+    function trimHistory(msgs: any[], charBudget = 80000): any[] {
+      if (!Array.isArray(msgs)) return [];
+      let total = 0;
+      const result: any[] = [];
+      for (let i = msgs.length - 1; i >= 0; i--) {
+        const c = typeof msgs[i].content === "string" ? msgs[i].content : JSON.stringify(msgs[i].content ?? "");
+        total += c.length;
+        if (total > charBudget && result.length > 0) break;
+        result.unshift(msgs[i]);
+      }
+      return result;
+    }
+    const messages = trimHistory(rawMessages);
 
     // Fetch profile from DB (don't trust client-sent profile)
     const { data: profile } = await sb.from("profiles").select("*").eq("id", user.id).single();
@@ -1247,6 +1264,60 @@ You always know the current date and time without being told. Reference it natur
                 { user_id: user.id, session_id: sid, role: "user", content: lastUserText.slice(0, 4000), timestamp: ts, importance_score: scoreImportance(lastUserText), consolidated: false },
                 { user_id: user.id, session_id: sid, role: "assistant", content: accumulated.slice(0, 4000), timestamp: ts + 1, importance_score: scoreImportance(accumulated), consolidated: false },
               ]).catch(() => {});
+
+              // AI-powered tacit extraction (same as non-streaming path)
+              if (lastUserText.length > 20 && accumulated.length > 20) {
+                (async () => {
+                  try {
+                    const extractKey = lovableKey || claudeKey || openaiKey;
+                    if (!extractKey) return;
+                    const extractPrompt = `You are analyzing a conversation between an operator and MAVIS (their bonded AI). Extract any new preferences, rules, lessons, corrections, or recurring patterns revealed in this exchange. Only extract something if it's genuinely new information about the operator's preferences or principles — not generic facts.\n\nRespond with ONLY a JSON array (may be empty):\n[{"category":"preference|hard_rule|lesson_learned|workflow_habit|correction","key":"short identifier","value":"concise statement"}]`;
+                    let raw = "";
+                    if (lovableKey) {
+                      const r = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${lovableKey}` }, body: JSON.stringify({ model: "google/gemini-2.5-flash", max_tokens: 300, messages: [{ role: "system", content: extractPrompt }, { role: "user", content: `Operator: ${lastUserText.slice(0, 800)}\nMAVIS: ${accumulated.slice(0, 800)}` }] }) });
+                      if (r.ok) { const d = await r.json(); raw = d.choices?.[0]?.message?.content ?? ""; }
+                    }
+                    if (!raw && claudeKey) {
+                      const r = await fetch("https://api.anthropic.com/v1/messages", { method: "POST", headers: { "Content-Type": "application/json", "x-api-key": claudeKey, "anthropic-version": "2023-06-01" }, body: JSON.stringify({ model: "claude-haiku-4-5-20251001", max_tokens: 300, system: extractPrompt, messages: [{ role: "user", content: `Operator: ${lastUserText.slice(0, 800)}\nMAVIS: ${accumulated.slice(0, 800)}` }] }) });
+                      if (r.ok) { const d = await r.json(); raw = d.content?.[0]?.text ?? ""; }
+                    }
+                    const arrMatch = raw.match(/\[[\s\S]*\]/);
+                    if (!arrMatch) return;
+                    const items = JSON.parse(arrMatch[0]) as any[];
+                    for (const item of items.slice(0, 3)) {
+                      if (!item.category || !item.key || !item.value) continue;
+                      await sb.from("mavis_tacit").upsert({ user_id: user.id, category: String(item.category), key: String(item.key).slice(0, 100), value: String(item.value).slice(0, 500) }, { onConflict: "user_id,key", ignoreDuplicates: false });
+                    }
+                  } catch { /* non-critical */ }
+                })();
+              }
+
+              // AI-powered fact extraction → knowledge graph
+              if (lastUserText.length > 30 && accumulated.length > 30) {
+                (async () => {
+                  try {
+                    const extractKey = lovableKey || claudeKey || openaiKey;
+                    if (!extractKey) return;
+                    const factPrompt = `Extract concrete facts, decisions, or commitments from this conversation that would be valuable to remember long-term. Only extract things that are genuinely significant (real decisions, named projects, specific plans, key context). Skip pleasantries and generic statements.\n\nRespond with ONLY a JSON array (may be empty []):\n[{"title":"short fact title","content":"full context in 1-3 sentences","tags":["tag1","tag2"]}]`;
+                    let raw = "";
+                    if (lovableKey) {
+                      const r = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${lovableKey}` }, body: JSON.stringify({ model: "google/gemini-2.5-flash", max_tokens: 400, messages: [{ role: "system", content: factPrompt }, { role: "user", content: `Operator: ${lastUserText.slice(0, 1000)}\nMAVIS: ${accumulated.slice(0, 1000)}` }] }) });
+                      if (r.ok) { const d = await r.json(); raw = d.choices?.[0]?.message?.content ?? ""; }
+                    }
+                    if (!raw && claudeKey) {
+                      const r = await fetch("https://api.anthropic.com/v1/messages", { method: "POST", headers: { "Content-Type": "application/json", "x-api-key": claudeKey, "anthropic-version": "2023-06-01" }, body: JSON.stringify({ model: "claude-haiku-4-5-20251001", max_tokens: 400, system: factPrompt, messages: [{ role: "user", content: `Operator: ${lastUserText.slice(0, 1000)}\nMAVIS: ${accumulated.slice(0, 1000)}` }] }) });
+                      if (r.ok) { const d = await r.json(); raw = d.content?.[0]?.text ?? ""; }
+                    }
+                    const arrMatch = raw.match(/\[[\s\S]*\]/);
+                    if (!arrMatch) return;
+                    const facts = JSON.parse(arrMatch[0]) as any[];
+                    for (const f of facts.slice(0, 2)) {
+                      if (!f.title || !f.content) continue;
+                      await fetch(`${supabaseUrl}/functions/v1/mavis-knowledge`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${serviceKey}` }, body: JSON.stringify({ action: "create_note", userId: user.id, title: String(f.title).slice(0, 120), content: String(f.content).slice(0, 1000), tags: Array.isArray(f.tags) ? [...f.tags, "auto-extracted"] : ["auto-extracted"] }) }).catch(() => {});
+                    }
+                  } catch { /* non-critical */ }
+                })();
+              }
             }
           }
         }

@@ -840,9 +840,17 @@ export default function MavisChat() {
                     }`}>
                       {msg.role === "assistant" ? (
                         <>
-                          <div className="mavis-prose">
-                            <ReactMarkdown>{msg.content}</ReactMarkdown>
-                          </div>
+                          {msg.id.startsWith("streaming-") && msg.content === "" ? (
+                            <div className="flex items-center gap-1 py-1 px-0.5">
+                              <span className="w-1.5 h-1.5 rounded-full bg-primary/70 animate-bounce" style={{ animationDelay: "0ms" }} />
+                              <span className="w-1.5 h-1.5 rounded-full bg-primary/70 animate-bounce" style={{ animationDelay: "160ms" }} />
+                              <span className="w-1.5 h-1.5 rounded-full bg-primary/70 animate-bounce" style={{ animationDelay: "320ms" }} />
+                            </div>
+                          ) : (
+                            <div className="mavis-prose">
+                              <ReactMarkdown>{msg.content}</ReactMarkdown>
+                            </div>
+                          )}
                           {(msg as any).imageUrl && (
                             <div className="mt-2">
                               <img
