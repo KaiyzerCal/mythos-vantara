@@ -1231,6 +1231,7 @@ You always know the current date and time without being told. Reference it natur
               controller.enqueue(enc.encode(`data: ${JSON.stringify({ t: value })}\n\n`));
             }
             let imgUrl: string | null = null;
+            let imageMediaId: string | null = null;
             if (IMAGE_KWS.some(kw => lastUserText.toLowerCase().includes(kw))) {
               try {
                 const imgRes = await fetch(`${supabaseUrl}/functions/v1/mavis-image-gen`, {
@@ -1238,10 +1239,41 @@ You always know the current date and time without being told. Reference it natur
                   headers: { "Content-Type": "application/json", Authorization: `Bearer ${serviceKey}` },
                   body: JSON.stringify({ prompt: lastUserText }),
                 });
-                if (imgRes.ok) { const d = await imgRes.json(); imgUrl = d.url ?? null; }
+                if (imgRes.ok) {
+                  const d = await imgRes.json();
+                  const tempUrl: string | null = d.url ?? null;
+                  if (tempUrl) {
+                    // Download DALL-E temp URL and store permanently in Supabase Storage
+                    try {
+                      const imgBytes = await fetch(tempUrl).then(r => r.arrayBuffer());
+                      const fileName = `generated_${Date.now()}.jpg`;
+                      const storagePath = `${user.id}/${fileName}`;
+                      const { error: storErr } = await sb.storage
+                        .from("vault-media")
+                        .upload(storagePath, imgBytes, { contentType: "image/jpeg" });
+                      if (!storErr) {
+                        const { data: urlData } = sb.storage.from("vault-media").getPublicUrl(storagePath);
+                        imgUrl = urlData.publicUrl;
+                        const { data: mediaRow } = await sb.from("vault_media").insert({
+                          user_id: user.id,
+                          file_name: fileName,
+                          file_url: imgUrl,
+                          file_type: "image",
+                          file_size: imgBytes.byteLength,
+                          description: `MAVIS generated: ${lastUserText.slice(0, 200)}`,
+                          tags: ["mavis-generated", "dall-e"],
+                          vault_entry_id: null,
+                        }).select("id").maybeSingle();
+                        imageMediaId = mediaRow?.id ?? null;
+                      } else {
+                        imgUrl = tempUrl; // fall back to temp URL
+                      }
+                    } catch { imgUrl = tempUrl; }
+                  }
+                }
               } catch { /* non-critical */ }
             }
-            controller.enqueue(enc.encode(`data: ${JSON.stringify({ done: true, provider: streamProv, conversationId, searched: !!webSearchResults, imageUrl: imgUrl })}\n\n`));
+            controller.enqueue(enc.encode(`data: ${JSON.stringify({ done: true, provider: streamProv, conversationId, searched: !!webSearchResults, imageUrl: imgUrl, imageMediaId })}\n\n`));
           } catch (e: any) {
             controller.enqueue(enc.encode(`data: ${JSON.stringify({ error: e.message ?? "Stream error" })}\n\n`));
           } finally {
