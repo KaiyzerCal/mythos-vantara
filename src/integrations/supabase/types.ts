@@ -41,6 +41,42 @@ export type Database = {
         }
         Relationships: []
       }
+      agent_telegram_config: {
+        Row: {
+          active: boolean | null
+          agent_id: string
+          agent_type: string
+          bot_token: string | null
+          chat_id: string | null
+          created_at: string | null
+          id: string
+          user_id: string
+          webhook_url: string | null
+        }
+        Insert: {
+          active?: boolean | null
+          agent_id: string
+          agent_type: string
+          bot_token?: string | null
+          chat_id?: string | null
+          created_at?: string | null
+          id?: string
+          user_id: string
+          webhook_url?: string | null
+        }
+        Update: {
+          active?: boolean | null
+          agent_id?: string
+          agent_type?: string
+          bot_token?: string | null
+          chat_id?: string | null
+          created_at?: string | null
+          id?: string
+          user_id?: string
+          webhook_url?: string | null
+        }
+        Relationships: []
+      }
       allies: {
         Row: {
           affinity: number
@@ -364,48 +400,96 @@ export type Database = {
           },
         ]
       }
+      council_sessions: {
+        Row: {
+          created_at: string | null
+          id: string
+          messages: Json | null
+          participants: Json | null
+          session_type: string | null
+          summary: string | null
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          created_at?: string | null
+          id?: string
+          messages?: Json | null
+          participants?: Json | null
+          session_type?: string | null
+          summary?: string | null
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          created_at?: string | null
+          id?: string
+          messages?: Json | null
+          participants?: Json | null
+          session_type?: string | null
+          summary?: string | null
+          updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
       councils: {
         Row: {
           avatar: string | null
+          can_be_summoned: boolean | null
           class: string
           created_at: string
+          data_access_tier: string | null
           id: string
           name: string
           notes: string
+          personality_prompt: string | null
           role: string
           specialty: string | null
+          telegram_enabled: boolean | null
           updated_at: string
           user_id: string
           voice_id: string | null
           voice_settings: Json
+          voice_style: string | null
         }
         Insert: {
           avatar?: string | null
+          can_be_summoned?: boolean | null
           class?: string
           created_at?: string
+          data_access_tier?: string | null
           id?: string
           name: string
           notes?: string
+          personality_prompt?: string | null
           role?: string
           specialty?: string | null
+          telegram_enabled?: boolean | null
           updated_at?: string
           user_id: string
           voice_id?: string | null
           voice_settings?: Json
+          voice_style?: string | null
         }
         Update: {
           avatar?: string | null
+          can_be_summoned?: boolean | null
           class?: string
           created_at?: string
+          data_access_tier?: string | null
           id?: string
           name?: string
           notes?: string
+          personality_prompt?: string | null
           role?: string
           specialty?: string | null
+          telegram_enabled?: boolean | null
           updated_at?: string
           user_id?: string
           voice_id?: string | null
           voice_settings?: Json
+          voice_style?: string | null
         }
         Relationships: []
       }
@@ -562,6 +646,42 @@ export type Database = {
         }
         Relationships: []
       }
+      mavis_bond: {
+        Row: {
+          bond_level: number | null
+          created_at: string | null
+          id: string
+          interaction_count: number | null
+          last_interaction_at: string | null
+          milestones: Json | null
+          trust_level: number | null
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          bond_level?: number | null
+          created_at?: string | null
+          id?: string
+          interaction_count?: number | null
+          last_interaction_at?: string | null
+          milestones?: Json | null
+          trust_level?: number | null
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          bond_level?: number | null
+          created_at?: string | null
+          id?: string
+          interaction_count?: number | null
+          last_interaction_at?: string | null
+          milestones?: Json | null
+          trust_level?: number | null
+          updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
       mavis_consolidation_log: {
         Row: {
           created_at: string | null
@@ -591,6 +711,42 @@ export type Database = {
           session_date?: string
           summary?: string | null
           tacit_entries_created?: number | null
+          user_id?: string
+        }
+        Relationships: []
+      }
+      mavis_expenses: {
+        Row: {
+          amount: number
+          category: string | null
+          created_at: string | null
+          currency: string | null
+          description: string
+          expense_date: string | null
+          id: string
+          source: string | null
+          user_id: string
+        }
+        Insert: {
+          amount: number
+          category?: string | null
+          created_at?: string | null
+          currency?: string | null
+          description: string
+          expense_date?: string | null
+          id?: string
+          source?: string | null
+          user_id: string
+        }
+        Update: {
+          amount?: number
+          category?: string | null
+          created_at?: string | null
+          currency?: string | null
+          description?: string
+          expense_date?: string | null
+          id?: string
+          source?: string | null
           user_id?: string
         }
         Relationships: []
@@ -1130,6 +1286,54 @@ export type Database = {
         }
         Relationships: []
       }
+      persona_content: {
+        Row: {
+          body: string
+          content_type: string
+          created_at: string | null
+          engagement_score: number | null
+          id: string
+          persona_id: string
+          platform: string | null
+          published_at: string | null
+          revenue_generated: number | null
+          status: string | null
+          title: string
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          body: string
+          content_type?: string
+          created_at?: string | null
+          engagement_score?: number | null
+          id?: string
+          persona_id: string
+          platform?: string | null
+          published_at?: string | null
+          revenue_generated?: number | null
+          status?: string | null
+          title: string
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          body?: string
+          content_type?: string
+          created_at?: string | null
+          engagement_score?: number | null
+          id?: string
+          persona_id?: string
+          platform?: string | null
+          published_at?: string | null
+          revenue_generated?: number | null
+          status?: string | null
+          title?: string
+          updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
       persona_conversations: {
         Row: {
           content: string
@@ -1203,11 +1407,53 @@ export type Database = {
           },
         ]
       }
+      persona_revenue: {
+        Row: {
+          amount: number
+          content_id: string | null
+          created_at: string | null
+          currency: string | null
+          description: string | null
+          id: string
+          persona_id: string
+          source: string
+          stripe_payment_id: string | null
+          user_id: string
+        }
+        Insert: {
+          amount?: number
+          content_id?: string | null
+          created_at?: string | null
+          currency?: string | null
+          description?: string | null
+          id?: string
+          persona_id: string
+          source: string
+          stripe_payment_id?: string | null
+          user_id: string
+        }
+        Update: {
+          amount?: number
+          content_id?: string | null
+          created_at?: string | null
+          currency?: string | null
+          description?: string | null
+          id?: string
+          persona_id?: string
+          source?: string
+          stripe_payment_id?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
       personas: {
         Row: {
           archetype: string
           avatar_key: string | null
+          can_join_council: boolean | null
+          content_niche: string | null
           created_at: string
+          data_access_tier: string | null
           embodiment_endpoint: string | null
           id: string
           is_active: boolean
@@ -1216,15 +1462,20 @@ export type Database = {
           personality: Json
           role: string
           system_prompt: string
+          telegram_enabled: boolean | null
           updated_at: string
           user_id: string
           voice_id: string | null
           voice_settings: Json
+          voice_style: string | null
         }
         Insert: {
           archetype: string
           avatar_key?: string | null
+          can_join_council?: boolean | null
+          content_niche?: string | null
           created_at?: string
+          data_access_tier?: string | null
           embodiment_endpoint?: string | null
           id?: string
           is_active?: boolean
@@ -1233,15 +1484,20 @@ export type Database = {
           personality?: Json
           role: string
           system_prompt: string
+          telegram_enabled?: boolean | null
           updated_at?: string
           user_id: string
           voice_id?: string | null
           voice_settings?: Json
+          voice_style?: string | null
         }
         Update: {
           archetype?: string
           avatar_key?: string | null
+          can_join_council?: boolean | null
+          content_niche?: string | null
           created_at?: string
+          data_access_tier?: string | null
           embodiment_endpoint?: string | null
           id?: string
           is_active?: boolean
@@ -1250,10 +1506,12 @@ export type Database = {
           personality?: Json
           role?: string
           system_prompt?: string
+          telegram_enabled?: boolean | null
           updated_at?: string
           user_id?: string
           voice_id?: string | null
           voice_settings?: Json
+          voice_style?: string | null
         }
         Relationships: []
       }
