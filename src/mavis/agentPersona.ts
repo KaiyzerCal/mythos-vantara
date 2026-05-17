@@ -18,7 +18,7 @@ export function scopeContext(
   const scoped: Partial<AppContextSnapshot> = {};
   for (const key of allowed) {
     if (key in ctx) {
-      (scoped as Record<string, unknown>)[key] = (ctx as Record<string, unknown>)[key];
+      (scoped as Record<string, unknown>)[key] = (ctx as unknown as Record<string, unknown>)[key];
     }
   }
   return scoped;
