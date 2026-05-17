@@ -6,7 +6,7 @@ import {
   LogOut, Cpu, Shield, HeartPulse, Inbox, Network,
   UserCheck, BarChart2, Repeat2, Heart, DollarSign, CalendarClock,
   Crosshair, GraduationCap, Clock, Video, BookMarked,
-  TrendingUp, Mail, Webhook, KeyRound,
+  TrendingUp, Mail, Webhook, KeyRound, Archive,
 } from "lucide-react";
 import { useState, useContext } from "react";
 import { motion, AnimatePresence } from "framer-motion";
@@ -49,6 +49,7 @@ const INTEL_NAV = [
   { to: "/email", icon: Mail, label: "Email" },
   { to: "/webhooks", icon: Webhook, label: "Webhooks" },
   { to: "/integrations", icon: KeyRound, label: "Integrations" },
+  { to: "/export", icon: Archive, label: "Export Data" },
 ];
 
 const UTILITY_NAV = [
