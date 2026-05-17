@@ -1020,8 +1020,34 @@ Respond with ONLY a JSON array (may be empty []):
       } catch { /* non-critical */ }
     })();
 
+    // ── Image generation (non-blocking detect + generate) ──────
+    let imageUrl: string | null = null;
+    const imageKeywords = [
+      "generate", "create an image", "draw", "make an image", "picture of",
+      "photo of", "illustration of", "imagine", "visualize", "render",
+      "show me", "design a", "paint a", "sketch",
+    ];
+    const lowerUserMsg = lastUserContent.toLowerCase();
+    const isImageRequest = imageKeywords.some((kw) => lowerUserMsg.includes(kw));
+
+    if (isImageRequest) {
+      try {
+        const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+        const serviceKey  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+        const imgRes = await fetch(`${supabaseUrl}/functions/v1/mavis-image-gen`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${serviceKey}` },
+          body: JSON.stringify({ prompt: lastUserContent }),
+        });
+        if (imgRes.ok) {
+          const imgData = await imgRes.json();
+          imageUrl = imgData.url ?? null;
+        }
+      } catch { /* non-critical — still return text response */ }
+    }
+
     return new Response(
-      JSON.stringify({ content, mode, conversationId, searched: !!webSearchResults, provider: usedProvider }),
+      JSON.stringify({ content, mode, conversationId, searched: !!webSearchResults, provider: usedProvider, imageUrl }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
 
