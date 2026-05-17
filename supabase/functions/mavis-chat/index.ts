@@ -82,7 +82,7 @@ async function callOpenAI(messages: any[], system: string, key: string, model = 
     body: JSON.stringify({
       model,
       messages: [{ role: "system", content: system }, ...messages],
-      max_tokens: 2048,
+      max_tokens: 4096,
       temperature: 0.85,
     }),
   });
@@ -107,7 +107,7 @@ async function callClaude(messages: any[], system: string, key: string, model = 
     },
     body: JSON.stringify({
       model,
-      max_tokens: useThinking ? 16000 : 2048,
+      max_tokens: useThinking ? 16000 : 4096,
       ...(useThinking ? { thinking: { type: "enabled", budget_tokens: 8000 } } : {}),
       system,
       messages: messages.map((m: any) => ({ role: m.role, content: m.content })),
@@ -133,7 +133,7 @@ async function callGrok(messages: any[], system: string, key: string): Promise<s
     body: JSON.stringify({
       model: "grok-3-mini",
       messages: [{ role: "system", content: system }, ...messages],
-      max_tokens: 2048,
+      max_tokens: 4096,
       temperature: 0.7,
     }),
   });
@@ -263,54 +263,92 @@ function oaiSseToTextStream(body: ReadableStream<Uint8Array>): ReadableStream<st
   const reader  = body.getReader();
   let buf = "";
   return new ReadableStream<string>({
-    async pull(controller) {
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) { controller.close(); return; }
-        buf += decoder.decode(value, { stream: true });
-        const lines = buf.split("\n");
-        buf = lines.pop() ?? "";
-        for (const line of lines) {
-          if (!line.startsWith("data: ")) continue;
-          const data = line.slice(6).trim();
-          if (data === "[DONE]") { controller.close(); return; }
-          try {
-            const j = JSON.parse(data);
-            const t = j.choices?.[0]?.delta?.content;
-            if (t) controller.enqueue(t);
-          } catch { /* skip malformed */ }
+    async start(controller) {
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) {
+            // Flush any remaining bytes in the decoder buffer
+            const tail = decoder.decode();
+            if (tail) buf += tail;
+            break;
+          }
+          buf += decoder.decode(value, { stream: true });
+          const lines = buf.split("\n");
+          buf = lines.pop() ?? "";
+          for (const line of lines) {
+            if (!line.startsWith("data: ")) continue;
+            const data = line.slice(6).trim();
+            if (data === "[DONE]") { controller.close(); return; }
+            try {
+              const j = JSON.parse(data);
+              const t = j.choices?.[0]?.delta?.content;
+              if (t) controller.enqueue(t);
+            } catch { /* skip malformed */ }
+          }
         }
+        // Process any leftover buf after stream ends
+        if (buf.trim()) {
+          const data = buf.startsWith("data: ") ? buf.slice(6).trim() : buf.trim();
+          if (data && data !== "[DONE]") {
+            try {
+              const j = JSON.parse(data);
+              const t = j.choices?.[0]?.delta?.content;
+              if (t) controller.enqueue(t);
+            } catch { /* skip */ }
+          }
+        }
+      } catch (e) {
+        controller.error(e);
+        return;
       }
+      controller.close();
     }
   });
 }
 
 function claudeSseToTextStream(body: ReadableStream<Uint8Array>): ReadableStream<string> {
-  const decoder   = new TextDecoder();
-  const reader    = body.getReader();
-  const textIdxs  = new Set<number>(); // indices of text-type content blocks
+  const decoder  = new TextDecoder();
+  const reader   = body.getReader();
+  const textIdxs = new Set<number>();
   let buf = "";
-  return new ReadableStream<string>({
-    async pull(controller) {
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) { controller.close(); return; }
-        buf += decoder.decode(value, { stream: true });
-        const lines = buf.split("\n");
-        buf = lines.pop() ?? "";
-        for (const line of lines) {
-          if (!line.startsWith("data: ")) continue;
-          try {
-            const j = JSON.parse(line.slice(6).trim());
-            if (j.type === "content_block_start" && j.content_block?.type === "text") textIdxs.add(j.index);
-            if (j.type === "content_block_delta" && j.delta?.type === "text_delta" && textIdxs.has(j.index)) {
-              const t = j.delta.text;
-              if (t) controller.enqueue(t);
-            }
-            if (j.type === "message_stop") { controller.close(); return; }
-          } catch { /* skip */ }
+
+  function processLines(controller: ReadableStreamDefaultController<string>) {
+    const lines = buf.split("\n");
+    buf = lines.pop() ?? "";
+    for (const line of lines) {
+      if (!line.startsWith("data: ")) continue;
+      try {
+        const j = JSON.parse(line.slice(6).trim());
+        if (j.type === "content_block_start" && j.content_block?.type === "text") textIdxs.add(j.index);
+        if (j.type === "content_block_delta" && j.delta?.type === "text_delta" && textIdxs.has(j.index)) {
+          const t = j.delta.text;
+          if (t) controller.enqueue(t);
         }
+        if (j.type === "message_stop") return true; // signal done
+      } catch { /* skip malformed */ }
+    }
+    return false;
+  }
+
+  return new ReadableStream<string>({
+    async start(controller) {
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) {
+            buf += decoder.decode(); // flush remaining bytes
+            processLines(controller);
+            break;
+          }
+          buf += decoder.decode(value, { stream: true });
+          if (processLines(controller)) break;
+        }
+      } catch (e) {
+        controller.error(e);
+        return;
       }
+      controller.close();
     }
   });
 }
@@ -319,7 +357,7 @@ async function callOpenAIStream(messages: any[], system: string, key: string, mo
   const res = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
-    body: JSON.stringify({ model, messages: [{ role: "system", content: system }, ...messages], max_tokens: 2048, temperature: 0.85, stream: true }),
+    body: JSON.stringify({ model, messages: [{ role: "system", content: system }, ...messages], max_tokens: 4096, temperature: 0.85, stream: true }),
   });
   if (!res.ok) {
     const e = await res.text();
@@ -340,7 +378,7 @@ async function callClaudeStream(messages: any[], system: string, key: string, mo
     },
     body: JSON.stringify({
       model,
-      max_tokens: useThinking ? 16000 : 2048,
+      max_tokens: useThinking ? 16000 : 4096,
       ...(useThinking ? { thinking: { type: "enabled", budget_tokens: 8000 } } : {}),
       system,
       messages: messages.map((m: any) => ({ role: m.role, content: m.content })),
@@ -359,7 +397,7 @@ async function callLovableStream(messages: any[], system: string, key: string, m
   const res = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
-    body: JSON.stringify({ model, messages: [{ role: "system", content: system }, ...messages], stream: true }),
+    body: JSON.stringify({ model, messages: [{ role: "system", content: system }, ...messages], max_tokens: 4096, stream: true }),
   });
   if (!res.ok) {
     const e = await res.text();
@@ -373,7 +411,7 @@ async function callGrokStream(messages: any[], system: string, key: string): Pro
   const res = await fetch("https://api.x.ai/v1/chat/completions", {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
-    body: JSON.stringify({ model: "grok-3-mini", messages: [{ role: "system", content: system }, ...messages], max_tokens: 2048, temperature: 0.7, stream: true }),
+    body: JSON.stringify({ model: "grok-3-mini", messages: [{ role: "system", content: system }, ...messages], max_tokens: 4096, temperature: 0.7, stream: true }),
   });
   if (!res.ok) {
     const e = await res.text();
@@ -699,9 +737,9 @@ serve(async (req) => {
     const { messages: rawMessages, systemPrompt: clientSystemPrompt, mode, conversationId, appState, attachmentIds, chatKind, threadRef, stream: isStreaming } = reqBody;
 
     // Trim conversation history to stay within token budget.
-    // Rough heuristic: 1 token ≈ 4 chars. Keep newest messages up to ~20K
-    // tokens of history — leaves headroom for the large system prompt + response.
-    function trimHistory(msgs: any[], charBudget = 80000): any[] {
+    // 1 token ≈ 4 chars. Keep last ~8K tokens of history so the large
+    // system prompt + app context + response all fit comfortably.
+    function trimHistory(msgs: any[], charBudget = 32000): any[] {
       if (!Array.isArray(msgs)) return [];
       let total = 0;
       const result: any[] = [];
