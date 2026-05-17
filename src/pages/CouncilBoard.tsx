@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { Send, ArrowLeft, Users, Database, Square, Mic, MicOff, Zap, ChevronDown, ChevronUp } from "lucide-react";
+import { Send, ArrowLeft, Users, Database, Square, Mic, MicOff, Zap, ChevronDown, ChevronUp, PhoneCall } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { loadFullAppContext } from "@/mavis/appContextLoader";
 import {
@@ -9,6 +9,9 @@ import {
   type CouncilBoardMessage,
 } from "@/mavis/councilBoardService";
 import type { CouncilMember } from "@/mavis/councilPersona";
+import { buildCouncilMemberPrompt } from "@/mavis/councilPersona";
+import { VoiceChatOverlay } from "@/components/VoiceChatOverlay";
+import type { VoicePersona } from "@/components/VoiceChatOverlay";
 import type { UnifiedPersona } from "@/mavis/agentTypes";
 import { loadPersonaAgents } from "@/mavis/agentLoader";
 import { parseProposedActions, submitProposalsForApproval } from "@/mavis/proposeAction";
@@ -69,6 +72,7 @@ export default function CouncilBoard() {
   const [scrollProgress,   setScrollProgress]   = useState(0);
   const [showBackToTop,    setShowBackToTop]    = useState(false);
   const [isListening,      setIsListening]      = useState(false);
+  const [voiceTarget,      setVoiceTarget]      = useState<VoicePersona | null>(null);
 
   const cancelledRef   = useRef(false);
   const scrollRef      = useRef<HTMLDivElement>(null);
@@ -388,6 +392,24 @@ export default function CouncilBoard() {
             {activeSummonedPersonas.length > 0 && ` · ${activeSummonedPersonas.length} persona${activeSummonedPersonas.length > 1 ? "s" : ""} summoned`}
             {" · MAVIS presiding"}
           </p>
+          {/* Per-member voice call chips */}
+          {councilMembers.length > 0 && (
+            <div className="flex flex-wrap gap-1 mt-1">
+              {councilMembers.map((m) => (
+                <button
+                  key={m.id}
+                  onClick={() => setVoiceTarget({
+                    name: m.name,
+                    role: m.role ?? m.specialty,
+                    systemPrompt: buildCouncilMemberPrompt(m, ""),
+                  })}
+                  className="flex items-center gap-1 text-[9px] font-mono text-primary/60 hover:text-primary border border-primary/20 hover:border-primary/40 rounded px-1.5 py-0.5 transition-all"
+                  title={`Voice call ${m.name}`}
+                >
+                  <PhoneCall size={8} /> {m.name}</button>
+              ))}
+            </div>
+          </p>
         </div>
         {/* Persona summon toggle */}
         {personas.length > 0 && (
@@ -446,14 +468,22 @@ export default function CouncilBoard() {
                 <div className="flex flex-wrap gap-1.5 pt-1 border-t border-amber-900/30">
                   <span className="text-[10px] font-mono text-amber-500/50 self-center">In session:</span>
                   {activeSummonedPersonas.map(p => (
-                    <button
-                      key={p.id}
-                      onClick={() => handleUnsummon(p.id)}
-                      className="flex items-center gap-1 text-[10px] font-mono text-amber-200 border border-amber-500/40 bg-amber-800/30 hover:bg-red-900/30 hover:border-red-500/40 hover:text-red-300 rounded px-2 py-1 transition-all"
-                      title="Remove from session"
-                    >
-                      {p.name} ×
-                    </button>
+                    <div key={p.id} className="flex items-center gap-0.5">
+                      <button
+                        onClick={() => handleUnsummon(p.id)}
+                        className="flex items-center gap-1 text-[10px] font-mono text-amber-200 border border-amber-500/40 bg-amber-800/30 hover:bg-red-900/30 hover:border-red-500/40 hover:text-red-300 rounded-l px-2 py-1 transition-all"
+                        title="Remove from session"
+                      >
+                        {p.name} ×
+                      </button>
+                      <button
+                        onClick={() => setVoiceTarget({ name: p.name, role: p.role, systemPrompt: p.system_prompt })}
+                        className="flex items-center px-1.5 py-1 text-amber-400 border border-amber-500/40 bg-amber-800/30 hover:bg-amber-700/40 hover:text-amber-200 rounded-r border-l-0 transition-all"
+                        title={`Voice call ${p.name}`}
+                      >
+                        <PhoneCall size={9} />
+                      </button>
+                    </div>
                   ))}
                 </div>
               )}
@@ -609,6 +639,16 @@ export default function CouncilBoard() {
           </button>
         )}
       </div>
+
+      {/* Per-member / per-persona voice call overlay */}
+      <AnimatePresence>
+        {voiceTarget && (
+          <VoiceChatOverlay
+            persona={voiceTarget}
+            onClose={() => setVoiceTarget(null)}
+          />
+        )}
+      </AnimatePresence>
     </div>
   );
 }
