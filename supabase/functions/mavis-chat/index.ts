@@ -253,6 +253,173 @@ async function callWithFallback(
 }
 
 // ============================================================
+// STREAMING AI PROVIDER ADAPTERS
+// Mirror the non-streaming adapters above but return
+// ReadableStream<string> of text tokens for SSE delivery.
+// ============================================================
+
+function oaiSseToTextStream(body: ReadableStream<Uint8Array>): ReadableStream<string> {
+  const decoder = new TextDecoder();
+  const reader  = body.getReader();
+  let buf = "";
+  return new ReadableStream<string>({
+    async pull(controller) {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) { controller.close(); return; }
+        buf += decoder.decode(value, { stream: true });
+        const lines = buf.split("\n");
+        buf = lines.pop() ?? "";
+        for (const line of lines) {
+          if (!line.startsWith("data: ")) continue;
+          const data = line.slice(6).trim();
+          if (data === "[DONE]") { controller.close(); return; }
+          try {
+            const j = JSON.parse(data);
+            const t = j.choices?.[0]?.delta?.content;
+            if (t) controller.enqueue(t);
+          } catch { /* skip malformed */ }
+        }
+      }
+    }
+  });
+}
+
+function claudeSseToTextStream(body: ReadableStream<Uint8Array>): ReadableStream<string> {
+  const decoder   = new TextDecoder();
+  const reader    = body.getReader();
+  const textIdxs  = new Set<number>(); // indices of text-type content blocks
+  let buf = "";
+  return new ReadableStream<string>({
+    async pull(controller) {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) { controller.close(); return; }
+        buf += decoder.decode(value, { stream: true });
+        const lines = buf.split("\n");
+        buf = lines.pop() ?? "";
+        for (const line of lines) {
+          if (!line.startsWith("data: ")) continue;
+          try {
+            const j = JSON.parse(line.slice(6).trim());
+            if (j.type === "content_block_start" && j.content_block?.type === "text") textIdxs.add(j.index);
+            if (j.type === "content_block_delta" && j.delta?.type === "text_delta" && textIdxs.has(j.index)) {
+              const t = j.delta.text;
+              if (t) controller.enqueue(t);
+            }
+            if (j.type === "message_stop") { controller.close(); return; }
+          } catch { /* skip */ }
+        }
+      }
+    }
+  });
+}
+
+async function callOpenAIStream(messages: any[], system: string, key: string, model = "gpt-4o-mini"): Promise<ReadableStream<string>> {
+  const res = await fetch("https://api.openai.com/v1/chat/completions", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
+    body: JSON.stringify({ model, messages: [{ role: "system", content: system }, ...messages], max_tokens: 2048, temperature: 0.85, stream: true }),
+  });
+  if (!res.ok) {
+    const e = await res.text();
+    if (isUnfundedStatus(res.status, e)) throw new ProviderUnavailableError("openai", e.slice(0, 200), res.status);
+    throw new Error(`OpenAI ${res.status}: ${e}`);
+  }
+  return oaiSseToTextStream(res.body!);
+}
+
+async function callClaudeStream(messages: any[], system: string, key: string, model = "claude-haiku-4-5-20251001", useThinking = false): Promise<ReadableStream<string>> {
+  const res = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-api-key": key,
+      "anthropic-version": "2023-06-01",
+      ...(useThinking ? { "anthropic-beta": "interleaved-thinking-2025-05-14" } : {}),
+    },
+    body: JSON.stringify({
+      model,
+      max_tokens: useThinking ? 16000 : 2048,
+      ...(useThinking ? { thinking: { type: "enabled", budget_tokens: 8000 } } : {}),
+      system,
+      messages: messages.map((m: any) => ({ role: m.role, content: m.content })),
+      stream: true,
+    }),
+  });
+  if (!res.ok) {
+    const e = await res.text();
+    if (isUnfundedStatus(res.status, e)) throw new ProviderUnavailableError("claude", e.slice(0, 200), res.status);
+    throw new Error(`Claude ${res.status}: ${e}`);
+  }
+  return claudeSseToTextStream(res.body!);
+}
+
+async function callLovableStream(messages: any[], system: string, key: string, model = "google/gemini-2.5-flash"): Promise<ReadableStream<string>> {
+  const res = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
+    body: JSON.stringify({ model, messages: [{ role: "system", content: system }, ...messages], stream: true }),
+  });
+  if (!res.ok) {
+    const e = await res.text();
+    if (res.status === 402 || res.status === 429) throw new ProviderUnavailableError("lovable", e.slice(0, 200), res.status);
+    throw new Error(`Lovable ${res.status}: ${e}`);
+  }
+  return oaiSseToTextStream(res.body!);
+}
+
+async function callGrokStream(messages: any[], system: string, key: string): Promise<ReadableStream<string>> {
+  const res = await fetch("https://api.x.ai/v1/chat/completions", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
+    body: JSON.stringify({ model: "grok-3-mini", messages: [{ role: "system", content: system }, ...messages], max_tokens: 2048, temperature: 0.7, stream: true }),
+  });
+  if (!res.ok) {
+    const e = await res.text();
+    if (isUnfundedStatus(res.status, e)) throw new ProviderUnavailableError("grok", e.slice(0, 200), res.status);
+    throw new Error(`Grok ${res.status}: ${e}`);
+  }
+  return oaiSseToTextStream(res.body!);
+}
+
+async function callWithFallbackStream(
+  primary: Provider,
+  messages: any[],
+  system: string,
+  keys: { openai: string; claude: string; grok: string; lovable: string },
+  useThinking = false,
+): Promise<{ stream: ReadableStream<string>; provider: string }> {
+  if (primary === "claude" && keys.claude) {
+    try {
+      const stream = await callClaudeStream(messages, system, keys.claude, "claude-sonnet-4-6", useThinking);
+      return { stream, provider: useThinking ? "claude-sonnet-thinking" : "claude-sonnet" };
+    } catch (e: any) { if (!(e instanceof ProviderUnavailableError)) throw e; }
+  }
+  if (primary === "grok" && keys.grok) {
+    try { return { stream: await callGrokStream(messages, system, keys.grok), provider: "grok" }; }
+    catch (e: any) { if (!(e instanceof ProviderUnavailableError)) throw e; }
+  }
+  if (keys.lovable) {
+    try { return { stream: await callLovableStream(messages, system, keys.lovable), provider: "lovable-gemini-flash" }; }
+    catch (e: any) { console.warn(`[stream-fallback] Lovable: ${e.message}`); }
+  }
+  if (keys.openai) {
+    try { return { stream: await callOpenAIStream(messages, system, keys.openai), provider: "openai-mini" }; }
+    catch (e: any) { if (!(e instanceof ProviderUnavailableError)) throw e; }
+  }
+  if (keys.claude) {
+    try { return { stream: await callClaudeStream(messages, system, keys.claude, "claude-haiku-4-5-20251001", false), provider: "claude-haiku" }; }
+    catch (e: any) { if (!(e instanceof ProviderUnavailableError)) throw e; }
+  }
+  if (keys.grok) {
+    try { return { stream: await callGrokStream(messages, system, keys.grok), provider: "grok" }; }
+    catch (e: any) { if (!(e instanceof ProviderUnavailableError)) throw e; }
+  }
+  throw new Error("All AI providers unavailable for streaming.");
+}
+
+// ============================================================
 // TAVILY WEB SEARCH
 // ============================================================
 async function tavilySearch(query: string, key: string): Promise<string> {
@@ -528,7 +695,8 @@ serve(async (req) => {
     // ── Load data ───────────────────────────────────────────
     const sb = createClient(supabaseUrl, serviceKey, { auth: { persistSession: false } });
 
-    const { messages, systemPrompt: clientSystemPrompt, mode, conversationId, appState, attachmentIds, chatKind, threadRef } = await req.json();
+    const reqBody = await req.json();
+    const { messages, systemPrompt: clientSystemPrompt, mode, conversationId, appState, attachmentIds, chatKind, threadRef, stream: isStreaming } = reqBody;
 
     // Fetch profile from DB (don't trust client-sent profile)
     const { data: profile } = await sb.from("profiles").select("*").eq("id", user.id).single();
@@ -1025,11 +1193,75 @@ You always know the current date and time without being told. Reference it natur
     const modeUpper = (mode ?? "PRIME").toUpperCase();
     const useThinking = ["ARCH", "SOVEREIGN"].includes(modeUpper);
     const provider = routeToProvider(mode ?? "PRIME", lastUserMsg?.content ?? "");
+    const aiKeys = { openai: openaiKey, claude: claudeKey, grok: grokKey, lovable: lovableKey };
+
+    // ── Streaming path (SSE) ────────────────────────────────
+    if (isStreaming === true) {
+      const enc = new TextEncoder();
+      const IMAGE_KWS = ["generate","create an image","draw","make an image","picture of","photo of","illustration of","imagine","visualize","render","show me","design a","paint a","sketch"];
+      const sseBody = new ReadableStream<Uint8Array>({
+        async start(controller) {
+          let accumulated = "";
+          try {
+            const { stream: aiStream, provider: streamProv } = await callWithFallbackStream(
+              provider, callMessages, fullPrompt, aiKeys, useThinking,
+            );
+            const reader = aiStream.getReader();
+            while (true) {
+              const { done, value } = await reader.read();
+              if (done) break;
+              accumulated += value;
+              controller.enqueue(enc.encode(`data: ${JSON.stringify({ t: value })}\n\n`));
+            }
+            let imgUrl: string | null = null;
+            if (IMAGE_KWS.some(kw => lastUserText.toLowerCase().includes(kw))) {
+              try {
+                const imgRes = await fetch(`${supabaseUrl}/functions/v1/mavis-image-gen`, {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json", Authorization: `Bearer ${serviceKey}` },
+                  body: JSON.stringify({ prompt: lastUserText }),
+                });
+                if (imgRes.ok) { const d = await imgRes.json(); imgUrl = d.url ?? null; }
+              } catch { /* non-critical */ }
+            }
+            controller.enqueue(enc.encode(`data: ${JSON.stringify({ done: true, provider: streamProv, conversationId, searched: !!webSearchResults, imageUrl: imgUrl })}\n\n`));
+          } catch (e: any) {
+            controller.enqueue(enc.encode(`data: ${JSON.stringify({ error: e.message ?? "Stream error" })}\n\n`));
+          } finally {
+            controller.close();
+            if (accumulated.length > 5) {
+              const CORR_RE = /\b(no[,.]?\s+that'?s?\s+wrong|that'?s?\s+not\s+right|not\s+what\s+i\s+(said|meant|wanted)|stop\s+(doing|saying|using|calling)\s+\w|don'?t\s+(do|say|use|call)\s+\w|never\s+(do|say|use|call)\s+\w|i\s+(hate|dislike)\s+when\s+you|you'?re\s+wrong|wrong\s+answer|incorrect[,.]?\s+\w|that'?s?\s+incorrect)\b/i;
+              if (lastUserText.length > 5 && CORR_RE.test(lastUserText)) {
+                sb.from("mavis_tacit").insert({ user_id: user.id, category: "correction", key: `correction_${Date.now()}`, value: `[OPERATOR CORRECTION] User said: "${lastUserText.slice(0, 300)}" | Context: "${accumulated.slice(0, 200)}"` }).catch(() => {});
+              }
+              (async () => {
+                try {
+                  const { data: bnd } = await sb.from("mavis_bond").select("id,interaction_count").eq("user_id", user.id).single();
+                  if (bnd) { const c = (bnd.interaction_count ?? 0) + 1; await sb.from("mavis_bond").update({ interaction_count: c, bond_level: Math.min(100, Math.floor(c / 10)), trust_level: Math.min(100, Math.floor(c / 20)), last_interaction_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq("id", bnd.id); }
+                  else { await sb.from("mavis_bond").insert({ user_id: user.id, interaction_count: 1, bond_level: 0, trust_level: 0 }); }
+                } catch { /* non-critical */ }
+              })();
+              const sid = (conversationId as string | undefined) ?? "web-chat";
+              const ts = Date.now();
+              sb.from("mavis_memory").insert([
+                { user_id: user.id, session_id: sid, role: "user", content: lastUserText.slice(0, 4000), timestamp: ts, importance_score: scoreImportance(lastUserText), consolidated: false },
+                { user_id: user.id, session_id: sid, role: "assistant", content: accumulated.slice(0, 4000), timestamp: ts + 1, importance_score: scoreImportance(accumulated), consolidated: false },
+              ]).catch(() => {});
+            }
+          }
+        }
+      });
+      return new Response(sseBody, {
+        headers: { ...corsHeaders, "Content-Type": "text/event-stream", "Cache-Control": "no-cache", "X-Accel-Buffering": "no" }
+      });
+    }
+
+    // ── Non-streaming path ──────────────────────────────────
     const { content, provider: usedProvider } = await callWithFallback(
       provider,
       callMessages,
       fullPrompt,
-      { openai: openaiKey, claude: claudeKey, grok: grokKey, lovable: lovableKey },
+      aiKeys,
       useThinking,
     );
 
