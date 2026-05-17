@@ -1206,5 +1206,6 @@ export default function MavisChat() {
         />
       )}
     </AnimatePresence>
+  </>
   );
 }
