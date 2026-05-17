@@ -14,6 +14,7 @@ import { AttachmentTray, AttachButton } from "@/components/chat/AttachmentTray";
 import { DEFAULT_VOICE_BY_GENDER, findVoice } from "@/lib/voiceCatalog";
 import { ScrollProgressBar, BackToTopButton, ScrollToBottomButton, EndOfFeed } from "@/components/chat/ScrollKit";
 import { SessionBlock, groupMessagesIntoSessions } from "@/components/chat/SessionBlock";
+import { VoiceChatOverlay } from "@/components/VoiceChatOverlay";
 
 // ── MAVIS modules ───────────────────────────────────────────
 import { buildSystemPromptFromSnapshot } from "@/mavis/buildSystemPrompt";
@@ -65,6 +66,7 @@ export default function MavisChat() {
   const [scrollProgress, setScrollProgress] = useState(0);
   const [showBackToTop, setShowBackToTop] = useState(false);
   const [isComposing, setIsComposing] = useState(false);
+  const [voiceOverlayOpen, setVoiceOverlayOpen] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const [agentThinking, setAgentThinking] = useState<string | null>(null);
   const [artifactContent, setArtifactContent] = useState<string | null>(null);
@@ -340,6 +342,13 @@ export default function MavisChat() {
 
   const sessions = useMemo(() => groupMessagesIntoSessions(chatMessages), [chatMessages]);
   const initMessage = useMemo(() => chatMessages.find((m) => m.id === "init"), [chatMessages]);
+  const lastBotMessage = useMemo(() => {
+    const last = chatMessages.filter((m) => m.role === "assistant").at(-1);
+    if (!last) return "";
+    if (typeof last.content === "string") return last.content;
+    if (Array.isArray(last.content)) return (last.content as any[]).map((c) => (typeof c === "string" ? c : c?.text ?? "")).join("").trim();
+    return "";
+  }, [chatMessages]);
   const nonInitCount = useMemo(() => chatMessages.filter((m) => m.id !== "init").length, [chatMessages]);
   const lastMessageTime = useMemo(() => {
     const last = [...chatMessages].reverse().find((m) => m.id !== "init");
@@ -790,7 +799,8 @@ export default function MavisChat() {
       </AnimatePresence>
 
       {/* Mode selector */}
-      <div className="relative">
+      <div className="flex items-center gap-2">
+      <div className="relative flex-1">
         <button
           onClick={() => setShowModes(!showModes)}
           className={`flex items-center gap-2 px-3 py-2 rounded border border-border bg-card hover:border-primary/30 text-sm transition-all ${currentMode.color}`}
@@ -827,6 +837,13 @@ export default function MavisChat() {
             </motion.div>
           )}
         </AnimatePresence>
+      </div>
+      <button
+        onClick={() => setVoiceOverlayOpen(true)}
+        className="ml-auto flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-primary/30 text-primary/70 hover:text-primary hover:bg-primary/10 text-xs font-mono transition-all"
+      >
+        <Mic size={12} /> VOICE
+      </button>
       </div>
 
       {/* Messages */}
@@ -1177,5 +1194,16 @@ export default function MavisChat() {
       )}
     </AnimatePresence>
     </div>
+
+    <AnimatePresence>
+      {voiceOverlayOpen && (
+        <VoiceChatOverlay
+          onClose={() => setVoiceOverlayOpen(false)}
+          sendMessage={async (text) => { setInput(text); await sendMessage(text); }}
+          lastBotMessage={lastBotMessage}
+          isLoading={isLoading}
+        />
+      )}
+    </AnimatePresence>
   );
 }
