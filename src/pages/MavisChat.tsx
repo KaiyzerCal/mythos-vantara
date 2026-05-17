@@ -590,6 +590,20 @@ export default function MavisChat() {
       const actionsExecuted = confirmed.length;
       const agentSources: Array<{ title: string; url: string }> = (fnData as any)?.sources ?? [];
       const agentIterations: number | null = (fnData as any)?.iterations ?? null;
+      const imageMediaId: string | null = (fnData as any)?.imageMediaId ?? null;
+
+      // Auto-link generated image to vault entry if both were created this turn
+      if (imageMediaId && confirmed.some(r => ["create_vault", "create_vault_entry", "add_vault"].includes(r.action.type))) {
+        (async () => {
+          try {
+            const { data: { session: s2 } } = await supabase.auth.getSession();
+            if (!s2?.user) return;
+            const fiveSecsAgo = new Date(Date.now() - 5000).toISOString();
+            const { data: recent } = await supabase.from("vault_entries").select("id").eq("user_id", s2.user.id).gte("created_at", fiveSecsAgo).order("created_at", { ascending: false }).limit(1).maybeSingle();
+            if (recent?.id) await supabase.from("vault_media").update({ vault_entry_id: recent.id }).eq("id", imageMediaId);
+          } catch { /* non-critical */ }
+        })();
+      }
       const assistantMsg = {
         id: `a-${Date.now()}`,
         role: "assistant" as const,
