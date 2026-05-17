@@ -29,6 +29,7 @@ const READ_TABLES = new Set([
 
 const WRITE_TABLES = new Set([
   "quests", "tasks", "rituals", "mavis_notes", "mavis_memory", "mavis_tasks",
+  "contacts", "contact_interactions",
 ]);
 
 // ── Sandboxed JS executor (mirrors mavis-code-exec) ───────────────────────────
@@ -153,6 +154,46 @@ const AGENT_TOOLS = [
       required: ["code"],
     },
   },
+  {
+    name: "query_documents",
+    description:
+      "Semantic search over uploaded and ingested documents (PDFs, articles, web pages) that have been extracted into the knowledge base. Use when the user asks about the content of a file they've uploaded or a URL they've ingested.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        query: { type: "string", description: "Natural language query about the document content" },
+        limit: { type: "number", description: "Max results (default 6)" },
+        doc_source: { type: "string", description: "Optional: filter by document file name to narrow results to a specific file" },
+      },
+      required: ["query"],
+    },
+  },
+  {
+    name: "analyze_image",
+    description:
+      "Analyze an image by URL using Claude vision. Use when the operator wants MAVIS to describe, read text from, or reason about an image file. Works with vault-media image URLs or any public image URL.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        image_url: { type: "string", description: "Public URL of the image to analyze" },
+        question: { type: "string", description: "What to look for or describe in the image (e.g., 'What text is visible?', 'Describe this chart', 'What objects are in this photo?')" },
+      },
+      required: ["image_url"],
+    },
+  },
+  {
+    name: "run_python",
+    description:
+      "Execute real Python code with full library support (pandas, numpy, math, json, datetime, etc.) in a sandboxed environment. Use for data analysis, CSV processing, mathematical modeling, or any task requiring Python-only libraries. Returns stdout and stderr.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        code: { type: "string", description: "Python code to execute. Use print() for output." },
+        description: { type: "string", description: "Brief description of what the code does (shown to user as thinking indicator)" },
+      },
+      required: ["code"],
+    },
+  },
 ];
 
 // ── Tool executor ─────────────────────────────────────────────────────────────
@@ -266,6 +307,102 @@ async function executeTool(
         if (!code.trim()) return JSON.stringify({ error: "No code provided" });
         const result = await runCode(code);
         return JSON.stringify(result);
+      }
+
+      case "query_documents": {
+        const query = String(input.query ?? "");
+        const limit = Number(input.limit ?? 6);
+        const docSource = input.doc_source ? String(input.doc_source) : null;
+
+        if (!openaiKey) return JSON.stringify({ error: "OpenAI key not configured for embeddings" });
+        const embedRes = await fetch("https://api.openai.com/v1/embeddings", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${openaiKey}` },
+          body: JSON.stringify({ model: "text-embedding-3-small", input: query }),
+        });
+        if (!embedRes.ok) return JSON.stringify({ error: `Embedding failed: ${embedRes.status}` });
+        const embedData = await embedRes.json();
+        const embedding = embedData.data?.[0]?.embedding;
+        if (!embedding) return JSON.stringify({ error: "No embedding returned" });
+
+        const { data, error } = await adminSb.rpc("match_mavis_notes", {
+          query_embedding: embedding,
+          match_threshold: 0.4,
+          match_count: limit * 2,
+          p_user_id: userId,
+        });
+        if (error) return JSON.stringify({ error: error.message });
+
+        let results = (data ?? []).filter((n: any) =>
+          Array.isArray(n.tags) && n.tags.includes("document")
+        );
+        if (docSource) {
+          results = results.filter((n: any) =>
+            String(n.properties?.doc_source ?? "").toLowerCase().includes(docSource.toLowerCase())
+          );
+        }
+        return JSON.stringify(results.slice(0, limit).map((n: any) => ({
+          title: n.title,
+          content: n.content,
+          doc_source: n.properties?.doc_source ?? null,
+          similarity: n.similarity,
+        })));
+      }
+
+      case "analyze_image": {
+        const imageUrl = String(input.image_url ?? "");
+        const question = String(input.question ?? "Describe this image in detail.");
+        if (!imageUrl) return JSON.stringify({ error: "image_url is required" });
+
+        const claudeKey = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
+        if (!claudeKey) return JSON.stringify({ error: "Claude API key not configured" });
+
+        const res = await fetch("https://api.anthropic.com/v1/messages", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-api-key": claudeKey,
+            "anthropic-version": "2023-06-01",
+          },
+          body: JSON.stringify({
+            model: "claude-haiku-4-5-20251001",
+            max_tokens: 1024,
+            messages: [{
+              role: "user",
+              content: [
+                { type: "image", source: { type: "url", url: imageUrl } },
+                { type: "text", text: question },
+              ],
+            }],
+          }),
+        });
+        if (!res.ok) {
+          const err = await res.text();
+          return JSON.stringify({ error: `Vision API error ${res.status}: ${err.slice(0, 200)}` });
+        }
+        const d = await res.json();
+        const analysis = (d.content ?? []).filter((b: any) => b.type === "text").map((b: any) => b.text).join("");
+        return JSON.stringify({ analysis, image_url: imageUrl });
+      }
+
+      case "run_python": {
+        const code = String(input.code ?? "");
+        if (!code.trim()) return JSON.stringify({ error: "No code provided" });
+
+        const supabaseUrl2 = Deno.env.get("SUPABASE_URL") ?? "";
+        const serviceKey2 = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+
+        try {
+          const res = await fetch(`${supabaseUrl2}/functions/v1/mavis-python-exec`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${serviceKey2}` },
+            body: JSON.stringify({ code, timeout_ms: 30000 }),
+          });
+          const data = await res.json();
+          return JSON.stringify(data);
+        } catch (err: any) {
+          return JSON.stringify({ error: err.message ?? "Python exec failed" });
+        }
       }
 
       default:

@@ -47,6 +47,10 @@ import { ContactsPage } from "@/pages/ContactsPage";
 import { AnalyticsPage } from "@/pages/AnalyticsPage";
 import { RepurposePage } from "@/pages/RepurposePage";
 import { HealthPage } from "@/pages/HealthPage";
+import { FinancePage } from "@/pages/FinancePage";
+import { SchedulerPage } from "@/pages/SchedulerPage";
+import { GoalsPage } from "@/pages/GoalsPage";
+import { StudyPage } from "@/pages/StudyPage";
 
 const queryClient = new QueryClient();
 
@@ -101,6 +105,10 @@ function AppContent() {
             <Route path="/analytics" element={<AnalyticsPage />} />
             <Route path="/repurpose" element={<RepurposePage />} />
             <Route path="/health" element={<HealthPage />} />
+            <Route path="/finance" element={<FinancePage />} />
+            <Route path="/scheduler" element={<SchedulerPage />} />
+            <Route path="/goals" element={<GoalsPage />} />
+            <Route path="/study" element={<StudyPage />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </main>

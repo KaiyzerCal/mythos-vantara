@@ -254,6 +254,10 @@ export function VaultCodexPage() {
   const [showGallery, setShowGallery] = useState(false);
   const [galleryTab, setGalleryTab] = useState<"all" | "image" | "video" | "audio" | "document">("all");
   const [lightboxItem, setLightboxItem] = useState<any>(null);
+  const [showIngestUrl, setShowIngestUrl] = useState(false);
+  const [ingestUrl, setIngestUrl] = useState("");
+  const [ingestSaveAs, setIngestSaveAs] = useState<"note" | "vault">("note");
+  const [ingesting, setIngesting] = useState(false);
 
   const categories = ["all", "legal", "business", "personal", "evidence", "achievement"];
   const filtered = vaultEntries.filter((e) => catFilter === "all" || e.category === catFilter);
@@ -288,6 +292,27 @@ export function VaultCodexPage() {
     const a = document.createElement("a"); a.href = url; a.download = `vault_${new Date().toISOString().slice(0,10)}.md`; a.click();
     URL.revokeObjectURL(url);
     toast.success("Vault exported as Markdown");
+  };
+
+  const handleIngestUrl = async () => {
+    if (!ingestUrl.trim() || !session?.access_token) return;
+    setIngesting(true);
+    try {
+      const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/mavis-ingest-url`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify({ url: ingestUrl, save_as: ingestSaveAs }),
+      });
+      const data = await res.json();
+      if (!res.ok || data.error) throw new Error(data.error ?? "Ingest failed");
+      toast.success(`"${data.title ?? ingestUrl}" ingested — ${data.chunks_created ?? 0} knowledge chunks added`);
+      setShowIngestUrl(false);
+      setIngestUrl("");
+    } catch (err: any) {
+      toast.error(err.message ?? "URL ingest failed");
+    } finally {
+      setIngesting(false);
+    }
   };
 
   const handleEdit = (e: any) => {
@@ -349,7 +374,7 @@ export function VaultCodexPage() {
         else if (file.type.startsWith("audio/")) fileType = "audio";
         else if (file.type.includes("pdf")) fileType = "pdf";
 
-        await supabase.from("vault_media").insert({
+        const { data: mediaRow } = await supabase.from("vault_media").insert({
           user_id: userId,
           vault_entry_id: entryId,
           file_name: file.name,
@@ -358,7 +383,21 @@ export function VaultCodexPage() {
           file_size: file.size,
           description: "",
           tags: [],
-        });
+        }).select("id").maybeSingle();
+
+        // Auto-extract text from documents for MAVIS knowledge base (non-blocking)
+        const isExtractable = ["pdf", "document"].includes(fileType) ||
+          file.name.match(/\.(txt|md|csv|json|docx?)$/i);
+        if (isExtractable && fileUrl && session?.access_token) {
+          const extractPayload = { file_url: fileUrl, file_name: file.name, file_type: fileType, vault_entry_id: entryId ?? mediaRow?.id ?? null };
+          fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/mavis-doc-extract`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+            body: JSON.stringify(extractPayload),
+          }).then(r => r.json()).then(d => {
+            if (d.chunks_created > 0) toast.success(`📚 ${file.name} extracted — ${d.chunks_created} knowledge chunks added`);
+          }).catch(() => {});
+        }
       }
 
       // Reload media
@@ -421,6 +460,9 @@ export function VaultCodexPage() {
           <div className="flex gap-2 flex-wrap">
             <button onClick={exportVaultMarkdown} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono bg-muted/30 border border-border text-muted-foreground hover:text-primary hover:border-primary/30 rounded transition-all">
               <FileDown size={12} /> Export
+            </button>
+            <button onClick={() => setShowIngestUrl(u => !u)} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono bg-muted/30 border border-border text-muted-foreground hover:text-primary hover:border-primary/30 rounded transition-all">
+              <Download size={12} /> Ingest URL
             </button>
             <button
               onClick={() => setShowGallery(g => !g)}
