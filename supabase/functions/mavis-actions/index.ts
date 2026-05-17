@@ -971,6 +971,52 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
       return;
     }
 
+    case "run_code":
+    case "execute_code": {
+      const code = String(p.code ?? "").trim();
+      if (!code) throw new Error("run_code requires a 'code' parameter");
+
+      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+      const serviceKey  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+
+      const res = await fetch(`${supabaseUrl}/functions/v1/mavis-code-exec`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${serviceKey}` },
+        body: JSON.stringify({ code }),
+      });
+      if (!res.ok) throw new Error(`Code exec service error (${res.status})`);
+
+      const data = await res.json();
+      if (data.error) throw new Error(`Runtime error: ${data.error}`);
+
+      // Persist result as a knowledge note so MAVIS can reference it in context
+      const timestamp = new Date().toISOString().slice(0, 16).replace("T", " ");
+      const resultNote = [
+        "```javascript",
+        code.slice(0, 2000),
+        "```",
+        "",
+        "**Output:**",
+        "```",
+        ...(data.output ?? []),
+        data.result !== undefined ? `\nReturn: ${data.result}` : "",
+        "```",
+      ].join("\n");
+
+      await sb.from("mavis_notes").insert({
+        user_id:    userId,
+        title:      `[CODE] ${timestamp}`,
+        content:    resultNote.slice(0, 8000),
+        tags:       ["code-execution", "auto"],
+        aliases:    [],
+        properties: { skip_sr: true, source: "code_exec" },
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      }).catch(() => {});
+
+      return;
+    }
+
     default:
       throw new Error(`Unknown MAVIS action: ${action.type}`);
   }

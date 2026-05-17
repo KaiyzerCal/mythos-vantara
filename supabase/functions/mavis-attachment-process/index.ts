@@ -196,13 +196,15 @@ Deno.serve(async (req) => {
       })
       .eq("id", attachmentId);
 
-    // Auto-create a Knowledge Graph note for non-trivial extracted content
+    // Auto-create Knowledge Graph note(s) for non-trivial extracted content.
+    // Large documents are chunked so semantic search can recall specific sections,
+    // not just the first 8K characters.
     if (extracted.length > 100 && kind !== "other") {
       (async () => {
         try {
           const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
           const serviceKey  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-          const title       = attachment.file_name.replace(/\.[^.]+$/, "").slice(0, 120);
+          const baseTitle   = attachment.file_name.replace(/\.[^.]+$/, "").slice(0, 100);
           const tagMap: Record<string, string[]> = {
             image: ["attachment", "image"],
             audio: ["attachment", "audio", "transcript"],
@@ -210,27 +212,63 @@ Deno.serve(async (req) => {
             pdf:   ["attachment", "document"],
             text:  ["attachment", "document"],
           };
-          // Create note in knowledge graph
-          const noteRes = await fetch(`${supabaseUrl}/functions/v1/mavis-knowledge`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json", Authorization: `Bearer ${serviceKey}` },
-            body: JSON.stringify({
-              action:  "create_note",
-              user_id: userId,
-              title,
-              content: `# ${title}\n\n*Source: ${attachment.file_name} (${kind})*\n\n---\n\n${extracted.slice(0, 8000)}`,
-              tags:    tagMap[kind] ?? ["attachment"],
-              properties: { source_attachment_id: attachmentId, mime_type: attachment.mime_type },
-              aliases: [],
-            }),
-          });
-          if (noteRes.ok) {
-            const noteData = await noteRes.json();
-            const noteId   = noteData?.note?.id;
-            // Update attachment row with the linked note id
-            if (noteId) {
-              await sb.from("chat_attachments").update({ linked_note_id: noteId }).eq("id", attachmentId).catch(() => {});
+          const tags = tagMap[kind] ?? ["attachment"];
+
+          // Chunk large text documents for better RAG recall.
+          // Images/audio get one note (the description IS the content).
+          const CHUNK_SIZE    = 3500;
+          const CHUNK_OVERLAP = 300;
+          const sourceHeader  = `*Source: ${attachment.file_name} (${kind})*\n\n---\n\n`;
+
+          let chunks: string[];
+          if (kind === "image" || kind === "audio" || kind === "video" || extracted.length <= CHUNK_SIZE) {
+            chunks = [extracted];
+          } else {
+            chunks = [];
+            let pos = 0;
+            while (pos < extracted.length) {
+              chunks.push(extracted.slice(pos, pos + CHUNK_SIZE));
+              pos += CHUNK_SIZE - CHUNK_OVERLAP;
+              if (pos >= extracted.length) break;
             }
+          }
+
+          let firstNoteId: string | null = null;
+          for (let i = 0; i < chunks.length; i++) {
+            const title = chunks.length === 1
+              ? baseTitle
+              : `${baseTitle} [${i + 1}/${chunks.length}]`;
+
+            const content = `# ${title}\n\n${sourceHeader}${chunks[i]}`;
+
+            const noteRes = await fetch(`${supabaseUrl}/functions/v1/mavis-knowledge`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json", Authorization: `Bearer ${serviceKey}` },
+              body: JSON.stringify({
+                action:     "create_note",
+                user_id:    userId,
+                title,
+                content:    content.slice(0, 8000),
+                tags:       [...tags, ...(chunks.length > 1 ? ["chunked"] : [])],
+                properties: {
+                  source_attachment_id: attachmentId,
+                  mime_type:  attachment.mime_type,
+                  chunk:      i,
+                  total_chunks: chunks.length,
+                  skip_sr:    true,
+                },
+                aliases: [],
+              }),
+            });
+
+            if (noteRes.ok && i === 0) {
+              const nd = await noteRes.json();
+              firstNoteId = nd?.note?.id ?? null;
+            }
+          }
+
+          if (firstNoteId) {
+            await sb.from("chat_attachments").update({ linked_note_id: firstNoteId }).eq("id", attachmentId).catch(() => {});
           }
         } catch { /* non-critical */ }
       })();

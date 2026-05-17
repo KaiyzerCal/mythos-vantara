@@ -461,6 +461,10 @@ PERSONAS (Persona Forge / Persona Tab):
 :::ACTION{"type":"delete_persona","params":{"persona_name":"..."}}:::
 When the operator asks you to create/forge/build/spawn a persona, ALWAYS emit a forge_persona action with a rich description — this routes through the SAME pipeline as the Persona Forge tab, so the new persona appears in the roster with full chat, voice, memory, and relationship capabilities.
 
+CODE EXECUTION (use when precision matters — revenue calc, data analysis, math):
+:::ACTION{"type":"run_code","params":{"code":"// any valid JavaScript — Math, JSON, Date, Array available\n// Use console.log() for output. Return a value for the result.\nreturn 2 + 2;"}}:::
+Use this instead of estimating when the operator asks for exact numbers, totals, or computed analysis.
+
 RULES: Use exact IDs from the LIVE BACKEND STATE block above. Never claim an action without emitting the tag. Chain as many tags as needed in one response. complete_quest handles XP automatically. You have write access to every page and section of the app — quests, tasks, skills, journal, vault, council, inventory, energy, allies, rituals, forms/transformations, scouter/rankings, store, BPM, personas, and the operator profile itself.
 
 ---
@@ -761,8 +765,40 @@ ${fmtMemories}
     // ── Web search if needed ────────────────────────────────
     let webSearchResults = "";
     const lastUserMsg = [...(messages || [])].reverse().find((m: any) => m.role === "user");
-    if (lastUserMsg && tavilyKey && needsWebSearch(lastUserMsg.content)) {
-      webSearchResults = await tavilySearch(lastUserMsg.content, tavilyKey);
+
+    // Extract plain text from message (handles both string and multimodal array)
+    const lastUserText: string = typeof lastUserMsg?.content === "string"
+      ? lastUserMsg.content
+      : (Array.isArray(lastUserMsg?.content)
+          ? ((lastUserMsg.content as any[]).find((b: any) => b.type === "text")?.text ?? "")
+          : "");
+
+    if (lastUserMsg && tavilyKey && needsWebSearch(lastUserText)) {
+      webSearchResults = await tavilySearch(lastUserText, tavilyKey);
+    }
+
+    // ── URL full-content extraction (Jina Reader) ───────────
+    // When user shares a URL, fetch the full page text and inject it.
+    // Complements Tavily (broad search) — Jina reads the specific page.
+    let urlContent = "";
+    if (!webSearchResults) {
+      const URL_RE = /https?:\/\/[^\s<>"',;)]+/g;
+      const foundUrls = lastUserText.match(URL_RE);
+      if (foundUrls?.length) {
+        try {
+          const target = foundUrls[0];
+          const jinaRes = await fetch(`https://r.jina.ai/${encodeURIComponent(target)}`, {
+            headers: { Accept: "text/plain", "X-No-Cache": "true", "X-Timeout": "10" },
+            signal: AbortSignal.timeout(12000),
+          });
+          if (jinaRes.ok) {
+            const text = await jinaRes.text();
+            if (text.length > 100) {
+              urlContent = `\n═══ URL CONTENT: ${target} ═══\n${text.slice(0, 12000)}\n═══ END URL CONTENT ═══`;
+            }
+          }
+        } catch { /* non-critical — continue without URL content */ }
+      }
     }
 
     // ── Knowledge Graph semantic search ────────────────────
@@ -859,6 +895,33 @@ Unix: ${Math.floor(now.getTime() / 1000)}
 You always know the current date and time without being told. Reference it naturally when relevant (greetings, deadlines, time-since-last-message, scheduling, urgency).
 ═══ END TEMPORAL AWARENESS ═══`;
 
+    // ── Proactive pattern detection ──────────────────────────
+    // Silently detect patterns MAVIS should surface when contextually relevant.
+    let proactiveBlock = "";
+    try {
+      const sevenDaysAgo = new Date(Date.now() - 7 * 86400000).toISOString();
+      const twoDaysAgo   = new Date(Date.now() - 2 * 86400000).toISOString();
+      const [stalledRes, streakRes, revenueRes] = await Promise.all([
+        sb.from("quests").select("title").eq("user_id", user.id).eq("status", "active").lt("updated_at", sevenDaysAgo).limit(5),
+        sb.from("tasks").select("title,streak").eq("user_id", user.id).eq("type", "habit").gt("streak", 2).lt("updated_at", twoDaysAgo).limit(5),
+        sb.from("mavis_revenue").select("id").eq("user_id", user.id).gte("created_at", sevenDaysAgo).limit(1),
+      ]);
+      const alerts: string[] = [];
+      if (stalledRes.data?.length) {
+        alerts.push(`${stalledRes.data.length} quest(s) idle 7+ days: ${(stalledRes.data as any[]).slice(0, 3).map((q: any) => q.title).join(", ")}`);
+      }
+      const atRisk = (streakRes.data ?? []) as any[];
+      if (atRisk.length) {
+        alerts.push(`${atRisk.length} habit streak(s) at risk: ${atRisk.slice(0, 3).map((t: any) => `${t.title} (${t.streak}d)`).join(", ")}`);
+      }
+      if (!revenueRes.data?.length) {
+        alerts.push("No revenue logged in the past 7 days.");
+      }
+      if (alerts.length) {
+        proactiveBlock = `\n═══ PATTERN ALERTS (surface unprompted when contextually relevant) ═══\n${alerts.map(a => `• ${a}`).join("\n")}\n═══ END ALERTS ═══`;
+      }
+    } catch { /* non-critical */ }
+
     const fullPrompt = [
       baseSystem,
       timeBlock,
@@ -866,6 +929,8 @@ You always know the current date and time without being told. Reference it natur
       naviBlock,
       knowledgeBlock,
       attachmentsBlock,
+      proactiveBlock,
+      urlContent,
       webSearchResults ? `\n---\nWEB SEARCH:\n${webSearchResults}\n---` : "",
     ].filter(Boolean).join("\n\n");
 
