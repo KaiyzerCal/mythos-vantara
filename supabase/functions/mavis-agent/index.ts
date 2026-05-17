@@ -207,6 +207,45 @@ const AGENT_TOOLS = [
       required: ["query"],
     },
   },
+  {
+    name: "post_to_linkedin",
+    description: "Post content to LinkedIn as Nora Vale persona. Can generate content automatically or use provided text.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        content: { type: "string", description: "Text to post. Leave empty to auto-generate." },
+        generate: { type: "boolean", description: "If true, generate post content via Claude before posting." },
+      },
+      required: [],
+    },
+  },
+  {
+    name: "send_email",
+    description: "Send an email via Resend. Can auto-draft the email body using Claude if generate=true.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        to: { type: "string", description: "Recipient email address" },
+        subject: { type: "string", description: "Email subject line" },
+        body: { type: "string", description: "Email body. Leave empty if using generate." },
+        generate: { type: "boolean", description: "If true, draft the email via Claude." },
+        generate_prompt: { type: "string", description: "What the email should be about (used when generate=true)" },
+      },
+      required: ["to"],
+    },
+  },
+  {
+    name: "dispatch_webhook",
+    description: "Fire an outbound webhook event to all registered endpoints matching the event type. Use when a significant action completes (quest, goal, revenue logged).",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        event_type: { type: "string", description: "Event type e.g. quest.completed, goal.achieved, mavis.insight" },
+        payload: { type: "object", description: "Event data to send to the webhook" },
+      },
+      required: ["event_type"],
+    },
+  },
 ];
 
 // ── Tool executor ─────────────────────────────────────────────────────────────
@@ -453,6 +492,66 @@ async function executeTool(
           return JSON.stringify({ report, query });
         } catch (err: any) {
           return JSON.stringify({ error: err.message ?? "Deep research failed" });
+        }
+      }
+
+      case "post_to_linkedin": {
+        const supabaseUrl4 = Deno.env.get("SUPABASE_URL") ?? "";
+        const serviceKey4  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+        try {
+          const res = await fetch(`${supabaseUrl4}/functions/v1/mavis-nora-linkedin`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${serviceKey4}` },
+            body: JSON.stringify({
+              user_id: userId,
+              content: String(input.content ?? ""),
+              generate: Boolean(input.generate ?? !input.content),
+            }),
+          });
+          return JSON.stringify(await res.json());
+        } catch (err: any) {
+          return JSON.stringify({ error: err.message ?? "LinkedIn post failed" });
+        }
+      }
+
+      case "send_email": {
+        const supabaseUrl5 = Deno.env.get("SUPABASE_URL") ?? "";
+        const serviceKey5  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+        try {
+          const res = await fetch(`${supabaseUrl5}/functions/v1/mavis-email-send`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${serviceKey5}` },
+            body: JSON.stringify({
+              user_id: userId,
+              to: input.to,
+              subject: input.subject,
+              body: input.body,
+              generate: input.generate,
+              generate_prompt: input.generate_prompt,
+            }),
+          });
+          return JSON.stringify(await res.json());
+        } catch (err: any) {
+          return JSON.stringify({ error: err.message ?? "Email send failed" });
+        }
+      }
+
+      case "dispatch_webhook": {
+        const supabaseUrl6 = Deno.env.get("SUPABASE_URL") ?? "";
+        const serviceKey6  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+        try {
+          const res = await fetch(`${supabaseUrl6}/functions/v1/mavis-webhook-dispatch`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${serviceKey6}` },
+            body: JSON.stringify({
+              user_id: userId,
+              event_type: input.event_type,
+              payload: input.payload ?? {},
+            }),
+          });
+          return JSON.stringify(await res.json());
+        } catch (err: any) {
+          return JSON.stringify({ error: err.message ?? "Webhook dispatch failed" });
         }
       }
 
