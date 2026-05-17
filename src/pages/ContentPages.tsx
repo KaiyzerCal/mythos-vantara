@@ -3,8 +3,8 @@
 // All with full edit/modify support + auto-seed for skills
 // ============================================================
 import { useState, useEffect, useRef } from "react";
-import { motion } from "framer-motion";
-import { BookOpen, BookLock, Sparkles, Package, Plus, Trash2, Loader2, Star, Edit2, Upload, FileText, Image, Film, Music, File, X, Eye } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
+import { BookOpen, BookLock, Sparkles, Package, Plus, Trash2, Loader2, Star, Edit2, Upload, FileText, Image, Film, Music, File, X, Eye, LayoutGrid, ChevronLeft, ChevronRight, Wand2 } from "lucide-react";
 import { useAppData } from "@/contexts/AppDataContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
@@ -142,6 +142,9 @@ export function VaultCodexPage() {
   const [entryMedia, setEntryMedia] = useState<Record<string, any[]>>({});
   const [showUploadFor, setShowUploadFor] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [showGallery, setShowGallery] = useState(false);
+  const [galleryTab, setGalleryTab] = useState<"all" | "image" | "video" | "audio" | "document">("all");
+  const [lightboxItem, setLightboxItem] = useState<any>(null);
 
   const categories = ["all", "legal", "business", "personal", "evidence", "achievement"];
   const filtered = vaultEntries.filter((e) => catFilter === "all" || e.category === catFilter);
@@ -297,12 +300,18 @@ export function VaultCodexPage() {
         actions={
           <div className="flex gap-2">
             <button
-              onClick={() => { setShowUploadFor("__standalone"); }}
+              onClick={() => setShowGallery(g => !g)}
+              className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono rounded border transition-all ${showGallery ? "bg-primary/10 border-primary/30 text-primary" : "bg-muted/30 border-border text-muted-foreground hover:text-primary hover:border-primary/30"}`}
+            >
+              <LayoutGrid size={12} /> Gallery
+            </button>
+            <button
+              onClick={() => { setShowUploadFor("__standalone"); setShowGallery(false); }}
               className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono bg-muted/30 border border-border text-muted-foreground hover:text-primary hover:border-primary/30 rounded transition-all"
             >
-              <Upload size={12} /> Upload Files
+              <Upload size={12} /> Upload
             </button>
-            <button onClick={() => { resetForm(); setShowCreate(true); }} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono bg-primary/10 border border-primary/30 text-primary rounded">
+            <button onClick={() => { resetForm(); setShowCreate(true); setShowGallery(false); }} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono bg-primary/10 border border-primary/30 text-primary rounded">
               <Plus size={12} /> New Entry
             </button>
           </div>
@@ -359,6 +368,174 @@ export function VaultCodexPage() {
           </div>
         </HudCard>
       )}
+
+      {/* ── Full Media Gallery ───────────────────────────────── */}
+      <AnimatePresence>
+        {showGallery && (() => {
+          const allMedia: any[] = Object.values(entryMedia).flat().sort((a, b) =>
+            new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+          );
+          const TABS: Array<{ key: "all" | "image" | "video" | "audio" | "document"; label: string }> = [
+            { key: "all", label: `All (${allMedia.length})` },
+            { key: "image", label: `Images (${allMedia.filter(m => m.file_type === "image").length})` },
+            { key: "video", label: `Videos (${allMedia.filter(m => m.file_type === "video").length})` },
+            { key: "audio", label: `Audio (${allMedia.filter(m => m.file_type === "audio").length})` },
+            { key: "document", label: `Docs (${allMedia.filter(m => !["image","video","audio"].includes(m.file_type)).length})` },
+          ];
+          const filtered2 = galleryTab === "all" ? allMedia
+            : galleryTab === "document" ? allMedia.filter(m => !["image","video","audio"].includes(m.file_type))
+            : allMedia.filter(m => m.file_type === galleryTab);
+          const imgItems = filtered2.filter(m => m.file_type === "image");
+
+          // Entry title lookup
+          const entryTitles: Record<string, string> = {};
+          (vaultEntries as any[]).forEach((e: any) => { entryTitles[e.id] = e.title; });
+
+          const openLightbox = (item: any) => item.file_type === "image" ? setLightboxItem(item) : window.open(item.file_url, "_blank");
+          const lightboxIdx = lightboxItem ? imgItems.findIndex(m => m.id === lightboxItem.id) : -1;
+
+          return (
+            <motion.div
+              key="gallery"
+              initial={{ opacity: 0, y: -6 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -6 }}
+              className="space-y-3"
+            >
+              {/* Tab pills */}
+              <div className="flex gap-1.5 flex-wrap">
+                {TABS.map(t => (
+                  <button
+                    key={t.key}
+                    onClick={() => setGalleryTab(t.key)}
+                    className={`px-2.5 py-1 text-[10px] font-mono rounded border transition-all ${galleryTab === t.key ? "bg-primary/10 border-primary/30 text-primary" : "border-border/50 text-muted-foreground hover:text-primary"}`}
+                  >
+                    {t.label}
+                  </button>
+                ))}
+              </div>
+
+              {filtered2.length === 0 ? (
+                <div className="flex flex-col items-center gap-2 py-12 text-muted-foreground">
+                  <LayoutGrid size={32} className="opacity-30" />
+                  <p className="text-xs font-mono">No media yet — upload files or ask MAVIS to generate an image.</p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                  {filtered2.map((m: any) => (
+                    <div
+                      key={m.id}
+                      className="relative group border border-border/50 rounded-lg overflow-hidden cursor-pointer hover:border-primary/40 transition-all"
+                      onClick={() => openLightbox(m)}
+                    >
+                      {m.file_type === "image" ? (
+                        <img src={m.file_url} alt={m.file_name} className="w-full h-28 object-cover" />
+                      ) : (
+                        <div className="w-full h-28 flex flex-col items-center justify-center gap-1.5 bg-muted/20">
+                          {getFileIcon(m.file_type)}
+                          <span className="text-[8px] font-mono text-muted-foreground text-center px-1 line-clamp-2">{m.file_name}</span>
+                        </div>
+                      )}
+                      {/* Generated tag */}
+                      {m.tags?.includes("mavis-generated") && (
+                        <div className="absolute top-1.5 left-1.5">
+                          <span className="flex items-center gap-0.5 text-[7px] font-mono bg-primary/80 text-background rounded px-1 py-0.5">
+                            <Wand2 size={7} /> AI
+                          </span>
+                        </div>
+                      )}
+                      {/* Hover overlay */}
+                      <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                        <button className="p-1.5 bg-primary/20 rounded-full"><Eye size={13} className="text-primary" /></button>
+                        <button
+                          onClick={(ev) => { ev.stopPropagation(); deleteMedia(m.id, m.file_url); }}
+                          className="p-1.5 bg-destructive/20 rounded-full"
+                        >
+                          <Trash2 size={13} className="text-destructive" />
+                        </button>
+                      </div>
+                      {/* Footer */}
+                      <div className="px-2 py-1 bg-card/90 border-t border-border/30">
+                        <p className="text-[8px] font-mono text-muted-foreground truncate">{m.file_name}</p>
+                        {m.vault_entry_id && entryTitles[m.vault_entry_id] && (
+                          <p className="text-[7px] font-mono text-primary/60 truncate">📁 {entryTitles[m.vault_entry_id]}</p>
+                        )}
+                        <p className="text-[7px] font-mono text-muted-foreground/50">{new Date(m.created_at).toLocaleDateString()}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Lightbox */}
+              <AnimatePresence>
+                {lightboxItem && (
+                  <motion.div
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    className="fixed inset-0 z-50 bg-black/90 flex items-center justify-center p-4"
+                    onClick={() => setLightboxItem(null)}
+                  >
+                    <motion.div
+                      initial={{ scale: 0.9 }}
+                      animate={{ scale: 1 }}
+                      exit={{ scale: 0.9 }}
+                      className="relative max-w-4xl w-full"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <img
+                        src={lightboxItem.file_url}
+                        alt={lightboxItem.file_name}
+                        className="w-full max-h-[80vh] object-contain rounded-lg"
+                      />
+                      {/* Controls */}
+                      <button
+                        onClick={() => setLightboxItem(null)}
+                        className="absolute top-3 right-3 p-2 bg-black/60 rounded-full text-white hover:bg-black/80 transition-all"
+                      >
+                        <X size={16} />
+                      </button>
+                      {lightboxIdx > 0 && (
+                        <button
+                          onClick={() => setLightboxItem(imgItems[lightboxIdx - 1])}
+                          className="absolute left-3 top-1/2 -translate-y-1/2 p-2 bg-black/60 rounded-full text-white hover:bg-black/80 transition-all"
+                        >
+                          <ChevronLeft size={20} />
+                        </button>
+                      )}
+                      {lightboxIdx < imgItems.length - 1 && (
+                        <button
+                          onClick={() => setLightboxItem(imgItems[lightboxIdx + 1])}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 p-2 bg-black/60 rounded-full text-white hover:bg-black/80 transition-all"
+                        >
+                          <ChevronRight size={20} />
+                        </button>
+                      )}
+                      {/* Caption */}
+                      <div className="mt-2 flex items-center justify-between px-1">
+                        <div>
+                          <p className="text-xs font-mono text-white/80">{lightboxItem.file_name}</p>
+                          {lightboxItem.vault_entry_id && entryTitles[lightboxItem.vault_entry_id] && (
+                            <p className="text-[10px] font-mono text-primary/60">📁 {entryTitles[lightboxItem.vault_entry_id]}</p>
+                          )}
+                          {lightboxItem.tags?.includes("mavis-generated") && (
+                            <p className="text-[9px] font-mono text-primary/80 flex items-center gap-1"><Wand2 size={9} /> MAVIS Generated</p>
+                          )}
+                        </div>
+                        <p className="text-[9px] font-mono text-white/40">{lightboxIdx + 1} / {imgItems.length}</p>
+                      </div>
+                    </motion.div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </motion.div>
+          );
+        })()}
+      </AnimatePresence>
+
+      {/* Only show entries list / upload UI when not in gallery mode */}
+      {!showGallery && <>
 
       <div className="flex gap-1.5 flex-wrap">
         {categories.map((c) => (
@@ -477,6 +654,7 @@ export function VaultCodexPage() {
         })}
         {filtered.length === 0 && <p className="text-xs font-mono text-muted-foreground text-center py-8">Vault empty — classified knowledge awaits.</p>}
       </div>
+      </>}
     </div>
   );
 }

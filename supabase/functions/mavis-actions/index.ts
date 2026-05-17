@@ -342,17 +342,17 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
 
     // ── VAULT ────────────────────────────────────────────
     case "create_vault": {
-      const { error } = await sb.from("vault_entries").insert({
+      const { data: vd, error } = await sb.from("vault_entries").insert({
         user_id: userId,
         title: String(p.title || "New Entry"),
         content: String(p.content || ""),
         category: String(p.category || "personal"),
         importance: String(p.importance || "medium"),
         attachments: asStringArray(p.attachments),
-      });
+      }).select("id").maybeSingle();
       if (error) throw error;
       await logActivity(sb, userId, "vault_created", `Vault: ${String(p.title || "New Entry")}`, 0);
-      return;
+      return { entryId: vd?.id ?? null };
     }
 
     case "update_vault": {
@@ -1072,11 +1072,11 @@ serve(async (req) => {
       userId = userData.user.id;
     }
 
-    const results: Array<{ type: string; success: boolean; error?: string }> = [];
+    const results: Array<{ type: string; success: boolean; error?: string; data?: Record<string, unknown> }> = [];
     for (const action of actions) {
       try {
-        await executeAction(adminClient, userId, action);
-        results.push({ type: action.type, success: true });
+        const actionData = await executeAction(adminClient, userId, action);
+        results.push({ type: action.type, success: true, data: (actionData as Record<string, unknown>) ?? undefined });
       } catch (error) {
         console.error("mavis-actions failed:", action.type, serializeError(error));
         results.push({
