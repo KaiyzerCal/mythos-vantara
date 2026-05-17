@@ -246,6 +246,32 @@ const AGENT_TOOLS = [
       required: ["event_type"],
     },
   },
+  {
+    name: "post_to_instagram",
+    description: "Post content to Instagram as Nora Vale persona. Requires an image_url for published posts; without one the caption is saved as a draft.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        content: { type: "string", description: "Caption text. Leave empty to auto-generate." },
+        image_url: { type: "string", description: "Public image URL to attach to the post." },
+        generate: { type: "boolean", description: "If true, generate caption via Claude before posting." },
+      },
+      required: [],
+    },
+  },
+  {
+    name: "post_to_tiktok",
+    description: "Post content to TikTok as Nora Vale persona. Provide a video_url for a video post, or omit for a text/caption draft.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        content: { type: "string", description: "Caption/script text. Leave empty to auto-generate." },
+        video_url: { type: "string", description: "Public video URL to publish. If omitted, saves as draft." },
+        generate: { type: "boolean", description: "If true, generate content via Claude before posting." },
+      },
+      required: [],
+    },
+  },
 ];
 
 // ── Tool executor ─────────────────────────────────────────────────────────────
@@ -552,6 +578,46 @@ async function executeTool(
           return JSON.stringify(await res.json());
         } catch (err: any) {
           return JSON.stringify({ error: err.message ?? "Webhook dispatch failed" });
+        }
+      }
+
+      case "post_to_instagram": {
+        const supabaseUrl7 = Deno.env.get("SUPABASE_URL") ?? "";
+        const serviceKey7  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+        try {
+          const res = await fetch(`${supabaseUrl7}/functions/v1/mavis-nora-instagram`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${serviceKey7}` },
+            body: JSON.stringify({
+              user_id: userId,
+              content: String(input.content ?? ""),
+              image_url: input.image_url,
+              generate: Boolean(input.generate ?? !input.content),
+            }),
+          });
+          return JSON.stringify(await res.json());
+        } catch (err: any) {
+          return JSON.stringify({ error: err.message ?? "Instagram post failed" });
+        }
+      }
+
+      case "post_to_tiktok": {
+        const supabaseUrl8 = Deno.env.get("SUPABASE_URL") ?? "";
+        const serviceKey8  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+        try {
+          const res = await fetch(`${supabaseUrl8}/functions/v1/mavis-nora-tiktok`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${serviceKey8}` },
+            body: JSON.stringify({
+              user_id: userId,
+              content: String(input.content ?? ""),
+              video_url: input.video_url,
+              generate: Boolean(input.generate ?? !input.content),
+            }),
+          });
+          return JSON.stringify(await res.json());
+        } catch (err: any) {
+          return JSON.stringify({ error: err.message ?? "TikTok post failed" });
         }
       }
 
