@@ -8,6 +8,7 @@ import {
 import { useAppData } from "@/contexts/AppDataContext";
 import { PageHeader, HudCard, ProgressBar, StatBadge, RankBadge, QuestTypeBadge } from "@/components/SharedUI";
 import { RANK_COLORS } from "@/types/rpg";
+import { StreakHeatmap } from "@/components/StreakHeatmap";
 
 const fadeIn = (delay = 0) => ({
   initial: { opacity: 0, y: 12 },
@@ -294,6 +295,13 @@ export default function Dashboard() {
               </span>
             </div>
           </div>
+        </HudCard>
+      </motion.div>
+
+      {/* Streak heatmap */}
+      <motion.div {...fadeIn(0.5)}>
+        <HudCard>
+          <StreakHeatmap />
         </HudCard>
       </motion.div>
     </div>

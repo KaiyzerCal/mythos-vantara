@@ -211,6 +211,66 @@ export async function streamAgentMessage(
   };
 }
 
+// Research variant — calls mavis-deep-research for multi-step synthesis.
+export async function streamResearchMessage(
+  query: string,
+  options: ChatServiceOptions,
+  onToken: (token: string, accumulated: string) => void,
+  signal?: AbortSignal,
+): Promise<ChatServiceResult> {
+  const { data: { session } } = await supabase.auth.getSession();
+  const accessToken = session?.access_token ?? "";
+
+  const res = await fetch(`${SUPABASE_URL}/functions/v1/mavis-deep-research`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${accessToken}`,
+      "apikey": SUPABASE_ANON_KEY,
+    },
+    body: JSON.stringify({ query, depth: 3 }),
+    signal,
+  });
+
+  if (!res.ok) {
+    const errText = await res.text().catch(() => `HTTP ${res.status}`);
+    throw new Error(`Research request failed (${res.status}): ${errText}`);
+  }
+
+  const reader = res.body!.getReader();
+  const decoder = new TextDecoder();
+  let accumulated = "";
+  let buf = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buf += decoder.decode(value, { stream: true });
+    const lines = buf.split("\n");
+    buf = lines.pop() ?? "";
+    for (const line of lines) {
+      if (!line.startsWith("data: ")) continue;
+      const raw = line.slice(6).trim();
+      if (raw === "[DONE]") break;
+      try {
+        const j = JSON.parse(raw);
+        if (j.token) { accumulated += j.token; onToken(j.token, accumulated); }
+        if (j.error) throw new Error(j.error);
+      } catch { /* skip malformed lines */ }
+    }
+  }
+
+  return {
+    rawText: accumulated,
+    cleanText: accumulated,
+    executionResults: [],
+    conversationId: options.conversationId ?? null,
+    searched: true,
+    imageUrl: null,
+    fnData: { searched: true },
+  };
+}
+
 export async function sendChatMessage(
   userText: string,
   systemPrompt: string,
