@@ -54,6 +54,9 @@ import { StudyPage } from "@/pages/StudyPage";
 import { TimeTrackingPage } from "@/pages/TimeTrackingPage";
 import { MeetingNotesPage } from "@/pages/MeetingNotesPage";
 import { ReadwisePage } from "@/pages/ReadwisePage";
+import { SocialAnalyticsPage } from "@/pages/SocialAnalyticsPage";
+import { EmailPage } from "@/pages/EmailPage";
+import { WebhookConfigPage } from "@/pages/WebhookConfigPage";
 
 const queryClient = new QueryClient();
 
@@ -115,6 +118,9 @@ function AppContent() {
             <Route path="/time" element={<TimeTrackingPage />} />
             <Route path="/meetings" element={<MeetingNotesPage />} />
             <Route path="/highlights" element={<ReadwisePage />} />
+            <Route path="/social-analytics" element={<SocialAnalyticsPage />} />
+            <Route path="/email" element={<EmailPage />} />
+            <Route path="/webhooks" element={<WebhookConfigPage />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </main>

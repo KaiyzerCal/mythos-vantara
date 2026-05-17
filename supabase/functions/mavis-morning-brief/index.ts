@@ -279,6 +279,50 @@ Deno.serve(async (req) => {
       sections.push("All clear. No pending items, no overdue quests, no SR reviews.\nHave a focused day.");
     }
 
+    // ── Proactive memory surfacing ──────────────────────────────
+    // Find a past note semantically related to the operator's current focus
+    try {
+      const openaiKey = Deno.env.get("OPENAI_API");
+      if (openaiKey) {
+        // Build a query from active quest titles + goal objectives
+        const focusTerms = [
+          ...(questsRes.data ?? []).slice(0, 3).map((q: any) => q.title),
+          ...(goalsRes.data ?? []).slice(0, 2).map((g: any) => g.objective),
+        ].join(". ");
+
+        if (focusTerms.trim().length > 10) {
+          // Embed the focus context
+          const embedRes = await fetch("https://api.openai.com/v1/embeddings", {
+            method: "POST",
+            headers: { "Authorization": `Bearer ${openaiKey}`, "Content-Type": "application/json" },
+            body: JSON.stringify({ model: "text-embedding-3-small", input: focusTerms }),
+          });
+          const embedData = await embedRes.json();
+          const embedding = embedData.data?.[0]?.embedding;
+
+          if (embedding) {
+            // Semantic search for the most relevant past note NOT from the last 7 days
+            const weekAgo = new Date(now.getTime() - 7 * 86400000).toISOString();
+            const { data: related } = await supabase.rpc("match_mavis_notes", {
+              query_embedding: embedding,
+              match_threshold: 0.65,
+              match_count: 3,
+              p_user_id: uid,
+            });
+
+            const surfaced = (related ?? []).filter((n: any) => n.created_at < weekAgo).slice(0, 1);
+            if (surfaced.length > 0) {
+              const note = surfaced[0];
+              const daysAgo = Math.round((now.getTime() - new Date(note.created_at).getTime()) / 86400000);
+              sections.push(
+                `MEMORY SURFACED\n💡 Relevant to your current focus (${daysAgo}d ago):\n"${note.title}"\n${note.content?.slice(0, 180) ?? ""}…\n→ Open in Vault to review`
+              );
+            }
+          }
+        }
+      }
+    } catch { /* non-critical, skip on error */ }
+
     await sendTelegram(sections.join("\n\n"));
 
     return new Response(

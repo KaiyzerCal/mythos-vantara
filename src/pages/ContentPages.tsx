@@ -2,9 +2,9 @@
 // VANTARA.EXE — Journal, VaultCodex, SkillsPage, InventoryPage
 // All with full edit/modify support + auto-seed for skills
 // ============================================================
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { BookOpen, BookLock, Sparkles, Package, Plus, Trash2, Loader2, Star, Edit2, Upload, FileText, Image, Film, Music, File, X, Eye, LayoutGrid, ChevronLeft, ChevronRight, Wand2, Mic, MicOff, Download, FileDown, LayoutTemplate } from "lucide-react";
+import { BookOpen, BookLock, Sparkles, Package, Plus, Trash2, Loader2, Star, Edit2, Upload, FileText, Image, Film, Music, File, X, Eye, LayoutGrid, ChevronLeft, ChevronRight, Wand2, Mic, MicOff, Download, FileDown, LayoutTemplate, Link2 } from "lucide-react";
 import { useAppData } from "@/contexts/AppDataContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
@@ -258,6 +258,32 @@ export function VaultCodexPage() {
   const [ingestUrl, setIngestUrl] = useState("");
   const [ingestSaveAs, setIngestSaveAs] = useState<"note" | "vault">("note");
   const [ingesting, setIngesting] = useState(false);
+  const [backlinks, setBacklinks] = useState<Record<string, { id: string; title: string }[]>>({});
+
+  // Parse [[wikilinks]] from content, resolve to entry IDs, save to mavis_note_links-style backlinks
+  const syncWikilinks = useCallback(async (entryId: string, content: string) => {
+    if (!session?.user?.id || !content) return;
+    const matches = [...content.matchAll(/\[\[([^\]]+)\]\]/g)].map(m => m[1].trim().toLowerCase());
+    if (matches.length === 0) return;
+    const { data: allEntries } = await supabase.from("vault_entries").select("id, title").eq("user_id", session.user.id);
+    const resolved = (allEntries ?? []).filter((e: any) => matches.includes(e.title.toLowerCase()) && e.id !== entryId);
+    // Upsert links (delete old + re-insert)
+    await supabase.from("mavis_note_links").delete().eq("source_note_id", entryId);
+    if (resolved.length > 0) {
+      await supabase.from("mavis_note_links").insert(resolved.map((r: any) => ({ source_note_id: entryId, target_note_id: r.id, user_id: session.user.id })));
+    }
+  }, [session?.user?.id]);
+
+  // Load backlinks for an expanded entry
+  const loadBacklinks = useCallback(async (entryId: string) => {
+    if (!session?.user?.id || backlinks[entryId]) return;
+    const { data } = await supabase
+      .from("mavis_note_links")
+      .select("source_note_id, vault_entries!mavis_note_links_source_note_id_fkey(id, title)")
+      .eq("target_note_id", entryId);
+    const links = (data ?? []).map((r: any) => ({ id: r.source_note_id, title: r.vault_entries?.title ?? "Unknown" }));
+    setBacklinks(prev => ({ ...prev, [entryId]: links }));
+  }, [session?.user?.id, backlinks]);
 
   const categories = ["all", "legal", "business", "personal", "evidence", "achievement"];
   const filtered = vaultEntries.filter((e) => catFilter === "all" || e.category === catFilter);
@@ -742,7 +768,7 @@ export function VaultCodexPage() {
           const media = entryMedia[e.id] || [];
           return (
           <HudCard key={e.id} className={`cursor-pointer transition-all ${importanceBorder[e.importance]} ${isExpanded ? "border-primary/30" : ""}`}>
-            <div onClick={() => setExpandedId(isExpanded ? null : e.id)}>
+            <div onClick={() => { const next = isExpanded ? null : e.id; setExpandedId(next); if (next) { loadBacklinks(next); syncWikilinks(next, e.content ?? ""); } }}>
               <div className="flex items-start gap-3">
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 mb-1">
@@ -751,7 +777,17 @@ export function VaultCodexPage() {
                     <span className="text-[9px] font-mono text-muted-foreground">{e.category}</span>
                     {media.length > 0 && <span className="text-[9px] font-mono text-emerald-400">📎 {media.length}</span>}
                   </div>
-                  {e.content && <p className={`text-xs font-body text-muted-foreground ${isExpanded ? "whitespace-pre-wrap" : "line-clamp-3"}`}>{e.content}</p>}
+                  {e.content && (
+                    <p className={`text-xs font-body text-muted-foreground ${isExpanded ? "whitespace-pre-wrap" : "line-clamp-3"}`}>
+                      {isExpanded
+                        ? e.content.split(/(\[\[[^\]]+\]\])/).map((part, i) =>
+                            /^\[\[.+\]\]$/.test(part)
+                              ? <span key={i} className="text-cyan-400 underline underline-offset-2 cursor-pointer hover:text-cyan-300">{part}</span>
+                              : part
+                          )
+                        : e.content}
+                    </p>
+                  )}
                   {isExpanded && (
                     <div className="mt-3 space-y-2 border-t border-border/30 pt-2">
                       <div className="grid grid-cols-2 gap-2 text-[10px] font-mono">
@@ -759,6 +795,20 @@ export function VaultCodexPage() {
                         <div><span className="text-muted-foreground">Importance:</span> <span className={importanceColor[e.importance]}>{e.importance}</span></div>
                         <div className="col-span-2"><span className="text-muted-foreground">Created:</span> <span className="text-foreground">{new Date(e.created_at).toLocaleString()}</span></div>
                       </div>
+                      {/* Backlinks */}
+                      {(backlinks[e.id] ?? []).length > 0 && (
+                        <div className="space-y-1">
+                          <p className="text-[9px] font-mono text-cyan-400 uppercase flex items-center gap-1"><Link2 size={10} /> Backlinks ({backlinks[e.id].length})</p>
+                          <div className="flex flex-wrap gap-1">
+                            {backlinks[e.id].map(bl => (
+                              <button key={bl.id} onClick={(ev) => { ev.stopPropagation(); setExpandedId(bl.id); loadBacklinks(bl.id); }}
+                                className="text-[9px] font-mono text-cyan-400/80 border border-cyan-900/40 rounded px-2 py-0.5 hover:bg-cyan-900/20 transition-colors">
+                                ← {bl.title}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                       {/* Attached media */}
                       {media.length > 0 && (
                         <div className="space-y-1">
