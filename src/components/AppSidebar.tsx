@@ -5,7 +5,7 @@ import {
   Medal, TowerControl, Activity, Settings, ChevronLeft, ChevronRight,
   LogOut, Cpu, Shield, HeartPulse, Inbox, Network,
   UserCheck, BarChart2, Repeat2, Heart, DollarSign, CalendarClock,
-  Crosshair, GraduationCap,
+  Crosshair, GraduationCap, Clock, Video, BookMarked,
 } from "lucide-react";
 import { useState, useContext } from "react";
 import { motion, AnimatePresence } from "framer-motion";
@@ -41,6 +41,9 @@ const INTEL_NAV = [
   { to: "/scheduler", icon: CalendarClock, label: "Scheduler" },
   { to: "/goals", icon: Crosshair, label: "Goals" },
   { to: "/study", icon: GraduationCap, label: "Study" },
+  { to: "/time", icon: Clock, label: "Time Tracker" },
+  { to: "/meetings", icon: Video, label: "Meetings" },
+  { to: "/highlights", icon: BookMarked, label: "Highlights" },
 ];
 
 const UTILITY_NAV = [
