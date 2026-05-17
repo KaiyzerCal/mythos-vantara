@@ -512,7 +512,7 @@ export default function MavisChat() {
           }, archivedMemories, vaultMedia));
       const attachmentIds = attachments.map((a) => a.id);
 
-      const { cleanText, executionResults, conversationId: newConvoId, searched, fnData } = await sendChatMessage(
+      const { cleanText, executionResults, conversationId: newConvoId, searched, imageUrl, fnData } = await sendChatMessage(
         content,
         systemPrompt,
         history,
@@ -565,6 +565,7 @@ export default function MavisChat() {
         model: (fnData as any)?.model ?? null,
         searched,
         actionsExecuted,
+        imageUrl: imageUrl ?? undefined,
         timestamp: new Date(),
       };
       setChatMessages((prev) => [...prev, assistantMsg]);
@@ -818,9 +819,21 @@ export default function MavisChat() {
                         : "hud-border text-foreground"
                     }`}>
                       {msg.role === "assistant" ? (
-                        <div className="mavis-prose">
-                          <ReactMarkdown>{msg.content}</ReactMarkdown>
-                        </div>
+                        <>
+                          <div className="mavis-prose">
+                            <ReactMarkdown>{msg.content}</ReactMarkdown>
+                          </div>
+                          {(msg as any).imageUrl && (
+                            <div className="mt-2">
+                              <img
+                                src={(msg as any).imageUrl}
+                                alt="MAVIS generated image"
+                                className="rounded-lg max-w-full border border-primary/20"
+                                style={{ maxHeight: "420px", objectFit: "contain" }}
+                              />
+                            </div>
+                          )}
+                        </>
                       ) : (
                         <p className="text-xs font-body leading-relaxed">{msg.content}</p>
                       )}
