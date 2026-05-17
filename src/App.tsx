@@ -58,6 +58,7 @@ import { SocialAnalyticsPage } from "@/pages/SocialAnalyticsPage";
 import { EmailPage } from "@/pages/EmailPage";
 import { WebhookConfigPage } from "@/pages/WebhookConfigPage";
 import { IntegrationsPage } from "@/pages/IntegrationsPage";
+import { ExportPage } from "@/pages/ExportPage";
 
 const queryClient = new QueryClient();
 
@@ -123,6 +124,7 @@ function AppContent() {
             <Route path="/email" element={<EmailPage />} />
             <Route path="/webhooks" element={<WebhookConfigPage />} />
             <Route path="/integrations" element={<IntegrationsPage />} />
+            <Route path="/export" element={<ExportPage />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </main>
