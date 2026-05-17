@@ -38,9 +38,13 @@ Deno.serve(async (req) => {
     const todayIso = now.toISOString().slice(0, 10);
     const yesterdayIso = new Date(now.getTime() - 86400000).toISOString();
 
+    const sevenDaysAgo = new Date(now.getTime() - 7 * 86400000).toISOString();
+    const twoDaysAgo   = new Date(now.getTime() - 2 * 86400000).toISOString();
+
     const [
       approvalsRes, questsRes, tasksRes, srRes,
       revenueRes, expensesRes, councilRes, bondRes, goalsRes,
+      tacitRes, stalledRes, streakRiskRes, revenueGapRes,
     ] = await Promise.all([
       // Pending approvals
       supabase.from("mavis_tasks")
@@ -108,17 +112,53 @@ Deno.serve(async (req) => {
         .eq("status", "active")
         .order("created_at", { ascending: true })
         .limit(5),
+
+      // Tacit preferences & hard rules for operator context
+      supabase.from("mavis_tacit")
+        .select("category, key, value")
+        .eq("user_id", uid)
+        .in("category", ["hard_rule", "preference"])
+        .order("confidence", { ascending: false })
+        .limit(8),
+
+      // Pattern: quests idle 7+ days
+      supabase.from("quests")
+        .select("title")
+        .eq("user_id", uid)
+        .eq("status", "active")
+        .lt("updated_at", sevenDaysAgo)
+        .limit(5),
+
+      // Pattern: habit streaks at risk (no activity 2+ days, streak > 2)
+      supabase.from("tasks")
+        .select("title, streak")
+        .eq("user_id", uid)
+        .eq("type", "habit")
+        .gt("streak", 2)
+        .lt("updated_at", twoDaysAgo)
+        .limit(5),
+
+      // Pattern: revenue gap (any revenue in last 7 days?)
+      supabase.from("mavis_revenue")
+        .select("id")
+        .eq("user_id", uid)
+        .gte("created_at", sevenDaysAgo)
+        .limit(1),
     ]);
 
-    const approvals = (approvalsRes.data ?? []) as any[];
-    const overdue   = (questsRes.data ?? []) as any[];
-    const tasks     = (tasksRes.data ?? []) as any[];
-    const srNotes   = (srRes.data ?? []) as any[];
-    const revenue   = (revenueRes.data ?? []) as any[];
-    const expenses  = (expensesRes.data ?? []) as any[];
-    const council   = (councilRes.data ?? []) as any[];
-    const bond      = bondRes.data as any;
-    const goals     = (goalsRes.data ?? []) as any[];
+    const approvals   = (approvalsRes.data ?? []) as any[];
+    const overdue     = (questsRes.data ?? []) as any[];
+    const tasks       = (tasksRes.data ?? []) as any[];
+    const srNotes     = (srRes.data ?? []) as any[];
+    const revenue     = (revenueRes.data ?? []) as any[];
+    const expenses    = (expensesRes.data ?? []) as any[];
+    const council     = (councilRes.data ?? []) as any[];
+    const bond        = bondRes.data as any;
+    const goals       = (goalsRes.data ?? []) as any[];
+    const tacit       = (tacitRes.data ?? []) as any[];
+    const stalled     = (stalledRes.data ?? []) as any[];
+    const streakRisk  = (streakRiskRes.data ?? []) as any[];
+    const revenueGap  = (revenueGapRes.data ?? []) as any[];
 
     const totalRevenue  = revenue.reduce((s: number, r: any) => s + Number(r.amount), 0);
     const totalExpenses = expenses.reduce((s: number, e: any) => s + Number(e.amount), 0);
@@ -208,6 +248,31 @@ Deno.serve(async (req) => {
         return `• ${g.objective.slice(0, 65)} — ${bar}${urgency}`;
       }));
       sections.push(`ACTIVE GOALS (${goals.length})\n${goalLines.join("\n")}\n→ /goals for full detail`);
+    }
+
+    // Pattern alerts
+    const patternAlerts: string[] = [];
+    if (stalled.length > 0) {
+      patternAlerts.push(`${stalled.length} quest(s) idle 7+ days: ${stalled.slice(0, 3).map((q: any) => q.title).join(", ")}`);
+    }
+    if (streakRisk.length > 0) {
+      patternAlerts.push(`${streakRisk.length} habit streak(s) at risk: ${streakRisk.slice(0, 3).map((t: any) => `${t.title} (${t.streak}d)`).join(", ")}`);
+    }
+    if (revenueGap.length === 0) {
+      patternAlerts.push("No revenue logged in the past 7 days.");
+    }
+    if (patternAlerts.length > 0) {
+      sections.push(`PATTERN ALERTS\n${patternAlerts.map(a => `⚡ ${a}`).join("\n")}`);
+    }
+
+    // Operator context (hard rules + top preferences)
+    const hardRules   = tacit.filter((t: any) => t.category === "hard_rule");
+    const preferences = tacit.filter((t: any) => t.category === "preference");
+    const tacitLines: string[] = [];
+    if (hardRules.length > 0)   tacitLines.push(`Rules: ${hardRules.map((r: any) => r.value).join(" | ")}`);
+    if (preferences.length > 0) tacitLines.push(`Prefs: ${preferences.slice(0, 4).map((r: any) => r.value).join(" | ")}`);
+    if (tacitLines.length > 0) {
+      sections.push(`OPERATOR STANDING ORDERS\n${tacitLines.join("\n")}`);
     }
 
     if (sections.length === 2) {

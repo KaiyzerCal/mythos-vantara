@@ -145,7 +145,7 @@ async function loadContext(): Promise<string> {
     supabase.from("skills").select("id,name,category,tier,proficiency").eq("user_id", uid).order("proficiency", { ascending: false }).limit(10),
     supabase.from("rankings_profiles").select("display_name,role,rank,gpr,is_self").eq("user_id", uid).limit(6),
     supabase.from("mavis_revenue").select("amount,source,created_at").eq("user_id", uid).order("created_at", { ascending: false }).limit(8),
-    supabase.from("mavis_tacit").select("category,key,value,confidence").eq("user_id", uid).in("category", ["hard_rule", "preference", "lesson_learned", "workflow_habit"]).order("confidence", { ascending: false }).limit(20),
+    supabase.from("mavis_tacit").select("category,key,value,confidence").eq("user_id", uid).in("category", ["hard_rule", "preference", "lesson_learned", "workflow_habit", "correction"]).order("confidence", { ascending: false }).limit(25),
     supabase.from("allies").select("name,relationship,specialty,affinity").eq("user_id", uid).order("affinity", { ascending: false }).limit(6),
     supabase.from("councils").select("name,role,class,specialty").eq("user_id", uid).limit(8),
     supabase.from("transformations").select("name,tier,form_order,unlocked,energy").eq("user_id", uid).order("form_order", { ascending: true }).limit(8),
@@ -232,8 +232,10 @@ async function loadContext(): Promise<string> {
   const preferences = tacit.filter((t: any) => t.category === "preference");
   const lessons     = tacit.filter((t: any) => t.category === "lesson_learned");
   const habits      = tacit.filter((t: any) => t.category === "workflow_habit");
+  const corrections = tacit.filter((t: any) => t.category === "correction");
 
   if (hardRules.length > 0)   lines.push(`HARD RULES: ${hardRules.map((r: any) => `${r.key}: ${r.value}`).join(" | ")}`);
+  if (corrections.length > 0) lines.push(`CORRECTIONS (never repeat): ${corrections.slice(0, 5).map((r: any) => r.value).join(" | ")}`);
   if (preferences.length > 0) lines.push(`PREFERENCES: ${preferences.slice(0, 5).map((r: any) => `${r.key}: ${r.value}`).join(" | ")}`);
   if (lessons.length > 0)     lines.push(`LESSONS: ${lessons.slice(0, 3).map((r: any) => `${r.value}`).join(" | ")}`);
   if (habits.length > 0)      lines.push(`WORKFLOW: ${habits.slice(0, 3).map((r: any) => `${r.key}: ${r.value}`).join(" | ")}`);
@@ -423,7 +425,36 @@ async function loadKnowledgeContext(message: string): Promise<string> {
         match_threshold: 0.45,
         match_count:     5,
       });
-      if (!error && data?.length) return formatNotes(data as any[], true);
+      if (!error && data?.length) {
+        const primaryNotes = data as any[];
+        const allNotes = [...primaryNotes];
+
+        // One-hop KG link traversal
+        try {
+          const primaryIds = primaryNotes.map((n: any) => n.id).filter(Boolean);
+          if (primaryIds.length) {
+            const { data: links } = await supabase
+              .from("mavis_note_links")
+              .select("target_note_id")
+              .in("source_note_id", primaryIds)
+              .limit(8);
+            if (links?.length) {
+              const seenIds = new Set(primaryIds);
+              const linkedIds = (links as any[]).map((l: any) => l.target_note_id).filter((id: string) => id && !seenIds.has(id));
+              if (linkedIds.length) {
+                const { data: linkedNotes } = await supabase
+                  .from("mavis_notes")
+                  .select("id,title,content,tags")
+                  .in("id", linkedIds)
+                  .limit(3);
+                if (linkedNotes?.length) allNotes.push(...(linkedNotes as any[]));
+              }
+            }
+          }
+        } catch { /* non-fatal */ }
+
+        return formatNotes(allNotes, true);
+      }
     } catch { /* fall through to keyword */ }
   }
 
