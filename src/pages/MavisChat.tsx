@@ -18,7 +18,7 @@ import { SessionBlock, groupMessagesIntoSessions } from "@/components/chat/Sessi
 // ── MAVIS modules ───────────────────────────────────────────
 import { buildSystemPromptFromSnapshot } from "@/mavis/buildSystemPrompt";
 import { setDefaultHandler, registerActionHandler } from "@/mavis/actionExecutor";
-import { streamChatMessage } from "@/mavis/chatService";
+import { streamChatMessage, streamAgentMessage } from "@/mavis/chatService";
 import { loadFullAppContext } from "@/mavis/appContextLoader";
 import { initSession } from "@/mavis/memoryEngine";
 import { loadRuntimeSkills } from "@/mavis/skills/_registry";
@@ -35,6 +35,7 @@ const MAVIS_MODES = [
   { id: "SOVEREIGN", label: "SOVEREIGN", icon: Crown, color: "text-amber-400", desc: "Claude Sonnet · High-stakes judgment" },
   { id: "ENRYU", label: "ENRYU", icon: Flame, color: "text-red-500", desc: "GPT-4o-mini · Raw execution speed" },
   { id: "WATCHTOWER", label: "WATCHTOWER", icon: Zap, color: "text-emerald-400", desc: "Grok · Live intelligence" },
+  { id: "AGENT", label: "AGENT", icon: Cpu, color: "text-violet-400", desc: "Claude Sonnet · Agentic tool-use loop" },
 ];
 
 const QUICK_PROMPTS = [
@@ -64,6 +65,7 @@ export default function MavisChat() {
   const [showBackToTop, setShowBackToTop] = useState(false);
   const [isComposing, setIsComposing] = useState(false);
   const [isListening, setIsListening] = useState(false);
+  const [agentThinking, setAgentThinking] = useState<string | null>(null);
   const [ttsEnabled, setTtsEnabled] = useState(false);
   const [voiceId, setVoiceId] = useState<string>(DEFAULT_VOICE_BY_GENDER.female);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -523,29 +525,37 @@ export default function MavisChat() {
         timestamp: new Date(),
       }]);
 
-      const { cleanText, executionResults, conversationId: newConvoId, searched, imageUrl, fnData } = await streamChatMessage(
-        content,
-        systemPrompt,
-        history,
-        {
-          mode: chatMode,
-          conversationId,
-          appState: compactState,
-          chatKind: "mavis",
-          threadRef: "main",
-          attachmentIds,
-        },
-        (_token, accumulated) => {
-          if (cancelledRef.current) return;
-          setChatMessages((prev) => prev.map((m) =>
-            m.id === streamingId ? { ...m, content: accumulated } : m
-          ));
-        },
-        abortController.signal,
-      );
+      const onToken = (_token: string, accumulated: string) => {
+        if (cancelledRef.current) return;
+        if (agentThinking !== null) setAgentThinking(null);
+        setChatMessages((prev) => prev.map((m) =>
+          m.id === streamingId ? { ...m, content: accumulated } : m
+        ));
+      };
+
+      const { cleanText, executionResults, conversationId: newConvoId, searched, imageUrl, fnData } =
+        chatMode === "AGENT"
+          ? await streamAgentMessage(
+              content,
+              systemPrompt,
+              history,
+              { mode: chatMode, conversationId, appState: compactState, chatKind: "mavis", threadRef: "main", attachmentIds },
+              onToken,
+              (toolInfo) => { if (!cancelledRef.current) setAgentThinking(toolInfo); },
+              abortController.signal,
+            )
+          : await streamChatMessage(
+              content,
+              systemPrompt,
+              history,
+              { mode: chatMode, conversationId, appState: compactState, chatKind: "mavis", threadRef: "main", attachmentIds },
+              onToken,
+              abortController.signal,
+            );
 
       if (cancelledRef.current) {
         setChatMessages((prev) => prev.filter((m) => m.id !== streamingId));
+        setAgentThinking(null);
         return;
       }
 
@@ -616,9 +626,10 @@ export default function MavisChat() {
       ]);
     } finally {
       setIsLoading(false);
+      setAgentThinking(null);
       abortRef.current = null;
     }
-  }, [input, chatMessages, isLoading, chatMode, profile, quests, tasks, skills, journalEntries, vaultEntries, conversationId, setChatMessages, setConversationId, refetchAll, ensureConversation, persistMessage, saveMemoriesFromResponse, speakText, attachments]);
+  }, [input, chatMessages, isLoading, chatMode, agentThinking, profile, quests, tasks, skills, journalEntries, vaultEntries, conversationId, setChatMessages, setConversationId, refetchAll, ensureConversation, persistMessage, saveMemoriesFromResponse, speakText, attachments]);
 
   const copyMessage = (id: string, content: string) => {
     navigator.clipboard.writeText(content);
@@ -847,10 +858,17 @@ export default function MavisChat() {
                       {msg.role === "assistant" ? (
                         <>
                           {msg.id.startsWith("streaming-") && msg.content === "" ? (
-                            <div className="flex items-center gap-1 py-1 px-0.5">
-                              <span className="w-1.5 h-1.5 rounded-full bg-primary/70 animate-bounce" style={{ animationDelay: "0ms" }} />
-                              <span className="w-1.5 h-1.5 rounded-full bg-primary/70 animate-bounce" style={{ animationDelay: "160ms" }} />
-                              <span className="w-1.5 h-1.5 rounded-full bg-primary/70 animate-bounce" style={{ animationDelay: "320ms" }} />
+                            <div className="flex flex-col gap-1.5 py-1 px-0.5">
+                              <div className="flex items-center gap-1">
+                                <span className="w-1.5 h-1.5 rounded-full bg-primary/70 animate-bounce" style={{ animationDelay: "0ms" }} />
+                                <span className="w-1.5 h-1.5 rounded-full bg-primary/70 animate-bounce" style={{ animationDelay: "160ms" }} />
+                                <span className="w-1.5 h-1.5 rounded-full bg-primary/70 animate-bounce" style={{ animationDelay: "320ms" }} />
+                              </div>
+                              {agentThinking && (
+                                <span className="text-[9px] font-mono text-violet-400/80 truncate max-w-[260px]">
+                                  ⚙ {agentThinking}
+                                </span>
+                              )}
                             </div>
                           ) : (
                             <div className="mavis-prose">

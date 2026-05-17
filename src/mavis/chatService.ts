@@ -133,6 +133,84 @@ export async function streamChatMessage(
   };
 }
 
+// Agentic variant — calls mavis-agent (ReAct tool-use loop) instead of mavis-chat.
+// Handles two SSE event types: { t } for text tokens, { thinking } for tool-call indicators.
+export async function streamAgentMessage(
+  userText: string,
+  systemPrompt: string,
+  history: Array<{ role: string; content: string }>,
+  options: ChatServiceOptions,
+  onToken: (token: string, accumulated: string) => void,
+  onThinking: (toolInfo: string) => void,
+  signal?: AbortSignal,
+): Promise<ChatServiceResult> {
+  const messages = [...history, { role: "user", content: userText }];
+  const { data: { session } } = await supabase.auth.getSession();
+  const accessToken = session?.access_token ?? "";
+
+  const res = await fetch(`${SUPABASE_URL}/functions/v1/mavis-agent`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${accessToken}`,
+      "apikey": SUPABASE_ANON_KEY,
+    },
+    body: JSON.stringify({
+      messages,
+      systemPrompt,
+      conversationId: options.conversationId ?? null,
+    }),
+    signal,
+  });
+
+  if (!res.ok) {
+    const errText = await res.text().catch(() => `HTTP ${res.status}`);
+    throw new Error(`Agent request failed (${res.status}): ${errText}`);
+  }
+
+  const reader = res.body!.getReader();
+  const decoder = new TextDecoder();
+  let accumulated = "";
+  let buf = "";
+  let metadata: Record<string, unknown> = {};
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buf += decoder.decode(value, { stream: true });
+    const lines = buf.split("\n");
+    buf = lines.pop() ?? "";
+    for (const line of lines) {
+      if (!line.startsWith("data: ")) continue;
+      const raw = line.slice(6).trim();
+      try {
+        const j = JSON.parse(raw);
+        if (j.thinking) { onThinking(j.thinking); }
+        if (j.t) { accumulated += j.t; onToken(j.t, accumulated); }
+        if (j.done) metadata = j;
+        if (j.error) throw new Error(j.error);
+      } catch (parseErr: any) {
+        if (parseErr.message?.includes("unavailable") || parseErr.message?.includes("providers")) throw parseErr;
+      }
+    }
+  }
+
+  const { cleanText, actions: parsedActions } = parseActions(accumulated);
+  const executionResults: ExecutionResult[] = parsedActions.length > 0
+    ? await executeActions(parsedActions)
+    : [];
+
+  return {
+    rawText: accumulated,
+    cleanText,
+    executionResults,
+    conversationId: (metadata.conversationId as string | null) ?? options.conversationId ?? null,
+    searched: false,
+    imageUrl: null,
+    fnData: metadata as Record<string, unknown>,
+  };
+}
+
 export async function sendChatMessage(
   userText: string,
   systemPrompt: string,
