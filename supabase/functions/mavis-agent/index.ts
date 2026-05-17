@@ -23,6 +23,8 @@ const READ_TABLES = new Set([
   "journal_entries", "vault_entries", "mavis_notes", "mavis_memory",
   "mavis_tacit", "mavis_tasks", "energy_systems", "bpm_sessions",
   "store_items", "transformations",
+  "contacts", "contact_interactions", "health_metrics",
+  "mavis_insights", "calendar_events",
 ]);
 
 const WRITE_TABLES = new Set([

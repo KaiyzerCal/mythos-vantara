@@ -4,25 +4,98 @@
 // ============================================================
 import { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { BookOpen, BookLock, Sparkles, Package, Plus, Trash2, Loader2, Star, Edit2, Upload, FileText, Image, Film, Music, File, X, Eye, LayoutGrid, ChevronLeft, ChevronRight, Wand2 } from "lucide-react";
+import { BookOpen, BookLock, Sparkles, Package, Plus, Trash2, Loader2, Star, Edit2, Upload, FileText, Image, Film, Music, File, X, Eye, LayoutGrid, ChevronLeft, ChevronRight, Wand2, Mic, MicOff, Download, FileDown, LayoutTemplate } from "lucide-react";
 import { useAppData } from "@/contexts/AppDataContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { PageHeader, HudCard, RarityBadge, ProgressBar } from "@/components/SharedUI";
 import { toast } from "sonner";
 
+// ─── Journal templates ─────────────────────────────────────
+const JOURNAL_TEMPLATES = [
+  { label: "Morning Check-in", title: "Morning Check-in", content: "**Today's intention:**\n\n\n**Grateful for:**\n1. \n2. \n3. \n\n**Top 3 priorities:**\n1. \n2. \n3. \n\n**Energy level (1–10):**\n", tags: "morning,check-in" },
+  { label: "Reflection", title: "Daily Reflection", content: "**What went well today:**\n\n\n**What I learned:**\n\n\n**What I'd do differently:**\n\n\n**Tomorrow's focus:**\n\n", tags: "reflection,daily" },
+  { label: "Goal Review", title: "Goal Review", content: "**Goal:**\n\n\n**Progress this week:**\n\n\n**Blockers:**\n\n\n**Next actions:**\n1. \n2. \n3. \n", tags: "goals,review" },
+  { label: "Mind Dump", title: "Mind Dump", content: "", tags: "mind-dump,stream-of-consciousness" },
+];
+
 // ─── JournalPage ───────────────────────────────────────────
 export function JournalPage() {
   const { journalEntries, journalLoading, createJournalEntry, updateJournalEntry, deleteJournalEntry, awardXP, logActivity } = useAppData();
+  const { session } = useAuth();
   const [showCreate, setShowCreate] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [form, setForm] = useState({ title: "", content: "", category: "personal", importance: "medium", mood: "", tags: "" });
+  const [showTemplates, setShowTemplates] = useState(false);
+  const [recording, setRecording] = useState(false);
+  const [transcribing, setTranscribing] = useState(false);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const chunksRef = useRef<Blob[]>([]);
 
   const resetForm = () => {
     setForm({ title: "", content: "", category: "personal", importance: "medium", mood: "", tags: "" });
     setEditingId(null);
     setShowCreate(false);
+    setShowTemplates(false);
+  };
+
+  const applyTemplate = (t: typeof JOURNAL_TEMPLATES[number]) => {
+    setForm(f => ({ ...f, title: t.title, content: t.content, tags: t.tags }));
+    setShowTemplates(false);
+    setShowCreate(true);
+  };
+
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      chunksRef.current = [];
+      const mr = new MediaRecorder(stream, { mimeType: "audio/webm" });
+      mr.ondataavailable = (e) => { if (e.data.size > 0) chunksRef.current.push(e.data); };
+      mr.onstop = async () => {
+        stream.getTracks().forEach(t => t.stop());
+        if (!session?.access_token) return;
+        const blob = new Blob(chunksRef.current, { type: "audio/webm" });
+        if (blob.size < 1000) return;
+        setTranscribing(true);
+        try {
+          const formData = new FormData();
+          formData.append("audio", blob, "voice_memo.webm");
+          const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/mavis-transcribe`, {
+            method: "POST",
+            headers: { Authorization: `Bearer ${session.access_token}` },
+            body: formData,
+          });
+          const data = await res.json();
+          if (data.transcript) {
+            setForm(f => ({ ...f, content: f.content ? f.content + "\n\n" + data.transcript : data.transcript }));
+            if (!form.title) setForm(f => ({ ...f, title: `Voice Note ${new Date().toLocaleString()}` }));
+            setShowCreate(true);
+            toast.success("Voice memo transcribed");
+          }
+        } catch { toast.error("Transcription failed"); } finally { setTranscribing(false); }
+      };
+      mediaRecorderRef.current = mr;
+      mr.start();
+      setRecording(true);
+    } catch { toast.error("Microphone access denied"); }
+  };
+
+  const stopRecording = () => {
+    mediaRecorderRef.current?.stop();
+    mediaRecorderRef.current = null;
+    setRecording(false);
+  };
+
+  const exportJournalMarkdown = () => {
+    const md = journalEntries.map(e =>
+      `# ${e.title}\n\n**Date:** ${new Date(e.created_at).toLocaleString()}\n**Category:** ${e.category} | **Importance:** ${e.importance}${e.mood ? ` | **Mood:** ${e.mood}` : ""}\n${e.tags?.length ? `**Tags:** ${e.tags.map((t: string) => `#${t}`).join(" ")}\n` : ""}\n${e.content}\n\n---\n`
+    ).join("\n");
+    const blob = new Blob([md], { type: "text/markdown" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a"); a.href = url; a.download = `journal_${new Date().toISOString().slice(0,10)}.md`; a.click();
+    URL.revokeObjectURL(url);
+    toast.success("Journal exported as Markdown");
   };
 
   const handleEdit = (e: any) => {
@@ -53,8 +126,44 @@ export function JournalPage() {
   return (
     <div className="space-y-5">
       <PageHeader title="Journal" subtitle={`${journalEntries.length} entries logged`} icon={<BookOpen size={18} />}
-        actions={<button onClick={() => { resetForm(); setShowCreate(true); }} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono bg-primary/10 border border-primary/30 text-primary rounded"><Plus size={12} /> New Entry</button>}
+        actions={
+          <div className="flex gap-2 flex-wrap">
+            <button onClick={exportJournalMarkdown} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono bg-muted/30 border border-border text-muted-foreground hover:text-primary hover:border-primary/30 rounded transition-all">
+              <FileDown size={12} /> Export
+            </button>
+            <button
+              onClick={recording ? stopRecording : startRecording}
+              disabled={transcribing}
+              className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono rounded border transition-all ${recording ? "bg-red-900/30 border-red-700/50 text-red-400 animate-pulse" : "bg-muted/30 border-border text-muted-foreground hover:text-primary hover:border-primary/30"}`}
+            >
+              {transcribing ? <Loader2 size={12} className="animate-spin" /> : recording ? <MicOff size={12} /> : <Mic size={12} />}
+              {transcribing ? "Transcribing..." : recording ? "Stop" : "Voice"}
+            </button>
+            <button onClick={() => setShowTemplates(t => !t)} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono bg-muted/30 border border-border text-muted-foreground hover:text-primary hover:border-primary/30 rounded transition-all">
+              <LayoutTemplate size={12} /> Templates
+            </button>
+            <button onClick={() => { resetForm(); setShowCreate(true); }} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono bg-primary/10 border border-primary/30 text-primary rounded"><Plus size={12} /> New Entry</button>
+          </div>
+        }
       />
+      {/* Template picker */}
+      <AnimatePresence>
+        {showTemplates && (
+          <motion.div initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }}>
+            <HudCard className="border-primary/20">
+              <p className="text-[9px] font-mono text-primary uppercase tracking-widest mb-2">Choose a Template</p>
+              <div className="grid grid-cols-2 gap-2">
+                {JOURNAL_TEMPLATES.map(t => (
+                  <button key={t.label} onClick={() => applyTemplate(t)} className="flex items-center gap-2 px-3 py-2 text-xs font-mono border border-border/50 rounded hover:border-primary/30 hover:text-primary text-muted-foreground transition-all text-left">
+                    <LayoutTemplate size={12} className="shrink-0 text-primary" /> {t.label}
+                  </button>
+                ))}
+              </div>
+            </HudCard>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {showCreate && (
         <HudCard className="border-primary/20">
           <p className="text-[9px] font-mono text-primary uppercase tracking-widest mb-3">{editingId ? "Edit Entry" : "New Entry"}</p>
@@ -169,6 +278,17 @@ export function VaultCodexPage() {
   }, [session?.user?.id, vaultEntries.length]);
 
   const resetForm = () => { setForm({ title: "", content: "", category: "personal", importance: "medium" }); setEditingId(null); setShowCreate(false); };
+
+  const exportVaultMarkdown = () => {
+    const md = vaultEntries.map(e =>
+      `# ${e.title}\n\n**Category:** ${e.category} | **Importance:** ${e.importance}\n**Created:** ${new Date(e.created_at).toLocaleString()}\n\n${e.content}\n\n---\n`
+    ).join("\n");
+    const blob = new Blob([md], { type: "text/markdown" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a"); a.href = url; a.download = `vault_${new Date().toISOString().slice(0,10)}.md`; a.click();
+    URL.revokeObjectURL(url);
+    toast.success("Vault exported as Markdown");
+  };
 
   const handleEdit = (e: any) => {
     setForm({ title: e.title, content: e.content, category: e.category, importance: e.importance });
@@ -298,7 +418,10 @@ export function VaultCodexPage() {
     <div className="space-y-5">
       <PageHeader title="Vault Codex" subtitle="Classified knowledge & evidence repository" icon={<BookLock size={18} />}
         actions={
-          <div className="flex gap-2">
+          <div className="flex gap-2 flex-wrap">
+            <button onClick={exportVaultMarkdown} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono bg-muted/30 border border-border text-muted-foreground hover:text-primary hover:border-primary/30 rounded transition-all">
+              <FileDown size={12} /> Export
+            </button>
             <button
               onClick={() => setShowGallery(g => !g)}
               className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono rounded border transition-all ${showGallery ? "bg-primary/10 border-primary/30 text-primary" : "bg-muted/30 border-border text-muted-foreground hover:text-primary hover:border-primary/30"}`}

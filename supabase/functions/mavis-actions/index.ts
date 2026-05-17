@@ -951,6 +951,59 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
       return;
     }
 
+    // ── CONTACTS ─────────────────────────────────────────────────────────
+    case "create_contact":
+    case "add_contact":
+    case "new_contact": {
+      const { error } = await sb.from("contacts").insert({
+        user_id: userId,
+        name: String(p.name || "New Contact"),
+        relationship_type: String(p.relationship_type || p.relationship || "personal"),
+        last_contact_at: p.last_contact_at ? String(p.last_contact_at) : null,
+        follow_up_date: p.follow_up_date ? String(p.follow_up_date) : null,
+        notes: String(p.notes || ""),
+        tags: asStringArray(p.tags),
+        profile: (p.profile && typeof p.profile === "object") ? p.profile : {},
+      });
+      if (error) throw error;
+      await logActivity(sb, userId, "contact_created", `Contact added: ${String(p.name || "New Contact")}`, 0);
+      return;
+    }
+
+    case "update_contact":
+    case "edit_contact": {
+      const contactId = await resolveId(sb, userId, "contacts", (p.contact_id || p.id) as string, (p.contact_name || p.name) as string);
+      if (!contactId) return;
+      const updates: Record<string, unknown> = { updated_at: new Date().toISOString() };
+      for (const key of ["name", "relationship_type", "last_contact_at", "follow_up_date", "notes", "tags", "profile"]) {
+        if (p[key] !== undefined) updates[key] = key === "tags" ? asStringArray(p[key]) : p[key];
+      }
+      await sb.from("contacts").update(updates).eq("id", contactId).eq("user_id", userId);
+      return;
+    }
+
+    case "log_contact":
+    case "log_interaction":
+    case "contact_interaction": {
+      const contactId = await resolveId(sb, userId, "contacts", (p.contact_id || p.id) as string, (p.contact_name || p.name) as string);
+      if (!contactId) return;
+      await sb.from("contact_interactions").insert({
+        user_id: userId,
+        contact_id: contactId,
+        interaction_type: String(p.interaction_type || p.type || "note"),
+        notes: String(p.notes || p.content || ""),
+        sentiment: String(p.sentiment || "neutral"),
+      });
+      // Bump last_contact_at and interaction_count
+      const { data: contact } = await sb.from("contacts").select("interaction_count").eq("id", contactId).eq("user_id", userId).single();
+      await sb.from("contacts").update({
+        last_contact_at: new Date().toISOString(),
+        interaction_count: Number(contact?.interaction_count ?? 0) + 1,
+        updated_at: new Date().toISOString(),
+      }).eq("id", contactId).eq("user_id", userId);
+      return;
+    }
+
     // ── LOG EXPENSE ──────────────────────────────────────────────────────
     case "log_expense":
     case "expense": {

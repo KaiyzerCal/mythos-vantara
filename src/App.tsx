@@ -43,6 +43,10 @@ import PersonaRelationshipsPage from "@/pages/PersonaRelationshipsPage";
 import Inbox from "@/pages/Inbox";
 import CouncilBoard from "@/pages/CouncilBoard";
 import KnowledgeGraph from "@/pages/KnowledgeGraph";
+import { ContactsPage } from "@/pages/ContactsPage";
+import { AnalyticsPage } from "@/pages/AnalyticsPage";
+import { RepurposePage } from "@/pages/RepurposePage";
+import { HealthPage } from "@/pages/HealthPage";
 
 const queryClient = new QueryClient();
 
@@ -93,6 +97,10 @@ function AppContent() {
             <Route path="/inbox" element={<Inbox />} />
             <Route path="/council-board" element={<CouncilBoard />} />
             <Route path="/knowledge" element={<KnowledgeGraph />} />
+            <Route path="/contacts" element={<ContactsPage />} />
+            <Route path="/analytics" element={<AnalyticsPage />} />
+            <Route path="/repurpose" element={<RepurposePage />} />
+            <Route path="/health" element={<HealthPage />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </main>
