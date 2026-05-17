@@ -57,6 +57,7 @@ import { ReadwisePage } from "@/pages/ReadwisePage";
 import { SocialAnalyticsPage } from "@/pages/SocialAnalyticsPage";
 import { EmailPage } from "@/pages/EmailPage";
 import { WebhookConfigPage } from "@/pages/WebhookConfigPage";
+import { IntegrationsPage } from "@/pages/IntegrationsPage";
 
 const queryClient = new QueryClient();
 
@@ -121,6 +122,7 @@ function AppContent() {
             <Route path="/social-analytics" element={<SocialAnalyticsPage />} />
             <Route path="/email" element={<EmailPage />} />
             <Route path="/webhooks" element={<WebhookConfigPage />} />
+            <Route path="/integrations" element={<IntegrationsPage />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </main>
