@@ -7,6 +7,16 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
+// ── Importance heuristic (mirrors mavis-chat) ─────────────────────────────────
+function scoreImportance(text: string): number {
+  const lower = text.toLowerCase();
+  const HIGH = ["goal","decide","decided","contract","revenue","critical","never","always","promise","commit","committed","deadline","milestone","must","rule","principle"];
+  const MED  = ["quest","task","project","plan","build","launch","strategy","system","habit","ritual"];
+  if (HIGH.some(w => lower.includes(w))) return Math.min(9, 7 + HIGH.filter(w => lower.includes(w)).length);
+  if (MED.some(w => lower.includes(w)))  return 5 + (MED.filter(w => lower.includes(w)).length > 1 ? 1 : 0);
+  return 3;
+}
+
 // ── Allowed tables ────────────────────────────────────────────────────────────
 const READ_TABLES = new Set([
   "quests", "tasks", "skills", "rituals", "allies", "inventory",
@@ -19,6 +29,38 @@ const WRITE_TABLES = new Set([
   "quests", "tasks", "rituals", "mavis_notes", "mavis_memory", "mavis_tasks",
 ]);
 
+// ── Sandboxed JS executor (mirrors mavis-code-exec) ───────────────────────────
+const SAFE_GLOBALS = {
+  Math, JSON, Date, Array, Object, Number, String, Boolean,
+  parseInt, parseFloat, isNaN, isFinite,
+  encodeURIComponent, decodeURIComponent,
+};
+
+async function runCode(code: string): Promise<{ result?: string; output: string[]; error?: string }> {
+  const output: string[] = [];
+  const mockConsole = {
+    log:   (...args: unknown[]) => output.push(args.map(a => typeof a === "object" ? JSON.stringify(a, null, 2) : String(a)).join(" ")),
+    error: (...args: unknown[]) => output.push("[ERR] " + args.join(" ")),
+    warn:  (...args: unknown[]) => output.push("[WARN] " + args.join(" ")),
+    table: (data: unknown) => output.push(JSON.stringify(data, null, 2)),
+  };
+  try {
+    const paramNames = ["console", ...Object.keys(SAFE_GLOBALS)];
+    const paramValues = [mockConsole, ...Object.values(SAFE_GLOBALS)];
+    const fn = new Function(...paramNames, `"use strict";\n${code}`);
+    const raw = fn(...paramValues);
+    const result = raw instanceof Promise
+      ? await Promise.race([raw, new Promise((_, rej) => setTimeout(() => rej(new Error("timeout after 8s")), 8000))])
+      : raw;
+    const resultStr = result !== undefined
+      ? (typeof result === "object" ? JSON.stringify(result, null, 2) : String(result))
+      : "(no return value)";
+    return { result: resultStr, output };
+  } catch (err: any) {
+    return { output, error: err?.message ?? String(err) };
+  }
+}
+
 // ── Tool schema ───────────────────────────────────────────────────────────────
 const AGENT_TOOLS = [
   {
@@ -28,30 +70,12 @@ const AGENT_TOOLS = [
     input_schema: {
       type: "object" as const,
       properties: {
-        table: {
-          type: "string",
-          description: `Table name. Allowed: ${[...READ_TABLES].join(", ")}`,
-        },
-        filters: {
-          type: "object",
-          description: "Key-value equality filters (e.g. {\"status\": \"active\"})",
-        },
-        columns: {
-          type: "string",
-          description: "Columns to select (default '*')",
-        },
-        limit: {
-          type: "number",
-          description: "Max rows (default 20, max 100)",
-        },
-        order_by: {
-          type: "string",
-          description: "Column to sort by (e.g. 'created_at')",
-        },
-        ascending: {
-          type: "boolean",
-          description: "Sort direction — true = oldest first, false = newest first (default false)",
-        },
+        table: { type: "string", description: `Table name. Allowed: ${[...READ_TABLES].join(", ")}` },
+        filters: { type: "object", description: "Key-value equality filters (e.g. {\"status\": \"active\"})" },
+        columns: { type: "string", description: "Columns to select (default '*')" },
+        limit: { type: "number", description: "Max rows (default 20, max 100)" },
+        order_by: { type: "string", description: "Column to sort by (e.g. 'created_at')" },
+        ascending: { type: "boolean", description: "Sort direction — true = oldest first, false = newest first (default false)" },
       },
       required: ["table"],
     },
@@ -65,10 +89,7 @@ const AGENT_TOOLS = [
       properties: {
         query: { type: "string", description: "Natural language search query" },
         limit: { type: "number", description: "Max results (default 6)" },
-        threshold: {
-          type: "number",
-          description: "Similarity threshold 0–1 (default 0.6). Lower returns more, potentially less relevant results.",
-        },
+        threshold: { type: "number", description: "Similarity threshold 0–1 (default 0.6). Lower returns more results." },
       },
       required: ["query"],
     },
@@ -76,7 +97,7 @@ const AGENT_TOOLS = [
   {
     name: "web_search",
     description:
-      "Search the live web for current information — news, prices, events, documentation. Use when the query requires information from after your training cutoff or real-time data.",
+      "Search the live web for current information — news, prices, events, documentation. Use when the query requires real-time or post-training data.",
     input_schema: {
       type: "object" as const,
       properties: {
@@ -93,18 +114,9 @@ const AGENT_TOOLS = [
     input_schema: {
       type: "object" as const,
       properties: {
-        table: {
-          type: "string",
-          description: `Table name. Allowed for writes: ${[...WRITE_TABLES].join(", ")}`,
-        },
-        data: {
-          type: "object",
-          description: "Record fields. Do NOT include user_id — it is injected automatically.",
-        },
-        on_conflict: {
-          type: "string",
-          description: "Column(s) for upsert dedup (e.g. 'id'). Omit for pure insert.",
-        },
+        table: { type: "string", description: `Table name. Allowed for writes: ${[...WRITE_TABLES].join(", ")}` },
+        data: { type: "object", description: "Record fields. Do NOT include user_id — it is injected automatically." },
+        on_conflict: { type: "string", description: "Column(s) for upsert dedup (e.g. 'id'). Omit for pure insert." },
       },
       required: ["table", "data"],
     },
@@ -120,6 +132,25 @@ const AGENT_TOOLS = [
       required: ["note_id"],
     },
   },
+  {
+    name: "run_code",
+    description:
+      "Execute sandboxed JavaScript/TypeScript for calculations, data transformation, analysis, or formatting. Has access to Math, JSON, Date, Array, Object — no network or file system. Returns stdout output and the final return value.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        code: {
+          type: "string",
+          description: "JavaScript code to execute. Use console.log() for output. Return a value to capture the result.",
+        },
+        description: {
+          type: "string",
+          description: "Brief human-readable description of what this code does (shown to user as thinking indicator)",
+        },
+      },
+      required: ["code"],
+    },
+  },
 ];
 
 // ── Tool executor ─────────────────────────────────────────────────────────────
@@ -130,6 +161,7 @@ async function executeTool(
   adminSb: ReturnType<typeof createClient>,
   openaiKey: string,
   tavilyKey: string,
+  sourcesAcc: Array<{ title: string; url: string }>,
 ): Promise<string> {
   try {
     switch (name) {
@@ -141,13 +173,9 @@ async function executeTool(
         const orderBy = String(input.order_by ?? "created_at");
         const ascending = Boolean(input.ascending ?? false);
 
-        if (!READ_TABLES.has(table)) {
-          return JSON.stringify({ error: `Table '${table}' is not accessible` });
-        }
+        if (!READ_TABLES.has(table)) return JSON.stringify({ error: `Table '${table}' is not accessible` });
         let q = adminSb.from(table).select(columns).eq("user_id", userId).limit(limit);
-        for (const [k, v] of Object.entries(filters)) {
-          q = q.eq(k, v as string);
-        }
+        for (const [k, v] of Object.entries(filters)) q = q.eq(k, v as string);
         if (orderBy) q = q.order(orderBy, { ascending });
         const { data, error } = await q;
         if (error) return JSON.stringify({ error: error.message });
@@ -164,9 +192,7 @@ async function executeTool(
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${openaiKey}` },
           body: JSON.stringify({ model: "text-embedding-3-small", input: query }),
         });
-        if (!embedRes.ok) {
-          return JSON.stringify({ error: `Embedding failed: ${embedRes.status}` });
-        }
+        if (!embedRes.ok) return JSON.stringify({ error: `Embedding failed: ${embedRes.status}` });
         const embedData = await embedRes.json();
         const embedding = embedData.data?.[0]?.embedding;
         if (!embedding) return JSON.stringify({ error: "No embedding returned" });
@@ -198,6 +224,12 @@ async function executeTool(
           url: r.url,
           content: (r.content ?? "").slice(0, 600),
         }));
+        // Accumulate sources for citation display
+        for (const r of results) {
+          if (r.url && !sourcesAcc.some(s => s.url === r.url)) {
+            sourcesAcc.push({ title: r.title ?? r.url, url: r.url });
+          }
+        }
         return JSON.stringify(results);
       }
 
@@ -206,9 +238,7 @@ async function executeTool(
         const data = (input.data ?? {}) as Record<string, unknown>;
         const onConflict = input.on_conflict ? String(input.on_conflict) : undefined;
 
-        if (!WRITE_TABLES.has(table)) {
-          return JSON.stringify({ error: `Writing to '${table}' is not permitted` });
-        }
+        if (!WRITE_TABLES.has(table)) return JSON.stringify({ error: `Writing to '${table}' is not permitted` });
         const record = { ...data, user_id: userId };
         if (onConflict) {
           const { data: result, error } = await adminSb.from(table).upsert(record, { onConflict }).select().maybeSingle();
@@ -223,15 +253,17 @@ async function executeTool(
 
       case "read_note": {
         const noteId = String(input.note_id ?? "");
-        const { data, error } = await adminSb
-          .from("mavis_notes")
-          .select("*")
-          .eq("id", noteId)
-          .eq("user_id", userId)
-          .maybeSingle();
+        const { data, error } = await adminSb.from("mavis_notes").select("*").eq("id", noteId).eq("user_id", userId).maybeSingle();
         if (error) return JSON.stringify({ error: error.message });
         if (!data) return JSON.stringify({ error: "Note not found" });
         return JSON.stringify(data);
+      }
+
+      case "run_code": {
+        const code = String(input.code ?? "");
+        if (!code.trim()) return JSON.stringify({ error: "No code provided" });
+        const result = await runCode(code);
+        return JSON.stringify(result);
       }
 
       default:
@@ -279,13 +311,18 @@ serve(async (req) => {
       });
     }
     const userId = user.id;
-
     const enc = new TextEncoder();
 
     const sseBody = new ReadableStream<Uint8Array>({
       async start(controller) {
         const send = (obj: Record<string, unknown>) =>
           controller.enqueue(enc.encode(`data: ${JSON.stringify(obj)}\n\n`));
+
+        let finalText = "";
+        let conversationId = inConvoId;
+        let iteration = 0;
+        // Capture the last user message for memory write-back
+        const lastUserMsg = rawMessages.filter(m => m.role === "user").slice(-1)[0]?.content ?? "";
 
         try {
           // ── Trim history to ~60k chars ────────────────────
@@ -303,8 +340,8 @@ serve(async (req) => {
 
           const MODEL = "claude-sonnet-4-6";
           const MAX_ITER = 8;
-          let iteration = 0;
-          let finalText = "";
+          // Accumulates web_search sources for citation display
+          const sources: Array<{ title: string; url: string }> = [];
 
           // ── ReAct loop ─────────────────────────────────────
           while (iteration < MAX_ITER) {
@@ -335,7 +372,6 @@ serve(async (req) => {
             const content: any[] = d.content ?? [];
             const stopReason: string = d.stop_reason ?? "end_turn";
 
-            // Append assistant turn for next iteration
             messages = [...messages, { role: "assistant", content }];
 
             if (stopReason !== "tool_use") {
@@ -346,26 +382,29 @@ serve(async (req) => {
               break;
             }
 
-            // Execute each tool call and collect results
-            const toolResults: any[] = [];
-            for (const block of content) {
-              if (block.type !== "tool_use") continue;
-              const toolLabel = `${block.name}(${JSON.stringify(block.input).slice(0, 80)})`;
-              send({ thinking: toolLabel });
-              const result = await executeTool(
-                block.name,
-                block.input as Record<string, unknown>,
-                userId,
-                adminSb,
-                openaiKey,
-                tavilyKey,
-              );
-              toolResults.push({
-                type: "tool_result",
-                tool_use_id: block.id,
-                content: result,
-              });
+            // ── Parallel tool execution ───────────────────────
+            const toolBlocks = content.filter((b: any) => b.type === "tool_use");
+
+            // Emit thinking events immediately (sequential — UI ordering matters)
+            for (const block of toolBlocks) {
+              const label = block.name === "run_code"
+                ? `run_code: ${String(block.input.description ?? "executing…")}`
+                : `${block.name}(${JSON.stringify(block.input).slice(0, 80)})`;
+              send({ thinking: label });
             }
+
+            // Execute all tools in parallel
+            const results = await Promise.all(
+              toolBlocks.map(block =>
+                executeTool(block.name, block.input as Record<string, unknown>, userId, adminSb, openaiKey, tavilyKey, sources)
+              )
+            );
+
+            const toolResults = toolBlocks.map((block, i) => ({
+              type: "tool_result",
+              tool_use_id: block.id,
+              content: results[i],
+            }));
 
             messages = [...messages, { role: "user", content: toolResults }];
           }
@@ -373,31 +412,87 @@ serve(async (req) => {
           if (!finalText) finalText = "[Agent loop completed with no text response]";
 
           // ── Stream final text in chunks ───────────────────
-          // ~8-char chunks so the streaming bubble feels live
           const CHUNK = 8;
           for (let i = 0; i < finalText.length; i += CHUNK) {
             send({ t: finalText.slice(i, i + CHUNK) });
           }
 
           // ── Persist conversation ──────────────────────────
-          let conversationId = inConvoId;
           if (!conversationId) {
             const { data: c } = await adminSb
               .from("chat_conversations")
-              .insert({
-                user_id: userId,
-                title: `AGENT Thread — ${new Date().toLocaleDateString()}`,
-              })
+              .insert({ user_id: userId, title: `AGENT Thread — ${new Date().toLocaleDateString()}` })
               .select("id")
               .maybeSingle();
             if (c?.id) conversationId = c.id;
           }
 
-          send({ done: true, conversationId, provider: MODEL, iterations: iteration });
+          send({ done: true, conversationId, provider: MODEL, iterations: iteration, sources });
         } catch (err: any) {
           send({ error: err.message ?? "Agent error" });
         } finally {
           controller.close();
+
+          // ── Memory write-back (non-blocking, best-effort) ─
+          if (finalText && lastUserMsg) {
+            (async () => {
+              try {
+                const importance = scoreImportance(lastUserMsg + " " + finalText);
+                await adminSb.from("mavis_memory").insert({
+                  user_id: userId,
+                  content: `[AGENT] USER: ${lastUserMsg}\n\nMAVIS: ${finalText.slice(0, 4000)}`,
+                  role: "exchange",
+                  importance,
+                  source: "mavis_agent",
+                  consolidated: false,
+                });
+              } catch { /* non-critical */ }
+            })();
+
+            // Fact extraction — pull structured facts from the agent exchange
+            if (openaiKey) {
+              (async () => {
+                try {
+                  const factRes = await fetch("https://api.openai.com/v1/chat/completions", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json", Authorization: `Bearer ${openaiKey}` },
+                    body: JSON.stringify({
+                      model: "gpt-4o-mini",
+                      max_tokens: 400,
+                      messages: [
+                        {
+                          role: "system",
+                          content: "Extract 0–3 durable facts about the user from this exchange. Return a JSON array of strings, each a concise statement. If none, return [].",
+                        },
+                        {
+                          role: "user",
+                          content: `USER: ${lastUserMsg.slice(0, 800)}\nMAVIS: ${finalText.slice(0, 1200)}`,
+                        },
+                      ],
+                      response_format: { type: "json_object" },
+                    }),
+                  });
+                  if (!factRes.ok) return;
+                  const factData = await factRes.json();
+                  const raw = factData.choices?.[0]?.message?.content ?? "{}";
+                  const parsed = JSON.parse(raw);
+                  const facts: string[] = Array.isArray(parsed) ? parsed : (Array.isArray(parsed.facts) ? parsed.facts : []);
+                  for (const fact of facts.slice(0, 3)) {
+                    if (typeof fact !== "string" || !fact.trim()) continue;
+                    const key = `fact_${fact.trim().toLowerCase().replace(/\W+/g, "_").slice(0, 40)}`;
+                    await adminSb.from("mavis_tacit").upsert({
+                      user_id: userId,
+                      key,
+                      value: fact.trim(),
+                      category: "fact",
+                      source: "mavis_agent_fact_extraction",
+                      confidence: 0.7,
+                    }, { onConflict: "user_id,key" });
+                  }
+                } catch { /* non-critical */ }
+              })();
+            }
+          }
         }
       },
     });

@@ -588,15 +588,19 @@ export default function MavisChat() {
       }
 
       const actionsExecuted = confirmed.length;
+      const agentSources: Array<{ title: string; url: string }> = (fnData as any)?.sources ?? [];
+      const agentIterations: number | null = (fnData as any)?.iterations ?? null;
       const assistantMsg = {
         id: `a-${Date.now()}`,
         role: "assistant" as const,
         content: cleanText,
         mode: chatMode,
         model: (fnData as any)?.model ?? null,
-        searched,
+        searched: searched || agentSources.length > 0,
         actionsExecuted,
         imageUrl: imageUrl ?? undefined,
+        sources: agentSources,
+        iterations: agentIterations,
         timestamp: new Date(),
       };
       // Replace streaming placeholder with the final fully-processed message
@@ -885,6 +889,21 @@ export default function MavisChat() {
                               />
                             </div>
                           )}
+                          {(msg as any).sources?.length > 0 && (
+                            <div className="mt-2 flex flex-col gap-0.5">
+                              {(msg as any).sources.map((s: { title: string; url: string }, i: number) => (
+                                <a
+                                  key={i}
+                                  href={s.url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-[8px] font-mono text-cyan-400/80 hover:text-cyan-300 underline underline-offset-2 truncate block max-w-[280px]"
+                                >
+                                  [{i + 1}] {s.title}
+                                </a>
+                              ))}
+                            </div>
+                          )}
                         </>
                       ) : (
                         <p className="text-xs font-body leading-relaxed">{msg.content}</p>
@@ -895,12 +914,17 @@ export default function MavisChat() {
                             🔍 web search
                           </span>
                         )}
+                        {(msg as any).iterations != null && (
+                          <span className="text-[8px] font-mono text-violet-400 border border-violet-900/40 rounded px-1.5 py-0.5">
+                            ⚙ {(msg as any).iterations} step{(msg as any).iterations !== 1 ? "s" : ""}
+                          </span>
+                        )}
                         {(msg as any).actionsExecuted > 0 && (
                           <span className="text-[8px] font-mono text-primary border border-primary/30 rounded px-1.5 py-0.5">
                             ⚡ {(msg as any).actionsExecuted} action{(msg as any).actionsExecuted > 1 ? "s" : ""} executed
                           </span>
                         )}
-                        {msg.mode && msg.role === "assistant" && !(msg as any).searched && !(msg as any).actionsExecuted && (
+                        {msg.mode && msg.role === "assistant" && !(msg as any).searched && !(msg as any).actionsExecuted && (msg as any).iterations == null && (
                           <span className="text-[8px] font-mono text-muted-foreground/60">[{msg.mode}]{(msg as any).model ? ` · ${(msg as any).model}` : ""}</span>
                         )}
                         <span className="text-[8px] font-mono text-muted-foreground/50 ml-auto">
