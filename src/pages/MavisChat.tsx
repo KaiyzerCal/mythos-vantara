@@ -18,7 +18,7 @@ import { SessionBlock, groupMessagesIntoSessions } from "@/components/chat/Sessi
 // ── MAVIS modules ───────────────────────────────────────────
 import { buildSystemPromptFromSnapshot } from "@/mavis/buildSystemPrompt";
 import { setDefaultHandler, registerActionHandler } from "@/mavis/actionExecutor";
-import { sendChatMessage } from "@/mavis/chatService";
+import { streamChatMessage } from "@/mavis/chatService";
 import { loadFullAppContext } from "@/mavis/appContextLoader";
 import { initSession } from "@/mavis/memoryEngine";
 import { loadRuntimeSkills } from "@/mavis/skills/_registry";
@@ -512,7 +512,17 @@ export default function MavisChat() {
           }, archivedMemories, vaultMedia));
       const attachmentIds = attachments.map((a) => a.id);
 
-      const { cleanText, executionResults, conversationId: newConvoId, searched, imageUrl, fnData } = await sendChatMessage(
+      // Add a streaming placeholder bubble so the user sees tokens as they arrive
+      const streamingId = `streaming-${Date.now()}`;
+      setChatMessages((prev) => [...prev, {
+        id: streamingId,
+        role: "assistant" as const,
+        content: "",
+        mode: chatMode,
+        timestamp: new Date(),
+      }]);
+
+      const { cleanText, executionResults, conversationId: newConvoId, searched, imageUrl, fnData } = await streamChatMessage(
         content,
         systemPrompt,
         history,
@@ -524,9 +534,18 @@ export default function MavisChat() {
           threadRef: "main",
           attachmentIds,
         },
+        (_token, accumulated) => {
+          if (cancelledRef.current) return;
+          setChatMessages((prev) => prev.map((m) =>
+            m.id === streamingId ? { ...m, content: accumulated } : m
+          ));
+        },
       );
 
-      if (cancelledRef.current) return;
+      if (cancelledRef.current) {
+        setChatMessages((prev) => prev.filter((m) => m.id !== streamingId));
+        return;
+      }
 
       // Separate confirmed vs pending actions
       const confirmed = executionResults.filter((r) => r.status === "success");
@@ -568,7 +587,8 @@ export default function MavisChat() {
         imageUrl: imageUrl ?? undefined,
         timestamp: new Date(),
       };
-      setChatMessages((prev) => [...prev, assistantMsg]);
+      // Replace streaming placeholder with the final fully-processed message
+      setChatMessages((prev) => prev.filter((m) => m.id !== streamingId).concat(assistantMsg));
       speakText(cleanText);
       if (newConvoId) setConversationId(newConvoId);
 

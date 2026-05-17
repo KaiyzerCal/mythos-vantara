@@ -225,6 +225,36 @@ Deno.serve(async (req) => {
       const title   = String(body.title ?? "Untitled Note");
       const content = String(body.content ?? "");
       const tags    = Array.isArray(body.tags) ? body.tags : [];
+      const props   = (body.properties && typeof body.properties === "object") ? body.properties : {};
+
+      // Semantic deduplication: if a near-identical note exists (≥92% similarity),
+      // update it instead of creating a duplicate. Skip for system-chunked notes.
+      if (!props.skip_dedup) {
+        try {
+          const dupEmb = await generateEmbedding(noteEmbedText(title, content, tags));
+          if (dupEmb) {
+            const { data: nearDups } = await supabase.rpc("match_mavis_notes", {
+              query_embedding: dupEmb,
+              match_user_id:   userId,
+              match_threshold: 0.92,
+              match_count:     1,
+            });
+            if (nearDups?.length) {
+              const dup = nearDups[0];
+              const { data: updated, error: updErr } = await supabase
+                .from("mavis_notes")
+                .update({ content, tags, updated_at: now })
+                .eq("id", dup.id)
+                .select()
+                .single();
+              if (!updErr && updated) {
+                embedNote(updated.id, title, content, tags).catch(() => {});
+                return json({ note: updated, deduped: true });
+              }
+            }
+          }
+        } catch { /* dedup is best-effort — fall through to insert */ }
+      }
 
       const { data, error } = await supabase
         .from("mavis_notes")
@@ -234,7 +264,7 @@ Deno.serve(async (req) => {
           content,
           tags,
           aliases:    Array.isArray(body.aliases) ? body.aliases : [],
-          properties: (body.properties && typeof body.properties === "object") ? body.properties : {},
+          properties: props,
           created_at: now,
           updated_at: now,
         })
