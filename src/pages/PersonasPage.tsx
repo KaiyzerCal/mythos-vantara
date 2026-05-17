@@ -1,5 +1,8 @@
 import { useState, useEffect, useCallback } from "react";
-import { Plus, Users, Loader2, AlertCircle, Wand2 } from "lucide-react";
+import { Plus, Users, Loader2, AlertCircle, Wand2, PhoneCall } from "lucide-react";
+import { AnimatePresence } from "framer-motion";
+import { VoiceChatOverlay } from "@/components/VoiceChatOverlay";
+import type { VoicePersona } from "@/components/VoiceChatOverlay";
 import { PageHeader, HudCard } from "@/components/SharedUI";
 import { PersonaCard } from "@/components/persona/PersonaCard";
 import { PersonaChat } from "@/components/persona/PersonaChat";
@@ -75,6 +78,7 @@ export default function PersonasPage() {
   const [personas, setPersonas] = useState<ForgedPersona[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [activeChat, setActiveChat] = useState<ForgedPersona | null>(null);
+  const [voicePersona, setVoicePersona] = useState<VoicePersona | null>(null);
   // Map of persona_id → latest unread heartbeat notification
   const [notifications, setNotifications] = useState<Record<string, NaviNotification>>({});
 
@@ -200,18 +204,34 @@ export default function PersonasPage() {
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
           {personas.map((persona) => (
-            <PersonaCard
-              key={persona.id}
-              persona={persona}
-              userId={user.id}
-              onChat={setActiveChat}
-              onDelete={handleDelete}
-              notification={notifications[persona.id] ?? null}
-              onNotificationRead={handleNotificationRead}
-            />
+            <div key={persona.id} className="relative">
+              <PersonaCard
+                persona={persona}
+                userId={user.id}
+                onChat={setActiveChat}
+                onDelete={handleDelete}
+                notification={notifications[persona.id] ?? null}
+                onNotificationRead={handleNotificationRead}
+              />
+              <button
+                onClick={() => setVoicePersona({ name: persona.name, role: persona.role, systemPrompt: persona.system_prompt })}
+                className="absolute top-2 right-2 flex items-center gap-1 px-2 py-1 rounded border border-primary/30 bg-primary/10 text-primary/70 hover:text-primary hover:bg-primary/20 text-[9px] font-mono transition-all"
+                title={`Voice call ${persona.name}`}
+              >
+                <PhoneCall size={9} /> CALL
+              </button>
+            </div>
           ))}
         </div>
       )}
+      <AnimatePresence>
+        {voicePersona && (
+          <VoiceChatOverlay
+            persona={voicePersona}
+            onClose={() => setVoicePersona(null)}
+          />
+        )}
+      </AnimatePresence>
     </div>
   );
 }

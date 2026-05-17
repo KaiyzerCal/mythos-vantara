@@ -1,12 +1,22 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { X, Mic } from "lucide-react";
+import { streamChatMessage } from "@/mavis/chatService";
+
+export interface VoicePersona {
+  name: string;
+  role?: string;
+  systemPrompt: string;
+}
 
 interface VoiceChatOverlayProps {
   onClose: () => void;
-  sendMessage: (text: string) => Promise<void>;
-  lastBotMessage: string;
-  isLoading: boolean;
+  // MAVIS mode — required when persona is not provided
+  sendMessage?: (text: string) => Promise<void>;
+  lastBotMessage?: string;
+  isLoading?: boolean;
+  // Persona mode — self-contained conversation when provided
+  persona?: VoicePersona;
 }
 
 type Phase = "idle" | "listening" | "thinking" | "speaking";
@@ -14,23 +24,29 @@ type Phase = "idle" | "listening" | "thinking" | "speaking";
 export function VoiceChatOverlay({
   onClose,
   sendMessage,
-  lastBotMessage,
-  isLoading,
+  lastBotMessage = "",
+  isLoading = false,
+  persona,
 }: VoiceChatOverlayProps) {
   const [phase, setPhase] = useState<Phase>("idle");
   const [transcript, setTranscript] = useState("");
   const [interimTranscript, setInterimTranscript] = useState("");
 
+  // Persona-mode internal state
+  const [personaReply, setPersonaReply] = useState("");
+  const [personaLoading, setPersonaLoading] = useState(false);
+  const personaHistoryRef = useRef<{ role: string; content: string }[]>([]);
+
   const recognitionRef = useRef<any>(null);
   const autoRestartTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const closingRef = useRef(false);
-  const prevLoadingRef = useRef(isLoading);
-  const lastBotMessageRef = useRef(lastBotMessage);
 
-  // Keep ref in sync so the isLoading effect always sees the latest message
-  useEffect(() => {
-    lastBotMessageRef.current = lastBotMessage;
-  }, [lastBotMessage]);
+  const effectiveLoading = persona ? personaLoading : isLoading;
+  const effectiveReply   = persona ? personaReply   : lastBotMessage;
+
+  const prevLoadingRef   = useRef(effectiveLoading);
+  const effectiveReplyRef = useRef(effectiveReply);
+  useEffect(() => { effectiveReplyRef.current = effectiveReply; }, [effectiveReply]);
 
   const stopListening = useCallback(() => {
     if (recognitionRef.current) {
@@ -38,6 +54,31 @@ export function VoiceChatOverlay({
       recognitionRef.current = null;
     }
   }, []);
+
+  const sendPersonaMessage = useCallback(async (text: string) => {
+    if (!persona) return;
+    setPersonaLoading(true);
+    setPersonaReply("");
+    let accumulated = "";
+    try {
+      await streamChatMessage(
+        text,
+        persona.systemPrompt,
+        personaHistoryRef.current,
+        { mode: "CHAT" },
+        (_, acc) => { accumulated = acc; setPersonaReply(acc); },
+      );
+      personaHistoryRef.current = [
+        ...personaHistoryRef.current,
+        { role: "user", content: text },
+        { role: "assistant", content: accumulated },
+      ];
+    } catch {
+      // non-critical — phase will fall back to idle via loading transition
+    } finally {
+      setPersonaLoading(false);
+    }
+  }, [persona]);
 
   const startListening = useCallback(() => {
     const SpeechRecognition =
@@ -77,7 +118,8 @@ export function VoiceChatOverlay({
       const captured = finalText.trim();
       if (captured) {
         setPhase("thinking");
-        sendMessage(captured).catch(() => {
+        const dispatch = persona ? sendPersonaMessage : sendMessage;
+        dispatch?.(captured).catch(() => {
           if (!closingRef.current) setPhase("idle");
         });
       } else {
@@ -90,40 +132,30 @@ export function VoiceChatOverlay({
     setInterimTranscript("");
     recognition.start();
     setPhase("listening");
-  }, [sendMessage]);
+  }, [sendMessage, sendPersonaMessage, persona]);
 
-  // When thinking finishes (isLoading transitions false → false was already false
-  // is wrong — we want to catch the transition from true → false).
+  // Transition: thinking → speaking when loading finishes
   useEffect(() => {
-    if (prevLoadingRef.current && !isLoading && phase === "thinking" && !closingRef.current) {
-      // MAVIS finished thinking — speak the response
-      const msg = lastBotMessageRef.current;
+    if (prevLoadingRef.current && !effectiveLoading && phase === "thinking" && !closingRef.current) {
+      const msg = effectiveReplyRef.current;
       if (msg && typeof window !== "undefined" && window.speechSynthesis) {
         setPhase("speaking");
         const utterance = new SpeechSynthesisUtterance(msg);
-        utterance.onend = () => {
-          if (!closingRef.current) {
-            setPhase("idle");
-          }
-        };
-        utterance.onerror = () => {
-          if (!closingRef.current) setPhase("idle");
-        };
+        utterance.onend = () => { if (!closingRef.current) setPhase("idle"); };
+        utterance.onerror = () => { if (!closingRef.current) setPhase("idle"); };
         window.speechSynthesis.speak(utterance);
       } else {
         setPhase("idle");
       }
     }
-    prevLoadingRef.current = isLoading;
-  }, [isLoading, phase]);
+    prevLoadingRef.current = effectiveLoading;
+  }, [effectiveLoading, phase]);
 
-  // Auto-restart listening after speaking finishes
+  // Auto-restart listening after speaking or idle
   useEffect(() => {
     if (phase === "idle" && !closingRef.current) {
       autoRestartTimerRef.current = setTimeout(() => {
-        if (!closingRef.current) {
-          startListening();
-        }
+        if (!closingRef.current) startListening();
       }, 1200);
     }
     return () => {
@@ -136,23 +168,15 @@ export function VoiceChatOverlay({
 
   const handleClose = useCallback(() => {
     closingRef.current = true;
-    if (autoRestartTimerRef.current) {
-      clearTimeout(autoRestartTimerRef.current);
-    }
+    if (autoRestartTimerRef.current) clearTimeout(autoRestartTimerRef.current);
     stopListening();
-    if (window.speechSynthesis) {
-      window.speechSynthesis.cancel();
-    }
+    if (window.speechSynthesis) window.speechSynthesis.cancel();
     onClose();
   }, [onClose, stopListening]);
 
   const handleOrbOrMicTap = useCallback(() => {
-    if (phase === "idle") {
-      startListening();
-    } else if (phase === "listening") {
-      stopListening();
-      // onend fires and drives state from there
-    }
+    if (phase === "idle") startListening();
+    else if (phase === "listening") stopListening();
   }, [phase, startListening, stopListening]);
 
   const phaseLabel: Record<Phase, string> = {
@@ -163,8 +187,11 @@ export function VoiceChatOverlay({
   };
 
   const orbListening = phase === "listening";
-  const orbThinking = phase === "thinking";
-  const orbSpeaking = phase === "speaking";
+  const orbThinking  = phase === "thinking";
+  const orbSpeaking  = phase === "speaking";
+
+  const speakerName = persona?.name ?? "MAVIS";
+  const speakerRole = persona?.role;
 
   return (
     <motion.div
@@ -174,7 +201,7 @@ export function VoiceChatOverlay({
       transition={{ duration: 0.2 }}
       className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-black/90 backdrop-blur-md"
     >
-      {/* Close button */}
+      {/* Close */}
       <button
         onClick={handleClose}
         className="absolute top-5 right-5 p-2 rounded-full border border-white/10 text-white/50 hover:text-white hover:border-white/30 transition-all"
@@ -183,6 +210,12 @@ export function VoiceChatOverlay({
         <X size={20} />
       </button>
 
+      {/* Speaker label */}
+      <div className="absolute top-5 left-6 text-left">
+        <p className="text-xs font-mono font-bold text-primary tracking-widest">{speakerName}</p>
+        {speakerRole && <p className="text-[10px] font-mono text-muted-foreground">{speakerRole}</p>}
+      </div>
+
       {/* Orb */}
       <button
         onClick={handleOrbOrMicTap}
@@ -190,33 +223,21 @@ export function VoiceChatOverlay({
           "relative w-20 h-20 rounded-full flex items-center justify-center transition-all duration-300",
           "bg-primary/20 border-2 border-primary/40",
           orbListening ? "animate-pulse scale-110" : "",
-          orbSpeaking
-            ? "shadow-[0_0_40px_rgba(var(--primary-rgb,139,92,246),0.5)]"
-            : "",
-        ]
-          .filter(Boolean)
-          .join(" ")}
+          orbSpeaking ? "shadow-[0_0_40px_rgba(139,92,246,0.5)]" : "",
+        ].filter(Boolean).join(" ")}
         aria-label={phase === "listening" ? "Stop listening" : "Start listening"}
       >
-        {/* Inner spinning ring for thinking */}
-        <span
-          className={[
-            "absolute inset-1 rounded-full border-2 border-transparent border-t-primary/70",
-            orbThinking ? "animate-spin" : "opacity-0",
-          ].join(" ")}
-        />
-        <Mic
-          size={28}
-          className={phase === "listening" ? "text-primary" : "text-primary/60"}
-        />
+        <span className={[
+          "absolute inset-1 rounded-full border-2 border-transparent border-t-primary/70",
+          orbThinking ? "animate-spin" : "opacity-0",
+        ].join(" ")} />
+        <Mic size={28} className={phase === "listening" ? "text-primary" : "text-primary/60"} />
       </button>
 
       {/* Phase label */}
-      <p className="mt-4 text-xs font-mono tracking-widest text-primary">
-        {phaseLabel[phase]}
-      </p>
+      <p className="mt-4 text-xs font-mono tracking-widest text-primary">{phaseLabel[phase]}</p>
 
-      {/* Transcript text */}
+      {/* Transcript */}
       <AnimatePresence mode="wait">
         {(transcript || interimTranscript) && (
           <motion.p
@@ -231,9 +252,9 @@ export function VoiceChatOverlay({
         )}
       </AnimatePresence>
 
-      {/* MAVIS response text */}
+      {/* Response */}
       <AnimatePresence mode="wait">
-        {lastBotMessage && phase !== "idle" && (
+        {effectiveReply && phase !== "idle" && (
           <motion.p
             key="response"
             initial={{ opacity: 0, y: 4 }}
@@ -241,12 +262,12 @@ export function VoiceChatOverlay({
             exit={{ opacity: 0 }}
             className="mt-6 max-w-sm px-4 text-center text-sm font-mono text-white line-clamp-4"
           >
-            {lastBotMessage}
+            {effectiveReply}
           </motion.p>
         )}
       </AnimatePresence>
 
-      {/* Large mic button at bottom */}
+      {/* Bottom mic button */}
       <button
         onClick={handleOrbOrMicTap}
         className={[
