@@ -96,25 +96,32 @@ export async function streamChatMessage(
   let buf = "";
   let metadata: Record<string, unknown> = {};
 
+  function processSSELine(line: string) {
+    if (!line.startsWith("data: ")) return;
+    const raw = line.slice(6).trim();
+    if (!raw) return;
+    try {
+      const j = JSON.parse(raw);
+      if (j.t) { accumulated += j.t; onToken(j.t, accumulated); }
+      if (j.done) metadata = j;
+      if (j.error) throw new Error(j.error);
+    } catch (parseErr: any) {
+      if (parseErr.message?.includes("unavailable") || parseErr.message?.includes("providers")) throw parseErr;
+    }
+  }
+
   while (true) {
     const { done, value } = await reader.read();
-    if (done) break;
+    if (done) {
+      // Flush decoder's internal buffer then process any remaining line
+      buf += decoder.decode();
+      if (buf.trim()) processSSELine(buf.trim());
+      break;
+    }
     buf += decoder.decode(value, { stream: true });
     const lines = buf.split("\n");
     buf = lines.pop() ?? "";
-    for (const line of lines) {
-      if (!line.startsWith("data: ")) continue;
-      const raw = line.slice(6).trim();
-      try {
-        const j = JSON.parse(raw);
-        if (j.t) { accumulated += j.t; onToken(j.t, accumulated); }
-        if (j.done) metadata = j;
-        if (j.error) throw new Error(j.error);
-      } catch (parseErr: any) {
-        if (parseErr.message?.includes("unavailable") || parseErr.message?.includes("providers")) throw parseErr;
-        /* skip malformed SSE lines */
-      }
-    }
+    for (const line of lines) processSSELine(line);
   }
 
   const { cleanText, actions: parsedActions } = parseActions(accumulated);
@@ -174,25 +181,32 @@ export async function streamAgentMessage(
   let buf = "";
   let metadata: Record<string, unknown> = {};
 
+  function processAgentLine(line: string) {
+    if (!line.startsWith("data: ")) return;
+    const raw = line.slice(6).trim();
+    if (!raw) return;
+    try {
+      const j = JSON.parse(raw);
+      if (j.thinking) { onThinking(j.thinking); }
+      if (j.t) { accumulated += j.t; onToken(j.t, accumulated); }
+      if (j.done) metadata = j;
+      if (j.error) throw new Error(j.error);
+    } catch (parseErr: any) {
+      if (parseErr.message?.includes("unavailable") || parseErr.message?.includes("providers")) throw parseErr;
+    }
+  }
+
   while (true) {
     const { done, value } = await reader.read();
-    if (done) break;
+    if (done) {
+      buf += decoder.decode();
+      if (buf.trim()) processAgentLine(buf.trim());
+      break;
+    }
     buf += decoder.decode(value, { stream: true });
     const lines = buf.split("\n");
     buf = lines.pop() ?? "";
-    for (const line of lines) {
-      if (!line.startsWith("data: ")) continue;
-      const raw = line.slice(6).trim();
-      try {
-        const j = JSON.parse(raw);
-        if (j.thinking) { onThinking(j.thinking); }
-        if (j.t) { accumulated += j.t; onToken(j.t, accumulated); }
-        if (j.done) metadata = j;
-        if (j.error) throw new Error(j.error);
-      } catch (parseErr: any) {
-        if (parseErr.message?.includes("unavailable") || parseErr.message?.includes("providers")) throw parseErr;
-      }
-    }
+    for (const line of lines) processAgentLine(line);
   }
 
   const { cleanText, actions: parsedActions } = parseActions(accumulated);
@@ -241,23 +255,28 @@ export async function streamResearchMessage(
   const decoder = new TextDecoder();
   let accumulated = "";
   let buf = "";
+  let finished = false;
 
-  while (true) {
+  while (!finished) {
     const { done, value } = await reader.read();
-    if (done) break;
-    buf += decoder.decode(value, { stream: true });
+    if (done) {
+      buf += decoder.decode();
+    } else {
+      buf += decoder.decode(value, { stream: true });
+    }
     const lines = buf.split("\n");
     buf = lines.pop() ?? "";
     for (const line of lines) {
       if (!line.startsWith("data: ")) continue;
       const raw = line.slice(6).trim();
-      if (raw === "[DONE]") break;
+      if (raw === "[DONE]") { finished = true; break; }
       try {
         const j = JSON.parse(raw);
         if (j.token) { accumulated += j.token; onToken(j.token, accumulated); }
         if (j.error) throw new Error(j.error);
       } catch { /* skip malformed lines */ }
     }
+    if (done) finished = true;
   }
 
   return {
