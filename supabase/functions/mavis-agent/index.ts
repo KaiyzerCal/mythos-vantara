@@ -194,6 +194,19 @@ const AGENT_TOOLS = [
       required: ["code"],
     },
   },
+  {
+    name: "deep_research",
+    description:
+      "Perform multi-step web research on a topic: breaks query into angles, searches each, fetches sources, and synthesizes a comprehensive markdown report with citations. Use when a single web_search won't suffice — for competitive analysis, detailed how-tos, market research, or any topic requiring depth.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        query: { type: "string", description: "The research question or topic" },
+        depth: { type: "number", description: "Number of search angles to explore (2-5, default 3)" },
+      },
+      required: ["query"],
+    },
+  },
 ];
 
 // ── Tool executor ─────────────────────────────────────────────────────────────
@@ -402,6 +415,44 @@ async function executeTool(
           return JSON.stringify(data);
         } catch (err: any) {
           return JSON.stringify({ error: err.message ?? "Python exec failed" });
+        }
+      }
+
+      case "deep_research": {
+        const query = String(input.query ?? "");
+        const depth = Math.min(Math.max(Number(input.depth ?? 3), 2), 5);
+        if (!query.trim()) return JSON.stringify({ error: "No query provided" });
+
+        const supabaseUrl3 = Deno.env.get("SUPABASE_URL") ?? "";
+        const serviceKey3 = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+
+        try {
+          const res = await fetch(`${supabaseUrl3}/functions/v1/mavis-deep-research`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${serviceKey3}` },
+            body: JSON.stringify({ query, depth }),
+          });
+          // deep-research streams SSE; collect full text
+          const reader = res.body!.getReader();
+          const decoder = new TextDecoder();
+          let report = "";
+          let buf = "";
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buf += decoder.decode(value, { stream: true });
+            const lines = buf.split("\n");
+            buf = lines.pop() ?? "";
+            for (const line of lines) {
+              if (!line.startsWith("data: ")) continue;
+              const raw = line.slice(6).trim();
+              if (raw === "[DONE]") break;
+              try { const j = JSON.parse(raw); if (j.token) report += j.token; } catch { /* skip */ }
+            }
+          }
+          return JSON.stringify({ report, query });
+        } catch (err: any) {
+          return JSON.stringify({ error: err.message ?? "Deep research failed" });
         }
       }
 

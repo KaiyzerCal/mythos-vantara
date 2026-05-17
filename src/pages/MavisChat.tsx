@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { Send, Square, Cpu, Copy, Check, ChevronDown, Zap, Brain, Target, Crown, Flame, Database, Mic, MicOff, Users } from "lucide-react";
+import { Send, Square, Cpu, Copy, Check, ChevronDown, Zap, Brain, Target, Crown, Flame, Database, Mic, MicOff, Users, Search, FileCode, X, Download } from "lucide-react";
 import { useAppData } from "@/contexts/AppDataContext";
 import { supabase } from "@/integrations/supabase/client";
 import { PageHeader, HudCard } from "@/components/SharedUI";
@@ -18,7 +18,7 @@ import { SessionBlock, groupMessagesIntoSessions } from "@/components/chat/Sessi
 // ── MAVIS modules ───────────────────────────────────────────
 import { buildSystemPromptFromSnapshot } from "@/mavis/buildSystemPrompt";
 import { setDefaultHandler, registerActionHandler } from "@/mavis/actionExecutor";
-import { streamChatMessage, streamAgentMessage } from "@/mavis/chatService";
+import { streamChatMessage, streamAgentMessage, streamResearchMessage } from "@/mavis/chatService";
 import { loadFullAppContext } from "@/mavis/appContextLoader";
 import { initSession } from "@/mavis/memoryEngine";
 import { loadRuntimeSkills } from "@/mavis/skills/_registry";
@@ -36,6 +36,7 @@ const MAVIS_MODES = [
   { id: "ENRYU", label: "ENRYU", icon: Flame, color: "text-red-500", desc: "GPT-4o-mini · Raw execution speed" },
   { id: "WATCHTOWER", label: "WATCHTOWER", icon: Zap, color: "text-emerald-400", desc: "Grok · Live intelligence" },
   { id: "AGENT", label: "AGENT", icon: Cpu, color: "text-violet-400", desc: "Claude Sonnet · Agentic tool-use loop" },
+  { id: "RESEARCH", label: "RESEARCH", icon: Search, color: "text-cyan-300", desc: "Claude Sonnet · Deep multi-step research" },
 ];
 
 const QUICK_PROMPTS = [
@@ -66,6 +67,8 @@ export default function MavisChat() {
   const [isComposing, setIsComposing] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const [agentThinking, setAgentThinking] = useState<string | null>(null);
+  const [artifactContent, setArtifactContent] = useState<string | null>(null);
+  const [artifactLang, setArtifactLang] = useState<string>("text");
   const [ttsEnabled, setTtsEnabled] = useState(false);
   const [voiceId, setVoiceId] = useState<string>(DEFAULT_VOICE_BY_GENDER.female);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -544,6 +547,13 @@ export default function MavisChat() {
               (toolInfo) => { if (!cancelledRef.current) setAgentThinking(toolInfo); },
               abortController.signal,
             )
+          : chatMode === "RESEARCH"
+          ? await streamResearchMessage(
+              content,
+              { mode: chatMode, conversationId, appState: compactState, chatKind: "mavis", threadRef: "main", attachmentIds },
+              onToken,
+              abortController.signal,
+            )
           : await streamChatMessage(
               content,
               systemPrompt,
@@ -709,7 +719,8 @@ export default function MavisChat() {
   }, [handleOmniSync, chatMessages, chatMode, conversationId, setChatMessages, setConversationId]);
 
   return (
-    <div className="flex flex-col h-[calc(100dvh-4rem)] gap-2 pb-0">
+    <div className="flex gap-3 h-[calc(100dvh-4rem)]">
+    <div className="flex flex-col flex-1 min-w-0 gap-2 pb-0">
       <PageHeader
         title="MAVIS"
         subtitle={`Mode: ${currentMode.label} // Supreme Intelligence`}
@@ -893,6 +904,19 @@ export default function MavisChat() {
                               <ReactMarkdown>{msg.content}</ReactMarkdown>
                             </div>
                           )}
+                          {(() => {
+                            const codeMatch = msg.content.match(/```(\w*)\n([\s\S]{200,}?)```/);
+                            if (!codeMatch) return null;
+                            const [, lang, code] = codeMatch;
+                            return (
+                              <button
+                                onClick={() => { setArtifactContent(code.trim()); setArtifactLang(lang || "text"); }}
+                                className="mt-2 flex items-center gap-1.5 text-[9px] font-mono text-cyan-400 border border-cyan-900/40 rounded px-2 py-1 hover:bg-cyan-900/20 transition-colors"
+                              >
+                                <FileCode size={10} /> Open Artifact
+                              </button>
+                            );
+                          })()}
                           {(msg as any).imageUrl && (
                             <div className="mt-2">
                               <img
@@ -1091,6 +1115,67 @@ export default function MavisChat() {
           </button>
         )}
       </div>
+    </div>
+
+    {/* Artifact pane — slides in when content is selected */}
+    <AnimatePresence>
+      {artifactContent && (
+        <motion.div
+          initial={{ opacity: 0, x: 24, width: 0 }}
+          animate={{ opacity: 1, x: 0, width: 360 }}
+          exit={{ opacity: 0, x: 24, width: 0 }}
+          transition={{ duration: 0.2 }}
+          className="shrink-0 flex flex-col border border-border rounded-lg bg-card overflow-hidden"
+          style={{ maxHeight: "calc(100dvh - 4rem)" }}
+        >
+          {/* Header */}
+          <div className="flex items-center justify-between px-3 py-2 border-b border-border bg-muted/20">
+            <div className="flex items-center gap-2">
+              <FileCode size={13} className="text-primary" />
+              <span className="text-[10px] font-mono text-primary uppercase tracking-widest">Artifact</span>
+              {artifactLang !== "text" && (
+                <span className="text-[9px] font-mono text-muted-foreground bg-muted/50 px-1.5 rounded">{artifactLang}</span>
+              )}
+            </div>
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => { navigator.clipboard.writeText(artifactContent); toast.success("Copied"); }}
+                className="p-1 rounded text-muted-foreground hover:text-primary transition-colors"
+                title="Copy"
+              >
+                <Copy size={12} />
+              </button>
+              <button
+                onClick={() => {
+                  const blob = new Blob([artifactContent], { type: "text/plain" });
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement("a"); a.href = url;
+                  a.download = `mavis-artifact.${artifactLang === "text" ? "txt" : artifactLang}`;
+                  a.click(); URL.revokeObjectURL(url);
+                }}
+                className="p-1 rounded text-muted-foreground hover:text-primary transition-colors"
+                title="Download"
+              >
+                <Download size={12} />
+              </button>
+              <button
+                onClick={() => setArtifactContent(null)}
+                className="p-1 rounded text-muted-foreground hover:text-destructive transition-colors"
+                title="Close"
+              >
+                <X size={12} />
+              </button>
+            </div>
+          </div>
+          {/* Content */}
+          <div className="flex-1 overflow-y-auto p-3">
+            <pre className="text-[10px] font-mono text-foreground/90 whitespace-pre-wrap leading-relaxed break-words">
+              {artifactContent}
+            </pre>
+          </div>
+        </motion.div>
+      )}
+    </AnimatePresence>
     </div>
   );
 }

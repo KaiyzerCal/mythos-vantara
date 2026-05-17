@@ -13,7 +13,7 @@ import { toast } from "sonner";
 // ─── Types ──────────────────────────────────────────────────
 type PostStatus = "queued" | "scheduled" | "posted" | "failed" | "requires_confirmation";
 type Platform = "twitter" | "linkedin" | "instagram" | "youtube" | "other";
-type ActiveTab = "queue" | "posted";
+type ActiveTab = "queue" | "calendar" | "posted";
 
 interface SocialPost {
   id: string;
@@ -264,7 +264,7 @@ export function SchedulerPage() {
 
       {/* ── Tab Bar ───────────────────────────────────────────── */}
       <div className="flex gap-1">
-        {(["queue", "posted"] as ActiveTab[]).map((tab) => (
+        {(["queue", "calendar", "posted"] as ActiveTab[]).map((tab) => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
@@ -274,7 +274,7 @@ export function SchedulerPage() {
                 : "border-border text-muted-foreground hover:text-foreground hover:border-border/80"
             }`}
           >
-            {tab === "queue" ? `Queue (${queuePosts.length})` : `Posted (${postedPosts.length})`}
+            {tab === "queue" ? `Queue (${queuePosts.length})` : tab === "posted" ? `Posted (${postedPosts.length})` : "Calendar"}
           </button>
         ))}
       </div>
@@ -386,6 +386,64 @@ export function SchedulerPage() {
           )}
         </div>
       )}
+
+      {/* ── Calendar Tab ─────────────────────────────────────── */}
+      {activeTab === "calendar" && (() => {
+        const scheduledPosts = posts.filter((p) => p.scheduled_at);
+        // Build a 5-week grid starting from Monday of this week
+        const now = new Date();
+        const dayOfWeek = now.getDay();
+        const monday = new Date(now);
+        monday.setDate(now.getDate() - (dayOfWeek === 0 ? 6 : dayOfWeek - 1));
+        monday.setHours(0, 0, 0, 0);
+        const days: Date[] = [];
+        for (let i = 0; i < 35; i++) {
+          const d = new Date(monday);
+          d.setDate(monday.getDate() + i);
+          days.push(d);
+        }
+        const postsByDay = scheduledPosts.reduce<Record<string, typeof posts>>((acc, p) => {
+          const key = p.scheduled_at ? new Date(p.scheduled_at).toISOString().slice(0, 10) : "";
+          if (key) (acc[key] = acc[key] ?? []).push(p);
+          return acc;
+        }, {});
+        const DAY_LABELS = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
+        return (
+          <div className="space-y-2">
+            <div className="grid grid-cols-7 gap-1 text-center mb-1">
+              {DAY_LABELS.map((d) => (
+                <p key={d} className="text-[9px] font-mono text-muted-foreground">{d}</p>
+              ))}
+            </div>
+            <div className="grid grid-cols-7 gap-1">
+              {days.map((day) => {
+                const key = day.toISOString().slice(0, 10);
+                const dayPosts = postsByDay[key] ?? [];
+                const isToday = key === now.toISOString().slice(0, 10);
+                return (
+                  <div
+                    key={key}
+                    className={`min-h-[72px] rounded border p-1.5 ${isToday ? "border-primary/40 bg-primary/5" : "border-border bg-muted/10"}`}
+                  >
+                    <p className={`text-[9px] font-mono mb-1 ${isToday ? "text-primary" : "text-muted-foreground"}`}>
+                      {day.getDate()}
+                    </p>
+                    {dayPosts.map((p) => (
+                      <div
+                        key={p.id}
+                        className={`text-[8px] font-mono px-1 py-0.5 rounded mb-0.5 truncate ${PLATFORM_COLORS[p.platform] ?? PLATFORM_COLORS.other}`}
+                        title={p.content}
+                      >
+                        {p.platform} — {p.content.slice(0, 15)}…
+                      </div>
+                    ))}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })()}
 
       {/* ── Posted Tab ────────────────────────────────────────── */}
       {activeTab === "posted" && (
