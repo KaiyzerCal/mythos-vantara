@@ -42,6 +42,7 @@ export interface ChatServiceResult {
   executionResults: ExecutionResult[];
   conversationId: string | null;
   searched: boolean;
+  imageUrl: string | null;
   fnData: Record<string, unknown> | null;
 }
 
@@ -84,6 +85,7 @@ export async function sendChatMessage(
     executionResults,
     conversationId: (fnData as any)?.conversationId ?? options.conversationId ?? null,
     searched: (fnData as any)?.searched === true,
+    imageUrl: (fnData as any)?.imageUrl ?? null,
     fnData: fnData as Record<string, unknown> | null,
   };
 }

@@ -1185,7 +1185,7 @@ async function handleCommand(command: string, chatId: string, fullText: string):
   switch (command.toLowerCase()) {
     case "/start":
     case "/help":
-      return `MAVIS Online — Telegram Interface\n\nCommands:\n/brief — morning brief (overdue, approvals, SR, revenue, goals)\n/quests — active quests\n/energy — energy status\n/revenue — revenue report\n/expense [amount] [desc] — log an expense\n/tasks — run pending tasks now\n/scan — demand scan for product opportunities\n/orders — view Inbox (pending tasks & approvals)\n/approve [id] — approve a pending item\n/reject [id] — reject a pending item\n/preview [id] — preview full content before approving\n/council — council status + trigger check-ins\n/daily — save today's activity log to Knowledge Graph\n/review — surface notes due for spaced repetition\n/weekly — generate weekly review summary\n/monthly — generate monthly review summary\n/goals — view active goals and quest progress\n/search [query] — search your Knowledge Graph\n/note [title] — fetch a specific note\n/addnote [title] | [content] — quick note to Knowledge Graph\n/personas — list your NAVI roster\n/switch [name] — talk to a persona\n/mavis — return to MAVIS\n/ingest [url or text] — save a URL or text to your Knowledge Graph\n\nVoice messages, photos, and files also work.\nOr just talk to me.`;
+      return `MAVIS Online — Telegram Interface\n\nCommands:\n/brief — morning brief (overdue, approvals, SR, revenue, goals)\n/quests — active quests\n/energy — energy status\n/revenue — revenue report\n/expense [amount] [desc] — log an expense\n/tasks — run pending tasks now\n/scan — demand scan for product opportunities\n/orders — view Inbox (pending tasks & approvals)\n/approve [id] — approve a pending item\n/reject [id] — reject a pending item\n/preview [id] — preview full content before approving\n/council — council status + trigger check-ins\n/daily — save today's activity log to Knowledge Graph\n/review — surface notes due for spaced repetition\n/weekly — generate weekly review summary\n/monthly — generate monthly review summary\n/goals — view active goals and quest progress\n/search [query] — search your Knowledge Graph\n/note [title] — fetch a specific note\n/addnote [title] | [content] — quick note to Knowledge Graph\n/personas — list your NAVI roster\n/switch [name] — talk to a persona\n/mavis — return to MAVIS\n/ingest [url or text] — save a URL or text to your Knowledge Graph\n/imagine [description] — generate an image with DALL-E 3\n\nVoice messages, photos, and files also work.\nOr just talk to me.`;
 
     case "/brief": {
       const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
@@ -1432,6 +1432,57 @@ async function handleCommand(command: string, chatId: string, fullText: string):
 
       if (!res.ok) return `Failed to create note (${res.status}).`;
       return `Note saved: "${title}"\n${content ? content.slice(0, 100) + (content.length > 100 ? "…" : "") : "(no content)"}\n\nView in Knowledge Graph tab.`;
+    }
+
+    case "/imagine": {
+      const prompt = fullText.replace(/^\/imagine\s*/i, "").trim();
+      if (!prompt) return "Usage: /imagine [description]\nExample: /imagine a golden samurai meditating at sunrise, cinematic lighting, ultra-detailed";
+
+      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+      const serviceKey  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+      const botToken    = Deno.env.get("TELEGRAM_BOT_TOKEN")!;
+
+      try {
+        // Send "generating..." so user knows it's working (image gen takes ~10-15s)
+        await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ chat_id: chatId, text: "Generating image..." }),
+        });
+
+        const res = await fetch(`${supabaseUrl}/functions/v1/mavis-image-gen`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${serviceKey}` },
+          body: JSON.stringify({ prompt }),
+        });
+
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          return `Image generation failed: ${errData.error ?? res.status}`;
+        }
+
+        const { url, revised_prompt } = await res.json();
+        if (!url) return "Image generation returned no URL. Try again.";
+
+        // Send the photo via Telegram
+        const photoRes = await fetch(`https://api.telegram.org/bot${botToken}/sendPhoto`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            chat_id: chatId,
+            photo: url,
+            caption: revised_prompt !== prompt ? `Prompt refined: ${revised_prompt.slice(0, 200)}` : undefined,
+          }),
+        });
+
+        if (!photoRes.ok) {
+          return `Image created but failed to send. URL: ${url}`;
+        }
+
+        return null; // photo was sent directly, no further text reply needed
+      } catch (e) {
+        return `Image generation error: ${(e as Error).message}`;
+      }
     }
 
     case "/ingest": {
