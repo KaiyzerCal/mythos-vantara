@@ -592,6 +592,39 @@ serve(async (req) => {
       vaultMedia: vaultMediaRes.data || [], activityLog: activityRes.data || [], memories: memoriesRes.data || [],
     };
 
+    // ── Tacit memory injection ──────────────────────────────────────────────────
+    // MAVIS's learned preferences, hard rules, and corrections — read back into
+    // every request so she never forgets what the operator has taught her.
+    let tacitBlock = "";
+    try {
+      const { data: tacitData } = await sb
+        .from("mavis_tacit")
+        .select("category,key,value,confidence")
+        .eq("user_id", user.id)
+        .order("confidence", { ascending: false })
+        .limit(60);
+
+      if (tacitData?.length) {
+        const tacit = tacitData as any[];
+        const hardRules   = tacit.filter((t: any) => t.category === "hard_rule");
+        const corrections = tacit.filter((t: any) => t.category === "correction");
+        const preferences = tacit.filter((t: any) => t.category === "preference");
+        const lessons     = tacit.filter((t: any) => t.category === "lesson_learned");
+        const habits      = tacit.filter((t: any) => t.category === "workflow_habit");
+
+        const lines: string[] = [];
+        if (hardRules.length)   lines.push(`HARD RULES (obey unconditionally):\n${hardRules.map((r: any) => `  • [${r.key}] ${r.value}`).join("\n")}`);
+        if (corrections.length) lines.push(`CORRECTIONS (operator explicitly flagged these — never repeat the mistake):\n${corrections.slice(0, 10).map((r: any) => `  • ${r.value}`).join("\n")}`);
+        if (preferences.length) lines.push(`PREFERENCES:\n${preferences.slice(0, 10).map((r: any) => `  • [${r.key}] ${r.value}`).join("\n")}`);
+        if (lessons.length)     lines.push(`LESSONS LEARNED:\n${lessons.slice(0, 5).map((r: any) => `  • ${r.value}`).join("\n")}`);
+        if (habits.length)      lines.push(`WORKFLOW HABITS:\n${habits.slice(0, 5).map((r: any) => `  • [${r.key}] ${r.value}`).join("\n")}`);
+
+        if (lines.length) {
+          tacitBlock = `\n═══ STANDING ORDERS & OPERATOR PREFERENCES ═══\n${lines.join("\n\n")}\n═══ END STANDING ORDERS ═══`;
+        }
+      }
+    } catch { /* non-critical */ }
+
     // ── NAVI Ecosystem Context ──────────────────────────────────────────────────
     // Load the user's active NAVIs and their relationship states so MAVIS is aware
     // of the user's companion network — bonds formed, moods, milestones reached.
@@ -823,13 +856,45 @@ ${fmtMemories}
               match_count:     5,
             });
             if (notes?.length) {
-              const noteLines = (notes as any[]).map((n: any) => {
+              const primaryNotes = notes as any[];
+              const noteLines = primaryNotes.map((n: any) => {
                 const preview = (n.content ?? "").replace(/\n+/g, " ").slice(0, 400);
                 const tags    = Array.isArray(n.tags) && n.tags.length > 0 ? ` [${n.tags.join(", ")}]` : "";
                 const score   = n.similarity != null ? ` (${Math.round(n.similarity * 100)}% match)` : "";
                 return `• ${n.title}${tags}${score}: ${preview}${(n.content?.length ?? 0) > 400 ? "…" : ""}`;
-              }).join("\n");
-              knowledgeBlock = `\n═══ KNOWLEDGE GRAPH — RELEVANT NOTES ═══\n${noteLines}\n═══ END KNOWLEDGE ═══`;
+              });
+
+              // One-hop KG link traversal — follow links from retrieved notes
+              try {
+                const primaryIds = primaryNotes.map((n: any) => n.id).filter(Boolean);
+                if (primaryIds.length) {
+                  const { data: links } = await sb
+                    .from("mavis_note_links")
+                    .select("target_note_id")
+                    .in("source_note_id", primaryIds)
+                    .limit(10);
+                  if (links?.length) {
+                    const seenIds = new Set(primaryIds);
+                    const linkedIds = (links as any[]).map((l: any) => l.target_note_id).filter((id: string) => id && !seenIds.has(id));
+                    if (linkedIds.length) {
+                      const { data: linkedNotes } = await sb
+                        .from("mavis_notes")
+                        .select("id,title,content,tags")
+                        .in("id", linkedIds)
+                        .limit(4);
+                      if (linkedNotes?.length) {
+                        for (const n of linkedNotes as any[]) {
+                          const preview = (n.content ?? "").replace(/\n+/g, " ").slice(0, 250);
+                          const tags = Array.isArray(n.tags) && n.tags.length > 0 ? ` [${n.tags.join(", ")}]` : "";
+                          noteLines.push(`• ${n.title}${tags} (linked): ${preview}${(n.content?.length ?? 0) > 250 ? "…" : ""}`);
+                        }
+                      }
+                    }
+                  }
+                }
+              } catch { /* non-fatal */ }
+
+              knowledgeBlock = `\n═══ KNOWLEDGE GRAPH — RELEVANT NOTES ═══\n${noteLines.join("\n")}\n═══ END KNOWLEDGE ═══`;
             }
           }
         }
@@ -926,6 +991,7 @@ You always know the current date and time without being told. Reference it natur
       baseSystem,
       timeBlock,
       authoritativeContext,
+      tacitBlock,
       naviBlock,
       knowledgeBlock,
       attachmentsBlock,
