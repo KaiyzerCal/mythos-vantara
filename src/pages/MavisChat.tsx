@@ -508,7 +508,7 @@ export default function MavisChat() {
             councilMembers: councils as any[], inventory: inventory as any[],
             storeItems: storeItems as any[], energySystems: energySystems as any[],
             bpmSessions: bpmSessions as any[], allies: allies as any[],
-            rituals: rituals as any[], pendingApprovals: [], loadedAt: new Date().toISOString(),
+            rituals: rituals as any[], pendingApprovals: [], personas: [], loadedAt: new Date().toISOString(),
           }, archivedMemories, vaultMedia));
       const attachmentIds = attachments.map((a) => a.id);
 
