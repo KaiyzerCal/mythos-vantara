@@ -4,7 +4,8 @@ import {
   Zap, Sparkles, Package, BookOpen, BookLock, ShoppingBag,
   Medal, TowerControl, Activity, Settings, ChevronLeft, ChevronRight,
   LogOut, Cpu, Shield, HeartPulse, Inbox, Network,
-  UserCheck, BarChart2, Repeat2, Heart,
+  UserCheck, BarChart2, Repeat2, Heart, DollarSign, CalendarClock,
+  Crosshair, GraduationCap,
 } from "lucide-react";
 import { useState, useContext } from "react";
 import { motion, AnimatePresence } from "framer-motion";
@@ -36,6 +37,10 @@ const INTEL_NAV = [
   { to: "/analytics", icon: BarChart2, label: "Analytics" },
   { to: "/repurpose", icon: Repeat2, label: "Repurpose" },
   { to: "/health", icon: Heart, label: "Health" },
+  { to: "/finance", icon: DollarSign, label: "Finance" },
+  { to: "/scheduler", icon: CalendarClock, label: "Scheduler" },
+  { to: "/goals", icon: Crosshair, label: "Goals" },
+  { to: "/study", icon: GraduationCap, label: "Study" },
 ];
 
 const UTILITY_NAV = [
