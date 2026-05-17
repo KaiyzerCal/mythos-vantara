@@ -3,15 +3,13 @@
 -- MAVIS_SHARD_BLAQOUT_NSFW_STRAT v1.0
 --
 -- HOW TO USE:
---   1. Go to Supabase Dashboard → Authentication → Users
---   2. Copy your UUID from the users list
---   3. Paste it below where it says YOUR_USER_ID_HERE
---   4. Run in SQL Editor
+--   Paste into Supabase Dashboard → SQL Editor and run.
+--   Your user ID is detected automatically.
 -- ═══════════════════════════════════════════════════════════
 
 DO $$
 DECLARE
-  v_uid uuid := 'YOUR_USER_ID_HERE'; -- ← paste your user ID here
+  v_uid uuid := (SELECT id FROM auth.users LIMIT 1);
   v_now timestamptz := now();
 BEGIN
 
