@@ -713,6 +713,45 @@ async function executeTool(
         }
       }
 
+      case "sync_oura": {
+        const supabaseUrlS = Deno.env.get("SUPABASE_URL") ?? "";
+        const serviceKeyS  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+        try {
+          const res = await fetch(`${supabaseUrlS}/functions/v1/mavis-oura-sync`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${serviceKeyS}` },
+            body: JSON.stringify({ user_id: userId, days: input.days ?? 7 }),
+          });
+          return JSON.stringify(await res.json());
+        } catch (err: any) { return JSON.stringify({ error: err.message ?? "Oura sync failed" }); }
+      }
+
+      case "sync_strava": {
+        const supabaseUrlT = Deno.env.get("SUPABASE_URL") ?? "";
+        const serviceKeyT  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+        try {
+          const res = await fetch(`${supabaseUrlT}/functions/v1/mavis-strava-sync`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${serviceKeyT}` },
+            body: JSON.stringify({ user_id: userId, days: input.days ?? 7 }),
+          });
+          return JSON.stringify(await res.json());
+        } catch (err: any) { return JSON.stringify({ error: err.message ?? "Strava sync failed" }); }
+      }
+
+      case "sync_github": {
+        const supabaseUrlU = Deno.env.get("SUPABASE_URL") ?? "";
+        const serviceKeyU  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+        try {
+          const res = await fetch(`${supabaseUrlU}/functions/v1/mavis-github-sync`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${serviceKeyU}` },
+            body: JSON.stringify({ user_id: userId }),
+          });
+          return JSON.stringify(await res.json());
+        } catch (err: any) { return JSON.stringify({ error: err.message ?? "GitHub sync failed" }); }
+      }
+
       default:
         return JSON.stringify({ error: `Unknown tool: ${name}` });
     }

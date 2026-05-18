@@ -515,52 +515,108 @@ export default function CouncilBoard() {
           <AnimatePresence initial={false}>
             {messages.map(msg => {
               const style = speakerStyle(msg.speakerId, msg.isUser, msg.speakerType);
+
+              // System / event messages → centred divider
+              if (msg.speakerId === "system") {
+                return (
+                  <motion.div
+                    key={msg.id}
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    className="flex items-center gap-3 my-1"
+                  >
+                    <div className="flex-1 h-px bg-border/30" />
+                    <span className="text-[10px] font-mono text-muted-foreground/50 px-2 shrink-0">
+                      {msg.content}
+                    </span>
+                    <div className="flex-1 h-px bg-border/30" />
+                  </motion.div>
+                );
+              }
+
+              const initials = msg.speakerName.slice(0, 2).toUpperCase();
+              const isUser = msg.isUser;
+
               return (
                 <motion.div
                   key={msg.id}
-                  initial={{ opacity: 0, y: 6 }}
+                  initial={{ opacity: 0, y: 8 }}
                   animate={{ opacity: 1, y: 0 }}
-                  className={`border-l-2 ${style.border} pl-3 py-1.5`}
+                  transition={{ duration: 0.15 }}
+                  className={`flex gap-2.5 ${isUser ? "flex-row-reverse" : "flex-row"}`}
                 >
-                  <div className="flex items-center gap-2 mb-1 flex-wrap">
-                    <span className={`text-[9px] font-mono font-bold px-2 py-0.5 rounded text-white ${style.badge}`}>
-                      {msg.speakerName}
-                    </span>
-                    {/* Agent type badge */}
-                    {msg.speakerType === "council" && (
-                      <span className="text-[8px] font-mono px-1.5 py-0.5 rounded bg-purple-900/40 text-purple-400 border border-purple-700/30">
-                        COUNCIL
-                      </span>
-                    )}
-                    {msg.speakerType === "persona" && (
-                      <span className="text-[8px] font-mono px-1.5 py-0.5 rounded bg-amber-900/40 text-amber-400 border border-amber-700/30">
-                        {msg.summoned ? "⚡ SUMMONED" : "PERSONA"}
-                      </span>
-                    )}
-                    <span className={`text-[9px] font-mono ${style.label}`}>{msg.speakerRole}</span>
-                    <span className="text-[9px] font-mono text-muted-foreground/50 ml-auto">
-                      {new Date(msg.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-                    </span>
-                    <CopyButton content={msg.content} />
+                  {/* Avatar */}
+                  <div
+                    className={`w-8 h-8 rounded-full flex items-center justify-center text-white text-[11px] font-bold shrink-0 mt-0.5 ${style.badge}`}
+                  >
+                    {initials}
                   </div>
-                  <p className="text-xs font-body text-foreground/90 leading-relaxed whitespace-pre-wrap">
-                    {msg.content}
-                  </p>
+
+                  {/* Bubble column */}
+                  <div className={`flex flex-col gap-1 max-w-[78%] ${isUser ? "items-end" : "items-start"}`}>
+                    {/* Speaker meta (non-user only) */}
+                    {!isUser && (
+                      <div className="flex items-center gap-1.5 px-1">
+                        <span className={`text-[10px] font-mono font-semibold ${style.label}`}>
+                          {msg.speakerName}
+                        </span>
+                        {msg.speakerRole && (
+                          <span className="text-[9px] font-mono text-muted-foreground/50">
+                            · {msg.speakerRole}
+                          </span>
+                        )}
+                        {msg.speakerType === "council" && (
+                          <span className="text-[8px] font-mono px-1.5 py-0.5 rounded-full bg-purple-900/50 text-purple-300 border border-purple-700/40">
+                            COUNCIL
+                          </span>
+                        )}
+                        {msg.speakerType === "persona" && (
+                          <span className="text-[8px] font-mono px-1.5 py-0.5 rounded-full bg-amber-900/50 text-amber-300 border border-amber-700/40">
+                            {msg.summoned ? "⚡ PERSONA" : "PERSONA"}
+                          </span>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Message bubble */}
+                    <div
+                      className={[
+                        "px-4 py-3 rounded-2xl",
+                        isUser
+                          ? "bg-primary text-white rounded-tr-sm shadow-md shadow-primary/20"
+                          : "bg-card border border-border text-foreground rounded-tl-sm",
+                      ].join(" ")}
+                    >
+                      <p className="text-sm font-body leading-relaxed whitespace-pre-wrap break-words">
+                        {msg.content}
+                      </p>
+                    </div>
+
+                    {/* Timestamp + copy */}
+                    <div className={`flex items-center gap-2 px-1 ${isUser ? "flex-row-reverse" : "flex-row"}`}>
+                      <span className="text-[9px] font-mono text-muted-foreground/40">
+                        {new Date(msg.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                      </span>
+                      <CopyButton content={msg.content} />
+                    </div>
+                  </div>
                 </motion.div>
               );
             })}
           </AnimatePresence>
 
           {loading && (
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="border-l-2 border-purple-500/40 pl-3 py-1.5">
-              <div className="flex items-center gap-2 mb-1">
-                <span className="text-[9px] font-mono font-bold px-2 py-0.5 rounded text-white bg-purple-700">Council</span>
-                <span className="text-[9px] font-mono text-purple-300">deliberating...</span>
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex gap-2.5">
+              <div className="w-8 h-8 rounded-full bg-purple-700 flex items-center justify-center text-white text-[11px] font-bold shrink-0 mt-0.5">
+                CO
               </div>
-              <div className="flex gap-1 mt-1">
-                {[0, 1, 2].map(i => (
-                  <span key={i} className="w-1.5 h-1.5 rounded-full bg-purple-500 animate-pulse" style={{ animationDelay: `${i * 0.2}s` }} />
-                ))}
+              <div className="flex flex-col gap-1 items-start">
+                <span className="text-[10px] font-mono text-purple-300 px-1">Council · deliberating...</span>
+                <div className="px-4 py-3 rounded-2xl rounded-tl-sm bg-card border border-border flex items-center gap-1.5 h-10">
+                  {[0, 1, 2].map(i => (
+                    <span key={i} className="w-2 h-2 rounded-full bg-purple-400 animate-bounce" style={{ animationDelay: `${i * 0.15}s` }} />
+                  ))}
+                </div>
               </div>
             </motion.div>
           )}
