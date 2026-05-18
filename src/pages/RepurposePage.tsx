@@ -55,12 +55,12 @@ export function RepurposePage() {
   // ─── Load vault entries ────────────────────────────────────
   async function loadVaultEntries() {
     setVaultLoading(true);
-    const { data } = await supabase
+    const { data } = await (supabase as any)
       .from("vault_entries")
       .select("id, title, content, body")
       .order("created_at", { ascending: false })
       .limit(20);
-    setVaultEntries(data || []);
+    setVaultEntries((data as VaultEntry[]) || []);
     setVaultLoading(false);
   }
 
