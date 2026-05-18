@@ -105,7 +105,6 @@ const ACTION_ALIASES: Record<string, string> = {
   "add_store_item": "create_store_item", "new_store_item": "create_store_item",
   "edit_store_item": "update_store_item", "remove_store_item": "delete_store_item",
   "add_ranking": "create_ranking", "new_ranking": "create_ranking", "edit_ranking": "update_ranking", "remove_ranking": "delete_ranking",
-  "add_ritual": "create_ritual", "new_ritual": "create_ritual", "edit_ritual": "update_ritual", "remove_ritual": "delete_ritual", "finish_ritual": "complete_ritual",
   "edit_profile": "update_profile", "modify_profile": "update_profile",
   "set_stats": "update_profile", "update_stats": "update_profile", "change_stats": "update_profile", "modify_stats": "update_profile", "edit_stats": "update_profile",
   "update_character": "update_profile", "edit_character": "update_profile", "modify_character": "update_profile", "change_character": "update_profile",
@@ -537,55 +536,6 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
       const amount = Number(p.amount || 0);
       await awardXP(sb, userId, amount);
       await logActivity(sb, userId, "xp_awarded", `MAVIS awarded ${amount} XP`, amount);
-      return;
-    }
-
-    // ── RITUALS ──────────────────────────────────────────
-    case "create_ritual": {
-      const { error } = await sb.from("rituals").insert({
-        user_id: userId,
-        name: String(p.name || "New Ritual"),
-        description: String(p.description || ""),
-        type: String(p.type || "other"),
-        category: p.category ? String(p.category) : null,
-        xp_reward: Number(p.xp_reward || 25),
-        completed: false,
-        streak: 0,
-      });
-      if (error) throw error;
-      return;
-    }
-
-    case "update_ritual": {
-      const ritualId = await resolveId(sb, userId, "rituals", (p.ritual_id || p.id) as string, (p.ritual_name || p.name) as string);
-      if (!ritualId) return;
-      const updates: Record<string, unknown> = {};
-      for (const key of ["name", "description", "type", "category", "xp_reward"]) {
-        if (p[key] !== undefined) updates[key] = p[key];
-      }
-      await sb.from("rituals").update(updates).eq("id", ritualId).eq("user_id", userId);
-      return;
-    }
-
-    case "complete_ritual": {
-      const ritualId = await resolveId(sb, userId, "rituals", (p.ritual_id || p.id) as string, (p.ritual_name || p.name) as string);
-      if (!ritualId) return;
-      const { data: ritual } = await sb.from("rituals").select("xp_reward, name, streak").eq("id", ritualId).eq("user_id", userId).single();
-      if (!ritual) return;
-      await sb.from("rituals").update({
-        completed: true,
-        streak: Number(ritual.streak || 0) + 1,
-        last_completed: new Date().toISOString(),
-      }).eq("id", ritualId).eq("user_id", userId);
-      await awardXP(sb, userId, Number(ritual.xp_reward || 0));
-      await logActivity(sb, userId, "ritual_completed", `Ritual: ${ritual.name}`, Number(ritual.xp_reward || 0));
-      return;
-    }
-
-    case "delete_ritual": {
-      const ritualId = await resolveId(sb, userId, "rituals", (p.ritual_id || p.id) as string, (p.ritual_name || p.name) as string);
-      if (!ritualId) return;
-      await sb.from("rituals").delete().eq("id", ritualId).eq("user_id", userId);
       return;
     }
 

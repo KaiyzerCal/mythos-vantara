@@ -553,9 +553,6 @@ function buildMemberSystemPrompt(member: any, profile: any, appContext?: any): s
     // Council members
     const councilList = (appContext.councils || []).map((c: any) => `  • ${c.name} (${c.role}, ${c.class}${c.specialty ? `, specialty:${c.specialty}` : ""}) — ${c.notes || "no notes"}`).join("\n");
     
-    // Rituals full
-    const ritualList = (appContext.rituals || []).map((r: any) => `  • [${r.completed ? "✓" : "○"}] "${r.name}" (${r.type}${r.category ? `, ${r.category}` : ""}, XP:${r.xp_reward}, streak:${r.streak}) — ${r.description}`).join("\n");
-    
     contextBlock = `
 
 OPERATOR'S COMPLETE SYSTEM STATE — You can see and reference ALL of this data:
@@ -609,10 +606,7 @@ RECENT BPM SESSIONS:
 ${bpmList || "  None"}
 
 ALL COUNCIL MEMBERS:
-${councilList || "  None"}
-
-ALL RITUALS (${(appContext.rituals || []).length} total):
-${ritualList || "  None"}`;
+${councilList || "  None"}`;
   }
 
   return `${persona}
@@ -639,7 +633,7 @@ HOW TO TALK:
 }
 
 function CouncilChat({ member, profile, onClose }: { member: any; profile: any; onClose: () => void }) {
-  const { quests, skills, journalEntries, vaultEntries, energySystems, allies, inventory, rituals, transformations, rankings, storeItems, bpmSessions, tasks, councils } = useAppData();
+  const { quests, skills, journalEntries, vaultEntries, energySystems, allies, inventory, transformations, rankings, storeItems, bpmSessions, tasks, councils } = useAppData();
   // Build character-specific greeting
   const greetingMap: Record<string, string> = {
     "Kratos": "*sits down heavily* ...What weighs on you, boy?",
@@ -890,7 +884,7 @@ function CouncilChat({ member, profile, onClose }: { member: any; profile: any; 
     } catch {} // Non-critical
 
     try {
-      const systemPrompt = buildMemberSystemPrompt(member, profile, { quests, skills, journalEntries, vaultEntries, energySystems, allies, inventory, rituals, transformations, rankings, storeItems, bpmSessions, tasks, councils, profile }) + memoriesContext;
+      const systemPrompt = buildMemberSystemPrompt(member, profile, { quests, skills, journalEntries, vaultEntries, energySystems, allies, inventory, transformations, rankings, storeItems, bpmSessions, tasks, councils, profile }) + memoriesContext;
       const { data, error } = await supabase.functions.invoke("mavis-chat", {
         body: {
           messages: apiMessages,
@@ -915,7 +909,7 @@ function CouncilChat({ member, profile, onClose }: { member: any; profile: any; 
     } finally {
       setIsLoading(false);
     }
-  }, [input, messages, isLoading, member, profile, persistCouncilMessage, quests, skills, journalEntries, vaultEntries, energySystems, allies, inventory, rituals, transformations, rankings, storeItems, bpmSessions, tasks, councils, speakText]);
+  }, [input, messages, isLoading, member, profile, persistCouncilMessage, quests, skills, journalEntries, vaultEntries, energySystems, allies, inventory, transformations, rankings, storeItems, bpmSessions, tasks, councils, speakText]);
 
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-background/80 backdrop-blur-sm p-4">

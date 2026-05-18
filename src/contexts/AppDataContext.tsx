@@ -2,9 +2,9 @@ import { createContext, useContext, useState, useCallback, ReactNode } from "rea
 import { useProfile, type ProfileData } from "@/hooks/useProfile";
 import { useQuests, type Quest } from "@/hooks/useQuests";
 import {
-  useTasks, useRituals, useJournal, useVault, useCouncils,
+  useTasks, useJournal, useVault, useCouncils,
   useSkills, useEnergySystems, useInventory, useAllies, useBpmSessions, useActivityLog, useStoreItems, useTransformations, useRankings,
-  type Task, type Ritual, type JournalEntry, type VaultEntry,
+  type Task, type JournalEntry, type VaultEntry,
   type CouncilMember, type Skill, type EnergySystem, type InventoryItem, type Ally, type BpmSession, type StoreItem, type Transformation, type RankingProfile,
 } from "@/hooks/useDataHooks";
 
@@ -40,13 +40,6 @@ interface AppDataContextType {
   createTask: (input: any) => Promise<Task | null>;
   updateTask: (id: string, input: any) => Promise<void>;
   deleteTask: (id: string) => Promise<void>;
-
-  // Rituals
-  rituals: Ritual[];
-  ritualsLoading: boolean;
-  createRitual: (input: any) => Promise<Ritual | null>;
-  updateRitual: (id: string, input: any) => Promise<void>;
-  deleteRitual: (id: string) => Promise<void>;
 
   // Journal
   journalEntries: JournalEntry[];
@@ -162,7 +155,6 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
   const { quests, loading: questsLoading, stats: questStats, createQuest, updateQuest, completeQuest, deleteQuest, refetch: refetchQuests } = useQuests();
 
   const { data: tasks, loading: tasksLoading, create: createTask, update: updateTask, remove: deleteTask, refetch: refetchTasks } = useTasks();
-  const { data: rituals, loading: ritualsLoading, create: createRitual, update: updateRitual, remove: deleteRitual, refetch: refetchRituals } = useRituals();
   const { data: journalEntries, loading: journalLoading, create: createJournalEntry, update: updateJournalEntry, remove: deleteJournalEntry, refetch: refetchJournal } = useJournal();
   const { data: vaultEntries, loading: vaultLoading, create: createVaultEntry, update: updateVaultEntry, remove: deleteVaultEntry, refetch: refetchVault } = useVault();
   const { data: councils, loading: councilsLoading, create: createCouncilMember, update: updateCouncilMember, remove: deleteCouncilMember, refetch: refetchCouncils } = useCouncils();
@@ -178,11 +170,11 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
 
   const refetchAll = useCallback(async () => {
     await Promise.all([
-      refetchProfile(), refetchQuests(), refetchTasks(), refetchRituals(),
+      refetchProfile(), refetchQuests(), refetchTasks(),
       refetchJournal(), refetchVault(), refetchCouncils(), refetchSkills(),
       refetchEnergy(), refetchInventory(), refetchAllies(), refetchBpm(), refetchStore(), refetchTransformations(), refetchRankings(),
     ]);
-  }, [refetchProfile, refetchQuests, refetchTasks, refetchRituals, refetchJournal, refetchVault, refetchCouncils, refetchSkills, refetchEnergy, refetchInventory, refetchAllies, refetchBpm, refetchStore, refetchTransformations, refetchRankings]);
+  }, [refetchProfile, refetchQuests, refetchTasks, refetchJournal, refetchVault, refetchCouncils, refetchSkills, refetchEnergy, refetchInventory, refetchAllies, refetchBpm, refetchStore, refetchTransformations, refetchRankings]);
 
   // MAVIS chat state
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([INITIAL_MAVIS_MSG]);
@@ -195,7 +187,6 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
         profile, profileLoading, updateProfile, awardXP, refetchProfile,
         quests, questsLoading, questStats, createQuest, updateQuest, completeQuest, deleteQuest, refetchQuests,
         tasks, tasksLoading, createTask, updateTask, deleteTask,
-        rituals, ritualsLoading, createRitual, updateRitual, deleteRitual,
         journalEntries, journalLoading, createJournalEntry, updateJournalEntry, deleteJournalEntry,
         vaultEntries, vaultLoading, createVaultEntry, updateVaultEntry, deleteVaultEntry,
         councils, councilsLoading, createCouncilMember, updateCouncilMember, deleteCouncilMember,

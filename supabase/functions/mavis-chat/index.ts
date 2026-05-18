@@ -6,7 +6,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 function scoreImportance(text: string): number {
   const lower = text.toLowerCase();
   const HIGH = ["goal","decide","decided","contract","revenue","critical","never","always","promise","commit","committed","deadline","milestone","must","rule","principle"];
-  const MED  = ["quest","task","project","plan","build","launch","strategy","system","habit","ritual"];
+  const MED  = ["quest","task","project","plan","build","launch","strategy","system","habit"];
   if (HIGH.some(w => lower.includes(w))) return Math.min(9, 7 + HIGH.filter(w => lower.includes(w)).length);
   if (MED.some(w => lower.includes(w)))  return 5 + (MED.filter(w => lower.includes(w)).length > 1 ? 1 : 0);
   return 3;
@@ -640,11 +640,6 @@ ALLIES:
 :::ACTION{"type":"create_ally","params":{"name":"...","relationship":"ally|council|rival","specialty":"...","affinity":50,"notes":"..."}}:::
 :::ACTION{"type":"update_ally","params":{"ally_id":"...","affinity":75,"notes":"..."}}:::
 :::ACTION{"type":"delete_ally","params":{"ally_id":"..."}}:::
-RITUALS:
-:::ACTION{"type":"create_ritual","params":{"name":"...","description":"...","type":"fitness|business|self_care|legal|other","xp_reward":25}}:::
-:::ACTION{"type":"update_ritual","params":{"ritual_id":"...","name":"...","xp_reward":25}}:::
-:::ACTION{"type":"complete_ritual","params":{"ritual_id":"..."}}:::
-:::ACTION{"type":"delete_ritual","params":{"ritual_id":"..."}}:::
 TRANSFORMATIONS / FORMS:
 :::ACTION{"type":"create_transformation","params":{"name":"...","tier":"...","form_order":1,"bpm_range":"60-200","energy":"Emerald Flames","jjk_grade":"Special Grade","op_tier":"God Tier","description":"...","unlocked":false,"abilities":[],"active_buffs":[],"passive_buffs":[]}}:::
 :::ACTION{"type":"update_transformation","params":{"transformation_id":"...","unlocked":true,"description":"..."}}:::
@@ -670,7 +665,7 @@ CODE EXECUTION (use when precision matters — revenue calc, data analysis, math
 :::ACTION{"type":"run_code","params":{"code":"// any valid JavaScript — Math, JSON, Date, Array available\n// Use console.log() for output. Return a value for the result.\nreturn 2 + 2;"}}:::
 Use this instead of estimating when the operator asks for exact numbers, totals, or computed analysis.
 
-RULES: Use exact IDs from the LIVE BACKEND STATE block above. Never claim an action without emitting the tag. Chain as many tags as needed in one response. complete_quest handles XP automatically. You have write access to every page and section of the app — quests, tasks, skills, journal, vault, council, inventory, energy, allies, rituals, forms/transformations, scouter/rankings, store, BPM, personas, and the operator profile itself.
+RULES: Use exact IDs from the LIVE BACKEND STATE block above. Never claim an action without emitting the tag. Chain as many tags as needed in one response. complete_quest handles XP automatically. You have write access to every page and section of the app — quests, tasks, skills, journal, vault, council, inventory, energy, allies, forms/transformations, scouter/rankings, store, BPM, personas, and the operator profile itself. Habits and rituals are daily tasks/quests — use create_task (recurrence:daily) or create_quest (type:daily).
 
 ---
 
@@ -773,7 +768,6 @@ serve(async (req) => {
       bpm:        /\bbpm|heart|pulse|session\b/.test(q),
       store:      /\bstore|shop|buy|purchase|price\b/.test(q),
       ally:       /\bally|allies|companion|harem\b/.test(q),
-      ritual:     /\britual|practice|routine|streak\b/.test(q),
       council:    /\bcouncil|advisor|member\b/.test(q),
       activity:   /\bactivity|log|history|recent\b/.test(q),
       memory:     /\bmemor|remember|recall|past conversation\b/.test(q),
@@ -782,7 +776,7 @@ serve(async (req) => {
 
     const [
       questsRes, tasksRes, skillsRes, journalRes, vaultRes, councilsRes,
-      alliesRes, energyRes, inventoryRes, ritualsRes, transformationsRes,
+      alliesRes, energyRes, inventoryRes, transformationsRes,
       rankingsRes, bpmRes, storeRes, currenciesRes, vaultMediaRes,
       activityRes, memoriesRes,
     ] = await Promise.all([
@@ -795,7 +789,6 @@ serve(async (req) => {
       sb.from("allies").select("id,name,relationship,level,specialty,affinity,notes").eq("user_id", user.id).limit(lim("ally", 25, 10)),
       sb.from("energy_systems").select("id,type,current_value,max_value,status,description").eq("user_id", user.id),
       sb.from("inventory").select("id,name,description,type,rarity,quantity,is_equipped,slot,tier,effect,stat_effects").eq("user_id", user.id).limit(lim("inventory", 40, 15)),
-      sb.from("rituals").select("id,name,description,type,xp_reward,completed,streak").eq("user_id", user.id),
       sb.from("transformations").select("id,name,tier,form_order,bpm_range,energy,jjk_grade,op_tier,description,unlocked,active_buffs,passive_buffs,abilities").eq("user_id", user.id).order("form_order", { ascending: true }),
       sb.from("rankings_profiles").select("id,display_name,role,rank,level,gpr,pvp,jjk_grade,op_tier,influence,is_self,notes").eq("user_id", user.id).limit(lim("ranking", 30, 12)),
       sb.from("bpm_sessions").select("id,bpm,form,duration,mood,notes").eq("user_id", user.id).order("created_at", { ascending: false }).limit(lim("bpm", 15, 5)),
@@ -810,7 +803,7 @@ serve(async (req) => {
       quests: questsRes.data || [], tasks: tasksRes.data || [], skills: skillsRes.data || [],
       journalEntries: journalRes.data || [], vaultEntries: vaultRes.data || [], councils: councilsRes.data || [],
       allies: alliesRes.data || [], energySystems: energyRes.data || [], inventory: inventoryRes.data || [],
-      rituals: ritualsRes.data || [], transformations: transformationsRes.data || [], rankings: rankingsRes.data || [],
+      transformations: transformationsRes.data || [], rankings: rankingsRes.data || [],
       bpmSessions: bpmRes.data || [], storeItems: storeRes.data || [], currencies: currenciesRes.data || [],
       vaultMedia: vaultMediaRes.data || [], activityLog: activityRes.data || [], memories: memoriesRes.data || [],
     };
@@ -921,9 +914,6 @@ When relevant, acknowledge the user's companion network — the bonds they've bu
       const eff = wants.inventory && Array.isArray(i.stat_effects) && i.stat_effects.length ? ` [${i.stat_effects.map((x: any) => `${x.label}:${x.value}${x.unit}`).join(",")}]` : "";
       return `  • [${i.id}] ${i.name} (${i.type}/${i.rarity}, ×${i.quantity}${i.is_equipped ? ", EQ" : ""})${i.effect ? ` ${i.effect}` : ""}${eff}${wants.inventory && i.description ? ` — ${i.description.slice(0, 100)}` : ""}`;
     }).join("\n") || "  None";
-    const fmtRituals = dbState.rituals.map((r: any) =>
-      `  • [${r.id}] ${r.completed ? "✓" : "○"} "${r.name}" (${r.type}, streak:${r.streak})`
-    ).join("\n") || "  None";
     const fmtTransforms = dbState.transformations.map((t: any) => {
       if (!wants.transform) return `  • [${t.id}] ${t.name} [${t.tier}, ${t.unlocked ? "UNLOCKED" : "locked"}] ${t.energy} ${t.bpm_range}bpm`;
       const buffs = Array.isArray(t.active_buffs) ? t.active_buffs.map((b: any) => `${b.label}:${b.value}${b.unit}`).join(", ") : "";
@@ -984,9 +974,6 @@ ${fmtEnergy}
 
 INVENTORY (${dbState.inventory.length}):
 ${fmtInventory}
-
-RITUALS (${dbState.rituals.length}):
-${fmtRituals}
 
 FORMS/TRANSFORMATIONS (${dbState.transformations.length})${wants.transform ? " — DEEP" : ""}:
 ${fmtTransforms}

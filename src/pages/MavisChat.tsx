@@ -20,7 +20,7 @@ import { VoiceChatOverlay } from "@/components/VoiceChatOverlay";
 import { buildSystemPromptFromSnapshot } from "@/mavis/buildSystemPrompt";
 import { setDefaultHandler, registerActionHandler } from "@/mavis/actionExecutor";
 import { streamChatMessage, streamAgentMessage, streamResearchMessage } from "@/mavis/chatService";
-import { loadFullAppContext } from "@/mavis/appContextLoader";
+import { loadFullAppContext, invalidateAppContext } from "@/mavis/appContextLoader";
 import { initSession } from "@/mavis/memoryEngine";
 import { loadRuntimeSkills } from "@/mavis/skills/_registry";
 import type { ExecutionResult } from "@/mavis/types";
@@ -52,7 +52,7 @@ export default function MavisChat() {
     profile, quests, tasks, skills, journalEntries, vaultEntries,
     chatMessages, setChatMessages, conversationId, setConversationId,
     chatMode, setChatMode, refetchAll,
-    rituals, councils, energySystems, inventory, allies, bpmSessions, storeItems, transformations,
+    councils, energySystems, inventory, allies, bpmSessions, storeItems, transformations,
   } = useAppData();
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -376,7 +376,6 @@ export default function MavisChat() {
         councils: councils.map(c => ({ id: c.id, name: c.name, role: c.role, class: c.class })),
         allies: allies.map(a => ({ id: a.id, name: a.name, relationship: a.relationship, affinity: a.affinity })),
         inventory: inventory.map(i => ({ id: i.id, name: i.name, type: i.type, rarity: i.rarity, quantity: i.quantity })),
-        rituals: rituals.map(r => ({ id: r.id, name: r.name, streak: r.streak, completed: r.completed })),
         journalCount: journalEntries.length,
         vaultCount: vaultEntries.length,
         storeItemCount: storeItems.length,
@@ -401,7 +400,7 @@ export default function MavisChat() {
     } finally {
       setIsSyncing(false);
     }
-  }, [isSyncing, chatMessages, profile, quests, skills, energySystems, councils, allies, inventory, rituals, journalEntries, vaultEntries, storeItems, bpmSessions]);
+  }, [isSyncing, chatMessages, profile, quests, skills, energySystems, councils, allies, inventory, journalEntries, vaultEntries, storeItems, bpmSessions]);
 
   // ── Save important memories from conversation ─────────────
   const saveMemoriesFromResponse = useCallback(async (userContent: string, assistantContent: string) => {
@@ -523,7 +522,7 @@ export default function MavisChat() {
             councilMembers: councils as any[], inventory: inventory as any[],
             storeItems: storeItems as any[], energySystems: energySystems as any[],
             bpmSessions: bpmSessions as any[], allies: allies as any[],
-            rituals: rituals as any[], pendingApprovals: [], personas: [], loadedAt: new Date().toISOString(),
+            pendingApprovals: [], personas: [], loadedAt: new Date().toISOString(),
           }, archivedMemories, vaultMedia));
       const attachmentIds = attachments.map((a) => a.id);
 
@@ -590,6 +589,7 @@ export default function MavisChat() {
       if (confirmed.length > 0 || failed.length > 0) {
         // Trigger data refresh after successful action writes
         if (confirmed.length > 0) {
+          if (authSession?.user?.id) invalidateAppContext(authSession.user.id);
           await new Promise(r => setTimeout(r, 500));
           await refetchAll();
           setTimeout(() => { refetchAll(); }, 1500);

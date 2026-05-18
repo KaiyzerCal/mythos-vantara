@@ -15,7 +15,6 @@ export interface AppContextSnapshot {
   energySystems: unknown[];
   bpmSessions: unknown[];
   allies: unknown[];
-  rituals: unknown[];
   pendingApprovals: unknown[];
   personas: unknown[];
   loadedAt: string;
@@ -51,8 +50,21 @@ async function safeProfile(userId: string): Promise<Record<string, unknown> | nu
   }
 }
 
-/** Fetches ALL user data in parallel from Supabase. */
+// ── 60-second in-memory cache ─────────────────────────────────────────────────
+// Avoids reloading 16 Supabase tables on every message in the same session.
+// Invalidated on successful MAVIS actions via invalidateAppContext().
+const _cache = new Map<string, { snapshot: AppContextSnapshot; ts: number }>();
+const CACHE_TTL_MS = 60_000;
+
+export function invalidateAppContext(userId: string): void {
+  _cache.delete(userId);
+}
+
+/** Fetches ALL user data in parallel from Supabase (cached 60s). */
 export async function loadFullAppContext(userId: string): Promise<AppContextSnapshot> {
+  const cached = _cache.get(userId);
+  if (cached && Date.now() - cached.ts < CACHE_TTL_MS) return cached.snapshot;
+
   const [
     profile,
     quests,
@@ -68,7 +80,6 @@ export async function loadFullAppContext(userId: string): Promise<AppContextSnap
     energySystems,
     bpmSessions,
     allies,
-    rituals,
     pendingApprovals,
     personas,
   ] = await Promise.all([
@@ -86,12 +97,11 @@ export async function loadFullAppContext(userId: string): Promise<AppContextSnap
     safeQuery("energy_systems", userId),
     safeQuery("bpm_sessions", userId),
     safeQuery("allies", userId),
-    safeQuery("rituals", userId),
     safeQuery("approvals", userId),
     safeQuery("personas", userId),
   ]);
 
-  return {
+  const snapshot: AppContextSnapshot = {
     profile,
     quests,
     tasks,
@@ -106,9 +116,11 @@ export async function loadFullAppContext(userId: string): Promise<AppContextSnap
     energySystems,
     bpmSessions,
     allies,
-    rituals,
     pendingApprovals,
     personas,
     loadedAt: new Date().toISOString(),
   };
+
+  _cache.set(userId, { snapshot, ts: Date.now() });
+  return snapshot;
 }

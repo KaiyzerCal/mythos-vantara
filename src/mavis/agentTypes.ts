@@ -56,11 +56,11 @@ export const DATA_ACCESS_SCOPES: Record<DataAccessTier, string[]> = {
     "profile","quests","tasks","skills","rankings",
     "transformations","journalEntries","vaultEntries",
     "councilMembers","inventory","storeItems","energySystems",
-    "bpmSessions","allies","rituals","pendingApprovals","personas",
+    "bpmSessions","allies","pendingApprovals","personas",
   ],
   scoped: [
     "profile","quests","skills","rankings",
-    "transformations","inventory","allies","rituals",
+    "transformations","inventory","allies",
   ],
   public: ["profile","skills","rankings"],
 };

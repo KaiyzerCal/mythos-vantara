@@ -13,7 +13,6 @@ export interface MavisAppContext {
   allies?: any[];
   energySystems?: any[];
   inventory?: any[];
-  rituals?: any[];
   transformations?: any[];
   bpmSessions?: any[];
   storeItems?: any[];
@@ -46,7 +45,6 @@ export function buildSystemPrompt(
   const allyList = (appContext.allies || []).map((a: any) => `  • [${a.id}] ${a.name} | rel:${a.relationship} | lv:${a.level} | affinity:${a.affinity}${a.specialty ? ` | spec:${a.specialty}` : ""} | notes: ${a.notes || ""}`).join("\n");
   const energyList = (appContext.energySystems || []).map((e: any) => `  • [${e.id}] ${e.type} | ${e.current_value}/${e.max_value} | status:${e.status} | color:${e.color}${e.description ? ` | desc: ${e.description}` : ""}`).join("\n");
   const inventoryList = (appContext.inventory || []).map((i: any) => `  • [${i.id}] ${i.name} | type:${i.type} | rarity:${i.rarity} | qty:${i.quantity} | equipped:${i.is_equipped}${i.effect ? ` | effect:${i.effect}` : ""}${i.description ? ` | desc: ${i.description}` : ""}`).join("\n");
-  const ritualList = (appContext.rituals || []).map((r: any) => `  • [${r.id}] ${r.name} | type:${r.type} | streak:${r.streak} | done:${r.completed} | xp:${r.xp_reward}${r.description ? ` | desc: ${r.description}` : ""}`).join("\n");
   const transformList = (appContext.transformations || []).map((t: any) => `  • [${t.id}] ${t.name} | tier:${t.tier} | energy:${t.energy} | bpm:${t.bpm_range} | unlocked:${t.unlocked}${t.description ? ` | desc: ${t.description}` : ""}`).join("\n");
   const rankingsList = (appContext.rankings || []).map((r: any) => `  • [${r.id}] ${r.display_name} | role:${r.role} | rank:${r.rank} | lv:${r.level} | gpr:${r.gpr} | pvp:${r.pvp} | jjk:${r.jjk_grade} | op:${r.op_tier} | influence:${r.influence} | self:${r.is_self}${r.notes ? ` | notes: ${r.notes}` : ""}`).join("\n");
   const bpmList = (appContext.bpmSessions || []).slice(0, 10).map((b: any) => `  • [${b.id}] ${b.bpm}bpm | form:${b.form} | dur:${b.duration}m${b.mood ? ` | mood:${b.mood}` : ""}${b.notes ? ` | notes: ${b.notes}` : ""}`).join("\n");
@@ -118,8 +116,6 @@ ENERGY SYSTEMS:
 ${energyList || "  None"}
 INVENTORY:
 ${inventoryList || "  None"}
-RITUALS:
-${ritualList || "  None"}
 FORMS/TRANSFORMATIONS (power forms — NOT rankings):
 ${transformList || "  None"}
 RANKINGS PROFILES (roster of people — separate from forms!):
@@ -145,6 +141,7 @@ CRITICAL RULES FOR UNDERSTANDING INTENT:
 - "Add X to Y" = create. "Change X" or "edit X" or "modify X" = update. "Remove X" or "delete X" = delete.
 - When the user says "add to my [section]" and describes something, create it immediately. Don't ask for confirmation unless it's destructive (delete/reset).
 - Use context clues. If someone says "log that as a journal entry" after discussing something, create a journal entry with the discussed content.
+- Rituals/habits/daily practices are QUESTS with type:"daily". Use create_task with recurrence:"daily" or create_quest with type:"daily" to track recurring habits and rituals. There is no separate ritual system.
 
 Available actions (embed in response, never in a code block):
 :::ACTION{"type":"create_quest","params":{"title":"...","description":"...","type":"daily|side|main|epic","difficulty":"Easy|Normal|Hard|Extreme|Impossible","xp_reward":100,"real_world_mapping":"..."}}:::
@@ -177,10 +174,6 @@ Available actions (embed in response, never in a code block):
 :::ACTION{"type":"create_ally","params":{"name":"...","relationship":"ally|council|rival","level":1,"specialty":"...","affinity":50,"notes":"..."}}:::
 :::ACTION{"type":"update_ally","params":{"ally_id":"...","affinity":75,"notes":"..."}}:::
 :::ACTION{"type":"delete_ally","params":{"ally_id":"..."}}:::
-:::ACTION{"type":"create_ritual","params":{"name":"...","description":"...","type":"fitness|business|self_care|legal|other","xp_reward":25}}:::
-:::ACTION{"type":"update_ritual","params":{"ritual_id":"...","name":"...","description":"..."}}:::
-:::ACTION{"type":"delete_ritual","params":{"ritual_id":"..."}}:::
-:::ACTION{"type":"complete_ritual","params":{"ritual_id":"..."}}:::
 :::ACTION{"type":"create_transformation","params":{"name":"...","tier":"...","form_order":0,"bpm_range":"65-75","energy":"Ki","jjk_grade":"Special Grade","op_tier":"God Tier","description":"...","unlocked":false,"category":"..."}}:::
 :::ACTION{"type":"update_transformation","params":{"transformation_id":"...","name":"...","unlocked":true,"description":"..."}}:::
 :::ACTION{"type":"delete_transformation","params":{"transformation_id":"..."}}:::
@@ -269,7 +262,6 @@ export async function buildSystemPromptFromSnapshot(
     allies: ctx.allies as any[],
     energySystems: ctx.energySystems as any[],
     inventory: ctx.inventory as any[],
-    rituals: ctx.rituals as any[],
     transformations: ctx.transformations as any[],
     bpmSessions: ctx.bpmSessions as any[],
     storeItems: ctx.storeItems as any[],

@@ -57,7 +57,7 @@ update_task, delete_task, create_skill, update_skill, delete_skill, create_journ
 update_journal, delete_journal, create_vault, update_vault, delete_vault,
 create_inventory_item, update_inventory_item, delete_inventory_item,
 create_council_member, update_council_member, delete_council_member, create_ally,
-update_ally, delete_ally, create_ritual, update_ritual, delete_ritual,
+update_ally, delete_ally,
 create_transformation, update_transformation, create_ranking, update_ranking,
 update_profile, update_energy, award_xp.
 
@@ -98,7 +98,6 @@ export function buildContextSummary(ctx: AppContextSnapshot): string {
   block("RANKINGS / SCOUTER", ctx.rankings, (r) => `[${r.id}] ${r.display_name} [${r.rank}] Lv${r.level} GPR:${r.gpr} PVP:${r.pvp} (${r.influence})${r.is_self ? " ★self" : ""}`);
   block("COUNCIL", ctx.councilMembers, (c) => `[${c.id}] ${c.name} — ${c.role} (${c.class})${c.specialty ? ` · ${c.specialty}` : ""}`);
   block("ALLIES", ctx.allies, (a) => `[${a.id}] ${a.name} (${a.relationship}, Lv${a.level}, aff:${a.affinity})${a.notes ? ` — ${String(a.notes).slice(0, 120)}` : ""}`);
-  block("RITUALS", ctx.rituals, (r) => `[${r.id}] ${r.name} [${r.type}] streak:${r.streak}${r.completed ? " ✓" : ""}`);
   block("STORE", ctx.storeItems, (s) => `[${s.id}] ${s.name} (${s.rarity}/${s.category}) ${s.price} ${s.currency}${s.effect ? ` — ${s.effect}` : ""}`);
   block("BPM SESSIONS", ctx.bpmSessions, (b) => `${b.bpm} BPM · ${b.form} · ${b.duration}m${b.mood ? ` · ${b.mood}` : ""}`);
   block("PENDING APPROVALS", ctx.pendingApprovals, (a) => `${a.action_type} — ${a.action_summary} [${a.status}]`);

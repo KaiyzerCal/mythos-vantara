@@ -47,11 +47,6 @@ export const CreateAllySchema = z.object({ type: z.literal("create_ally"), name:
 export const UpdateAllySchema = z.object({ type: z.literal("update_ally"), id: z.string().min(1), trust_level: z.number().int().min(0).max(10).optional(), notes: z.string().optional() });
 export const DeleteAllySchema = z.object({ type: z.literal("delete_ally"), id: z.string().min(1) });
 
-// RITUAL
-export const CreateRitualSchema = z.object({ type: z.literal("create_ritual"), title: TitleField, frequency: z.enum(["daily", "weekly", "monthly", "custom"]).optional(), description: DescField, active: z.boolean().optional() });
-export const UpdateRitualSchema = z.object({ type: z.literal("update_ritual"), id: z.string().min(1), active: z.boolean().optional(), title: z.string().optional() });
-export const DeleteRitualSchema = z.object({ type: z.literal("delete_ritual"), id: z.string().min(1) });
-
 // TRANSFORMATION — NEVER mix with RANKING
 export const CreateTransformationSchema = z.object({ type: z.literal("create_transformation"), title: TitleField, description: DescField, phase: z.string().optional(), rank: z.undefined().optional(), rank_id: z.undefined().optional() });
 export const UpdateTransformationSchema = z.object({ type: z.literal("update_transformation"), id: z.string().min(1), title: z.string().optional(), phase: z.string().optional(), rank: z.undefined().optional(), rank_id: z.undefined().optional() });
@@ -117,7 +112,6 @@ export const ActionSchema = z.discriminatedUnion("type", [
   CreateInventorySchema, UpdateInventorySchema, DeleteInventorySchema,
   UpdateEnergySchema,
   CreateAllySchema, UpdateAllySchema, DeleteAllySchema,
-  CreateRitualSchema, UpdateRitualSchema, DeleteRitualSchema,
   CreateTransformationSchema, UpdateTransformationSchema, DeleteTransformationSchema,
   CreateRankingSchema, UpdateRankingSchema, DeleteRankingSchema,
   CreateStoreItemSchema, UpdateStoreItemSchema, DeleteStoreItemSchema,
