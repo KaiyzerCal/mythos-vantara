@@ -111,24 +111,24 @@ export function ContactsPage() {
 
   async function loadContacts() {
     setLoading(true);
-    const { data, error } = await supabase
+    const { data, error } = await (supabase as any)
       .from("contacts")
       .select("*")
       .order("name", { ascending: true });
     if (error) { toast.error("Failed to load contacts"); setLoading(false); return; }
-    setContacts(data || []);
+    setContacts((data as any) || []);
     setLoading(false);
   }
 
   async function loadInteractions(contactId: string) {
     if (interactions[contactId]) return;
-    const { data } = await supabase
+    const { data } = await (supabase as any)
       .from("contact_interactions")
       .select("*")
       .eq("contact_id", contactId)
       .order("created_at", { ascending: false })
       .limit(20);
-    setInteractions((prev) => ({ ...prev, [contactId]: data || [] }));
+    setInteractions((prev) => ({ ...prev, [contactId]: (data as any) || [] }));
   }
 
   // ─── CRUD ──────────────────────────────────────────────────
@@ -163,11 +163,11 @@ export function ContactsPage() {
       updated_at: new Date().toISOString(),
     };
     if (editingId) {
-      const { error } = await supabase.from("contacts").update(payload).eq("id", editingId);
+      const { error } = await (supabase as any).from("contacts").update(payload).eq("id", editingId);
       if (error) { toast.error("Failed to update contact"); setSavingContact(false); return; }
       toast.success("Contact updated");
     } else {
-      const { error } = await supabase.from("contacts").insert({ ...payload, user_id: session!.user.id });
+      const { error } = await (supabase as any).from("contacts").insert({ ...payload, user_id: session!.user.id });
       if (error) { toast.error("Failed to create contact"); setSavingContact(false); return; }
       toast.success("Contact added");
     }
@@ -177,7 +177,7 @@ export function ContactsPage() {
   }
 
   async function handleDelete(id: string) {
-    const { error } = await supabase.from("contacts").delete().eq("id", id);
+    const { error } = await (supabase as any).from("contacts").delete().eq("id", id);
     if (error) { toast.error("Failed to delete contact"); return; }
     toast.success("Contact deleted");
     setContacts((prev) => prev.filter((c) => c.id !== id));
@@ -187,7 +187,7 @@ export function ContactsPage() {
   async function handleLogInteraction(contactId: string) {
     if (!interactionForm.notes.trim()) return;
     setSavingInteraction(true);
-    const { error } = await supabase.from("contact_interactions").insert({
+    const { error } = await (supabase as any).from("contact_interactions").insert({
       user_id: session!.user.id,
       contact_id: contactId,
       interaction_type: interactionForm.interaction_type,
@@ -197,7 +197,7 @@ export function ContactsPage() {
     if (error) { toast.error("Failed to log interaction"); setSavingInteraction(false); return; }
 
     // bump interaction_count + last_contact_at
-    await supabase.from("contacts").update({
+    await (supabase as any).from("contacts").update({
       interaction_count: (contacts.find((c) => c.id === contactId)?.interaction_count || 0) + 1,
       last_contact_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
