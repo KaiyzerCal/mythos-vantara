@@ -4,9 +4,12 @@ import "./index.css";
 
 createRoot(document.getElementById("root")!).render(<App />);
 
-// Register service worker for offline support
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => {
-    navigator.serviceWorker.register("/sw.js").catch(() => {});
+    navigator.serviceWorker.getRegistrations()
+      .then((registrations) => Promise.all(registrations.map((registration) => registration.unregister())))
+      .then(() => caches.keys())
+      .then((cacheNames) => Promise.all(cacheNames.map((cacheName) => caches.delete(cacheName))))
+      .catch(() => {});
   });
 }
