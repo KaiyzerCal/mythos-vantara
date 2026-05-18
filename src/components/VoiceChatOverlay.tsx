@@ -164,11 +164,14 @@ export function VoiceChatOverlay({
   useEffect(() => { processTextRef.current = processText; }, [processText]);
 
   // ── MAVIS mode: respond when lastBotMessage arrives ───────────────────────
+  // prevBotMsgRef is only updated AFTER the isLoading check so that when
+  // streaming ends (isLoading flips false) the ref still differs from the
+  // final message and we don't skip it.
   useEffect(() => {
     if (persona) return;
-    if (prevBotMsgRef.current === lastBotMessage) return;
-    prevBotMsgRef.current = lastBotMessage;
     if (!lastBotMessage || isLoading || closingRef.current) return;
+    if (prevBotMsgRef.current === lastBotMessage) return;
+    prevBotMsgRef.current = lastBotMessage;   // update only when we'll actually process
     if (phaseRef.current !== "processing") return;
     setAiText(lastBotMessage);
     setPhase("speaking");
