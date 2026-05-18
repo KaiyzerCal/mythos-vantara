@@ -260,6 +260,33 @@ const AGENT_TOOLS = [
     },
   },
   {
+    name: "sync_oura",
+    description: "Sync Oura Ring health data (sleep, readiness, activity) into MAVIS health metrics. Call when operator asks about syncing health/sleep/recovery data.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        days: { type: "number", description: "How many days back to sync (default 7)" },
+      },
+      required: [],
+    },
+  },
+  {
+    name: "sync_strava",
+    description: "Sync Strava fitness activities into MAVIS health metrics and award XP for runs/rides/workouts.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        days: { type: "number", description: "How many days back to sync (default 7)" },
+      },
+      required: [],
+    },
+  },
+  {
+    name: "sync_github",
+    description: "Sync unread GitHub notifications into MAVIS notes and mark them as read on GitHub.",
+    input_schema: { type: "object" as const, properties: {}, required: [] },
+  },
+  {
     name: "post_to_tiktok",
     description: "Post content to TikTok as Nora Vale persona. Provide a video_url for a video post, or omit for a text/caption draft.",
     input_schema: {
@@ -273,6 +300,71 @@ const AGENT_TOOLS = [
     },
   },
 ];
+
+// ── Loop Guard (from OpenJarvis pattern) ──────────────────────────────────────
+class LoopGuard {
+  private callCounts = new Map<string, number>();
+  private recentTools: string[] = [];
+  private readonly maxIdentical = 3;
+  private readonly windowSize   = 6;
+
+  check(toolName: string, input: Record<string, unknown>): string | null {
+    // Hash: tool + key args (omit large content fields)
+    const keyArgs = { ...input };
+    delete keyArgs.code; delete keyArgs.csv_text; delete keyArgs.content;
+    const key = `${toolName}:${JSON.stringify(keyArgs)}`;
+
+    const count = (this.callCounts.get(key) ?? 0) + 1;
+    this.callCounts.set(key, count);
+    if (count > this.maxIdentical) {
+      return `Loop guard: ${toolName} called ${count} times with same args. Break the loop — synthesize what you know.`;
+    }
+
+    // Ping-pong detection: A-B-A-B or A-B-C-A-B-C in last 6 calls
+    this.recentTools.push(toolName);
+    if (this.recentTools.length > this.windowSize) this.recentTools.shift();
+    if (this.recentTools.length >= 4) {
+      const n = this.recentTools.length;
+      // Period-2
+      if (this.recentTools[n-1] === this.recentTools[n-3] && this.recentTools[n-2] === this.recentTools[n-4]) {
+        return `Loop guard: ping-pong detected (${this.recentTools.slice(-4).join("→")}). Stop and give a final answer.`;
+      }
+      // Period-3
+      if (n >= 6 && this.recentTools[n-1] === this.recentTools[n-4] && this.recentTools[n-2] === this.recentTools[n-5] && this.recentTools[n-3] === this.recentTools[n-6]) {
+        return `Loop guard: 3-cycle detected. Stop and synthesize.`;
+      }
+    }
+    return null;
+  }
+}
+
+// ── Observation Compression ───────────────────────────────────────────────────
+async function compressObservation(toolName: string, result: string, claudeKey: string): Promise<string> {
+  // Only compress large results from data-retrieval tools
+  const COMPRESS_TOOLS = new Set(["query_db", "search_knowledge", "web_search", "deep_research", "query_documents"]);
+  if (!COMPRESS_TOOLS.has(toolName) || result.length <= 2000 || !claudeKey) return result;
+
+  try {
+    const res = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-api-key": claudeKey, "anthropic-version": "2023-06-01" },
+      body: JSON.stringify({
+        model: "claude-haiku-4-5-20251001",
+        max_tokens: 512,
+        messages: [{
+          role: "user",
+          content: `Summarize this tool result in 3-5 sentences, preserving all key facts, IDs, numbers, and names. Do not add commentary.\n\nTool: ${toolName}\nResult:\n${result.slice(0, 6000)}`,
+        }],
+      }),
+    });
+    if (!res.ok) return result.slice(0, 2000) + "\n…[truncated]";
+    const d = await res.json();
+    const summary = (d.content ?? []).filter((b: any) => b.type === "text").map((b: any) => b.text).join("");
+    return summary || result.slice(0, 2000) + "\n…[truncated]";
+  } catch {
+    return result.slice(0, 2000) + "\n…[truncated]";
+  }
+}
 
 // ── Tool executor ─────────────────────────────────────────────────────────────
 async function executeTool(
@@ -676,6 +768,7 @@ serve(async (req) => {
         let finalText = "";
         let conversationId = inConvoId;
         let iteration = 0;
+        const loopGuard = new LoopGuard();
         // Capture the last user message for memory write-back
         const lastUserMsg = rawMessages.filter(m => m.role === "user").slice(-1)[0]?.content ?? "";
 
@@ -750,9 +843,12 @@ serve(async (req) => {
 
             // Execute all tools in parallel
             const results = await Promise.all(
-              toolBlocks.map(block =>
-                executeTool(block.name, block.input as Record<string, unknown>, userId, adminSb, openaiKey, tavilyKey, sources)
-              )
+              toolBlocks.map(async (block) => {
+                const guardMsg = loopGuard.check(block.name, block.input as Record<string, unknown>);
+                if (guardMsg) return JSON.stringify({ error: guardMsg });
+                const raw = await executeTool(block.name, block.input as Record<string, unknown>, userId, adminSb, openaiKey, tavilyKey, sources);
+                return await compressObservation(block.name, raw, claudeKey);
+              })
             );
 
             const toolResults = toolBlocks.map((block, i) => ({
