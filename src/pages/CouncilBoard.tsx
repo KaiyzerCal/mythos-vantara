@@ -378,44 +378,26 @@ export default function CouncilBoard() {
   const availablePersonas      = personas.filter(p => !summonedIds.includes(p.id));
 
   return (
-    <div className="flex flex-col h-[calc(100dvh-4rem)] gap-0">
-      {/* Header */}
-      <div className="flex items-center gap-2 px-4 py-3 border-b border-border bg-card/50 flex-wrap">
+    <div className="-m-5 h-screen flex flex-col overflow-hidden bg-background">
+      {/* Header — fixed single row, never grows */}
+      <div className="h-14 shrink-0 flex items-center gap-2 px-4 border-b border-border bg-card/50">
         <button onClick={() => navigate("/mavis")} className="text-muted-foreground hover:text-primary transition-colors" title="Back to MAVIS">
           <ArrowLeft size={16} />
         </button>
-        <Users size={16} className="text-primary" />
+        <Users size={16} className="text-primary shrink-0" />
         <div className="flex-1 min-w-0">
-          <h1 className="text-sm font-mono font-bold text-primary">Council Board</h1>
+          <h1 className="text-sm font-mono font-bold text-primary leading-tight">Council Board</h1>
           <p className="text-[10px] font-mono text-muted-foreground truncate">
             {councilMembers.length} member{councilMembers.length !== 1 ? "s" : ""}
             {activeSummonedPersonas.length > 0 && ` · ${activeSummonedPersonas.length} persona${activeSummonedPersonas.length > 1 ? "s" : ""} summoned`}
             {" · MAVIS presiding"}
           </p>
-          {/* Per-member voice call chips */}
-          {councilMembers.length > 0 && (
-            <div className="flex flex-wrap gap-1 mt-1">
-              {councilMembers.map((m) => (
-                <button
-                  key={m.id}
-                  onClick={() => setVoiceTarget({
-                    name: m.name,
-                    role: m.role ?? m.specialty,
-                    systemPrompt: buildCouncilMemberPrompt(m, ""),
-                  })}
-                  className="flex items-center gap-1 text-[9px] font-mono text-primary/60 hover:text-primary border border-primary/20 hover:border-primary/40 rounded px-1.5 py-0.5 transition-all"
-                  title={`Voice call ${m.name}`}
-                >
-                  <PhoneCall size={8} /> {m.name}</button>
-              ))}
-            </div>
-          )}
         </div>
         {/* Persona summon toggle */}
         {personas.length > 0 && (
           <button
             onClick={() => setShowPersonaPanel(v => !v)}
-            className="flex items-center gap-1 text-[10px] font-mono text-amber-400 hover:text-amber-300 border border-amber-900/40 hover:border-amber-400/40 rounded px-2 py-1 transition-all"
+            className="flex items-center gap-1 text-[10px] font-mono text-amber-400 hover:text-amber-300 border border-amber-900/40 hover:border-amber-400/40 rounded px-2 py-1 transition-all shrink-0"
             title="Summon personas"
           >
             <Zap size={10} />
@@ -426,17 +408,37 @@ export default function CouncilBoard() {
         <button
           onClick={handleOmniSync}
           disabled={isSyncing}
-          className="flex items-center gap-1 text-[10px] font-mono text-cyan-400 hover:text-cyan-300 border border-cyan-900/40 hover:border-cyan-400/40 rounded px-2 py-1 transition-all disabled:opacity-40"
+          className="flex items-center gap-1 text-[10px] font-mono text-cyan-400 hover:text-cyan-300 border border-cyan-900/40 hover:border-cyan-400/40 rounded px-2 py-1 transition-all disabled:opacity-40 shrink-0"
         >
           <Database size={10} /> OmniSync
         </button>
         <button
           onClick={handleClear}
-          className="text-[10px] font-mono text-muted-foreground hover:text-destructive border border-border hover:border-destructive/40 rounded px-2 py-1 transition-colors"
+          className="text-[10px] font-mono text-muted-foreground hover:text-destructive border border-border hover:border-destructive/40 rounded px-2 py-1 transition-colors shrink-0"
         >
           Clear
         </button>
       </div>
+
+      {/* Voice call chips — single scrollable row, never wraps */}
+      {councilMembers.length > 0 && (
+        <div className="shrink-0 h-9 flex items-center gap-1.5 px-4 border-b border-border/40 bg-muted/10 overflow-x-auto scrollbar-none">
+          {councilMembers.map((m) => (
+            <button
+              key={m.id}
+              onClick={() => setVoiceTarget({
+                name: m.name,
+                role: m.role ?? m.specialty,
+                systemPrompt: buildCouncilMemberPrompt(m, ""),
+              })}
+              className="flex items-center gap-1 text-[9px] font-mono text-primary/60 hover:text-primary border border-primary/20 hover:border-primary/40 rounded px-1.5 py-0.5 whitespace-nowrap shrink-0 transition-all"
+              title={`Voice call ${m.name}`}
+            >
+              <PhoneCall size={8} /> {m.name}
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* Persona summon panel */}
       <AnimatePresence>
