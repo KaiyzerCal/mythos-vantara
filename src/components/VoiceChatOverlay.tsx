@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { X, MicOff, Mic } from "lucide-react";
+import { X, Mic, Volume2 } from "lucide-react";
 import { streamChatMessage } from "@/mavis/chatService";
 
 export interface VoicePersona {
@@ -17,72 +17,37 @@ interface VoiceChatOverlayProps {
   persona?: VoicePersona;
 }
 
-type Phase = "listening" | "processing" | "speaking";
+type Phase = "idle" | "listening" | "thinking" | "speaking";
 
-const SILENCE_MS = 1600;
-
-// ── Voice picker ──────────────────────────────────────────────────────────────
-function pickVoice(): SpeechSynthesisVoice | undefined {
-  const v = window.speechSynthesis.getVoices();
-  return (
-    v.find(x => x.lang.startsWith("en") && /Neural|Natural|Premium|Enhanced/.test(x.name)) ||
-    v.find(x => x.lang === "en-US" && !x.localService) ||
-    v.find(x => x.lang.startsWith("en-US")) ||
-    v.find(x => x.lang.startsWith("en"))
-  );
-}
-
-// ── TTS with Chrome quirk handling ───────────────────────────────────────────
+// Handles Chrome's multiple speechSynthesis quirks:
+// 1. cancel() + speak() in same tick can fail → use setTimeout
+// 2. speech can get paused silently → resume after 150ms
+// 3. voices may not be loaded → rely on outer preload
 function speakText(text: string, onEnd: () => void): void {
   if (!text || !("speechSynthesis" in window)) { onEnd(); return; }
   window.speechSynthesis.cancel();
   setTimeout(() => {
-    const u = new SpeechSynthesisUtterance(text.slice(0, 2000));
-    u.rate = 1.05; u.pitch = 1.0; u.volume = 1.0;
-    const voice = pickVoice();
-    if (voice) u.voice = voice;
-    u.onend = onEnd; u.onerror = onEnd;
-    window.speechSynthesis.speak(u);
-    setTimeout(() => { if (window.speechSynthesis.paused) window.speechSynthesis.resume(); }, 150);
+    const utter = new SpeechSynthesisUtterance(text.slice(0, 2000));
+    utter.rate   = 1.0;
+    utter.pitch  = 1.0;
+    utter.volume = 1.0;
+    const voices = window.speechSynthesis.getVoices();
+    const pick =
+      voices.find(v => v.lang.startsWith("en") && (v.name.includes("Neural") || v.name.includes("Natural") || v.name.includes("Premium") || v.name.includes("Enhanced"))) ||
+      voices.find(v => v.lang === "en-US" && !v.localService) ||
+      voices.find(v => v.lang.startsWith("en-US")) ||
+      voices.find(v => v.lang.startsWith("en"));
+    if (pick) utter.voice = pick;
+    utter.onend   = onEnd;
+    utter.onerror = onEnd;
+    window.speechSynthesis.speak(utter);
+    // Chrome silent-pause bug: resume if stuck
+    setTimeout(() => {
+      if (window.speechSynthesis.paused) window.speechSynthesis.resume();
+    }, 150);
   }, 50);
 }
 
-// ── Animated waveform bars ─────────────────────────────────────────────────
-const BAR_COUNT = 7;
-
-const barAnimation = {
-  listening: (i: number) => ({
-    scaleY: [0.25, 1, 0.5, 0.85, 0.25],
-    transition: { duration: 0.55 + (i % 3) * 0.12, repeat: Infinity, delay: i * 0.07, ease: "easeInOut" as const },
-  }),
-  processing: (i: number) => ({
-    scaleY: [0.15, 0.45, 0.15],
-    transition: { duration: 1.1, repeat: Infinity, delay: i * 0.13, ease: "easeInOut" as const },
-  }),
-  speaking: (i: number) => ({
-    scaleY: [0.3, 1, 0.55, 0.9, 0.3],
-    transition: { duration: 0.48 + (i % 3) * 0.1, repeat: Infinity, delay: i * 0.06, ease: "easeInOut" as const },
-  }),
-};
-
-function WaveBars({ phase, muted }: { phase: Phase; muted: boolean }) {
-  return (
-    <div className="flex items-center gap-[5px]" style={{ height: 56 }}>
-      {Array.from({ length: BAR_COUNT }).map((_, i) => (
-        <motion.div
-          key={i}
-          className={`rounded-full origin-center ${
-            muted ? "bg-white/15" : phase === "speaking" ? "bg-primary" : "bg-primary/65"
-          }`}
-          style={{ width: 5, height: "100%" }}
-          animate={muted ? { scaleY: 0.12 } : barAnimation[phase](i)}
-        />
-      ))}
-    </div>
-  );
-}
-
-// ── Main component ────────────────────────────────────────────────────────────
 export function VoiceChatOverlay({
   onClose,
   sendMessage,
@@ -90,330 +55,269 @@ export function VoiceChatOverlay({
   isLoading = false,
   persona,
 }: VoiceChatOverlayProps) {
-  const [phase, setPhase]           = useState<Phase>("listening");
-  const [muted, setMuted]           = useState(false);
-  const [userText, setUserText]     = useState("");
-  const [interimText, setInterimText] = useState("");
-  const [aiText, setAiText]         = useState("");
+  const [phase, setPhase]               = useState<Phase>("idle");
+  const [transcript, setTranscript]     = useState("");
+  const [interim, setInterim]           = useState("");
+  const [displayReply, setDisplayReply] = useState("");
 
-  // ── Refs (callbacks must read current values without stale closures) ────────
-  const phaseRef        = useRef<Phase>("listening");
-  const mutedRef        = useRef(false);
-  const closingRef      = useRef(false);
-  const recognitionRef  = useRef<any>(null);
-  const silenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const accTextRef      = useRef("");          // accumulated final transcript
-  const shouldSendRef   = useRef(false);       // silence timer fired → send on onend
-  const personaHistRef  = useRef<{ role: string; content: string }[]>([]);
-  const prevBotMsgRef   = useRef(lastBotMessage);
+  const personaHistoryRef   = useRef<{ role: string; content: string }[]>([]);
+  const recognitionRef      = useRef<any>(null);
+  const restartTimerRef     = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const closingRef          = useRef(false);
+  const phaseRef            = useRef<Phase>("idle");
+  const prevBotMsgRef       = useRef(lastBotMessage);
 
+  // Keep phaseRef in sync so callbacks see current phase without stale closure
   useEffect(() => { phaseRef.current = phase; }, [phase]);
-  useEffect(() => { mutedRef.current = muted; }, [muted]);
 
-  // Pre-load voices
+  // Pre-load voices on mount (Chrome requires a user gesture then a getVoices() call)
   useEffect(() => {
     if (!("speechSynthesis" in window)) return;
     window.speechSynthesis.getVoices();
-    const cb = () => window.speechSynthesis.getVoices();
-    window.speechSynthesis.addEventListener("voiceschanged", cb);
-    return () => window.speechSynthesis.removeEventListener("voiceschanged", cb);
+    const onLoaded = () => window.speechSynthesis.getVoices();
+    window.speechSynthesis.addEventListener("voiceschanged", onLoaded);
+    return () => window.speechSynthesis.removeEventListener("voiceschanged", onLoaded);
   }, []);
 
-  // ── Process accumulated speech ─────────────────────────────────────────────
-  const processText = useCallback(async (text: string) => {
-    if (!text.trim() || closingRef.current) return;
-    setPhase("processing");
-    setUserText(text.trim());
-    setInterimText("");
-    setAiText("");
+  const handleSpeakEnd = useCallback(() => {
+    if (!closingRef.current) setPhase("idle");
+  }, []);
 
-    if (persona) {
-      let acc = "";
-      try {
-        await streamChatMessage(
-          text,
-          persona.systemPrompt,
-          personaHistRef.current,
-          { mode: "CHAT" },
-          (_, a) => { acc = a; setAiText(a); },
-        );
-        personaHistRef.current = [
-          ...personaHistRef.current,
-          { role: "user", content: text },
-          { role: "assistant", content: acc },
-        ];
-        if (!closingRef.current && acc) {
-          setPhase("speaking");
-          speakText(acc, () => { if (!closingRef.current) setPhase("listening"); });
-        } else if (!closingRef.current) {
-          setPhase("listening");
-        }
-      } catch {
-        if (!closingRef.current) setPhase("listening");
+  const stopListening = useCallback(() => {
+    recognitionRef.current?.abort();
+    recognitionRef.current = null;
+  }, []);
+
+  // Persona mode: stream reply then speak it directly (no effect indirection)
+  const sendPersonaMessage = useCallback(async (text: string) => {
+    if (!persona) return;
+    setDisplayReply("");
+    setPhase("thinking");
+    let accumulated = "";
+    try {
+      await streamChatMessage(
+        text,
+        persona.systemPrompt,
+        personaHistoryRef.current,
+        { mode: "CHAT" },
+        (_, acc) => { accumulated = acc; setDisplayReply(acc); },
+      );
+      personaHistoryRef.current = [
+        ...personaHistoryRef.current,
+        { role: "user", content: text },
+        { role: "assistant", content: accumulated },
+      ];
+      if (!closingRef.current && accumulated) {
+        setPhase("speaking");
+        speakText(accumulated, handleSpeakEnd);
+      } else if (!closingRef.current) {
+        setPhase("idle");
       }
-    } else {
-      // MAVIS mode: parent will update lastBotMessage
-      sendMessage?.(text).catch(() => { if (!closingRef.current) setPhase("listening"); });
+    } catch {
+      if (!closingRef.current) setPhase("idle");
     }
-  }, [persona, sendMessage]);
+  }, [persona, handleSpeakEnd]);
 
-  // ── MAVIS mode: watch for lastBotMessage changes ───────────────────────────
+  // MAVIS mode: fire TTS when lastBotMessage arrives AND we're in thinking phase
   useEffect(() => {
     if (persona) return;
     if (prevBotMsgRef.current === lastBotMessage) return;
     prevBotMsgRef.current = lastBotMessage;
     if (!lastBotMessage || isLoading || closingRef.current) return;
-    if (phaseRef.current !== "processing") return;
-    setAiText(lastBotMessage);
+    if (phaseRef.current !== "thinking") return;
+    setDisplayReply(lastBotMessage);
     setPhase("speaking");
-    speakText(lastBotMessage, () => { if (!closingRef.current) setPhase("listening"); });
-  }, [lastBotMessage, isLoading, persona]);
+    speakText(lastBotMessage, handleSpeakEnd);
+  }, [lastBotMessage, isLoading, persona, handleSpeakEnd]);
 
-  // ── Speech recognition ─────────────────────────────────────────────────────
-  const stopRecognition = useCallback(() => {
-    if (silenceTimerRef.current) { clearTimeout(silenceTimerRef.current); silenceTimerRef.current = null; }
-    if (recognitionRef.current) {
-      recognitionRef.current._skipRestart = true;
-      recognitionRef.current.abort();
-      recognitionRef.current = null;
-    }
-  }, []);
-
-  const startRecognition = useCallback(() => {
-    if (closingRef.current || mutedRef.current) return;
+  const startListening = useCallback(() => {
     const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!SR) return;
 
     const r = new SR();
-    r.continuous     = true;
-    r.interimResults = true;
-    r.lang           = "en-US";
-    r._skipRestart   = false;
-    accTextRef.current = "";
-    shouldSendRef.current = false;
-
-    r.onspeechstart = () => {
-      // Barge-in: if AI is speaking, cancel and switch to listening
-      if (phaseRef.current === "speaking") {
-        window.speechSynthesis.cancel();
-        setPhase("listening");
-      }
-    };
+    r.continuous      = false;
+    r.interimResults  = true;
+    r.lang            = "en-US";
+    let finalText     = "";
 
     r.onresult = (ev: any) => {
-      let interim = "";
+      let int = "";
       for (let i = ev.resultIndex; i < ev.results.length; i++) {
         const t = ev.results[i][0].transcript;
-        if (ev.results[i].isFinal) {
-          accTextRef.current += t + " ";
-          setUserText(accTextRef.current.trim());
-        } else {
-          interim = t;
-        }
+        if (ev.results[i].isFinal) { finalText += t + " "; setTranscript(finalText.trim()); }
+        else int = t;
       }
-      setInterimText(interim);
-
-      // Reset silence timer on any speech activity
-      if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
-      if (accTextRef.current.trim()) {
-        silenceTimerRef.current = setTimeout(() => {
-          shouldSendRef.current = true;
-          r.stop(); // triggers onend which calls processText
-        }, SILENCE_MS);
-      }
+      setInterim(int);
     };
 
-    r.onerror = (ev: any) => {
-      if (ev.error === "no-speech" || ev.error === "aborted") return;
+    r.onerror = () => {
       recognitionRef.current = null;
+      if (!closingRef.current) setPhase("idle");
     };
 
     r.onend = () => {
       recognitionRef.current = null;
-      if (silenceTimerRef.current) { clearTimeout(silenceTimerRef.current); silenceTimerRef.current = null; }
-      if (r._skipRestart || closingRef.current) return;
+      if (closingRef.current) return;
+      const captured = finalText.trim();
+      if (!captured) { setPhase("idle"); return; }
 
-      if (shouldSendRef.current && accTextRef.current.trim()) {
-        processText(accTextRef.current.trim());
-      } else if (phaseRef.current === "listening" && !mutedRef.current) {
-        // No speech or incomplete — restart immediately to stay warm
-        setTimeout(() => startRecognition(), 100);
+      setPhase("thinking");
+      if (persona) {
+        sendPersonaMessage(captured).catch(() => { if (!closingRef.current) setPhase("idle"); });
+      } else {
+        sendMessage?.(captured).catch(() => { if (!closingRef.current) setPhase("idle"); });
       }
     };
 
     recognitionRef.current = r;
-    try { r.start(); } catch { /* already started */ }
-  }, [processText]);
+    setTranscript("");
+    setInterim("");
+    r.start();
+    setPhase("listening");
+  }, [sendMessage, sendPersonaMessage, persona]);
 
-  // Auto-start recognition when phase becomes "listening"
+  // Auto-restart after idle
   useEffect(() => {
-    if (phase !== "listening" || muted || closingRef.current) return;
-    if (recognitionRef.current) return; // already running
-    // Small delay to let state settle and avoid Chrome issues
-    const t = setTimeout(() => startRecognition(), 150);
-    return () => clearTimeout(t);
-  }, [phase, muted, startRecognition]);
+    if (phase !== "idle" || closingRef.current) return;
+    restartTimerRef.current = setTimeout(() => {
+      if (!closingRef.current) startListening();
+    }, 1200);
+    return () => {
+      if (restartTimerRef.current) { clearTimeout(restartTimerRef.current); restartTimerRef.current = null; }
+    };
+  }, [phase, startListening]);
 
-  // Initial auto-start
-  useEffect(() => {
-    const t = setTimeout(() => startRecognition(), 300);
-    return () => clearTimeout(t);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // ── Close handler ──────────────────────────────────────────────────────────
   const handleClose = useCallback(() => {
     closingRef.current = true;
-    stopRecognition();
+    if (restartTimerRef.current) clearTimeout(restartTimerRef.current);
+    stopListening();
     window.speechSynthesis?.cancel();
     onClose();
-  }, [onClose, stopRecognition]);
+  }, [onClose, stopListening]);
 
-  // ── Mute toggle ────────────────────────────────────────────────────────────
-  const toggleMute = useCallback(() => {
-    const next = !mutedRef.current;
-    setMuted(next);
-    if (next) {
-      // Muting: stop recognition, cancel speech
+  // Orb tap: toggle listen / skip speech / stop listen
+  const handleTap = useCallback(() => {
+    if (phase === "idle")       startListening();
+    else if (phase === "listening") stopListening();
+    else if (phase === "speaking") {
       window.speechSynthesis?.cancel();
-      stopRecognition();
-      if (phaseRef.current !== "processing") setPhase("listening");
-    } else {
-      // Unmuting: restart recognition
-      setTimeout(() => startRecognition(), 150);
+      setPhase("idle");
     }
-  }, [stopRecognition, startRecognition]);
+  }, [phase, startListening, stopListening]);
 
-  // ── Tap to interrupt speech ────────────────────────────────────────────────
-  const handleOrbTap = useCallback(() => {
-    if (phase === "speaking") {
-      window.speechSynthesis?.cancel();
-      setPhase("listening");
-    }
-  }, [phase]);
+  const phaseLabel: Record<Phase, string> = {
+    idle:      "TAP TO SPEAK",
+    listening: "LISTENING...",
+    thinking:  "THINKING...",
+    speaking:  "SPEAKING...",
+  };
 
   const speakerName = persona?.name ?? "MAVIS";
   const speakerRole = persona?.role;
-
-  const phaseLabel =
-    muted       ? "MUTED"
-    : phase === "processing" ? "THINKING..."
-    : phase === "speaking"   ? "SPEAKING"
-    :                          "LISTENING";
-
-  const displayText = phase === "speaking" ? aiText : (userText || interimText);
-  const isUserText  = phase !== "speaking";
 
   return (
     <motion.div
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      transition={{ duration: 0.25 }}
-      className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-black/95 backdrop-blur-xl"
-      onClick={phase === "speaking" ? handleOrbTap : undefined}
+      transition={{ duration: 0.2 }}
+      className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-black/92 backdrop-blur-md"
     >
-      {/* Top bar */}
-      <div className="absolute top-0 left-0 right-0 flex items-center justify-between px-6 pt-6 pb-2">
-        <div>
-          <p className="text-xs font-mono font-bold text-primary tracking-[0.2em] uppercase">{speakerName}</p>
-          {speakerRole && <p className="text-[10px] font-mono text-white/35 mt-0.5">{speakerRole}</p>}
-        </div>
-        <button
-          onClick={handleClose}
-          className="p-2 rounded-full text-white/30 hover:text-white/70 transition-colors"
-          aria-label="Close voice mode"
-        >
-          <X size={20} />
-        </button>
+      {/* Close */}
+      <button
+        onClick={handleClose}
+        className="absolute top-5 right-5 p-2 rounded-full border border-white/10 text-white/50 hover:text-white hover:border-white/30 transition-all"
+        aria-label="Close voice mode"
+      >
+        <X size={20} />
+      </button>
+
+      {/* Speaker label */}
+      <div className="absolute top-6 left-6">
+        <p className="text-xs font-mono font-bold text-primary tracking-widest">{speakerName}</p>
+        {speakerRole && <p className="text-[10px] font-mono text-muted-foreground mt-0.5">{speakerRole}</p>}
       </div>
 
-      {/* Main content */}
-      <div className="flex flex-col items-center gap-8 px-6 w-full max-w-sm">
+      {/* Central orb */}
+      <button
+        onClick={handleTap}
+        className={[
+          "relative w-28 h-28 rounded-full flex items-center justify-center transition-all duration-300",
+          "bg-primary/15 border-2",
+          phase === "listening" ? "border-primary scale-110 ring-8 ring-primary/15 animate-pulse" : "",
+          phase === "speaking"  ? "border-primary/80 scale-108 shadow-[0_0_60px_rgba(139,92,246,0.55)]" : "",
+          phase === "thinking"  ? "border-primary/50" : "",
+          phase === "idle"      ? "border-primary/30 hover:border-primary/60 hover:scale-105" : "",
+        ].filter(Boolean).join(" ")}
+        aria-label={phase === "listening" ? "Stop listening" : "Start speaking"}
+      >
+        {/* Spinning ring when thinking */}
+        <span className={[
+          "absolute inset-2 rounded-full border-2 border-transparent border-t-primary/70 transition-opacity",
+          phase === "thinking" ? "animate-spin opacity-100" : "opacity-0",
+        ].join(" ")} />
 
-        {/* Waveform + phase ring */}
-        <button
-          onClick={handleOrbTap}
-          className="relative flex items-center justify-center cursor-default"
-          aria-label={phase === "speaking" ? "Tap to interrupt" : undefined}
-          style={{ cursor: phase === "speaking" ? "pointer" : "default" }}
-        >
-          {/* Outer glow ring */}
+        {phase === "speaking"
+          ? <Volume2 size={36} className="text-primary animate-pulse" />
+          : <Mic     size={36} className={phase === "listening" ? "text-primary" : "text-primary/60"} />
+        }
+      </button>
+
+      {/* Phase label */}
+      <p className="mt-5 text-[11px] font-mono tracking-[0.2em] text-primary">{phaseLabel[phase]}</p>
+
+      {/* User transcript */}
+      <AnimatePresence mode="wait">
+        {(transcript || interim) && (
           <motion.div
-            className="absolute rounded-full"
-            style={{ inset: -24 }}
-            animate={{
-              boxShadow: muted
-                ? "0 0 0px 0px rgba(139,92,246,0)"
-                : phase === "speaking"
-                  ? ["0 0 40px 12px rgba(139,92,246,0.35)", "0 0 60px 20px rgba(139,92,246,0.5)", "0 0 40px 12px rgba(139,92,246,0.35)"]
-                  : phase === "listening"
-                  ? ["0 0 20px 4px rgba(139,92,246,0.15)", "0 0 35px 10px rgba(139,92,246,0.25)", "0 0 20px 4px rgba(139,92,246,0.15)"]
-                  : "0 0 0px 0px rgba(139,92,246,0)",
-            }}
-            transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
-          />
-          <WaveBars phase={phase} muted={muted} />
-        </button>
+            key="transcript"
+            initial={{ opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -4 }}
+            className="mt-5 max-w-xs px-5 py-2 rounded-xl bg-white/5 border border-white/10"
+          >
+            <p className="text-center text-sm font-mono text-muted-foreground">
+              {transcript || interim}
+            </p>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
-        {/* Phase label */}
-        <motion.p
-          key={phaseLabel}
-          initial={{ opacity: 0, y: 4 }}
-          animate={{ opacity: 1, y: 0 }}
-          className={`text-[11px] font-mono tracking-[0.25em] ${
-            muted ? "text-white/25" : phase === "processing" ? "text-white/50" : "text-primary"
-          }`}
-        >
-          {phaseLabel}
-        </motion.p>
+      {/* AI response */}
+      <AnimatePresence mode="wait">
+        {displayReply && phase === "speaking" && (
+          <motion.div
+            key="response"
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0 }}
+            className="mt-6 max-w-sm mx-6 px-5 py-4 rounded-2xl bg-primary/10 border border-primary/25"
+          >
+            <p className="text-sm font-body text-white leading-relaxed line-clamp-6 text-center">
+              {displayReply}
+            </p>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
-        {/* Transcript / response */}
-        <AnimatePresence mode="wait">
-          {displayText && (
-            <motion.div
-              key={isUserText ? "user" : "ai"}
-              initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -4 }}
-              transition={{ duration: 0.2 }}
-              className={`w-full px-5 py-4 rounded-2xl text-center ${
-                isUserText
-                  ? "bg-white/5 border border-white/10"
-                  : "bg-primary/12 border border-primary/25"
-              }`}
-            >
-              <p className={`text-sm font-body leading-relaxed line-clamp-5 ${
-                isUserText ? "text-white/60" : "text-white"
-              }`}>
-                {isUserText && interimText && !userText
-                  ? <span className="opacity-60 italic">{interimText}</span>
-                  : displayText
-                }
-              </p>
-            </motion.div>
-          )}
-        </AnimatePresence>
-      </div>
+      {/* Bottom mic button */}
+      <button
+        onClick={handleTap}
+        className={[
+          "absolute bottom-10 w-16 h-16 rounded-full flex items-center justify-center transition-all duration-300 border-2",
+          phase === "listening"
+            ? "bg-destructive/20 border-destructive/60 text-destructive animate-pulse"
+            : "bg-primary/10 border-primary/30 text-primary/70 hover:bg-primary/20 hover:text-primary hover:scale-105",
+        ].join(" ")}
+        aria-label={phase === "listening" ? "Stop" : "Speak"}
+      >
+        <Mic size={28} />
+      </button>
 
-      {/* Bottom controls */}
-      <div className="absolute bottom-10 flex flex-col items-center gap-3">
-        {/* Mute button */}
-        <button
-          onClick={toggleMute}
-          className={`w-14 h-14 rounded-full flex items-center justify-center border-2 transition-all duration-200 ${
-            muted
-              ? "bg-destructive/15 border-destructive/50 text-destructive"
-              : "bg-white/5 border-white/15 text-white/50 hover:border-white/30 hover:text-white/80"
-          }`}
-          aria-label={muted ? "Unmute" : "Mute microphone"}
-        >
-          {muted ? <MicOff size={22} /> : <Mic size={22} />}
-        </button>
-        <p className="text-[9px] font-mono text-white/20 tracking-widest">
-          {muted ? "TAP TO UNMUTE" : phase === "speaking" ? "TAP TO INTERRUPT" : "TAP TO MUTE"}
-        </p>
-      </div>
+      {/* Hint when speaking */}
+      {phase === "speaking" && (
+        <p className="absolute bottom-28 text-[10px] font-mono text-white/25">tap orb to skip</p>
+      )}
     </motion.div>
   );
 }
