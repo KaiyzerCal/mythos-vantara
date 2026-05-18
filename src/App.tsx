@@ -59,6 +59,10 @@ import { EmailPage } from "@/pages/EmailPage";
 import { WebhookConfigPage } from "@/pages/WebhookConfigPage";
 import { IntegrationsPage } from "@/pages/IntegrationsPage";
 import { ExportPage } from "@/pages/ExportPage";
+import { ForecastPage } from "@/pages/ForecastPage";
+import { ImportPage } from "@/pages/ImportPage";
+import { StripeManagementPage } from "@/pages/StripeManagementPage";
+import { AchievementsPage } from "@/pages/AchievementsPage";
 
 const queryClient = new QueryClient();
 
@@ -125,6 +129,10 @@ function AppContent() {
             <Route path="/webhooks" element={<WebhookConfigPage />} />
             <Route path="/integrations" element={<IntegrationsPage />} />
             <Route path="/export" element={<ExportPage />} />
+            <Route path="/forecast" element={<ForecastPage />} />
+            <Route path="/import" element={<ImportPage />} />
+            <Route path="/stripe" element={<StripeManagementPage />} />
+            <Route path="/achievements" element={<AchievementsPage />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </main>

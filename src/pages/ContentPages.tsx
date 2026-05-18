@@ -5,6 +5,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { BookOpen, BookLock, Sparkles, Package, Plus, Trash2, Loader2, Star, Edit2, Upload, FileText, Image, Film, Music, File, X, Eye, LayoutGrid, ChevronLeft, ChevronRight, Wand2, Mic, MicOff, Download, FileDown, LayoutTemplate, Link2 } from "lucide-react";
+import { useInlineCompose } from "@/hooks/useInlineCompose";
 import { useAppData } from "@/contexts/AppDataContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
@@ -23,6 +24,7 @@ const JOURNAL_TEMPLATES = [
 export function JournalPage() {
   const { journalEntries, journalLoading, createJournalEntry, updateJournalEntry, deleteJournalEntry, awardXP, logActivity } = useAppData();
   const { session } = useAuth();
+  const { getSuggestion, accept, dismiss, suggestion, isComposing } = useInlineCompose();
   const [showCreate, setShowCreate] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -169,7 +171,36 @@ export function JournalPage() {
           <p className="text-[9px] font-mono text-primary uppercase tracking-widest mb-3">{editingId ? "Edit Entry" : "New Entry"}</p>
           <div className="space-y-2">
             <input value={form.title} onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))} placeholder="Title..." className="w-full bg-muted/30 border border-border rounded px-3 py-1.5 text-sm focus:outline-none focus:border-primary/40" />
-            <textarea value={form.content} onChange={(e) => setForm((f) => ({ ...f, content: e.target.value }))} placeholder="Entry content..." rows={4} className="w-full bg-muted/30 border border-border rounded px-3 py-2 text-sm font-body resize-none focus:outline-none focus:border-primary/40" />
+            <textarea
+              value={form.content}
+              onChange={(e) => setForm((f) => ({ ...f, content: e.target.value }))}
+              onKeyDown={(e) => {
+                if ((e.ctrlKey || e.metaKey) && e.code === "Space") {
+                  e.preventDefault();
+                  getSuggestion(form.content);
+                }
+              }}
+              placeholder="Entry content..."
+              rows={4}
+              className="w-full bg-muted/30 border border-border rounded px-3 py-2 text-sm font-body resize-none focus:outline-none focus:border-primary/40"
+            />
+            {suggestion && (
+              <div className="flex items-center gap-2 mt-1.5 p-2 rounded border border-primary/20 bg-primary/5">
+                <Sparkles size={11} className="text-primary/60 shrink-0" />
+                <span className="text-xs font-mono text-muted-foreground flex-1 line-clamp-2">{suggestion}</span>
+                <button
+                  onClick={() => {
+                    const text = accept();
+                    if (text) setForm((f) => ({ ...f, content: f.content + " " + text }));
+                  }}
+                  className="text-[10px] font-mono text-primary border border-primary/30 rounded px-2 py-0.5 hover:bg-primary/10"
+                >
+                  Tab
+                </button>
+                <button onClick={dismiss} className="text-[10px] font-mono text-muted-foreground hover:text-destructive">✕</button>
+              </div>
+            )}
+            {isComposing && <p className="text-[9px] font-mono text-muted-foreground mt-1">MAVIS composing...</p>}
             <div className="grid grid-cols-3 gap-2">
               <select value={form.category} onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))} className="bg-muted/30 border border-border rounded px-2 py-1.5 text-xs font-mono focus:outline-none">
                 {["personal", "business", "fitness", "legal", "reflection"].map((c) => <option key={c}>{c}</option>)}

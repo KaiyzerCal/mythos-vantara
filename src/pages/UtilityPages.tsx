@@ -102,7 +102,18 @@ export function AuthPage() {
   );
 }
 
+const LANGUAGE_OPTIONS = [
+  { value: "en", label: "English" },
+  { value: "es", label: "Spanish" },
+  { value: "fr", label: "French" },
+  { value: "pt", label: "Portuguese" },
+  { value: "de", label: "German" },
+  { value: "ja", label: "Japanese" },
+  { value: "ar", label: "Arabic" },
+];
+
 // ─── SettingsPage ──────────────────────────────────────────
+// Note: profiles table should have: ALTER TABLE profiles ADD COLUMN IF NOT EXISTS language TEXT DEFAULT 'en';
 export function SettingsPage() {
   const { profile, updateProfile } = useAppData();
   const [saved, setSaved] = useState(false);
@@ -111,6 +122,7 @@ export function SettingsPage() {
     arc_story: profile.arc_story,
     current_form: profile.current_form,
     current_bpm: profile.current_bpm,
+    language: (profile as any).language ?? "en",
   });
 
   const handleSave = async () => {
@@ -156,6 +168,18 @@ export function SettingsPage() {
               <label className="text-[10px] font-mono text-muted-foreground uppercase mb-1 block">Current BPM</label>
               <input type="number" value={localProfile.current_bpm} onChange={(e) => setLocalProfile((p) => ({ ...p, current_bpm: Number(e.target.value) }))} className="w-full bg-muted/30 border border-border rounded px-3 py-1.5 text-sm focus:outline-none" />
             </div>
+          </div>
+          <div>
+            <label className="text-[10px] font-mono text-muted-foreground uppercase mb-1 block">Language</label>
+            <select
+              value={localProfile.language}
+              onChange={(e) => setLocalProfile((p) => ({ ...p, language: e.target.value }))}
+              className="w-full bg-muted/30 border border-border rounded px-3 py-1.5 text-sm font-mono focus:outline-none focus:border-primary/40"
+            >
+              {LANGUAGE_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>{opt.label}</option>
+              ))}
+            </select>
           </div>
           <button onClick={handleSave} className="px-4 py-1.5 text-xs font-mono bg-primary/10 border border-primary/30 text-primary rounded hover:bg-primary/20 transition-all">
             {saved ? "✓ Saved" : "Save Changes"}
