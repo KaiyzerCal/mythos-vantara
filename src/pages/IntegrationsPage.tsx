@@ -122,7 +122,7 @@ export function IntegrationsPage() {
 
     async function loadKeys() {
       setLoading(true);
-      const { data, error } = await supabase
+      const { data, error } = await (supabase as any)
         .from("mavis_user_integrations" as any)
         .select("provider, key_name, key_value")
         .eq("user_id", user!.id);
@@ -168,7 +168,7 @@ export function IntegrationsPage() {
         const keyValue = editingValues[providerId]?.[keyName] ?? "";
         if (!keyValue) continue; // skip empty keys
 
-        const { error } = await supabase
+        const { error } = await (supabase as any)
           .from("mavis_user_integrations" as any)
           .upsert(
             {
@@ -205,7 +205,7 @@ export function IntegrationsPage() {
   async function testConnection(providerId: string) {
     setTestResults((prev) => ({ ...prev, [providerId]: "testing" }));
     try {
-      const { error } = await supabase
+      const { error } = await (supabase as any)
         .from("mavis_user_integrations" as any)
         .select("id")
         .eq("provider", providerId)

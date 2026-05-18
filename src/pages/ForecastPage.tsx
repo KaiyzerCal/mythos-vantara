@@ -68,13 +68,13 @@ export function ForecastPage() {
     const cutoff = getNinetyDaysAgo();
 
     const [revRes, expRes] = await Promise.all([
-      supabase
+      (supabase as any)
         .from("mavis_revenue")
         .select("created_at, amount")
         .eq("user_id", user.id)
         .gte("created_at", cutoff)
         .order("created_at", { ascending: true }),
-      supabase
+      (supabase as any)
         .from("mavis_expenses" as any)
         .select("created_at, amount")
         .eq("user_id", user.id)
