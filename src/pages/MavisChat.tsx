@@ -1200,11 +1200,9 @@ export default function MavisChat() {
       {voiceOverlayOpen && (
         <VoiceChatOverlay
           onClose={() => setVoiceOverlayOpen(false)}
-          persona={{
-            name: "MAVIS",
-            role: "Supreme Intelligence",
-            systemPrompt: "You are MAVIS, a highly advanced AI intelligence. You are in voice conversation mode — keep every response under 3 sentences, natural and conversational. No lists, no markdown, no bullet points. Be direct, insightful, and speak as if talking to someone face-to-face.",
-          }}
+          sendMessage={async (text) => { setInput(text); await sendMessage(text); }}
+          lastBotMessage={lastBotMessage}
+          isLoading={isLoading}
         />
       )}
     </AnimatePresence>
