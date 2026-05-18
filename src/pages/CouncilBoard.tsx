@@ -378,44 +378,26 @@ export default function CouncilBoard() {
   const availablePersonas      = personas.filter(p => !summonedIds.includes(p.id));
 
   return (
-    <div className="flex flex-col h-[calc(100dvh-4rem)] gap-0">
-      {/* Header */}
-      <div className="flex items-center gap-2 px-4 py-3 border-b border-border bg-card/50 flex-wrap">
+    <div className="-m-5 h-screen flex flex-col overflow-hidden bg-background">
+      {/* Header — single compact row */}
+      <div className="h-14 shrink-0 flex items-center gap-2 px-4 border-b border-border bg-card/50">
         <button onClick={() => navigate("/mavis")} className="text-muted-foreground hover:text-primary transition-colors" title="Back to MAVIS">
           <ArrowLeft size={16} />
         </button>
-        <Users size={16} className="text-primary" />
+        <Users size={16} className="text-primary shrink-0" />
         <div className="flex-1 min-w-0">
-          <h1 className="text-sm font-mono font-bold text-primary">Council Board</h1>
+          <h1 className="text-sm font-mono font-bold text-primary leading-tight">Council Board</h1>
           <p className="text-[10px] font-mono text-muted-foreground truncate">
             {councilMembers.length} member{councilMembers.length !== 1 ? "s" : ""}
             {activeSummonedPersonas.length > 0 && ` · ${activeSummonedPersonas.length} persona${activeSummonedPersonas.length > 1 ? "s" : ""} summoned`}
             {" · MAVIS presiding"}
           </p>
-          {/* Per-member voice call chips */}
-          {councilMembers.length > 0 && (
-            <div className="flex flex-wrap gap-1 mt-1">
-              {councilMembers.map((m) => (
-                <button
-                  key={m.id}
-                  onClick={() => setVoiceTarget({
-                    name: m.name,
-                    role: m.role ?? m.specialty,
-                    systemPrompt: buildCouncilMemberPrompt(m, ""),
-                  })}
-                  className="flex items-center gap-1 text-[9px] font-mono text-primary/60 hover:text-primary border border-primary/20 hover:border-primary/40 rounded px-1.5 py-0.5 transition-all"
-                  title={`Voice call ${m.name}`}
-                >
-                  <PhoneCall size={8} /> {m.name}</button>
-              ))}
-            </div>
-          )}
         </div>
-        {/* Persona summon toggle */}
+        {/* Action buttons */}
         {personas.length > 0 && (
           <button
             onClick={() => setShowPersonaPanel(v => !v)}
-            className="flex items-center gap-1 text-[10px] font-mono text-amber-400 hover:text-amber-300 border border-amber-900/40 hover:border-amber-400/40 rounded px-2 py-1 transition-all"
+            className="flex items-center gap-1 text-[10px] font-mono text-amber-400 hover:text-amber-300 border border-amber-900/40 hover:border-amber-400/40 rounded px-2 py-1 transition-all shrink-0"
             title="Summon personas"
           >
             <Zap size={10} />
@@ -426,17 +408,37 @@ export default function CouncilBoard() {
         <button
           onClick={handleOmniSync}
           disabled={isSyncing}
-          className="flex items-center gap-1 text-[10px] font-mono text-cyan-400 hover:text-cyan-300 border border-cyan-900/40 hover:border-cyan-400/40 rounded px-2 py-1 transition-all disabled:opacity-40"
+          className="flex items-center gap-1 text-[10px] font-mono text-cyan-400 hover:text-cyan-300 border border-cyan-900/40 hover:border-cyan-400/40 rounded px-2 py-1 transition-all disabled:opacity-40 shrink-0"
         >
           <Database size={10} /> OmniSync
         </button>
         <button
           onClick={handleClear}
-          className="text-[10px] font-mono text-muted-foreground hover:text-destructive border border-border hover:border-destructive/40 rounded px-2 py-1 transition-colors"
+          className="text-[10px] font-mono text-muted-foreground hover:text-destructive border border-border hover:border-destructive/40 rounded px-2 py-1 transition-colors shrink-0"
         >
           Clear
         </button>
       </div>
+
+      {/* Voice call chips row — per-member, only shown when members exist */}
+      {councilMembers.length > 0 && (
+        <div className="shrink-0 px-4 py-1.5 border-b border-border/50 bg-muted/10 flex flex-wrap gap-1.5">
+          {councilMembers.map((m) => (
+            <button
+              key={m.id}
+              onClick={() => setVoiceTarget({
+                name: m.name,
+                role: m.role ?? m.specialty,
+                systemPrompt: buildCouncilMemberPrompt(m, ""),
+              })}
+              className="flex items-center gap-1 text-[9px] font-mono text-primary/60 hover:text-primary border border-primary/20 hover:border-primary/40 rounded px-1.5 py-0.5 transition-all"
+              title={`Voice call ${m.name}`}
+            >
+              <PhoneCall size={8} /> {m.name}
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* Persona summon panel */}
       <AnimatePresence>
@@ -445,7 +447,7 @@ export default function CouncilBoard() {
             initial={{ height: 0, opacity: 0 }}
             animate={{ height: "auto", opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}
-            className="overflow-hidden border-b border-border bg-amber-950/10"
+            className="shrink-0 overflow-hidden border-b border-border bg-amber-950/10"
           >
             <div className="px-4 py-2 space-y-1.5">
               <p className="text-[10px] font-mono text-amber-400/70 uppercase tracking-wider">Summon into session</p>
@@ -496,7 +498,7 @@ export default function CouncilBoard() {
       <div className="relative flex-1 min-h-0">
         <ScrollProgressBar progress={scrollProgress} />
         <BackToTopButton visible={showBackToTop} onClick={scrollToTop} />
-        <div ref={scrollRef} onScroll={handleScroll} className="absolute inset-0 overflow-y-auto px-4 py-4 space-y-3 scrollbar-thin">
+        <div ref={scrollRef} onScroll={handleScroll} className="absolute inset-0 overflow-y-auto scrollbar-thin px-4 py-4 space-y-4">
           {messages.length === 0 && !loading && (
             <div className="flex flex-col items-center justify-center h-full text-center gap-3 py-16">
               <Users size={32} className="text-muted-foreground/40" />
@@ -537,6 +539,19 @@ export default function CouncilBoard() {
               const initials = msg.speakerName.slice(0, 2).toUpperCase();
               const isUser = msg.isUser;
 
+              // Determine bubble class based on speaker type
+              let bubbleClass: string;
+              if (isUser) {
+                bubbleClass = "bg-primary text-white rounded-2xl rounded-tr-sm shadow-md";
+              } else if (msg.speakerId === "mavis") {
+                bubbleClass = "bg-purple-950/60 border border-purple-700/40 text-purple-50 rounded-2xl rounded-tl-sm";
+              } else if (msg.speakerType === "persona") {
+                bubbleClass = "bg-amber-950/40 border border-amber-700/40 text-amber-50 rounded-2xl rounded-tl-sm";
+              } else {
+                // Council member — use style.border for colour accent
+                bubbleClass = `bg-muted/40 border ${style.border} text-foreground rounded-2xl rounded-tl-sm`;
+              }
+
               return (
                 <motion.div
                   key={msg.id}
@@ -557,7 +572,7 @@ export default function CouncilBoard() {
                     {/* Speaker meta (non-user only) */}
                     {!isUser && (
                       <div className="flex items-center gap-1.5 px-1">
-                        <span className={`text-[10px] font-mono font-semibold ${style.label}`}>
+                        <span className={`text-[11px] font-mono font-semibold ${style.label}`}>
                           {msg.speakerName}
                         </span>
                         {msg.speakerRole && (
@@ -579,14 +594,7 @@ export default function CouncilBoard() {
                     )}
 
                     {/* Message bubble */}
-                    <div
-                      className={[
-                        "px-4 py-3 rounded-2xl",
-                        isUser
-                          ? "bg-primary text-white rounded-tr-sm shadow-md shadow-primary/20"
-                          : "bg-card border border-border text-foreground rounded-tl-sm",
-                      ].join(" ")}
-                    >
+                    <div className={`px-4 py-3 ${bubbleClass}`}>
                       <p className="text-sm font-body leading-relaxed whitespace-pre-wrap break-words">
                         {msg.content}
                       </p>
@@ -612,7 +620,7 @@ export default function CouncilBoard() {
               </div>
               <div className="flex flex-col gap-1 items-start">
                 <span className="text-[10px] font-mono text-purple-300 px-1">Council · deliberating...</span>
-                <div className="px-4 py-3 rounded-2xl rounded-tl-sm bg-card border border-border flex items-center gap-1.5 h-10">
+                <div className="px-4 py-3 rounded-2xl rounded-tl-sm bg-purple-950/60 border border-purple-700/40 flex items-center gap-1.5 h-10">
                   {[0, 1, 2].map(i => (
                     <span key={i} className="w-2 h-2 rounded-full bg-purple-400 animate-bounce" style={{ animationDelay: `${i * 0.15}s` }} />
                   ))}
@@ -629,7 +637,7 @@ export default function CouncilBoard() {
 
       {/* Attachment tray */}
       {(attachments.length > 0 || isUploading) && (
-        <div className="px-3 pt-2">
+        <div className="shrink-0 px-3 pt-2">
           <AttachmentTray
             attachments={attachments}
             isUploading={isUploading}
@@ -640,60 +648,62 @@ export default function CouncilBoard() {
         </div>
       )}
 
-      {/* Input */}
-      <div className="border-t border-border px-4 py-3 flex gap-2 bg-card/30 pb-[max(env(safe-area-inset-bottom),0.75rem)]">
-        <AttachButton
-          isUploading={isUploading}
-          onUpload={upload}
-          className="px-3 py-2 rounded-lg border bg-muted/30 border-border text-muted-foreground hover:text-primary hover:border-primary/30 transition-all self-end disabled:opacity-40"
-        />
-        <button
-          onClick={() => isListening ? stopListening() : startListening()}
-          className={`px-3 py-2 rounded-lg border transition-all self-end ${
-            isListening
-              ? "bg-destructive/10 border-destructive/30 text-destructive animate-pulse"
-              : "bg-muted/30 border-border text-muted-foreground hover:text-primary hover:border-primary/30"
-          }`}
-          title={isListening ? "Stop listening" : "Voice input"}
-        >
-          {isListening ? <MicOff size={18} /> : <Mic size={18} />}
-        </button>
-        <textarea
-          ref={inputRef}
-          value={input}
-          onChange={e => setInput(e.target.value)}
-          onCompositionStart={() => setIsComposing(true)}
-          onCompositionEnd={() => setIsComposing(false)}
-          onKeyDown={e => {
-            if (e.key === "Enter" && !e.shiftKey && !isComposing) {
-              e.preventDefault();
-              if (isListening) stopListening();
-              handleSend();
-            }
-          }}
-          placeholder={isListening ? "Listening..." : "Address the council..."}
-          rows={2}
-          disabled={loading}
-          className="flex-1 bg-card border border-border rounded-lg px-3 py-2 text-sm font-body resize-none focus:outline-none focus:border-primary/50 placeholder:text-muted-foreground placeholder:font-mono placeholder:text-xs disabled:opacity-50"
-        />
-        {loading ? (
+      {/* Input bar */}
+      <div className="shrink-0 border-t border-border px-4 py-3 bg-card/30 pb-[max(env(safe-area-inset-bottom),0.75rem)]">
+        <div className="flex gap-2">
+          <AttachButton
+            isUploading={isUploading}
+            onUpload={upload}
+            className="px-3 py-2 rounded-lg border bg-muted/30 border-border text-muted-foreground hover:text-primary hover:border-primary/30 transition-all self-end disabled:opacity-40"
+          />
           <button
-            onClick={() => { cancelledRef.current = true; setLoading(false); }}
-            className="px-3 py-2 rounded-lg bg-destructive/10 border border-destructive/30 text-destructive hover:bg-destructive/20 transition-all self-end"
-            title="Stop"
+            onClick={() => isListening ? stopListening() : startListening()}
+            className={`px-3 py-2 rounded-lg border transition-all self-end ${
+              isListening
+                ? "bg-destructive/10 border-destructive/30 text-destructive animate-pulse"
+                : "bg-muted/30 border-border text-muted-foreground hover:text-primary hover:border-primary/30"
+            }`}
+            title={isListening ? "Stop listening" : "Voice input"}
           >
-            <Square size={18} />
+            {isListening ? <MicOff size={18} /> : <Mic size={18} />}
           </button>
-        ) : (
-          <button
-            onClick={handleSend}
-            disabled={!input.trim()}
-            className="px-3 py-2 rounded-lg bg-primary/10 border border-primary/30 text-primary hover:bg-primary/20 disabled:opacity-30 disabled:cursor-not-allowed transition-all self-end"
-            title="Send to council"
-          >
-            <Send size={18} />
-          </button>
-        )}
+          <textarea
+            ref={inputRef}
+            value={input}
+            onChange={e => setInput(e.target.value)}
+            onCompositionStart={() => setIsComposing(true)}
+            onCompositionEnd={() => setIsComposing(false)}
+            onKeyDown={e => {
+              if (e.key === "Enter" && !e.shiftKey && !isComposing) {
+                e.preventDefault();
+                if (isListening) stopListening();
+                handleSend();
+              }
+            }}
+            placeholder={isListening ? "Listening..." : "Address the council..."}
+            rows={2}
+            disabled={loading}
+            className="flex-1 bg-card border border-border rounded-lg px-3 py-2 text-sm font-body resize-none focus:outline-none focus:border-primary/50 placeholder:text-muted-foreground placeholder:font-mono placeholder:text-xs disabled:opacity-50"
+          />
+          {loading ? (
+            <button
+              onClick={() => { cancelledRef.current = true; setLoading(false); }}
+              className="px-3 py-2 rounded-lg bg-destructive/10 border border-destructive/30 text-destructive hover:bg-destructive/20 transition-all self-end"
+              title="Stop"
+            >
+              <Square size={18} />
+            </button>
+          ) : (
+            <button
+              onClick={handleSend}
+              disabled={!input.trim()}
+              className="px-3 py-2 rounded-lg bg-primary/10 border border-primary/30 text-primary hover:bg-primary/20 disabled:opacity-30 disabled:cursor-not-allowed transition-all self-end"
+              title="Send to council"
+            >
+              <Send size={18} />
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Per-member / per-persona voice call overlay */}
