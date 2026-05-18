@@ -121,12 +121,12 @@ export function AnalyticsPage() {
   // ─── Loaders ───────────────────────────────────────────────
   async function loadInsights() {
     setInsightsLoading(true);
-    const { data } = await supabase
+    const { data } = await (supabase as any)
       .from("mavis_insights")
       .select("*")
       .order("generated_at", { ascending: false })
       .limit(10);
-    setInsights(data || []);
+    setInsights((data as any) || []);
     setInsightsLoading(false);
   }
 
@@ -164,7 +164,7 @@ export function AnalyticsPage() {
     if (!tasks || tasks.length === 0) { setGridLoading(false); return; }
 
     const taskIds = tasks.map((t: any) => t.id);
-    const { data: completions } = await supabase
+    const { data: completions } = await (supabase as any)
       .from("task_completions")
       .select("task_id, completed_at")
       .in("task_id", taskIds)
@@ -189,7 +189,7 @@ export function AnalyticsPage() {
   async function loadEnergy() {
     setEnergyLoading(true);
     const { data } = await supabase.from("energy_systems").select("*");
-    setEnergySystems(data || []);
+    setEnergySystems((data as any) || []);
     setEnergyLoading(false);
   }
 
@@ -212,7 +212,7 @@ export function AnalyticsPage() {
 
   // ─── Actions ───────────────────────────────────────────────
   async function markInsightRead(id: string) {
-    await supabase.from("mavis_insights").update({ read_at: new Date().toISOString() }).eq("id", id);
+    await (supabase as any).from("mavis_insights").update({ read_at: new Date().toISOString() }).eq("id", id);
     setInsights((prev) => prev.map((ins) => ins.id === id ? { ...ins, read_at: new Date().toISOString() } : ins));
   }
 
