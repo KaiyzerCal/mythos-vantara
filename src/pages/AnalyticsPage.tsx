@@ -132,23 +132,16 @@ export function AnalyticsPage() {
 
   async function loadStreaks() {
     setStreaksLoading(true);
-    const [ritualsRes, tasksRes] = await Promise.all([
-      supabase.from("rituals").select("id, name, current_streak, streak").order("id"),
-      supabase.from("tasks").select("id, title, current_streak, streak, recurrence").neq("recurrence", "once"),
-    ]);
-    const ritualItems = (ritualsRes.data || []).map((r: any) => ({
-      id: r.id,
-      name: r.name,
-      streak: r.current_streak ?? r.streak ?? 0,
-      type: "ritual",
-    }));
-    const taskItems = (tasksRes.data || []).map((t: any) => ({
+    const { data: tasksData } = await supabase
+      .from("tasks")
+      .select("id, title, current_streak, streak, recurrence")
+      .neq("recurrence", "once");
+    const all = (tasksData || []).map((t: any) => ({
       id: t.id,
       name: t.title,
       streak: t.current_streak ?? t.streak ?? 0,
       type: "task",
-    }));
-    const all = [...ritualItems, ...taskItems].sort((a, b) => b.streak - a.streak).slice(0, 10);
+    })).sort((a, b) => b.streak - a.streak).slice(0, 10);
     setStreaks(all);
     setStreaksLoading(false);
   }

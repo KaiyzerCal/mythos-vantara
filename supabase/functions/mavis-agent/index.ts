@@ -11,7 +11,7 @@ const corsHeaders = {
 function scoreImportance(text: string): number {
   const lower = text.toLowerCase();
   const HIGH = ["goal","decide","decided","contract","revenue","critical","never","always","promise","commit","committed","deadline","milestone","must","rule","principle"];
-  const MED  = ["quest","task","project","plan","build","launch","strategy","system","habit","ritual"];
+  const MED  = ["quest","task","project","plan","build","launch","strategy","system","habit"];
   if (HIGH.some(w => lower.includes(w))) return Math.min(9, 7 + HIGH.filter(w => lower.includes(w)).length);
   if (MED.some(w => lower.includes(w)))  return 5 + (MED.filter(w => lower.includes(w)).length > 1 ? 1 : 0);
   return 3;
@@ -19,7 +19,7 @@ function scoreImportance(text: string): number {
 
 // ── Allowed tables ────────────────────────────────────────────────────────────
 const READ_TABLES = new Set([
-  "quests", "tasks", "skills", "rituals", "allies", "inventory",
+  "quests", "tasks", "skills", "allies", "inventory",
   "journal_entries", "vault_entries", "mavis_notes", "mavis_memory",
   "mavis_tacit", "mavis_tasks", "energy_systems", "bpm_sessions",
   "store_items", "transformations",
@@ -28,7 +28,7 @@ const READ_TABLES = new Set([
 ]);
 
 const WRITE_TABLES = new Set([
-  "quests", "tasks", "rituals", "mavis_notes", "mavis_memory", "mavis_tasks",
+  "quests", "tasks", "mavis_notes", "mavis_memory", "mavis_tasks",
   "contacts", "contact_interactions",
 ]);
 

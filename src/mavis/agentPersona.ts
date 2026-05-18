@@ -39,7 +39,6 @@ function summariseScoped(ctx: Partial<AppContextSnapshot>): string {
   add("RANKINGS",        ctx.rankings as unknown[],       (r) => `${r.display_name} [${r.rank}]`);
   add("TRANSFORMATIONS", ctx.transformations as unknown[], (t) => t.name);
   add("ALLIES",          ctx.allies as unknown[],         (a) => a.name);
-  add("RITUALS",         ctx.rituals as unknown[],        (r) => r.name);
   return lines.join("\n");
 }
 

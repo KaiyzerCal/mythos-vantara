@@ -46,7 +46,6 @@ export interface AppStateSnapshot {
   inventory?: unknown[];
   energy?: unknown;
   allies?: unknown[];
-  rituals?: unknown[];
   transformations?: unknown[];
   rankings?: unknown[];
   profile?: Record<string, unknown>;
