@@ -3,7 +3,7 @@
 // ============================================================
 import { useState, useRef, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Target, Plus, Trash2, CheckCircle2, Filter, Loader2, Users, MessageCircle, Send, Square, X, Edit2, ArrowDown, ArrowUp, Database } from "lucide-react";
+import { Target, Plus, Trash2, CheckCircle2, Filter, Loader2, Users, MessageCircle, Send, Square, X, Edit2, ArrowDown, ArrowUp, Database, PhoneCall } from "lucide-react";
 import { useAppData } from "@/contexts/AppDataContext";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
@@ -15,6 +15,9 @@ import { useChatAttachments } from "@/hooks/useChatAttachments";
 import { VoicePicker } from "@/components/chat/VoicePicker";
 import { AttachmentTray, AttachButton } from "@/components/chat/AttachmentTray";
 import { DEFAULT_VOICE_BY_GENDER, findVoice, type VoiceGender } from "@/lib/voiceCatalog";
+import { VoiceChatOverlay } from "@/components/VoiceChatOverlay";
+import type { VoicePersona } from "@/components/VoiceChatOverlay";
+import { buildCouncilMemberPrompt } from "@/mavis/councilPersona";
 
 const QUEST_TYPES = ["all", "main", "epic", "side", "daily"] as const;
 const QUEST_STATUSES = ["all", "active", "completed", "failed", "locked"] as const;
@@ -1053,6 +1056,7 @@ export function CouncilsPage() {
   const [showCreate, setShowCreate] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [activeChat, setActiveChat] = useState<any | null>(null);
+  const [voiceTarget, setVoiceTarget] = useState<VoicePersona | null>(null);
   const [form, setForm] = useState({ name: "", role: "", specialty: "", class: "advisory", notes: "" });
 
   const resetForm = () => {
@@ -1185,6 +1189,13 @@ export function CouncilsPage() {
                       <button onClick={(e) => handleDelete(m.id, e)} className="p-1 text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded transition-all opacity-0 group-hover:opacity-100" title="Delete">
                         <Trash2 size={12} />
                       </button>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); setVoiceTarget({ name: m.name, role: m.role, systemPrompt: buildCouncilMemberPrompt(m, "") }); }}
+                        className="p-1 text-muted-foreground hover:text-primary hover:bg-primary/10 rounded transition-all opacity-0 group-hover:opacity-100"
+                        title={`Voice call ${m.name}`}
+                      >
+                        <PhoneCall size={12} />
+                      </button>
                       <MessageCircle size={12} className={`mt-0.5 opacity-0 group-hover:opacity-100 transition-opacity ${classColors[m.class]}`} />
                     </div>
                   </div>
@@ -1198,6 +1209,14 @@ export function CouncilsPage() {
       <AnimatePresence>
         {activeChat && (
           <CouncilChat member={activeChat} profile={profile} onClose={() => setActiveChat(null)} />
+        )}
+      </AnimatePresence>
+      <AnimatePresence>
+        {voiceTarget && (
+          <VoiceChatOverlay
+            persona={voiceTarget}
+            onClose={() => setVoiceTarget(null)}
+          />
         )}
       </AnimatePresence>
     </div>
