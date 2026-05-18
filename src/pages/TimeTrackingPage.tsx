@@ -89,7 +89,7 @@ export function TimeTrackingPage() {
   const loadLogs = useCallback(async () => {
     if (!user) return;
     setLoading(true);
-    const { data, error } = await supabase
+    const { data, error } = await (supabase as any)
       .from("time_logs")
       .select("*")
       .eq("user_id", user.id)
@@ -149,7 +149,7 @@ export function TimeTrackingPage() {
       ? newForm.tags.split(",").map((t) => t.trim()).filter(Boolean)
       : [];
 
-    const { error } = await supabase.from("time_logs").insert({
+    const { error } = await (supabase as any).from("time_logs").insert({
       user_id: user.id,
       description: activeTimer.description,
       project: activeTimer.project || null,
@@ -172,7 +172,7 @@ export function TimeTrackingPage() {
   // ─── Delete log ─────────────────────────────────────────────
   async function deleteLog(id: string) {
     setLogs((prev) => prev.filter((l) => l.id !== id));
-    const { error } = await supabase.from("time_logs").delete().eq("id", id);
+    const { error } = await (supabase as any).from("time_logs").delete().eq("id", id);
     if (error) {
       toast.error("Failed to delete log");
       loadLogs();
