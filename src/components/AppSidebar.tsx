@@ -7,6 +7,7 @@ import {
   UserCheck, BarChart2, Repeat2, Heart, DollarSign, CalendarClock,
   Crosshair, GraduationCap, Clock, Video, BookMarked,
   TrendingUp, Mail, Webhook, KeyRound, Archive,
+  LineChart, Upload, CreditCard, Trophy,
 } from "lucide-react";
 import { useState, useContext } from "react";
 import { motion, AnimatePresence } from "framer-motion";
@@ -50,9 +51,13 @@ const INTEL_NAV = [
   { to: "/webhooks", icon: Webhook, label: "Webhooks" },
   { to: "/integrations", icon: KeyRound, label: "Integrations" },
   { to: "/export", icon: Archive, label: "Export Data" },
+  { to: "/forecast", icon: LineChart, label: "Forecast" },
+  { to: "/import", icon: Upload, label: "Import" },
+  { to: "/stripe", icon: CreditCard, label: "Stripe" },
 ];
 
 const UTILITY_NAV = [
+  { to: "/achievements", icon: Trophy, label: "Achievements" },
   { to: "/personas", icon: HeartPulse, label: "Personas" },
   { to: "/persona-relationships", icon: HeartPulse, label: "Relationships" },
   { to: "/rankings", icon: Medal, label: "Rankings" },

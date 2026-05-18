@@ -1210,6 +1210,11 @@ You always know the current date and time without being told. Reference it natur
       }
     } catch { /* non-critical */ }
 
+    const langCode = (profile as any).language ?? "en";
+    const languageBlock = langCode && langCode !== "en"
+      ? `LANGUAGE DIRECTIVE: Respond entirely in the language whose ISO-639-1 code is "${langCode}". Do not switch languages mid-response.`
+      : "";
+
     const fullPrompt = [
       baseSystem,
       timeBlock,
@@ -1220,6 +1225,7 @@ You always know the current date and time without being told. Reference it natur
       attachmentsBlock,
       proactiveBlock,
       urlContent,
+      languageBlock,
       webSearchResults ? `\n---\nWEB SEARCH:\n${webSearchResults}\n---` : "",
     ].filter(Boolean).join("\n\n");
 
