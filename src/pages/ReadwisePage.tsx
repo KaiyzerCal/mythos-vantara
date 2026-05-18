@@ -10,6 +10,8 @@ import { PageHeader, HudCard } from "@/components/SharedUI";
 import { toast } from "sonner";
 import { BookMarked, Upload, Key, FileText, ChevronDown, ChevronRight } from "lucide-react";
 
+const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string;
+
 interface Highlight {
   id: string;
   title: string;
@@ -64,7 +66,7 @@ export function ReadwisePage() {
 
       const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/mavis-readwise-import`, {
         method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}`, apikey: SUPABASE_ANON_KEY },
         body: JSON.stringify(body),
       });
       const data = await res.json();
@@ -105,7 +107,7 @@ export function ReadwisePage() {
       <PageHeader
         title="Highlights"
         subtitle="Book highlights & reading notes"
-        icon={BookMarked}
+        icon={<BookMarked size={18} />}
         actions={
           <button
             onClick={() => setShowImport(!showImport)}
