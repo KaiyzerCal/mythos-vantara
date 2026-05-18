@@ -1325,7 +1325,7 @@ You always know the current date and time without being told. Reference it natur
             if (accumulated.length > 5) {
               const CORR_RE = /\b(no[,.]?\s+that'?s?\s+wrong|that'?s?\s+not\s+right|not\s+what\s+i\s+(said|meant|wanted)|stop\s+(doing|saying|using|calling)\s+\w|don'?t\s+(do|say|use|call)\s+\w|never\s+(do|say|use|call)\s+\w|i\s+(hate|dislike)\s+when\s+you|you'?re\s+wrong|wrong\s+answer|incorrect[,.]?\s+\w|that'?s?\s+incorrect)\b/i;
               if (lastUserText.length > 5 && CORR_RE.test(lastUserText)) {
-                sb.from("mavis_tacit").insert({ user_id: user.id, category: "correction", key: `correction_${Date.now()}`, value: `[OPERATOR CORRECTION] User said: "${lastUserText.slice(0, 300)}" | Context: "${accumulated.slice(0, 200)}"` }).catch(() => {});
+                sb.from("mavis_tacit").insert({ user_id: user.id, category: "correction", key: `correction_${Date.now()}`, value: `[OPERATOR CORRECTION] User said: "${lastUserText.slice(0, 300)}" | Context: "${accumulated.slice(0, 200)}"` }).then(() => {}, () => {});
               }
               (async () => {
                 try {
