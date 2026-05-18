@@ -1339,7 +1339,7 @@ You always know the current date and time without being told. Reference it natur
               sb.from("mavis_memory").insert([
                 { user_id: user.id, session_id: sid, role: "user", content: lastUserText.slice(0, 4000), timestamp: ts, importance_score: scoreImportance(lastUserText), consolidated: false },
                 { user_id: user.id, session_id: sid, role: "assistant", content: accumulated.slice(0, 4000), timestamp: ts + 1, importance_score: scoreImportance(accumulated), consolidated: false },
-              ]).catch(() => {});
+              ]).then(() => {}, () => {});
 
               // AI-powered tacit extraction (same as non-streaming path)
               if (lastUserText.length > 20 && accumulated.length > 20) {
