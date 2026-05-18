@@ -62,6 +62,7 @@ export function VoiceChatOverlay({
   const [transcript, setTranscript]   = useState("");
   const [interim, setInterim]         = useState("");
   const [displayReply, setDisplayReply] = useState("");
+  const textScrollRef = useRef<HTMLDivElement>(null);
 
   // ── Refs — callbacks always see current values, no stale closures ─────────
   const phaseRef          = useRef<Phase>("listening");
@@ -218,6 +219,13 @@ export function VoiceChatOverlay({
     speakText(lastBotMessage, () => { if (!closingRef.current) setPhaseSync("listening"); });
   }, [lastBotMessage, isLoading, persona, setPhaseSync]);
 
+  // ── Auto-scroll response text as it streams in ───────────────────────────
+  useEffect(() => {
+    if (textScrollRef.current) {
+      textScrollRef.current.scrollTop = textScrollRef.current.scrollHeight;
+    }
+  }, [displayReply]);
+
   // ── Auto-manage mic based on phase ───────────────────────────────────────
   useEffect(() => {
     if (closingRef.current) return;
@@ -348,9 +356,11 @@ export function VoiceChatOverlay({
             exit={{ opacity: 0 }}
             className="mt-6 max-w-sm mx-6 px-5 py-4 rounded-2xl bg-primary/10 border border-primary/25"
           >
-            <p className="text-sm font-body text-white leading-relaxed line-clamp-6 text-center">
-              {displayReply}
-            </p>
+            <div ref={textScrollRef} className="overflow-y-auto max-h-[35vh] scrollbar-thin">
+              <p className="text-sm font-body text-white leading-relaxed text-center">
+                {displayReply}
+              </p>
+            </div>
           </motion.div>
         )}
       </AnimatePresence>
