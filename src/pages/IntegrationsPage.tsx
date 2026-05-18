@@ -17,6 +17,9 @@ import {
   CheckCircle2,
   XCircle,
   AlertTriangle,
+  Plus,
+  Trash2,
+  Smartphone,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
@@ -102,6 +105,128 @@ function showKey(keyId: string, showValues: Record<string, boolean>): boolean {
 
 function keyId(providerId: string, keyName: string): string {
   return `${providerId}::${keyName}`;
+}
+
+// ─── Telegram Linked Accounts ────────────────────────────────
+interface LinkedAccount {
+  id: string;
+  telegram_user_id: string;
+  label: string;
+  created_at: string;
+}
+
+function TelegramLinkedAccountsPanel({ userId }: { userId: string }) {
+  const [accounts, setAccounts] = useState<LinkedAccount[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [newId, setNewId] = useState("");
+  const [newLabel, setNewLabel] = useState("");
+  const [adding, setAdding] = useState(false);
+  const [removing, setRemoving] = useState<string | null>(null);
+
+  const load = async () => {
+    setLoading(true);
+    const { data } = await (supabase as any)
+      .from("telegram_linked_accounts")
+      .select("id, telegram_user_id, label, created_at")
+      .eq("user_id", userId)
+      .order("created_at", { ascending: true });
+    setAccounts((data ?? []) as LinkedAccount[]);
+    setLoading(false);
+  };
+
+  useEffect(() => { load(); }, [userId]);
+
+  const handleAdd = async () => {
+    const tid = newId.trim();
+    if (!tid) return;
+    setAdding(true);
+    const { error } = await (supabase as any)
+      .from("telegram_linked_accounts")
+      .insert({ user_id: userId, telegram_user_id: tid, label: newLabel.trim() || "Linked Account" });
+    if (error) {
+      toast.error(error.message.includes("unique") ? "That account is already linked." : error.message);
+    } else {
+      setNewId(""); setNewLabel("");
+      await load();
+      toast.success("Account linked — it can now message MAVIS.");
+    }
+    setAdding(false);
+  };
+
+  const handleRemove = async (id: string) => {
+    setRemoving(id);
+    await (supabase as any).from("telegram_linked_accounts").delete().eq("id", id);
+    setAccounts((prev) => prev.filter((a) => a.id !== id));
+    setRemoving(null);
+    toast.success("Account unlinked.");
+  };
+
+  return (
+    <HudCard>
+      <div className="flex items-center gap-2 mb-4">
+        <Smartphone size={13} className="text-primary" />
+        <p className="text-xs font-mono text-foreground">Telegram Linked Accounts</p>
+      </div>
+      <p className="text-[10px] font-mono text-muted-foreground mb-4 leading-relaxed">
+        Link additional Telegram accounts (e.g. a second phone) so they can talk to MAVIS.
+        Each linked account shares your full MAVIS context.
+        To find your secondary account's Telegram user ID, message the bot from that account and send <span className="text-primary">/myid</span>.
+      </p>
+
+      {loading ? (
+        <Loader2 size={14} className="animate-spin text-muted-foreground" />
+      ) : (
+        <div className="space-y-3">
+          {accounts.length === 0 && (
+            <p className="text-[10px] font-mono text-muted-foreground">No linked accounts yet.</p>
+          )}
+          {accounts.map((acc) => (
+            <div key={acc.id} className="flex items-center justify-between gap-3 px-3 py-2 rounded-lg bg-muted/20 border border-border">
+              <div className="min-w-0">
+                <p className="text-xs font-mono text-foreground truncate">{acc.label}</p>
+                <p className="text-[10px] font-mono text-muted-foreground">ID: {acc.telegram_user_id}</p>
+              </div>
+              <button
+                onClick={() => handleRemove(acc.id)}
+                disabled={removing === acc.id}
+                className="p-1.5 rounded border border-border text-muted-foreground hover:text-destructive hover:border-destructive/40 transition-colors disabled:opacity-40"
+                title="Unlink"
+              >
+                {removing === acc.id ? <Loader2 size={11} className="animate-spin" /> : <Trash2 size={11} />}
+              </button>
+            </div>
+          ))}
+
+          {/* Add new */}
+          <div className="pt-2 border-t border-border space-y-2">
+            <p className="text-[10px] font-mono text-muted-foreground uppercase tracking-widest">Add Account</p>
+            <div className="flex gap-2">
+              <input
+                value={newId}
+                onChange={(e) => setNewId(e.target.value)}
+                placeholder="Telegram user ID (from /myid)"
+                className="flex-1 bg-muted/30 border border-border rounded px-3 py-1.5 text-xs font-mono focus:outline-none focus:border-primary/50 placeholder:text-muted-foreground/50"
+              />
+              <input
+                value={newLabel}
+                onChange={(e) => setNewLabel(e.target.value)}
+                placeholder="Label (e.g. Work Phone)"
+                className="w-36 bg-muted/30 border border-border rounded px-3 py-1.5 text-xs font-mono focus:outline-none focus:border-primary/50 placeholder:text-muted-foreground/50"
+              />
+              <button
+                onClick={handleAdd}
+                disabled={adding || !newId.trim()}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono bg-primary/10 border border-primary/30 text-primary rounded hover:bg-primary/20 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+              >
+                {adding ? <Loader2 size={11} className="animate-spin" /> : <Plus size={11} />}
+                Link
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </HudCard>
+  );
 }
 
 // ─── IntegrationsPage ───────────────────────────────────────
@@ -259,6 +384,8 @@ export function IntegrationsPage() {
         </div>
       ) : (
         <div className="space-y-8">
+          {user && <TelegramLinkedAccountsPanel userId={user.id} />}
+
           {INTEGRATION_GROUPS.map((group) => {
             const GroupIcon = ICON_MAP[group.icon] ?? Cpu;
 

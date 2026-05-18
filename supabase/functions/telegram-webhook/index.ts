@@ -1216,7 +1216,7 @@ async function handleCommand(command: string, chatId: string, fullText: string):
   switch (command.toLowerCase()) {
     case "/start":
     case "/help":
-      return `MAVIS Online — Telegram Interface\n\nCommands:\n/brief — morning brief (overdue, approvals, SR, revenue, goals)\n/quests — active quests\n/energy — energy status\n/revenue — revenue report\n/expense [amount] [desc] — log an expense\n/tasks — run pending tasks now\n/scan — demand scan for product opportunities\n/orders — view Inbox (pending tasks & approvals)\n/approve [id] — approve a pending item\n/reject [id] — reject a pending item\n/preview [id] — preview full content before approving\n/council — council status + trigger check-ins\n/daily — save today's activity log to Knowledge Graph\n/review — surface notes due for spaced repetition\n/weekly — generate weekly review summary\n/monthly — generate monthly review summary\n/goals — view active goals and quest progress\n/search [query] — search your Knowledge Graph\n/note [title] — fetch a specific note\n/addnote [title] | [content] — quick note to Knowledge Graph\n/personas — list your NAVI roster\n/switch [name] — talk to a persona\n/mavis — return to MAVIS\n/ingest [url or text] — save a URL or text to your Knowledge Graph\n/imagine [description] — generate an image with DALL-E 3\n\nVoice messages, photos, and files also work.\nOr just talk to me.`;
+      return `MAVIS Online — Telegram Interface\n\nCommands:\n/brief — morning brief (overdue, approvals, SR, revenue, goals)\n/quests — active quests\n/energy — energy status\n/revenue — revenue report\n/expense [amount] [desc] — log an expense\n/tasks — run pending tasks now\n/scan — demand scan for product opportunities\n/orders — view Inbox (pending tasks & approvals)\n/approve [id] — approve a pending item\n/reject [id] — reject a pending item\n/preview [id] — preview full content before approving\n/council — council status + trigger check-ins\n/daily — save today's activity log to Knowledge Graph\n/review — surface notes due for spaced repetition\n/weekly — generate weekly review summary\n/monthly — generate monthly review summary\n/goals — view active goals and quest progress\n/search [query] — search your Knowledge Graph\n/note [title] — fetch a specific note\n/addnote [title] | [content] — quick note to Knowledge Graph\n/personas — list your NAVI roster\n/switch [name] — talk to a persona\n/mavis — return to MAVIS\n/ingest [url or text] — save a URL or text to your Knowledge Graph\n/imagine [description] — generate an image with DALL-E 3\n/myid — get your Telegram user ID (use this to link a second device)\n\nVoice messages, photos, and files also work.\nOr just talk to me.`;
 
     case "/brief": {
       const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
@@ -1837,8 +1837,31 @@ Deno.serve(async (req) => {
   const fromId   = String(message.from?.id ?? "");
 
   // ── Identity gate ─────────────────────────────────────────
-  if (chatId !== OPERATOR_CHAT_ID && fromId !== OPERATOR_CHAT_ID) {
-    await sendPlain(chatId, "Unauthorized.");
+  // Primary account: env-var match. Secondary accounts: linked accounts table.
+  const isPrimary = (chatId === OPERATOR_CHAT_ID || fromId === OPERATOR_CHAT_ID);
+  let authorized  = isPrimary;
+
+  if (!authorized && fromId) {
+    const { data: linked } = await supabase
+      .from("telegram_linked_accounts")
+      .select("id")
+      .eq("user_id", OPERATOR_USER_ID)
+      .eq("telegram_user_id", fromId)
+      .maybeSingle();
+    authorized = !!linked;
+  }
+
+  if (!authorized) {
+    await sendPlain(
+      chatId,
+      "Unauthorized.\n\nIf you're the operator on a different device, send /myid to get your Telegram user ID, then add it in Vantara → Integrations → Telegram Linked Accounts.",
+    );
+    return new Response("OK");
+  }
+
+  // ── /myid — return this sender's Telegram user ID ─────────
+  if (message.text?.trim() === "/myid") {
+    await sendPlain(chatId, `Your Telegram user ID: ${fromId}\n\nAdd this in Vantara → Integrations → Telegram Linked Accounts to authorize this account.`);
     return new Response("OK");
   }
 
