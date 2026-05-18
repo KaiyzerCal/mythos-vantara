@@ -409,7 +409,7 @@ export default function CouncilBoard() {
                   <PhoneCall size={8} /> {m.name}</button>
               ))}
             </div>
-          </p>
+          )}
         </div>
         {/* Persona summon toggle */}
         {personas.length > 0 && (
