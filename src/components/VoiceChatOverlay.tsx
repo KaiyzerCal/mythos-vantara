@@ -19,6 +19,8 @@ interface VoiceChatOverlayProps {
 
 type Phase = "listening" | "processing" | "speaking";
 
+const SILENCE_MS = 1600;
+
 // ── Voice picker ──────────────────────────────────────────────────────────────
 function pickVoice(): SpeechSynthesisVoice | undefined {
   const v = window.speechSynthesis.getVoices();
@@ -30,7 +32,7 @@ function pickVoice(): SpeechSynthesisVoice | undefined {
   );
 }
 
-// ── TTS ───────────────────────────────────────────────────────────────────────
+// ── TTS with Chrome quirk handling ───────────────────────────────────────────
 function speakText(text: string, onEnd: () => void): void {
   if (!text || !("speechSynthesis" in window)) { onEnd(); return; }
   window.speechSynthesis.cancel();
@@ -41,51 +43,41 @@ function speakText(text: string, onEnd: () => void): void {
     if (voice) u.voice = voice;
     u.onend = onEnd; u.onerror = onEnd;
     window.speechSynthesis.speak(u);
-    // Chrome silent-pause bug
     setTimeout(() => { if (window.speechSynthesis.paused) window.speechSynthesis.resume(); }, 150);
   }, 50);
 }
 
-// ── Animated waveform bars ────────────────────────────────────────────────────
+// ── Animated waveform bars ─────────────────────────────────────────────────
 const BAR_COUNT = 7;
 
-function WaveBars({ phase, muted }: { phase: Phase; muted: boolean }) {
-  const listening = !muted && phase === "listening";
-  const speaking  = !muted && phase === "speaking";
-  const processing = !muted && phase === "processing";
+const barAnimation = {
+  listening: (i: number) => ({
+    scaleY: [0.25, 1, 0.5, 0.85, 0.25],
+    transition: { duration: 0.55 + (i % 3) * 0.12, repeat: Infinity, delay: i * 0.07, ease: "easeInOut" as const },
+  }),
+  processing: (i: number) => ({
+    scaleY: [0.15, 0.45, 0.15],
+    transition: { duration: 1.1, repeat: Infinity, delay: i * 0.13, ease: "easeInOut" as const },
+  }),
+  speaking: (i: number) => ({
+    scaleY: [0.3, 1, 0.55, 0.9, 0.3],
+    transition: { duration: 0.48 + (i % 3) * 0.1, repeat: Infinity, delay: i * 0.06, ease: "easeInOut" as const },
+  }),
+};
 
+function WaveBars({ phase, muted }: { phase: Phase; muted: boolean }) {
   return (
-    <div className="flex items-center gap-[5px]" style={{ height: 52 }}>
-      {Array.from({ length: BAR_COUNT }).map((_, i) => {
-        const delay = i * 0.07;
-        const color = speaking ? "bg-primary" : "bg-primary/55";
-        return (
-          <motion.div
-            key={i}
-            className={`rounded-full origin-center ${muted ? "bg-white/12" : color}`}
-            style={{ width: 5, height: "100%" }}
-            animate={
-              muted || processing
-                ? { scaleY: processing ? [0.12, 0.35, 0.12] : 0.1 }
-                : listening || speaking
-                  ? { scaleY: [0.2, 1, 0.5, 0.85, 0.2] }
-                  : { scaleY: 0.1 }
-            }
-            transition={
-              processing
-                ? { duration: 1.2, repeat: Infinity, delay, ease: "easeInOut" }
-                : (listening || speaking)
-                  ? {
-                      duration: 0.5 + (i % 3) * 0.1,
-                      repeat: Infinity,
-                      delay,
-                      ease: "easeInOut",
-                    }
-                  : { duration: 0.2 }
-            }
-          />
-        );
-      })}
+    <div className="flex items-center gap-[5px]" style={{ height: 56 }}>
+      {Array.from({ length: BAR_COUNT }).map((_, i) => (
+        <motion.div
+          key={i}
+          className={`rounded-full origin-center ${
+            muted ? "bg-white/15" : phase === "speaking" ? "bg-primary" : "bg-primary/65"
+          }`}
+          style={{ width: 5, height: "100%" }}
+          animate={muted ? { scaleY: 0.12 } : barAnimation[phase](i)}
+        />
+      ))}
     </div>
   );
 }
@@ -103,16 +95,17 @@ export function VoiceChatOverlay({
   const [userText, setUserText]     = useState("");
   const [interimText, setInterimText] = useState("");
   const [aiText, setAiText]         = useState("");
-  const [permError, setPermError]   = useState("");
 
+  // ── Refs (callbacks must read current values without stale closures) ────────
   const phaseRef        = useRef<Phase>("listening");
   const mutedRef        = useRef(false);
   const closingRef      = useRef(false);
   const recognitionRef  = useRef<any>(null);
+  const silenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const accTextRef      = useRef("");          // accumulated final transcript
+  const shouldSendRef   = useRef(false);       // silence timer fired → send on onend
   const personaHistRef  = useRef<{ role: string; content: string }[]>([]);
   const prevBotMsgRef   = useRef(lastBotMessage);
-  // processText changes when persona/sendMessage changes; keep ref so onend always calls latest
-  const processTextRef  = useRef<(t: string) => void>(() => {});
 
   useEffect(() => { phaseRef.current = phase; }, [phase]);
   useEffect(() => { mutedRef.current = muted; }, [muted]);
@@ -126,8 +119,8 @@ export function VoiceChatOverlay({
     return () => window.speechSynthesis.removeEventListener("voiceschanged", cb);
   }, []);
 
-  // ── Core: process captured speech ─────────────────────────────────────────
-  const processText = useCallback((text: string) => {
+  // ── Process accumulated speech ─────────────────────────────────────────────
+  const processText = useCallback(async (text: string) => {
     if (!text.trim() || closingRef.current) return;
     setPhase("processing");
     setUserText(text.trim());
@@ -136,42 +129,40 @@ export function VoiceChatOverlay({
 
     if (persona) {
       let acc = "";
-      streamChatMessage(
-        text,
-        persona.systemPrompt,
-        personaHistRef.current,
-        { mode: "CHAT" },
-        (_, a) => { acc = a; setAiText(a); },
-      ).then(() => {
+      try {
+        await streamChatMessage(
+          text,
+          persona.systemPrompt,
+          personaHistRef.current,
+          { mode: "CHAT" },
+          (_, a) => { acc = a; setAiText(a); },
+        );
         personaHistRef.current = [
           ...personaHistRef.current,
           { role: "user", content: text },
           { role: "assistant", content: acc },
         ];
-        if (closingRef.current) return;
-        if (acc) {
+        if (!closingRef.current && acc) {
           setPhase("speaking");
           speakText(acc, () => { if (!closingRef.current) setPhase("listening"); });
-        } else {
+        } else if (!closingRef.current) {
           setPhase("listening");
         }
-      }).catch(() => { if (!closingRef.current) setPhase("listening"); });
+      } catch {
+        if (!closingRef.current) setPhase("listening");
+      }
     } else {
+      // MAVIS mode: parent will update lastBotMessage
       sendMessage?.(text).catch(() => { if (!closingRef.current) setPhase("listening"); });
     }
   }, [persona, sendMessage]);
 
-  useEffect(() => { processTextRef.current = processText; }, [processText]);
-
-  // ── MAVIS mode: respond when lastBotMessage arrives ───────────────────────
-  // prevBotMsgRef is only updated AFTER the isLoading check so that when
-  // streaming ends (isLoading flips false) the ref still differs from the
-  // final message and we don't skip it.
+  // ── MAVIS mode: watch for lastBotMessage changes ───────────────────────────
   useEffect(() => {
     if (persona) return;
-    if (!lastBotMessage || isLoading || closingRef.current) return;
     if (prevBotMsgRef.current === lastBotMessage) return;
-    prevBotMsgRef.current = lastBotMessage;   // update only when we'll actually process
+    prevBotMsgRef.current = lastBotMessage;
+    if (!lastBotMessage || isLoading || closingRef.current) return;
     if (phaseRef.current !== "processing") return;
     setAiText(lastBotMessage);
     setPhase("speaking");
@@ -179,15 +170,10 @@ export function VoiceChatOverlay({
   }, [lastBotMessage, isLoading, persona]);
 
   // ── Speech recognition ─────────────────────────────────────────────────────
-  // Uses continuous=false so Chrome handles silence detection natively.
-  // Recognition runs in both "listening" and "speaking" phases:
-  //   - listening: capture user speech
-  //   - speaking:  hot-mic for barge-in (onspeechstart cancels TTS)
-  // After onend it restarts immediately (no delay) to stay warm.
-
   const stopRecognition = useCallback(() => {
+    if (silenceTimerRef.current) { clearTimeout(silenceTimerRef.current); silenceTimerRef.current = null; }
     if (recognitionRef.current) {
-      recognitionRef.current._managed = false;
+      recognitionRef.current._skipRestart = true;
       recognitionRef.current.abort();
       recognitionRef.current = null;
     }
@@ -195,20 +181,19 @@ export function VoiceChatOverlay({
 
   const startRecognition = useCallback(() => {
     if (closingRef.current || mutedRef.current) return;
-    if (recognitionRef.current) return; // already running
-
     const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (!SR) { setPermError("Speech recognition not supported in this browser."); return; }
+    if (!SR) return;
 
     const r = new SR();
-    r.continuous     = false;  // let Chrome decide when phrase ends
+    r.continuous     = true;
     r.interimResults = true;
     r.lang           = "en-US";
-    r._managed       = true;   // flag so we can tell abort vs natural end
-    let finalText    = "";
+    r._skipRestart   = false;
+    accTextRef.current = "";
+    shouldSendRef.current = false;
 
     r.onspeechstart = () => {
-      // Barge-in: user speaks while AI is talking → interrupt
+      // Barge-in: if AI is speaking, cancel and switch to listening
       if (phaseRef.current === "speaking") {
         window.speechSynthesis.cancel();
         setPhase("listening");
@@ -220,94 +205,63 @@ export function VoiceChatOverlay({
       for (let i = ev.resultIndex; i < ev.results.length; i++) {
         const t = ev.results[i][0].transcript;
         if (ev.results[i].isFinal) {
-          finalText += t + " ";
-          setUserText(finalText.trim());
-          setInterimText("");
+          accTextRef.current += t + " ";
+          setUserText(accTextRef.current.trim());
         } else {
           interim = t;
-          setInterimText(interim);
         }
+      }
+      setInterimText(interim);
+
+      // Reset silence timer on any speech activity
+      if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+      if (accTextRef.current.trim()) {
+        silenceTimerRef.current = setTimeout(() => {
+          shouldSendRef.current = true;
+          r.stop(); // triggers onend which calls processText
+        }, SILENCE_MS);
       }
     };
 
     r.onerror = (ev: any) => {
-      // no-speech and aborted are normal — let onend handle restart
-      if (ev.error === "not-allowed" || ev.error === "service-not-allowed") {
-        setPermError("Microphone permission denied. Please allow mic access and reload.");
-      }
+      if (ev.error === "no-speech" || ev.error === "aborted") return;
+      recognitionRef.current = null;
     };
 
     r.onend = () => {
-      // Guard: only handle if this instance is still the active one
-      if (!r._managed) return;
       recognitionRef.current = null;
-      if (closingRef.current || mutedRef.current) return;
+      if (silenceTimerRef.current) { clearTimeout(silenceTimerRef.current); silenceTimerRef.current = null; }
+      if (r._skipRestart || closingRef.current) return;
 
-      const captured = finalText.trim();
-      const currentPhase = phaseRef.current;
-
-      if (captured && currentPhase !== "processing") {
-        // Have speech and not already processing → send it
-        processTextRef.current(captured);
-      } else if (!captured || currentPhase === "speaking") {
-        // No speech captured, or speaking phase (barge-in mic expired) → restart immediately
-        setTimeout(() => {
-          if (!closingRef.current && !mutedRef.current) startRecognition();
-        }, 80);
+      if (shouldSendRef.current && accTextRef.current.trim()) {
+        processText(accTextRef.current.trim());
+      } else if (phaseRef.current === "listening" && !mutedRef.current) {
+        // No speech or incomplete — restart immediately to stay warm
+        setTimeout(() => startRecognition(), 100);
       }
-      // If processing: don't restart — phase change to listening will trigger it
     };
 
     recognitionRef.current = r;
-    try {
-      r.start();
-    } catch {
-      recognitionRef.current = null;
-    }
+    try { r.start(); } catch { /* already started */ }
+  }, [processText]);
+
+  // Auto-start recognition when phase becomes "listening"
+  useEffect(() => {
+    if (phase !== "listening" || muted || closingRef.current) return;
+    if (recognitionRef.current) return; // already running
+    // Small delay to let state settle and avoid Chrome issues
+    const t = setTimeout(() => startRecognition(), 150);
+    return () => clearTimeout(t);
+  }, [phase, muted, startRecognition]);
+
+  // Initial auto-start
+  useEffect(() => {
+    const t = setTimeout(() => startRecognition(), 300);
+    return () => clearTimeout(t);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Auto-start/restart recognition whenever phase becomes listening
-  useEffect(() => {
-    if (muted || closingRef.current) return;
-    if (phase === "listening" || phase === "speaking") {
-      // Small settle time to avoid double-start on rapid phase changes
-      const t = setTimeout(() => {
-        if (!closingRef.current && !mutedRef.current) startRecognition();
-      }, 120);
-      return () => clearTimeout(t);
-    }
-    if (phase === "processing") {
-      // Stop recognition while we wait for AI (not needed)
-      stopRecognition();
-    }
-  }, [phase, muted, startRecognition, stopRecognition]);
-
-  // Boot: start listening immediately
-  useEffect(() => {
-    const t = setTimeout(() => startRecognition(), 250);
-    return () => {
-      clearTimeout(t);
-      closingRef.current = true;
-      stopRecognition();
-      window.speechSynthesis?.cancel();
-    };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // ── Mute toggle ────────────────────────────────────────────────────────────
-  const toggleMute = useCallback(() => {
-    const next = !mutedRef.current;
-    setMuted(next);
-    if (next) {
-      stopRecognition();
-      window.speechSynthesis?.cancel();
-    } else {
-      setTimeout(() => startRecognition(), 150);
-    }
-  }, [stopRecognition, startRecognition]);
-
-  // ── Close ──────────────────────────────────────────────────────────────────
+  // ── Close handler ──────────────────────────────────────────────────────────
   const handleClose = useCallback(() => {
     closingRef.current = true;
     stopRecognition();
@@ -315,41 +269,52 @@ export function VoiceChatOverlay({
     onClose();
   }, [onClose, stopRecognition]);
 
-  // ── Tap while speaking → interrupt ─────────────────────────────────────────
-  const handleOverlayClick = useCallback(() => {
-    if (phaseRef.current === "speaking") {
+  // ── Mute toggle ────────────────────────────────────────────────────────────
+  const toggleMute = useCallback(() => {
+    const next = !mutedRef.current;
+    setMuted(next);
+    if (next) {
+      // Muting: stop recognition, cancel speech
+      window.speechSynthesis?.cancel();
+      stopRecognition();
+      if (phaseRef.current !== "processing") setPhase("listening");
+    } else {
+      // Unmuting: restart recognition
+      setTimeout(() => startRecognition(), 150);
+    }
+  }, [stopRecognition, startRecognition]);
+
+  // ── Tap to interrupt speech ────────────────────────────────────────────────
+  const handleOrbTap = useCallback(() => {
+    if (phase === "speaking") {
       window.speechSynthesis?.cancel();
       setPhase("listening");
     }
-  }, []);
+  }, [phase]);
 
   const speakerName = persona?.name ?? "MAVIS";
   const speakerRole = persona?.role;
 
-  const statusLabel =
-    permError    ? "MIC ERROR"
-    : muted      ? "MUTED"
+  const phaseLabel =
+    muted       ? "MUTED"
     : phase === "processing" ? "THINKING..."
-    : phase === "speaking"   ? "SPEAKING  ·  TAP TO INTERRUPT"
+    : phase === "speaking"   ? "SPEAKING"
     :                          "LISTENING";
 
-  const displayText  = phase === "speaking" ? aiText : (userText || interimText);
-  const isUserSide   = phase !== "speaking";
+  const displayText = phase === "speaking" ? aiText : (userText || interimText);
+  const isUserText  = phase !== "speaking";
 
   return (
     <motion.div
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      transition={{ duration: 0.2 }}
+      transition={{ duration: 0.25 }}
       className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-black/95 backdrop-blur-xl"
-      onClick={handleOverlayClick}
+      onClick={phase === "speaking" ? handleOrbTap : undefined}
     >
-      {/* Top bar — stop propagation so clicking name/close doesn't interrupt */}
-      <div
-        className="absolute top-0 left-0 right-0 flex items-center justify-between px-6 pt-6 pb-2"
-        onClick={e => e.stopPropagation()}
-      >
+      {/* Top bar */}
+      <div className="absolute top-0 left-0 right-0 flex items-center justify-between px-6 pt-6 pb-2">
         <div>
           <p className="text-xs font-mono font-bold text-primary tracking-[0.2em] uppercase">{speakerName}</p>
           {speakerRole && <p className="text-[10px] font-mono text-white/35 mt-0.5">{speakerRole}</p>}
@@ -363,97 +328,90 @@ export function VoiceChatOverlay({
         </button>
       </div>
 
-      {/* Center content */}
-      <div
-        className="flex flex-col items-center gap-8 px-6 w-full max-w-sm"
-        onClick={e => e.stopPropagation()}
-      >
-        {/* Glow ring + waveform */}
-        <div className="relative flex items-center justify-center">
-          {/* Outer pulsing glow */}
+      {/* Main content */}
+      <div className="flex flex-col items-center gap-8 px-6 w-full max-w-sm">
+
+        {/* Waveform + phase ring */}
+        <button
+          onClick={handleOrbTap}
+          className="relative flex items-center justify-center cursor-default"
+          aria-label={phase === "speaking" ? "Tap to interrupt" : undefined}
+          style={{ cursor: phase === "speaking" ? "pointer" : "default" }}
+        >
+          {/* Outer glow ring */}
           <motion.div
-            className="absolute rounded-full pointer-events-none"
-            style={{ inset: -28 }}
+            className="absolute rounded-full"
+            style={{ inset: -24 }}
             animate={{
-              boxShadow:
-                muted ? "0 0 0 0 rgba(139,92,246,0)"
+              boxShadow: muted
+                ? "0 0 0px 0px rgba(139,92,246,0)"
                 : phase === "speaking"
-                  ? ["0 0 45px 15px rgba(139,92,246,0.4)", "0 0 65px 24px rgba(139,92,246,0.55)", "0 0 45px 15px rgba(139,92,246,0.4)"]
+                  ? ["0 0 40px 12px rgba(139,92,246,0.35)", "0 0 60px 20px rgba(139,92,246,0.5)", "0 0 40px 12px rgba(139,92,246,0.35)"]
                   : phase === "listening"
-                  ? ["0 0 18px 4px rgba(139,92,246,0.12)", "0 0 32px 10px rgba(139,92,246,0.22)", "0 0 18px 4px rgba(139,92,246,0.12)"]
-                  : "0 0 0 0 rgba(139,92,246,0)",
+                  ? ["0 0 20px 4px rgba(139,92,246,0.15)", "0 0 35px 10px rgba(139,92,246,0.25)", "0 0 20px 4px rgba(139,92,246,0.15)"]
+                  : "0 0 0px 0px rgba(139,92,246,0)",
             }}
-            transition={{ duration: 1.8, repeat: Infinity, ease: "easeInOut" }}
+            transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
           />
           <WaveBars phase={phase} muted={muted} />
-        </div>
+        </button>
 
-        {/* Status */}
+        {/* Phase label */}
         <motion.p
-          key={statusLabel}
-          initial={{ opacity: 0, y: 3 }}
+          key={phaseLabel}
+          initial={{ opacity: 0, y: 4 }}
           animate={{ opacity: 1, y: 0 }}
-          className={`text-[10px] font-mono tracking-[0.22em] ${
-            permError ? "text-destructive"
-            : muted ? "text-white/25"
-            : phase === "processing" ? "text-white/45"
-            : "text-primary"
+          className={`text-[11px] font-mono tracking-[0.25em] ${
+            muted ? "text-white/25" : phase === "processing" ? "text-white/50" : "text-primary"
           }`}
         >
-          {statusLabel}
+          {phaseLabel}
         </motion.p>
 
-        {/* Transcript / AI reply */}
+        {/* Transcript / response */}
         <AnimatePresence mode="wait">
           {displayText && (
             <motion.div
-              key={isUserSide ? "user" : "ai"}
+              key={isUserText ? "user" : "ai"}
               initial={{ opacity: 0, y: 8 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -4 }}
-              transition={{ duration: 0.18 }}
+              transition={{ duration: 0.2 }}
               className={`w-full px-5 py-4 rounded-2xl text-center ${
-                isUserSide
+                isUserText
                   ? "bg-white/5 border border-white/10"
-                  : "bg-primary/10 border border-primary/25"
+                  : "bg-primary/12 border border-primary/25"
               }`}
             >
               <p className={`text-sm font-body leading-relaxed line-clamp-5 ${
-                isUserSide ? "text-white/65" : "text-white"
+                isUserText ? "text-white/60" : "text-white"
               }`}>
-                {isUserSide && interimText && !userText
-                  ? <em className="not-italic opacity-50">{interimText}</em>
+                {isUserText && interimText && !userText
+                  ? <span className="opacity-60 italic">{interimText}</span>
                   : displayText
                 }
               </p>
             </motion.div>
           )}
         </AnimatePresence>
-
-        {/* Permission error */}
-        {permError && (
-          <p className="text-xs font-mono text-destructive/80 text-center">{permError}</p>
-        )}
       </div>
 
-      {/* Mute button — stop propagation so it doesn't trigger interrupt */}
-      <div
-        className="absolute bottom-10 flex flex-col items-center gap-2"
-        onClick={e => e.stopPropagation()}
-      >
+      {/* Bottom controls */}
+      <div className="absolute bottom-10 flex flex-col items-center gap-3">
+        {/* Mute button */}
         <button
           onClick={toggleMute}
           className={`w-14 h-14 rounded-full flex items-center justify-center border-2 transition-all duration-200 ${
             muted
               ? "bg-destructive/15 border-destructive/50 text-destructive"
-              : "bg-white/5 border-white/15 text-white/45 hover:border-white/30 hover:text-white/75"
+              : "bg-white/5 border-white/15 text-white/50 hover:border-white/30 hover:text-white/80"
           }`}
-          aria-label={muted ? "Unmute" : "Mute"}
+          aria-label={muted ? "Unmute" : "Mute microphone"}
         >
           {muted ? <MicOff size={22} /> : <Mic size={22} />}
         </button>
-        <p className="text-[9px] font-mono text-white/18 tracking-widest">
-          {muted ? "UNMUTE" : "MUTE"}
+        <p className="text-[9px] font-mono text-white/20 tracking-widest">
+          {muted ? "TAP TO UNMUTE" : phase === "speaking" ? "TAP TO INTERRUPT" : "TAP TO MUTE"}
         </p>
       </div>
     </motion.div>
