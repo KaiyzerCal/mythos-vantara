@@ -287,6 +287,64 @@ const AGENT_TOOLS = [
     input_schema: { type: "object" as const, properties: {}, required: [] },
   },
   {
+    name: "get_weather",
+    description: "Fetch current weather and 12h forecast for the operator's saved location. Stores a weather note in MAVIS.",
+    input_schema: { type: "object" as const, properties: {}, required: [] },
+  },
+  {
+    name: "get_news",
+    description: "Fetch top HackerNews stories and any saved RSS feeds. Upserts them as intel notes in MAVIS.",
+    input_schema: { type: "object" as const, properties: {}, required: [] },
+  },
+  {
+    name: "gmail_sync",
+    description: "Sync up to 30 primary inbox Gmail messages into MAVIS notes and extract contacts.",
+    input_schema: { type: "object" as const, properties: {}, required: [] },
+  },
+  {
+    name: "gdrive_sync",
+    description: "Sync up to 50 recently modified Google Drive files (Docs, Sheets, Slides) into MAVIS notes.",
+    input_schema: { type: "object" as const, properties: {}, required: [] },
+  },
+  {
+    name: "gcontacts_sync",
+    description: "Sync up to 200 Google Contacts into the MAVIS contacts table.",
+    input_schema: { type: "object" as const, properties: {}, required: [] },
+  },
+  {
+    name: "gtasks_sync",
+    description: "Bidirectional sync of Google Tasks with MAVIS tasks. Direction: pull | push | sync.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        direction: { type: "string", description: "pull, push, or sync (default: sync)" },
+      },
+      required: [],
+    },
+  },
+  {
+    name: "spotify_sync",
+    description: "Sync recently played Spotify tracks into MAVIS health metrics for mood/energy tracking.",
+    input_schema: { type: "object" as const, properties: {}, required: [] },
+  },
+  {
+    name: "morning_digest",
+    description: "Generate and deliver the morning briefing: quests, schedule, health, news, and insights. Stores in journal and sends to Telegram.",
+    input_schema: { type: "object" as const, properties: {}, required: [] },
+  },
+  {
+    name: "run_workflow",
+    description: "Execute a saved MAVIS workflow by name or id, running its steps sequentially.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        workflow_id: { type: "string", description: "UUID of the workflow to run." },
+        workflow_name: { type: "string", description: "Name of the workflow (used if id not provided)." },
+      },
+      required: [],
+    },
+  },
+  {
     name: "post_to_tiktok",
     description: "Post content to TikTok as Nora Vale persona. Provide a video_url for a video post, or omit for a text/caption draft.",
     input_schema: {
@@ -750,6 +808,108 @@ async function executeTool(
           });
           return JSON.stringify(await res.json());
         } catch (err: any) { return JSON.stringify({ error: err.message ?? "GitHub sync failed" }); }
+      }
+
+      case "get_weather": {
+        const urlW = Deno.env.get("SUPABASE_URL") ?? "";
+        try {
+          const res = await fetch(`${urlW}/functions/v1/mavis-weather`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+          });
+          return JSON.stringify(await res.json());
+        } catch (err: any) { return JSON.stringify({ error: err.message ?? "Weather fetch failed" }); }
+      }
+
+      case "get_news": {
+        const urlN = Deno.env.get("SUPABASE_URL") ?? "";
+        try {
+          const res = await fetch(`${urlN}/functions/v1/mavis-hn-digest`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+          });
+          return JSON.stringify(await res.json());
+        } catch (err: any) { return JSON.stringify({ error: err.message ?? "News fetch failed" }); }
+      }
+
+      case "gmail_sync": {
+        const urlG = Deno.env.get("SUPABASE_URL") ?? "";
+        try {
+          const res = await fetch(`${urlG}/functions/v1/mavis-gmail-sync`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+          });
+          return JSON.stringify(await res.json());
+        } catch (err: any) { return JSON.stringify({ error: err.message ?? "Gmail sync failed" }); }
+      }
+
+      case "gdrive_sync": {
+        const urlD = Deno.env.get("SUPABASE_URL") ?? "";
+        try {
+          const res = await fetch(`${urlD}/functions/v1/mavis-gdrive-sync`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+          });
+          return JSON.stringify(await res.json());
+        } catch (err: any) { return JSON.stringify({ error: err.message ?? "GDrive sync failed" }); }
+      }
+
+      case "gcontacts_sync": {
+        const urlC = Deno.env.get("SUPABASE_URL") ?? "";
+        try {
+          const res = await fetch(`${urlC}/functions/v1/mavis-gcontacts-sync`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+          });
+          return JSON.stringify(await res.json());
+        } catch (err: any) { return JSON.stringify({ error: err.message ?? "Contacts sync failed" }); }
+      }
+
+      case "gtasks_sync": {
+        const urlT = Deno.env.get("SUPABASE_URL") ?? "";
+        const direction = (input.direction as string) ?? "sync";
+        try {
+          const res = await fetch(`${urlT}/functions/v1/mavis-google-tasks-sync`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+            body: JSON.stringify({ direction }),
+          });
+          return JSON.stringify(await res.json());
+        } catch (err: any) { return JSON.stringify({ error: err.message ?? "Tasks sync failed" }); }
+      }
+
+      case "spotify_sync": {
+        const urlSp = Deno.env.get("SUPABASE_URL") ?? "";
+        try {
+          const res = await fetch(`${urlSp}/functions/v1/mavis-spotify-sync`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+          });
+          return JSON.stringify(await res.json());
+        } catch (err: any) { return JSON.stringify({ error: err.message ?? "Spotify sync failed" }); }
+      }
+
+      case "morning_digest": {
+        const urlMd = Deno.env.get("SUPABASE_URL") ?? "";
+        try {
+          const res = await fetch(`${urlMd}/functions/v1/mavis-morning-digest`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+          });
+          return JSON.stringify(await res.json());
+        } catch (err: any) { return JSON.stringify({ error: err.message ?? "Morning digest failed" }); }
+      }
+
+      case "run_workflow": {
+        const urlWf = Deno.env.get("SUPABASE_URL") ?? "";
+        try {
+          const res = await fetch(`${urlWf}/functions/v1/mavis-workflow-run`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+            body: JSON.stringify({ workflow_id: input.workflow_id, workflow_name: input.workflow_name }),
+          });
+          return JSON.stringify(await res.json());
+        } catch (err: any) { return JSON.stringify({ error: err.message ?? "Workflow run failed" }); }
       }
 
       default:

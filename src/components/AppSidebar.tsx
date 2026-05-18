@@ -7,7 +7,7 @@ import {
   UserCheck, BarChart2, Repeat2, Heart, DollarSign, CalendarClock,
   Crosshair, GraduationCap, Clock, Video, BookMarked,
   TrendingUp, Mail, Webhook, KeyRound, Archive,
-  LineChart, Upload, CreditCard, Trophy,
+  LineChart, Upload, CreditCard, Trophy, Workflow,
 } from "lucide-react";
 import { useState, useContext } from "react";
 import { motion, AnimatePresence } from "framer-motion";
@@ -54,6 +54,7 @@ const INTEL_NAV = [
   { to: "/forecast", icon: LineChart, label: "Forecast" },
   { to: "/import", icon: Upload, label: "Import" },
   { to: "/stripe", icon: CreditCard, label: "Stripe" },
+  { to: "/workflows", icon: Workflow, label: "Workflows" },
 ];
 
 const UTILITY_NAV = [

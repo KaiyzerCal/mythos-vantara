@@ -63,6 +63,7 @@ import { ForecastPage } from "@/pages/ForecastPage";
 import { ImportPage } from "@/pages/ImportPage";
 import { StripeManagementPage } from "@/pages/StripeManagementPage";
 import { AchievementsPage } from "@/pages/AchievementsPage";
+import { WorkflowsPage } from "@/pages/WorkflowsPage";
 
 const queryClient = new QueryClient();
 
@@ -133,6 +134,7 @@ function AppContent() {
             <Route path="/import" element={<ImportPage />} />
             <Route path="/stripe" element={<StripeManagementPage />} />
             <Route path="/achievements" element={<AchievementsPage />} />
+            <Route path="/workflows" element={<WorkflowsPage />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </main>
