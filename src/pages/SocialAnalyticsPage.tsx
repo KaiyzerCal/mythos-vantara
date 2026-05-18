@@ -100,19 +100,19 @@ export function SocialAnalyticsPage() {
         .eq("status", "posted")
         .order("created_at", { ascending: false })
         .limit(50),
-      supabase
+      (supabase as any)
         .from("social_post_analytics")
         .select("*")
         .eq("user_id", user.id),
     ]);
 
     const analyticsMap: Record<string, PostAnalytics> = {};
-    for (const a of (analyticsRes.data || []) as PostAnalytics[]) {
+    for (const a of (analyticsRes.data || []) as unknown as PostAnalytics[]) {
       analyticsMap[a.post_id] = a;
     }
 
     const merged: PostWithAnalytics[] = (
-      (postsRes.data || []) as SocialPost[]
+      (postsRes.data || []) as unknown as SocialPost[]
     ).map((p) => ({
       ...p,
       analytics: analyticsMap[p.id] ?? null,
