@@ -83,12 +83,12 @@ export function GoalsPage() {
     if (!user) return;
     setLoading(true);
     const [{ data: goalsData }, { data: tasksData }] = await Promise.all([
-      supabase
+      (supabase as any)
         .from("mavis_goals")
         .select("*")
         .eq("user_id", user.id)
         .order("created_at", { ascending: false }),
-      supabase
+      (supabase as any)
         .from("mavis_tasks")
         .select("*")
         .eq("user_id", user.id)
@@ -106,7 +106,7 @@ export function GoalsPage() {
     if (!user) return;
     if (!createForm.objective.trim()) { toast.error("Objective is required"); return; }
     setSubmitting(true);
-    const { data: newGoal, error } = await supabase
+    const { data: newGoal, error } = await (supabase as any)
       .from("mavis_goals")
       .insert({
         user_id: user.id,
@@ -159,7 +159,7 @@ export function GoalsPage() {
   async function updateGoalStatus(id: string, status: GoalStatus) {
     setActionLoading(id);
     setGoals((prev) => prev.map((g) => g.id === id ? { ...g, status } : g));
-    const { error } = await supabase
+    const { error } = await (supabase as any)
       .from("mavis_goals")
       .update({ status, updated_at: new Date().toISOString() })
       .eq("id", id);
@@ -171,7 +171,7 @@ export function GoalsPage() {
   // ─── Delete goal ───────────────────────────────────────────
   async function handleDelete(id: string) {
     setGoals((prev) => prev.filter((g) => g.id !== id));
-    const { error } = await supabase.from("mavis_goals").delete().eq("id", id);
+    const { error } = await (supabase as any).from("mavis_goals").delete().eq("id", id);
     if (error) { toast.error("Failed to delete goal"); fetchGoals(); }
     else toast.success("Goal deleted");
     if (expandedGoalId === id) setExpandedGoalId(null);
