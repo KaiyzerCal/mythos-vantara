@@ -83,7 +83,7 @@ export function SchedulerPage() {
     if (error) {
       toast.error("Failed to load posts");
     } else {
-      setPosts((data as SocialPost[]) || []);
+      setPosts((data as unknown as SocialPost[]) || []);
     }
     setLoading(false);
   }, [user]);
