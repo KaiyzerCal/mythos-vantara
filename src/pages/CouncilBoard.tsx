@@ -430,6 +430,7 @@ export default function CouncilBoard() {
                 name: m.name,
                 role: m.role ?? m.specialty,
                 systemPrompt: buildCouncilMemberPrompt(m, ""),
+                voiceId: m.voice_id ?? undefined,
               })}
               className="flex items-center gap-1 text-[9px] font-mono text-primary/60 hover:text-primary border border-primary/20 hover:border-primary/40 rounded px-1.5 py-0.5 whitespace-nowrap shrink-0 transition-all"
               title={`Voice call ${m.name}`}
@@ -479,7 +480,7 @@ export default function CouncilBoard() {
                         {p.name} ×
                       </button>
                       <button
-                        onClick={() => setVoiceTarget({ name: p.name, role: p.role, systemPrompt: p.systemPrompt })}
+                        onClick={() => setVoiceTarget({ name: p.name, role: p.role, systemPrompt: p.systemPrompt ?? "", voiceId: (p as Record<string, unknown>).voice_id as string | undefined })}
                         className="flex items-center px-1.5 py-1 text-amber-400 border border-amber-500/40 bg-amber-800/30 hover:bg-amber-700/40 hover:text-amber-200 rounded-r border-l-0 transition-all"
                         title={`Voice call ${p.name}`}
                       >

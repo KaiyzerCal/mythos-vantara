@@ -2,11 +2,13 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { X, Mic, Volume2 } from "lucide-react";
 import { streamChatMessage } from "@/mavis/chatService";
+import { useElevenLabsTts } from "@/hooks/useElevenLabsTts";
 
 export interface VoicePersona {
   name: string;
   role?: string;
   systemPrompt: string;
+  voiceId?: string;   // browser:aria | browser:guy | ElevenLabs ID
 }
 
 interface VoiceChatOverlayProps {
@@ -19,38 +21,6 @@ interface VoiceChatOverlayProps {
 
 type Phase = "listening" | "thinking" | "speaking";
 
-// ── Module-level voice cache (invalidated on voiceschanged) ───────────────────
-let _cachedVoice: SpeechSynthesisVoice | null = null;
-function pickVoice(): SpeechSynthesisVoice | undefined {
-  if (_cachedVoice) return _cachedVoice;
-  const v = window.speechSynthesis.getVoices();
-  const pick =
-    v.find(x => x.lang.startsWith("en") && /Neural|Natural|Premium|Enhanced/.test(x.name)) ||
-    v.find(x => x.lang === "en-US" && !x.localService) ||
-    v.find(x => x.lang.startsWith("en-US")) ||
-    v.find(x => x.lang.startsWith("en"));
-  if (pick) _cachedVoice = pick;
-  return pick;
-}
-if (typeof window !== "undefined" && "speechSynthesis" in window) {
-  window.speechSynthesis.addEventListener?.("voiceschanged", () => { _cachedVoice = null; });
-}
-
-// ── TTS (handles Chrome cancel+speak same-tick bug + silent-pause bug) ────────
-function speakText(text: string, onEnd: () => void): void {
-  if (!text || !("speechSynthesis" in window)) { onEnd(); return; }
-  window.speechSynthesis.cancel();
-  setTimeout(() => {
-    const u = new SpeechSynthesisUtterance(text.slice(0, 2000));
-    u.rate = 1.05; u.pitch = 1.0; u.volume = 1.0;
-    const v = pickVoice();
-    if (v) u.voice = v;
-    u.onend = onEnd; u.onerror = onEnd;
-    window.speechSynthesis.speak(u);
-    setTimeout(() => { if (window.speechSynthesis.paused) window.speechSynthesis.resume(); }, 150);
-  }, 50);
-}
-
 export function VoiceChatOverlay({
   onClose,
   sendMessage,
@@ -58,35 +28,31 @@ export function VoiceChatOverlay({
   isLoading = false,
   persona,
 }: VoiceChatOverlayProps) {
-  const [phase, setPhase]             = useState<Phase>("listening");
-  const [transcript, setTranscript]   = useState("");
-  const [interim, setInterim]         = useState("");
+  const [phase, setPhase]               = useState<Phase>("listening");
+  const [transcript, setTranscript]     = useState("");
+  const [interim, setInterim]           = useState("");
   const [displayReply, setDisplayReply] = useState("");
   const textScrollRef = useRef<HTMLDivElement>(null);
+
+  // ── TTS — uses voice catalog (browser or ElevenLabs), personalized per speaker
+  const tts = useElevenLabsTts();
 
   // ── Refs — callbacks always see current values, no stale closures ─────────
   const phaseRef          = useRef<Phase>("listening");
   const closingRef        = useRef(false);
-  const recognitionRef    = useRef<any>(null);
+  const recognitionRef    = useRef<SpeechRecognition | null>(null);
   const restartTimerRef   = useRef<ReturnType<typeof setTimeout> | null>(null);
   const safetyTimerRef    = useRef<ReturnType<typeof setTimeout> | null>(null);
   const personaHistRef    = useRef<{ role: string; content: string }[]>([]);
   // MAVIS mode: only updated when TTS actually fires, not during streaming
   const lastSpokenRef     = useRef(lastBotMessage);
+  const ttsRef            = useRef(tts);
+  ttsRef.current          = tts;
 
   // ── setPhaseSync: update ref AND state in one call ────────────────────────
   const setPhaseSync = useCallback((p: Phase) => {
     phaseRef.current = p;
     setPhase(p);
-  }, []);
-
-  // Pre-load voices on mount
-  useEffect(() => {
-    if (!("speechSynthesis" in window)) return;
-    window.speechSynthesis.getVoices();
-    const cb = () => window.speechSynthesis.getVoices();
-    window.speechSynthesis.addEventListener("voiceschanged", cb);
-    return () => window.speechSynthesis.removeEventListener("voiceschanged", cb);
   }, []);
 
   // ── Recognition helpers ───────────────────────────────────────────────────
@@ -95,7 +61,7 @@ export function VoiceChatOverlay({
     if (recognitionRef.current) {
       const r = recognitionRef.current;
       recognitionRef.current = null;
-      r._dead = true;
+      (r as SpeechRecognition & { _dead?: boolean })._dead = true;
       r.abort();
     }
   }, []);
@@ -105,10 +71,11 @@ export function VoiceChatOverlay({
     if (recognitionRef.current) return;
     if (phaseRef.current === "thinking") return;
 
-    const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    const SR = (window as Window & { SpeechRecognition?: typeof SpeechRecognition; webkitSpeechRecognition?: typeof SpeechRecognition }).SpeechRecognition
+            ?? (window as Window & { webkitSpeechRecognition?: typeof SpeechRecognition }).webkitSpeechRecognition;
     if (!SR) return;
 
-    const r = new SR();
+    const r = new SR() as SpeechRecognition & { _dead?: boolean };
     r.continuous     = false;
     r.interimResults = true;
     r.lang           = "en-US";
@@ -118,12 +85,12 @@ export function VoiceChatOverlay({
     r.onspeechstart = () => {
       // Barge-in: cancel TTS if AI is speaking
       if (phaseRef.current === "speaking") {
-        window.speechSynthesis.cancel();
+        ttsRef.current.stop();
         setPhaseSync("listening");
       }
     };
 
-    r.onresult = (ev: any) => {
+    r.onresult = (ev) => {
       let int = "";
       for (let i = ev.resultIndex; i < ev.results.length; i++) {
         const t = ev.results[i][0].transcript;
@@ -133,7 +100,7 @@ export function VoiceChatOverlay({
       if (int) setInterim(int);
     };
 
-    r.onerror = (ev: any) => {
+    r.onerror = (ev) => {
       if (ev.error === "not-allowed" || ev.error === "service-not-allowed") {
         r._dead = true;
       }
@@ -145,7 +112,6 @@ export function VoiceChatOverlay({
       if (closingRef.current) return;
       const captured = finalText.trim();
       if (!captured) {
-        // No speech — restart after short pause unless thinking
         if (phaseRef.current !== "thinking") {
           restartTimerRef.current = setTimeout(() => {
             restartTimerRef.current = null;
@@ -154,6 +120,7 @@ export function VoiceChatOverlay({
         }
         return;
       }
+
       // Hand off to AI
       setPhaseSync("thinking");
       // 30s safety timeout in case AI never responds
@@ -169,7 +136,7 @@ export function VoiceChatOverlay({
           captured,
           persona.systemPrompt,
           personaHistRef.current,
-          { mode: "CHAT" },
+          { mode: "CHAT", chatKind: "persona" },
           (_, a) => { acc = a; setDisplayReply(a); },
         ).then(() => {
           if (safetyTimerRef.current) { clearTimeout(safetyTimerRef.current); safetyTimerRef.current = null; }
@@ -181,7 +148,8 @@ export function VoiceChatOverlay({
           if (closingRef.current) return;
           if (acc) {
             setPhaseSync("speaking");
-            speakText(acc, () => { if (!closingRef.current) setPhaseSync("listening"); });
+            ttsRef.current.speak(acc, { voiceId: persona.voiceId ?? undefined })
+              .then(() => { if (!closingRef.current) setPhaseSync("listening"); });
           } else {
             setPhaseSync("listening");
           }
@@ -205,8 +173,6 @@ export function VoiceChatOverlay({
   }, [persona, sendMessage, setPhaseSync]);
 
   // ── MAVIS mode: trigger TTS when final response lands ────────────────────
-  // isLoading checked FIRST — prevents race where prevBotMsgRef is updated
-  // during streaming chunks, causing TTS to be skipped when isLoading → false
   useEffect(() => {
     if (persona) return;
     if (isLoading || !lastBotMessage || closingRef.current) return;
@@ -216,7 +182,8 @@ export function VoiceChatOverlay({
     lastSpokenRef.current = lastBotMessage;
     setDisplayReply(lastBotMessage);
     setPhaseSync("speaking");
-    speakText(lastBotMessage, () => { if (!closingRef.current) setPhaseSync("listening"); });
+    ttsRef.current.speak(lastBotMessage, {})
+      .then(() => { if (!closingRef.current) setPhaseSync("listening"); });
   }, [lastBotMessage, isLoading, persona, setPhaseSync]);
 
   // ── Auto-scroll response text as it streams in ───────────────────────────
@@ -245,7 +212,7 @@ export function VoiceChatOverlay({
       if (restartTimerRef.current) clearTimeout(restartTimerRef.current);
       if (safetyTimerRef.current) clearTimeout(safetyTimerRef.current);
       stopRecognition();
-      window.speechSynthesis?.cancel();
+      ttsRef.current.stop();
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -256,18 +223,18 @@ export function VoiceChatOverlay({
     if (restartTimerRef.current) clearTimeout(restartTimerRef.current);
     if (safetyTimerRef.current) clearTimeout(safetyTimerRef.current);
     stopRecognition();
-    window.speechSynthesis?.cancel();
+    ttsRef.current.stop();
     onClose();
   }, [onClose, stopRecognition]);
 
   // ── Orb/button tap ────────────────────────────────────────────────────────
   const handleTap = useCallback(() => {
     if (phase === "speaking") {
-      window.speechSynthesis?.cancel();
+      ttsRef.current.stop();
       setPhaseSync("listening");
     } else if (phase === "listening") {
       stopRecognition();
-      setPhaseSync("listening"); // stay listening, mic will restart
+      setPhaseSync("listening");
     }
     // "thinking" — do nothing, let it finish
   }, [phase, setPhaseSync, stopRecognition]);
