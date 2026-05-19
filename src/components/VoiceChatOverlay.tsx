@@ -74,8 +74,8 @@ export function VoiceChatOverlay({
     if (recognitionRef.current) return;
     if (phaseRef.current === "thinking") return;
 
-    const SR = (window as Window & { SpeechRecognition?: typeof SpeechRecognition; webkitSpeechRecognition?: typeof SpeechRecognition }).SpeechRecognition
-            ?? (window as Window & { webkitSpeechRecognition?: typeof SpeechRecognition }).webkitSpeechRecognition;
+    const SR = (window as any).SpeechRecognition
+            ?? (window as any).webkitSpeechRecognition;
     if (!SR) return;
 
     const r = new SR() as SpeechRecognition & { _dead?: boolean };
