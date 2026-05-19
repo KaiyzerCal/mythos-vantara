@@ -518,7 +518,12 @@ export function PersonaChat({ persona, userId, onBack }: PersonaChatProps) {
       <AnimatePresence>
         {voiceOpen && (
           <VoiceChatOverlay
-            persona={{ name: persona.name, role: persona.role, systemPrompt: persona.system_prompt }}
+            persona={{
+              name: persona.name,
+              role: persona.role,
+              systemPrompt: persona.system_prompt,
+              voiceId: (persona as Record<string, unknown>).voice_id as string | undefined,
+            }}
             onClose={() => setVoiceOpen(false)}
           />
         )}
