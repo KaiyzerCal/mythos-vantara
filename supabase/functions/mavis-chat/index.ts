@@ -729,7 +729,7 @@ serve(async (req) => {
     const sb = createClient(supabaseUrl, serviceKey, { auth: { persistSession: false } });
 
     const reqBody = await req.json();
-    const { messages: rawMessages, systemPrompt: clientSystemPrompt, mode, conversationId, appState, attachmentIds, chatKind, threadRef, stream: isStreaming } = reqBody;
+    const { messages: rawMessages, systemPrompt: clientSystemPrompt, mode, conversationId, appState, attachmentIds, chatKind, threadRef, stream: isStreaming, clientTime, clientTimezone, clientUnix } = reqBody;
 
     // Trim conversation history to stay within token budget.
     // 1 token ≈ 4 chars. Keep last ~8K tokens of history so the large
@@ -1163,14 +1163,18 @@ ${fmtMemories}
     }
 
     // ── Temporal awareness (always know "now") ───────────────
-    const now = new Date();
-    const timeBlock = `═══ TEMPORAL AWARENESS (current real-world time) ═══
-ISO: ${now.toISOString()}
-UTC: ${now.toUTCString()}
-Date: ${now.toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric", timeZone: "UTC" })} (UTC)
-Time: ${now.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", timeZone: "UTC" })} UTC
-Unix: ${Math.floor(now.getTime() / 1000)}
-You always know the current date and time without being told. Reference it naturally when relevant (greetings, deadlines, time-since-last-message, scheduling, urgency).
+    // clientTime / clientTimezone come from the browser — always accurate for
+    // the operator's local timezone. Server UTC is kept as a reference only.
+    const serverNow = new Date();
+    const operatorTime = clientTime ?? serverNow.toUTCString();
+    const operatorTz   = clientTimezone ?? "UTC";
+    const unixTs       = clientUnix ?? Math.floor(serverNow.getTime() / 1000);
+    const timeBlock = `═══ TEMPORAL AWARENESS (operator's local time — authoritative) ═══
+Operator local: ${operatorTime}
+Operator timezone: ${operatorTz}
+Unix: ${unixTs}
+Server UTC (reference): ${serverNow.toUTCString()}
+You always know the current date and time without being told. Use the operator's LOCAL time above — never UTC — when referencing dates, times, greetings, deadlines, or scheduling.
 ═══ END TEMPORAL AWARENESS ═══`;
 
     // ── Proactive pattern detection ──────────────────────────
