@@ -11,19 +11,39 @@ import { LocalMeshOverlay, type MeshActivity } from "@/components/LocalMeshOverl
 import { checkLocalMeshHealth } from "@/mavis/localMesh";
 import { isOffline } from "@/mavis/offlineMode";
 
-/** Sync the mobile browser chrome (status bar) color with the active theme.
- *  Critical for Android — Chrome reads <meta name="theme-color"> dynamically. */
+/** Sync browser chrome color + ensure <html> has the correct class on every theme change. */
 function ThemeColorSync() {
   const { resolvedTheme } = useTheme();
   useEffect(() => {
-    const color = resolvedTheme === "light" ? "#ffffff" : "#0a0d1f";
-    document.querySelectorAll('meta[name="theme-color"]').forEach((el) => el.remove());
-    const meta = document.createElement("meta");
-    meta.name = "theme-color";
+    const isDark = resolvedTheme !== "light";
+    const color = isDark ? "#0a0d1f" : "#f5f5f7";
+    // Update the single theme-color meta (no duplicates)
+    let meta = document.querySelector('meta[name="theme-color"]') as HTMLMetaElement | null;
+    if (!meta) {
+      meta = document.createElement("meta");
+      meta.name = "theme-color";
+      document.head.appendChild(meta);
+    }
     meta.content = color;
-    document.head.appendChild(meta);
+    // Ensure html class is in sync (next-themes handles this, but belt-and-suspenders for Android WebView)
+    document.documentElement.classList.toggle("dark", isDark);
+    document.documentElement.classList.toggle("light", !isDark);
   }, [resolvedTheme]);
   return null;
+}
+
+/** Reads resolvedTheme for Sonner so toasts match the active theme. */
+function ThemedToaster() {
+  const { resolvedTheme } = useTheme();
+  return (
+    <SonnerToaster
+      position="bottom-right"
+      theme={(resolvedTheme as "light" | "dark") ?? "dark"}
+      toastOptions={{
+        style: { fontFamily: "Rajdhani, sans-serif", fontSize: "0.8125rem" },
+      }}
+    />
+  );
 }
 
 // Pages
@@ -162,7 +182,7 @@ const App = () => (
   <QueryClientProvider client={queryClient}>
     <ThemeProvider attribute="class" defaultTheme="dark" enableSystem={false} storageKey="vantara-theme">
       <ThemeColorSync />
-      <SonnerToaster position="bottom-right" theme="dark" />
+      <ThemedToaster />
       <BrowserRouter>
         <AuthProvider>
           <AppContent />
