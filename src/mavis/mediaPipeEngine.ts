@@ -363,7 +363,7 @@ class MediaPipeEngine {
       this._lastGestureTs = now;
       this._sessionGestureCount++;
 
-      systemMonitor.emit("sensor:gesture" as never, {
+      systemMonitor.emit("sensor:gesture", {
         gesture: newState.gesture,
         confidence: newState.gestureConfidence,
         hand: newState.gestureHand,
@@ -378,7 +378,7 @@ class MediaPipeEngine {
     // ── Emit presence change ────────────────────────────────
     const presenceChanged = newState.facePresent !== this.state.facePresent;
     if (presenceChanged) {
-      systemMonitor.emit("sensor:presence" as never, {
+      systemMonitor.emit("sensor:presence", {
         facePresent: newState.facePresent,
         faceCount: newState.faceCount,
         proximity: newState.proximity,

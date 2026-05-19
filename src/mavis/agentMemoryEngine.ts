@@ -391,10 +391,10 @@ export async function recallContext(
   // ── Source 2: mavis_memory session log (conversation history) ─────────────
   const { data: sessionData } = await supabase
     .from("mavis_memory")
-    .select("content, role, importance, created_at")
+    .select("content, role, importance_score, created_at")
     .eq("user_id", userId)
     .ilike("content", `%${query}%`)
-    .gte("importance", 5)
+    .gte("importance_score", 5)
     .order("created_at", { ascending: false })
     .limit(4)
     .catch(() => ({ data: null }));
@@ -402,33 +402,30 @@ export async function recallContext(
     results.push({
       source: "session_log",
       content: `[${row.role}] ${row.content}` as string,
-      importance: (row.importance as number) ?? 5,
+      importance: (row.importance_score as number) ?? 5,
       tags: [],
       createdAt: row.created_at as string | undefined,
     });
   }
 
   // ── Source 3: mavis_tacit (operator rules and preferences) ────────────────
+  // Schema: key, value, category, source, confidence — no "rule" or "active" columns
   const { data: tacitData } = await supabase
     .from("mavis_tacit")
-    .select("rule, category, created_at")
+    .select("key, value, category, created_at")
     .eq("user_id", userId)
-    .eq("active", true)
-    .ilike("rule", `%${query}%`)
+    .ilike("value", `%${query}%`)
     .limit(3)
     .catch(() => ({ data: null }));
   for (const row of tacitData ?? []) {
-    // Check if any keyword from query appears in the rule
-    const ruleText = String(row.rule ?? "");
-    if (queryLower.split(" ").some(kw => kw.length > 3 && ruleText.toLowerCase().includes(kw))) {
-      results.push({
-        source: "tacit",
-        content: ruleText,
-        importance: 8,
-        tags: [(row.category as string) ?? "rule"],
-        createdAt: row.created_at as string | undefined,
-      });
-    }
+    const ruleText = `${row.key}: ${row.value}`;
+    results.push({
+      source: "tacit",
+      content: ruleText,
+      importance: 8,
+      tags: [(row.category as string) ?? "rule"],
+      createdAt: row.created_at as string | undefined,
+    });
   }
 
   // ── Rank: semantic similarity first, then importance, then recency ─────────
