@@ -4,6 +4,9 @@ import { X, Mic, Volume2 } from "lucide-react";
 import { streamChatMessage } from "@/mavis/chatService";
 import { useElevenLabsTts } from "@/hooks/useElevenLabsTts";
 
+// Minimal SpeechRecognition typing — Web Speech API isn't in lib.dom yet
+type SpeechRecognition = any;
+
 export interface VoicePersona {
   name: string;
   role?: string;
