@@ -305,7 +305,7 @@ export async function runAgentTask(
       messages,
       agent.userId,
       async (msgs) => {
-        const res = await callLocalMesh(msgs);
+        const res = await callLocalMesh(msgs as any);
         llmCalls++;
         return res?.content ?? "";
       },
