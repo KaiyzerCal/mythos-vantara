@@ -12,6 +12,9 @@ export interface VoicePersona {
   role?: string;
   systemPrompt: string;
   voiceId?: string;   // browser:aria | browser:guy | ElevenLabs ID
+  /** DB entity this voice belongs to — used to persist exchanges */
+  entityId?: string;
+  entityType?: "persona" | "council";
 }
 
 interface VoiceChatOverlayProps {
@@ -20,6 +23,10 @@ interface VoiceChatOverlayProps {
   lastBotMessage?: string;
   isLoading?: boolean;
   persona?: VoicePersona;
+  /** Initial history to pre-load context from past conversations */
+  initialHistory?: Array<{ role: string; content: string }>;
+  /** Called after each exchange so parents can persist to DB */
+  onExchange?: (userMsg: string, aiMsg: string) => void;
 }
 
 type Phase = "listening" | "thinking" | "speaking";
@@ -30,6 +37,8 @@ export function VoiceChatOverlay({
   lastBotMessage = "",
   isLoading = false,
   persona,
+  initialHistory,
+  onExchange,
 }: VoiceChatOverlayProps) {
   const [phase, setPhase]               = useState<Phase>("listening");
   const [transcript, setTranscript]     = useState("");
@@ -46,7 +55,10 @@ export function VoiceChatOverlay({
   const recognitionRef    = useRef<SpeechRecognition | null>(null);
   const restartTimerRef   = useRef<ReturnType<typeof setTimeout> | null>(null);
   const safetyTimerRef    = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const personaHistRef    = useRef<{ role: string; content: string }[]>([]);
+  // Seed with past conversation history so the persona has full context
+  const personaHistRef    = useRef<{ role: string; content: string }[]>(initialHistory ?? []);
+  const onExchangeRef     = useRef(onExchange);
+  onExchangeRef.current   = onExchange;
   // MAVIS mode: only updated when TTS actually fires, not during streaming
   const lastSpokenRef     = useRef(lastBotMessage);
   const ttsRef            = useRef(tts);
@@ -148,6 +160,8 @@ export function VoiceChatOverlay({
             { role: "user", content: captured },
             { role: "assistant", content: acc },
           ];
+          // Persist this exchange to DB via parent callback
+          if (acc) onExchangeRef.current?.(captured, acc);
           if (closingRef.current) return;
           if (acc) {
             setPhaseSync("speaking");

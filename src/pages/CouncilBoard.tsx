@@ -75,6 +75,7 @@ export default function CouncilBoard() {
   const [showBackToTop,    setShowBackToTop]    = useState(false);
   const [isListening,      setIsListening]      = useState(false);
   const [voiceTarget,      setVoiceTarget]      = useState<VoicePersona | null>(null);
+  const [voiceHistory,     setVoiceHistory]     = useState<{ role: string; content: string }[]>([]);
   const [appCtx,           setAppCtx]           = useState<AppContextSnapshot | null>(null);
 
   const cancelledRef   = useRef(false);
@@ -289,6 +290,52 @@ export default function CouncilBoard() {
     }
   }, [userId, messages, conversationId, handleOmniSync]);
 
+  // ── Voice overlay: load history + persist exchanges ──────────────
+  const handleVoiceOpen = useCallback(async (target: VoicePersona) => {
+    setVoiceTarget(target);
+    if (!userId || !target.entityId) { setVoiceHistory([]); return; }
+    try {
+      let rows: { role: string; content: string }[] = [];
+      if (target.entityType === "council") {
+        const { data } = await supabase
+          .from("council_chat_messages")
+          .select("role, content")
+          .eq("council_member_id", target.entityId)
+          .eq("user_id", userId)
+          .order("created_at", { ascending: true })
+          .limit(40);
+        rows = data ?? [];
+      } else if (target.entityType === "persona") {
+        const { data } = await supabase
+          .from("persona_conversations")
+          .select("role, content")
+          .eq("persona_id", target.entityId)
+          .eq("user_id", userId)
+          .order("created_at", { ascending: true })
+          .limit(40);
+        rows = data ?? [];
+      }
+      setVoiceHistory(rows.map(r => ({ role: r.role, content: r.content })));
+    } catch { setVoiceHistory([]); }
+  }, [userId]);
+
+  const handleVoiceExchange = useCallback(async (userMsg: string, aiMsg: string) => {
+    if (!userId || !voiceTarget?.entityId) return;
+    try {
+      if (voiceTarget.entityType === "council") {
+        await supabase.from("council_chat_messages").insert([
+          { user_id: userId, council_member_id: voiceTarget.entityId, role: "user",      content: userMsg },
+          { user_id: userId, council_member_id: voiceTarget.entityId, role: "assistant", content: aiMsg  },
+        ]);
+      } else if (voiceTarget.entityType === "persona") {
+        await supabase.from("persona_conversations").insert([
+          { user_id: userId, persona_id: voiceTarget.entityId, role: "user",      content: userMsg },
+          { user_id: userId, persona_id: voiceTarget.entityId, role: "assistant", content: aiMsg  },
+        ]);
+      }
+    } catch (err) { console.error("[CouncilBoard] voice exchange persist failed:", err); }
+  }, [userId, voiceTarget]);
+
   // ── Send ──────────────────────────────────────────────────────────
   const handleSend = useCallback(async () => {
     if (!input.trim() || loading || !userId) return;
@@ -432,11 +479,13 @@ export default function CouncilBoard() {
           {councilMembers.map((m) => (
             <button
               key={m.id}
-              onClick={() => setVoiceTarget({
+              onClick={() => handleVoiceOpen({
                 name: m.name,
                 role: m.role ?? m.specialty,
                 systemPrompt: buildCouncilMemberPrompt(m, appCtx ? buildContextSummary(appCtx) : ""),
                 voiceId: m.voice_id ?? undefined,
+                entityId: m.id,
+                entityType: "council",
               })}
               className="flex items-center gap-1 text-[9px] font-mono text-primary/60 hover:text-primary border border-primary/20 hover:border-primary/40 rounded px-1.5 py-0.5 whitespace-nowrap shrink-0 transition-all"
               title={`Voice call ${m.name}`}
@@ -486,11 +535,13 @@ export default function CouncilBoard() {
                         {p.name} ×
                       </button>
                       <button
-                        onClick={() => setVoiceTarget({
+                        onClick={() => handleVoiceOpen({
                           name: p.name,
                           role: p.role,
                           systemPrompt: appCtx ? buildPersonaCouncilPrompt(p, appCtx) : (p.systemPrompt ?? ""),
                           voiceId: (p as unknown as Record<string, unknown>).voice_id as string | undefined,
+                          entityId: p.id,
+                          entityType: "persona",
                         })}
                         className="flex items-center px-1.5 py-1 text-amber-400 border border-amber-500/40 bg-amber-800/30 hover:bg-amber-700/40 hover:text-amber-200 rounded-r border-l-0 transition-all"
                         title={`Voice call ${p.name}`}
@@ -716,6 +767,8 @@ export default function CouncilBoard() {
           <VoiceChatOverlay
             persona={voiceTarget}
             onClose={() => setVoiceTarget(null)}
+            initialHistory={voiceHistory}
+            onExchange={handleVoiceExchange}
           />
         )}
       </AnimatePresence>

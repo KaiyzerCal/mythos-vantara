@@ -79,6 +79,7 @@ export default function PersonasPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [activeChat, setActiveChat] = useState<ForgedPersona | null>(null);
   const [voicePersona, setVoicePersona] = useState<VoicePersona | null>(null);
+  const [voiceHistory, setVoiceHistory] = useState<{ role: string; content: string }[]>([]);
   // Map of persona_id → latest unread heartbeat notification
   const [notifications, setNotifications] = useState<Record<string, NaviNotification>>({});
 
@@ -145,6 +146,31 @@ export default function PersonasPage() {
       return next;
     });
   }, []);
+
+  const handleVoiceOpen = useCallback(async (target: VoicePersona) => {
+    setVoicePersona(target);
+    if (!user || !target.entityId) { setVoiceHistory([]); return; }
+    try {
+      const { data } = await supabase
+        .from("persona_conversations")
+        .select("role, content")
+        .eq("persona_id", target.entityId)
+        .eq("user_id", user.id)
+        .order("created_at", { ascending: true })
+        .limit(40);
+      setVoiceHistory((data ?? []).map(r => ({ role: r.role, content: r.content })));
+    } catch { setVoiceHistory([]); }
+  }, [user]);
+
+  const handleVoiceExchange = useCallback(async (userMsg: string, aiMsg: string) => {
+    if (!user || !voicePersona?.entityId) return;
+    try {
+      await supabase.from("persona_conversations").insert([
+        { user_id: user.id, persona_id: voicePersona.entityId, role: "user",      content: userMsg },
+        { user_id: user.id, persona_id: voicePersona.entityId, role: "assistant", content: aiMsg  },
+      ]);
+    } catch (err) { console.error("[PersonasPage] voice exchange persist failed:", err); }
+  }, [user, voicePersona]);
 
   const handleForged = (persona: ForgedPersona) => {
     setPersonas((prev) => [persona, ...prev]);
@@ -214,7 +240,13 @@ export default function PersonasPage() {
                 onNotificationRead={handleNotificationRead}
               />
               <button
-                onClick={() => setVoicePersona({ name: persona.name, role: persona.role, systemPrompt: persona.system_prompt })}
+                onClick={() => handleVoiceOpen({
+                  name: persona.name,
+                  role: persona.role,
+                  systemPrompt: persona.system_prompt,
+                  entityId: persona.id,
+                  entityType: "persona",
+                })}
                 className="absolute top-2 right-2 flex items-center gap-1 px-2 py-1 rounded border border-primary/30 bg-primary/10 text-primary/70 hover:text-primary hover:bg-primary/20 text-[9px] font-mono transition-all"
                 title={`Voice call ${persona.name}`}
               >
@@ -229,6 +261,8 @@ export default function PersonasPage() {
           <VoiceChatOverlay
             persona={voicePersona}
             onClose={() => setVoicePersona(null)}
+            initialHistory={voiceHistory}
+            onExchange={handleVoiceExchange}
           />
         )}
       </AnimatePresence>
