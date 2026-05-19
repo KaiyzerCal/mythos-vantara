@@ -1064,10 +1064,10 @@ export function CouncilsPage() {
 
   // Pre-load app context for voice calls (60s cache shared with MAVIS)
   useEffect(() => {
-    const uid = (profile as Record<string, unknown>)?.id as string | undefined;
+    const uid = (profile as unknown as Record<string, unknown>)?.id as string | undefined;
     if (!uid) return;
     loadFullAppContext(uid).then(setAppCtx).catch(() => {/* non-fatal */});
-  }, [(profile as Record<string, unknown>)?.id]);
+  }, [(profile as unknown as Record<string, unknown>)?.id]);
 
   const resetForm = () => {
     setForm({ name: "", role: "", specialty: "", class: "advisory", notes: "" });

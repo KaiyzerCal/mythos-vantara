@@ -490,7 +490,7 @@ export default function CouncilBoard() {
                           name: p.name,
                           role: p.role,
                           systemPrompt: appCtx ? buildPersonaCouncilPrompt(p, appCtx) : (p.systemPrompt ?? ""),
-                          voiceId: (p as Record<string, unknown>).voice_id as string | undefined,
+                          voiceId: (p as unknown as Record<string, unknown>).voice_id as string | undefined,
                         })}
                         className="flex items-center px-1.5 py-1 text-amber-400 border border-amber-500/40 bg-amber-800/30 hover:bg-amber-700/40 hover:text-amber-200 rounded-r border-l-0 transition-all"
                         title={`Voice call ${p.name}`}
