@@ -34,6 +34,11 @@ export type MonitorEventType =
   | "schedule:daily"
   | "schedule:interval"
   | "agent:signal"
+  | "sensor:gesture"
+  | "sensor:presence"
+  | "sensor:pose"
+  | "sensor:td_connected"
+  | "gesture:action"
   | "custom";
 
 export interface MonitorEvent {

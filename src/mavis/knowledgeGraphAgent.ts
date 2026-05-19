@@ -89,6 +89,7 @@ export async function writeNote(
       })
       .eq("id", existing.id);
 
+    if (!error) await _upsertNoteLinks(existing.id, userId, note.wikilinks);
     return error ? null : existing.id;
   }
 
@@ -107,6 +108,9 @@ export async function writeNote(
     .single();
 
   if (error) return null;
+
+  // Index wikilinks in mavis_note_links junction table
+  await _upsertNoteLinks(data.id, userId, note.wikilinks);
 
   // Log creation as an agent memory
   await storeMemory({
@@ -129,6 +133,20 @@ export async function writeNote(
 export function extractWikilinks(content: string): string[] {
   const matches = content.matchAll(/\[\[([^\]]+)\]\]/g);
   return [...new Set([...matches].map(m => m[1].trim()))];
+}
+
+async function _upsertNoteLinks(noteId: string, userId: string, wikilinks: string[]): Promise<void> {
+  if (!wikilinks.length) return;
+  const rows = wikilinks.map(link => ({
+    user_id: userId,
+    source_id: noteId,
+    target_slug: link.toLowerCase().trim(),
+    link_text: link.trim(),
+  }));
+  await supabase
+    .from("mavis_note_links")
+    .upsert(rows, { onConflict: "user_id,source_id,target_slug" })
+    .catch(() => {/* non-fatal */});
 }
 
 /** Generate a structured note from agent output text */
