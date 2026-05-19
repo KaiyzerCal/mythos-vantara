@@ -100,6 +100,26 @@ const INTEGRATION_GROUPS: GroupDef[] = [
       { id: "fcm", name: "Firebase (FCM)", description: "Android & web push notifications", keys: ["Server Key", "Project ID"] },
     ],
   },
+  {
+    label: "Vision & VFX",
+    icon: "Eye",
+    providers: [
+      {
+        id: "touchdesigner",
+        name: "TouchDesigner",
+        description: "Real-time VFX bridge — connect TouchDesigner's Web Server DAT for reactive visuals driven by MAVIS state and operator biometrics",
+        keys: ["WS Host", "WS Port", "WS Path", "Auth Token"],
+        docsUrl: null,
+      },
+      {
+        id: "mediapipe",
+        name: "MediaPipe Vision",
+        description: "In-browser gesture recognition and biometric tracking via webcam — hand gestures, face presence, expression, and engagement detection",
+        keys: [],
+        docsUrl: null,
+      },
+    ],
+  },
 ];
 
 // ─── Icon map ───────────────────────────────────────────────
@@ -109,6 +129,7 @@ const ICON_MAP: Record<string, LucideIcon> = {
   MessageSquare,
   DollarSign,
   Heart,
+  Eye,
 };
 
 // ─── Helper ─────────────────────────────────────────────────
