@@ -9,7 +9,9 @@ import {
   type CouncilBoardMessage,
 } from "@/mavis/councilBoardService";
 import type { CouncilMember } from "@/mavis/councilPersona";
-import { buildCouncilMemberPrompt } from "@/mavis/councilPersona";
+import { buildCouncilMemberPrompt, buildContextSummary } from "@/mavis/councilPersona";
+import { buildPersonaCouncilPrompt } from "@/mavis/agentPersona";
+import type { AppContextSnapshot } from "@/mavis/appContextLoader";
 import { VoiceChatOverlay } from "@/components/VoiceChatOverlay";
 import type { VoicePersona } from "@/components/VoiceChatOverlay";
 import type { UnifiedPersona } from "@/mavis/agentTypes";
@@ -73,6 +75,7 @@ export default function CouncilBoard() {
   const [showBackToTop,    setShowBackToTop]    = useState(false);
   const [isListening,      setIsListening]      = useState(false);
   const [voiceTarget,      setVoiceTarget]      = useState<VoicePersona | null>(null);
+  const [appCtx,           setAppCtx]           = useState<AppContextSnapshot | null>(null);
 
   const cancelledRef   = useRef(false);
   const scrollRef      = useRef<HTMLDivElement>(null);
@@ -89,6 +92,9 @@ export default function CouncilBoard() {
       if (!session?.user) { toast.error("Not authenticated"); return; }
       const uid = session.user.id;
       setUserId(uid);
+
+      // Pre-load app context for voice calls (60s cache — fast after first load)
+      loadFullAppContext(uid).then(setAppCtx).catch(() => {/* non-fatal */});
 
       // Load council members
       try {
@@ -429,7 +435,7 @@ export default function CouncilBoard() {
               onClick={() => setVoiceTarget({
                 name: m.name,
                 role: m.role ?? m.specialty,
-                systemPrompt: buildCouncilMemberPrompt(m, ""),
+                systemPrompt: buildCouncilMemberPrompt(m, appCtx ? buildContextSummary(appCtx) : ""),
                 voiceId: m.voice_id ?? undefined,
               })}
               className="flex items-center gap-1 text-[9px] font-mono text-primary/60 hover:text-primary border border-primary/20 hover:border-primary/40 rounded px-1.5 py-0.5 whitespace-nowrap shrink-0 transition-all"
@@ -480,7 +486,12 @@ export default function CouncilBoard() {
                         {p.name} ×
                       </button>
                       <button
-                        onClick={() => setVoiceTarget({ name: p.name, role: p.role, systemPrompt: p.systemPrompt ?? "", voiceId: (p as Record<string, unknown>).voice_id as string | undefined })}
+                        onClick={() => setVoiceTarget({
+                          name: p.name,
+                          role: p.role,
+                          systemPrompt: appCtx ? buildPersonaCouncilPrompt(p, appCtx) : (p.systemPrompt ?? ""),
+                          voiceId: (p as Record<string, unknown>).voice_id as string | undefined,
+                        })}
                         className="flex items-center px-1.5 py-1 text-amber-400 border border-amber-500/40 bg-amber-800/30 hover:bg-amber-700/40 hover:text-amber-200 rounded-r border-l-0 transition-all"
                         title={`Voice call ${p.name}`}
                       >
