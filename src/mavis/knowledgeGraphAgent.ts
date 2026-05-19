@@ -137,15 +137,17 @@ export function extractWikilinks(content: string): string[] {
 
 async function _upsertNoteLinks(noteId: string, userId: string, wikilinks: string[]): Promise<void> {
   if (!wikilinks.length) return;
+  // Write to mavis_note_wikilinks (slug-based unresolved index).
+  // The existing mavis_note_links uses UUID FKs for resolved links — different purpose.
   const rows = wikilinks.map(link => ({
     user_id: userId,
-    source_id: noteId,
+    source_note_id: noteId,
     target_slug: link.toLowerCase().trim(),
     link_text: link.trim(),
   }));
   await supabase
-    .from("mavis_note_links")
-    .upsert(rows, { onConflict: "user_id,source_id,target_slug" })
+    .from("mavis_note_wikilinks")
+    .upsert(rows, { onConflict: "user_id,source_note_id,target_slug" })
     .catch(() => {/* non-fatal */});
 }
 

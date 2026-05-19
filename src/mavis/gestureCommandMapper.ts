@@ -109,35 +109,35 @@ type ActionHandler = (cmd: GestureCommand) => Promise<void>;
 
 const ACTION_HANDLERS: Partial<Record<GestureAction, ActionHandler>> = {
   "voice:toggle": async () => {
-    systemMonitor.emit("gesture:action" as never, { action: "voice:toggle" });
+    systemMonitor.emit("gesture:action", { action: "voice:toggle" });
   },
   "voice:stop": async () => {
-    systemMonitor.emit("gesture:action" as never, { action: "voice:stop" });
+    systemMonitor.emit("gesture:action", { action: "voice:stop" });
   },
   "approve:pending_op": async () => {
-    systemMonitor.emit("gesture:action" as never, { action: "approve:pending_op" });
+    systemMonitor.emit("gesture:action", { action: "approve:pending_op" });
   },
   "deny:pending_op": async () => {
-    systemMonitor.emit("gesture:action" as never, { action: "deny:pending_op" });
+    systemMonitor.emit("gesture:action", { action: "deny:pending_op" });
   },
   "persona:cycle_next": async () => {
-    systemMonitor.emit("gesture:action" as never, { action: "persona:cycle_next" });
+    systemMonitor.emit("gesture:action", { action: "persona:cycle_next" });
   },
   "persona:cycle_prev": async () => {
-    systemMonitor.emit("gesture:action" as never, { action: "persona:cycle_prev" });
+    systemMonitor.emit("gesture:action", { action: "persona:cycle_prev" });
   },
   "mavis:summon": async () => {
-    systemMonitor.emit("gesture:action" as never, { action: "mavis:summon" });
+    systemMonitor.emit("gesture:action", { action: "mavis:summon" });
   },
   "skill:run": async (cmd) => {
-    systemMonitor.emit("gesture:action" as never, {
+    systemMonitor.emit("gesture:action", {
       action: "skill:run",
       skill: cmd.payload?.skill,
       input: cmd.payload?.input ?? "",
     });
   },
   "workflow:run": async (cmd) => {
-    systemMonitor.emit("gesture:action" as never, {
+    systemMonitor.emit("gesture:action", {
       action: "workflow:run",
       workflow: cmd.payload?.workflow,
       input: cmd.payload?.input ?? "",
@@ -290,7 +290,7 @@ export const gestureCommandMapper = new GestureCommandMapper();
 // Any "sensor:gesture" event (from mediaPipeEngine or touchDesignerBridge)
 // flows through the command mapper.
 
-systemMonitor.on("sensor:gesture" as never, (event: { payload?: Record<string, unknown> }) => {
+systemMonitor.on("sensor:gesture", (event: { payload?: Record<string, unknown> }) => {
   const payload = event.payload ?? {};
   const gesture = payload.gesture as GestureName | string | undefined;
   const confidence = (payload.confidence as number | undefined) ?? 1;

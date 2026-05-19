@@ -277,7 +277,7 @@ class TouchDesignerBridge {
           .catch(() => {/* non-fatal */});
       }
 
-      systemMonitor.emit("sensor:td_connected" as never, { host: wsHost, port: wsPort });
+      systemMonitor.emit("sensor:td_connected", { host: wsHost, port: wsPort });
 
       // Start periodic state flush (every 2s) so TD VFX always has fresh data
       this._stateFlushInterval = setInterval(() => this._flushState(), 2000);
@@ -313,7 +313,7 @@ class TouchDesignerBridge {
     if (msg.event === "osc" && msg.address) {
       const oscData = handleOscMessage({ address: msg.address, args: msg.args ?? [] });
       if (oscData?.type === "gesture") {
-        systemMonitor.emit("sensor:gesture" as never, {
+        systemMonitor.emit("sensor:gesture", {
           gesture: oscData.name,
           confidence: oscData.confidence,
           source: "touchdesigner",
@@ -326,7 +326,7 @@ class TouchDesignerBridge {
     if (msg.event === "mediapipe_update" || msg.event === "gesture_event") {
       if (msg.gesture?.right_hand || msg.gesture?.left_hand) {
         const hand = msg.gesture.right_hand ?? msg.gesture.left_hand!;
-        systemMonitor.emit("sensor:gesture" as never, {
+        systemMonitor.emit("sensor:gesture", {
           gesture: hand.gesture_name,
           confidence: hand.confidence,
           source: "touchdesigner",
@@ -348,7 +348,7 @@ class TouchDesignerBridge {
 
     // TD pose events → systemMonitor
     if (msg.event === "pose_update" && msg.pose) {
-      systemMonitor.emit("sensor:pose" as never, { landmarks: msg.pose.landmarks, source: "touchdesigner" });
+      systemMonitor.emit("sensor:pose", { landmarks: msg.pose.landmarks, source: "touchdesigner" });
     }
   }
 

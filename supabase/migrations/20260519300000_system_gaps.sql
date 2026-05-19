@@ -1,6 +1,6 @@
 -- ============================================================
 -- System gaps migration: standing orders, revenue unification,
--- note links, and gesture event pruning improvements.
+-- note wikilink index, and skill keywords guard.
 -- ============================================================
 
 -- ── mavis_standing_orders ─────────────────────────────────────────────────────
@@ -27,8 +27,11 @@ create index if not exists idx_standing_orders_user
   on public.mavis_standing_orders (user_id, enabled);
 
 -- ── Revenue unification view ──────────────────────────────────────────────────
--- Merges mavis_revenue, mavis_products, and persona_revenue into a single
--- queryable surface. Deduplicates on stripe_payment_id where present.
+-- Merges mavis_revenue and mavis_products into a single queryable surface.
+-- mavis_revenue columns: id, user_id, source, amount, currency, description,
+--   stripe_payment_id, gumroad_sale_id, task_id, created_at
+-- mavis_products columns: id, user_id, title, price_cents, status, gumroad_url,
+--   stripe_product_id, stripe_price_id, created_at
 
 create or replace view public.mavis_revenue_unified as
   -- Direct revenue events
@@ -37,63 +40,67 @@ create or replace view public.mavis_revenue_unified as
     user_id,
     source,
     amount,
-    currency,
+    coalesce(currency, 'usd')  as currency,
     description,
     stripe_payment_id,
-    metadata,
+    null::jsonb                as metadata,
     created_at
   from public.mavis_revenue
 
   union all
 
-  -- Product purchases (only rows that are NOT already in mavis_revenue)
+  -- Published products not already logged as a revenue event
   select
     p.id,
     p.user_id,
-    'product'                      as source,
-    p.price_usd                    as amount,
-    'usd'                          as currency,
-    p.name                         as description,
-    null                           as stripe_payment_id,
-    jsonb_build_object('product_id', p.id, 'gumroad_url', p.gumroad_url) as metadata,
+    'product'                                                       as source,
+    (p.price_cents / 100.0)::numeric                               as amount,
+    'usd'                                                           as currency,
+    p.title                                                         as description,
+    p.stripe_price_id                                               as stripe_payment_id,
+    jsonb_build_object(
+      'product_id', p.id,
+      'gumroad_url', p.gumroad_url,
+      'sales_count', p.sales_count
+    )                                                               as metadata,
     p.created_at
   from public.mavis_products p
   where p.status = 'published'
     and not exists (
       select 1 from public.mavis_revenue r
       where r.user_id = p.user_id
-        and r.description = p.name
+        and r.description = p.title
     );
 
--- ── mavis_note_links auto-index ───────────────────────────────────────────────
--- Ensure the junction table exists for the knowledge graph wikilink index.
--- knowledgeGraphAgent.ts will write to this on every note save.
+-- ── mavis_note_wikilinks ─────────────────────────────────────────────────────
+-- Slug-based wikilink index for the knowledge graph.
+-- Distinct from the existing mavis_note_links table (which uses resolved UUID FKs).
+-- knowledgeGraphAgent.ts writes here on every writeNote() call.
 
-create table if not exists public.mavis_note_links (
-  id          uuid primary key default gen_random_uuid(),
-  user_id     uuid not null references auth.users(id) on delete cascade,
-  source_id   uuid not null,  -- references mavis_notes(id)
-  target_slug text not null,  -- the [[wikilink]] slug (lowercased)
-  link_text   text,           -- raw text inside [[...]]
-  created_at  timestamptz not null default now(),
-  unique (user_id, source_id, target_slug)
+create table if not exists public.mavis_note_wikilinks (
+  id              uuid primary key default gen_random_uuid(),
+  user_id         uuid not null references auth.users(id) on delete cascade,
+  source_note_id  uuid not null references public.mavis_notes(id) on delete cascade,
+  target_slug     text not null,  -- lowercased [[wikilink]] text
+  link_text       text,           -- original casing
+  created_at      timestamptz not null default now(),
+  unique (user_id, source_note_id, target_slug)
 );
 
-alter table public.mavis_note_links enable row level security;
+alter table public.mavis_note_wikilinks enable row level security;
 
-create policy "Users manage own note links"
-  on public.mavis_note_links for all
+create policy "Users manage own note wikilinks"
+  on public.mavis_note_wikilinks for all
   using (auth.uid() = user_id)
   with check (auth.uid() = user_id);
 
-create index if not exists idx_note_links_source
-  on public.mavis_note_links (user_id, source_id);
+create index if not exists idx_note_wikilinks_source
+  on public.mavis_note_wikilinks (user_id, source_note_id);
 
-create index if not exists idx_note_links_target
-  on public.mavis_note_links (user_id, target_slug);
+create index if not exists idx_note_wikilinks_target
+  on public.mavis_note_wikilinks (user_id, target_slug);
 
 -- ── Skill definitions — ensure keywords column exists ─────────────────────────
--- Earlier migrations may have created mavis_skill_definitions without keywords[].
 
 do $$
 begin

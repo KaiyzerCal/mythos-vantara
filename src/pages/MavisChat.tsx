@@ -23,6 +23,12 @@ import { streamChatMessage, streamAgentMessage, streamResearchMessage } from "@/
 import { loadFullAppContext, invalidateAppContext } from "@/mavis/appContextLoader";
 import { initSession } from "@/mavis/memoryEngine";
 import { loadRuntimeSkills } from "@/mavis/skills/_registry";
+import { loadCustomOrders } from "@/mavis/standingOrders";
+import { systemMonitor } from "@/mavis/systemMonitor";
+import { pluginRegistry } from "@/mavis/pluginSystem";
+import { visionPlugin } from "@/mavis/plugins/visionPlugin";
+import { browserPlugin } from "@/mavis/plugins/browserPlugin";
+import { useGestureActions } from "@/hooks/useGestureActions";
 import type { ExecutionResult } from "@/mavis/types";
 // Trigger skill self-registration
 import "@/mavis/skills/_loader";
@@ -82,6 +88,13 @@ export default function MavisChat() {
   // ElevenLabs TTS + chat attachments
   const { speak, stop: stopSpeaking, isSpeaking, isLoading: isVoiceLoading } = useElevenLabsTts();
   const { attachments, isUploading, upload, remove } = useChatAttachments("mavis", "main");
+
+  // Gesture → UI bridge (active whenever the page is mounted)
+  useGestureActions({
+    userId: profile?.id,
+    onVoiceToggle: () => setVoiceOverlayOpen(v => !v),
+    onVoiceStop: () => stopSpeaking(),
+  });
 
   // ── Register the mavis-actions edge function as default action handler ──
   useEffect(() => {
@@ -254,9 +267,21 @@ export default function MavisChat() {
         const { data: { session } } = await supabase.auth.getSession();
         if (!session?.user) { setDbLoaded(true); return; }
 
-        // Init three-layer memory engine + load DB-backed runtime skills
+        // Init three-layer memory engine, load DB-backed runtime skills + standing orders
         initSession(session.user.id);
         loadRuntimeSkills(session.user.id).catch(err => console.warn("[Skills] Runtime load failed:", err));
+        loadCustomOrders(session.user.id).catch(err => console.warn("[StandingOrders] Load failed:", err));
+
+        // Start system monitor (automation rules, sensor events)
+        systemMonitor.start(session.user.id).catch(err => console.warn("[SystemMonitor] Start failed:", err));
+
+        // Register vision + browser plugins and trigger their onEnable hooks
+        pluginRegistry.register(visionPlugin);
+        pluginRegistry.register(browserPlugin);
+        visionPlugin.onEnable?.({}).catch(() => {/* non-fatal */});
+        browserPlugin.onEnable?.({}).catch(() => {/* non-fatal */});
+        pluginRegistry.syncToDb(visionPlugin, session.user.id).catch(() => {/* non-fatal */});
+        pluginRegistry.syncToDb(browserPlugin, session.user.id).catch(() => {/* non-fatal */});
 
         const { data: convos } = await supabase
           .from("chat_conversations")
