@@ -16,12 +16,22 @@ import { isOffline } from "@/mavis/offlineMode";
 function ThemeColorSync() {
   const { resolvedTheme } = useTheme();
   useEffect(() => {
-    const color = resolvedTheme === "light" ? "#ffffff" : "#0a0d1f";
+    const isLight = resolvedTheme === "light";
+    const color = isLight ? "#ffffff" : "#0a0d1f";
     document.querySelectorAll('meta[name="theme-color"]').forEach((el) => el.remove());
     const meta = document.createElement("meta");
     meta.name = "theme-color";
     meta.content = color;
     document.head.appendChild(meta);
+
+    // Android WebView/Chrome need explicit class + color-scheme updates to
+    // re-render form controls, scrollbars, and the body background. next-themes
+    // only toggles the class — we force-sync the rest here.
+    const root = document.documentElement;
+    root.classList.remove("dark", "light");
+    root.classList.add(isLight ? "light" : "dark");
+    root.style.colorScheme = isLight ? "light" : "dark";
+    document.body.style.backgroundColor = isLight ? "#ffffff" : "#0a0d1f";
   }, [resolvedTheme]);
   return null;
 }
