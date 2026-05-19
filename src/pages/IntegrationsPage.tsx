@@ -88,6 +88,8 @@ const INTEGRATION_GROUPS: GroupDef[] = [
     providers: [
       { id: "stripe", name: "Stripe", description: "Revenue tracking & webhooks", keys: ["Secret Key", "Webhook Secret"] },
       { id: "gumroad", name: "Gumroad", description: "Product sales tracking", keys: ["Access Token"] },
+      { id: "alpaca", name: "Alpaca Markets", description: "Stock trading — paper & live order execution", keys: ["API Key", "Secret Key", "Paper Mode (true/false)", "Max Position %", "Stop Loss %", "Approval Threshold USD"] },
+      { id: "binance", name: "Binance", description: "Crypto trading — BTC, ETH and more via Binance API", keys: ["API Key", "Secret Key", "Testnet (true/false)", "Max Position %", "Stop Loss %", "Approval Threshold USD"] },
     ],
   },
   {
