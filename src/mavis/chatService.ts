@@ -6,6 +6,28 @@ import type { ExecutionResult } from "./types";
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string;
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string;
 
+/** Always-accurate local time from the browser — sent with every LLM request
+ *  so the edge function (which runs in UTC) knows the operator's actual date/time. */
+function clientTimePayload(): { clientTime: string; clientTimezone: string; clientUnix: number } {
+  const now = new Date();
+  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  return {
+    clientTime: now.toLocaleString("en-US", {
+      timeZone: tz,
+      weekday: "long",
+      year: "numeric",
+      month: "long",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      timeZoneName: "short",
+    }),
+    clientTimezone: tz,
+    clientUnix: Math.floor(now.getTime() / 1000),
+  };
+}
+
 /**
  * Low-level AI invocation — calls the mavis-chat edge function and returns
  * the raw text response. Used by CouncilBoard and other multi-agent flows.
@@ -24,6 +46,7 @@ export async function invokeAI(
       chatKind,
       threadRef: "council-board",
       attachmentIds: [],
+      ...clientTimePayload(),
     },
   });
   if (error) throw error;
@@ -81,6 +104,7 @@ export async function streamChatMessage(
       threadRef: options.threadRef ?? "main",
       attachmentIds: options.attachmentIds ?? [],
       stream: true,
+      ...clientTimePayload(),
     }),
     signal,
   });
@@ -166,6 +190,7 @@ export async function streamAgentMessage(
       messages,
       systemPrompt,
       conversationId: options.conversationId ?? null,
+      ...clientTimePayload(),
     }),
     signal,
   });
