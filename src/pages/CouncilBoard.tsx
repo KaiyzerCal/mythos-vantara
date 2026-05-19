@@ -9,8 +9,8 @@ import {
   type CouncilBoardMessage,
 } from "@/mavis/councilBoardService";
 import type { CouncilMember } from "@/mavis/councilPersona";
-import { buildCouncilMemberPrompt, buildContextSummary } from "@/mavis/councilPersona";
-import { buildPersonaCouncilPrompt } from "@/mavis/agentPersona";
+import { buildCouncilMemberPrompt, buildCouncilMemberVoicePrompt, buildContextSummary } from "@/mavis/councilPersona";
+import { buildPersonaCouncilPrompt, buildPersonaVoicePrompt } from "@/mavis/agentPersona";
 import type { AppContextSnapshot } from "@/mavis/appContextLoader";
 import { VoiceChatOverlay } from "@/components/VoiceChatOverlay";
 import type { VoicePersona } from "@/components/VoiceChatOverlay";
@@ -482,7 +482,7 @@ export default function CouncilBoard() {
               onClick={() => handleVoiceOpen({
                 name: m.name,
                 role: m.role ?? m.specialty,
-                systemPrompt: buildCouncilMemberPrompt(m, appCtx ? buildContextSummary(appCtx) : ""),
+                systemPrompt: buildCouncilMemberVoicePrompt(m, appCtx ? buildContextSummary(appCtx) : ""),
                 voiceId: m.voice_id ?? undefined,
                 entityId: m.id,
                 entityType: "council",
@@ -538,7 +538,7 @@ export default function CouncilBoard() {
                         onClick={() => handleVoiceOpen({
                           name: p.name,
                           role: p.role,
-                          systemPrompt: appCtx ? buildPersonaCouncilPrompt(p, appCtx) : (p.systemPrompt ?? ""),
+                          systemPrompt: buildPersonaVoicePrompt(p),
                           voiceId: (p as unknown as Record<string, unknown>).voice_id as string | undefined,
                           entityId: p.id,
                           entityType: "persona",

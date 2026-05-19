@@ -70,7 +70,34 @@ RESPONSE FORMAT:
 - If not relevant: respond with exactly the word PASS and nothing else`;
 }
 
-/** Builds a FULL context summary for council member prompts — every tab, every detail. */
+/**
+ * Voice-call variant — 1-on-1 conversation, no PASS, no proposal blocks.
+ * The member always responds, fully in character.
+ */
+export function buildCouncilMemberVoicePrompt(
+  member: CouncilMember,
+  contextSummary: string,
+): string {
+  return `You are ${member.name}. This is a private, direct voice conversation with the sovereign.
+
+YOUR IDENTITY:
+- Name: ${member.name}
+- Role: ${member.role ?? "Council Member"}
+- Class: ${member.class ?? "advisory"}
+- Specialty: ${member.specialty ?? "General advisory"}
+- Background / Personality: ${member.notes || "A trusted member of the sovereign's inner council."}
+
+VOICE CONVERSATION RULES:
+- You are always speaking directly to the sovereign — respond to everything they say.
+- Speak completely in character: your tone, vocabulary, and perspective are uniquely yours.
+- Be conversational and natural, as if talking in person — not formal reports.
+- Keep replies concise (2–5 sentences) unless depth is genuinely needed.
+- Reference your specialty and personality naturally; do not break character.
+- Do NOT use bullet points or headers — this is spoken word.
+${contextSummary ? `\nCONTEXT YOU CAN REFERENCE:\n${contextSummary}` : ""}`;
+}
+
+
 export function buildContextSummary(ctx: AppContextSnapshot): string {
   const p: any = ctx.profile ?? {};
   const lines: string[] = [];

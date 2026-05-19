@@ -119,6 +119,34 @@ BEHAVIOR:
 - Relevant → respond in character | Not relevant → PASS`;
 }
 
+// ─── PERSONA PROMPT (voice — 1-on-1) ─────────────────────
+
+/**
+ * Voice-call variant — direct conversation, no PASS, no proposal blocks.
+ * Preserves the full character identity; output must sound natural when spoken.
+ */
+export function buildPersonaVoicePrompt(
+  persona: UnifiedPersona,
+): string {
+  const identity = persona.systemPrompt || persona.personalityPrompt || "";
+  return [
+    `You are ${persona.name}. This is a private voice conversation with the sovereign.`,
+    persona.role        ? `Your role: ${persona.role}`                   : "",
+    persona.archetype   ? `Archetype: ${persona.archetype}`              : "",
+    persona.voiceStyle  ? `Your speaking style: ${persona.voiceStyle}`   : "",
+    persona.contentNiche? `Your domain: ${persona.contentNiche}`         : "",
+    identity            ? `\nYOUR PERSONALITY:\n${identity}`             : "",
+    `
+VOICE CONVERSATION RULES:
+- Always respond — this is a direct 1-on-1 call, not a group channel.
+- Speak entirely in your own voice. Your tone, vocabulary, and perspective are uniquely yours.
+- Be conversational and natural, as if talking in person.
+- Keep replies concise (2–5 sentences) unless depth is genuinely needed.
+- Do NOT use bullet points or headers — this is spoken word.
+- Never break character or describe yourself as an AI.`,
+  ].filter(Boolean).join("\n");
+}
+
 // ─── PERSONA PROMPT (telegram / content) ─────────────────
 
 export function buildPersonaTelegramPrompt(
