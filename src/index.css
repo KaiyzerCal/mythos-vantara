@@ -5,46 +5,53 @@
 @tailwind utilities;
 
 @layer base {
+  /* ── Light mode ─────────────────────────────────────────────────────────── */
   :root {
     color-scheme: light;
-    --background: 0 0% 100%;
-    --foreground: 220 20% 10%;
-    --card: 220 10% 97%;
-    --card-foreground: 220 20% 10%;
+    /* Slightly warm off-white background — less glaring than pure white on
+       non-retina Android/Windows displays. */
+    --background: 220 18% 96%;
+    --foreground: 220 25% 12%;
+    --card: 0 0% 100%;
+    --card-foreground: 220 25% 12%;
     --popover: 0 0% 100%;
-    --popover-foreground: 220 20% 10%;
-    --primary: 45 90% 50%;
-    --primary-foreground: 220 20% 10%;
-    --secondary: 150 60% 35%;
+    --popover-foreground: 220 25% 12%;
+    --primary: 45 90% 44%;
+    --primary-foreground: 220 25% 8%;
+    --secondary: 150 55% 30%;
     --secondary-foreground: 0 0% 100%;
-    --muted: 220 10% 93%;
-    --muted-foreground: 220 15% 40%;
-    --accent: 45 90% 50%;
-    --accent-foreground: 220 20% 10%;
-    --destructive: 0 70% 50%;
+    --muted: 220 14% 90%;
+    --muted-foreground: 220 12% 38%;
+    --accent: 45 90% 44%;
+    --accent-foreground: 220 25% 8%;
+    --destructive: 0 68% 48%;
     --destructive-foreground: 0 0% 100%;
-    --border: 220 10% 85%;
-    --input: 220 10% 85%;
-    --ring: 45 90% 50%;
+    /* Visible border on all renderers — was too faint at 85% */
+    --border: 220 14% 78%;
+    --input: 220 14% 78%;
+    --ring: 45 90% 44%;
     --radius: 0.25rem;
-    --sidebar-background: 220 10% 96%;
-    --sidebar-foreground: 220 15% 25%;
-    --sidebar-primary: 45 90% 50%;
-    --sidebar-primary-foreground: 220 20% 10%;
-    --sidebar-accent: 220 10% 92%;
-    --sidebar-accent-foreground: 45 90% 50%;
-    --sidebar-border: 220 10% 85%;
-    --sidebar-ring: 45 90% 50%;
-    --neon-cyan: 185 80% 45%;
-    --neon-purple: 270 60% 55%;
-    --neon-gold: 45 90% 50%;
-    --neon-green: 150 70% 40%;
-    --neon-red: 0 85% 55%;
-    --glow-gold: 0 0 20px hsl(45 90% 50% / 0.4);
-    --glow-green: 0 0 20px hsl(150 70% 40% / 0.4);
-    --glow-subtle: 0 0 10px hsl(45 90% 50% / 0.15);
+    --sidebar-background: 220 16% 93%;
+    --sidebar-foreground: 220 18% 22%;
+    --sidebar-primary: 45 90% 44%;
+    --sidebar-primary-foreground: 220 25% 8%;
+    --sidebar-accent: 220 14% 88%;
+    --sidebar-accent-foreground: 45 90% 44%;
+    --sidebar-border: 220 14% 78%;
+    --sidebar-ring: 45 90% 44%;
+    --neon-cyan: 185 75% 38%;
+    --neon-purple: 270 55% 48%;
+    --neon-gold: 45 90% 44%;
+    --neon-green: 150 65% 32%;
+    --neon-red: 0 80% 48%;
+    --glow-gold: 0 0 14px hsl(45 90% 44% / 0.3);
+    --glow-green: 0 0 14px hsl(150 65% 32% / 0.3);
+    --glow-subtle: 0 0 8px hsl(45 90% 44% / 0.12);
+    /* Card elevation shadow — adds depth absent from flat Android renders */
+    --card-shadow: 0 1px 3px hsl(220 25% 12% / 0.08), 0 1px 2px hsl(220 25% 12% / 0.06);
   }
 
+  /* ── Dark mode ──────────────────────────────────────────────────────────── */
   .dark {
     color-scheme: dark;
     --background: 228 55% 5%;
@@ -83,13 +90,66 @@
     --glow-gold: 0 0 25px hsl(45 100% 55% / 0.45);
     --glow-green: 0 0 25px hsl(150 100% 48% / 0.4);
     --glow-subtle: 0 0 12px hsl(45 100% 55% / 0.18);
+    --card-shadow: 0 1px 4px hsl(228 55% 3% / 0.6);
   }
 }
 
 @layer base {
   * { @apply border-border; }
-  body { @apply bg-background text-foreground font-body antialiased; }
+
+  html {
+    /* Prevent layout shift from scrollbar appearing/disappearing (desktop) */
+    scrollbar-gutter: stable;
+  }
+
+  body {
+    @apply bg-background text-foreground font-body antialiased;
+    /* Cross-platform font rendering */
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+    /* Prevent iOS tap-highlight on interactive elements */
+    -webkit-tap-highlight-color: transparent;
+    /* Prevent text size inflation on orientation change (mobile) */
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+  }
+
   h1, h2, h3, h4, h5, h6 { @apply font-display; }
+
+  /* ── Custom scrollbars (Chromium / Firefox) ────────────────────────────── */
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: hsl(var(--background)); }
+  ::-webkit-scrollbar-thumb {
+    background: hsl(var(--border));
+    border-radius: 3px;
+  }
+  ::-webkit-scrollbar-thumb:hover { background: hsl(var(--muted-foreground) / 0.5); }
+  /* Firefox */
+  * { scrollbar-width: thin; scrollbar-color: hsl(var(--border)) hsl(var(--background)); }
+
+  /* ── Selection colors ──────────────────────────────────────────────────── */
+  ::selection {
+    background: hsl(var(--primary) / 0.25);
+    color: hsl(var(--foreground));
+  }
+
+  /* ── Focus rings — visible on desktop, clean on touch ─────────────────── */
+  :focus-visible {
+    outline: 2px solid hsl(var(--ring));
+    outline-offset: 2px;
+  }
+  :focus:not(:focus-visible) { outline: none; }
+
+  /* ── Card elevation in light mode ─────────────────────────────────────── */
+  :root .hud-border,
+  :root [class*="card"] {
+    box-shadow: var(--card-shadow);
+  }
+  .dark .hud-border,
+  .dark [class*="card"] {
+    box-shadow: none;
+  }
 }
 
 @layer utilities {
