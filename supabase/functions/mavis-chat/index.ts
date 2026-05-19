@@ -1112,11 +1112,14 @@ ${fmtMemories}
     }
 
     // ── Build system prompt ─────────────────────────────────
-    // For COUNCIL mode: use the client's persona-rich system prompt as the base,
-    // then append the authoritative DB context so the council member has full app awareness.
-    // For MAVIS modes: use the server-built MAVIS Prime prompt + authoritative context.
+    // Use the client-supplied system prompt when the call is for a council member,
+    // summoned persona, or voice-overlay persona — identified by mode OR chatKind.
+    // All pure MAVIS calls (chatKind: "mavis" / undefined) build MAVIS Prime server-side.
     const isCouncilMode = (mode ?? "").toUpperCase() === "COUNCIL";
-    const baseSystem = isCouncilMode && typeof clientSystemPrompt === "string" && clientSystemPrompt.length > 0
+    const isAgentCall = isCouncilMode
+      || (chatKind ?? "").startsWith("council")
+      || chatKind === "persona";
+    const baseSystem = isAgentCall && typeof clientSystemPrompt === "string" && clientSystemPrompt.length > 0
       ? clientSystemPrompt
       : buildMavisPrompt(profile, mode ?? "PRIME", appState ?? {}, callerName, isCaliyah);
 
