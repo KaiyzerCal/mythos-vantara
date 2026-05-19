@@ -1,4 +1,4 @@
-import { NavLink, useLocation } from "react-router-dom";
+import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import {
   LayoutDashboard, User, Target, CheckSquare, Users, Flame,
   Zap, Sparkles, Package, BookOpen, BookLock, ShoppingBag,
@@ -9,6 +9,7 @@ import {
   TrendingUp, Mail, Webhook, KeyRound, Archive,
   LineChart, Upload, CreditCard, Trophy, Workflow,
 } from "lucide-react";
+import { LocalMeshStatusChip } from "@/components/LocalMeshStatus";
 import { useState, useContext } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useAuth } from "@/contexts/AuthContext";
@@ -197,6 +198,14 @@ export default function AppSidebar() {
         <SectionLabel label="Utilities" collapsed={collapsed} />
         {UTILITY_NAV.map((item) => <NavItem key={item.to} {...item} collapsed={collapsed} />)}
       </nav>
+
+      {/* Local Mesh status */}
+      <div className="px-2 pb-1">
+        <LocalMeshStatusChip
+          collapsed={collapsed}
+          onClick={() => window.location.href = "/integrations"}
+        />
+      </div>
 
       {/* Sign out */}
       <button

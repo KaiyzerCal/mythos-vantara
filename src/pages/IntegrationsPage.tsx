@@ -20,12 +20,23 @@ import {
   Plus,
   Trash2,
   Smartphone,
+  HexagonIcon,
+  Wifi,
+  WifiOff,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { PageHeader, HudCard } from "@/components/SharedUI";
 import { toast } from "sonner";
+import {
+  getLocalMeshConfig,
+  saveLocalMeshConfig,
+  checkLocalMeshHealth,
+  listLocalModels,
+  type LocalMeshConfig,
+  type LocalMeshStatus,
+} from "@/mavis/localMesh";
 
 // ─── Types ──────────────────────────────────────────────────
 interface ProviderDef {
@@ -105,6 +116,180 @@ function showKey(keyId: string, showValues: Record<string, boolean>): boolean {
 
 function keyId(providerId: string, keyName: string): string {
   return `${providerId}::${keyName}`;
+}
+
+// ─── Local Mesh Panel ────────────────────────────────────────
+function LocalMeshPanel() {
+  const [cfg, setCfg] = useState<LocalMeshConfig>(getLocalMeshConfig());
+  const [status, setStatus] = useState<LocalMeshStatus>("checking");
+  const [models, setModels] = useState<string[]>([]);
+  const [checking, setChecking] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  const handleCheck = async () => {
+    setChecking(true);
+    const health = await checkLocalMeshHealth(true);
+    setStatus(health);
+    if (health === "online") {
+      const m = await listLocalModels();
+      setModels(m);
+      toast.success(`Local Mesh online — ${m.length} model${m.length !== 1 ? "s" : ""} found`);
+    } else {
+      toast.error("Local Mesh unreachable. Check that Ollama is running.");
+    }
+    setChecking(false);
+  };
+
+  const handleSave = () => {
+    setSaving(true);
+    saveLocalMeshConfig(cfg);
+    setSaving(false);
+    toast.success("Local Mesh config saved.");
+  };
+
+  const statusLabel = status === "online" ? "ONLINE" : status === "offline" ? "OFFLINE" : status === "disabled" ? "DISABLED" : "CHECKING";
+  const statusColor = status === "online" ? "text-green-400" : status === "offline" ? "text-red-400" : "text-muted-foreground";
+
+  return (
+    <HudCard glowColor={status === "online" ? "green" : "none"}>
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-2">
+          <svg width="13" height="13" viewBox="0 0 13 13" fill="currentColor" className="text-primary">
+            <polygon points="6.5,0 12,3.25 12,9.75 6.5,13 1,9.75 1,3.25" />
+          </svg>
+          <p className="text-xs font-mono text-foreground">Local Mesh · OpenClaw / OpenJarvis</p>
+        </div>
+        <span className={`text-[9px] font-mono ${statusColor}`}>{statusLabel}</span>
+      </div>
+
+      <p className="text-[10px] font-mono text-muted-foreground mb-4 leading-relaxed">
+        Route MAVIS requests to a local Ollama instance for on-device computation.
+        Works now with any machine running Ollama on your LAN.
+        When OpenClaw arrives, set its address here and flip the switch.
+      </p>
+
+      <div className="space-y-3">
+        {/* Enable toggle */}
+        <label className="flex items-center justify-between gap-3">
+          <span className="text-[10px] font-mono text-muted-foreground uppercase tracking-widest">Enable Local Mesh</span>
+          <button
+            onClick={() => setCfg((c) => ({ ...c, enabled: !c.enabled }))}
+            className={`w-9 h-5 rounded-full transition-colors ${cfg.enabled ? "bg-primary" : "bg-muted"} relative`}
+          >
+            <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all ${cfg.enabled ? "left-4" : "left-0.5"}`} />
+          </button>
+        </label>
+
+        {/* Endpoint */}
+        <div>
+          <label className="text-[10px] font-mono text-muted-foreground uppercase tracking-widest mb-1.5 block">Ollama Endpoint</label>
+          <input
+            value={cfg.endpoint}
+            onChange={(e) => setCfg((c) => ({ ...c, endpoint: e.target.value }))}
+            placeholder="http://localhost:11434"
+            className="w-full bg-muted/30 border border-border rounded px-3 py-1.5 text-xs font-mono focus:outline-none focus:border-primary/50"
+          />
+          <p className="text-[9px] font-mono text-muted-foreground mt-1">Local: http://localhost:11434 · Tailscale: http://100.x.x.x:11434</p>
+        </div>
+
+        {/* Model */}
+        <div>
+          <label className="text-[10px] font-mono text-muted-foreground uppercase tracking-widest mb-1.5 block">Model</label>
+          {models.length > 0 ? (
+            <select
+              value={cfg.model}
+              onChange={(e) => setCfg((c) => ({ ...c, model: e.target.value }))}
+              className="w-full bg-muted/30 border border-border rounded px-3 py-1.5 text-xs font-mono focus:outline-none"
+            >
+              {models.map((m) => <option key={m} value={m}>{m}</option>)}
+            </select>
+          ) : (
+            <input
+              value={cfg.model}
+              onChange={(e) => setCfg((c) => ({ ...c, model: e.target.value }))}
+              placeholder="llama3.2:3b"
+              className="w-full bg-muted/30 border border-border rounded px-3 py-1.5 text-xs font-mono focus:outline-none focus:border-primary/50"
+            />
+          )}
+        </div>
+
+        {/* Tunnel toggle + URL */}
+        <label className="flex items-center justify-between gap-3">
+          <span className="text-[10px] font-mono text-muted-foreground uppercase tracking-widest">Use Tunnel URL</span>
+          <button
+            onClick={() => setCfg((c) => ({ ...c, tunnelEnabled: !c.tunnelEnabled }))}
+            className={`w-9 h-5 rounded-full transition-colors ${cfg.tunnelEnabled ? "bg-primary" : "bg-muted"} relative`}
+          >
+            <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all ${cfg.tunnelEnabled ? "left-4" : "left-0.5"}`} />
+          </button>
+        </label>
+        {cfg.tunnelEnabled && (
+          <input
+            value={cfg.tunnelUrl}
+            onChange={(e) => setCfg((c) => ({ ...c, tunnelUrl: e.target.value }))}
+            placeholder="https://your-ngrok.ngrok.io"
+            className="w-full bg-muted/30 border border-border rounded px-3 py-1.5 text-xs font-mono focus:outline-none focus:border-primary/50"
+          />
+        )}
+
+        {/* Context window */}
+        <div>
+          <label className="text-[10px] font-mono text-muted-foreground uppercase tracking-widest mb-1.5 block">
+            Context Window (tokens)
+          </label>
+          <input
+            type="number"
+            value={cfg.contextWindowTokens}
+            onChange={(e) => setCfg((c) => ({ ...c, contextWindowTokens: Number(e.target.value) }))}
+            min={512} max={131072} step={512}
+            className="w-40 bg-muted/30 border border-border rounded px-3 py-1.5 text-xs font-mono focus:outline-none"
+          />
+        </div>
+
+        {/* Detected models */}
+        {models.length > 0 && (
+          <div>
+            <p className="text-[9px] font-mono text-muted-foreground uppercase tracking-widest mb-1">Detected Models</p>
+            <div className="flex flex-wrap gap-1">
+              {models.map((m) => (
+                <span key={m} className="px-2 py-0.5 rounded-full border border-primary/20 bg-primary/5 text-[9px] font-mono text-primary">{m}</span>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Actions */}
+        <div className="flex items-center gap-2 pt-2 border-t border-border">
+          <button
+            onClick={handleCheck}
+            disabled={checking}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono border border-border text-muted-foreground rounded hover:border-primary/40 hover:text-primary disabled:opacity-40 transition-all"
+          >
+            {checking ? <Loader2 size={11} className="animate-spin" /> : <Wifi size={11} />}
+            {checking ? "Checking..." : "Test Connection"}
+          </button>
+          <button
+            onClick={handleSave}
+            disabled={saving}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono bg-primary/10 border border-primary/30 text-primary rounded hover:bg-primary/20 disabled:opacity-40 transition-all"
+          >
+            {saving ? <Loader2 size={11} className="animate-spin" /> : null}
+            Save Config
+          </button>
+          {status === "online" && <CheckCircle2 size={13} className="text-green-400" />}
+          {status === "offline" && <WifiOff size={13} className="text-red-400" />}
+        </div>
+
+        <div className="text-[9px] font-mono text-muted-foreground leading-relaxed border-t border-border pt-2">
+          <strong className="text-primary">Supported models:</strong> llama3.2:3b · phi4-mini · mistral:7b · gemma3:4b · deepseek-r1:7b
+          <br />
+          <strong className="text-primary">Offline mode:</strong> When Cloud is unreachable, MAVIS serves cached data from your last sync.
+          <br />
+          <strong className="text-primary">OpenClaw:</strong> Once your local machine is set up with Ollama, point the endpoint here.
+        </div>
+      </div>
+    </HudCard>
+  );
 }
 
 // ─── Telegram Linked Accounts ────────────────────────────────
@@ -384,6 +569,7 @@ export function IntegrationsPage() {
         </div>
       ) : (
         <div className="space-y-8">
+          <LocalMeshPanel />
           {user && <TelegramLinkedAccountsPanel userId={user.id} />}
 
           {INTEGRATION_GROUPS.map((group) => {

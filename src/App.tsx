@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Route, Routes } from "react-router-dom";
 import { Toaster as SonnerToaster } from "sonner";
@@ -7,6 +7,9 @@ import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import { AppDataProvider } from "@/contexts/AppDataContext";
 import AppSidebar from "@/components/AppSidebar";
 import { Loader2 } from "lucide-react";
+import { LocalMeshOverlay, type MeshActivity } from "@/components/LocalMeshOverlay";
+import { checkLocalMeshHealth } from "@/mavis/localMesh";
+import { isOffline } from "@/mavis/offlineMode";
 
 /** Sync the mobile browser chrome (status bar) color with the active theme.
  *  Critical for Android — Chrome reads <meta name="theme-color"> dynamically. */
@@ -68,6 +71,18 @@ const queryClient = new QueryClient();
 
 function AppContent() {
   const { user, loading } = useAuth();
+  const [meshActivity, setMeshActivity] = useState<MeshActivity>("offline");
+
+  useEffect(() => {
+    async function pollMesh() {
+      if (isOffline()) { setMeshActivity("offline"); return; }
+      const health = await checkLocalMeshHealth();
+      setMeshActivity(health === "online" ? "idle" : "offline");
+    }
+    pollMesh();
+    const interval = setInterval(pollMesh, 30_000);
+    return () => clearInterval(interval);
+  }, []);
 
   if (loading) {
     return (
@@ -85,6 +100,7 @@ function AppContent() {
   return (
     <AppDataProvider>
       <div className="flex min-h-screen bg-background">
+        <LocalMeshOverlay activity={meshActivity} variant="corner" />
         <AppSidebar />
         <main className="flex-1 p-5 overflow-y-auto min-w-0">
           <Routes>
