@@ -17,7 +17,9 @@ import { AttachmentTray, AttachButton } from "@/components/chat/AttachmentTray";
 import { DEFAULT_VOICE_BY_GENDER, findVoice, type VoiceGender } from "@/lib/voiceCatalog";
 import { VoiceChatOverlay } from "@/components/VoiceChatOverlay";
 import type { VoicePersona } from "@/components/VoiceChatOverlay";
-import { buildCouncilMemberPrompt } from "@/mavis/councilPersona";
+import { buildCouncilMemberPrompt, buildContextSummary } from "@/mavis/councilPersona";
+import { loadFullAppContext } from "@/mavis/appContextLoader";
+import type { AppContextSnapshot } from "@/mavis/appContextLoader";
 
 const QUEST_TYPES = ["all", "main", "epic", "side", "daily"] as const;
 const QUEST_STATUSES = ["all", "active", "completed", "failed", "locked"] as const;
@@ -1057,7 +1059,15 @@ export function CouncilsPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [activeChat, setActiveChat] = useState<any | null>(null);
   const [voiceTarget, setVoiceTarget] = useState<VoicePersona | null>(null);
+  const [appCtx, setAppCtx] = useState<AppContextSnapshot | null>(null);
   const [form, setForm] = useState({ name: "", role: "", specialty: "", class: "advisory", notes: "" });
+
+  // Pre-load app context for voice calls (60s cache shared with MAVIS)
+  useEffect(() => {
+    const uid = (profile as Record<string, unknown>)?.id as string | undefined;
+    if (!uid) return;
+    loadFullAppContext(uid).then(setAppCtx).catch(() => {/* non-fatal */});
+  }, [(profile as Record<string, unknown>)?.id]);
 
   const resetForm = () => {
     setForm({ name: "", role: "", specialty: "", class: "advisory", notes: "" });
@@ -1190,7 +1200,7 @@ export function CouncilsPage() {
                         <Trash2 size={12} />
                       </button>
                       <button
-                        onClick={(e) => { e.stopPropagation(); setVoiceTarget({ name: m.name, role: m.role, systemPrompt: buildCouncilMemberPrompt(m, ""), voiceId: m.voice_id ?? undefined }); }}
+                        onClick={(e) => { e.stopPropagation(); setVoiceTarget({ name: m.name, role: m.role, systemPrompt: buildCouncilMemberPrompt(m, appCtx ? buildContextSummary(appCtx) : ""), voiceId: m.voice_id ?? undefined }); }}
                         className="p-1 text-muted-foreground hover:text-primary hover:bg-primary/10 rounded transition-all opacity-0 group-hover:opacity-100"
                         title={`Voice call ${m.name}`}
                       >
