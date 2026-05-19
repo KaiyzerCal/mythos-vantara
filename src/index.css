@@ -8,11 +8,9 @@
   /* ── Light mode ─────────────────────────────────────────────────────────── */
   :root {
     color-scheme: light;
-    /* Slightly warm off-white background — less glaring than pure white on
-       non-retina Android/Windows displays. */
-    --background: 220 18% 96%;
+    --background: 0 0% 100%;
     --foreground: 220 25% 12%;
-    --card: 0 0% 100%;
+    --card: 220 14% 97%;
     --card-foreground: 220 25% 12%;
     --popover: 0 0% 100%;
     --popover-foreground: 220 25% 12%;
@@ -20,22 +18,21 @@
     --primary-foreground: 220 25% 8%;
     --secondary: 150 55% 30%;
     --secondary-foreground: 0 0% 100%;
-    --muted: 220 14% 90%;
+    --muted: 220 14% 92%;
     --muted-foreground: 220 12% 38%;
     --accent: 45 90% 44%;
     --accent-foreground: 220 25% 8%;
     --destructive: 0 68% 48%;
     --destructive-foreground: 0 0% 100%;
-    /* Visible border on all renderers — was too faint at 85% */
     --border: 220 14% 78%;
     --input: 220 14% 78%;
     --ring: 45 90% 44%;
     --radius: 0.25rem;
-    --sidebar-background: 220 16% 93%;
+    --sidebar-background: 220 16% 95%;
     --sidebar-foreground: 220 18% 22%;
     --sidebar-primary: 45 90% 44%;
     --sidebar-primary-foreground: 220 25% 8%;
-    --sidebar-accent: 220 14% 88%;
+    --sidebar-accent: 220 14% 90%;
     --sidebar-accent-foreground: 45 90% 44%;
     --sidebar-border: 220 14% 78%;
     --sidebar-ring: 45 90% 44%;
