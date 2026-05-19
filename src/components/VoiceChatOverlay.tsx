@@ -4,6 +4,9 @@ import { X, Mic, Volume2 } from "lucide-react";
 import { streamChatMessage } from "@/mavis/chatService";
 import { useElevenLabsTts } from "@/hooks/useElevenLabsTts";
 
+// Minimal SpeechRecognition typing — Web Speech API isn't in lib.dom yet
+type SpeechRecognition = any;
+
 export interface VoicePersona {
   name: string;
   role?: string;
@@ -71,8 +74,8 @@ export function VoiceChatOverlay({
     if (recognitionRef.current) return;
     if (phaseRef.current === "thinking") return;
 
-    const SR = (window as Window & { SpeechRecognition?: typeof SpeechRecognition; webkitSpeechRecognition?: typeof SpeechRecognition }).SpeechRecognition
-            ?? (window as Window & { webkitSpeechRecognition?: typeof SpeechRecognition }).webkitSpeechRecognition;
+    const SR = (window as any).SpeechRecognition
+            ?? (window as any).webkitSpeechRecognition;
     if (!SR) return;
 
     const r = new SR() as SpeechRecognition & { _dead?: boolean };

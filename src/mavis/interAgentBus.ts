@@ -4,7 +4,8 @@
  * Supabase Realtime delivers messages without polling. Fallback polling included.
  */
 
-import { supabase } from "@/integrations/supabase/client";
+import { supabase as _supabase } from "@/integrations/supabase/client";
+const supabase = _supabase as any;
 import { RealtimeChannel } from "@supabase/supabase-js";
 
 // ── Message types ────────────────────────────────────────────────────────────

@@ -1,4 +1,5 @@
-import { supabase } from "@/integrations/supabase/client";
+import { supabase as _supabase } from "@/integrations/supabase/client";
+const supabase = _supabase as any;
 import { parseActions } from "./parseActions";
 import { executeActions } from "./actionExecutor";
 import type { ExecutionResult } from "./types";

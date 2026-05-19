@@ -10,7 +10,8 @@
  * and a sensemaking module that builds coherent narratives from disparate data.
  */
 
-import { supabase } from "@/integrations/supabase/client";
+import { supabase as _supabase } from "@/integrations/supabase/client";
+const supabase = _supabase as any;
 import { storeMemory, type AgentMemory } from "@/mavis/agentMemoryEngine";
 import { callLocalMesh } from "@/mavis/localMesh";
 

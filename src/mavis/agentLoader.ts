@@ -2,7 +2,8 @@
 // Loads and normalizes AgentEntity objects from Supabase for both
 // Council Members (table: councils) and Personas (table: personas).
 
-import { supabase } from "@/integrations/supabase/client";
+import { supabase as _supabase } from "@/integrations/supabase/client";
+const supabase = _supabase as any;
 import type { UnifiedCouncilMember, UnifiedPersona, AgentEntity } from "./agentTypes";
 
 export async function loadCouncilAgents(userId: string): Promise<UnifiedCouncilMember[]> {

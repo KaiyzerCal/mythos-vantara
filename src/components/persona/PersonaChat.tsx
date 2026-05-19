@@ -522,7 +522,7 @@ export function PersonaChat({ persona, userId, onBack }: PersonaChatProps) {
               name: persona.name,
               role: persona.role,
               systemPrompt: persona.system_prompt,
-              voiceId: (persona as Record<string, unknown>).voice_id as string | undefined,
+              voiceId: (persona as unknown as Record<string, unknown>).voice_id as string | undefined,
             }}
             onClose={() => setVoiceOpen(false)}
           />

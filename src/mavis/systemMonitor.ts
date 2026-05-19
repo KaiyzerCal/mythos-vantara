@@ -15,7 +15,8 @@
  * appropriate MAVIS subsystem (skills, plugins, agent bus, distillation).
  */
 
-import { supabase } from "@/integrations/supabase/client";
+import { supabase as _supabase } from "@/integrations/supabase/client";
+const supabase = _supabase as any;
 import { sendMessage, broadcastToAll } from "@/mavis/interAgentBus";
 
 // ── Types ─────────────────────────────────────────────────────────────────────

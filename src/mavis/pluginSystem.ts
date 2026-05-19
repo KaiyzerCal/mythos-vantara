@@ -4,7 +4,8 @@
  * Evaluators (output assessors), and Services (long-running background tasks).
  */
 
-import { supabase } from "@/integrations/supabase/client";
+import { supabase as _supabase } from "@/integrations/supabase/client";
+const supabase = _supabase as any;
 
 // ── Core context passed to every handler ────────────────────────────────────
 

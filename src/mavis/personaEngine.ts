@@ -2,7 +2,8 @@
 // Revenue attribution and content generation for Personas.
 // Foundation for the AI influencer trajectory.
 
-import { supabase } from "@/integrations/supabase/client";
+import { supabase as _supabase } from "@/integrations/supabase/client";
+const supabase = _supabase as any;
 import type { PersonaContent, ContentType } from "./agentTypes";
 import type { UnifiedPersona } from "./agentTypes";
 import type { AppContextSnapshot } from "./appContextLoader";
