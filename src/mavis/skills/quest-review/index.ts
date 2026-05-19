@@ -1,6 +1,7 @@
 import { registerSkill } from "../_registry";
 import type { SkillHandler } from "../_registry";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase as _supabase } from "@/integrations/supabase/client";
+const supabase = _supabase as any;
 
 const handler: SkillHandler = async (ctx, _input) => {
   try {

@@ -11,7 +11,8 @@
  *     → FeedbackLoop (injects results as "tool" role messages)
  */
 
-import { supabase } from "@/integrations/supabase/client";
+import { supabase as _supabase } from "@/integrations/supabase/client";
+const supabase = _supabase as any;
 
 // ── JSON Schema subset for tool parameters ────────────────────────────────────
 

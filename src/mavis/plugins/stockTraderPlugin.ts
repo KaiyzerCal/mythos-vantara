@@ -10,7 +10,8 @@
  *  - No leveraged positions without explicit operator approval
  */
 
-import { supabase } from "@/integrations/supabase/client";
+import { supabase as _supabase } from "@/integrations/supabase/client";
+const supabase = _supabase as any;
 import { MavisPlugin, MavisAction, MavisProvider, MavisEvaluator, PluginContext, ActionResult } from "@/mavis/pluginSystem";
 import { storeMemory, buildMemoryContext } from "@/mavis/agentMemoryEngine";
 import { sendMessage } from "@/mavis/interAgentBus";

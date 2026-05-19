@@ -9,7 +9,8 @@
  *  - Knowledge graph topology analysis (orphaned nodes, missing links)
  */
 
-import { supabase } from "@/integrations/supabase/client";
+import { supabase as _supabase } from "@/integrations/supabase/client";
+const supabase = _supabase as any;
 import { callLocalMesh } from "@/mavis/localMesh";
 import { storeMemory } from "@/mavis/agentMemoryEngine";
 

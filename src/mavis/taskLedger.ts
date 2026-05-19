@@ -1,7 +1,8 @@
 // Task ledger — tracks all autonomous MAVIS operations.
 // Operator visibility dashboard for everything MAVIS does or plans to do.
 
-import { supabase } from "@/integrations/supabase/client";
+import { supabase as _supabase } from "@/integrations/supabase/client";
+const supabase = _supabase as any;
 
 export type TaskStatus =
   | "pending"

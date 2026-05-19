@@ -1,6 +1,7 @@
 // Skill registry — register, discover, and invoke MAVIS skills
 
-import { supabase } from "@/integrations/supabase/client";
+import { supabase as _supabase } from "@/integrations/supabase/client";
+const supabase = _supabase as any;
 
 export interface SkillContext {
   userId: string;
