@@ -6,7 +6,8 @@
  * mavis_agent_memories and the session closes.
  */
 
-import { supabase } from "@/integrations/supabase/client";
+import { supabase as _supabase } from "@/integrations/supabase/client";
+const supabase = _supabase as any;
 import { storeMemory } from "@/mavis/agentMemoryEngine";
 import { toolRegistry, runToolLoop, type ToolDefinition } from "@/mavis/toolRegistry";
 import { sendMessage, type AgentAddress } from "@/mavis/interAgentBus";
