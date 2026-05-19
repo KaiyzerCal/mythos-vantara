@@ -25,6 +25,7 @@ import { sendMessage, broadcastToAll } from "@/mavis/interAgentBus";
 import { dispatchAgent, type AgentSpecialization } from "@/mavis/dynamicAgentFactory";
 import { toolRegistry } from "@/mavis/toolRegistry";
 import { getLocalMeshConfig } from "@/mavis/localMesh";
+import { getAllSkills } from "@/mavis/skills/_registry";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -262,7 +263,21 @@ const MAVIS_WORKFLOWS: AgentWorkflow[] = [
 
 // ── Skill selector (semantic matching) ───────────────────────────────────────
 
-function selectSkills(task: string, availableSkills: AgentSkill[] = MAVIS_SKILLS): AgentSkill[] {
+function selectSkills(task: string, availableSkills?: AgentSkill[]): AgentSkill[] {
+  // Merge built-in skills with any DB runtime skills (keyword + description match)
+  if (!availableSkills) {
+    const dbDefs = getAllSkills();
+    const builtinNames = new Set(MAVIS_SKILLS.map(s => s.name));
+    const runtimeSkills: AgentSkill[] = dbDefs
+      .filter(d => !builtinNames.has(d.name))
+      .map(d => ({
+        name: d.name,
+        description: d.description,
+        triggers: d.keywords,
+        instructions: d.description,
+      }));
+    availableSkills = [...MAVIS_SKILLS, ...runtimeSkills];
+  }
   const taskLower = task.toLowerCase();
 
   // Direct keyword trigger match
@@ -744,9 +759,14 @@ class WorkspaceCoordinator {
     return MAVIS_WORKFLOWS.map(w => ({ name: `/${w.name}`, description: w.description }));
   }
 
-  /** List available skills with descriptions */
+  /** List available skills with descriptions (built-in + DB runtime skills) */
   listSkills(): Array<{ name: string; description: string }> {
-    return MAVIS_SKILLS.map(s => ({ name: s.name, description: s.description }));
+    const dbSkills = getAllSkills().map(s => ({ name: s.name, description: s.description }));
+    const builtinNames = new Set(MAVIS_SKILLS.map(s => s.name));
+    return [
+      ...MAVIS_SKILLS.map(s => ({ name: s.name, description: s.description })),
+      ...dbSkills.filter(s => !builtinNames.has(s.name)),
+    ];
   }
 
   /** Get a session by ID */
