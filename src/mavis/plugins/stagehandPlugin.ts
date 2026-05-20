@@ -122,7 +122,7 @@ async function _navigateViaFetch(url: string): Promise<BrowserResult> {
 
 // ── MAVIS Plugin registration ─────────────────────────────────────────────────
 
-export const stagehandPlugin: MavisPlugin = {
+export const stagehandPlugin = {
   id:          "stagehand-browser",
   name:        "Stagehand Browser",
   description: "Vision-aware browser automation via Stagehand MCP or Browserbase cloud",

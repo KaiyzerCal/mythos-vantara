@@ -162,7 +162,7 @@ export async function listWorkflows(): Promise<Array<{ id: string; name: string;
 
 // ── MAVIS Plugin registration ─────────────────────────────────────────────────
 
-export const n8nPlugin: MavisPlugin = {
+export const n8nPlugin = {
   id:          "n8n-workflows",
   name:        "n8n Workflow Engine",
   description: "Construct and execute n8n automation workflows from natural language via MAVIS",

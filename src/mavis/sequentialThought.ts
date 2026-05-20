@@ -182,10 +182,12 @@ async function _thinkNative(
 
     let raw: string;
     try {
-      raw = await callLocalMesh([
+      const res = await callLocalMesh([
         { role: "system", content: "You are a sequential reasoning engine. Output exactly one thought step." },
         { role: "user",   content: prompt },
       ]);
+      if (!res) break;
+      raw = res.content;
     } catch {
       // If LLM call fails, break with what we have
       break;
@@ -240,10 +242,11 @@ async function _thinkNative(
 
   let conclusion = thoughts[thoughts.length - 1]?.content ?? "Reasoning incomplete.";
   try {
-    conclusion = await callLocalMesh([
+    const res = await callLocalMesh([
       { role: "system", content: "Synthesize the reasoning steps into a final answer." },
       { role: "user",   content: synthesisPrompt },
     ]);
+    if (res) conclusion = res.content;
   } catch { /* use last thought as conclusion */ }
 
   return { goal, mode, thoughts, conclusion, stepsTaken: step, revisionsUsed };
