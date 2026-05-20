@@ -497,3 +497,106 @@ Write a 3-5 sentence synthesis that captures the most important points. Be speci
   const result = await callLocalMesh([{ role: "user", content: prompt }]);
   return result?.content ?? excerpts.slice(0, 800);
 }
+
+// ── CodeGraphContext-style structural analysis ────────────────────────────────
+// Queries the knowledge graph structurally (not semantically) to surface
+// architectural patterns: hubs, bridges, clusters, and dead ends.
+// Mirrors what Neo4j Aura would provide — implemented over Supabase tables.
+
+export interface GraphNode {
+  id:        string;
+  title:     string;
+  tags:      string[];
+  inDegree:  number;  // how many notes link TO this
+  outDegree: number;  // how many notes this links TO
+}
+
+export interface GraphEdge {
+  sourceId: string;
+  targetSlug: string;
+}
+
+export interface GraphStructure {
+  nodes:      GraphNode[];
+  edges:      GraphEdge[];
+  hubs:       GraphNode[];   // high-degree nodes (architectural anchors)
+  orphans:    GraphNode[];   // no in- or out-edges (isolated knowledge)
+  bridges:    GraphNode[];   // single path between clusters (critical connectors)
+  clusters:   string[][];    // tag-based groupings
+}
+
+export async function analyzeGraphStructure(userId: string): Promise<GraphStructure> {
+  // Fetch all notes
+  const { data: notes } = await supabase
+    .from("mavis_notes")
+    .select("id, title, tags")
+    .eq("user_id", userId)
+    .order("created_at", { ascending: false })
+    .limit(500) as { data: Array<{ id: string; title: string; tags: string[] | null }> | null };
+
+  // Fetch all wikilinks
+  const { data: wikilinks } = await supabase
+    .from("mavis_note_wikilinks")
+    .select("source_note_id, target_slug")
+    .eq("user_id", userId) as { data: Array<{ source_note_id: string; target_slug: string }> | null };
+
+  const noteMap = new Map((notes ?? []).map(n => [n.id, { ...n, tags: n.tags ?? [], inDegree: 0, outDegree: 0 }]));
+  const edges: GraphEdge[] = wikilinks ?? [];
+
+  // Build degree counts
+  for (const edge of edges) {
+    const src = noteMap.get(edge.source_note_id);
+    if (src) src.outDegree++;
+
+    // Resolve target_slug to a note ID
+    for (const [, node] of noteMap) {
+      if (node.title.toLowerCase() === edge.target_slug.toLowerCase()) {
+        node.inDegree++;
+        break;
+      }
+    }
+  }
+
+  const nodes = [...noteMap.values()] as GraphNode[];
+  const totalDegree = (n: GraphNode) => n.inDegree + n.outDegree;
+
+  // Hubs: top 10% by total degree
+  const degreeThreshold = nodes.length > 10
+    ? nodes.sort((a, b) => totalDegree(b) - totalDegree(a))[Math.floor(nodes.length * 0.1)].inDegree +
+      nodes[Math.floor(nodes.length * 0.1)].outDegree
+    : 2;
+
+  const hubs    = nodes.filter(n => totalDegree(n) >= degreeThreshold && totalDegree(n) > 1);
+  const orphans = nodes.filter(n => totalDegree(n) === 0);
+  // Bridges: exactly 1 in-edge AND exactly 1 out-edge (single-path connectors)
+  const bridges = nodes.filter(n => n.inDegree === 1 && n.outDegree === 1);
+
+  // Clusters: group by most common tag
+  const tagMap = new Map<string, string[]>();
+  for (const node of nodes) {
+    for (const tag of (node.tags ?? [])) {
+      if (!tagMap.has(tag)) tagMap.set(tag, []);
+      tagMap.get(tag)!.push(node.title);
+    }
+  }
+  const clusters = [...tagMap.entries()]
+    .filter(([, titles]) => titles.length >= 2)
+    .sort((a, b) => b[1].length - a[1].length)
+    .slice(0, 10)
+    .map(([, titles]) => titles);
+
+  return { nodes, edges, hubs, orphans, bridges, clusters };
+}
+
+/** Human-readable summary of graph structure — inject into agent context */
+export async function summarizeGraphStructure(userId: string): Promise<string> {
+  const g = await analyzeGraphStructure(userId);
+  const lines = [
+    `KNOWLEDGE GRAPH: ${g.nodes.length} notes, ${g.edges.length} wikilinks`,
+    g.hubs.length    ? `  Hubs (${g.hubs.length}): ${g.hubs.slice(0, 5).map(n => `"${n.title}"`).join(", ")}` : "",
+    g.orphans.length ? `  Orphans (${g.orphans.length}): ${g.orphans.slice(0, 4).map(n => `"${n.title}"`).join(", ")} — consider linking` : "",
+    g.bridges.length ? `  Bridges (${g.bridges.length}): ${g.bridges.slice(0, 3).map(n => `"${n.title}"`).join(", ")} — single points of failure` : "",
+    g.clusters.length? `  Clusters: ${g.clusters.slice(0, 4).map(c => `[${c.slice(0,3).join(", ")}${c.length>3 ? "…" : ""}]`).join(" | ")}` : "",
+  ].filter(Boolean);
+  return lines.join("\n");
+}

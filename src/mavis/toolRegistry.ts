@@ -13,6 +13,9 @@
 
 import { supabase as _supabase } from "@/integrations/supabase/client";
 const supabase = _supabase as any;
+import { browserNavigate, browserExtract } from "@/mavis/plugins/stagehandPlugin";
+import { buildWorkflow, triggerWorkflow, listWorkflows } from "@/mavis/plugins/n8nPlugin";
+import { think, formatThoughtChain } from "@/mavis/sequentialThought";
 
 // ── JSON Schema subset for tool parameters ────────────────────────────────────
 
@@ -452,6 +455,187 @@ toolRegistry.register({
         text = text.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
       }
       return { success: true, output: text.slice(0, 3000) };
+    } catch (err) {
+      return { success: false, output: "", error: (err as Error).message };
+    }
+  },
+});
+
+// ── MCP-backed tools ──────────────────────────────────────────────────────────
+
+toolRegistry.register({
+  name: "browser_navigate",
+  description: "Navigate to a URL using Stagehand vision-aware browser. Returns page text and detects dynamic SPA content. Falls back to direct fetch when Stagehand isn't running locally.",
+  category: "api",
+  parameters: {
+    type: "object",
+    properties: {
+      url:     { type: "string",  description: "Full URL to navigate to" },
+      extract: { type: "string",  description: "Optional: natural language instruction for what to extract (e.g. 'all product prices')" },
+    },
+    required: ["url"],
+  },
+  timeoutMs: 45_000,
+  async execute(params) {
+    try {
+      if (params.extract) {
+        const text = await browserExtract(params.url as string, { instruction: params.extract as string });
+        return { success: true, output: text.slice(0, 4000) };
+      }
+      const result = await browserNavigate(params.url as string);
+      return {
+        success: true,
+        output:  result.text.slice(0, 4000),
+        data:    { provider: result.provider, title: result.title },
+      };
+    } catch (err) {
+      return { success: false, output: "", error: (err as Error).message };
+    }
+  },
+});
+
+toolRegistry.register({
+  name: "build_n8n_workflow",
+  description: "Build a complete n8n automation workflow from a natural language description. Returns the workflow JSON ready to save or execute. Requires n8n MCP server running locally.",
+  category: "system",
+  parameters: {
+    type: "object",
+    properties: {
+      description: { type: "string",  description: "Natural language description of the automation (e.g. 'Send a Slack message when a new Supabase row is inserted')" },
+      save:        { type: "boolean", description: "If true, save the workflow to n8n immediately (requires N8N_API_KEY)" },
+    },
+    required: ["description"],
+  },
+  timeoutMs: 60_000,
+  requiresApproval: true,
+  async execute(params) {
+    try {
+      const blueprint = await buildWorkflow(params.description as string);
+      if (!blueprint) return { success: false, output: "n8n MCP server not available. Start it with: npx @czlonkowski/n8n-mcp" };
+      if (params.save) {
+        const id = await triggerWorkflow(blueprint as never);
+        if (id) return { success: true, output: `Workflow saved to n8n. ID: ${id}`, data: blueprint };
+      }
+      return { success: true, output: `Workflow blueprint created: "${blueprint.name}"\n${blueprint.description}`, data: blueprint };
+    } catch (err) {
+      return { success: false, output: "", error: (err as Error).message };
+    }
+  },
+});
+
+toolRegistry.register({
+  name: "list_n8n_workflows",
+  description: "List all automation workflows in the connected n8n instance.",
+  category: "system",
+  parameters: { type: "object", properties: {} },
+  async execute() {
+    try {
+      const workflows = await listWorkflows();
+      if (!workflows.length) return { success: true, output: "No workflows found or n8n not configured." };
+      const lines = workflows.map(w => `• [${w.id}] ${w.name} — ${w.active ? "active" : "inactive"}`);
+      return { success: true, output: lines.join("\n"), data: workflows };
+    } catch (err) {
+      return { success: false, output: "", error: (err as Error).message };
+    }
+  },
+});
+
+toolRegistry.register({
+  name: "think_sequential",
+  description: "Apply tree-of-thought reasoning before taking a complex action. Use this before any irreversible mutation, multi-step plan, or ambiguous decision to reduce greedy-decoding errors.",
+  category: "analysis",
+  parameters: {
+    type: "object",
+    properties: {
+      goal:    { type: "string", description: "What you need to reason through" },
+      context: { type: "string", description: "Relevant facts and constraints to consider" },
+      mode:    { type: "string", enum: ["chain", "tree", "revision"], description: "chain=linear, tree=branching, revision=allows backtracking" },
+      steps:   { type: "number", description: "Max thought steps (default 5)" },
+    },
+    required: ["goal", "context"],
+  },
+  timeoutMs: 120_000,
+  async execute(params) {
+    try {
+      const chain = await think(
+        params.goal as string,
+        params.context as string,
+        { mode: (params.mode as never) ?? "chain", maxSteps: (params.steps as number) ?? 5 },
+      );
+      return { success: true, output: formatThoughtChain(chain), data: chain };
+    } catch (err) {
+      return { success: false, output: "", error: (err as Error).message };
+    }
+  },
+});
+
+toolRegistry.register({
+  name: "graph_traverse",
+  description: "Traverse the MAVIS knowledge graph from a starting note outward by wikilinks. Returns a subgraph of connected notes up to the specified depth. Use for context discovery before writing or referencing notes.",
+  category: "knowledge",
+  parameters: {
+    type: "object",
+    properties: {
+      start_title: { type: "string",  description: "Title of the starting note" },
+      depth:       { type: "number",  description: "How many link hops to follow (1–4, default 2)" },
+      user_id:     { type: "string",  description: "User ID (injected automatically)" },
+    },
+    required: ["start_title"],
+  },
+  async execute(params, userId) {
+    try {
+      const depth = Math.min(Math.max(1, (params.depth as number) ?? 2), 4);
+      const uid   = (params.user_id as string) || userId;
+
+      // Seed: find the starting note
+      const { data: seed } = await supabase
+        .from("mavis_notes")
+        .select("id, title, content, tags")
+        .eq("user_id", uid)
+        .ilike("title", params.start_title as string)
+        .limit(1);
+
+      if (!seed?.length) return { success: false, output: `Note "${params.start_title}" not found.` };
+
+      // BFS over wikilinks
+      const visited  = new Set<string>([seed[0].id]);
+      const frontier = [seed[0].id];
+      const nodes: Array<{ id: string; title: string; tags: string[] }> = [{ id: seed[0].id, title: seed[0].title, tags: seed[0].tags ?? [] }];
+      const edges: Array<{ from: string; to: string }> = [];
+
+      for (let hop = 0; hop < depth; hop++) {
+        if (!frontier.length) break;
+        const { data: links } = await supabase
+          .from("mavis_note_wikilinks")
+          .select("source_note_id, target_slug")
+          .in("source_note_id", frontier)
+          .eq("user_id", uid);
+
+        frontier.length = 0;
+        for (const link of (links ?? [])) {
+          const { data: targets } = await supabase
+            .from("mavis_notes")
+            .select("id, title, tags")
+            .eq("user_id", uid)
+            .ilike("title", link.target_slug)
+            .limit(1);
+          for (const t of (targets ?? [])) {
+            edges.push({ from: link.source_note_id, to: t.id });
+            if (!visited.has(t.id)) {
+              visited.add(t.id);
+              frontier.push(t.id);
+              nodes.push({ id: t.id, title: t.title, tags: t.tags ?? [] });
+            }
+          }
+        }
+      }
+
+      const summary = [
+        `Graph from "${params.start_title}" (depth ${depth}): ${nodes.length} nodes, ${edges.length} edges`,
+        "Nodes: " + nodes.map(n => `"${n.title}" [${(n.tags ?? []).join(", ")}]`).join(" → "),
+      ].join("\n");
+
+      return { success: true, output: summary, data: { nodes, edges } };
     } catch (err) {
       return { success: false, output: "", error: (err as Error).message };
     }

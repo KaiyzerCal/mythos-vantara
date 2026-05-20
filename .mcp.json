@@ -1,0 +1,43 @@
+{
+  "mcpServers": {
+    "sequential-thinking": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-sequential-thinking"],
+      "description": "Forces tree-of-thought reasoning before mutations — prevents greedy decoding errors on complex multi-step MAVIS tasks"
+    },
+    "context7": {
+      "command": "npx",
+      "args": ["-y", "@upstash/context7-mcp@latest"],
+      "description": "Precision doc injector — pulls version-pinned API signatures (Supabase, React, Vite) without blowing out the context window"
+    },
+    "supabase": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@supabase/mcp-server-supabase@latest",
+        "--access-token",
+        "${SUPABASE_ACCESS_TOKEN}"
+      ],
+      "description": "Live schema inspection — catch column-name drift before generating SQL, verify migrations, debug RLS cascade issues in real-time"
+    },
+    "stagehand": {
+      "command": "npx",
+      "args": ["-y", "@browserbasehq/stagehand-mcp"],
+      "env": {
+        "BROWSERBASE_API_KEY": "${BROWSERBASE_API_KEY}",
+        "BROWSERBASE_PROJECT_ID": "${BROWSERBASE_PROJECT_ID}",
+        "OPENAI_API_KEY": "${OPENAI_API_KEY}"
+      },
+      "description": "Vision-aware headless browser — sees UI layouts, navigates SPAs without brittle CSS selectors, feeds screenshot feedback into the agent loop"
+    },
+    "n8n": {
+      "command": "npx",
+      "args": ["-y", "@czlonkowski/n8n-mcp"],
+      "env": {
+        "N8N_HOST": "${N8N_HOST}",
+        "N8N_API_KEY": "${N8N_API_KEY}"
+      },
+      "description": "Full n8n node catalog — agent constructs production-ready workflow JSON from natural language, not just triggers existing webhooks"
+    }
+  }
+}
