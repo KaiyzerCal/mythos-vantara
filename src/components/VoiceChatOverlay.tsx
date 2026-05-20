@@ -249,6 +249,9 @@ export function VoiceChatOverlay({
 
   // ── Mount: auto-start; Unmount: full cleanup ──────────────────────────────
   useEffect(() => {
+    // The overlay mounts immediately after the user tap that opened it,
+    // so this still counts as a gesture on iOS — prime audio now.
+    unlockAudio();
     const t = setTimeout(() => startListening(), 250);
     return () => {
       clearTimeout(t);
