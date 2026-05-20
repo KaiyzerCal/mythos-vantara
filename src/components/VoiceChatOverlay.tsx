@@ -63,6 +63,33 @@ export function VoiceChatOverlay({
   const lastSpokenRef     = useRef(lastBotMessage);
   const ttsRef            = useRef(tts);
   ttsRef.current          = tts;
+  const audioUnlockRef    = useRef<HTMLAudioElement | null>(null);
+  const audioUnlockedRef  = useRef(false);
+
+  // iOS Safari requires audio + speechSynthesis to be "primed" inside a user
+  // gesture before any async-triggered playback will be audible. Call this
+  // from every tap handler in the overlay.
+  const unlockAudio = useCallback(() => {
+    if (audioUnlockedRef.current) return;
+    audioUnlockedRef.current = true;
+    try {
+      // 1) Unlock HTMLAudio (used by ElevenLabs path) with a silent MP3.
+      const silent = new Audio(
+        "data:audio/mp3;base64,//uQxAAAAAAAAAAAAAAAAAAAAAAAWGluZwAAAA8AAAACAAACcQCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgID///////////////////////////////////////////8AAAA5TEFNRTMuMTAwAc0AAAAALkAAABSAJAJAQgAAgAAAAnGMHF2QAAAAAAAAAAAAAAAAAAAA//sQxAADwAABpAAAACAAADSAAAAETEFNRTMuMTAwVVU=",
+      );
+      silent.volume = 0;
+      silent.play().catch(() => {});
+      audioUnlockRef.current = silent;
+      // 2) Unlock speechSynthesis (used by browser-voice path) with an empty utterance.
+      if (typeof window !== "undefined" && "speechSynthesis" in window) {
+        const u = new SpeechSynthesisUtterance(" ");
+        u.volume = 0;
+        window.speechSynthesis.speak(u);
+      }
+    } catch {
+      // ignore — best-effort unlock
+    }
+  }, []);
 
   // ── setPhaseSync: update ref AND state in one call ────────────────────────
   const setPhaseSync = useCallback((p: Phase) => {
@@ -222,6 +249,9 @@ export function VoiceChatOverlay({
 
   // ── Mount: auto-start; Unmount: full cleanup ──────────────────────────────
   useEffect(() => {
+    // The overlay mounts immediately after the user tap that opened it,
+    // so this still counts as a gesture on iOS — prime audio now.
+    unlockAudio();
     const t = setTimeout(() => startListening(), 250);
     return () => {
       clearTimeout(t);
@@ -246,6 +276,7 @@ export function VoiceChatOverlay({
 
   // ── Orb/button tap ────────────────────────────────────────────────────────
   const handleTap = useCallback(() => {
+    unlockAudio();
     if (phase === "speaking") {
       ttsRef.current.stop();
       setPhaseSync("listening");
