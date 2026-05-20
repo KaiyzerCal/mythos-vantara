@@ -138,4 +138,4 @@ export const stagehandPlugin = {
   async onDisable() {},
 };
 
-pluginRegistry.register(stagehandPlugin);
+pluginRegistry.register(stagehandPlugin as unknown as MavisPlugin);

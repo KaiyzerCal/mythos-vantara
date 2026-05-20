@@ -182,4 +182,4 @@ export const n8nPlugin = {
   async onDisable() {},
 };
 
-pluginRegistry.register(n8nPlugin);
+pluginRegistry.register(n8nPlugin as unknown as MavisPlugin);
