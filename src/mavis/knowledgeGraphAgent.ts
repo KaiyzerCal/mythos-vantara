@@ -541,16 +541,16 @@ export async function analyzeGraphStructure(userId: string): Promise<GraphStruct
     .eq("user_id", userId) as { data: Array<{ source_note_id: string; target_slug: string }> | null };
 
   const noteMap = new Map((notes ?? []).map(n => [n.id, { ...n, tags: n.tags ?? [], inDegree: 0, outDegree: 0 }]));
-  const edges: GraphEdge[] = wikilinks ?? [];
+  const edges: GraphEdge[] = (wikilinks ?? []).map(w => ({ sourceId: w.source_note_id, targetSlug: w.target_slug }));
 
   // Build degree counts
   for (const edge of edges) {
-    const src = noteMap.get(edge.source_note_id);
+    const src = noteMap.get(edge.sourceId);
     if (src) src.outDegree++;
 
-    // Resolve target_slug to a note ID
+    // Resolve targetSlug to a note ID
     for (const [, node] of noteMap) {
-      if (node.title.toLowerCase() === edge.target_slug.toLowerCase()) {
+      if (node.title.toLowerCase() === edge.targetSlug.toLowerCase()) {
         node.inDegree++;
         break;
       }
