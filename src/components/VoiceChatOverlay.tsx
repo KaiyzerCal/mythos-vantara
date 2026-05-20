@@ -276,6 +276,7 @@ export function VoiceChatOverlay({
 
   // ── Orb/button tap ────────────────────────────────────────────────────────
   const handleTap = useCallback(() => {
+    unlockAudio();
     if (phase === "speaking") {
       ttsRef.current.stop();
       setPhaseSync("listening");
