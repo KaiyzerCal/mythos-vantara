@@ -215,7 +215,7 @@ export default function Dashboard() {
           <div className="flex items-center justify-between mb-3">
             <h3 className="text-sm font-display text-foreground">Active Tasks</h3>
             <button
-              onClick={() => navigate("/tasks")}
+              onClick={() => navigate("/quests")}
               className="text-[10px] font-mono text-primary hover:underline"
             >
               View All →
