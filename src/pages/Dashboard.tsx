@@ -45,7 +45,7 @@ const CORE_STATS = [
 
 export default function Dashboard() {
   const navigate = useNavigate();
-  const { profile, quests, questStats, tasks, journalEntries } = useAppData();
+  const { profile, quests, questStats, journalEntries } = useAppData();
 
   const rankColor = RANK_COLORS[profile.rank as keyof typeof RANK_COLORS] ?? "#FFD700";
   const xpPct = profile.xp_to_next_level > 0
@@ -53,7 +53,6 @@ export default function Dashboard() {
     : 0;
 
   const activeQuests = quests.filter((q) => q.status === "active").slice(0, 4);
-  const activeTasks = tasks.filter((t) => t.status === "active").slice(0, 4);
 
   const copyStats = () => {
     const text = [
