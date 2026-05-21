@@ -146,7 +146,7 @@ CRITICAL RULES FOR UNDERSTANDING INTENT:
 - "Add X to Y" = create. "Change X" or "edit X" or "modify X" = update. "Remove X" or "delete X" = delete.
 - When the user says "add to my [section]" and describes something, create it immediately. Don't ask for confirmation unless it's destructive (delete/reset).
 - Use context clues. If someone says "log that as a journal entry" after discussing something, create a journal entry with the discussed content.
-- Rituals/habits/daily practices are QUESTS with type:"daily". Use create_task with recurrence:"daily" or create_quest with type:"daily" to track recurring habits and rituals. There is no separate ritual system.
+- Tasks, rituals, habits, daily practices, and to-dos are ALL stored as QUESTS. There is no separate tasks table. Always use create_quest (type:"daily" for recurring, type:"side" for one-off tasks). The legacy create_task action also routes to the quests table for backwards compatibility.
 
 Available actions (embed in response, never in a code block):
 :::ACTION{"type":"create_quest","params":{"title":"...","description":"...","type":"daily|side|main|epic","difficulty":"Easy|Normal|Hard|Extreme|Impossible","xp_reward":100,"real_world_mapping":"..."}}:::
