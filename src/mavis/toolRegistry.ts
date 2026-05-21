@@ -401,36 +401,39 @@ toolRegistry.register({
 
 toolRegistry.register({
   name: "create_task",
-  description: "Create a new quest task in MAVIS",
+  description: "Create a new quest (tasks are stored as quests — there is no separate tasks table)",
   category: "data",
   parameters: {
     type: "object",
     properties: {
-      title: { type: "string", description: "Task title" },
-      description: { type: "string", description: "Task description" },
-      quest_id: { type: "string", description: "Optional quest UUID to attach to" },
-      due_date: { type: "string", description: "Due date in ISO format (optional)" },
+      title: { type: "string", description: "Quest/task title" },
+      description: { type: "string", description: "Description" },
+      type: { type: "string", description: "daily | side | main | epic (default: daily)" },
+      xp_reward: { type: "number", description: "XP reward (default: 25)" },
+      deadline: { type: "string", description: "Deadline ISO timestamp (optional)" },
     },
     required: ["title"],
   },
   async execute(params, userId) {
     const { data, error } = await supabase
-      .from("mavis_tasks")
+      .from("quests")
       .insert({
         user_id: userId,
         title: params.title,
-        description: params.description ?? null,
-        quest_id: params.quest_id ?? null,
-        due_date: params.due_date ?? null,
-        status: "pending",
+        description: params.description ?? "",
+        type: params.type ?? "daily",
+        status: "active",
+        xp_reward: params.xp_reward ?? 25,
+        deadline: params.deadline ?? null,
       })
       .select("id")
       .single();
 
-    if (error) return { success: false, output: `Failed to create task: ${error.message}`, error: error.message };
-    return { success: true, output: `Task created: "${params.title}" (ID: ${data.id})`, data };
+    if (error) return { success: false, output: `Failed to create quest: ${error.message}`, error: error.message };
+    return { success: true, output: `Quest created: "${params.title}" (ID: ${data.id})`, data };
   },
 });
+
 
 toolRegistry.register({
   name: "fetch_url",

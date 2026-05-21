@@ -45,7 +45,7 @@ const CORE_STATS = [
 
 export default function Dashboard() {
   const navigate = useNavigate();
-  const { profile, quests, questStats, tasks, journalEntries } = useAppData();
+  const { profile, quests, questStats, journalEntries } = useAppData();
 
   const rankColor = RANK_COLORS[profile.rank as keyof typeof RANK_COLORS] ?? "#FFD700";
   const xpPct = profile.xp_to_next_level > 0
@@ -53,7 +53,6 @@ export default function Dashboard() {
     : 0;
 
   const activeQuests = quests.filter((q) => q.status === "active").slice(0, 4);
-  const activeTasks = tasks.filter((t) => t.status === "active").slice(0, 4);
 
   const copyStats = () => {
     const text = [
@@ -210,49 +209,31 @@ export default function Dashboard() {
           </div>
         </HudCard>
 
-        {/* Active Tasks */}
+        {/* Recent Journal */}
         <HudCard>
           <div className="flex items-center justify-between mb-3">
-            <h3 className="text-sm font-display text-foreground">Active Tasks</h3>
+            <h3 className="text-sm font-display text-foreground">Recent Log</h3>
             <button
-              onClick={() => navigate("/quests")}
+              onClick={() => navigate("/journal")}
               className="text-[10px] font-mono text-primary hover:underline"
             >
               View All →
             </button>
           </div>
           <div className="space-y-2">
-            {activeTasks.map((t) => (
-              <div key={t.id} className="flex items-center gap-2 p-2 rounded bg-muted/20 border border-border/50">
-                <CheckSquare size={12} className={t.status === "completed" ? "text-green-400" : "text-muted-foreground"} />
-                <span className="text-xs font-body flex-1 truncate">{t.title}</span>
-                <span className="text-[10px] font-mono text-muted-foreground shrink-0 capitalize">{t.recurrence}</span>
-                <span className="text-[10px] font-mono text-primary shrink-0">+{t.xp_reward}</span>
+            {journalEntries.slice(0, 4).map((e) => (
+              <div key={e.id} className="flex items-center gap-2 p-2 rounded bg-muted/20 border border-border/50">
+                <BookOpen size={12} className="text-blue-400 shrink-0" />
+                <span className="text-xs font-body flex-1 truncate">{e.title}</span>
+                <span className="text-[10px] font-mono text-green-400 shrink-0">+{e.xp_earned}</span>
               </div>
             ))}
-            {activeTasks.length === 0 && (
-              <p className="text-xs font-mono text-muted-foreground text-center py-2">No active tasks</p>
+            {journalEntries.length === 0 && (
+              <p className="text-xs font-mono text-muted-foreground text-center py-2">No journal entries yet</p>
             )}
           </div>
-          {/* Recent journal */}
-          {journalEntries.length > 0 && (
-            <div className="mt-3 pt-3 border-t border-border/50">
-              <div className="flex items-center justify-between mb-2">
-                <p className="text-[10px] font-mono text-muted-foreground uppercase">Recent Log</p>
-                <button onClick={() => navigate("/journal")} className="text-[10px] font-mono text-primary hover:underline">
-                  View →
-                </button>
-              </div>
-              {journalEntries.slice(0, 2).map((e) => (
-                <div key={e.id} className="flex items-center gap-2 py-1">
-                  <BookOpen size={10} className="text-blue-400 shrink-0" />
-                  <span className="text-[10px] font-body text-muted-foreground truncate">{e.title}</span>
-                  <span className="text-[10px] font-mono text-green-400 ml-auto shrink-0">+{e.xp_earned}</span>
-                </div>
-              ))}
-            </div>
-          )}
         </HudCard>
+
       </motion.div>
 
       {/* ── Quick Access Grid ── */}
