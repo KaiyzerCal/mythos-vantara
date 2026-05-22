@@ -50,6 +50,10 @@ function ThemeColorSync() {
   }, [resolvedTheme]);
   return null;
 }
+function ThemedSonner() {
+  const { resolvedTheme } = useTheme();
+  return <SonnerToaster position="bottom-right" theme={resolvedTheme === "light" ? "light" : "dark"} />;
+}
 
 // Pages
 import { AuthPage, NotFound, SettingsPage } from "@/pages/UtilityPages";
