@@ -18,11 +18,24 @@ function ThemeColorSync() {
   useEffect(() => {
     const isLight = resolvedTheme === "light";
     const color = isLight ? "#ffffff" : "#0a0d1f";
+
+    // Replace all theme-color metas with a single non-media-scoped tag so
+    // Android Chrome / WebView always picks up the active theme.
     document.querySelectorAll('meta[name="theme-color"]').forEach((el) => el.remove());
-    const meta = document.createElement("meta");
-    meta.name = "theme-color";
-    meta.content = color;
-    document.head.appendChild(meta);
+    const themeMeta = document.createElement("meta");
+    themeMeta.name = "theme-color";
+    themeMeta.content = color;
+    document.head.appendChild(themeMeta);
+
+    // Tell Chrome/WebView which scheme we're actually rendering. A single
+    // value (not "dark light") disables Android Chrome's "Force Dark" inversion.
+    let csMeta = document.querySelector('meta[name="color-scheme"]') as HTMLMetaElement | null;
+    if (!csMeta) {
+      csMeta = document.createElement("meta");
+      csMeta.name = "color-scheme";
+      document.head.appendChild(csMeta);
+    }
+    csMeta.content = isLight ? "light" : "dark";
 
     // Android WebView/Chrome need explicit class + color-scheme updates to
     // re-render form controls, scrollbars, and the body background. next-themes
@@ -32,6 +45,8 @@ function ThemeColorSync() {
     root.classList.add(isLight ? "light" : "dark");
     root.style.colorScheme = isLight ? "light" : "dark";
     document.body.style.backgroundColor = isLight ? "#ffffff" : "#0a0d1f";
+
+    try { localStorage.setItem("vantara-theme", isLight ? "light" : "dark"); } catch {}
   }, [resolvedTheme]);
   return null;
 }
