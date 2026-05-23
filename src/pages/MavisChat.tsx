@@ -25,6 +25,7 @@ import { initSession } from "@/mavis/memoryEngine";
 import { loadRuntimeSkills } from "@/mavis/skills/_registry";
 import { gatherProviderContext } from "@/mavis/contextProviders";
 import { buildRecallContext } from "@/mavis/proactiveRecall";
+import { captureProceduralMemory } from "@/mavis/proceduralMemory";
 import type { ExecutionResult } from "@/mavis/types";
 // Trigger skill self-registration
 import "@/mavis/skills/_loader";
@@ -600,6 +601,8 @@ export default function MavisChat() {
           await new Promise(r => setTimeout(r, 500));
           await refetchAll();
           setTimeout(() => { refetchAll(); }, 1500);
+          // Hermes procedural memory: capture how this request was handled
+          if (userId) captureProceduralMemory(userId, content, confirmed).catch(() => {});
         }
         const actionTypes = confirmed.map((r) => r.action.type).join(", ");
         if (failed.length > 0) {
