@@ -23,6 +23,8 @@ import { streamChatMessage, streamAgentMessage, streamResearchMessage } from "@/
 import { loadFullAppContext } from "@/mavis/appContextLoader";
 import { initSession } from "@/mavis/memoryEngine";
 import { loadRuntimeSkills } from "@/mavis/skills/_registry";
+import { gatherProviderContext } from "@/mavis/contextProviders";
+import { buildRecallContext } from "@/mavis/proactiveRecall";
 import type { ExecutionResult } from "@/mavis/types";
 // Trigger skill self-registration
 import "@/mavis/skills/_loader";
@@ -449,7 +451,7 @@ export default function MavisChat() {
     setIsLoading(true);
 
     if (convoId) {
-      await persistMessage({ role: "user", content, mode: chatMode }, convoId);
+      persistMessage({ role: "user", content, mode: chatMode }, convoId).catch(() => {});
     }
 
     const history = chatMessages
@@ -462,7 +464,7 @@ export default function MavisChat() {
     const userId = authSession?.user?.id;
 
     // Load archived memories and vault media in parallel with full app context
-    const [fullCtx, memoriesRes, vaultMediaRes] = await Promise.all([
+    const [fullCtx, memoriesRes, vaultMediaRes, , recallCtxRaw] = await Promise.all([
       userId ? loadFullAppContext(userId) : Promise.resolve(null),
       (async () => {
         if (!userId) return "";
@@ -491,6 +493,10 @@ export default function MavisChat() {
           return data ?? [];
         } catch { return []; }
       })(),
+      // pre-warm provider cache so buildSystemPromptFromSnapshot gets instant results
+      userId ? gatherProviderContext(userId, content).catch(() => "") : Promise.resolve(""),
+      // proactive recall runs in parallel too
+      userId ? buildRecallContext(userId, content, 3).catch(() => null) : Promise.resolve(null),
     ]);
 
     const archivedMemories = memoriesRes as string;
@@ -513,7 +519,7 @@ export default function MavisChat() {
     let streamingId = "";
     try {
       // Use fresh Supabase context if available, else fall back to useAppData() data
-      const systemPrompt = await (fullCtx
+      let systemPrompt = await (fullCtx
         ? buildSystemPromptFromSnapshot(chatMode, fullCtx, archivedMemories, vaultMedia)
         : buildSystemPromptFromSnapshot(chatMode, {
             profile: profile as any,
@@ -525,6 +531,7 @@ export default function MavisChat() {
             bpmSessions: bpmSessions as any[], allies: allies as any[],
             rituals: rituals as any[], pendingApprovals: [], loadedAt: new Date().toISOString(),
           }, archivedMemories, vaultMedia));
+      if (recallCtxRaw) systemPrompt += `\n\n${recallCtxRaw}`;
       const attachmentIds = attachments.map((a) => a.id);
 
       // Add a streaming placeholder bubble so the user sees tokens as they arrive

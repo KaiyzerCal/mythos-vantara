@@ -87,11 +87,22 @@ export function VoiceChatOverlay({
     if (!SpeechRecognition) return;
 
     const recognition = new SpeechRecognition();
-    recognition.continuous = false;
+    recognition.continuous = true;
     recognition.interimResults = true;
     recognition.lang = "en-US";
 
     let finalText = "";
+    let silenceTimer: ReturnType<typeof setTimeout> | null = null;
+    const SILENCE_MS = 1800;
+
+    function resetSilenceTimer() {
+      if (silenceTimer) clearTimeout(silenceTimer);
+      silenceTimer = setTimeout(() => {
+        if (recognitionRef.current) {
+          recognitionRef.current.stop(); // triggers onend with captured text
+        }
+      }, SILENCE_MS);
+    }
 
     recognition.onresult = (event: any) => {
       let interim = "";
@@ -105,14 +116,17 @@ export function VoiceChatOverlay({
         }
       }
       setInterimTranscript(interim);
+      resetSilenceTimer();
     };
 
     recognition.onerror = () => {
+      if (silenceTimer) clearTimeout(silenceTimer);
       recognitionRef.current = null;
       if (!closingRef.current) setPhase("idle");
     };
 
     recognition.onend = () => {
+      if (silenceTimer) clearTimeout(silenceTimer);
       recognitionRef.current = null;
       if (closingRef.current) return;
       const captured = finalText.trim();
@@ -181,7 +195,7 @@ export function VoiceChatOverlay({
 
   const phaseLabel: Record<Phase, string> = {
     idle: "TAP TO SPEAK",
-    listening: "LISTENING...",
+    listening: "LISTENING — pause to send",
     thinking: "THINKING...",
     speaking: "SPEAKING...",
   };
