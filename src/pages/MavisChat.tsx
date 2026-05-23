@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { Send, Square, Cpu, Copy, Check, ChevronDown, Zap, Brain, Target, Crown, Flame, Database, Mic, MicOff, Users, Search, FileCode, X, Download } from "lucide-react";
+import { Send, Square, Cpu, Copy, Check, ChevronDown, Zap, Brain, Target, Crown, Flame, Database, Mic, MicOff, Users, Search, FileCode, X, Download, Settings } from "lucide-react";
 import { useAppData } from "@/contexts/AppDataContext";
 import { supabase } from "@/integrations/supabase/client";
 import { PageHeader, HudCard } from "@/components/SharedUI";
@@ -37,6 +37,8 @@ import { dispatchAgent } from "@/mavis/dynamicAgentFactory";
 import type { AgentSpecialization } from "@/mavis/dynamicAgentFactory";
 import { runEvaluators } from "@/mavis/evaluatorPipeline";
 import { buildRecallContext } from "@/mavis/proactiveRecall";
+import { autoCrewDispatch } from "@/mavis/crewCoordinator";
+import { getCustomOrders, addStandingOrder, removeStandingOrder } from "@/mavis/standingOrders";
 
 const MAVIS_MODES = [
   { id: "PRIME", label: "PRIME", icon: Crown, color: "text-primary", desc: "GPT-4o-mini · General purpose" },
@@ -91,6 +93,23 @@ export default function MavisChat() {
   const [agentDispatching, setAgentDispatching] = useState(false);
   const [agentResult, setAgentResult] = useState<string | null>(null);
   const [meshOnline, setMeshOnline] = useState(false);
+
+  // AGENT mode — crew coordinator
+  const [agentPanelTab, setAgentPanelTab] = useState<"specialist" | "crew">("specialist");
+  const [crewGoal, setCrewGoal] = useState("");
+  const [crewRunning, setCrewRunning] = useState(false);
+  const [crewResult, setCrewResult] = useState("");
+
+  // Standing orders panel
+  const [showOrdersPanel, setShowOrdersPanel] = useState(false);
+  const [customOrders, setCustomOrders] = useState<string[]>([]);
+  const [newOrder, setNewOrder] = useState("");
+
+  // Persona injection
+  const [selectedPersonaPrompt, setSelectedPersonaPrompt] = useState<string | null>(null);
+  const [selectedPersonaName, setSelectedPersonaName] = useState<string | null>(null);
+  const [showPersonaPicker, setShowPersonaPicker] = useState(false);
+  const [personas, setPersonas] = useState<Array<{ id: string; name: string; system_prompt: string }>>([]);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -167,6 +186,27 @@ export default function MavisChat() {
   // Check local mesh availability for AGENT mode
   useEffect(() => {
     checkLocalMeshHealth().then((h) => setMeshOnline(h === "online")).catch(() => {});
+  }, []);
+
+  // Load standing orders on mount
+  useEffect(() => {
+    setCustomOrders(getCustomOrders());
+  }, []);
+
+  // Load personas on mount
+  useEffect(() => {
+    (async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session?.user?.id) return;
+        const { data } = await supabase
+          .from("personas")
+          .select("id, name, system_prompt")
+          .eq("is_active", true)
+          .eq("user_id", session.user.id);
+        if (data) setPersonas(data);
+      } catch { /* non-critical */ }
+    })();
   }, []);
 
   // Persist voice preference in localStorage so it survives reloads
@@ -584,6 +624,11 @@ export default function MavisChat() {
         }
       } catch { /* non-fatal */ }
 
+      // Persona injection
+      if (selectedPersonaPrompt) {
+        finalSystemPrompt = finalSystemPrompt + `\n\n--- ACTIVE PERSONA ---\n${selectedPersonaPrompt}\n---`;
+      }
+
       // Add a streaming placeholder bubble so the user sees tokens as they arrive
       streamingId = `streaming-${Date.now()}`;
       setChatMessages((prev) => [...prev, {
@@ -805,7 +850,6 @@ export default function MavisChat() {
     try {
       const result = await dispatchAgent(agentTask.trim(), agentSpec, session.user.id, { maxSubTasks: 3 });
       setAgentResult(result.output);
-      // Append result as a chat message so it's preserved in history
       setChatMessages(prev => [...prev, {
         id: crypto.randomUUID(),
         role: "assistant" as const,
@@ -820,6 +864,32 @@ export default function MavisChat() {
       toast.error("Agent dispatch failed");
     } finally {
       setAgentDispatching(false);
+    }
+  }
+
+  async function handleCrewLaunch() {
+    if (!crewGoal.trim() || crewRunning) return;
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.user?.id) { toast.error("Not authenticated"); return; }
+    setCrewRunning(true);
+    setCrewResult("");
+    try {
+      const result = await autoCrewDispatch(crewGoal.trim(), session.user.id);
+      setCrewResult(result.output);
+      setChatMessages(prev => [...prev, {
+        id: crypto.randomUUID(),
+        role: "assistant" as const,
+        content: `**[CREW COMPLETE]**\n\n${result.output}`,
+        mode: "AGENT",
+        timestamp: new Date(),
+      }]);
+      setCrewGoal("");
+      toast.success("Crew run complete");
+    } catch (e: any) {
+      setCrewResult(`Crew error: ${e?.message ?? String(e)}`);
+      toast.error("Crew dispatch failed");
+    } finally {
+      setCrewRunning(false);
     }
   }
 
@@ -936,12 +1006,125 @@ export default function MavisChat() {
         </AnimatePresence>
       </div>
       <button
+        onClick={() => setShowPersonaPicker(!showPersonaPicker)}
+        className="flex items-center gap-1.5 px-2.5 py-1.5 rounded border border-border text-muted-foreground hover:text-primary hover:border-primary/30 text-[10px] font-mono transition-colors"
+        title="Persona"
+      >
+        Persona
+      </button>
+      <button
+        onClick={() => setShowOrdersPanel(!showOrdersPanel)}
+        className="p-1.5 rounded border border-border text-muted-foreground hover:text-primary hover:border-primary/30 transition-colors"
+        title="Standing Orders"
+      >
+        <Settings size={13} />
+      </button>
+      <button
         onClick={() => setVoiceOverlayOpen(true)}
         className="ml-auto flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-primary/30 text-primary/70 hover:text-primary hover:bg-primary/10 text-xs font-mono transition-all"
       >
         <Mic size={12} /> VOICE
       </button>
       </div>
+
+      {/* Persona picker dropdown */}
+      <AnimatePresence>
+        {showPersonaPicker && (
+          <motion.div
+            initial={{ opacity: 0, y: -4 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -4 }}
+            className="border border-border rounded bg-card p-2 space-y-1"
+          >
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-[9px] font-mono text-primary uppercase tracking-widest">Select Persona</span>
+              <button onClick={() => setShowPersonaPicker(false)} className="text-muted-foreground hover:text-destructive transition-colors"><X size={10} /></button>
+            </div>
+            {personas.length === 0 && (
+              <p className="text-[9px] font-mono text-muted-foreground">No active personas found.</p>
+            )}
+            {personas.map((p) => (
+              <button
+                key={p.id}
+                onClick={() => { setSelectedPersonaPrompt(p.system_prompt); setSelectedPersonaName(p.name); setShowPersonaPicker(false); }}
+                className={`w-full text-left text-[10px] font-mono px-2 py-1 rounded border transition-colors ${selectedPersonaName === p.name ? "bg-primary/10 border-primary/30 text-primary" : "border-border/50 text-muted-foreground hover:text-foreground hover:border-border"}`}
+              >
+                {p.name}
+              </button>
+            ))}
+            {selectedPersonaPrompt && (
+              <button
+                onClick={() => { setSelectedPersonaPrompt(null); setSelectedPersonaName(null); }}
+                className="w-full text-left text-[9px] font-mono px-2 py-1 rounded border border-destructive/30 text-destructive/70 hover:text-destructive transition-colors mt-1"
+              >
+                Clear persona
+              </button>
+            )}
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Standing orders panel */}
+      <AnimatePresence>
+        {showOrdersPanel && (
+          <motion.div
+            initial={{ opacity: 0, y: -4 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -4 }}
+          >
+            <HudCard className="p-3 space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-[9px] font-mono text-primary uppercase tracking-widest">Standing Orders</span>
+                <button onClick={() => setShowOrdersPanel(false)} className="text-muted-foreground hover:text-destructive transition-colors"><X size={11} /></button>
+              </div>
+              <div className="space-y-1">
+                {customOrders.length === 0 && (
+                  <p className="text-[9px] font-mono text-muted-foreground">No custom orders added.</p>
+                )}
+                {customOrders.map((order, i) => (
+                  <div key={i} className="flex items-center gap-2 group">
+                    <span className="flex-1 text-[10px] font-mono text-foreground/80">{order}</span>
+                    <button
+                      onClick={() => { removeStandingOrder(order); setCustomOrders(getCustomOrders()); }}
+                      className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition-all"
+                    >
+                      <X size={10} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+              <div className="flex gap-2">
+                <input
+                  value={newOrder}
+                  onChange={(e) => setNewOrder(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && newOrder.trim()) {
+                      addStandingOrder(newOrder.trim());
+                      setCustomOrders(getCustomOrders());
+                      setNewOrder("");
+                    }
+                  }}
+                  placeholder="Add custom order..."
+                  className="flex-1 bg-muted/30 border border-border rounded px-2 py-1 text-[10px] font-mono focus:outline-none focus:border-primary/40 placeholder:text-muted-foreground"
+                />
+                <button
+                  onClick={() => {
+                    if (newOrder.trim()) {
+                      addStandingOrder(newOrder.trim());
+                      setCustomOrders(getCustomOrders());
+                      setNewOrder("");
+                    }
+                  }}
+                  className="px-2 py-1 rounded border border-border text-[9px] font-mono text-muted-foreground hover:text-primary hover:border-primary/30 transition-colors"
+                >
+                  Add
+                </button>
+              </div>
+              <p className="text-[9px] font-mono text-muted-foreground/60">Core directives are always active. These are your custom additions.</p>
+            </HudCard>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Messages */}
       <div className="relative flex-1 min-h-0">
@@ -1140,50 +1323,96 @@ export default function MavisChat() {
           >
             <div className="flex items-center gap-2">
               <Cpu size={11} className="text-violet-400" />
-              <span className="text-[9px] font-mono text-violet-400 uppercase tracking-widest">Specialist Dispatch</span>
+              <div className="flex gap-1">
+                <button
+                  onClick={() => setAgentPanelTab("specialist")}
+                  className={`text-[9px] font-mono px-2 py-0.5 rounded border transition-colors ${agentPanelTab === "specialist" ? "bg-violet-500/20 border-violet-500/40 text-violet-300" : "border-border/50 text-muted-foreground hover:text-foreground"}`}
+                >
+                  SPECIALIST
+                </button>
+                <button
+                  onClick={() => setAgentPanelTab("crew")}
+                  className={`text-[9px] font-mono px-2 py-0.5 rounded border transition-colors ${agentPanelTab === "crew" ? "bg-violet-500/20 border-violet-500/40 text-violet-300" : "border-border/50 text-muted-foreground hover:text-foreground"}`}
+                >
+                  CREW
+                </button>
+              </div>
               {!meshOnline && (
                 <span className="text-[8px] font-mono text-amber-500/70 ml-auto">⚠ Local Mesh offline — dispatch requires Ollama</span>
               )}
             </div>
-            <div className="flex gap-2 flex-wrap">
-              {(["researcher", "analyst", "executor", "planner", "writer"] as AgentSpecialization[]).map((s) => (
-                <button
-                  key={s}
-                  onClick={() => setAgentSpec(s)}
-                  className={`text-[9px] font-mono px-2 py-1 rounded border transition-colors ${
-                    agentSpec === s
-                      ? "bg-violet-500/20 border-violet-500/40 text-violet-300"
-                      : "border-border/50 text-muted-foreground hover:text-foreground"
-                  }`}
-                >
-                  {s}
-                </button>
-              ))}
-            </div>
-            <div className="flex gap-2">
-              <input
-                value={agentTask}
-                onChange={(e) => setAgentTask(e.target.value)}
-                onKeyDown={(e) => { if (e.key === "Enter") handleAgentDispatch(); }}
-                placeholder="Describe the task for the specialist agent..."
-                className="flex-1 bg-card border border-border rounded px-2.5 py-1.5 text-xs font-body focus:outline-none focus:border-violet-500/50 placeholder:text-muted-foreground placeholder:text-[10px]"
-              />
-              <button
-                onClick={handleAgentDispatch}
-                disabled={agentDispatching || !agentTask.trim()}
-                className="px-3 py-1.5 rounded border border-violet-500/30 bg-violet-500/10 text-violet-300 text-[10px] font-mono hover:bg-violet-500/20 disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex items-center gap-1.5"
-              >
-                {agentDispatching ? (
-                  <><span className="w-2 h-2 rounded-full border border-violet-400 border-t-transparent animate-spin" /> Running</>
-                ) : (
-                  <><Cpu size={10} /> Dispatch</>
+            {agentPanelTab === "specialist" && (
+              <>
+                <div className="flex gap-2 flex-wrap">
+                  {(["researcher", "analyst", "executor", "planner", "writer"] as AgentSpecialization[]).map((s) => (
+                    <button
+                      key={s}
+                      onClick={() => setAgentSpec(s)}
+                      className={`text-[9px] font-mono px-2 py-1 rounded border transition-colors ${
+                        agentSpec === s
+                          ? "bg-violet-500/20 border-violet-500/40 text-violet-300"
+                          : "border-border/50 text-muted-foreground hover:text-foreground"
+                      }`}
+                    >
+                      {s}
+                    </button>
+                  ))}
+                </div>
+                <div className="flex gap-2">
+                  <input
+                    value={agentTask}
+                    onChange={(e) => setAgentTask(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === "Enter") handleAgentDispatch(); }}
+                    placeholder="Describe the task for the specialist agent..."
+                    className="flex-1 bg-card border border-border rounded px-2.5 py-1.5 text-xs font-body focus:outline-none focus:border-violet-500/50 placeholder:text-muted-foreground placeholder:text-[10px]"
+                  />
+                  <button
+                    onClick={handleAgentDispatch}
+                    disabled={agentDispatching || !agentTask.trim()}
+                    className="px-3 py-1.5 rounded border border-violet-500/30 bg-violet-500/10 text-violet-300 text-[10px] font-mono hover:bg-violet-500/20 disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex items-center gap-1.5"
+                  >
+                    {agentDispatching ? (
+                      <><span className="w-2 h-2 rounded-full border border-violet-400 border-t-transparent animate-spin" /> Running</>
+                    ) : (
+                      <><Cpu size={10} /> Dispatch</>
+                    )}
+                  </button>
+                </div>
+                {agentResult && (
+                  <div className="border border-border/50 rounded bg-muted/20 p-2 max-h-32 overflow-y-auto">
+                    <pre className="text-[10px] font-mono text-foreground/80 whitespace-pre-wrap leading-relaxed">{agentResult}</pre>
+                  </div>
                 )}
-              </button>
-            </div>
-            {agentResult && (
-              <div className="border border-border/50 rounded bg-muted/20 p-2 max-h-32 overflow-y-auto">
-                <pre className="text-[10px] font-mono text-foreground/80 whitespace-pre-wrap leading-relaxed">{agentResult}</pre>
-              </div>
+              </>
+            )}
+            {agentPanelTab === "crew" && (
+              <>
+                <div className="flex gap-2">
+                  <input
+                    value={crewGoal}
+                    onChange={(e) => setCrewGoal(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === "Enter") handleCrewLaunch(); }}
+                    placeholder="Describe the crew goal..."
+                    className="flex-1 bg-card border border-border rounded px-2.5 py-1.5 text-xs font-body focus:outline-none focus:border-violet-500/50 placeholder:text-muted-foreground placeholder:text-[10px]"
+                  />
+                  <button
+                    onClick={handleCrewLaunch}
+                    disabled={crewRunning || !crewGoal.trim()}
+                    className="px-3 py-1.5 rounded border border-violet-500/30 bg-violet-500/10 text-violet-300 text-[10px] font-mono hover:bg-violet-500/20 disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex items-center gap-1.5"
+                  >
+                    {crewRunning ? (
+                      <><span className="w-2 h-2 rounded-full border border-violet-400 border-t-transparent animate-spin" /> Running</>
+                    ) : (
+                      <><Users size={10} /> Launch Crew</>
+                    )}
+                  </button>
+                </div>
+                {crewResult && (
+                  <div className="border border-border/50 rounded bg-muted/20 p-2 max-h-32 overflow-y-auto">
+                    <pre className="text-[10px] font-mono text-foreground/80 whitespace-pre-wrap leading-relaxed">{crewResult}</pre>
+                  </div>
+                )}
+              </>
             )}
           </motion.div>
         )}
@@ -1215,6 +1444,19 @@ export default function MavisChat() {
             onRemove={remove}
             compact
           />
+        </div>
+      )}
+
+      {/* Active persona badge */}
+      {selectedPersonaName && (
+        <div className="flex items-center gap-1.5">
+          <button
+            onClick={() => { setSelectedPersonaPrompt(null); setSelectedPersonaName(null); }}
+            className="flex items-center gap-1 text-[9px] font-mono px-2 py-0.5 rounded border border-primary/30 bg-primary/10 text-primary hover:border-destructive/40 hover:text-destructive transition-colors"
+          >
+            <span>Persona: {selectedPersonaName}</span>
+            <X size={9} />
+          </button>
         </div>
       )}
 
