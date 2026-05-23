@@ -72,6 +72,20 @@ export const MAVIS_MODE_DEFINITIONS: Record<MavisMode, ModeDefinition> = {
     systemTone: "Live intelligence. Real-time awareness. Pattern detection.",
     emoji: "🔭",
   },
+  AGENT: {
+    id: "AGENT",
+    label: "Agent",
+    description: "Agentic tool-use loop. MAVIS autonomously plans, executes tools, and delivers structured results.",
+    systemTone: "Agentic tool-use loop. Plan, execute, verify. Use tools deliberately.",
+    emoji: "🤖",
+  },
+  RESEARCH: {
+    id: "RESEARCH",
+    label: "Research",
+    description: "Deep multi-step research with citations and synthesis. Follows threads across multiple sources.",
+    systemTone: "Deep research mode. Multi-source, multi-angle. Cite everything.",
+    emoji: "🔬",
+  },
 };
 
 export const DEFAULT_MODE: MavisMode = "PRIME";

@@ -4,7 +4,7 @@
 // ============================================================
 import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
-import { BarChart2, Loader2, RefreshCw, CheckSquare, CheckCircle2, Circle, Eye } from "lucide-react";
+import { BarChart2, Loader2, RefreshCw, CheckSquare, CheckCircle2, Circle, Eye, TrendingUp, Star, Trophy, Calendar } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { PageHeader, HudCard, ProgressBar } from "@/components/SharedUI";
@@ -107,6 +107,12 @@ export function AnalyticsPage() {
   const [moodCounts, setMoodCounts] = useState<Record<string, number>>({});
   const [moodLoading, setMoodLoading] = useState(true);
 
+  // Character progress
+  const [charProfile, setCharProfile] = useState<{ level: number; xp: number; xp_to_next_level: number; rank: string } | null>(null);
+  const [questRate, setQuestRate] = useState<{ completed: number; total: number } | null>(null);
+  const [weekActivity, setWeekActivity] = useState<{ day: string; count: number; xp: number }[]>([]);
+  const [charLoading, setCharLoading] = useState(true);
+
   const days30 = getLast30Days();
 
   useEffect(() => {
@@ -116,6 +122,7 @@ export function AnalyticsPage() {
     loadCompletionGrid();
     loadEnergy();
     loadMood();
+    loadCharacterProgress();
   }, [session]);
 
   // ─── Loaders ───────────────────────────────────────────────
@@ -203,6 +210,45 @@ export function AnalyticsPage() {
     setMoodLoading(false);
   }
 
+  async function loadCharacterProgress() {
+    setCharLoading(true);
+    const [profileRes, questsRes, activityRes] = await Promise.all([
+      supabase.from("profiles").select("level, xp, xp_to_next_level, rank").single(),
+      supabase.from("quests").select("status"),
+      (supabase as any)
+        .from("mavis_activity_log")
+        .select("created_at, xp_awarded")
+        .gte("created_at", (() => { const d = new Date(); d.setDate(d.getDate() - 6); return d.toISOString(); })())
+        .order("created_at", { ascending: true }),
+    ]);
+
+    if (profileRes.data) setCharProfile(profileRes.data as any);
+
+    if (questsRes.data) {
+      const total = questsRes.data.length;
+      const completed = questsRes.data.filter((q: any) => q.status === "completed").length;
+      setQuestRate({ completed, total });
+    }
+
+    if (activityRes.data) {
+      const byDay: Record<string, { count: number; xp: number }> = {};
+      for (const entry of activityRes.data as any[]) {
+        const day = entry.created_at?.slice(0, 10) ?? "";
+        if (!byDay[day]) byDay[day] = { count: 0, xp: 0 };
+        byDay[day].count += 1;
+        byDay[day].xp += entry.xp_awarded ?? 0;
+      }
+      const week: { day: string; count: number; xp: number }[] = [];
+      for (let i = 6; i >= 0; i--) {
+        const d = new Date(); d.setDate(d.getDate() - i);
+        const key = d.toISOString().slice(0, 10);
+        week.push({ day: key, count: byDay[key]?.count ?? 0, xp: byDay[key]?.xp ?? 0 });
+      }
+      setWeekActivity(week);
+    }
+    setCharLoading(false);
+  }
+
   // ─── Actions ───────────────────────────────────────────────
   async function markInsightRead(id: string) {
     await (supabase as any).from("mavis_insights").update({ read_at: new Date().toISOString() }).eq("id", id);
@@ -261,6 +307,84 @@ export function AnalyticsPage() {
         subtitle="Habit patterns, insights, energy trends"
         icon={<BarChart2 size={18} />}
       />
+
+      {/* ── Section 0: Character Progress ──────────────────── */}
+      {!charLoading && (charProfile || questRate) && (
+        <section>
+          <h2 className="text-xs font-mono text-primary uppercase tracking-widest mb-3">Character Progress</h2>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            {charProfile && (
+              <HudCard>
+                <div className="flex items-center gap-2 mb-2">
+                  <Trophy size={13} className="text-amber-400" />
+                  <span className="text-[10px] font-mono text-muted-foreground uppercase tracking-widest">Level / XP</span>
+                </div>
+                <div className="flex items-end justify-between mb-1.5">
+                  <span className="text-2xl font-display font-bold text-primary">LV.{charProfile.level}</span>
+                  <span className="text-[10px] font-mono text-muted-foreground">{charProfile.xp}/{charProfile.xp_to_next_level} XP</span>
+                </div>
+                <div className="w-full h-1.5 bg-muted rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-amber-400 rounded-full transition-all duration-700"
+                    style={{ width: `${Math.min(100, Math.round((charProfile.xp / (charProfile.xp_to_next_level || 1)) * 100))}%` }}
+                  />
+                </div>
+                <p className="text-[9px] font-mono text-muted-foreground mt-1">{charProfile.rank} RANK</p>
+              </HudCard>
+            )}
+            {questRate && (
+              <HudCard>
+                <div className="flex items-center gap-2 mb-2">
+                  <Star size={13} className="text-primary" />
+                  <span className="text-[10px] font-mono text-muted-foreground uppercase tracking-widest">Quest Completion</span>
+                </div>
+                <div className="flex items-end justify-between mb-1.5">
+                  <span className="text-2xl font-display font-bold text-primary">
+                    {questRate.total > 0 ? Math.round((questRate.completed / questRate.total) * 100) : 0}%
+                  </span>
+                  <span className="text-[10px] font-mono text-muted-foreground">{questRate.completed}/{questRate.total}</span>
+                </div>
+                <div className="w-full h-1.5 bg-muted rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-green-500 rounded-full transition-all duration-700"
+                    style={{ width: `${questRate.total > 0 ? Math.round((questRate.completed / questRate.total) * 100) : 0}%` }}
+                  />
+                </div>
+                <p className="text-[9px] font-mono text-muted-foreground mt-1">quests completed</p>
+              </HudCard>
+            )}
+            {weekActivity.length > 0 && (
+              <HudCard>
+                <div className="flex items-center gap-2 mb-2">
+                  <Calendar size={13} className="text-cyan-400" />
+                  <span className="text-[10px] font-mono text-muted-foreground uppercase tracking-widest">7-Day Activity</span>
+                </div>
+                <div className="flex items-end gap-1 h-12 mt-1">
+                  {weekActivity.map((d) => {
+                    const maxCount = Math.max(...weekActivity.map((w) => w.count), 1);
+                    const h = Math.max(4, Math.round((d.count / maxCount) * 44));
+                    const isToday = d.day === new Date().toISOString().slice(0, 10);
+                    return (
+                      <div key={d.day} className="flex-1 flex flex-col items-center gap-0.5" title={`${d.day}: ${d.count} actions, ${d.xp} XP`}>
+                        <div
+                          className={`w-full rounded-sm transition-all ${isToday ? "bg-primary" : "bg-primary/30"}`}
+                          style={{ height: h }}
+                        />
+                        <span className="text-[7px] font-mono text-muted-foreground/50">
+                          {new Date(d.day).getDate()}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+                <p className="text-[9px] font-mono text-muted-foreground mt-1">
+                  {weekActivity.reduce((s, d) => s + d.xp, 0)} XP this week
+                </p>
+              </HudCard>
+            )}
+          </div>
+        </section>
+      )}
 
       {/* ── Section 1: MAVIS Insights ───────────────────────── */}
       <section>

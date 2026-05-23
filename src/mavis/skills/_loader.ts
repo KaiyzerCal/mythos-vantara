@@ -6,3 +6,7 @@ import "./quest-review/index";
 import "./energy-check/index";
 import "./revenue-report/index";
 import "./knowledge-extract/index";
+import "./habit-check/index";
+import "./finance-brief/index";
+import "./reflection-prompt/index";
+import "./agent-status/index";

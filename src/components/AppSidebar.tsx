@@ -3,7 +3,7 @@ import {
   LayoutDashboard, User, Target, CheckSquare, Users, Flame,
   Zap, Sparkles, Package, BookOpen, BookLock, ShoppingBag,
   Medal, TowerControl, Activity, Settings, ChevronLeft, ChevronRight,
-  LogOut, Cpu, Shield, HeartPulse, Inbox, Network,
+  LogOut, Cpu, Shield, HeartPulse, Inbox, Network, Bell,
   UserCheck, BarChart2, Repeat2, Heart, DollarSign, CalendarClock,
   Crosshair, GraduationCap, Clock, Video, BookMarked,
   TrendingUp, Mail, Webhook, KeyRound, Archive,
@@ -21,6 +21,7 @@ const PRIMARY_NAV = [
   { to: "/character", icon: User, label: "Character" },
   { to: "/mavis", icon: Cpu, label: "MAVIS" },
   { to: "/inbox", icon: Inbox, label: "Inbox" },
+  { to: "/notifications", icon: Bell, label: "Notifications" },
   { to: "/quests", icon: Target, label: "Quests" },
   { to: "/councils", icon: Users, label: "Councils" },
 ];

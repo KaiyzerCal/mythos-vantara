@@ -7,7 +7,9 @@ export type MavisMode =
   | "COURT"
   | "SOVEREIGN"
   | "ENRYU"
-  | "WATCHTOWER";
+  | "WATCHTOWER"
+  | "AGENT"
+  | "RESEARCH";
 
 export interface MavisMessage {
   id: string;

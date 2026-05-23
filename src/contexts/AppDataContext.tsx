@@ -1,4 +1,5 @@
-import { createContext, useContext, useState, useCallback, ReactNode } from "react";
+import { createContext, useContext, useState, useCallback, useEffect, useRef, ReactNode } from "react";
+import { supabase } from "@/integrations/supabase/client";
 import { useProfile, type ProfileData } from "@/hooks/useProfile";
 import { useQuests, type Quest } from "@/hooks/useQuests";
 import {
@@ -175,6 +176,20 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
       refetchEnergy(), refetchInventory(), refetchAllies(), refetchBpm(), refetchStore(), refetchTransformations(), refetchRankings(),
     ]);
   }, [refetchProfile, refetchQuests, refetchTasks, refetchJournal, refetchVault, refetchCouncils, refetchSkills, refetchEnergy, refetchInventory, refetchAllies, refetchBpm, refetchStore, refetchTransformations, refetchRankings]);
+
+  // Supabase Realtime — live sync for core tables
+  const realtimeRef = useRef<any>(null);
+  useEffect(() => {
+    const channel = (supabase as any)
+      .channel("vantara-realtime")
+      .on("postgres_changes", { event: "*", schema: "public", table: "quests" }, () => { refetchQuests().catch(() => {}); })
+      .on("postgres_changes", { event: "*", schema: "public", table: "tasks" }, () => { refetchTasks().catch(() => {}); })
+      .on("postgres_changes", { event: "*", schema: "public", table: "energy_systems" }, () => { refetchEnergy().catch(() => {}); })
+      .on("postgres_changes", { event: "*", schema: "public", table: "journal_entries" }, () => { refetchJournal().catch(() => {}); })
+      .subscribe();
+    realtimeRef.current = channel;
+    return () => { (supabase as any).removeChannel(channel); };
+  }, [refetchQuests, refetchTasks, refetchEnergy, refetchJournal]);
 
   // MAVIS chat state
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([INITIAL_MAVIS_MSG]);

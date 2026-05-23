@@ -31,6 +31,8 @@ import type { ExecutionResult } from "@/mavis/types";
 import "@/mavis/skills/_loader";
 import { stagehandPlugin } from "@/mavis/plugins/stagehandPlugin";
 import { n8nPlugin } from "@/mavis/plugins/n8nPlugin";
+import { dispatchAgent } from "@/mavis/dynamicAgentFactory";
+import type { AgentSpecialization } from "@/mavis/dynamicAgentFactory";
 
 const MAVIS_MODES = [
   { id: "PRIME", label: "PRIME", icon: Crown, color: "text-primary", desc: "GPT-4o-mini · General purpose" },
@@ -78,6 +80,13 @@ export default function MavisChat() {
   const [artifactLang, setArtifactLang] = useState<string>("text");
   const [ttsEnabled, setTtsEnabled] = useState(false);
   const [voiceId, setVoiceId] = useState<string>(DEFAULT_VOICE_BY_GENDER.female);
+
+  // AGENT mode — specialist dispatch
+  const [agentSpec, setAgentSpec] = useState<AgentSpecialization>("researcher");
+  const [agentTask, setAgentTask] = useState("");
+  const [agentDispatching, setAgentDispatching] = useState(false);
+  const [agentResult, setAgentResult] = useState<string | null>(null);
+  const [meshOnline, setMeshOnline] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -149,6 +158,11 @@ export default function MavisChat() {
       } as any, { onConflict: "user_id,name" });
       if (error) throw error;
     });
+  }, []);
+
+  // Check local mesh availability for AGENT mode
+  useEffect(() => {
+    checkLocalMeshHealth().then((h) => setMeshOnline(h === "online")).catch(() => {});
   }, []);
 
   // Persist voice preference in localStorage so it survives reloads
@@ -742,6 +756,25 @@ export default function MavisChat() {
       console.error("Memory save on clear failed:", err);
     }
 
+    // ── Specialist agent dispatch (AGENT mode) ──────────────
+  async function handleAgentDispatch() {
+    if (!agentTask.trim() || agentDispatching) return;
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.user?.id) { toast.error("Not authenticated"); return; }
+    setAgentDispatching(true);
+    setAgentResult(null);
+    try {
+      const result = await dispatchAgent(agentTask.trim(), agentSpec, session.user.id, { maxSubTasks: 3 });
+      setAgentResult(result.output);
+      toast.success(`Agent ${agentSpec} complete`);
+    } catch (e: any) {
+      setAgentResult(`Agent error: ${e?.message ?? String(e)}`);
+      toast.error("Agent dispatch failed");
+    } finally {
+      setAgentDispatching(false);
+    }
+  }
+
     setChatMessages([{
       id: "init",
       role: "assistant",
@@ -1059,6 +1092,66 @@ export default function MavisChat() {
           </button>
         ))}
       </div>
+
+      {/* AGENT mode — specialist dispatch panel */}
+      <AnimatePresence>
+        {chatMode === "AGENT" && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: "auto" }}
+            exit={{ opacity: 0, height: 0 }}
+            className="border border-violet-800/40 rounded-lg bg-violet-950/20 p-3 space-y-2"
+          >
+            <div className="flex items-center gap-2">
+              <Cpu size={11} className="text-violet-400" />
+              <span className="text-[9px] font-mono text-violet-400 uppercase tracking-widest">Specialist Dispatch</span>
+              {!meshOnline && (
+                <span className="text-[8px] font-mono text-amber-500/70 ml-auto">⚠ Local Mesh offline — dispatch requires Ollama</span>
+              )}
+            </div>
+            <div className="flex gap-2 flex-wrap">
+              {(["researcher", "analyst", "executor", "planner", "writer"] as AgentSpecialization[]).map((s) => (
+                <button
+                  key={s}
+                  onClick={() => setAgentSpec(s)}
+                  className={`text-[9px] font-mono px-2 py-1 rounded border transition-colors ${
+                    agentSpec === s
+                      ? "bg-violet-500/20 border-violet-500/40 text-violet-300"
+                      : "border-border/50 text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  {s}
+                </button>
+              ))}
+            </div>
+            <div className="flex gap-2">
+              <input
+                value={agentTask}
+                onChange={(e) => setAgentTask(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") handleAgentDispatch(); }}
+                placeholder="Describe the task for the specialist agent..."
+                className="flex-1 bg-card border border-border rounded px-2.5 py-1.5 text-xs font-body focus:outline-none focus:border-violet-500/50 placeholder:text-muted-foreground placeholder:text-[10px]"
+              />
+              <button
+                onClick={handleAgentDispatch}
+                disabled={agentDispatching || !agentTask.trim()}
+                className="px-3 py-1.5 rounded border border-violet-500/30 bg-violet-500/10 text-violet-300 text-[10px] font-mono hover:bg-violet-500/20 disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex items-center gap-1.5"
+              >
+                {agentDispatching ? (
+                  <><span className="w-2 h-2 rounded-full border border-violet-400 border-t-transparent animate-spin" /> Running</>
+                ) : (
+                  <><Cpu size={10} /> Dispatch</>
+                )}
+              </button>
+            </div>
+            {agentResult && (
+              <div className="border border-border/50 rounded bg-muted/20 p-2 max-h-32 overflow-y-auto">
+                <pre className="text-[10px] font-mono text-foreground/80 whitespace-pre-wrap leading-relaxed">{agentResult}</pre>
+              </div>
+            )}
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Voice controls */}
       <div className="flex items-center gap-2 justify-end flex-wrap">

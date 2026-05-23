@@ -241,19 +241,11 @@ async function _thinkNative(
 
   let conclusion = thoughts[thoughts.length - 1]?.content ?? "Reasoning incomplete.";
   try {
-<<<<<<< HEAD
-    const res = await callLocalMesh([
-      { role: "system", content: "Synthesize the reasoning steps into a final answer." },
-      { role: "user",   content: synthesisPrompt },
-    ]);
-    if (res) conclusion = res.content;
-=======
     const synthRes = await callLocalMesh([
       { role: "system", content: "Synthesize the reasoning steps into a final answer." },
       { role: "user",   content: synthesisPrompt },
     ]);
     if (synthRes?.content) conclusion = synthRes.content;
->>>>>>> 5d57865 (Wire MCP capabilities into active execution paths)
   } catch { /* use last thought as conclusion */ }
 
   return { goal, mode, thoughts, conclusion, stepsTaken: step, revisionsUsed };
