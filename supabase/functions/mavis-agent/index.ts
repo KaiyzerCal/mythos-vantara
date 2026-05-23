@@ -345,6 +345,43 @@ const AGENT_TOOLS = [
     },
   },
   {
+    name: "browser_navigate",
+    description: "Navigate to a URL and return its text content. Uses Browserbase cloud when configured, otherwise falls back to a plain HTTP fetch. Use to read live web pages, docs, prices, or any URL the user needs.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        url:     { type: "string", description: "Full URL to navigate to (include https://)" },
+        extract: { type: "string", description: "Optional: natural language instruction for what to extract from the page (e.g. 'all product prices'). Uses Claude vision when Browserbase screenshot is available." },
+      },
+      required: ["url"],
+    },
+  },
+  {
+    name: "graph_traverse",
+    description: "Traverse the MAVIS knowledge graph starting from a note title, following wikilinks outward. Use before writing or referencing notes to discover connected context the user may have captured.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        start_title: { type: "string",  description: "Title (or partial title) of the starting note" },
+        depth:       { type: "number",  description: "How many link hops to follow (1–4, default 2)" },
+      },
+      required: ["start_title"],
+    },
+  },
+  {
+    name: "think_sequential",
+    description: "Run a multi-step chain-of-thought reasoning pass before answering a complex or high-stakes question. Use before any irreversible action, multi-step plan, or ambiguous decision to reduce errors.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        goal:    { type: "string", description: "The question or decision to reason through" },
+        context: { type: "string", description: "Relevant facts and constraints" },
+        steps:   { type: "number", description: "Max reasoning steps (default 4, max 8)" },
+      },
+      required: ["goal", "context"],
+    },
+  },
+  {
     name: "post_to_tiktok",
     description: "Post content to TikTok as Nora Vale persona. Provide a video_url for a video post, or omit for a text/caption draft.",
     input_schema: {
@@ -429,6 +466,7 @@ async function executeTool(
   name: string,
   input: Record<string, unknown>,
   userId: string,
+  token: string,
   adminSb: ReturnType<typeof createClient>,
   openaiKey: string,
   tavilyKey: string,
@@ -912,6 +950,148 @@ async function executeTool(
         } catch (err: any) { return JSON.stringify({ error: err.message ?? "Workflow run failed" }); }
       }
 
+      case "browser_navigate": {
+        const url = String(input.url ?? "");
+        const extract = input.extract ? String(input.extract) : null;
+        if (!url) return JSON.stringify({ error: "url is required" });
+
+        const bbKey  = Deno.env.get("BROWSERBASE_API_KEY") ?? "";
+        const bbProj = Deno.env.get("BROWSERBASE_PROJECT_ID") ?? "";
+        const BB_API = "https://www.browserbase.com/v1";
+
+        if (bbKey && bbProj) {
+          try {
+            const sessRes = await fetch(`${BB_API}/sessions`, {
+              method: "POST",
+              headers: { "X-BB-API-Key": bbKey, "Content-Type": "application/json" },
+              body: JSON.stringify({ projectId: bbProj }),
+            });
+            if (!sessRes.ok) throw new Error(`BB session failed: ${sessRes.status}`);
+            const sess = await sessRes.json() as { id: string };
+
+            try {
+              await fetch(`${BB_API}/sessions/${sess.id}/navigate`, {
+                method: "POST",
+                headers: { "X-BB-API-Key": bbKey, "Content-Type": "application/json" },
+                body: JSON.stringify({ url }),
+              });
+              await new Promise(r => setTimeout(r, 2000));
+
+              const contentRes = await fetch(`${BB_API}/sessions/${sess.id}/content`, { headers: { "X-BB-API-Key": bbKey } });
+              const content = await contentRes.json() as { text?: string; html?: string };
+              let pageText = (content.text ?? content.html ?? "")
+                .replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim().slice(0, 5000);
+
+              if (extract && claudeKey) {
+                const shotRes = await fetch(`${BB_API}/sessions/${sess.id}/screenshot`, { headers: { "X-BB-API-Key": bbKey } });
+                if (shotRes.ok) {
+                  const buf = await shotRes.arrayBuffer();
+                  const b64 = btoa(String.fromCharCode(...new Uint8Array(buf)));
+                  const vr = await fetch("https://api.anthropic.com/v1/messages", {
+                    method: "POST",
+                    headers: { "x-api-key": claudeKey, "anthropic-version": "2023-06-01", "content-type": "application/json" },
+                    body: JSON.stringify({
+                      model: "claude-haiku-4-5-20251001", max_tokens: 1024,
+                      messages: [{ role: "user", content: [
+                        { type: "image", source: { type: "base64", media_type: "image/png", data: b64 } },
+                        { type: "text",  text: `${extract}\n\nPage text: ${pageText.slice(0, 2000)}` },
+                      ]}],
+                    }),
+                  });
+                  if (vr.ok) {
+                    const vrd = await vr.json();
+                    pageText = vrd.content?.[0]?.text ?? pageText;
+                  }
+                }
+              }
+              return JSON.stringify({ url, text: pageText, provider: "browserbase-cloud" });
+            } finally {
+              fetch(`${BB_API}/sessions/${sess.id}`, { method: "DELETE", headers: { "X-BB-API-Key": bbKey } }).catch(() => {});
+            }
+          } catch { /* fall through to plain fetch */ }
+        }
+
+        // Plain fetch fallback
+        try {
+          const res = await fetch(url, { signal: AbortSignal.timeout(15_000) });
+          let text = await res.text();
+          text = text.replace(/<script[\s\S]*?<\/script>/gi, "").replace(/<style[\s\S]*?<\/style>/gi, "")
+                     .replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim().slice(0, 5000);
+          return JSON.stringify({ url, text, provider: "fetch-fallback" });
+        } catch (err: any) {
+          return JSON.stringify({ error: `Fetch failed: ${err.message}` });
+        }
+      }
+
+      case "graph_traverse": {
+        const startTitle = String(input.start_title ?? "");
+        const depth = Math.min(Math.max(1, Number(input.depth ?? 2)), 4);
+        if (!startTitle) return JSON.stringify({ error: "start_title is required" });
+
+        const { data: seeds } = await adminSb.from("mavis_notes").select("id, title, tags")
+          .eq("user_id", userId).ilike("title", `%${startTitle}%`).limit(1);
+        if (!seeds?.length) return JSON.stringify({ error: `Note matching "${startTitle}" not found` });
+
+        const visited = new Set<string>([seeds[0].id]);
+        const frontier = [seeds[0].id];
+        const nodes: Array<{ id: string; title: string; tags: string[] }> = [{ id: seeds[0].id, title: seeds[0].title, tags: seeds[0].tags ?? [] }];
+        const edges: Array<{ from: string; to: string }> = [];
+
+        for (let hop = 0; hop < depth; hop++) {
+          if (!frontier.length) break;
+          const { data: links } = await adminSb.from("mavis_note_wikilinks")
+            .select("source_note_id, target_slug").in("source_note_id", frontier).eq("user_id", userId);
+          frontier.length = 0;
+          for (const link of (links ?? [])) {
+            const { data: targets } = await adminSb.from("mavis_notes").select("id, title, tags")
+              .eq("user_id", userId).ilike("title", link.target_slug).limit(1);
+            for (const t of (targets ?? [])) {
+              edges.push({ from: link.source_note_id, to: t.id });
+              if (!visited.has(t.id)) { visited.add(t.id); frontier.push(t.id); nodes.push({ id: t.id, title: t.title, tags: t.tags ?? [] }); }
+            }
+          }
+        }
+        return JSON.stringify({
+          summary: `Graph from "${seeds[0].title}" (depth ${depth}): ${nodes.length} nodes, ${edges.length} edges`,
+          nodes, edges,
+        });
+      }
+
+      case "think_sequential": {
+        const goal    = String(input.goal ?? "");
+        const context = String(input.context ?? "");
+        const maxSteps = Math.min(Number(input.steps ?? 4), 8);
+        if (!goal) return JSON.stringify({ error: "goal is required" });
+        if (!claudeKey) return JSON.stringify({ error: "ANTHROPIC_API_KEY not set" });
+
+        const thoughts: Array<{ step: number; content: string }> = [];
+        let conclusion = "";
+
+        for (let step = 1; step <= maxSteps; step++) {
+          const prev = thoughts.map(t => `Step ${t.step}: ${t.content}`).join("\n\n");
+          const prompt = `Reason step-by-step. Output ONLY the next single thought.\n\nGOAL: ${goal}\nCONTEXT: ${context}\n\nPREVIOUS:\n${prev || "(none)"}\n\nThis is step ${step}/${maxSteps}. ONE logical step only.\nEnd with: CONFIDENCE: [0.0-1.0] | FINAL: [yes/no]\nIf FINAL: yes → add "CONCLUSION: [answer]"`;
+
+          const r = await fetch("https://api.anthropic.com/v1/messages", {
+            method: "POST",
+            headers: { "x-api-key": claudeKey, "anthropic-version": "2023-06-01", "content-type": "application/json" },
+            body: JSON.stringify({ model: "claude-haiku-4-5-20251001", max_tokens: 512, messages: [{ role: "user", content: prompt }] }),
+          });
+          if (!r.ok) break;
+          const rd = await r.json();
+          const raw: string = rd.content?.[0]?.text ?? "";
+          const concMatch = raw.match(/CONCLUSION:\s*([\s\S]+)/i);
+          const isFinal = /FINAL:\s*yes/i.test(raw) || step === maxSteps;
+          const content = raw.replace(/CONFIDENCE:\s*[\d.]+/i, "").replace(/FINAL:\s*(yes|no)/i, "").replace(/CONCLUSION:\s*[\s\S]+/i, "").trim();
+          thoughts.push({ step, content });
+          if (isFinal) { conclusion = concMatch?.[1]?.trim() ?? content; break; }
+        }
+
+        if (!conclusion && thoughts.length) conclusion = thoughts[thoughts.length - 1].content;
+        const formatted = [`═══ REASONING (${thoughts.length} steps) ═══`, `Goal: ${goal}`, "",
+          ...thoughts.map(t => `[Step ${t.step}] ${t.content}`), "", `CONCLUSION: ${conclusion}`, "═══════════════════"].join("\n");
+        return JSON.stringify({ reasoning: formatted, conclusion, steps: thoughts.length });
+      }
+
       default:
         return JSON.stringify({ error: `Unknown tool: ${name}` });
     }
@@ -1045,7 +1225,7 @@ serve(async (req) => {
               toolBlocks.map(async (block) => {
                 const guardMsg = loopGuard.check(block.name, block.input as Record<string, unknown>);
                 if (guardMsg) return JSON.stringify({ error: guardMsg });
-                const raw = await executeTool(block.name, block.input as Record<string, unknown>, userId, adminSb, openaiKey, tavilyKey, sources);
+                const raw = await executeTool(block.name, block.input as Record<string, unknown>, userId, token, adminSb, openaiKey, tavilyKey, sources);
                 return await compressObservation(block.name, raw, claudeKey);
               })
             );

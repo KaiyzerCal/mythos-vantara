@@ -37,6 +37,7 @@ import {
   type LocalMeshConfig,
   type LocalMeshStatus,
 } from "@/mavis/localMesh";
+import { getN8nConfig, setN8nConfig } from "@/mavis/plugins/n8nPlugin";
 
 // ─── Types ──────────────────────────────────────────────────
 interface ProviderDef {
@@ -288,6 +289,94 @@ function LocalMeshPanel() {
           <strong className="text-primary">Offline mode:</strong> When Cloud is unreachable, MAVIS serves cached data from your last sync.
           <br />
           <strong className="text-primary">OpenClaw:</strong> Once your local machine is set up with Ollama, point the endpoint here.
+        </div>
+      </div>
+    </HudCard>
+  );
+}
+
+// ─── n8n Config Panel ────────────────────────────────────────
+function N8nConfigPanel() {
+  const [host, setHost]     = useState(getN8nConfig().host);
+  const [apiKey, setApiKey] = useState(getN8nConfig().apiKey);
+  const [showKey, setShowKey] = useState(false);
+  const [testing, setTesting]   = useState(false);
+  const [connStatus, setConnStatus] = useState<"idle" | "ok" | "error">("idle");
+
+  const handleSave = () => {
+    setN8nConfig({ host: host.trim(), apiKey: apiKey.trim() });
+    toast.success("n8n config saved");
+  };
+
+  const handleTest = async () => {
+    setTesting(true);
+    try {
+      const res = await fetch(`${host.trim()}/api/v1/workflows`, {
+        headers: { "X-N8N-API-KEY": apiKey },
+        signal: AbortSignal.timeout(6000),
+      });
+      if (res.ok) { setConnStatus("ok"); toast.success("n8n connected"); }
+      else { setConnStatus("error"); toast.error(`n8n returned ${res.status}`); }
+    } catch { setConnStatus("error"); toast.error("n8n unreachable"); }
+    setTesting(false);
+  };
+
+  return (
+    <HudCard glowColor={connStatus === "ok" ? "green" : "none"}>
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-2">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" className="text-primary">
+            <circle cx="12" cy="12" r="10" />
+          </svg>
+          <p className="text-xs font-mono text-foreground">n8n · Workflow Automation</p>
+        </div>
+        <span className={`text-[9px] font-mono ${connStatus === "ok" ? "text-green-400" : connStatus === "error" ? "text-red-400" : "text-muted-foreground"}`}>
+          {connStatus === "ok" ? "CONNECTED" : connStatus === "error" ? "UNREACHABLE" : "IDLE"}
+        </span>
+      </div>
+
+      <p className="text-[10px] font-mono text-muted-foreground mb-4 leading-relaxed">
+        Connect a local or hosted n8n instance so MAVIS can build and trigger automation workflows.
+        Get an API key from Settings → API in your n8n instance.
+      </p>
+
+      <div className="space-y-3">
+        <div>
+          <label className="text-[10px] font-mono text-muted-foreground uppercase tracking-widest block mb-1">Host URL</label>
+          <input
+            type="text"
+            value={host}
+            onChange={e => setHost(e.target.value)}
+            placeholder="http://localhost:5678"
+            className="w-full bg-muted/20 border border-border rounded px-3 py-2 text-xs font-mono text-foreground focus:outline-none focus:border-primary/50"
+          />
+        </div>
+        <div>
+          <label className="text-[10px] font-mono text-muted-foreground uppercase tracking-widest block mb-1">API Key</label>
+          <div className="relative">
+            <input
+              type={showKey ? "text" : "password"}
+              value={apiKey}
+              onChange={e => setApiKey(e.target.value)}
+              placeholder="n8n API key"
+              className="w-full bg-muted/20 border border-border rounded px-3 py-2 text-xs font-mono text-foreground focus:outline-none focus:border-primary/50 pr-8"
+            />
+            <button onClick={() => setShowKey(s => !s)} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
+              {showKey ? <EyeOff size={13} /> : <Eye size={13} />}
+            </button>
+          </div>
+        </div>
+
+        <div className="flex gap-2 pt-1">
+          <button onClick={handleTest} disabled={testing || !host}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-mono bg-muted/20 border border-border text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50">
+            {testing ? <Loader2 size={11} className="animate-spin" /> : connStatus === "ok" ? <CheckCircle2 size={11} className="text-green-400" /> : <XCircle size={11} />}
+            Test
+          </button>
+          <button onClick={handleSave}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-mono bg-primary/10 border border-primary/30 text-primary hover:bg-primary/20 transition-colors">
+            Save
+          </button>
         </div>
       </div>
     </HudCard>
@@ -572,6 +661,7 @@ export function IntegrationsPage() {
       ) : (
         <div className="space-y-8">
           <LocalMeshPanel />
+          <N8nConfigPanel />
           {user && <TelegramLinkedAccountsPanel userId={user.id} />}
 
           {INTEGRATION_GROUPS.map((group) => {

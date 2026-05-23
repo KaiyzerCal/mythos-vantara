@@ -22,6 +22,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { PageHeader, HudCard } from "@/components/SharedUI";
 import { toast } from "sonner";
+import { buildWorkflow, type WorkflowBlueprint } from "@/mavis/plugins/n8nPlugin";
 
 // ─── Types ──────────────────────────────────────────────────
 
@@ -191,6 +192,11 @@ export function WorkflowsPage() {
   const [formTriggerType, setFormTriggerType] = useState<"manual" | "schedule">("manual");
   const [formSteps, setFormSteps] = useState<WorkflowStep[]>([]);
 
+  // AI build state
+  const [aiBuildInput, setAiBuildInput] = useState("");
+  const [aiBuildLoading, setAiBuildLoading] = useState(false);
+  const [lastBlueprint, setLastBlueprint] = useState<WorkflowBlueprint | null>(null);
+
   // ─── Data loading ──────────────────────────────────────────
 
   const loadWorkflows = useCallback(async () => {
@@ -228,8 +234,32 @@ export function WorkflowsPage() {
     setFormSteps([]);
   }
 
+  async function handleAiBuild() {
+    if (!aiBuildInput.trim()) return;
+    setAiBuildLoading(true);
+    try {
+      const blueprint = await buildWorkflow(aiBuildInput.trim());
+      if (!blueprint) {
+        toast.error("n8n MCP server not running. Start with: npx @czlonkowski/n8n-mcp");
+        return;
+      }
+      setLastBlueprint(blueprint);
+      setFormName(blueprint.name);
+      setFormDescription(blueprint.description);
+      setFormSteps([]);
+      setEditingWorkflow(null);
+      setShowCreate(true);
+      toast.success(`Blueprint ready: "${blueprint.name}"`);
+    } catch (e: any) {
+      toast.error(e.message ?? "AI build failed");
+    } finally {
+      setAiBuildLoading(false);
+    }
+  }
+
   function openCreate() {
     resetForm();
+    setLastBlueprint(null);
     setEditingWorkflow(null);
     setShowCreate(true);
   }
@@ -352,6 +382,26 @@ export function WorkflowsPage() {
           </button>
         }
       />
+
+      {/* AI Build bar */}
+      <div className="flex gap-2 mb-4">
+        <input
+          type="text"
+          value={aiBuildInput}
+          onChange={e => setAiBuildInput(e.target.value)}
+          onKeyDown={e => e.key === "Enter" && handleAiBuild()}
+          placeholder="Describe a workflow in plain language… (requires n8n MCP server)"
+          className="flex-1 bg-muted/20 border border-border rounded px-3 py-2 text-xs font-mono text-foreground focus:outline-none focus:border-primary/50 placeholder:text-muted-foreground/50"
+        />
+        <button
+          onClick={handleAiBuild}
+          disabled={aiBuildLoading || !aiBuildInput.trim()}
+          className="flex items-center gap-1.5 px-3 py-2 rounded text-xs font-mono bg-violet-500/10 border border-violet-500/30 text-violet-300 hover:bg-violet-500/20 transition-colors disabled:opacity-50 shrink-0"
+        >
+          {aiBuildLoading ? <Loader2 size={12} className="animate-spin" /> : <Workflow size={12} />}
+          AI Build
+        </button>
+      </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         {/* Left: Workflow list */}
@@ -585,6 +635,14 @@ export function WorkflowsPage() {
               </div>
 
               <div className="space-y-4">
+                {/* AI Blueprint info */}
+                {lastBlueprint && (
+                  <div className="px-3 py-2 rounded bg-violet-500/5 border border-violet-500/20 text-violet-300 text-[10px] font-mono">
+                    <span className="font-bold text-violet-400">AI Blueprint loaded</span> — form pre-filled from n8n blueprint. Add steps manually or save the workflow as-is.
+                    {lastBlueprint.nodes?.length ? <span className="ml-2 text-muted-foreground">({lastBlueprint.nodes.length} n8n nodes)</span> : null}
+                  </div>
+                )}
+
                 {/* Name */}
                 <div>
                   <label className="text-xs font-mono text-muted-foreground mb-1 block">
