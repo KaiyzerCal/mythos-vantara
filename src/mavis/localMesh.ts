@@ -86,9 +86,10 @@ export async function checkLocalMeshHealth(force = false): Promise<LocalMeshStat
 
   try {
     // Ollama health: GET /api/tags returns list of local models
-    const res = await fetch(`${endpoint}/api/tags`, {
-      signal: AbortSignal.timeout(3000),
-    });
+    const _abortCtrl = new AbortController();
+    const _timeoutId = setTimeout(() => _abortCtrl.abort(), 3000);
+    const res = await fetch(`${endpoint}/api/tags`, { signal: _abortCtrl.signal });
+    clearTimeout(_timeoutId);
     _cachedStatus = res.ok ? "online" : "offline";
   } catch {
     _cachedStatus = "offline";

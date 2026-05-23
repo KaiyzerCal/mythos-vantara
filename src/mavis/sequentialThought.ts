@@ -102,7 +102,7 @@ async function _thinkViaMcp(
     const result = await callMcpTool(MCP_SERVERS.sequential, {
       name: "sequentialthinking",
       arguments: {
-        thought: step === 1 ? `Goal: ${goal}\nContext: ${context}` : thoughts[thoughts.length - 1].content,
+        thought: step === 1 ? `Goal: ${goal}\nContext: ${context}` : thoughts.length > 0 ? thoughts[thoughts.length - 1].content : goal,
         nextThoughtNeeded: step < maxSteps,
         thoughtNumber: step,
         totalThoughts: maxSteps,
@@ -201,7 +201,7 @@ async function _thinkNative(
     const confidence = confidenceMatch ? parseFloat(confidenceMatch[1]) : 0.5;
     const isFinal    = finalMatch ? finalMatch[1].toLowerCase() === "yes" : false;
     const isRevision = !!revisionMatch;
-    const revisesStep = isRevision ? parseInt(revisionMatch![1]) : undefined;
+    const revisesStep = isRevision && revisionMatch ? parseInt(revisionMatch[1]) : undefined;
 
     if (isRevision && revisionsUsed < maxRevisions) revisionsUsed++;
 

@@ -75,5 +75,10 @@ export async function executeAction(action: ParsedAction): Promise<ExecutionResu
 }
 
 export async function executeActions(actions: ParsedAction[]): Promise<ExecutionResult[]> {
-  return Promise.all(actions.map(executeAction));
+  const settled = await Promise.allSettled(actions.map(executeAction));
+  return settled.map((r, i) =>
+    r.status === "fulfilled"
+      ? r.value
+      : { status: "error", action: actions[i], message: r.reason?.message ?? String(r.reason) }
+  );
 }

@@ -115,7 +115,8 @@ export async function streamChatMessage(
     throw new Error(`Stream request failed (${res.status}): ${errText}`);
   }
 
-  const reader = res.body!.getReader();
+  if (!res.body) throw new Error("No response body from MAVIS stream");
+  const reader = res.body.getReader();
   const decoder = new TextDecoder();
   let accumulated = "";
   let buf = "";
@@ -201,7 +202,8 @@ export async function streamAgentMessage(
     throw new Error(`Agent request failed (${res.status}): ${errText}`);
   }
 
-  const reader = res.body!.getReader();
+  if (!res.body) throw new Error("No response body from MAVIS stream");
+  const reader = res.body.getReader();
   const decoder = new TextDecoder();
   let accumulated = "";
   let buf = "";
@@ -277,7 +279,8 @@ export async function streamResearchMessage(
     throw new Error(`Research request failed (${res.status}): ${errText}`);
   }
 
-  const reader = res.body!.getReader();
+  if (!res.body) throw new Error("No response body from MAVIS stream");
+  const reader = res.body.getReader();
   const decoder = new TextDecoder();
   let accumulated = "";
   let buf = "";

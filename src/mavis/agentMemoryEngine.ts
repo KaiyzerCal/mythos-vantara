@@ -88,7 +88,7 @@ export async function storeMemory(
       review_count: memory.reviewCount ?? 0,
       ease_factor: memory.easeFactor ?? 2.5,
       status: memory.status ?? "active",
-      embedding: embedding ? JSON.stringify(embedding) : null,
+      embedding: embedding ?? null,
     })
     .select("id")
     .single();

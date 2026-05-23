@@ -191,16 +191,18 @@ export default function MavisChat() {
     let interimTranscript = "";
 
     recognition.onresult = (event: any) => {
-      interimTranscript = "";
+      let newFinal = "";
+      let newInterim = "";
       for (let i = event.resultIndex; i < event.results.length; i++) {
         const transcript = event.results[i][0].transcript;
         if (event.results[i].isFinal) {
-          finalTranscript += transcript + " ";
+          newFinal += transcript + " ";
         } else {
-          interimTranscript = transcript;
+          newInterim = transcript;
         }
       }
-      setInput(finalTranscript + interimTranscript);
+      finalTranscript += newFinal;
+      setInput(finalTranscript + newInterim);
     };
 
     recognition.onerror = (event: any) => {
@@ -756,25 +758,6 @@ export default function MavisChat() {
       console.error("Memory save on clear failed:", err);
     }
 
-    // ── Specialist agent dispatch (AGENT mode) ──────────────
-  async function handleAgentDispatch() {
-    if (!agentTask.trim() || agentDispatching) return;
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session?.user?.id) { toast.error("Not authenticated"); return; }
-    setAgentDispatching(true);
-    setAgentResult(null);
-    try {
-      const result = await dispatchAgent(agentTask.trim(), agentSpec, session.user.id, { maxSubTasks: 3 });
-      setAgentResult(result.output);
-      toast.success(`Agent ${agentSpec} complete`);
-    } catch (e: any) {
-      setAgentResult(`Agent error: ${e?.message ?? String(e)}`);
-      toast.error("Agent dispatch failed");
-    } finally {
-      setAgentDispatching(false);
-    }
-  }
-
     setChatMessages([{
       id: "init",
       role: "assistant",
@@ -786,6 +769,33 @@ export default function MavisChat() {
     setPendingActions([]);
     toast.success("Thread archived — memories preserved");
   }, [handleOmniSync, chatMessages, chatMode, conversationId, setChatMessages, setConversationId]);
+
+  async function handleAgentDispatch() {
+    if (!agentTask.trim() || agentDispatching) return;
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.user?.id) { toast.error("Not authenticated"); return; }
+    setAgentDispatching(true);
+    setAgentResult(null);
+    try {
+      const result = await dispatchAgent(agentTask.trim(), agentSpec, session.user.id, { maxSubTasks: 3 });
+      setAgentResult(result.output);
+      // Append result as a chat message so it's preserved in history
+      setChatMessages(prev => [...prev, {
+        id: crypto.randomUUID(),
+        role: "assistant" as const,
+        content: `**[${agentSpec.toUpperCase()} AGENT COMPLETE]**\n\n${result.output}`,
+        mode: "AGENT",
+        timestamp: new Date(),
+      }]);
+      setAgentTask("");
+      toast.success(`${agentSpec} agent complete`);
+    } catch (e: any) {
+      setAgentResult(`Agent error: ${e?.message ?? String(e)}`);
+      toast.error("Agent dispatch failed");
+    } finally {
+      setAgentDispatching(false);
+    }
+  }
 
   return (
     <>

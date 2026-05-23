@@ -186,10 +186,14 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
       .on("postgres_changes", { event: "*", schema: "public", table: "tasks" }, () => { refetchTasks().catch(() => {}); })
       .on("postgres_changes", { event: "*", schema: "public", table: "energy_systems" }, () => { refetchEnergy().catch(() => {}); })
       .on("postgres_changes", { event: "*", schema: "public", table: "journal_entries" }, () => { refetchJournal().catch(() => {}); })
+      .on("postgres_changes", { event: "*", schema: "public", table: "skills" }, () => { refetchSkills().catch(() => {}); })
+      .on("postgres_changes", { event: "*", schema: "public", table: "allies" }, () => { refetchAllies().catch(() => {}); })
+      .on("postgres_changes", { event: "*", schema: "public", table: "inventory" }, () => { refetchInventory().catch(() => {}); })
+      .on("postgres_changes", { event: "*", schema: "public", table: "council_members" }, () => { refetchCouncils().catch(() => {}); })
       .subscribe();
     realtimeRef.current = channel;
     return () => { (supabase as any).removeChannel(channel); };
-  }, [refetchQuests, refetchTasks, refetchEnergy, refetchJournal]);
+  }, [refetchQuests, refetchTasks, refetchEnergy, refetchJournal, refetchSkills, refetchAllies, refetchInventory, refetchCouncils]);
 
   // MAVIS chat state
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([INITIAL_MAVIS_MSG]);

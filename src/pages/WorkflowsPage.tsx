@@ -332,6 +332,10 @@ export function WorkflowsPage() {
       toast.error("Workflow needs a name");
       return;
     }
+    if (formSteps.length === 0) {
+      toast.error("Add at least one step before saving");
+      return;
+    }
     const payload = {
       user_id: user.id,
       name: formName.trim(),
@@ -390,6 +394,7 @@ export function WorkflowsPage() {
           value={aiBuildInput}
           onChange={e => setAiBuildInput(e.target.value)}
           onKeyDown={e => e.key === "Enter" && handleAiBuild()}
+          disabled={aiBuildLoading}
           placeholder="Describe a workflow in plain language… (requires n8n MCP server)"
           className="flex-1 bg-muted/20 border border-border rounded px-3 py-2 text-xs font-mono text-foreground focus:outline-none focus:border-primary/50 placeholder:text-muted-foreground/50"
         />
@@ -398,8 +403,11 @@ export function WorkflowsPage() {
           disabled={aiBuildLoading || !aiBuildInput.trim()}
           className="flex items-center gap-1.5 px-3 py-2 rounded text-xs font-mono bg-violet-500/10 border border-violet-500/30 text-violet-300 hover:bg-violet-500/20 transition-colors disabled:opacity-50 shrink-0"
         >
-          {aiBuildLoading ? <Loader2 size={12} className="animate-spin" /> : <Workflow size={12} />}
-          AI Build
+          {aiBuildLoading ? (
+            <><span className="w-3 h-3 rounded-full border-2 border-current border-t-transparent animate-spin inline-block" /> Building...</>
+          ) : (
+            "AI Build"
+          )}
         </button>
       </div>
 

@@ -458,7 +458,7 @@ export function AnalyticsPage() {
                     <div className="w-full h-1 bg-muted rounded-full overflow-hidden">
                       <div
                         className="h-full bg-primary rounded-full transition-all duration-500"
-                        style={{ width: `${Math.min(100, (s.streak / (streaks[0]?.streak || 1)) * 100)}%` }}
+                        style={{ width: `${Math.min(100, streaks[0]?.streak ? (s.streak / streaks[0].streak) * 100 : 0)}%` }}
                       />
                     </div>
                   </div>
@@ -511,6 +511,11 @@ export function AnalyticsPage() {
                   })}
                 </div>
               ))}
+              {habitNames.length > 12 && (
+                <p className="text-[9px] font-mono text-muted-foreground text-center pt-1">
+                  showing 12 of {habitNames.length} habits
+                </p>
+              )}
               {/* Legend */}
               <div className="flex items-center gap-3 mt-2 pt-2 border-t border-border/30">
                 <div className="flex items-center gap-1"><div className="w-3 h-3 rounded-sm bg-green-500/80" /><span className="text-[9px] font-mono text-muted-foreground">Done</span></div>

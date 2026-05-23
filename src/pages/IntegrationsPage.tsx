@@ -309,6 +309,7 @@ function N8nConfigPanel() {
   };
 
   const handleTest = async () => {
+    if (!host.trim()) { toast.error("Enter n8n host URL first"); return; }
     setTesting(true);
     try {
       const res = await fetch(`${host.trim()}/api/v1/workflows`, {
@@ -346,7 +347,7 @@ function N8nConfigPanel() {
           <input
             type="text"
             value={host}
-            onChange={e => setHost(e.target.value)}
+            onChange={(e) => { setHost(e.target.value); setConnStatus("idle"); }}
             placeholder="http://localhost:5678"
             className="w-full bg-muted/20 border border-border rounded px-3 py-2 text-xs font-mono text-foreground focus:outline-none focus:border-primary/50"
           />
@@ -357,7 +358,7 @@ function N8nConfigPanel() {
             <input
               type={showKey ? "text" : "password"}
               value={apiKey}
-              onChange={e => setApiKey(e.target.value)}
+              onChange={(e) => { setApiKey(e.target.value); setConnStatus("idle"); }}
               placeholder="n8n API key"
               className="w-full bg-muted/20 border border-border rounded px-3 py-2 text-xs font-mono text-foreground focus:outline-none focus:border-primary/50 pr-8"
             />

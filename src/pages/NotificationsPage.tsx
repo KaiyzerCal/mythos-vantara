@@ -60,7 +60,7 @@ export function NotificationsPage() {
   const [filter, setFilter] = useState<"all" | "unread">("unread");
 
   const load = useCallback(async () => {
-    if (!session) return;
+    if (!session) { setLoading(false); return; }
     setLoading(true);
     const [insightsRes, activityRes] = await Promise.all([
       (supabase as any)
@@ -82,10 +82,11 @@ export function NotificationsPage() {
   useEffect(() => { load(); }, [load]);
 
   async function markRead(id: string) {
-    await (supabase as any)
+    const { error } = await (supabase as any)
       .from("mavis_insights")
       .update({ read_at: new Date().toISOString() })
       .eq("id", id);
+    if (error) { toast.error("Failed to mark as read"); return; }
     setInsights((prev) =>
       prev.map((ins) => (ins.id === id ? { ...ins, read_at: new Date().toISOString() } : ins))
     );

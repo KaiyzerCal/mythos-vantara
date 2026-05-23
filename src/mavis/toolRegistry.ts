@@ -138,11 +138,14 @@ class ToolRegistry {
   }
 
   async incrementUsage(name: string): Promise<void> {
-    await supabase
-      .from("mavis_tool_registry")
-      .update({ usage_count: supabase.rpc as never, last_used_at: new Date().toISOString() })
-      .eq("name", name)
-      .catch(() => {/* non-fatal */});
+    await supabase.rpc("increment_tool_usage", { p_tool_name: name })
+      .catch(() => {
+        // Fallback: just update last_used_at if RPC doesn't exist
+        supabase.from("mavis_tool_registry")
+          .update({ last_used_at: new Date().toISOString() })
+          .eq("name", name)
+          .catch(() => {});
+      });
   }
 }
 

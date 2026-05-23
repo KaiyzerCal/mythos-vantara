@@ -267,7 +267,8 @@ export async function applyLinkSuggestions(
     if (!note) continue;
 
     // Add wikilink to content if toTitle appears as plain text
-    const targetPattern = new RegExp(`\\b${suggestion.toTitle}\\b`, "i");
+    const escapedTitle = suggestion.toTitle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const targetPattern = new RegExp(`\\b${escapedTitle}\\b`, "i");
     if (targetPattern.test(String(note.content ?? ""))) {
       const updatedContent = (note.content as string).replace(
         targetPattern,
@@ -561,9 +562,10 @@ export async function analyzeGraphStructure(userId: string): Promise<GraphStruct
   const totalDegree = (n: GraphNode) => n.inDegree + n.outDegree;
 
   // Hubs: top 10% by total degree
+  const sortedByDegree = [...nodes].sort((a, b) => totalDegree(b) - totalDegree(a));
   const degreeThreshold = nodes.length > 10
-    ? nodes.sort((a, b) => totalDegree(b) - totalDegree(a))[Math.floor(nodes.length * 0.1)].inDegree +
-      nodes[Math.floor(nodes.length * 0.1)].outDegree
+    ? (sortedByDegree[Math.floor(sortedByDegree.length * 0.1)]?.inDegree ?? 0) +
+      (sortedByDegree[Math.floor(sortedByDegree.length * 0.1)]?.outDegree ?? 0)
     : 2;
 
   const hubs    = nodes.filter(n => totalDegree(n) >= degreeThreshold && totalDegree(n) > 1);
