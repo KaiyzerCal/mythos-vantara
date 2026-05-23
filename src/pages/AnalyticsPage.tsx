@@ -4,11 +4,12 @@
 // ============================================================
 import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
-import { BarChart2, Loader2, RefreshCw, CheckSquare, CheckCircle2, Circle, Eye } from "lucide-react";
+import { BarChart2, Loader2, RefreshCw, CheckSquare, CheckCircle2, Circle, Eye, Cpu } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { PageHeader, HudCard, ProgressBar } from "@/components/SharedUI";
 import { toast } from "sonner";
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from "recharts";
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string;
 const ANON_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string;
@@ -107,6 +108,11 @@ export function AnalyticsPage() {
   const [moodCounts, setMoodCounts] = useState<Record<string, number>>({});
   const [moodLoading, setMoodLoading] = useState(true);
 
+  // Tool usage
+  interface ToolStat { name: string; calls: number; successes: number; avgMs: number; }
+  const [toolStats, setToolStats] = useState<ToolStat[]>([]);
+  const [toolLoading, setToolLoading] = useState(true);
+
   const days30 = getLast30Days();
 
   useEffect(() => {
@@ -116,6 +122,7 @@ export function AnalyticsPage() {
     loadCompletionGrid();
     loadEnergy();
     loadMood();
+    loadToolStats();
   }, [session]);
 
   // ─── Loaders ───────────────────────────────────────────────
@@ -128,6 +135,30 @@ export function AnalyticsPage() {
       .limit(10);
     setInsights(data || []);
     setInsightsLoading(false);
+  }
+
+  async function loadToolStats() {
+    setToolLoading(true);
+    const { data } = await (supabase as any)
+      .from("mavis_tool_executions")
+      .select("tool_name, success, duration_ms")
+      .order("created_at", { ascending: false })
+      .limit(500);
+    if (!data) { setToolLoading(false); return; }
+    const map: Record<string, { calls: number; successes: number; totalMs: number }> = {};
+    for (const row of data) {
+      const n = row.tool_name as string;
+      if (!map[n]) map[n] = { calls: 0, successes: 0, totalMs: 0 };
+      map[n].calls++;
+      if (row.success) map[n].successes++;
+      if (row.duration_ms) map[n].totalMs += row.duration_ms;
+    }
+    const stats = Object.entries(map)
+      .map(([name, s]) => ({ name, calls: s.calls, successes: s.successes, avgMs: s.calls > 0 ? Math.round(s.totalMs / s.calls) : 0 }))
+      .sort((a, b) => b.calls - a.calls)
+      .slice(0, 12);
+    setToolStats(stats);
+    setToolLoading(false);
   }
 
   async function loadStreaks() {
@@ -467,6 +498,51 @@ export function AnalyticsPage() {
                     </div>
                   );
                 })}
+            </div>
+          </HudCard>
+        )}
+      </section>
+
+      {/* Tool Usage Dashboard */}
+      <section>
+        <h2 className="text-xs font-mono text-primary uppercase tracking-widest mb-3 flex items-center gap-2">
+          <Cpu size={12} /> MAVIS Tool Usage
+        </h2>
+        {toolLoading ? (
+          <div className="flex justify-center py-6"><Loader2 className="animate-spin text-primary" size={20} /></div>
+        ) : toolStats.length === 0 ? (
+          <HudCard><p className="text-xs font-mono text-muted-foreground text-center py-4">No tool executions recorded yet.</p></HudCard>
+        ) : (
+          <HudCard>
+            <ResponsiveContainer width="100%" height={toolStats.length * 28 + 20}>
+              <BarChart layout="vertical" data={toolStats} margin={{ left: 8, right: 24, top: 4, bottom: 4 }}>
+                <XAxis type="number" tick={{ fontSize: 9, fontFamily: "monospace" }} />
+                <YAxis type="category" dataKey="name" width={140} tick={{ fontSize: 9, fontFamily: "monospace" }} />
+                <Tooltip
+                  formatter={(val: number) => [val, "calls"]}
+                  contentStyle={{ fontSize: 10, fontFamily: "monospace", background: "var(--background)", border: "1px solid var(--border)" }}
+                />
+                <Bar dataKey="calls" radius={[0, 3, 3, 0]}>
+                  {toolStats.map((_, i) => (
+                    <Cell key={i} fill={`hsl(${260 + i * 8}, 70%, 55%)`} />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+            <div className="mt-3 border-t border-border/30 pt-3 overflow-x-auto">
+              <table className="w-full text-[9px] font-mono">
+                <thead><tr className="text-muted-foreground"><th className="text-left pb-1">Tool</th><th className="text-right pb-1">Calls</th><th className="text-right pb-1">Success%</th><th className="text-right pb-1">Avg ms</th></tr></thead>
+                <tbody>
+                  {toolStats.map((t) => (
+                    <tr key={t.name} className="border-t border-border/10">
+                      <td className="py-0.5 pr-4 text-foreground/80">{t.name}</td>
+                      <td className="text-right">{t.calls}</td>
+                      <td className="text-right">{t.calls > 0 ? Math.round((t.successes / t.calls) * 100) : 0}%</td>
+                      <td className="text-right">{t.avgMs > 0 ? `${t.avgMs}` : "—"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           </HudCard>
         )}

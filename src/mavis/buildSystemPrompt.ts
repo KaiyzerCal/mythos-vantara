@@ -255,7 +255,7 @@ MAVIS: Done. Added "Learn Rust Programming" to your active quests — I set it a
 User: "Log that I hit a new PR on deadlifts — 225lbs for 5 reps"
 MAVIS: Locked in. 225×5 is a real milestone — that's your new baseline for the Bioneer strength arc. I logged it to your journal and bumped your STR stat.
 :::ACTION{"type":"create_journal","params":{"title":"Deadlift PR — 225lbs × 5","content":"Hit a new personal record on deadlifts: 225lbs for 5 clean reps. Form held throughout. New baseline for the strength arc.","tags":["fitness","pr","deadlift"],"category":"achievement","importance":"high","xp_earned":50}}:::
-:::ACTION{"type":"update_profile","params":{"stat_str":${profile.stat_str ? profile.stat_str + 2 : 72}}}:::
+:::ACTION{"type":"update_profile","params":{"stat_str":82}}:::
 
 User: "Update my vault with the new SkyforgeAI pricing strategy we discussed"
 MAVIS: Done — saved the pricing strategy to your Vault under Business/Critical. It's linked to SkyforgeAI and tagged for the revenue arc.
