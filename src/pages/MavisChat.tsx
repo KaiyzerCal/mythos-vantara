@@ -23,9 +23,14 @@ import { streamChatMessage, streamAgentMessage, streamResearchMessage } from "@/
 import { loadFullAppContext, invalidateAppContext } from "@/mavis/appContextLoader";
 import { initSession } from "@/mavis/memoryEngine";
 import { loadRuntimeSkills } from "@/mavis/skills/_registry";
+import { think, formatThoughtChain } from "@/mavis/sequentialThought";
+import { isMcpServerAlive, MCP_SERVERS } from "@/mavis/mcpBridge";
+import { checkLocalMeshHealth } from "@/mavis/localMesh";
 import type { ExecutionResult } from "@/mavis/types";
-// Trigger skill self-registration
+// Trigger skill + plugin self-registration
 import "@/mavis/skills/_loader";
+import { stagehandPlugin } from "@/mavis/plugins/stagehandPlugin";
+import { n8nPlugin } from "@/mavis/plugins/n8nPlugin";
 
 const MAVIS_MODES = [
   { id: "PRIME", label: "PRIME", icon: Crown, color: "text-primary", desc: "GPT-4o-mini · General purpose" },
@@ -257,6 +262,10 @@ export default function MavisChat() {
         // Init three-layer memory engine + load DB-backed runtime skills
         initSession(session.user.id);
         loadRuntimeSkills(session.user.id).catch(err => console.warn("[Skills] Runtime load failed:", err));
+
+        // Enable browser + workflow plugins (fire-and-forget, non-blocking)
+        stagehandPlugin.onEnable?.().catch(console.warn);
+        n8nPlugin.onEnable?.().catch(console.warn);
 
         const { data: convos } = await supabase
           .from("chat_conversations")
@@ -526,6 +535,24 @@ export default function MavisChat() {
           }, archivedMemories, vaultMedia));
       const attachmentIds = attachments.map((a) => a.id);
 
+      // For ARCH/SOVEREIGN: prepend sequential reasoning chain when a backend is available
+      let finalSystemPrompt = systemPrompt;
+      if (chatMode === "ARCH" || chatMode === "SOVEREIGN") {
+        try {
+          const [seqAlive, meshHealth] = await Promise.all([
+            isMcpServerAlive(MCP_SERVERS.sequential),
+            checkLocalMeshHealth(),
+          ]);
+          if (seqAlive || meshHealth === "online") {
+            const recentCtx = history.slice(-3).map(m => `${m.role}: ${m.content.slice(0, 300)}`).join("\n");
+            const chain = await think(content, recentCtx, { mode: "chain", maxSteps: 4 });
+            if (chain.thoughts.length > 0) {
+              finalSystemPrompt = systemPrompt + "\n\n" + formatThoughtChain(chain);
+            }
+          }
+        } catch { /* non-fatal — ARCH responds without pre-reasoning */ }
+      }
+
       // Add a streaming placeholder bubble so the user sees tokens as they arrive
       streamingId = `streaming-${Date.now()}`;
       setChatMessages((prev) => [...prev, {
@@ -564,7 +591,7 @@ export default function MavisChat() {
             )
           : await streamChatMessage(
               content,
-              systemPrompt,
+              finalSystemPrompt,
               history,
               { mode: chatMode, conversationId, appState: compactState, chatKind: "mavis", threadRef: "main", attachmentIds },
               onToken,

@@ -182,14 +182,13 @@ async function _thinkNative(
 
     let raw: string;
     try {
-      const res = await callLocalMesh([
+      const meshRes = await callLocalMesh([
         { role: "system", content: "You are a sequential reasoning engine. Output exactly one thought step." },
         { role: "user",   content: prompt },
       ]);
-      if (!res) break;
-      raw = res.content;
+      if (!meshRes?.content) break;
+      raw = meshRes.content;
     } catch {
-      // If LLM call fails, break with what we have
       break;
     }
 
@@ -242,11 +241,19 @@ async function _thinkNative(
 
   let conclusion = thoughts[thoughts.length - 1]?.content ?? "Reasoning incomplete.";
   try {
+<<<<<<< HEAD
     const res = await callLocalMesh([
       { role: "system", content: "Synthesize the reasoning steps into a final answer." },
       { role: "user",   content: synthesisPrompt },
     ]);
     if (res) conclusion = res.content;
+=======
+    const synthRes = await callLocalMesh([
+      { role: "system", content: "Synthesize the reasoning steps into a final answer." },
+      { role: "user",   content: synthesisPrompt },
+    ]);
+    if (synthRes?.content) conclusion = synthRes.content;
+>>>>>>> 5d57865 (Wire MCP capabilities into active execution paths)
   } catch { /* use last thought as conclusion */ }
 
   return { goal, mode, thoughts, conclusion, stepsTaken: step, revisionsUsed };

@@ -17,6 +17,7 @@
  *   BROWSERBASE_API_KEY, BROWSERBASE_PROJECT_ID
  */
 
+import { supabase } from "@/integrations/supabase/client";
 import { pluginRegistry, type MavisPlugin } from "@/mavis/pluginSystem";
 import {
   MCP_SERVERS,
@@ -46,6 +47,8 @@ export async function browserNavigate(url: string): Promise<BrowserResult> {
   if (await isMcpServerAlive(MCP_SERVERS.stagehand)) {
     return _navigateViaStagehand(url);
   }
+  const cloud = await _navigateViaCloud(url);
+  if (cloud) return cloud;
   return _navigateViaFetch(url);
 }
 
@@ -71,7 +74,10 @@ export async function browserExtract(
       console.warn("[stagehandPlugin] local extract failed, falling back:", err);
     }
   }
-  // Fallback: return raw text from fetch
+  // Cloud fallback: mavis-browser edge function with vision extraction
+  const cloud = await _navigateViaCloud(url, { action: "extract", instruction: options.instruction });
+  if (cloud) return cloud.text;
+
   const result = await _navigateViaFetch(url);
   return result.text;
 }
@@ -92,6 +98,28 @@ export async function browserScreenshot(url: string): Promise<string | null> {
 }
 
 // ── Internal helpers ──────────────────────────────────────────────────────────
+
+async function _navigateViaCloud(url: string, options?: { action?: string; instruction?: string }): Promise<BrowserResult | null> {
+  try {
+    const { data: { session } } = await (supabase as any).auth.getSession();
+    if (!session?.access_token) return null;
+
+    const { data, error } = await (supabase as any).functions.invoke("mavis-browser", {
+      body: { action: options?.action ?? "navigate", url, instruction: options?.instruction },
+    });
+    if (error || !data?.text) return null;
+
+    return {
+      url,
+      text:       data.text,
+      screenshot: data.screenshot,
+      title:      undefined,
+      provider:   "browserbase-cloud",
+    };
+  } catch {
+    return null;
+  }
+}
 
 async function _navigateViaStagehand(url: string): Promise<BrowserResult> {
   const result = await callMcpTool(MCP_SERVERS.stagehand, {

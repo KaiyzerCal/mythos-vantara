@@ -72,18 +72,21 @@ export interface MavisService {
 // ── Plugin manifest ──────────────────────────────────────────────────────────
 
 export interface MavisPlugin {
+  id?: string;
   name: string;
   version: string;
   description: string;
+  category?: string;
+  isEnabled?: boolean;
   author?: string;
-  capabilities: string[];
-  requiredScopes: string[];
+  capabilities?: string[];
+  requiredScopes?: string[];
   actions?: MavisAction[];
   providers?: MavisProvider[];
   evaluators?: MavisEvaluator[];
   services?: MavisService[];
   onInit?: (ctx: PluginContext) => Promise<void>;
-  onEnable?: (config: Record<string, unknown>) => Promise<void>;
+  onEnable?: (config?: Record<string, unknown>) => Promise<void>;
   onDisable?: () => Promise<void>;
 }
 

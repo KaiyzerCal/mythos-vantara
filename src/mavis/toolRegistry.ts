@@ -253,14 +253,36 @@ export async function executeTool(
     setTimeout(() => reject(new Error("Tool execution timed out")), timeoutMs)
   );
 
+  const t0 = Date.now();
   try {
     const result = await Promise.race([tool.execute(call.params, userId), timeoutPromise]);
+    supabase.from("mavis_tool_executions").insert({
+      user_id: userId,
+      tool_name: call.name,
+      params: call.params,
+      result: { output: result.output.slice(0, 2000) },
+      success: result.success,
+      error_msg: result.error ?? null,
+      duration_ms: Date.now() - t0,
+      provider: (result.data as any)?.provider ?? "native",
+    }).catch(() => {});
     return { toolCallId: call.id, name: call.name, result };
   } catch (err) {
+    const errMsg = (err as Error).message;
+    supabase.from("mavis_tool_executions").insert({
+      user_id: userId,
+      tool_name: call.name,
+      params: call.params,
+      result: null,
+      success: false,
+      error_msg: errMsg,
+      duration_ms: Date.now() - t0,
+      provider: "native",
+    }).catch(() => {});
     return {
       toolCallId: call.id,
       name: call.name,
-      result: { success: false, output: "", error: (err as Error).message },
+      result: { success: false, output: "", error: errMsg },
     };
   }
 }
