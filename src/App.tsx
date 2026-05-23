@@ -9,7 +9,7 @@ import AppSidebar from "@/components/AppSidebar";
 import { Loader2 } from "lucide-react";
 import { LocalMeshOverlay, type MeshActivity } from "@/components/LocalMeshOverlay";
 import { checkLocalMeshHealth } from "@/mavis/localMesh";
-import { isOffline } from "@/mavis/offlineMode";
+import { isOffline, startSyncListener } from "@/mavis/offlineMode";
 import { systemMonitor } from "@/mavis/systemMonitor";
 
 /** Sync the mobile browser chrome (status bar) color with the active theme.
@@ -120,6 +120,11 @@ function AppContent() {
     systemMonitor.start().catch(console.warn);
     return () => { systemMonitor.stop(); };
   }, [user]);
+
+  useEffect(() => {
+    const cleanup = startSyncListener();
+    return cleanup;
+  }, []);
 
   if (loading) {
     return (

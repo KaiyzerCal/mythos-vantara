@@ -17,6 +17,7 @@
  */
 
 import type { AppContextSnapshot } from "./appContextLoader";
+import { supabase } from "@/integrations/supabase/client";
 
 const SNAPSHOT_KEY  = "mavis-offline-snapshot";
 const SNAPSHOT_TS_KEY = "mavis-offline-snapshot-ts";
@@ -95,6 +96,63 @@ export function getMutationQueue(): OfflineMutation[] {
 
 export function clearMutationQueue(): void {
   localStorage.removeItem(QUEUE_KEY);
+}
+
+/**
+ * Replay all queued offline mutations against Supabase.
+ * Processes every mutation with Promise.allSettled, then clears the queue.
+ * Returns the count of successfully replayed mutations.
+ */
+export async function replayMutationQueue(): Promise<number> {
+  const queue = getMutationQueue();
+  if (queue.length === 0) return 0;
+
+  const results = await Promise.allSettled(
+    queue.map(async (mutation) => {
+      switch (mutation.type) {
+        case "quest:create":
+          return supabase.from("quests").insert(mutation.payload);
+        case "quest:update":
+          return supabase
+            .from("quests")
+            .update(mutation.payload)
+            .eq("id", mutation.payload.id as string);
+        case "task:create":
+          return supabase.from("tasks").insert(mutation.payload);
+        case "task:update":
+          return supabase
+            .from("tasks")
+            .update(mutation.payload)
+            .eq("id", mutation.payload.id as string);
+        case "journal:create":
+          return supabase.from("journal_entries").insert(mutation.payload);
+        default:
+          console.warn(`[MAVIS Offline] Unknown mutation type: ${mutation.type} — skipping`);
+          return Promise.reject(new Error(`Unknown type: ${mutation.type}`));
+      }
+    })
+  );
+
+  clearMutationQueue();
+
+  return results.filter((r) => r.status === "fulfilled").length;
+}
+
+/**
+ * Register a window "online" listener that replays the mutation queue
+ * whenever connectivity is restored. Returns a cleanup function.
+ */
+export function startSyncListener(): () => void {
+  const handler = () => {
+    replayMutationQueue().then((count) => {
+      if (count > 0) {
+        console.info(`[MAVIS Offline] Replayed ${count} queued mutations`);
+      }
+    });
+  };
+
+  window.addEventListener("online", handler);
+  return () => window.removeEventListener("online", handler);
 }
 
 // ── Canned response generation ────────────────────────────────
