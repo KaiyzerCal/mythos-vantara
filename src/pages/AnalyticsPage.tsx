@@ -5,6 +5,7 @@
 import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import { BarChart2, Loader2, RefreshCw, CheckSquare, CheckCircle2, Circle, Eye, TrendingUp, Star, Trophy, Calendar } from "lucide-react";
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from "recharts";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { PageHeader, HudCard, ProgressBar } from "@/components/SharedUI";
@@ -61,6 +62,8 @@ interface CompletionEntry {
   task_id?: string;
 }
 
+interface ToolStat { name: string; calls: number; successes: number; avgMs: number; }
+
 const SEVERITY_STYLES: Record<string, string> = {
   info: "text-cyan-400 border-cyan-800 bg-cyan-950/40",
   warning: "text-amber-400 border-amber-800 bg-amber-950/40",
@@ -112,6 +115,9 @@ export function AnalyticsPage() {
   const [questRate, setQuestRate] = useState<{ completed: number; total: number } | null>(null);
   const [weekActivity, setWeekActivity] = useState<{ day: string; count: number; xp: number }[]>([]);
   const [charLoading, setCharLoading] = useState(true);
+
+  // Tool usage
+  const [toolStats, setToolStats] = useState<ToolStat[]>([]);
 
   const days30 = getLast30Days();
 
@@ -212,7 +218,7 @@ export function AnalyticsPage() {
 
   async function loadCharacterProgress() {
     setCharLoading(true);
-    const [profileRes, questsRes, activityRes] = await Promise.all([
+    const [profileRes, questsRes, activityRes, toolExecRes] = await Promise.allSettled([
       supabase.from("profiles").select("level, xp, xp_to_next_level, rank").single(),
       supabase.from("quests").select("status"),
       (supabase as any)
@@ -220,19 +226,24 @@ export function AnalyticsPage() {
         .select("created_at, xp_awarded")
         .gte("created_at", (() => { const d = new Date(); d.setDate(d.getDate() - 6); return d.toISOString(); })())
         .order("created_at", { ascending: true }),
+      (supabase as any)
+        .from("mavis_tool_executions")
+        .select("tool_name, success, duration_ms, created_at")
+        .order("created_at", { ascending: false })
+        .limit(200),
     ]);
 
-    if (profileRes.data) setCharProfile(profileRes.data as any);
+    if (profileRes.status === "fulfilled" && profileRes.value.data) setCharProfile(profileRes.value.data as any);
 
-    if (questsRes.data) {
-      const total = questsRes.data.length;
-      const completed = questsRes.data.filter((q: any) => q.status === "completed").length;
+    if (questsRes.status === "fulfilled" && questsRes.value.data) {
+      const total = questsRes.value.data.length;
+      const completed = questsRes.value.data.filter((q: any) => q.status === "completed").length;
       setQuestRate({ completed, total });
     }
 
-    if (activityRes.data) {
+    if (activityRes.status === "fulfilled" && activityRes.value.data) {
       const byDay: Record<string, { count: number; xp: number }> = {};
-      for (const entry of activityRes.data as any[]) {
+      for (const entry of activityRes.value.data as any[]) {
         const day = entry.created_at?.slice(0, 10) ?? "";
         if (!byDay[day]) byDay[day] = { count: 0, xp: 0 };
         byDay[day].count += 1;
@@ -246,6 +257,29 @@ export function AnalyticsPage() {
       }
       setWeekActivity(week);
     }
+
+    if (toolExecRes.status === "fulfilled" && toolExecRes.value.data) {
+      const rows = toolExecRes.value.data as any[];
+      const byTool: Record<string, { calls: number; successes: number; totalMs: number }> = {};
+      for (const r of rows) {
+        const name = r.tool_name ?? "unknown";
+        if (!byTool[name]) byTool[name] = { calls: 0, successes: 0, totalMs: 0 };
+        byTool[name].calls += 1;
+        if (r.success) byTool[name].successes += 1;
+        byTool[name].totalMs += r.duration_ms ?? 0;
+      }
+      const stats: ToolStat[] = Object.entries(byTool)
+        .map(([name, v]) => ({
+          name,
+          calls: v.calls,
+          successes: v.successes,
+          avgMs: v.calls > 0 ? Math.round(v.totalMs / v.calls) : 0,
+        }))
+        .sort((a, b) => b.calls - a.calls)
+        .slice(0, 10);
+      setToolStats(stats);
+    }
+
     setCharLoading(false);
   }
 
@@ -589,6 +623,66 @@ export function AnalyticsPage() {
                     </div>
                   );
                 })}
+            </div>
+          </HudCard>
+        )}
+      </section>
+
+      {/* ── Section 6: MAVIS Tool Usage ──────────────────────── */}
+      <section>
+        <h2 className="text-xs font-mono text-primary uppercase tracking-widest mb-3">MAVIS Tool Usage</h2>
+        {charLoading ? (
+          <div className="flex justify-center py-6"><Loader2 className="animate-spin text-primary" size={20} /></div>
+        ) : toolStats.length === 0 ? (
+          <HudCard><p className="text-xs font-mono text-muted-foreground text-center py-4">No tool executions recorded yet.</p></HudCard>
+        ) : (
+          <HudCard>
+            <div className="w-full" style={{ height: Math.max(160, toolStats.length * 28 + 20) }}>
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart
+                  layout="vertical"
+                  data={toolStats}
+                  margin={{ top: 4, right: 24, bottom: 4, left: 8 }}
+                >
+                  <XAxis type="number" tick={{ fontSize: 10, fontFamily: "monospace", fill: "hsl(var(--muted-foreground))" }} axisLine={false} tickLine={false} />
+                  <YAxis type="category" dataKey="name" width={120} tick={{ fontSize: 10, fontFamily: "monospace", fill: "hsl(var(--muted-foreground))" }} axisLine={false} tickLine={false} />
+                  <Tooltip
+                    contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 6, fontSize: 11, fontFamily: "monospace" }}
+                    labelStyle={{ color: "hsl(var(--foreground))" }}
+                    itemStyle={{ color: "hsl(var(--primary))" }}
+                    formatter={(value: number) => [value, "calls"]}
+                  />
+                  <Bar dataKey="calls" radius={[0, 3, 3, 0]}>
+                    {toolStats.map((_, index) => (
+                      <Cell key={index} fill={`hsl(var(--primary) / ${1 - index * 0.07})`} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+            <div className="mt-4 border-t border-border/30 pt-3">
+              <table className="w-full text-[10px] font-mono">
+                <thead>
+                  <tr className="text-muted-foreground uppercase tracking-widest">
+                    <th className="text-left pb-1.5">Tool</th>
+                    <th className="text-right pb-1.5">Calls</th>
+                    <th className="text-right pb-1.5">Success %</th>
+                    <th className="text-right pb-1.5">Avg ms</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {toolStats.map((t) => (
+                    <tr key={t.name} className="border-t border-border/20">
+                      <td className="py-1 text-foreground/80 truncate max-w-[120px]">{t.name}</td>
+                      <td className="py-1 text-right text-primary font-bold">{t.calls}</td>
+                      <td className="py-1 text-right text-green-400">
+                        {t.calls > 0 ? Math.round((t.successes / t.calls) * 100) : 0}%
+                      </td>
+                      <td className="py-1 text-right text-muted-foreground">{t.avgMs}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           </HudCard>
         )}

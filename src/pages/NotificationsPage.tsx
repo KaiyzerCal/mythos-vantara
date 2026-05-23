@@ -4,7 +4,7 @@
 // ============================================================
 import { useState, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Bell, CheckCircle2, Eye, Trash2, Loader2, RefreshCw, AlertTriangle, Info, Zap, Activity } from "lucide-react";
+import { Bell, CheckCircle2, Eye, Trash2, Loader2, RefreshCw, AlertTriangle, Info, Zap, Activity, Lightbulb } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { PageHeader, HudCard } from "@/components/SharedUI";
@@ -26,6 +26,14 @@ interface ActivityEntry {
   event_type: string;
   description: string;
   xp_awarded: number | null;
+  created_at: string;
+}
+
+interface InferredCommitment {
+  id: string;
+  title: string;
+  description: string | null;
+  status: string;
   created_at: string;
 }
 
@@ -56,13 +64,14 @@ export function NotificationsPage() {
 
   const [insights, setInsights] = useState<MavisInsight[]>([]);
   const [activity, setActivity] = useState<ActivityEntry[]>([]);
+  const [commitments, setCommitments] = useState<InferredCommitment[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<"all" | "unread">("unread");
 
   const load = useCallback(async () => {
     if (!session) { setLoading(false); return; }
     setLoading(true);
-    const [insightsRes, activityRes] = await Promise.all([
+    const [insightsRes, activityRes, commitmentsRes] = await Promise.all([
       (supabase as any)
         .from("mavis_insights")
         .select("*")
@@ -73,9 +82,16 @@ export function NotificationsPage() {
         .select("id, event_type, description, xp_awarded, created_at")
         .order("created_at", { ascending: false })
         .limit(20),
+      (supabase as any)
+        .from("mavis_tasks")
+        .select("id, title, description, status, created_at")
+        .eq("source_skill", "inferred_commitment")
+        .order("created_at", { ascending: false })
+        .limit(15),
     ]);
     setInsights((insightsRes.data as MavisInsight[]) ?? []);
     setActivity((activityRes.data as ActivityEntry[]) ?? []);
+    setCommitments((commitmentsRes.data as InferredCommitment[]) ?? []);
     setLoading(false);
   }, [session]);
 
@@ -106,6 +122,17 @@ export function NotificationsPage() {
   async function deleteInsight(id: string) {
     await (supabase as any).from("mavis_insights").delete().eq("id", id);
     setInsights((prev) => prev.filter((ins) => ins.id !== id));
+  }
+
+  async function markCommitmentDone(id: string) {
+    const { error } = await (supabase as any)
+      .from("mavis_tasks")
+      .update({ status: "completed" })
+      .eq("id", id);
+    if (error) { toast.error("Failed to update commitment"); return; }
+    setCommitments((prev) =>
+      prev.map((c) => (c.id === id ? { ...c, status: "completed" } : c))
+    );
   }
 
   const displayed = filter === "unread" ? insights.filter((i) => !i.read_at) : insights;
@@ -218,6 +245,60 @@ export function NotificationsPage() {
               ))}
             </AnimatePresence>
           </div>
+        )}
+      </section>
+
+      {/* MAVIS Detections */}
+      <section>
+        <h2 className="text-xs font-mono text-primary uppercase tracking-widest mb-3">MAVIS Detections</h2>
+        {loading ? null : commitments.length === 0 ? (
+          <HudCard>
+            <p className="text-xs font-mono text-muted-foreground text-center py-4">No inferred commitments detected yet.</p>
+          </HudCard>
+        ) : (
+          <HudCard>
+            <div className="space-y-2">
+              {commitments.map((c, i) => {
+                const displayTitle = c.title.startsWith("Commitment: ")
+                  ? c.title.slice("Commitment: ".length)
+                  : c.title;
+                return (
+                  <motion.div
+                    key={c.id}
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    transition={{ delay: i * 0.02 }}
+                    className="flex items-center gap-3"
+                  >
+                    <Lightbulb size={12} className="text-amber-400 shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-mono truncate">{displayTitle}</p>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <span
+                        className={`text-[9px] font-mono px-1.5 py-0.5 rounded border ${
+                          c.status === "completed"
+                            ? "text-green-400 border-green-800 bg-green-950/40"
+                            : "text-amber-400 border-amber-800 bg-amber-950/40"
+                        }`}
+                      >
+                        {c.status}
+                      </span>
+                      <span className="text-[9px] font-mono text-muted-foreground">{timeAgo(c.created_at)}</span>
+                      {c.status !== "completed" && (
+                        <button
+                          onClick={() => markCommitmentDone(c.id)}
+                          className="text-[9px] font-mono px-1.5 py-0.5 rounded border border-primary/30 text-primary hover:bg-primary/10 transition-colors"
+                        >
+                          Mark Done
+                        </button>
+                      )}
+                    </div>
+                  </motion.div>
+                );
+              })}
+            </div>
+          </HudCard>
         )}
       </section>
 
