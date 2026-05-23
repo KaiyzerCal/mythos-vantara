@@ -10,6 +10,7 @@ import { Loader2 } from "lucide-react";
 import { LocalMeshOverlay, type MeshActivity } from "@/components/LocalMeshOverlay";
 import { checkLocalMeshHealth } from "@/mavis/localMesh";
 import { isOffline } from "@/mavis/offlineMode";
+import { systemMonitor } from "@/mavis/systemMonitor";
 
 /** Sync the mobile browser chrome (status bar) color with the active theme.
  *  Critical for Android — Chrome reads <meta name="theme-color"> dynamically. */
@@ -113,6 +114,12 @@ function AppContent() {
     const interval = setInterval(pollMesh, 30_000);
     return () => clearInterval(interval);
   }, []);
+
+  useEffect(() => {
+    if (!user) return;
+    systemMonitor.start().catch(console.warn);
+    return () => { systemMonitor.stop(); };
+  }, [user]);
 
   if (loading) {
     return (

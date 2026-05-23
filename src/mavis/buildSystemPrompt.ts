@@ -2,6 +2,7 @@
 import type { AppContextSnapshot } from "./appContextLoader";
 import { getStandingOrders } from "./standingOrders";
 import { buildMemoryContext } from "./memoryEngine";
+import { gatherProviderContext } from "./contextProviders";
 
 export interface MavisAppContext {
   quests?: any[];
@@ -273,14 +274,16 @@ export async function buildSystemPromptFromSnapshot(
     rankings: ctx.rankings as any[],
   };
 
-  const [memoryContext, standingOrders] = await Promise.all([
+  const [memoryContext, standingOrders, providerContext] = await Promise.all([
     buildMemoryContext(),
     Promise.resolve(getStandingOrders()),
+    gatherProviderContext(profile.user_id ?? profile.id ?? ""),
   ]);
 
   const base = buildSystemPrompt(profile, mode, appContext, archivedMemories, vaultMedia);
 
   const extras: string[] = [];
+  if (providerContext) extras.push(`\n\n--- LIVE CONTEXT ---\n${providerContext}`);
   if (standingOrders) extras.push(`\n\n${standingOrders}`);
   if (memoryContext) extras.push(`\n\nMEMORY CONTEXT (three-layer — use this):\n${memoryContext}`);
 

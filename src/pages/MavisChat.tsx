@@ -31,8 +31,12 @@ import type { ExecutionResult } from "@/mavis/types";
 import "@/mavis/skills/_loader";
 import { stagehandPlugin } from "@/mavis/plugins/stagehandPlugin";
 import { n8nPlugin } from "@/mavis/plugins/n8nPlugin";
+import { cryptoTraderPlugin } from "@/mavis/plugins/cryptoTraderPlugin";
+import { stockTraderPlugin } from "@/mavis/plugins/stockTraderPlugin";
 import { dispatchAgent } from "@/mavis/dynamicAgentFactory";
 import type { AgentSpecialization } from "@/mavis/dynamicAgentFactory";
+import { runEvaluators } from "@/mavis/evaluatorPipeline";
+import { buildRecallContext } from "@/mavis/proactiveRecall";
 
 const MAVIS_MODES = [
   { id: "PRIME", label: "PRIME", icon: Crown, color: "text-primary", desc: "GPT-4o-mini · General purpose" },
@@ -282,6 +286,8 @@ export default function MavisChat() {
         // Enable browser + workflow plugins (fire-and-forget, non-blocking)
         stagehandPlugin.onEnable?.().catch(console.warn);
         n8nPlugin.onEnable?.().catch(console.warn);
+        cryptoTraderPlugin.onEnable?.().catch(console.warn);
+        stockTraderPlugin.onEnable?.().catch(console.warn);
 
         const { data: convos } = await supabase
           .from("chat_conversations")
@@ -569,6 +575,15 @@ export default function MavisChat() {
         } catch { /* non-fatal — ARCH responds without pre-reasoning */ }
       }
 
+      // Proactive memory recall — inject relevant past context
+      try {
+        const { data: { session: recallSession } } = await supabase.auth.getSession();
+        if (recallSession?.user?.id) {
+          const recallCtx = await buildRecallContext(recallSession.user.id, content);
+          if (recallCtx) finalSystemPrompt = finalSystemPrompt + "\n\n" + recallCtx;
+        }
+      } catch { /* non-fatal */ }
+
       // Add a streaming placeholder bubble so the user sees tokens as they arrive
       streamingId = `streaming-${Date.now()}`;
       setChatMessages((prev) => [...prev, {
@@ -688,6 +703,17 @@ export default function MavisChat() {
         await persistMessage({ role: "assistant", content: cleanText, mode: chatMode }, convoId);
       }
       saveMemoriesFromResponse(content, cleanText);
+      // Run evaluators fire-and-forget
+      const { data: { session: evalSession } } = await supabase.auth.getSession();
+      if (evalSession?.user?.id) {
+        runEvaluators({
+          userId: evalSession.user.id,
+          userMessage: content,
+          assistantResponse: cleanText,
+          mode: chatMode,
+          conversationId,
+        }).catch(() => {});
+      }
     } catch (err: any) {
       if (cancelledRef.current || err?.name === "AbortError") {
         if (streamingId) setChatMessages((prev) => prev.filter((m) => m.id !== streamingId));

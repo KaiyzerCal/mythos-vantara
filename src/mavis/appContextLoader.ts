@@ -1,4 +1,5 @@
 import { supabase as _supabase } from "@/integrations/supabase/client";
+import { rebuildIndexFromSnapshot } from "@/mavis/localEmbeddings";
 const supabase = _supabase as any;
 
 export interface AppContextSnapshot {
@@ -125,5 +126,9 @@ export async function loadFullAppContext(userId: string): Promise<AppContextSnap
   };
 
   _cache.set(userId, { snapshot, ts: Date.now() });
+
+  // Rebuild BM25 index for offline/local search
+  rebuildIndexFromSnapshot(snapshot).catch(() => {});
+
   return snapshot;
 }

@@ -5,6 +5,7 @@
  */
 
 import { supabase as _supabase } from "@/integrations/supabase/client";
+import { detectAndResolveConflicts } from "./memoryConflictDetector";
 const supabase = _supabase as any;
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -94,7 +95,12 @@ export async function storeMemory(
     .single();
 
   if (error) return null;
-  return data.id as string;
+  const newId = data.id as string;
+
+  // Fire-and-forget: detect and resolve conflicting memories
+  detectAndResolveConflicts(userId, memory.agentId, memory.content, newId).catch(() => {});
+
+  return newId;
 }
 
 // ── Recall via semantic search ────────────────────────────────────────────────
