@@ -728,6 +728,7 @@ export default function MavisChat() {
   }, [handleOmniSync, chatMessages, chatMode, conversationId, setChatMessages, setConversationId]);
 
   return (
+    <>
     <div className="flex gap-3 h-[calc(100dvh-4rem)]">
     <div className="flex flex-col flex-1 min-w-0 gap-2 pb-0">
       <PageHeader
@@ -1205,5 +1206,6 @@ export default function MavisChat() {
         />
       )}
     </AnimatePresence>
+    </>
   );
 }
