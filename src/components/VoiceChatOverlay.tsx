@@ -1,35 +1,25 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { X, Mic, Volume2 } from "lucide-react";
+import { X, Mic } from "lucide-react";
 import { streamChatMessage } from "@/mavis/chatService";
-import { useElevenLabsTts } from "@/hooks/useElevenLabsTts";
-
-// Minimal SpeechRecognition typing — Web Speech API isn't in lib.dom yet
-type SpeechRecognition = any;
 
 export interface VoicePersona {
   name: string;
   role?: string;
   systemPrompt: string;
-  voiceId?: string;   // browser:aria | browser:guy | ElevenLabs ID
-  /** DB entity this voice belongs to — used to persist exchanges */
-  entityId?: string;
-  entityType?: "persona" | "council";
 }
 
 interface VoiceChatOverlayProps {
   onClose: () => void;
+  // MAVIS mode — required when persona is not provided
   sendMessage?: (text: string) => Promise<void>;
   lastBotMessage?: string;
   isLoading?: boolean;
+  // Persona mode — self-contained conversation when provided
   persona?: VoicePersona;
-  /** Initial history to pre-load context from past conversations */
-  initialHistory?: Array<{ role: string; content: string }>;
-  /** Called after each exchange so parents can persist to DB */
-  onExchange?: (userMsg: string, aiMsg: string) => void;
 }
 
-type Phase = "listening" | "thinking" | "speaking";
+type Phase = "idle" | "listening" | "thinking" | "speaking";
 
 export function VoiceChatOverlay({
   onClose,
@@ -37,263 +27,171 @@ export function VoiceChatOverlay({
   lastBotMessage = "",
   isLoading = false,
   persona,
-  initialHistory,
-  onExchange,
 }: VoiceChatOverlayProps) {
-  const [phase, setPhase]               = useState<Phase>("listening");
-  const [transcript, setTranscript]     = useState("");
-  const [interim, setInterim]           = useState("");
-  const [displayReply, setDisplayReply] = useState("");
-  const textScrollRef = useRef<HTMLDivElement>(null);
+  const [phase, setPhase] = useState<Phase>("idle");
+  const [transcript, setTranscript] = useState("");
+  const [interimTranscript, setInterimTranscript] = useState("");
 
-  // ── TTS — uses voice catalog (browser or ElevenLabs), personalized per speaker
-  const tts = useElevenLabsTts();
+  // Persona-mode internal state
+  const [personaReply, setPersonaReply] = useState("");
+  const [personaLoading, setPersonaLoading] = useState(false);
+  const personaHistoryRef = useRef<{ role: string; content: string }[]>([]);
 
-  // ── Refs — callbacks always see current values, no stale closures ─────────
-  const phaseRef          = useRef<Phase>("listening");
-  const closingRef        = useRef(false);
-  const recognitionRef    = useRef<SpeechRecognition | null>(null);
-  const restartTimerRef   = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const safetyTimerRef    = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // Seed with past conversation history so the persona has full context
-  const personaHistRef    = useRef<{ role: string; content: string }[]>(initialHistory ?? []);
-  const onExchangeRef     = useRef(onExchange);
-  onExchangeRef.current   = onExchange;
-  // MAVIS mode: only updated when TTS actually fires, not during streaming
-  const lastSpokenRef     = useRef(lastBotMessage);
-  const ttsRef            = useRef(tts);
-  ttsRef.current          = tts;
-  const audioUnlockRef    = useRef<HTMLAudioElement | null>(null);
-  const audioUnlockedRef  = useRef(false);
+  const recognitionRef = useRef<any>(null);
+  const autoRestartTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const closingRef = useRef(false);
 
-  // iOS Safari requires audio + speechSynthesis to be "primed" inside a user
-  // gesture before any async-triggered playback will be audible. Call this
-  // from every tap handler in the overlay.
-  const unlockAudio = useCallback(() => {
-    if (audioUnlockedRef.current) return;
-    audioUnlockedRef.current = true;
-    try {
-      // 1) Unlock HTMLAudio (used by ElevenLabs path) with a silent MP3.
-      const silent = new Audio(
-        "data:audio/mp3;base64,//uQxAAAAAAAAAAAAAAAAAAAAAAAWGluZwAAAA8AAAACAAACcQCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgID///////////////////////////////////////////8AAAA5TEFNRTMuMTAwAc0AAAAALkAAABSAJAJAQgAAgAAAAnGMHF2QAAAAAAAAAAAAAAAAAAAA//sQxAADwAABpAAAACAAADSAAAAETEFNRTMuMTAwVVU=",
-      );
-      silent.volume = 0;
-      silent.play().catch(() => {});
-      audioUnlockRef.current = silent;
-      // 2) Unlock speechSynthesis (used by browser-voice path) with an empty utterance.
-      if (typeof window !== "undefined" && "speechSynthesis" in window) {
-        const u = new SpeechSynthesisUtterance(" ");
-        u.volume = 0;
-        window.speechSynthesis.speak(u);
-      }
-    } catch {
-      // ignore — best-effort unlock
-    }
-  }, []);
+  const effectiveLoading = persona ? personaLoading : isLoading;
+  const effectiveReply   = persona ? personaReply   : lastBotMessage;
 
-  // ── setPhaseSync: update ref AND state in one call ────────────────────────
-  const setPhaseSync = useCallback((p: Phase) => {
-    phaseRef.current = p;
-    setPhase(p);
-  }, []);
+  const prevLoadingRef   = useRef(effectiveLoading);
+  const effectiveReplyRef = useRef(effectiveReply);
+  useEffect(() => { effectiveReplyRef.current = effectiveReply; }, [effectiveReply]);
 
-  // ── Recognition helpers ───────────────────────────────────────────────────
-  const stopRecognition = useCallback(() => {
-    if (restartTimerRef.current) { clearTimeout(restartTimerRef.current); restartTimerRef.current = null; }
+  const stopListening = useCallback(() => {
     if (recognitionRef.current) {
-      const r = recognitionRef.current;
+      recognitionRef.current.abort();
       recognitionRef.current = null;
-      (r as SpeechRecognition & { _dead?: boolean })._dead = true;
-      r.abort();
     }
   }, []);
+
+  const sendPersonaMessage = useCallback(async (text: string) => {
+    if (!persona) return;
+    setPersonaLoading(true);
+    setPersonaReply("");
+    let accumulated = "";
+    try {
+      await streamChatMessage(
+        text,
+        persona.systemPrompt,
+        personaHistoryRef.current,
+        { mode: "CHAT" },
+        (_, acc) => { accumulated = acc; setPersonaReply(acc); },
+      );
+      personaHistoryRef.current = [
+        ...personaHistoryRef.current,
+        { role: "user", content: text },
+        { role: "assistant", content: accumulated },
+      ];
+    } catch {
+      // non-critical — phase will fall back to idle via loading transition
+    } finally {
+      setPersonaLoading(false);
+    }
+  }, [persona]);
 
   const startListening = useCallback(() => {
-    if (closingRef.current) return;
-    if (recognitionRef.current) return;
-    if (phaseRef.current === "thinking") return;
+    const SpeechRecognition =
+      (window as any).SpeechRecognition ||
+      (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) return;
 
-    const SR = (window as any).SpeechRecognition
-            ?? (window as any).webkitSpeechRecognition;
-    if (!SR) return;
+    const recognition = new SpeechRecognition();
+    recognition.continuous = false;
+    recognition.interimResults = true;
+    recognition.lang = "en-US";
 
-    const r = new SR() as SpeechRecognition & { _dead?: boolean };
-    r.continuous     = false;
-    r.interimResults = true;
-    r.lang           = "en-US";
-    r._dead          = false;
-    let finalText    = "";
+    let finalText = "";
 
-    r.onspeechstart = () => {
-      // Barge-in: cancel TTS if AI is speaking
-      if (phaseRef.current === "speaking") {
-        ttsRef.current.stop();
-        setPhaseSync("listening");
+    recognition.onresult = (event: any) => {
+      let interim = "";
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        const t = event.results[i][0].transcript;
+        if (event.results[i].isFinal) {
+          finalText += t + " ";
+          setTranscript(finalText.trim());
+        } else {
+          interim = t;
+        }
       }
+      setInterimTranscript(interim);
     };
 
-    r.onresult = (ev) => {
-      let int = "";
-      for (let i = ev.resultIndex; i < ev.results.length; i++) {
-        const t = ev.results[i][0].transcript;
-        if (ev.results[i].isFinal) { finalText += t + " "; setTranscript(finalText.trim()); setInterim(""); }
-        else int = t;
-      }
-      if (int) setInterim(int);
+    recognition.onerror = () => {
+      recognitionRef.current = null;
+      if (!closingRef.current) setPhase("idle");
     };
 
-    r.onerror = (ev) => {
-      if (ev.error === "not-allowed" || ev.error === "service-not-allowed") {
-        r._dead = true;
-      }
-    };
-
-    r.onend = () => {
-      if (r._dead) return;
+    recognition.onend = () => {
       recognitionRef.current = null;
       if (closingRef.current) return;
       const captured = finalText.trim();
-      if (!captured) {
-        if (phaseRef.current !== "thinking") {
-          restartTimerRef.current = setTimeout(() => {
-            restartTimerRef.current = null;
-            if (!closingRef.current && phaseRef.current !== "thinking") startListening();
-          }, 120);
-        }
-        return;
-      }
-
-      // Hand off to AI
-      setPhaseSync("thinking");
-      // 30s safety timeout in case AI never responds
-      if (safetyTimerRef.current) clearTimeout(safetyTimerRef.current);
-      safetyTimerRef.current = setTimeout(() => {
-        safetyTimerRef.current = null;
-        if (!closingRef.current && phaseRef.current === "thinking") setPhaseSync("listening");
-      }, 30_000);
-
-      if (persona) {
-        let acc = "";
-        streamChatMessage(
-          captured,
-          persona.systemPrompt,
-          personaHistRef.current,
-          { mode: "CHAT", chatKind: "persona" },
-          (_, a) => { acc = a; setDisplayReply(a); },
-        ).then(() => {
-          if (safetyTimerRef.current) { clearTimeout(safetyTimerRef.current); safetyTimerRef.current = null; }
-          personaHistRef.current = [
-            ...personaHistRef.current,
-            { role: "user", content: captured },
-            { role: "assistant", content: acc },
-          ];
-          // Persist this exchange to DB via parent callback
-          if (acc) onExchangeRef.current?.(captured, acc);
-          if (closingRef.current) return;
-          if (acc) {
-            setPhaseSync("speaking");
-            ttsRef.current.speak(acc, { voiceId: persona.voiceId ?? undefined })
-              .then(() => { if (!closingRef.current) setPhaseSync("listening"); });
-          } else {
-            setPhaseSync("listening");
-          }
-        }).catch(() => {
-          if (safetyTimerRef.current) { clearTimeout(safetyTimerRef.current); safetyTimerRef.current = null; }
-          if (!closingRef.current) setPhaseSync("listening");
+      if (captured) {
+        setPhase("thinking");
+        const dispatch = persona ? sendPersonaMessage : sendMessage;
+        dispatch?.(captured).catch(() => {
+          if (!closingRef.current) setPhase("idle");
         });
       } else {
-        sendMessage?.(captured).catch(() => {
-          if (safetyTimerRef.current) { clearTimeout(safetyTimerRef.current); safetyTimerRef.current = null; }
-          if (!closingRef.current) setPhaseSync("listening");
-        });
+        setPhase("idle");
       }
     };
 
-    recognitionRef.current = r;
-    setTranscript(""); setInterim("");
-    try { r.start(); } catch { recognitionRef.current = null; }
-    setPhaseSync("listening");
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [persona, sendMessage, setPhaseSync]);
+    recognitionRef.current = recognition;
+    setTranscript("");
+    setInterimTranscript("");
+    recognition.start();
+    setPhase("listening");
+  }, [sendMessage, sendPersonaMessage, persona]);
 
-  // ── MAVIS mode: trigger TTS when final response lands ────────────────────
+  // Transition: thinking → speaking when loading finishes
   useEffect(() => {
-    if (persona) return;
-    if (isLoading || !lastBotMessage || closingRef.current) return;
-    if (lastBotMessage === lastSpokenRef.current) return;
-    if (phaseRef.current !== "thinking") return;
-    if (safetyTimerRef.current) { clearTimeout(safetyTimerRef.current); safetyTimerRef.current = null; }
-    lastSpokenRef.current = lastBotMessage;
-    setDisplayReply(lastBotMessage);
-    setPhaseSync("speaking");
-    ttsRef.current.speak(lastBotMessage, {})
-      .then(() => { if (!closingRef.current) setPhaseSync("listening"); });
-  }, [lastBotMessage, isLoading, persona, setPhaseSync]);
-
-  // ── Auto-scroll response text as it streams in ───────────────────────────
-  useEffect(() => {
-    if (textScrollRef.current) {
-      textScrollRef.current.scrollTop = textScrollRef.current.scrollHeight;
+    if (prevLoadingRef.current && !effectiveLoading && phase === "thinking" && !closingRef.current) {
+      const msg = effectiveReplyRef.current;
+      if (msg && typeof window !== "undefined" && window.speechSynthesis) {
+        setPhase("speaking");
+        const utterance = new SpeechSynthesisUtterance(msg);
+        utterance.onend = () => { if (!closingRef.current) setPhase("idle"); };
+        utterance.onerror = () => { if (!closingRef.current) setPhase("idle"); };
+        window.speechSynthesis.speak(utterance);
+      } else {
+        setPhase("idle");
+      }
     }
-  }, [displayReply]);
+    prevLoadingRef.current = effectiveLoading;
+  }, [effectiveLoading, phase]);
 
-  // ── Auto-manage mic based on phase ───────────────────────────────────────
+  // Auto-restart listening after speaking or idle
   useEffect(() => {
-    if (closingRef.current) return;
-    if (phase === "listening") {
-      const t = setTimeout(() => startListening(), 80);
-      return () => clearTimeout(t);
+    if (phase === "idle" && !closingRef.current) {
+      autoRestartTimerRef.current = setTimeout(() => {
+        if (!closingRef.current) startListening();
+      }, 1200);
     }
-    if (phase === "thinking") stopRecognition();
-  }, [phase, startListening, stopRecognition]);
-
-  // ── Mount: auto-start; Unmount: full cleanup ──────────────────────────────
-  useEffect(() => {
-    // The overlay mounts immediately after the user tap that opened it,
-    // so this still counts as a gesture on iOS — prime audio now.
-    unlockAudio();
-    const t = setTimeout(() => startListening(), 250);
     return () => {
-      clearTimeout(t);
-      closingRef.current = true;
-      if (restartTimerRef.current) clearTimeout(restartTimerRef.current);
-      if (safetyTimerRef.current) clearTimeout(safetyTimerRef.current);
-      stopRecognition();
-      ttsRef.current.stop();
+      if (autoRestartTimerRef.current) {
+        clearTimeout(autoRestartTimerRef.current);
+        autoRestartTimerRef.current = null;
+      }
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [phase, startListening]);
 
-  // ── Close ─────────────────────────────────────────────────────────────────
   const handleClose = useCallback(() => {
     closingRef.current = true;
-    if (restartTimerRef.current) clearTimeout(restartTimerRef.current);
-    if (safetyTimerRef.current) clearTimeout(safetyTimerRef.current);
-    stopRecognition();
-    ttsRef.current.stop();
+    if (autoRestartTimerRef.current) clearTimeout(autoRestartTimerRef.current);
+    stopListening();
+    if (window.speechSynthesis) window.speechSynthesis.cancel();
     onClose();
-  }, [onClose, stopRecognition]);
+  }, [onClose, stopListening]);
 
-  // ── Orb/button tap ────────────────────────────────────────────────────────
-  const handleTap = useCallback(() => {
-    unlockAudio();
-    if (phase === "speaking") {
-      ttsRef.current.stop();
-      setPhaseSync("listening");
-    } else if (phase === "listening") {
-      stopRecognition();
-      setPhaseSync("listening");
-    }
-    // "thinking" — do nothing, let it finish
-  }, [phase, setPhaseSync, stopRecognition]);
+  const handleOrbOrMicTap = useCallback(() => {
+    if (phase === "idle") startListening();
+    else if (phase === "listening") stopListening();
+  }, [phase, startListening, stopListening]);
+
+  const phaseLabel: Record<Phase, string> = {
+    idle: "TAP TO SPEAK",
+    listening: "LISTENING...",
+    thinking: "THINKING...",
+    speaking: "SPEAKING...",
+  };
+
+  const orbListening = phase === "listening";
+  const orbThinking  = phase === "thinking";
+  const orbSpeaking  = phase === "speaking";
 
   const speakerName = persona?.name ?? "MAVIS";
   const speakerRole = persona?.role;
-  const phaseLabel: Record<Phase, string> = {
-    listening: "LISTENING...",
-    thinking:  "THINKING...",
-    speaking:  "SPEAKING  ·  TAP ORB TO SKIP",
-  };
 
   return (
     <motion.div
@@ -301,7 +199,7 @@ export function VoiceChatOverlay({
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
       transition={{ duration: 0.2 }}
-      className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-black/92 backdrop-blur-md"
+      className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-black/90 backdrop-blur-md"
     >
       {/* Close */}
       <button
@@ -313,87 +211,74 @@ export function VoiceChatOverlay({
       </button>
 
       {/* Speaker label */}
-      <div className="absolute top-6 left-6">
+      <div className="absolute top-5 left-6 text-left">
         <p className="text-xs font-mono font-bold text-primary tracking-widest">{speakerName}</p>
-        {speakerRole && <p className="text-[10px] font-mono text-muted-foreground mt-0.5">{speakerRole}</p>}
+        {speakerRole && <p className="text-[10px] font-mono text-muted-foreground">{speakerRole}</p>}
       </div>
 
-      {/* Central orb */}
+      {/* Orb */}
       <button
-        onClick={handleTap}
+        onClick={handleOrbOrMicTap}
         className={[
-          "relative w-28 h-28 rounded-full flex items-center justify-center transition-all duration-300",
-          "bg-primary/15 border-2",
-          phase === "listening" ? "border-primary scale-110 ring-8 ring-primary/15 animate-pulse" : "",
-          phase === "speaking"  ? "border-primary/80 scale-108 shadow-[0_0_60px_rgba(139,92,246,0.55)]" : "",
-          phase === "thinking"  ? "border-primary/50" : "",
+          "relative w-20 h-20 rounded-full flex items-center justify-center transition-all duration-300",
+          "bg-primary/20 border-2 border-primary/40",
+          orbListening ? "animate-pulse scale-110" : "",
+          orbSpeaking ? "shadow-[0_0_40px_rgba(139,92,246,0.5)]" : "",
         ].filter(Boolean).join(" ")}
-        aria-label={phase === "speaking" ? "Skip speech" : "Tap to interact"}
+        aria-label={phase === "listening" ? "Stop listening" : "Start listening"}
       >
-        {/* Spinning ring when thinking */}
         <span className={[
-          "absolute inset-2 rounded-full border-2 border-transparent border-t-primary/70 transition-opacity",
-          phase === "thinking" ? "animate-spin opacity-100" : "opacity-0",
+          "absolute inset-1 rounded-full border-2 border-transparent border-t-primary/70",
+          orbThinking ? "animate-spin" : "opacity-0",
         ].join(" ")} />
-        {phase === "speaking"
-          ? <Volume2 size={36} className="text-primary animate-pulse" />
-          : <Mic     size={36} className={phase === "listening" ? "text-primary" : "text-primary/50"} />
-        }
+        <Mic size={28} className={phase === "listening" ? "text-primary" : "text-primary/60"} />
       </button>
 
       {/* Phase label */}
-      <p className="mt-5 text-[11px] font-mono tracking-[0.2em] text-primary">{phaseLabel[phase]}</p>
+      <p className="mt-4 text-xs font-mono tracking-widest text-primary">{phaseLabel[phase]}</p>
 
-      {/* User transcript */}
+      {/* Transcript */}
       <AnimatePresence mode="wait">
-        {(transcript || interim) && phase !== "speaking" && (
-          <motion.div
+        {(transcript || interimTranscript) && (
+          <motion.p
             key="transcript"
-            initial={{ opacity: 0, y: 6 }}
+            initial={{ opacity: 0, y: 4 }}
             animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -4 }}
-            className="mt-5 max-w-xs px-5 py-2 rounded-xl bg-white/5 border border-white/10"
+            exit={{ opacity: 0 }}
+            className="mt-4 max-w-sm px-4 text-center text-xs font-mono text-muted-foreground line-clamp-3"
           >
-            <p className="text-center text-sm font-mono text-muted-foreground">
-              {transcript || <em className="not-italic opacity-50">{interim}</em>}
-            </p>
-          </motion.div>
+            {transcript || interimTranscript}
+          </motion.p>
         )}
       </AnimatePresence>
 
-      {/* AI response */}
+      {/* Response */}
       <AnimatePresence mode="wait">
-        {displayReply && phase === "speaking" && (
-          <motion.div
+        {effectiveReply && phase !== "idle" && (
+          <motion.p
             key="response"
-            initial={{ opacity: 0, y: 10 }}
+            initial={{ opacity: 0, y: 4 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0 }}
-            className="mt-6 max-w-sm mx-6 px-5 py-4 rounded-2xl bg-primary/10 border border-primary/25"
+            className="mt-6 max-w-sm px-4 text-center text-sm font-mono text-white line-clamp-4"
           >
-            <div ref={textScrollRef} className="overflow-y-auto max-h-[35vh] scrollbar-thin">
-              <p className="text-sm font-body text-white leading-relaxed text-center">
-                {displayReply}
-              </p>
-            </div>
-          </motion.div>
+            {effectiveReply}
+          </motion.p>
         )}
       </AnimatePresence>
 
       {/* Bottom mic button */}
       <button
-        onClick={handleTap}
+        onClick={handleOrbOrMicTap}
         className={[
-          "absolute bottom-10 w-16 h-16 rounded-full flex items-center justify-center transition-all duration-300 border-2",
+          "absolute bottom-12 w-20 h-20 rounded-full flex items-center justify-center transition-all duration-300 border-2",
           phase === "listening"
-            ? "bg-primary/15 border-primary/60 text-primary animate-pulse"
-            : phase === "speaking"
-            ? "bg-primary/10 border-primary/30 text-primary/60 hover:bg-primary/20 hover:text-primary"
-            : "bg-muted/20 border-border text-muted-foreground",
+            ? "bg-destructive/20 border-destructive/50 text-destructive animate-pulse"
+            : "bg-primary/10 border-primary/30 text-primary/70 hover:bg-primary/20 hover:text-primary",
         ].join(" ")}
-        aria-label={phase === "speaking" ? "Skip" : "Mic"}
+        aria-label={phase === "listening" ? "Stop" : "Speak"}
       >
-        {phase === "speaking" ? <Volume2 size={24} /> : <Mic size={24} />}
+        <Mic size={32} />
       </button>
     </motion.div>
   );

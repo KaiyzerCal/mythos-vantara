@@ -96,7 +96,7 @@ export function StudyPage() {
       toast.error("Failed to load study cards");
     } else {
       // Filter out skip_sr=true
-      const filtered = (data as unknown as MavisNote[]).filter((n) => {
+      const filtered = (data as MavisNote[]).filter((n) => {
         const props = n.properties as Record<string, unknown> | null;
         return !props || props["skip_sr"] !== "true";
       });
@@ -141,7 +141,7 @@ export function StudyPage() {
       .order("next_review_at", { ascending: true, nullsFirst: true })
       .limit(20);
 
-    const filtered = (data as unknown as MavisNote[] || []).filter((n) => {
+    const filtered = (data as MavisNote[] || []).filter((n) => {
       const props = n.properties as Record<string, unknown> | null;
       return !props || props["skip_sr"] !== "true";
     });
@@ -160,7 +160,7 @@ export function StudyPage() {
     const nextReview = addDays(newInterval);
     const now = new Date().toISOString();
 
-    const { error } = await (supabase as any)
+    const { error } = await supabase
       .from("mavis_notes")
       .update({
         last_reviewed_at: now,

@@ -1,59 +1,27 @@
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Route, Routes } from "react-router-dom";
+import { Toaster } from "@/components/ui/toaster";
 import { Toaster as SonnerToaster } from "sonner";
 import { ThemeProvider, useTheme } from "next-themes";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import { AppDataProvider } from "@/contexts/AppDataContext";
 import AppSidebar from "@/components/AppSidebar";
 import { Loader2 } from "lucide-react";
-import { LocalMeshOverlay, type MeshActivity } from "@/components/LocalMeshOverlay";
-import { checkLocalMeshHealth } from "@/mavis/localMesh";
-import { isOffline, startSyncListener } from "@/mavis/offlineMode";
-import { systemMonitor } from "@/mavis/systemMonitor";
 
 /** Sync the mobile browser chrome (status bar) color with the active theme.
  *  Critical for Android — Chrome reads <meta name="theme-color"> dynamically. */
 function ThemeColorSync() {
   const { resolvedTheme } = useTheme();
   useEffect(() => {
-    const isLight = resolvedTheme === "light";
-    const color = isLight ? "#ffffff" : "#0a0d1f";
-
-    // Replace all theme-color metas with a single non-media-scoped tag so
-    // Android Chrome / WebView always picks up the active theme.
+    const color = resolvedTheme === "light" ? "#ffffff" : "#0a0d1f";
     document.querySelectorAll('meta[name="theme-color"]').forEach((el) => el.remove());
-    const themeMeta = document.createElement("meta");
-    themeMeta.name = "theme-color";
-    themeMeta.content = color;
-    document.head.appendChild(themeMeta);
-
-    // Tell Chrome/WebView which scheme we're actually rendering. A single
-    // value (not "dark light") disables Android Chrome's "Force Dark" inversion.
-    let csMeta = document.querySelector('meta[name="color-scheme"]') as HTMLMetaElement | null;
-    if (!csMeta) {
-      csMeta = document.createElement("meta");
-      csMeta.name = "color-scheme";
-      document.head.appendChild(csMeta);
-    }
-    csMeta.content = isLight ? "light" : "dark";
-
-    // Android WebView/Chrome need explicit class + color-scheme updates to
-    // re-render form controls, scrollbars, and the body background. next-themes
-    // only toggles the class — we force-sync the rest here.
-    const root = document.documentElement;
-    root.classList.remove("dark", "light");
-    root.classList.add(isLight ? "light" : "dark");
-    root.style.colorScheme = isLight ? "light" : "dark";
-    document.body.style.backgroundColor = isLight ? "#ffffff" : "#0a0d1f";
-
-    try { localStorage.setItem("vantara-theme", isLight ? "light" : "dark"); } catch {}
+    const meta = document.createElement("meta");
+    meta.name = "theme-color";
+    meta.content = color;
+    document.head.appendChild(meta);
   }, [resolvedTheme]);
   return null;
-}
-function ThemedSonner() {
-  const { resolvedTheme } = useTheme();
-  return <SonnerToaster position="bottom-right" theme={resolvedTheme === "light" ? "light" : "dark"} />;
 }
 
 // Pages
@@ -91,40 +59,11 @@ import { EmailPage } from "@/pages/EmailPage";
 import { WebhookConfigPage } from "@/pages/WebhookConfigPage";
 import { IntegrationsPage } from "@/pages/IntegrationsPage";
 import { ExportPage } from "@/pages/ExportPage";
-import { ForecastPage } from "@/pages/ForecastPage";
-import { ImportPage } from "@/pages/ImportPage";
-import { StripeManagementPage } from "@/pages/StripeManagementPage";
-import { AchievementsPage } from "@/pages/AchievementsPage";
-import { WorkflowsPage } from "@/pages/WorkflowsPage";
-import { NotificationsPage } from "@/pages/NotificationsPage";
 
 const queryClient = new QueryClient();
 
 function AppContent() {
   const { user, loading } = useAuth();
-  const [meshActivity, setMeshActivity] = useState<MeshActivity>("offline");
-
-  useEffect(() => {
-    async function pollMesh() {
-      if (isOffline()) { setMeshActivity("offline"); return; }
-      const health = await checkLocalMeshHealth();
-      setMeshActivity(health === "online" ? "idle" : "offline");
-    }
-    pollMesh();
-    const interval = setInterval(pollMesh, 30_000);
-    return () => clearInterval(interval);
-  }, []);
-
-  useEffect(() => {
-    if (!user) return;
-    systemMonitor.start().catch(console.warn);
-    return () => { systemMonitor.stop(); };
-  }, [user]);
-
-  useEffect(() => {
-    const cleanup = startSyncListener();
-    return cleanup;
-  }, []);
 
   if (loading) {
     return (
@@ -142,7 +81,6 @@ function AppContent() {
   return (
     <AppDataProvider>
       <div className="flex min-h-screen bg-background">
-        <LocalMeshOverlay activity={meshActivity} variant="corner" />
         <AppSidebar />
         <main className="flex-1 p-5 overflow-y-auto min-w-0">
           <Routes>
@@ -187,12 +125,6 @@ function AppContent() {
             <Route path="/webhooks" element={<WebhookConfigPage />} />
             <Route path="/integrations" element={<IntegrationsPage />} />
             <Route path="/export" element={<ExportPage />} />
-            <Route path="/forecast" element={<ForecastPage />} />
-            <Route path="/import" element={<ImportPage />} />
-            <Route path="/stripe" element={<StripeManagementPage />} />
-            <Route path="/achievements" element={<AchievementsPage />} />
-            <Route path="/workflows" element={<WorkflowsPage />} />
-            <Route path="/notifications" element={<NotificationsPage />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </main>
@@ -205,7 +137,8 @@ const App = () => (
   <QueryClientProvider client={queryClient}>
     <ThemeProvider attribute="class" defaultTheme="dark" enableSystem={false} storageKey="vantara-theme">
       <ThemeColorSync />
-      <ThemedSonner />
+      <Toaster />
+      <SonnerToaster position="bottom-right" theme="dark" />
       <BrowserRouter>
         <AuthProvider>
           <AppContent />

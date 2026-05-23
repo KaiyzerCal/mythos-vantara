@@ -1,15 +1,13 @@
-import { NavLink, useLocation, useNavigate } from "react-router-dom";
+import { NavLink, useLocation } from "react-router-dom";
 import {
   LayoutDashboard, User, Target, CheckSquare, Users, Flame,
   Zap, Sparkles, Package, BookOpen, BookLock, ShoppingBag,
   Medal, TowerControl, Activity, Settings, ChevronLeft, ChevronRight,
-  LogOut, Cpu, Shield, HeartPulse, Inbox, Network, Bell,
+  LogOut, Cpu, Shield, HeartPulse, Inbox, Network,
   UserCheck, BarChart2, Repeat2, Heart, DollarSign, CalendarClock,
   Crosshair, GraduationCap, Clock, Video, BookMarked,
   TrendingUp, Mail, Webhook, KeyRound, Archive,
-  LineChart, Upload, CreditCard, Trophy, Workflow,
 } from "lucide-react";
-import { LocalMeshStatusChip } from "@/components/LocalMeshStatus";
 import { useState, useContext } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useAuth } from "@/contexts/AuthContext";
@@ -21,7 +19,6 @@ const PRIMARY_NAV = [
   { to: "/character", icon: User, label: "Character" },
   { to: "/mavis", icon: Cpu, label: "MAVIS" },
   { to: "/inbox", icon: Inbox, label: "Inbox" },
-  { to: "/notifications", icon: Bell, label: "Notifications" },
   { to: "/quests", icon: Target, label: "Quests" },
   { to: "/councils", icon: Users, label: "Councils" },
 ];
@@ -53,14 +50,9 @@ const INTEL_NAV = [
   { to: "/webhooks", icon: Webhook, label: "Webhooks" },
   { to: "/integrations", icon: KeyRound, label: "Integrations" },
   { to: "/export", icon: Archive, label: "Export Data" },
-  { to: "/forecast", icon: LineChart, label: "Forecast" },
-  { to: "/import", icon: Upload, label: "Import" },
-  { to: "/stripe", icon: CreditCard, label: "Stripe" },
-  { to: "/workflows", icon: Workflow, label: "Workflows" },
 ];
 
 const UTILITY_NAV = [
-  { to: "/achievements", icon: Trophy, label: "Achievements" },
   { to: "/personas", icon: HeartPulse, label: "Personas" },
   { to: "/persona-relationships", icon: HeartPulse, label: "Relationships" },
   { to: "/rankings", icon: Medal, label: "Rankings" },
@@ -199,14 +191,6 @@ export default function AppSidebar() {
         <SectionLabel label="Utilities" collapsed={collapsed} />
         {UTILITY_NAV.map((item) => <NavItem key={item.to} {...item} collapsed={collapsed} />)}
       </nav>
-
-      {/* Local Mesh status */}
-      <div className="px-2 pb-1">
-        <LocalMeshStatusChip
-          collapsed={collapsed}
-          onClick={() => window.location.href = "/integrations"}
-        />
-      </div>
 
       {/* Sign out */}
       <button

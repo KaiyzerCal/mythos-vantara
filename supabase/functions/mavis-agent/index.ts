@@ -11,7 +11,7 @@ const corsHeaders = {
 function scoreImportance(text: string): number {
   const lower = text.toLowerCase();
   const HIGH = ["goal","decide","decided","contract","revenue","critical","never","always","promise","commit","committed","deadline","milestone","must","rule","principle"];
-  const MED  = ["quest","task","project","plan","build","launch","strategy","system","habit"];
+  const MED  = ["quest","task","project","plan","build","launch","strategy","system","habit","ritual"];
   if (HIGH.some(w => lower.includes(w))) return Math.min(9, 7 + HIGH.filter(w => lower.includes(w)).length);
   if (MED.some(w => lower.includes(w)))  return 5 + (MED.filter(w => lower.includes(w)).length > 1 ? 1 : 0);
   return 3;
@@ -19,7 +19,7 @@ function scoreImportance(text: string): number {
 
 // ── Allowed tables ────────────────────────────────────────────────────────────
 const READ_TABLES = new Set([
-  "quests", "tasks", "skills", "allies", "inventory",
+  "quests", "tasks", "skills", "rituals", "allies", "inventory",
   "journal_entries", "vault_entries", "mavis_notes", "mavis_memory",
   "mavis_tacit", "mavis_tasks", "energy_systems", "bpm_sessions",
   "store_items", "transformations",
@@ -28,7 +28,7 @@ const READ_TABLES = new Set([
 ]);
 
 const WRITE_TABLES = new Set([
-  "quests", "tasks", "mavis_notes", "mavis_memory", "mavis_tasks",
+  "quests", "tasks", "rituals", "mavis_notes", "mavis_memory", "mavis_tasks",
   "contacts", "contact_interactions",
 ]);
 
@@ -260,128 +260,6 @@ const AGENT_TOOLS = [
     },
   },
   {
-    name: "sync_oura",
-    description: "Sync Oura Ring health data (sleep, readiness, activity) into MAVIS health metrics. Call when operator asks about syncing health/sleep/recovery data.",
-    input_schema: {
-      type: "object" as const,
-      properties: {
-        days: { type: "number", description: "How many days back to sync (default 7)" },
-      },
-      required: [],
-    },
-  },
-  {
-    name: "sync_strava",
-    description: "Sync Strava fitness activities into MAVIS health metrics and award XP for runs/rides/workouts.",
-    input_schema: {
-      type: "object" as const,
-      properties: {
-        days: { type: "number", description: "How many days back to sync (default 7)" },
-      },
-      required: [],
-    },
-  },
-  {
-    name: "sync_github",
-    description: "Sync unread GitHub notifications into MAVIS notes and mark them as read on GitHub.",
-    input_schema: { type: "object" as const, properties: {}, required: [] },
-  },
-  {
-    name: "get_weather",
-    description: "Fetch current weather and 12h forecast for the operator's saved location. Stores a weather note in MAVIS.",
-    input_schema: { type: "object" as const, properties: {}, required: [] },
-  },
-  {
-    name: "get_news",
-    description: "Fetch top HackerNews stories and any saved RSS feeds. Upserts them as intel notes in MAVIS.",
-    input_schema: { type: "object" as const, properties: {}, required: [] },
-  },
-  {
-    name: "gmail_sync",
-    description: "Sync up to 30 primary inbox Gmail messages into MAVIS notes and extract contacts.",
-    input_schema: { type: "object" as const, properties: {}, required: [] },
-  },
-  {
-    name: "gdrive_sync",
-    description: "Sync up to 50 recently modified Google Drive files (Docs, Sheets, Slides) into MAVIS notes.",
-    input_schema: { type: "object" as const, properties: {}, required: [] },
-  },
-  {
-    name: "gcontacts_sync",
-    description: "Sync up to 200 Google Contacts into the MAVIS contacts table.",
-    input_schema: { type: "object" as const, properties: {}, required: [] },
-  },
-  {
-    name: "gtasks_sync",
-    description: "Bidirectional sync of Google Tasks with MAVIS tasks. Direction: pull | push | sync.",
-    input_schema: {
-      type: "object" as const,
-      properties: {
-        direction: { type: "string", description: "pull, push, or sync (default: sync)" },
-      },
-      required: [],
-    },
-  },
-  {
-    name: "spotify_sync",
-    description: "Sync recently played Spotify tracks into MAVIS health metrics for mood/energy tracking.",
-    input_schema: { type: "object" as const, properties: {}, required: [] },
-  },
-  {
-    name: "morning_digest",
-    description: "Generate and deliver the morning briefing: quests, schedule, health, news, and insights. Stores in journal and sends to Telegram.",
-    input_schema: { type: "object" as const, properties: {}, required: [] },
-  },
-  {
-    name: "run_workflow",
-    description: "Execute a saved MAVIS workflow by name or id, running its steps sequentially.",
-    input_schema: {
-      type: "object" as const,
-      properties: {
-        workflow_id: { type: "string", description: "UUID of the workflow to run." },
-        workflow_name: { type: "string", description: "Name of the workflow (used if id not provided)." },
-      },
-      required: [],
-    },
-  },
-  {
-    name: "browser_navigate",
-    description: "Navigate to a URL and return its text content. Uses Browserbase cloud when configured, otherwise falls back to a plain HTTP fetch. Use to read live web pages, docs, prices, or any URL the user needs.",
-    input_schema: {
-      type: "object" as const,
-      properties: {
-        url:     { type: "string", description: "Full URL to navigate to (include https://)" },
-        extract: { type: "string", description: "Optional: natural language instruction for what to extract from the page (e.g. 'all product prices'). Uses Claude vision when Browserbase screenshot is available." },
-      },
-      required: ["url"],
-    },
-  },
-  {
-    name: "graph_traverse",
-    description: "Traverse the MAVIS knowledge graph starting from a note title, following wikilinks outward. Use before writing or referencing notes to discover connected context the user may have captured.",
-    input_schema: {
-      type: "object" as const,
-      properties: {
-        start_title: { type: "string",  description: "Title (or partial title) of the starting note" },
-        depth:       { type: "number",  description: "How many link hops to follow (1–4, default 2)" },
-      },
-      required: ["start_title"],
-    },
-  },
-  {
-    name: "think_sequential",
-    description: "Run a multi-step chain-of-thought reasoning pass before answering a complex or high-stakes question. Use before any irreversible action, multi-step plan, or ambiguous decision to reduce errors.",
-    input_schema: {
-      type: "object" as const,
-      properties: {
-        goal:    { type: "string", description: "The question or decision to reason through" },
-        context: { type: "string", description: "Relevant facts and constraints" },
-        steps:   { type: "number", description: "Max reasoning steps (default 4, max 8)" },
-      },
-      required: ["goal", "context"],
-    },
-  },
-  {
     name: "post_to_tiktok",
     description: "Post content to TikTok as Nora Vale persona. Provide a video_url for a video post, or omit for a text/caption draft.",
     input_schema: {
@@ -396,77 +274,11 @@ const AGENT_TOOLS = [
   },
 ];
 
-// ── Loop Guard (from OpenJarvis pattern) ──────────────────────────────────────
-class LoopGuard {
-  private callCounts = new Map<string, number>();
-  private recentTools: string[] = [];
-  private readonly maxIdentical = 3;
-  private readonly windowSize   = 6;
-
-  check(toolName: string, input: Record<string, unknown>): string | null {
-    // Hash: tool + key args (omit large content fields)
-    const keyArgs = { ...input };
-    delete keyArgs.code; delete keyArgs.csv_text; delete keyArgs.content;
-    const key = `${toolName}:${JSON.stringify(keyArgs)}`;
-
-    const count = (this.callCounts.get(key) ?? 0) + 1;
-    this.callCounts.set(key, count);
-    if (count > this.maxIdentical) {
-      return `Loop guard: ${toolName} called ${count} times with same args. Break the loop — synthesize what you know.`;
-    }
-
-    // Ping-pong detection: A-B-A-B or A-B-C-A-B-C in last 6 calls
-    this.recentTools.push(toolName);
-    if (this.recentTools.length > this.windowSize) this.recentTools.shift();
-    if (this.recentTools.length >= 4) {
-      const n = this.recentTools.length;
-      // Period-2
-      if (this.recentTools[n-1] === this.recentTools[n-3] && this.recentTools[n-2] === this.recentTools[n-4]) {
-        return `Loop guard: ping-pong detected (${this.recentTools.slice(-4).join("→")}). Stop and give a final answer.`;
-      }
-      // Period-3
-      if (n >= 6 && this.recentTools[n-1] === this.recentTools[n-4] && this.recentTools[n-2] === this.recentTools[n-5] && this.recentTools[n-3] === this.recentTools[n-6]) {
-        return `Loop guard: 3-cycle detected. Stop and synthesize.`;
-      }
-    }
-    return null;
-  }
-}
-
-// ── Observation Compression ───────────────────────────────────────────────────
-async function compressObservation(toolName: string, result: string, claudeKey: string): Promise<string> {
-  // Only compress large results from data-retrieval tools
-  const COMPRESS_TOOLS = new Set(["query_db", "search_knowledge", "web_search", "deep_research", "query_documents"]);
-  if (!COMPRESS_TOOLS.has(toolName) || result.length <= 2000 || !claudeKey) return result;
-
-  try {
-    const res = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "x-api-key": claudeKey, "anthropic-version": "2023-06-01" },
-      body: JSON.stringify({
-        model: "claude-haiku-4-5-20251001",
-        max_tokens: 512,
-        messages: [{
-          role: "user",
-          content: `Summarize this tool result in 3-5 sentences, preserving all key facts, IDs, numbers, and names. Do not add commentary.\n\nTool: ${toolName}\nResult:\n${result.slice(0, 6000)}`,
-        }],
-      }),
-    });
-    if (!res.ok) return result.slice(0, 2000) + "\n…[truncated]";
-    const d = await res.json();
-    const summary = (d.content ?? []).filter((b: any) => b.type === "text").map((b: any) => b.text).join("");
-    return summary || result.slice(0, 2000) + "\n…[truncated]";
-  } catch {
-    return result.slice(0, 2000) + "\n…[truncated]";
-  }
-}
-
 // ── Tool executor ─────────────────────────────────────────────────────────────
 async function executeTool(
   name: string,
   input: Record<string, unknown>,
   userId: string,
-  token: string,
   adminSb: ReturnType<typeof createClient>,
   openaiKey: string,
   tavilyKey: string,
@@ -809,289 +621,6 @@ async function executeTool(
         }
       }
 
-      case "sync_oura": {
-        const supabaseUrlS = Deno.env.get("SUPABASE_URL") ?? "";
-        const serviceKeyS  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
-        try {
-          const res = await fetch(`${supabaseUrlS}/functions/v1/mavis-oura-sync`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json", Authorization: `Bearer ${serviceKeyS}` },
-            body: JSON.stringify({ user_id: userId, days: input.days ?? 7 }),
-          });
-          return JSON.stringify(await res.json());
-        } catch (err: any) { return JSON.stringify({ error: err.message ?? "Oura sync failed" }); }
-      }
-
-      case "sync_strava": {
-        const supabaseUrlT = Deno.env.get("SUPABASE_URL") ?? "";
-        const serviceKeyT  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
-        try {
-          const res = await fetch(`${supabaseUrlT}/functions/v1/mavis-strava-sync`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json", Authorization: `Bearer ${serviceKeyT}` },
-            body: JSON.stringify({ user_id: userId, days: input.days ?? 7 }),
-          });
-          return JSON.stringify(await res.json());
-        } catch (err: any) { return JSON.stringify({ error: err.message ?? "Strava sync failed" }); }
-      }
-
-      case "sync_github": {
-        const supabaseUrlU = Deno.env.get("SUPABASE_URL") ?? "";
-        const serviceKeyU  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
-        try {
-          const res = await fetch(`${supabaseUrlU}/functions/v1/mavis-github-sync`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json", Authorization: `Bearer ${serviceKeyU}` },
-            body: JSON.stringify({ user_id: userId }),
-          });
-          return JSON.stringify(await res.json());
-        } catch (err: any) { return JSON.stringify({ error: err.message ?? "GitHub sync failed" }); }
-      }
-
-      case "get_weather": {
-        const urlW = Deno.env.get("SUPABASE_URL") ?? "";
-        try {
-          const res = await fetch(`${urlW}/functions/v1/mavis-weather`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-          });
-          return JSON.stringify(await res.json());
-        } catch (err: any) { return JSON.stringify({ error: err.message ?? "Weather fetch failed" }); }
-      }
-
-      case "get_news": {
-        const urlN = Deno.env.get("SUPABASE_URL") ?? "";
-        try {
-          const res = await fetch(`${urlN}/functions/v1/mavis-hn-digest`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-          });
-          return JSON.stringify(await res.json());
-        } catch (err: any) { return JSON.stringify({ error: err.message ?? "News fetch failed" }); }
-      }
-
-      case "gmail_sync": {
-        const urlG = Deno.env.get("SUPABASE_URL") ?? "";
-        try {
-          const res = await fetch(`${urlG}/functions/v1/mavis-gmail-sync`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-          });
-          return JSON.stringify(await res.json());
-        } catch (err: any) { return JSON.stringify({ error: err.message ?? "Gmail sync failed" }); }
-      }
-
-      case "gdrive_sync": {
-        const urlD = Deno.env.get("SUPABASE_URL") ?? "";
-        try {
-          const res = await fetch(`${urlD}/functions/v1/mavis-gdrive-sync`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-          });
-          return JSON.stringify(await res.json());
-        } catch (err: any) { return JSON.stringify({ error: err.message ?? "GDrive sync failed" }); }
-      }
-
-      case "gcontacts_sync": {
-        const urlC = Deno.env.get("SUPABASE_URL") ?? "";
-        try {
-          const res = await fetch(`${urlC}/functions/v1/mavis-gcontacts-sync`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-          });
-          return JSON.stringify(await res.json());
-        } catch (err: any) { return JSON.stringify({ error: err.message ?? "Contacts sync failed" }); }
-      }
-
-      case "gtasks_sync": {
-        const urlT = Deno.env.get("SUPABASE_URL") ?? "";
-        const direction = (input.direction as string) ?? "sync";
-        try {
-          const res = await fetch(`${urlT}/functions/v1/mavis-google-tasks-sync`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-            body: JSON.stringify({ direction }),
-          });
-          return JSON.stringify(await res.json());
-        } catch (err: any) { return JSON.stringify({ error: err.message ?? "Tasks sync failed" }); }
-      }
-
-      case "spotify_sync": {
-        const urlSp = Deno.env.get("SUPABASE_URL") ?? "";
-        try {
-          const res = await fetch(`${urlSp}/functions/v1/mavis-spotify-sync`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-          });
-          return JSON.stringify(await res.json());
-        } catch (err: any) { return JSON.stringify({ error: err.message ?? "Spotify sync failed" }); }
-      }
-
-      case "morning_digest": {
-        const urlMd = Deno.env.get("SUPABASE_URL") ?? "";
-        try {
-          const res = await fetch(`${urlMd}/functions/v1/mavis-morning-digest`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-          });
-          return JSON.stringify(await res.json());
-        } catch (err: any) { return JSON.stringify({ error: err.message ?? "Morning digest failed" }); }
-      }
-
-      case "run_workflow": {
-        const urlWf = Deno.env.get("SUPABASE_URL") ?? "";
-        try {
-          const res = await fetch(`${urlWf}/functions/v1/mavis-workflow-run`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-            body: JSON.stringify({ workflow_id: input.workflow_id, workflow_name: input.workflow_name }),
-          });
-          return JSON.stringify(await res.json());
-        } catch (err: any) { return JSON.stringify({ error: err.message ?? "Workflow run failed" }); }
-      }
-
-      case "browser_navigate": {
-        const url = String(input.url ?? "");
-        const extract = input.extract ? String(input.extract) : null;
-        if (!url) return JSON.stringify({ error: "url is required" });
-
-        const bbKey  = Deno.env.get("BROWSERBASE_API_KEY") ?? "";
-        const bbProj = Deno.env.get("BROWSERBASE_PROJECT_ID") ?? "";
-        const BB_API = "https://www.browserbase.com/v1";
-
-        if (bbKey && bbProj) {
-          try {
-            const sessRes = await fetch(`${BB_API}/sessions`, {
-              method: "POST",
-              headers: { "X-BB-API-Key": bbKey, "Content-Type": "application/json" },
-              body: JSON.stringify({ projectId: bbProj }),
-            });
-            if (!sessRes.ok) throw new Error(`BB session failed: ${sessRes.status}`);
-            const sess = await sessRes.json() as { id: string };
-
-            try {
-              await fetch(`${BB_API}/sessions/${sess.id}/navigate`, {
-                method: "POST",
-                headers: { "X-BB-API-Key": bbKey, "Content-Type": "application/json" },
-                body: JSON.stringify({ url }),
-              });
-              await new Promise(r => setTimeout(r, 2000));
-
-              const contentRes = await fetch(`${BB_API}/sessions/${sess.id}/content`, { headers: { "X-BB-API-Key": bbKey } });
-              const content = await contentRes.json() as { text?: string; html?: string };
-              let pageText = (content.text ?? content.html ?? "")
-                .replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim().slice(0, 5000);
-
-              if (extract && claudeKey) {
-                const shotRes = await fetch(`${BB_API}/sessions/${sess.id}/screenshot`, { headers: { "X-BB-API-Key": bbKey } });
-                if (shotRes.ok) {
-                  const buf = await shotRes.arrayBuffer();
-                  const b64 = btoa(String.fromCharCode(...new Uint8Array(buf)));
-                  const vr = await fetch("https://api.anthropic.com/v1/messages", {
-                    method: "POST",
-                    headers: { "x-api-key": claudeKey, "anthropic-version": "2023-06-01", "content-type": "application/json" },
-                    body: JSON.stringify({
-                      model: "claude-haiku-4-5-20251001", max_tokens: 1024,
-                      messages: [{ role: "user", content: [
-                        { type: "image", source: { type: "base64", media_type: "image/png", data: b64 } },
-                        { type: "text",  text: `${extract}\n\nPage text: ${pageText.slice(0, 2000)}` },
-                      ]}],
-                    }),
-                  });
-                  if (vr.ok) {
-                    const vrd = await vr.json();
-                    pageText = vrd.content?.[0]?.text ?? pageText;
-                  }
-                }
-              }
-              return JSON.stringify({ url, text: pageText, provider: "browserbase-cloud" });
-            } finally {
-              fetch(`${BB_API}/sessions/${sess.id}`, { method: "DELETE", headers: { "X-BB-API-Key": bbKey } }).catch(() => {});
-            }
-          } catch { /* fall through to plain fetch */ }
-        }
-
-        // Plain fetch fallback
-        try {
-          const res = await fetch(url, { signal: AbortSignal.timeout(15_000) });
-          let text = await res.text();
-          text = text.replace(/<script[\s\S]*?<\/script>/gi, "").replace(/<style[\s\S]*?<\/style>/gi, "")
-                     .replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim().slice(0, 5000);
-          return JSON.stringify({ url, text, provider: "fetch-fallback" });
-        } catch (err: any) {
-          return JSON.stringify({ error: `Fetch failed: ${err.message}` });
-        }
-      }
-
-      case "graph_traverse": {
-        const startTitle = String(input.start_title ?? "");
-        const depth = Math.min(Math.max(1, Number(input.depth ?? 2)), 4);
-        if (!startTitle) return JSON.stringify({ error: "start_title is required" });
-
-        const { data: seeds } = await adminSb.from("mavis_notes").select("id, title, tags")
-          .eq("user_id", userId).ilike("title", `%${startTitle}%`).limit(1);
-        if (!seeds?.length) return JSON.stringify({ error: `Note matching "${startTitle}" not found` });
-
-        const visited = new Set<string>([seeds[0].id]);
-        const frontier = [seeds[0].id];
-        const nodes: Array<{ id: string; title: string; tags: string[] }> = [{ id: seeds[0].id, title: seeds[0].title, tags: seeds[0].tags ?? [] }];
-        const edges: Array<{ from: string; to: string }> = [];
-
-        for (let hop = 0; hop < depth; hop++) {
-          if (!frontier.length) break;
-          const { data: links } = await adminSb.from("mavis_note_wikilinks")
-            .select("source_note_id, target_slug").in("source_note_id", frontier).eq("user_id", userId);
-          frontier.length = 0;
-          for (const link of (links ?? [])) {
-            const { data: targets } = await adminSb.from("mavis_notes").select("id, title, tags")
-              .eq("user_id", userId).ilike("title", link.target_slug).limit(1);
-            for (const t of (targets ?? [])) {
-              edges.push({ from: link.source_note_id, to: t.id });
-              if (!visited.has(t.id)) { visited.add(t.id); frontier.push(t.id); nodes.push({ id: t.id, title: t.title, tags: t.tags ?? [] }); }
-            }
-          }
-        }
-        return JSON.stringify({
-          summary: `Graph from "${seeds[0].title}" (depth ${depth}): ${nodes.length} nodes, ${edges.length} edges`,
-          nodes, edges,
-        });
-      }
-
-      case "think_sequential": {
-        const goal    = String(input.goal ?? "");
-        const context = String(input.context ?? "");
-        const maxSteps = Math.min(Number(input.steps ?? 4), 8);
-        if (!goal) return JSON.stringify({ error: "goal is required" });
-        if (!claudeKey) return JSON.stringify({ error: "ANTHROPIC_API_KEY not set" });
-
-        const thoughts: Array<{ step: number; content: string }> = [];
-        let conclusion = "";
-
-        for (let step = 1; step <= maxSteps; step++) {
-          const prev = thoughts.map(t => `Step ${t.step}: ${t.content}`).join("\n\n");
-          const prompt = `Reason step-by-step. Output ONLY the next single thought.\n\nGOAL: ${goal}\nCONTEXT: ${context}\n\nPREVIOUS:\n${prev || "(none)"}\n\nThis is step ${step}/${maxSteps}. ONE logical step only.\nEnd with: CONFIDENCE: [0.0-1.0] | FINAL: [yes/no]\nIf FINAL: yes → add "CONCLUSION: [answer]"`;
-
-          const r = await fetch("https://api.anthropic.com/v1/messages", {
-            method: "POST",
-            headers: { "x-api-key": claudeKey, "anthropic-version": "2023-06-01", "content-type": "application/json" },
-            body: JSON.stringify({ model: "claude-haiku-4-5-20251001", max_tokens: 512, messages: [{ role: "user", content: prompt }] }),
-          });
-          if (!r.ok) break;
-          const rd = await r.json();
-          const raw: string = rd.content?.[0]?.text ?? "";
-          const concMatch = raw.match(/CONCLUSION:\s*([\s\S]+)/i);
-          const isFinal = /FINAL:\s*yes/i.test(raw) || step === maxSteps;
-          const content = raw.replace(/CONFIDENCE:\s*[\d.]+/i, "").replace(/FINAL:\s*(yes|no)/i, "").replace(/CONCLUSION:\s*[\s\S]+/i, "").trim();
-          thoughts.push({ step, content });
-          if (isFinal) { conclusion = concMatch?.[1]?.trim() ?? content; break; }
-        }
-
-        if (!conclusion && thoughts.length) conclusion = thoughts[thoughts.length - 1].content;
-        const formatted = [`═══ REASONING (${thoughts.length} steps) ═══`, `Goal: ${goal}`, "",
-          ...thoughts.map(t => `[Step ${t.step}] ${t.content}`), "", `CONCLUSION: ${conclusion}`, "═══════════════════"].join("\n");
-        return JSON.stringify({ reasoning: formatted, conclusion, steps: thoughts.length });
-      }
-
       default:
         return JSON.stringify({ error: `Unknown tool: ${name}` });
     }
@@ -1147,7 +676,6 @@ serve(async (req) => {
         let finalText = "";
         let conversationId = inConvoId;
         let iteration = 0;
-        const loopGuard = new LoopGuard();
         // Capture the last user message for memory write-back
         const lastUserMsg = rawMessages.filter(m => m.role === "user").slice(-1)[0]?.content ?? "";
 
@@ -1222,12 +750,9 @@ serve(async (req) => {
 
             // Execute all tools in parallel
             const results = await Promise.all(
-              toolBlocks.map(async (block) => {
-                const guardMsg = loopGuard.check(block.name, block.input as Record<string, unknown>);
-                if (guardMsg) return JSON.stringify({ error: guardMsg });
-                const raw = await executeTool(block.name, block.input as Record<string, unknown>, userId, token, adminSb, openaiKey, tavilyKey, sources);
-                return await compressObservation(block.name, raw, claudeKey);
-              })
+              toolBlocks.map(block =>
+                executeTool(block.name, block.input as Record<string, unknown>, userId, adminSb, openaiKey, tavilyKey, sources)
+              )
             );
 
             const toolResults = toolBlocks.map((block, i) => ({

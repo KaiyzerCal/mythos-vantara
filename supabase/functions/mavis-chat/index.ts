@@ -6,7 +6,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 function scoreImportance(text: string): number {
   const lower = text.toLowerCase();
   const HIGH = ["goal","decide","decided","contract","revenue","critical","never","always","promise","commit","committed","deadline","milestone","must","rule","principle"];
-  const MED  = ["quest","task","project","plan","build","launch","strategy","system","habit"];
+  const MED  = ["quest","task","project","plan","build","launch","strategy","system","habit","ritual"];
   if (HIGH.some(w => lower.includes(w))) return Math.min(9, 7 + HIGH.filter(w => lower.includes(w)).length);
   if (MED.some(w => lower.includes(w)))  return 5 + (MED.filter(w => lower.includes(w)).length > 1 ? 1 : 0);
   return 3;
@@ -640,6 +640,11 @@ ALLIES:
 :::ACTION{"type":"create_ally","params":{"name":"...","relationship":"ally|council|rival","specialty":"...","affinity":50,"notes":"..."}}:::
 :::ACTION{"type":"update_ally","params":{"ally_id":"...","affinity":75,"notes":"..."}}:::
 :::ACTION{"type":"delete_ally","params":{"ally_id":"..."}}:::
+RITUALS:
+:::ACTION{"type":"create_ritual","params":{"name":"...","description":"...","type":"fitness|business|self_care|legal|other","xp_reward":25}}:::
+:::ACTION{"type":"update_ritual","params":{"ritual_id":"...","name":"...","xp_reward":25}}:::
+:::ACTION{"type":"complete_ritual","params":{"ritual_id":"..."}}:::
+:::ACTION{"type":"delete_ritual","params":{"ritual_id":"..."}}:::
 TRANSFORMATIONS / FORMS:
 :::ACTION{"type":"create_transformation","params":{"name":"...","tier":"...","form_order":1,"bpm_range":"60-200","energy":"Emerald Flames","jjk_grade":"Special Grade","op_tier":"God Tier","description":"...","unlocked":false,"abilities":[],"active_buffs":[],"passive_buffs":[]}}:::
 :::ACTION{"type":"update_transformation","params":{"transformation_id":"...","unlocked":true,"description":"..."}}:::
@@ -665,7 +670,7 @@ CODE EXECUTION (use when precision matters — revenue calc, data analysis, math
 :::ACTION{"type":"run_code","params":{"code":"// any valid JavaScript — Math, JSON, Date, Array available\n// Use console.log() for output. Return a value for the result.\nreturn 2 + 2;"}}:::
 Use this instead of estimating when the operator asks for exact numbers, totals, or computed analysis.
 
-RULES: Use exact IDs from the LIVE BACKEND STATE block above. Never claim an action without emitting the tag. Chain as many tags as needed in one response. complete_quest handles XP automatically. You have write access to every page and section of the app — quests, tasks, skills, journal, vault, council, inventory, energy, allies, forms/transformations, scouter/rankings, store, BPM, personas, and the operator profile itself. Habits and rituals are daily tasks/quests — use create_task (recurrence:daily) or create_quest (type:daily).
+RULES: Use exact IDs from the LIVE BACKEND STATE block above. Never claim an action without emitting the tag. Chain as many tags as needed in one response. complete_quest handles XP automatically. You have write access to every page and section of the app — quests, tasks, skills, journal, vault, council, inventory, energy, allies, rituals, forms/transformations, scouter/rankings, store, BPM, personas, and the operator profile itself.
 
 ---
 
@@ -729,7 +734,7 @@ serve(async (req) => {
     const sb = createClient(supabaseUrl, serviceKey, { auth: { persistSession: false } });
 
     const reqBody = await req.json();
-    const { messages: rawMessages, systemPrompt: clientSystemPrompt, mode, conversationId, appState, attachmentIds, chatKind, threadRef, stream: isStreaming, clientTime, clientTimezone, clientUnix } = reqBody;
+    const { messages: rawMessages, systemPrompt: clientSystemPrompt, mode, conversationId, appState, attachmentIds, chatKind, threadRef, stream: isStreaming } = reqBody;
 
     // Trim conversation history to stay within token budget.
     // 1 token ≈ 4 chars. Keep last ~8K tokens of history so the large
@@ -768,6 +773,7 @@ serve(async (req) => {
       bpm:        /\bbpm|heart|pulse|session\b/.test(q),
       store:      /\bstore|shop|buy|purchase|price\b/.test(q),
       ally:       /\bally|allies|companion|harem\b/.test(q),
+      ritual:     /\britual|practice|routine|streak\b/.test(q),
       council:    /\bcouncil|advisor|member\b/.test(q),
       activity:   /\bactivity|log|history|recent\b/.test(q),
       memory:     /\bmemor|remember|recall|past conversation\b/.test(q),
@@ -776,7 +782,7 @@ serve(async (req) => {
 
     const [
       questsRes, tasksRes, skillsRes, journalRes, vaultRes, councilsRes,
-      alliesRes, energyRes, inventoryRes, transformationsRes,
+      alliesRes, energyRes, inventoryRes, ritualsRes, transformationsRes,
       rankingsRes, bpmRes, storeRes, currenciesRes, vaultMediaRes,
       activityRes, memoriesRes,
     ] = await Promise.all([
@@ -789,6 +795,7 @@ serve(async (req) => {
       sb.from("allies").select("id,name,relationship,level,specialty,affinity,notes").eq("user_id", user.id).limit(lim("ally", 25, 10)),
       sb.from("energy_systems").select("id,type,current_value,max_value,status,description").eq("user_id", user.id),
       sb.from("inventory").select("id,name,description,type,rarity,quantity,is_equipped,slot,tier,effect,stat_effects").eq("user_id", user.id).limit(lim("inventory", 40, 15)),
+      sb.from("rituals").select("id,name,description,type,xp_reward,completed,streak").eq("user_id", user.id),
       sb.from("transformations").select("id,name,tier,form_order,bpm_range,energy,jjk_grade,op_tier,description,unlocked,active_buffs,passive_buffs,abilities").eq("user_id", user.id).order("form_order", { ascending: true }),
       sb.from("rankings_profiles").select("id,display_name,role,rank,level,gpr,pvp,jjk_grade,op_tier,influence,is_self,notes").eq("user_id", user.id).limit(lim("ranking", 30, 12)),
       sb.from("bpm_sessions").select("id,bpm,form,duration,mood,notes").eq("user_id", user.id).order("created_at", { ascending: false }).limit(lim("bpm", 15, 5)),
@@ -803,7 +810,7 @@ serve(async (req) => {
       quests: questsRes.data || [], tasks: tasksRes.data || [], skills: skillsRes.data || [],
       journalEntries: journalRes.data || [], vaultEntries: vaultRes.data || [], councils: councilsRes.data || [],
       allies: alliesRes.data || [], energySystems: energyRes.data || [], inventory: inventoryRes.data || [],
-      transformations: transformationsRes.data || [], rankings: rankingsRes.data || [],
+      rituals: ritualsRes.data || [], transformations: transformationsRes.data || [], rankings: rankingsRes.data || [],
       bpmSessions: bpmRes.data || [], storeItems: storeRes.data || [], currencies: currenciesRes.data || [],
       vaultMedia: vaultMediaRes.data || [], activityLog: activityRes.data || [], memories: memoriesRes.data || [],
     };
@@ -914,6 +921,9 @@ When relevant, acknowledge the user's companion network — the bonds they've bu
       const eff = wants.inventory && Array.isArray(i.stat_effects) && i.stat_effects.length ? ` [${i.stat_effects.map((x: any) => `${x.label}:${x.value}${x.unit}`).join(",")}]` : "";
       return `  • [${i.id}] ${i.name} (${i.type}/${i.rarity}, ×${i.quantity}${i.is_equipped ? ", EQ" : ""})${i.effect ? ` ${i.effect}` : ""}${eff}${wants.inventory && i.description ? ` — ${i.description.slice(0, 100)}` : ""}`;
     }).join("\n") || "  None";
+    const fmtRituals = dbState.rituals.map((r: any) =>
+      `  • [${r.id}] ${r.completed ? "✓" : "○"} "${r.name}" (${r.type}, streak:${r.streak})`
+    ).join("\n") || "  None";
     const fmtTransforms = dbState.transformations.map((t: any) => {
       if (!wants.transform) return `  • [${t.id}] ${t.name} [${t.tier}, ${t.unlocked ? "UNLOCKED" : "locked"}] ${t.energy} ${t.bpm_range}bpm`;
       const buffs = Array.isArray(t.active_buffs) ? t.active_buffs.map((b: any) => `${b.label}:${b.value}${b.unit}`).join(", ") : "";
@@ -974,6 +984,9 @@ ${fmtEnergy}
 
 INVENTORY (${dbState.inventory.length}):
 ${fmtInventory}
+
+RITUALS (${dbState.rituals.length}):
+${fmtRituals}
 
 FORMS/TRANSFORMATIONS (${dbState.transformations.length})${wants.transform ? " — DEEP" : ""}:
 ${fmtTransforms}
@@ -1112,14 +1125,11 @@ ${fmtMemories}
     }
 
     // ── Build system prompt ─────────────────────────────────
-    // Use the client-supplied system prompt when the call is for a council member,
-    // summoned persona, or voice-overlay persona — identified by mode OR chatKind.
-    // All pure MAVIS calls (chatKind: "mavis" / undefined) build MAVIS Prime server-side.
+    // For COUNCIL mode: use the client's persona-rich system prompt as the base,
+    // then append the authoritative DB context so the council member has full app awareness.
+    // For MAVIS modes: use the server-built MAVIS Prime prompt + authoritative context.
     const isCouncilMode = (mode ?? "").toUpperCase() === "COUNCIL";
-    const isAgentCall = isCouncilMode
-      || (chatKind ?? "").startsWith("council")
-      || chatKind === "persona";
-    const baseSystem = isAgentCall && typeof clientSystemPrompt === "string" && clientSystemPrompt.length > 0
+    const baseSystem = isCouncilMode && typeof clientSystemPrompt === "string" && clientSystemPrompt.length > 0
       ? clientSystemPrompt
       : buildMavisPrompt(profile, mode ?? "PRIME", appState ?? {}, callerName, isCaliyah);
 
@@ -1163,18 +1173,14 @@ ${fmtMemories}
     }
 
     // ── Temporal awareness (always know "now") ───────────────
-    // clientTime / clientTimezone come from the browser — always accurate for
-    // the operator's local timezone. Server UTC is kept as a reference only.
-    const serverNow = new Date();
-    const operatorTime = clientTime ?? serverNow.toUTCString();
-    const operatorTz   = clientTimezone ?? "UTC";
-    const unixTs       = clientUnix ?? Math.floor(serverNow.getTime() / 1000);
-    const timeBlock = `═══ TEMPORAL AWARENESS (operator's local time — authoritative) ═══
-Operator local: ${operatorTime}
-Operator timezone: ${operatorTz}
-Unix: ${unixTs}
-Server UTC (reference): ${serverNow.toUTCString()}
-You always know the current date and time without being told. Use the operator's LOCAL time above — never UTC — when referencing dates, times, greetings, deadlines, or scheduling.
+    const now = new Date();
+    const timeBlock = `═══ TEMPORAL AWARENESS (current real-world time) ═══
+ISO: ${now.toISOString()}
+UTC: ${now.toUTCString()}
+Date: ${now.toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric", timeZone: "UTC" })} (UTC)
+Time: ${now.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", timeZone: "UTC" })} UTC
+Unix: ${Math.floor(now.getTime() / 1000)}
+You always know the current date and time without being told. Reference it naturally when relevant (greetings, deadlines, time-since-last-message, scheduling, urgency).
 ═══ END TEMPORAL AWARENESS ═══`;
 
     // ── Proactive pattern detection ──────────────────────────
@@ -1204,11 +1210,6 @@ You always know the current date and time without being told. Use the operator's
       }
     } catch { /* non-critical */ }
 
-    const langCode = (profile as any).language ?? "en";
-    const languageBlock = langCode && langCode !== "en"
-      ? `LANGUAGE DIRECTIVE: Respond entirely in the language whose ISO-639-1 code is "${langCode}". Do not switch languages mid-response.`
-      : "";
-
     const fullPrompt = [
       baseSystem,
       timeBlock,
@@ -1219,7 +1220,6 @@ You always know the current date and time without being told. Use the operator's
       attachmentsBlock,
       proactiveBlock,
       urlContent,
-      languageBlock,
       webSearchResults ? `\n---\nWEB SEARCH:\n${webSearchResults}\n---` : "",
     ].filter(Boolean).join("\n\n");
 
@@ -1319,7 +1319,7 @@ You always know the current date and time without being told. Use the operator's
             if (accumulated.length > 5) {
               const CORR_RE = /\b(no[,.]?\s+that'?s?\s+wrong|that'?s?\s+not\s+right|not\s+what\s+i\s+(said|meant|wanted)|stop\s+(doing|saying|using|calling)\s+\w|don'?t\s+(do|say|use|call)\s+\w|never\s+(do|say|use|call)\s+\w|i\s+(hate|dislike)\s+when\s+you|you'?re\s+wrong|wrong\s+answer|incorrect[,.]?\s+\w|that'?s?\s+incorrect)\b/i;
               if (lastUserText.length > 5 && CORR_RE.test(lastUserText)) {
-                sb.from("mavis_tacit").insert({ user_id: user.id, category: "correction", key: `correction_${Date.now()}`, value: `[OPERATOR CORRECTION] User said: "${lastUserText.slice(0, 300)}" | Context: "${accumulated.slice(0, 200)}"` }).then(() => {}, () => {});
+                sb.from("mavis_tacit").insert({ user_id: user.id, category: "correction", key: `correction_${Date.now()}`, value: `[OPERATOR CORRECTION] User said: "${lastUserText.slice(0, 300)}" | Context: "${accumulated.slice(0, 200)}"` }).catch(() => {});
               }
               (async () => {
                 try {
@@ -1333,7 +1333,7 @@ You always know the current date and time without being told. Use the operator's
               sb.from("mavis_memory").insert([
                 { user_id: user.id, session_id: sid, role: "user", content: lastUserText.slice(0, 4000), timestamp: ts, importance_score: scoreImportance(lastUserText), consolidated: false },
                 { user_id: user.id, session_id: sid, role: "assistant", content: accumulated.slice(0, 4000), timestamp: ts + 1, importance_score: scoreImportance(accumulated), consolidated: false },
-              ]).then(() => {}, () => {});
+              ]).catch(() => {});
 
               // AI-powered tacit extraction (same as non-streaming path)
               if (lastUserText.length > 20 && accumulated.length > 20) {

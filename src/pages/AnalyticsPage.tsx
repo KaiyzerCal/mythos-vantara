@@ -4,8 +4,7 @@
 // ============================================================
 import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
-import { BarChart2, Loader2, RefreshCw, CheckSquare, CheckCircle2, Circle, Eye, TrendingUp, Star, Trophy, Calendar } from "lucide-react";
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from "recharts";
+import { BarChart2, Loader2, RefreshCw, CheckSquare, CheckCircle2, Circle, Eye } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { PageHeader, HudCard, ProgressBar } from "@/components/SharedUI";
@@ -62,8 +61,6 @@ interface CompletionEntry {
   task_id?: string;
 }
 
-interface ToolStat { name: string; calls: number; successes: number; avgMs: number; }
-
 const SEVERITY_STYLES: Record<string, string> = {
   info: "text-cyan-400 border-cyan-800 bg-cyan-950/40",
   warning: "text-amber-400 border-amber-800 bg-amber-950/40",
@@ -110,15 +107,6 @@ export function AnalyticsPage() {
   const [moodCounts, setMoodCounts] = useState<Record<string, number>>({});
   const [moodLoading, setMoodLoading] = useState(true);
 
-  // Character progress
-  const [charProfile, setCharProfile] = useState<{ level: number; xp: number; xp_to_next_level: number; rank: string } | null>(null);
-  const [questRate, setQuestRate] = useState<{ completed: number; total: number } | null>(null);
-  const [weekActivity, setWeekActivity] = useState<{ day: string; count: number; xp: number }[]>([]);
-  const [charLoading, setCharLoading] = useState(true);
-
-  // Tool usage
-  const [toolStats, setToolStats] = useState<ToolStat[]>([]);
-
   const days30 = getLast30Days();
 
   useEffect(() => {
@@ -128,33 +116,39 @@ export function AnalyticsPage() {
     loadCompletionGrid();
     loadEnergy();
     loadMood();
-    loadCharacterProgress();
   }, [session]);
 
   // ─── Loaders ───────────────────────────────────────────────
   async function loadInsights() {
     setInsightsLoading(true);
-    const { data } = await (supabase as any)
+    const { data } = await supabase
       .from("mavis_insights")
       .select("*")
       .order("generated_at", { ascending: false })
       .limit(10);
-    setInsights((data as any) || []);
+    setInsights(data || []);
     setInsightsLoading(false);
   }
 
   async function loadStreaks() {
     setStreaksLoading(true);
-    const { data: tasksData } = await supabase
-      .from("tasks")
-      .select("id, title, current_streak, streak, recurrence")
-      .neq("recurrence", "once");
-    const all = (tasksData || []).map((t: any) => ({
+    const [ritualsRes, tasksRes] = await Promise.all([
+      supabase.from("rituals").select("id, name, current_streak, streak").order("id"),
+      supabase.from("tasks").select("id, title, current_streak, streak, recurrence").neq("recurrence", "once"),
+    ]);
+    const ritualItems = (ritualsRes.data || []).map((r: any) => ({
+      id: r.id,
+      name: r.name,
+      streak: r.current_streak ?? r.streak ?? 0,
+      type: "ritual",
+    }));
+    const taskItems = (tasksRes.data || []).map((t: any) => ({
       id: t.id,
       name: t.title,
       streak: t.current_streak ?? t.streak ?? 0,
       type: "task",
-    })).sort((a, b) => b.streak - a.streak).slice(0, 10);
+    }));
+    const all = [...ritualItems, ...taskItems].sort((a, b) => b.streak - a.streak).slice(0, 10);
     setStreaks(all);
     setStreaksLoading(false);
   }
@@ -170,7 +164,7 @@ export function AnalyticsPage() {
     if (!tasks || tasks.length === 0) { setGridLoading(false); return; }
 
     const taskIds = tasks.map((t: any) => t.id);
-    const { data: completions } = await (supabase as any)
+    const { data: completions } = await supabase
       .from("task_completions")
       .select("task_id, completed_at")
       .in("task_id", taskIds)
@@ -195,7 +189,7 @@ export function AnalyticsPage() {
   async function loadEnergy() {
     setEnergyLoading(true);
     const { data } = await supabase.from("energy_systems").select("*");
-    setEnergySystems((data as any) || []);
+    setEnergySystems(data || []);
     setEnergyLoading(false);
   }
 
@@ -216,76 +210,9 @@ export function AnalyticsPage() {
     setMoodLoading(false);
   }
 
-  async function loadCharacterProgress() {
-    setCharLoading(true);
-    const [profileRes, questsRes, activityRes, toolExecRes] = await Promise.allSettled([
-      supabase.from("profiles").select("level, xp, xp_to_next_level, rank").single(),
-      supabase.from("quests").select("status"),
-      (supabase as any)
-        .from("mavis_activity_log")
-        .select("created_at, xp_awarded")
-        .gte("created_at", (() => { const d = new Date(); d.setDate(d.getDate() - 6); return d.toISOString(); })())
-        .order("created_at", { ascending: true }),
-      (supabase as any)
-        .from("mavis_tool_executions")
-        .select("tool_name, success, duration_ms, created_at")
-        .order("created_at", { ascending: false })
-        .limit(200),
-    ]);
-
-    if (profileRes.status === "fulfilled" && profileRes.value.data) setCharProfile(profileRes.value.data as any);
-
-    if (questsRes.status === "fulfilled" && questsRes.value.data) {
-      const total = questsRes.value.data.length;
-      const completed = questsRes.value.data.filter((q: any) => q.status === "completed").length;
-      setQuestRate({ completed, total });
-    }
-
-    if (activityRes.status === "fulfilled" && activityRes.value.data) {
-      const byDay: Record<string, { count: number; xp: number }> = {};
-      for (const entry of activityRes.value.data as any[]) {
-        const day = entry.created_at?.slice(0, 10) ?? "";
-        if (!byDay[day]) byDay[day] = { count: 0, xp: 0 };
-        byDay[day].count += 1;
-        byDay[day].xp += entry.xp_awarded ?? 0;
-      }
-      const week: { day: string; count: number; xp: number }[] = [];
-      for (let i = 6; i >= 0; i--) {
-        const d = new Date(); d.setDate(d.getDate() - i);
-        const key = d.toISOString().slice(0, 10);
-        week.push({ day: key, count: byDay[key]?.count ?? 0, xp: byDay[key]?.xp ?? 0 });
-      }
-      setWeekActivity(week);
-    }
-
-    if (toolExecRes.status === "fulfilled" && toolExecRes.value.data) {
-      const rows = toolExecRes.value.data as any[];
-      const byTool: Record<string, { calls: number; successes: number; totalMs: number }> = {};
-      for (const r of rows) {
-        const name = r.tool_name ?? "unknown";
-        if (!byTool[name]) byTool[name] = { calls: 0, successes: 0, totalMs: 0 };
-        byTool[name].calls += 1;
-        if (r.success) byTool[name].successes += 1;
-        byTool[name].totalMs += r.duration_ms ?? 0;
-      }
-      const stats: ToolStat[] = Object.entries(byTool)
-        .map(([name, v]) => ({
-          name,
-          calls: v.calls,
-          successes: v.successes,
-          avgMs: v.calls > 0 ? Math.round(v.totalMs / v.calls) : 0,
-        }))
-        .sort((a, b) => b.calls - a.calls)
-        .slice(0, 10);
-      setToolStats(stats);
-    }
-
-    setCharLoading(false);
-  }
-
   // ─── Actions ───────────────────────────────────────────────
   async function markInsightRead(id: string) {
-    await (supabase as any).from("mavis_insights").update({ read_at: new Date().toISOString() }).eq("id", id);
+    await supabase.from("mavis_insights").update({ read_at: new Date().toISOString() }).eq("id", id);
     setInsights((prev) => prev.map((ins) => ins.id === id ? { ...ins, read_at: new Date().toISOString() } : ins));
   }
 
@@ -341,84 +268,6 @@ export function AnalyticsPage() {
         subtitle="Habit patterns, insights, energy trends"
         icon={<BarChart2 size={18} />}
       />
-
-      {/* ── Section 0: Character Progress ──────────────────── */}
-      {!charLoading && (charProfile || questRate) && (
-        <section>
-          <h2 className="text-xs font-mono text-primary uppercase tracking-widest mb-3">Character Progress</h2>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            {charProfile && (
-              <HudCard>
-                <div className="flex items-center gap-2 mb-2">
-                  <Trophy size={13} className="text-amber-400" />
-                  <span className="text-[10px] font-mono text-muted-foreground uppercase tracking-widest">Level / XP</span>
-                </div>
-                <div className="flex items-end justify-between mb-1.5">
-                  <span className="text-2xl font-display font-bold text-primary">LV.{charProfile.level}</span>
-                  <span className="text-[10px] font-mono text-muted-foreground">{charProfile.xp}/{charProfile.xp_to_next_level} XP</span>
-                </div>
-                <div className="w-full h-1.5 bg-muted rounded-full overflow-hidden">
-                  <div
-                    className="h-full bg-amber-400 rounded-full transition-all duration-700"
-                    style={{ width: `${Math.min(100, Math.round((charProfile.xp / (charProfile.xp_to_next_level || 1)) * 100))}%` }}
-                  />
-                </div>
-                <p className="text-[9px] font-mono text-muted-foreground mt-1">{charProfile.rank} RANK</p>
-              </HudCard>
-            )}
-            {questRate && (
-              <HudCard>
-                <div className="flex items-center gap-2 mb-2">
-                  <Star size={13} className="text-primary" />
-                  <span className="text-[10px] font-mono text-muted-foreground uppercase tracking-widest">Quest Completion</span>
-                </div>
-                <div className="flex items-end justify-between mb-1.5">
-                  <span className="text-2xl font-display font-bold text-primary">
-                    {questRate.total > 0 ? Math.round((questRate.completed / questRate.total) * 100) : 0}%
-                  </span>
-                  <span className="text-[10px] font-mono text-muted-foreground">{questRate.completed}/{questRate.total}</span>
-                </div>
-                <div className="w-full h-1.5 bg-muted rounded-full overflow-hidden">
-                  <div
-                    className="h-full bg-green-500 rounded-full transition-all duration-700"
-                    style={{ width: `${questRate.total > 0 ? Math.round((questRate.completed / questRate.total) * 100) : 0}%` }}
-                  />
-                </div>
-                <p className="text-[9px] font-mono text-muted-foreground mt-1">quests completed</p>
-              </HudCard>
-            )}
-            {weekActivity.length > 0 && (
-              <HudCard>
-                <div className="flex items-center gap-2 mb-2">
-                  <Calendar size={13} className="text-cyan-400" />
-                  <span className="text-[10px] font-mono text-muted-foreground uppercase tracking-widest">7-Day Activity</span>
-                </div>
-                <div className="flex items-end gap-1 h-12 mt-1">
-                  {weekActivity.map((d) => {
-                    const maxCount = Math.max(...weekActivity.map((w) => w.count), 1);
-                    const h = Math.max(4, Math.round((d.count / maxCount) * 44));
-                    const isToday = d.day === new Date().toISOString().slice(0, 10);
-                    return (
-                      <div key={d.day} className="flex-1 flex flex-col items-center gap-0.5" title={`${d.day}: ${d.count} actions, ${d.xp} XP`}>
-                        <div
-                          className={`w-full rounded-sm transition-all ${isToday ? "bg-primary" : "bg-primary/30"}`}
-                          style={{ height: h }}
-                        />
-                        <span className="text-[7px] font-mono text-muted-foreground/50">
-                          {new Date(d.day).getDate()}
-                        </span>
-                      </div>
-                    );
-                  })}
-                </div>
-                <p className="text-[9px] font-mono text-muted-foreground mt-1">
-                  {weekActivity.reduce((s, d) => s + d.xp, 0)} XP this week
-                </p>
-              </HudCard>
-            )}
-          </div>
-        </section>
-      )}
 
       {/* ── Section 1: MAVIS Insights ───────────────────────── */}
       <section>
@@ -492,7 +341,7 @@ export function AnalyticsPage() {
                     <div className="w-full h-1 bg-muted rounded-full overflow-hidden">
                       <div
                         className="h-full bg-primary rounded-full transition-all duration-500"
-                        style={{ width: `${Math.min(100, streaks[0]?.streak ? (s.streak / streaks[0].streak) * 100 : 0)}%` }}
+                        style={{ width: `${Math.min(100, (s.streak / (streaks[0]?.streak || 1)) * 100)}%` }}
                       />
                     </div>
                   </div>
@@ -545,11 +394,6 @@ export function AnalyticsPage() {
                   })}
                 </div>
               ))}
-              {habitNames.length > 12 && (
-                <p className="text-[9px] font-mono text-muted-foreground text-center pt-1">
-                  showing 12 of {habitNames.length} habits
-                </p>
-              )}
               {/* Legend */}
               <div className="flex items-center gap-3 mt-2 pt-2 border-t border-border/30">
                 <div className="flex items-center gap-1"><div className="w-3 h-3 rounded-sm bg-green-500/80" /><span className="text-[9px] font-mono text-muted-foreground">Done</span></div>
@@ -623,66 +467,6 @@ export function AnalyticsPage() {
                     </div>
                   );
                 })}
-            </div>
-          </HudCard>
-        )}
-      </section>
-
-      {/* ── Section 6: MAVIS Tool Usage ──────────────────────── */}
-      <section>
-        <h2 className="text-xs font-mono text-primary uppercase tracking-widest mb-3">MAVIS Tool Usage</h2>
-        {charLoading ? (
-          <div className="flex justify-center py-6"><Loader2 className="animate-spin text-primary" size={20} /></div>
-        ) : toolStats.length === 0 ? (
-          <HudCard><p className="text-xs font-mono text-muted-foreground text-center py-4">No tool executions recorded yet.</p></HudCard>
-        ) : (
-          <HudCard>
-            <div className="w-full" style={{ height: Math.max(160, toolStats.length * 28 + 20) }}>
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart
-                  layout="vertical"
-                  data={toolStats}
-                  margin={{ top: 4, right: 24, bottom: 4, left: 8 }}
-                >
-                  <XAxis type="number" tick={{ fontSize: 10, fontFamily: "monospace", fill: "hsl(var(--muted-foreground))" }} axisLine={false} tickLine={false} />
-                  <YAxis type="category" dataKey="name" width={120} tick={{ fontSize: 10, fontFamily: "monospace", fill: "hsl(var(--muted-foreground))" }} axisLine={false} tickLine={false} />
-                  <Tooltip
-                    contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 6, fontSize: 11, fontFamily: "monospace" }}
-                    labelStyle={{ color: "hsl(var(--foreground))" }}
-                    itemStyle={{ color: "hsl(var(--primary))" }}
-                    formatter={(value: number) => [value, "calls"]}
-                  />
-                  <Bar dataKey="calls" radius={[0, 3, 3, 0]}>
-                    {toolStats.map((_, index) => (
-                      <Cell key={index} fill={`hsl(var(--primary) / ${1 - index * 0.07})`} />
-                    ))}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-            <div className="mt-4 border-t border-border/30 pt-3">
-              <table className="w-full text-[10px] font-mono">
-                <thead>
-                  <tr className="text-muted-foreground uppercase tracking-widest">
-                    <th className="text-left pb-1.5">Tool</th>
-                    <th className="text-right pb-1.5">Calls</th>
-                    <th className="text-right pb-1.5">Success %</th>
-                    <th className="text-right pb-1.5">Avg ms</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {toolStats.map((t) => (
-                    <tr key={t.name} className="border-t border-border/20">
-                      <td className="py-1 text-foreground/80 truncate max-w-[120px]">{t.name}</td>
-                      <td className="py-1 text-right text-primary font-bold">{t.calls}</td>
-                      <td className="py-1 text-right text-green-400">
-                        {t.calls > 0 ? Math.round((t.successes / t.calls) * 100) : 0}%
-                      </td>
-                      <td className="py-1 text-right text-muted-foreground">{t.avgMs}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
             </div>
           </HudCard>
         )}

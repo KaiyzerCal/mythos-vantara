@@ -72,7 +72,7 @@ export function MeetingNotesPage() {
   const loadMeetings = useCallback(async () => {
     if (!user) return;
     setLoading(true);
-    const { data, error } = await (supabase as any)
+    const { data, error } = await supabase
       .from("meeting_notes")
       .select("*")
       .eq("user_id", user.id)

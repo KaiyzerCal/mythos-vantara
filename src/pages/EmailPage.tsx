@@ -90,7 +90,7 @@ export function EmailPage() {
   const loadOutbox = useCallback(async () => {
     if (!session) return;
     setLoading(true);
-    const { data, error } = await (supabase as any)
+    const { data, error } = await supabase
       .from("email_outbox")
       .select("*")
       .order("created_at", { ascending: false })
@@ -98,7 +98,7 @@ export function EmailPage() {
     if (error) {
       toast.error("Failed to load outbox");
     } else {
-      setOutbox(((data as unknown) as EmailOutbox[]) || []);
+      setOutbox((data as EmailOutbox[]) || []);
     }
     setLoading(false);
   }, [session]);

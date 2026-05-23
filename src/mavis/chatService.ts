@@ -1,33 +1,10 @@
-import { supabase as _supabase } from "@/integrations/supabase/client";
-const supabase = _supabase as any;
+import { supabase } from "@/integrations/supabase/client";
 import { parseActions } from "./parseActions";
 import { executeActions } from "./actionExecutor";
 import type { ExecutionResult } from "./types";
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string;
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string;
-
-/** Always-accurate local time from the browser — sent with every LLM request
- *  so the edge function (which runs in UTC) knows the operator's actual date/time. */
-function clientTimePayload(): { clientTime: string; clientTimezone: string; clientUnix: number } {
-  const now = new Date();
-  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
-  return {
-    clientTime: now.toLocaleString("en-US", {
-      timeZone: tz,
-      weekday: "long",
-      year: "numeric",
-      month: "long",
-      day: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-      second: "2-digit",
-      timeZoneName: "short",
-    }),
-    clientTimezone: tz,
-    clientUnix: Math.floor(now.getTime() / 1000),
-  };
-}
 
 /**
  * Low-level AI invocation — calls the mavis-chat edge function and returns
@@ -47,7 +24,6 @@ export async function invokeAI(
       chatKind,
       threadRef: "council-board",
       attachmentIds: [],
-      ...clientTimePayload(),
     },
   });
   if (error) throw error;
@@ -105,7 +81,6 @@ export async function streamChatMessage(
       threadRef: options.threadRef ?? "main",
       attachmentIds: options.attachmentIds ?? [],
       stream: true,
-      ...clientTimePayload(),
     }),
     signal,
   });
@@ -115,8 +90,7 @@ export async function streamChatMessage(
     throw new Error(`Stream request failed (${res.status}): ${errText}`);
   }
 
-  if (!res.body) throw new Error("No response body from MAVIS stream");
-  const reader = res.body.getReader();
+  const reader = res.body!.getReader();
   const decoder = new TextDecoder();
   let accumulated = "";
   let buf = "";
@@ -192,7 +166,6 @@ export async function streamAgentMessage(
       messages,
       systemPrompt,
       conversationId: options.conversationId ?? null,
-      ...clientTimePayload(),
     }),
     signal,
   });
@@ -202,8 +175,7 @@ export async function streamAgentMessage(
     throw new Error(`Agent request failed (${res.status}): ${errText}`);
   }
 
-  if (!res.body) throw new Error("No response body from MAVIS stream");
-  const reader = res.body.getReader();
+  const reader = res.body!.getReader();
   const decoder = new TextDecoder();
   let accumulated = "";
   let buf = "";
@@ -279,8 +251,7 @@ export async function streamResearchMessage(
     throw new Error(`Research request failed (${res.status}): ${errText}`);
   }
 
-  if (!res.body) throw new Error("No response body from MAVIS stream");
-  const reader = res.body.getReader();
+  const reader = res.body!.getReader();
   const decoder = new TextDecoder();
   let accumulated = "";
   let buf = "";

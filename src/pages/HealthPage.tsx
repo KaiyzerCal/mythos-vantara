@@ -107,7 +107,7 @@ export function HealthPage() {
     setMetricsLoading(true);
     const since = new Date();
     since.setDate(since.getDate() - 14);
-    const { data } = await (supabase as any)
+    const { data } = await supabase
       .from("health_metrics")
       .select("*")
       .gte("date", since.toISOString().slice(0, 10))
@@ -125,7 +125,7 @@ export function HealthPage() {
     const now = new Date();
     const week = new Date();
     week.setDate(week.getDate() + 7);
-    const { data } = await (supabase as any)
+    const { data } = await supabase
       .from("calendar_events")
       .select("*")
       .gte("start_at", now.toISOString())
@@ -193,7 +193,7 @@ export function HealthPage() {
     if (!session) return;
     setSavingManual(true);
     const sleepMins = manualForm.sleep_hours ? Math.round(parseFloat(manualForm.sleep_hours) * 60) : null;
-    const { error } = await (supabase as any).from("health_metrics").upsert({
+    const { error } = await supabase.from("health_metrics").upsert({
       user_id: session.user.id,
       date: manualForm.date,
       source: "manual",

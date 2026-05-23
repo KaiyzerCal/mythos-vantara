@@ -1,10 +1,9 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { PageHeader } from "@/components/SharedUI";
-import { summarizeGraphStructure } from "@/mavis/knowledgeGraphAgent";
 import {
   Network, Plus, Search, Link2, Trash2, Save,
-  X, Edit3, Clock, Hash, ArrowRight, ArrowLeft, List, GitGraph, Activity,
+  X, Edit3, Clock, Hash, ArrowRight, ArrowLeft, List, GitGraph,
 } from "lucide-react";
 import { toast } from "sonner";
 import { motion, AnimatePresence } from "framer-motion";
@@ -92,8 +91,6 @@ export default function KnowledgeGraph() {
   const [allLinks, setAllLinks]     = useState<NoteLink[]>([]);
   const [loadingGraph, setLoadingGraph] = useState(false);
   const [filterTag, setFilterTag]   = useState<string>("");
-  const [graphSummary, setGraphSummary] = useState<string | null>(null);
-  const [analyzing, setAnalyzing]   = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const loadNotes = useCallback(async () => {
@@ -151,20 +148,6 @@ export default function KnowledgeGraph() {
       console.error("[KnowledgeGraph] createNote:", msg);
       toast.error(`Failed to create note: ${msg}`);
     }
-  };
-
-  const analyzeGraph = async () => {
-    setAnalyzing(true);
-    try {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session?.user) { toast.error("Not authenticated"); return; }
-      const summary = await summarizeGraphStructure(session.user.id);
-      setGraphSummary(summary);
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      toast.error(`Analysis failed: ${msg}`);
-    }
-    setAnalyzing(false);
   };
 
   const syncEmbeddings = async () => {
@@ -313,11 +296,6 @@ export default function KnowledgeGraph() {
                   <GitGraph size={11} /> Graph
                 </button>
               </div>
-              <button onClick={analyzeGraph} disabled={analyzing} title="Analyze knowledge graph topology: hubs, orphans, clusters"
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-mono bg-muted/20 border border-border text-muted-foreground hover:text-emerald-400 hover:border-emerald-400/30 transition-colors disabled:opacity-50">
-                {analyzing ? <span className="w-3 h-3 rounded-full border border-emerald-400 border-t-transparent animate-spin" /> : <Activity size={12} />}
-                {analyzing ? "Analyzing…" : "Analyze Graph"}
-              </button>
               <button onClick={syncEmbeddings} disabled={syncing} title="Generate semantic embeddings so MAVIS searches by meaning"
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-mono bg-muted/20 border border-border text-muted-foreground hover:text-primary hover:border-primary/30 transition-colors disabled:opacity-50">
                 {syncing ? <span className="w-3 h-3 rounded-full border border-primary border-t-transparent animate-spin" /> : <Network size={12} />}
@@ -335,18 +313,6 @@ export default function KnowledgeGraph() {
         <div className="mt-2 px-4 py-3 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 text-xs font-mono flex items-start gap-2">
           <span className="shrink-0 font-bold">ERROR</span>
           <span>{dbError}</span>
-        </div>
-      )}
-
-      {graphSummary && (
-        <div className="mt-2 px-4 py-3 rounded-lg bg-emerald-500/5 border border-emerald-500/20 text-emerald-300 text-xs font-mono relative">
-          <button onClick={() => setGraphSummary(null)} className="absolute top-2 right-2 text-muted-foreground hover:text-foreground">
-            <X size={12} />
-          </button>
-          <div className="font-bold mb-1 text-emerald-400 flex items-center gap-1.5">
-            <Activity size={11} /> Graph Analysis
-          </div>
-          <pre className="whitespace-pre-wrap leading-relaxed text-[10px]">{graphSummary}</pre>
         </div>
       )}
 
