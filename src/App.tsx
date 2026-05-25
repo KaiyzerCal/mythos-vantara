@@ -111,6 +111,8 @@ function AppContent() {
             <Routes>
               <Route path="/" element={<Dashboard />} />
               <Route path="/character" element={<CharacterPage />} />
+              <Route path="/mavis-ui" element={<MavisDemo />} />
+              <Route path="/demo" element={<MavisDemo />} />
               <Route path="/mavis" element={<MavisChat />} />
               <Route path="/quests" element={<QuestsPage />} />
 
