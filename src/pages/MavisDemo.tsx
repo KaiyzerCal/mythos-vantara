@@ -62,9 +62,9 @@ function useMCanvas(ref: React.RefObject<HTMLCanvasElement>, phase: Phase) {
     let nodes: Node[] = [];
 
     // Nodes per segment: left-leg, inner-left-diagonal, inner-right-diagonal, right-leg
-    const PER_SEG = [38, 32, 32, 38];
+    const PER_SEG = [52, 44, 44, 52];
     // Extra "halo" nodes scattered around each segment for a brain/neural-cluster density
-    const HALO_PER_SEG = [28, 22, 22, 28];
+    const HALO_PER_SEG = [40, 32, 32, 40];
 
     const buildNodes = () => {
       nodes = [];
@@ -91,10 +91,10 @@ function useMCanvas(ref: React.RefObject<HTMLCanvasElement>, phase: Phase) {
       });
       const totalLen = segLens.reduce((s, l) => s + l, 0);
 
-      const jitterX = W * 0.009;
-      const jitterY = H * 0.008;
-      const haloX   = W * 0.045;
-      const haloY   = H * 0.045;
+      const jitterX = W * 0.005;
+      const jitterY = H * 0.005;
+      const haloX   = W * 0.040;
+      const haloY   = H * 0.040;
       let cumLen = 0;
 
       for (let s = 0; s < segs.length; s++) {
@@ -115,7 +115,7 @@ function useMCanvas(ref: React.RefObject<HTMLCanvasElement>, phase: Phase) {
             y: hy + (Math.random() - 0.5) * 28,
             vx: (Math.random() - 0.5) * 0.4,
             vy: (Math.random() - 0.5) * 0.4,
-            r: 3.6 + Math.random() * 3.2,
+            r: 5.5 + Math.random() * 5.0,
             osc: Math.random() * Math.PI * 2,
             pathIdx: (cumLen + t * segLens[s]) / totalLen,
           });
@@ -134,7 +134,7 @@ function useMCanvas(ref: React.RefObject<HTMLCanvasElement>, phase: Phase) {
             y: hy + (Math.random() - 0.5) * 20,
             vx: (Math.random() - 0.5) * 0.3,
             vy: (Math.random() - 0.5) * 0.3,
-            r: 1.8 + Math.random() * 2.2,
+            r: 3.0 + Math.random() * 3.5,
             osc: Math.random() * Math.PI * 2,
             pathIdx: (cumLen + t * segLens[s]) / totalLen,
           });
@@ -191,7 +191,7 @@ function useMCanvas(ref: React.RefObject<HTMLCanvasElement>, phase: Phase) {
       }
 
       // Connections — denser web, brighter base so the M reads as a neural cluster
-      const maxD = active ? 245 : 195;
+      const maxD = active ? 320 : 260;
       for (let i = 0; i < N; i++) {
         for (let j = i + 1; j < N; j++) {
           const dx   = nodes[i].x - nodes[j].x;
@@ -199,17 +199,17 @@ function useMCanvas(ref: React.RefObject<HTMLCanvasElement>, phase: Phase) {
           const dist = Math.sqrt(dx * dx + dy * dy);
           if (dist >= maxD) continue;
 
-          const base = (1 - dist / maxD) * (active ? 0.65 : 0.40);
+          const base = (1 - dist / maxD) * (active ? 0.85 : 0.60);
           const diI  = (nodes[i].pathIdx - wavePos) * 6.5;
           const diJ  = (nodes[j].pathIdx - wavePos) * 6.5;
           const wI   = Math.exp(-(diI * diI));
           const wJ   = Math.exp(-(diJ * diJ));
-          const wb   = active ? (wI + wJ) * 0.42 : 0;
+          const wb   = active ? (wI + wJ) * 0.55 : 0;
           const a    = Math.min(1.0, base + wb);
 
           ctx.beginPath();
           ctx.strokeStyle = `rgba(250,189,47,${a.toFixed(3)})`;
-          ctx.lineWidth   = active ? 2.1 : 1.5;
+          ctx.lineWidth   = active ? 3.5 : 2.6;
           ctx.moveTo(nodes[i].x, nodes[i].y);
           ctx.lineTo(nodes[j].x, nodes[j].y);
           ctx.stroke();
@@ -220,16 +220,16 @@ function useMCanvas(ref: React.RefObject<HTMLCanvasElement>, phase: Phase) {
       for (const n of nodes) {
         const dn     = (n.pathIdx - wavePos) * 6.5;
         const wave   = Math.exp(-(dn * dn));
-        const pulse  = 0.85 + 0.28 * Math.sin(n.osc + t);
-        const alpha  = Math.min(1, pulse + (active ? 0.42 : 0.16) + wave * 1.85);
-        const radius = n.r * (1 + wave * 1.1);
+        const pulse  = 0.95 + 0.32 * Math.sin(n.osc + t);
+        const alpha  = Math.min(1, pulse + (active ? 0.55 : 0.22) + wave * 2.6);
+        const radius = n.r * (1 + wave * 1.45);
 
         // Radial glow for wave-lit nodes
-        if (wave > 0.12 && active) {
-          const gr = radius * 8.0;
+        if (wave > 0.10 && active) {
+          const gr = radius * 12.0;
           const grad = ctx.createRadialGradient(n.x, n.y, 0, n.x, n.y, gr);
-          grad.addColorStop(0,   `rgba(250,189,47,${(wave * 0.72).toFixed(3)})`);
-          grad.addColorStop(0.45, `rgba(250,189,47,${(wave * 0.18).toFixed(3)})`);
+          grad.addColorStop(0,   `rgba(250,189,47,${(wave * 0.85).toFixed(3)})`);
+          grad.addColorStop(0.45, `rgba(250,189,47,${(wave * 0.22).toFixed(3)})`);
           grad.addColorStop(1,   "rgba(250,189,47,0)");
           ctx.beginPath();
           ctx.arc(n.x, n.y, gr, 0, Math.PI * 2);
