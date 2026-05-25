@@ -4,36 +4,6 @@ import { X, Mic } from "lucide-react";
 import { streamChatMessage } from "@/mavis/chatService";
 import { supabase } from "@/integrations/supabase/client";
 
-// Returns the portion of `interim` that is genuinely new content not already
-// present in `finalized`. Chrome continuous-mode re-emits finalized words in
-// three patterns; we handle all three:
-//
-//  1. Regression — interim is a prefix/subset of finalized → hide (return "")
-//  2. Full prefix — interim starts with all of finalized → return the new tail
-//  3. Partial suffix — interim starts with the last N words of finalized
-//     (Chrome re-segments mid-phrase) → strip those N words (require ≥ 2
-//     to avoid false positives on common single words like "I", "the", "so")
-function getInterimSuffix(finalized: string, interim: string): string {
-  if (!interim) return "";
-  if (!finalized) return interim;
-  const f = finalized.toLowerCase().trim();
-  const i = interim.toLowerCase().trim();
-
-  if (f.startsWith(i)) return "";                                               // 1. regression
-  if (i.startsWith(f)) return interim.slice(finalized.trim().length).trimStart(); // 2. full prefix
-
-  // 3. partial suffix overlap
-  const fw = f.split(/\s+/);
-  const iw = i.split(/\s+/);
-  for (let n = Math.min(fw.length, iw.length); n >= 2; n--) {
-    if (fw.slice(-n).join(" ") === iw.slice(0, n).join(" ")) {
-      return interim.split(/\s+/).slice(n).join(" ");
-    }
-  }
-
-  return interim;
-}
-
 export interface VoicePersona {
   name: string;
   role?: string;
@@ -249,7 +219,7 @@ export function VoiceChatOverlay({
           interim = t;
         }
       }
-      setInterimTranscript(getInterimSuffix(finalText.trim(), interim.trim()));
+      setInterimTranscript(interim.trim());
       resetSilenceTimer();
     };
 
@@ -335,10 +305,6 @@ export function VoiceChatOverlay({
   const spoken    = displayedReply.slice(0, spokenUpTo);
   const remaining = displayedReply.slice(spokenUpTo);
 
-  // interimTranscript is already stripped by getInterimSuffix in onresult
-  // (using the always-current finalText closure var, not lagged React state).
-  // Re-stripping here against transcript would double-process and corrupt it.
-
   return (
     <motion.div
       initial={{ opacity: 0 }}
@@ -382,9 +348,9 @@ export function VoiceChatOverlay({
       {/* Phase label */}
       <p className="text-xs font-mono tracking-widest text-primary">{phaseLabel[phase]}</p>
 
-      {/* User's voice input — what you're saying */}
+      {/* What you're saying — show live interim OR confirmed text, never both */}
       <AnimatePresence>
-        {(transcript || interimTranscript) && (
+        {(interimTranscript || transcript) && (
           <motion.div
             key="transcript"
             initial={{ opacity: 0, y: 6 }}
@@ -397,9 +363,12 @@ export function VoiceChatOverlay({
               You
             </p>
             <p className="text-center text-sm font-mono leading-relaxed break-words">
-              {transcript && <span className="text-white/90">{transcript}</span>}
-              {interimTranscript && (
-                <span className="text-white/45">{transcript ? " " : ""}{interimTranscript}</span>
+              {interimTranscript ? (
+                // Active: show Chrome's live recognition as-is (dim = unconfirmed)
+                <span className="text-white/70">{interimTranscript}</span>
+              ) : (
+                // Between phrases: show all confirmed text (bright = locked in)
+                <span className="text-white/90">{transcript}</span>
               )}
             </p>
           </motion.div>
