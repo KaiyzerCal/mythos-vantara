@@ -11,12 +11,12 @@ export interface VoicePersona {
 
 interface VoiceChatOverlayProps {
   onClose: () => void;
-  // MAVIS mode — required when persona is not provided
   sendMessage?: (text: string) => Promise<void>;
   lastBotMessage?: string;
   isLoading?: boolean;
-  // Persona mode — self-contained conversation when provided
   persona?: VoicePersona;
+  // When true, skip internal speechSynthesis (caller handles audio externally)
+  externalAudio?: boolean;
 }
 
 type Phase = "idle" | "listening" | "thinking" | "speaking";
@@ -27,10 +27,16 @@ export function VoiceChatOverlay({
   lastBotMessage = "",
   isLoading = false,
   persona,
+  externalAudio = false,
 }: VoiceChatOverlayProps) {
   const [phase, setPhase] = useState<Phase>("idle");
   const [transcript, setTranscript] = useState("");
   const [interimTranscript, setInterimTranscript] = useState("");
+
+  // Karaoke: track how many chars have been spoken
+  const [spokenUpTo, setSpokenUpTo] = useState(0);
+  // The reply currently being spoken (frozen so karaoke doesn't jump on new messages)
+  const [displayedReply, setDisplayedReply] = useState("");
 
   // Persona-mode internal state
   const [personaReply, setPersonaReply] = useState("");
@@ -39,15 +45,91 @@ export function VoiceChatOverlay({
 
   const recognitionRef = useRef<any>(null);
   const autoRestartTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const utteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
   const closingRef = useRef(false);
+  const replyScrollRef = useRef<HTMLDivElement>(null);
+  const spokenWordRef = useRef<HTMLSpanElement>(null);
 
   const effectiveLoading = persona ? personaLoading : isLoading;
   const effectiveReply   = persona ? personaReply   : lastBotMessage;
 
-  const prevLoadingRef   = useRef(effectiveLoading);
+  const prevLoadingRef = useRef(effectiveLoading);
   const effectiveReplyRef = useRef(effectiveReply);
   useEffect(() => { effectiveReplyRef.current = effectiveReply; }, [effectiveReply]);
 
+  // ── Speech synthesis with karaoke ──────────────────────────
+  const speakReply = useCallback((text: string) => {
+    if (!text || closingRef.current) return;
+    if (window.speechSynthesis) window.speechSynthesis.cancel();
+
+    setDisplayedReply(text);
+    setSpokenUpTo(0);
+    setPhase("speaking");
+
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.rate = 0.95;
+    utterance.pitch = 1;
+
+    utterance.onboundary = (ev: SpeechSynthesisEvent) => {
+      if (ev.name === "word") {
+        setSpokenUpTo(ev.charIndex + (ev.charLength ?? 0));
+        // Keep spoken word in view
+        spokenWordRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+      }
+    };
+
+    utterance.onend = () => {
+      setSpokenUpTo(text.length);
+      utteranceRef.current = null;
+      if (!closingRef.current) setPhase("idle");
+    };
+
+    utterance.onerror = () => {
+      utteranceRef.current = null;
+      if (!closingRef.current) setPhase("idle");
+    };
+
+    utteranceRef.current = utterance;
+    window.speechSynthesis.speak(utterance);
+  }, []);
+
+  // ── Transition: thinking → speaking when loading finishes ──
+  useEffect(() => {
+    if (prevLoadingRef.current && !effectiveLoading && phase === "thinking" && !closingRef.current) {
+      const msg = effectiveReplyRef.current;
+      if (msg) {
+        if (externalAudio) {
+          // Caller plays audio — just show karaoke text with a word-timing simulation
+          setDisplayedReply(msg);
+          setSpokenUpTo(0);
+          setPhase("speaking");
+          // Simulate word boundaries at ~140ms/word since we have no onboundary
+          const words = msg.split(/\s+/);
+          let charPos = 0;
+          let wordIdx = 0;
+          const tick = () => {
+            if (wordIdx >= words.length || closingRef.current) {
+              setSpokenUpTo(msg.length);
+              if (!closingRef.current) setPhase("idle");
+              return;
+            }
+            charPos += words[wordIdx].length + 1;
+            setSpokenUpTo(Math.min(charPos, msg.length));
+            wordIdx++;
+            autoRestartTimerRef.current = setTimeout(tick, 140);
+          };
+          autoRestartTimerRef.current = setTimeout(tick, 140);
+        } else {
+          speakReply(msg);
+        }
+      } else {
+        setPhase("idle");
+      }
+    }
+    prevLoadingRef.current = effectiveLoading;
+  }, [effectiveLoading, phase, externalAudio, speakReply]);
+
+  // ── Voice input ─────────────────────────────────────────────
   const stopListening = useCallback(() => {
     if (recognitionRef.current) {
       recognitionRef.current.abort();
@@ -74,7 +156,7 @@ export function VoiceChatOverlay({
         { role: "assistant", content: accumulated },
       ];
     } catch {
-      // non-critical — phase will fall back to idle via loading transition
+      // phase falls back to idle via loading transition
     } finally {
       setPersonaLoading(false);
     }
@@ -98,9 +180,7 @@ export function VoiceChatOverlay({
     function resetSilenceTimer() {
       if (silenceTimer) clearTimeout(silenceTimer);
       silenceTimer = setTimeout(() => {
-        if (recognitionRef.current) {
-          recognitionRef.current.stop(); // triggers onend with captured text
-        }
+        if (recognitionRef.current) recognitionRef.current.stop();
       }, SILENCE_MS);
     }
 
@@ -132,6 +212,8 @@ export function VoiceChatOverlay({
       const captured = finalText.trim();
       if (captured) {
         setPhase("thinking");
+        setTranscript("");
+        setInterimTranscript("");
         const dispatch = persona ? sendPersonaMessage : sendMessage;
         dispatch?.(captured).catch(() => {
           if (!closingRef.current) setPhase("idle");
@@ -148,29 +230,12 @@ export function VoiceChatOverlay({
     setPhase("listening");
   }, [sendMessage, sendPersonaMessage, persona]);
 
-  // Transition: thinking → speaking when loading finishes
-  useEffect(() => {
-    if (prevLoadingRef.current && !effectiveLoading && phase === "thinking" && !closingRef.current) {
-      const msg = effectiveReplyRef.current;
-      if (msg && typeof window !== "undefined" && window.speechSynthesis) {
-        setPhase("speaking");
-        const utterance = new SpeechSynthesisUtterance(msg);
-        utterance.onend = () => { if (!closingRef.current) setPhase("idle"); };
-        utterance.onerror = () => { if (!closingRef.current) setPhase("idle"); };
-        window.speechSynthesis.speak(utterance);
-      } else {
-        setPhase("idle");
-      }
-    }
-    prevLoadingRef.current = effectiveLoading;
-  }, [effectiveLoading, phase]);
-
-  // Auto-restart listening after speaking or idle
+  // Auto-restart after speaking finishes
   useEffect(() => {
     if (phase === "idle" && !closingRef.current) {
       autoRestartTimerRef.current = setTimeout(() => {
         if (!closingRef.current) startListening();
-      }, 1200);
+      }, 1000);
     }
     return () => {
       if (autoRestartTimerRef.current) {
@@ -190,22 +255,27 @@ export function VoiceChatOverlay({
 
   const handleOrbOrMicTap = useCallback(() => {
     if (phase === "idle") startListening();
-    else if (phase === "listening") stopListening();
-  }, [phase, startListening, stopListening]);
+    else if (phase === "listening") {
+      if (recognitionRef.current) recognitionRef.current.stop();
+    } else if (phase === "speaking") {
+      if (window.speechSynthesis) window.speechSynthesis.cancel();
+      setPhase("idle");
+    }
+  }, [phase, startListening]);
 
   const phaseLabel: Record<Phase, string> = {
     idle: "TAP TO SPEAK",
     listening: "LISTENING — pause to send",
     thinking: "THINKING...",
-    speaking: "SPEAKING...",
+    speaking: "TAP ORB TO INTERRUPT",
   };
-
-  const orbListening = phase === "listening";
-  const orbThinking  = phase === "thinking";
-  const orbSpeaking  = phase === "speaking";
 
   const speakerName = persona?.name ?? "MAVIS";
   const speakerRole = persona?.role;
+
+  // Karaoke split
+  const spoken    = displayedReply.slice(0, spokenUpTo);
+  const remaining = displayedReply.slice(spokenUpTo);
 
   return (
     <motion.div
@@ -213,7 +283,7 @@ export function VoiceChatOverlay({
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
       transition={{ duration: 0.2 }}
-      className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-black/90 backdrop-blur-md"
+      className="fixed inset-0 z-50 flex flex-col items-center justify-center gap-4 bg-black/92 backdrop-blur-md px-6"
     >
       {/* Close */}
       <button
@@ -225,7 +295,7 @@ export function VoiceChatOverlay({
       </button>
 
       {/* Speaker label */}
-      <div className="absolute top-5 left-6 text-left">
+      <div className="absolute top-5 left-6">
         <p className="text-xs font-mono font-bold text-primary tracking-widest">{speakerName}</p>
         {speakerRole && <p className="text-[10px] font-mono text-muted-foreground">{speakerRole}</p>}
       </div>
@@ -234,24 +304,23 @@ export function VoiceChatOverlay({
       <button
         onClick={handleOrbOrMicTap}
         className={[
-          "relative w-20 h-20 rounded-full flex items-center justify-center transition-all duration-300",
+          "relative w-20 h-20 rounded-full flex items-center justify-center transition-all duration-300 shrink-0",
           "bg-primary/20 border-2 border-primary/40",
-          orbListening ? "animate-pulse scale-110" : "",
-          orbSpeaking ? "shadow-[0_0_40px_rgba(139,92,246,0.5)]" : "",
+          phase === "listening" ? "animate-pulse scale-110" : "",
+          phase === "speaking"  ? "shadow-[0_0_40px_rgba(139,92,246,0.5)] scale-105" : "",
         ].filter(Boolean).join(" ")}
-        aria-label={phase === "listening" ? "Stop listening" : "Start listening"}
       >
         <span className={[
           "absolute inset-1 rounded-full border-2 border-transparent border-t-primary/70",
-          orbThinking ? "animate-spin" : "opacity-0",
+          phase === "thinking" ? "animate-spin" : "opacity-0",
         ].join(" ")} />
         <Mic size={28} className={phase === "listening" ? "text-primary" : "text-primary/60"} />
       </button>
 
       {/* Phase label */}
-      <p className="mt-4 text-xs font-mono tracking-widest text-primary">{phaseLabel[phase]}</p>
+      <p className="text-xs font-mono tracking-widest text-primary">{phaseLabel[phase]}</p>
 
-      {/* Transcript */}
+      {/* User transcript */}
       <AnimatePresence mode="wait">
         {(transcript || interimTranscript) && (
           <motion.p
@@ -259,27 +328,44 @@ export function VoiceChatOverlay({
             initial={{ opacity: 0, y: 4 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0 }}
-            className="mt-4 max-w-sm px-4 text-center text-xs font-mono text-muted-foreground line-clamp-3"
+            className="max-w-sm text-center text-xs font-mono text-muted-foreground leading-relaxed"
           >
-            {transcript || interimTranscript}
+            {transcript}
+            {interimTranscript && (
+              <span className="text-white/40"> {interimTranscript}</span>
+            )}
           </motion.p>
         )}
       </AnimatePresence>
 
-      {/* Response */}
-      <AnimatePresence mode="wait">
-        {effectiveReply && phase !== "idle" && (
-          <motion.p
-            key="response"
-            initial={{ opacity: 0, y: 4 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0 }}
-            className="mt-6 max-w-sm px-4 text-center text-sm font-mono text-white line-clamp-4"
-          >
-            {effectiveReply}
-          </motion.p>
-        )}
-      </AnimatePresence>
+      {/* AI response — karaoke word reveal, full scrollable text */}
+      {displayedReply ? (
+        <div
+          ref={replyScrollRef}
+          className="w-full max-w-lg max-h-56 overflow-y-auto rounded-lg px-1 py-1"
+          style={{ scrollbarWidth: "none" }}
+        >
+          <p className="text-center text-sm font-mono leading-relaxed break-words">
+            {/* Spoken words — full white */}
+            <span className="text-white">{spoken}</span>
+            {/* Current boundary marker for scroll targeting */}
+            <span ref={spokenWordRef} />
+            {/* Upcoming words — dimmed */}
+            <span className="text-white/30">{remaining}</span>
+          </p>
+        </div>
+      ) : phase === "thinking" ? (
+        <div className="flex items-center gap-1.5">
+          {[0, 1, 2].map((i) => (
+            <motion.div
+              key={i}
+              className="w-1.5 h-1.5 rounded-full bg-primary/60"
+              animate={{ opacity: [0.3, 1, 0.3] }}
+              transition={{ duration: 1, repeat: Infinity, delay: i * 0.2 }}
+            />
+          ))}
+        </div>
+      ) : null}
 
       {/* Bottom mic button */}
       <button

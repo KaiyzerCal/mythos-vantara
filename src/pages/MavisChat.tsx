@@ -233,7 +233,7 @@ export default function MavisChat() {
 
   // ── Text-to-Speech via ElevenLabs ───────────────────────
   const speakText = useCallback((text: string) => {
-    if (!ttsEnabled) return;
+    if (!ttsEnabled || voiceOverlayOpen) return;
     const cleanText = text
       .replace(/:::ACTION\{[\s\S]*?\}:::/g, "")
       .replace(/\*\*(.*?)\*\*/g, "$1")
@@ -249,7 +249,7 @@ export default function MavisChat() {
       .reverse()
       .find((m: any) => m.role === "assistant")?.content;
     speak(cleanText, { voiceId, gender, previousText });
-  }, [ttsEnabled, voiceId, speak, chatMessages]);
+  }, [ttsEnabled, voiceOverlayOpen, voiceId, speak, chatMessages]);
 
   const scrollToBottom = useCallback(() => {
     if (scrollRef.current) scrollRef.current.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
@@ -1385,6 +1385,7 @@ export default function MavisChat() {
           sendMessage={async (text) => { setInput(text); await sendMessage(text); }}
           lastBotMessage={lastBotMessage}
           isLoading={isLoading}
+          externalAudio={ttsEnabled}
         />
       )}
     </AnimatePresence>
