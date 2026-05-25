@@ -7,6 +7,9 @@ export interface VoicePersona {
   name: string;
   role?: string;
   systemPrompt: string;
+  voiceId?: string;
+  entityId?: string;
+  entityType?: string;
 }
 
 interface VoiceChatOverlayProps {

@@ -16,6 +16,7 @@ import { AttachmentTray, AttachButton } from "@/components/chat/AttachmentTray";
 import { DEFAULT_VOICE_BY_GENDER, findVoice } from "@/lib/voiceCatalog";
 import { supabase } from "@/integrations/supabase/client";
 import { parseProposedActions, submitProposalsForApproval } from "@/mavis/proposeAction";
+import { buildPersonaVoiceSystemPrompt } from "@/mavis/councilPersona";
 import { CopyButton } from "@/components/chat/CopyButton";
 
 const MOOD_EMOJI: Record<string, string> = {
@@ -521,7 +522,13 @@ export function PersonaChat({ persona, userId, onBack }: PersonaChatProps) {
             persona={{
               name: persona.name,
               role: persona.role,
-              systemPrompt: persona.system_prompt,
+              systemPrompt: buildPersonaVoiceSystemPrompt({
+                name: persona.name,
+                role: persona.role,
+                archetype: persona.archetype,
+                personality: persona.personality as Record<string, unknown> | string | null | undefined,
+                system_prompt: persona.system_prompt,
+              }),
               voiceId: (persona as unknown as Record<string, unknown>).voice_id as string | undefined,
               entityId: persona.id,
               entityType: "persona",

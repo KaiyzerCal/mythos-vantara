@@ -9,7 +9,7 @@ import {
   type CouncilBoardMessage,
 } from "@/mavis/councilBoardService";
 import type { CouncilMember } from "@/mavis/councilPersona";
-import { buildCouncilMemberPrompt } from "@/mavis/councilPersona";
+import { buildCouncilMemberPrompt, buildCouncilMemberVoicePrompt } from "@/mavis/councilPersona";
 import { VoiceChatOverlay } from "@/components/VoiceChatOverlay";
 import type { VoicePersona } from "@/components/VoiceChatOverlay";
 import type { UnifiedPersona } from "@/mavis/agentTypes";
@@ -401,7 +401,7 @@ export default function CouncilBoard() {
                   onClick={() => setVoiceTarget({
                     name: m.name,
                     role: m.role ?? m.specialty,
-                    systemPrompt: buildCouncilMemberPrompt(m, ""),
+                    systemPrompt: buildCouncilMemberVoicePrompt(m, ""),
                   })}
                   className="flex items-center gap-1 text-[9px] font-mono text-primary/60 hover:text-primary border border-primary/20 hover:border-primary/40 rounded px-1.5 py-0.5 transition-all"
                   title={`Voice call ${m.name}`}
