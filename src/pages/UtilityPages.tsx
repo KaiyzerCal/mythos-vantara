@@ -156,7 +156,7 @@ function AutomationRulesSection() {
     setRules((prev) =>
       prev.map((r) => (r.id === rule.id ? { ...r, enabled: newEnabled } : r))
     );
-    await supabase
+    await (supabase as any)
       .from("mavis_automation_rules")
       .update({ enabled: newEnabled })
       .eq("id", rule.id);
