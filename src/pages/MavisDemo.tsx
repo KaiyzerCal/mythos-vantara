@@ -62,7 +62,9 @@ function useMCanvas(ref: React.RefObject<HTMLCanvasElement>, phase: Phase) {
     let nodes: Node[] = [];
 
     // Nodes per segment: left-leg, inner-left-diagonal, inner-right-diagonal, right-leg
-    const PER_SEG = [14, 12, 12, 14];
+    const PER_SEG = [26, 22, 22, 26];
+    // Extra "halo" nodes scattered around each segment for a brain/neural-cluster density
+    const HALO_PER_SEG = [18, 14, 14, 18];
 
     const buildNodes = () => {
       nodes = [];
@@ -89,8 +91,10 @@ function useMCanvas(ref: React.RefObject<HTMLCanvasElement>, phase: Phase) {
       });
       const totalLen = segLens.reduce((s, l) => s + l, 0);
 
-      const jitterX = W * 0.018;
-      const jitterY = H * 0.012;
+      const jitterX = W * 0.012;
+      const jitterY = H * 0.010;
+      const haloX   = W * 0.045;
+      const haloY   = H * 0.045;
       let cumLen = 0;
 
       for (let s = 0; s < segs.length; s++) {
@@ -99,6 +103,7 @@ function useMCanvas(ref: React.RefObject<HTMLCanvasElement>, phase: Phase) {
         const to = pts[bi];
         const n = PER_SEG[s];
 
+        // Spine — thick, bright nodes that form the stroke of the M
         for (let i = 0; i < n; i++) {
           const t = (i + 0.5) / n;
           const hx = from.x + (to.x - from.x) * t + (Math.random() - 0.5) * jitterX * 2;
@@ -110,11 +115,31 @@ function useMCanvas(ref: React.RefObject<HTMLCanvasElement>, phase: Phase) {
             y: hy + (Math.random() - 0.5) * 28,
             vx: (Math.random() - 0.5) * 0.4,
             vy: (Math.random() - 0.5) * 0.4,
-            r: 1.8 + Math.random() * 2.4,
+            r: 2.6 + Math.random() * 2.6,
             osc: Math.random() * Math.PI * 2,
             pathIdx: (cumLen + t * segLens[s]) / totalLen,
           });
         }
+
+        // Halo — satellite nodes around the spine for neural-cluster density
+        const h = HALO_PER_SEG[s];
+        for (let i = 0; i < h; i++) {
+          const t = Math.random();
+          const hx = from.x + (to.x - from.x) * t + (Math.random() - 0.5) * haloX * 2;
+          const hy = from.y + (to.y - from.y) * t + (Math.random() - 0.5) * haloY * 2;
+
+          nodes.push({
+            homeX: hx, homeY: hy,
+            x: hx + (Math.random() - 0.5) * 20,
+            y: hy + (Math.random() - 0.5) * 20,
+            vx: (Math.random() - 0.5) * 0.3,
+            vy: (Math.random() - 0.5) * 0.3,
+            r: 1.1 + Math.random() * 1.6,
+            osc: Math.random() * Math.PI * 2,
+            pathIdx: (cumLen + t * segLens[s]) / totalLen,
+          });
+        }
+
         cumLen += segLens[s];
       }
     };
