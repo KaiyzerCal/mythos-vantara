@@ -54,12 +54,13 @@ const QUICK_PROMPTS = [
 
 export default function MavisChat() {
   const navigate = useNavigate();
+  const _appData = useAppData() as any;
   const {
     profile, quests, tasks, skills, journalEntries, vaultEntries,
     chatMessages, setChatMessages, conversationId, setConversationId,
     chatMode, setChatMode, refetchAll,
     rituals, councils, energySystems, inventory, allies, bpmSessions, storeItems, transformations,
-  } = useAppData();
+  } = _appData;
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [actionStatus, setActionStatus] = useState<string | null>(null);
