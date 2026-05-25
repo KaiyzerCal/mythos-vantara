@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Send, Loader2, Mic, Square, ChevronDown, Brain, Target, Crown, Flame, Database, Cpu, Search, Zap } from "lucide-react";
+import { Send, Loader2, Mic, Square, ChevronDown, Brain, Target, Crown, Flame, Database, Cpu, Search, Zap, Trash2, ArrowUp, ArrowDown } from "lucide-react";
+import { toast } from "sonner";
 import { useAppData } from "@/contexts/AppDataContext";
 import { supabase } from "@/integrations/supabase/client";
 import { buildSystemPromptFromSnapshot } from "@/mavis/buildSystemPrompt";
