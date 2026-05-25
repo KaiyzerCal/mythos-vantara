@@ -482,7 +482,7 @@ export function VoiceChatOverlay({
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
       transition={{ duration: 0.2 }}
-      className="fixed inset-0 z-50 flex flex-col items-center justify-center gap-4 bg-black/92 backdrop-blur-md px-6"
+      className="fixed inset-0 z-50 flex flex-col items-center justify-center gap-4 bg-black/55 backdrop-blur-[2px] px-6"
     >
       {/* Close */}
       <button
