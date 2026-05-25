@@ -12,7 +12,7 @@ const corsHeaders = {
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const ANTHROPIC_KEY = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
-const LOVABLE_KEY   = Deno.env.get("LOVABLE_API_KEY") ?? "";
+const GEMINI_KEY    = Deno.env.get("GEMINI_API_KEY") ?? "";
 const TAVILY_KEY    = Deno.env.get("Tavily_API") ?? "";
 
 const supabase = createClient(SUPABASE_URL, SERVICE_KEY);
@@ -53,20 +53,21 @@ async function getUserId(req: Request): Promise<string | null> {
   }
 }
 
-// ── Shared LLM helper: Lovable Gemini → Anthropic cascade ─────
+// ── Shared LLM helper: Gemini → Anthropic cascade ─────
 async function callAI(system: string, userMsg: string, maxTokens = 512): Promise<string> {
-  const oaiBody = (model: string, key: string, url: string) =>
-    fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
-      body: JSON.stringify({ model, max_tokens: maxTokens, messages: [{ role: "system", content: system }, { role: "user", content: userMsg }] }),
-    });
-
   // Tier 0 — Free Gemini
-  if (LOVABLE_KEY) {
+  if (GEMINI_KEY) {
     try {
-      const res = await oaiBody("google/gemini-2.5-flash", LOVABLE_KEY, "https://ai.gateway.lovable.dev/v1/chat/completions");
-      if (res.ok) { const d = await res.json(); const t = d.choices?.[0]?.message?.content ?? ""; if (t) return t; }
+      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_KEY}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          systemInstruction: { parts: [{ text: system }] },
+          contents: [{ role: "user", parts: [{ text: userMsg }] }],
+          generationConfig: { maxOutputTokens: maxTokens },
+        }),
+      });
+      if (res.ok) { const d = await res.json(); const t = d.candidates?.[0]?.content?.parts?.[0]?.text ?? ""; if (t) return t; }
     } catch { /* fall through */ }
   }
   // Tier 1 — Anthropic Haiku (designated)
@@ -232,21 +233,25 @@ serve(async (req) => {
       // Step 3: build context
       const context = buildContext(allResults);
 
-      // Step 4: synthesize — Lovable Gemini first (non-streaming), then Claude Sonnet (streaming)
+      // Step 4: synthesize — Gemini first (non-streaming), then Claude Sonnet (streaming)
       const synthSystem = "You are a research analyst. Write a comprehensive, well-structured markdown report based on the provided sources.";
       const synthUser   = `Research query: "${query}"\n\nSources:\n${context}\n\nWrite a structured markdown report with:\n## Research Report\n### Key Findings\n### Sources (numbered list with URLs)\n### Conclusion`;
 
       let synthesisHandled = false;
-      if (LOVABLE_KEY) {
+      if (GEMINI_KEY) {
         try {
-          const lvRes = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+          const lvRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_KEY}`, {
             method: "POST",
-            headers: { "Content-Type": "application/json", Authorization: `Bearer ${LOVABLE_KEY}` },
-            body: JSON.stringify({ model: "google/gemini-2.5-flash", max_tokens: 4096, messages: [{ role: "system", content: synthSystem }, { role: "user", content: synthUser }] }),
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              systemInstruction: { parts: [{ text: synthSystem }] },
+              contents: [{ role: "user", parts: [{ text: synthUser }] }],
+              generationConfig: { maxOutputTokens: 4096 },
+            }),
           });
           if (lvRes.ok) {
             const lvData = await lvRes.json();
-            const lvText = lvData.choices?.[0]?.message?.content ?? "";
+            const lvText = lvData.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
             if (lvText) { await sendToken(lvText); synthesisHandled = true; }
           }
         } catch { /* fall through to Claude */ }

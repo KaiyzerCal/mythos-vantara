@@ -21,7 +21,7 @@ const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const RESEND_KEY = Deno.env.get("RESEND_API_KEY") ?? "";
 const ANTHROPIC_KEY = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
-const LOVABLE_KEY = Deno.env.get("LOVABLE_API_KEY") ?? "";
+const GEMINI_KEY = Deno.env.get("GEMINI_API_KEY") ?? "";
 
 const adminSb = createClient(SUPABASE_URL, SERVICE_KEY);
 
@@ -44,18 +44,22 @@ async function resolveUserId(req: Request): Promise<string | null> {
   }
 }
 
-// ── LLM cascade: Lovable Gemini → Claude Sonnet ──────────────────────────────
+// ── LLM cascade: Gemini → Claude Sonnet ──────────────────────────────
 
 async function callAI(system: string, userMsg: string, maxTokens: number): Promise<string> {
   // Tier 0 — Free Gemini
-  if (LOVABLE_KEY) {
+  if (GEMINI_KEY) {
     try {
-      const res = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_KEY}`, {
         method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${LOVABLE_KEY}` },
-        body: JSON.stringify({ model: "google/gemini-2.5-flash", max_tokens: maxTokens, messages: [{ role: "system", content: system }, { role: "user", content: userMsg }] }),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          systemInstruction: { parts: [{ text: system }] },
+          contents: [{ role: "user", parts: [{ text: userMsg }] }],
+          generationConfig: { maxOutputTokens: maxTokens },
+        }),
       });
-      if (res.ok) { const d = await res.json(); const t: string = d.choices?.[0]?.message?.content?.trim() ?? ""; if (t) return t; }
+      if (res.ok) { const d = await res.json(); const t: string = (d.candidates?.[0]?.content?.parts?.[0]?.text ?? "").trim(); if (t) return t; }
     } catch { /* fall through */ }
   }
   // Tier 1 — Claude Sonnet (designated)

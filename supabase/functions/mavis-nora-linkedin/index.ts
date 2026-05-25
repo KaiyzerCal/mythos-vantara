@@ -21,7 +21,7 @@ const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const LINKEDIN_TOKEN = Deno.env.get("LINKEDIN_NORA_ACCESS_TOKEN") ?? "";
 const ANTHROPIC_KEY = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
-const LOVABLE_KEY = Deno.env.get("LOVABLE_API_KEY") ?? "";
+const GEMINI_KEY = Deno.env.get("GEMINI_API_KEY") ?? "";
 
 const adminSb = createClient(SUPABASE_URL, SERVICE_KEY);
 
@@ -65,14 +65,18 @@ async function generateLinkedInPost(): Promise<string> {
   const userMsg = `Write a LinkedIn post sharing a genuine insight about: ${topic}`;
 
   // Tier 0 — Free Gemini
-  if (LOVABLE_KEY) {
+  if (GEMINI_KEY) {
     try {
-      const lvRes = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+      const lvRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_KEY}`, {
         method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${LOVABLE_KEY}` },
-        body: JSON.stringify({ model: "google/gemini-2.5-flash", max_tokens: 512, messages: [{ role: "system", content: NORA_SYSTEM }, { role: "user", content: userMsg }] }),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          systemInstruction: { parts: [{ text: NORA_SYSTEM }] },
+          contents: [{ role: "user", parts: [{ text: userMsg }] }],
+          generationConfig: { maxOutputTokens: 512 },
+        }),
       });
-      if (lvRes.ok) { const d = await lvRes.json(); const t: string = d.choices?.[0]?.message?.content?.trim() ?? ""; if (t) return t.slice(0, 1300); }
+      if (lvRes.ok) { const d = await lvRes.json(); const t: string = (d.candidates?.[0]?.content?.parts?.[0]?.text ?? "").trim(); if (t) return t.slice(0, 1300); }
     } catch { /* fall through */ }
   }
   // Tier 1 — Claude Haiku (designated)
