@@ -236,6 +236,8 @@ export default function MavisDemo() {
   const [query, setQuery] = useState("");
   const [history, setHistory] = useState<Brief[]>(loadHistory);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [voiceOpen, setVoiceOpen] = useState(false);
+
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const responseRef = useRef<HTMLDivElement>(null);
