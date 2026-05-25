@@ -167,6 +167,16 @@ export function VoiceChatOverlay({
           { mode: "COUNCIL" },
           (_, acc) => { reply = acc; setPersonaReply(acc); },
         );
+        // Persist council voice turn to the shared council chat thread so MAVIS,
+        // the council member, and other agents see the conversation later.
+        if (persona.entityType === "council" && persona.entityId && persona.userId) {
+          try {
+            await supabase.from("council_chat_messages").insert([
+              { user_id: persona.userId, council_member_id: persona.entityId, role: "user",      content: text  },
+              { user_id: persona.userId, council_member_id: persona.entityId, role: "assistant", content: reply },
+            ]);
+          } catch { /* non-fatal — voice convo still played */ }
+        }
       }
       personaHistoryRef.current = [
         ...personaHistoryRef.current,
@@ -193,7 +203,7 @@ export function VoiceChatOverlay({
 
     let lastCapturedText = "";
     let silenceTimer: ReturnType<typeof setTimeout> | null = null;
-    const SILENCE_MS = 5000;
+    const SILENCE_MS = 10000;
 
     const normalizeTranscript = (value: string) =>
       value.replace(/\s+/g, " ").trim();
@@ -374,7 +384,7 @@ export function VoiceChatOverlay({
 
   const phaseLabel: Record<Phase, string> = {
     idle: "TAP TO SPEAK",
-    listening: "LISTENING — pause ~5s to send",
+    listening: "LISTENING — pause ~10s to send",
     thinking: "THINKING...",
     speaking: "TAP ORB TO INTERRUPT",
   };

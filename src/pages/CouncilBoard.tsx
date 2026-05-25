@@ -402,6 +402,9 @@ export default function CouncilBoard() {
                     name: m.name,
                     role: m.role ?? m.specialty,
                     systemPrompt: buildCouncilMemberVoicePrompt(m, ""),
+                    entityId: m.id,
+                    entityType: "council",
+                    userId: userId ?? undefined,
                   })}
                   className="flex items-center gap-1 text-[9px] font-mono text-primary/60 hover:text-primary border border-primary/20 hover:border-primary/40 rounded px-1.5 py-0.5 transition-all"
                   title={`Voice call ${m.name}`}
