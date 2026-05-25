@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Send, Loader2, Mic, Square, ChevronDown, Brain, Target, Crown, Flame, Database, Cpu, Search, Zap } from "lucide-react";
+import { Send, Loader2, Mic, Square, ChevronDown, Brain, Target, Crown, Flame, Database, Cpu, Search, Zap, Trash2, ArrowUp, ArrowDown } from "lucide-react";
+import { toast } from "sonner";
 import { useAppData } from "@/contexts/AppDataContext";
 import { supabase } from "@/integrations/supabase/client";
 import { buildSystemPromptFromSnapshot } from "@/mavis/buildSystemPrompt";
@@ -349,6 +350,7 @@ export default function MavisDemo() {
   const [dbLoaded,     setDbLoaded]     = useState(false);
   const [actionStatus, setActionStatus] = useState<string | null>(null);
   const [streamingId,  setStreamingId]  = useState<string | null>(null);
+  const [isSyncing,    setIsSyncing]    = useState(false);
 
   const canvasRef    = useRef<HTMLCanvasElement>(null);
   const messagesRef  = useRef<HTMLDivElement>(null);
@@ -603,6 +605,108 @@ export default function MavisDemo() {
   const dateStr     = now.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
   const timeStr     = now.toLocaleTimeString("en-US", { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" });
 
+  // ── Fast scroll helpers ─────────────────────────────────
+  const scrollToTop = useCallback(() => {
+    messagesRef.current?.scrollTo({ top: 0, behavior: "smooth" });
+  }, []);
+  const scrollToBottom = useCallback(() => {
+    const el = messagesRef.current;
+    if (el) el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+  }, []);
+
+  // ── OmniSync: archive full app state + condensed thread ─
+  const handleOmniSync = useCallback(async () => {
+    if (isSyncing) return;
+    setIsSyncing(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.user) throw new Error("Not authenticated");
+
+      const condensedComms = (chatMessages as any[])
+        .filter((m: any) => m.id !== "init")
+        .map((m: any) => `[${m.role === "user" ? "OP" : "MAVIS"}${m.mode ? `/${m.mode}` : ""}] ${String(m.content).slice(0, 200)}${String(m.content).length > 200 ? "…" : ""}`)
+        .join("\n");
+
+      const snapshotData = {
+        profile: { ...(profile || {}) },
+        quests:        (quests   || []).map((q: any) => ({ id: q.id, title: q.title, status: q.status, type: q.type, xp_reward: q.xp_reward })),
+        skills:        (skills   || []).map((s: any) => ({ id: s.id, name: s.name, category: s.category, tier: s.tier, proficiency: s.proficiency })),
+        energySystems: (energySystems || []).map((e: any) => ({ id: e.id, type: e.type, current_value: e.current_value, max: e.max_value })),
+        councils:      (councils || []).map((c: any) => ({ id: c.id, name: c.name, role: c.role, class: c.class })),
+        allies:        (allies   || []).map((a: any) => ({ id: a.id, name: a.name, relationship: a.relationship, affinity: a.affinity })),
+        inventory:     (inventory|| []).map((i: any) => ({ id: i.id, name: i.name, type: i.type, rarity: i.rarity, quantity: i.quantity })),
+        rituals:       (rituals  || []).map((r: any) => ({ id: r.id, name: r.name, streak: r.streak, completed: r.completed })),
+        journalCount:  (journalEntries || []).length,
+        vaultCount:    (vaultEntries   || []).length,
+        storeItemCount:(storeItems     || []).length,
+        bpmSessionCount:(bpmSessions   || []).length,
+        timestamp: new Date().toISOString(),
+      };
+
+      const summary = `OmniSync @ Lv${profile?.level ?? "-"} [${profile?.rank ?? "-"}] | ${(quests||[]).filter((q:any)=>q.status==="active").length} active quests | ${(skills||[]).length} skills | ${(chatMessages||[]).length} msgs`;
+
+      const { error } = await supabase.from("omnisync_snapshots").insert({
+        user_id: session.user.id,
+        snapshot_data: snapshotData as any,
+        condensed_comms: condensedComms.slice(0, 10000),
+        summary,
+      } as any);
+      if (error) throw error;
+      toast.success("OmniSync complete — snapshot saved");
+    } catch (err: any) {
+      console.error("OmniSync error:", err);
+      toast.error("OmniSync failed: " + (err?.message || "Unknown error"));
+    } finally {
+      setIsSyncing(false);
+    }
+  }, [isSyncing, chatMessages, profile, quests, skills, energySystems, councils, allies, inventory, rituals, journalEntries, vaultEntries, storeItems, bpmSessions]);
+
+  // ── Clear: archive thread to memory, then reset ─────────
+  const clearChat = useCallback(async () => {
+    await handleOmniSync();
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.user && (chatMessages || []).length > 0) {
+        const memoryContent = (chatMessages as any[])
+          .filter((m: any) => m.id !== "init")
+          .map((m: any) => `[${m.role === "user" ? "OPERATOR" : "MAVIS"}] ${m.content}`)
+          .join("\n\n");
+
+        const topicSummary = (chatMessages as any[])
+          .filter((m: any) => m.id !== "init")
+          .slice(-20)
+          .map((m: any) => `${m.role === "user" ? "OP" : "M"}: ${String(m.content).slice(0, 300)}`)
+          .join("\n");
+
+        await supabase.from("memories").insert({
+          user_id: session.user.id,
+          title: `MavisUI Thread — ${new Date().toLocaleDateString()} ${new Date().toLocaleTimeString()}`,
+          content: memoryContent.slice(0, 50000),
+          memory_type: "conversation",
+          source: "mavis_chat_clear",
+          tags: ["chat_thread", "archived", "mavisui", String(chatMode).toLowerCase()],
+          metadata: {
+            message_count: (chatMessages || []).length,
+            modes_used: [...new Set((chatMessages as any[]).map((m: any) => m.mode).filter(Boolean))],
+            cleared_at: new Date().toISOString(),
+            topic_summary: topicSummary.slice(0, 5000),
+          } as any,
+        } as any);
+
+        if (conversationId) {
+          await supabase.from("chat_messages").delete().eq("conversation_id", conversationId).eq("user_id", session.user.id);
+          await supabase.from("chat_conversations").delete().eq("id", conversationId).eq("user_id", session.user.id);
+        }
+      }
+    } catch (err) {
+      console.error("Memory save on clear failed:", err);
+    }
+    setChatMessages([]);
+    setConversationId(null);
+    toast.success("Thread archived — memories preserved");
+  }, [handleOmniSync, chatMessages, chatMode, conversationId, setChatMessages, setConversationId]);
+
+
   return (
     <div
       className="relative h-full w-full overflow-hidden flex flex-col font-mono select-none"
@@ -690,6 +794,28 @@ export default function MavisDemo() {
 
         <div className="flex-1" />
 
+        {/* OmniSync + Clear */}
+        <button
+          onClick={handleOmniSync}
+          disabled={isSyncing}
+          title="OmniSync — archive snapshot"
+          className="flex items-center gap-1 text-[10px] font-mono text-cyan-400/85 hover:text-cyan-300 border border-cyan-400/25 hover:border-cyan-400/55 rounded px-2 py-1 transition-all disabled:opacity-40"
+        >
+          {isSyncing
+            ? <span className="w-2.5 h-2.5 rounded-full border-2 border-cyan-400 border-t-transparent animate-spin block" />
+            : <Database size={10} />}
+          <span className="hidden sm:inline tracking-widest">OMNISYNC</span>
+        </button>
+        <button
+          onClick={clearChat}
+          title="Clear thread (archives to memory)"
+          className="flex items-center gap-1 text-[10px] font-mono text-white/45 hover:text-red-400 border border-white/10 hover:border-red-400/40 rounded px-2 py-1 transition-all ml-2"
+        >
+          <Trash2 size={10} />
+          <span className="hidden sm:inline tracking-widest">CLEAR</span>
+        </button>
+
+
         {/* Clock */}
         <div className="text-center hidden md:block">
           <p className="text-[9px] text-white/30 tracking-widest uppercase">{dateStr}</p>
@@ -706,36 +832,57 @@ export default function MavisDemo() {
       </header>
 
       {/* ── MESSAGES ───────────────────────────────────────── */}
-      <div
-        ref={messagesRef}
-        className="relative z-10 flex-1 overflow-y-auto px-4 sm:px-8 py-4 flex flex-col gap-4 min-h-0"
-        style={{ scrollbarWidth: "none" }}
-      >
-        {chatMessages.filter((m: any) => m.id !== "init").length === 0 && !isLoading ? (
-          <div className="flex-1 flex flex-col items-center justify-center gap-2 text-center">
-            <div className="w-10 h-[1px] bg-amber-400/20" />
-            <p className="text-white/22 text-[10px] tracking-[0.35em] uppercase">Sovereign Intelligence Standing By</p>
-            <p className="text-white/12 text-[9px] tracking-widest">Type a message or press the mic to begin</p>
-            <div className="w-10 h-[1px] bg-amber-400/20" />
-          </div>
-        ) : (
-          <div className="max-w-2xl mx-auto w-full flex flex-col gap-4">
-            {chatMessages.filter((m: any) => m.id !== "init").map((msg: any) => (
-              <MessageRow key={msg.id} msg={msg} isStreaming={msg.id === streamingId} />
-            ))}
-            {isLoading && !streamingId && (
-              <div className="flex items-center gap-1.5 py-2">
-                {[0, 1, 2, 3].map(i => (
-                  <motion.div key={i} className="w-1 h-1 rounded-full bg-amber-400"
-                    animate={{ opacity: [0.15, 1, 0.15], scale: [0.7, 1.3, 0.7] }}
-                    transition={{ duration: 0.85, repeat: Infinity, delay: i * 0.17 }} />
-                ))}
-                <span className="text-white/25 text-[10px] tracking-[0.3em] ml-1 animate-pulse">PROCESSING</span>
-              </div>
-            )}
-          </div>
-        )}
+      <div className="relative flex-1 min-h-0 z-10">
+        <div
+          ref={messagesRef}
+          className="absolute inset-0 overflow-y-auto px-4 sm:px-8 py-4 flex flex-col gap-4"
+          style={{ scrollbarWidth: "none" }}
+        >
+          {chatMessages.filter((m: any) => m.id !== "init").length === 0 && !isLoading ? (
+            <div className="flex-1 flex flex-col items-center justify-center gap-2 text-center">
+              <div className="w-10 h-[1px] bg-amber-400/20" />
+              <p className="text-white/22 text-[10px] tracking-[0.35em] uppercase">Sovereign Intelligence Standing By</p>
+              <p className="text-white/12 text-[9px] tracking-widest">Type a message or press the mic to begin</p>
+              <div className="w-10 h-[1px] bg-amber-400/20" />
+            </div>
+          ) : (
+            <div className="max-w-2xl mx-auto w-full flex flex-col gap-4">
+              {chatMessages.filter((m: any) => m.id !== "init").map((msg: any) => (
+                <MessageRow key={msg.id} msg={msg} isStreaming={msg.id === streamingId} />
+              ))}
+              {isLoading && !streamingId && (
+                <div className="flex items-center gap-1.5 py-2">
+                  {[0, 1, 2, 3].map(i => (
+                    <motion.div key={i} className="w-1 h-1 rounded-full bg-amber-400"
+                      animate={{ opacity: [0.15, 1, 0.15], scale: [0.7, 1.3, 0.7] }}
+                      transition={{ duration: 0.85, repeat: Infinity, delay: i * 0.17 }} />
+                  ))}
+                  <span className="text-white/25 text-[10px] tracking-[0.3em] ml-1 animate-pulse">PROCESSING</span>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Fast scroll controls */}
+        <div className="absolute right-3 bottom-3 flex flex-col gap-1.5 z-20">
+          <button
+            onClick={scrollToTop}
+            title="Scroll to top"
+            className="w-7 h-7 rounded-full bg-black/70 border border-amber-400/30 text-amber-400/85 hover:text-amber-300 hover:border-amber-400/70 flex items-center justify-center backdrop-blur-sm transition-all"
+          >
+            <ArrowUp size={13} />
+          </button>
+          <button
+            onClick={scrollToBottom}
+            title="Scroll to bottom"
+            className="w-7 h-7 rounded-full bg-black/70 border border-amber-400/30 text-amber-400/85 hover:text-amber-300 hover:border-amber-400/70 flex items-center justify-center backdrop-blur-sm transition-all"
+          >
+            <ArrowDown size={13} />
+          </button>
+        </div>
       </div>
+
 
       {/* ── INPUT ──────────────────────────────────────────── */}
       <div className="relative z-10 px-4 sm:px-8 pb-3 pt-2 flex flex-col items-center gap-2">
