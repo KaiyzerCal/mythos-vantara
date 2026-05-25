@@ -1183,8 +1183,8 @@ export default function MavisChat() {
                         const { data: { session: s } } = await supabase.auth.getSession();
                         if (!s?.user) { setCrewRunning(false); return; }
                         const res = await autoCrewDispatch(crewGoal.trim(), s.user.id).catch((err) => ({ output: `Error: ${err.message}`, agentResults: [] }));
-                        setCrewResult(res.output);
-                        setChatMessages((prev) => [...prev, { id: `crew-${Date.now()}`, role: "assistant" as const, content: `**[CREW COMPLETE]**\n\n${res.output}`, mode: "AGENT", timestamp: new Date() }]);
+                        setCrewResult((res as any).output);
+                        setChatMessages((prev) => [...prev, { id: `crew-${Date.now()}`, role: "assistant" as const, content: `**[CREW COMPLETE]**\n\n${(res as any).output}`, mode: "AGENT", timestamp: new Date() }]);
                         setCrewRunning(false);
                       }
                     }}
@@ -1197,8 +1197,8 @@ export default function MavisChat() {
                     const { data: { session: s } } = await supabase.auth.getSession();
                     if (!s?.user) { setCrewRunning(false); return; }
                     const res = await autoCrewDispatch(crewGoal.trim(), s.user.id).catch((err) => ({ output: `Error: ${err.message}`, agentResults: [] }));
-                    setCrewResult(res.output);
-                    setChatMessages((prev) => [...prev, { id: `crew-${Date.now()}`, role: "assistant" as const, content: `**[CREW COMPLETE]**\n\n${res.output}`, mode: "AGENT", timestamp: new Date() }]);
+                    setCrewResult((res as any).output);
+                    setChatMessages((prev) => [...prev, { id: `crew-${Date.now()}`, role: "assistant" as const, content: `**[CREW COMPLETE]**\n\n${(res as any).output}`, mode: "AGENT", timestamp: new Date() }]);
                     setCrewRunning(false);
                   }} disabled={crewRunning || !crewGoal.trim()}
                     className="px-3 py-1.5 rounded border border-violet-500/30 bg-violet-500/10 text-violet-300 text-[10px] font-mono hover:bg-violet-500/20 disabled:opacity-40 transition-colors flex items-center gap-1.5"
