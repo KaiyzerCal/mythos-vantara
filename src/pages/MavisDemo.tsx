@@ -257,9 +257,10 @@ export default function MavisDemo() {
     }
   }, [response]);
 
-  const submit = useCallback(async () => {
-    const q = query.trim();
+  const submit = useCallback(async (textArg?: string) => {
+    const q = (textArg ?? query).trim();
     if (!q || phase !== "idle") return;
+
 
     setQuery("");
     setPhase("thinking");
