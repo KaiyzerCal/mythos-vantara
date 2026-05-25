@@ -134,6 +134,14 @@ export function VoiceChatOverlay({
     prevLoadingRef.current = effectiveLoading;
   }, [effectiveLoading, phase, externalAudio, speakReply]);
 
+  // Stable refs for dispatch fns so startListening doesn't change identity on
+  // every parent render — that was cancelling the 1s auto-restart timer and
+  // preventing subsequent voice turns from starting.
+  const sendMessageRef = useRef(sendMessage);
+  useEffect(() => { sendMessageRef.current = sendMessage; }, [sendMessage]);
+  const personaRef = useRef(persona);
+  useEffect(() => { personaRef.current = persona; }, [persona]);
+
   // ── Voice input ─────────────────────────────────────────────
   const stopListening = useCallback(() => {
     if (recognitionRef.current) {
@@ -143,39 +151,34 @@ export function VoiceChatOverlay({
   }, []);
 
   const sendPersonaMessage = useCallback(async (text: string) => {
-    if (!persona) return;
+    const p = personaRef.current;
+    if (!p) return;
     setPersonaLoading(true);
     setPersonaReply("");
     let reply = "";
     try {
-      if (persona.entityType === "persona" && persona.entityId && persona.userId) {
-        // Route through the dedicated persona router — it preserves memories,
-        // relationship state, and character framing. Never returns MAVIS.
+      if (p.entityType === "persona" && p.entityId && p.userId) {
         const { data, error } = await supabase.functions.invoke("mavis-persona-router", {
-          body: { persona_id: persona.entityId, user_id: persona.userId, message: text },
+          body: { persona_id: p.entityId, user_id: p.userId, message: text },
         });
         if (error) throw error;
         reply = (data as any)?.response ?? "";
         setPersonaReply(reply);
       } else {
-        // Council member / custom persona — pass mode:"COUNCIL" so mavis-chat
-        // uses the provided systemPrompt instead of the MAVIS Prime prompt.
         await streamChatMessage(
           text,
-          persona.systemPrompt,
+          p.systemPrompt,
           personaHistoryRef.current,
           { mode: "COUNCIL" },
           (_, acc) => { reply = acc; setPersonaReply(acc); },
         );
-        // Persist council voice turn to the shared council chat thread so MAVIS,
-        // the council member, and other agents see the conversation later.
-        if (persona.entityType === "council" && persona.entityId && persona.userId) {
+        if (p.entityType === "council" && p.entityId && p.userId) {
           try {
             await supabase.from("council_chat_messages").insert([
-              { user_id: persona.userId, council_member_id: persona.entityId, role: "user",      content: text  },
-              { user_id: persona.userId, council_member_id: persona.entityId, role: "assistant", content: reply },
+              { user_id: p.userId, council_member_id: p.entityId, role: "user",      content: text  },
+              { user_id: p.userId, council_member_id: p.entityId, role: "assistant", content: reply },
             ]);
-          } catch { /* non-fatal — voice convo still played */ }
+          } catch { /* non-fatal */ }
         }
       }
       personaHistoryRef.current = [
@@ -188,7 +191,8 @@ export function VoiceChatOverlay({
     } finally {
       setPersonaLoading(false);
     }
-  }, [persona]);
+  }, []);
+
 
   const startListening = useCallback(() => {
     const SpeechRecognition =
@@ -333,7 +337,7 @@ export function VoiceChatOverlay({
         setPhase("thinking");
         setTranscript("");
         setInterimTranscript("");
-        const dispatch = persona ? sendPersonaMessage : sendMessage;
+        const dispatch = personaRef.current ? sendPersonaMessage : sendMessageRef.current;
         dispatch?.(captured).catch(() => {
           if (!closingRef.current) setPhase("idle");
         });
@@ -347,7 +351,7 @@ export function VoiceChatOverlay({
     setInterimTranscript("");
     recognition.start();
     setPhase("listening");
-  }, [sendMessage, sendPersonaMessage, persona]);
+  }, [sendPersonaMessage]);
 
   // Auto-restart after speaking finishes
   useEffect(() => {
