@@ -4,18 +4,19 @@ import { X, Mic } from "lucide-react";
 import { streamChatMessage } from "@/mavis/chatService";
 import { supabase } from "@/integrations/supabase/client";
 
-// Chrome continuous-mode often re-emits already-finalized words at the start
-// of the next interim result, causing visible duplication. Strip the overlap.
-function stripFinalOverlap(finalized: string, interim: string): string {
-  if (!interim || !finalized) return interim;
-  const fw = finalized.toLowerCase().split(/\s+/);
-  const iw = interim.toLowerCase().split(/\s+/);
-  for (let n = Math.min(fw.length, iw.length); n > 0; n--) {
-    if (fw.slice(-n).join(" ") === iw.slice(0, n).join(" ")) {
-      return interim.split(/\s+/).slice(n).join(" ");
-    }
-  }
-  return interim;
+// Chrome continuous-mode sometimes re-includes already-finalized text at the
+// start of the next interim result. Handle the two cases cleanly:
+// 1. Regression — interim is shorter/covered by finalized → hide it entirely
+// 2. Forward — interim starts with all of finalized → show only the new suffix
+// 3. Different content — show as-is (separate phrase)
+function getInterimSuffix(finalized: string, interim: string): string {
+  if (!interim) return "";
+  if (!finalized) return interim;
+  const f = finalized.toLowerCase().trim();
+  const i = interim.toLowerCase().trim();
+  if (f.startsWith(i)) return ""; // regression — already have this or more
+  if (i.startsWith(f)) return interim.slice(finalized.trim().length).trimStart(); // new suffix only
+  return interim; // different phrase — show in full
 }
 
 export interface VoicePersona {
@@ -233,9 +234,7 @@ export function VoiceChatOverlay({
           interim = t;
         }
       }
-      // Strip words the interim shares with already-finalized text so the
-      // display never shows "word word word word" repetition
-      setInterimTranscript(stripFinalOverlap(finalText.trim(), interim.trim()));
+      setInterimTranscript(getInterimSuffix(finalText.trim(), interim.trim()));
       resetSilenceTimer();
     };
 
@@ -321,6 +320,10 @@ export function VoiceChatOverlay({
   const spoken    = displayedReply.slice(0, spokenUpTo);
   const remaining = displayedReply.slice(spokenUpTo);
 
+  // Live transcript: finalized (white) + current in-progress suffix (dim)
+  const interimSuffix = getInterimSuffix(transcript, interimTranscript);
+  const hasTranscript = transcript.length > 0 || interimSuffix.length > 0;
+
   return (
     <motion.div
       initial={{ opacity: 0 }}
@@ -364,21 +367,29 @@ export function VoiceChatOverlay({
       {/* Phase label */}
       <p className="text-xs font-mono tracking-widest text-primary">{phaseLabel[phase]}</p>
 
-      {/* User transcript */}
-      <AnimatePresence mode="wait">
-        {(transcript || interimTranscript) && (
-          <motion.p
+      {/* User transcript — what you're saying */}
+      <AnimatePresence>
+        {hasTranscript && (
+          <motion.div
             key="transcript"
-            initial={{ opacity: 0, y: 4 }}
+            initial={{ opacity: 0, y: 6 }}
             animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0 }}
-            className="max-w-sm text-center text-xs font-mono text-muted-foreground leading-relaxed"
+            exit={{ opacity: 0, y: -4 }}
+            transition={{ duration: 0.15 }}
+            className="w-full max-w-md px-4"
           >
-            {transcript}
-            {interimTranscript && (
-              <span className="text-white/40"> {interimTranscript}</span>
-            )}
-          </motion.p>
+            <p className="text-[9px] font-mono text-primary/50 tracking-widest text-center mb-1 uppercase">
+              You
+            </p>
+            <p className="text-center text-sm font-mono leading-relaxed break-words text-white">
+              {transcript && <span className="text-white/90">{transcript}</span>}
+              {interimSuffix && (
+                <span className="text-white/45">
+                  {transcript ? " " : ""}{interimSuffix}
+                </span>
+              )}
+            </p>
+          </motion.div>
         )}
       </AnimatePresence>
 
