@@ -82,14 +82,8 @@ function AppContent() {
   const { user, loading } = useAuth();
   const location = useLocation();
 
-  // Public demo page — bypasses auth, no sidebar
-  if (location.pathname === "/demo") {
-    return (
-      <Suspense fallback={Spinner}>
-        <MavisDemo />
-      </Suspense>
-    );
-  }
+
+
 
   if (loading) {
     return (
