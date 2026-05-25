@@ -107,25 +107,21 @@ export async function replayMutationQueue(): Promise<number> {
   const queue = getMutationQueue();
   if (queue.length === 0) return 0;
 
+  const sb = supabase as any;
   const results = await Promise.allSettled(
     queue.map(async (mutation) => {
+      const payload = mutation.payload as any;
       switch (mutation.type) {
         case "quest:create":
-          return supabase.from("quests").insert(mutation.payload);
+          return sb.from("quests").insert(payload);
         case "quest:update":
-          return supabase
-            .from("quests")
-            .update(mutation.payload)
-            .eq("id", mutation.payload.id as string);
+          return sb.from("quests").update(payload).eq("id", payload.id as string);
         case "task:create":
-          return supabase.from("tasks").insert(mutation.payload);
+          return sb.from("tasks").insert(payload);
         case "task:update":
-          return supabase
-            .from("tasks")
-            .update(mutation.payload)
-            .eq("id", mutation.payload.id as string);
+          return sb.from("tasks").update(payload).eq("id", payload.id as string);
         case "journal:create":
-          return supabase.from("journal_entries").insert(mutation.payload);
+          return sb.from("journal_entries").insert(payload);
         default:
           console.warn(`[MAVIS Offline] Unknown mutation type: ${mutation.type} — skipping`);
           return Promise.reject(new Error(`Unknown type: ${mutation.type}`));

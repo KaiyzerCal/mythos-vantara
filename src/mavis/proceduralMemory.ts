@@ -51,7 +51,7 @@ function buildProcedureContent(
 ): string {
   const actionSummaries = confirmed.map((r) => {
     const verb = ACTION_VERBS[r.action.type] ?? r.action.type.replace(/_/g, " ");
-    const params = r.action.params ?? {};
+    const params = (r.action.payload ?? {}) as Record<string, any>;
     const nameHint = params.title ?? params.name ?? params.display_name ?? "";
     return nameHint ? `${verb}: "${nameHint}"` : verb;
   });
@@ -82,7 +82,7 @@ export async function captureProceduralMemory(
       agentId: PROCEDURE_AGENT_ID,
       agentName: "MAVIS-PRIME",
       agentType: "mavis",
-      entityType: "procedural",
+      entityType: "pattern",
       memoryType: "procedural",
       content,
       summary: `How to ${primaryVerb} — confirmed pattern from live execution`,

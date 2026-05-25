@@ -533,7 +533,7 @@ export function PersonaChat({ persona, userId, onBack }: PersonaChatProps) {
               entityId: persona.id,
               entityType: "persona",
             }}
-            initialHistory={messages.slice(-40)}
+            
             onExchange={async (userMsg, aiMsg) => {
               try {
                 await supabase.from("persona_conversations").insert([
