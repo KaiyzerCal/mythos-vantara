@@ -220,8 +220,8 @@ function useMCanvas(ref: React.RefObject<HTMLCanvasElement>, phase: Phase) {
       for (const n of nodes) {
         const dn     = (n.pathIdx - wavePos) * 6.5;
         const wave   = Math.exp(-(dn * dn));
-        const pulse  = 0.30 + 0.20 * Math.sin(n.osc + t);
-        const alpha  = Math.min(1, pulse + (active ? 0.28 : 0) + wave * 1.55);
+        const pulse  = 0.55 + 0.22 * Math.sin(n.osc + t);
+        const alpha  = Math.min(1, pulse + (active ? 0.28 : 0.12) + wave * 1.55);
         const radius = n.r * (1 + wave * 0.9);
 
         // Radial glow for wave-lit nodes
