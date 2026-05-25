@@ -8,7 +8,8 @@ import {
   Target, Plus, ChevronDown, ChevronRight, CheckCircle2, XCircle,
   Trash2, Loader2, X, Flag, Link2,
 } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase as _supabase } from "@/integrations/supabase/client";
+const supabase = _supabase as any;
 import { useAuth } from "@/contexts/AuthContext";
 import { useAppData } from "@/contexts/AppDataContext";
 import { PageHeader, HudCard, ProgressBar } from "@/components/SharedUI";
