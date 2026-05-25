@@ -191,11 +191,52 @@ export function VoiceChatOverlay({
     recognition.interimResults = true;
     recognition.lang = "en-US";
 
-    let finalText = "";
-    // Guard against Chrome re-firing the same final result at the same index
-    const finalizedIndices = new Set<number>();
+    const resultChunks = new Map<number, { text: string; isFinal: boolean }>();
+    let lastCapturedText = "";
     let silenceTimer: ReturnType<typeof setTimeout> | null = null;
     const SILENCE_MS = 1800;
+
+    const normalizeTranscript = (value: string) =>
+      value.replace(/\s+/g, " ").trim();
+
+    const stripOverlap = (confirmedText: string, liveText: string) => {
+      const confirmedWords = normalizeTranscript(confirmedText).split(" ").filter(Boolean);
+      const liveWords = normalizeTranscript(liveText).split(" ").filter(Boolean);
+
+      if (!confirmedWords.length || !liveWords.length) return normalizeTranscript(liveText);
+
+      const maxOverlap = Math.min(confirmedWords.length, liveWords.length);
+      for (let overlap = maxOverlap; overlap > 0; overlap--) {
+        const confirmedTail = confirmedWords.slice(-overlap).join(" ").toLowerCase();
+        const liveHead = liveWords.slice(0, overlap).join(" ").toLowerCase();
+        if (confirmedTail === liveHead) {
+          return liveWords.slice(overlap).join(" ");
+        }
+      }
+
+      return normalizeTranscript(liveText);
+    };
+
+    const syncTranscriptState = () => {
+      const ordered = Array.from(resultChunks.entries()).sort(([a], [b]) => a - b);
+      const confirmed = normalizeTranscript(
+        ordered
+          .filter(([, chunk]) => chunk.isFinal)
+          .map(([, chunk]) => chunk.text)
+          .join(" "),
+      );
+      const live = normalizeTranscript(
+        ordered
+          .filter(([, chunk]) => !chunk.isFinal)
+          .map(([, chunk]) => chunk.text)
+          .join(" "),
+      );
+      const liveWithoutOverlap = stripOverlap(confirmed, live);
+
+      lastCapturedText = normalizeTranscript([confirmed, liveWithoutOverlap].filter(Boolean).join(" "));
+      setTranscript(confirmed);
+      setInterimTranscript(liveWithoutOverlap);
+    };
 
     function resetSilenceTimer() {
       if (silenceTimer) clearTimeout(silenceTimer);
@@ -205,40 +246,21 @@ export function VoiceChatOverlay({
     }
 
     recognition.onresult = (event: any) => {
-      let interim = "";
-      // Walk ALL results — Chrome sometimes shifts resultIndex but keeps
-      // previously-finalized entries in the array, and finalizedIndices
-      // guards against double-appending.
       for (let i = 0; i < event.results.length; i++) {
         const result = event.results[i];
-        const t: string = result[0].transcript;
-        if (result.isFinal) {
-          if (!finalizedIndices.has(i)) {
-            finalizedIndices.add(i);
-            finalText = (finalText + " " + t).replace(/\s+/g, " ").trim() + " ";
-            setTranscript(finalText.trim());
-          }
-        } else {
-          // Use the latest non-final result as the live interim
-          interim = t;
+        const text = normalizeTranscript(result[0]?.transcript ?? "");
+
+        if (!text) {
+          resultChunks.delete(i);
+          continue;
         }
+
+        resultChunks.set(i, {
+          text,
+          isFinal: Boolean(result.isFinal),
+        });
       }
-      // Strip overlap: if the interim chunk starts with the tail of finalText
-      // (Chrome occasionally re-emits already-finalized words as interim),
-      // trim the duplicate prefix so the user doesn't see repeated words.
-      const finalTrim = finalText.trim().toLowerCase();
-      let interimClean = interim.trim();
-      if (interimClean && finalTrim) {
-        const interimLower = interimClean.toLowerCase();
-        const maxOverlap = Math.min(finalTrim.length, interimLower.length);
-        for (let n = maxOverlap; n > 0; n--) {
-          if (finalTrim.endsWith(interimLower.slice(0, n))) {
-            interimClean = interimClean.slice(n).trimStart();
-            break;
-          }
-        }
-      }
-      setInterimTranscript(interimClean);
+      syncTranscriptState();
       resetSilenceTimer();
     };
 
@@ -256,7 +278,7 @@ export function VoiceChatOverlay({
       if (silenceTimer) clearTimeout(silenceTimer);
       recognitionRef.current = null;
       if (closingRef.current) return;
-      const captured = finalText.trim();
+      const captured = normalizeTranscript(lastCapturedText);
       if (captured) {
         setPhase("thinking");
         setTranscript("");
