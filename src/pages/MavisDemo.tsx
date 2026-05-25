@@ -350,6 +350,7 @@ export default function MavisDemo() {
   const [dbLoaded,     setDbLoaded]     = useState(false);
   const [actionStatus, setActionStatus] = useState<string | null>(null);
   const [streamingId,  setStreamingId]  = useState<string | null>(null);
+  const [isSyncing,    setIsSyncing]    = useState(false);
 
   const canvasRef    = useRef<HTMLCanvasElement>(null);
   const messagesRef  = useRef<HTMLDivElement>(null);
