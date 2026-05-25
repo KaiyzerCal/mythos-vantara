@@ -18,6 +18,7 @@ const PRIMARY_NAV = [
   { to: "/", icon: LayoutDashboard, label: "Dashboard" },
   { to: "/character", icon: User, label: "Character" },
   { to: "/mavis", icon: Cpu, label: "MAVIS" },
+  { to: "/mavis-ui", icon: Sparkles, label: "MavisUI" },
   { to: "/inbox", icon: Inbox, label: "Inbox" },
   { to: "/quests", icon: Target, label: "Quests" },
   { to: "/councils", icon: Users, label: "Councils" },
