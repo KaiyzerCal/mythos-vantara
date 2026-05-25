@@ -193,7 +193,7 @@ export function VoiceChatOverlay({
 
     let lastCapturedText = "";
     let silenceTimer: ReturnType<typeof setTimeout> | null = null;
-    const SILENCE_MS = 1800;
+    const SILENCE_MS = 5000;
 
     const normalizeTranscript = (value: string) =>
       value.replace(/\s+/g, " ").trim();
