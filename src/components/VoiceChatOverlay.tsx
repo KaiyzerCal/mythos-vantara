@@ -167,6 +167,16 @@ export function VoiceChatOverlay({
           { mode: "COUNCIL" },
           (_, acc) => { reply = acc; setPersonaReply(acc); },
         );
+        // Persist council voice turn to the shared council chat thread so MAVIS,
+        // the council member, and other agents see the conversation later.
+        if (persona.entityType === "council" && persona.entityId && persona.userId) {
+          try {
+            await supabase.from("council_chat_messages").insert([
+              { user_id: persona.userId, council_member_id: persona.entityId, role: "user",      content: text  },
+              { user_id: persona.userId, council_member_id: persona.entityId, role: "assistant", content: reply },
+            ]);
+          } catch { /* non-fatal — voice convo still played */ }
+        }
       }
       personaHistoryRef.current = [
         ...personaHistoryRef.current,
