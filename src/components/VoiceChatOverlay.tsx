@@ -341,7 +341,7 @@ export function VoiceChatOverlay({
         setPhase("thinking");
         setTranscript("");
         setInterimTranscript("");
-        const dispatch = persona ? sendPersonaMessage : sendMessage;
+        const dispatch = personaRef.current ? sendPersonaMessage : sendMessageRef.current;
         dispatch?.(captured).catch(() => {
           if (!closingRef.current) setPhase("idle");
         });
@@ -355,7 +355,7 @@ export function VoiceChatOverlay({
     setInterimTranscript("");
     recognition.start();
     setPhase("listening");
-  }, [sendMessage, sendPersonaMessage, persona]);
+  }, [sendPersonaMessage]);
 
   // Auto-restart after speaking finishes
   useEffect(() => {
