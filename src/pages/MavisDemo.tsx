@@ -832,36 +832,57 @@ export default function MavisDemo() {
       </header>
 
       {/* ── MESSAGES ───────────────────────────────────────── */}
-      <div
-        ref={messagesRef}
-        className="relative z-10 flex-1 overflow-y-auto px-4 sm:px-8 py-4 flex flex-col gap-4 min-h-0"
-        style={{ scrollbarWidth: "none" }}
-      >
-        {chatMessages.filter((m: any) => m.id !== "init").length === 0 && !isLoading ? (
-          <div className="flex-1 flex flex-col items-center justify-center gap-2 text-center">
-            <div className="w-10 h-[1px] bg-amber-400/20" />
-            <p className="text-white/22 text-[10px] tracking-[0.35em] uppercase">Sovereign Intelligence Standing By</p>
-            <p className="text-white/12 text-[9px] tracking-widest">Type a message or press the mic to begin</p>
-            <div className="w-10 h-[1px] bg-amber-400/20" />
-          </div>
-        ) : (
-          <div className="max-w-2xl mx-auto w-full flex flex-col gap-4">
-            {chatMessages.filter((m: any) => m.id !== "init").map((msg: any) => (
-              <MessageRow key={msg.id} msg={msg} isStreaming={msg.id === streamingId} />
-            ))}
-            {isLoading && !streamingId && (
-              <div className="flex items-center gap-1.5 py-2">
-                {[0, 1, 2, 3].map(i => (
-                  <motion.div key={i} className="w-1 h-1 rounded-full bg-amber-400"
-                    animate={{ opacity: [0.15, 1, 0.15], scale: [0.7, 1.3, 0.7] }}
-                    transition={{ duration: 0.85, repeat: Infinity, delay: i * 0.17 }} />
-                ))}
-                <span className="text-white/25 text-[10px] tracking-[0.3em] ml-1 animate-pulse">PROCESSING</span>
-              </div>
-            )}
-          </div>
-        )}
+      <div className="relative flex-1 min-h-0 z-10">
+        <div
+          ref={messagesRef}
+          className="absolute inset-0 overflow-y-auto px-4 sm:px-8 py-4 flex flex-col gap-4"
+          style={{ scrollbarWidth: "none" }}
+        >
+          {chatMessages.filter((m: any) => m.id !== "init").length === 0 && !isLoading ? (
+            <div className="flex-1 flex flex-col items-center justify-center gap-2 text-center">
+              <div className="w-10 h-[1px] bg-amber-400/20" />
+              <p className="text-white/22 text-[10px] tracking-[0.35em] uppercase">Sovereign Intelligence Standing By</p>
+              <p className="text-white/12 text-[9px] tracking-widest">Type a message or press the mic to begin</p>
+              <div className="w-10 h-[1px] bg-amber-400/20" />
+            </div>
+          ) : (
+            <div className="max-w-2xl mx-auto w-full flex flex-col gap-4">
+              {chatMessages.filter((m: any) => m.id !== "init").map((msg: any) => (
+                <MessageRow key={msg.id} msg={msg} isStreaming={msg.id === streamingId} />
+              ))}
+              {isLoading && !streamingId && (
+                <div className="flex items-center gap-1.5 py-2">
+                  {[0, 1, 2, 3].map(i => (
+                    <motion.div key={i} className="w-1 h-1 rounded-full bg-amber-400"
+                      animate={{ opacity: [0.15, 1, 0.15], scale: [0.7, 1.3, 0.7] }}
+                      transition={{ duration: 0.85, repeat: Infinity, delay: i * 0.17 }} />
+                  ))}
+                  <span className="text-white/25 text-[10px] tracking-[0.3em] ml-1 animate-pulse">PROCESSING</span>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Fast scroll controls */}
+        <div className="absolute right-3 bottom-3 flex flex-col gap-1.5 z-20">
+          <button
+            onClick={scrollToTop}
+            title="Scroll to top"
+            className="w-7 h-7 rounded-full bg-black/70 border border-amber-400/30 text-amber-400/85 hover:text-amber-300 hover:border-amber-400/70 flex items-center justify-center backdrop-blur-sm transition-all"
+          >
+            <ArrowUp size={13} />
+          </button>
+          <button
+            onClick={scrollToBottom}
+            title="Scroll to bottom"
+            className="w-7 h-7 rounded-full bg-black/70 border border-amber-400/30 text-amber-400/85 hover:text-amber-300 hover:border-amber-400/70 flex items-center justify-center backdrop-blur-sm transition-all"
+          >
+            <ArrowDown size={13} />
+          </button>
+        </div>
       </div>
+
 
       {/* ── INPUT ──────────────────────────────────────────── */}
       <div className="relative z-10 px-4 sm:px-8 pb-3 pt-2 flex flex-col items-center gap-2">
