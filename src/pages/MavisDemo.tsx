@@ -794,6 +794,28 @@ export default function MavisDemo() {
 
         <div className="flex-1" />
 
+        {/* OmniSync + Clear */}
+        <button
+          onClick={handleOmniSync}
+          disabled={isSyncing}
+          title="OmniSync — archive snapshot"
+          className="flex items-center gap-1 text-[10px] font-mono text-cyan-400/85 hover:text-cyan-300 border border-cyan-400/25 hover:border-cyan-400/55 rounded px-2 py-1 transition-all disabled:opacity-40"
+        >
+          {isSyncing
+            ? <span className="w-2.5 h-2.5 rounded-full border-2 border-cyan-400 border-t-transparent animate-spin block" />
+            : <Database size={10} />}
+          <span className="hidden sm:inline tracking-widest">OMNISYNC</span>
+        </button>
+        <button
+          onClick={clearChat}
+          title="Clear thread (archives to memory)"
+          className="flex items-center gap-1 text-[10px] font-mono text-white/45 hover:text-red-400 border border-white/10 hover:border-red-400/40 rounded px-2 py-1 transition-all ml-2"
+        >
+          <Trash2 size={10} />
+          <span className="hidden sm:inline tracking-widest">CLEAR</span>
+        </button>
+
+
         {/* Clock */}
         <div className="text-center hidden md:block">
           <p className="text-[9px] text-white/30 tracking-widest uppercase">{dateStr}</p>
