@@ -441,7 +441,7 @@ export default function MavisDemo() {
       <canvas
         ref={canvasRef}
         className="absolute inset-0 w-full h-full pointer-events-none"
-        style={{ opacity: 0.82 }}
+        style={{ opacity: 1 }}
       />
 
       {/* Radial vignette — keeps text readable */}
