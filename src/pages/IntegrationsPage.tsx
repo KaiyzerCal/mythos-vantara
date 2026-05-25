@@ -134,7 +134,7 @@ export function IntegrationsPage() {
       }
 
       const grouped: Record<string, Record<string, string>> = {};
-      for (const row of (data ?? []) as { provider: string; key_name: string; key_value: string }[]) {
+      for (const row of ((data ?? []) as unknown) as { provider: string; key_name: string; key_value: string }[]) {
         if (!grouped[row.provider]) grouped[row.provider] = {};
         grouped[row.provider][row.key_name] = row.key_value;
       }

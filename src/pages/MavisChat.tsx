@@ -3,7 +3,8 @@ import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { Send, Square, Cpu, Copy, Check, ChevronDown, Zap, Brain, Target, Crown, Flame, Database, Mic, MicOff, Users, Search, FileCode, X, Download } from "lucide-react";
 import { useAppData } from "@/contexts/AppDataContext";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase as _supabase } from "@/integrations/supabase/client";
+const supabase = _supabase as any;
 import { PageHeader, HudCard } from "@/components/SharedUI";
 import ReactMarkdown from "react-markdown";
 import { toast } from "sonner";
@@ -53,12 +54,13 @@ const QUICK_PROMPTS = [
 
 export default function MavisChat() {
   const navigate = useNavigate();
+  const _appData = useAppData() as any;
   const {
     profile, quests, tasks, skills, journalEntries, vaultEntries,
     chatMessages, setChatMessages, conversationId, setConversationId,
     chatMode, setChatMode, refetchAll,
     rituals, councils, energySystems, inventory, allies, bpmSessions, storeItems, transformations,
-  } = useAppData();
+  } = _appData;
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [actionStatus, setActionStatus] = useState<string | null>(null);
@@ -549,7 +551,7 @@ export default function MavisChat() {
       // Use fresh Supabase context if available, else fall back to useAppData() data
       let systemPrompt = await (fullCtx
         ? buildSystemPromptFromSnapshot(chatMode, fullCtx, archivedMemories, vaultMedia)
-        : buildSystemPromptFromSnapshot(chatMode, {
+        : buildSystemPromptFromSnapshot(chatMode, ({
             profile: profile as any,
             quests: quests as any[], tasks: tasks as any[], skills: skills as any[],
             rankings: [], transformations: transformations as any[],
@@ -558,7 +560,7 @@ export default function MavisChat() {
             storeItems: storeItems as any[], energySystems: energySystems as any[],
             bpmSessions: bpmSessions as any[], allies: allies as any[],
             rituals: rituals as any[], pendingApprovals: [], loadedAt: new Date().toISOString(),
-          }, archivedMemories, vaultMedia));
+          } as any), archivedMemories, vaultMedia));
       if (recallCtxRaw) systemPrompt += `\n\n${recallCtxRaw}`;
       if (selectedPersonaPrompt) systemPrompt += `\n\n--- ACTIVE PERSONA ---\n${selectedPersonaPrompt}\n---`;
       const attachmentIds = attachments.map((a) => a.id);
@@ -1181,8 +1183,8 @@ export default function MavisChat() {
                         const { data: { session: s } } = await supabase.auth.getSession();
                         if (!s?.user) { setCrewRunning(false); return; }
                         const res = await autoCrewDispatch(crewGoal.trim(), s.user.id).catch((err) => ({ output: `Error: ${err.message}`, agentResults: [] }));
-                        setCrewResult(res.output);
-                        setChatMessages((prev) => [...prev, { id: `crew-${Date.now()}`, role: "assistant" as const, content: `**[CREW COMPLETE]**\n\n${res.output}`, mode: "AGENT", timestamp: new Date() }]);
+                        setCrewResult((res as any).output);
+                        setChatMessages((prev) => [...prev, { id: `crew-${Date.now()}`, role: "assistant" as const, content: `**[CREW COMPLETE]**\n\n${(res as any).output}`, mode: "AGENT", timestamp: new Date() }]);
                         setCrewRunning(false);
                       }
                     }}
@@ -1195,8 +1197,8 @@ export default function MavisChat() {
                     const { data: { session: s } } = await supabase.auth.getSession();
                     if (!s?.user) { setCrewRunning(false); return; }
                     const res = await autoCrewDispatch(crewGoal.trim(), s.user.id).catch((err) => ({ output: `Error: ${err.message}`, agentResults: [] }));
-                    setCrewResult(res.output);
-                    setChatMessages((prev) => [...prev, { id: `crew-${Date.now()}`, role: "assistant" as const, content: `**[CREW COMPLETE]**\n\n${res.output}`, mode: "AGENT", timestamp: new Date() }]);
+                    setCrewResult((res as any).output);
+                    setChatMessages((prev) => [...prev, { id: `crew-${Date.now()}`, role: "assistant" as const, content: `**[CREW COMPLETE]**\n\n${(res as any).output}`, mode: "AGENT", timestamp: new Date() }]);
                     setCrewRunning(false);
                   }} disabled={crewRunning || !crewGoal.trim()}
                     className="px-3 py-1.5 rounded border border-violet-500/30 bg-violet-500/10 text-violet-300 text-[10px] font-mono hover:bg-violet-500/20 disabled:opacity-40 transition-colors flex items-center gap-1.5"

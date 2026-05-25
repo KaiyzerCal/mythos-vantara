@@ -13,7 +13,8 @@ import {
   Loader2,
   RefreshCw,
 } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase as _supabase } from "@/integrations/supabase/client";
+const supabase = _supabase as any;
 import { useAuth } from "@/contexts/AuthContext";
 import { PageHeader, HudCard } from "@/components/SharedUI";
 
