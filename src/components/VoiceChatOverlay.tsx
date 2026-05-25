@@ -131,7 +131,8 @@ export function VoiceChatOverlay({
       try { synth.resume(); } catch { /* ignore */ }
       synth.speak(utterance);
 
-      // Chrome stops speech after ~15s. Periodically pause/resume to keep alive.
+      // Chrome stops speech after ~15s of speaking. Calling resume() (without
+      // pause) periodically keeps it going without truncating the utterance.
       if (resumeKeepAliveRef.current) clearInterval(resumeKeepAliveRef.current);
       resumeKeepAliveRef.current = setInterval(() => {
         if (!synth.speaking) {
@@ -141,8 +142,8 @@ export function VoiceChatOverlay({
           }
           return;
         }
-        try { synth.pause(); synth.resume(); } catch { /* ignore */ }
-      }, 10000);
+        try { synth.resume(); } catch { /* ignore */ }
+      }, 5000);
     };
 
     // If voices aren't loaded yet, wait for them once
