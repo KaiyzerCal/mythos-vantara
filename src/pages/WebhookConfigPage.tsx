@@ -121,7 +121,7 @@ export function WebhookConfigPage() {
   const loadConfigs = useCallback(async () => {
     if (!user) return;
     setLoading(true);
-    const { data, error } = await supabase
+    const { data, error } = await (supabase as any)
       .from("webhook_dispatch_config")
       .select("*")
       .eq("user_id", user.id)
@@ -136,7 +136,7 @@ export function WebhookConfigPage() {
 
   const loadLogs = useCallback(async () => {
     if (!user) return;
-    const { data, error } = await supabase
+    const { data, error } = await (supabase as any)
       .from("webhook_dispatch_log")
       .select("*")
       .eq("user_id", user.id)
@@ -173,7 +173,7 @@ export function WebhookConfigPage() {
       return;
     }
     setSaving(true);
-    const { error } = await supabase.from("webhook_dispatch_config").insert({
+    const { error } = await (supabase as any).from("webhook_dispatch_config").insert({
       user_id: user.id,
       name: form.name.trim(),
       endpoint_url: form.endpoint_url.trim(),
@@ -197,7 +197,7 @@ export function WebhookConfigPage() {
     setConfigs((prev) =>
       prev.map((c) => (c.id === id ? { ...c, active: !currentActive } : c))
     );
-    const { error } = await supabase
+    const { error } = await (supabase as any)
       .from("webhook_dispatch_config")
       .update({ active: !currentActive })
       .eq("id", id);
@@ -216,7 +216,7 @@ export function WebhookConfigPage() {
   // ─── Delete Config ─────────────────────────────────────────
   async function deleteConfig(id: string) {
     setConfigs((prev) => prev.filter((c) => c.id !== id));
-    const { error } = await supabase
+    const { error } = await (supabase as any)
       .from("webhook_dispatch_config")
       .delete()
       .eq("id", id);
