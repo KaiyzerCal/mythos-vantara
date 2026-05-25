@@ -206,20 +206,39 @@ export function VoiceChatOverlay({
 
     recognition.onresult = (event: any) => {
       let interim = "";
-      for (let i = event.resultIndex; i < event.results.length; i++) {
+      // Walk ALL results — Chrome sometimes shifts resultIndex but keeps
+      // previously-finalized entries in the array, and finalizedIndices
+      // guards against double-appending.
+      for (let i = 0; i < event.results.length; i++) {
         const result = event.results[i];
         const t: string = result[0].transcript;
         if (result.isFinal) {
           if (!finalizedIndices.has(i)) {
             finalizedIndices.add(i);
-            finalText += t + " ";
+            finalText = (finalText + " " + t).replace(/\s+/g, " ").trim() + " ";
             setTranscript(finalText.trim());
           }
         } else {
+          // Use the latest non-final result as the live interim
           interim = t;
         }
       }
-      setInterimTranscript(interim.trim());
+      // Strip overlap: if the interim chunk starts with the tail of finalText
+      // (Chrome occasionally re-emits already-finalized words as interim),
+      // trim the duplicate prefix so the user doesn't see repeated words.
+      const finalTrim = finalText.trim().toLowerCase();
+      let interimClean = interim.trim();
+      if (interimClean && finalTrim) {
+        const interimLower = interimClean.toLowerCase();
+        const maxOverlap = Math.min(finalTrim.length, interimLower.length);
+        for (let n = maxOverlap; n > 0; n--) {
+          if (finalTrim.endsWith(interimLower.slice(0, n))) {
+            interimClean = interimClean.slice(n).trimStart();
+            break;
+          }
+        }
+      }
+      setInterimTranscript(interimClean);
       resetSilenceTimer();
     };
 
