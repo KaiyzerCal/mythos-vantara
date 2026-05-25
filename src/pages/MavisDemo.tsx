@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Send, Loader2, ChevronDown, ChevronUp, RotateCcw } from "lucide-react";
+import { Send, Loader2, ChevronDown, ChevronUp, RotateCcw, Mic } from "lucide-react";
+import { VoiceChatOverlay } from "@/components/VoiceChatOverlay";
 
 // ── Types ─────────────────────────────────────────────────────
 type Phase = "idle" | "thinking" | "streaming";
