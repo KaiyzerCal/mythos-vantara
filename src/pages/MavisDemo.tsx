@@ -55,83 +55,86 @@ function useMCanvas(ref: React.RefObject<HTMLCanvasElement>, phase: Phase) {
 
     let nodes: Node[] = [];
 
-    // Nodes per segment: left-leg, inner-left-diagonal, inner-right-diagonal, right-leg
-    const PER_SEG = [52, 44, 44, 52];
-    // Extra "halo" nodes scattered around each segment for neural-cluster density
-    const HALO_PER_SEG = [40, 32, 32, 40];
+    // Bat-M silhouette: traced as a closed polygon of (x,y) anchors in a
+    // normalized 1×1 box. Outer legs flare like bat wings; valley dips into
+    // a sharp fang. This guarantees a crisp, recognizable M at any size.
+    // Order: outer-left-bottom → outer-left-top → inner-left-peak →
+    //        valley-fang → inner-right-peak → outer-right-top →
+    //        outer-right-bottom → inner-right-bottom-notch →
+    //        inner-right-arch → inner-valley-top → inner-left-arch →
+    //        inner-left-bottom-notch → close.
+    const SHAPE: Array<[number, number]> = [
+      [0.02, 1.00], // 0 outer BL (wing tip)
+      [0.14, 0.00], // 1 outer TL (ear)
+      [0.30, 0.18], // 2 inner left peak
+      [0.50, 0.78], // 3 valley fang (deep center point)
+      [0.70, 0.18], // 4 inner right peak
+      [0.86, 0.00], // 5 outer TR (ear)
+      [0.98, 1.00], // 6 outer BR (wing tip)
+      [0.78, 1.00], // 7 inner BR notch
+      [0.62, 0.46], // 8 inner right arch base
+      [0.50, 0.92], // 9 inner valley top (under fang)
+      [0.38, 0.46], // 10 inner left arch base
+      [0.22, 1.00], // 11 inner BL notch
+    ];
+
+    // Edges of the polygon (closed loop)
+    const EDGES: Array<[number, number]> = (() => {
+      const e: Array<[number, number]> = [];
+      for (let i = 0; i < SHAPE.length; i++) {
+        e.push([i, (i + 1) % SHAPE.length]);
+      }
+      return e;
+    })();
 
     const buildNodes = () => {
       nodes = [];
 
-      const mx = W * 0.10;
-      const my = H * 0.09;
-      const mW = W * 0.80;
-      const mH = H * 0.80;
+      // Fit a centered square so the M never distorts on portrait/landscape.
+      const S  = Math.min(W, H) * 0.86;
+      const ox = (W - S) / 2;
+      const oy = (H - S) / 2;
 
-      const pts = [
-        { x: mx,          y: my + mH         }, // 0 BL
-        { x: mx,          y: my              }, // 1 TL
-        { x: mx + mW / 2, y: my + mH * 0.56  }, // 2 Valley
-        { x: mx + mW,     y: my              }, // 3 TR
-        { x: mx + mW,     y: my + mH         }, // 4 BR
-      ];
+      // Map normalized shape → pixel anchors
+      const anchors = SHAPE.map(([nx, ny]) => ({
+        x: ox + nx * S,
+        y: oy + ny * S,
+      }));
 
-      const segs: [number, number][] = [[0, 1], [1, 2], [2, 3], [3, 4]];
-      const segLens = segs.map(([a, b]) => {
-        const dx = pts[b].x - pts[a].x;
-        const dy = pts[b].y - pts[a].y;
+      // Compute edge lengths to distribute density evenly along the outline
+      const edgeLens = EDGES.map(([a, b]) => {
+        const dx = anchors[b].x - anchors[a].x;
+        const dy = anchors[b].y - anchors[a].y;
         return Math.sqrt(dx * dx + dy * dy);
       });
-      const totalLen = segLens.reduce((s, l) => s + l, 0);
+      const totalLen = edgeLens.reduce((s, l) => s + l, 0);
 
-      const jitterX = W * 0.005;
-      const jitterY = H * 0.005;
-      const haloX   = W * 0.040;
-      const haloY   = H * 0.040;
+      // Density scales with size so the M reads cleanly on small mobile
+      const TOTAL_SPINE = Math.round(380 + S * 0.55);
+      const jitter = S * 0.004; // tiny — keeps silhouette crisp
+
       let cumLen = 0;
+      for (let e = 0; e < EDGES.length; e++) {
+        const [ai, bi] = EDGES[e];
+        const from = anchors[ai];
+        const to   = anchors[bi];
+        const n    = Math.max(8, Math.round((edgeLens[e] / totalLen) * TOTAL_SPINE));
 
-      for (let s = 0; s < segs.length; s++) {
-        const [ai, bi] = segs[s];
-        const from = pts[ai];
-        const to   = pts[bi];
-        const n    = PER_SEG[s];
-
-        // Spine — thick, bright nodes that form the stroke of the M
         for (let i = 0; i < n; i++) {
           const t  = (i + 0.5) / n;
-          const hx = from.x + (to.x - from.x) * t + (Math.random() - 0.5) * jitterX * 2;
-          const hy = from.y + (to.y - from.y) * t + (Math.random() - 0.5) * jitterY;
+          const hx = from.x + (to.x - from.x) * t + (Math.random() - 0.5) * jitter * 2;
+          const hy = from.y + (to.y - from.y) * t + (Math.random() - 0.5) * jitter * 2;
           nodes.push({
             homeX: hx, homeY: hy,
-            x: hx + (Math.random() - 0.5) * 28,
-            y: hy + (Math.random() - 0.5) * 28,
-            vx: (Math.random() - 0.5) * 0.4,
-            vy: (Math.random() - 0.5) * 0.4,
-            r: 5.5 + Math.random() * 5.0,
+            x: hx + (Math.random() - 0.5) * 8,
+            y: hy + (Math.random() - 0.5) * 8,
+            vx: 0, vy: 0,
+            r: 2.6 + Math.random() * 2.2 + S * 0.003,
             osc: Math.random() * Math.PI * 2,
-            pathIdx: (cumLen + t * segLens[s]) / totalLen,
+            pathIdx: (cumLen + t * edgeLens[e]) / totalLen,
           });
         }
-
-        // Halo — satellite nodes around the spine for neural-cluster density
-        const h = HALO_PER_SEG[s];
-        for (let i = 0; i < h; i++) {
-          const t  = Math.random();
-          const hx = from.x + (to.x - from.x) * t + (Math.random() - 0.5) * haloX * 2;
-          const hy = from.y + (to.y - from.y) * t + (Math.random() - 0.5) * haloY * 2;
-          nodes.push({
-            homeX: hx, homeY: hy,
-            x: hx + (Math.random() - 0.5) * 20,
-            y: hy + (Math.random() - 0.5) * 20,
-            vx: (Math.random() - 0.5) * 0.3,
-            vy: (Math.random() - 0.5) * 0.3,
-            r: 3.0 + Math.random() * 3.5,
-            osc: Math.random() * Math.PI * 2,
-            pathIdx: (cumLen + t * segLens[s]) / totalLen,
-          });
-        }
-
-        cumLen += segLens[s];
+        cumLen += edgeLens[e];
       }
     };
 
@@ -164,30 +167,33 @@ function useMCanvas(ref: React.RefObject<HTMLCanvasElement>, phase: Phase) {
       const N = nodes.length;
 
       for (const n of nodes) {
-        n.vx += (n.homeX - n.x) * 0.017;
-        n.vy += (n.homeY - n.y) * 0.017;
+        // Strong spring back to home keeps the silhouette tight.
+        n.vx += (n.homeX - n.x) * 0.06;
+        n.vy += (n.homeY - n.y) * 0.06;
         if (active) {
-          const mag = streaming ? 0.42 : 0.15;
+          const mag = streaming ? 0.18 : 0.08;
           n.vx += (Math.random() - 0.5) * mag;
           n.vy += (Math.random() - 0.5) * mag;
         }
-        n.vx *= 0.87;
-        n.vy *= 0.87;
+        n.vx *= 0.82;
+        n.vy *= 0.82;
         n.x  += n.vx;
         n.y  += n.vy;
         n.osc += streaming ? 0.024 : 0.013;
       }
 
-      // Connections — denser web, brighter base so the M reads as a neural cluster
-      const maxD = active ? 320 : 260;
+      // Connect ONLY to neighbors along the path — keeps the shape readable
+      // and prevents the "tangled web" look at any aspect ratio.
+      const S = Math.min(W, H);
+      const maxD = S * 0.07;
       for (let i = 0; i < N; i++) {
-        for (let j = i + 1; j < N; j++) {
+        for (let j = i + 1; j < Math.min(N, i + 9); j++) {
           const dx   = nodes[i].x - nodes[j].x;
           const dy   = nodes[i].y - nodes[j].y;
           const dist = Math.sqrt(dx * dx + dy * dy);
           if (dist >= maxD) continue;
 
-          const base = (1 - dist / maxD) * (active ? 0.85 : 0.60);
+          const base = (1 - dist / maxD) * (active ? 0.95 : 0.75);
           const diI  = (nodes[i].pathIdx - wavePos) * 6.5;
           const diJ  = (nodes[j].pathIdx - wavePos) * 6.5;
           const wI   = Math.exp(-(diI * diI));
@@ -197,7 +203,7 @@ function useMCanvas(ref: React.RefObject<HTMLCanvasElement>, phase: Phase) {
 
           ctx.beginPath();
           ctx.strokeStyle = `rgba(250,189,47,${a.toFixed(3)})`;
-          ctx.lineWidth   = active ? 3.5 : 2.6;
+          ctx.lineWidth   = Math.max(2, S * 0.006);
           ctx.moveTo(nodes[i].x, nodes[i].y);
           ctx.lineTo(nodes[j].x, nodes[j].y);
           ctx.stroke();
@@ -210,10 +216,10 @@ function useMCanvas(ref: React.RefObject<HTMLCanvasElement>, phase: Phase) {
         const wave   = Math.exp(-(dn * dn));
         const pulse  = 0.95 + 0.32 * Math.sin(n.osc + t);
         const alpha  = Math.min(1, pulse + (active ? 0.55 : 0.22) + wave * 2.6);
-        const radius = n.r * (1 + wave * 1.45);
+        const radius = n.r * (1 + wave * 1.2);
 
         if (wave > 0.10 && active) {
-          const gr   = radius * 12.0;
+          const gr   = radius * 9.0;
           const grad = ctx.createRadialGradient(n.x, n.y, 0, n.x, n.y, gr);
           grad.addColorStop(0,    `rgba(250,189,47,${(wave * 0.85).toFixed(3)})`);
           grad.addColorStop(0.45, `rgba(250,189,47,${(wave * 0.22).toFixed(3)})`);
@@ -229,6 +235,7 @@ function useMCanvas(ref: React.RefObject<HTMLCanvasElement>, phase: Phase) {
         ctx.fillStyle = `rgba(250,189,47,${alpha.toFixed(3)})`;
         ctx.fill();
       }
+
 
       raf = requestAnimationFrame(frame);
     };
