@@ -5,7 +5,8 @@
 import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import { BarChart2, Loader2, RefreshCw, CheckSquare, CheckCircle2, Circle, Eye, Cpu } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase as _supabase } from "@/integrations/supabase/client";
+const supabase = _supabase as any;
 import { useAuth } from "@/contexts/AuthContext";
 import { PageHeader, HudCard, ProgressBar } from "@/components/SharedUI";
 import { toast } from "sonner";

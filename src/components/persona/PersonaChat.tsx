@@ -533,15 +533,7 @@ export function PersonaChat({ persona, userId, onBack }: PersonaChatProps) {
               entityId: persona.id,
               entityType: "persona",
             }}
-            initialHistory={messages.slice(-40)}
-            onExchange={async (userMsg, aiMsg) => {
-              try {
-                await supabase.from("persona_conversations").insert([
-                  { user_id: userId, persona_id: persona.id, role: "user",      content: userMsg },
-                  { user_id: userId, persona_id: persona.id, role: "assistant", content: aiMsg  },
-                ]);
-              } catch (err) { console.error("[PersonaChat] voice exchange persist failed:", err); }
-            }}
+            
             onClose={() => setVoiceOpen(false)}
           />
         )}

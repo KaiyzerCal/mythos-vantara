@@ -71,7 +71,7 @@ export async function runCrew(
   if (processType === "parallel") {
     const promises = agents.map(async (agent) => {
       try {
-        const result = await dispatchAgent(agent.task, agent.specialization, userId, { maxSubTasks: 2 });
+        const result = await dispatchAgent(agent.task, agent.specialization, userId);
         return { specialization: agent.specialization, task: agent.task, output: result.output, success: result.success };
       } catch (e: any) {
         return { specialization: agent.specialization, task: agent.task, output: `Failed: ${e?.message}`, success: false };
@@ -86,7 +86,7 @@ export async function runCrew(
         ? `${agent.task}\n\nPrevious agent context:\n${previousOutput.slice(0, 800)}`
         : agent.task;
       try {
-        const result = await dispatchAgent(taskWithContext, agent.specialization, userId, { maxSubTasks: 2 });
+        const result = await dispatchAgent(taskWithContext, agent.specialization, userId);
         previousOutput = result.output;
         agentResults.push({ specialization: agent.specialization, task: agent.task, output: result.output, success: result.success });
       } catch (e: any) {
@@ -98,7 +98,7 @@ export async function runCrew(
     // Phase 1: Run all agents in parallel
     const phase1 = await Promise.allSettled(
       agents.map(async (agent) => {
-        const result = await dispatchAgent(agent.task, agent.specialization, userId, { maxSubTasks: 2 });
+        const result = await dispatchAgent(agent.task, agent.specialization, userId);
         return { specialization: agent.specialization, task: agent.task, output: result.output, success: result.success };
       })
     );
@@ -119,7 +119,7 @@ export async function runCrew(
       if (!coordSignal.includes("COMPLETE") && coordSignal.length > 10) {
         // Run a gap-filler analyst agent
         try {
-          const gapResult = await dispatchAgent(`Fill this gap: ${coordSignal}\nContext: ${goal}`, "analyst", userId, { maxSubTasks: 1 });
+          const gapResult = await dispatchAgent(`Fill this gap: ${coordSignal}\nContext: ${goal}`, "analyst", userId);
           agentResults.push({ specialization: "analyst", task: `Gap analysis: ${coordSignal.slice(0, 60)}`, output: gapResult.output, success: gapResult.success });
         } catch { /* non-fatal */ }
       }

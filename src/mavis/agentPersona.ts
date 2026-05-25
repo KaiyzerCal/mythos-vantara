@@ -16,9 +16,10 @@ export function scopeContext(
 ): Partial<AppContextSnapshot> {
   const allowed = DATA_ACCESS_SCOPES[tier];
   const scoped: Partial<AppContextSnapshot> = {};
+  const ctxRec = ctx as unknown as Record<string, unknown>;
   for (const key of allowed) {
-    if (key in ctx) {
-      (scoped as Record<string, unknown>)[key] = (ctx as Record<string, unknown>)[key];
+    if (key in ctxRec) {
+      (scoped as Record<string, unknown>)[key] = ctxRec[key];
     }
   }
   return scoped;
@@ -39,7 +40,7 @@ function summariseScoped(ctx: Partial<AppContextSnapshot>): string {
   add("RANKINGS",        ctx.rankings as unknown[],       (r) => `${r.display_name} [${r.rank}]`);
   add("TRANSFORMATIONS", ctx.transformations as unknown[], (t) => t.name);
   add("ALLIES",          ctx.allies as unknown[],         (a) => a.name);
-  add("RITUALS",         ctx.rituals as unknown[],        (r) => r.name);
+  add("RITUALS",         (ctx as any).rituals as unknown[], (r) => r.name);
   return lines.join("\n");
 }
 
