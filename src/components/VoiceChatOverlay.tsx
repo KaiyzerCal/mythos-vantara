@@ -191,7 +191,6 @@ export function VoiceChatOverlay({
     recognition.interimResults = true;
     recognition.lang = "en-US";
 
-    const resultChunks = new Map<number, { text: string; isFinal: boolean }>();
     let lastCapturedText = "";
     let silenceTimer: ReturnType<typeof setTimeout> | null = null;
     const SILENCE_MS = 1800;
@@ -199,43 +198,98 @@ export function VoiceChatOverlay({
     const normalizeTranscript = (value: string) =>
       value.replace(/\s+/g, " ").trim();
 
-    const stripOverlap = (confirmedText: string, liveText: string) => {
-      const confirmedWords = normalizeTranscript(confirmedText).split(" ").filter(Boolean);
-      const liveWords = normalizeTranscript(liveText).split(" ").filter(Boolean);
+    const mergeTranscriptSegments = (segments: string[]) => {
+      const cleaned = segments.map(normalizeTranscript).filter(Boolean);
+      if (cleaned.length === 0) return "";
 
-      if (!confirmedWords.length || !liveWords.length) return normalizeTranscript(liveText);
+      const mergedWords: string[] = [];
 
-      const maxOverlap = Math.min(confirmedWords.length, liveWords.length);
-      for (let overlap = maxOverlap; overlap > 0; overlap--) {
-        const confirmedTail = confirmedWords.slice(-overlap).join(" ").toLowerCase();
-        const liveHead = liveWords.slice(0, overlap).join(" ").toLowerCase();
-        if (confirmedTail === liveHead) {
-          return liveWords.slice(overlap).join(" ");
+      for (const segment of cleaned) {
+        const nextWords = segment.split(" ").filter(Boolean);
+        if (nextWords.length === 0) continue;
+
+        if (mergedWords.length === 0) {
+          mergedWords.push(...nextWords);
+          continue;
         }
+
+        const mergedText = mergedWords.join(" ").toLowerCase();
+        const nextText = nextWords.join(" ").toLowerCase();
+
+        if (nextText === mergedText || mergedText.endsWith(nextText)) {
+          continue;
+        }
+
+        if (nextText.startsWith(mergedText)) {
+          mergedWords.splice(0, mergedWords.length, ...nextWords);
+          continue;
+        }
+
+        let overlap = 0;
+        const maxOverlap = Math.min(mergedWords.length, nextWords.length);
+        for (let size = maxOverlap; size > 0; size--) {
+          const mergedTail = mergedWords.slice(-size).join(" ").toLowerCase();
+          const nextHead = nextWords.slice(0, size).join(" ").toLowerCase();
+          if (mergedTail === nextHead) {
+            overlap = size;
+            break;
+          }
+        }
+
+        if (overlap > 0) {
+          mergedWords.push(...nextWords.slice(overlap));
+          continue;
+        }
+
+        mergedWords.push(...nextWords);
       }
 
-      return normalizeTranscript(liveText);
+      return mergedWords.join(" ");
     };
 
-    const syncTranscriptState = () => {
-      const ordered = Array.from(resultChunks.entries()).sort(([a], [b]) => a - b);
-      const confirmed = normalizeTranscript(
-        ordered
-          .filter(([, chunk]) => chunk.isFinal)
-          .map(([, chunk]) => chunk.text)
-          .join(" "),
-      );
-      const live = normalizeTranscript(
-        ordered
-          .filter(([, chunk]) => !chunk.isFinal)
-          .map(([, chunk]) => chunk.text)
-          .join(" "),
-      );
-      const liveWithoutOverlap = stripOverlap(confirmed, live);
+    const syncTranscriptState = (results: SpeechRecognitionResultList | any[]) => {
+      const finalSegments: string[] = [];
+      const interimSegments: string[] = [];
 
-      lastCapturedText = normalizeTranscript([confirmed, liveWithoutOverlap].filter(Boolean).join(" "));
-      setTranscript(confirmed);
-      setInterimTranscript(liveWithoutOverlap);
+      for (let i = 0; i < results.length; i++) {
+        const result = results[i];
+        const text = normalizeTranscript(result?.[0]?.transcript ?? "");
+        if (!text) continue;
+
+        if (result.isFinal) finalSegments.push(text);
+        else interimSegments.push(text);
+      }
+
+      const confirmed = mergeTranscriptSegments(finalSegments);
+      const live = mergeTranscriptSegments(interimSegments);
+      const fullCapture = mergeTranscriptSegments([confirmed, live].filter(Boolean));
+
+      lastCapturedText = fullCapture;
+
+      if (!confirmed) {
+        setTranscript("");
+        setInterimTranscript(fullCapture);
+        return;
+      }
+
+      if (!fullCapture || fullCapture.toLowerCase() === confirmed.toLowerCase()) {
+        setTranscript(confirmed);
+        setInterimTranscript("");
+        return;
+      }
+
+      const confirmedLower = confirmed.toLowerCase();
+      const fullLower = fullCapture.toLowerCase();
+
+      if (fullLower.startsWith(confirmedLower)) {
+        const delta = normalizeTranscript(fullCapture.slice(confirmed.length));
+        setTranscript(confirmed);
+        setInterimTranscript(delta);
+        return;
+      }
+
+      setTranscript("");
+      setInterimTranscript(fullCapture);
     };
 
     function resetSilenceTimer() {
@@ -246,21 +300,7 @@ export function VoiceChatOverlay({
     }
 
     recognition.onresult = (event: any) => {
-      for (let i = 0; i < event.results.length; i++) {
-        const result = event.results[i];
-        const text = normalizeTranscript(result[0]?.transcript ?? "");
-
-        if (!text) {
-          resultChunks.delete(i);
-          continue;
-        }
-
-        resultChunks.set(i, {
-          text,
-          isFinal: Boolean(result.isFinal),
-        });
-      }
-      syncTranscriptState();
+      syncTranscriptState(event.results);
       resetSilenceTimer();
     };
 
