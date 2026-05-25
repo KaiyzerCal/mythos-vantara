@@ -134,6 +134,14 @@ export function VoiceChatOverlay({
     prevLoadingRef.current = effectiveLoading;
   }, [effectiveLoading, phase, externalAudio, speakReply]);
 
+  // Stable refs for dispatch fns so startListening doesn't change identity on
+  // every parent render — that was cancelling the 1s auto-restart timer and
+  // preventing subsequent voice turns from starting.
+  const sendMessageRef = useRef(sendMessage);
+  useEffect(() => { sendMessageRef.current = sendMessage; }, [sendMessage]);
+  const personaRef = useRef(persona);
+  useEffect(() => { personaRef.current = persona; }, [persona]);
+
   // ── Voice input ─────────────────────────────────────────────
   const stopListening = useCallback(() => {
     if (recognitionRef.current) {
