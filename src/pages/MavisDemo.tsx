@@ -510,6 +510,15 @@ export default function MavisDemo() {
             />
 
             <button
+              onClick={() => setVoiceOpen(true)}
+              disabled={phase !== "idle"}
+              title="Voice chat"
+              className="shrink-0 w-8 h-8 rounded-sm flex items-center justify-center border border-amber-400/25 text-amber-400/60 hover:text-amber-400 hover:border-amber-400/55 hover:bg-amber-400/8 disabled:opacity-25 disabled:cursor-not-allowed transition-all duration-200"
+            >
+              <Mic size={14} />
+            </button>
+
+            <button
               onClick={() => submit()}
               disabled={!query.trim() || phase !== "idle"}
               className="shrink-0 w-8 h-8 rounded-sm flex items-center justify-center border border-amber-400/25 text-amber-400/60 hover:text-amber-400 hover:border-amber-400/55 hover:bg-amber-400/8 disabled:opacity-25 disabled:cursor-not-allowed transition-all duration-200"
