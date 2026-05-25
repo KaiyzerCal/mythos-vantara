@@ -3,6 +3,20 @@ import { motion, AnimatePresence } from "framer-motion";
 import { X, Mic } from "lucide-react";
 import { streamChatMessage } from "@/mavis/chatService";
 
+// Chrome continuous-mode often re-emits already-finalized words at the start
+// of the next interim result, causing visible duplication. Strip the overlap.
+function stripFinalOverlap(finalized: string, interim: string): string {
+  if (!interim || !finalized) return interim;
+  const fw = finalized.toLowerCase().split(/\s+/);
+  const iw = interim.toLowerCase().split(/\s+/);
+  for (let n = Math.min(fw.length, iw.length); n > 0; n--) {
+    if (fw.slice(-n).join(" ") === iw.slice(0, n).join(" ")) {
+      return interim.split(/\s+/).slice(n).join(" ");
+    }
+  }
+  return interim;
+}
+
 export interface VoicePersona {
   name: string;
   role?: string;
@@ -177,6 +191,8 @@ export function VoiceChatOverlay({
     recognition.lang = "en-US";
 
     let finalText = "";
+    // Guard against Chrome re-firing the same final result at the same index
+    const finalizedIndices = new Set<number>();
     let silenceTimer: ReturnType<typeof setTimeout> | null = null;
     const SILENCE_MS = 1800;
 
@@ -190,15 +206,21 @@ export function VoiceChatOverlay({
     recognition.onresult = (event: any) => {
       let interim = "";
       for (let i = event.resultIndex; i < event.results.length; i++) {
-        const t = event.results[i][0].transcript;
-        if (event.results[i].isFinal) {
-          finalText += t + " ";
-          setTranscript(finalText.trim());
+        const result = event.results[i];
+        const t: string = result[0].transcript;
+        if (result.isFinal) {
+          if (!finalizedIndices.has(i)) {
+            finalizedIndices.add(i);
+            finalText += t + " ";
+            setTranscript(finalText.trim());
+          }
         } else {
           interim = t;
         }
       }
-      setInterimTranscript(interim);
+      // Strip words the interim shares with already-finalized text so the
+      // display never shows "word word word word" repetition
+      setInterimTranscript(stripFinalOverlap(finalText.trim(), interim.trim()));
       resetSilenceTimer();
     };
 
