@@ -105,7 +105,7 @@ export function ReadwisePage() {
       <PageHeader
         title="Highlights"
         subtitle="Book highlights & reading notes"
-        icon={BookMarked}
+        icon={<BookMarked />}
         actions={
           <button
             onClick={() => setShowImport(!showImport)}
