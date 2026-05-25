@@ -551,7 +551,7 @@ export default function MavisChat() {
       // Use fresh Supabase context if available, else fall back to useAppData() data
       let systemPrompt = await (fullCtx
         ? buildSystemPromptFromSnapshot(chatMode, fullCtx, archivedMemories, vaultMedia)
-        : buildSystemPromptFromSnapshot(chatMode, {
+        : buildSystemPromptFromSnapshot(chatMode, ({
             profile: profile as any,
             quests: quests as any[], tasks: tasks as any[], skills: skills as any[],
             rankings: [], transformations: transformations as any[],
@@ -560,7 +560,7 @@ export default function MavisChat() {
             storeItems: storeItems as any[], energySystems: energySystems as any[],
             bpmSessions: bpmSessions as any[], allies: allies as any[],
             rituals: rituals as any[], pendingApprovals: [], loadedAt: new Date().toISOString(),
-          }, archivedMemories, vaultMedia));
+          } as any), archivedMemories, vaultMedia));
       if (recallCtxRaw) systemPrompt += `\n\n${recallCtxRaw}`;
       if (selectedPersonaPrompt) systemPrompt += `\n\n--- ACTIVE PERSONA ---\n${selectedPersonaPrompt}\n---`;
       const attachmentIds = attachments.map((a) => a.id);
