@@ -382,13 +382,9 @@ export function VoiceChatOverlay({
               You
             </p>
             <p className="text-center text-sm font-mono leading-relaxed break-words">
-              {interimTranscript ? (
-                // Active: show Chrome's live recognition as-is (dim = unconfirmed)
-                <span className="text-white/70">{interimTranscript}</span>
-              ) : (
-                // Between phrases: show all confirmed text (bright = locked in)
-                <span className="text-white/90">{transcript}</span>
-              )}
+              {transcript && <span className="text-white/90">{transcript}</span>}
+              {transcript && interimTranscript && " "}
+              {interimTranscript && <span className="text-white/50 italic">{interimTranscript}</span>}
             </p>
           </motion.div>
         )}
