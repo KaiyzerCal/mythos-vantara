@@ -605,6 +605,108 @@ export default function MavisDemo() {
   const dateStr     = now.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
   const timeStr     = now.toLocaleTimeString("en-US", { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" });
 
+  // ── Fast scroll helpers ─────────────────────────────────
+  const scrollToTop = useCallback(() => {
+    messagesRef.current?.scrollTo({ top: 0, behavior: "smooth" });
+  }, []);
+  const scrollToBottom = useCallback(() => {
+    const el = messagesRef.current;
+    if (el) el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+  }, []);
+
+  // ── OmniSync: archive full app state + condensed thread ─
+  const handleOmniSync = useCallback(async () => {
+    if (isSyncing) return;
+    setIsSyncing(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.user) throw new Error("Not authenticated");
+
+      const condensedComms = (chatMessages as any[])
+        .filter((m: any) => m.id !== "init")
+        .map((m: any) => `[${m.role === "user" ? "OP" : "MAVIS"}${m.mode ? `/${m.mode}` : ""}] ${String(m.content).slice(0, 200)}${String(m.content).length > 200 ? "…" : ""}`)
+        .join("\n");
+
+      const snapshotData = {
+        profile: { ...(profile || {}) },
+        quests:        (quests   || []).map((q: any) => ({ id: q.id, title: q.title, status: q.status, type: q.type, xp_reward: q.xp_reward })),
+        skills:        (skills   || []).map((s: any) => ({ id: s.id, name: s.name, category: s.category, tier: s.tier, proficiency: s.proficiency })),
+        energySystems: (energySystems || []).map((e: any) => ({ id: e.id, type: e.type, current_value: e.current_value, max: e.max_value })),
+        councils:      (councils || []).map((c: any) => ({ id: c.id, name: c.name, role: c.role, class: c.class })),
+        allies:        (allies   || []).map((a: any) => ({ id: a.id, name: a.name, relationship: a.relationship, affinity: a.affinity })),
+        inventory:     (inventory|| []).map((i: any) => ({ id: i.id, name: i.name, type: i.type, rarity: i.rarity, quantity: i.quantity })),
+        rituals:       (rituals  || []).map((r: any) => ({ id: r.id, name: r.name, streak: r.streak, completed: r.completed })),
+        journalCount:  (journalEntries || []).length,
+        vaultCount:    (vaultEntries   || []).length,
+        storeItemCount:(storeItems     || []).length,
+        bpmSessionCount:(bpmSessions   || []).length,
+        timestamp: new Date().toISOString(),
+      };
+
+      const summary = `OmniSync @ Lv${profile?.level ?? "-"} [${profile?.rank ?? "-"}] | ${(quests||[]).filter((q:any)=>q.status==="active").length} active quests | ${(skills||[]).length} skills | ${(chatMessages||[]).length} msgs`;
+
+      const { error } = await supabase.from("omnisync_snapshots").insert({
+        user_id: session.user.id,
+        snapshot_data: snapshotData as any,
+        condensed_comms: condensedComms.slice(0, 10000),
+        summary,
+      } as any);
+      if (error) throw error;
+      toast.success("OmniSync complete — snapshot saved");
+    } catch (err: any) {
+      console.error("OmniSync error:", err);
+      toast.error("OmniSync failed: " + (err?.message || "Unknown error"));
+    } finally {
+      setIsSyncing(false);
+    }
+  }, [isSyncing, chatMessages, profile, quests, skills, energySystems, councils, allies, inventory, rituals, journalEntries, vaultEntries, storeItems, bpmSessions]);
+
+  // ── Clear: archive thread to memory, then reset ─────────
+  const clearChat = useCallback(async () => {
+    await handleOmniSync();
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.user && (chatMessages || []).length > 0) {
+        const memoryContent = (chatMessages as any[])
+          .filter((m: any) => m.id !== "init")
+          .map((m: any) => `[${m.role === "user" ? "OPERATOR" : "MAVIS"}] ${m.content}`)
+          .join("\n\n");
+
+        const topicSummary = (chatMessages as any[])
+          .filter((m: any) => m.id !== "init")
+          .slice(-20)
+          .map((m: any) => `${m.role === "user" ? "OP" : "M"}: ${String(m.content).slice(0, 300)}`)
+          .join("\n");
+
+        await supabase.from("memories").insert({
+          user_id: session.user.id,
+          title: `MavisUI Thread — ${new Date().toLocaleDateString()} ${new Date().toLocaleTimeString()}`,
+          content: memoryContent.slice(0, 50000),
+          memory_type: "conversation",
+          source: "mavis_chat_clear",
+          tags: ["chat_thread", "archived", "mavisui", String(chatMode).toLowerCase()],
+          metadata: {
+            message_count: (chatMessages || []).length,
+            modes_used: [...new Set((chatMessages as any[]).map((m: any) => m.mode).filter(Boolean))],
+            cleared_at: new Date().toISOString(),
+            topic_summary: topicSummary.slice(0, 5000),
+          } as any,
+        } as any);
+
+        if (conversationId) {
+          await supabase.from("chat_messages").delete().eq("conversation_id", conversationId).eq("user_id", session.user.id);
+          await supabase.from("chat_conversations").delete().eq("id", conversationId).eq("user_id", session.user.id);
+        }
+      }
+    } catch (err) {
+      console.error("Memory save on clear failed:", err);
+    }
+    setChatMessages([]);
+    setConversationId(null);
+    toast.success("Thread archived — memories preserved");
+  }, [handleOmniSync, chatMessages, chatMode, conversationId, setChatMessages, setConversationId]);
+
+
   return (
     <div
       className="relative h-full w-full overflow-hidden flex flex-col font-mono select-none"
