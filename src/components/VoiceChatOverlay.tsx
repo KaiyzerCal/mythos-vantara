@@ -374,7 +374,7 @@ export function VoiceChatOverlay({
 
   const phaseLabel: Record<Phase, string> = {
     idle: "TAP TO SPEAK",
-    listening: "LISTENING — pause ~5s to send",
+    listening: "LISTENING — pause ~10s to send",
     thinking: "THINKING...",
     speaking: "TAP ORB TO INTERRUPT",
   };
