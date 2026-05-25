@@ -392,9 +392,9 @@ export default function CouncilBoard() {
             {activeSummonedPersonas.length > 0 && ` · ${activeSummonedPersonas.length} persona${activeSummonedPersonas.length > 1 ? "s" : ""} summoned`}
             {" · MAVIS presiding"}
           </p>
-          {/* Per-member voice call chips */}
+          {/* Per-member 1-on-1 voice call buttons */}
           {councilMembers.length > 0 && (
-            <div className="flex flex-wrap gap-1 mt-1">
+            <div className="flex flex-wrap gap-1.5 mt-1.5">
               {councilMembers.map((m) => (
                 <button
                   key={m.id}
@@ -406,10 +406,12 @@ export default function CouncilBoard() {
                     entityType: "council",
                     userId: userId ?? undefined,
                   })}
-                  className="flex items-center gap-1 text-[9px] font-mono text-primary/60 hover:text-primary border border-primary/20 hover:border-primary/40 rounded px-1.5 py-0.5 transition-all"
-                  title={`Voice call ${m.name}`}
+                  className="flex items-center gap-1.5 text-[10px] font-mono font-medium text-emerald-400/80 hover:text-emerald-300 bg-emerald-950/30 hover:bg-emerald-950/50 border border-emerald-800/40 hover:border-emerald-500/50 rounded-md px-2.5 py-1 transition-all shadow-sm"
+                  title={`1-on-1 voice call with ${m.name}`}
                 >
-                  <PhoneCall size={8} /> {m.name}</button>
+                  <PhoneCall size={10} className="shrink-0" />
+                  <span>{m.name}</span>
+                </button>
               ))}
             </div>
           )}
