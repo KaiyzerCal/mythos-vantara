@@ -131,7 +131,7 @@ function AutomationRulesSection() {
 
   useEffect(() => {
     if (!user) return;
-    supabase
+    (supabase as any)
       .from("mavis_automation_rules")
       .select("id, name, trigger_event, action_type, enabled, trigger_count")
       .then(({ data }) => {
