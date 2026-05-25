@@ -437,10 +437,19 @@ export function VoiceChatOverlay({
   const handleClose = useCallback(() => {
     closingRef.current = true;
     if (autoRestartTimerRef.current) clearTimeout(autoRestartTimerRef.current);
+    if (karaokeTickRef.current) clearTimeout(karaokeTickRef.current);
+    if (resumeKeepAliveRef.current) clearInterval(resumeKeepAliveRef.current);
     stopListening();
     if (window.speechSynthesis) window.speechSynthesis.cancel();
     onClose();
   }, [onClose, stopListening]);
+
+  // Warm up voices list on mount (Chrome lazy-loads them)
+  useEffect(() => {
+    if (window.speechSynthesis && !window.speechSynthesis.getVoices().length) {
+      window.speechSynthesis.getVoices();
+    }
+  }, []);
 
   const handleOrbOrMicTap = useCallback(() => {
     if (phase === "idle") startListening();
