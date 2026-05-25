@@ -50,6 +50,8 @@ export function VoiceChatOverlay({
 
   const recognitionRef = useRef<any>(null);
   const autoRestartTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const karaokeTickRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const resumeKeepAliveRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const utteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
   const closingRef = useRef(false);
   const replyScrollRef = useRef<HTMLDivElement>(null);
