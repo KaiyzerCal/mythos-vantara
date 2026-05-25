@@ -64,41 +64,105 @@ export function VoiceChatOverlay({
   const effectiveReplyRef = useRef(effectiveReply);
   useEffect(() => { effectiveReplyRef.current = effectiveReply; }, [effectiveReply]);
 
+  // Pick an English voice once available (some browsers return [] until loaded)
+  const pickVoice = useCallback((): SpeechSynthesisVoice | null => {
+    if (!window.speechSynthesis) return null;
+    const voices = window.speechSynthesis.getVoices();
+    if (!voices.length) return null;
+    return (
+      voices.find(v => v.lang?.startsWith("en") && v.default) ||
+      voices.find(v => v.lang?.startsWith("en")) ||
+      voices[0]
+    );
+  }, []);
+
   // ── Speech synthesis with karaoke ──────────────────────────
   const speakReply = useCallback((text: string) => {
     if (!text || closingRef.current) return;
-    if (window.speechSynthesis) window.speechSynthesis.cancel();
+    const synth = window.speechSynthesis;
+    if (!synth) return;
+
+    // Chrome bug: if synth is in a "paused" or stalled state, speak() fires no
+    // sound. Resume, then cancel any queued utterance, then defer the new one
+    // by a tick so Chrome actually plays it.
+    try { synth.resume(); } catch { /* ignore */ }
+    synth.cancel();
 
     setDisplayedReply(text);
     setSpokenUpTo(0);
     setPhase("speaking");
 
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.rate = 0.95;
-    utterance.pitch = 1;
+    const doSpeak = () => {
+      if (closingRef.current) return;
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.rate = 0.95;
+      utterance.pitch = 1;
+      utterance.volume = 1;
+      const voice = pickVoice();
+      if (voice) utterance.voice = voice;
 
-    utterance.onboundary = (ev: SpeechSynthesisEvent) => {
-      if (ev.name === "word") {
-        setSpokenUpTo(ev.charIndex + (ev.charLength ?? 0));
-        // Keep spoken word in view
-        spokenWordRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
-      }
+      utterance.onboundary = (ev: SpeechSynthesisEvent) => {
+        if (ev.name === "word") {
+          setSpokenUpTo(ev.charIndex + (ev.charLength ?? 0));
+          spokenWordRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+        }
+      };
+
+      utterance.onend = () => {
+        setSpokenUpTo(text.length);
+        utteranceRef.current = null;
+        if (resumeKeepAliveRef.current) {
+          clearInterval(resumeKeepAliveRef.current);
+          resumeKeepAliveRef.current = null;
+        }
+        if (!closingRef.current) setPhase("idle");
+      };
+
+      utterance.onerror = () => {
+        utteranceRef.current = null;
+        if (resumeKeepAliveRef.current) {
+          clearInterval(resumeKeepAliveRef.current);
+          resumeKeepAliveRef.current = null;
+        }
+        if (!closingRef.current) setPhase("idle");
+      };
+
+      utteranceRef.current = utterance;
+      try { synth.resume(); } catch { /* ignore */ }
+      synth.speak(utterance);
+
+      // Chrome stops speech after ~15s. Periodically pause/resume to keep alive.
+      if (resumeKeepAliveRef.current) clearInterval(resumeKeepAliveRef.current);
+      resumeKeepAliveRef.current = setInterval(() => {
+        if (!synth.speaking) {
+          if (resumeKeepAliveRef.current) {
+            clearInterval(resumeKeepAliveRef.current);
+            resumeKeepAliveRef.current = null;
+          }
+          return;
+        }
+        try { synth.pause(); synth.resume(); } catch { /* ignore */ }
+      }, 10000);
     };
 
-    utterance.onend = () => {
-      setSpokenUpTo(text.length);
-      utteranceRef.current = null;
-      if (!closingRef.current) setPhase("idle");
-    };
-
-    utterance.onerror = () => {
-      utteranceRef.current = null;
-      if (!closingRef.current) setPhase("idle");
-    };
-
-    utteranceRef.current = utterance;
-    window.speechSynthesis.speak(utterance);
-  }, []);
+    // If voices aren't loaded yet, wait for them once
+    if (!synth.getVoices().length) {
+      const onVoices = () => {
+        synth.removeEventListener("voiceschanged", onVoices);
+        // small delay lets Chrome settle after cancel()
+        setTimeout(doSpeak, 60);
+      };
+      synth.addEventListener("voiceschanged", onVoices);
+      // Fallback in case voiceschanged never fires
+      setTimeout(() => {
+        synth.removeEventListener("voiceschanged", onVoices);
+        doSpeak();
+      }, 400);
+    } else {
+      // Tiny defer avoids the "cancel()-then-speak() silently dropped" bug
+      setTimeout(doSpeak, 60);
+    }
+  }, [pickVoice]);
 
   // ── Transition: thinking → speaking when loading finishes ──
   useEffect(() => {
