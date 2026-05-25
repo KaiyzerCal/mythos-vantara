@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Send, Loader2, ChevronDown, ChevronUp, RotateCcw } from "lucide-react";
+import { Send, Loader2, ChevronDown, ChevronUp, RotateCcw, Mic } from "lucide-react";
+import { VoiceChatOverlay } from "@/components/VoiceChatOverlay";
 
 // ── Types ─────────────────────────────────────────────────────
 type Phase = "idle" | "thinking" | "streaming";
@@ -235,6 +236,8 @@ export default function MavisDemo() {
   const [query, setQuery] = useState("");
   const [history, setHistory] = useState<Brief[]>(loadHistory);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [voiceOpen, setVoiceOpen] = useState(false);
+
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const responseRef = useRef<HTMLDivElement>(null);
@@ -254,9 +257,10 @@ export default function MavisDemo() {
     }
   }, [response]);
 
-  const submit = useCallback(async () => {
-    const q = query.trim();
+  const submit = useCallback(async (textArg?: string) => {
+    const q = (textArg ?? query).trim();
     if (!q || phase !== "idle") return;
+
 
     setQuery("");
     setPhase("thinking");
@@ -506,7 +510,16 @@ export default function MavisDemo() {
             />
 
             <button
-              onClick={submit}
+              onClick={() => setVoiceOpen(true)}
+              disabled={phase !== "idle"}
+              title="Voice chat"
+              className="shrink-0 w-8 h-8 rounded-sm flex items-center justify-center border border-amber-400/25 text-amber-400/60 hover:text-amber-400 hover:border-amber-400/55 hover:bg-amber-400/8 disabled:opacity-25 disabled:cursor-not-allowed transition-all duration-200"
+            >
+              <Mic size={14} />
+            </button>
+
+            <button
+              onClick={() => submit()}
               disabled={!query.trim() || phase !== "idle"}
               className="shrink-0 w-8 h-8 rounded-sm flex items-center justify-center border border-amber-400/25 text-amber-400/60 hover:text-amber-400 hover:border-amber-400/55 hover:bg-amber-400/8 disabled:opacity-25 disabled:cursor-not-allowed transition-all duration-200"
             >
@@ -604,6 +617,18 @@ export default function MavisDemo() {
           Powered by Vantara
         </span>
       </footer>
+
+      <AnimatePresence>
+        {voiceOpen && (
+          <VoiceChatOverlay
+            onClose={() => setVoiceOpen(false)}
+            sendMessage={async (text) => { await submit(text); }}
+            lastBotMessage={response}
+            isLoading={phase !== "idle"}
+            externalAudio={true}
+          />
+        )}
+      </AnimatePresence>
     </div>
   );
 }
