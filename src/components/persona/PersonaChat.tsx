@@ -532,6 +532,7 @@ export function PersonaChat({ persona, userId, onBack }: PersonaChatProps) {
               voiceId: (persona as unknown as Record<string, unknown>).voice_id as string | undefined,
               entityId: persona.id,
               entityType: "persona",
+              userId,
             }}
             
             onClose={() => setVoiceOpen(false)}

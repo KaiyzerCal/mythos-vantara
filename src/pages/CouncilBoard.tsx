@@ -9,7 +9,7 @@ import {
   type CouncilBoardMessage,
 } from "@/mavis/councilBoardService";
 import type { CouncilMember } from "@/mavis/councilPersona";
-import { buildCouncilMemberPrompt, buildCouncilMemberVoicePrompt } from "@/mavis/councilPersona";
+import { buildCouncilMemberPrompt, buildCouncilMemberVoicePrompt, buildPersonaVoiceSystemPrompt } from "@/mavis/councilPersona";
 import { VoiceChatOverlay } from "@/components/VoiceChatOverlay";
 import type { VoicePersona } from "@/components/VoiceChatOverlay";
 import type { UnifiedPersona } from "@/mavis/agentTypes";
@@ -477,7 +477,7 @@ export default function CouncilBoard() {
                         {p.name} ×
                       </button>
                       <button
-                        onClick={() => setVoiceTarget({ name: p.name, role: p.role, systemPrompt: (p as any).systemPrompt ?? (p as any).system_prompt ?? "" })}
+                        onClick={() => setVoiceTarget({ name: p.name, role: p.role, systemPrompt: buildPersonaVoiceSystemPrompt({ name: p.name, role: p.role, archetype: p.archetype, system_prompt: p.systemPrompt }), entityId: p.id, entityType: "persona", userId: userId ?? undefined })}
                         className="flex items-center px-1.5 py-1 text-amber-400 border border-amber-500/40 bg-amber-800/30 hover:bg-amber-700/40 hover:text-amber-200 rounded-r border-l-0 transition-all"
                         title={`Voice call ${p.name}`}
                       >

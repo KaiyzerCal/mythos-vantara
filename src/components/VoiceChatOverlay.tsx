@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { X, Mic } from "lucide-react";
 import { streamChatMessage } from "@/mavis/chatService";
+import { supabase } from "@/integrations/supabase/client";
 
 // Chrome continuous-mode often re-emits already-finalized words at the start
 // of the next interim result, causing visible duplication. Strip the overlap.
@@ -24,6 +25,7 @@ export interface VoicePersona {
   voiceId?: string;
   entityId?: string;
   entityType?: string;
+  userId?: string;
 }
 
 interface VoiceChatOverlayProps {
@@ -158,19 +160,32 @@ export function VoiceChatOverlay({
     if (!persona) return;
     setPersonaLoading(true);
     setPersonaReply("");
-    let accumulated = "";
+    let reply = "";
     try {
-      await streamChatMessage(
-        text,
-        persona.systemPrompt,
-        personaHistoryRef.current,
-        { mode: "CHAT" },
-        (_, acc) => { accumulated = acc; setPersonaReply(acc); },
-      );
+      if (persona.entityType === "persona" && persona.entityId && persona.userId) {
+        // Route through the dedicated persona router — it preserves memories,
+        // relationship state, and character framing. Never returns MAVIS.
+        const { data, error } = await supabase.functions.invoke("mavis-persona-router", {
+          body: { persona_id: persona.entityId, user_id: persona.userId, message: text },
+        });
+        if (error) throw error;
+        reply = (data as any)?.response ?? "";
+        setPersonaReply(reply);
+      } else {
+        // Council member / custom persona — pass mode:"COUNCIL" so mavis-chat
+        // uses the provided systemPrompt instead of the MAVIS Prime prompt.
+        await streamChatMessage(
+          text,
+          persona.systemPrompt,
+          personaHistoryRef.current,
+          { mode: "COUNCIL" },
+          (_, acc) => { reply = acc; setPersonaReply(acc); },
+        );
+      }
       personaHistoryRef.current = [
         ...personaHistoryRef.current,
         { role: "user", content: text },
-        { role: "assistant", content: accumulated },
+        { role: "assistant", content: reply },
       ];
     } catch {
       // phase falls back to idle via loading transition
@@ -224,7 +239,11 @@ export function VoiceChatOverlay({
       resetSilenceTimer();
     };
 
-    recognition.onerror = () => {
+    recognition.onerror = (event: any) => {
+      // no-speech: Chrome fires this silently after a pause — let the silence
+      // timer handle it rather than killing the session. aborted: we triggered
+      // it intentionally via recognition.abort(), no phase change needed.
+      if (event.error === "no-speech" || event.error === "aborted") return;
       if (silenceTimer) clearTimeout(silenceTimer);
       recognitionRef.current = null;
       if (!closingRef.current) setPhase("idle");
