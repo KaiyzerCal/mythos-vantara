@@ -190,8 +190,8 @@ function useMCanvas(ref: React.RefObject<HTMLCanvasElement>, phase: Phase) {
         n.osc += streaming ? 0.024 : 0.013;
       }
 
-      // Connections
-      const maxD = active ? 170 : 138;
+      // Connections — denser web, brighter base so the M reads as a neural cluster
+      const maxD = active ? 195 : 165;
       for (let i = 0; i < N; i++) {
         for (let j = i + 1; j < N; j++) {
           const dx   = nodes[i].x - nodes[j].x;
@@ -199,17 +199,17 @@ function useMCanvas(ref: React.RefObject<HTMLCanvasElement>, phase: Phase) {
           const dist = Math.sqrt(dx * dx + dy * dy);
           if (dist >= maxD) continue;
 
-          const base = (1 - dist / maxD) * (active ? 0.30 : 0.10);
+          const base = (1 - dist / maxD) * (active ? 0.48 : 0.26);
           const diI  = (nodes[i].pathIdx - wavePos) * 6.5;
           const diJ  = (nodes[j].pathIdx - wavePos) * 6.5;
           const wI   = Math.exp(-(diI * diI));
           const wJ   = Math.exp(-(diJ * diJ));
-          const wb   = active ? (wI + wJ) * 0.28 : 0;
-          const a    = Math.min(0.78, base + wb);
+          const wb   = active ? (wI + wJ) * 0.32 : 0;
+          const a    = Math.min(0.92, base + wb);
 
           ctx.beginPath();
           ctx.strokeStyle = `rgba(250,189,47,${a.toFixed(3)})`;
-          ctx.lineWidth   = active ? 0.75 : 0.5;
+          ctx.lineWidth   = active ? 1.25 : 0.95;
           ctx.moveTo(nodes[i].x, nodes[i].y);
           ctx.lineTo(nodes[j].x, nodes[j].y);
           ctx.stroke();
