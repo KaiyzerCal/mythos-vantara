@@ -131,7 +131,7 @@ function AutomationRulesSection() {
 
   useEffect(() => {
     if (!user) return;
-    supabase
+    (supabase as any)
       .from("mavis_automation_rules")
       .select("id, name, trigger_event, action_type, enabled, trigger_count")
       .then(({ data }) => {
@@ -156,7 +156,7 @@ function AutomationRulesSection() {
     setRules((prev) =>
       prev.map((r) => (r.id === rule.id ? { ...r, enabled: newEnabled } : r))
     );
-    await supabase
+    await (supabase as any)
       .from("mavis_automation_rules")
       .update({ enabled: newEnabled })
       .eq("id", rule.id);
