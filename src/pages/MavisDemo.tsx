@@ -62,9 +62,9 @@ function useMCanvas(ref: React.RefObject<HTMLCanvasElement>, phase: Phase) {
     let nodes: Node[] = [];
 
     // Nodes per segment: left-leg, inner-left-diagonal, inner-right-diagonal, right-leg
-    const PER_SEG = [26, 22, 22, 26];
+    const PER_SEG = [38, 32, 32, 38];
     // Extra "halo" nodes scattered around each segment for a brain/neural-cluster density
-    const HALO_PER_SEG = [18, 14, 14, 18];
+    const HALO_PER_SEG = [28, 22, 22, 28];
 
     const buildNodes = () => {
       nodes = [];
@@ -91,8 +91,8 @@ function useMCanvas(ref: React.RefObject<HTMLCanvasElement>, phase: Phase) {
       });
       const totalLen = segLens.reduce((s, l) => s + l, 0);
 
-      const jitterX = W * 0.012;
-      const jitterY = H * 0.010;
+      const jitterX = W * 0.009;
+      const jitterY = H * 0.008;
       const haloX   = W * 0.045;
       const haloY   = H * 0.045;
       let cumLen = 0;
@@ -115,7 +115,7 @@ function useMCanvas(ref: React.RefObject<HTMLCanvasElement>, phase: Phase) {
             y: hy + (Math.random() - 0.5) * 28,
             vx: (Math.random() - 0.5) * 0.4,
             vy: (Math.random() - 0.5) * 0.4,
-            r: 2.6 + Math.random() * 2.6,
+            r: 3.6 + Math.random() * 3.2,
             osc: Math.random() * Math.PI * 2,
             pathIdx: (cumLen + t * segLens[s]) / totalLen,
           });
@@ -134,7 +134,7 @@ function useMCanvas(ref: React.RefObject<HTMLCanvasElement>, phase: Phase) {
             y: hy + (Math.random() - 0.5) * 20,
             vx: (Math.random() - 0.5) * 0.3,
             vy: (Math.random() - 0.5) * 0.3,
-            r: 1.1 + Math.random() * 1.6,
+            r: 1.8 + Math.random() * 2.2,
             osc: Math.random() * Math.PI * 2,
             pathIdx: (cumLen + t * segLens[s]) / totalLen,
           });
