@@ -617,6 +617,18 @@ export default function MavisDemo() {
           Powered by Vantara
         </span>
       </footer>
+
+      <AnimatePresence>
+        {voiceOpen && (
+          <VoiceChatOverlay
+            onClose={() => setVoiceOpen(false)}
+            sendMessage={async (text) => { await submit(text); }}
+            lastBotMessage={response}
+            isLoading={phase !== "idle"}
+            externalAudio={true}
+          />
+        )}
+      </AnimatePresence>
     </div>
   );
 }
