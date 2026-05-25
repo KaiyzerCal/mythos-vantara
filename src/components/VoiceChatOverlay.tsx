@@ -187,9 +187,9 @@ export function VoiceChatOverlay({
             charPos += words[wordIdx].length + 1;
             setSpokenUpTo(Math.min(charPos, msg.length));
             wordIdx++;
-            autoRestartTimerRef.current = setTimeout(tick, 140);
+            karaokeTickRef.current = setTimeout(tick, 140);
           };
-          autoRestartTimerRef.current = setTimeout(tick, 140);
+          karaokeTickRef.current = setTimeout(tick, 140);
         } else {
           speakReply(msg);
         }
