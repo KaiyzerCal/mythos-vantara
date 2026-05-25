@@ -191,7 +191,7 @@ function useMCanvas(ref: React.RefObject<HTMLCanvasElement>, phase: Phase) {
       }
 
       // Connections — denser web, brighter base so the M reads as a neural cluster
-      const maxD = active ? 195 : 165;
+      const maxD = active ? 245 : 195;
       for (let i = 0; i < N; i++) {
         for (let j = i + 1; j < N; j++) {
           const dx   = nodes[i].x - nodes[j].x;
@@ -199,17 +199,17 @@ function useMCanvas(ref: React.RefObject<HTMLCanvasElement>, phase: Phase) {
           const dist = Math.sqrt(dx * dx + dy * dy);
           if (dist >= maxD) continue;
 
-          const base = (1 - dist / maxD) * (active ? 0.48 : 0.26);
+          const base = (1 - dist / maxD) * (active ? 0.65 : 0.40);
           const diI  = (nodes[i].pathIdx - wavePos) * 6.5;
           const diJ  = (nodes[j].pathIdx - wavePos) * 6.5;
           const wI   = Math.exp(-(diI * diI));
           const wJ   = Math.exp(-(diJ * diJ));
-          const wb   = active ? (wI + wJ) * 0.32 : 0;
-          const a    = Math.min(0.92, base + wb);
+          const wb   = active ? (wI + wJ) * 0.42 : 0;
+          const a    = Math.min(1.0, base + wb);
 
           ctx.beginPath();
           ctx.strokeStyle = `rgba(250,189,47,${a.toFixed(3)})`;
-          ctx.lineWidth   = active ? 1.25 : 0.95;
+          ctx.lineWidth   = active ? 2.1 : 1.5;
           ctx.moveTo(nodes[i].x, nodes[i].y);
           ctx.lineTo(nodes[j].x, nodes[j].y);
           ctx.stroke();
@@ -220,16 +220,16 @@ function useMCanvas(ref: React.RefObject<HTMLCanvasElement>, phase: Phase) {
       for (const n of nodes) {
         const dn     = (n.pathIdx - wavePos) * 6.5;
         const wave   = Math.exp(-(dn * dn));
-        const pulse  = 0.55 + 0.22 * Math.sin(n.osc + t);
-        const alpha  = Math.min(1, pulse + (active ? 0.28 : 0.12) + wave * 1.55);
-        const radius = n.r * (1 + wave * 0.9);
+        const pulse  = 0.85 + 0.28 * Math.sin(n.osc + t);
+        const alpha  = Math.min(1, pulse + (active ? 0.42 : 0.16) + wave * 1.85);
+        const radius = n.r * (1 + wave * 1.1);
 
         // Radial glow for wave-lit nodes
         if (wave > 0.12 && active) {
-          const gr = radius * 5.5;
+          const gr = radius * 8.0;
           const grad = ctx.createRadialGradient(n.x, n.y, 0, n.x, n.y, gr);
-          grad.addColorStop(0,   `rgba(250,189,47,${(wave * 0.55).toFixed(3)})`);
-          grad.addColorStop(0.45, `rgba(250,189,47,${(wave * 0.14).toFixed(3)})`);
+          grad.addColorStop(0,   `rgba(250,189,47,${(wave * 0.72).toFixed(3)})`);
+          grad.addColorStop(0.45, `rgba(250,189,47,${(wave * 0.18).toFixed(3)})`);
           grad.addColorStop(1,   "rgba(250,189,47,0)");
           ctx.beginPath();
           ctx.arc(n.x, n.y, gr, 0, Math.PI * 2);
