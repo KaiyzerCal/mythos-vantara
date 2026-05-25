@@ -21,6 +21,7 @@ const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const RESEND_KEY = Deno.env.get("RESEND_API_KEY") ?? "";
 const ANTHROPIC_KEY = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
+const LOVABLE_KEY = Deno.env.get("LOVABLE_API_KEY") ?? "";
 
 const adminSb = createClient(SUPABASE_URL, SERVICE_KEY);
 
@@ -43,61 +44,52 @@ async function resolveUserId(req: Request): Promise<string | null> {
   }
 }
 
-// ── Claude email generation ───────────────────────────────────────────────────
+// ── LLM cascade: Lovable Gemini → Claude Sonnet ──────────────────────────────
 
-async function generateEmailBody(prompt: string): Promise<string> {
+async function callAI(system: string, userMsg: string, maxTokens: number): Promise<string> {
+  // Tier 0 — Free Gemini
+  if (LOVABLE_KEY) {
+    try {
+      const res = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${LOVABLE_KEY}` },
+        body: JSON.stringify({ model: "google/gemini-2.5-flash", max_tokens: maxTokens, messages: [{ role: "system", content: system }, { role: "user", content: userMsg }] }),
+      });
+      if (res.ok) { const d = await res.json(); const t: string = d.choices?.[0]?.message?.content?.trim() ?? ""; if (t) return t; }
+    } catch { /* fall through */ }
+  }
+  // Tier 1 — Claude Sonnet (designated)
+  if (!ANTHROPIC_KEY) throw new Error("No LLM provider configured");
   const res = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
-    headers: {
-      "x-api-key": ANTHROPIC_KEY,
-      "anthropic-version": "2023-06-01",
-      "content-type": "application/json",
-    },
-    body: JSON.stringify({
-      model: "claude-sonnet-4-6",
-      max_tokens: 1024,
-      system:
-        "You are a professional email ghostwriter. Write clear, concise, professional emails. Output ONLY the email body text, no subject line.",
-      messages: [{ role: "user", content: prompt }],
-    }),
+    headers: { "x-api-key": ANTHROPIC_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json" },
+    body: JSON.stringify({ model: "claude-sonnet-4-6", max_tokens: maxTokens, system, messages: [{ role: "user", content: userMsg }] }),
   });
-
-  if (!res.ok) {
-    const err = await res.text();
-    throw new Error(`Anthropic API error (${res.status}): ${err}`);
-  }
-
+  if (!res.ok) { const err = await res.text(); throw new Error(`Anthropic API error (${res.status}): ${err}`); }
   const data = await res.json();
-  const text: string = data.content?.[0]?.text?.trim() ?? "";
-  if (!text) throw new Error("Empty response from Claude");
+  return data.content?.[0]?.text?.trim() ?? "";
+}
+
+async function generateEmailBody(prompt: string): Promise<string> {
+  const text = await callAI(
+    "You are a professional email ghostwriter. Write clear, concise, professional emails. Output ONLY the email body text, no subject line.",
+    prompt,
+    1024,
+  );
+  if (!text) throw new Error("Empty response from LLM");
   return text;
 }
 
 async function generateEmailSubject(bodyText: string): Promise<string> {
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "x-api-key": ANTHROPIC_KEY,
-      "anthropic-version": "2023-06-01",
-      "content-type": "application/json",
-    },
-    body: JSON.stringify({
-      model: "claude-sonnet-4-6",
-      max_tokens: 20,
-      system:
-        "You are an email subject line writer. Output ONLY the subject line — no punctuation at the end, no quotes, no explanation.",
-      messages: [
-        {
-          role: "user",
-          content: `Write a concise, compelling email subject line for this email body:\n\n${bodyText.slice(0, 500)}`,
-        },
-      ],
-    }),
-  });
-
-  if (!res.ok) return "Message from MAVIS";
-  const data = await res.json();
-  return data.content?.[0]?.text?.trim() ?? "Message from MAVIS";
+  try {
+    return await callAI(
+      "You are an email subject line writer. Output ONLY the subject line — no punctuation at the end, no quotes, no explanation.",
+      `Write a concise, compelling email subject line for this email body:\n\n${bodyText.slice(0, 500)}`,
+      20,
+    );
+  } catch {
+    return "Message from MAVIS";
+  }
 }
 
 // ── Main handler ──────────────────────────────────────────────────────────────

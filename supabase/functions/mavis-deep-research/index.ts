@@ -12,6 +12,7 @@ const corsHeaders = {
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const ANTHROPIC_KEY = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
+const LOVABLE_KEY   = Deno.env.get("LOVABLE_API_KEY") ?? "";
 const TAVILY_KEY    = Deno.env.get("Tavily_API") ?? "";
 
 const supabase = createClient(SUPABASE_URL, SERVICE_KEY);
@@ -52,32 +53,45 @@ async function getUserId(req: Request): Promise<string | null> {
   }
 }
 
-// ── Break query into search angles via Haiku ──────────────────
+// ── Shared LLM helper: Lovable Gemini → Anthropic cascade ─────
+async function callAI(system: string, userMsg: string, maxTokens = 512): Promise<string> {
+  const oaiBody = (model: string, key: string, url: string) =>
+    fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
+      body: JSON.stringify({ model, max_tokens: maxTokens, messages: [{ role: "system", content: system }, { role: "user", content: userMsg }] }),
+    });
+
+  // Tier 0 — Free Gemini
+  if (LOVABLE_KEY) {
+    try {
+      const res = await oaiBody("google/gemini-2.5-flash", LOVABLE_KEY, "https://ai.gateway.lovable.dev/v1/chat/completions");
+      if (res.ok) { const d = await res.json(); const t = d.choices?.[0]?.message?.content ?? ""; if (t) return t; }
+    } catch { /* fall through */ }
+  }
+  // Tier 1 — Anthropic Haiku (designated)
+  if (ANTHROPIC_KEY) {
+    const res = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-api-key": ANTHROPIC_KEY, "anthropic-version": "2023-06-01" },
+      body: JSON.stringify({ model: "claude-haiku-4-5-20251001", max_tokens: maxTokens, system, messages: [{ role: "user", content: userMsg }] }),
+    });
+    if (!res.ok) throw new Error(`Anthropic error: ${res.status}`);
+    const d = await res.json();
+    return d.content?.[0]?.text ?? "";
+  }
+  throw new Error("No LLM provider available");
+}
+
+// ── Break query into search angles ────────────────────────────
 async function planSearchAngles(query: string, depth: number): Promise<string[]> {
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-api-key": ANTHROPIC_KEY,
-      "anthropic-version": "2023-06-01",
-    },
-    body: JSON.stringify({
-      model: "claude-haiku-4-5-20251001",
-      max_tokens: 512,
-      system: "You are a research planner. Return ONLY a JSON array of search query strings.",
-      messages: [
-        {
-          role: "user",
-          content: `Break this research query into exactly ${depth} distinct search angles that together give comprehensive coverage. Query: "${query}"`,
-        },
-      ],
-    }),
-  });
-  if (!res.ok) throw new Error(`Anthropic planner error: ${res.status}`);
-  const data  = await res.json();
-  const text  = data.content?.[0]?.text ?? "[]";
+  const text = await callAI(
+    "You are a research planner. Return ONLY a JSON array of search query strings.",
+    `Break this research query into exactly ${depth} distinct search angles that together give comprehensive coverage. Query: "${query}"`,
+    512,
+  );
   const match = text.match(/\[[\s\S]*\]/);
-  if (!match) throw new Error("Failed to parse search angles from Claude response");
+  if (!match) throw new Error("Failed to parse search angles from planner response");
   return JSON.parse(match[0]) as string[];
 }
 
@@ -218,7 +232,27 @@ serve(async (req) => {
       // Step 3: build context
       const context = buildContext(allResults);
 
-      // Step 4: synthesize via Claude Sonnet (streaming)
+      // Step 4: synthesize — Lovable Gemini first (non-streaming), then Claude Sonnet (streaming)
+      const synthSystem = "You are a research analyst. Write a comprehensive, well-structured markdown report based on the provided sources.";
+      const synthUser   = `Research query: "${query}"\n\nSources:\n${context}\n\nWrite a structured markdown report with:\n## Research Report\n### Key Findings\n### Sources (numbered list with URLs)\n### Conclusion`;
+
+      let synthesisHandled = false;
+      if (LOVABLE_KEY) {
+        try {
+          const lvRes = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${LOVABLE_KEY}` },
+            body: JSON.stringify({ model: "google/gemini-2.5-flash", max_tokens: 4096, messages: [{ role: "system", content: synthSystem }, { role: "user", content: synthUser }] }),
+          });
+          if (lvRes.ok) {
+            const lvData = await lvRes.json();
+            const lvText = lvData.choices?.[0]?.message?.content ?? "";
+            if (lvText) { await sendToken(lvText); synthesisHandled = true; }
+          }
+        } catch { /* fall through to Claude */ }
+      }
+
+      if (!synthesisHandled) {
       const synthesisRes = await fetch("https://api.anthropic.com/v1/messages", {
         method: "POST",
         headers: {
@@ -231,13 +265,8 @@ serve(async (req) => {
           model: "claude-sonnet-4-6",
           max_tokens: 4096,
           stream: true,
-          system: "You are a research analyst. Write a comprehensive, well-structured markdown report based on the provided sources.",
-          messages: [
-            {
-              role: "user",
-              content: `Research query: "${query}"\n\nSources:\n${context}\n\nWrite a structured markdown report with:\n## Research Report\n### Key Findings\n### Sources (numbered list with URLs)\n### Conclusion`,
-            },
-          ],
+          system: synthSystem,
+          messages: [{ role: "user", content: synthUser }],
         }),
       });
 
@@ -271,6 +300,7 @@ serve(async (req) => {
           } catch { /* skip malformed events */ }
         }
       }
+      } // end if (!synthesisHandled)
 
       await writer.write(enc.encode("data: [DONE]\n\n"));
       await writer.close();

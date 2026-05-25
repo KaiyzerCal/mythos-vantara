@@ -182,7 +182,16 @@ async function callWithFallback(
   keys: { openai: string; claude: string; grok: string; lovable: string },
   useThinking = false,
 ): Promise<{ content: string; provider: string }> {
-  // Tier 0 — honor explicit non-default routing (Claude for deep reasoning, Grok for real-time)
+  // Tier 0 — Free Gemini via Lovable Gateway (always attempted first)
+  if (keys.lovable) {
+    try {
+      return { content: await callLovableGateway(messages, system, keys.lovable, "google/gemini-2.5-flash"), provider: "lovable-gemini-flash" };
+    } catch (err: any) {
+      console.warn(`[fallback] Lovable Gemini Flash failed (${err.message}) → cascading to mode provider`);
+    }
+  }
+
+  // Tier 1 — Mode-designated provider (Claude for deep reasoning, Grok for real-time)
   if (primary === "claude" && keys.claude) {
     try {
       return { content: await callClaude(messages, system, keys.claude, "claude-sonnet-4-6", useThinking), provider: useThinking ? "claude-sonnet-thinking" : "claude-sonnet" };
@@ -197,15 +206,6 @@ async function callWithFallback(
     } catch (err: any) {
       if (!(err instanceof ProviderUnavailableError)) throw err;
       console.warn(`[fallback] grok unfunded (${err.status}) → cascading`);
-    }
-  }
-
-  // Tier 1 — Lovable Gemini Flash (free)
-  if (keys.lovable) {
-    try {
-      return { content: await callLovableGateway(messages, system, keys.lovable, "google/gemini-2.5-flash"), provider: "lovable-gemini-flash" };
-    } catch (err: any) {
-      console.warn(`[fallback] Lovable Gemini Flash failed (${err.message}) → trying OpenAI`);
     }
   }
 
@@ -428,6 +428,12 @@ async function callWithFallbackStream(
   keys: { openai: string; claude: string; grok: string; lovable: string },
   useThinking = false,
 ): Promise<{ stream: ReadableStream<string>; provider: string }> {
+  // Tier 0 — Free Gemini via Lovable Gateway (always attempted first)
+  if (keys.lovable) {
+    try { return { stream: await callLovableStream(messages, system, keys.lovable), provider: "lovable-gemini-flash" }; }
+    catch (e: any) { console.warn(`[stream-fallback] Lovable Gemini: ${e.message} → cascading to mode provider`); }
+  }
+  // Tier 1 — Mode-designated provider
   if (primary === "claude" && keys.claude) {
     try {
       const stream = await callClaudeStream(messages, system, keys.claude, "claude-sonnet-4-6", useThinking);
@@ -437,10 +443,6 @@ async function callWithFallbackStream(
   if (primary === "grok" && keys.grok) {
     try { return { stream: await callGrokStream(messages, system, keys.grok), provider: "grok" }; }
     catch (e: any) { if (!(e instanceof ProviderUnavailableError)) throw e; }
-  }
-  if (keys.lovable) {
-    try { return { stream: await callLovableStream(messages, system, keys.lovable), provider: "lovable-gemini-flash" }; }
-    catch (e: any) { console.warn(`[stream-fallback] Lovable: ${e.message}`); }
   }
   if (keys.openai) {
     try { return { stream: await callOpenAIStream(messages, system, keys.openai), provider: "openai-mini" }; }

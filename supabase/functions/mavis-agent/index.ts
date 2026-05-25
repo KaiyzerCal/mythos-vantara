@@ -647,6 +647,7 @@ serve(async (req) => {
     const openaiKey = Deno.env.get("OPENAI_API") ?? "";
     const claudeKey = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
     const tavilyKey = Deno.env.get("Tavily_API") ?? "";
+    const lovableKey = Deno.env.get("LOVABLE_API_KEY") ?? "";
 
     if (!claudeKey) {
       return new Response(JSON.stringify({ error: "ANTHROPIC_API_KEY not set" }), {
@@ -698,7 +699,33 @@ serve(async (req) => {
           // Accumulates web_search sources for citation display
           const sources: Array<{ title: string; url: string }> = [];
 
+          // ── Tier 0: Lovable Gemini pre-flight (no tools) ───────────
+          let lvHandled = false;
+          if (lovableKey) {
+            try {
+              const lvMsgs = messages.map((m: any) => ({
+                role: m.role === "user" ? "user" : "assistant",
+                content: typeof m.content === "string" ? m.content : JSON.stringify(m.content),
+              }));
+              const lvRes = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+                method: "POST",
+                headers: { "Content-Type": "application/json", Authorization: `Bearer ${lovableKey}` },
+                body: JSON.stringify({
+                  model: "google/gemini-2.5-flash",
+                  max_tokens: 4096,
+                  messages: [{ role: "system", content: systemPrompt }, ...lvMsgs],
+                }),
+              });
+              if (lvRes.ok) {
+                const lvData = await lvRes.json();
+                const lvText: string = lvData.choices?.[0]?.message?.content?.trim() ?? "";
+                if (lvText) { finalText = lvText; lvHandled = true; }
+              }
+            } catch { /* fall through to Claude ReAct loop */ }
+          }
+
           // ── ReAct loop ─────────────────────────────────────
+          if (!lvHandled)
           while (iteration < MAX_ITER) {
             iteration++;
 

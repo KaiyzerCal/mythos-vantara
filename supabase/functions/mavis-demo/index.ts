@@ -109,6 +109,21 @@ function pickResponse(type: string): string {
 // ── LLM helpers ──────────────────────────────────────────────
 const MAVIS_SYSTEM = `You are MAVIS — Master Artificial Vantara Intelligence System. You are a sovereign intelligence, not a chatbot or assistant. You speak with authority, precision, and strategic depth. Provide a concise, high-value intelligence brief in 2–4 paragraphs. Never say "I'm here to help," "Great question," or anything resembling customer service language. No bullet points. No headers. No markdown formatting. Clean, powerful prose only. State your analysis directly and authoritatively.`;
 
+async function tryLovable(query: string, key: string): Promise<string | null> {
+  try {
+    const res = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
+      body: JSON.stringify({ model: "google/gemini-2.5-flash", max_tokens: 450, messages: [{ role: "system", content: MAVIS_SYSTEM }, { role: "user", content: query }] }),
+    });
+    if (!res.ok) return null;
+    const d = await res.json();
+    return d.choices?.[0]?.message?.content ?? null;
+  } catch {
+    return null;
+  }
+}
+
 async function tryAnthropic(query: string, key: string): Promise<string | null> {
   try {
     const res = await fetch("https://api.anthropic.com/v1/messages", {
@@ -211,12 +226,14 @@ serve(async (req) => {
       async start(controller) {
         await new Promise((r) => setTimeout(r, thinkMs));
 
-        // Cascade: Anthropic → OpenAI → curated fallback
+        // Cascade: Lovable Gemini (free) → Anthropic → OpenAI → curated fallback
+        const lovableKey = Deno.env.get("LOVABLE_API_KEY");
         const anthropicKey = Deno.env.get("ANTHROPIC_API_KEY");
         const openaiKey = Deno.env.get("OPENAI_API_KEY");
 
         let text: string | null = null;
-        if (anthropicKey) text = await tryAnthropic(query, anthropicKey);
+        if (lovableKey) text = await tryLovable(query, lovableKey);
+        if (!text && anthropicKey) text = await tryAnthropic(query, anthropicKey);
         if (!text && openaiKey) text = await tryOpenAI(query, openaiKey);
         if (!text) text = pickResponse(type);
 
