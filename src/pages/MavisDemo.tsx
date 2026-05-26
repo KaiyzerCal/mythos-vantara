@@ -163,13 +163,12 @@ function useMCanvas(ref: React.RefObject<HTMLCanvasElement>, phase: Phase) {
       }
 
       const S = Math.min(W, H);
-      const maxD = S * 0.13; // wider reach → more interwoven webbing
+      const maxD = S * 0.16; // long reach → strands cross & overlap
       const maxD2 = maxD * maxD;
       const N = nodes.length;
 
-      // Neural webbing: many cross-segment links per node, thin alpha-graded
-      // strands that overlap to read as an interconnected mesh.
-      const MAX_LINKS = 14;
+      // Dense neural webbing: many overlapping strands per node.
+      const MAX_LINKS = 22;
       const linkCount = new Array(N).fill(0);
 
       for (let i = 0; i < N; i++) {
