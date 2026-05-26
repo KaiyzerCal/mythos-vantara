@@ -64,9 +64,9 @@ function useMCanvas(ref: React.RefObject<HTMLCanvasElement>, phase: Phase) {
       [[0.80, 0.00], [0.92, 1.00]], // right leg ↓
     ];
 
-    // Bold density — wider halo cloud so connections weave through the M as webbing.
-    const PER_SEG      = [52, 44, 44, 52];
-    const HALO_PER_SEG = [56, 48, 48, 56];
+    // Heavy density — thick stroke + large halo cloud for dense webbing.
+    const PER_SEG      = [72, 60, 60, 72];
+    const HALO_PER_SEG = [96, 80, 80, 96];
 
     const buildNodes = () => {
       nodes = [];
@@ -106,9 +106,9 @@ function useMCanvas(ref: React.RefObject<HTMLCanvasElement>, phase: Phase) {
           const t      = Math.random();
           const side   = Math.random() < 0.5 ? -1 : 1;
           // Wider perpendicular spread → cloud of nodes around stroke for webbing
-          const offset = (0.014 + Math.pow(Math.random(), 1.6) * 0.055) * S * side;
-          const jx = (Math.random() - 0.5) * S * 0.008;
-          const jy = (Math.random() - 0.5) * S * 0.008;
+          const offset = (0.018 + Math.pow(Math.random(), 1.4) * 0.085) * S * side;
+          const jx = (Math.random() - 0.5) * S * 0.010;
+          const jy = (Math.random() - 0.5) * S * 0.010;
           nodes.push({
             x: p0.x + dx * t + nx * offset + jx,
             y: p0.y + dy * t + ny * offset + jy,
@@ -163,13 +163,12 @@ function useMCanvas(ref: React.RefObject<HTMLCanvasElement>, phase: Phase) {
       }
 
       const S = Math.min(W, H);
-      const maxD = S * 0.13; // wider reach → more interwoven webbing
+      const maxD = S * 0.16; // long reach → strands cross & overlap
       const maxD2 = maxD * maxD;
       const N = nodes.length;
 
-      // Neural webbing: many cross-segment links per node, thin alpha-graded
-      // strands that overlap to read as an interconnected mesh.
-      const MAX_LINKS = 14;
+      // Dense neural webbing: many overlapping strands per node.
+      const MAX_LINKS = 22;
       const linkCount = new Array(N).fill(0);
 
       for (let i = 0; i < N; i++) {
@@ -197,7 +196,7 @@ function useMCanvas(ref: React.RefObject<HTMLCanvasElement>, phase: Phase) {
 
           ctx.beginPath();
           ctx.strokeStyle = `rgba(250,189,47,${a.toFixed(3)})`;
-          ctx.lineWidth   = Math.max(0.8, S * 0.0024) * (0.5 + falloff * 0.7);
+          ctx.lineWidth   = Math.max(0.9, S * 0.0028) * (0.5 + falloff * 0.8);
           ctx.moveTo(ni.x, ni.y);
           ctx.lineTo(nj.x, nj.y);
           ctx.stroke();
