@@ -34,16 +34,20 @@ import type { ExecutionResult } from "@/mavis/types";
 import "@/mavis/skills/_loader";
 
 const MAVIS_MODES = [
-  { id: "PRIME", label: "PRIME", icon: Crown, color: "text-primary", desc: "GPT-4o-mini · General purpose" },
-  { id: "ARCH", label: "ARCHITECT", icon: Brain, color: "text-purple-400", desc: "Claude Sonnet · Deep reasoning" },
-  { id: "QUEST", label: "QUEST", icon: Target, color: "text-red-400", desc: "GPT-4o-mini · Goal execution" },
-  { id: "FORGE", label: "FORGE", icon: Flame, color: "text-orange-400", desc: "GPT-4o-mini · Fitness protocols" },
-  { id: "CODEX", label: "CODEX", icon: Zap, color: "text-cyan-400", desc: "Claude Sonnet · Knowledge synthesis" },
-  { id: "SOVEREIGN", label: "SOVEREIGN", icon: Crown, color: "text-amber-400", desc: "Claude Sonnet · High-stakes judgment" },
-  { id: "ENRYU", label: "ENRYU", icon: Flame, color: "text-red-500", desc: "GPT-4o-mini · Raw execution speed" },
-  { id: "WATCHTOWER", label: "WATCHTOWER", icon: Zap, color: "text-emerald-400", desc: "Grok · Live intelligence" },
-  { id: "AGENT", label: "AGENT", icon: Cpu, color: "text-violet-400", desc: "Claude Sonnet · Agentic tool-use loop" },
-  { id: "RESEARCH", label: "RESEARCH", icon: Search, color: "text-cyan-300", desc: "Claude Sonnet · Deep multi-step research" },
+  { id: "PRIME",      label: "PRIME",      icon: Crown,    color: "text-primary",      desc: "GPT-4o-mini · General purpose" },
+  { id: "ARCH",       label: "ARCHITECT",  icon: Brain,    color: "text-purple-400",   desc: "Claude Sonnet · Deep reasoning" },
+  { id: "QUEST",      label: "QUEST",      icon: Target,   color: "text-red-400",      desc: "GPT-4o-mini · Goal execution" },
+  { id: "FORGE",      label: "FORGE",      icon: Flame,    color: "text-orange-400",   desc: "GPT-4o-mini · Fitness protocols" },
+  { id: "CODEX",      label: "CODEX",      icon: Zap,      color: "text-cyan-400",     desc: "Claude Sonnet · Knowledge synthesis" },
+  { id: "SOVEREIGN",  label: "SOVEREIGN",  icon: Crown,    color: "text-amber-400",    desc: "Claude Sonnet · High-stakes judgment" },
+  { id: "ENRYU",      label: "ENRYU",      icon: Flame,    color: "text-red-500",      desc: "GPT-4o-mini · Raw execution speed" },
+  { id: "WATCHTOWER", label: "WATCHTOWER", icon: Zap,      color: "text-emerald-400",  desc: "Grok · Live intelligence" },
+  { id: "AGENT",      label: "AGENT",      icon: Cpu,      color: "text-violet-400",   desc: "Claude Sonnet · Agentic tool-use loop" },
+  { id: "RESEARCH",   label: "RESEARCH",   icon: Search,   color: "text-cyan-300",     desc: "Claude Sonnet · Deep multi-step research" },
+  { id: "REFLECT",    label: "REFLECT",    icon: FileCode, color: "text-teal-400",     desc: "Claude Sonnet · Full system audit & review" },
+  { id: "SALES",      label: "SALES",      icon: Users,    color: "text-green-400",    desc: "GPT-4o-mini · Pipeline & outreach intelligence" },
+  { id: "MARKET",     label: "MARKET",     icon: Zap,      color: "text-pink-400",     desc: "GPT-4o-mini · Content & brand (Nora Vale)" },
+  { id: "DATA",       label: "DATA",       icon: Database, color: "text-blue-400",     desc: "Claude Sonnet · Metrics & analytics" },
 ];
 
 const QUICK_PROMPTS = [

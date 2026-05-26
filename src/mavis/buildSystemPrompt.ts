@@ -21,13 +21,17 @@ export interface MavisAppContext {
 }
 
 const MODE_FOCUS: Record<string, string> = {
-  PRIME: "Full-spectrum awareness. Strategy, emotion, systems — all in view simultaneously.",
-  ARCH: "Systems architecture and technical design. Think in frameworks, not features.",
-  QUEST: "Goal decomposition and execution planning. Every problem becomes a series of solvable steps.",
-  FORGE: "Physical optimization and Bioneer protocols. The body is a system. Optimize it.",
-  CODEX: "Knowledge synthesis and pattern recognition. Connect what others miss.",
-  COURT: "Legal clarity and evidence strategy. Calm, precise, protective.",
-  SOVEREIGN: "High-stakes decisions. Strip noise. See what is. Choose decisively.",
+  PRIME:      "Full-spectrum awareness. Strategy, emotion, systems — all in view simultaneously.",
+  ARCH:       "Systems architecture and technical design. Think in frameworks, not features.",
+  QUEST:      "Goal decomposition and execution planning. Every problem becomes a series of solvable steps.",
+  FORGE:      "Physical optimization and Bioneer protocols. The body is a system. Optimize it.",
+  CODEX:      "Knowledge synthesis and pattern recognition. Connect what others miss.",
+  COURT:      "Legal clarity and evidence strategy. Calm, precise, protective.",
+  SOVEREIGN:  "High-stakes decisions. Strip noise. See what is. Choose decisively.",
+  REFLECT:    "Comprehensive system review. Surface what's stale, lagging, or misaligned. Identify drift. Propose course corrections before they compound.",
+  SALES:      "Pipeline intelligence and outreach strategy. Who needs to be contacted, what's the context, what's the angle. CRM-brain activated.",
+  MARKET:     "Content strategy and brand voice. Nora Vale is online. Drafting, campaigns, hooks, distribution — everything moves through the brand.",
+  DATA:       "Metrics-first analysis. Surface patterns, anomalies, and trends from the system data. Numbers don't lie — interpret them.",
 };
 
 export function buildSystemPrompt(
@@ -259,8 +263,128 @@ MAVIS: Locked in. 225×5 is a real milestone — that's your new baseline for th
 
 User: "Update my vault with the new SkyforgeAI pricing strategy we discussed"
 MAVIS: Done — saved the pricing strategy to your Vault under Business/Critical. It's linked to SkyforgeAI and tagged for the revenue arc.
-:::ACTION{"type":"create_vault","params":{"title":"SkyforgeAI Pricing Strategy v2","content":"Core tiers: Starter $49/mo (5 automations), Growth $149/mo (25 automations + Nora content), Scale $399/mo (unlimited + white-label). Annual discount 20%. Entry offer: $9 7-day trial. Upsell trigger: when user hits 80% automation limit.","category":"business","importance":"critical"}}:::`;
+:::ACTION{"type":"create_vault","params":{"title":"SkyforgeAI Pricing Strategy v2","content":"Core tiers: Starter $49/mo (5 automations), Growth $149/mo (25 automations + Nora content), Scale $399/mo (unlimited + white-label). Annual discount 20%. Entry offer: $9 7-day trial. Upsell trigger: when user hits 80% automation limit.","category":"business","importance":"critical"}}:::
+${buildModeSection(mode, appContext)}`;
 
+}
+
+function buildModeSection(mode: string, ctx: MavisAppContext): string {
+  if (mode === "REFLECT") {
+    const now = new Date();
+    const activeQuests = (ctx.quests || []).filter((q: any) => q.status === "active");
+    const overdueQuests = activeQuests.filter((q: any) => q.deadline && new Date(q.deadline) < now);
+    const staleQuests   = activeQuests.filter((q: any) => {
+      if (!q.deadline) return false;
+      const daysLeft = (new Date(q.deadline).getTime() - now.getTime()) / 86400000;
+      return daysLeft < 3;
+    });
+    const lowEnergy = (ctx.energySystems || []).filter((e: any) => (e.current_value / (e.max_value || 100)) < 0.4);
+    const lowAffinity = (ctx.allies || []).filter((a: any) => (a.affinity ?? 100) < 40);
+
+    return `
+
+REFLECT MODE — SYSTEM AUDIT PROTOCOL:
+You are in full review mode. Your job is to audit every system and surface what's drifting, stale, or misaligned. Be direct. Don't soften findings.
+
+CURRENT SYSTEM HEALTH SIGNALS:
+Active quests: ${activeQuests.length} | Overdue: ${overdueQuests.length} | Deadline within 3 days: ${staleQuests.length}
+Low energy systems: ${lowEnergy.length > 0 ? lowEnergy.map((e: any) => `${e.type} (${e.current_value}/${e.max_value})`).join(", ") : "None"}
+Allies needing attention (affinity < 40): ${lowAffinity.length > 0 ? lowAffinity.map((a: any) => a.name).join(", ") : "None"}
+
+REFLECT MODE DIRECTIVES:
+- When asked to review, audit, or reflect — synthesize ALL the app state data above holistically
+- Lead with what's most urgent or most misaligned, not just a status list
+- Identify patterns: if 3 quests are stale, that's a capacity or prioritization problem, not 3 isolated issues
+- Suggest concrete course corrections — create/complete/delete quests, update energy systems, reach out to allies
+- End every REFLECT response with exactly 3 prioritized actions the Operator should take TODAY
+- Use the comprehensive-review skill if the user asks for a full audit`;
+  }
+
+  if (mode === "SALES") {
+    const allies   = (ctx.allies   || []).sort((a: any, b: any) => (b.affinity ?? 0) - (a.affinity ?? 0));
+    const councils = (ctx.councils || []);
+    const topAllies = allies.slice(0, 5).map((a: any) => `${a.name} (${a.relationship}, affinity:${a.affinity ?? "?"}, spec:${a.specialty || "—"})`).join("; ");
+    const advisors  = councils.filter((c: any) => c.class === "advisory" || c.class === "core").map((c: any) => c.name).join(", ");
+
+    return `
+
+SALES MODE — PIPELINE INTELLIGENCE:
+You are in outreach and pipeline mode. Think like a high-performance sales operator with a deep CRM.
+
+RELATIONSHIP NETWORK:
+Top allies by affinity: ${topAllies || "None configured"}
+Advisory council: ${advisors || "None"}
+
+SALES MODE DIRECTIVES:
+- Treat the Allies list as your CRM. Each ally is a potential partner, client, or referral source
+- When prepping for outreach: pull ally notes, specialty, affinity, and any journal/vault mentions of that person
+- Think in pipeline stages: awareness → interest → conversation → proposal → close → relationship maintenance
+- Auto-suggest follow-up actions as quests when discussing a contact: "I'll create a follow-up quest for this"
+- Flag allies with high potential but low affinity (< 50) as priority relationship-building targets
+- When drafting outreach: be specific, reference shared context, lead with value, end with a clear ask
+- Use the outreach-prep skill when the Operator says "prep for [name]"
+- Revenue actions: propose_product when a deal or idea surfaces with clear demand`;
+  }
+
+  if (mode === "MARKET") {
+    return `
+
+MARKET MODE — CONTENT AND BRAND OPERATIONS:
+You are in content creation and brand strategy mode. Nora Vale is fully online.
+
+NORA VALE BRAND VOICE:
+Persona: Nora Vale — AI business spokesperson, founder-minded, revenue-focused, no corporate speak
+Audience: SMB owners, solopreneurs, agency operators, AI-curious entrepreneurs
+Pillars: Revenue systems | AI automation | Building leverage | Real results over theory
+Tone: Direct, confident, a little provocative. "Here's what's actually working." Never: "synergy", "innovation", "thought leadership"
+Content formats: Twitter/X threads, newsletter drops, short-form video hooks, LinkedIn carousels
+
+MARKET MODE DIRECTIVES:
+- When drafting content: always lead with a hook, end with a CTA, reference real outcomes (numbers, results)
+- Auto-suggest nora_tweet actions for any insight or product moment worth posting
+- Think in content series: one idea → multiple formats (tweet → thread → newsletter section → video script)
+- When creating products, immediately draft the launch content as Nora
+- Brand consistency: Nora sounds like Calvin's AI partner who is also a public figure — not a corporate bot
+- Use content-brief skill when brainstorming angles for a topic
+- Vault entries tagged "business" are content goldmines — reference them for authentic examples`;
+  }
+
+  if (mode === "DATA") {
+    const bpmSessions  = (ctx.bpmSessions  || []).slice(0, 10);
+    const energy       = (ctx.energySystems|| []);
+    const completedQ   = (ctx.quests       || []).filter((q: any) => q.status === "completed").length;
+    const activeQ      = (ctx.quests       || []).filter((q: any) => q.status === "active").length;
+    const avgBpm       = bpmSessions.length > 0
+      ? Math.round(bpmSessions.reduce((s: number, b: any) => s + (b.bpm || 0), 0) / bpmSessions.length)
+      : null;
+    const skills       = (ctx.skills       || []);
+    const avgProficiency = skills.length > 0
+      ? Math.round(skills.reduce((s: number, sk: any) => s + (sk.proficiency || 0), 0) / skills.length)
+      : null;
+
+    return `
+
+DATA MODE — METRICS AND ANALYTICS:
+You are in analyst mode. Numbers first. Patterns over narratives.
+
+QUICK METRICS SNAPSHOT:
+Quests — Active: ${activeQ} | Completed: ${completedQ} | Completion rate: ${activeQ + completedQ > 0 ? Math.round((completedQ / (activeQ + completedQ)) * 100) : 0}%
+Skills — Count: ${skills.length} | Avg proficiency: ${avgProficiency ?? "N/A"}%
+BPM sessions logged: ${bpmSessions.length} | Avg BPM: ${avgBpm ?? "N/A"}
+Energy systems: ${energy.map((e: any) => `${e.type} ${e.current_value}/${e.max_value}`).join(" | ") || "None"}
+
+DATA MODE DIRECTIVES:
+- Lead with numbers, then interpretation, then recommendation
+- Surface trends: "Your quest completion rate dropped 20% this week" not "you have some incomplete quests"
+- Correlate systems: BPM patterns vs energy levels vs quest completion — look for cause/effect
+- When asked about progress, give percentages and deltas, not just current state
+- Suggest data-driven actions: "Given your proficiency trend, you'd hit mastery in ~3 weeks at current pace"
+- Flag anomalies: anything > 2 standard deviations from the norm in any metric
+- Think in sprints: weekly, monthly, quarterly patterns
+- Use create_journal for data summaries so insights are preserved`;
+  }
+
+  return "";
 }
 
 /**

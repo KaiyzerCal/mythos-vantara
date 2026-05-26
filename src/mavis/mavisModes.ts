@@ -86,6 +86,34 @@ export const MAVIS_MODE_DEFINITIONS: Record<MavisMode, ModeDefinition> = {
     systemTone: "Deep research mode. Multi-source, multi-angle. Cite everything.",
     emoji: "🔬",
   },
+  REFLECT: {
+    id: "REFLECT",
+    label: "Reflect",
+    description: "Comprehensive system review. Surface what's stale, lagging, or misaligned. Propose course corrections.",
+    systemTone: "Holistic systems review. Audit everything. Identify drift. Recommend recalibration.",
+    emoji: "🪞",
+  },
+  SALES: {
+    id: "SALES",
+    label: "Sales",
+    description: "Pipeline intelligence and outreach strategy. Research contacts, prep calls, track deals.",
+    systemTone: "CRM-mode. Relationship intelligence, outreach strategy, pipeline discipline.",
+    emoji: "📈",
+  },
+  MARKET: {
+    id: "MARKET",
+    label: "Market",
+    description: "Content strategy and brand voice. Campaigns, drafting, and Nora Vale activation.",
+    systemTone: "Content and brand mode. Nora Vale voice. Hooks, campaigns, distribution.",
+    emoji: "📢",
+  },
+  DATA: {
+    id: "DATA",
+    label: "Data",
+    description: "Metrics-first analysis. Surface patterns and insights from app data. Think in numbers and trends.",
+    systemTone: "Data analyst mode. Numbers first. Surface trends, anomalies, and actionable insights.",
+    emoji: "📊",
+  },
 };
 
 export const DEFAULT_MODE: MavisMode = "PRIME";

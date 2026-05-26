@@ -9,7 +9,11 @@ export type MavisMode =
   | "ENRYU"
   | "WATCHTOWER"
   | "AGENT"
-  | "RESEARCH";
+  | "RESEARCH"
+  | "REFLECT"
+  | "SALES"
+  | "MARKET"
+  | "DATA";
 
 export interface MavisMessage {
   id: string;

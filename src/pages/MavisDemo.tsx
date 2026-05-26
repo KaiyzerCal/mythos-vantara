@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Send, Loader2, Mic, Square, ChevronDown, Brain, Target, Crown, Flame, Database, Cpu, Search, Zap, Trash2, ArrowUp, ArrowDown } from "lucide-react";
+import { Send, Loader2, Mic, Square, ChevronDown, Brain, Target, Crown, Flame, Database, Cpu, Search, Zap, Trash2, ArrowUp, ArrowDown, Users, FileCode, BarChart2 } from "lucide-react";
 import { toast } from "sonner";
 import { useAppData } from "@/contexts/AppDataContext";
 import { supabase } from "@/integrations/supabase/client";
@@ -18,16 +18,20 @@ import "@/mavis/skills/_loader";
 
 // ── Mode config (mirrors MavisChat) ─────────────────────────
 const MODES = [
-  { id: "PRIME",      label: "PRIME",     icon: Crown,    color: "text-amber-400"   },
-  { id: "ARCH",       label: "ARCH",      icon: Brain,    color: "text-purple-400"  },
-  { id: "QUEST",      label: "QUEST",     icon: Target,   color: "text-red-400"     },
-  { id: "FORGE",      label: "FORGE",     icon: Flame,    color: "text-orange-400"  },
-  { id: "CODEX",      label: "CODEX",     icon: Database, color: "text-cyan-400"    },
-  { id: "SOVEREIGN",  label: "SOVEREIGN", icon: Crown,    color: "text-amber-300"   },
-  { id: "ENRYU",      label: "ENRYU",     icon: Flame,    color: "text-red-500"     },
-  { id: "WATCHTOWER", label: "WATCH",     icon: Zap,      color: "text-emerald-400" },
-  { id: "AGENT",      label: "AGENT",     icon: Cpu,      color: "text-violet-400"  },
-  { id: "RESEARCH",   label: "RESEARCH",  icon: Search,   color: "text-cyan-300"    },
+  { id: "PRIME",      label: "PRIME",     icon: Crown,     color: "text-amber-400"   },
+  { id: "ARCH",       label: "ARCH",      icon: Brain,     color: "text-purple-400"  },
+  { id: "QUEST",      label: "QUEST",     icon: Target,    color: "text-red-400"     },
+  { id: "FORGE",      label: "FORGE",     icon: Flame,     color: "text-orange-400"  },
+  { id: "CODEX",      label: "CODEX",     icon: Database,  color: "text-cyan-400"    },
+  { id: "SOVEREIGN",  label: "SOVEREIGN", icon: Crown,     color: "text-amber-300"   },
+  { id: "ENRYU",      label: "ENRYU",     icon: Flame,     color: "text-red-500"     },
+  { id: "WATCHTOWER", label: "WATCH",     icon: Zap,       color: "text-emerald-400" },
+  { id: "AGENT",      label: "AGENT",     icon: Cpu,       color: "text-violet-400"  },
+  { id: "RESEARCH",   label: "RESEARCH",  icon: Search,    color: "text-cyan-300"    },
+  { id: "REFLECT",    label: "REFLECT",   icon: FileCode,  color: "text-teal-400"    },
+  { id: "SALES",      label: "SALES",     icon: Users,     color: "text-green-400"   },
+  { id: "MARKET",     label: "MARKET",    icon: Zap,       color: "text-pink-400"    },
+  { id: "DATA",       label: "DATA",      icon: BarChart2, color: "text-blue-400"    },
 ];
 
 // ── M-shaped living node canvas ───────────────────────────────

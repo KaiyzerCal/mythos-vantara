@@ -10,3 +10,7 @@ import "./habit-check/index";
 import "./finance-brief/index";
 import "./reflection-prompt/index";
 import "./agent-status/index";
+import "./comprehensive-review/index";
+import "./enterprise-search/index";
+import "./outreach-prep/index";
+import "./content-brief/index";
