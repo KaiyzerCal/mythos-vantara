@@ -64,9 +64,9 @@ function useMCanvas(ref: React.RefObject<HTMLCanvasElement>, phase: Phase) {
       [[0.80, 0.00], [0.92, 1.00]], // right leg ↓
     ];
 
-    // Bold density — tight halo so it reads as a thick, intricate M.
-    const PER_SEG      = [48, 40, 40, 48];
-    const HALO_PER_SEG = [30, 24, 24, 30];
+    // Bold density — wider halo cloud so connections weave through the M as webbing.
+    const PER_SEG      = [52, 44, 44, 52];
+    const HALO_PER_SEG = [56, 48, 48, 56];
 
     const buildNodes = () => {
       nodes = [];
@@ -105,14 +105,15 @@ function useMCanvas(ref: React.RefObject<HTMLCanvasElement>, phase: Phase) {
         for (let i = 0; i < haloCount; i++) {
           const t      = Math.random();
           const side   = Math.random() < 0.5 ? -1 : 1;
-          const offset = (0.012 + Math.random() * 0.022) * S * side;
-          const jx = (Math.random() - 0.5) * S * 0.005;
-          const jy = (Math.random() - 0.5) * S * 0.005;
+          // Wider perpendicular spread → cloud of nodes around stroke for webbing
+          const offset = (0.014 + Math.pow(Math.random(), 1.6) * 0.055) * S * side;
+          const jx = (Math.random() - 0.5) * S * 0.008;
+          const jy = (Math.random() - 0.5) * S * 0.008;
           nodes.push({
             x: p0.x + dx * t + nx * offset + jx,
             y: p0.y + dy * t + ny * offset + jy,
             vx: 0, vy: 0,
-            r: 2.6 + Math.random() * 2.6,
+            r: 2.0 + Math.random() * 2.4,
             osc: Math.random() * Math.PI * 2,
             seg: s, t, halo: true,
           });
@@ -162,14 +163,13 @@ function useMCanvas(ref: React.RefObject<HTMLCanvasElement>, phase: Phase) {
       }
 
       const S = Math.min(W, H);
-      const maxD = S * 0.11; // wider reach → more webbing
+      const maxD = S * 0.13; // wider reach → more interwoven webbing
       const maxD2 = maxD * maxD;
       const N = nodes.length;
 
-      // Neural webbing: connect any nearby nodes (cross-segment allowed),
-      // up to a per-node cap so density stays readable. Lines are thin
-      // and alpha-weighted by distance for a synaptic feel.
-      const MAX_LINKS = 7;
+      // Neural webbing: many cross-segment links per node, thin alpha-graded
+      // strands that overlap to read as an interconnected mesh.
+      const MAX_LINKS = 14;
       const linkCount = new Array(N).fill(0);
 
       for (let i = 0; i < N; i++) {
@@ -185,19 +185,19 @@ function useMCanvas(ref: React.RefObject<HTMLCanvasElement>, phase: Phase) {
           const dist = Math.sqrt(d2);
 
           const falloff = 1 - dist / maxD;
-          const base    = Math.pow(falloff, 1.4) * (active ? 0.75 : 0.50);
+          const base    = Math.pow(falloff, 1.2) * (active ? 0.55 : 0.38);
           let wb = 0;
           if (active) {
             const diI = ni.seg === waveSeg ? (ni.t - waveT) * 5 : 6;
             const diJ = nj.seg === waveSeg ? (nj.t - waveT) * 5 : 6;
-            wb = (Math.exp(-(diI * diI)) + Math.exp(-(diJ * diJ))) * 0.55;
+            wb = (Math.exp(-(diI * diI)) + Math.exp(-(diJ * diJ))) * 0.50;
           }
           const a = Math.min(1.0, base + wb);
-          if (a < 0.05) continue;
+          if (a < 0.04) continue;
 
           ctx.beginPath();
           ctx.strokeStyle = `rgba(250,189,47,${a.toFixed(3)})`;
-          ctx.lineWidth   = Math.max(1.0, S * 0.0032) * (0.6 + falloff * 0.8);
+          ctx.lineWidth   = Math.max(0.8, S * 0.0024) * (0.5 + falloff * 0.7);
           ctx.moveTo(ni.x, ni.y);
           ctx.lineTo(nj.x, nj.y);
           ctx.stroke();
