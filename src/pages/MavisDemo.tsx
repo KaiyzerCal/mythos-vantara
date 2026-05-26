@@ -64,9 +64,9 @@ function useMCanvas(ref: React.RefObject<HTMLCanvasElement>, phase: Phase) {
       [[0.80, 0.00], [0.92, 1.00]], // right leg ↓
     ];
 
-    // Bold density — wider halo cloud so connections weave through the M as webbing.
-    const PER_SEG      = [52, 44, 44, 52];
-    const HALO_PER_SEG = [56, 48, 48, 56];
+    // Heavy density — thick stroke + large halo cloud for dense webbing.
+    const PER_SEG      = [72, 60, 60, 72];
+    const HALO_PER_SEG = [96, 80, 80, 96];
 
     const buildNodes = () => {
       nodes = [];
