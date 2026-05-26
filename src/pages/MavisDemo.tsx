@@ -162,36 +162,50 @@ function useMCanvas(ref: React.RefObject<HTMLCanvasElement>, phase: Phase) {
       }
 
       const S = Math.min(W, H);
-      const maxD = S * 0.075;
+      const maxD = S * 0.11; // wider reach → more webbing
+      const maxD2 = maxD * maxD;
       const N = nodes.length;
 
-      // Connections — bias to same-segment and nearby-segment for clean lines
+      // Neural webbing: connect any nearby nodes (cross-segment allowed),
+      // up to a per-node cap so density stays readable. Lines are thin
+      // and alpha-weighted by distance for a synaptic feel.
+      const MAX_LINKS = 7;
+      const linkCount = new Array(N).fill(0);
+
       for (let i = 0; i < N; i++) {
+        if (linkCount[i] >= MAX_LINKS) continue;
         const ni = nodes[i];
         for (let j = i + 1; j < N; j++) {
+          if (linkCount[i] >= MAX_LINKS) break;
+          if (linkCount[j] >= MAX_LINKS) continue;
           const nj = nodes[j];
-          if (Math.abs(ni.seg - nj.seg) > 1) continue;
           const dx = ni.x - nj.x, dy = ni.y - nj.y;
           const d2 = dx * dx + dy * dy;
-          if (d2 >= maxD * maxD) continue;
+          if (d2 >= maxD2) continue;
           const dist = Math.sqrt(d2);
 
-          const base = (1 - dist / maxD) * (active ? 0.85 : 0.55);
+          const falloff = 1 - dist / maxD;
+          const base    = Math.pow(falloff, 1.4) * (active ? 0.75 : 0.50);
           let wb = 0;
           if (active) {
             const diI = ni.seg === waveSeg ? (ni.t - waveT) * 5 : 6;
             const diJ = nj.seg === waveSeg ? (nj.t - waveT) * 5 : 6;
-            wb = (Math.exp(-(diI * diI)) + Math.exp(-(diJ * diJ))) * 0.45;
+            wb = (Math.exp(-(diI * diI)) + Math.exp(-(diJ * diJ))) * 0.55;
           }
           const a = Math.min(1.0, base + wb);
+          if (a < 0.05) continue;
+
           ctx.beginPath();
           ctx.strokeStyle = `rgba(250,189,47,${a.toFixed(3)})`;
-          ctx.lineWidth   = Math.max(1.8, S * 0.0055) * (ni.halo && nj.halo ? 0.7 : 1);
+          ctx.lineWidth   = Math.max(1.0, S * 0.0032) * (0.6 + falloff * 0.8);
           ctx.moveTo(ni.x, ni.y);
           ctx.lineTo(nj.x, nj.y);
           ctx.stroke();
+
+          linkCount[i]++; linkCount[j]++;
         }
       }
+
 
       // Nodes + radial glow
       for (const n of nodes) {
