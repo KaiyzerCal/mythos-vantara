@@ -196,7 +196,7 @@ function useMCanvas(ref: React.RefObject<HTMLCanvasElement>, phase: Phase) {
 
           ctx.beginPath();
           ctx.strokeStyle = `rgba(250,189,47,${a.toFixed(3)})`;
-          ctx.lineWidth   = Math.max(0.8, S * 0.0024) * (0.5 + falloff * 0.7);
+          ctx.lineWidth   = Math.max(0.9, S * 0.0028) * (0.5 + falloff * 0.8);
           ctx.moveTo(ni.x, ni.y);
           ctx.lineTo(nj.x, nj.y);
           ctx.stroke();
