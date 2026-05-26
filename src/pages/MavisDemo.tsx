@@ -64,9 +64,9 @@ function useMCanvas(ref: React.RefObject<HTMLCanvasElement>, phase: Phase) {
       [[0.80, 0.00], [0.92, 1.00]], // right leg ↓
     ];
 
-    // Heavy density — thick stroke + large halo cloud for dense webbing.
-    const PER_SEG      = [72, 60, 60, 72];
-    const HALO_PER_SEG = [96, 80, 80, 96];
+    // Bold density — much thicker stroke + huge halo cloud for dense webbing.
+    const PER_SEG      = [100, 84, 84, 100];
+    const HALO_PER_SEG = [150, 130, 130, 150];
 
     const buildNodes = () => {
       nodes = [];
@@ -106,7 +106,7 @@ function useMCanvas(ref: React.RefObject<HTMLCanvasElement>, phase: Phase) {
           const t      = Math.random();
           const side   = Math.random() < 0.5 ? -1 : 1;
           // Wider perpendicular spread → cloud of nodes around stroke for webbing
-          const offset = (0.018 + Math.pow(Math.random(), 1.4) * 0.085) * S * side;
+          const offset = (0.022 + Math.pow(Math.random(), 1.3) * 0.115) * S * side;
           const jx = (Math.random() - 0.5) * S * 0.010;
           const jy = (Math.random() - 0.5) * S * 0.010;
           nodes.push({
@@ -163,12 +163,12 @@ function useMCanvas(ref: React.RefObject<HTMLCanvasElement>, phase: Phase) {
       }
 
       const S = Math.min(W, H);
-      const maxD = S * 0.16; // long reach → strands cross & overlap
+      const maxD = S * 0.19; // long reach → strands cross & overlap
       const maxD2 = maxD * maxD;
       const N = nodes.length;
 
       // Dense neural webbing: many overlapping strands per node.
-      const MAX_LINKS = 22;
+      const MAX_LINKS = 32;
       const linkCount = new Array(N).fill(0);
 
       for (let i = 0; i < N; i++) {
@@ -184,19 +184,19 @@ function useMCanvas(ref: React.RefObject<HTMLCanvasElement>, phase: Phase) {
           const dist = Math.sqrt(d2);
 
           const falloff = 1 - dist / maxD;
-          const base    = Math.pow(falloff, 1.2) * (active ? 0.55 : 0.38);
+          const base    = Math.pow(falloff, 1.1) * (active ? 0.72 : 0.52);
           let wb = 0;
           if (active) {
             const diI = ni.seg === waveSeg ? (ni.t - waveT) * 5 : 6;
             const diJ = nj.seg === waveSeg ? (nj.t - waveT) * 5 : 6;
-            wb = (Math.exp(-(diI * diI)) + Math.exp(-(diJ * diJ))) * 0.50;
+            wb = (Math.exp(-(diI * diI)) + Math.exp(-(diJ * diJ))) * 0.55;
           }
           const a = Math.min(1.0, base + wb);
           if (a < 0.04) continue;
 
           ctx.beginPath();
           ctx.strokeStyle = `rgba(250,189,47,${a.toFixed(3)})`;
-          ctx.lineWidth   = Math.max(0.9, S * 0.0028) * (0.5 + falloff * 0.8);
+          ctx.lineWidth   = Math.max(1.2, S * 0.0042) * (0.6 + falloff * 0.9);
           ctx.moveTo(ni.x, ni.y);
           ctx.lineTo(nj.x, nj.y);
           ctx.stroke();
