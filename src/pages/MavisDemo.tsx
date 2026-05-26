@@ -47,94 +47,76 @@ function useMCanvas(ref: React.RefObject<HTMLCanvasElement>, phase: Phase) {
     let W = 0, H = 0;
 
     type Node = {
-      homeX: number; homeY: number;
-      x: number; y: number;
-      vx: number; vy: number;
-      r: number; osc: number; pathIdx: number;
+      x: number; y: number; vx: number; vy: number;
+      r: number; osc: number; seg: number; t: number; halo: boolean;
     };
 
     let nodes: Node[] = [];
 
-    // Bat-M silhouette: traced as a closed polygon of (x,y) anchors in a
-    // normalized 1×1 box. Outer legs flare like bat wings; valley dips into
-    // a sharp fang. This guarantees a crisp, recognizable M at any size.
-    // Order: outer-left-bottom → outer-left-top → inner-left-peak →
-    //        valley-fang → inner-right-peak → outer-right-top →
-    //        outer-right-bottom → inner-right-bottom-notch →
-    //        inner-right-arch → inner-valley-top → inner-left-arch →
-    //        inner-left-bottom-notch → close.
-    const SHAPE: Array<[number, number]> = [
-      [0.02, 1.00], // 0 outer BL (wing tip)
-      [0.14, 0.00], // 1 outer TL (ear)
-      [0.30, 0.18], // 2 inner left peak
-      [0.50, 0.78], // 3 valley fang (deep center point)
-      [0.70, 0.18], // 4 inner right peak
-      [0.86, 0.00], // 5 outer TR (ear)
-      [0.98, 1.00], // 6 outer BR (wing tip)
-      [0.78, 1.00], // 7 inner BR notch
-      [0.62, 0.46], // 8 inner right arch base
-      [0.50, 0.92], // 9 inner valley top (under fang)
-      [0.38, 0.46], // 10 inner left arch base
-      [0.22, 1.00], // 11 inner BL notch
+    // Classic 4-stroke M: left-leg, left-V, right-V, right-leg.
+    // Each segment is a straight line in a normalized 1×1 box; we fit
+    // that box as a centered square so the M never distorts on portrait
+    // or landscape.
+    const SEGS: Array<[[number, number], [number, number]]> = [
+      [[0.08, 1.00], [0.20, 0.00]], // left leg ↑
+      [[0.20, 0.00], [0.50, 0.78]], // left valley ↓
+      [[0.50, 0.78], [0.80, 0.00]], // right valley ↑
+      [[0.80, 0.00], [0.92, 1.00]], // right leg ↓
     ];
 
-    // Edges of the polygon (closed loop)
-    const EDGES: Array<[number, number]> = (() => {
-      const e: Array<[number, number]> = [];
-      for (let i = 0; i < SHAPE.length; i++) {
-        e.push([i, (i + 1) % SHAPE.length]);
-      }
-      return e;
-    })();
+    // Bold density — tight halo so it reads as a thick, intricate M.
+    const PER_SEG      = [48, 40, 40, 48];
+    const HALO_PER_SEG = [30, 24, 24, 30];
 
     const buildNodes = () => {
       nodes = [];
-
-      // Fit a centered square so the M never distorts on portrait/landscape.
       const S  = Math.min(W, H) * 0.86;
       const ox = (W - S) / 2;
       const oy = (H - S) / 2;
 
-      // Map normalized shape → pixel anchors
-      const anchors = SHAPE.map(([nx, ny]) => ({
-        x: ox + nx * S,
-        y: oy + ny * S,
-      }));
+      const toPx = (nx: number, ny: number) => ({ x: ox + nx * S, y: oy + ny * S });
 
-      // Compute edge lengths to distribute density evenly along the outline
-      const edgeLens = EDGES.map(([a, b]) => {
-        const dx = anchors[b].x - anchors[a].x;
-        const dy = anchors[b].y - anchors[a].y;
-        return Math.sqrt(dx * dx + dy * dy);
-      });
-      const totalLen = edgeLens.reduce((s, l) => s + l, 0);
+      for (let s = 0; s < SEGS.length; s++) {
+        const [a, b] = SEGS[s];
+        const p0 = toPx(a[0], a[1]);
+        const p1 = toPx(b[0], b[1]);
 
-      // Density scales with size so the M reads cleanly on small mobile
-      const TOTAL_SPINE = Math.round(380 + S * 0.55);
-      const jitter = S * 0.004; // tiny — keeps silhouette crisp
-
-      let cumLen = 0;
-      for (let e = 0; e < EDGES.length; e++) {
-        const [ai, bi] = EDGES[e];
-        const from = anchors[ai];
-        const to   = anchors[bi];
-        const n    = Math.max(8, Math.round((edgeLens[e] / totalLen) * TOTAL_SPINE));
-
-        for (let i = 0; i < n; i++) {
-          const t  = (i + 0.5) / n;
-          const hx = from.x + (to.x - from.x) * t + (Math.random() - 0.5) * jitter * 2;
-          const hy = from.y + (to.y - from.y) * t + (Math.random() - 0.5) * jitter * 2;
+        // Spine nodes — sit right on the stroke
+        const spineCount = PER_SEG[s];
+        for (let i = 0; i < spineCount; i++) {
+          const t  = i / (spineCount - 1);
+          const jx = (Math.random() - 0.5) * S * 0.006;
+          const jy = (Math.random() - 0.5) * S * 0.006;
           nodes.push({
-            homeX: hx, homeY: hy,
-            x: hx + (Math.random() - 0.5) * 8,
-            y: hy + (Math.random() - 0.5) * 8,
+            x: p0.x + (p1.x - p0.x) * t + jx,
+            y: p0.y + (p1.y - p0.y) * t + jy,
             vx: 0, vy: 0,
-            r: 2.6 + Math.random() * 2.2 + S * 0.003,
+            r: 4.5 + Math.random() * 3.0,
             osc: Math.random() * Math.PI * 2,
-            pathIdx: (cumLen + t * edgeLens[e]) / totalLen,
+            seg: s, t, halo: false,
           });
         }
-        cumLen += edgeLens[e];
+
+        // Halo nodes — slight perpendicular offset for thickness
+        const haloCount = HALO_PER_SEG[s];
+        const dx = p1.x - p0.x, dy = p1.y - p0.y;
+        const len = Math.sqrt(dx * dx + dy * dy) || 1;
+        const nx = -dy / len, ny = dx / len; // perpendicular
+        for (let i = 0; i < haloCount; i++) {
+          const t      = Math.random();
+          const side   = Math.random() < 0.5 ? -1 : 1;
+          const offset = (0.012 + Math.random() * 0.022) * S * side;
+          const jx = (Math.random() - 0.5) * S * 0.005;
+          const jy = (Math.random() - 0.5) * S * 0.005;
+          nodes.push({
+            x: p0.x + dx * t + nx * offset + jx,
+            y: p0.y + dy * t + ny * offset + jy,
+            vx: 0, vy: 0,
+            r: 2.6 + Math.random() * 2.6,
+            osc: Math.random() * Math.PI * 2,
+            seg: s, t, halo: true,
+          });
+        }
       }
     };
 
@@ -163,66 +145,70 @@ function useMCanvas(ref: React.RefObject<HTMLCanvasElement>, phase: Phase) {
       ctx.clearRect(0, 0, W, H);
 
       const waveSpeed = streaming ? 0.50 : thinking ? 0.22 : 0;
-      const wavePos   = active ? (t * waveSpeed) % 1 : -3;
-      const N = nodes.length;
+      // Wave traverses all 4 segments in sequence
+      const waveSeg   = active ? Math.floor(((t * waveSpeed) % 1) * 4) : -1;
+      const waveT     = active ? (((t * waveSpeed) % 1) * 4) % 1 : -3;
 
+      // Gentle jitter — keep the silhouette tight
       for (const n of nodes) {
-        // Strong spring back to home keeps the silhouette tight.
-        n.vx += (n.homeX - n.x) * 0.06;
-        n.vy += (n.homeY - n.y) * 0.06;
         if (active) {
-          const mag = streaming ? 0.18 : 0.08;
+          const mag = streaming ? 0.10 : 0.05;
           n.vx += (Math.random() - 0.5) * mag;
           n.vy += (Math.random() - 0.5) * mag;
         }
-        n.vx *= 0.82;
-        n.vy *= 0.82;
-        n.x  += n.vx;
-        n.y  += n.vy;
+        n.vx *= 0.78; n.vy *= 0.78;
+        n.x  += n.vx; n.y += n.vy;
         n.osc += streaming ? 0.024 : 0.013;
       }
 
-      // Connect ONLY to neighbors along the path — keeps the shape readable
-      // and prevents the "tangled web" look at any aspect ratio.
       const S = Math.min(W, H);
-      const maxD = S * 0.07;
+      const maxD = S * 0.075;
+      const N = nodes.length;
+
+      // Connections — bias to same-segment and nearby-segment for clean lines
       for (let i = 0; i < N; i++) {
-        for (let j = i + 1; j < Math.min(N, i + 9); j++) {
-          const dx   = nodes[i].x - nodes[j].x;
-          const dy   = nodes[i].y - nodes[j].y;
-          const dist = Math.sqrt(dx * dx + dy * dy);
-          if (dist >= maxD) continue;
+        const ni = nodes[i];
+        for (let j = i + 1; j < N; j++) {
+          const nj = nodes[j];
+          if (Math.abs(ni.seg - nj.seg) > 1) continue;
+          const dx = ni.x - nj.x, dy = ni.y - nj.y;
+          const d2 = dx * dx + dy * dy;
+          if (d2 >= maxD * maxD) continue;
+          const dist = Math.sqrt(d2);
 
-          const base = (1 - dist / maxD) * (active ? 0.95 : 0.75);
-          const diI  = (nodes[i].pathIdx - wavePos) * 6.5;
-          const diJ  = (nodes[j].pathIdx - wavePos) * 6.5;
-          const wI   = Math.exp(-(diI * diI));
-          const wJ   = Math.exp(-(diJ * diJ));
-          const wb   = active ? (wI + wJ) * 0.55 : 0;
-          const a    = Math.min(1.0, base + wb);
-
+          const base = (1 - dist / maxD) * (active ? 0.85 : 0.55);
+          let wb = 0;
+          if (active) {
+            const diI = ni.seg === waveSeg ? (ni.t - waveT) * 5 : 6;
+            const diJ = nj.seg === waveSeg ? (nj.t - waveT) * 5 : 6;
+            wb = (Math.exp(-(diI * diI)) + Math.exp(-(diJ * diJ))) * 0.45;
+          }
+          const a = Math.min(1.0, base + wb);
           ctx.beginPath();
           ctx.strokeStyle = `rgba(250,189,47,${a.toFixed(3)})`;
-          ctx.lineWidth   = Math.max(2, S * 0.006);
-          ctx.moveTo(nodes[i].x, nodes[i].y);
-          ctx.lineTo(nodes[j].x, nodes[j].y);
+          ctx.lineWidth   = Math.max(1.8, S * 0.0055) * (ni.halo && nj.halo ? 0.7 : 1);
+          ctx.moveTo(ni.x, ni.y);
+          ctx.lineTo(nj.x, nj.y);
           ctx.stroke();
         }
       }
 
       // Nodes + radial glow
       for (const n of nodes) {
-        const dn     = (n.pathIdx - wavePos) * 6.5;
-        const wave   = Math.exp(-(dn * dn));
-        const pulse  = 0.95 + 0.32 * Math.sin(n.osc + t);
-        const alpha  = Math.min(1, pulse + (active ? 0.55 : 0.22) + wave * 2.6);
-        const radius = n.r * (1 + wave * 1.2);
+        let wave = 0;
+        if (active && n.seg === waveSeg) {
+          const dn = (n.t - waveT) * 5;
+          wave = Math.exp(-(dn * dn));
+        }
+        const pulse  = 0.85 + 0.28 * Math.sin(n.osc + t);
+        const alpha  = Math.min(1, pulse + (active ? 0.45 : 0.18) + wave * 2.2);
+        const radius = n.r * (1 + wave * 1.1);
 
-        if (wave > 0.10 && active) {
-          const gr   = radius * 9.0;
+        if (wave > 0.12 && active) {
+          const gr   = radius * 8.5;
           const grad = ctx.createRadialGradient(n.x, n.y, 0, n.x, n.y, gr);
-          grad.addColorStop(0,    `rgba(250,189,47,${(wave * 0.85).toFixed(3)})`);
-          grad.addColorStop(0.45, `rgba(250,189,47,${(wave * 0.22).toFixed(3)})`);
+          grad.addColorStop(0,    `rgba(250,189,47,${(wave * 0.80).toFixed(3)})`);
+          grad.addColorStop(0.45, `rgba(250,189,47,${(wave * 0.20).toFixed(3)})`);
           grad.addColorStop(1,    "rgba(250,189,47,0)");
           ctx.beginPath();
           ctx.arc(n.x, n.y, gr, 0, Math.PI * 2);
@@ -236,7 +222,6 @@ function useMCanvas(ref: React.RefObject<HTMLCanvasElement>, phase: Phase) {
         ctx.fill();
       }
 
-
       raf = requestAnimationFrame(frame);
     };
 
@@ -244,6 +229,7 @@ function useMCanvas(ref: React.RefObject<HTMLCanvasElement>, phase: Phase) {
     return () => { cancelAnimationFrame(raf); ro.disconnect(); };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 }
+
 
 // ── Waveform ─────────────────────────────────────────────────
 function Waveform({ phase }: { phase: Phase }) {
