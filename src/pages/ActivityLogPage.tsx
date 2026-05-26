@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { motion } from "framer-motion";
-import { ScrollText, Zap, Shield, ShieldOff, Package, Star, Filter } from "lucide-react";
+import { ScrollText, Zap, Shield, ShieldOff, Package, Star, Filter, Target, BookOpen, Archive, Users, Layers, Heart, Swords, Trophy, Trash2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { PageHeader, HudCard } from "@/components/SharedUI";
@@ -14,17 +14,50 @@ interface ActivityEntry {
 }
 
 const EVENT_CONFIG: Record<string, { icon: typeof Zap; color: string; label: string }> = {
-  xp_gain: { icon: Zap, color: "text-primary", label: "XP Gained" },
-  buff: { icon: Shield, color: "text-secondary", label: "Buff Applied" },
-  debuff: { icon: ShieldOff, color: "text-destructive", label: "Debuff" },
-  loot: { icon: Package, color: "text-[hsl(var(--neon-cyan))]", label: "Loot Drop" },
-  quest_complete: { icon: Star, color: "text-primary", label: "Quest Complete" },
-  codex: { icon: ScrollText, color: "text-[hsl(var(--neon-purple))]", label: "Codex Points" },
-  skill_up: { icon: Zap, color: "text-[hsl(var(--neon-green))]", label: "Skill Up" },
-  stat_up: { icon: Zap, color: "text-[hsl(var(--neon-gold))]", label: "Stat Up" },
+  xp_gain:         { icon: Zap,        color: "text-primary",                     label: "XP Gained"        },
+  xp_awarded:      { icon: Zap,        color: "text-primary",                     label: "XP Awarded"       },
+  buff:            { icon: Shield,     color: "text-secondary",                   label: "Buff Applied"     },
+  debuff:          { icon: ShieldOff,  color: "text-destructive",                 label: "Debuff"           },
+  loot:            { icon: Package,    color: "text-[hsl(var(--neon-cyan))]",     label: "Loot Drop"        },
+  // Quests (task_* is legacy naming — app uses quests)
+  quest_created:   { icon: Target,     color: "text-[hsl(var(--neon-gold))]",     label: "Quest Created"    },
+  task_created:    { icon: Target,     color: "text-[hsl(var(--neon-gold))]",     label: "Quest Created"    },
+  quest_complete:  { icon: Star,       color: "text-primary",                     label: "Quest Complete"   },
+  quest_completed: { icon: Star,       color: "text-primary",                     label: "Quest Complete"   },
+  task_completed:  { icon: Star,       color: "text-primary",                     label: "Quest Complete"   },
+  quest_deleted:   { icon: Trash2,     color: "text-destructive",                 label: "Quest Deleted"    },
+  // Skills & progression
+  codex:           { icon: ScrollText, color: "text-[hsl(var(--neon-purple))]",   label: "Codex Points"     },
+  skill_up:        { icon: Zap,        color: "text-[hsl(var(--neon-green))]",    label: "Skill Up"         },
+  skill_created:   { icon: Swords,     color: "text-[hsl(var(--neon-green))]",    label: "Skill Unlocked"   },
+  stat_up:         { icon: Trophy,     color: "text-[hsl(var(--neon-gold))]",     label: "Stat Up"          },
+  // Content
+  journal_created: { icon: BookOpen,   color: "text-[hsl(var(--neon-purple))]",   label: "Journal Entry"    },
+  vault_created:   { icon: Archive,    color: "text-[hsl(var(--neon-cyan))]",     label: "Vault Entry"      },
+  // People & allies
+  council_added:   { icon: Users,      color: "text-secondary",                   label: "Council Added"    },
+  ally_added:      { icon: Heart,      color: "text-[hsl(var(--neon-green))]",    label: "Ally Added"       },
+  ally_deleted:    { icon: Trash2,     color: "text-destructive",                 label: "Ally Removed"     },
+  // Items
+  item_created:    { icon: Package,    color: "text-[hsl(var(--neon-cyan))]",     label: "Item Created"     },
+  item_updated:    { icon: Package,    color: "text-muted-foreground",            label: "Item Updated"     },
+  item_deleted:    { icon: Trash2,     color: "text-destructive",                 label: "Item Deleted"     },
+  // Other
+  energy_created:  { icon: Layers,     color: "text-[hsl(var(--neon-gold))]",     label: "Energy System"    },
+  profile_updated: { icon: Shield,     color: "text-muted-foreground",            label: "Profile Updated"  },
 };
 
-const FILTERS = ["all", "xp_gain", "buff", "debuff", "loot", "quest_complete", "codex", "skill_up", "stat_up"];
+const FILTERS = [
+  "all",
+  "xp_gain", "xp_awarded",
+  "quest_created", "task_created",
+  "quest_complete", "quest_completed", "task_completed",
+  "skill_created", "skill_up", "stat_up",
+  "journal_created", "vault_created",
+  "council_added", "ally_added",
+  "item_created",
+  "buff", "debuff", "loot", "codex",
+];
 
 export default function ActivityLogPage() {
   const { user } = useAuth();
