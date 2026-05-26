@@ -106,9 +106,9 @@ function useMCanvas(ref: React.RefObject<HTMLCanvasElement>, phase: Phase) {
           const t      = Math.random();
           const side   = Math.random() < 0.5 ? -1 : 1;
           // Wider perpendicular spread → cloud of nodes around stroke for webbing
-          const offset = (0.014 + Math.pow(Math.random(), 1.6) * 0.055) * S * side;
-          const jx = (Math.random() - 0.5) * S * 0.008;
-          const jy = (Math.random() - 0.5) * S * 0.008;
+          const offset = (0.018 + Math.pow(Math.random(), 1.4) * 0.085) * S * side;
+          const jx = (Math.random() - 0.5) * S * 0.010;
+          const jy = (Math.random() - 0.5) * S * 0.010;
           nodes.push({
             x: p0.x + dx * t + nx * offset + jx,
             y: p0.y + dy * t + ny * offset + jy,
