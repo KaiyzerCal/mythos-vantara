@@ -105,14 +105,15 @@ function useMCanvas(ref: React.RefObject<HTMLCanvasElement>, phase: Phase) {
         for (let i = 0; i < haloCount; i++) {
           const t      = Math.random();
           const side   = Math.random() < 0.5 ? -1 : 1;
-          const offset = (0.012 + Math.random() * 0.022) * S * side;
-          const jx = (Math.random() - 0.5) * S * 0.005;
-          const jy = (Math.random() - 0.5) * S * 0.005;
+          // Wider perpendicular spread → cloud of nodes around stroke for webbing
+          const offset = (0.014 + Math.pow(Math.random(), 1.6) * 0.055) * S * side;
+          const jx = (Math.random() - 0.5) * S * 0.008;
+          const jy = (Math.random() - 0.5) * S * 0.008;
           nodes.push({
             x: p0.x + dx * t + nx * offset + jx,
             y: p0.y + dy * t + ny * offset + jy,
             vx: 0, vy: 0,
-            r: 2.6 + Math.random() * 2.6,
+            r: 2.0 + Math.random() * 2.4,
             osc: Math.random() * Math.PI * 2,
             seg: s, t, halo: true,
           });
