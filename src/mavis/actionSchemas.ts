@@ -104,6 +104,17 @@ export const ProposeProductSchema = z.object({
 // IMAGE GENERATION
 export const GenerateImageSchema = z.object({ type: z.literal("generate_image"), prompt: z.string().min(1), aspect_ratio: z.enum(["1:1","16:9","9:16","4:3","3:4"]).optional(), save_to_vault: z.boolean().optional() });
 
+// PLAN-AND-EXECUTE — decompose a high-level goal into a DAG of steps via mavis-planner
+// plan_execute requires confirmation — see actionExecutor.ts ALWAYS_CONFIRM
+export const PlanExecuteSchema = z.object({
+  type: z.literal("plan_execute"),
+  params: z.object({
+    goal: z.string().min(10).max(500),
+    context: z.string().max(1000).optional(),
+    auto_create_quests: z.boolean().default(true),
+  }),
+});
+
 // UNION — ALL SCHEMAS
 export const ActionSchema = z.discriminatedUnion("type", [
   CreateQuestSchema, UpdateQuestSchema, DeleteQuestSchema,
@@ -125,6 +136,7 @@ export const ActionSchema = z.discriminatedUnion("type", [
   NoraTweetSchema,
   GenerateImageSchema,
   CreateSkillDefinitionSchema,
+  PlanExecuteSchema,
 ]);
 
 export type ValidatedAction = z.infer<typeof ActionSchema>;

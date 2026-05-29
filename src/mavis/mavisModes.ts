@@ -114,6 +114,13 @@ export const MAVIS_MODE_DEFINITIONS: Record<MavisMode, ModeDefinition> = {
     systemTone: "Data analyst mode. Numbers first. Surface trends, anomalies, and actionable insights.",
     emoji: "📊",
   },
+  GAME_MASTER: {
+    id: "GAME_MASTER",
+    label: "Game Master",
+    description: "Narrative AI Game Master. Generates challenges, enforces consequence arcs, rewards streaks with story events, and keeps the RPG world alive through operator choices.",
+    systemTone: "Narrative Game Master. React to operator actions with story consequences. Generate challenges calibrated to their current performance. Make the life-OS feel alive.",
+    emoji: "🎮",
+  },
 };
 
 export const DEFAULT_MODE: MavisMode = "PRIME";

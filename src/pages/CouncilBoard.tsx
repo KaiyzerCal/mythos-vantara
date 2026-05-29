@@ -74,11 +74,25 @@ export default function CouncilBoard() {
   const [isListening,      setIsListening]      = useState(false);
   const [voiceTarget,      setVoiceTarget]      = useState<VoicePersona | null>(null);
 
-  const cancelledRef   = useRef(false);
-  const scrollRef      = useRef<HTMLDivElement>(null);
-  const bottomRef      = useRef<HTMLDivElement>(null);
-  const inputRef       = useRef<HTMLTextAreaElement>(null);
-  const recognitionRef = useRef<any>(null);
+  // ── Realtime streaming state ──────────────────────────────────────
+  // Keyed by speakerId; populated as council member responses arrive via broadcast.
+  const [memberResponses, setMemberResponses] = useState<Record<string, {
+    speakerName: string;
+    speakerRole: string;
+    speakerType: "council" | "persona";
+    response: string;
+    error?: string;
+    loading: boolean;
+    summoned?: boolean;
+    timestamp: number;
+  }>>({});
+
+  const cancelledRef      = useRef(false);
+  const sessionIdRef      = useRef<string | null>(null);
+  const scrollRef         = useRef<HTMLDivElement>(null);
+  const bottomRef         = useRef<HTMLDivElement>(null);
+  const inputRef          = useRef<HTMLTextAreaElement>(null);
+  const recognitionRef    = useRef<any>(null);
 
   const { attachments, isUploading, upload, remove } = useChatAttachments("council", THREAD_REF);
 
@@ -176,7 +190,36 @@ export default function CouncilBoard() {
     setShowBackToTop(scrollTop > 200);
   }, []);
 
-  useEffect(() => { scrollToBottom(); }, [messages, scrollToBottom]);
+  useEffect(() => { scrollToBottom(); }, [messages, memberResponses, scrollToBottom]);
+
+  // ── Realtime channel subscription ────────────────────────────────────
+  // Subscribes to `council:{sessionId}` so member responses stream in as they
+  // resolve on the service side, without waiting for the full round-trip.
+  useEffect(() => {
+    const sid = sessionIdRef.current;
+    if (!sid) return;
+    const channel = supabase
+      .channel(`council:${sid}`)
+      .on("broadcast", { event: "member_response" }, ({ payload }) => {
+        if (!payload?.speakerId) return;
+        setMemberResponses(prev => ({
+          ...prev,
+          [payload.speakerId]: {
+            speakerName: payload.memberName,
+            speakerRole: payload.speakerRole,
+            speakerType: payload.speakerType,
+            response:    payload.response ?? "",
+            error:       payload.error,
+            loading:     false,
+            summoned:    payload.summoned,
+            timestamp:   payload.timestamp ?? Date.now(),
+          },
+        }));
+      })
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading]); // re-subscribe each time a new deliberation starts
 
   // ── Summon / un-summon persona ────────────────────────────────────
   const handleSummon = useCallback((persona: UnifiedPersona) => {
@@ -291,6 +334,37 @@ export default function CouncilBoard() {
     setLoading(true);
     cancelledRef.current = false;
 
+    // Generate a fresh session ID for this deliberation round and
+    // initialise all active members/personas as loading so their cards
+    // appear immediately with a spinner before their responses arrive.
+    const newSessionId = crypto.randomUUID();
+    sessionIdRef.current = newSessionId;
+
+    const summonedPersonas = personas.filter(p => summonedIds.includes(p.id));
+    const initialLoading: typeof memberResponses = {};
+    for (const m of councilMembers) {
+      initialLoading[m.id] = {
+        speakerName: m.name,
+        speakerRole: m.role ?? "Council Member",
+        speakerType: "council",
+        response:    "",
+        loading:     true,
+        timestamp:   Date.now(),
+      };
+    }
+    for (const p of summonedPersonas) {
+      initialLoading[p.id] = {
+        speakerName: p.name,
+        speakerRole: p.role ?? "Persona",
+        speakerType: "persona",
+        response:    "",
+        loading:     true,
+        summoned:    true,
+        timestamp:   Date.now(),
+      };
+    }
+    setMemberResponses(initialLoading);
+
     const cid = await ensureConversation(userId);
 
     const userMsg: CouncilBoardMessage = {
@@ -303,15 +377,12 @@ export default function CouncilBoard() {
     try {
       const appContext = await loadFullAppContext(userId);
 
-      // Build summoned personas list
-      const summonedPersonas = personas.filter(p => summonedIds.includes(p.id));
-
       const result = await sendCouncilMessage(
         text,
         messages,
         councilMembers,
         appContext,
-        { summonedPersonas },
+        { summonedPersonas, sessionId: newSessionId },
       );
       if (cancelledRef.current) return;
 
@@ -359,10 +430,15 @@ export default function CouncilBoard() {
 
       setMessages(prev => [...prev, ...newMsgs]);
       if (cid) for (const m of newMsgs) await persist(cid, userId, m);
+      // Clear streamed loading cards — the final messages now replace them
+      setMemberResponses({});
+      sessionIdRef.current = null;
     } catch (err: any) {
       if (cancelledRef.current) return;
       console.error(err);
       toast.error("Council session error — " + (err?.message ?? "unknown"));
+      setMemberResponses({});
+      sessionIdRef.current = null;
       setMessages(prev => [...prev, {
         id: makeId(), speakerId: "system", speakerName: "System", speakerRole: "Error",
         speakerType: "mavis",
@@ -569,6 +645,61 @@ export default function CouncilBoard() {
               </div>
             </motion.div>
           )}
+
+          {/* Streaming member response cards — shown during deliberation,
+              replaced by final messages once sendCouncilMessage resolves */}
+          <AnimatePresence>
+            {loading && Object.entries(memberResponses).map(([speakerId, state]) => {
+              const style = speakerStyle(speakerId, false, state.speakerType);
+              return (
+                <motion.div
+                  key={`streaming-${speakerId}`}
+                  initial={{ opacity: 0, y: 6 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -4 }}
+                  className={`border-l-2 ${style.border} pl-3 py-1.5`}
+                >
+                  <div className="flex items-center gap-2 mb-1 flex-wrap">
+                    <span className={`text-[9px] font-mono font-bold px-2 py-0.5 rounded text-white ${style.badge}`}>
+                      {state.speakerName}
+                    </span>
+                    {state.speakerType === "council" && (
+                      <span className="text-[8px] font-mono px-1.5 py-0.5 rounded bg-purple-900/40 text-purple-400 border border-purple-700/30">
+                        COUNCIL
+                      </span>
+                    )}
+                    {state.speakerType === "persona" && (
+                      <span className="text-[8px] font-mono px-1.5 py-0.5 rounded bg-amber-900/40 text-amber-400 border border-amber-700/30">
+                        {state.summoned ? "⚡ SUMMONED" : "PERSONA"}
+                      </span>
+                    )}
+                    <span className={`text-[9px] font-mono ${style.label}`}>{state.speakerRole}</span>
+                    {state.loading && (
+                      <span className="flex gap-0.5 ml-auto">
+                        {[0, 1, 2].map(i => (
+                          <span key={i} className="w-1 h-1 rounded-full bg-current opacity-60 animate-pulse" style={{ animationDelay: `${i * 0.15}s` }} />
+                        ))}
+                      </span>
+                    )}
+                    {!state.loading && (
+                      <span className="text-[9px] font-mono text-muted-foreground/50 ml-auto">
+                        {new Date(state.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                      </span>
+                    )}
+                  </div>
+                  {state.loading ? (
+                    <p className="text-[10px] font-mono text-muted-foreground/50 italic">Thinking...</p>
+                  ) : (
+                    <p className="text-xs font-body text-foreground/90 leading-relaxed whitespace-pre-wrap">
+                      {state.error
+                        ? <span className="text-destructive/70">[Error: {state.error}]</span>
+                        : state.response}
+                    </p>
+                  )}
+                </motion.div>
+              );
+            })}
+          </AnimatePresence>
 
           {!loading && messages.length > 0 && <EndOfFeed messageCount={messages.length} />}
           <div ref={bottomRef} />

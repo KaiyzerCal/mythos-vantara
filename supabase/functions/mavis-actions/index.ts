@@ -304,7 +304,7 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
     // ── JOURNAL ──────────────────────────────────────────
     case "create_journal": {
       const xp = Number(p.xp_earned || 10);
-      const { error } = await sb.from("journal_entries").insert({
+      const { data: newEntry, error } = await sb.from("journal_entries").insert({
         user_id: userId,
         title: String(p.title || "New Entry"),
         content: String(p.content || ""),
@@ -313,10 +313,24 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
         importance: String(p.importance || "medium"),
         mood: p.mood ? String(p.mood) : null,
         xp_earned: xp,
-      });
+      }).select("id").single();
       if (error) throw error;
       await awardXP(sb, userId, xp);
       await logActivity(sb, userId, "journal_created", `Journal: ${String(p.title || "New Entry")}`, xp);
+
+      // After successful journal entry insert, tag emotions asynchronously
+      if (newEntry?.id) {
+        (async () => {
+          try {
+            await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-emotion-tag`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json", Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
+              body: JSON.stringify({ journal_entry_id: newEntry.id, content: p.content ?? p.title ?? "", user_id: userId }),
+            });
+          } catch { /* non-critical */ }
+        })();
+      }
+
       return;
     }
 

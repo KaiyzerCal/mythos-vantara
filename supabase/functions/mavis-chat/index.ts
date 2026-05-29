@@ -42,7 +42,7 @@ const DEV_MODE = BOUND_OPERATORS["__DEV_MODE__"] !== undefined && Object.keys(BO
 // Grok     → WATCHTOWER, COURT, real-time intel
 // OpenAI   → PRIME, QUEST, FORGE, ENRYU, default
 // ============================================================
-type Provider = "claude" | "grok" | "openai";
+type Provider = "claude" | "grok" | "openai" | "gemini";
 
 function routeToProvider(mode: string, message: string): Provider {
   const m = mode?.toUpperCase();
@@ -55,6 +55,7 @@ function routeToProvider(mode: string, message: string): Provider {
     "election", "weather",
   ];
   if (realtimeTriggers.some((t) => lower.includes(t))) return "grok";
+  if (m === "DEEP") return "gemini"; // thinking mode stays on Gemini
   return "openai";
 }
 
@@ -148,19 +149,23 @@ async function callGrok(messages: any[], system: string, key: string): Promise<s
   return d.choices?.[0]?.message?.content ?? "";
 }
 
-async function callGemini(messages: any[], system: string, key: string): Promise<string> {
+async function callGemini(messages: any[], system: string, key: string, opts: { thinking?: boolean; grounding?: boolean; codeExec?: boolean } = {}): Promise<string> {
   const contents = messages.map((m: any) => ({
     role: m.role === "user" ? "user" : "model",
     parts: [{ text: typeof m.content === "string" ? m.content : JSON.stringify(m.content) }],
   }));
-  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${key}`, {
+  const body: any = {
+    systemInstruction: { parts: [{ text: system }] },
+    contents,
+    generationConfig: { maxOutputTokens: opts.thinking ? 16384 : 4096 },
+  };
+  if (opts.thinking) body.generationConfig.thinkingConfig = { thinkingBudget: 8192 };
+  if (opts.grounding && !opts.thinking) body.tools = [{ googleSearch: {} }];
+  else if (opts.codeExec && !opts.thinking) body.tools = [{ codeExecution: {} }];
+  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${key}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      systemInstruction: { parts: [{ text: system }] },
-      contents,
-      generationConfig: { maxOutputTokens: 4096 },
-    }),
+    body: JSON.stringify(body),
   });
   if (!res.ok) {
     const errText = await res.text();
@@ -169,7 +174,8 @@ async function callGemini(messages: any[], system: string, key: string): Promise
     throw new Error(`Gemini API ${res.status}: ${errText}`);
   }
   const d = await res.json();
-  return d.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
+  const parts: any[] = d.candidates?.[0]?.content?.parts ?? [];
+  return parts.filter((p: any) => p.text && !p.thought).map((p: any) => p.text).join("") || "";
 }
 
 // Cascade order (cheapest/free → premium):
@@ -186,13 +192,20 @@ async function callWithFallback(
   system: string,
   keys: { openai: string; claude: string; grok: string; gemini: string },
   useThinking = false,
+  mode = "PRIME",
 ): Promise<{ content: string; provider: string }> {
   // Tier 0 — Free Gemini (always attempted first)
   if (keys.gemini) {
     try {
-      return { content: await callGemini(messages, system, keys.gemini), provider: "gemini-flash" };
+      const mU = mode.toUpperCase();
+      const geminiOpts = {
+        thinking: mU === "DEEP",
+        grounding: ["WATCHTOWER", "GROUNDED"].includes(mU),
+        codeExec: ["DATA", "CODEX", "RESEARCH"].includes(mU),
+      };
+      return { content: await callGemini(messages, system, keys.gemini, geminiOpts), provider: geminiOpts.thinking ? "gemini-2.5-thinking" : "gemini-2.5-flash" };
     } catch (err: any) {
-      console.warn(`[fallback] Gemini Flash failed (${err.message}) → cascading to mode provider`);
+      console.warn(`[fallback] Gemini 2.5 Flash failed (${err.message}) → cascading`);
     }
   }
 
@@ -398,7 +411,7 @@ async function callClaudeStream(messages: any[], system: string, key: string, mo
   return claudeSseToTextStream(res.body!);
 }
 
-function geminiSseToTextStream(body: ReadableStream<Uint8Array>): ReadableStream<string> {
+function geminiSseToTextStream(body: ReadableStream<Uint8Array>, filterThoughts = false): ReadableStream<string> {
   const decoder = new TextDecoder();
   const reader  = body.getReader();
   let buf = "";
@@ -421,8 +434,12 @@ function geminiSseToTextStream(body: ReadableStream<Uint8Array>): ReadableStream
             if (data === "[DONE]") { controller.close(); return; }
             try {
               const j = JSON.parse(data);
-              const t = j.candidates?.[0]?.content?.parts?.[0]?.text;
-              if (t) controller.enqueue(t);
+              const rawParts: any[] = j.candidates?.[0]?.content?.parts ?? [];
+              for (const p of rawParts) {
+                if (!p.text) continue;
+                if (filterThoughts && p.thought) continue;
+                controller.enqueue(p.text);
+              }
             } catch { /* skip malformed */ }
           }
         }
@@ -431,8 +448,12 @@ function geminiSseToTextStream(body: ReadableStream<Uint8Array>): ReadableStream
           if (data && data !== "[DONE]") {
             try {
               const j = JSON.parse(data);
-              const t = j.candidates?.[0]?.content?.parts?.[0]?.text;
-              if (t) controller.enqueue(t);
+              const rawParts: any[] = j.candidates?.[0]?.content?.parts ?? [];
+              for (const p of rawParts) {
+                if (!p.text) continue;
+                if (filterThoughts && p.thought) continue;
+                controller.enqueue(p.text);
+              }
             } catch { /* skip */ }
           }
         }
@@ -445,26 +466,31 @@ function geminiSseToTextStream(body: ReadableStream<Uint8Array>): ReadableStream
   });
 }
 
-async function callGeminiStream(messages: any[], system: string, key: string): Promise<ReadableStream<string>> {
+async function callGeminiStream(messages: any[], system: string, key: string, opts: { thinking?: boolean; grounding?: boolean; codeExec?: boolean } = {}): Promise<ReadableStream<string>> {
   const contents = messages.map((m: any) => ({
     role: m.role === "user" ? "user" : "model",
     parts: [{ text: typeof m.content === "string" ? m.content : JSON.stringify(m.content) }],
   }));
-  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:streamGenerateContent?key=${key}&alt=sse`, {
+  const body: any = {
+    systemInstruction: { parts: [{ text: system }] },
+    contents,
+    generationConfig: { maxOutputTokens: opts.thinking ? 16384 : 4096 },
+  };
+  if (opts.thinking) body.generationConfig.thinkingConfig = { thinkingBudget: 8192 };
+  if (opts.grounding && !opts.thinking) body.tools = [{ googleSearch: {} }];
+  else if (opts.codeExec && !opts.thinking) body.tools = [{ codeExecution: {} }];
+  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:streamGenerateContent?key=${key}&alt=sse`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      systemInstruction: { parts: [{ text: system }] },
-      contents,
-      generationConfig: { maxOutputTokens: 4096 },
-    }),
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(60000),
   });
   if (!res.ok) {
-    const e = await res.text();
+    const e = await res.text().catch(() => "");
     if (res.status === 429 || res.status === 403) throw new ProviderUnavailableError("gemini", e.slice(0, 200), res.status);
-    throw new Error(`Gemini ${res.status}: ${e}`);
+    throw new Error(`Gemini stream ${res.status}: ${e.slice(0, 200)}`);
   }
-  return geminiSseToTextStream(res.body!);
+  return geminiSseToTextStream(res.body!, opts.thinking);
 }
 
 async function callGrokStream(messages: any[], system: string, key: string): Promise<ReadableStream<string>> {
@@ -487,11 +513,20 @@ async function callWithFallbackStream(
   system: string,
   keys: { openai: string; claude: string; grok: string; gemini: string },
   useThinking = false,
+  mode = "PRIME",
 ): Promise<{ stream: ReadableStream<string>; provider: string }> {
   // Tier 0 — Free Gemini (always attempted first)
   if (keys.gemini) {
-    try { return { stream: await callGeminiStream(messages, system, keys.gemini), provider: "gemini-flash" }; }
-    catch (e: any) { console.warn(`[stream-fallback] Gemini Flash: ${e.message} → cascading to mode provider`); }
+    try {
+      const mU = mode.toUpperCase();
+      const geminiOpts = {
+        thinking: mU === "DEEP",
+        grounding: ["WATCHTOWER", "GROUNDED"].includes(mU),
+        codeExec: ["DATA", "CODEX", "RESEARCH"].includes(mU),
+      };
+      return { stream: await callGeminiStream(messages, system, keys.gemini, geminiOpts), provider: geminiOpts.thinking ? "gemini-2.5-thinking" : "gemini-2.5-flash" };
+    }
+    catch (e: any) { console.warn(`[stream-fallback] Gemini 2.5 Flash: ${e.message} → cascading to mode provider`); }
   }
   // Tier 1 — Mode-designated provider
   if (primary === "claude" && keys.claude) {
@@ -1321,7 +1356,7 @@ You always know the current date and time without being told. Reference it natur
           let accumulated = "";
           try {
             const { stream: aiStream, provider: streamProv } = await callWithFallbackStream(
-              provider, callMessages, fullPrompt, aiKeys, useThinking,
+              provider, callMessages, fullPrompt, aiKeys, useThinking, modeUpper,
             );
             const reader = aiStream.getReader();
             while (true) {
@@ -1466,6 +1501,7 @@ You always know the current date and time without being told. Reference it natur
       fullPrompt,
       aiKeys,
       useThinking,
+      modeUpper,
     );
 
     // ── Tacit learning (non-blocking) ───────────────────────

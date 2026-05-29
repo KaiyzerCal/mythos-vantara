@@ -13,7 +13,8 @@ export type MavisMode =
   | "REFLECT"
   | "SALES"
   | "MARKET"
-  | "DATA";
+  | "DATA"
+  | "GAME_MASTER";
 
 export interface MavisMessage {
   id: string;

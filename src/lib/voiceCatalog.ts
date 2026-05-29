@@ -1,10 +1,12 @@
 // Curated voice catalog used across Council, Persona, and MAVIS chats.
 //
-// Two providers:
+// Three providers:
 //   • Browser (FREE) — uses the OS's built-in neural voices via Web Speech API.
 //     IDs are prefixed with "browser:" plus optional name hints. The actual
 //     voice picked depends on what the user's OS / browser provides.
 //   • ElevenLabs (Premium, requires credits) — preset voice IDs.
+//   • Cartesia (Fast, requires VITE_CARTESIA_API_KEY) — ultra-low-latency
+//     Sonic model. IDs are either "sonic" or standard UUIDs.
 //
 // Defaults point at browser voices so playback works at zero cost.
 
@@ -15,7 +17,7 @@ export interface VoiceOption {
   name: string;
   gender: VoiceGender;
   description: string;
-  provider: "browser" | "elevenlabs";
+  provider: "browser" | "elevenlabs" | "cartesia";
 }
 
 const browser = (
@@ -44,6 +46,19 @@ const eleven = (
   provider: "elevenlabs",
 });
 
+const cartesia = (
+  id: string,
+  name: string,
+  gender: VoiceGender,
+  description: string,
+): VoiceOption => ({
+  id,
+  name,
+  gender,
+  description,
+  provider: "cartesia",
+});
+
 export const VOICE_CATALOG: VoiceOption[] = [
   // ── Browser (FREE) — neural where the OS supports it ────
   browser("aria",     "Aria (Free)",     "female", "Best available female neural voice on your device"),
@@ -65,6 +80,11 @@ export const VOICE_CATALOG: VoiceOption[] = [
   eleven("bIHbv24MWmeRgasZH58o", "Will (Premium)",     "male", "Energetic young American — ElevenLabs"),
   eleven("N2lVS1w4EtoT3dr4eOWO", "Callum (Premium)",   "male", "Intense, raspy character — ElevenLabs"),
   eleven("IKne3meq5aSn9XLyUdCD", "Charlie (Premium)",  "male", "Natural Australian — ElevenLabs"),
+
+  // ── Cartesia Sonic (Fast, requires VITE_CARTESIA_API_KEY) ───────────────
+  cartesia("sonic",                                  "Sonic (Fast)",            "female", "Ultra-fast neutral — Cartesia Sonic default"),
+  cartesia("79a125e8-cd45-4c13-8a67-188112f4dd22",  "Barbershop Man (Fast)",   "male",   "Warm, rich male — Cartesia"),
+  cartesia("a0e99841-438c-4a64-b679-ae501e7d6091",  "Alabaster Dusk (Fast)",   "female", "Rich, expressive female — Cartesia"),
 
   // ── ElevenLabs (Premium, requires credits) — Female ─────
   eleven("EXAVITQu4vr4xnSDxMaL", "Sarah (Premium)",    "female", "Soft, professional American — ElevenLabs"),
@@ -93,6 +113,11 @@ export function voicesByGender(gender: VoiceGender): VoiceOption[] {
 
 export function isBrowserVoice(id?: string | null): boolean {
   return !!id && id.startsWith("browser:");
+}
+export function isCartesiaVoice(id: string | null | undefined): boolean {
+  if (!id) return false;
+  // Cartesia voice IDs are UUIDs or the "sonic" special ID
+  return id === "sonic" || /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
 }
 export function browserVoiceHint(id: string): string {
   return id.replace(/^browser:/, "");

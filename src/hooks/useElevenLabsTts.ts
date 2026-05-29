@@ -15,6 +15,7 @@ import {
   DEFAULT_VOICE_BY_GENDER,
   browserVoiceHint,
   isBrowserVoice,
+  isCartesiaVoice,
   type VoiceGender,
 } from "@/lib/voiceCatalog";
 
@@ -214,7 +215,42 @@ export function useElevenLabsTts() {
         return;
       }
 
-      // ── 2) ElevenLabs (premium) ─────────────────────────────────────────
+      // ── 2) Cartesia Sonic (ultra-low-latency) ────────────────────────────
+      if (isCartesiaVoice(voiceId)) {
+        const cartesiaKey = (import.meta as any).env?.VITE_CARTESIA_API_KEY ?? "";
+        if (cartesiaKey) {
+          try {
+            const cartesiaRes = await fetch("https://api.cartesia.ai/tts/bytes", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                "X-API-Key": cartesiaKey,
+                "Cartesia-Version": "2025-04-16",
+              },
+              body: JSON.stringify({
+                model_id: "sonic-2",
+                transcript: cleaned.slice(0, 2000),
+                voice: { mode: "id", id: voiceId },
+                output_format: { container: "mp3", encoding: "mp3", sample_rate: 44100 },
+                language: "en",
+              }),
+            });
+            if (cartesiaRes.ok) {
+              const arrayBuffer = await cartesiaRes.arrayBuffer();
+              const b64 = btoa(String.fromCharCode(...new Uint8Array(arrayBuffer)));
+              if (!cancelledRef.current) await playBase64(b64);
+              return;
+            }
+          } catch (e) {
+            console.warn("Cartesia TTS failed, falling back:", e);
+          }
+        }
+        // Cartesia key not set — fall through to browser TTS
+        await speakBrowser(cleaned, gender, "aria", options.speed ?? 0.96);
+        return;
+      }
+
+      // ── 3) ElevenLabs (premium) ─────────────────────────────────────────
       const { data, error } = await supabase.functions.invoke("mavis-tts", {
         body: {
           text: cleaned,

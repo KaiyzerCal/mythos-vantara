@@ -57,6 +57,15 @@ export function VoiceChatOverlay({
   const replyScrollRef = useRef<HTMLDivElement>(null);
   const spokenWordRef = useRef<HTMLSpanElement>(null);
 
+  // Live Voice state
+  const [liveMode, setLiveMode] = useState(false);
+  const liveWsRef = useRef<WebSocket | null>(null);
+  const liveAudioContextRef = useRef<AudioContext | null>(null);
+  const liveAudioQueueRef = useRef<AudioBuffer[]>([]);
+  const livePlayingRef = useRef(false);
+  const liveMicStreamRef = useRef<MediaStream | null>(null);
+  const liveScriptProcessorRef = useRef<ScriptProcessorNode | null>(null);
+
   const effectiveLoading = persona ? personaLoading : isLoading;
   const effectiveReply   = persona ? personaReply   : lastBotMessage;
 
@@ -261,6 +270,118 @@ export function VoiceChatOverlay({
   }, []);
 
 
+  // ── Live Voice helpers ────────────────────────────────────────
+  const playNextAudioChunk = useCallback(() => {
+    const audioCtx = liveAudioContextRef.current;
+    const queue = liveAudioQueueRef.current;
+    if (!audioCtx || queue.length === 0) { livePlayingRef.current = false; return; }
+    livePlayingRef.current = true;
+    const source = audioCtx.createBufferSource();
+    source.buffer = queue.shift()!;
+    source.connect(audioCtx.destination);
+    source.onended = playNextAudioChunk;
+    source.start();
+  }, []);
+
+  const connectLiveVoice = useCallback(async () => {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.access_token) return;
+
+    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+    const wsUrl = supabaseUrl
+      .replace("https://", "wss://")
+      .replace("http://", "ws://");
+
+    const systemParam = encodeURIComponent("You are MAVIS, a sovereign AI life OS.");
+    const ws = new WebSocket(
+      `${wsUrl}/functions/v1/mavis-live-voice?system=${systemParam}`,
+    );
+
+    // Attach bearer token via a sub-protocol trick isn't possible for Supabase edge
+    // functions behind the standard WS upgrade — send it as the first message instead.
+    ws.onopen = async () => {
+      liveWsRef.current = ws;
+      // Authenticate: send bearer token as first message
+      ws.send(JSON.stringify({ type: "auth", token: session.access_token }));
+
+      // Start capturing mic audio and streaming PCM chunks
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        liveMicStreamRef.current = stream;
+        const audioCtx = liveAudioContextRef.current ??= new AudioContext({ sampleRate: 16000 });
+        const source = audioCtx.createMediaStreamSource(stream);
+        // ScriptProcessor is deprecated but has the widest support without extra deps
+        const processor = audioCtx.createScriptProcessor(4096, 1, 1);
+        liveScriptProcessorRef.current = processor;
+        processor.onaudioprocess = (e) => {
+          if (ws.readyState !== WebSocket.OPEN) return;
+          const inputData = e.inputBuffer.getChannelData(0);
+          // Convert Float32 PCM → Int16 PCM
+          const pcm16 = new Int16Array(inputData.length);
+          for (let i = 0; i < inputData.length; i++) {
+            const s = Math.max(-1, Math.min(1, inputData[i]));
+            pcm16[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
+          }
+          // Base64-encode and send
+          const bytes = new Uint8Array(pcm16.buffer);
+          let binary = "";
+          for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i]);
+          ws.send(JSON.stringify({ type: "audio_chunk", data: btoa(binary) }));
+        };
+        source.connect(processor);
+        processor.connect(audioCtx.destination);
+      } catch { /* mic access denied — live mode still works for text */ }
+    };
+
+    ws.onmessage = async (event) => {
+      try {
+        const msg = JSON.parse(event.data);
+        if (msg.type === "audio" && msg.data) {
+          const audioData = Uint8Array.from(atob(msg.data), (c) => c.charCodeAt(0));
+          const audioCtx = liveAudioContextRef.current ??= new AudioContext({ sampleRate: 24000 });
+          try {
+            const buffer = await audioCtx.decodeAudioData(audioData.buffer);
+            liveAudioQueueRef.current.push(buffer);
+            if (!livePlayingRef.current) playNextAudioChunk();
+          } catch { /* skip bad chunks */ }
+        }
+        if (msg.type === "text" && msg.content) {
+          setDisplayedReply((prev) => prev + msg.content);
+        }
+        if (msg.type === "turn_complete") {
+          // Response finished — noop, audio queue drains naturally
+        }
+        if (msg.type === "ready") {
+          setPhase("listening");
+        }
+      } catch { /* skip malformed */ }
+    };
+
+    ws.onclose = () => {
+      liveWsRef.current = null;
+      setLiveMode(false);
+      setPhase("idle");
+    };
+  }, [playNextAudioChunk]);
+
+  const disconnectLiveVoice = useCallback(() => {
+    // Stop mic capture
+    if (liveScriptProcessorRef.current) {
+      liveScriptProcessorRef.current.disconnect();
+      liveScriptProcessorRef.current = null;
+    }
+    if (liveMicStreamRef.current) {
+      liveMicStreamRef.current.getTracks().forEach((t) => t.stop());
+      liveMicStreamRef.current = null;
+    }
+    liveWsRef.current?.close();
+    liveWsRef.current = null;
+    liveAudioContextRef.current?.close().catch(() => {});
+    liveAudioContextRef.current = null;
+    livePlayingRef.current = false;
+    liveAudioQueueRef.current = [];
+  }, []);
+
   const startListening = useCallback(() => {
     const SpeechRecognition =
       (window as any).SpeechRecognition ||
@@ -420,11 +541,11 @@ export function VoiceChatOverlay({
     setPhase("listening");
   }, [sendPersonaMessage]);
 
-  // Auto-restart after speaking finishes
+  // Auto-restart after speaking finishes (skip in live mode — WS handles it)
   useEffect(() => {
-    if (phase === "idle" && !closingRef.current) {
+    if (phase === "idle" && !closingRef.current && !liveMode) {
       autoRestartTimerRef.current = setTimeout(() => {
-        if (!closingRef.current) startListening();
+        if (!closingRef.current && !liveMode) startListening();
       }, 1000);
     }
     return () => {
@@ -433,7 +554,7 @@ export function VoiceChatOverlay({
         autoRestartTimerRef.current = null;
       }
     };
-  }, [phase, startListening]);
+  }, [phase, liveMode, startListening]);
 
   const handleClose = useCallback(() => {
     closingRef.current = true;
@@ -441,9 +562,10 @@ export function VoiceChatOverlay({
     if (karaokeTickRef.current) clearTimeout(karaokeTickRef.current);
     if (resumeKeepAliveRef.current) clearInterval(resumeKeepAliveRef.current);
     stopListening();
+    disconnectLiveVoice();
     if (window.speechSynthesis) window.speechSynthesis.cancel();
     onClose();
-  }, [onClose, stopListening]);
+  }, [onClose, stopListening, disconnectLiveVoice]);
 
   // Warm up voices list on mount (Chrome lazy-loads them)
   useEffect(() => {
@@ -453,6 +575,13 @@ export function VoiceChatOverlay({
   }, []);
 
   const handleOrbOrMicTap = useCallback(() => {
+    if (liveMode) {
+      // In live mode, tapping sends an interrupt signal
+      if (liveWsRef.current?.readyState === WebSocket.OPEN) {
+        liveWsRef.current.send(JSON.stringify({ type: "interrupt" }));
+      }
+      return;
+    }
     if (phase === "idle") startListening();
     else if (phase === "listening") {
       if (recognitionRef.current) recognitionRef.current.stop();
@@ -460,7 +589,7 @@ export function VoiceChatOverlay({
       if (window.speechSynthesis) window.speechSynthesis.cancel();
       setPhase("idle");
     }
-  }, [phase, startListening]);
+  }, [phase, liveMode, startListening]);
 
   const phaseLabel: Record<Phase, string> = {
     idle: "TAP TO SPEAK",
@@ -493,10 +622,25 @@ export function VoiceChatOverlay({
         <X size={20} />
       </button>
 
-      {/* Speaker label */}
-      <div className="absolute top-5 left-6">
-        <p className="text-xs font-mono font-bold text-primary tracking-widest">{speakerName}</p>
-        {speakerRole && <p className="text-[10px] font-mono text-muted-foreground">{speakerRole}</p>}
+      {/* Speaker label + Live toggle */}
+      <div className="absolute top-5 left-6 flex items-center gap-2">
+        <div>
+          <p className="text-xs font-mono font-bold text-primary tracking-widest">{speakerName}</p>
+          {speakerRole && <p className="text-[10px] font-mono text-muted-foreground">{speakerRole}</p>}
+        </div>
+        <button
+          onClick={() => {
+            if (!liveMode) { setLiveMode(true); connectLiveVoice(); }
+            else { disconnectLiveVoice(); setLiveMode(false); }
+          }}
+          className={`text-[10px] font-mono px-2 py-0.5 rounded-full border transition-all ${
+            liveMode
+              ? "bg-neon-gold/20 border-neon-gold/50 text-neon-gold"
+              : "bg-white/5 border-white/10 text-white/30 hover:text-white/60"
+          }`}
+        >
+          {liveMode ? "● LIVE" : "LIVE"}
+        </button>
       </div>
 
       {/* Orb */}
