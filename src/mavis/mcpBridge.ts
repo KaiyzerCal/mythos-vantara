@@ -39,6 +39,8 @@ export const MCP_SERVERS: Record<string, McpServer> = {
   metamcp:    { name: "metamcp",    port: 3000, healthPath: "/api/health" },
   n8n:        { name: "n8n",        port: 5678, healthPath: "/healthz" },
   sequential: { name: "sequential", port: 3010 },
+  outstand:   { name: "outstand",   port: 9000, baseUrl: "https://mcp.outstand.com",   healthPath: "/health" },
+  screenpipe: { name: "screenpipe", port: 3030, healthPath: "/health" },
 };
 
 // ── Health cache (avoid hammering closed ports) ───────────────────────────────
@@ -118,4 +120,33 @@ export function mcpResultText(result: McpToolResult): string {
     .map(c => c.text ?? "")
     .join("\n")
     .trim();
+}
+
+// ── Social content convenience ────────────────────────────────────────────────
+
+/**
+ * Route a social content request through Outstand MCP or fall back to direct API.
+ * Returns an empty string when the MCP server is unavailable — callers should
+ * use MAVIS AI generation as their fallback in that case.
+ */
+export async function createSocialContent(
+  platform: string,
+  topic: string,
+  brandVoice?: string,
+): Promise<string> {
+  const server = MCP_SERVERS.outstand;
+  const alive = await isMcpServerAlive(server);
+
+  if (alive) {
+    try {
+      const result = await callMcpTool(server, {
+        name: "create_content",
+        arguments: { platform, topic, brand_voice: brandVoice ?? "professional" },
+      });
+      return mcpResultText(result);
+    } catch { /* fall through */ }
+  }
+
+  // Return empty string — caller will use MAVIS AI generation as fallback
+  return "";
 }
