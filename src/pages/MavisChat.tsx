@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { Send, Square, Cpu, Copy, Check, ChevronDown, Zap, Brain, Target, Crown, Flame, Database, Mic, MicOff, Users, Search, FileCode, X, Download } from "lucide-react";
+import { Send, Square, Cpu, Copy, Check, ChevronDown, Zap, Brain, Target, Crown, Flame, Database, Mic, MicOff, Users, Search, FileCode, X, Download, Gamepad2, Layers } from "lucide-react";
 import { useAppData } from "@/contexts/AppDataContext";
 import { supabase as _supabase } from "@/integrations/supabase/client";
 const supabase = _supabase as any;
@@ -47,7 +47,9 @@ const MAVIS_MODES = [
   { id: "REFLECT",    label: "REFLECT",    icon: FileCode, color: "text-teal-400",     desc: "Claude Sonnet · Full system audit & review" },
   { id: "SALES",      label: "SALES",      icon: Users,    color: "text-green-400",    desc: "GPT-4o-mini · Pipeline & outreach intelligence" },
   { id: "MARKET",     label: "MARKET",     icon: Zap,      color: "text-pink-400",     desc: "GPT-4o-mini · Content & brand (Nora Vale)" },
-  { id: "DATA",       label: "DATA",       icon: Database, color: "text-blue-400",     desc: "Claude Sonnet · Metrics & analytics" },
+  { id: "DATA",        label: "DATA",        icon: Database,  color: "text-blue-400",    desc: "Claude Sonnet · Metrics & analytics" },
+  { id: "DEEP",        label: "DEEP",        icon: Layers,    color: "text-indigo-400",  desc: "Gemini 2.5 Flash · Extended thinking (8K budget)" },
+  { id: "GAME_MASTER", label: "GAME MASTER", icon: Gamepad2,  color: "text-violet-400",  desc: "Gemini 2.5 · Narrative arcs & consequence engine" },
 ];
 
 const QUICK_PROMPTS = [
