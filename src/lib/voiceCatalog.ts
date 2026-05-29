@@ -1,12 +1,16 @@
 // Curated voice catalog used across Council, Persona, and MAVIS chats.
 //
-// Three providers:
+// Five providers:
 //   • Browser (FREE) — uses the OS's built-in neural voices via Web Speech API.
 //     IDs are prefixed with "browser:" plus optional name hints. The actual
 //     voice picked depends on what the user's OS / browser provides.
 //   • ElevenLabs (Premium, requires credits) — preset voice IDs.
 //   • Cartesia (Fast, requires VITE_CARTESIA_API_KEY) — ultra-low-latency
 //     Sonic model. IDs are either "sonic" or standard UUIDs.
+//   • PersonaPlex (NVIDIA NIM, requires VITE_NVIDIA_API_KEY) — full-duplex
+//     persona voice synthesis. IDs are prefixed with "personaplex:".
+//   • Kyutai (local/edge, MIT license) — 100M param on-device TTS.
+//     IDs are prefixed with "kyutai:".
 //
 // Defaults point at browser voices so playback works at zero cost.
 
@@ -17,7 +21,7 @@ export interface VoiceOption {
   name: string;
   gender: VoiceGender;
   description: string;
-  provider: "browser" | "elevenlabs" | "cartesia";
+  provider: "browser" | "elevenlabs" | "cartesia" | "personaplex" | "kyutai";
 }
 
 const browser = (
@@ -59,6 +63,32 @@ const cartesia = (
   provider: "cartesia",
 });
 
+const personaplex = (
+  id: string,
+  name: string,
+  gender: VoiceGender,
+  description: string,
+): VoiceOption => ({
+  id: `personaplex:${id}`,
+  name,
+  gender,
+  description,
+  provider: "personaplex",
+});
+
+const kyutai = (
+  id: string,
+  name: string,
+  gender: VoiceGender,
+  description: string,
+): VoiceOption => ({
+  id: `kyutai:${id}`,
+  name,
+  gender,
+  description,
+  provider: "kyutai",
+});
+
 export const VOICE_CATALOG: VoiceOption[] = [
   // ── Browser (FREE) — neural where the OS supports it ────
   browser("aria",     "Aria (Free)",     "female", "Best available female neural voice on your device"),
@@ -85,6 +115,15 @@ export const VOICE_CATALOG: VoiceOption[] = [
   cartesia("sonic",                                  "Sonic (Fast)",            "female", "Ultra-fast neutral — Cartesia Sonic default"),
   cartesia("79a125e8-cd45-4c13-8a67-188112f4dd22",  "Barbershop Man (Fast)",   "male",   "Warm, rich male — Cartesia"),
   cartesia("a0e99841-438c-4a64-b679-ae501e7d6091",  "Alabaster Dusk (Fast)",   "female", "Rich, expressive female — Cartesia"),
+
+  // ── NVIDIA PersonaPlex (requires VITE_NVIDIA_API_KEY) ────────────────────────
+  personaplex("mavis_sovereign", "MAVIS Sovereign (PersonaPlex)", "female", "MAVIS prime voice — commanding, intelligent — NVIDIA PersonaPlex"),
+  personaplex("mavis_reflect",   "MAVIS Reflect (PersonaPlex)",   "female", "Warm, empathetic — reflection and journaling mode — NVIDIA PersonaPlex"),
+  personaplex("mavis_quest",     "MAVIS Quest (PersonaPlex)",     "female", "Energetic, motivating — quest and challenge modes — NVIDIA PersonaPlex"),
+
+  // ── Kyutai Pocket TTS (local/edge, MIT license) ──────────────────────────────
+  kyutai("default-female", "MAVIS Local (Kyutai)",   "female", "100M param on-device TTS — zero latency, zero API cost — Kyutai Pocket"),
+  kyutai("default-male",   "Council Local (Kyutai)", "male",   "On-device male voice — no internet required — Kyutai Pocket"),
 
   // ── ElevenLabs (Premium, requires credits) — Female ─────
   eleven("EXAVITQu4vr4xnSDxMaL", "Sarah (Premium)",    "female", "Soft, professional American — ElevenLabs"),
@@ -118,6 +157,12 @@ export function isCartesiaVoice(id: string | null | undefined): boolean {
   if (!id) return false;
   // Cartesia voice IDs are UUIDs or the "sonic" special ID
   return id === "sonic" || /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
+}
+export function isPersonaplexVoice(id: string | null | undefined): boolean {
+  return !!id && id.startsWith("personaplex:");
+}
+export function isKyutaiVoice(id: string | null | undefined): boolean {
+  return !!id && id.startsWith("kyutai:");
 }
 export function browserVoiceHint(id: string): string {
   return id.replace(/^browser:/, "");

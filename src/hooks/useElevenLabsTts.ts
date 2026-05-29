@@ -16,6 +16,8 @@ import {
   browserVoiceHint,
   isBrowserVoice,
   isCartesiaVoice,
+  isPersonaplexVoice,
+  isKyutaiVoice,
   type VoiceGender,
 } from "@/lib/voiceCatalog";
 
@@ -250,7 +252,65 @@ export function useElevenLabsTts() {
         return;
       }
 
-      // ── 3) ElevenLabs (premium) ─────────────────────────────────────────
+      // ── 3) PersonaPlex provider (NVIDIA, ultra-low-latency persona voices) ─
+      if (isPersonaplexVoice(voiceId)) {
+        const personaId = voiceId.replace("personaplex:", "");
+        try {
+          const supabaseUrl = (import.meta as any).env?.VITE_SUPABASE_URL ?? "";
+          const { data: { session: ps } } = await supabase.auth.getSession();
+          if (supabaseUrl && ps?.access_token) {
+            const res = await fetch(`${supabaseUrl}/functions/v1/mavis-personaplex`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json", Authorization: `Bearer ${ps.access_token}` },
+              body: JSON.stringify({ text: cleaned, voice_persona: personaId, format: "mp3" }),
+            });
+            if (res.ok) {
+              const arrayBuf = await res.arrayBuffer();
+              const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+              const decoded = await audioCtx.decodeAudioData(arrayBuf);
+              const source = audioCtx.createBufferSource();
+              source.buffer = decoded;
+              source.connect(audioCtx.destination);
+              source.start(0);
+              source.onended = () => { setIsSpeaking(false); };
+              return;
+            }
+          }
+        } catch (e) { console.warn("PersonaPlex TTS failed, falling back:", e); }
+        // Fall through to browser TTS
+        await speakBrowser(cleaned, gender, "aria", options.speed ?? 0.96);
+        return;
+      }
+
+      // ── 4) Kyutai Pocket TTS (local on-device, MIT license) ────────────────
+      if (isKyutaiVoice(voiceId)) {
+        const kyutaiPort = (import.meta as any).env?.VITE_KYUTAI_PORT ?? "8080";
+        const kyutaiVoiceId = voiceId.replace("kyutai:", "");
+        try {
+          const res = await fetch(`http://localhost:${kyutaiPort}/tts`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ text: cleaned, voice: kyutaiVoiceId, format: "wav" }),
+            signal: AbortSignal.timeout(5000),
+          });
+          if (res.ok) {
+            const arrayBuf = await res.arrayBuffer();
+            const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+            const decoded = await audioCtx.decodeAudioData(arrayBuf);
+            const source = audioCtx.createBufferSource();
+            source.buffer = decoded;
+            source.connect(audioCtx.destination);
+            source.start(0);
+            source.onended = () => { setIsSpeaking(false); };
+            return;
+          }
+        } catch { /* Kyutai not running, fall through */ }
+        // Fall through to browser TTS
+        await speakBrowser(cleaned, gender, "aria", options.speed ?? 0.96);
+        return;
+      }
+
+      // ── 5) ElevenLabs (premium) ─────────────────────────────────────────
       const { data, error } = await supabase.functions.invoke("mavis-tts", {
         body: {
           text: cleaned,
