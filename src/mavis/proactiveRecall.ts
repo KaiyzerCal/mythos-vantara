@@ -133,10 +133,32 @@ export async function buildRecallContext(
     recallSemanticMemories(userId, userMessage, topK),
   ]);
 
+  // Stage 3: Mem0 API search (if configured)
+  let mem0Memories: RecalledMemory[] = [];
+  try {
+    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+    const { data: { session: s3 } } = await _supabase.auth.getSession();
+    if (s3?.access_token && supabaseUrl) {
+      const r = await fetch(`${supabaseUrl}/functions/v1/mavis-mem0`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${s3.access_token}` },
+        body: JSON.stringify({ action: "search", user_id: userId, query: userMessage, limit: topK }),
+      });
+      if (r.ok) {
+        const d = await r.json();
+        mem0Memories = (d.results ?? []).map((m: any) => ({
+          content: String(m.memory ?? "").slice(0, 200),
+          source: "cloud" as const,
+          relevanceScore: m.score ?? 0.6,
+        }));
+      }
+    }
+  } catch { /* Mem0 unavailable */ }
+
   // Merge and deduplicate
   const seen = new Set<string>();
   const combined: RecalledMemory[] = [];
-  for (const m of [...keywordMemories, ...semanticMemories]) {
+  for (const m of [...keywordMemories, ...semanticMemories, ...mem0Memories]) {
     const key = m.content.slice(0, 80);
     if (!seen.has(key)) {
       seen.add(key);
