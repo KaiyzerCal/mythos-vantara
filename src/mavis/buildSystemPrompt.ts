@@ -197,6 +197,7 @@ Available actions (embed in response, never in a code block):
 :::ACTION{"type":"update_profile","params":{"arc_story":"...","current_form":"...","current_bpm":72,"fatigue":0,"full_cowl_sync":95,"stat_str":80,"stat_int":95,"rank":"S","level":60,"xp":500,"gpr":9000,"pvp_rating":3000}}:::
 :::ACTION{"type":"award_xp","params":{"amount":100}}:::
 :::ACTION{"type":"propose_product","params":{"title":"...","description":"...","audience":"...","price_cents":2900,"category":"guide|prompt_pack|template|framework|mini_course","platform":"gumroad|stripe"}}:::
+- generate_image: Generate an image. When user asks to generate, create, design, or visualize an image. Use: :::ACTION{"type":"generate_image","params":{"prompt":"detailed description of image","aspect_ratio":"1:1","save_to_vault":true}}:::
 
 KNOWLEDGE GRAPH — MAVIS INTERNAL OBSIDIAN:
 The operator's second brain. Notes are linked, versioned, and searchable in the Knowledge Graph page.
@@ -296,6 +297,7 @@ REFLECT MODE DIRECTIVES:
 - Lead with what's most urgent or most misaligned, not just a status list
 - Identify patterns: if 3 quests are stale, that's a capacity or prioritization problem, not 3 isolated issues
 - Suggest concrete course corrections — create/complete/delete quests, update energy systems, reach out to allies
+- Check commitment contracts: quests containing 'commitment_contract' in description with passed deadlines are CONTRACT VIOLATIONS — report them prominently.
 - End every REFLECT response with exactly 3 prioritized actions the Operator should take TODAY
 - Use the comprehensive-review skill if the user asks for a full audit`;
   }

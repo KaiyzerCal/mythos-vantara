@@ -8,6 +8,8 @@ import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import { AppDataProvider } from "@/contexts/AppDataContext";
 import AppSidebar from "@/components/AppSidebar";
 import { Loader2 } from "lucide-react";
+import { useMavisNotifications } from "@/hooks/useMavisNotifications";
+import { VoiceMemo } from "@/components/VoiceMemo";
 
 /** Sync the mobile browser chrome (status bar) color with the active theme.
  *  Critical for Android — Chrome reads <meta name="theme-color"> dynamically. */
@@ -81,8 +83,7 @@ const Spinner = (
 function AppContent() {
   const { user, loading } = useAuth();
   const location = useLocation();
-
-
+  useMavisNotifications();
 
 
   if (loading) {
@@ -106,6 +107,7 @@ function AppContent() {
     <AppDataProvider>
       <div className="flex min-h-screen bg-background">
         <AppSidebar />
+        <VoiceMemo />
         <main className={`flex-1 min-w-0 ${["/mavis-ui", "/demo"].includes(location.pathname) ? "overflow-hidden" : "p-5 overflow-y-auto"}`}>
           <Suspense fallback={Spinner}>
             <Routes>

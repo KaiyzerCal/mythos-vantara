@@ -84,6 +84,40 @@ export async function recallRelevantMemories(
 }
 
 /**
+ * Semantic vector search using Gemini text-embedding-004 via edge function.
+ * Falls back gracefully if the edge function is unavailable.
+ */
+export async function recallSemanticMemories(
+  userId: string,
+  userMessage: string,
+  topK = 4,
+): Promise<RecalledMemory[]> {
+  try {
+    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+    const { data: { session } } = await _supabase.auth.getSession();
+    if (!session?.access_token || !supabaseUrl) return [];
+
+    const res = await fetch(`${supabaseUrl}/functions/v1/embed-and-search`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+      body: JSON.stringify({ query: userMessage, user_id: userId, top_k: topK }),
+    });
+
+    if (!res.ok) return [];
+    const data = await res.json();
+
+    return (data.results ?? []).map((r: any) => ({
+      content: String(r.content ?? "").slice(0, 200),
+      source: "cloud" as const,
+      relevanceScore: r.similarity ?? 0.5,
+      importance: r.importance,
+    }));
+  } catch {
+    return [];
+  }
+}
+
+/**
  * Format recalled memories as a compact context block for system prompt injection.
  * Returns null if no relevant memories found.
  */
@@ -94,7 +128,26 @@ export async function buildRecallContext(
 ): Promise<string | null> {
   if (!userMessage || userMessage.trim().length < 10) return null;
 
-  const memories = await recallRelevantMemories(userId, userMessage, topK);
+  const [keywordMemories, semanticMemories] = await Promise.all([
+    recallRelevantMemories(userId, userMessage, topK),
+    recallSemanticMemories(userId, userMessage, topK),
+  ]);
+
+  // Merge and deduplicate
+  const seen = new Set<string>();
+  const combined: RecalledMemory[] = [];
+  for (const m of [...keywordMemories, ...semanticMemories]) {
+    const key = m.content.slice(0, 80);
+    if (!seen.has(key)) {
+      seen.add(key);
+      combined.push(m);
+    }
+  }
+
+  const memories = combined
+    .sort((a, b) => b.relevanceScore - a.relevanceScore)
+    .slice(0, topK);
+
   if (memories.length === 0) return null;
 
   const lines = memories.map(m => `• ${m.content}`);

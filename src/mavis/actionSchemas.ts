@@ -101,6 +101,9 @@ export const ProposeProductSchema = z.object({
   platform: z.enum(["gumroad", "stripe"]).optional(),
 });
 
+// IMAGE GENERATION
+export const GenerateImageSchema = z.object({ type: z.literal("generate_image"), prompt: z.string().min(1), aspect_ratio: z.enum(["1:1","16:9","9:16","4:3","3:4"]).optional(), save_to_vault: z.boolean().optional() });
+
 // UNION — ALL SCHEMAS
 export const ActionSchema = z.discriminatedUnion("type", [
   CreateQuestSchema, UpdateQuestSchema, DeleteQuestSchema,
@@ -120,6 +123,7 @@ export const ActionSchema = z.discriminatedUnion("type", [
   AwardXpSchema,
   ProposeProductSchema,
   NoraTweetSchema,
+  GenerateImageSchema,
   CreateSkillDefinitionSchema,
 ]);
 

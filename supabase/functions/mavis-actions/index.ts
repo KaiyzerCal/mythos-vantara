@@ -1020,6 +1020,91 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
       return;
     }
 
+    case "generate_image":
+    case "image_gen":
+    case "create_image": {
+      const prompt = String(p.prompt ?? p.description ?? "").trim();
+      if (!prompt) throw new Error("generate_image requires a 'prompt' parameter");
+      const aspectRatio = String(p.aspect_ratio ?? "1:1");
+      const saveToVault = p.save_to_vault !== false;
+
+      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+      const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+      const geminiKey = Deno.env.get("GEMINI_API_KEY") ?? "";
+
+      let imageUrl = "";
+      let imageb64 = "";
+      let note = "";
+
+      // Try Gemini Imagen first
+      if (geminiKey) {
+        try {
+          const imgRes = await fetch(
+            `https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-generate-001:predict?key=${geminiKey}`,
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                instances: [{ prompt }],
+                parameters: { sampleCount: 1, aspectRatio },
+              }),
+            }
+          );
+          if (imgRes.ok) {
+            const imgData = await imgRes.json();
+            imageb64 = imgData?.predictions?.[0]?.bytesBase64Encoded ?? "";
+            if (imageb64) {
+              imageUrl = `data:image/png;base64,${imageb64}`;
+            }
+          }
+        } catch {
+          // fall through to vault fallback
+        }
+      }
+
+      // Fallback: save prompt to vault for manual creation
+      if (!imageUrl) {
+        note = "Image generation requires Imagen API access. Prompt saved to vault.";
+        if (saveToVault) {
+          await sb.from("vault_entries").insert({
+            user_id: userId,
+            title: `[Image Prompt] ${prompt.slice(0, 60)}`,
+            content: `**Prompt:** ${prompt}\n\n**Aspect Ratio:** ${aspectRatio}\n\n*Awaiting manual image generation.*`,
+            category: "image-prompt",
+            tags: ["image-prompt", "ai-generated"],
+            is_public: false,
+          }).catch(() => {});
+        }
+        return { note, prompt, aspect_ratio: aspectRatio };
+      }
+
+      // Upload image to vault-media storage if we have base64
+      if (saveToVault && imageb64) {
+        try {
+          const bytes = Uint8Array.from(atob(imageb64), c => c.charCodeAt(0));
+          const fileName = `mavis-gen-${Date.now()}.png`;
+          const storagePath = `${userId}/${fileName}`;
+          await sb.storage.from("vault-media").upload(storagePath, bytes.buffer, { contentType: "image/png" });
+          const { data: pubData } = sb.storage.from("vault-media").getPublicUrl(storagePath);
+          if (pubData?.publicUrl) imageUrl = pubData.publicUrl;
+          await sb.from("vault_media").insert({
+            user_id: userId,
+            file_name: fileName,
+            file_url: imageUrl,
+            file_type: "image",
+            file_size: bytes.length,
+            description: `AI-generated: ${prompt.slice(0, 120)}`,
+            tags: ["ai-generated", "mavis-gen"],
+          }).catch(() => {});
+        } catch {
+          // Keep base64 URL as fallback
+        }
+      }
+
+      await logActivity(sb, userId, "image_generated", `Generated image: ${prompt.slice(0, 60)}`, 5);
+      return { imageUrl, prompt, note };
+    }
+
     default:
       throw new Error(`Unknown MAVIS action: ${action.type}`);
   }
