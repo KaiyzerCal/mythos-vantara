@@ -104,6 +104,23 @@ export const ProposeProductSchema = z.object({
 // IMAGE GENERATION
 export const GenerateImageSchema = z.object({ type: z.literal("generate_image"), prompt: z.string().min(1), aspect_ratio: z.enum(["1:1","16:9","9:16","4:3","3:4"]).optional(), save_to_vault: z.boolean().optional() });
 
+// VIDEO GENERATION
+export const GenerateVideoSchema = z.object({
+  type: z.literal("generate_video"),
+  prompt: z.string().min(1),
+  duration: z.number().int().min(1).max(30).optional(),
+  aspect_ratio: z.enum(["16:9","9:16","1:1"]).optional(),
+  provider: z.enum(["fal","veo","omni","auto"]).optional(),
+  save_to_vault: z.boolean().optional(),
+});
+
+export const VideoStatusSchema = z.object({
+  type: z.literal("video_status"),
+  provider: z.enum(["fal","veo","omni"]),
+  request_id: z.string().optional(),
+  operation_name: z.string().optional(),
+});
+
 // PLAN-AND-EXECUTE — decompose a high-level goal into a DAG of steps via mavis-planner
 // plan_execute requires confirmation — see actionExecutor.ts ALWAYS_CONFIRM
 export const PlanExecuteSchema = z.object({
@@ -135,6 +152,8 @@ export const ActionSchema = z.discriminatedUnion("type", [
   ProposeProductSchema,
   NoraTweetSchema,
   GenerateImageSchema,
+  GenerateVideoSchema,
+  VideoStatusSchema,
   CreateSkillDefinitionSchema,
   PlanExecuteSchema,
 ]);
