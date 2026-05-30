@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { Send, Square, Cpu, Copy, Check, ChevronDown, Zap, Brain, Target, Crown, Flame, Database, Mic, MicOff, Users, Search, FileCode, X, Download, Gamepad2, Layers, Globe } from "lucide-react";
+import { Send, Square, Cpu, Copy, Check, ChevronDown, Zap, Brain, Target, Crown, Flame, Database, Mic, MicOff, Users, Search, FileCode, X, Download, Gamepad2, Layers, Globe, ThumbsUp, ThumbsDown } from "lucide-react";
 import { useAppData } from "@/contexts/AppDataContext";
 import { supabase as _supabase } from "@/integrations/supabase/client";
 const supabase = _supabase as any;
@@ -73,6 +73,7 @@ export default function MavisChat() {
   const [actionStatus, setActionStatus] = useState<string | null>(null);
   const [pendingActions, setPendingActions] = useState<ExecutionResult[]>([]);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [feedbackGiven, setFeedbackGiven] = useState<Record<string, 1 | -1>>({});
   const [showModes, setShowModes] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const [dbLoaded, setDbLoaded] = useState(false);
@@ -715,6 +716,22 @@ export default function MavisChat() {
     }
   }, [input, chatMessages, isLoading, chatMode, agentThinking, profile, quests, tasks, skills, journalEntries, vaultEntries, conversationId, setChatMessages, setConversationId, refetchAll, ensureConversation, persistMessage, saveMemoriesFromResponse, speakText, attachments]);
 
+  const sendFeedback = useCallback(async (msg: any, rating: 1 | -1) => {
+    if (feedbackGiven[msg.id]) return;
+    setFeedbackGiven((prev) => ({ ...prev, [msg.id]: rating }));
+    try {
+      await supabase.from("mavis_response_feedback").insert({
+        user_id: profile?.id,
+        message_id: msg.id,
+        conversation_id: conversationId ?? null,
+        rating,
+        provider: msg.model ?? null,
+        mode: msg.mode ?? null,
+        response_preview: (msg.content ?? "").slice(0, 200),
+      });
+    } catch { /* non-critical */ }
+  }, [feedbackGiven, profile, conversationId]);
+
   const copyMessage = (id: string, content: string) => {
     navigator.clipboard.writeText(content);
     setCopiedId(id);
@@ -1114,6 +1131,24 @@ export default function MavisChat() {
                       >
                         {copiedId === msg.id ? <Check size={10} /> : <Copy size={10} />}
                       </button>
+                      {msg.role === "assistant" && !msg.id.startsWith("streaming-") && msg.content && (
+                        <div className="absolute bottom-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1">
+                          <button
+                            onClick={() => sendFeedback(msg, 1)}
+                            title="Good response"
+                            className={`p-0.5 rounded transition-colors ${feedbackGiven[msg.id] === 1 ? "text-emerald-400" : "text-muted-foreground/50 hover:text-emerald-400"}`}
+                          >
+                            <ThumbsUp size={9} />
+                          </button>
+                          <button
+                            onClick={() => sendFeedback(msg, -1)}
+                            title="Bad response"
+                            className={`p-0.5 rounded transition-colors ${feedbackGiven[msg.id] === -1 ? "text-red-400" : "text-muted-foreground/50 hover:text-red-400"}`}
+                          >
+                            <ThumbsDown size={9} />
+                          </button>
+                        </div>
+                      )}
                     </div>
                   </motion.div>
                 ))}
