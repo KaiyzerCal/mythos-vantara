@@ -117,7 +117,7 @@ function AppContent() {
     <AppDataProvider>
       <div className="flex min-h-screen bg-background">
         <AppSidebar />
-        <VoiceMemo />
+        {location.pathname !== "/personas" && <VoiceMemo />}
         <main className={`flex-1 min-w-0 ${["/mavis-ui", "/demo"].includes(location.pathname) ? "overflow-hidden" : "p-5 overflow-y-auto"}`}>
           <Suspense fallback={Spinner}>
             <Routes>
