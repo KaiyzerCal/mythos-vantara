@@ -72,6 +72,12 @@ const ExportPage = lazy(() => import("@/pages/ExportPage").then(m => ({ default:
 const PlanBoard = lazy(() => import("@/pages/PlanBoard"));
 const WebsiteBuilderPage = lazy(() => import("@/pages/WebsiteBuilderPage"));
 const WidgetBuilderPage = lazy(() => import("@/pages/WidgetBuilderPage"));
+const AchievementsPage = lazy(() => import("@/pages/AchievementsPage"));
+const ForecastPage = lazy(() => import("@/pages/ForecastPage"));
+const NotificationsPage = lazy(() => import("@/pages/NotificationsPage"));
+const StripeManagementPage = lazy(() => import("@/pages/StripeManagementPage"));
+const WorkflowsPage = lazy(() => import("@/pages/WorkflowsPage"));
+const ImportPage = lazy(() => import("@/pages/ImportPage"));
 // Public demo — no auth required
 const MavisDemo = lazy(() => import("@/pages/MavisDemo"));
 
@@ -160,6 +166,12 @@ function AppContent() {
               <Route path="/plans" element={<PlanBoard />} />
               <Route path="/websites" element={<WebsiteBuilderPage />} />
               <Route path="/widgets" element={<WidgetBuilderPage />} />
+              <Route path="/achievements" element={<AchievementsPage />} />
+              <Route path="/forecast" element={<ForecastPage />} />
+              <Route path="/notifications" element={<NotificationsPage />} />
+              <Route path="/stripe" element={<StripeManagementPage />} />
+              <Route path="/workflows" element={<WorkflowsPage />} />
+              <Route path="/import" element={<ImportPage />} />
               <Route path="*" element={<NotFound />} />
             </Routes>
           </Suspense>
