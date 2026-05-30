@@ -1165,6 +1165,7 @@ ${fmtMemories}
     // ── Knowledge Graph semantic search ────────────────────
     // Embed the user's message and pull the most relevant notes from the
     // second brain — inject as grounded knowledge context in the prompt.
+    // Falls back to most-recent notes when no semantic matches are found.
     let knowledgeBlock = "";
     if (lastUserMsg && openaiKey && (mode ?? "PRIME") !== "COUNCIL") {
       try {
@@ -1173,6 +1174,7 @@ ${fmtMemories}
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${openaiKey}` },
           body: JSON.stringify({ model: "text-embedding-3-small", input: lastUserMsg.content.slice(0, 8000) }),
         });
+        let semanticNotes: any[] = [];
         if (embRes.ok) {
           const embData = await embRes.json();
           const embedding = embData.data?.[0]?.embedding;
@@ -1180,51 +1182,64 @@ ${fmtMemories}
             const { data: notes } = await sb.rpc("match_mavis_notes", {
               query_embedding: embedding,
               match_user_id:   user.id,
-              match_threshold: 0.45,
-              match_count:     5,
+              match_threshold: 0.30,
+              match_count:     6,
             });
-            if (notes?.length) {
-              const primaryNotes = notes as any[];
-              const noteLines = primaryNotes.map((n: any) => {
-                const preview = (n.content ?? "").replace(/\n+/g, " ").slice(0, 400);
-                const tags    = Array.isArray(n.tags) && n.tags.length > 0 ? ` [${n.tags.join(", ")}]` : "";
-                const score   = n.similarity != null ? ` (${Math.round(n.similarity * 100)}% match)` : "";
-                return `• ${n.title}${tags}${score}: ${preview}${(n.content?.length ?? 0) > 400 ? "…" : ""}`;
-              });
+            semanticNotes = (notes as any[]) ?? [];
+          }
+        }
 
-              // One-hop KG link traversal — follow links from retrieved notes
-              try {
-                const primaryIds = primaryNotes.map((n: any) => n.id).filter(Boolean);
-                if (primaryIds.length) {
-                  const { data: links } = await sb
-                    .from("mavis_note_links")
-                    .select("target_note_id")
-                    .in("source_note_id", primaryIds)
-                    .limit(10);
-                  if (links?.length) {
-                    const seenIds = new Set(primaryIds);
-                    const linkedIds = (links as any[]).map((l: any) => l.target_note_id).filter((id: string) => id && !seenIds.has(id));
-                    if (linkedIds.length) {
-                      const { data: linkedNotes } = await sb
-                        .from("mavis_notes")
-                        .select("id,title,content,tags")
-                        .in("id", linkedIds)
-                        .limit(4);
-                      if (linkedNotes?.length) {
-                        for (const n of linkedNotes as any[]) {
-                          const preview = (n.content ?? "").replace(/\n+/g, " ").slice(0, 250);
-                          const tags = Array.isArray(n.tags) && n.tags.length > 0 ? ` [${n.tags.join(", ")}]` : "";
-                          noteLines.push(`• ${n.title}${tags} (linked): ${preview}${(n.content?.length ?? 0) > 250 ? "…" : ""}`);
-                        }
-                      }
+        // Fallback: if semantic search found nothing, load the 4 most recent notes
+        let primaryNotes = semanticNotes;
+        if (!primaryNotes.length) {
+          const { data: recentNotes } = await sb
+            .from("mavis_notes")
+            .select("id,title,content,tags")
+            .eq("user_id", user.id)
+            .order("updated_at", { ascending: false })
+            .limit(4);
+          primaryNotes = (recentNotes as any[]) ?? [];
+        }
+
+        if (primaryNotes.length) {
+          const noteLines = primaryNotes.map((n: any) => {
+            const preview = (n.content ?? "").replace(/\n+/g, " ").slice(0, 400);
+            const tags    = Array.isArray(n.tags) && n.tags.length > 0 ? ` [${n.tags.join(", ")}]` : "";
+            const score   = n.similarity != null ? ` (${Math.round(n.similarity * 100)}% match)` : "";
+            return `• ${n.title}${tags}${score}: ${preview}${(n.content?.length ?? 0) > 400 ? "…" : ""}`;
+          });
+
+          // One-hop KG link traversal — follow links from retrieved notes
+          try {
+            const primaryIds = primaryNotes.map((n: any) => n.id).filter(Boolean);
+            if (primaryIds.length) {
+              const { data: links } = await sb
+                .from("mavis_note_links")
+                .select("target_note_id")
+                .in("source_note_id", primaryIds)
+                .limit(10);
+              if (links?.length) {
+                const seenIds = new Set(primaryIds);
+                const linkedIds = (links as any[]).map((l: any) => l.target_note_id).filter((id: string) => id && !seenIds.has(id));
+                if (linkedIds.length) {
+                  const { data: linkedNotes } = await sb
+                    .from("mavis_notes")
+                    .select("id,title,content,tags")
+                    .in("id", linkedIds)
+                    .limit(4);
+                  if (linkedNotes?.length) {
+                    for (const n of linkedNotes as any[]) {
+                      const preview = (n.content ?? "").replace(/\n+/g, " ").slice(0, 250);
+                      const tags = Array.isArray(n.tags) && n.tags.length > 0 ? ` [${n.tags.join(", ")}]` : "";
+                      noteLines.push(`• ${n.title}${tags} (linked): ${preview}${(n.content?.length ?? 0) > 250 ? "…" : ""}`);
                     }
                   }
                 }
-              } catch { /* non-fatal */ }
-
-              knowledgeBlock = `\n═══ KNOWLEDGE GRAPH — RELEVANT NOTES ═══\n${noteLines.join("\n")}\n═══ END KNOWLEDGE ═══`;
+              }
             }
-          }
+          } catch { /* non-fatal */ }
+
+          knowledgeBlock = `\n═══ KNOWLEDGE GRAPH — RELEVANT NOTES ═══\n${noteLines.join("\n")}\n═══ END KNOWLEDGE ═══`;
         }
       } catch { /* non-fatal — proceed without KG context */ }
     }
