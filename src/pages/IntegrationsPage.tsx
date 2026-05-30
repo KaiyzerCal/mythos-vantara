@@ -77,11 +77,58 @@ const INTEGRATION_GROUPS: GroupDef[] = [
     ],
   },
   {
-    label: "Health & Devices",
+    label: "Memory & Knowledge",
+    icon: "Cpu",
+    providers: [
+      { id: "mem0", name: "Mem0", description: "Persistent AI memory across sessions — semantic recall", keys: ["API Key"], docsUrl: null },
+      { id: "letta", name: "Letta (MemGPT)", description: "Stateful agent memory — long-context retention", keys: ["API Key", "Agent ID"], docsUrl: null },
+    ],
+  },
+  {
+    label: "Health & Biometrics",
     icon: "Heart",
     providers: [
-      { id: "oura", name: "Oura Ring", description: "Sleep, HRV, readiness sync", keys: ["Personal Access Token"] },
-      { id: "fcm", name: "Firebase (FCM)", description: "Android & web push notifications", keys: ["Server Key", "Project ID"] },
+      { id: "whoop", name: "WHOOP", description: "Recovery, strain, sleep, and HRV sync", keys: ["Client ID", "Client Secret"], docsUrl: null },
+      { id: "oura", name: "Oura Ring", description: "Sleep, HRV, readiness sync", keys: ["Personal Access Token"], docsUrl: null },
+      { id: "galaxy_ring", name: "Samsung Galaxy Ring", description: "Cognitive load, SpO2, stress score sync", keys: ["API Key"], docsUrl: null },
+    ],
+  },
+  {
+    label: "Voice & TTS",
+    icon: "MessageSquare",
+    providers: [
+      { id: "nvidia", name: "NVIDIA PersonaPlex", description: "MAVIS persona voice synthesis — NIM API", keys: ["API Key"], docsUrl: null },
+      { id: "kyutai_port", name: "Kyutai (Local)", description: "On-device TTS daemon — port number (default 8020)", keys: ["Local Port"], docsUrl: null },
+    ],
+  },
+  {
+    label: "Productivity & Automation",
+    icon: "Share2",
+    providers: [
+      { id: "reclaim", name: "Reclaim.ai", description: "Intelligent calendar defense and schedule optimization", keys: ["API Key"], docsUrl: null },
+      { id: "n8n", name: "n8n", description: "Workflow automation — local or cloud instance", keys: ["API Key", "Base URL"], docsUrl: null },
+    ],
+  },
+  {
+    label: "Creative & Media",
+    icon: "Cpu",
+    providers: [
+      { id: "fal", name: "fal.ai", description: "Ultra-fast video generation — Veo3, Kling, Runway", keys: ["API Key"], docsUrl: null },
+      { id: "cartesia", name: "Cartesia", description: "Ultra-low-latency TTS — Sonic model", keys: ["API Key"], docsUrl: null },
+    ],
+  },
+  {
+    label: "Desktop & Context",
+    icon: "Eye",
+    providers: [
+      { id: "screenpipe", name: "Screenpipe", description: "Local desktop activity context — port 3030 daemon", keys: ["Local Port"], docsUrl: null },
+    ],
+  },
+  {
+    label: "Finance Intelligence",
+    icon: "DollarSign",
+    providers: [
+      { id: "era_finance", name: "Era Finance", description: "AI financial context and forecasting — MCP bridge", keys: ["API Key", "User ID"], docsUrl: null },
     ],
   },
 ];
@@ -93,6 +140,7 @@ const ICON_MAP: Record<string, LucideIcon> = {
   MessageSquare,
   DollarSign,
   Heart,
+  Eye,
 };
 
 // ─── Helper ─────────────────────────────────────────────────

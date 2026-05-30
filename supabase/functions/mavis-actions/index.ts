@@ -1119,6 +1119,72 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
       return { imageUrl, prompt, note };
     }
 
+    case "generate_video": {
+      const videoUrl = `${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-video-gen`;
+      const videoRes = await fetch(videoUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
+        body: JSON.stringify({ ...action, user_id: userId }),
+      });
+      if (!videoRes.ok) throw new Error(`mavis-video-gen error: ${videoRes.status}`);
+      return await videoRes.json();
+    }
+
+    case "video_status": {
+      const vsUrl = `${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-video-gen`;
+      const vsRes = await fetch(vsUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
+        body: JSON.stringify({ action: "status", ...action, user_id: userId }),
+      });
+      if (!vsRes.ok) throw new Error(`mavis-video-gen status error: ${vsRes.status}`);
+      return await vsRes.json();
+    }
+
+    case "create_website": {
+      const wbUrl = `${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-web-builder`;
+      const wbRes = await fetch(wbUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
+        body: JSON.stringify({ ...action, user_id: userId }),
+      });
+      if (!wbRes.ok) throw new Error(`mavis-web-builder error: ${wbRes.status}`);
+      return await wbRes.json();
+    }
+
+    case "publish_webpage": {
+      const pwUrl = `${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-wordpress`;
+      const pwRes = await fetch(pwUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
+        body: JSON.stringify({ action: "create_page", ...action, user_id: userId }),
+      });
+      if (!pwRes.ok) throw new Error(`mavis-wordpress error: ${pwRes.status}`);
+      return await pwRes.json();
+    }
+
+    case "create_widget": {
+      const wgUrl = `${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-widget-gen`;
+      const wgRes = await fetch(wgUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
+        body: JSON.stringify({ action: "generate", ...action, user_id: userId }),
+      });
+      if (!wgRes.ok) throw new Error(`mavis-widget-gen error: ${wgRes.status}`);
+      return await wgRes.json();
+    }
+
+    case "plan_execute": {
+      const planUrl = `${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-planner`;
+      const planRes = await fetch(planUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
+        body: JSON.stringify({ user_id: userId, params: (action as any).params }),
+      });
+      if (!planRes.ok) throw new Error(`mavis-planner error: ${planRes.status}`);
+      return await planRes.json();
+    }
+
     default:
       throw new Error(`Unknown MAVIS action: ${action.type}`);
   }
