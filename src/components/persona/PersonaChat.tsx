@@ -477,7 +477,10 @@ export function PersonaChat({ persona, userId, onBack }: PersonaChatProps) {
           />
         )}
         <div className="flex items-end gap-2">
-          <AttachButton isUploading={isUploading} onUpload={upload} />
+          <div className="flex flex-col items-center gap-1">
+            <VoiceMemo inline />
+            <AttachButton isUploading={isUploading} onUpload={upload} />
+          </div>
           <textarea
             ref={inputRef}
             value={input}
