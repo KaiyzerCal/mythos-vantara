@@ -32,8 +32,10 @@ DO $$ BEGIN
     WITH CHECK (auth.uid() = user_id);
 EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-CREATE INDEX IF NOT EXISTS idx_tool_registry_category
-  ON public.mavis_tool_registry(category, enabled);
+DO $$ BEGIN
+  CREATE INDEX IF NOT EXISTS idx_tool_registry_category
+    ON public.mavis_tool_registry(category, enabled);
+EXCEPTION WHEN undefined_table THEN NULL; END $$;
 
 -- ── Automation Rules (OpenJarvis event-driven pattern) ────────────────────────
 -- Maps system events to MAVIS actions. Evaluates conditions client-side,
@@ -78,8 +80,10 @@ DO $$ BEGIN
     WITH CHECK (auth.uid() = user_id);
 EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-CREATE INDEX IF NOT EXISTS idx_automation_rules_event
-  ON public.mavis_automation_rules(trigger_event, enabled);
+DO $$ BEGIN
+  CREATE INDEX IF NOT EXISTS idx_automation_rules_event
+    ON public.mavis_automation_rules(trigger_event, enabled);
+EXCEPTION WHEN undefined_table THEN NULL; END $$;
 
 -- ── Ephemeral Agent Sessions (ElizaOS dynamic formation) ──────────────────────
 -- Tracks short-lived agents spun up for specific tasks. Cleaned up after
@@ -121,8 +125,10 @@ DO $$ BEGIN
     WITH CHECK (auth.uid() = user_id);
 EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-CREATE INDEX IF NOT EXISTS idx_agent_sessions_status
-  ON public.mavis_agent_sessions(status, started_at DESC);
+DO $$ BEGIN
+  CREATE INDEX IF NOT EXISTS idx_agent_sessions_status
+    ON public.mavis_agent_sessions(status, started_at DESC);
+EXCEPTION WHEN undefined_table THEN NULL; END $$;
 
 -- ── Distillation Jobs (Felix AI knowledge compression) ────────────────────────
 -- Tracks async knowledge compression runs. Input: raw notes/journal/messages.
@@ -163,5 +169,7 @@ DO $$ BEGIN
     WITH CHECK (auth.uid() = user_id);
 EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-CREATE INDEX IF NOT EXISTS idx_distillation_jobs_status
-  ON public.mavis_distillation_jobs(status, created_at DESC);
+DO $$ BEGIN
+  CREATE INDEX IF NOT EXISTS idx_distillation_jobs_status
+    ON public.mavis_distillation_jobs(status, created_at DESC);
+EXCEPTION WHEN undefined_table THEN NULL; END $$;

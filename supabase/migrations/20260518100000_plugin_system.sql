@@ -73,10 +73,14 @@ DO $$ BEGIN
     USING (auth.uid() = user_id);
 EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-CREATE INDEX IF NOT EXISTS idx_agent_messages_to_agent
-  ON public.mavis_agent_messages(to_agent_id, delivered, created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_agent_messages_correlation
-  ON public.mavis_agent_messages(correlation_id) WHERE correlation_id IS NOT NULL;
+DO $$ BEGIN
+  CREATE INDEX IF NOT EXISTS idx_agent_messages_to_agent
+    ON public.mavis_agent_messages(to_agent_id, delivered, created_at DESC);
+EXCEPTION WHEN undefined_table THEN NULL; END $$;
+DO $$ BEGIN
+  CREATE INDEX IF NOT EXISTS idx_agent_messages_correlation
+    ON public.mavis_agent_messages(correlation_id) WHERE correlation_id IS NOT NULL;
+EXCEPTION WHEN undefined_table THEN NULL; END $$;
 
 -- ── Unified agent memory (Obsidian-pattern) ───────────────────
 -- One memory record per "experience", "fact", "pattern", "relationship", or "decision".
@@ -128,10 +132,14 @@ DO $$ BEGIN
     USING (auth.uid() = user_id);
 EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-CREATE INDEX IF NOT EXISTS idx_agent_memories_agent
-  ON public.mavis_agent_memories(agent_id, status, created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_agent_memories_type
-  ON public.mavis_agent_memories(agent_type, entity_type, importance DESC);
+DO $$ BEGIN
+  CREATE INDEX IF NOT EXISTS idx_agent_memories_agent
+    ON public.mavis_agent_memories(agent_id, status, created_at DESC);
+EXCEPTION WHEN undefined_table THEN NULL; END $$;
+DO $$ BEGIN
+  CREATE INDEX IF NOT EXISTS idx_agent_memories_type
+    ON public.mavis_agent_memories(agent_type, entity_type, importance DESC);
+EXCEPTION WHEN undefined_table THEN NULL; END $$;
 
 -- Semantic recall function (mirrors match_council_memory)
 CREATE OR REPLACE FUNCTION match_agent_memory(
@@ -207,5 +215,7 @@ DO $$ BEGIN
     ON public.mavis_plugin_executions FOR ALL USING (auth.uid() = user_id);
 EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-CREATE INDEX IF NOT EXISTS idx_plugin_executions_plugin
-  ON public.mavis_plugin_executions(plugin_name, created_at DESC);
+DO $$ BEGIN
+  CREATE INDEX IF NOT EXISTS idx_plugin_executions_plugin
+    ON public.mavis_plugin_executions(plugin_name, created_at DESC);
+EXCEPTION WHEN undefined_table THEN NULL; END $$;

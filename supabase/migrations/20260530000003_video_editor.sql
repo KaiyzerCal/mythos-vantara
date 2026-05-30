@@ -96,10 +96,18 @@ DO $$ BEGIN
 EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- Indexes
-CREATE INDEX IF NOT EXISTS idx_video_projects_user ON video_projects(user_id);
-CREATE INDEX IF NOT EXISTS idx_video_segments_project ON video_segments(project_id);
-CREATE INDEX IF NOT EXISTS idx_video_clips_project ON video_clips(project_id);
-CREATE INDEX IF NOT EXISTS idx_video_clips_format ON video_clips(project_id, format);
+DO $$ BEGIN
+  CREATE INDEX IF NOT EXISTS idx_video_projects_user ON video_projects(user_id);
+EXCEPTION WHEN undefined_table THEN NULL; END $$;
+DO $$ BEGIN
+  CREATE INDEX IF NOT EXISTS idx_video_segments_project ON video_segments(project_id);
+EXCEPTION WHEN undefined_table THEN NULL; END $$;
+DO $$ BEGIN
+  CREATE INDEX IF NOT EXISTS idx_video_clips_project ON video_clips(project_id);
+EXCEPTION WHEN undefined_table THEN NULL; END $$;
+DO $$ BEGIN
+  CREATE INDEX IF NOT EXISTS idx_video_clips_format ON video_clips(project_id, format);
+EXCEPTION WHEN undefined_table THEN NULL; END $$;
 
 -- Storage bucket note
 -- Run: supabase storage buckets create video-projects --public

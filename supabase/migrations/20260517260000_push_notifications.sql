@@ -18,8 +18,10 @@ DO $$ BEGIN
     FOR ALL USING (auth.uid() = user_id);
 EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-CREATE INDEX IF NOT EXISTS idx_device_push_tokens_user
-  ON device_push_tokens(user_id) WHERE active = true;
+DO $$ BEGIN
+  CREATE INDEX IF NOT EXISTS idx_device_push_tokens_user
+    ON device_push_tokens(user_id) WHERE active = true;
+EXCEPTION WHEN undefined_table THEN NULL; END $$;
 
 -- Cron: mid-day nudge at noon UTC daily
 SELECT cron.schedule(

@@ -33,7 +33,9 @@ ALTER TABLE reclaim_schedule_blocks ENABLE ROW LEVEL SECURITY;
 DO $$ BEGIN
   CREATE POLICY "user own schedule" ON reclaim_schedule_blocks FOR ALL USING (auth.uid() = user_id);
 EXCEPTION WHEN duplicate_object THEN NULL; END $$;
-CREATE INDEX idx_reclaim_user_time ON reclaim_schedule_blocks(user_id, start_time);
+DO $$ BEGIN
+  CREATE INDEX idx_reclaim_user_time ON reclaim_schedule_blocks(user_id, start_time);
+EXCEPTION WHEN undefined_table THEN NULL; END $$;
 
 -- Khanmigo Socratic tutoring sessions
 CREATE TABLE IF NOT EXISTS tutoring_sessions (
@@ -53,4 +55,6 @@ ALTER TABLE tutoring_sessions ENABLE ROW LEVEL SECURITY;
 DO $$ BEGIN
   CREATE POLICY "user own tutoring" ON tutoring_sessions FOR ALL USING (auth.uid() = user_id);
 EXCEPTION WHEN duplicate_object THEN NULL; END $$;
-CREATE INDEX idx_tutoring_user ON tutoring_sessions(user_id, created_at DESC);
+DO $$ BEGIN
+  CREATE INDEX idx_tutoring_user ON tutoring_sessions(user_id, created_at DESC);
+EXCEPTION WHEN undefined_table THEN NULL; END $$;

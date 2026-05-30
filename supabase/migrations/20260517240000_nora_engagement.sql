@@ -14,11 +14,15 @@ CREATE TABLE IF NOT EXISTS nora_engagement_log (
   created_at        TIMESTAMPTZ DEFAULT now()
 );
 
-CREATE INDEX IF NOT EXISTS idx_nora_engagement_type_date
-  ON nora_engagement_log(type, created_at DESC);
+DO $$ BEGIN
+  CREATE INDEX IF NOT EXISTS idx_nora_engagement_type_date
+    ON nora_engagement_log(type, created_at DESC);
+EXCEPTION WHEN undefined_table THEN NULL; END $$;
 
-CREATE INDEX IF NOT EXISTS idx_nora_engagement_source_id
-  ON nora_engagement_log(source_id);
+DO $$ BEGIN
+  CREATE INDEX IF NOT EXISTS idx_nora_engagement_source_id
+    ON nora_engagement_log(source_id);
+EXCEPTION WHEN undefined_table THEN NULL; END $$;
 
 -- Cron: run mavis-nora-engage every 15 minutes
 SELECT cron.schedule(

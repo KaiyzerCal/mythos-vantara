@@ -23,7 +23,9 @@ EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 DO $$ BEGIN
   CREATE POLICY "Users delete own notes" ON public.mavis_notes FOR DELETE USING (auth.uid() = user_id);
 EXCEPTION WHEN duplicate_object THEN NULL; END $$;
-CREATE INDEX idx_mavis_notes_user ON public.mavis_notes(user_id);
+DO $$ BEGIN
+  CREATE INDEX idx_mavis_notes_user ON public.mavis_notes(user_id);
+EXCEPTION WHEN undefined_table THEN NULL; END $$;
 CREATE TRIGGER update_mavis_notes_updated_at BEFORE UPDATE ON public.mavis_notes FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
 
 -- Links
@@ -51,8 +53,12 @@ DO $$ BEGIN
     EXISTS (SELECT 1 FROM public.mavis_notes n WHERE n.id = source_note_id AND n.user_id = auth.uid())
   );
 EXCEPTION WHEN duplicate_object THEN NULL; END $$;
-CREATE INDEX idx_mavis_note_links_source ON public.mavis_note_links(source_note_id);
-CREATE INDEX idx_mavis_note_links_target ON public.mavis_note_links(target_note_id);
+DO $$ BEGIN
+  CREATE INDEX idx_mavis_note_links_source ON public.mavis_note_links(source_note_id);
+EXCEPTION WHEN undefined_table THEN NULL; END $$;
+DO $$ BEGIN
+  CREATE INDEX idx_mavis_note_links_target ON public.mavis_note_links(target_note_id);
+EXCEPTION WHEN undefined_table THEN NULL; END $$;
 
 -- Versions
 CREATE TABLE public.mavis_note_versions (
@@ -74,4 +80,6 @@ DO $$ BEGIN
     EXISTS (SELECT 1 FROM public.mavis_notes n WHERE n.id = note_id AND n.user_id = auth.uid())
   );
 EXCEPTION WHEN duplicate_object THEN NULL; END $$;
-CREATE INDEX idx_mavis_note_versions_note ON public.mavis_note_versions(note_id);
+DO $$ BEGIN
+  CREATE INDEX idx_mavis_note_versions_note ON public.mavis_note_versions(note_id);
+EXCEPTION WHEN undefined_table THEN NULL; END $$;

@@ -18,8 +18,12 @@ CREATE TABLE IF NOT EXISTS mavis_tool_executions (
   created_at   timestamptz NOT NULL DEFAULT now()
 );
 
-CREATE INDEX IF NOT EXISTS mavis_tool_executions_user_idx  ON mavis_tool_executions(user_id, created_at DESC);
-CREATE INDEX IF NOT EXISTS mavis_tool_executions_tool_idx  ON mavis_tool_executions(tool_name);
+DO $$ BEGIN
+  CREATE INDEX IF NOT EXISTS mavis_tool_executions_user_idx  ON mavis_tool_executions(user_id, created_at DESC);
+EXCEPTION WHEN undefined_table THEN NULL; END $$;
+DO $$ BEGIN
+  CREATE INDEX IF NOT EXISTS mavis_tool_executions_tool_idx  ON mavis_tool_executions(tool_name);
+EXCEPTION WHEN undefined_table THEN NULL; END $$;
 
 ALTER TABLE mavis_tool_executions ENABLE ROW LEVEL SECURITY;
 DO $$ BEGIN
@@ -28,18 +32,33 @@ DO $$ BEGIN
 EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- ── Knowledge graph traversal indexes ────────────────────────────────────────
--- Fast BFS over mavis_note_wikilinks requires covering indexes on both
--- source and target columns. The target_slug → note_id resolve also
--- needs a case-insensitive index on mavis_notes.title.
+-- mavis_note_wikilinks (created via dashboard — ensure it exists)
+CREATE TABLE IF NOT EXISTS mavis_note_wikilinks (
+  id             uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id        uuid        NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  source_note_id uuid        NOT NULL REFERENCES public.mavis_notes(id) ON DELETE CASCADE,
+  target_slug    text        NOT NULL,
+  created_at     timestamptz NOT NULL DEFAULT now()
+);
+ALTER TABLE mavis_note_wikilinks ENABLE ROW LEVEL SECURITY;
+DO $$ BEGIN
+  CREATE POLICY "users own wikilinks" ON mavis_note_wikilinks FOR ALL USING (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-CREATE INDEX IF NOT EXISTS mavis_note_wikilinks_source_idx
-  ON mavis_note_wikilinks(user_id, source_note_id);
+DO $$ BEGIN
+  CREATE INDEX IF NOT EXISTS mavis_note_wikilinks_source_idx
+    ON mavis_note_wikilinks(user_id, source_note_id);
+EXCEPTION WHEN undefined_table THEN NULL; END $$;
 
-CREATE INDEX IF NOT EXISTS mavis_note_wikilinks_slug_idx
-  ON mavis_note_wikilinks(user_id, lower(target_slug));
+DO $$ BEGIN
+  CREATE INDEX IF NOT EXISTS mavis_note_wikilinks_slug_idx
+    ON mavis_note_wikilinks(user_id, lower(target_slug));
+EXCEPTION WHEN undefined_table THEN NULL; END $$;
 
-CREATE INDEX IF NOT EXISTS mavis_notes_title_lower_idx
-  ON mavis_notes(user_id, lower(title));
+DO $$ BEGIN
+  CREATE INDEX IF NOT EXISTS mavis_notes_title_lower_idx
+    ON mavis_notes(user_id, lower(title));
+EXCEPTION WHEN undefined_table THEN NULL; END $$;
 
 -- ── Workflow execution log ────────────────────────────────────────────────────
 -- Stores n8n workflow blueprints built by MAVIS and their execution outcomes.

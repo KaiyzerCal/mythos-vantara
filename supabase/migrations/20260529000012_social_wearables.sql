@@ -17,7 +17,9 @@ ALTER TABLE nora_content_queue ENABLE ROW LEVEL SECURITY;
 DO $$ BEGIN
   CREATE POLICY "user own nora content" ON nora_content_queue FOR ALL USING (auth.uid() = user_id);
 EXCEPTION WHEN duplicate_object THEN NULL; END $$;
-CREATE INDEX idx_nora_content_user ON nora_content_queue(user_id, scheduled_for);
+DO $$ BEGIN
+  CREATE INDEX idx_nora_content_user ON nora_content_queue(user_id, scheduled_for);
+EXCEPTION WHEN undefined_table THEN NULL; END $$;
 
 -- Screenpipe memory sync log
 CREATE TABLE IF NOT EXISTS screenpipe_sync_log (

@@ -6,10 +6,12 @@ ALTER TABLE mavis_agent_memories
   ADD COLUMN IF NOT EXISTS embedding vector(768);
 
 -- IVFFlat index for fast cosine similarity search
-CREATE INDEX IF NOT EXISTS mavis_memories_embedding_idx
-  ON mavis_agent_memories
-  USING ivfflat (embedding vector_cosine_ops)
-  WITH (lists = 100);
+DO $$ BEGIN
+  CREATE INDEX IF NOT EXISTS mavis_memories_embedding_idx
+    ON mavis_agent_memories
+    USING ivfflat (embedding vector_cosine_ops)
+    WITH (lists = 100);
+EXCEPTION WHEN undefined_table THEN NULL; END $$;
 
 -- Semantic similarity search function
 CREATE OR REPLACE FUNCTION search_memories_semantic(

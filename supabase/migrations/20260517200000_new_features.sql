@@ -22,7 +22,9 @@ ALTER TABLE public.contacts ENABLE ROW LEVEL SECURITY;
 DO $$ BEGIN
   CREATE POLICY "Users manage own contacts" ON public.contacts FOR ALL TO authenticated USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
 EXCEPTION WHEN duplicate_object THEN NULL; END $$;
-CREATE INDEX idx_contacts_user ON public.contacts(user_id);
+DO $$ BEGIN
+  CREATE INDEX idx_contacts_user ON public.contacts(user_id);
+EXCEPTION WHEN undefined_table THEN NULL; END $$;
 
 -- Contact interactions log
 CREATE TABLE IF NOT EXISTS public.contact_interactions (
@@ -61,7 +63,9 @@ ALTER TABLE public.health_metrics ENABLE ROW LEVEL SECURITY;
 DO $$ BEGIN
   CREATE POLICY "Users manage own health metrics" ON public.health_metrics FOR ALL TO authenticated USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
 EXCEPTION WHEN duplicate_object THEN NULL; END $$;
-CREATE INDEX idx_health_metrics_user_date ON public.health_metrics(user_id, date DESC);
+DO $$ BEGIN
+  CREATE INDEX idx_health_metrics_user_date ON public.health_metrics(user_id, date DESC);
+EXCEPTION WHEN undefined_table THEN NULL; END $$;
 
 -- MAVIS proactive insights
 CREATE TABLE IF NOT EXISTS public.mavis_insights (
@@ -79,7 +83,9 @@ ALTER TABLE public.mavis_insights ENABLE ROW LEVEL SECURITY;
 DO $$ BEGIN
   CREATE POLICY "Users manage own insights" ON public.mavis_insights FOR ALL TO authenticated USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
 EXCEPTION WHEN duplicate_object THEN NULL; END $$;
-CREATE INDEX idx_insights_user ON public.mavis_insights(user_id, generated_at DESC);
+DO $$ BEGIN
+  CREATE INDEX idx_insights_user ON public.mavis_insights(user_id, generated_at DESC);
+EXCEPTION WHEN undefined_table THEN NULL; END $$;
 
 -- Calendar events
 CREATE TABLE IF NOT EXISTS public.calendar_events (

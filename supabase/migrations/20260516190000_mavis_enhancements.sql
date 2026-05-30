@@ -17,7 +17,9 @@ ALTER TABLE mavis_expenses ENABLE ROW LEVEL SECURITY;
 DO $$ BEGIN
   CREATE POLICY "own expenses" ON mavis_expenses FOR ALL USING (auth.uid() = user_id);
 EXCEPTION WHEN duplicate_object THEN NULL; END $$;
-CREATE INDEX IF NOT EXISTS idx_expenses_user_date ON mavis_expenses (user_id, expense_date DESC);
+DO $$ BEGIN
+  CREATE INDEX IF NOT EXISTS idx_expenses_user_date ON mavis_expenses (user_id, expense_date DESC);
+EXCEPTION WHEN undefined_table THEN NULL; END $$;
 
 -- ── MAVIS operator bond ───────────────────────────────────────
 CREATE TABLE IF NOT EXISTS mavis_bond (

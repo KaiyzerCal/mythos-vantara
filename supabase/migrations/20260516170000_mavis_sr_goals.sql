@@ -6,8 +6,10 @@ ALTER TABLE mavis_notes
   ADD COLUMN IF NOT EXISTS next_review_at        timestamptz,
   ADD COLUMN IF NOT EXISTS review_interval_days  integer DEFAULT 7;
 
-CREATE INDEX IF NOT EXISTS idx_notes_review
-  ON mavis_notes (user_id, next_review_at ASC NULLS FIRST);
+DO $$ BEGIN
+  CREATE INDEX IF NOT EXISTS idx_notes_review
+    ON mavis_notes (user_id, next_review_at ASC NULLS FIRST);
+EXCEPTION WHEN undefined_table THEN NULL; END $$;
 
 -- ── Goal decomposition table ──────────────────────────────────
 CREATE TABLE IF NOT EXISTS mavis_goals (
@@ -28,8 +30,10 @@ DO $$ BEGIN
   CREATE POLICY "own goals" ON mavis_goals FOR ALL USING (auth.uid() = user_id);
 EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-CREATE INDEX IF NOT EXISTS idx_goals_user_status
-  ON mavis_goals (user_id, status, created_at DESC);
+DO $$ BEGIN
+  CREATE INDEX IF NOT EXISTS idx_goals_user_status
+    ON mavis_goals (user_id, status, created_at DESC);
+EXCEPTION WHEN undefined_table THEN NULL; END $$;
 
 -- ── pg_cron schedules (uncomment after setting project ref + service key) ──
 --

@@ -33,8 +33,10 @@ CREATE TABLE IF NOT EXISTS webhook_dispatch_log (
   error       TEXT,
   created_at  TIMESTAMPTZ DEFAULT now()
 );
-CREATE INDEX IF NOT EXISTS idx_webhook_dispatch_log_user
-  ON webhook_dispatch_log(user_id, created_at DESC);
+DO $$ BEGIN
+  CREATE INDEX IF NOT EXISTS idx_webhook_dispatch_log_user
+    ON webhook_dispatch_log(user_id, created_at DESC);
+EXCEPTION WHEN undefined_table THEN NULL; END $$;
 
 -- Social post analytics (stores fetched engagement metrics)
 CREATE TABLE IF NOT EXISTS social_post_analytics (

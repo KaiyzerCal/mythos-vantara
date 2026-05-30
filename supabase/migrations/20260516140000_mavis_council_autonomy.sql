@@ -30,8 +30,10 @@ DO $$ BEGIN
 EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- Index for recent activity lookups
-CREATE INDEX IF NOT EXISTS idx_council_activity_member
-  ON mavis_council_activity (council_member_id, created_at DESC);
+DO $$ BEGIN
+  CREATE INDEX IF NOT EXISTS idx_council_activity_member
+    ON mavis_council_activity (council_member_id, created_at DESC);
+EXCEPTION WHEN undefined_table THEN NULL; END $$;
 
 -- ── pg_cron: heartbeat every 4 hours ────────────────────────────
 -- Requires pg_cron + pg_net extensions (both available on Supabase hosted).

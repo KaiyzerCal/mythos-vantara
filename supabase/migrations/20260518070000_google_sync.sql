@@ -1,7 +1,9 @@
 -- Add external_id column to tasks for Google Tasks bidirectional sync
 ALTER TABLE tasks ADD COLUMN IF NOT EXISTS external_id text;
 ALTER TABLE tasks ADD COLUMN IF NOT EXISTS source text;
-CREATE INDEX IF NOT EXISTS tasks_external_id_idx ON tasks(user_id, external_id) WHERE external_id IS NOT NULL;
+DO $$ BEGIN
+  CREATE INDEX IF NOT EXISTS tasks_external_id_idx ON tasks(user_id, external_id) WHERE external_id IS NOT NULL;
+EXCEPTION WHEN undefined_table THEN NULL; END $$;
 
 -- pg_cron: Google Tasks sync at 09:00 UTC daily
 SELECT cron.schedule('mavis-google-tasks-sync', '0 9 * * *',
