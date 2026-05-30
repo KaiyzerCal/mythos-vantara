@@ -111,6 +111,29 @@ export function VoiceMemo({ inline = false }: VoiceMemoProps) {
 
   const formatTime = (s: number) => `${Math.floor(s / 60).toString().padStart(2, "0")}:${(s % 60).toString().padStart(2, "0")}`;
 
+  // Inline preview card (rendered inside the chat input column)
+  if (inline && state === "preview" && result) {
+    return (
+      <div className="w-full bg-[#0d0d0d] border border-neon-gold/30 rounded-lg p-3 shadow-xl mb-2">
+        <div className="flex items-center justify-between mb-1.5">
+          <span className="text-[10px] font-mono font-semibold text-neon-gold">VOICE MEMO</span>
+          <span className="text-[9px] text-white/40 font-mono">{result.mood.toUpperCase()}</span>
+        </div>
+        <p className="text-[10px] font-mono text-white/70 mb-1 font-semibold truncate">{result.suggested_title}</p>
+        <p className="text-[10px] text-white/50 line-clamp-3 mb-2">{result.transcript}</p>
+        <div className="flex gap-2">
+          <Button size="sm" className="flex-1 h-6 text-[10px] bg-neon-gold/20 hover:bg-neon-gold/30 text-neon-gold border border-neon-gold/40" onClick={saveJournalEntry}>
+            <Check size={10} className="mr-1" /> Save
+          </Button>
+          <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-white/30 hover:text-white/60" onClick={() => { setResult(null); setState("idle"); }}>
+            <X size={10} />
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  // Floating preview card (default behavior)
   if (state === "preview" && result) {
     return (
       <div className="fixed bottom-6 right-6 z-50 w-80 bg-[#0d0d0d] border border-neon-gold/30 rounded-xl p-4 shadow-2xl">
@@ -132,6 +155,40 @@ export function VoiceMemo({ inline = false }: VoiceMemoProps) {
     );
   }
 
+  // Inline mode — button sits in the chat input column above the attach button
+  if (inline) {
+    return (
+      <div className="flex flex-col items-center gap-1">
+        {state === "recording" && (
+          <div className="flex items-center gap-1.5 bg-[#0d0d0d] border border-red-500/40 rounded-full px-2 py-1 shadow-lg">
+            <span className="h-1.5 w-1.5 rounded-full bg-red-500 animate-pulse" />
+            <span className="text-[9px] font-mono text-red-400">{formatTime(seconds)}</span>
+          </div>
+        )}
+        {state === "transcribing" && (
+          <div className="flex items-center gap-1.5 bg-[#0d0d0d] border border-neon-gold/30 rounded-full px-2 py-1 shadow-lg">
+            <Loader2 size={10} className="text-neon-gold animate-spin" />
+            <span className="text-[9px] font-mono text-white/50">Transcribing...</span>
+          </div>
+        )}
+        <Button
+          onClick={state === "recording" ? stopRecording : startRecording}
+          disabled={state === "transcribing"}
+          size="icon"
+          className={cn(
+            "h-9 w-9 rounded-lg shadow transition-all shrink-0",
+            state === "recording"
+              ? "bg-red-500 hover:bg-red-600 scale-110"
+              : "bg-[#1a1a1a] hover:bg-[#222] border border-white/10"
+          )}
+        >
+          {state === "recording" ? <Square size={13} className="text-white" fill="white" /> : <Mic size={13} className="text-white/60" />}
+        </Button>
+      </div>
+    );
+  }
+
+  // Floating mode (default)
   return (
     <div className="fixed bottom-6 right-6 z-50">
       {state === "recording" && (
