@@ -22,6 +22,8 @@ interface VoiceChatOverlayProps {
   persona?: VoicePersona;
   // When true, skip internal speechSynthesis (caller handles audio externally)
   externalAudio?: boolean;
+  // Called after each completed voice exchange so the parent can persist/display the turn
+  onExchange?: (userText: string, replyText: string) => void;
 }
 
 type Phase = "idle" | "listening" | "thinking" | "speaking";
@@ -33,6 +35,7 @@ export function VoiceChatOverlay({
   isLoading = false,
   persona,
   externalAudio = false,
+  onExchange,
 }: VoiceChatOverlayProps) {
   const [phase, setPhase] = useState<Phase>("idle");
   const [transcript, setTranscript] = useState("");
@@ -263,12 +266,13 @@ export function VoiceChatOverlay({
         { role: "user", content: text },
         { role: "assistant", content: reply },
       ];
+      if (reply) onExchange?.(text, reply);
     } catch {
       // phase falls back to idle via loading transition
     } finally {
       setPersonaLoading(false);
     }
-  }, []);
+  }, [onExchange]);
 
 
   // ── Live Voice helpers ────────────────────────────────────────
