@@ -1075,6 +1075,51 @@ export type Database = {
         }
         Relationships: []
       }
+      mavis_custom_skills: {
+        Row: {
+          created_at: string | null
+          description: string
+          enabled: boolean | null
+          id: string
+          modes: string[] | null
+          name: string
+          system_prompt: string
+          tools: string[] | null
+          trigger_phrase: string | null
+          updated_at: string | null
+          user_id: string
+          version: number | null
+        }
+        Insert: {
+          created_at?: string | null
+          description: string
+          enabled?: boolean | null
+          id?: string
+          modes?: string[] | null
+          name: string
+          system_prompt: string
+          tools?: string[] | null
+          trigger_phrase?: string | null
+          updated_at?: string | null
+          user_id: string
+          version?: number | null
+        }
+        Update: {
+          created_at?: string | null
+          description?: string
+          enabled?: boolean | null
+          id?: string
+          modes?: string[] | null
+          name?: string
+          system_prompt?: string
+          tools?: string[] | null
+          trigger_phrase?: string | null
+          updated_at?: string | null
+          user_id?: string
+          version?: number | null
+        }
+        Relationships: []
+      }
       mavis_expenses: {
         Row: {
           amount: number
@@ -1173,6 +1218,54 @@ export type Database = {
           last_messaged_at?: string | null
           letta_agent_id?: string
           persona_name?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      mavis_llm_calls: {
+        Row: {
+          completion_tokens: number | null
+          created_at: string | null
+          duration_ms: number | null
+          error_msg: string | null
+          estimated_cost_usd: number | null
+          id: string
+          mode: string | null
+          model: string | null
+          prompt_tokens: number | null
+          provider: string
+          success: boolean | null
+          total_tokens: number | null
+          user_id: string
+        }
+        Insert: {
+          completion_tokens?: number | null
+          created_at?: string | null
+          duration_ms?: number | null
+          error_msg?: string | null
+          estimated_cost_usd?: number | null
+          id?: string
+          mode?: string | null
+          model?: string | null
+          prompt_tokens?: number | null
+          provider: string
+          success?: boolean | null
+          total_tokens?: number | null
+          user_id: string
+        }
+        Update: {
+          completion_tokens?: number | null
+          created_at?: string | null
+          duration_ms?: number | null
+          error_msg?: string | null
+          estimated_cost_usd?: number | null
+          id?: string
+          mode?: string | null
+          model?: string | null
+          prompt_tokens?: number | null
+          provider?: string
+          success?: boolean | null
+          total_tokens?: number | null
           user_id?: string
         }
         Relationships: []
@@ -1543,6 +1636,42 @@ export type Database = {
           stripe_product_id?: string | null
           title?: string
           updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
+      mavis_response_feedback: {
+        Row: {
+          conversation_id: string | null
+          created_at: string | null
+          id: string
+          message_id: string
+          mode: string | null
+          provider: string | null
+          rating: number
+          response_preview: string | null
+          user_id: string
+        }
+        Insert: {
+          conversation_id?: string | null
+          created_at?: string | null
+          id?: string
+          message_id: string
+          mode?: string | null
+          provider?: string | null
+          rating: number
+          response_preview?: string | null
+          user_id: string
+        }
+        Update: {
+          conversation_id?: string | null
+          created_at?: string | null
+          id?: string
+          message_id?: string
+          mode?: string | null
+          provider?: string | null
+          rating?: number
+          response_preview?: string | null
           user_id?: string
         }
         Relationships: []
@@ -4171,6 +4300,24 @@ export type Database = {
         }
         Relationships: []
       }
+      mavis_provider_stats: {
+        Row: {
+          avg_latency_ms: number | null
+          avg_tokens: number | null
+          error_count: number | null
+          last_used_at: string | null
+          max_latency_ms: number | null
+          min_latency_ms: number | null
+          mode: string | null
+          provider: string | null
+          success_rate_pct: number | null
+          total_calls: number | null
+          total_cost_usd: number | null
+          total_tokens: number | null
+          user_id: string | null
+        }
+        Relationships: []
+      }
       quest_with_sub_count: {
         Row: {
           active_sub_quest_count: number | null
@@ -4257,6 +4404,10 @@ export type Database = {
       consume_notification_slot: {
         Args: { p_user_id: string }
         Returns: boolean
+      }
+      decay_old_memories: {
+        Args: { p_days_threshold?: number; p_user_id: string }
+        Returns: number
       }
       increment_tool_usage: {
         Args: { p_tool_name: string }
