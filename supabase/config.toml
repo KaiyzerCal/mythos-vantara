@@ -1,0 +1,27 @@
+project_id = "wlygujlvsfimhtqsdxrx"
+
+# External webhook receivers — Telegram, Gumroad, and Stripe send requests
+# without Supabase JWTs, so JWT verification must be disabled for these.
+[functions.telegram-webhook]
+verify_jwt = false
+
+[functions.telegram-setup]
+verify_jwt = false
+
+[functions.mavis-gumroad-webhook]
+verify_jwt = false
+
+[functions.mavis-stripe-webhook]
+verify_jwt = false
+
+# Widget AI runtime — called directly from customer websites (no Supabase auth)
+[functions.mavis-widget-api]
+verify_jwt = false
+
+# Stripe widget subscription webhook — Stripe sends no Supabase JWT
+[functions.stripe-widget-webhook]
+verify_jwt = false
+
+# A2A Protocol gateway — external agents call without Supabase JWT
+[functions.mavis-a2a-gateway]
+verify_jwt = false
