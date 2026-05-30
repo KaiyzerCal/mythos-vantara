@@ -112,8 +112,40 @@ function scoreImportance(text: string): number {
   return 3;
 }
 
+// Find or create the operator's main web conversation so Telegram messages
+// appear in the same thread as the /mavis web UI.
+let _webConvoId: string | null = null;
+async function getWebConversationId(): Promise<string | null> {
+  if (_webConvoId) return _webConvoId;
+  try {
+    const { data } = await supabase
+      .from("chat_conversations")
+      .select("id")
+      .eq("user_id", OPERATOR_USER_ID)
+      .order("updated_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (data?.id) {
+      _webConvoId = data.id;
+      return _webConvoId;
+    }
+
+    // No conversation exists yet — create one
+    const { data: created } = await supabase
+      .from("chat_conversations")
+      .insert({ user_id: OPERATOR_USER_ID, title: "MAVIS" })
+      .select("id")
+      .single();
+
+    _webConvoId = created?.id ?? null;
+    return _webConvoId;
+  } catch { return null; }
+}
+
 async function persistMessage(chatId: string, role: string, content: string): Promise<void> {
   try {
+    // Write to mavis_memory (powers context + long-term recall)
     await supabase.from("mavis_memory").insert({
       user_id:          OPERATOR_USER_ID,
       session_id:       `${SESSION_PREFIX}${chatId}`,
@@ -123,6 +155,24 @@ async function persistMessage(chatId: string, role: string, content: string): Pr
       importance_score: scoreImportance(content),
       consolidated:     false,
     });
+
+    // Also write to chat_messages so messages appear in the /mavis web UI thread
+    const convoId = await getWebConversationId();
+    if (convoId) {
+      // Prefix user messages with [Telegram] so the source is visible in the web UI
+      const displayContent = role === "user" ? `[Telegram] ${content}` : content;
+      await supabase.from("chat_messages").insert({
+        conversation_id: convoId,
+        user_id:         OPERATOR_USER_ID,
+        role,
+        content:         displayContent,
+        mode:            "PRIME",
+      });
+      // Touch updated_at so this conversation stays at the top of the list
+      await supabase.from("chat_conversations")
+        .update({ updated_at: new Date().toISOString() })
+        .eq("id", convoId);
+    }
   } catch { /* non-fatal */ }
 }
 
