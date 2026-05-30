@@ -157,6 +157,21 @@ export const PublishWebpageSchema = z.object({
   content_brief: z.string().optional(),
 });
 
+// CREATE WIDGET — generate an AI-powered embeddable widget via mavis-widget-gen
+export const CreateWidgetSchema = z.object({
+  type: z.literal("create_widget"),
+  widget_type: z.enum(["chat","lead_capture","quote_calculator","faq","roi_calculator","appointment_booker"]),
+  business_name: z.string().min(1),
+  primary_color: z.string().optional(),
+  position: z.enum(["bottom-right","bottom-left"]).optional(),
+  name: z.string().optional(),
+  greeting: z.string().optional(),
+  system_prompt: z.string().optional(),
+  faqs: z.array(z.object({ question: z.string(), answer: z.string() })).optional(),
+  project_id: z.string().optional(),
+  monthly_price_cents: z.number().int().min(0).optional(),
+});
+
 // UNION — ALL SCHEMAS
 export const ActionSchema = z.discriminatedUnion("type", [
   CreateQuestSchema, UpdateQuestSchema, DeleteQuestSchema,
@@ -183,6 +198,7 @@ export const ActionSchema = z.discriminatedUnion("type", [
   PlanExecuteSchema,
   CreateWebsiteSchema,
   PublishWebpageSchema,
+  CreateWidgetSchema,
 ]);
 
 export type ValidatedAction = z.infer<typeof ActionSchema>;

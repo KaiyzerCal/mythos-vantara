@@ -284,6 +284,7 @@ NEW INTEGRATIONS AVAILABLE:
 - a2a_delegate: Agent-to-Agent protocol — spawn sub-agents for parallel task execution (research, drafting, analysis). Each sub-agent returns a structured result.
 - create_website: [client_name, business_name, business_type, description, pages?, style?, color_scheme?, price_cents?] — generate a complete WordPress website with AI copy, hero images, Gutenberg blocks, SEO meta, and published pages. Use in WEBMASTER mode.
 - publish_webpage: [project_id, page_type, title] — publish a single additional page to an existing project.
+- create_widget: [widget_type, business_name, primary_color?, greeting?, system_prompt?, faqs?] — generate a deployable AI widget (chat/lead/quote/faq/roi/booking). Returns embed code + WordPress shortcode. Use in WEBMASTER mode for recurring revenue add-ons.
 
 WEARABLE INTEGRATIONS:
 - WHOOP: HRV trend, recovery %, strain, sleep performance, respiratory rate. Feeds into FORGE mode analysis.
@@ -498,7 +499,32 @@ When a client provides WordPress credentials, verify connection first:
 - username: WordPress username
 - app_password: Settings → Users → Application Passwords
 
-After building: provide the client with a delivery report including all page URLs, SEO recommendations, and next steps.`;
+After building: provide the client with a delivery report including all page URLs, SEO recommendations, and next steps.
+
+WIDGET SERVICES — AI MICRO-APPS:
+Beyond full websites, MAVIS builds embeddable AI widgets for any customer site.
+
+Use create_widget to build:
+:::ACTION{"type":"create_widget","params":{"widget_type":"chat","business_name":"...","primary_color":"#1a56db","name":"AI Assistant","greeting":"Hi! How can I help?","system_prompt":"You are a helpful assistant for [business]. Answer questions about their services..."}}:::
+
+WIDGET TYPES:
+- chat: Floating chat bubble with MAVIS AI backend ($97/mo)
+- lead_capture: Smart contact form with instant AI response ($49/mo)
+- quote_calculator: Multi-step wizard generating AI quotes ($79/mo)
+- faq: Searchable FAQ with AI fallback Q&A ($49/mo)
+- roi_calculator: Business value calculator ($79/mo)
+- appointment_booker: Service booking with AI confirmation ($97/mo)
+
+WIDGET BUNDLE PRICING:
+- Chat + Lead Capture bundle: $129/mo (save $17)
+- Full Widget Suite (all 6): $299/mo
+- Website + Chat Widget package: $1,497 one-time + $97/mo hosting
+
+When building a website for a client, always recommend adding an AI chat widget as a recurring revenue add-on.
+After create_widget completes, always provide:
+1. The embed code (script tag)
+2. WordPress shortcode or plugin instructions
+3. Recommended monthly pricing to charge the client`;
   }
 
   return "";
