@@ -72,6 +72,7 @@ const ExportPage = lazy(() => import("@/pages/ExportPage").then(m => ({ default:
 const PlanBoard = lazy(() => import("@/pages/PlanBoard"));
 const WebsiteBuilderPage = lazy(() => import("@/pages/WebsiteBuilderPage"));
 const WidgetBuilderPage = lazy(() => import("@/pages/WidgetBuilderPage"));
+const VideoEditorPage = lazy(() => import("@/pages/VideoEditorPage"));
 const AchievementsPage = lazy(() => import("@/pages/AchievementsPage"));
 const ForecastPage = lazy(() => import("@/pages/ForecastPage"));
 const NotificationsPage = lazy(() => import("@/pages/NotificationsPage"));
@@ -172,6 +173,7 @@ function AppContent() {
               <Route path="/stripe" element={<StripeManagementPage />} />
               <Route path="/workflows" element={<WorkflowsPage />} />
               <Route path="/import" element={<ImportPage />} />
+              <Route path="/creator" element={<VideoEditorPage />} />
               <Route path="*" element={<NotFound />} />
             </Routes>
           </Suspense>
