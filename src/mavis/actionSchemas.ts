@@ -47,11 +47,6 @@ export const CreateAllySchema = z.object({ type: z.literal("create_ally"), name:
 export const UpdateAllySchema = z.object({ type: z.literal("update_ally"), id: z.string().min(1), trust_level: z.number().int().min(0).max(10).optional(), notes: z.string().optional() });
 export const DeleteAllySchema = z.object({ type: z.literal("delete_ally"), id: z.string().min(1) });
 
-// RITUAL
-export const CreateRitualSchema = z.object({ type: z.literal("create_ritual"), title: TitleField, frequency: z.enum(["daily", "weekly", "monthly", "custom"]).optional(), description: DescField, active: z.boolean().optional() });
-export const UpdateRitualSchema = z.object({ type: z.literal("update_ritual"), id: z.string().min(1), active: z.boolean().optional(), title: z.string().optional() });
-export const DeleteRitualSchema = z.object({ type: z.literal("delete_ritual"), id: z.string().min(1) });
-
 // TRANSFORMATION — NEVER mix with RANKING
 export const CreateTransformationSchema = z.object({ type: z.literal("create_transformation"), title: TitleField, description: DescField, phase: z.string().optional(), rank: z.undefined().optional(), rank_id: z.undefined().optional() });
 export const UpdateTransformationSchema = z.object({ type: z.literal("update_transformation"), id: z.string().min(1), title: z.string().optional(), phase: z.string().optional(), rank: z.undefined().optional(), rank_id: z.undefined().optional() });
@@ -106,6 +101,101 @@ export const ProposeProductSchema = z.object({
   platform: z.enum(["gumroad", "stripe"]).optional(),
 });
 
+// IMAGE GENERATION
+export const GenerateImageSchema = z.object({ type: z.literal("generate_image"), prompt: z.string().min(1), aspect_ratio: z.enum(["1:1","16:9","9:16","4:3","3:4"]).optional(), save_to_vault: z.boolean().optional() });
+
+// VIDEO GENERATION
+export const GenerateVideoSchema = z.object({
+  type: z.literal("generate_video"),
+  prompt: z.string().min(1),
+  duration: z.number().int().min(1).max(30).optional(),
+  aspect_ratio: z.enum(["16:9","9:16","1:1"]).optional(),
+  provider: z.enum(["fal","veo","omni","auto"]).optional(),
+  save_to_vault: z.boolean().optional(),
+});
+
+export const VideoStatusSchema = z.object({
+  type: z.literal("video_status"),
+  provider: z.enum(["fal","veo","omni"]),
+  request_id: z.string().optional(),
+  operation_name: z.string().optional(),
+});
+
+// PLAN-AND-EXECUTE — decompose a high-level goal into a DAG of steps via mavis-planner
+// plan_execute requires confirmation — see actionExecutor.ts ALWAYS_CONFIRM
+export const PlanExecuteSchema = z.object({
+  type: z.literal("plan_execute"),
+  params: z.object({
+    goal: z.string().min(10).max(500),
+    context: z.string().max(1000).optional(),
+    auto_create_quests: z.boolean().default(true),
+  }),
+});
+
+// WEBSITE BUILDER — create a complete client website via mavis-web-builder
+export const CreateWebsiteSchema = z.object({
+  type: z.literal("create_website"),
+  client_name: z.string().min(1),
+  business_name: z.string().min(1),
+  business_type: z.enum(["local_business","saas","agency","ecommerce","restaurant","medical","portfolio","nonprofit"]).optional(),
+  description: z.string().min(10),
+  target_audience: z.string().optional(),
+  unique_value: z.string().optional(),
+  location: z.string().optional(),
+  style: z.enum(["modern","corporate","creative","minimal","bold","elegant"]).optional(),
+  color_scheme: z.enum(["blue","green","purple","orange","red","monochrome"]).optional(),
+  pages: z.array(z.string()).optional(),
+  price_cents: z.number().int().min(0).optional(),
+});
+
+// PUBLISH WEBPAGE — publish a specific page to an existing project's WP site
+export const PublishWebpageSchema = z.object({
+  type: z.literal("publish_webpage"),
+  project_id: z.string().uuid(),
+  page_type: z.string().min(1),
+  title: z.string().min(1),
+  content_brief: z.string().optional(),
+});
+
+// CREATE WIDGET — generate an AI-powered embeddable widget via mavis-widget-gen
+export const CreateWidgetSchema = z.object({
+  type: z.literal("create_widget"),
+  widget_type: z.enum(["chat","lead_capture","quote_calculator","faq","roi_calculator","appointment_booker"]),
+  business_name: z.string().min(1),
+  primary_color: z.string().optional(),
+  position: z.enum(["bottom-right","bottom-left"]).optional(),
+  name: z.string().optional(),
+  greeting: z.string().optional(),
+  system_prompt: z.string().optional(),
+  faqs: z.array(z.object({ question: z.string(), answer: z.string() })).optional(),
+  project_id: z.string().optional(),
+  monthly_price_cents: z.number().int().min(0).optional(),
+});
+
+// VIDEO EDITOR — AI-powered clip extraction and editing
+export const AnalyzeVideoSchema = z.object({
+  type: z.literal("analyze_video"),
+  source_url: z.string().url(),
+  source_type: z.enum(["upload", "youtube", "loom", "url"]).optional(),
+  title: z.string().optional(),
+  language: z.string().optional(),
+});
+
+export const GenerateClipsSchema = z.object({
+  type: z.literal("generate_clips"),
+  project_id: z.string().uuid(),
+  formats: z.array(z.enum(["shorts", "reels", "highlight", "long_form"])).optional(),
+  count_per_format: z.number().int().min(1).max(10).optional(),
+});
+
+export const RenderClipSchema = z.object({
+  type: z.literal("render_clip"),
+  clip_id: z.string().uuid(),
+  aspect_ratio: z.enum(["9:16", "16:9", "1:1"]).optional(),
+  add_captions: z.boolean().optional(),
+  push_to_nora: z.boolean().optional(),
+});
+
 // UNION — ALL SCHEMAS
 export const ActionSchema = z.discriminatedUnion("type", [
   CreateQuestSchema, UpdateQuestSchema, DeleteQuestSchema,
@@ -117,7 +207,6 @@ export const ActionSchema = z.discriminatedUnion("type", [
   CreateInventorySchema, UpdateInventorySchema, DeleteInventorySchema,
   UpdateEnergySchema,
   CreateAllySchema, UpdateAllySchema, DeleteAllySchema,
-  CreateRitualSchema, UpdateRitualSchema, DeleteRitualSchema,
   CreateTransformationSchema, UpdateTransformationSchema, DeleteTransformationSchema,
   CreateRankingSchema, UpdateRankingSchema, DeleteRankingSchema,
   CreateStoreItemSchema, UpdateStoreItemSchema, DeleteStoreItemSchema,
@@ -126,7 +215,17 @@ export const ActionSchema = z.discriminatedUnion("type", [
   AwardXpSchema,
   ProposeProductSchema,
   NoraTweetSchema,
+  GenerateImageSchema,
+  GenerateVideoSchema,
+  VideoStatusSchema,
   CreateSkillDefinitionSchema,
+  PlanExecuteSchema,
+  CreateWebsiteSchema,
+  PublishWebpageSchema,
+  CreateWidgetSchema,
+  AnalyzeVideoSchema,
+  GenerateClipsSchema,
+  RenderClipSchema,
 ]);
 
 export type ValidatedAction = z.infer<typeof ActionSchema>;

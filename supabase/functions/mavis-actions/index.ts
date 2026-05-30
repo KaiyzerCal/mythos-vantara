@@ -105,7 +105,6 @@ const ACTION_ALIASES: Record<string, string> = {
   "add_store_item": "create_store_item", "new_store_item": "create_store_item",
   "edit_store_item": "update_store_item", "remove_store_item": "delete_store_item",
   "add_ranking": "create_ranking", "new_ranking": "create_ranking", "edit_ranking": "update_ranking", "remove_ranking": "delete_ranking",
-  "add_ritual": "create_ritual", "new_ritual": "create_ritual", "edit_ritual": "update_ritual", "remove_ritual": "delete_ritual", "finish_ritual": "complete_ritual",
   "edit_profile": "update_profile", "modify_profile": "update_profile",
   "set_stats": "update_profile", "update_stats": "update_profile", "change_stats": "update_profile", "modify_stats": "update_profile", "edit_stats": "update_profile",
   "update_character": "update_profile", "edit_character": "update_profile", "modify_character": "update_profile", "change_character": "update_profile",
@@ -305,7 +304,7 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
     // ── JOURNAL ──────────────────────────────────────────
     case "create_journal": {
       const xp = Number(p.xp_earned || 10);
-      const { error } = await sb.from("journal_entries").insert({
+      const { data: newEntry, error } = await sb.from("journal_entries").insert({
         user_id: userId,
         title: String(p.title || "New Entry"),
         content: String(p.content || ""),
@@ -314,10 +313,24 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
         importance: String(p.importance || "medium"),
         mood: p.mood ? String(p.mood) : null,
         xp_earned: xp,
-      });
+      }).select("id").single();
       if (error) throw error;
       await awardXP(sb, userId, xp);
       await logActivity(sb, userId, "journal_created", `Journal: ${String(p.title || "New Entry")}`, xp);
+
+      // After successful journal entry insert, tag emotions asynchronously
+      if (newEntry?.id) {
+        (async () => {
+          try {
+            await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-emotion-tag`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json", Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
+              body: JSON.stringify({ journal_entry_id: newEntry.id, content: p.content ?? p.title ?? "", user_id: userId }),
+            });
+          } catch { /* non-critical */ }
+        })();
+      }
+
       return;
     }
 
@@ -537,55 +550,6 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
       const amount = Number(p.amount || 0);
       await awardXP(sb, userId, amount);
       await logActivity(sb, userId, "xp_awarded", `MAVIS awarded ${amount} XP`, amount);
-      return;
-    }
-
-    // ── RITUALS ──────────────────────────────────────────
-    case "create_ritual": {
-      const { error } = await sb.from("rituals").insert({
-        user_id: userId,
-        name: String(p.name || "New Ritual"),
-        description: String(p.description || ""),
-        type: String(p.type || "other"),
-        category: p.category ? String(p.category) : null,
-        xp_reward: Number(p.xp_reward || 25),
-        completed: false,
-        streak: 0,
-      });
-      if (error) throw error;
-      return;
-    }
-
-    case "update_ritual": {
-      const ritualId = await resolveId(sb, userId, "rituals", (p.ritual_id || p.id) as string, (p.ritual_name || p.name) as string);
-      if (!ritualId) return;
-      const updates: Record<string, unknown> = {};
-      for (const key of ["name", "description", "type", "category", "xp_reward"]) {
-        if (p[key] !== undefined) updates[key] = p[key];
-      }
-      await sb.from("rituals").update(updates).eq("id", ritualId).eq("user_id", userId);
-      return;
-    }
-
-    case "complete_ritual": {
-      const ritualId = await resolveId(sb, userId, "rituals", (p.ritual_id || p.id) as string, (p.ritual_name || p.name) as string);
-      if (!ritualId) return;
-      const { data: ritual } = await sb.from("rituals").select("xp_reward, name, streak").eq("id", ritualId).eq("user_id", userId).single();
-      if (!ritual) return;
-      await sb.from("rituals").update({
-        completed: true,
-        streak: Number(ritual.streak || 0) + 1,
-        last_completed: new Date().toISOString(),
-      }).eq("id", ritualId).eq("user_id", userId);
-      await awardXP(sb, userId, Number(ritual.xp_reward || 0));
-      await logActivity(sb, userId, "ritual_completed", `Ritual: ${ritual.name}`, Number(ritual.xp_reward || 0));
-      return;
-    }
-
-    case "delete_ritual": {
-      const ritualId = await resolveId(sb, userId, "rituals", (p.ritual_id || p.id) as string, (p.ritual_name || p.name) as string);
-      if (!ritualId) return;
-      await sb.from("rituals").delete().eq("id", ritualId).eq("user_id", userId);
       return;
     }
 
@@ -1068,6 +1032,190 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
       }).catch(() => {});
 
       return;
+    }
+
+    case "generate_image":
+    case "image_gen":
+    case "create_image": {
+      const prompt = String(p.prompt ?? p.description ?? "").trim();
+      if (!prompt) throw new Error("generate_image requires a 'prompt' parameter");
+      const aspectRatio = String(p.aspect_ratio ?? "1:1");
+      const saveToVault = p.save_to_vault !== false;
+
+      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+      const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+      const geminiKey = Deno.env.get("GEMINI_API_KEY") ?? "";
+
+      let imageUrl = "";
+      let imageb64 = "";
+      let note = "";
+
+      // Try Gemini Imagen first
+      if (geminiKey) {
+        try {
+          const imgRes = await fetch(
+            `https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-generate-001:predict?key=${geminiKey}`,
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                instances: [{ prompt }],
+                parameters: { sampleCount: 1, aspectRatio },
+              }),
+            }
+          );
+          if (imgRes.ok) {
+            const imgData = await imgRes.json();
+            imageb64 = imgData?.predictions?.[0]?.bytesBase64Encoded ?? "";
+            if (imageb64) {
+              imageUrl = `data:image/png;base64,${imageb64}`;
+            }
+          }
+        } catch {
+          // fall through to vault fallback
+        }
+      }
+
+      // Fallback: save prompt to vault for manual creation
+      if (!imageUrl) {
+        note = "Image generation requires Imagen API access. Prompt saved to vault.";
+        if (saveToVault) {
+          await sb.from("vault_entries").insert({
+            user_id: userId,
+            title: `[Image Prompt] ${prompt.slice(0, 60)}`,
+            content: `**Prompt:** ${prompt}\n\n**Aspect Ratio:** ${aspectRatio}\n\n*Awaiting manual image generation.*`,
+            category: "image-prompt",
+            tags: ["image-prompt", "ai-generated"],
+            is_public: false,
+          }).catch(() => {});
+        }
+        return { note, prompt, aspect_ratio: aspectRatio };
+      }
+
+      // Upload image to vault-media storage if we have base64
+      if (saveToVault && imageb64) {
+        try {
+          const bytes = Uint8Array.from(atob(imageb64), c => c.charCodeAt(0));
+          const fileName = `mavis-gen-${Date.now()}.png`;
+          const storagePath = `${userId}/${fileName}`;
+          await sb.storage.from("vault-media").upload(storagePath, bytes.buffer, { contentType: "image/png" });
+          const { data: pubData } = sb.storage.from("vault-media").getPublicUrl(storagePath);
+          if (pubData?.publicUrl) imageUrl = pubData.publicUrl;
+          await sb.from("vault_media").insert({
+            user_id: userId,
+            file_name: fileName,
+            file_url: imageUrl,
+            file_type: "image",
+            file_size: bytes.length,
+            description: `AI-generated: ${prompt.slice(0, 120)}`,
+            tags: ["ai-generated", "mavis-gen"],
+          }).catch(() => {});
+        } catch {
+          // Keep base64 URL as fallback
+        }
+      }
+
+      await logActivity(sb, userId, "image_generated", `Generated image: ${prompt.slice(0, 60)}`, 5);
+      return { imageUrl, prompt, note };
+    }
+
+    case "generate_video": {
+      const videoUrl = `${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-video-gen`;
+      const videoRes = await fetch(videoUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
+        body: JSON.stringify({ ...action, user_id: userId }),
+      });
+      if (!videoRes.ok) throw new Error(`mavis-video-gen error: ${videoRes.status}`);
+      return await videoRes.json();
+    }
+
+    case "video_status": {
+      const vsUrl = `${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-video-gen`;
+      const vsRes = await fetch(vsUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
+        body: JSON.stringify({ action: "status", ...action, user_id: userId }),
+      });
+      if (!vsRes.ok) throw new Error(`mavis-video-gen status error: ${vsRes.status}`);
+      return await vsRes.json();
+    }
+
+    case "create_website": {
+      const wbUrl = `${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-web-builder`;
+      const wbRes = await fetch(wbUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
+        body: JSON.stringify({ ...action, user_id: userId }),
+      });
+      if (!wbRes.ok) throw new Error(`mavis-web-builder error: ${wbRes.status}`);
+      return await wbRes.json();
+    }
+
+    case "publish_webpage": {
+      const pwUrl = `${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-wordpress`;
+      const pwRes = await fetch(pwUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
+        body: JSON.stringify({ action: "create_page", ...action, user_id: userId }),
+      });
+      if (!pwRes.ok) throw new Error(`mavis-wordpress error: ${pwRes.status}`);
+      return await pwRes.json();
+    }
+
+    case "create_widget": {
+      const wgUrl = `${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-widget-gen`;
+      const wgRes = await fetch(wgUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
+        body: JSON.stringify({ action: "generate", ...action, user_id: userId }),
+      });
+      if (!wgRes.ok) throw new Error(`mavis-widget-gen error: ${wgRes.status}`);
+      return await wgRes.json();
+    }
+
+    case "plan_execute": {
+      const planUrl = `${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-planner`;
+      const planRes = await fetch(planUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
+        body: JSON.stringify({ user_id: userId, params: (action as any).params }),
+      });
+      if (!planRes.ok) throw new Error(`mavis-planner error: ${planRes.status}`);
+      return await planRes.json();
+    }
+
+    case "analyze_video": {
+      const avUrl = `${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-video-editor`;
+      const avRes = await fetch(avUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
+        body: JSON.stringify({ action: "analyze", user_id: userId, ...action }),
+      });
+      if (!avRes.ok) throw new Error(`mavis-video-editor error: ${avRes.status}`);
+      return await avRes.json();
+    }
+
+    case "generate_clips": {
+      const gcUrl = `${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-video-editor`;
+      const gcRes = await fetch(gcUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
+        body: JSON.stringify({ action: "generate_clips", user_id: userId, ...action }),
+      });
+      if (!gcRes.ok) throw new Error(`mavis-video-editor generate_clips error: ${gcRes.status}`);
+      return await gcRes.json();
+    }
+
+    case "render_clip": {
+      const rcUrl = `${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-video-render`;
+      const rcRes = await fetch(rcUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
+        body: JSON.stringify({ action: "render", user_id: userId, ...action }),
+      });
+      if (!rcRes.ok) throw new Error(`mavis-video-render error: ${rcRes.status}`);
+      return await rcRes.json();
     }
 
     default:

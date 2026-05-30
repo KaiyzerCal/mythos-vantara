@@ -72,6 +72,62 @@ export const MAVIS_MODE_DEFINITIONS: Record<MavisMode, ModeDefinition> = {
     systemTone: "Live intelligence. Real-time awareness. Pattern detection.",
     emoji: "🔭",
   },
+  AGENT: {
+    id: "AGENT",
+    label: "Agent",
+    description: "Agentic tool-use loop. MAVIS autonomously plans, executes tools, and delivers structured results.",
+    systemTone: "Agentic tool-use loop. Plan, execute, verify. Use tools deliberately.",
+    emoji: "🤖",
+  },
+  RESEARCH: {
+    id: "RESEARCH",
+    label: "Research",
+    description: "Deep multi-step research with citations and synthesis. Follows threads across multiple sources.",
+    systemTone: "Deep research mode. Multi-source, multi-angle. Cite everything.",
+    emoji: "🔬",
+  },
+  REFLECT: {
+    id: "REFLECT",
+    label: "Reflect",
+    description: "Comprehensive system review. Surface what's stale, lagging, or misaligned. Propose course corrections.",
+    systemTone: "Holistic systems review. Audit everything. Identify drift. Recommend recalibration.",
+    emoji: "🪞",
+  },
+  SALES: {
+    id: "SALES",
+    label: "Sales",
+    description: "Pipeline intelligence and outreach strategy. Research contacts, prep calls, track deals.",
+    systemTone: "CRM-mode. Relationship intelligence, outreach strategy, pipeline discipline.",
+    emoji: "📈",
+  },
+  MARKET: {
+    id: "MARKET",
+    label: "Market",
+    description: "Content strategy and brand voice. Campaigns, drafting, and Nora Vale activation.",
+    systemTone: "Content and brand mode. Nora Vale voice. Hooks, campaigns, distribution.",
+    emoji: "📢",
+  },
+  DATA: {
+    id: "DATA",
+    label: "Data",
+    description: "Metrics-first analysis. Surface patterns and insights from app data. Think in numbers and trends.",
+    systemTone: "Data analyst mode. Numbers first. Surface trends, anomalies, and actionable insights.",
+    emoji: "📊",
+  },
+  GAME_MASTER: {
+    id: "GAME_MASTER",
+    label: "Game Master",
+    description: "Narrative AI Game Master. Generates challenges, enforces consequence arcs, rewards streaks with story events, and keeps the RPG world alive through operator choices.",
+    systemTone: "Narrative Game Master. React to operator actions with story consequences. Generate challenges calibrated to their current performance. Make the life-OS feel alive.",
+    emoji: "🎮",
+  },
+  WEBMASTER: {
+    id: "WEBMASTER",
+    label: "Webmaster",
+    description: "Website design and development mode. MAVIS builds complete, high-converting WordPress websites for clients from a single brief.",
+    systemTone: "Expert web strategist and designer. Generate copy, structure, and strategy for client websites. Think conversion rate optimization, brand strategy, and user experience.",
+    emoji: "🌐",
+  },
 };
 
 export const DEFAULT_MODE: MavisMode = "PRIME";

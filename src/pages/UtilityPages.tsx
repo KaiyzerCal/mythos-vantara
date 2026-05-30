@@ -1,12 +1,14 @@
 // ============================================================
 // VANTARA.EXE — AuthPage, SettingsPage, Index, NotFound
 // ============================================================
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
-import { Loader2, LogIn, UserPlus, Settings, Bell, Shield, Crown, Sun, Moon } from "lucide-react";
+import { Loader2, LogIn, UserPlus, Settings, Bell, Shield, Crown, Sun, Moon, Zap } from "lucide-react";
 import { useTheme } from "next-themes";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase as _supabase } from "@/integrations/supabase/client";
+const supabase = _supabase as any;
 import { useAppData } from "@/contexts/AppDataContext";
+import { useAuth } from "@/contexts/AuthContext";
 import { PageHeader, HudCard, ProgressBar } from "@/components/SharedUI";
 import Dashboard from "./Dashboard";
 
@@ -102,7 +104,110 @@ export function AuthPage() {
   );
 }
 
+const LANGUAGE_OPTIONS = [
+  { value: "en", label: "English" },
+  { value: "es", label: "Spanish" },
+  { value: "fr", label: "French" },
+  { value: "pt", label: "Portuguese" },
+  { value: "de", label: "German" },
+  { value: "ja", label: "Japanese" },
+  { value: "ar", label: "Arabic" },
+];
+
+// ─── AutomationRulesSection ────────────────────────────────
+interface AutomationRule {
+  id: string;
+  name: string;
+  triggerEvent: string;
+  actionType: string;
+  enabled: boolean;
+  triggerCount: number;
+}
+
+function AutomationRulesSection() {
+  const { user } = useAuth();
+  const [rules, setRules] = useState<AutomationRule[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!user) return;
+    (supabase as any)
+      .from("mavis_automation_rules")
+      .select("id, name, trigger_event, action_type, enabled, trigger_count")
+      .then(({ data }) => {
+        if (data) {
+          setRules(
+            data.map((r: any) => ({
+              id: r.id,
+              name: r.name,
+              triggerEvent: r.trigger_event,
+              actionType: r.action_type,
+              enabled: r.enabled,
+              triggerCount: r.trigger_count ?? 0,
+            }))
+          );
+        }
+        setLoading(false);
+      });
+  }, [user]);
+
+  const toggleRule = async (rule: AutomationRule) => {
+    const newEnabled = !rule.enabled;
+    setRules((prev) =>
+      prev.map((r) => (r.id === rule.id ? { ...r, enabled: newEnabled } : r))
+    );
+    await (supabase as any)
+      .from("mavis_automation_rules")
+      .update({ enabled: newEnabled })
+      .eq("id", rule.id);
+  };
+
+  return (
+    <HudCard>
+      <h3 className="text-xs font-mono text-muted-foreground uppercase tracking-widest mb-3 flex items-center gap-2">
+        <Zap size={10} className="text-primary" /> Automation Rules
+      </h3>
+      {loading ? (
+        <div className="flex items-center gap-2 text-xs font-mono text-muted-foreground">
+          <Loader2 size={10} className="animate-spin" /> Loading rules...
+        </div>
+      ) : rules.length === 0 ? (
+        <div className="space-y-1">
+          <p className="text-xs font-mono text-muted-foreground">
+            No automation rules configured. SENTINEL monitors system events automatically.
+          </p>
+          <p className="text-[10px] font-mono text-muted-foreground/60">
+            Rules can be added programmatically via the mavis_automation_rules table.
+          </p>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {rules.map((rule) => (
+            <div key={rule.id} className="flex items-center justify-between gap-2 py-1 border-b border-border/30 last:border-0">
+              <div className="flex items-center gap-2 min-w-0 flex-1">
+                <span className="text-xs font-mono truncate">{rule.name}</span>
+                <span className="text-[9px] font-mono text-muted-foreground/60 shrink-0">{rule.triggerEvent}</span>
+                <span className="text-[9px] font-mono text-primary/60 shrink-0">{rule.actionType}</span>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <span className="text-[9px] font-mono text-muted-foreground">{rule.triggerCount}</span>
+                <button
+                  onClick={() => toggleRule(rule)}
+                  className={`w-10 h-5 rounded-full transition-all relative ${rule.enabled ? "bg-primary/30" : "bg-muted"}`}
+                >
+                  <span className={`absolute top-0.5 w-4 h-4 rounded-full transition-all ${rule.enabled ? "left-5 bg-primary" : "left-0.5 bg-muted-foreground"}`} />
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </HudCard>
+  );
+}
+
 // ─── SettingsPage ──────────────────────────────────────────
+// Note: profiles table should have: ALTER TABLE profiles ADD COLUMN IF NOT EXISTS language TEXT DEFAULT 'en';
 export function SettingsPage() {
   const { profile, updateProfile } = useAppData();
   const [saved, setSaved] = useState(false);
@@ -111,6 +216,7 @@ export function SettingsPage() {
     arc_story: profile.arc_story,
     current_form: profile.current_form,
     current_bpm: profile.current_bpm,
+    language: (profile as any).language ?? "en",
   });
 
   const handleSave = async () => {
@@ -156,6 +262,18 @@ export function SettingsPage() {
               <label className="text-[10px] font-mono text-muted-foreground uppercase mb-1 block">Current BPM</label>
               <input type="number" value={localProfile.current_bpm} onChange={(e) => setLocalProfile((p) => ({ ...p, current_bpm: Number(e.target.value) }))} className="w-full bg-muted/30 border border-border rounded px-3 py-1.5 text-sm focus:outline-none" />
             </div>
+          </div>
+          <div>
+            <label className="text-[10px] font-mono text-muted-foreground uppercase mb-1 block">Language</label>
+            <select
+              value={localProfile.language}
+              onChange={(e) => setLocalProfile((p) => ({ ...p, language: e.target.value }))}
+              className="w-full bg-muted/30 border border-border rounded px-3 py-1.5 text-sm font-mono focus:outline-none focus:border-primary/40"
+            >
+              {LANGUAGE_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>{opt.label}</option>
+              ))}
+            </select>
           </div>
           <button onClick={handleSave} className="px-4 py-1.5 text-xs font-mono bg-primary/10 border border-primary/30 text-primary rounded hover:bg-primary/20 transition-all">
             {saved ? "✓ Saved" : "Save Changes"}
@@ -208,6 +326,9 @@ export function SettingsPage() {
           ))}
         </div>
       </HudCard>
+
+      {/* Automation Rules */}
+      <AutomationRulesSection />
     </div>
   );
 }

@@ -21,6 +21,7 @@ const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const LINKEDIN_TOKEN = Deno.env.get("LINKEDIN_NORA_ACCESS_TOKEN") ?? "";
 const ANTHROPIC_KEY = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
+const GEMINI_KEY = Deno.env.get("GEMINI_API_KEY") ?? "";
 
 const adminSb = createClient(SUPABASE_URL, SERVICE_KEY);
 
@@ -61,31 +62,31 @@ async function generateLinkedInPost(): Promise<string> {
   ];
   const topic = topics[Math.floor(Math.random() * topics.length)];
 
+  const userMsg = `Write a LinkedIn post sharing a genuine insight about: ${topic}`;
+
+  // Tier 0 — Free Gemini
+  if (GEMINI_KEY) {
+    try {
+      const lvRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_KEY}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          systemInstruction: { parts: [{ text: NORA_SYSTEM }] },
+          contents: [{ role: "user", parts: [{ text: userMsg }] }],
+          generationConfig: { maxOutputTokens: 512 },
+        }),
+      });
+      if (lvRes.ok) { const d = await lvRes.json(); const t: string = (d.candidates?.[0]?.content?.parts?.[0]?.text ?? "").trim(); if (t) return t.slice(0, 1300); }
+    } catch { /* fall through */ }
+  }
+  // Tier 1 — Claude Haiku (designated)
   const res = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
-    headers: {
-      "x-api-key": ANTHROPIC_KEY,
-      "anthropic-version": "2023-06-01",
-      "content-type": "application/json",
-    },
-    body: JSON.stringify({
-      model: "claude-haiku-4-5-20251001",
-      max_tokens: 512,
-      system: NORA_SYSTEM,
-      messages: [
-        {
-          role: "user",
-          content: `Write a LinkedIn post sharing a genuine insight about: ${topic}`,
-        },
-      ],
-    }),
+    headers: { "x-api-key": ANTHROPIC_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json" },
+    body: JSON.stringify({ model: "claude-haiku-4-5-20251001", max_tokens: 512, system: NORA_SYSTEM, messages: [{ role: "user", content: userMsg }] }),
   });
 
-  if (!res.ok) {
-    const err = await res.text();
-    throw new Error(`Anthropic API error (${res.status}): ${err}`);
-  }
-
+  if (!res.ok) { const err = await res.text(); throw new Error(`Anthropic API error (${res.status}): ${err}`); }
   const data = await res.json();
   const text: string = data.content?.[0]?.text?.trim() ?? "";
   if (!text) throw new Error("Empty response from Claude");

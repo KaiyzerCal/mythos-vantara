@@ -47,6 +47,7 @@ export interface ChatServiceResult {
   searched: boolean;
   imageUrl: string | null;
   fnData: Record<string, unknown> | null;
+  reflectionNote?: string | null;
 }
 
 // Streaming variant — calls the edge function with stream:true and reads SSE.
@@ -129,6 +130,32 @@ export async function streamChatMessage(
     ? await executeActions(parsedActions)
     : [];
 
+  // Quality reflection for significant analytical outputs
+  let reflectionNote: string | null = null;
+  if (accumulated.length > 200 && ["REFLECT", "QUEST", "RESEARCH", "ARCH", "SOVEREIGN"].includes(options.mode?.toUpperCase() ?? "")) {
+    try {
+      const { data: { session: reflectSession } } = await supabase.auth.getSession();
+      if (reflectSession?.access_token) {
+        const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string;
+        const refRes = await fetch(`${supabaseUrl}/functions/v1/mavis-quality-eval`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${reflectSession.access_token}` },
+          body: JSON.stringify({
+            userMessage: userText,
+            assistantResponse: accumulated.slice(0, 2000),
+            mode: options.mode,
+          }),
+        });
+        if (refRes.ok) {
+          const refData = await refRes.json();
+          if (refData.score < 0.6 && refData.critique) {
+            reflectionNote = refData.critique;
+          }
+        }
+      }
+    } catch { /* non-critical */ }
+  }
+
   return {
     rawText: accumulated,
     cleanText,
@@ -136,7 +163,7 @@ export async function streamChatMessage(
     conversationId: (metadata.conversationId as string | null) ?? options.conversationId ?? null,
     searched: metadata.searched === true,
     imageUrl: (metadata.imageUrl as string | null) ?? null,
-    fnData: metadata as Record<string, unknown>,
+    fnData: { ...metadata as Record<string, unknown>, reflectionNote },
   };
 }
 

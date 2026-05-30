@@ -3,7 +3,7 @@
 // ============================================================
 import { useState, useRef, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Target, Plus, Trash2, CheckCircle2, Filter, Loader2, Users, MessageCircle, Send, Square, X, Edit2, ArrowDown, ArrowUp, Database } from "lucide-react";
+import { Target, Plus, Trash2, CheckCircle2, Filter, Loader2, Users, MessageCircle, Send, Square, X, Edit2, ArrowDown, ArrowUp, Database, PhoneCall } from "lucide-react";
 import { useAppData } from "@/contexts/AppDataContext";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
@@ -15,6 +15,11 @@ import { useChatAttachments } from "@/hooks/useChatAttachments";
 import { VoicePicker } from "@/components/chat/VoicePicker";
 import { AttachmentTray, AttachButton } from "@/components/chat/AttachmentTray";
 import { DEFAULT_VOICE_BY_GENDER, findVoice, type VoiceGender } from "@/lib/voiceCatalog";
+import { VoiceChatOverlay } from "@/components/VoiceChatOverlay";
+import type { VoicePersona } from "@/components/VoiceChatOverlay";
+import { buildCouncilMemberPrompt, buildContextSummary } from "@/mavis/councilPersona";
+import { loadFullAppContext } from "@/mavis/appContextLoader";
+import type { AppContextSnapshot } from "@/mavis/appContextLoader";
 
 const QUEST_TYPES = ["all", "main", "epic", "side", "daily"] as const;
 const QUEST_STATUSES = ["all", "active", "completed", "failed", "locked"] as const;
@@ -553,9 +558,6 @@ function buildMemberSystemPrompt(member: any, profile: any, appContext?: any): s
     // Council members
     const councilList = (appContext.councils || []).map((c: any) => `  • ${c.name} (${c.role}, ${c.class}${c.specialty ? `, specialty:${c.specialty}` : ""}) — ${c.notes || "no notes"}`).join("\n");
     
-    // Rituals full
-    const ritualList = (appContext.rituals || []).map((r: any) => `  • [${r.completed ? "✓" : "○"}] "${r.name}" (${r.type}${r.category ? `, ${r.category}` : ""}, XP:${r.xp_reward}, streak:${r.streak}) — ${r.description}`).join("\n");
-    
     contextBlock = `
 
 OPERATOR'S COMPLETE SYSTEM STATE — You can see and reference ALL of this data:
@@ -609,10 +611,7 @@ RECENT BPM SESSIONS:
 ${bpmList || "  None"}
 
 ALL COUNCIL MEMBERS:
-${councilList || "  None"}
-
-ALL RITUALS (${(appContext.rituals || []).length} total):
-${ritualList || "  None"}`;
+${councilList || "  None"}`;
   }
 
   return `${persona}
@@ -639,7 +638,7 @@ HOW TO TALK:
 }
 
 function CouncilChat({ member, profile, onClose }: { member: any; profile: any; onClose: () => void }) {
-  const { quests, skills, journalEntries, vaultEntries, energySystems, allies, inventory, rituals, transformations, rankings, storeItems, bpmSessions, tasks, councils } = useAppData();
+  const { quests, skills, journalEntries, vaultEntries, energySystems, allies, inventory, transformations, rankings, storeItems, bpmSessions, tasks, councils } = useAppData();
   // Build character-specific greeting
   const greetingMap: Record<string, string> = {
     "Kratos": "*sits down heavily* ...What weighs on you, boy?",
@@ -890,7 +889,7 @@ function CouncilChat({ member, profile, onClose }: { member: any; profile: any; 
     } catch {} // Non-critical
 
     try {
-      const systemPrompt = buildMemberSystemPrompt(member, profile, { quests, skills, journalEntries, vaultEntries, energySystems, allies, inventory, rituals, transformations, rankings, storeItems, bpmSessions, tasks, councils, profile }) + memoriesContext;
+      const systemPrompt = buildMemberSystemPrompt(member, profile, { quests, skills, journalEntries, vaultEntries, energySystems, allies, inventory, transformations, rankings, storeItems, bpmSessions, tasks, councils, profile }) + memoriesContext;
       const { data, error } = await supabase.functions.invoke("mavis-chat", {
         body: {
           messages: apiMessages,
@@ -915,7 +914,7 @@ function CouncilChat({ member, profile, onClose }: { member: any; profile: any; 
     } finally {
       setIsLoading(false);
     }
-  }, [input, messages, isLoading, member, profile, persistCouncilMessage, quests, skills, journalEntries, vaultEntries, energySystems, allies, inventory, rituals, transformations, rankings, storeItems, bpmSessions, tasks, councils, speakText]);
+  }, [input, messages, isLoading, member, profile, persistCouncilMessage, quests, skills, journalEntries, vaultEntries, energySystems, allies, inventory, transformations, rankings, storeItems, bpmSessions, tasks, councils, speakText]);
 
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-background/80 backdrop-blur-sm p-4">
@@ -1059,7 +1058,16 @@ export function CouncilsPage() {
   const [showCreate, setShowCreate] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [activeChat, setActiveChat] = useState<any | null>(null);
+  const [voiceTarget, setVoiceTarget] = useState<VoicePersona | null>(null);
+  const [appCtx, setAppCtx] = useState<AppContextSnapshot | null>(null);
   const [form, setForm] = useState({ name: "", role: "", specialty: "", class: "advisory", notes: "" });
+
+  // Pre-load app context for voice calls (60s cache shared with MAVIS)
+  useEffect(() => {
+    const uid = (profile as unknown as Record<string, unknown>)?.id as string | undefined;
+    if (!uid) return;
+    loadFullAppContext(uid).then(setAppCtx).catch(() => {/* non-fatal */});
+  }, [(profile as unknown as Record<string, unknown>)?.id]);
 
   const resetForm = () => {
     setForm({ name: "", role: "", specialty: "", class: "advisory", notes: "" });
@@ -1191,6 +1199,13 @@ export function CouncilsPage() {
                       <button onClick={(e) => handleDelete(m.id, e)} className="p-1 text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded transition-all opacity-0 group-hover:opacity-100" title="Delete">
                         <Trash2 size={12} />
                       </button>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); setVoiceTarget({ name: m.name, role: m.role, systemPrompt: buildCouncilMemberPrompt(m, appCtx ? buildContextSummary(appCtx) : ""), voiceId: m.voice_id ?? undefined }); }}
+                        className="p-1 text-muted-foreground hover:text-primary hover:bg-primary/10 rounded transition-all opacity-0 group-hover:opacity-100"
+                        title={`Voice call ${m.name}`}
+                      >
+                        <PhoneCall size={12} />
+                      </button>
                       <MessageCircle size={12} className={`mt-0.5 opacity-0 group-hover:opacity-100 transition-opacity ${classColors[m.class]}`} />
                     </div>
                   </div>
@@ -1204,6 +1219,14 @@ export function CouncilsPage() {
       <AnimatePresence>
         {activeChat && (
           <CouncilChat member={activeChat} profile={profile} onClose={() => setActiveChat(null)} />
+        )}
+      </AnimatePresence>
+      <AnimatePresence>
+        {voiceTarget && (
+          <VoiceChatOverlay
+            persona={voiceTarget}
+            onClose={() => setVoiceTarget(null)}
+          />
         )}
       </AnimatePresence>
     </div>

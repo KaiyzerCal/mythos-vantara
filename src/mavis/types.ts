@@ -7,7 +7,15 @@ export type MavisMode =
   | "COURT"
   | "SOVEREIGN"
   | "ENRYU"
-  | "WATCHTOWER";
+  | "WATCHTOWER"
+  | "AGENT"
+  | "RESEARCH"
+  | "REFLECT"
+  | "SALES"
+  | "MARKET"
+  | "DATA"
+  | "GAME_MASTER"
+  | "WEBMASTER";
 
 export interface MavisMessage {
   id: string;
@@ -46,7 +54,6 @@ export interface AppStateSnapshot {
   inventory?: unknown[];
   energy?: unknown;
   allies?: unknown[];
-  rituals?: unknown[];
   transformations?: unknown[];
   rankings?: unknown[];
   profile?: Record<string, unknown>;

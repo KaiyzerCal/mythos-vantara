@@ -13,11 +13,13 @@ import { motion, AnimatePresence } from "framer-motion";
 import { useAuth } from "@/contexts/AuthContext";
 import { AppDataContext } from "@/contexts/AppDataContext";
 import { RANK_COLORS } from "@/types/rpg";
+import { NotificationBell } from "@/components/NotificationBell";
 
 const PRIMARY_NAV = [
   { to: "/", icon: LayoutDashboard, label: "Dashboard" },
   { to: "/character", icon: User, label: "Character" },
   { to: "/mavis", icon: Cpu, label: "MAVIS" },
+  { to: "/mavis-ui", icon: Sparkles, label: "MavisUI" },
   { to: "/inbox", icon: Inbox, label: "Inbox" },
   { to: "/quests", icon: Target, label: "Quests" },
   { to: "/councils", icon: Users, label: "Councils" },
@@ -129,7 +131,7 @@ export default function AppSidebar() {
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="overflow-hidden"
+              className="overflow-hidden flex-1"
             >
               <h1 className="font-display text-primary text-xs font-bold tracking-widest text-glow-gold whitespace-nowrap">
                 VANTARA.EXE
@@ -140,6 +142,7 @@ export default function AppSidebar() {
             </motion.div>
           )}
         </AnimatePresence>
+        <NotificationBell />
       </div>
 
       {/* Operator status strip */}

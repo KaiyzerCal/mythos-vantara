@@ -20,21 +20,25 @@ const corsHeaders = {
 
 // ============================================================
 // IDENTITY LOCK
-// MAVIS Prime is bound to these user IDs only.
-// Add Calvin's and Caliyah's Supabase auth user IDs here.
-// Anyone else gets rejected at the gate.
+// Operator identity gate — read from Supabase Edge Function secrets at runtime.
+// Set MAVIS_OPERATOR_MAIN_ID and MAVIS_OPERATOR_CALIYAH_ID in the Supabase dashboard
+// under Settings → Edge Functions → Secrets. When these are not set, DEV_MODE is true
+// and all authenticated users can access MAVIS (development only).
 // ============================================================
-const BOUND_OPERATORS: Record<string, { name: string; isCaliyah: boolean }> = {
-  // Add your actual Supabase user IDs here:
-  // "your-calvin-user-id-from-supabase-auth": { name: "Calvin", isCaliyah: false },
-  // "caliyah-user-id-from-supabase-auth": { name: "Caliyah", isCaliyah: true },
-  //
-  // To find your user ID: Supabase Dashboard → Authentication → Users → copy the UUID
-  // Leave empty during development to allow all users (remove this comment when locking down)
-  "__DEV_MODE__": { name: "Calvin", isCaliyah: false },
-};
+const _mainId = Deno.env.get("MAVIS_OPERATOR_MAIN_ID")?.trim();
+const _caliyahId = Deno.env.get("MAVIS_OPERATOR_CALIYAH_ID")?.trim();
+const _extraIds = Deno.env.get("MAVIS_EXTRA_OPERATOR_IDS") ?? "";
 
-const DEV_MODE = BOUND_OPERATORS["__DEV_MODE__"] !== undefined && Object.keys(BOUND_OPERATORS).length === 1;
+const BOUND_OPERATORS: Record<string, { name: string; isCaliyah: boolean }> = {};
+if (_mainId) BOUND_OPERATORS[_mainId] = { name: "Calvin", isCaliyah: false };
+if (_caliyahId) BOUND_OPERATORS[_caliyahId] = { name: "Caliyah", isCaliyah: true };
+for (const id of _extraIds.split(",").map((s) => s.trim()).filter(Boolean)) {
+  if (!BOUND_OPERATORS[id]) BOUND_OPERATORS[id] = { name: "Operator", isCaliyah: false };
+}
+
+// DEV_MODE: true when no operator IDs are configured via secrets.
+// In production, always configure MAVIS_OPERATOR_MAIN_ID.
+const DEV_MODE = Object.keys(BOUND_OPERATORS).length === 0;
 
 // ============================================================
 // CAPABILITY ROUTER
@@ -42,7 +46,7 @@ const DEV_MODE = BOUND_OPERATORS["__DEV_MODE__"] !== undefined && Object.keys(BO
 // Grok     → WATCHTOWER, COURT, real-time intel
 // OpenAI   → PRIME, QUEST, FORGE, ENRYU, default
 // ============================================================
-type Provider = "claude" | "grok" | "openai";
+type Provider = "claude" | "grok" | "openai" | "gemini";
 
 function routeToProvider(mode: string, message: string): Provider {
   const m = mode?.toUpperCase();
@@ -55,6 +59,7 @@ function routeToProvider(mode: string, message: string): Provider {
     "election", "weather",
   ];
   if (realtimeTriggers.some((t) => lower.includes(t))) return "grok";
+  if (m === "DEEP") return "gemini"; // thinking mode stays on Gemini
   return "openai";
 }
 
@@ -148,27 +153,37 @@ async function callGrok(messages: any[], system: string, key: string): Promise<s
   return d.choices?.[0]?.message?.content ?? "";
 }
 
-async function callLovableGateway(messages: any[], system: string, key: string, model = "google/gemini-2.5-flash"): Promise<string> {
-  const res = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+async function callGemini(messages: any[], system: string, key: string, opts: { thinking?: boolean; grounding?: boolean; codeExec?: boolean } = {}): Promise<string> {
+  const contents = messages.map((m: any) => ({
+    role: m.role === "user" ? "user" : "model",
+    parts: [{ text: typeof m.content === "string" ? m.content : JSON.stringify(m.content) }],
+  }));
+  const body: any = {
+    systemInstruction: { parts: [{ text: system }] },
+    contents,
+    generationConfig: { maxOutputTokens: opts.thinking ? 16384 : 4096 },
+  };
+  if (opts.thinking) body.generationConfig.thinkingConfig = { thinkingBudget: 8192 };
+  if (opts.grounding && !opts.thinking) body.tools = [{ googleSearch: {} }];
+  else if (opts.codeExec && !opts.thinking) body.tools = [{ codeExecution: {} }];
+  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${key}`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
-    body: JSON.stringify({
-      model,
-      messages: [{ role: "system", content: system }, ...messages],
-    }),
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
   });
   if (!res.ok) {
     const errText = await res.text();
-    if (res.status === 429) throw new Error("Lovable AI rate limit reached. Try again shortly.");
-    if (res.status === 402) throw new Error("Lovable AI credits exhausted. Add credits in workspace settings.");
-    throw new Error(`Lovable AI Gateway ${res.status}: ${errText}`);
+    if (res.status === 429) throw new ProviderUnavailableError("gemini", errText.slice(0, 200), res.status);
+    if (res.status === 403) throw new ProviderUnavailableError("gemini", errText.slice(0, 200), res.status);
+    throw new Error(`Gemini API ${res.status}: ${errText}`);
   }
   const d = await res.json();
-  return d.choices?.[0]?.message?.content ?? "";
+  const parts: any[] = d.candidates?.[0]?.content?.parts ?? [];
+  return parts.filter((p: any) => p.text && !p.thought).map((p: any) => p.text).join("") || "";
 }
 
 // Cascade order (cheapest/free → premium):
-//   1. Lovable Gemini Flash (free quota)
+//   1. Gemini Flash (free quota)
 //   2. OpenAI gpt-4o-mini
 //   3. Claude Haiku
 //   4. Claude Sonnet
@@ -179,10 +194,26 @@ async function callWithFallback(
   primary: Provider,
   messages: any[],
   system: string,
-  keys: { openai: string; claude: string; grok: string; lovable: string },
+  keys: { openai: string; claude: string; grok: string; gemini: string },
   useThinking = false,
+  mode = "PRIME",
 ): Promise<{ content: string; provider: string }> {
-  // Tier 0 — honor explicit non-default routing (Claude for deep reasoning, Grok for real-time)
+  // Tier 0 — Free Gemini (always attempted first)
+  if (keys.gemini) {
+    try {
+      const mU = mode.toUpperCase();
+      const geminiOpts = {
+        thinking: mU === "DEEP",
+        grounding: ["WATCHTOWER", "GROUNDED"].includes(mU),
+        codeExec: ["DATA", "CODEX", "RESEARCH"].includes(mU),
+      };
+      return { content: await callGemini(messages, system, keys.gemini, geminiOpts), provider: geminiOpts.thinking ? "gemini-2.5-thinking" : "gemini-2.5-flash" };
+    } catch (err: any) {
+      console.warn(`[fallback] Gemini 2.5 Flash failed (${err.message}) → cascading`);
+    }
+  }
+
+  // Tier 1 — Mode-designated provider (Claude for deep reasoning, Grok for real-time)
   if (primary === "claude" && keys.claude) {
     try {
       return { content: await callClaude(messages, system, keys.claude, "claude-sonnet-4-6", useThinking), provider: useThinking ? "claude-sonnet-thinking" : "claude-sonnet" };
@@ -197,15 +228,6 @@ async function callWithFallback(
     } catch (err: any) {
       if (!(err instanceof ProviderUnavailableError)) throw err;
       console.warn(`[fallback] grok unfunded (${err.status}) → cascading`);
-    }
-  }
-
-  // Tier 1 — Lovable Gemini Flash (free)
-  if (keys.lovable) {
-    try {
-      return { content: await callLovableGateway(messages, system, keys.lovable, "google/gemini-2.5-flash"), provider: "lovable-gemini-flash" };
-    } catch (err: any) {
-      console.warn(`[fallback] Lovable Gemini Flash failed (${err.message}) → trying OpenAI`);
     }
   }
 
@@ -249,7 +271,7 @@ async function callWithFallback(
     }
   }
 
-  throw new Error("All AI providers unavailable (no funded keys, no Lovable AI Gateway).");
+  throw new Error("All AI providers unavailable (no funded keys).");
 }
 
 // ============================================================
@@ -393,18 +415,86 @@ async function callClaudeStream(messages: any[], system: string, key: string, mo
   return claudeSseToTextStream(res.body!);
 }
 
-async function callLovableStream(messages: any[], system: string, key: string, model = "google/gemini-2.5-flash"): Promise<ReadableStream<string>> {
-  const res = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+function geminiSseToTextStream(body: ReadableStream<Uint8Array>, filterThoughts = false): ReadableStream<string> {
+  const decoder = new TextDecoder();
+  const reader  = body.getReader();
+  let buf = "";
+  return new ReadableStream<string>({
+    async start(controller) {
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) {
+            const tail = decoder.decode();
+            if (tail) buf += tail;
+            break;
+          }
+          buf += decoder.decode(value, { stream: true });
+          const lines = buf.split("\n");
+          buf = lines.pop() ?? "";
+          for (const line of lines) {
+            if (!line.startsWith("data: ")) continue;
+            const data = line.slice(6).trim();
+            if (data === "[DONE]") { controller.close(); return; }
+            try {
+              const j = JSON.parse(data);
+              const rawParts: any[] = j.candidates?.[0]?.content?.parts ?? [];
+              for (const p of rawParts) {
+                if (!p.text) continue;
+                if (filterThoughts && p.thought) continue;
+                controller.enqueue(p.text);
+              }
+            } catch { /* skip malformed */ }
+          }
+        }
+        if (buf.trim()) {
+          const data = buf.startsWith("data: ") ? buf.slice(6).trim() : buf.trim();
+          if (data && data !== "[DONE]") {
+            try {
+              const j = JSON.parse(data);
+              const rawParts: any[] = j.candidates?.[0]?.content?.parts ?? [];
+              for (const p of rawParts) {
+                if (!p.text) continue;
+                if (filterThoughts && p.thought) continue;
+                controller.enqueue(p.text);
+              }
+            } catch { /* skip */ }
+          }
+        }
+      } catch (e) {
+        controller.error(e);
+        return;
+      }
+      controller.close();
+    }
+  });
+}
+
+async function callGeminiStream(messages: any[], system: string, key: string, opts: { thinking?: boolean; grounding?: boolean; codeExec?: boolean } = {}): Promise<ReadableStream<string>> {
+  const contents = messages.map((m: any) => ({
+    role: m.role === "user" ? "user" : "model",
+    parts: [{ text: typeof m.content === "string" ? m.content : JSON.stringify(m.content) }],
+  }));
+  const body: any = {
+    systemInstruction: { parts: [{ text: system }] },
+    contents,
+    generationConfig: { maxOutputTokens: opts.thinking ? 16384 : 4096 },
+  };
+  if (opts.thinking) body.generationConfig.thinkingConfig = { thinkingBudget: 8192 };
+  if (opts.grounding && !opts.thinking) body.tools = [{ googleSearch: {} }];
+  else if (opts.codeExec && !opts.thinking) body.tools = [{ codeExecution: {} }];
+  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:streamGenerateContent?key=${key}&alt=sse`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
-    body: JSON.stringify({ model, messages: [{ role: "system", content: system }, ...messages], max_tokens: 4096, stream: true }),
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(60000),
   });
   if (!res.ok) {
-    const e = await res.text();
-    if (res.status === 402 || res.status === 429) throw new ProviderUnavailableError("lovable", e.slice(0, 200), res.status);
-    throw new Error(`Lovable ${res.status}: ${e}`);
+    const e = await res.text().catch(() => "");
+    if (res.status === 429 || res.status === 403) throw new ProviderUnavailableError("gemini", e.slice(0, 200), res.status);
+    throw new Error(`Gemini stream ${res.status}: ${e.slice(0, 200)}`);
   }
-  return oaiSseToTextStream(res.body!);
+  return geminiSseToTextStream(res.body!, opts.thinking);
 }
 
 async function callGrokStream(messages: any[], system: string, key: string): Promise<ReadableStream<string>> {
@@ -425,9 +515,24 @@ async function callWithFallbackStream(
   primary: Provider,
   messages: any[],
   system: string,
-  keys: { openai: string; claude: string; grok: string; lovable: string },
+  keys: { openai: string; claude: string; grok: string; gemini: string },
   useThinking = false,
+  mode = "PRIME",
 ): Promise<{ stream: ReadableStream<string>; provider: string }> {
+  // Tier 0 — Free Gemini (always attempted first)
+  if (keys.gemini) {
+    try {
+      const mU = mode.toUpperCase();
+      const geminiOpts = {
+        thinking: mU === "DEEP",
+        grounding: ["WATCHTOWER", "GROUNDED"].includes(mU),
+        codeExec: ["DATA", "CODEX", "RESEARCH"].includes(mU),
+      };
+      return { stream: await callGeminiStream(messages, system, keys.gemini, geminiOpts), provider: geminiOpts.thinking ? "gemini-2.5-thinking" : "gemini-2.5-flash" };
+    }
+    catch (e: any) { console.warn(`[stream-fallback] Gemini 2.5 Flash: ${e.message} → cascading to mode provider`); }
+  }
+  // Tier 1 — Mode-designated provider
   if (primary === "claude" && keys.claude) {
     try {
       const stream = await callClaudeStream(messages, system, keys.claude, "claude-sonnet-4-6", useThinking);
@@ -437,10 +542,6 @@ async function callWithFallbackStream(
   if (primary === "grok" && keys.grok) {
     try { return { stream: await callGrokStream(messages, system, keys.grok), provider: "grok" }; }
     catch (e: any) { if (!(e instanceof ProviderUnavailableError)) throw e; }
-  }
-  if (keys.lovable) {
-    try { return { stream: await callLovableStream(messages, system, keys.lovable), provider: "lovable-gemini-flash" }; }
-    catch (e: any) { console.warn(`[stream-fallback] Lovable: ${e.message}`); }
   }
   if (keys.openai) {
     try { return { stream: await callOpenAIStream(messages, system, keys.openai), provider: "openai-mini" }; }
@@ -454,7 +555,7 @@ async function callWithFallbackStream(
     try { return { stream: await callGrokStream(messages, system, keys.grok), provider: "grok" }; }
     catch (e: any) { if (!(e instanceof ProviderUnavailableError)) throw e; }
   }
-  throw new Error("All AI providers unavailable for streaming.");
+  throw new Error("All AI providers unavailable for streaming (no funded keys).");
 }
 
 // ============================================================
@@ -1015,7 +1116,7 @@ ${fmtMemories}
     const openaiKey  = Deno.env.get("OPENAI_API") ?? Deno.env.get("OPENAI_API_KEY") ?? "";
     const claudeKey  = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
     const grokKey    = Deno.env.get("GROK_API_KEY") ?? "";
-    const lovableKey = Deno.env.get("LOVABLE_API_KEY") ?? "";
+    const geminiKey  = Deno.env.get("GEMINI_API_KEY") ?? "";
     const tavilyKey  = Deno.env.get("Tavily_API") ?? Deno.env.get("TAVILY_API_KEY") ?? "";
 
     // ── Web search if needed ────────────────────────────────
@@ -1248,7 +1349,7 @@ You always know the current date and time without being told. Reference it natur
     const modeUpper = (mode ?? "PRIME").toUpperCase();
     const useThinking = ["ARCH", "SOVEREIGN"].includes(modeUpper);
     const provider = routeToProvider(mode ?? "PRIME", lastUserMsg?.content ?? "");
-    const aiKeys = { openai: openaiKey, claude: claudeKey, grok: grokKey, lovable: lovableKey };
+    const aiKeys = { openai: openaiKey, claude: claudeKey, grok: grokKey, gemini: geminiKey };
 
     // ── Streaming path (SSE) ────────────────────────────────
     if (isStreaming === true) {
@@ -1259,7 +1360,7 @@ You always know the current date and time without being told. Reference it natur
           let accumulated = "";
           try {
             const { stream: aiStream, provider: streamProv } = await callWithFallbackStream(
-              provider, callMessages, fullPrompt, aiKeys, useThinking,
+              provider, callMessages, fullPrompt, aiKeys, useThinking, modeUpper,
             );
             const reader = aiStream.getReader();
             while (true) {
@@ -1339,13 +1440,13 @@ You always know the current date and time without being told. Reference it natur
               if (lastUserText.length > 20 && accumulated.length > 20) {
                 (async () => {
                   try {
-                    const extractKey = lovableKey || claudeKey || openaiKey;
+                    const extractKey = geminiKey || claudeKey || openaiKey;
                     if (!extractKey) return;
                     const extractPrompt = `You are analyzing a conversation between an operator and MAVIS (their bonded AI). Extract any new preferences, rules, lessons, corrections, or recurring patterns revealed in this exchange. Only extract something if it's genuinely new information about the operator's preferences or principles — not generic facts.\n\nRespond with ONLY a JSON array (may be empty):\n[{"category":"preference|hard_rule|lesson_learned|workflow_habit|correction","key":"short identifier","value":"concise statement"}]`;
                     let raw = "";
-                    if (lovableKey) {
-                      const r = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${lovableKey}` }, body: JSON.stringify({ model: "google/gemini-2.5-flash", max_tokens: 300, messages: [{ role: "system", content: extractPrompt }, { role: "user", content: `Operator: ${lastUserText.slice(0, 800)}\nMAVIS: ${accumulated.slice(0, 800)}` }] }) });
-                      if (r.ok) { const d = await r.json(); raw = d.choices?.[0]?.message?.content ?? ""; }
+                    if (geminiKey) {
+                      const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiKey}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ systemInstruction: { parts: [{ text: extractPrompt }] }, contents: [{ role: "user", parts: [{ text: `Operator: ${lastUserText.slice(0, 800)}\nMAVIS: ${accumulated.slice(0, 800)}` }] }], generationConfig: { maxOutputTokens: 300 } }) });
+                      if (r.ok) { const d = await r.json(); raw = d.candidates?.[0]?.content?.parts?.[0]?.text ?? ""; }
                     }
                     if (!raw && claudeKey) {
                       const r = await fetch("https://api.anthropic.com/v1/messages", { method: "POST", headers: { "Content-Type": "application/json", "x-api-key": claudeKey, "anthropic-version": "2023-06-01" }, body: JSON.stringify({ model: "claude-haiku-4-5-20251001", max_tokens: 300, system: extractPrompt, messages: [{ role: "user", content: `Operator: ${lastUserText.slice(0, 800)}\nMAVIS: ${accumulated.slice(0, 800)}` }] }) });
@@ -1366,13 +1467,13 @@ You always know the current date and time without being told. Reference it natur
               if (lastUserText.length > 30 && accumulated.length > 30) {
                 (async () => {
                   try {
-                    const extractKey = lovableKey || claudeKey || openaiKey;
+                    const extractKey = geminiKey || claudeKey || openaiKey;
                     if (!extractKey) return;
                     const factPrompt = `Extract concrete facts, decisions, or commitments from this conversation that would be valuable to remember long-term. Only extract things that are genuinely significant (real decisions, named projects, specific plans, key context). Skip pleasantries and generic statements.\n\nRespond with ONLY a JSON array (may be empty []):\n[{"title":"short fact title","content":"full context in 1-3 sentences","tags":["tag1","tag2"]}]`;
                     let raw = "";
-                    if (lovableKey) {
-                      const r = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${lovableKey}` }, body: JSON.stringify({ model: "google/gemini-2.5-flash", max_tokens: 400, messages: [{ role: "system", content: factPrompt }, { role: "user", content: `Operator: ${lastUserText.slice(0, 1000)}\nMAVIS: ${accumulated.slice(0, 1000)}` }] }) });
-                      if (r.ok) { const d = await r.json(); raw = d.choices?.[0]?.message?.content ?? ""; }
+                    if (geminiKey) {
+                      const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiKey}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ systemInstruction: { parts: [{ text: factPrompt }] }, contents: [{ role: "user", parts: [{ text: `Operator: ${lastUserText.slice(0, 1000)}\nMAVIS: ${accumulated.slice(0, 1000)}` }] }], generationConfig: { maxOutputTokens: 400 } }) });
+                      if (r.ok) { const d = await r.json(); raw = d.candidates?.[0]?.content?.parts?.[0]?.text ?? ""; }
                     }
                     if (!raw && claudeKey) {
                       const r = await fetch("https://api.anthropic.com/v1/messages", { method: "POST", headers: { "Content-Type": "application/json", "x-api-key": claudeKey, "anthropic-version": "2023-06-01" }, body: JSON.stringify({ model: "claude-haiku-4-5-20251001", max_tokens: 400, system: factPrompt, messages: [{ role: "user", content: `Operator: ${lastUserText.slice(0, 1000)}\nMAVIS: ${accumulated.slice(0, 1000)}` }] }) });
@@ -1404,6 +1505,7 @@ You always know the current date and time without being told. Reference it natur
       fullPrompt,
       aiKeys,
       useThinking,
+      modeUpper,
     );
 
     // ── Tacit learning (non-blocking) ───────────────────────
@@ -1434,7 +1536,7 @@ You always know the current date and time without being told. Reference it natur
     if (lastUserContent.length > 20 && content.length > 20) {
       (async () => {
         try {
-          const extractKey = lovableKey || claudeKey || openaiKey;
+          const extractKey = geminiKey || claudeKey || openaiKey;
           if (!extractKey) return;
 
           const extractPrompt = `You are analyzing a conversation between an operator and MAVIS (their bonded AI). Extract any new preferences, rules, lessons, corrections, or recurring patterns revealed in this exchange. Only extract something if it's genuinely new information about the operator's preferences or principles — not generic facts.
@@ -1450,15 +1552,13 @@ Examples:
 - User shares a lesson from a failure → {"category":"lesson_learned","key":"pitch_timing","value":"Don't pitch investors before product has traction"}`;
 
           let raw = "";
-          if (lovableKey) {
-            const r = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+          if (geminiKey) {
+            const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiKey}`, {
               method: "POST",
-              headers: { "Content-Type": "application/json", Authorization: `Bearer ${lovableKey}` },
-              body: JSON.stringify({ model: "google/gemini-2.5-flash", max_tokens: 300,
-                messages: [{ role: "system", content: extractPrompt },
-                  { role: "user", content: `Operator: ${lastUserContent.slice(0, 800)}\nMAVIS: ${content.slice(0, 800)}` }] }),
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ systemInstruction: { parts: [{ text: extractPrompt }] }, contents: [{ role: "user", parts: [{ text: `Operator: ${lastUserContent.slice(0, 800)}\nMAVIS: ${content.slice(0, 800)}` }] }], generationConfig: { maxOutputTokens: 300 } }),
             });
-            if (r.ok) { const d = await r.json(); raw = d.choices?.[0]?.message?.content ?? ""; }
+            if (r.ok) { const d = await r.json(); raw = d.candidates?.[0]?.content?.parts?.[0]?.text ?? ""; }
           }
           if (!raw && claudeKey) {
             const r = await fetch("https://api.anthropic.com/v1/messages", {
@@ -1491,7 +1591,7 @@ Examples:
     if (lastUserContent.length > 30 && content.length > 30) {
       (async () => {
         try {
-          const extractKey = lovableKey || claudeKey || openaiKey;
+          const extractKey = geminiKey || claudeKey || openaiKey;
           if (!extractKey) return;
 
           const factPrompt = `Extract concrete facts, decisions, or commitments from this conversation that would be valuable to remember long-term. Only extract things that are genuinely significant (real decisions, named projects, specific plans, key context). Skip pleasantries and generic statements.
@@ -1500,15 +1600,13 @@ Respond with ONLY a JSON array (may be empty []):
 [{"title":"short fact title","content":"full context in 1-3 sentences","tags":["tag1","tag2"]}]`;
 
           let raw = "";
-          if (lovableKey) {
-            const r = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+          if (geminiKey) {
+            const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiKey}`, {
               method: "POST",
-              headers: { "Content-Type": "application/json", Authorization: `Bearer ${lovableKey}` },
-              body: JSON.stringify({ model: "google/gemini-2.5-flash", max_tokens: 400,
-                messages: [{ role: "system", content: factPrompt },
-                  { role: "user", content: `Operator: ${lastUserContent.slice(0, 1000)}\nMAVIS: ${content.slice(0, 1000)}` }] }),
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ systemInstruction: { parts: [{ text: factPrompt }] }, contents: [{ role: "user", parts: [{ text: `Operator: ${lastUserContent.slice(0, 1000)}\nMAVIS: ${content.slice(0, 1000)}` }] }], generationConfig: { maxOutputTokens: 400 } }),
             });
-            if (r.ok) { const d = await r.json(); raw = d.choices?.[0]?.message?.content ?? ""; }
+            if (r.ok) { const d = await r.json(); raw = d.candidates?.[0]?.content?.parts?.[0]?.text ?? ""; }
           }
           if (!raw && claudeKey) {
             const r = await fetch("https://api.anthropic.com/v1/messages", {

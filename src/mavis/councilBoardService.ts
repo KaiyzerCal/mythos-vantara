@@ -4,6 +4,7 @@ import { buildCouncilAgentPrompt, buildPersonaCouncilPrompt } from "./agentPerso
 import { buildSystemPromptFromSnapshot } from "./buildSystemPrompt";
 import { invokeAI } from "./chatService";
 import type { UnifiedCouncilMember, UnifiedPersona } from "./agentTypes";
+import { supabase } from "@/integrations/supabase/client";
 
 export interface CouncilBoardMessage {
   id: string;
@@ -26,6 +27,41 @@ export interface CouncilBoardResult {
 export interface CouncilSessionOptions {
   summonedPersonas?: UnifiedPersona[];
   includePersonas?: UnifiedPersona[];
+  /** Optional session ID for Realtime broadcast — each member response is
+   *  published to `council:{sessionId}` as it resolves, so the UI can render
+   *  cards progressively without waiting for the full round-trip. */
+  sessionId?: string;
+}
+
+// ── Realtime broadcast ────────────────────────────────────────────────────────
+async function broadcastCouncilResponse(
+  sessionId: string,
+  memberName: string,
+  speakerId: string,
+  speakerRole: string,
+  speakerType: "council" | "persona",
+  response: string,
+  summoned?: boolean,
+  error?: string,
+) {
+  try {
+    const channel = supabase.channel(`council:${sessionId}`);
+    await channel.send({
+      type: "broadcast",
+      event: "member_response",
+      payload: {
+        memberName,
+        speakerId,
+        speakerRole,
+        speakerType,
+        response,
+        summoned,
+        error,
+        timestamp: Date.now(),
+      },
+    });
+    // The UI component manages the channel lifecycle — don't unsubscribe here.
+  } catch { /* non-critical */ }
 }
 
 /**
@@ -68,13 +104,39 @@ export async function sendCouncilMessage(
     { role: "assistant" as const, content: `[MAVIS]: ${mavisResponse}` },
   ];
 
+  const sessionId = sessionOptions?.sessionId;
+
   // ── Council members respond in parallel ───────────────────
+  // Each member deliberates independently; results are broadcast to the
+  // Realtime channel as they arrive so the UI can render them progressively.
   const memberPromises = councilMembers.map(async (member) => {
     const prompt = buildCouncilMemberPrompt(member, contextSummary);
     try {
       const response = await invokeAI(prompt, historyWithMavis, "PRIME", "council-member");
+      if (sessionId) {
+        await broadcastCouncilResponse(
+          sessionId,
+          member.name,
+          member.id,
+          member.role ?? "Council Member",
+          "council",
+          response,
+        );
+      }
       return { member, response };
-    } catch {
+    } catch (err: any) {
+      if (sessionId) {
+        await broadcastCouncilResponse(
+          sessionId,
+          member.name,
+          member.id,
+          member.role ?? "Council Member",
+          "council",
+          "PASS",
+          undefined,
+          err?.message,
+        );
+      }
       return { member, response: "PASS" };
     }
   });
@@ -98,16 +160,48 @@ export async function sendCouncilMessage(
     const prompt = buildPersonaCouncilPrompt(persona, appContext);
     try {
       const response = await invokeAI(prompt, historyWithMavis, "PRIME", "council-persona");
+      if (sessionId) {
+        await broadcastCouncilResponse(
+          sessionId,
+          persona.name,
+          persona.id,
+          persona.role ?? "Persona",
+          "persona",
+          response,
+          isSummoned,
+        );
+      }
       return { persona, response, summoned: isSummoned };
-    } catch {
+    } catch (err: any) {
+      if (sessionId) {
+        await broadcastCouncilResponse(
+          sessionId,
+          persona.name,
+          persona.id,
+          persona.role ?? "Persona",
+          "persona",
+          "PASS",
+          isSummoned,
+          err?.message,
+        );
+      }
       return { persona, response: "PASS", summoned: isSummoned };
     }
   });
 
-  const [allMemberResults, allPersonaResults] = await Promise.all([
-    Promise.all(memberPromises),
-    Promise.all(personaPromises),
+  // Use Promise.allSettled so one failed member never blocks the others
+  const [rawMemberResults, rawPersonaResults] = await Promise.all([
+    Promise.allSettled(memberPromises),
+    Promise.allSettled(personaPromises),
   ]);
+
+  const allMemberResults = rawMemberResults.map(r =>
+    r.status === "fulfilled" ? r.value : { member: (r as any).reason?.member, response: "PASS" },
+  ).filter(r => r.member != null);
+
+  const allPersonaResults = rawPersonaResults.map(r =>
+    r.status === "fulfilled" ? r.value : { persona: (r as any).reason?.persona, response: "PASS", summoned: false },
+  ).filter(r => r.persona != null);
 
   const memberResponses = allMemberResults.filter(
     r => r.response.trim().toUpperCase() !== "PASS" && r.response.trim() !== "",

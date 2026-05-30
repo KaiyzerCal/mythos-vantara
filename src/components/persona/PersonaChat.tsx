@@ -1,8 +1,10 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { Send, ArrowLeft, Zap, RefreshCw, Brain, Loader2, Database, Square } from "lucide-react";
+import { Send, ArrowLeft, Zap, RefreshCw, Brain, Loader2, Database, Square, PhoneCall } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { HudCard } from "@/components/SharedUI";
+import { AnimatePresence } from "framer-motion";
+import { VoiceChatOverlay } from "@/components/VoiceChatOverlay";
 import { usePersona } from "@/hooks/usePersona";
 import { useScrollKit, ScrollProgressBar, BackToTopButton, ScrollToBottomButton, EndOfFeed } from "@/components/chat/ScrollKit";
 import type { ForgedPersona } from "@/hooks/usePersonaForge";
@@ -14,6 +16,7 @@ import { AttachmentTray, AttachButton } from "@/components/chat/AttachmentTray";
 import { DEFAULT_VOICE_BY_GENDER, findVoice } from "@/lib/voiceCatalog";
 import { supabase } from "@/integrations/supabase/client";
 import { parseProposedActions, submitProposalsForApproval } from "@/mavis/proposeAction";
+import { buildPersonaVoiceSystemPrompt } from "@/mavis/councilPersona";
 import { CopyButton } from "@/components/chat/CopyButton";
 
 const MOOD_EMOJI: Record<string, string> = {
@@ -43,6 +46,7 @@ export function PersonaChat({ persona, userId, onBack }: PersonaChatProps) {
   const [isUpdatingEmotion, setIsUpdatingEmotion] = useState(false);
   const [ttsEnabled, setTtsEnabled] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [voiceOpen, setVoiceOpen] = useState(false);
   const cancelledRef = useRef(false);
   const { scrollRef, progress, showBackToTop, showBackToBottom, handleScroll, scrollToTop, scrollToBottom } = useScrollKit();
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -350,6 +354,14 @@ export function PersonaChat({ persona, userId, onBack }: PersonaChatProps) {
           CLEAR
         </button>
 
+        <button
+          onClick={() => setVoiceOpen(true)}
+          className="flex items-center gap-1 px-2 py-1 rounded border border-primary/30 bg-primary/5 text-primary/70 hover:text-primary hover:bg-primary/15 text-[9px] font-mono transition-all"
+          title={`Voice call ${persona.name}`}
+        >
+          <PhoneCall size={9} /> CALL
+        </button>
+
         {/* Fine-tune controls */}
         {finetuneStatus === "training" ? (
           <button
@@ -503,6 +515,30 @@ export function PersonaChat({ persona, userId, onBack }: PersonaChatProps) {
           )}
         </div>
       </div>
+
+      <AnimatePresence>
+        {voiceOpen && (
+          <VoiceChatOverlay
+            persona={{
+              name: persona.name,
+              role: persona.role,
+              systemPrompt: buildPersonaVoiceSystemPrompt({
+                name: persona.name,
+                role: persona.role,
+                archetype: persona.archetype,
+                personality: persona.personality as Record<string, unknown> | string | null | undefined,
+                system_prompt: persona.system_prompt,
+              }),
+              voiceId: (persona as unknown as Record<string, unknown>).voice_id as string | undefined,
+              entityId: persona.id,
+              entityType: "persona",
+              userId,
+            }}
+            
+            onClose={() => setVoiceOpen(false)}
+          />
+        )}
+      </AnimatePresence>
     </div>
   );
 }

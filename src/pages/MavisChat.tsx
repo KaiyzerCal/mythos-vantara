@@ -1,9 +1,10 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { Send, Square, Cpu, Copy, Check, ChevronDown, Zap, Brain, Target, Crown, Flame, Database, Mic, MicOff, Users, Search, FileCode, X, Download } from "lucide-react";
+import { Send, Square, Cpu, Copy, Check, ChevronDown, Zap, Brain, Target, Crown, Flame, Database, Mic, MicOff, Users, Search, FileCode, X, Download, Gamepad2, Layers, Globe } from "lucide-react";
 import { useAppData } from "@/contexts/AppDataContext";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase as _supabase } from "@/integrations/supabase/client";
+const supabase = _supabase as any;
 import { PageHeader, HudCard } from "@/components/SharedUI";
 import ReactMarkdown from "react-markdown";
 import { toast } from "sonner";
@@ -23,21 +24,33 @@ import { streamChatMessage, streamAgentMessage, streamResearchMessage } from "@/
 import { loadFullAppContext } from "@/mavis/appContextLoader";
 import { initSession } from "@/mavis/memoryEngine";
 import { loadRuntimeSkills } from "@/mavis/skills/_registry";
+import { gatherProviderContext } from "@/mavis/contextProviders";
+import { buildRecallContext } from "@/mavis/proactiveRecall";
+import { captureProceduralMemory } from "@/mavis/proceduralMemory";
+import { autoCrewDispatch } from "@/mavis/crewCoordinator";
+import { getCustomOrders, addStandingOrder, removeStandingOrder } from "@/mavis/standingOrders";
 import type { ExecutionResult } from "@/mavis/types";
 // Trigger skill self-registration
 import "@/mavis/skills/_loader";
 
 const MAVIS_MODES = [
-  { id: "PRIME", label: "PRIME", icon: Crown, color: "text-primary", desc: "GPT-4o-mini · General purpose" },
-  { id: "ARCH", label: "ARCHITECT", icon: Brain, color: "text-purple-400", desc: "Claude Sonnet · Deep reasoning" },
-  { id: "QUEST", label: "QUEST", icon: Target, color: "text-red-400", desc: "GPT-4o-mini · Goal execution" },
-  { id: "FORGE", label: "FORGE", icon: Flame, color: "text-orange-400", desc: "GPT-4o-mini · Fitness protocols" },
-  { id: "CODEX", label: "CODEX", icon: Zap, color: "text-cyan-400", desc: "Claude Sonnet · Knowledge synthesis" },
-  { id: "SOVEREIGN", label: "SOVEREIGN", icon: Crown, color: "text-amber-400", desc: "Claude Sonnet · High-stakes judgment" },
-  { id: "ENRYU", label: "ENRYU", icon: Flame, color: "text-red-500", desc: "GPT-4o-mini · Raw execution speed" },
-  { id: "WATCHTOWER", label: "WATCHTOWER", icon: Zap, color: "text-emerald-400", desc: "Grok · Live intelligence" },
-  { id: "AGENT", label: "AGENT", icon: Cpu, color: "text-violet-400", desc: "Claude Sonnet · Agentic tool-use loop" },
-  { id: "RESEARCH", label: "RESEARCH", icon: Search, color: "text-cyan-300", desc: "Claude Sonnet · Deep multi-step research" },
+  { id: "PRIME",      label: "PRIME",      icon: Crown,    color: "text-primary",      desc: "GPT-4o-mini · General purpose" },
+  { id: "ARCH",       label: "ARCHITECT",  icon: Brain,    color: "text-purple-400",   desc: "Claude Sonnet · Deep reasoning" },
+  { id: "QUEST",      label: "QUEST",      icon: Target,   color: "text-red-400",      desc: "GPT-4o-mini · Goal execution" },
+  { id: "FORGE",      label: "FORGE",      icon: Flame,    color: "text-orange-400",   desc: "GPT-4o-mini · Fitness protocols" },
+  { id: "CODEX",      label: "CODEX",      icon: Zap,      color: "text-cyan-400",     desc: "Claude Sonnet · Knowledge synthesis" },
+  { id: "SOVEREIGN",  label: "SOVEREIGN",  icon: Crown,    color: "text-amber-400",    desc: "Claude Sonnet · High-stakes judgment" },
+  { id: "ENRYU",      label: "ENRYU",      icon: Flame,    color: "text-red-500",      desc: "GPT-4o-mini · Raw execution speed" },
+  { id: "WATCHTOWER", label: "WATCHTOWER", icon: Zap,      color: "text-emerald-400",  desc: "Grok · Live intelligence" },
+  { id: "AGENT",      label: "AGENT",      icon: Cpu,      color: "text-violet-400",   desc: "Claude Sonnet · Agentic tool-use loop" },
+  { id: "RESEARCH",   label: "RESEARCH",   icon: Search,   color: "text-cyan-300",     desc: "Claude Sonnet · Deep multi-step research" },
+  { id: "REFLECT",    label: "REFLECT",    icon: FileCode, color: "text-teal-400",     desc: "Claude Sonnet · Full system audit & review" },
+  { id: "SALES",      label: "SALES",      icon: Users,    color: "text-green-400",    desc: "GPT-4o-mini · Pipeline & outreach intelligence" },
+  { id: "MARKET",     label: "MARKET",     icon: Zap,      color: "text-pink-400",     desc: "GPT-4o-mini · Content & brand (Nora Vale)" },
+  { id: "DATA",        label: "DATA",        icon: Database,  color: "text-blue-400",    desc: "Claude Sonnet · Metrics & analytics" },
+  { id: "DEEP",        label: "DEEP",        icon: Layers,    color: "text-indigo-400",  desc: "Gemini 2.5 Flash · Extended thinking (8K budget)" },
+  { id: "GAME_MASTER", label: "GAME MASTER", icon: Gamepad2,  color: "text-violet-400",  desc: "Gemini 2.5 · Narrative arcs & consequence engine" },
+  { id: "WEBMASTER",  label: "WEBMASTER",  icon: Globe,     color: "text-cyan-400",    desc: "Build complete client websites — AI copy, Gutenberg blocks, WordPress publishing" },
 ];
 
 const QUICK_PROMPTS = [
@@ -48,12 +61,13 @@ const QUICK_PROMPTS = [
 
 export default function MavisChat() {
   const navigate = useNavigate();
+  const _appData = useAppData() as any;
   const {
     profile, quests, tasks, skills, journalEntries, vaultEntries,
     chatMessages, setChatMessages, conversationId, setConversationId,
     chatMode, setChatMode, refetchAll,
     rituals, councils, energySystems, inventory, allies, bpmSessions, storeItems, transformations,
-  } = useAppData();
+  } = _appData;
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [actionStatus, setActionStatus] = useState<string | null>(null);
@@ -78,6 +92,23 @@ export default function MavisChat() {
   const abortRef = useRef<AbortController | null>(null);
   const cancelledRef = useRef(false);
   const recognitionRef = useRef<any>(null);
+
+  // ── Crew coordinator state ──
+  const [agentPanelTab, setAgentPanelTab] = useState<"specialist" | "crew">("specialist");
+  const [crewGoal, setCrewGoal] = useState("");
+  const [crewRunning, setCrewRunning] = useState(false);
+  const [crewResult, setCrewResult] = useState("");
+
+  // ── Standing orders panel ──
+  const [showOrdersPanel, setShowOrdersPanel] = useState(false);
+  const [customOrders, setCustomOrders] = useState<string[]>([]);
+  const [newOrder, setNewOrder] = useState("");
+
+  // ── Persona injection ──
+  const [selectedPersonaPrompt, setSelectedPersonaPrompt] = useState<string | null>(null);
+  const [selectedPersonaName, setSelectedPersonaName] = useState<string | null>(null);
+  const [showPersonaPicker, setShowPersonaPicker] = useState(false);
+  const [pickerPersonas, setPickerPersonas] = useState<{ id: string; name: string; system_prompt: string }[]>([]);
 
   // ElevenLabs TTS + chat attachments
   const { speak, stop: stopSpeaking, isSpeaking, isLoading: isVoiceLoading } = useElevenLabsTts();
@@ -211,7 +242,7 @@ export default function MavisChat() {
 
   // ── Text-to-Speech via ElevenLabs ───────────────────────
   const speakText = useCallback((text: string) => {
-    if (!ttsEnabled) return;
+    if (!ttsEnabled || voiceOverlayOpen) return;
     const cleanText = text
       .replace(/:::ACTION\{[\s\S]*?\}:::/g, "")
       .replace(/\*\*(.*?)\*\*/g, "$1")
@@ -227,7 +258,7 @@ export default function MavisChat() {
       .reverse()
       .find((m: any) => m.role === "assistant")?.content;
     speak(cleanText, { voiceId, gender, previousText });
-  }, [ttsEnabled, voiceId, speak, chatMessages]);
+  }, [ttsEnabled, voiceOverlayOpen, voiceId, speak, chatMessages]);
 
   const scrollToBottom = useCallback(() => {
     if (scrollRef.current) scrollRef.current.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
@@ -257,6 +288,14 @@ export default function MavisChat() {
         // Init three-layer memory engine + load DB-backed runtime skills
         initSession(session.user.id);
         loadRuntimeSkills(session.user.id).catch(err => console.warn("[Skills] Runtime load failed:", err));
+
+        // Load standing orders custom directives
+        setCustomOrders(getCustomOrders());
+
+        // Pre-load personas for picker
+        supabase.from("personas").select("id, name, system_prompt").eq("is_active", true).eq("user_id", session.user.id)
+          .then(({ data }) => { if (data) setPickerPersonas(data as any); })
+          .catch(() => {});
 
         const { data: convos } = await supabase
           .from("chat_conversations")
@@ -449,7 +488,7 @@ export default function MavisChat() {
     setIsLoading(true);
 
     if (convoId) {
-      await persistMessage({ role: "user", content, mode: chatMode }, convoId);
+      persistMessage({ role: "user", content, mode: chatMode }, convoId).catch(() => {});
     }
 
     const history = chatMessages
@@ -462,7 +501,7 @@ export default function MavisChat() {
     const userId = authSession?.user?.id;
 
     // Load archived memories and vault media in parallel with full app context
-    const [fullCtx, memoriesRes, vaultMediaRes] = await Promise.all([
+    const [fullCtx, memoriesRes, vaultMediaRes, , recallCtxRaw] = await Promise.all([
       userId ? loadFullAppContext(userId) : Promise.resolve(null),
       (async () => {
         if (!userId) return "";
@@ -491,6 +530,10 @@ export default function MavisChat() {
           return data ?? [];
         } catch { return []; }
       })(),
+      // pre-warm provider cache so buildSystemPromptFromSnapshot gets instant results
+      userId ? gatherProviderContext(userId, content).catch(() => "") : Promise.resolve(""),
+      // proactive recall runs in parallel too
+      userId ? buildRecallContext(userId, content, 3).catch(() => null) : Promise.resolve(null),
     ]);
 
     const archivedMemories = memoriesRes as string;
@@ -513,9 +556,9 @@ export default function MavisChat() {
     let streamingId = "";
     try {
       // Use fresh Supabase context if available, else fall back to useAppData() data
-      const systemPrompt = await (fullCtx
+      let systemPrompt = await (fullCtx
         ? buildSystemPromptFromSnapshot(chatMode, fullCtx, archivedMemories, vaultMedia)
-        : buildSystemPromptFromSnapshot(chatMode, {
+        : buildSystemPromptFromSnapshot(chatMode, ({
             profile: profile as any,
             quests: quests as any[], tasks: tasks as any[], skills: skills as any[],
             rankings: [], transformations: transformations as any[],
@@ -524,7 +567,9 @@ export default function MavisChat() {
             storeItems: storeItems as any[], energySystems: energySystems as any[],
             bpmSessions: bpmSessions as any[], allies: allies as any[],
             rituals: rituals as any[], pendingApprovals: [], loadedAt: new Date().toISOString(),
-          }, archivedMemories, vaultMedia));
+          } as any), archivedMemories, vaultMedia));
+      if (recallCtxRaw) systemPrompt += `\n\n${recallCtxRaw}`;
+      if (selectedPersonaPrompt) systemPrompt += `\n\n--- ACTIVE PERSONA ---\n${selectedPersonaPrompt}\n---`;
       const attachmentIds = attachments.map((a) => a.id);
 
       // Add a streaming placeholder bubble so the user sees tokens as they arrive
@@ -593,6 +638,8 @@ export default function MavisChat() {
           await new Promise(r => setTimeout(r, 500));
           await refetchAll();
           setTimeout(() => { refetchAll(); }, 1500);
+          // Hermes procedural memory: capture how this request was handled
+          if (userId) captureProceduralMemory(userId, content, confirmed).catch(() => {});
         }
         const actionTypes = confirmed.map((r) => r.action.type).join(", ");
         if (failed.length > 0) {
@@ -728,6 +775,7 @@ export default function MavisChat() {
   }, [handleOmniSync, chatMessages, chatMode, conversationId, setChatMessages, setConversationId]);
 
   return (
+    <>
     <div className="flex gap-3 h-[calc(100dvh-4rem)]">
     <div className="flex flex-col flex-1 min-w-0 gap-2 pb-0">
       <PageHeader
@@ -798,6 +846,69 @@ export default function MavisChat() {
         )}
       </AnimatePresence>
 
+      {/* Standing Orders Panel */}
+      <AnimatePresence>
+        {showOrdersPanel && (
+          <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }}
+            className="border border-primary/30 rounded-lg bg-primary/5 p-3 space-y-2"
+          >
+            <div className="flex items-center justify-between">
+              <span className="text-[9px] font-mono text-primary uppercase tracking-widest">Standing Orders — Custom Directives</span>
+              <button onClick={() => setShowOrdersPanel(false)} className="text-muted-foreground hover:text-foreground"><X size={12} /></button>
+            </div>
+            {customOrders.length === 0 ? (
+              <p className="text-[9px] font-mono text-muted-foreground">No custom directives. Core standing orders are always active.</p>
+            ) : (
+              <div className="space-y-1">
+                {customOrders.map((o) => (
+                  <div key={o} className="flex items-center gap-2">
+                    <span className="text-[9px] font-mono flex-1 text-foreground/80">• {o}</span>
+                    <button onClick={() => { removeStandingOrder(o); setCustomOrders(getCustomOrders()); }} className="text-muted-foreground hover:text-destructive"><X size={10} /></button>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div className="flex gap-2">
+              <input value={newOrder} onChange={(e) => setNewOrder(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && newOrder.trim()) { addStandingOrder(newOrder.trim()); setCustomOrders(getCustomOrders()); setNewOrder(""); } }}
+                placeholder="Add directive..." className="flex-1 bg-card border border-border rounded px-2 py-1 text-[10px] font-mono focus:outline-none focus:border-primary/50 placeholder:text-muted-foreground" />
+              <button onClick={() => { if (newOrder.trim()) { addStandingOrder(newOrder.trim()); setCustomOrders(getCustomOrders()); setNewOrder(""); } }}
+                className="px-2 py-1 rounded border border-primary/30 bg-primary/10 text-primary text-[9px] font-mono hover:bg-primary/20">Add</button>
+            </div>
+            <p className="text-[8px] font-mono text-muted-foreground">Core directives are always active. These are your custom additions.</p>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Persona picker panel */}
+      <AnimatePresence>
+        {showPersonaPicker && (
+          <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }}
+            className="border border-border rounded-lg bg-card p-3 space-y-2"
+          >
+            <div className="flex items-center justify-between">
+              <span className="text-[9px] font-mono text-primary uppercase tracking-widest">Inject Persona Context</span>
+              <button onClick={() => setShowPersonaPicker(false)} className="text-muted-foreground hover:text-foreground"><X size={12} /></button>
+            </div>
+            {pickerPersonas.length === 0 ? (
+              <p className="text-[9px] font-mono text-muted-foreground">No personas found. Create one on the Personas page.</p>
+            ) : (
+              <div className="flex flex-wrap gap-1">
+                {pickerPersonas.map((p) => (
+                  <button key={p.id}
+                    onClick={() => { setSelectedPersonaPrompt(p.system_prompt); setSelectedPersonaName(p.name); setShowPersonaPicker(false); }}
+                    className={`text-[9px] font-mono px-2 py-1 rounded border transition-colors ${selectedPersonaName === p.name ? "bg-primary/20 border-primary/40 text-primary" : "border-border/50 text-muted-foreground hover:text-foreground"}`}
+                  >{p.name}</button>
+                ))}
+                {selectedPersonaName && (
+                  <button onClick={() => { setSelectedPersonaPrompt(null); setSelectedPersonaName(null); }}
+                    className="text-[9px] font-mono px-2 py-1 rounded border border-destructive/30 text-destructive hover:bg-destructive/10">Clear</button>
+                )}
+              </div>
+            )}
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Mode selector */}
       <div className="flex items-center gap-2">
       <div className="relative flex-1">
@@ -838,12 +949,23 @@ export default function MavisChat() {
           )}
         </AnimatePresence>
       </div>
-      <button
-        onClick={() => setVoiceOverlayOpen(true)}
-        className="ml-auto flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-primary/30 text-primary/70 hover:text-primary hover:bg-primary/10 text-xs font-mono transition-all"
-      >
-        <Mic size={12} /> VOICE
-      </button>
+      <div className="flex items-center gap-1 shrink-0">
+        {selectedPersonaName && (
+          <span className="text-[9px] font-mono px-2 py-1 rounded bg-primary/10 border border-primary/30 text-primary">{selectedPersonaName}</span>
+        )}
+        <button onClick={() => setShowPersonaPicker((v) => !v)} title="Inject persona context"
+          className="p-2 rounded border border-border/50 text-muted-foreground hover:text-primary hover:border-primary/30 transition-colors text-[10px] font-mono">
+          <Users size={12} />
+        </button>
+        <button onClick={() => setShowOrdersPanel((v) => !v)} title="Standing orders"
+          className="p-2 rounded border border-border/50 text-muted-foreground hover:text-primary hover:border-primary/30 transition-colors">
+          <Database size={12} />
+        </button>
+        <button onClick={() => setVoiceOverlayOpen(true)}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-primary/30 text-primary/70 hover:text-primary hover:bg-primary/10 text-xs font-mono transition-all">
+          <Mic size={12} /> VOICE
+        </button>
+      </div>
       </div>
 
       {/* Messages */}
@@ -1032,6 +1154,76 @@ export default function MavisChat() {
         ))}
       </div>
 
+      {/* AGENT mode panel — specialist + crew tabs */}
+      <AnimatePresence>
+        {chatMode === "AGENT" && (
+          <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }}
+            className="border border-violet-800/40 rounded-lg bg-violet-950/20 p-3 space-y-2"
+          >
+            {/* Tab toggle */}
+            <div className="flex items-center gap-2">
+              <Cpu size={11} className="text-violet-400" />
+              {(["specialist", "crew"] as const).map((tab) => (
+                <button key={tab} onClick={() => setAgentPanelTab(tab)}
+                  className={`text-[9px] font-mono px-2 py-0.5 rounded border transition-colors ${agentPanelTab === tab ? "bg-violet-500/20 border-violet-500/40 text-violet-300" : "border-border/40 text-muted-foreground hover:text-foreground"}`}
+                >{tab.toUpperCase()}</button>
+              ))}
+            </div>
+
+            {agentPanelTab === "specialist" ? (
+              <>
+                <div className="flex gap-2 flex-wrap">
+                  {(["researcher", "analyst", "executor", "planner", "writer"] as const).map((s) => (
+                    <button key={s} onClick={() => {}}
+                      className="text-[9px] font-mono px-2 py-1 rounded border border-border/50 text-muted-foreground hover:text-foreground transition-colors">{s}</button>
+                  ))}
+                </div>
+                <p className="text-[9px] font-mono text-muted-foreground">Type your task in the input above and send — AGENT mode routes to the specialist automatically.</p>
+              </>
+            ) : (
+              <>
+                <div className="flex gap-2">
+                  <input value={crewGoal} onChange={(e) => setCrewGoal(e.target.value)}
+                    onKeyDown={async (e) => {
+                      if (e.key === "Enter" && crewGoal.trim() && !crewRunning) {
+                        setCrewRunning(true); setCrewResult("");
+                        const { data: { session: s } } = await supabase.auth.getSession();
+                        if (!s?.user) { setCrewRunning(false); return; }
+                        const res = await autoCrewDispatch(crewGoal.trim(), s.user.id).catch((err) => ({ output: `Error: ${err.message}`, agentResults: [] }));
+                        setCrewResult((res as any).output);
+                        setChatMessages((prev) => [...prev, { id: `crew-${Date.now()}`, role: "assistant" as const, content: `**[CREW COMPLETE]**\n\n${(res as any).output}`, mode: "AGENT", timestamp: new Date() }]);
+                        setCrewRunning(false);
+                      }
+                    }}
+                    placeholder="Describe a goal for the researcher + analyst + planner crew..."
+                    className="flex-1 bg-card border border-border rounded px-2.5 py-1.5 text-xs font-body focus:outline-none focus:border-violet-500/50 placeholder:text-muted-foreground placeholder:text-[10px]"
+                  />
+                  <button onClick={async () => {
+                    if (!crewGoal.trim() || crewRunning) return;
+                    setCrewRunning(true); setCrewResult("");
+                    const { data: { session: s } } = await supabase.auth.getSession();
+                    if (!s?.user) { setCrewRunning(false); return; }
+                    const res = await autoCrewDispatch(crewGoal.trim(), s.user.id).catch((err) => ({ output: `Error: ${err.message}`, agentResults: [] }));
+                    setCrewResult((res as any).output);
+                    setChatMessages((prev) => [...prev, { id: `crew-${Date.now()}`, role: "assistant" as const, content: `**[CREW COMPLETE]**\n\n${(res as any).output}`, mode: "AGENT", timestamp: new Date() }]);
+                    setCrewRunning(false);
+                  }} disabled={crewRunning || !crewGoal.trim()}
+                    className="px-3 py-1.5 rounded border border-violet-500/30 bg-violet-500/10 text-violet-300 text-[10px] font-mono hover:bg-violet-500/20 disabled:opacity-40 transition-colors flex items-center gap-1.5"
+                  >
+                    {crewRunning ? <><span className="w-2 h-2 rounded-full border border-violet-400 border-t-transparent animate-spin" /> Running</> : <><Cpu size={10} /> Launch Crew</>}
+                  </button>
+                </div>
+                {crewResult && (
+                  <div className="border border-border/50 rounded bg-muted/20 p-2 max-h-28 overflow-y-auto">
+                    <pre className="text-[10px] font-mono text-foreground/80 whitespace-pre-wrap leading-relaxed">{crewResult}</pre>
+                  </div>
+                )}
+              </>
+            )}
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Voice controls */}
       <div className="flex items-center gap-2 justify-end flex-wrap">
         <VoicePicker
@@ -1202,8 +1394,10 @@ export default function MavisChat() {
           sendMessage={async (text) => { setInput(text); await sendMessage(text); }}
           lastBotMessage={lastBotMessage}
           isLoading={isLoading}
+          externalAudio={ttsEnabled}
         />
       )}
     </AnimatePresence>
+    </>
   );
 }

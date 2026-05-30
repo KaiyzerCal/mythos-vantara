@@ -1,4 +1,5 @@
-import { supabase } from "@/integrations/supabase/client";
+import { supabase as _supabase } from "@/integrations/supabase/client";
+const supabase = _supabase as any;
 
 export interface ProposedAction {
   type: string;
@@ -68,7 +69,7 @@ create_task / update_task / delete_task, create_skill / update_skill / delete_sk
 create_journal / update_journal / delete_journal, create_vault / update_vault / delete_vault,
 create_inventory_item / update_inventory_item / delete_inventory_item,
 create_council_member / update_council_member / delete_council_member,
-create_ally / update_ally / delete_ally, create_ritual / update_ritual / delete_ritual,
+create_ally / update_ally / delete_ally,
 create_transformation / update_transformation, create_ranking / update_ranking,
 update_profile, update_energy, award_xp.
 
