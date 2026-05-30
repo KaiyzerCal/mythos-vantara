@@ -23,7 +23,7 @@ export interface AppContextSnapshot {
 }
 
 async function safeQuery(table: string, userId: string, cols = "*"): Promise<unknown[]> {
-  const ALLOWED = new Set(["quests","tasks","skills","rankings_profiles","transformations","journal_entries","vault_entries","council_members","inventory","store_items","energy_systems","bpm_sessions","allies","personas","mavis_tasks"]);
+  const ALLOWED = new Set(["quests","tasks","skills","rankings_profiles","transformations","journal_entries","vault_entries","councils","inventory","store_items","energy_systems","bpm_sessions","allies","personas","mavis_tasks","approvals"]);
   if (!ALLOWED.has(table)) { console.warn(`[AppContext] Blocked query to unknown table: ${table}`); return []; }
   try {
     const { data, error } = await supabase
