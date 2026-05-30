@@ -49,6 +49,7 @@ export function VoiceChatOverlay({
   const personaHistoryRef = useRef<{ role: string; content: string }[]>([]);
 
   const recognitionRef = useRef<any>(null);
+  const historyLoadedRef = useRef(false);
   const autoRestartTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const karaokeTickRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const resumeKeepAliveRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -566,6 +567,38 @@ export function VoiceChatOverlay({
     if (window.speechSynthesis) window.speechSynthesis.cancel();
     onClose();
   }, [onClose, stopListening, disconnectLiveVoice]);
+
+  // Load prior conversation history into personaHistoryRef so the AI has
+  // full context from previous sessions when the overlay opens.
+  useEffect(() => {
+    if (historyLoadedRef.current || !persona?.entityId || !persona?.userId) return;
+    historyLoadedRef.current = true;
+    const { entityId, entityType, userId } = persona;
+
+    (async () => {
+      try {
+        if (entityType === "persona") {
+          const { data } = await supabase
+            .from("persona_conversations" as any)
+            .select("role, content")
+            .eq("persona_id", entityId)
+            .eq("user_id", userId)
+            .order("created_at", { ascending: true })
+            .limit(40);
+          if (data?.length) personaHistoryRef.current = data as { role: string; content: string }[];
+        } else if (entityType === "council") {
+          const { data } = await (supabase as any)
+            .from("council_chat_messages")
+            .select("role, content")
+            .eq("council_member_id", entityId)
+            .eq("user_id", userId)
+            .order("created_at", { ascending: true })
+            .limit(40);
+          if (data?.length) personaHistoryRef.current = data as { role: string; content: string }[];
+        }
+      } catch { /* non-critical — start fresh if load fails */ }
+    })();
+  }, [persona?.entityId, persona?.entityType, persona?.userId]);
 
   // Warm up voices list on mount (Chrome lazy-loads them)
   useEffect(() => {
