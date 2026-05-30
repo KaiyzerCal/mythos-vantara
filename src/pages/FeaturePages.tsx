@@ -1,9 +1,9 @@
 // ============================================================
 // VANTARA.EXE — QuestsPage, CouncilsPage, EnergyPage
 // ============================================================
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Target, Plus, Trash2, CheckCircle2, Filter, Loader2, Users, MessageCircle, Send, Square, X, Edit2, ArrowDown, ArrowUp, Database, PhoneCall } from "lucide-react";
+import { Target, Plus, Trash2, CheckCircle2, Filter, Loader2, Users, MessageCircle, Send, Square, X, Edit2, ArrowDown, ArrowUp, Database, PhoneCall, Check } from "lucide-react";
 import { useAppData } from "@/contexts/AppDataContext";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
@@ -24,6 +24,65 @@ import type { AppContextSnapshot } from "@/mavis/appContextLoader";
 const QUEST_TYPES = ["all", "main", "epic", "side", "daily"] as const;
 const QUEST_STATUSES = ["all", "active", "completed", "failed", "locked"] as const;
 
+function SubQuestRow({ sq, onComplete, onDelete }: { sq: any; onComplete: (id: string) => void; onDelete: (id: string) => void }) {
+  return (
+    <div className={`flex items-center gap-2 pl-4 py-1.5 border-l-2 ${sq.status === 'completed' ? 'border-green-500/30 opacity-50' : 'border-purple-500/30'}`}>
+      <button
+        onClick={() => onComplete(sq.id)}
+        className={`w-4 h-4 rounded-full border flex-shrink-0 flex items-center justify-center transition-colors ${sq.status === 'completed' ? 'bg-green-500 border-green-500' : 'border-gray-500 hover:border-purple-400'}`}
+      >
+        {sq.status === 'completed' && <Check className="w-2.5 h-2.5 text-white" />}
+      </button>
+      <span className={`text-sm flex-1 ${sq.status === 'completed' ? 'line-through text-gray-500' : 'text-gray-300'}`}>
+        {sq.title}
+      </span>
+      <span className="text-xs text-purple-400 font-mono">{sq.xp_reward}xp</span>
+      <button onClick={() => onDelete(sq.id)} className="text-gray-600 hover:text-red-400 transition-colors ml-1">
+        <X className="w-3 h-3" />
+      </button>
+    </div>
+  );
+}
+
+function AddSubQuestRow({ parentId, onCreate }: { parentId: string; onCreate: (data: any) => void }) {
+  const [open, setOpen] = useState(false);
+  const [title, setTitle] = useState("");
+
+  if (!open) {
+    return (
+      <button
+        onClick={() => setOpen(true)}
+        className="flex items-center gap-1.5 pl-4 py-1 text-xs text-gray-600 hover:text-purple-400 transition-colors border-l-2 border-transparent hover:border-purple-500/30 w-full"
+      >
+        <Plus className="w-3 h-3" /> Add sub-quest
+      </button>
+    );
+  }
+
+  return (
+    <div className="flex items-center gap-2 pl-4 border-l-2 border-purple-500/50">
+      <input
+        autoFocus
+        value={title}
+        onChange={(e) => setTitle(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" && title.trim()) {
+            onCreate({ title: title.trim(), type: "side", difficulty: "Easy", xp_reward: 25, parent_quest_id: parentId, status: "active", progress_current: 0, progress_target: 1, category: null, deadline: null });
+            setTitle("");
+            setOpen(false);
+          }
+          if (e.key === "Escape") { setTitle(""); setOpen(false); }
+        }}
+        placeholder="Sub-quest title... (Enter to save)"
+        className="flex-1 bg-transparent text-sm text-gray-200 placeholder:text-gray-600 outline-none py-1"
+      />
+      <button onClick={() => { setTitle(""); setOpen(false); }} className="text-gray-600 hover:text-gray-400">
+        <X className="w-3 h-3" />
+      </button>
+    </div>
+  );
+}
+
 export function QuestsPage() {
   const { quests, questsLoading, questStats, createQuest, updateQuest, completeQuest, deleteQuest, awardXP, logActivity, skills, updateSkill, energySystems, updateEnergyFull, updateProfile, profile, createInventoryItem } = useAppData();
   const [typeFilter, setTypeFilter] = useState<string>("all");
@@ -43,7 +102,22 @@ export function QuestsPage() {
   const [newDebuff, setNewDebuff] = useState({ label: "", value: 0, unit: "%", duration: "" });
   const [newLoot, setNewLoot] = useState({ itemName: "", quantity: 1, rarity: "common" });
 
-  const filtered = quests.filter((q) =>
+  const parentQuests = useMemo(
+    () => quests.filter((q: any) => !q.parent_quest_id),
+    [quests]
+  );
+  const subQuestMap = useMemo(() => {
+    const map: Record<string, any[]> = {};
+    quests.forEach((q: any) => {
+      if (q.parent_quest_id) {
+        if (!map[q.parent_quest_id]) map[q.parent_quest_id] = [];
+        map[q.parent_quest_id].push(q);
+      }
+    });
+    return map;
+  }, [quests]);
+
+  const filtered = parentQuests.filter((q: any) =>
     (typeFilter === "all" || q.type === typeFilter) &&
     (statusFilter === "all" || q.status === statusFilter)
   );
@@ -453,6 +527,25 @@ export function QuestsPage() {
                     </div>
                   </div>
                 </div>
+              </div>
+              {/* Sub-quests */}
+              <div className="mt-2 space-y-0.5">
+                {subQuestMap[q.id]?.length > 0 && (
+                  <div className="mb-0.5">
+                    <span className="text-xs text-gray-500 pl-4">
+                      {subQuestMap[q.id].filter((s: any) => s.status === 'completed').length}/{subQuestMap[q.id].length} sub-quests
+                    </span>
+                  </div>
+                )}
+                {(subQuestMap[q.id] ?? []).map((sq: any) => (
+                  <SubQuestRow
+                    key={sq.id}
+                    sq={sq}
+                    onComplete={(id) => completeQuest(id)}
+                    onDelete={(id) => deleteQuest(id)}
+                  />
+                ))}
+                <AddSubQuestRow parentId={q.id} onCreate={createQuest} />
               </div>
             </HudCard>
           </motion.div>
