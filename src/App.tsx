@@ -70,6 +70,7 @@ const WebhookConfigPage = lazy(() => import("@/pages/WebhookConfigPage").then(m 
 const IntegrationsPage = lazy(() => import("@/pages/IntegrationsPage").then(m => ({ default: m.IntegrationsPage })));
 const ExportPage = lazy(() => import("@/pages/ExportPage").then(m => ({ default: m.ExportPage })));
 const PlanBoard = lazy(() => import("@/pages/PlanBoard"));
+const WebsiteBuilderPage = lazy(() => import("@/pages/WebsiteBuilderPage"));
 // Public demo — no auth required
 const MavisDemo = lazy(() => import("@/pages/MavisDemo"));
 
@@ -156,6 +157,7 @@ function AppContent() {
               <Route path="/integrations" element={<IntegrationsPage />} />
               <Route path="/export" element={<ExportPage />} />
               <Route path="/plans" element={<PlanBoard />} />
+              <Route path="/websites" element={<WebsiteBuilderPage />} />
               <Route path="*" element={<NotFound />} />
             </Routes>
           </Suspense>
