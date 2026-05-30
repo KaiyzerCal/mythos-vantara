@@ -121,6 +121,13 @@ export const MAVIS_MODE_DEFINITIONS: Record<MavisMode, ModeDefinition> = {
     systemTone: "Narrative Game Master. React to operator actions with story consequences. Generate challenges calibrated to their current performance. Make the life-OS feel alive.",
     emoji: "🎮",
   },
+  WEBMASTER: {
+    id: "WEBMASTER",
+    label: "Webmaster",
+    description: "Website design and development mode. MAVIS builds complete, high-converting WordPress websites for clients from a single brief.",
+    systemTone: "Expert web strategist and designer. Generate copy, structure, and strategy for client websites. Think conversion rate optimization, brand strategy, and user experience.",
+    emoji: "🌐",
+  },
 };
 
 export const DEFAULT_MODE: MavisMode = "PRIME";
