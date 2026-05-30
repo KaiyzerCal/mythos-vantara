@@ -1645,6 +1645,7 @@ export type Database = {
           id: string
           linked_skill_ids: string[]
           loot_rewards: Json
+          parent_quest_id: string | null
           progress_current: number
           progress_target: number
           real_world_mapping: string | null
@@ -1667,6 +1668,7 @@ export type Database = {
           id?: string
           linked_skill_ids?: string[]
           loot_rewards?: Json
+          parent_quest_id?: string | null
           progress_current?: number
           progress_target?: number
           real_world_mapping?: string | null
@@ -1689,6 +1691,7 @@ export type Database = {
           id?: string
           linked_skill_ids?: string[]
           loot_rewards?: Json
+          parent_quest_id?: string | null
           progress_current?: number
           progress_target?: number
           real_world_mapping?: string | null
@@ -1699,7 +1702,22 @@ export type Database = {
           user_id?: string
           xp_reward?: number
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "quests_parent_quest_id_fkey"
+            columns: ["parent_quest_id"]
+            isOneToOne: false
+            referencedRelation: "quest_with_sub_count"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "quests_parent_quest_id_fkey"
+            columns: ["parent_quest_id"]
+            isOneToOne: false
+            referencedRelation: "quests"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       rankings_profiles: {
         Row: {
@@ -1957,6 +1975,24 @@ export type Database = {
         }
         Relationships: []
       }
+      stripe_webhook_events: {
+        Row: {
+          id: string
+          processed_at: string | null
+          type: string
+        }
+        Insert: {
+          id: string
+          processed_at?: string | null
+          type: string
+        }
+        Update: {
+          id?: string
+          processed_at?: string | null
+          type?: string
+        }
+        Relationships: []
+      }
       tasks: {
         Row: {
           completed_count: number
@@ -2166,6 +2202,252 @@ export type Database = {
           },
         ]
       }
+      video_clips: {
+        Row: {
+          aspect_ratio: string | null
+          created_at: string | null
+          duration_seconds: number | null
+          end_seconds: number
+          format: string
+          id: string
+          nora_queued: boolean | null
+          project_id: string
+          render_job_id: string | null
+          render_status: string | null
+          render_url: string | null
+          start_seconds: number
+          suggested_caption: string | null
+          suggested_hashtags: string[] | null
+          thumbnail_url: string | null
+          title: string
+          transcript_excerpt: string | null
+          user_id: string
+          viral_score: number | null
+          why_viral: string | null
+        }
+        Insert: {
+          aspect_ratio?: string | null
+          created_at?: string | null
+          duration_seconds?: number | null
+          end_seconds: number
+          format: string
+          id?: string
+          nora_queued?: boolean | null
+          project_id: string
+          render_job_id?: string | null
+          render_status?: string | null
+          render_url?: string | null
+          start_seconds: number
+          suggested_caption?: string | null
+          suggested_hashtags?: string[] | null
+          thumbnail_url?: string | null
+          title: string
+          transcript_excerpt?: string | null
+          user_id: string
+          viral_score?: number | null
+          why_viral?: string | null
+        }
+        Update: {
+          aspect_ratio?: string | null
+          created_at?: string | null
+          duration_seconds?: number | null
+          end_seconds?: number
+          format?: string
+          id?: string
+          nora_queued?: boolean | null
+          project_id?: string
+          render_job_id?: string | null
+          render_status?: string | null
+          render_url?: string | null
+          start_seconds?: number
+          suggested_caption?: string | null
+          suggested_hashtags?: string[] | null
+          thumbnail_url?: string | null
+          title?: string
+          transcript_excerpt?: string | null
+          user_id?: string
+          viral_score?: number | null
+          why_viral?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "video_clips_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "video_projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      video_projects: {
+        Row: {
+          created_at: string | null
+          duration_seconds: number | null
+          gemini_analysis: Json | null
+          id: string
+          language: string | null
+          source_type: string | null
+          source_url: string | null
+          status: string | null
+          storage_path: string | null
+          summary: string | null
+          thumbnail_url: string | null
+          title: string
+          transcript: string | null
+          transcript_chunks: Json | null
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          created_at?: string | null
+          duration_seconds?: number | null
+          gemini_analysis?: Json | null
+          id?: string
+          language?: string | null
+          source_type?: string | null
+          source_url?: string | null
+          status?: string | null
+          storage_path?: string | null
+          summary?: string | null
+          thumbnail_url?: string | null
+          title: string
+          transcript?: string | null
+          transcript_chunks?: Json | null
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          created_at?: string | null
+          duration_seconds?: number | null
+          gemini_analysis?: Json | null
+          id?: string
+          language?: string | null
+          source_type?: string | null
+          source_url?: string | null
+          status?: string | null
+          storage_path?: string | null
+          summary?: string | null
+          thumbnail_url?: string | null
+          title?: string
+          transcript?: string | null
+          transcript_chunks?: Json | null
+          updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
+      video_render_jobs: {
+        Row: {
+          clip_id: string
+          completed_at: string | null
+          created_at: string | null
+          error_message: string | null
+          ffmpeg_cmd: string | null
+          id: string
+          input_url: string
+          output_url: string | null
+          provider: string | null
+          provider_job_id: string | null
+          status: string | null
+          user_id: string
+        }
+        Insert: {
+          clip_id: string
+          completed_at?: string | null
+          created_at?: string | null
+          error_message?: string | null
+          ffmpeg_cmd?: string | null
+          id?: string
+          input_url: string
+          output_url?: string | null
+          provider?: string | null
+          provider_job_id?: string | null
+          status?: string | null
+          user_id: string
+        }
+        Update: {
+          clip_id?: string
+          completed_at?: string | null
+          created_at?: string | null
+          error_message?: string | null
+          ffmpeg_cmd?: string | null
+          id?: string
+          input_url?: string
+          output_url?: string | null
+          provider?: string | null
+          provider_job_id?: string | null
+          status?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "video_render_jobs_clip_id_fkey"
+            columns: ["clip_id"]
+            isOneToOne: false
+            referencedRelation: "video_clips"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      video_segments: {
+        Row: {
+          end_seconds: number
+          id: string
+          project_id: string
+          score_emotion: number | null
+          score_energy: number | null
+          score_hook: number | null
+          score_insight: number | null
+          score_quotability: number | null
+          score_visual: number | null
+          segment_order: number
+          start_seconds: number
+          transcript_text: string | null
+          user_id: string
+          viral_score: number | null
+        }
+        Insert: {
+          end_seconds: number
+          id?: string
+          project_id: string
+          score_emotion?: number | null
+          score_energy?: number | null
+          score_hook?: number | null
+          score_insight?: number | null
+          score_quotability?: number | null
+          score_visual?: number | null
+          segment_order: number
+          start_seconds: number
+          transcript_text?: string | null
+          user_id: string
+          viral_score?: number | null
+        }
+        Update: {
+          end_seconds?: number
+          id?: string
+          project_id?: string
+          score_emotion?: number | null
+          score_energy?: number | null
+          score_hook?: number | null
+          score_insight?: number | null
+          score_quotability?: number | null
+          score_visual?: number | null
+          segment_order?: number
+          start_seconds?: number
+          transcript_text?: string | null
+          user_id?: string
+          viral_score?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "video_segments_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "video_projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       watchtower_briefs: {
         Row: {
           brief_date: string
@@ -2195,6 +2477,521 @@ export type Database = {
           user_id?: string
         }
         Relationships: []
+      }
+      website_clients: {
+        Row: {
+          business_name: string | null
+          business_type: string | null
+          client_email: string | null
+          client_name: string
+          client_phone: string | null
+          created_at: string | null
+          id: string
+          location: string | null
+          notes: string | null
+          project_count: number | null
+          total_value_cents: number | null
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          business_name?: string | null
+          business_type?: string | null
+          client_email?: string | null
+          client_name: string
+          client_phone?: string | null
+          created_at?: string | null
+          id?: string
+          location?: string | null
+          notes?: string | null
+          project_count?: number | null
+          total_value_cents?: number | null
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          business_name?: string | null
+          business_type?: string | null
+          client_email?: string | null
+          client_name?: string
+          client_phone?: string | null
+          created_at?: string | null
+          id?: string
+          location?: string | null
+          notes?: string | null
+          project_count?: number | null
+          total_value_cents?: number | null
+          updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
+      website_generation_jobs: {
+        Row: {
+          completed_at: string | null
+          created_at: string | null
+          current_step: string | null
+          error_message: string | null
+          id: string
+          project_id: string
+          result: Json | null
+          started_at: string | null
+          status: string
+          steps_completed: number | null
+          steps_total: number | null
+          user_id: string
+        }
+        Insert: {
+          completed_at?: string | null
+          created_at?: string | null
+          current_step?: string | null
+          error_message?: string | null
+          id?: string
+          project_id: string
+          result?: Json | null
+          started_at?: string | null
+          status?: string
+          steps_completed?: number | null
+          steps_total?: number | null
+          user_id: string
+        }
+        Update: {
+          completed_at?: string | null
+          created_at?: string | null
+          current_step?: string | null
+          error_message?: string | null
+          id?: string
+          project_id?: string
+          result?: Json | null
+          started_at?: string | null
+          status?: string
+          steps_completed?: number | null
+          steps_total?: number | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "website_generation_jobs_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "website_projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      website_pages: {
+        Row: {
+          blocks_json: string | null
+          content_brief: string | null
+          created_at: string | null
+          hero_image_url: string | null
+          id: string
+          meta_description: string | null
+          meta_title: string | null
+          page_type: string
+          project_id: string
+          published_at: string | null
+          seo_score: number | null
+          slug: string | null
+          status: string | null
+          title: string | null
+          user_id: string
+          wp_page_id: number | null
+          wp_url: string | null
+        }
+        Insert: {
+          blocks_json?: string | null
+          content_brief?: string | null
+          created_at?: string | null
+          hero_image_url?: string | null
+          id?: string
+          meta_description?: string | null
+          meta_title?: string | null
+          page_type: string
+          project_id: string
+          published_at?: string | null
+          seo_score?: number | null
+          slug?: string | null
+          status?: string | null
+          title?: string | null
+          user_id: string
+          wp_page_id?: number | null
+          wp_url?: string | null
+        }
+        Update: {
+          blocks_json?: string | null
+          content_brief?: string | null
+          created_at?: string | null
+          hero_image_url?: string | null
+          id?: string
+          meta_description?: string | null
+          meta_title?: string | null
+          page_type?: string
+          project_id?: string
+          published_at?: string | null
+          seo_score?: number | null
+          slug?: string | null
+          status?: string | null
+          title?: string | null
+          user_id?: string
+          wp_page_id?: number | null
+          wp_url?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "website_pages_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "website_projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      website_projects: {
+        Row: {
+          business_name: string | null
+          business_type: string | null
+          client_id: string | null
+          color_scheme: string | null
+          created_at: string | null
+          delivered_at: string | null
+          description: string | null
+          hero_image_url: string | null
+          id: string
+          location: string | null
+          pages_count: number | null
+          pages_requested: string[] | null
+          paid: boolean | null
+          preview_url: string | null
+          price_cents: number | null
+          project_name: string
+          published_at: string | null
+          site_content: Json | null
+          status: string
+          style: string | null
+          target_audience: string | null
+          unique_value: string | null
+          updated_at: string | null
+          user_id: string
+          wp_site_url: string | null
+        }
+        Insert: {
+          business_name?: string | null
+          business_type?: string | null
+          client_id?: string | null
+          color_scheme?: string | null
+          created_at?: string | null
+          delivered_at?: string | null
+          description?: string | null
+          hero_image_url?: string | null
+          id?: string
+          location?: string | null
+          pages_count?: number | null
+          pages_requested?: string[] | null
+          paid?: boolean | null
+          preview_url?: string | null
+          price_cents?: number | null
+          project_name: string
+          published_at?: string | null
+          site_content?: Json | null
+          status?: string
+          style?: string | null
+          target_audience?: string | null
+          unique_value?: string | null
+          updated_at?: string | null
+          user_id: string
+          wp_site_url?: string | null
+        }
+        Update: {
+          business_name?: string | null
+          business_type?: string | null
+          client_id?: string | null
+          color_scheme?: string | null
+          created_at?: string | null
+          delivered_at?: string | null
+          description?: string | null
+          hero_image_url?: string | null
+          id?: string
+          location?: string | null
+          pages_count?: number | null
+          pages_requested?: string[] | null
+          paid?: boolean | null
+          preview_url?: string | null
+          price_cents?: number | null
+          project_name?: string
+          published_at?: string | null
+          site_content?: Json | null
+          status?: string
+          style?: string | null
+          target_audience?: string | null
+          unique_value?: string | null
+          updated_at?: string | null
+          user_id?: string
+          wp_site_url?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "website_projects_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "website_clients"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      website_service_tiers: {
+        Row: {
+          created_at: string | null
+          description: string | null
+          id: string
+          includes_blog: boolean | null
+          includes_ecommerce: boolean | null
+          includes_revisions: number | null
+          includes_seo: boolean | null
+          is_active: boolean | null
+          pages_included: number | null
+          price_cents: number
+          tier_name: string
+          turnaround_days: number | null
+          user_id: string
+        }
+        Insert: {
+          created_at?: string | null
+          description?: string | null
+          id?: string
+          includes_blog?: boolean | null
+          includes_ecommerce?: boolean | null
+          includes_revisions?: number | null
+          includes_seo?: boolean | null
+          is_active?: boolean | null
+          pages_included?: number | null
+          price_cents: number
+          tier_name: string
+          turnaround_days?: number | null
+          user_id: string
+        }
+        Update: {
+          created_at?: string | null
+          description?: string | null
+          id?: string
+          includes_blog?: boolean | null
+          includes_ecommerce?: boolean | null
+          includes_revisions?: number | null
+          includes_seo?: boolean | null
+          is_active?: boolean | null
+          pages_included?: number | null
+          price_cents?: number
+          tier_name?: string
+          turnaround_days?: number | null
+          user_id?: string
+        }
+        Relationships: []
+      }
+      widget_chat_logs: {
+        Row: {
+          created_at: string | null
+          id: string
+          message: string
+          reply: string
+          response_ms: number | null
+          session_id: string
+          widget_id: string
+        }
+        Insert: {
+          created_at?: string | null
+          id?: string
+          message: string
+          reply: string
+          response_ms?: number | null
+          session_id: string
+          widget_id: string
+        }
+        Update: {
+          created_at?: string | null
+          id?: string
+          message?: string
+          reply?: string
+          response_ms?: number | null
+          session_id?: string
+          widget_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "widget_chat_logs_widget_id_fkey"
+            columns: ["widget_id"]
+            isOneToOne: false
+            referencedRelation: "widget_instances"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      widget_instances: {
+        Row: {
+          business_context: string | null
+          cancel_at_period_end: boolean | null
+          config: Json
+          created_at: string | null
+          current_period_end: string | null
+          id: string
+          monthly_price_cents: number | null
+          project_id: string | null
+          public_url: string | null
+          status: string
+          stripe_customer_id: string | null
+          stripe_price_id: string | null
+          stripe_subscription_id: string | null
+          subscription_status: string | null
+          total_conversations: number | null
+          total_leads: number | null
+          total_requests: number | null
+          trial_ends_at: string | null
+          updated_at: string | null
+          user_id: string
+          widget_type: string
+        }
+        Insert: {
+          business_context?: string | null
+          cancel_at_period_end?: boolean | null
+          config?: Json
+          created_at?: string | null
+          current_period_end?: string | null
+          id: string
+          monthly_price_cents?: number | null
+          project_id?: string | null
+          public_url?: string | null
+          status?: string
+          stripe_customer_id?: string | null
+          stripe_price_id?: string | null
+          stripe_subscription_id?: string | null
+          subscription_status?: string | null
+          total_conversations?: number | null
+          total_leads?: number | null
+          total_requests?: number | null
+          trial_ends_at?: string | null
+          updated_at?: string | null
+          user_id: string
+          widget_type: string
+        }
+        Update: {
+          business_context?: string | null
+          cancel_at_period_end?: boolean | null
+          config?: Json
+          created_at?: string | null
+          current_period_end?: string | null
+          id?: string
+          monthly_price_cents?: number | null
+          project_id?: string | null
+          public_url?: string | null
+          status?: string
+          stripe_customer_id?: string | null
+          stripe_price_id?: string | null
+          stripe_subscription_id?: string | null
+          subscription_status?: string | null
+          total_conversations?: number | null
+          total_leads?: number | null
+          total_requests?: number | null
+          trial_ends_at?: string | null
+          updated_at?: string | null
+          user_id?: string
+          widget_type?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "widget_instances_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "website_projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      widget_leads: {
+        Row: {
+          company: string | null
+          contacted_at: string | null
+          converted_at: string | null
+          created_at: string | null
+          email: string | null
+          id: string
+          lead_type: string
+          message: string | null
+          metadata: Json | null
+          name: string | null
+          phone: string | null
+          source_url: string | null
+          status: string
+          widget_id: string
+        }
+        Insert: {
+          company?: string | null
+          contacted_at?: string | null
+          converted_at?: string | null
+          created_at?: string | null
+          email?: string | null
+          id?: string
+          lead_type?: string
+          message?: string | null
+          metadata?: Json | null
+          name?: string | null
+          phone?: string | null
+          source_url?: string | null
+          status?: string
+          widget_id: string
+        }
+        Update: {
+          company?: string | null
+          contacted_at?: string | null
+          converted_at?: string | null
+          created_at?: string | null
+          email?: string | null
+          id?: string
+          lead_type?: string
+          message?: string | null
+          metadata?: Json | null
+          name?: string | null
+          phone?: string | null
+          source_url?: string | null
+          status?: string
+          widget_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "widget_leads_widget_id_fkey"
+            columns: ["widget_id"]
+            isOneToOne: false
+            referencedRelation: "widget_instances"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      widget_usage_stats: {
+        Row: {
+          action_type: string
+          date: string
+          request_count: number | null
+          widget_id: string
+        }
+        Insert: {
+          action_type: string
+          date?: string
+          request_count?: number | null
+          widget_id: string
+        }
+        Update: {
+          action_type?: string
+          date?: string
+          request_count?: number | null
+          widget_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "widget_usage_stats_widget_id_fkey"
+            columns: ["widget_id"]
+            isOneToOne: false
+            referencedRelation: "widget_instances"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       workspaces: {
         Row: {
@@ -2232,9 +3029,99 @@ export type Database = {
         }
         Relationships: []
       }
+      wp_credentials: {
+        Row: {
+          app_password: string
+          created_at: string | null
+          id: string
+          label: string | null
+          last_used_at: string | null
+          project_id: string | null
+          site_url: string
+          user_id: string
+          verified: boolean | null
+          wp_username: string
+        }
+        Insert: {
+          app_password: string
+          created_at?: string | null
+          id?: string
+          label?: string | null
+          last_used_at?: string | null
+          project_id?: string | null
+          site_url: string
+          user_id: string
+          verified?: boolean | null
+          wp_username: string
+        }
+        Update: {
+          app_password?: string
+          created_at?: string | null
+          id?: string
+          label?: string | null
+          last_used_at?: string | null
+          project_id?: string | null
+          site_url?: string
+          user_id?: string
+          verified?: boolean | null
+          wp_username?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "wp_credentials_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "website_projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
-      [_ in never]: never
+      quest_with_sub_count: {
+        Row: {
+          active_sub_quest_count: number | null
+          buff_effects: Json | null
+          category: string | null
+          codex_points_reward: number | null
+          completed_sub_quest_count: number | null
+          created_at: string | null
+          deadline: string | null
+          debuff_effects: Json | null
+          description: string | null
+          difficulty: string | null
+          id: string | null
+          linked_skill_ids: string[] | null
+          loot_rewards: Json | null
+          parent_quest_id: string | null
+          progress_current: number | null
+          progress_target: number | null
+          real_world_mapping: string | null
+          status: string | null
+          title: string | null
+          total_sub_quest_count: number | null
+          type: string | null
+          updated_at: string | null
+          user_id: string | null
+          xp_reward: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "quests_parent_quest_id_fkey"
+            columns: ["parent_quest_id"]
+            isOneToOne: false
+            referencedRelation: "quest_with_sub_count"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "quests_parent_quest_id_fkey"
+            columns: ["parent_quest_id"]
+            isOneToOne: false
+            referencedRelation: "quests"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Functions: {
       match_mavis_notes: {
