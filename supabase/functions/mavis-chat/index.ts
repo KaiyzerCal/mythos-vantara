@@ -1370,6 +1370,7 @@ You always know the current date and time without being told. Reference it natur
       const sseBody = new ReadableStream<Uint8Array>({
         async start(controller) {
           let accumulated = "";
+          const streamStartMs = Date.now();
           try {
             const { stream: aiStream, provider: streamProv } = await callWithFallbackStream(
               provider, callMessages, fullPrompt, aiKeys, useThinking, modeUpper,
@@ -1381,6 +1382,7 @@ You always know the current date and time without being told. Reference it natur
               accumulated += value;
               controller.enqueue(enc.encode(`data: ${JSON.stringify({ t: value })}\n\n`));
             }
+            sb.from("mavis_llm_calls").insert({ user_id: user.id, provider: streamProv, model: streamProv, mode: modeUpper, duration_ms: Date.now() - streamStartMs, success: true }).catch(() => {});
             let imgUrl: string | null = null;
             let imageMediaId: string | null = null;
             if (IMAGE_KWS.some(kw => lastUserText.toLowerCase().includes(kw))) {
@@ -1426,6 +1428,7 @@ You always know the current date and time without being told. Reference it natur
             }
             controller.enqueue(enc.encode(`data: ${JSON.stringify({ done: true, provider: streamProv, conversationId, searched: !!webSearchResults, imageUrl: imgUrl, imageMediaId })}\n\n`));
           } catch (e: any) {
+            sb.from("mavis_llm_calls").insert({ user_id: user.id, provider: provider, model: provider, mode: modeUpper, duration_ms: Date.now() - streamStartMs, success: false, error_msg: String(e?.message ?? "stream error").slice(0, 200) }).catch(() => {});
             controller.enqueue(enc.encode(`data: ${JSON.stringify({ error: e.message ?? "Stream error" })}\n\n`));
           } finally {
             controller.close();
@@ -1511,6 +1514,7 @@ You always know the current date and time without being told. Reference it natur
     }
 
     // ── Non-streaming path ──────────────────────────────────
+    const nonStreamStart = Date.now();
     const { content, provider: usedProvider } = await callWithFallback(
       provider,
       callMessages,
@@ -1519,6 +1523,7 @@ You always know the current date and time without being told. Reference it natur
       useThinking,
       modeUpper,
     );
+    sb.from("mavis_llm_calls").insert({ user_id: user.id, provider: usedProvider, model: usedProvider, mode: modeUpper, duration_ms: Date.now() - nonStreamStart, success: true }).catch(() => {});
 
     // ── Tacit learning (non-blocking) ───────────────────────
     // Extract preferences/rules/lessons from this exchange and store in mavis_tacit.
