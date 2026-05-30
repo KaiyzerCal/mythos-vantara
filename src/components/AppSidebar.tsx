@@ -7,6 +7,8 @@ import {
   UserCheck, BarChart2, Repeat2, Heart, DollarSign, CalendarClock,
   Crosshair, GraduationCap, Clock, Video, BookMarked,
   TrendingUp, Mail, Webhook, KeyRound, Archive,
+  Clapperboard, Globe, LayoutTemplate, Workflow, Kanban,
+  Users2, LayoutGrid, Trophy, Gauge, Bell, CreditCard, Upload,
 } from "lucide-react";
 import { useState, useContext } from "react";
 import { motion, AnimatePresence } from "framer-motion";
@@ -54,7 +56,20 @@ const INTEL_NAV = [
   { to: "/export", icon: Archive, label: "Export Data" },
 ];
 
+const CREATOR_NAV = [
+  { to: "/creator", icon: Clapperboard, label: "Video Editor" },
+  { to: "/websites", icon: Globe, label: "Website Builder" },
+  { to: "/widgets", icon: LayoutTemplate, label: "Widgets" },
+  { to: "/workflows", icon: Workflow, label: "Workflows" },
+  { to: "/plans", icon: Kanban, label: "Plan Board" },
+];
+
 const UTILITY_NAV = [
+  { to: "/allies", icon: Users2, label: "Allies" },
+  { to: "/council-board", icon: LayoutGrid, label: "Council Board" },
+  { to: "/achievements", icon: Trophy, label: "Achievements" },
+  { to: "/forecast", icon: Gauge, label: "Forecast" },
+  { to: "/notifications", icon: Bell, label: "Notifications" },
   { to: "/personas", icon: HeartPulse, label: "Personas" },
   { to: "/persona-relationships", icon: HeartPulse, label: "Relationships" },
   { to: "/rankings", icon: Medal, label: "Rankings" },
@@ -63,6 +78,8 @@ const UTILITY_NAV = [
   { to: "/bpm", icon: Activity, label: "BPM" },
   { to: "/store", icon: ShoppingBag, label: "Store" },
   { to: "/activity", icon: CheckSquare, label: "Activity Log" },
+  { to: "/stripe", icon: CreditCard, label: "Stripe" },
+  { to: "/import", icon: Upload, label: "Import Data" },
   { to: "/settings", icon: Settings, label: "Settings" },
 ];
 
@@ -190,6 +207,9 @@ export default function AppSidebar() {
 
         <SectionLabel label="Intel" collapsed={collapsed} />
         {INTEL_NAV.map((item) => <NavItem key={item.to} {...item} collapsed={collapsed} />)}
+
+        <SectionLabel label="Creator" collapsed={collapsed} />
+        {CREATOR_NAV.map((item) => <NavItem key={item.to} {...item} collapsed={collapsed} />)}
 
         <SectionLabel label="Utilities" collapsed={collapsed} />
         {UTILITY_NAV.map((item) => <NavItem key={item.to} {...item} collapsed={collapsed} />)}
