@@ -3,7 +3,7 @@ import { Mic, Square, Check, X, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { supabase as _supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
-import { useProfile } from "@/hooks/useProfile";
+import { useAuth } from "@/contexts/AuthContext";
 import { cn } from "@/lib/utils";
 
 const supabase = _supabase as any;
@@ -29,7 +29,7 @@ export function VoiceMemo({ inline = false }: VoiceMemoProps) {
   const chunksRef = useRef<Blob[]>([]);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const { toast } = useToast();
-  const { profile } = useProfile();
+  const { user } = useAuth();
 
   useEffect(() => {
     return () => { if (timerRef.current) clearInterval(timerRef.current); };
