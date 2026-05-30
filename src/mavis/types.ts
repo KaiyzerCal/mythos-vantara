@@ -14,7 +14,8 @@ export type MavisMode =
   | "SALES"
   | "MARKET"
   | "DATA"
-  | "GAME_MASTER";
+  | "GAME_MASTER"
+  | "WEBMASTER";
 
 export interface MavisMessage {
   id: string;

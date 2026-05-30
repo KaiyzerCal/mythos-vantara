@@ -132,6 +132,31 @@ export const PlanExecuteSchema = z.object({
   }),
 });
 
+// WEBSITE BUILDER — create a complete client website via mavis-web-builder
+export const CreateWebsiteSchema = z.object({
+  type: z.literal("create_website"),
+  client_name: z.string().min(1),
+  business_name: z.string().min(1),
+  business_type: z.enum(["local_business","saas","agency","ecommerce","restaurant","medical","portfolio","nonprofit"]).optional(),
+  description: z.string().min(10),
+  target_audience: z.string().optional(),
+  unique_value: z.string().optional(),
+  location: z.string().optional(),
+  style: z.enum(["modern","corporate","creative","minimal","bold","elegant"]).optional(),
+  color_scheme: z.enum(["blue","green","purple","orange","red","monochrome"]).optional(),
+  pages: z.array(z.string()).optional(),
+  price_cents: z.number().int().min(0).optional(),
+});
+
+// PUBLISH WEBPAGE — publish a specific page to an existing project's WP site
+export const PublishWebpageSchema = z.object({
+  type: z.literal("publish_webpage"),
+  project_id: z.string().uuid(),
+  page_type: z.string().min(1),
+  title: z.string().min(1),
+  content_brief: z.string().optional(),
+});
+
 // UNION — ALL SCHEMAS
 export const ActionSchema = z.discriminatedUnion("type", [
   CreateQuestSchema, UpdateQuestSchema, DeleteQuestSchema,
@@ -156,6 +181,8 @@ export const ActionSchema = z.discriminatedUnion("type", [
   VideoStatusSchema,
   CreateSkillDefinitionSchema,
   PlanExecuteSchema,
+  CreateWebsiteSchema,
+  PublishWebpageSchema,
 ]);
 
 export type ValidatedAction = z.infer<typeof ActionSchema>;
