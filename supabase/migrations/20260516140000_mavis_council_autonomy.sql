@@ -25,9 +25,9 @@ CREATE TABLE IF NOT EXISTS mavis_council_activity (
 
 ALTER TABLE mavis_council_activity ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY "own council activity"
-  ON mavis_council_activity FOR ALL
-  USING (auth.uid() = user_id);
+DO $$ BEGIN
+  CREATE POLICY "own council activity" ON mavis_council_activity FOR ALL USING (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- Index for recent activity lookups
 CREATE INDEX IF NOT EXISTS idx_council_activity_member

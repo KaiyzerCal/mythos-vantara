@@ -24,9 +24,9 @@ CREATE TABLE IF NOT EXISTS mavis_goals (
 
 ALTER TABLE mavis_goals ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY "own goals"
-  ON mavis_goals FOR ALL
-  USING (auth.uid() = user_id);
+DO $$ BEGIN
+  CREATE POLICY "own goals" ON mavis_goals FOR ALL USING (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 CREATE INDEX IF NOT EXISTS idx_goals_user_status
   ON mavis_goals (user_id, status, created_at DESC);
