@@ -9,7 +9,7 @@ import { AppDataProvider } from "@/contexts/AppDataContext";
 import AppSidebar from "@/components/AppSidebar";
 import { Loader2 } from "lucide-react";
 import { useMavisNotifications } from "@/hooks/useMavisNotifications";
-import { VoiceMemo } from "@/components/VoiceMemo";
+
 
 /** Sync the mobile browser chrome (status bar) color with the active theme.
  *  Critical for Android — Chrome reads <meta name="theme-color"> dynamically. */
