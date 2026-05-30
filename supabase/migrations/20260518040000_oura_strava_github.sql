@@ -14,9 +14,7 @@ CREATE TABLE IF NOT EXISTS health_metrics (
 ALTER TABLE health_metrics ENABLE ROW LEVEL SECURITY;
 DO $$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename='health_metrics' AND policyname='health_metrics_owner') THEN
-DO $$ BEGIN
-      CREATE POLICY health_metrics_owner ON health_metrics FOR ALL USING (auth.uid() = user_id);
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+    CREATE POLICY health_metrics_owner ON health_metrics FOR ALL USING (auth.uid() = user_id);
   END IF;
 END $$;
 
