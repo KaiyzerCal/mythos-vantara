@@ -922,6 +922,38 @@ export type Database = {
         }
         Relationships: []
       }
+      mavis_agent_karma: {
+        Row: {
+          agent_id: string
+          id: string
+          karma: number
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          agent_id: string
+          id?: string
+          karma?: number
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          agent_id?: string
+          id?: string
+          karma?: number
+          updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "mavis_agent_karma_agent_id_fkey"
+            columns: ["agent_id"]
+            isOneToOne: false
+            referencedRelation: "councils"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       mavis_agent_memories: {
         Row: {
           access_count: number
@@ -1074,6 +1106,95 @@ export type Database = {
           user_id?: string
         }
         Relationships: []
+      }
+      mavis_council_memory: {
+        Row: {
+          content: string
+          council_member_id: string
+          created_at: string | null
+          embedding: string | null
+          id: string
+          tags: string[] | null
+          user_id: string
+        }
+        Insert: {
+          content: string
+          council_member_id: string
+          created_at?: string | null
+          embedding?: string | null
+          id?: string
+          tags?: string[] | null
+          user_id: string
+        }
+        Update: {
+          content?: string
+          council_member_id?: string
+          created_at?: string | null
+          embedding?: string | null
+          id?: string
+          tags?: string[] | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "mavis_council_memory_council_member_id_fkey"
+            columns: ["council_member_id"]
+            isOneToOne: false
+            referencedRelation: "councils"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      mavis_council_messages: {
+        Row: {
+          content: string
+          created_at: string | null
+          from_member_id: string | null
+          from_member_name: string | null
+          id: string
+          read: boolean | null
+          to_member_id: string
+          to_member_name: string | null
+          user_id: string
+        }
+        Insert: {
+          content: string
+          created_at?: string | null
+          from_member_id?: string | null
+          from_member_name?: string | null
+          id?: string
+          read?: boolean | null
+          to_member_id: string
+          to_member_name?: string | null
+          user_id: string
+        }
+        Update: {
+          content?: string
+          created_at?: string | null
+          from_member_id?: string | null
+          from_member_name?: string | null
+          id?: string
+          read?: boolean | null
+          to_member_id?: string
+          to_member_name?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "mavis_council_messages_from_member_id_fkey"
+            columns: ["from_member_id"]
+            isOneToOne: false
+            referencedRelation: "councils"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "mavis_council_messages_to_member_id_fkey"
+            columns: ["to_member_id"]
+            isOneToOne: false
+            referencedRelation: "councils"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       mavis_custom_skills: {
         Row: {
