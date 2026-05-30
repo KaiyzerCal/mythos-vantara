@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { supabase as _supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { useProfile } from "@/hooks/useProfile";
+import { cn } from "@/lib/utils";
 
 const supabase = _supabase as any;
 
@@ -16,7 +17,11 @@ interface TranscriptResult {
   duration_seconds: number;
 }
 
-export function VoiceMemo() {
+interface VoiceMemoProps {
+  inline?: boolean;
+}
+
+export function VoiceMemo({ inline = false }: VoiceMemoProps) {
   const [state, setState] = useState<MemoState>("idle");
   const [seconds, setSeconds] = useState(0);
   const [result, setResult] = useState<TranscriptResult | null>(null);
