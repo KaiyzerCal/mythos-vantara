@@ -21,14 +21,14 @@ export function useMavisNotifications() {
   const [budgetUsed, setBudgetUsed] = useState(0);
   const [budgetTotal, setBudgetTotal] = useState(5);
 
-  // Load today's budget row on mount / when profile becomes available
+  // Load today's budget row on mount / when user becomes available
   const loadBudget = async () => {
-    if (!profile?.id) return;
+    if (!userId) return;
     const today = new Date().toISOString().split("T")[0];
     const { data } = await supabase
       .from("notification_budget")
       .select("slots_used, slots_total")
-      .eq("user_id", profile.id)
+      .eq("user_id", userId)
       .eq("date", today)
       .maybeSingle();
     setBudgetUsed(data?.slots_used ?? 0);
@@ -37,9 +37,9 @@ export function useMavisNotifications() {
 
   // Consume one slot via RPC; returns true when a slot was available
   const canSend = async (): Promise<boolean> => {
-    if (!profile?.id) return false;
+    if (!userId) return false;
     const { data } = await supabase.rpc("consume_notification_slot", {
-      p_user_id: profile.id,
+      p_user_id: userId,
     });
     if (data === true) {
       setBudgetUsed((prev) => prev + 1);
@@ -54,11 +54,11 @@ export function useMavisNotifications() {
     body: string,
     priority: number
   ) => {
-    if (!profile?.id) return;
+    if (!userId) return;
     await supabase
       .from("notification_log")
       .insert({
-        user_id: profile.id,
+        user_id: userId,
         type,
         title,
         body,
@@ -69,7 +69,7 @@ export function useMavisNotifications() {
   };
 
   useEffect(() => {
-    if (!profile?.id) return;
+    if (!userId) return;
 
     loadBudget();
 
@@ -77,7 +77,6 @@ export function useMavisNotifications() {
     if (Date.now() - lastCheck < CHECK_INTERVAL_MS) return;
 
     const runChecks = async () => {
-      const userId = profile.id;
       const now = new Date().toISOString();
       const in4h = new Date(Date.now() + 4 * 60 * 60 * 1000).toISOString();
       const in24h = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
@@ -228,7 +227,7 @@ export function useMavisNotifications() {
 
     runChecks();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [profile?.id]);
+  }, [userId]);
 
   return { budgetUsed, budgetTotal };
 }
