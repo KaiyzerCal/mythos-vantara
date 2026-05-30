@@ -26,3 +26,4 @@ dist-ssr
 # Supabase CLI cache
 supabase/.temp/
 .playwright/
+.claude/
