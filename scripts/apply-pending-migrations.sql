@@ -1,22 +1,896 @@
--- Combined pending migrations (20260529 + 20260530)
--- Safe to run: all use IF NOT EXISTS / CREATE OR REPLACE
+-- ================================================================
+-- apply-pending-migrations.sql
+-- All code-added migrations from 20260518 onwards.
+-- Safe to run: ALTER TABLE wrapped to skip if table missing.
+-- Paste entire contents into Supabase SQL Editor and click Run.
+-- ================================================================
 
--- ============================================================
--- supabase/migrations/20260529000000_add_memory_embeddings.sql
--- ============================================================
+-- ---- 20260518010000_crm_achievements_slack.sql ----
+-- Achievements / badge system
+CREATE TABLE IF NOT EXISTS achievements (
+  id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id      UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  achievement_key TEXT NOT NULL,
+  title        TEXT NOT NULL,
+  description  TEXT,
+  icon         TEXT DEFAULT '🏆',
+  category     TEXT NOT NULL DEFAULT 'general'
+                 CHECK (category IN ('quests','habits','finance','social','knowledge','bond','special')),
+  unlocked_at  TIMESTAMPTZ DEFAULT now(),
+  data         JSONB DEFAULT '{}'::jsonb,
+  UNIQUE(user_id, achievement_key)
+);
+DO $$
+BEGIN
+  ALTER TABLE achievements ENABLE ROW LEVEL SECURITY;
+EXCEPTION
+  WHEN undefined_table THEN NULL;
+  WHEN undefined_column THEN NULL;
+END $$;
+CREATE POLICY "Users see own achievements" ON achievements FOR ALL USING (auth.uid() = user_id);
+-- CRM follow-up config columns on contacts (add if missing)
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='contacts' AND column_name='follow_up_days') THEN
+    ALTER TABLE contacts ADD COLUMN follow_up_days INT;
+END IF;
+IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='contacts' AND column_name='birthday') THEN
+    ALTER TABLE contacts ADD COLUMN birthday DATE;
+END IF;
+END $$;
+-- Slack config
+CREATE TABLE IF NOT EXISTS mavis_slack_config (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id         UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE UNIQUE,
+  workspace_name  TEXT,
+  bot_user_id     TEXT,
+  default_channel TEXT,
+  active          BOOLEAN DEFAULT true,
+  created_at      TIMESTAMPTZ DEFAULT now()
+);
+DO $$
+BEGIN
+  ALTER TABLE mavis_slack_config ENABLE ROW LEVEL SECURITY;
+EXCEPTION
+  WHEN undefined_table THEN NULL;
+  WHEN undefined_column THEN NULL;
+END $$;
+CREATE POLICY "Users manage own slack config" ON mavis_slack_config FOR ALL USING (auth.uid() = user_id);
+-- Cron: auto-journal at 21:00 UTC daily
+SELECT cron.schedule('mavis-auto-journal', '0 21 * * *', $$
+  SELECT net.http_post(url := current_setting('app.supabase_url') || '/functions/v1/mavis-auto-journal',
+    headers := jsonb_build_object('Content-Type','application/json','Authorization','Bearer ' || current_setting('app.service_role_key')),
+    body := '{}'::jsonb);
+$$);
+-- Cron: CRM nudge at 09:00 UTC daily
+SELECT cron.schedule('mavis-crm-nudge', '0 9 * * *', $$
+  SELECT net.http_post(url := current_setting('app.supabase_url') || '/functions/v1/mavis-crm-nudge',
+    headers := jsonb_build_object('Content-Type','application/json','Authorization','Bearer ' || current_setting('app.service_role_key')),
+    body := '{}'::jsonb);
+$$);
+-- Cron: sleep coaching at 07:00 UTC daily (after morning brief)
+SELECT cron.schedule('mavis-sleep-coach', '0 7 * * *', $$
+  SELECT net.http_post(url := current_setting('app.supabase_url') || '/functions/v1/mavis-sleep-coach',
+    headers := jsonb_build_object('Content-Type','application/json','Authorization','Bearer ' || current_setting('app.service_role_key')),
+    body := '{}'::jsonb);
+$$);
+
+-- ---- 20260518020000_import_ab.sql ----
+-- Import jobs tracker
+CREATE TABLE IF NOT EXISTS mavis_import_jobs (
+  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id     UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  source      TEXT NOT NULL CHECK (source IN ('notion','obsidian','markdown','readwise','csv')),
+  status      TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','running','completed','failed')),
+  total       INT DEFAULT 0,
+  imported    INT DEFAULT 0,
+  skipped     INT DEFAULT 0,
+  error       TEXT,
+  started_at  TIMESTAMPTZ DEFAULT now(),
+  finished_at TIMESTAMPTZ
+);
+DO $$
+BEGIN
+  ALTER TABLE mavis_import_jobs ENABLE ROW LEVEL SECURITY;
+EXCEPTION
+  WHEN undefined_table THEN NULL;
+  WHEN undefined_column THEN NULL;
+END $$;
+CREATE POLICY "Users see own imports" ON mavis_import_jobs FOR ALL USING (auth.uid() = user_id);
+-- A/B testing for social posts
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='mavis_social_posts' AND column_name='ab_group') THEN
+    ALTER TABLE mavis_social_posts ADD COLUMN ab_group TEXT CHECK (ab_group IN ('A','B'));
+END IF;
+IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='mavis_social_posts' AND column_name='ab_test_id') THEN
+    ALTER TABLE mavis_social_posts ADD COLUMN ab_test_id UUID;
+END IF;
+END $$;
+-- Google Calendar integration key via mavis_user_integrations (no schema change needed,
+-- just document that provider='google_calendar', key_name in ('access_token','calendar_id'))
+
+-- Cron: achievement check after key events (called programmatically, no cron needed)
+-- Cron: quest-to-calendar sync daily at 08:00 UTC
+SELECT cron.schedule('mavis-quest-calendar', '0 8 * * *', $$
+  SELECT net.http_post(url := current_setting('app.supabase_url') || '/functions/v1/mavis-quest-calendar',
+    headers := jsonb_build_object('Content-Type','application/json','Authorization','Bearer ' || current_setting('app.service_role_key')),
+    body := '{"action":"push"}'::jsonb);
+$$);
+
+-- ---- 20260518030000_language_sw.sql ----
+-- Language preference
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='profiles' AND column_name='language') THEN
+    ALTER TABLE profiles ADD COLUMN language TEXT DEFAULT 'en';
+END IF;
+END $$;
+
+-- ---- 20260518040000_oura_strava_github.sql ----
+-- health_metrics table (if not exists)
+CREATE TABLE IF NOT EXISTS health_metrics (
+  id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+  user_id uuid REFERENCES auth.users(id) ON DELETE CASCADE NOT NULL,
+  metric_date date NOT NULL,
+  metric_type text NOT NULL,
+  value numeric,
+  unit text,
+  source text DEFAULT 'manual',
+  raw_data jsonb,
+  created_at timestamptz DEFAULT now(),
+  UNIQUE (user_id, metric_date, metric_type, source)
+);
+DO $$
+BEGIN
+  ALTER TABLE health_metrics ENABLE ROW LEVEL SECURITY;
+EXCEPTION
+  WHEN undefined_table THEN NULL;
+  WHEN undefined_column THEN NULL;
+END $$;
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename='health_metrics' AND policyname='health_metrics_owner') THEN
+    CREATE POLICY health_metrics_owner ON health_metrics FOR ALL USING (auth.uid() = user_id);
+END IF;
+END $$;
+-- pg_cron jobs for daily sync (08:30 UTC)
+SELECT cron.schedule('mavis-oura-daily', '30 8 * * *',
+  $$SELECT net.http_post(url := current_setting('app.supabase_url') || '/functions/v1/mavis-oura-sync',
+    headers := jsonb_build_object('Authorization', 'Bearer ' || current_setting('app.service_role_key'), 'Content-Type', 'application/json'),
+    body := '{}'::jsonb) AS request_id$$);
+SELECT cron.schedule('mavis-strava-daily', '35 8 * * *',
+  $$SELECT net.http_post(url := current_setting('app.supabase_url') || '/functions/v1/mavis-strava-sync',
+    headers := jsonb_build_object('Authorization', 'Bearer ' || current_setting('app.service_role_key'), 'Content-Type', 'application/json'),
+    body := '{}'::jsonb) AS request_id$$);
+SELECT cron.schedule('mavis-github-hourly', '0 * * * *',
+  $$SELECT net.http_post(url := current_setting('app.supabase_url') || '/functions/v1/mavis-github-sync',
+    headers := jsonb_build_object('Authorization', 'Bearer ' || current_setting('app.service_role_key'), 'Content-Type', 'application/json'),
+    body := '{}'::jsonb) AS request_id$$);
+
+-- ---- 20260518050000_morning_digest.sql ----
+-- Morning digest logs
+CREATE TABLE IF NOT EXISTS morning_digest_logs (
+  id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+  user_id uuid REFERENCES auth.users(id) ON DELETE CASCADE NOT NULL,
+  digest_date date NOT NULL DEFAULT CURRENT_DATE,
+  content text,
+  quality_score numeric,
+  delivery_method text DEFAULT 'telegram',
+  created_at timestamptz DEFAULT now(),
+  UNIQUE(user_id, digest_date)
+);
+DO $$
+BEGIN
+  ALTER TABLE morning_digest_logs ENABLE ROW LEVEL SECURITY;
+EXCEPTION
+  WHEN undefined_table THEN NULL;
+  WHEN undefined_column THEN NULL;
+END $$;
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename='morning_digest_logs' AND policyname='digest_owner') THEN
+    CREATE POLICY digest_owner ON morning_digest_logs FOR ALL USING (auth.uid() = user_id);
+END IF;
+END $$;
+-- pg_cron: 07:00 UTC daily
+SELECT cron.schedule('mavis-morning-digest', '0 7 * * *',
+  $$SELECT net.http_post(
+    url := current_setting('app.supabase_url') || '/functions/v1/mavis-morning-digest',
+    headers := jsonb_build_object('Content-Type','application/json'),
+    body := '{}'::jsonb
+  ) AS request_id$$);
+
+-- ---- 20260518060000_weather_rss.sql ----
+-- RSS feeds table
+CREATE TABLE IF NOT EXISTS rss_feeds (
+  id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+  user_id uuid REFERENCES auth.users(id) ON DELETE CASCADE NOT NULL,
+  name text NOT NULL,
+  url text NOT NULL,
+  is_active boolean DEFAULT true,
+  last_synced_at timestamptz,
+  created_at timestamptz DEFAULT now(),
+  UNIQUE(user_id, url)
+);
+DO $$
+BEGIN
+  ALTER TABLE rss_feeds ENABLE ROW LEVEL SECURITY;
+EXCEPTION
+  WHEN undefined_table THEN NULL;
+  WHEN undefined_column THEN NULL;
+END $$;
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename='rss_feeds' AND policyname='rss_feeds_owner') THEN
+    CREATE POLICY rss_feeds_owner ON rss_feeds FOR ALL USING (auth.uid() = user_id);
+END IF;
+END $$;
+-- pg_cron: HN digest at 08:00 UTC daily
+SELECT cron.schedule('mavis-hn-daily', '0 8 * * *',
+  $$SELECT net.http_post(
+    url := current_setting('app.supabase_url') || '/functions/v1/mavis-hn-digest',
+    headers := jsonb_build_object('Content-Type','application/json'),
+    body := '{}'::jsonb
+  ) AS request_id$$);
+
+-- ---- 20260518070000_google_sync.sql ----
+-- Add external_id column to tasks for Google Tasks bidirectional sync
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS external_id text;
+DO $$
+BEGIN
+  ALTER TABLE tasks ADD COLUMN IF NOT EXISTS source text;
+EXCEPTION
+  WHEN undefined_table THEN NULL;
+  WHEN undefined_column THEN NULL;
+END $$;
+CREATE INDEX IF NOT EXISTS tasks_external_id_idx ON tasks(user_id, external_id) WHERE external_id IS NOT NULL;
+-- pg_cron: Google Tasks sync at 09:00 UTC daily
+SELECT cron.schedule('mavis-google-tasks-sync', '0 9 * * *',
+  $$SELECT net.http_post(
+    url := current_setting('app.supabase_url') || '/functions/v1/mavis-google-tasks-sync',
+    headers := jsonb_build_object('Content-Type','application/json'),
+    body := '{"direction":"sync"}'::jsonb
+  ) AS request_id$$);
+-- pg_cron: GDrive sync at 06:00 UTC daily
+SELECT cron.schedule('mavis-gdrive-sync', '0 6 * * *',
+  $$SELECT net.http_post(
+    url := current_setting('app.supabase_url') || '/functions/v1/mavis-gdrive-sync',
+    headers := jsonb_build_object('Content-Type','application/json'),
+    body := '{}'::jsonb
+  ) AS request_id$$);
+
+-- ---- 20260518080000_workflows.sql ----
+CREATE TABLE IF NOT EXISTS workflows (
+  id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+  user_id uuid REFERENCES auth.users(id) ON DELETE CASCADE NOT NULL,
+  name text NOT NULL,
+  description text DEFAULT '',
+  trigger_type text DEFAULT 'manual',
+  trigger_config jsonb DEFAULT '{}',
+  steps jsonb DEFAULT '[]',
+  is_active boolean DEFAULT true,
+  last_run_at timestamptz,
+  last_run_status text,
+  created_at timestamptz DEFAULT now(),
+  updated_at timestamptz DEFAULT now()
+);
+DO $$
+BEGIN
+  ALTER TABLE workflows ENABLE ROW LEVEL SECURITY;
+EXCEPTION
+  WHEN undefined_table THEN NULL;
+  WHEN undefined_column THEN NULL;
+END $$;
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename='workflows' AND policyname='workflows_owner') THEN
+    CREATE POLICY workflows_owner ON workflows FOR ALL USING (auth.uid() = user_id);
+END IF;
+END $$;
+CREATE TABLE IF NOT EXISTS workflow_runs (
+  id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+  workflow_id uuid REFERENCES workflows(id) ON DELETE CASCADE,
+  user_id uuid REFERENCES auth.users(id) ON DELETE CASCADE NOT NULL,
+  status text DEFAULT 'running',
+  steps_log jsonb DEFAULT '[]',
+  started_at timestamptz DEFAULT now(),
+  completed_at timestamptz
+);
+DO $$
+BEGIN
+  ALTER TABLE workflow_runs ENABLE ROW LEVEL SECURITY;
+EXCEPTION
+  WHEN undefined_table THEN NULL;
+  WHEN undefined_column THEN NULL;
+END $$;
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename='workflow_runs' AND policyname='workflow_runs_owner') THEN
+    CREATE POLICY workflow_runs_owner ON workflow_runs FOR ALL USING (auth.uid() = user_id);
+END IF;
+END $$;
+
+-- ---- 20260518090000_telegram_linked_accounts.sql ----
+-- Allow multiple Telegram accounts to talk to the same MAVIS operator.
+-- Each row maps a secondary Telegram user ID to the operator's Supabase user.
+-- The telegram-webhook edge function queries this table when the incoming
+-- sender does not match the primary TELEGRAM_OPERATOR_CHAT_ID env var.
+
+CREATE TABLE IF NOT EXISTS public.telegram_linked_accounts (
+  id               uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id          uuid        NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  telegram_user_id text        NOT NULL,
+  label            text        NOT NULL DEFAULT 'Linked Account',
+  created_at       timestamptz DEFAULT now(),
+  UNIQUE (user_id, telegram_user_id)
+);
+DO $$
+BEGIN
+  ALTER TABLE public.telegram_linked_accounts ENABLE ROW LEVEL SECURITY;
+EXCEPTION
+  WHEN undefined_table THEN NULL;
+  WHEN undefined_column THEN NULL;
+END $$;
+-- Users can only manage their own linked accounts
+CREATE POLICY "Users manage own linked telegram accounts"
+  ON public.telegram_linked_accounts
+  FOR ALL
+  USING  (auth.uid() = user_id)
+  WITH CHECK (auth.uid() = user_id);
+-- Index for fast lookup by telegram_user_id (used by edge function)
+CREATE INDEX IF NOT EXISTS idx_telegram_linked_accounts_tg_user
+  ON public.telegram_linked_accounts(telegram_user_id);
+
+-- ---- 20260518100000_plugin_system.sql ----
+-- Plugin System, Inter-Agent A2A Bus, and Agent Memory Engine
+-- Adapts ElizaOS plugin registry, Moltbook message envelope, and
+-- Obsidian-style persistent memory to the existing MAVIS DB schema.
+
+-- ── Plugin registry ───────────────────────────────────────────
+-- Stores installed plugins with their manifests, capability declarations,
+-- and enable/disable state. Mirrors ElizaOS Character plugin array
+-- but persisted in DB so they survive deploys.
+CREATE TABLE IF NOT EXISTS public.mavis_plugins (
+  id              uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id         uuid        NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  name            text        NOT NULL,
+  version         text        NOT NULL DEFAULT '0.1.0',
+  description     text        NOT NULL,
+  author          text,
+  manifest        jsonb       NOT NULL DEFAULT '{}',  -- Full plugin manifest JSON
+  capabilities    text[]      DEFAULT '{}',           -- e.g. ["inference","tool","analysis"]
+  required_scopes text[]      DEFAULT '{}',           -- data access scopes needed
+  enabled         boolean     NOT NULL DEFAULT true,
+  config          jsonb       DEFAULT '{}',           -- User-supplied config (API keys, etc.)
+  created_at      timestamptz DEFAULT now(),
+  updated_at      timestamptz DEFAULT now(),
+  UNIQUE (user_id, name)
+);
+DO $$
+BEGIN
+  ALTER TABLE public.mavis_plugins ENABLE ROW LEVEL SECURITY;
+EXCEPTION
+  WHEN undefined_table THEN NULL;
+  WHEN undefined_column THEN NULL;
+END $$;
+CREATE POLICY "Users manage own plugins"
+  ON public.mavis_plugins FOR ALL
+  USING  (auth.uid() = user_id)
+  WITH CHECK (auth.uid() = user_id);
+-- ── A2A inter-agent message bus ───────────────────────────────
+-- Moltbook-style message envelope for agent-to-agent communication.
+-- Agents poll this table via their AgentInbox or subscribe via Realtime.
+-- Uses Moltbook's intent vocabulary + A2A Protocol v0.3 envelope fields.
+CREATE TABLE IF NOT EXISTS public.mavis_agent_messages (
+  id              uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id         uuid        NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+
+  -- Sender (Moltbook sender object)
+  from_agent_id   text        NOT NULL,   -- council/{id}, persona/{id}, plugin/{name}, mavis
+  from_agent_name text        NOT NULL,
+  from_agent_type text        NOT NULL,   -- council | persona | plugin | mavis
+  from_karma      int         DEFAULT 0,  -- Moltbook reputation score
+
+  -- Recipient
+  to_agent_id     text        NOT NULL,   -- same format as from_agent_id
+  to_agent_name   text,
+
+  -- Payload (Moltbook + A2A Protocol)
+  intent          text        NOT NULL CHECK (intent IN ('REQUEST','RESPONSE','BROADCAST','HEARTBEAT','SIGNAL','VOTE','DELEGATE')),
+  content         text        NOT NULL,
+  payload         jsonb       DEFAULT '{}',          -- Structured data beyond text
+  correlation_id  uuid,                              -- Links request → response pairs
+  priority        text        DEFAULT 'normal' CHECK (priority IN ('critical','high','normal','background')),
+  ttl_ms          int         DEFAULT 300000,         -- 5 min default TTL
+
+  -- Delivery tracking
+  delivered       boolean     DEFAULT false,
+  read            boolean     DEFAULT false,
+  ack             boolean     DEFAULT false,
+
+  created_at      timestamptz DEFAULT now(),
+  expires_at      timestamptz GENERATED ALWAYS AS (created_at + (ttl_ms || ' milliseconds')::interval) STORED
+);
+DO $$
+BEGIN
+  ALTER TABLE public.mavis_agent_messages ENABLE ROW LEVEL SECURITY;
+EXCEPTION
+  WHEN undefined_table THEN NULL;
+  WHEN undefined_column THEN NULL;
+END $$;
+CREATE POLICY "Users manage own agent messages"
+  ON public.mavis_agent_messages FOR ALL
+  USING (auth.uid() = user_id);
+CREATE INDEX IF NOT EXISTS idx_agent_messages_to_agent
+  ON public.mavis_agent_messages(to_agent_id, delivered, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_agent_messages_correlation
+  ON public.mavis_agent_messages(correlation_id) WHERE correlation_id IS NOT NULL;
+-- ── Unified agent memory (Obsidian-pattern) ───────────────────
+-- One memory record per "experience", "fact", "pattern", "relationship", or "decision".
+-- Frontmatter fields mirror obsidian-mind's schema.
+-- Supplements (not replaces) mavis_council_memory and persona_memories.
+-- All agent types write here; semantic search via existing pgvector extension.
+CREATE TABLE IF NOT EXISTS public.mavis_agent_memories (
+  id              uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id         uuid        NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+
+  -- Obsidian-style identity fields (frontmatter equivalents)
+  agent_id        text        NOT NULL,   -- council/{id} | persona/{id} | plugin/{name} | mavis
+  agent_name      text        NOT NULL,
+  agent_type      text        NOT NULL CHECK (agent_type IN ('council','persona','plugin','mavis')),
+
+  entity_type     text        NOT NULL CHECK (entity_type IN ('experience','fact','pattern','relationship','decision','signal')),
+  memory_type     text        NOT NULL CHECK (memory_type IN ('episodic','semantic','procedural','working')),
+  content         text        NOT NULL,
+  summary         text,                  -- Compressed version for prompt injection
+  tags            text[]      DEFAULT '{}',
+  wikilinks       text[]      DEFAULT '{}',  -- [[entity]] references (Obsidian-style links)
+  importance      int         DEFAULT 5 CHECK (importance BETWEEN 1 AND 10),
+  confidence      int         DEFAULT 7 CHECK (confidence BETWEEN 1 AND 10),
+
+  -- Source tracing
+  source_session  text,                  -- mavis_memory session_id that generated this
+  source_date     date        DEFAULT CURRENT_DATE,
+
+  -- Spaced repetition (obsidian-mind pattern)
+  next_review_at  timestamptz,
+  review_count    int         DEFAULT 0,
+  ease_factor     float       DEFAULT 2.5,  -- SM-2 algorithm ease
+
+  -- Vector embedding for semantic recall
+  embedding       vector(1536),
+
+  -- Status
+  status          text        DEFAULT 'active' CHECK (status IN ('active','archived','superseded')),
+  superseded_by   uuid        REFERENCES public.mavis_agent_memories(id),
+
+  created_at      timestamptz DEFAULT now(),
+  updated_at      timestamptz DEFAULT now()
+);
+DO $$
+BEGIN
+  ALTER TABLE public.mavis_agent_memories ENABLE ROW LEVEL SECURITY;
+EXCEPTION
+  WHEN undefined_table THEN NULL;
+  WHEN undefined_column THEN NULL;
+END $$;
+CREATE POLICY "Users manage own agent memories"
+  ON public.mavis_agent_memories FOR ALL
+  USING (auth.uid() = user_id);
+CREATE INDEX IF NOT EXISTS idx_agent_memories_agent
+  ON public.mavis_agent_memories(agent_id, status, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_agent_memories_type
+  ON public.mavis_agent_memories(agent_type, entity_type, importance DESC);
+-- Semantic recall function (mirrors match_council_memory)
+CREATE OR REPLACE FUNCTION match_agent_memory(
+  query_embedding  vector(1536),
+  match_agent_id   text,
+  match_threshold  float   DEFAULT 0.40,
+  match_count      int     DEFAULT 8
+)
+RETURNS TABLE (
+  id          uuid,
+  content     text,
+  summary     text,
+  entity_type text,
+  memory_type text,
+  tags        text[],
+  importance  int,
+  created_at  timestamptz,
+  similarity  float
+)
+LANGUAGE sql STABLE
+AS $$
+  SELECT
+    id, content, summary, entity_type, memory_type, tags, importance, created_at,
+    1 - (embedding <=> query_embedding) AS similarity
+  FROM public.mavis_agent_memories
+  WHERE agent_id = match_agent_id
+    AND status = 'active'
+    AND embedding IS NOT NULL
+    AND 1 - (embedding <=> query_embedding) > match_threshold
+  ORDER BY similarity DESC
+  LIMIT match_count;
+$$;
+-- ── Agent karma/reputation (Moltbook MolTrust pattern) ────────
+-- Tracks agent contribution quality scores for message priority routing.
+CREATE TABLE IF NOT EXISTS public.mavis_agent_karma (
+  id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id     uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  agent_id    text NOT NULL,
+  agent_name  text NOT NULL,
+  karma       int  NOT NULL DEFAULT 0,
+  signals     int  NOT NULL DEFAULT 0,  -- Number of SIGNAL messages sent
+  responses   int  NOT NULL DEFAULT 0,  -- Responses sent
+  accuracy    float DEFAULT 0.5,        -- Accuracy of predictions/recommendations
+  updated_at  timestamptz DEFAULT now(),
+  UNIQUE (user_id, agent_id)
+);
+DO $$
+BEGIN
+  ALTER TABLE public.mavis_agent_karma ENABLE ROW LEVEL SECURITY;
+EXCEPTION
+  WHEN undefined_table THEN NULL;
+  WHEN undefined_column THEN NULL;
+END $$;
+CREATE POLICY "Users manage own agent karma"
+  ON public.mavis_agent_karma FOR ALL USING (auth.uid() = user_id);
+-- ── Plugin execution log ──────────────────────────────────────
+CREATE TABLE IF NOT EXISTS public.mavis_plugin_executions (
+  id            uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id       uuid        NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  plugin_name   text        NOT NULL,
+  action_name   text        NOT NULL,
+  input         text,
+  output        text,
+  success       boolean     NOT NULL DEFAULT true,
+  error_msg     text,
+  duration_ms   int,
+  tokens_used   int,
+  created_at    timestamptz DEFAULT now()
+);
+DO $$
+BEGIN
+  ALTER TABLE public.mavis_plugin_executions ENABLE ROW LEVEL SECURITY;
+EXCEPTION
+  WHEN undefined_table THEN NULL;
+  WHEN undefined_column THEN NULL;
+END $$;
+CREATE POLICY "Users view own plugin executions"
+  ON public.mavis_plugin_executions FOR ALL USING (auth.uid() = user_id);
+CREATE INDEX IF NOT EXISTS idx_plugin_executions_plugin
+  ON public.mavis_plugin_executions(plugin_name, created_at DESC);
+
+-- ---- 20260519000000_tool_registry_automation.sql ----
+-- Tool Registry, Automation Rules, Ephemeral Agent Sessions, Distillation Jobs
+-- Supports: OpenClaw tool orchestration, OpenJarvis event-driven automation,
+-- ElizaOS dynamic agent formation, Felix AI knowledge compression.
+
+-- ── Dynamic Tool Registry (OpenClaw pattern) ──────────────────────────────────
+-- Stores registered tools with JSON Schema parameters for LLM function calling.
+-- Built-in tools are registered in-memory; user-defined tools persist here.
+CREATE TABLE IF NOT EXISTS public.mavis_tool_registry (
+  id              uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id         uuid        NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  name            text        NOT NULL,
+  description     text        NOT NULL,
+  category        text        NOT NULL DEFAULT 'general'
+                              CHECK (category IN ('api','system','data','analysis','communication','trading','knowledge')),
+  parameters      jsonb       NOT NULL DEFAULT '{}',  -- JSON Schema object
+  returns         jsonb       DEFAULT '{}',           -- Return type schema
+  enabled         boolean     NOT NULL DEFAULT true,
+  requires_approval boolean   NOT NULL DEFAULT false,
+  timeout_ms      int         DEFAULT 30000,
+  usage_count     int         DEFAULT 0,
+  last_used_at    timestamptz,
+  created_at      timestamptz DEFAULT now(),
+  updated_at      timestamptz DEFAULT now(),
+  UNIQUE (user_id, name)
+);
+DO $$
+BEGIN
+  ALTER TABLE public.mavis_tool_registry ENABLE ROW LEVEL SECURITY;
+EXCEPTION
+  WHEN undefined_table THEN NULL;
+  WHEN undefined_column THEN NULL;
+END $$;
+CREATE POLICY "Users manage own tools"
+  ON public.mavis_tool_registry FOR ALL
+  USING (auth.uid() = user_id)
+  WITH CHECK (auth.uid() = user_id);
+CREATE INDEX IF NOT EXISTS idx_tool_registry_category
+  ON public.mavis_tool_registry(category, enabled);
+-- ── Automation Rules (OpenJarvis event-driven pattern) ────────────────────────
+-- Maps system events to MAVIS actions. Evaluates conditions client-side,
+-- executes actions via the AutomationEngine.
+CREATE TABLE IF NOT EXISTS public.mavis_automation_rules (
+  id              uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id         uuid        NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  name            text        NOT NULL,
+  description     text,
+
+  -- Trigger definition
+  trigger_event   text        NOT NULL,  -- 'network:offline' | 'network:online' | 'schedule:daily' |
+                                         -- 'metric:threshold' | 'agent:signal' | 'custom'
+  trigger_config  jsonb       DEFAULT '{}',  -- e.g. { "metric": "memory_mb", "threshold": 1024, "op": "gt" }
+
+  -- Optional JS-safe condition expression evaluated at trigger time
+  -- Variables available: event, context (AppStateSnapshot), now
+  condition_expr  text,                  -- e.g. "context.energy < 30"
+
+  -- Action to execute
+  action_type     text        NOT NULL
+                              CHECK (action_type IN (
+                                'send_agent_message','invoke_skill','invoke_plugin_action',
+                                'store_memory','run_distillation','notify_operator','custom'
+                              )),
+  action_config   jsonb       NOT NULL DEFAULT '{}',
+
+  -- State
+  enabled         boolean     NOT NULL DEFAULT true,
+  cooldown_ms     int         DEFAULT 300000,  -- Min ms between triggers (5 min default)
+  last_triggered_at timestamptz,
+  trigger_count   int         NOT NULL DEFAULT 0,
+  created_at      timestamptz DEFAULT now(),
+  updated_at      timestamptz DEFAULT now()
+);
+DO $$
+BEGIN
+  ALTER TABLE public.mavis_automation_rules ENABLE ROW LEVEL SECURITY;
+EXCEPTION
+  WHEN undefined_table THEN NULL;
+  WHEN undefined_column THEN NULL;
+END $$;
+CREATE POLICY "Users manage own automation rules"
+  ON public.mavis_automation_rules FOR ALL
+  USING (auth.uid() = user_id)
+  WITH CHECK (auth.uid() = user_id);
+CREATE INDEX IF NOT EXISTS idx_automation_rules_event
+  ON public.mavis_automation_rules(trigger_event, enabled);
+-- ── Ephemeral Agent Sessions (ElizaOS dynamic formation) ──────────────────────
+-- Tracks short-lived agents spun up for specific tasks. Cleaned up after
+-- completion; learnings are stored in mavis_agent_memories before teardown.
+CREATE TABLE IF NOT EXISTS public.mavis_agent_sessions (
+  id              uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id         uuid        NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+
+  agent_id        text        NOT NULL,  -- ephemeral/{uuid}
+  agent_name      text        NOT NULL,
+  agent_type      text        NOT NULL DEFAULT 'ephemeral'
+                              CHECK (agent_type IN ('council','persona','plugin','mavis','ephemeral')),
+
+  task            text        NOT NULL,  -- Original task description
+  goal            text,                  -- Decomposed high-level goal
+  sub_tasks       jsonb       DEFAULT '[]',  -- [{ id, description, status, result }]
+
+  -- Lifecycle
+  status          text        NOT NULL DEFAULT 'active'
+                              CHECK (status IN ('active','completed','failed','cancelled')),
+  result          text,
+  error_msg       text,
+
+  -- Resources used
+  tools_used      text[]      DEFAULT '{}',
+  memory_ids      uuid[]      DEFAULT '{}',
+  llm_calls       int         DEFAULT 0,
+  tokens_used     int         DEFAULT 0,
+
+  started_at      timestamptz DEFAULT now(),
+  completed_at    timestamptz
+);
+DO $$
+BEGIN
+  ALTER TABLE public.mavis_agent_sessions ENABLE ROW LEVEL SECURITY;
+EXCEPTION
+  WHEN undefined_table THEN NULL;
+  WHEN undefined_column THEN NULL;
+END $$;
+CREATE POLICY "Users manage own agent sessions"
+  ON public.mavis_agent_sessions FOR ALL
+  USING (auth.uid() = user_id)
+  WITH CHECK (auth.uid() = user_id);
+CREATE INDEX IF NOT EXISTS idx_agent_sessions_status
+  ON public.mavis_agent_sessions(status, started_at DESC);
+-- ── Distillation Jobs (Felix AI knowledge compression) ────────────────────────
+-- Tracks async knowledge compression runs. Input: raw notes/journal/messages.
+-- Output: distilled semantic memories stored in mavis_agent_memories.
+CREATE TABLE IF NOT EXISTS public.mavis_distillation_jobs (
+  id              uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id         uuid        NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  triggered_by    text        DEFAULT 'manual',  -- 'manual' | 'schedule' | 'automation'
+
+  -- Source configuration
+  source_types    text[]      NOT NULL,           -- ['notes','journal','vault','messages','mixed']
+  source_filter   jsonb       DEFAULT '{}',       -- { date_from, date_to, tags, min_importance }
+
+  -- Processing state
+  status          text        NOT NULL DEFAULT 'pending'
+                              CHECK (status IN ('pending','running','complete','failed')),
+  input_count     int         DEFAULT 0,          -- Source items processed
+  chunk_count     int         DEFAULT 0,          -- Text chunks created
+  output_count    int         DEFAULT 0,          -- Distilled memories stored
+
+  -- Results
+  output_summary  text,                           -- Top-level synthesis
+  compression_ratio float,                        -- input tokens / output tokens
+  distilled_memory_ids uuid[] DEFAULT '{}',
+
+  -- Timing
+  started_at      timestamptz,
+  completed_at    timestamptz,
+  error_msg       text,
+  created_at      timestamptz DEFAULT now()
+);
+DO $$
+BEGIN
+  ALTER TABLE public.mavis_distillation_jobs ENABLE ROW LEVEL SECURITY;
+EXCEPTION
+  WHEN undefined_table THEN NULL;
+  WHEN undefined_column THEN NULL;
+END $$;
+CREATE POLICY "Users manage own distillation jobs"
+  ON public.mavis_distillation_jobs FOR ALL
+  USING (auth.uid() = user_id)
+  WITH CHECK (auth.uid() = user_id);
+CREATE INDEX IF NOT EXISTS idx_distillation_jobs_status
+  ON public.mavis_distillation_jobs(status, created_at DESC);
+
+-- ---- 20260520000000_mcp_integration.sql ----
+-- MCP Integration — tool execution logging + knowledge graph traversal indexes
+-- Safe to re-run: all statements use IF NOT EXISTS / OR REPLACE guards.
+
+-- ── MCP tool execution log ────────────────────────────────────────────────────
+-- Records every MAVIS tool call: what ran, how long it took, success/failure.
+-- Powers the IntegrationsPage analytics and future tool-quality scoring.
+
+CREATE TABLE IF NOT EXISTS mavis_tool_executions (
+  id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id      uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  tool_name    text NOT NULL,
+  params       jsonb,
+  result       jsonb,
+  success      boolean NOT NULL DEFAULT true,
+  error_msg    text,
+  duration_ms  integer,
+  provider     text,   -- "stagehand-local" | "browserbase-cloud" | "fetch-fallback" | "n8n-mcp" | "native"
+  created_at   timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS mavis_tool_executions_user_idx  ON mavis_tool_executions(user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS mavis_tool_executions_tool_idx  ON mavis_tool_executions(tool_name);
+DO $$
+BEGIN
+  ALTER TABLE mavis_tool_executions ENABLE ROW LEVEL SECURITY;
+EXCEPTION
+  WHEN undefined_table THEN NULL;
+  WHEN undefined_column THEN NULL;
+END $$;
+CREATE POLICY IF NOT EXISTS "tool_exec_own" ON mavis_tool_executions
+  FOR ALL USING (auth.uid() = user_id);
+-- ── Knowledge graph traversal indexes ────────────────────────────────────────
+-- Fast BFS over mavis_note_wikilinks requires covering indexes on both
+-- source and target columns. The target_slug → note_id resolve also
+-- needs a case-insensitive index on mavis_notes.title.
+
+CREATE INDEX IF NOT EXISTS mavis_note_wikilinks_source_idx
+  ON mavis_note_wikilinks(user_id, source_note_id);
+CREATE INDEX IF NOT EXISTS mavis_note_wikilinks_slug_idx
+  ON mavis_note_wikilinks(user_id, lower(target_slug));
+CREATE INDEX IF NOT EXISTS mavis_notes_title_lower_idx
+  ON mavis_notes(user_id, lower(title));
+-- ── Workflow execution log ────────────────────────────────────────────────────
+-- Stores n8n workflow blueprints built by MAVIS and their execution outcomes.
+
+CREATE TABLE IF NOT EXISTS mavis_workflow_executions (
+  id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id         uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  workflow_name   text NOT NULL,
+  n8n_workflow_id text,                        -- ID in connected n8n instance
+  blueprint       jsonb,                       -- the workflow JSON MAVIS built
+  trigger_data    jsonb,
+  execution_id    text,                        -- n8n execution ID
+  status          text NOT NULL DEFAULT 'pending',  -- pending | running | success | error
+  result_data     jsonb,
+  error_msg       text,
+  created_at      timestamptz NOT NULL DEFAULT now(),
+  completed_at    timestamptz
+);
+DO $$
+BEGIN
+  ALTER TABLE mavis_workflow_executions ENABLE ROW LEVEL SECURITY;
+EXCEPTION
+  WHEN undefined_table THEN NULL;
+  WHEN undefined_column THEN NULL;
+END $$;
+CREATE POLICY IF NOT EXISTS "workflow_exec_own" ON mavis_workflow_executions
+  FOR ALL USING (auth.uid() = user_id);
+-- ── Sequential thought log ────────────────────────────────────────────────────
+-- Stores reasoning chains MAVIS ran before complex actions.
+-- Enables post-hoc auditing of why a decision was made.
+
+CREATE TABLE IF NOT EXISTS mavis_thought_chains (
+  id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id         uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  goal            text NOT NULL,
+  mode            text NOT NULL DEFAULT 'chain',
+  steps_taken     integer NOT NULL DEFAULT 0,
+  revisions_used  integer NOT NULL DEFAULT 0,
+  conclusion      text,
+  full_chain      jsonb,   -- serialized ThoughtChain
+  triggered_by    text,    -- which tool / action requested the reasoning
+  created_at      timestamptz NOT NULL DEFAULT now()
+);
+DO $$
+BEGIN
+  ALTER TABLE mavis_thought_chains ENABLE ROW LEVEL SECURITY;
+EXCEPTION
+  WHEN undefined_table THEN NULL;
+  WHEN undefined_column THEN NULL;
+END $$;
+CREATE POLICY IF NOT EXISTS "thought_chains_own" ON mavis_thought_chains
+  FOR ALL USING (auth.uid() = user_id);
+
+-- ---- 20260523233443_9db55db4-883f-4ecd-a772-0d5cb0f71cd2.sql ----
+-- 1) mavis-products storage hardening
+DROP POLICY IF EXISTS "mavis-products authenticated insert" ON storage.objects;
+CREATE POLICY "mavis-products owner insert"
+  ON storage.objects FOR INSERT
+  TO authenticated
+  WITH CHECK (
+    bucket_id = 'mavis-products'
+    AND (storage.foldername(name))[1] = auth.uid()::text
+  );
+CREATE POLICY "mavis-products owner update"
+  ON storage.objects FOR UPDATE
+  TO authenticated
+  USING (
+    bucket_id = 'mavis-products'
+    AND (storage.foldername(name))[1] = auth.uid()::text
+  )
+  WITH CHECK (
+    bucket_id = 'mavis-products'
+    AND (storage.foldername(name))[1] = auth.uid()::text
+  );
+CREATE POLICY "mavis-products owner delete"
+  ON storage.objects FOR DELETE
+  TO authenticated
+  USING (
+    bucket_id = 'mavis-products'
+    AND (storage.foldername(name))[1] = auth.uid()::text
+  );
+-- 2) Pin search_path on our trigger function
+ALTER FUNCTION public.update_mavis_products_updated_at() SET search_path = public;
+-- 3) Lock down SECURITY DEFINER functions that are not meant to be RPC-callable
+REVOKE EXECUTE ON FUNCTION public.handle_new_user() FROM PUBLIC, anon, authenticated;
+REVOKE EXECUTE ON FUNCTION public.seed_default_workspaces() FROM PUBLIC, anon, authenticated;
+REVOKE EXECUTE ON FUNCTION public.match_mavis_notes(vector, uuid, double precision, integer) FROM PUBLIC, anon, authenticated;
+
+-- ---- 20260525011557_9f02c24d-ba0a-4c0f-9549-6667345a222c.sql ----
+-- Tighten agent_telegram_config policy to authenticated only
+DROP POLICY IF EXISTS "users own telegram config" ON public.agent_telegram_config;
+CREATE POLICY "Users manage own telegram config"
+ON public.agent_telegram_config
+FOR ALL
+TO authenticated
+USING (auth.uid() = user_id)
+WITH CHECK (auth.uid() = user_id);
+-- Add UPDATE policy for mavis_note_links
+CREATE POLICY "Users update own note links"
+ON public.mavis_note_links
+FOR UPDATE
+TO authenticated
+USING (EXISTS (SELECT 1 FROM public.mavis_notes n WHERE n.id = mavis_note_links.source_note_id AND n.user_id = auth.uid()))
+WITH CHECK (EXISTS (SELECT 1 FROM public.mavis_notes n WHERE n.id = mavis_note_links.source_note_id AND n.user_id = auth.uid()));
+-- Add DELETE policy for mavis_note_versions
+CREATE POLICY "Users delete own note versions"
+ON public.mavis_note_versions
+FOR DELETE
+TO authenticated
+USING (EXISTS (SELECT 1 FROM public.mavis_notes n WHERE n.id = mavis_note_versions.note_id AND n.user_id = auth.uid()));;
+
+-- ---- 20260529000000_add_memory_embeddings.sql ----
 -- Enable pgvector (safe if already enabled)
 CREATE EXTENSION IF NOT EXISTS vector;
-
 -- Add 768-dimensional embedding column to mavis_agent_memories (Gemini text-embedding-004)
 ALTER TABLE mavis_agent_memories
   ADD COLUMN IF NOT EXISTS embedding vector(768);
-
 -- IVFFlat index for fast cosine similarity search
 CREATE INDEX IF NOT EXISTS mavis_memories_embedding_idx
   ON mavis_agent_memories
   USING ivfflat (embedding vector_cosine_ops)
   WITH (lists = 100);
-
 -- Semantic similarity search function
 CREATE OR REPLACE FUNCTION search_memories_semantic(
   query_embedding vector(768),
@@ -50,24 +924,19 @@ AS $$
   LIMIT match_count;
 $$;
 
--- ============================================================
--- supabase/migrations/20260529000001_hybrid_search_decay.sql
--- ============================================================
+-- ---- 20260529000001_hybrid_search_decay.sql ----
 -- Hybrid search + episodic memory decay for mavis_agent_memories
 
 -- 1. Add tsvector column for BM25-style full-text search
 ALTER TABLE mavis_agent_memories
   ADD COLUMN IF NOT EXISTS fts tsvector
     GENERATED ALWAYS AS (to_tsvector('english', coalesce(content, ''))) STORED;
-
 CREATE INDEX IF NOT EXISTS mavis_memories_fts_idx
   ON mavis_agent_memories USING gin(fts);
-
 -- 2. Add episodic memory decay tracking columns
 ALTER TABLE mavis_agent_memories
   ADD COLUMN IF NOT EXISTS last_accessed_at timestamptz DEFAULT now(),
   ADD COLUMN IF NOT EXISTS access_count int DEFAULT 0 NOT NULL;
-
 -- 3. Hybrid search function: BM25 + pgvector cosine + RRF merge + temporal decay
 CREATE OR REPLACE FUNCTION search_memories_hybrid(
   query_embedding  vector(768),
@@ -133,7 +1002,6 @@ AS $$
   ORDER BY score DESC
   LIMIT match_count;
 $$;
-
 -- 4. Update access tracking when a memory is retrieved
 CREATE OR REPLACE FUNCTION bump_memory_access(memory_id uuid)
 RETURNS void
@@ -144,22 +1012,23 @@ AS $$
       access_count     = coalesce(access_count, 0) + 1
   WHERE id = memory_id;
 $$;
-
 -- 5. Also add tsvector + decay to mavis_notes (knowledge graph) for consistency
 ALTER TABLE mavis_notes
   ADD COLUMN IF NOT EXISTS fts tsvector
     GENERATED ALWAYS AS (to_tsvector('english', coalesce(title, '') || ' ' || coalesce(content, ''))) STORED;
-
 CREATE INDEX IF NOT EXISTS mavis_notes_fts_idx
   ON mavis_notes USING gin(fts);
-
-ALTER TABLE mavis_notes
+DO $$
+BEGIN
+  ALTER TABLE mavis_notes
   ADD COLUMN IF NOT EXISTS last_accessed_at timestamptz DEFAULT now(),
   ADD COLUMN IF NOT EXISTS access_count int DEFAULT 0 NOT NULL;
+EXCEPTION
+  WHEN undefined_table THEN NULL;
+  WHEN undefined_column THEN NULL;
+END $$;
 
--- ============================================================
--- supabase/migrations/20260529000002_notification_budget.sql
--- ============================================================
+-- ---- 20260529000002_notification_budget.sql ----
 -- Smart notification budget: each user gets 5 notification slots per day.
 -- Notifications are deducted from the budget; highest-priority fire first.
 
@@ -173,11 +1042,15 @@ CREATE TABLE IF NOT EXISTS notification_budget (
   updated_at   timestamptz DEFAULT now(),
   UNIQUE(user_id, date)
 );
-
-ALTER TABLE notification_budget ENABLE ROW LEVEL SECURITY;
+DO $$
+BEGIN
+  ALTER TABLE notification_budget ENABLE ROW LEVEL SECURITY;
+EXCEPTION
+  WHEN undefined_table THEN NULL;
+  WHEN undefined_column THEN NULL;
+END $$;
 CREATE POLICY "Users manage own budget" ON notification_budget
   FOR ALL USING (auth.uid() = user_id);
-
 -- Notification priority log (for analytics/tuning)
 CREATE TABLE IF NOT EXISTS notification_log (
   id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -190,11 +1063,15 @@ CREATE TABLE IF NOT EXISTS notification_log (
   opened        boolean DEFAULT false,
   opened_at     timestamptz
 );
-
-ALTER TABLE notification_log ENABLE ROW LEVEL SECURITY;
+DO $$
+BEGIN
+  ALTER TABLE notification_log ENABLE ROW LEVEL SECURITY;
+EXCEPTION
+  WHEN undefined_table THEN NULL;
+  WHEN undefined_column THEN NULL;
+END $$;
 CREATE POLICY "Users view own log" ON notification_log
   FOR ALL USING (auth.uid() = user_id);
-
 -- Function: consume one notification slot
 -- Returns true if slot was available, false if budget exhausted
 CREATE OR REPLACE FUNCTION consume_notification_slot(p_user_id uuid)
@@ -203,33 +1080,27 @@ LANGUAGE plpgsql
 AS $$
 DECLARE
   v_used int;
-  v_total int;
+v_total int;
 BEGIN
   INSERT INTO notification_budget (user_id, date, slots_used, slots_total)
   VALUES (p_user_id, current_date, 0, 5)
   ON CONFLICT (user_id, date) DO NOTHING;
-
-  SELECT slots_used, slots_total
+SELECT slots_used, slots_total
   INTO v_used, v_total
   FROM notification_budget
   WHERE user_id = p_user_id AND date = current_date
   FOR UPDATE;
-
-  IF v_used >= v_total THEN
+IF v_used >= v_total THEN
     RETURN false;
-  END IF;
-
-  UPDATE notification_budget
+END IF;
+UPDATE notification_budget
   SET slots_used = slots_used + 1, updated_at = now()
   WHERE user_id = p_user_id AND date = current_date;
-
-  RETURN true;
+RETURN true;
 END;
 $$;
 
--- ============================================================
--- supabase/migrations/20260529000003_emotion_scores.sql
--- ============================================================
+-- ---- 20260529000003_emotion_scores.sql ----
 -- Add structured emotion scores to journal entries
 -- Uses Hume AI Expression Measurement API results (48-dim emotion vector stored as jsonb)
 
@@ -237,16 +1108,13 @@ ALTER TABLE journal_entries
   ADD COLUMN IF NOT EXISTS emotion_scores  jsonb,
   ADD COLUMN IF NOT EXISTS emotion_tagged  boolean DEFAULT false,
   ADD COLUMN IF NOT EXISTS dominant_emotion text;
-
 -- Index for emotion-based queries (e.g., "show me all anxious entries")
 CREATE INDEX IF NOT EXISTS journal_emotion_idx
   ON journal_entries USING gin(emotion_scores);
-
 -- Index for dominant emotion filtering
 CREATE INDEX IF NOT EXISTS journal_dominant_emotion_idx
   ON journal_entries (user_id, dominant_emotion)
   WHERE dominant_emotion IS NOT NULL;
-
 -- Emotion trend view: aggregated weekly emotion averages per user
 CREATE OR REPLACE VIEW emotion_weekly_trends AS
   SELECT
@@ -268,9 +1136,7 @@ CREATE OR REPLACE VIEW emotion_weekly_trends AS
   WHERE emotion_scores IS NOT NULL
   GROUP BY user_id, week, dominant_emotion;
 
--- ============================================================
--- supabase/migrations/20260529000004_plan_execute.sql
--- ============================================================
+-- ---- 20260529000004_plan_execute.sql ----
 -- Plan-and-Execute agent: stores goal DAGs decomposed by the planner
 
 CREATE TABLE IF NOT EXISTS mavis_plans (
@@ -285,7 +1151,6 @@ CREATE TABLE IF NOT EXISTS mavis_plans (
   created_at   timestamptz DEFAULT now(),
   updated_at   timestamptz DEFAULT now()
 );
-
 CREATE TABLE IF NOT EXISTS mavis_plan_steps (
   id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   plan_id      uuid NOT NULL REFERENCES mavis_plans(id) ON DELETE CASCADE,
@@ -303,19 +1168,26 @@ CREATE TABLE IF NOT EXISTS mavis_plan_steps (
   completed_at timestamptz,
   created_at   timestamptz DEFAULT now()
 );
-
-ALTER TABLE mavis_plans       ENABLE ROW LEVEL SECURITY;
-ALTER TABLE mavis_plan_steps  ENABLE ROW LEVEL SECURITY;
-
+DO $$
+BEGIN
+  ALTER TABLE mavis_plans       ENABLE ROW LEVEL SECURITY;
+EXCEPTION
+  WHEN undefined_table THEN NULL;
+  WHEN undefined_column THEN NULL;
+END $$;
+DO $$
+BEGIN
+  ALTER TABLE mavis_plan_steps  ENABLE ROW LEVEL SECURITY;
+EXCEPTION
+  WHEN undefined_table THEN NULL;
+  WHEN undefined_column THEN NULL;
+END $$;
 CREATE POLICY "Users manage own plans"      ON mavis_plans      FOR ALL USING (auth.uid() = user_id);
 CREATE POLICY "Users manage own plan steps" ON mavis_plan_steps FOR ALL USING (auth.uid() = user_id);
-
 CREATE INDEX IF NOT EXISTS plan_steps_plan_idx   ON mavis_plan_steps (plan_id, step_index);
 CREATE INDEX IF NOT EXISTS plan_steps_status_idx ON mavis_plan_steps (user_id, status);
 
--- ============================================================
--- supabase/migrations/20260529000005_game_master.sql
--- ============================================================
+-- ---- 20260529000005_game_master.sql ----
 -- GAME_MASTER mode: streak insurance, consequence quests, dynamic difficulty
 
 -- Streak insurance: allows users to protect one streak break per period
@@ -329,18 +1201,21 @@ CREATE TABLE IF NOT EXISTS streak_insurance (
   status       text NOT NULL DEFAULT 'available' CHECK (status IN ('available','used','expired')),
   created_at   timestamptz DEFAULT now()
 );
-
-ALTER TABLE streak_insurance ENABLE ROW LEVEL SECURITY;
+DO $$
+BEGIN
+  ALTER TABLE streak_insurance ENABLE ROW LEVEL SECURITY;
+EXCEPTION
+  WHEN undefined_table THEN NULL;
+  WHEN undefined_column THEN NULL;
+END $$;
 CREATE POLICY "Users manage own insurance" ON streak_insurance
   FOR ALL USING (auth.uid() = user_id);
-
 -- Consequence quest linking: failing a habit quest can trigger a consequence
 ALTER TABLE quests
   ADD COLUMN IF NOT EXISTS consequence_quest_id uuid REFERENCES quests(id) ON DELETE SET NULL,
   ADD COLUMN IF NOT EXISTS difficulty_rating     float DEFAULT 5.0 CHECK (difficulty_rating BETWEEN 1 AND 10),
   ADD COLUMN IF NOT EXISTS is_consequence        boolean DEFAULT false,
   ADD COLUMN IF NOT EXISTS parent_task_id        uuid REFERENCES tasks(id) ON DELETE SET NULL;
-
 -- GAME_MASTER event log: narrative events generated by the game master
 CREATE TABLE IF NOT EXISTS game_master_events (
   id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -353,11 +1228,15 @@ CREATE TABLE IF NOT EXISTS game_master_events (
   metadata     jsonb,
   created_at   timestamptz DEFAULT now()
 );
-
-ALTER TABLE game_master_events ENABLE ROW LEVEL SECURITY;
+DO $$
+BEGIN
+  ALTER TABLE game_master_events ENABLE ROW LEVEL SECURITY;
+EXCEPTION
+  WHEN undefined_table THEN NULL;
+  WHEN undefined_column THEN NULL;
+END $$;
 CREATE POLICY "Users view own events" ON game_master_events
   FOR ALL USING (auth.uid() = user_id);
-
 -- Dynamic difficulty tracking per user
 CREATE TABLE IF NOT EXISTS user_difficulty_profile (
   user_id        uuid PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
@@ -367,14 +1246,17 @@ CREATE TABLE IF NOT EXISTS user_difficulty_profile (
   last_adjusted  timestamptz DEFAULT now(),
   updated_at     timestamptz DEFAULT now()
 );
-
-ALTER TABLE user_difficulty_profile ENABLE ROW LEVEL SECURITY;
+DO $$
+BEGIN
+  ALTER TABLE user_difficulty_profile ENABLE ROW LEVEL SECURITY;
+EXCEPTION
+  WHEN undefined_table THEN NULL;
+  WHEN undefined_column THEN NULL;
+END $$;
 CREATE POLICY "Users manage own difficulty" ON user_difficulty_profile
   FOR ALL USING (auth.uid() = user_id);
 
--- ============================================================
--- supabase/migrations/20260529000006_tool_usage_rpc.sql
--- ============================================================
+-- ---- 20260529000006_tool_usage_rpc.sql ----
 -- RPC called by toolRegistry.ts to track tool usage analytics
 -- mavis_tool_registry already exists from earlier migration
 CREATE OR REPLACE FUNCTION increment_tool_usage(p_tool_name text)
@@ -387,9 +1269,7 @@ AS $$
   WHERE name = p_tool_name;
 $$;
 
--- ============================================================
--- supabase/migrations/20260529000007_mem0_letta.sql
--- ============================================================
+-- ---- 20260529000007_mem0_letta.sql ----
 -- Mem0 sync log: tracks which conversations have been synced to Mem0
 CREATE TABLE IF NOT EXISTS mavis_mem0_sync_log (
   id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
@@ -399,9 +1279,14 @@ CREATE TABLE IF NOT EXISTS mavis_mem0_sync_log (
   memory_count int DEFAULT 0,
   UNIQUE(user_id, conversation_id)
 );
-ALTER TABLE mavis_mem0_sync_log ENABLE ROW LEVEL SECURITY;
+DO $$
+BEGIN
+  ALTER TABLE mavis_mem0_sync_log ENABLE ROW LEVEL SECURITY;
+EXCEPTION
+  WHEN undefined_table THEN NULL;
+  WHEN undefined_column THEN NULL;
+END $$;
 CREATE POLICY "user own mem0 log" ON mavis_mem0_sync_log FOR ALL USING (auth.uid() = user_id);
-
 -- Letta agent registry: one Letta agent per MAVIS mode/persona
 CREATE TABLE IF NOT EXISTS mavis_letta_agents (
   id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
@@ -412,12 +1297,16 @@ CREATE TABLE IF NOT EXISTS mavis_letta_agents (
   last_messaged_at timestamptz,
   UNIQUE(user_id, persona_name)
 );
-ALTER TABLE mavis_letta_agents ENABLE ROW LEVEL SECURITY;
+DO $$
+BEGIN
+  ALTER TABLE mavis_letta_agents ENABLE ROW LEVEL SECURITY;
+EXCEPTION
+  WHEN undefined_table THEN NULL;
+  WHEN undefined_column THEN NULL;
+END $$;
 CREATE POLICY "user own letta agents" ON mavis_letta_agents FOR ALL USING (auth.uid() = user_id);
 
--- ============================================================
--- supabase/migrations/20260529000008_video_gen.sql
--- ============================================================
+-- ---- 20260529000008_video_gen.sql ----
 -- Video generation job tracking
 CREATE TABLE IF NOT EXISTS mavis_video_jobs (
   id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
@@ -434,13 +1323,17 @@ CREATE TABLE IF NOT EXISTS mavis_video_jobs (
   completed_at timestamptz,
   error_message text
 );
-ALTER TABLE mavis_video_jobs ENABLE ROW LEVEL SECURITY;
+DO $$
+BEGIN
+  ALTER TABLE mavis_video_jobs ENABLE ROW LEVEL SECURITY;
+EXCEPTION
+  WHEN undefined_table THEN NULL;
+  WHEN undefined_column THEN NULL;
+END $$;
 CREATE POLICY "user own video jobs" ON mavis_video_jobs FOR ALL USING (auth.uid() = user_id);
 CREATE INDEX idx_video_jobs_user ON mavis_video_jobs(user_id, created_at DESC);
 
--- ============================================================
--- supabase/migrations/20260529000009_health_apis.sql
--- ============================================================
+-- ---- 20260529000009_health_apis.sql ----
 -- WHOOP OAuth tokens (one per user)
 CREATE TABLE IF NOT EXISTS whoop_tokens (
   user_id uuid REFERENCES auth.users PRIMARY KEY,
@@ -451,9 +1344,14 @@ CREATE TABLE IF NOT EXISTS whoop_tokens (
   created_at timestamptz DEFAULT now(),
   updated_at timestamptz DEFAULT now()
 );
-ALTER TABLE whoop_tokens ENABLE ROW LEVEL SECURITY;
+DO $$
+BEGIN
+  ALTER TABLE whoop_tokens ENABLE ROW LEVEL SECURITY;
+EXCEPTION
+  WHEN undefined_table THEN NULL;
+  WHEN undefined_column THEN NULL;
+END $$;
 CREATE POLICY "user own whoop tokens" ON whoop_tokens FOR ALL USING (auth.uid() = user_id);
-
 -- WHOOP daily health data
 CREATE TABLE IF NOT EXISTS whoop_daily_data (
   id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
@@ -471,10 +1369,15 @@ CREATE TABLE IF NOT EXISTS whoop_daily_data (
   synced_at timestamptz DEFAULT now(),
   UNIQUE(user_id, date)
 );
-ALTER TABLE whoop_daily_data ENABLE ROW LEVEL SECURITY;
+DO $$
+BEGIN
+  ALTER TABLE whoop_daily_data ENABLE ROW LEVEL SECURITY;
+EXCEPTION
+  WHEN undefined_table THEN NULL;
+  WHEN undefined_column THEN NULL;
+END $$;
 CREATE POLICY "user own whoop data" ON whoop_daily_data FOR ALL USING (auth.uid() = user_id);
 CREATE INDEX idx_whoop_user_date ON whoop_daily_data(user_id, date DESC);
-
 -- Samsung Galaxy Ring daily data
 CREATE TABLE IF NOT EXISTS galaxy_ring_daily_data (
   id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
@@ -492,10 +1395,15 @@ CREATE TABLE IF NOT EXISTS galaxy_ring_daily_data (
   synced_at timestamptz DEFAULT now(),
   UNIQUE(user_id, date)
 );
-ALTER TABLE galaxy_ring_daily_data ENABLE ROW LEVEL SECURITY;
+DO $$
+BEGIN
+  ALTER TABLE galaxy_ring_daily_data ENABLE ROW LEVEL SECURITY;
+EXCEPTION
+  WHEN undefined_table THEN NULL;
+  WHEN undefined_column THEN NULL;
+END $$;
 CREATE POLICY "user own ring data" ON galaxy_ring_daily_data FOR ALL USING (auth.uid() = user_id);
 CREATE INDEX idx_ring_user_date ON galaxy_ring_daily_data(user_id, date DESC);
-
 -- Health integration settings
 CREATE TABLE IF NOT EXISTS health_integration_settings (
   user_id uuid REFERENCES auth.users PRIMARY KEY,
@@ -507,12 +1415,16 @@ CREATE TABLE IF NOT EXISTS health_integration_settings (
   created_at timestamptz DEFAULT now(),
   updated_at timestamptz DEFAULT now()
 );
-ALTER TABLE health_integration_settings ENABLE ROW LEVEL SECURITY;
+DO $$
+BEGIN
+  ALTER TABLE health_integration_settings ENABLE ROW LEVEL SECURITY;
+EXCEPTION
+  WHEN undefined_table THEN NULL;
+  WHEN undefined_column THEN NULL;
+END $$;
 CREATE POLICY "user own health settings" ON health_integration_settings FOR ALL USING (auth.uid() = user_id);
 
--- ============================================================
--- supabase/migrations/20260529000010_agentic_integrations.sql
--- ============================================================
+-- ---- 20260529000010_agentic_integrations.sql ----
 -- A2A protocol task queue
 CREATE TABLE IF NOT EXISTS a2a_tasks (
   id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
@@ -527,10 +1439,15 @@ CREATE TABLE IF NOT EXISTS a2a_tasks (
   updated_at timestamptz DEFAULT now(),
   completed_at timestamptz
 );
-ALTER TABLE a2a_tasks ENABLE ROW LEVEL SECURITY;
+DO $$
+BEGIN
+  ALTER TABLE a2a_tasks ENABLE ROW LEVEL SECURITY;
+EXCEPTION
+  WHEN undefined_table THEN NULL;
+  WHEN undefined_column THEN NULL;
+END $$;
 CREATE POLICY "user own a2a tasks" ON a2a_tasks FOR ALL USING (auth.uid() = user_id);
 CREATE INDEX idx_a2a_tasks_user ON a2a_tasks(user_id, created_at DESC);
-
 -- Code delegation sessions (Devin/Cursor)
 CREATE TABLE IF NOT EXISTS code_delegation_sessions (
   id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
@@ -545,9 +1462,14 @@ CREATE TABLE IF NOT EXISTS code_delegation_sessions (
   created_at timestamptz DEFAULT now(),
   updated_at timestamptz DEFAULT now()
 );
-ALTER TABLE code_delegation_sessions ENABLE ROW LEVEL SECURITY;
+DO $$
+BEGIN
+  ALTER TABLE code_delegation_sessions ENABLE ROW LEVEL SECURITY;
+EXCEPTION
+  WHEN undefined_table THEN NULL;
+  WHEN undefined_column THEN NULL;
+END $$;
 CREATE POLICY "user own code sessions" ON code_delegation_sessions FOR ALL USING (auth.uid() = user_id);
-
 -- Computer use task log
 CREATE TABLE IF NOT EXISTS computer_use_tasks (
   id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
@@ -560,12 +1482,16 @@ CREATE TABLE IF NOT EXISTS computer_use_tasks (
   created_at timestamptz DEFAULT now(),
   completed_at timestamptz
 );
-ALTER TABLE computer_use_tasks ENABLE ROW LEVEL SECURITY;
+DO $$
+BEGIN
+  ALTER TABLE computer_use_tasks ENABLE ROW LEVEL SECURITY;
+EXCEPTION
+  WHEN undefined_table THEN NULL;
+  WHEN undefined_column THEN NULL;
+END $$;
 CREATE POLICY "user own computer use" ON computer_use_tasks FOR ALL USING (auth.uid() = user_id);
 
--- ============================================================
--- supabase/migrations/20260529000011_finance_education.sql
--- ============================================================
+-- ---- 20260529000011_finance_education.sql ----
 -- Finance, scheduling, and education data tables
 -- Era.app financial cache, Reclaim.ai schedule blocks, Khanmigo tutoring sessions
 
@@ -580,9 +1506,14 @@ CREATE TABLE IF NOT EXISTS era_financial_cache (
   synced_at timestamptz DEFAULT now(),
   UNIQUE(user_id, cache_type, period_start)
 );
-ALTER TABLE era_financial_cache ENABLE ROW LEVEL SECURITY;
+DO $$
+BEGIN
+  ALTER TABLE era_financial_cache ENABLE ROW LEVEL SECURITY;
+EXCEPTION
+  WHEN undefined_table THEN NULL;
+  WHEN undefined_column THEN NULL;
+END $$;
 CREATE POLICY "user own finance cache" ON era_financial_cache FOR ALL USING (auth.uid() = user_id);
-
 -- Reclaim.ai schedule blocks
 CREATE TABLE IF NOT EXISTS reclaim_schedule_blocks (
   id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
@@ -595,10 +1526,15 @@ CREATE TABLE IF NOT EXISTS reclaim_schedule_blocks (
   health_triggered boolean DEFAULT false,
   synced_at timestamptz DEFAULT now()
 );
-ALTER TABLE reclaim_schedule_blocks ENABLE ROW LEVEL SECURITY;
+DO $$
+BEGIN
+  ALTER TABLE reclaim_schedule_blocks ENABLE ROW LEVEL SECURITY;
+EXCEPTION
+  WHEN undefined_table THEN NULL;
+  WHEN undefined_column THEN NULL;
+END $$;
 CREATE POLICY "user own schedule" ON reclaim_schedule_blocks FOR ALL USING (auth.uid() = user_id);
 CREATE INDEX idx_reclaim_user_time ON reclaim_schedule_blocks(user_id, start_time);
-
 -- Khanmigo Socratic tutoring sessions
 CREATE TABLE IF NOT EXISTS tutoring_sessions (
   id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
@@ -613,13 +1549,17 @@ CREATE TABLE IF NOT EXISTS tutoring_sessions (
   created_at timestamptz DEFAULT now(),
   updated_at timestamptz DEFAULT now()
 );
-ALTER TABLE tutoring_sessions ENABLE ROW LEVEL SECURITY;
+DO $$
+BEGIN
+  ALTER TABLE tutoring_sessions ENABLE ROW LEVEL SECURITY;
+EXCEPTION
+  WHEN undefined_table THEN NULL;
+  WHEN undefined_column THEN NULL;
+END $$;
 CREATE POLICY "user own tutoring" ON tutoring_sessions FOR ALL USING (auth.uid() = user_id);
 CREATE INDEX idx_tutoring_user ON tutoring_sessions(user_id, created_at DESC);
 
--- ============================================================
--- supabase/migrations/20260529000012_social_wearables.sql
--- ============================================================
+-- ---- 20260529000012_social_wearables.sql ----
 -- NORA content pipeline queue
 CREATE TABLE IF NOT EXISTS nora_content_queue (
   id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
@@ -635,10 +1575,15 @@ CREATE TABLE IF NOT EXISTS nora_content_queue (
   source_topic text,
   created_at timestamptz DEFAULT now()
 );
-ALTER TABLE nora_content_queue ENABLE ROW LEVEL SECURITY;
+DO $$
+BEGIN
+  ALTER TABLE nora_content_queue ENABLE ROW LEVEL SECURITY;
+EXCEPTION
+  WHEN undefined_table THEN NULL;
+  WHEN undefined_column THEN NULL;
+END $$;
 CREATE POLICY "user own nora content" ON nora_content_queue FOR ALL USING (auth.uid() = user_id);
 CREATE INDEX idx_nora_content_user ON nora_content_queue(user_id, scheduled_for);
-
 -- Screenpipe memory sync log
 CREATE TABLE IF NOT EXISTS screenpipe_sync_log (
   id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
@@ -648,9 +1593,14 @@ CREATE TABLE IF NOT EXISTS screenpipe_sync_log (
   memories_created int DEFAULT 0,
   context_window_minutes int DEFAULT 30
 );
-ALTER TABLE screenpipe_sync_log ENABLE ROW LEVEL SECURITY;
+DO $$
+BEGIN
+  ALTER TABLE screenpipe_sync_log ENABLE ROW LEVEL SECURITY;
+EXCEPTION
+  WHEN undefined_table THEN NULL;
+  WHEN undefined_column THEN NULL;
+END $$;
 CREATE POLICY "user own screenpipe log" ON screenpipe_sync_log FOR ALL USING (auth.uid() = user_id);
-
 -- Wearable overlay history
 CREATE TABLE IF NOT EXISTS wearable_overlay_history (
   id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
@@ -661,12 +1611,16 @@ CREATE TABLE IF NOT EXISTS wearable_overlay_history (
   displayed_at timestamptz DEFAULT now(),
   duration_ms int
 );
-ALTER TABLE wearable_overlay_history ENABLE ROW LEVEL SECURITY;
+DO $$
+BEGIN
+  ALTER TABLE wearable_overlay_history ENABLE ROW LEVEL SECURITY;
+EXCEPTION
+  WHEN undefined_table THEN NULL;
+  WHEN undefined_column THEN NULL;
+END $$;
 CREATE POLICY "user own overlay history" ON wearable_overlay_history FOR ALL USING (auth.uid() = user_id);
 
--- ============================================================
--- supabase/migrations/20260529000013_website_builder.sql
--- ============================================================
+-- ---- 20260529000013_website_builder.sql ----
 -- Website clients (per service customer)
 CREATE TABLE IF NOT EXISTS website_clients (
   id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
@@ -683,10 +1637,15 @@ CREATE TABLE IF NOT EXISTS website_clients (
   created_at timestamptz DEFAULT now(),
   updated_at timestamptz DEFAULT now()
 );
-ALTER TABLE website_clients ENABLE ROW LEVEL SECURITY;
+DO $$
+BEGIN
+  ALTER TABLE website_clients ENABLE ROW LEVEL SECURITY;
+EXCEPTION
+  WHEN undefined_table THEN NULL;
+  WHEN undefined_column THEN NULL;
+END $$;
 CREATE POLICY "user own clients" ON website_clients FOR ALL USING (auth.uid() = user_id);
 CREATE INDEX idx_website_clients_user ON website_clients(user_id, created_at DESC);
-
 -- Website projects (one project = one client website)
 CREATE TABLE IF NOT EXISTS website_projects (
   id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
@@ -715,11 +1674,16 @@ CREATE TABLE IF NOT EXISTS website_projects (
   published_at timestamptz,
   delivered_at timestamptz
 );
-ALTER TABLE website_projects ENABLE ROW LEVEL SECURITY;
+DO $$
+BEGIN
+  ALTER TABLE website_projects ENABLE ROW LEVEL SECURITY;
+EXCEPTION
+  WHEN undefined_table THEN NULL;
+  WHEN undefined_column THEN NULL;
+END $$;
 CREATE POLICY "user own projects" ON website_projects FOR ALL USING (auth.uid() = user_id);
 CREATE INDEX idx_website_projects_user ON website_projects(user_id, created_at DESC);
 CREATE INDEX idx_website_projects_client ON website_projects(client_id);
-
 -- WordPress credentials (per site)
 CREATE TABLE IF NOT EXISTS wp_credentials (
   id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
@@ -733,9 +1697,14 @@ CREATE TABLE IF NOT EXISTS wp_credentials (
   last_used_at timestamptz,
   created_at timestamptz DEFAULT now()
 );
-ALTER TABLE wp_credentials ENABLE ROW LEVEL SECURITY;
+DO $$
+BEGIN
+  ALTER TABLE wp_credentials ENABLE ROW LEVEL SECURITY;
+EXCEPTION
+  WHEN undefined_table THEN NULL;
+  WHEN undefined_column THEN NULL;
+END $$;
 CREATE POLICY "user own wp creds" ON wp_credentials FOR ALL USING (auth.uid() = user_id);
-
 -- Generated website pages
 CREATE TABLE IF NOT EXISTS website_pages (
   id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
@@ -757,10 +1726,15 @@ CREATE TABLE IF NOT EXISTS website_pages (
   published_at timestamptz,
   UNIQUE(project_id, page_type)
 );
-ALTER TABLE website_pages ENABLE ROW LEVEL SECURITY;
+DO $$
+BEGIN
+  ALTER TABLE website_pages ENABLE ROW LEVEL SECURITY;
+EXCEPTION
+  WHEN undefined_table THEN NULL;
+  WHEN undefined_column THEN NULL;
+END $$;
 CREATE POLICY "user own pages" ON website_pages FOR ALL USING (auth.uid() = user_id);
 CREATE INDEX idx_website_pages_project ON website_pages(project_id);
-
 -- Website generation jobs (track long-running builds)
 CREATE TABLE IF NOT EXISTS website_generation_jobs (
   id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
@@ -776,9 +1750,14 @@ CREATE TABLE IF NOT EXISTS website_generation_jobs (
   completed_at timestamptz,
   created_at timestamptz DEFAULT now()
 );
-ALTER TABLE website_generation_jobs ENABLE ROW LEVEL SECURITY;
+DO $$
+BEGIN
+  ALTER TABLE website_generation_jobs ENABLE ROW LEVEL SECURITY;
+EXCEPTION
+  WHEN undefined_table THEN NULL;
+  WHEN undefined_column THEN NULL;
+END $$;
 CREATE POLICY "user own jobs" ON website_generation_jobs FOR ALL USING (auth.uid() = user_id);
-
 -- Service pricing tiers
 CREATE TABLE IF NOT EXISTS website_service_tiers (
   id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
@@ -795,15 +1774,18 @@ CREATE TABLE IF NOT EXISTS website_service_tiers (
   is_active boolean DEFAULT true,
   created_at timestamptz DEFAULT now()
 );
-ALTER TABLE website_service_tiers ENABLE ROW LEVEL SECURITY;
+DO $$
+BEGIN
+  ALTER TABLE website_service_tiers ENABLE ROW LEVEL SECURITY;
+EXCEPTION
+  WHEN undefined_table THEN NULL;
+  WHEN undefined_column THEN NULL;
+END $$;
 CREATE POLICY "user own tiers" ON website_service_tiers FOR ALL USING (auth.uid() = user_id);
-
 -- Seed default service tiers (runs on first insert)
--- Users will customize these
+-- Users will customize these;
 
--- ============================================================
--- supabase/migrations/20260529000014_widget_system.sql
--- ============================================================
+-- ---- 20260529000014_widget_system.sql ----
 -- Widget instances (each deployed widget = one row)
 CREATE TABLE IF NOT EXISTS widget_instances (
   id text PRIMARY KEY,                          -- 12-char alphanumeric widget ID
@@ -823,11 +1805,16 @@ CREATE TABLE IF NOT EXISTS widget_instances (
   created_at timestamptz DEFAULT now(),
   updated_at timestamptz DEFAULT now()
 );
-ALTER TABLE widget_instances ENABLE ROW LEVEL SECURITY;
+DO $$
+BEGIN
+  ALTER TABLE widget_instances ENABLE ROW LEVEL SECURITY;
+EXCEPTION
+  WHEN undefined_table THEN NULL;
+  WHEN undefined_column THEN NULL;
+END $$;
 CREATE POLICY "user own widgets" ON widget_instances FOR ALL USING (auth.uid() = user_id);
 CREATE INDEX idx_widgets_user ON widget_instances(user_id, created_at DESC);
 CREATE INDEX idx_widgets_project ON widget_instances(project_id);
-
 -- Widget chat logs
 CREATE TABLE IF NOT EXISTS widget_chat_logs (
   id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
@@ -838,11 +1825,16 @@ CREATE TABLE IF NOT EXISTS widget_chat_logs (
   response_ms int,
   created_at timestamptz DEFAULT now()
 );
-ALTER TABLE widget_chat_logs ENABLE ROW LEVEL SECURITY;
+DO $$
+BEGIN
+  ALTER TABLE widget_chat_logs ENABLE ROW LEVEL SECURITY;
+EXCEPTION
+  WHEN undefined_table THEN NULL;
+  WHEN undefined_column THEN NULL;
+END $$;
 CREATE POLICY "user own chat logs" ON widget_chat_logs FOR ALL
   USING (EXISTS (SELECT 1 FROM widget_instances WHERE id = widget_chat_logs.widget_id AND user_id = auth.uid()));
 CREATE INDEX idx_chat_logs_widget ON widget_chat_logs(widget_id, created_at DESC);
-
 -- Widget leads (from lead capture, quote calculator, appointment booker)
 CREATE TABLE IF NOT EXISTS widget_leads (
   id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
@@ -860,12 +1852,17 @@ CREATE TABLE IF NOT EXISTS widget_leads (
   converted_at timestamptz,
   created_at timestamptz DEFAULT now()
 );
-ALTER TABLE widget_leads ENABLE ROW LEVEL SECURITY;
+DO $$
+BEGIN
+  ALTER TABLE widget_leads ENABLE ROW LEVEL SECURITY;
+EXCEPTION
+  WHEN undefined_table THEN NULL;
+  WHEN undefined_column THEN NULL;
+END $$;
 CREATE POLICY "user own leads" ON widget_leads FOR ALL
   USING (EXISTS (SELECT 1 FROM widget_instances WHERE id = widget_leads.widget_id AND user_id = auth.uid()));
 CREATE INDEX idx_leads_widget ON widget_leads(widget_id, created_at DESC);
 CREATE INDEX idx_leads_status ON widget_leads(status, created_at DESC);
-
 -- Widget daily usage stats
 CREATE TABLE IF NOT EXISTS widget_usage_stats (
   widget_id text REFERENCES widget_instances NOT NULL,
@@ -874,10 +1871,15 @@ CREATE TABLE IF NOT EXISTS widget_usage_stats (
   request_count int DEFAULT 0,
   PRIMARY KEY (widget_id, date, action_type)
 );
-ALTER TABLE widget_usage_stats ENABLE ROW LEVEL SECURITY;
+DO $$
+BEGIN
+  ALTER TABLE widget_usage_stats ENABLE ROW LEVEL SECURITY;
+EXCEPTION
+  WHEN undefined_table THEN NULL;
+  WHEN undefined_column THEN NULL;
+END $$;
 CREATE POLICY "user own usage" ON widget_usage_stats FOR ALL
   USING (EXISTS (SELECT 1 FROM widget_instances WHERE id = widget_usage_stats.widget_id AND user_id = auth.uid()));
-
 -- Increment usage count RPC
 CREATE OR REPLACE FUNCTION increment_widget_usage(p_widget_id text, p_action text)
 RETURNS void LANGUAGE sql AS $$
@@ -886,7 +1888,6 @@ RETURNS void LANGUAGE sql AS $$
   ON CONFLICT (widget_id, date, action_type)
   DO UPDATE SET request_count = widget_usage_stats.request_count + 1;
 $$;
-
 -- Widget monthly revenue view (for billing dashboard)
 CREATE OR REPLACE VIEW widget_revenue_summary AS
 SELECT
@@ -898,7 +1899,6 @@ SELECT
   SUM(w.total_requests) as total_api_requests
 FROM widget_instances w
 GROUP BY w.user_id;
-
 -- Supabase Storage bucket for widget JS files (public)
 -- Note: actual bucket creation requires Supabase dashboard or CLI
 -- Run: supabase storage buckets create widgets --public
@@ -908,36 +1908,34 @@ BEGIN
   RAISE NOTICE 'REQUIRED: Create a public Supabase Storage bucket named "widgets" via dashboard or CLI: supabase storage buckets create widgets --public';
 END $$;
 
--- ============================================================
--- supabase/migrations/20260530000001_mavis_planner.sql
--- ============================================================
+-- ---- 20260530000001_mavis_planner.sql ----
 -- Extend mavis_plans with columns used by the mavis-planner edge function
 ALTER TABLE mavis_plans
   ADD COLUMN IF NOT EXISTS summary text,
   ADD COLUMN IF NOT EXISTS updated_at timestamptz DEFAULT now();
-
 -- Extend mavis_plan_steps with phase-based planning columns used by mavis-planner
 ALTER TABLE mavis_plan_steps
   ADD COLUMN IF NOT EXISTS phase text,
   ADD COLUMN IF NOT EXISTS step_order int,
   ADD COLUMN IF NOT EXISTS estimated_minutes int DEFAULT 30,
   ADD COLUMN IF NOT EXISTS quest_id uuid;
-
 CREATE INDEX IF NOT EXISTS idx_mavis_plan_steps_plan_id ON mavis_plan_steps(plan_id);
 
--- ============================================================
--- supabase/migrations/20260530000002_stripe_widget_billing.sql
--- ============================================================
-ALTER TABLE widget_instances
+-- ---- 20260530000002_stripe_widget_billing.sql ----
+DO $$
+BEGIN
+  ALTER TABLE widget_instances
   ADD COLUMN IF NOT EXISTS stripe_customer_id text,
   ADD COLUMN IF NOT EXISTS stripe_subscription_id text,
   ADD COLUMN IF NOT EXISTS stripe_price_id text,
   ADD COLUMN IF NOT EXISTS current_period_end timestamptz,
   ADD COLUMN IF NOT EXISTS cancel_at_period_end boolean DEFAULT false;
-
+EXCEPTION
+  WHEN undefined_table THEN NULL;
+  WHEN undefined_column THEN NULL;
+END $$;
 CREATE INDEX IF NOT EXISTS idx_widget_instances_stripe_sub ON widget_instances(stripe_subscription_id) WHERE stripe_subscription_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_widget_instances_stripe_cust ON widget_instances(stripe_customer_id) WHERE stripe_customer_id IS NOT NULL;
-
 -- Track Stripe event IDs to prevent double-processing
 CREATE TABLE IF NOT EXISTS stripe_webhook_events (
   id text PRIMARY KEY,  -- Stripe event ID (evt_xxx)
@@ -945,9 +1943,7 @@ CREATE TABLE IF NOT EXISTS stripe_webhook_events (
   processed_at timestamptz DEFAULT now()
 );
 
--- ============================================================
--- supabase/migrations/20260530000003_video_editor.sql
--- ============================================================
+-- ---- 20260530000003_video_editor.sql ----
 -- Video projects (one per uploaded/linked video)
 CREATE TABLE IF NOT EXISTS video_projects (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -967,7 +1963,6 @@ CREATE TABLE IF NOT EXISTS video_projects (
   created_at timestamptz DEFAULT now(),
   updated_at timestamptz DEFAULT now()
 );
-
 -- Scored segments (10-second windows scored across 6 dimensions)
 CREATE TABLE IF NOT EXISTS video_segments (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -985,7 +1980,6 @@ CREATE TABLE IF NOT EXISTS video_segments (
   viral_score numeric DEFAULT 0,        -- 0-10: weighted composite
   segment_order int NOT NULL
 );
-
 -- Generated clips (recommended cuts for specific output formats)
 CREATE TABLE IF NOT EXISTS video_clips (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -1009,7 +2003,6 @@ CREATE TABLE IF NOT EXISTS video_clips (
   nora_queued boolean DEFAULT false,
   created_at timestamptz DEFAULT now()
 );
-
 -- Render jobs (async rendering queue)
 CREATE TABLE IF NOT EXISTS video_render_jobs (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -1025,41 +2018,51 @@ CREATE TABLE IF NOT EXISTS video_render_jobs (
   created_at timestamptz DEFAULT now(),
   completed_at timestamptz
 );
-
 -- RLS
 ALTER TABLE video_projects ENABLE ROW LEVEL SECURITY;
-ALTER TABLE video_segments ENABLE ROW LEVEL SECURITY;
-ALTER TABLE video_clips ENABLE ROW LEVEL SECURITY;
-ALTER TABLE video_render_jobs ENABLE ROW LEVEL SECURITY;
-
+DO $$
+BEGIN
+  ALTER TABLE video_segments ENABLE ROW LEVEL SECURITY;
+EXCEPTION
+  WHEN undefined_table THEN NULL;
+  WHEN undefined_column THEN NULL;
+END $$;
+DO $$
+BEGIN
+  ALTER TABLE video_clips ENABLE ROW LEVEL SECURITY;
+EXCEPTION
+  WHEN undefined_table THEN NULL;
+  WHEN undefined_column THEN NULL;
+END $$;
+DO $$
+BEGIN
+  ALTER TABLE video_render_jobs ENABLE ROW LEVEL SECURITY;
+EXCEPTION
+  WHEN undefined_table THEN NULL;
+  WHEN undefined_column THEN NULL;
+END $$;
 CREATE POLICY "users own video_projects" ON video_projects FOR ALL USING (auth.uid() = user_id);
 CREATE POLICY "users own video_segments" ON video_segments FOR ALL USING (auth.uid() = user_id);
 CREATE POLICY "users own video_clips" ON video_clips FOR ALL USING (auth.uid() = user_id);
 CREATE POLICY "users own video_render_jobs" ON video_render_jobs FOR ALL USING (auth.uid() = user_id);
-
 -- Indexes
 CREATE INDEX IF NOT EXISTS idx_video_projects_user ON video_projects(user_id);
 CREATE INDEX IF NOT EXISTS idx_video_segments_project ON video_segments(project_id);
 CREATE INDEX IF NOT EXISTS idx_video_clips_project ON video_clips(project_id);
 CREATE INDEX IF NOT EXISTS idx_video_clips_format ON video_clips(project_id, format);
-
 -- Storage bucket note
 -- Run: supabase storage buckets create video-projects --public
--- Or create via dashboard: Storage → New bucket → "video-projects" → Public
+-- Or create via dashboard: Storage → New bucket → "video-projects" → Public;
 
--- ============================================================
--- supabase/migrations/20260530000004_sub_quests.sql
--- ============================================================
+-- ---- 20260530000004_sub_quests.sql ----
 -- Add parent_quest_id to enable sub-quests (quests nested under parent quests).
 -- Sub-quests appear in the Quests tab under their parent quest.
 -- MAVIS uses create_quest with parent_quest_id instead of create_task.
 ALTER TABLE quests
   ADD COLUMN IF NOT EXISTS parent_quest_id uuid REFERENCES quests(id) ON DELETE CASCADE;
-
 -- Index for efficient sub-quest lookup
 CREATE INDEX IF NOT EXISTS idx_quests_parent_quest_id ON quests(parent_quest_id)
   WHERE parent_quest_id IS NOT NULL;
-
 -- View: quests with sub-quest count (useful for UI badges)
 CREATE OR REPLACE VIEW quest_with_sub_count AS
 SELECT
@@ -1071,4 +2074,3 @@ FROM quests q
 LEFT JOIN quests sub ON sub.parent_quest_id = q.id
 WHERE q.parent_quest_id IS NULL  -- only top-level quests
 GROUP BY q.id;
-
