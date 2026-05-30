@@ -5,8 +5,8 @@ const DescField = z.string().optional();
 const StatusField = z.enum(["active", "completed", "archived"]).optional();
 
 // QUEST
-export const CreateQuestSchema = z.object({ type: z.literal("create_quest"), title: TitleField, description: DescField, status: StatusField, xp_reward: z.number().int().nonnegative().optional(), tags: z.array(z.string()).optional() });
-export const UpdateQuestSchema = z.object({ type: z.literal("update_quest"), id: z.string().min(1), title: z.string().optional(), description: DescField, status: StatusField, xp_reward: z.number().int().nonnegative().optional() });
+export const CreateQuestSchema = z.object({ type: z.literal("create_quest"), title: TitleField, description: DescField, status: StatusField, xp_reward: z.number().int().nonnegative().optional(), tags: z.array(z.string()).optional(), parent_quest_id: z.string().uuid().optional() });
+export const UpdateQuestSchema = z.object({ type: z.literal("update_quest"), id: z.string().min(1), title: z.string().optional(), description: DescField, status: StatusField, xp_reward: z.number().int().nonnegative().optional(), parent_quest_id: z.string().uuid().optional() });
 export const DeleteQuestSchema = z.object({ type: z.literal("delete_quest"), id: z.string().min(1) });
 
 // TASK
