@@ -61,7 +61,7 @@ CREATE TABLE IF NOT EXISTS public.mavis_agent_messages (
   ack             boolean     DEFAULT false,
 
   created_at      timestamptz DEFAULT now(),
-  expires_at      timestamptz GENERATED ALWAYS AS (created_at + (ttl_ms || ' milliseconds')::interval) STORED
+  expires_at      timestamptz GENERATED ALWAYS AS (created_at + (ttl_ms * interval '1 millisecond')) STORED
 );
 
 ALTER TABLE public.mavis_agent_messages ENABLE ROW LEVEL SECURITY;
