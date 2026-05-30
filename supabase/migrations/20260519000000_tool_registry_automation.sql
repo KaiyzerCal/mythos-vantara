@@ -25,10 +25,12 @@ CREATE TABLE IF NOT EXISTS public.mavis_tool_registry (
 );
 
 ALTER TABLE public.mavis_tool_registry ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "Users manage own tools"
-  ON public.mavis_tool_registry FOR ALL
-  USING (auth.uid() = user_id)
-  WITH CHECK (auth.uid() = user_id);
+DO $$ BEGIN
+  CREATE POLICY "Users manage own tools"
+    ON public.mavis_tool_registry FOR ALL
+    USING (auth.uid() = user_id)
+    WITH CHECK (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 CREATE INDEX IF NOT EXISTS idx_tool_registry_category
   ON public.mavis_tool_registry(category, enabled);
@@ -69,10 +71,12 @@ CREATE TABLE IF NOT EXISTS public.mavis_automation_rules (
 );
 
 ALTER TABLE public.mavis_automation_rules ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "Users manage own automation rules"
-  ON public.mavis_automation_rules FOR ALL
-  USING (auth.uid() = user_id)
-  WITH CHECK (auth.uid() = user_id);
+DO $$ BEGIN
+  CREATE POLICY "Users manage own automation rules"
+    ON public.mavis_automation_rules FOR ALL
+    USING (auth.uid() = user_id)
+    WITH CHECK (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 CREATE INDEX IF NOT EXISTS idx_automation_rules_event
   ON public.mavis_automation_rules(trigger_event, enabled);
@@ -110,10 +114,12 @@ CREATE TABLE IF NOT EXISTS public.mavis_agent_sessions (
 );
 
 ALTER TABLE public.mavis_agent_sessions ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "Users manage own agent sessions"
-  ON public.mavis_agent_sessions FOR ALL
-  USING (auth.uid() = user_id)
-  WITH CHECK (auth.uid() = user_id);
+DO $$ BEGIN
+  CREATE POLICY "Users manage own agent sessions"
+    ON public.mavis_agent_sessions FOR ALL
+    USING (auth.uid() = user_id)
+    WITH CHECK (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 CREATE INDEX IF NOT EXISTS idx_agent_sessions_status
   ON public.mavis_agent_sessions(status, started_at DESC);
@@ -150,10 +156,12 @@ CREATE TABLE IF NOT EXISTS public.mavis_distillation_jobs (
 );
 
 ALTER TABLE public.mavis_distillation_jobs ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "Users manage own distillation jobs"
-  ON public.mavis_distillation_jobs FOR ALL
-  USING (auth.uid() = user_id)
-  WITH CHECK (auth.uid() = user_id);
+DO $$ BEGIN
+  CREATE POLICY "Users manage own distillation jobs"
+    ON public.mavis_distillation_jobs FOR ALL
+    USING (auth.uid() = user_id)
+    WITH CHECK (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 CREATE INDEX IF NOT EXISTS idx_distillation_jobs_status
   ON public.mavis_distillation_jobs(status, created_at DESC);

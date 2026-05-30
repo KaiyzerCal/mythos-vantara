@@ -13,8 +13,10 @@ CREATE TABLE IF NOT EXISTS streak_insurance (
 );
 
 ALTER TABLE streak_insurance ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "Users manage own insurance" ON streak_insurance
-  FOR ALL USING (auth.uid() = user_id);
+DO $$ BEGIN
+  CREATE POLICY "Users manage own insurance" ON streak_insurance
+    FOR ALL USING (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- Consequence quest linking: failing a habit quest can trigger a consequence
 ALTER TABLE quests
@@ -37,8 +39,10 @@ CREATE TABLE IF NOT EXISTS game_master_events (
 );
 
 ALTER TABLE game_master_events ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "Users view own events" ON game_master_events
-  FOR ALL USING (auth.uid() = user_id);
+DO $$ BEGIN
+  CREATE POLICY "Users view own events" ON game_master_events
+    FOR ALL USING (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- Dynamic difficulty tracking per user
 CREATE TABLE IF NOT EXISTS user_difficulty_profile (
@@ -51,5 +55,7 @@ CREATE TABLE IF NOT EXISTS user_difficulty_profile (
 );
 
 ALTER TABLE user_difficulty_profile ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "Users manage own difficulty" ON user_difficulty_profile
-  FOR ALL USING (auth.uid() = user_id);
+DO $$ BEGIN
+  CREATE POLICY "Users manage own difficulty" ON user_difficulty_profile
+    FOR ALL USING (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;

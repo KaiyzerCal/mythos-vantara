@@ -8,7 +8,9 @@ CREATE TABLE IF NOT EXISTS mavis_mem0_sync_log (
   UNIQUE(user_id, conversation_id)
 );
 ALTER TABLE mavis_mem0_sync_log ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "user own mem0 log" ON mavis_mem0_sync_log FOR ALL USING (auth.uid() = user_id);
+DO $$ BEGIN
+  CREATE POLICY "user own mem0 log" ON mavis_mem0_sync_log FOR ALL USING (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- Letta agent registry: one Letta agent per MAVIS mode/persona
 CREATE TABLE IF NOT EXISTS mavis_letta_agents (
@@ -21,4 +23,6 @@ CREATE TABLE IF NOT EXISTS mavis_letta_agents (
   UNIQUE(user_id, persona_name)
 );
 ALTER TABLE mavis_letta_agents ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "user own letta agents" ON mavis_letta_agents FOR ALL USING (auth.uid() = user_id);
+DO $$ BEGIN
+  CREATE POLICY "user own letta agents" ON mavis_letta_agents FOR ALL USING (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;

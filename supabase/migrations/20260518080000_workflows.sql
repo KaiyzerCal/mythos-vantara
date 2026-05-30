@@ -15,7 +15,9 @@ CREATE TABLE IF NOT EXISTS workflows (
 ALTER TABLE workflows ENABLE ROW LEVEL SECURITY;
 DO $$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename='workflows' AND policyname='workflows_owner') THEN
-    CREATE POLICY workflows_owner ON workflows FOR ALL USING (auth.uid() = user_id);
+DO $$ BEGIN
+      CREATE POLICY workflows_owner ON workflows FOR ALL USING (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
   END IF;
 END $$;
 
@@ -31,6 +33,8 @@ CREATE TABLE IF NOT EXISTS workflow_runs (
 ALTER TABLE workflow_runs ENABLE ROW LEVEL SECURITY;
 DO $$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename='workflow_runs' AND policyname='workflow_runs_owner') THEN
-    CREATE POLICY workflow_runs_owner ON workflow_runs FOR ALL USING (auth.uid() = user_id);
+DO $$ BEGIN
+      CREATE POLICY workflow_runs_owner ON workflow_runs FOR ALL USING (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
   END IF;
 END $$;

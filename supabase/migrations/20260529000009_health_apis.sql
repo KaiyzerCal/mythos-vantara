@@ -9,7 +9,9 @@ CREATE TABLE IF NOT EXISTS whoop_tokens (
   updated_at timestamptz DEFAULT now()
 );
 ALTER TABLE whoop_tokens ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "user own whoop tokens" ON whoop_tokens FOR ALL USING (auth.uid() = user_id);
+DO $$ BEGIN
+  CREATE POLICY "user own whoop tokens" ON whoop_tokens FOR ALL USING (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- WHOOP daily health data
 CREATE TABLE IF NOT EXISTS whoop_daily_data (
@@ -29,7 +31,9 @@ CREATE TABLE IF NOT EXISTS whoop_daily_data (
   UNIQUE(user_id, date)
 );
 ALTER TABLE whoop_daily_data ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "user own whoop data" ON whoop_daily_data FOR ALL USING (auth.uid() = user_id);
+DO $$ BEGIN
+  CREATE POLICY "user own whoop data" ON whoop_daily_data FOR ALL USING (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 CREATE INDEX idx_whoop_user_date ON whoop_daily_data(user_id, date DESC);
 
 -- Samsung Galaxy Ring daily data
@@ -50,7 +54,9 @@ CREATE TABLE IF NOT EXISTS galaxy_ring_daily_data (
   UNIQUE(user_id, date)
 );
 ALTER TABLE galaxy_ring_daily_data ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "user own ring data" ON galaxy_ring_daily_data FOR ALL USING (auth.uid() = user_id);
+DO $$ BEGIN
+  CREATE POLICY "user own ring data" ON galaxy_ring_daily_data FOR ALL USING (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 CREATE INDEX idx_ring_user_date ON galaxy_ring_daily_data(user_id, date DESC);
 
 -- Health integration settings
@@ -65,4 +71,6 @@ CREATE TABLE IF NOT EXISTS health_integration_settings (
   updated_at timestamptz DEFAULT now()
 );
 ALTER TABLE health_integration_settings ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "user own health settings" ON health_integration_settings FOR ALL USING (auth.uid() = user_id);
+DO $$ BEGIN
+  CREATE POLICY "user own health settings" ON health_integration_settings FOR ALL USING (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;

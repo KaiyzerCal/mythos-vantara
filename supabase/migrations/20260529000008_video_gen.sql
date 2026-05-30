@@ -15,5 +15,7 @@ CREATE TABLE IF NOT EXISTS mavis_video_jobs (
   error_message text
 );
 ALTER TABLE mavis_video_jobs ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "user own video jobs" ON mavis_video_jobs FOR ALL USING (auth.uid() = user_id);
+DO $$ BEGIN
+  CREATE POLICY "user own video jobs" ON mavis_video_jobs FOR ALL USING (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 CREATE INDEX idx_video_jobs_user ON mavis_video_jobs(user_id, created_at DESC);

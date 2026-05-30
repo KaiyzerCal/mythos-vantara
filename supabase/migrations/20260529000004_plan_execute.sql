@@ -34,8 +34,12 @@ CREATE TABLE IF NOT EXISTS mavis_plan_steps (
 ALTER TABLE mavis_plans       ENABLE ROW LEVEL SECURITY;
 ALTER TABLE mavis_plan_steps  ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY "Users manage own plans"      ON mavis_plans      FOR ALL USING (auth.uid() = user_id);
-CREATE POLICY "Users manage own plan steps" ON mavis_plan_steps FOR ALL USING (auth.uid() = user_id);
+DO $$ BEGIN
+  CREATE POLICY "Users manage own plans"      ON mavis_plans      FOR ALL USING (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN
+  CREATE POLICY "Users manage own plan steps" ON mavis_plan_steps FOR ALL USING (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 CREATE INDEX IF NOT EXISTS plan_steps_plan_idx   ON mavis_plan_steps (plan_id, step_index);
 CREATE INDEX IF NOT EXISTS plan_steps_status_idx ON mavis_plan_steps (user_id, status);

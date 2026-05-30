@@ -29,8 +29,10 @@ create index on mavis_products(user_id, status);
 create index on mavis_products(user_id, created_at desc);
 
 alter table mavis_products enable row level security;
-create policy "users own products" on mavis_products
-  for all using (auth.uid() = user_id);
+DO $$ BEGIN
+  create policy "users own products" on mavis_products
+    for all using (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 create or replace function update_mavis_products_updated_at()
 returns trigger language plpgsql as $$

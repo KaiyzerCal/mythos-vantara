@@ -12,7 +12,9 @@ CREATE TABLE IF NOT EXISTS mavis_import_jobs (
   finished_at TIMESTAMPTZ
 );
 ALTER TABLE mavis_import_jobs ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "Users see own imports" ON mavis_import_jobs FOR ALL USING (auth.uid() = user_id);
+DO $$ BEGIN
+  CREATE POLICY "Users see own imports" ON mavis_import_jobs FOR ALL USING (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- A/B testing for social posts
 DO $$ BEGIN

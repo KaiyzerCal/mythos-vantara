@@ -27,9 +27,11 @@ create index if not exists idx_mavis_memory_consolidated   on mavis_memory(user_
 
 alter table mavis_memory enable row level security;
 
-create policy "users own memory"
-  on mavis_memory for all
-  using (auth.uid() = user_id);
+DO $$ BEGIN
+  create policy "users own memory"
+    on mavis_memory for all
+    using (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- ─────────────────────────────────────────────────────────────
 -- LAYER 1: Knowledge graph (PARA — Projects/Areas/Resources/Archives)
@@ -53,9 +55,11 @@ create index if not exists idx_mavis_knowledge_user_title    on mavis_knowledge(
 
 alter table mavis_knowledge enable row level security;
 
-create policy "users own knowledge"
-  on mavis_knowledge for all
-  using (auth.uid() = user_id);
+DO $$ BEGIN
+  create policy "users own knowledge"
+    on mavis_knowledge for all
+    using (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- ─────────────────────────────────────────────────────────────
 -- LAYER 3: Tacit knowledge (operator preferences, hard rules, lessons)
@@ -80,9 +84,11 @@ create index if not exists idx_mavis_tacit_user_category on mavis_tacit(user_id,
 
 alter table mavis_tacit enable row level security;
 
-create policy "users own tacit"
-  on mavis_tacit for all
-  using (auth.uid() = user_id);
+DO $$ BEGIN
+  create policy "users own tacit"
+    on mavis_tacit for all
+    using (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- ─────────────────────────────────────────────────────────────
 -- TASK LEDGER (autonomous operations — operator visibility)
@@ -108,9 +114,11 @@ create index if not exists idx_mavis_tasks_user_scheduled on mavis_tasks(user_id
 
 alter table mavis_tasks enable row level security;
 
-create policy "users own tasks"
-  on mavis_tasks for all
-  using (auth.uid() = user_id);
+DO $$ BEGIN
+  create policy "users own tasks"
+    on mavis_tasks for all
+    using (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- ─────────────────────────────────────────────────────────────
 -- REVENUE LEDGER (Felix-equivalent income tracking)
@@ -131,9 +139,11 @@ create index if not exists idx_mavis_revenue_user_created on mavis_revenue(user_
 
 alter table mavis_revenue enable row level security;
 
-create policy "users own revenue"
-  on mavis_revenue for all
-  using (auth.uid() = user_id);
+DO $$ BEGIN
+  create policy "users own revenue"
+    on mavis_revenue for all
+    using (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- ─────────────────────────────────────────────────────────────
 -- NIGHTLY CONSOLIDATION LOG
@@ -151,6 +161,8 @@ create table if not exists mavis_consolidation_log (
 
 alter table mavis_consolidation_log enable row level security;
 
-create policy "users own consolidation log"
-  on mavis_consolidation_log for all
-  using (auth.uid() = user_id);
+DO $$ BEGIN
+  create policy "users own consolidation log"
+    on mavis_consolidation_log for all
+    using (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;

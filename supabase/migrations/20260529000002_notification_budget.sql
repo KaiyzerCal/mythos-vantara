@@ -13,8 +13,10 @@ CREATE TABLE IF NOT EXISTS notification_budget (
 );
 
 ALTER TABLE notification_budget ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "Users manage own budget" ON notification_budget
-  FOR ALL USING (auth.uid() = user_id);
+DO $$ BEGIN
+  CREATE POLICY "Users manage own budget" ON notification_budget
+    FOR ALL USING (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- Notification priority log (for analytics/tuning)
 CREATE TABLE IF NOT EXISTS notification_log (
@@ -30,8 +32,10 @@ CREATE TABLE IF NOT EXISTS notification_log (
 );
 
 ALTER TABLE notification_log ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "Users view own log" ON notification_log
-  FOR ALL USING (auth.uid() = user_id);
+DO $$ BEGIN
+  CREATE POLICY "Users view own log" ON notification_log
+    FOR ALL USING (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- Function: consume one notification slot
 -- Returns true if slot was available, false if budget exhausted
