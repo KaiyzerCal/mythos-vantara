@@ -1,7 +1,6 @@
 -- ================================================================
 -- apply-pending-migrations.sql  (ALL pending — May 17 onwards)
--- Safe to run multiple times: IF NOT EXISTS + duplicate guards.
--- Paste into Supabase SQL Editor → Run
+-- Safe to run multiple times. Paste into Supabase SQL Editor → Run
 -- ================================================================
 
 
@@ -137,6 +136,7 @@ SELECT cron.schedule(
 -- ─────────────────────────────────────────────────────────────────────────────
 
 
+
 -- ======== 20260517200000_new_features.sql ========
 -- ============================================================
 -- MAVIS — New Features Migration
@@ -161,7 +161,8 @@ CREATE TABLE IF NOT EXISTS public.contacts (
 ALTER TABLE public.contacts ENABLE ROW LEVEL SECURITY;
 DO $$ BEGIN
   CREATE POLICY "Users manage own contacts" ON public.contacts FOR ALL TO authenticated USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 CREATE INDEX idx_contacts_user ON public.contacts(user_id);
 
 -- Contact interactions log
@@ -177,7 +178,8 @@ CREATE TABLE IF NOT EXISTS public.contact_interactions (
 ALTER TABLE public.contact_interactions ENABLE ROW LEVEL SECURITY;
 DO $$ BEGIN
   CREATE POLICY "Users manage own interactions" ON public.contact_interactions FOR ALL TO authenticated USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 -- Health metrics (Oura / Apple Health)
 CREATE TABLE IF NOT EXISTS public.health_metrics (
@@ -200,7 +202,8 @@ CREATE TABLE IF NOT EXISTS public.health_metrics (
 ALTER TABLE public.health_metrics ENABLE ROW LEVEL SECURITY;
 DO $$ BEGIN
   CREATE POLICY "Users manage own health metrics" ON public.health_metrics FOR ALL TO authenticated USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 CREATE INDEX idx_health_metrics_user_date ON public.health_metrics(user_id, date DESC);
 
 -- MAVIS proactive insights
@@ -218,7 +221,8 @@ CREATE TABLE IF NOT EXISTS public.mavis_insights (
 ALTER TABLE public.mavis_insights ENABLE ROW LEVEL SECURITY;
 DO $$ BEGIN
   CREATE POLICY "Users manage own insights" ON public.mavis_insights FOR ALL TO authenticated USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 CREATE INDEX idx_insights_user ON public.mavis_insights(user_id, generated_at DESC);
 
 -- Calendar events
@@ -238,11 +242,13 @@ CREATE TABLE IF NOT EXISTS public.calendar_events (
 ALTER TABLE public.calendar_events ENABLE ROW LEVEL SECURITY;
 DO $$ BEGIN
   CREATE POLICY "Users manage own calendar events" ON public.calendar_events FOR ALL TO authenticated USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 -- Add scheduled_at to mavis_social_posts if not present
 ALTER TABLE public.mavis_social_posts ADD COLUMN IF NOT EXISTS scheduled_at TIMESTAMPTZ;
 ALTER TABLE public.mavis_social_posts ADD COLUMN IF NOT EXISTS platform TEXT DEFAULT 'twitter';
+
 
 
 -- ======== 20260517210000_mavis_crons_r5.sql ========
@@ -293,6 +299,7 @@ SELECT cron.schedule(
 -- Verify: SELECT jobname, schedule FROM cron.job ORDER BY jobname;
 
 
+
 -- ======== 20260517220000_mavis_advanced.sql ========
 -- MAVIS Advanced Features Migration
 -- webhook_events table + vault_media extraction tracking
@@ -317,6 +324,7 @@ ALTER TABLE public.vault_media ADD COLUMN IF NOT EXISTS extracted_at TIMESTAMPTZ
 ALTER TABLE public.vault_media ADD COLUMN IF NOT EXISTS extraction_error TEXT;
 
 
+
 -- ======== 20260517230000_mavis_research_meeting.sql ========
 -- meeting_notes table
 CREATE TABLE IF NOT EXISTS meeting_notes (
@@ -335,7 +343,8 @@ CREATE TABLE IF NOT EXISTS meeting_notes (
 ALTER TABLE meeting_notes ENABLE ROW LEVEL SECURITY;
 DO $$ BEGIN
   CREATE POLICY "users own meeting_notes" ON meeting_notes FOR ALL USING (auth.uid() = user_id);
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 CREATE INDEX IF NOT EXISTS idx_meeting_notes_user_date ON meeting_notes(user_id, created_at DESC);
 
 -- time_logs table
@@ -354,8 +363,10 @@ CREATE TABLE IF NOT EXISTS time_logs (
 ALTER TABLE time_logs ENABLE ROW LEVEL SECURITY;
 DO $$ BEGIN
   CREATE POLICY "users own time_logs" ON time_logs FOR ALL USING (auth.uid() = user_id);
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 CREATE INDEX IF NOT EXISTS idx_time_logs_user_date ON time_logs(user_id, started_at DESC);
+
 
 
 -- ======== 20260517240000_nora_engagement.sql ========
@@ -398,6 +409,7 @@ SELECT cron.schedule(
 );
 
 
+
 -- ======== 20260517250000_integrations.sql ========
 -- =============================================================================
 -- 20260517250000_integrations.sql
@@ -419,8 +431,9 @@ CREATE TABLE IF NOT EXISTS webhook_dispatch_config (
 ALTER TABLE webhook_dispatch_config ENABLE ROW LEVEL SECURITY;
 DO $$ BEGIN
   CREATE POLICY "users own webhook_dispatch_config"
-  ON webhook_dispatch_config FOR ALL USING (auth.uid() = user_id);
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+    ON webhook_dispatch_config FOR ALL USING (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 -- Outbound webhook dispatch log
 CREATE TABLE IF NOT EXISTS webhook_dispatch_log (
@@ -454,8 +467,9 @@ CREATE TABLE IF NOT EXISTS social_post_analytics (
 ALTER TABLE social_post_analytics ENABLE ROW LEVEL SECURITY;
 DO $$ BEGIN
   CREATE POLICY "users own social_post_analytics"
-  ON social_post_analytics FOR ALL USING (auth.uid() = user_id);
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+    ON social_post_analytics FOR ALL USING (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 -- Email outbox
 CREATE TABLE IF NOT EXISTS email_outbox (
@@ -471,11 +485,13 @@ CREATE TABLE IF NOT EXISTS email_outbox (
 ALTER TABLE email_outbox ENABLE ROW LEVEL SECURITY;
 DO $$ BEGIN
   CREATE POLICY "users own email_outbox"
-  ON email_outbox FOR ALL USING (auth.uid() = user_id);
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+    ON email_outbox FOR ALL USING (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 -- Add external_post_id to mavis_social_posts for analytics linking
 ALTER TABLE mavis_social_posts ADD COLUMN IF NOT EXISTS external_post_id TEXT;
+
 
 
 -- ======== 20260517260000_push_notifications.sql ========
@@ -496,8 +512,9 @@ CREATE TABLE IF NOT EXISTS device_push_tokens (
 ALTER TABLE device_push_tokens ENABLE ROW LEVEL SECURITY;
 DO $$ BEGIN
   CREATE POLICY "Users manage own tokens" ON device_push_tokens
-  FOR ALL USING (auth.uid() = user_id);
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+    FOR ALL USING (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 CREATE INDEX IF NOT EXISTS idx_device_push_tokens_user
   ON device_push_tokens(user_id) WHERE active = true;
@@ -519,6 +536,7 @@ SELECT cron.schedule(
 );
 
 
+
 -- ======== 20260517270000_instagram_tiktok.sql ========
 -- =============================================================================
 -- 20260517270000_instagram_tiktok.sql
@@ -534,15 +552,12 @@ BEGIN
     SELECT 1 FROM pg_constraint
     WHERE conname = 'mavis_social_posts_platform_check'
   ) THEN
-DO $$ BEGIN
-  ALTER TABLE mavis_social_posts DROP CONSTRAINT mavis_social_posts_platform_check;
-EXCEPTION WHEN undefined_table THEN NULL; WHEN undefined_column THEN NULL; END $$;
-DO $$ BEGIN
-  ALTER TABLE mavis_social_posts ADD CONSTRAINT mavis_social_posts_platform_check
+    ALTER TABLE mavis_social_posts DROP CONSTRAINT mavis_social_posts_platform_check;
+    ALTER TABLE mavis_social_posts ADD CONSTRAINT mavis_social_posts_platform_check
       CHECK (platform IN ('twitter', 'linkedin', 'instagram', 'tiktok', 'discord', 'facebook', 'other'));
-EXCEPTION WHEN undefined_table THEN NULL; WHEN undefined_column THEN NULL; END $$;
   END IF;
 END $$;
+
 
 
 -- ======== 20260517280000_user_integrations.sql ========
@@ -564,11 +579,13 @@ CREATE TABLE IF NOT EXISTS mavis_user_integrations (
 ALTER TABLE mavis_user_integrations ENABLE ROW LEVEL SECURITY;
 DO $$ BEGIN
   CREATE POLICY "Users manage own integrations" ON mavis_user_integrations
-  FOR ALL USING (auth.uid() = user_id);
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+    FOR ALL USING (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 CREATE INDEX IF NOT EXISTS idx_mavis_user_integrations_user
   ON mavis_user_integrations(user_id, provider);
+
 
 
 -- ======== 20260517290000_weekly_retro.sql ========
@@ -595,9 +612,7 @@ BEGIN
     SELECT 1 FROM information_schema.columns
     WHERE table_name = 'journal_entries' AND column_name = 'mood'
   ) THEN
-DO $$ BEGIN
-  ALTER TABLE journal_entries ADD COLUMN mood TEXT;
-EXCEPTION WHEN undefined_table THEN NULL; WHEN undefined_column THEN NULL; END $$;
+    ALTER TABLE journal_entries ADD COLUMN mood TEXT;
   END IF;
 END $$;
 
@@ -608,11 +623,10 @@ BEGIN
     SELECT 1 FROM information_schema.columns
     WHERE table_name = 'journal_entries' AND column_name = 'tags'
   ) THEN
-DO $$ BEGIN
-  ALTER TABLE journal_entries ADD COLUMN tags TEXT[] DEFAULT '{}';
-EXCEPTION WHEN undefined_table THEN NULL; WHEN undefined_column THEN NULL; END $$;
+    ALTER TABLE journal_entries ADD COLUMN tags TEXT[] DEFAULT '{}';
   END IF;
 END $$;
+
 
 
 -- ======== 20260518010000_crm_achievements_slack.sql ========
@@ -633,19 +647,16 @@ CREATE TABLE IF NOT EXISTS achievements (
 ALTER TABLE achievements ENABLE ROW LEVEL SECURITY;
 DO $$ BEGIN
   CREATE POLICY "Users see own achievements" ON achievements FOR ALL USING (auth.uid() = user_id);
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 -- CRM follow-up config columns on contacts (add if missing)
 DO $$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='contacts' AND column_name='follow_up_days') THEN
-DO $$ BEGIN
-  ALTER TABLE contacts ADD COLUMN follow_up_days INT;
-EXCEPTION WHEN undefined_table THEN NULL; WHEN undefined_column THEN NULL; END $$;
+    ALTER TABLE contacts ADD COLUMN follow_up_days INT;
   END IF;
   IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='contacts' AND column_name='birthday') THEN
-DO $$ BEGIN
-  ALTER TABLE contacts ADD COLUMN birthday DATE;
-EXCEPTION WHEN undefined_table THEN NULL; WHEN undefined_column THEN NULL; END $$;
+    ALTER TABLE contacts ADD COLUMN birthday DATE;
   END IF;
 END $$;
 
@@ -662,7 +673,8 @@ CREATE TABLE IF NOT EXISTS mavis_slack_config (
 ALTER TABLE mavis_slack_config ENABLE ROW LEVEL SECURITY;
 DO $$ BEGIN
   CREATE POLICY "Users manage own slack config" ON mavis_slack_config FOR ALL USING (auth.uid() = user_id);
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 -- Cron: auto-journal at 21:00 UTC daily
 SELECT cron.schedule('mavis-auto-journal', '0 21 * * *', $$
@@ -686,6 +698,7 @@ SELECT cron.schedule('mavis-sleep-coach', '0 7 * * *', $$
 $$);
 
 
+
 -- ======== 20260518020000_import_ab.sql ========
 -- Import jobs tracker
 CREATE TABLE IF NOT EXISTS mavis_import_jobs (
@@ -703,19 +716,16 @@ CREATE TABLE IF NOT EXISTS mavis_import_jobs (
 ALTER TABLE mavis_import_jobs ENABLE ROW LEVEL SECURITY;
 DO $$ BEGIN
   CREATE POLICY "Users see own imports" ON mavis_import_jobs FOR ALL USING (auth.uid() = user_id);
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 -- A/B testing for social posts
 DO $$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='mavis_social_posts' AND column_name='ab_group') THEN
-DO $$ BEGIN
-  ALTER TABLE mavis_social_posts ADD COLUMN ab_group TEXT CHECK (ab_group IN ('A','B'));
-EXCEPTION WHEN undefined_table THEN NULL; WHEN undefined_column THEN NULL; END $$;
+    ALTER TABLE mavis_social_posts ADD COLUMN ab_group TEXT CHECK (ab_group IN ('A','B'));
   END IF;
   IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='mavis_social_posts' AND column_name='ab_test_id') THEN
-DO $$ BEGIN
-  ALTER TABLE mavis_social_posts ADD COLUMN ab_test_id UUID;
-EXCEPTION WHEN undefined_table THEN NULL; WHEN undefined_column THEN NULL; END $$;
+    ALTER TABLE mavis_social_posts ADD COLUMN ab_test_id UUID;
   END IF;
 END $$;
 
@@ -731,15 +741,15 @@ SELECT cron.schedule('mavis-quest-calendar', '0 8 * * *', $$
 $$);
 
 
+
 -- ======== 20260518030000_language_sw.sql ========
 -- Language preference
 DO $$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='profiles' AND column_name='language') THEN
-DO $$ BEGIN
-  ALTER TABLE profiles ADD COLUMN language TEXT DEFAULT 'en';
-EXCEPTION WHEN undefined_table THEN NULL; WHEN undefined_column THEN NULL; END $$;
+    ALTER TABLE profiles ADD COLUMN language TEXT DEFAULT 'en';
   END IF;
 END $$;
+
 
 
 -- ======== 20260518040000_oura_strava_github.sql ========
@@ -780,6 +790,7 @@ SELECT cron.schedule('mavis-github-hourly', '0 * * * *',
     body := '{}'::jsonb) AS request_id$$);
 
 
+
 -- ======== 20260518050000_morning_digest.sql ========
 -- Morning digest logs
 CREATE TABLE IF NOT EXISTS morning_digest_logs (
@@ -806,6 +817,7 @@ SELECT cron.schedule('mavis-morning-digest', '0 7 * * *',
     headers := jsonb_build_object('Content-Type','application/json'),
     body := '{}'::jsonb
   ) AS request_id$$);
+
 
 
 -- ======== 20260518060000_weather_rss.sql ========
@@ -836,6 +848,7 @@ SELECT cron.schedule('mavis-hn-daily', '0 8 * * *',
   ) AS request_id$$);
 
 
+
 -- ======== 20260518070000_google_sync.sql ========
 -- Add external_id column to tasks for Google Tasks bidirectional sync
 ALTER TABLE tasks ADD COLUMN IF NOT EXISTS external_id text;
@@ -857,6 +870,7 @@ SELECT cron.schedule('mavis-gdrive-sync', '0 6 * * *',
     headers := jsonb_build_object('Content-Type','application/json'),
     body := '{}'::jsonb
   ) AS request_id$$);
+
 
 
 -- ======== 20260518080000_workflows.sql ========
@@ -898,6 +912,7 @@ DO $$ BEGIN
 END $$;
 
 
+
 -- ======== 20260518090000_telegram_linked_accounts.sql ========
 -- Allow multiple Telegram accounts to talk to the same MAVIS operator.
 -- Each row maps a secondary Telegram user ID to the operator's Supabase user.
@@ -918,15 +933,17 @@ ALTER TABLE public.telegram_linked_accounts ENABLE ROW LEVEL SECURITY;
 -- Users can only manage their own linked accounts
 DO $$ BEGIN
   CREATE POLICY "Users manage own linked telegram accounts"
-  ON public.telegram_linked_accounts
-  FOR ALL
-  USING  (auth.uid() = user_id)
-  WITH CHECK (auth.uid() = user_id);
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+    ON public.telegram_linked_accounts
+    FOR ALL
+    USING  (auth.uid() = user_id)
+    WITH CHECK (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 -- Index for fast lookup by telegram_user_id (used by edge function)
 CREATE INDEX IF NOT EXISTS idx_telegram_linked_accounts_tg_user
   ON public.telegram_linked_accounts(telegram_user_id);
+
 
 
 -- ======== 20260518100000_plugin_system.sql ========
@@ -958,10 +975,11 @@ CREATE TABLE IF NOT EXISTS public.mavis_plugins (
 ALTER TABLE public.mavis_plugins ENABLE ROW LEVEL SECURITY;
 DO $$ BEGIN
   CREATE POLICY "Users manage own plugins"
-  ON public.mavis_plugins FOR ALL
-  USING  (auth.uid() = user_id)
-  WITH CHECK (auth.uid() = user_id);
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+    ON public.mavis_plugins FOR ALL
+    USING  (auth.uid() = user_id)
+    WITH CHECK (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 -- ── A2A inter-agent message bus ───────────────────────────────
 -- Moltbook-style message envelope for agent-to-agent communication.
@@ -1001,9 +1019,10 @@ CREATE TABLE IF NOT EXISTS public.mavis_agent_messages (
 ALTER TABLE public.mavis_agent_messages ENABLE ROW LEVEL SECURITY;
 DO $$ BEGIN
   CREATE POLICY "Users manage own agent messages"
-  ON public.mavis_agent_messages FOR ALL
-  USING (auth.uid() = user_id);
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+    ON public.mavis_agent_messages FOR ALL
+    USING (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 CREATE INDEX IF NOT EXISTS idx_agent_messages_to_agent
   ON public.mavis_agent_messages(to_agent_id, delivered, created_at DESC);
@@ -1056,9 +1075,10 @@ CREATE TABLE IF NOT EXISTS public.mavis_agent_memories (
 ALTER TABLE public.mavis_agent_memories ENABLE ROW LEVEL SECURITY;
 DO $$ BEGIN
   CREATE POLICY "Users manage own agent memories"
-  ON public.mavis_agent_memories FOR ALL
-  USING (auth.uid() = user_id);
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+    ON public.mavis_agent_memories FOR ALL
+    USING (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 CREATE INDEX IF NOT EXISTS idx_agent_memories_agent
   ON public.mavis_agent_memories(agent_id, status, created_at DESC);
@@ -1115,8 +1135,9 @@ CREATE TABLE IF NOT EXISTS public.mavis_agent_karma (
 ALTER TABLE public.mavis_agent_karma ENABLE ROW LEVEL SECURITY;
 DO $$ BEGIN
   CREATE POLICY "Users manage own agent karma"
-  ON public.mavis_agent_karma FOR ALL USING (auth.uid() = user_id);
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+    ON public.mavis_agent_karma FOR ALL USING (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 -- ── Plugin execution log ──────────────────────────────────────
 CREATE TABLE IF NOT EXISTS public.mavis_plugin_executions (
@@ -1136,11 +1157,13 @@ CREATE TABLE IF NOT EXISTS public.mavis_plugin_executions (
 ALTER TABLE public.mavis_plugin_executions ENABLE ROW LEVEL SECURITY;
 DO $$ BEGIN
   CREATE POLICY "Users view own plugin executions"
-  ON public.mavis_plugin_executions FOR ALL USING (auth.uid() = user_id);
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+    ON public.mavis_plugin_executions FOR ALL USING (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 CREATE INDEX IF NOT EXISTS idx_plugin_executions_plugin
   ON public.mavis_plugin_executions(plugin_name, created_at DESC);
+
 
 
 -- ======== 20260519000000_tool_registry_automation.sql ========
@@ -1173,10 +1196,11 @@ CREATE TABLE IF NOT EXISTS public.mavis_tool_registry (
 ALTER TABLE public.mavis_tool_registry ENABLE ROW LEVEL SECURITY;
 DO $$ BEGIN
   CREATE POLICY "Users manage own tools"
-  ON public.mavis_tool_registry FOR ALL
-  USING (auth.uid() = user_id)
-  WITH CHECK (auth.uid() = user_id);
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+    ON public.mavis_tool_registry FOR ALL
+    USING (auth.uid() = user_id)
+    WITH CHECK (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 CREATE INDEX IF NOT EXISTS idx_tool_registry_category
   ON public.mavis_tool_registry(category, enabled);
@@ -1219,10 +1243,11 @@ CREATE TABLE IF NOT EXISTS public.mavis_automation_rules (
 ALTER TABLE public.mavis_automation_rules ENABLE ROW LEVEL SECURITY;
 DO $$ BEGIN
   CREATE POLICY "Users manage own automation rules"
-  ON public.mavis_automation_rules FOR ALL
-  USING (auth.uid() = user_id)
-  WITH CHECK (auth.uid() = user_id);
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+    ON public.mavis_automation_rules FOR ALL
+    USING (auth.uid() = user_id)
+    WITH CHECK (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 CREATE INDEX IF NOT EXISTS idx_automation_rules_event
   ON public.mavis_automation_rules(trigger_event, enabled);
@@ -1262,10 +1287,11 @@ CREATE TABLE IF NOT EXISTS public.mavis_agent_sessions (
 ALTER TABLE public.mavis_agent_sessions ENABLE ROW LEVEL SECURITY;
 DO $$ BEGIN
   CREATE POLICY "Users manage own agent sessions"
-  ON public.mavis_agent_sessions FOR ALL
-  USING (auth.uid() = user_id)
-  WITH CHECK (auth.uid() = user_id);
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+    ON public.mavis_agent_sessions FOR ALL
+    USING (auth.uid() = user_id)
+    WITH CHECK (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 CREATE INDEX IF NOT EXISTS idx_agent_sessions_status
   ON public.mavis_agent_sessions(status, started_at DESC);
@@ -1304,13 +1330,15 @@ CREATE TABLE IF NOT EXISTS public.mavis_distillation_jobs (
 ALTER TABLE public.mavis_distillation_jobs ENABLE ROW LEVEL SECURITY;
 DO $$ BEGIN
   CREATE POLICY "Users manage own distillation jobs"
-  ON public.mavis_distillation_jobs FOR ALL
-  USING (auth.uid() = user_id)
-  WITH CHECK (auth.uid() = user_id);
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+    ON public.mavis_distillation_jobs FOR ALL
+    USING (auth.uid() = user_id)
+    WITH CHECK (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 CREATE INDEX IF NOT EXISTS idx_distillation_jobs_status
   ON public.mavis_distillation_jobs(status, created_at DESC);
+
 
 
 -- ======== 20260520000000_mcp_integration.sql ========
@@ -1338,10 +1366,11 @@ CREATE INDEX IF NOT EXISTS mavis_tool_executions_user_idx  ON mavis_tool_executi
 CREATE INDEX IF NOT EXISTS mavis_tool_executions_tool_idx  ON mavis_tool_executions(tool_name);
 
 ALTER TABLE mavis_tool_executions ENABLE ROW LEVEL SECURITY;
-DO $pol$ BEGIN
 DO $$ BEGIN
-  CREATE POLICY "tool_exec_own" ON mavis_tool_executions FOR ALL USING (auth.uid() = user_id);
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+  CREATE POLICY "tool_exec_own" ON mavis_tool_executions
+    FOR ALL USING (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 -- ── Knowledge graph traversal indexes ────────────────────────────────────────
 -- Fast BFS over mavis_note_wikilinks requires covering indexes on both
@@ -1376,10 +1405,11 @@ CREATE TABLE IF NOT EXISTS mavis_workflow_executions (
 );
 
 ALTER TABLE mavis_workflow_executions ENABLE ROW LEVEL SECURITY;
-DO $pol$ BEGIN
 DO $$ BEGIN
-  CREATE POLICY "workflow_exec_own" ON mavis_workflow_executions FOR ALL USING (auth.uid() = user_id);
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+  CREATE POLICY "workflow_exec_own" ON mavis_workflow_executions
+    FOR ALL USING (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 -- ── Sequential thought log ────────────────────────────────────────────────────
 -- Stores reasoning chains MAVIS ran before complex actions.
@@ -1399,10 +1429,12 @@ CREATE TABLE IF NOT EXISTS mavis_thought_chains (
 );
 
 ALTER TABLE mavis_thought_chains ENABLE ROW LEVEL SECURITY;
-DO $pol$ BEGIN
 DO $$ BEGIN
-  CREATE POLICY "thought_chains_own" ON mavis_thought_chains FOR ALL USING (auth.uid() = user_id);
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+  CREATE POLICY "thought_chains_own" ON mavis_thought_chains
+    FOR ALL USING (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
 
 
 -- ======== 20260523233443_9db55db4-883f-4ecd-a772-0d5cb0f71cd2.sql ========
@@ -1412,37 +1444,40 @@ DROP POLICY IF EXISTS "mavis-products authenticated insert" ON storage.objects;
 
 DO $$ BEGIN
   CREATE POLICY "mavis-products owner insert"
-  ON storage.objects FOR INSERT
-  TO authenticated
-  WITH CHECK (
-    bucket_id = 'mavis-products'
-    AND (storage.foldername(name))[1] = auth.uid()::text
-  );
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+    ON storage.objects FOR INSERT
+    TO authenticated
+    WITH CHECK (
+      bucket_id = 'mavis-products'
+      AND (storage.foldername(name))[1] = auth.uid()::text
+    );
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 DO $$ BEGIN
   CREATE POLICY "mavis-products owner update"
-  ON storage.objects FOR UPDATE
-  TO authenticated
-  USING (
-    bucket_id = 'mavis-products'
-    AND (storage.foldername(name))[1] = auth.uid()::text
-  )
-  WITH CHECK (
-    bucket_id = 'mavis-products'
-    AND (storage.foldername(name))[1] = auth.uid()::text
-  );
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+    ON storage.objects FOR UPDATE
+    TO authenticated
+    USING (
+      bucket_id = 'mavis-products'
+      AND (storage.foldername(name))[1] = auth.uid()::text
+    )
+    WITH CHECK (
+      bucket_id = 'mavis-products'
+      AND (storage.foldername(name))[1] = auth.uid()::text
+    );
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 DO $$ BEGIN
   CREATE POLICY "mavis-products owner delete"
-  ON storage.objects FOR DELETE
-  TO authenticated
-  USING (
-    bucket_id = 'mavis-products'
-    AND (storage.foldername(name))[1] = auth.uid()::text
-  );
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+    ON storage.objects FOR DELETE
+    TO authenticated
+    USING (
+      bucket_id = 'mavis-products'
+      AND (storage.foldername(name))[1] = auth.uid()::text
+    );
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 -- 2) Pin search_path on our trigger function
 ALTER FUNCTION public.update_mavis_products_updated_at() SET search_path = public;
@@ -1453,36 +1488,41 @@ REVOKE EXECUTE ON FUNCTION public.seed_default_workspaces() FROM PUBLIC, anon, a
 REVOKE EXECUTE ON FUNCTION public.match_mavis_notes(vector, uuid, double precision, integer) FROM PUBLIC, anon, authenticated;
 
 
+
 -- ======== 20260525011557_9f02c24d-ba0a-4c0f-9549-6667345a222c.sql ========
 -- Tighten agent_telegram_config policy to authenticated only
 DROP POLICY IF EXISTS "users own telegram config" ON public.agent_telegram_config;
 DO $$ BEGIN
   CREATE POLICY "Users manage own telegram config"
-ON public.agent_telegram_config
-FOR ALL
-TO authenticated
-USING (auth.uid() = user_id)
-WITH CHECK (auth.uid() = user_id);
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+  ON public.agent_telegram_config
+  FOR ALL
+  TO authenticated
+  USING (auth.uid() = user_id)
+  WITH CHECK (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 -- Add UPDATE policy for mavis_note_links
 DO $$ BEGIN
   CREATE POLICY "Users update own note links"
-ON public.mavis_note_links
-FOR UPDATE
-TO authenticated
-USING (EXISTS (SELECT 1 FROM public.mavis_notes n WHERE n.id = mavis_note_links.source_note_id AND n.user_id = auth.uid()))
-WITH CHECK (EXISTS (SELECT 1 FROM public.mavis_notes n WHERE n.id = mavis_note_links.source_note_id AND n.user_id = auth.uid()));
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+  ON public.mavis_note_links
+  FOR UPDATE
+  TO authenticated
+  USING (EXISTS (SELECT 1 FROM public.mavis_notes n WHERE n.id = mavis_note_links.source_note_id AND n.user_id = auth.uid()))
+  WITH CHECK (EXISTS (SELECT 1 FROM public.mavis_notes n WHERE n.id = mavis_note_links.source_note_id AND n.user_id = auth.uid()));
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 -- Add DELETE policy for mavis_note_versions
 DO $$ BEGIN
   CREATE POLICY "Users delete own note versions"
-ON public.mavis_note_versions
-FOR DELETE
-TO authenticated
-USING (EXISTS (SELECT 1 FROM public.mavis_notes n WHERE n.id = mavis_note_versions.note_id AND n.user_id = auth.uid()));
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+  ON public.mavis_note_versions
+  FOR DELETE
+  TO authenticated
+  USING (EXISTS (SELECT 1 FROM public.mavis_notes n WHERE n.id = mavis_note_versions.note_id AND n.user_id = auth.uid()));
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
 
 -- ======== 20260529000000_add_memory_embeddings.sql ========
 -- Enable pgvector (safe if already enabled)
@@ -1491,8 +1531,9 @@ CREATE EXTENSION IF NOT EXISTS vector;
 -- Add 768-dimensional embedding column to mavis_agent_memories (Gemini text-embedding-004)
 DO $$ BEGIN
   ALTER TABLE mavis_agent_memories
-  ADD COLUMN IF NOT EXISTS embedding vector(768);
-EXCEPTION WHEN undefined_table THEN NULL; WHEN undefined_column THEN NULL; END $$;
+    ADD COLUMN IF NOT EXISTS embedding vector(768);
+EXCEPTION WHEN undefined_table THEN NULL; WHEN others THEN NULL;
+END $$;
 
 -- IVFFlat index for fast cosine similarity search
 CREATE INDEX IF NOT EXISTS mavis_memories_embedding_idx
@@ -1534,15 +1575,17 @@ AS $$
 $$;
 
 
+
 -- ======== 20260529000001_hybrid_search_decay.sql ========
 -- Hybrid search + episodic memory decay for mavis_agent_memories
 
 -- 1. Add tsvector column for BM25-style full-text search
 DO $$ BEGIN
   ALTER TABLE mavis_agent_memories
-  ADD COLUMN IF NOT EXISTS fts tsvector
-    GENERATED ALWAYS AS (to_tsvector('english', coalesce(content, ''))) STORED;
-EXCEPTION WHEN undefined_table THEN NULL; WHEN undefined_column THEN NULL; END $$;
+    ADD COLUMN IF NOT EXISTS fts tsvector
+      GENERATED ALWAYS AS (to_tsvector('english', coalesce(content, ''))) STORED;
+EXCEPTION WHEN undefined_table THEN NULL; WHEN others THEN NULL;
+END $$;
 
 CREATE INDEX IF NOT EXISTS mavis_memories_fts_idx
   ON mavis_agent_memories USING gin(fts);
@@ -1550,9 +1593,10 @@ CREATE INDEX IF NOT EXISTS mavis_memories_fts_idx
 -- 2. Add episodic memory decay tracking columns
 DO $$ BEGIN
   ALTER TABLE mavis_agent_memories
-  ADD COLUMN IF NOT EXISTS last_accessed_at timestamptz DEFAULT now(),
-  ADD COLUMN IF NOT EXISTS access_count int DEFAULT 0 NOT NULL;
-EXCEPTION WHEN undefined_table THEN NULL; WHEN undefined_column THEN NULL; END $$;
+    ADD COLUMN IF NOT EXISTS last_accessed_at timestamptz DEFAULT now(),
+    ADD COLUMN IF NOT EXISTS access_count int DEFAULT 0 NOT NULL;
+EXCEPTION WHEN undefined_table THEN NULL; WHEN others THEN NULL;
+END $$;
 
 -- 3. Hybrid search function: BM25 + pgvector cosine + RRF merge + temporal decay
 CREATE OR REPLACE FUNCTION search_memories_hybrid(
@@ -1634,18 +1678,21 @@ $$;
 -- 5. Also add tsvector + decay to mavis_notes (knowledge graph) for consistency
 DO $$ BEGIN
   ALTER TABLE mavis_notes
-  ADD COLUMN IF NOT EXISTS fts tsvector
-    GENERATED ALWAYS AS (to_tsvector('english', coalesce(title, '') || ' ' || coalesce(content, ''))) STORED;
-EXCEPTION WHEN undefined_table THEN NULL; WHEN undefined_column THEN NULL; END $$;
+    ADD COLUMN IF NOT EXISTS fts tsvector
+      GENERATED ALWAYS AS (to_tsvector('english', coalesce(title, '') || ' ' || coalesce(content, ''))) STORED;
+EXCEPTION WHEN undefined_table THEN NULL; WHEN others THEN NULL;
+END $$;
 
 CREATE INDEX IF NOT EXISTS mavis_notes_fts_idx
   ON mavis_notes USING gin(fts);
 
 DO $$ BEGIN
   ALTER TABLE mavis_notes
-  ADD COLUMN IF NOT EXISTS last_accessed_at timestamptz DEFAULT now(),
-  ADD COLUMN IF NOT EXISTS access_count int DEFAULT 0 NOT NULL;
-EXCEPTION WHEN undefined_table THEN NULL; WHEN undefined_column THEN NULL; END $$;
+    ADD COLUMN IF NOT EXISTS last_accessed_at timestamptz DEFAULT now(),
+    ADD COLUMN IF NOT EXISTS access_count int DEFAULT 0 NOT NULL;
+EXCEPTION WHEN undefined_table THEN NULL; WHEN others THEN NULL;
+END $$;
+
 
 
 -- ======== 20260529000002_notification_budget.sql ========
@@ -1666,8 +1713,9 @@ CREATE TABLE IF NOT EXISTS notification_budget (
 ALTER TABLE notification_budget ENABLE ROW LEVEL SECURITY;
 DO $$ BEGIN
   CREATE POLICY "Users manage own budget" ON notification_budget
-  FOR ALL USING (auth.uid() = user_id);
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+    FOR ALL USING (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 -- Notification priority log (for analytics/tuning)
 CREATE TABLE IF NOT EXISTS notification_log (
@@ -1685,8 +1733,9 @@ CREATE TABLE IF NOT EXISTS notification_log (
 ALTER TABLE notification_log ENABLE ROW LEVEL SECURITY;
 DO $$ BEGIN
   CREATE POLICY "Users view own log" ON notification_log
-  FOR ALL USING (auth.uid() = user_id);
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+    FOR ALL USING (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 -- Function: consume one notification slot
 -- Returns true if slot was available, false if budget exhausted
@@ -1721,16 +1770,18 @@ END;
 $$;
 
 
+
 -- ======== 20260529000003_emotion_scores.sql ========
 -- Add structured emotion scores to journal entries
 -- Uses Hume AI Expression Measurement API results (48-dim emotion vector stored as jsonb)
 
 DO $$ BEGIN
   ALTER TABLE journal_entries
-  ADD COLUMN IF NOT EXISTS emotion_scores  jsonb,
-  ADD COLUMN IF NOT EXISTS emotion_tagged  boolean DEFAULT false,
-  ADD COLUMN IF NOT EXISTS dominant_emotion text;
-EXCEPTION WHEN undefined_table THEN NULL; WHEN undefined_column THEN NULL; END $$;
+    ADD COLUMN IF NOT EXISTS emotion_scores  jsonb,
+    ADD COLUMN IF NOT EXISTS emotion_tagged  boolean DEFAULT false,
+    ADD COLUMN IF NOT EXISTS dominant_emotion text;
+EXCEPTION WHEN undefined_table THEN NULL; WHEN others THEN NULL;
+END $$;
 
 -- Index for emotion-based queries (e.g., "show me all anxious entries")
 CREATE INDEX IF NOT EXISTS journal_emotion_idx
@@ -1761,6 +1812,7 @@ CREATE OR REPLACE VIEW emotion_weekly_trends AS
   FROM journal_entries
   WHERE emotion_scores IS NOT NULL
   GROUP BY user_id, week, dominant_emotion;
+
 
 
 -- ======== 20260529000004_plan_execute.sql ========
@@ -1802,13 +1854,16 @@ ALTER TABLE mavis_plan_steps  ENABLE ROW LEVEL SECURITY;
 
 DO $$ BEGIN
   CREATE POLICY "Users manage own plans"      ON mavis_plans      FOR ALL USING (auth.uid() = user_id);
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 DO $$ BEGIN
   CREATE POLICY "Users manage own plan steps" ON mavis_plan_steps FOR ALL USING (auth.uid() = user_id);
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 CREATE INDEX IF NOT EXISTS plan_steps_plan_idx   ON mavis_plan_steps (plan_id, step_index);
 CREATE INDEX IF NOT EXISTS plan_steps_status_idx ON mavis_plan_steps (user_id, status);
+
 
 
 -- ======== 20260529000005_game_master.sql ========
@@ -1829,17 +1884,19 @@ CREATE TABLE IF NOT EXISTS streak_insurance (
 ALTER TABLE streak_insurance ENABLE ROW LEVEL SECURITY;
 DO $$ BEGIN
   CREATE POLICY "Users manage own insurance" ON streak_insurance
-  FOR ALL USING (auth.uid() = user_id);
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+    FOR ALL USING (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 -- Consequence quest linking: failing a habit quest can trigger a consequence
 DO $$ BEGIN
   ALTER TABLE quests
-  ADD COLUMN IF NOT EXISTS consequence_quest_id uuid REFERENCES quests(id) ON DELETE SET NULL,
-  ADD COLUMN IF NOT EXISTS difficulty_rating     float DEFAULT 5.0 CHECK (difficulty_rating BETWEEN 1 AND 10),
-  ADD COLUMN IF NOT EXISTS is_consequence        boolean DEFAULT false,
-  ADD COLUMN IF NOT EXISTS parent_task_id        uuid REFERENCES tasks(id) ON DELETE SET NULL;
-EXCEPTION WHEN undefined_table THEN NULL; WHEN undefined_column THEN NULL; END $$;
+    ADD COLUMN IF NOT EXISTS consequence_quest_id uuid REFERENCES quests(id) ON DELETE SET NULL,
+    ADD COLUMN IF NOT EXISTS difficulty_rating     float DEFAULT 5.0 CHECK (difficulty_rating BETWEEN 1 AND 10),
+    ADD COLUMN IF NOT EXISTS is_consequence        boolean DEFAULT false,
+    ADD COLUMN IF NOT EXISTS parent_task_id        uuid REFERENCES tasks(id) ON DELETE SET NULL;
+EXCEPTION WHEN undefined_table THEN NULL; WHEN others THEN NULL;
+END $$;
 
 -- GAME_MASTER event log: narrative events generated by the game master
 CREATE TABLE IF NOT EXISTS game_master_events (
@@ -1857,8 +1914,9 @@ CREATE TABLE IF NOT EXISTS game_master_events (
 ALTER TABLE game_master_events ENABLE ROW LEVEL SECURITY;
 DO $$ BEGIN
   CREATE POLICY "Users view own events" ON game_master_events
-  FOR ALL USING (auth.uid() = user_id);
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+    FOR ALL USING (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 -- Dynamic difficulty tracking per user
 CREATE TABLE IF NOT EXISTS user_difficulty_profile (
@@ -1873,8 +1931,10 @@ CREATE TABLE IF NOT EXISTS user_difficulty_profile (
 ALTER TABLE user_difficulty_profile ENABLE ROW LEVEL SECURITY;
 DO $$ BEGIN
   CREATE POLICY "Users manage own difficulty" ON user_difficulty_profile
-  FOR ALL USING (auth.uid() = user_id);
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+    FOR ALL USING (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
 
 
 -- ======== 20260529000006_tool_usage_rpc.sql ========
@@ -1891,6 +1951,7 @@ AS $$
 $$;
 
 
+
 -- ======== 20260529000007_mem0_letta.sql ========
 -- Mem0 sync log: tracks which conversations have been synced to Mem0
 CREATE TABLE IF NOT EXISTS mavis_mem0_sync_log (
@@ -1904,7 +1965,8 @@ CREATE TABLE IF NOT EXISTS mavis_mem0_sync_log (
 ALTER TABLE mavis_mem0_sync_log ENABLE ROW LEVEL SECURITY;
 DO $$ BEGIN
   CREATE POLICY "user own mem0 log" ON mavis_mem0_sync_log FOR ALL USING (auth.uid() = user_id);
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 -- Letta agent registry: one Letta agent per MAVIS mode/persona
 CREATE TABLE IF NOT EXISTS mavis_letta_agents (
@@ -1919,7 +1981,9 @@ CREATE TABLE IF NOT EXISTS mavis_letta_agents (
 ALTER TABLE mavis_letta_agents ENABLE ROW LEVEL SECURITY;
 DO $$ BEGIN
   CREATE POLICY "user own letta agents" ON mavis_letta_agents FOR ALL USING (auth.uid() = user_id);
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
 
 
 -- ======== 20260529000008_video_gen.sql ========
@@ -1942,8 +2006,10 @@ CREATE TABLE IF NOT EXISTS mavis_video_jobs (
 ALTER TABLE mavis_video_jobs ENABLE ROW LEVEL SECURITY;
 DO $$ BEGIN
   CREATE POLICY "user own video jobs" ON mavis_video_jobs FOR ALL USING (auth.uid() = user_id);
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 CREATE INDEX idx_video_jobs_user ON mavis_video_jobs(user_id, created_at DESC);
+
 
 
 -- ======== 20260529000009_health_apis.sql ========
@@ -1960,7 +2026,8 @@ CREATE TABLE IF NOT EXISTS whoop_tokens (
 ALTER TABLE whoop_tokens ENABLE ROW LEVEL SECURITY;
 DO $$ BEGIN
   CREATE POLICY "user own whoop tokens" ON whoop_tokens FOR ALL USING (auth.uid() = user_id);
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 -- WHOOP daily health data
 CREATE TABLE IF NOT EXISTS whoop_daily_data (
@@ -1982,7 +2049,8 @@ CREATE TABLE IF NOT EXISTS whoop_daily_data (
 ALTER TABLE whoop_daily_data ENABLE ROW LEVEL SECURITY;
 DO $$ BEGIN
   CREATE POLICY "user own whoop data" ON whoop_daily_data FOR ALL USING (auth.uid() = user_id);
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 CREATE INDEX idx_whoop_user_date ON whoop_daily_data(user_id, date DESC);
 
 -- Samsung Galaxy Ring daily data
@@ -2005,7 +2073,8 @@ CREATE TABLE IF NOT EXISTS galaxy_ring_daily_data (
 ALTER TABLE galaxy_ring_daily_data ENABLE ROW LEVEL SECURITY;
 DO $$ BEGIN
   CREATE POLICY "user own ring data" ON galaxy_ring_daily_data FOR ALL USING (auth.uid() = user_id);
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 CREATE INDEX idx_ring_user_date ON galaxy_ring_daily_data(user_id, date DESC);
 
 -- Health integration settings
@@ -2022,7 +2091,9 @@ CREATE TABLE IF NOT EXISTS health_integration_settings (
 ALTER TABLE health_integration_settings ENABLE ROW LEVEL SECURITY;
 DO $$ BEGIN
   CREATE POLICY "user own health settings" ON health_integration_settings FOR ALL USING (auth.uid() = user_id);
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
 
 
 -- ======== 20260529000010_agentic_integrations.sql ========
@@ -2043,7 +2114,8 @@ CREATE TABLE IF NOT EXISTS a2a_tasks (
 ALTER TABLE a2a_tasks ENABLE ROW LEVEL SECURITY;
 DO $$ BEGIN
   CREATE POLICY "user own a2a tasks" ON a2a_tasks FOR ALL USING (auth.uid() = user_id);
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 CREATE INDEX idx_a2a_tasks_user ON a2a_tasks(user_id, created_at DESC);
 
 -- Code delegation sessions (Devin/Cursor)
@@ -2063,7 +2135,8 @@ CREATE TABLE IF NOT EXISTS code_delegation_sessions (
 ALTER TABLE code_delegation_sessions ENABLE ROW LEVEL SECURITY;
 DO $$ BEGIN
   CREATE POLICY "user own code sessions" ON code_delegation_sessions FOR ALL USING (auth.uid() = user_id);
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 -- Computer use task log
 CREATE TABLE IF NOT EXISTS computer_use_tasks (
@@ -2080,7 +2153,9 @@ CREATE TABLE IF NOT EXISTS computer_use_tasks (
 ALTER TABLE computer_use_tasks ENABLE ROW LEVEL SECURITY;
 DO $$ BEGIN
   CREATE POLICY "user own computer use" ON computer_use_tasks FOR ALL USING (auth.uid() = user_id);
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
 
 
 -- ======== 20260529000011_finance_education.sql ========
@@ -2101,7 +2176,8 @@ CREATE TABLE IF NOT EXISTS era_financial_cache (
 ALTER TABLE era_financial_cache ENABLE ROW LEVEL SECURITY;
 DO $$ BEGIN
   CREATE POLICY "user own finance cache" ON era_financial_cache FOR ALL USING (auth.uid() = user_id);
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 -- Reclaim.ai schedule blocks
 CREATE TABLE IF NOT EXISTS reclaim_schedule_blocks (
@@ -2118,7 +2194,8 @@ CREATE TABLE IF NOT EXISTS reclaim_schedule_blocks (
 ALTER TABLE reclaim_schedule_blocks ENABLE ROW LEVEL SECURITY;
 DO $$ BEGIN
   CREATE POLICY "user own schedule" ON reclaim_schedule_blocks FOR ALL USING (auth.uid() = user_id);
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 CREATE INDEX idx_reclaim_user_time ON reclaim_schedule_blocks(user_id, start_time);
 
 -- Khanmigo Socratic tutoring sessions
@@ -2138,8 +2215,10 @@ CREATE TABLE IF NOT EXISTS tutoring_sessions (
 ALTER TABLE tutoring_sessions ENABLE ROW LEVEL SECURITY;
 DO $$ BEGIN
   CREATE POLICY "user own tutoring" ON tutoring_sessions FOR ALL USING (auth.uid() = user_id);
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 CREATE INDEX idx_tutoring_user ON tutoring_sessions(user_id, created_at DESC);
+
 
 
 -- ======== 20260529000012_social_wearables.sql ========
@@ -2161,7 +2240,8 @@ CREATE TABLE IF NOT EXISTS nora_content_queue (
 ALTER TABLE nora_content_queue ENABLE ROW LEVEL SECURITY;
 DO $$ BEGIN
   CREATE POLICY "user own nora content" ON nora_content_queue FOR ALL USING (auth.uid() = user_id);
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 CREATE INDEX idx_nora_content_user ON nora_content_queue(user_id, scheduled_for);
 
 -- Screenpipe memory sync log
@@ -2176,7 +2256,8 @@ CREATE TABLE IF NOT EXISTS screenpipe_sync_log (
 ALTER TABLE screenpipe_sync_log ENABLE ROW LEVEL SECURITY;
 DO $$ BEGIN
   CREATE POLICY "user own screenpipe log" ON screenpipe_sync_log FOR ALL USING (auth.uid() = user_id);
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 -- Wearable overlay history
 CREATE TABLE IF NOT EXISTS wearable_overlay_history (
@@ -2191,7 +2272,9 @@ CREATE TABLE IF NOT EXISTS wearable_overlay_history (
 ALTER TABLE wearable_overlay_history ENABLE ROW LEVEL SECURITY;
 DO $$ BEGIN
   CREATE POLICY "user own overlay history" ON wearable_overlay_history FOR ALL USING (auth.uid() = user_id);
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
 
 
 -- ======== 20260529000013_website_builder.sql ========
@@ -2214,7 +2297,8 @@ CREATE TABLE IF NOT EXISTS website_clients (
 ALTER TABLE website_clients ENABLE ROW LEVEL SECURITY;
 DO $$ BEGIN
   CREATE POLICY "user own clients" ON website_clients FOR ALL USING (auth.uid() = user_id);
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 CREATE INDEX idx_website_clients_user ON website_clients(user_id, created_at DESC);
 
 -- Website projects (one project = one client website)
@@ -2248,7 +2332,8 @@ CREATE TABLE IF NOT EXISTS website_projects (
 ALTER TABLE website_projects ENABLE ROW LEVEL SECURITY;
 DO $$ BEGIN
   CREATE POLICY "user own projects" ON website_projects FOR ALL USING (auth.uid() = user_id);
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 CREATE INDEX idx_website_projects_user ON website_projects(user_id, created_at DESC);
 CREATE INDEX idx_website_projects_client ON website_projects(client_id);
 
@@ -2268,7 +2353,8 @@ CREATE TABLE IF NOT EXISTS wp_credentials (
 ALTER TABLE wp_credentials ENABLE ROW LEVEL SECURITY;
 DO $$ BEGIN
   CREATE POLICY "user own wp creds" ON wp_credentials FOR ALL USING (auth.uid() = user_id);
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 -- Generated website pages
 CREATE TABLE IF NOT EXISTS website_pages (
@@ -2294,7 +2380,8 @@ CREATE TABLE IF NOT EXISTS website_pages (
 ALTER TABLE website_pages ENABLE ROW LEVEL SECURITY;
 DO $$ BEGIN
   CREATE POLICY "user own pages" ON website_pages FOR ALL USING (auth.uid() = user_id);
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 CREATE INDEX idx_website_pages_project ON website_pages(project_id);
 
 -- Website generation jobs (track long-running builds)
@@ -2315,7 +2402,8 @@ CREATE TABLE IF NOT EXISTS website_generation_jobs (
 ALTER TABLE website_generation_jobs ENABLE ROW LEVEL SECURITY;
 DO $$ BEGIN
   CREATE POLICY "user own jobs" ON website_generation_jobs FOR ALL USING (auth.uid() = user_id);
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 -- Service pricing tiers
 CREATE TABLE IF NOT EXISTS website_service_tiers (
@@ -2336,10 +2424,12 @@ CREATE TABLE IF NOT EXISTS website_service_tiers (
 ALTER TABLE website_service_tiers ENABLE ROW LEVEL SECURITY;
 DO $$ BEGIN
   CREATE POLICY "user own tiers" ON website_service_tiers FOR ALL USING (auth.uid() = user_id);
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 -- Seed default service tiers (runs on first insert)
 -- Users will customize these
+
 
 
 -- ======== 20260529000014_widget_system.sql ========
@@ -2365,7 +2455,8 @@ CREATE TABLE IF NOT EXISTS widget_instances (
 ALTER TABLE widget_instances ENABLE ROW LEVEL SECURITY;
 DO $$ BEGIN
   CREATE POLICY "user own widgets" ON widget_instances FOR ALL USING (auth.uid() = user_id);
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 CREATE INDEX idx_widgets_user ON widget_instances(user_id, created_at DESC);
 CREATE INDEX idx_widgets_project ON widget_instances(project_id);
 
@@ -2382,8 +2473,9 @@ CREATE TABLE IF NOT EXISTS widget_chat_logs (
 ALTER TABLE widget_chat_logs ENABLE ROW LEVEL SECURITY;
 DO $$ BEGIN
   CREATE POLICY "user own chat logs" ON widget_chat_logs FOR ALL
-  USING (EXISTS (SELECT 1 FROM widget_instances WHERE id = widget_chat_logs.widget_id AND user_id = auth.uid()));
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+    USING (EXISTS (SELECT 1 FROM widget_instances WHERE id = widget_chat_logs.widget_id AND user_id = auth.uid()));
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 CREATE INDEX idx_chat_logs_widget ON widget_chat_logs(widget_id, created_at DESC);
 
 -- Widget leads (from lead capture, quote calculator, appointment booker)
@@ -2406,8 +2498,9 @@ CREATE TABLE IF NOT EXISTS widget_leads (
 ALTER TABLE widget_leads ENABLE ROW LEVEL SECURITY;
 DO $$ BEGIN
   CREATE POLICY "user own leads" ON widget_leads FOR ALL
-  USING (EXISTS (SELECT 1 FROM widget_instances WHERE id = widget_leads.widget_id AND user_id = auth.uid()));
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+    USING (EXISTS (SELECT 1 FROM widget_instances WHERE id = widget_leads.widget_id AND user_id = auth.uid()));
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 CREATE INDEX idx_leads_widget ON widget_leads(widget_id, created_at DESC);
 CREATE INDEX idx_leads_status ON widget_leads(status, created_at DESC);
 
@@ -2422,8 +2515,9 @@ CREATE TABLE IF NOT EXISTS widget_usage_stats (
 ALTER TABLE widget_usage_stats ENABLE ROW LEVEL SECURITY;
 DO $$ BEGIN
   CREATE POLICY "user own usage" ON widget_usage_stats FOR ALL
-  USING (EXISTS (SELECT 1 FROM widget_instances WHERE id = widget_usage_stats.widget_id AND user_id = auth.uid()));
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+    USING (EXISTS (SELECT 1 FROM widget_instances WHERE id = widget_usage_stats.widget_id AND user_id = auth.uid()));
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 -- Increment usage count RPC
 CREATE OR REPLACE FUNCTION increment_widget_usage(p_widget_id text, p_action text)
@@ -2456,35 +2550,40 @@ BEGIN
 END $$;
 
 
+
 -- ======== 20260530000001_mavis_planner.sql ========
 -- Extend mavis_plans with columns used by the mavis-planner edge function
 DO $$ BEGIN
   ALTER TABLE mavis_plans
-  ADD COLUMN IF NOT EXISTS summary text,
-  ADD COLUMN IF NOT EXISTS updated_at timestamptz DEFAULT now();
-EXCEPTION WHEN undefined_table THEN NULL; WHEN undefined_column THEN NULL; END $$;
+    ADD COLUMN IF NOT EXISTS summary text,
+    ADD COLUMN IF NOT EXISTS updated_at timestamptz DEFAULT now();
+EXCEPTION WHEN undefined_table THEN NULL; WHEN others THEN NULL;
+END $$;
 
 -- Extend mavis_plan_steps with phase-based planning columns used by mavis-planner
 DO $$ BEGIN
   ALTER TABLE mavis_plan_steps
-  ADD COLUMN IF NOT EXISTS phase text,
-  ADD COLUMN IF NOT EXISTS step_order int,
-  ADD COLUMN IF NOT EXISTS estimated_minutes int DEFAULT 30,
-  ADD COLUMN IF NOT EXISTS quest_id uuid;
-EXCEPTION WHEN undefined_table THEN NULL; WHEN undefined_column THEN NULL; END $$;
+    ADD COLUMN IF NOT EXISTS phase text,
+    ADD COLUMN IF NOT EXISTS step_order int,
+    ADD COLUMN IF NOT EXISTS estimated_minutes int DEFAULT 30,
+    ADD COLUMN IF NOT EXISTS quest_id uuid;
+EXCEPTION WHEN undefined_table THEN NULL; WHEN others THEN NULL;
+END $$;
 
 CREATE INDEX IF NOT EXISTS idx_mavis_plan_steps_plan_id ON mavis_plan_steps(plan_id);
+
 
 
 -- ======== 20260530000002_stripe_widget_billing.sql ========
 DO $$ BEGIN
   ALTER TABLE widget_instances
-  ADD COLUMN IF NOT EXISTS stripe_customer_id text,
-  ADD COLUMN IF NOT EXISTS stripe_subscription_id text,
-  ADD COLUMN IF NOT EXISTS stripe_price_id text,
-  ADD COLUMN IF NOT EXISTS current_period_end timestamptz,
-  ADD COLUMN IF NOT EXISTS cancel_at_period_end boolean DEFAULT false;
-EXCEPTION WHEN undefined_table THEN NULL; WHEN undefined_column THEN NULL; END $$;
+    ADD COLUMN IF NOT EXISTS stripe_customer_id text,
+    ADD COLUMN IF NOT EXISTS stripe_subscription_id text,
+    ADD COLUMN IF NOT EXISTS stripe_price_id text,
+    ADD COLUMN IF NOT EXISTS current_period_end timestamptz,
+    ADD COLUMN IF NOT EXISTS cancel_at_period_end boolean DEFAULT false;
+EXCEPTION WHEN undefined_table THEN NULL; WHEN others THEN NULL;
+END $$;
 
 CREATE INDEX IF NOT EXISTS idx_widget_instances_stripe_sub ON widget_instances(stripe_subscription_id) WHERE stripe_subscription_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_widget_instances_stripe_cust ON widget_instances(stripe_customer_id) WHERE stripe_customer_id IS NOT NULL;
@@ -2495,6 +2594,7 @@ CREATE TABLE IF NOT EXISTS stripe_webhook_events (
   type text NOT NULL,
   processed_at timestamptz DEFAULT now()
 );
+
 
 
 -- ======== 20260530000003_video_editor.sql ========
@@ -2584,16 +2684,20 @@ ALTER TABLE video_render_jobs ENABLE ROW LEVEL SECURITY;
 
 DO $$ BEGIN
   CREATE POLICY "users own video_projects" ON video_projects FOR ALL USING (auth.uid() = user_id);
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 DO $$ BEGIN
   CREATE POLICY "users own video_segments" ON video_segments FOR ALL USING (auth.uid() = user_id);
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 DO $$ BEGIN
   CREATE POLICY "users own video_clips" ON video_clips FOR ALL USING (auth.uid() = user_id);
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 DO $$ BEGIN
   CREATE POLICY "users own video_render_jobs" ON video_render_jobs FOR ALL USING (auth.uid() = user_id);
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 -- Indexes
 CREATE INDEX IF NOT EXISTS idx_video_projects_user ON video_projects(user_id);
@@ -2606,14 +2710,16 @@ CREATE INDEX IF NOT EXISTS idx_video_clips_format ON video_clips(project_id, for
 -- Or create via dashboard: Storage → New bucket → "video-projects" → Public
 
 
+
 -- ======== 20260530000004_sub_quests.sql ========
 -- Add parent_quest_id to enable sub-quests (quests nested under parent quests).
 -- Sub-quests appear in the Quests tab under their parent quest.
 -- MAVIS uses create_quest with parent_quest_id instead of create_task.
 DO $$ BEGIN
   ALTER TABLE quests
-  ADD COLUMN IF NOT EXISTS parent_quest_id uuid REFERENCES quests(id) ON DELETE CASCADE;
-EXCEPTION WHEN undefined_table THEN NULL; WHEN undefined_column THEN NULL; END $$;
+    ADD COLUMN IF NOT EXISTS parent_quest_id uuid REFERENCES quests(id) ON DELETE CASCADE;
+EXCEPTION WHEN undefined_table THEN NULL; WHEN others THEN NULL;
+END $$;
 
 -- Index for efficient sub-quest lookup
 CREATE INDEX IF NOT EXISTS idx_quests_parent_quest_id ON quests(parent_quest_id)
