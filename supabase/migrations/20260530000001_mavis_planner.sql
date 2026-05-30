@@ -1,14 +1,9 @@
--- Extend mavis_plans with summary and text context (plan_execute migration adds jsonb context)
+-- Extend mavis_plans with columns used by the mavis-planner edge function
 ALTER TABLE mavis_plans
   ADD COLUMN IF NOT EXISTS summary text,
   ADD COLUMN IF NOT EXISTS updated_at timestamptz DEFAULT now();
 
--- Allow context to hold plain text as well (cast existing jsonb to text-compatible via new column if needed)
--- We add a separate text column for plain-text context from mavis-planner
-ALTER TABLE mavis_plans
-  ADD COLUMN IF NOT EXISTS context_text text;
-
--- Extend mavis_plan_steps with phase and step_order used by mavis-planner
+-- Extend mavis_plan_steps with phase-based planning columns used by mavis-planner
 ALTER TABLE mavis_plan_steps
   ADD COLUMN IF NOT EXISTS phase text,
   ADD COLUMN IF NOT EXISTS step_order int,

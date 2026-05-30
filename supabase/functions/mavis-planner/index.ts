@@ -172,7 +172,7 @@ serve(async (req) => {
         goal,
         summary: String(plan.summary ?? "").slice(0, 500),
         status: "active",
-        context,
+        context: context ? { text: context } : null,
         total_steps: plan.phases.reduce((acc, ph) => acc + ph.steps.length, 0),
       })
       .select("id")
