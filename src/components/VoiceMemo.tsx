@@ -136,7 +136,7 @@ export function VoiceMemo({ inline = false }: VoiceMemoProps) {
   // Floating preview card (default behavior)
   if (state === "preview" && result) {
     return (
-      <div className="fixed bottom-6 right-6 z-50 w-80 bg-[#0d0d0d] border border-neon-gold/30 rounded-xl p-4 shadow-2xl">
+      <div className="fixed bottom-6 left-6 z-50 w-80 bg-[#0d0d0d] border border-neon-gold/30 rounded-xl p-4 shadow-2xl">
         <div className="flex items-center justify-between mb-2">
           <span className="text-xs font-mono font-semibold text-neon-gold">VOICE MEMO</span>
           <span className="text-[10px] text-white/40 font-mono">{result.mood.toUpperCase()}</span>
@@ -190,7 +190,7 @@ export function VoiceMemo({ inline = false }: VoiceMemoProps) {
 
   // Floating mode (default)
   return (
-    <div className="fixed bottom-6 right-6 z-50">
+    <div className="fixed bottom-6 left-6 z-50">
       {state === "recording" && (
         <div className="flex items-center gap-2 bg-[#0d0d0d] border border-red-500/40 rounded-full px-3 py-1.5 mb-2 shadow-lg">
           <span className="h-2 w-2 rounded-full bg-red-500 animate-pulse" />
