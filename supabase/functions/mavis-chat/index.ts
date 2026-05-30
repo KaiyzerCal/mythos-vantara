@@ -854,11 +854,10 @@ serve(async (req) => {
     }
     const messages = trimHistory(rawMessages);
 
-    // Fetch profile from DB (don't trust client-sent profile)
-    const { data: profile } = await sb.from("profiles").select("*").eq("id", user.id).single();
-    if (!profile) throw new Error("Profile not found");
-
-    // ── PULL APP DATA SERVER-SIDE (compact summaries by default, deep detail on demand) ──
+    // ── SINGLE-ROUND DB FETCH — all queries fire in parallel ──────────────────
+    // Profile, app data, tacit memory, NAVIs, and proactive-alert queries all
+    // launched together so we pay only ONE network round-trip to Postgres before
+    // building the system prompt and calling the AI.
     const lastUserMsgEarly = [...(messages || [])].reverse().find((m: any) => m.role === "user");
     const q = (lastUserMsgEarly?.content || "").toLowerCase();
     const wants = {
@@ -881,12 +880,20 @@ serve(async (req) => {
     };
     const lim = (key: keyof typeof wants, deep: number, shallow: number) => wants[key] ? deep : shallow;
 
+    const sevenDaysAgo = new Date(Date.now() - 7 * 86400000).toISOString();
+    const twoDaysAgo   = new Date(Date.now() - 2 * 86400000).toISOString();
+
     const [
+      profileRes,
       questsRes, tasksRes, skillsRes, journalRes, vaultRes, councilsRes,
       alliesRes, energyRes, inventoryRes, ritualsRes, transformationsRes,
       rankingsRes, bpmRes, storeRes, currenciesRes, vaultMediaRes,
       activityRes, memoriesRes,
+      tacitRes,
+      naviPersonasRes, naviRelationsRes,
+      stalledRes, streakRes, revenueRes,
     ] = await Promise.all([
+      sb.from("profiles").select("*").eq("id", user.id).single(),
       sb.from("quests").select("id,title,description,type,status,difficulty,xp_reward,progress_current,progress_target,deadline,real_world_mapping").eq("user_id", user.id).order("created_at", { ascending: false }).limit(lim("quest", 25, 10)),
       sb.from("tasks").select("id,title,description,type,status,recurrence,xp_reward,streak,completed_count").eq("user_id", user.id).order("created_at", { ascending: false }).limit(lim("task", 20, 8)),
       sb.from("skills").select("id,name,description,category,tier,proficiency,energy_type,unlocked,parent_skill_id,cost").eq("user_id", user.id).order("created_at", { ascending: false }).limit(lim("skill", 30, 12)),
@@ -905,7 +912,19 @@ serve(async (req) => {
       sb.from("vault_media").select("id,file_name,file_type,description,vault_entry_id").eq("user_id", user.id).order("created_at", { ascending: false }).limit(lim("vault", 15, 5)),
       sb.from("activity_log").select("event_type,xp_amount,description,created_at").eq("user_id", user.id).order("created_at", { ascending: false }).limit(lim("activity", 12, 4)),
       sb.from("memories").select("title,content,metadata,source").eq("user_id", user.id).order("created_at", { ascending: false }).limit(lim("memory", 6, 2)),
+      // tacit memory
+      sb.from("mavis_tacit").select("category,key,value,confidence").eq("user_id", user.id).order("confidence", { ascending: false }).limit(60),
+      // NAVI ecosystem
+      sb.from("personas").select("id, name, role, archetype, finetune_status").eq("user_id", user.id).eq("is_active", true).order("created_at", { ascending: false }).limit(10),
+      sb.from("relationship_states").select("persona_id, bond_level, trust_level, current_mood, total_interactions, last_interaction_at, relationship_milestones").eq("user_id", user.id),
+      // proactive alerts
+      sb.from("quests").select("title").eq("user_id", user.id).eq("status", "active").lt("updated_at", sevenDaysAgo).limit(5),
+      sb.from("tasks").select("title,streak").eq("user_id", user.id).eq("type", "habit").gt("streak", 2).lt("updated_at", twoDaysAgo).limit(5),
+      sb.from("mavis_revenue").select("id").eq("user_id", user.id).gte("created_at", sevenDaysAgo).limit(1),
     ]);
+
+    const profile = profileRes.data;
+    if (!profile) throw new Error("Profile not found");
 
     const dbState = {
       quests: questsRes.data || [], tasks: tasksRes.data || [], skills: skillsRes.data || [],
@@ -916,19 +935,11 @@ serve(async (req) => {
       vaultMedia: vaultMediaRes.data || [], activityLog: activityRes.data || [], memories: memoriesRes.data || [],
     };
 
-    // ── Tacit memory injection ──────────────────────────────────────────────────
-    // MAVIS's learned preferences, hard rules, and corrections — read back into
-    // every request so she never forgets what the operator has taught her.
+    // ── Tacit memory block ────────────────────────────────────────────────────
     let tacitBlock = "";
     try {
-      const { data: tacitData } = await sb
-        .from("mavis_tacit")
-        .select("category,key,value,confidence")
-        .eq("user_id", user.id)
-        .order("confidence", { ascending: false })
-        .limit(60);
-
-      if (tacitData?.length) {
+      const tacitData = tacitRes.data ?? [];
+      if (tacitData.length) {
         const tacit = tacitData as any[];
         const hardRules   = tacit.filter((t: any) => t.category === "hard_rule");
         const corrections = tacit.filter((t: any) => t.category === "correction");
@@ -949,16 +960,9 @@ serve(async (req) => {
       }
     } catch { /* non-critical */ }
 
-    // ── NAVI Ecosystem Context ──────────────────────────────────────────────────
-    // Load the user's active NAVIs and their relationship states so MAVIS is aware
-    // of the user's companion network — bonds formed, moods, milestones reached.
+    // ── NAVI Ecosystem Context ────────────────────────────────────────────────
     let naviBlock = "";
     try {
-      const [naviPersonasRes, naviRelationsRes] = await Promise.all([
-        sb.from("personas").select("id, name, role, archetype, finetune_status").eq("user_id", user.id).eq("is_active", true).order("created_at", { ascending: false }).limit(10),
-        sb.from("relationship_states").select("persona_id, bond_level, trust_level, current_mood, total_interactions, last_interaction_at, relationship_milestones").eq("user_id", user.id),
-      ]);
-
       const naviPersonas  = naviPersonasRes.data ?? [];
       const naviRelations = naviRelationsRes.data ?? [];
 
@@ -1285,16 +1289,9 @@ You always know the current date and time without being told. Reference it natur
 ═══ END TEMPORAL AWARENESS ═══`;
 
     // ── Proactive pattern detection ──────────────────────────
-    // Silently detect patterns MAVIS should surface when contextually relevant.
+    // Uses pre-fetched results from the mega Promise.all above — no extra DB round-trip.
     let proactiveBlock = "";
     try {
-      const sevenDaysAgo = new Date(Date.now() - 7 * 86400000).toISOString();
-      const twoDaysAgo   = new Date(Date.now() - 2 * 86400000).toISOString();
-      const [stalledRes, streakRes, revenueRes] = await Promise.all([
-        sb.from("quests").select("title").eq("user_id", user.id).eq("status", "active").lt("updated_at", sevenDaysAgo).limit(5),
-        sb.from("tasks").select("title,streak").eq("user_id", user.id).eq("type", "habit").gt("streak", 2).lt("updated_at", twoDaysAgo).limit(5),
-        sb.from("mavis_revenue").select("id").eq("user_id", user.id).gte("created_at", sevenDaysAgo).limit(1),
-      ]);
       const alerts: string[] = [];
       if (stalledRes.data?.length) {
         alerts.push(`${stalledRes.data.length} quest(s) idle 7+ days: ${(stalledRes.data as any[]).slice(0, 3).map((q: any) => q.title).join(", ")}`);
