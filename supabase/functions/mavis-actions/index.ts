@@ -1185,6 +1185,39 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
       return await planRes.json();
     }
 
+    case "analyze_video": {
+      const avUrl = `${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-video-editor`;
+      const avRes = await fetch(avUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
+        body: JSON.stringify({ action: "analyze", user_id: userId, ...action }),
+      });
+      if (!avRes.ok) throw new Error(`mavis-video-editor error: ${avRes.status}`);
+      return await avRes.json();
+    }
+
+    case "generate_clips": {
+      const gcUrl = `${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-video-editor`;
+      const gcRes = await fetch(gcUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
+        body: JSON.stringify({ action: "generate_clips", user_id: userId, ...action }),
+      });
+      if (!gcRes.ok) throw new Error(`mavis-video-editor generate_clips error: ${gcRes.status}`);
+      return await gcRes.json();
+    }
+
+    case "render_clip": {
+      const rcUrl = `${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-video-render`;
+      const rcRes = await fetch(rcUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
+        body: JSON.stringify({ action: "render", user_id: userId, ...action }),
+      });
+      if (!rcRes.ok) throw new Error(`mavis-video-render error: ${rcRes.status}`);
+      return await rcRes.json();
+    }
+
     default:
       throw new Error(`Unknown MAVIS action: ${action.type}`);
   }
