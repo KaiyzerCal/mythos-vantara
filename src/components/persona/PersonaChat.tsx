@@ -5,6 +5,7 @@ import { cn } from "@/lib/utils";
 import { HudCard } from "@/components/SharedUI";
 import { AnimatePresence } from "framer-motion";
 import { VoiceChatOverlay } from "@/components/VoiceChatOverlay";
+import { VoiceMemo } from "@/components/VoiceMemo";
 import { usePersona } from "@/hooks/usePersona";
 import { useScrollKit, ScrollProgressBar, BackToTopButton, ScrollToBottomButton, EndOfFeed } from "@/components/chat/ScrollKit";
 import type { ForgedPersona } from "@/hooks/usePersonaForge";
