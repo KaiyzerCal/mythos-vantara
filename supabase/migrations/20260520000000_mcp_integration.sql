@@ -22,8 +22,10 @@ CREATE INDEX IF NOT EXISTS mavis_tool_executions_user_idx  ON mavis_tool_executi
 CREATE INDEX IF NOT EXISTS mavis_tool_executions_tool_idx  ON mavis_tool_executions(tool_name);
 
 ALTER TABLE mavis_tool_executions ENABLE ROW LEVEL SECURITY;
-CREATE POLICY IF NOT EXISTS "tool_exec_own" ON mavis_tool_executions
-  FOR ALL USING (auth.uid() = user_id);
+DO $$ BEGIN
+  CREATE POLICY "tool_exec_own" ON mavis_tool_executions
+    FOR ALL USING (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- ── Knowledge graph traversal indexes ────────────────────────────────────────
 -- Fast BFS over mavis_note_wikilinks requires covering indexes on both
@@ -58,8 +60,10 @@ CREATE TABLE IF NOT EXISTS mavis_workflow_executions (
 );
 
 ALTER TABLE mavis_workflow_executions ENABLE ROW LEVEL SECURITY;
-CREATE POLICY IF NOT EXISTS "workflow_exec_own" ON mavis_workflow_executions
-  FOR ALL USING (auth.uid() = user_id);
+DO $$ BEGIN
+  CREATE POLICY "workflow_exec_own" ON mavis_workflow_executions
+    FOR ALL USING (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- ── Sequential thought log ────────────────────────────────────────────────────
 -- Stores reasoning chains MAVIS ran before complex actions.
@@ -79,5 +83,7 @@ CREATE TABLE IF NOT EXISTS mavis_thought_chains (
 );
 
 ALTER TABLE mavis_thought_chains ENABLE ROW LEVEL SECURITY;
-CREATE POLICY IF NOT EXISTS "thought_chains_own" ON mavis_thought_chains
-  FOR ALL USING (auth.uid() = user_id);
+DO $$ BEGIN
+  CREATE POLICY "thought_chains_own" ON mavis_thought_chains
+    FOR ALL USING (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;

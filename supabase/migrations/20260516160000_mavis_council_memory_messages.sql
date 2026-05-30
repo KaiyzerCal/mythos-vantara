@@ -17,9 +17,9 @@ CREATE TABLE IF NOT EXISTS mavis_council_memory (
 
 ALTER TABLE mavis_council_memory ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY "own council memory"
-  ON mavis_council_memory FOR ALL
-  USING (auth.uid() = user_id);
+DO $$ BEGIN
+  CREATE POLICY "own council memory" ON mavis_council_memory FOR ALL USING (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 CREATE INDEX IF NOT EXISTS idx_council_memory_member
   ON mavis_council_memory (council_member_id, created_at DESC);
@@ -72,9 +72,9 @@ CREATE TABLE IF NOT EXISTS mavis_council_messages (
 
 ALTER TABLE mavis_council_messages ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY "own council messages"
-  ON mavis_council_messages FOR ALL
-  USING (auth.uid() = user_id);
+DO $$ BEGIN
+  CREATE POLICY "own council messages" ON mavis_council_messages FOR ALL USING (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 CREATE INDEX IF NOT EXISTS idx_council_messages_recipient
   ON mavis_council_messages (to_member_id, read, created_at DESC);

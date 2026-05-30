@@ -14,7 +14,9 @@ CREATE TABLE IF NOT EXISTS mavis_expenses (
 );
 
 ALTER TABLE mavis_expenses ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "own expenses" ON mavis_expenses FOR ALL USING (auth.uid() = user_id);
+DO $$ BEGIN
+  CREATE POLICY "own expenses" ON mavis_expenses FOR ALL USING (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 CREATE INDEX IF NOT EXISTS idx_expenses_user_date ON mavis_expenses (user_id, expense_date DESC);
 
 -- ── MAVIS operator bond ───────────────────────────────────────
@@ -31,7 +33,9 @@ CREATE TABLE IF NOT EXISTS mavis_bond (
 );
 
 ALTER TABLE mavis_bond ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "own bond" ON mavis_bond FOR ALL USING (auth.uid() = user_id);
+DO $$ BEGIN
+  CREATE POLICY "own bond" ON mavis_bond FOR ALL USING (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- ── pg_cron schedules (uncomment with real project ref + service role key) ──
 --

@@ -13,8 +13,10 @@ CREATE TABLE IF NOT EXISTS device_push_tokens (
 );
 
 ALTER TABLE device_push_tokens ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "Users manage own tokens" ON device_push_tokens
-  FOR ALL USING (auth.uid() = user_id);
+DO $$ BEGIN
+  CREATE POLICY "Users manage own tokens" ON device_push_tokens
+    FOR ALL USING (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 CREATE INDEX IF NOT EXISTS idx_device_push_tokens_user
   ON device_push_tokens(user_id) WHERE active = true;

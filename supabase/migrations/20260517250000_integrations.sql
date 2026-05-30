@@ -16,8 +16,10 @@ CREATE TABLE IF NOT EXISTS webhook_dispatch_config (
   created_at   TIMESTAMPTZ DEFAULT now()
 );
 ALTER TABLE webhook_dispatch_config ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "users own webhook_dispatch_config"
-  ON webhook_dispatch_config FOR ALL USING (auth.uid() = user_id);
+DO $$ BEGIN
+  CREATE POLICY "users own webhook_dispatch_config"
+    ON webhook_dispatch_config FOR ALL USING (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- Outbound webhook dispatch log
 CREATE TABLE IF NOT EXISTS webhook_dispatch_log (
@@ -49,8 +51,10 @@ CREATE TABLE IF NOT EXISTS social_post_analytics (
   fetched_at       TIMESTAMPTZ DEFAULT now()
 );
 ALTER TABLE social_post_analytics ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "users own social_post_analytics"
-  ON social_post_analytics FOR ALL USING (auth.uid() = user_id);
+DO $$ BEGIN
+  CREATE POLICY "users own social_post_analytics"
+    ON social_post_analytics FOR ALL USING (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- Email outbox
 CREATE TABLE IF NOT EXISTS email_outbox (
@@ -64,8 +68,10 @@ CREATE TABLE IF NOT EXISTS email_outbox (
   created_at  TIMESTAMPTZ DEFAULT now()
 );
 ALTER TABLE email_outbox ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "users own email_outbox"
-  ON email_outbox FOR ALL USING (auth.uid() = user_id);
+DO $$ BEGIN
+  CREATE POLICY "users own email_outbox"
+    ON email_outbox FOR ALL USING (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- Add external_post_id to mavis_social_posts for analytics linking
 ALTER TABLE mavis_social_posts ADD COLUMN IF NOT EXISTS external_post_id TEXT;

@@ -12,7 +12,9 @@ CREATE TABLE IF NOT EXISTS morning_digest_logs (
 ALTER TABLE morning_digest_logs ENABLE ROW LEVEL SECURITY;
 DO $$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename='morning_digest_logs' AND policyname='digest_owner') THEN
-    CREATE POLICY digest_owner ON morning_digest_logs FOR ALL USING (auth.uid() = user_id);
+DO $$ BEGIN
+      CREATE POLICY digest_owner ON morning_digest_logs FOR ALL USING (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
   END IF;
 END $$;
 

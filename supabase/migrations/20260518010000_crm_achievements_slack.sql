@@ -13,7 +13,9 @@ CREATE TABLE IF NOT EXISTS achievements (
   UNIQUE(user_id, achievement_key)
 );
 ALTER TABLE achievements ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "Users see own achievements" ON achievements FOR ALL USING (auth.uid() = user_id);
+DO $$ BEGIN
+  CREATE POLICY "Users see own achievements" ON achievements FOR ALL USING (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- CRM follow-up config columns on contacts (add if missing)
 DO $$ BEGIN
@@ -36,7 +38,9 @@ CREATE TABLE IF NOT EXISTS mavis_slack_config (
   created_at      TIMESTAMPTZ DEFAULT now()
 );
 ALTER TABLE mavis_slack_config ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "Users manage own slack config" ON mavis_slack_config FOR ALL USING (auth.uid() = user_id);
+DO $$ BEGIN
+  CREATE POLICY "Users manage own slack config" ON mavis_slack_config FOR ALL USING (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- Cron: auto-journal at 21:00 UTC daily
 SELECT cron.schedule('mavis-auto-journal', '0 21 * * *', $$

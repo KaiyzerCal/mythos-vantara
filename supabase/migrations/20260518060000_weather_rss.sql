@@ -12,7 +12,9 @@ CREATE TABLE IF NOT EXISTS rss_feeds (
 ALTER TABLE rss_feeds ENABLE ROW LEVEL SECURITY;
 DO $$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename='rss_feeds' AND policyname='rss_feeds_owner') THEN
-    CREATE POLICY rss_feeds_owner ON rss_feeds FOR ALL USING (auth.uid() = user_id);
+DO $$ BEGIN
+      CREATE POLICY rss_feeds_owner ON rss_feeds FOR ALL USING (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
   END IF;
 END $$;
 

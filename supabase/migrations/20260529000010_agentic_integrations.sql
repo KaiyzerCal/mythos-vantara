@@ -13,7 +13,9 @@ CREATE TABLE IF NOT EXISTS a2a_tasks (
   completed_at timestamptz
 );
 ALTER TABLE a2a_tasks ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "user own a2a tasks" ON a2a_tasks FOR ALL USING (auth.uid() = user_id);
+DO $$ BEGIN
+  CREATE POLICY "user own a2a tasks" ON a2a_tasks FOR ALL USING (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 CREATE INDEX idx_a2a_tasks_user ON a2a_tasks(user_id, created_at DESC);
 
 -- Code delegation sessions (Devin/Cursor)
@@ -31,7 +33,9 @@ CREATE TABLE IF NOT EXISTS code_delegation_sessions (
   updated_at timestamptz DEFAULT now()
 );
 ALTER TABLE code_delegation_sessions ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "user own code sessions" ON code_delegation_sessions FOR ALL USING (auth.uid() = user_id);
+DO $$ BEGIN
+  CREATE POLICY "user own code sessions" ON code_delegation_sessions FOR ALL USING (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- Computer use task log
 CREATE TABLE IF NOT EXISTS computer_use_tasks (
@@ -46,4 +50,6 @@ CREATE TABLE IF NOT EXISTS computer_use_tasks (
   completed_at timestamptz
 );
 ALTER TABLE computer_use_tasks ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "user own computer use" ON computer_use_tasks FOR ALL USING (auth.uid() = user_id);
+DO $$ BEGIN
+  CREATE POLICY "user own computer use" ON computer_use_tasks FOR ALL USING (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;

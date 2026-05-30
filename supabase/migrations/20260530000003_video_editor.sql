@@ -82,10 +82,18 @@ ALTER TABLE video_segments ENABLE ROW LEVEL SECURITY;
 ALTER TABLE video_clips ENABLE ROW LEVEL SECURITY;
 ALTER TABLE video_render_jobs ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY "users own video_projects" ON video_projects FOR ALL USING (auth.uid() = user_id);
-CREATE POLICY "users own video_segments" ON video_segments FOR ALL USING (auth.uid() = user_id);
-CREATE POLICY "users own video_clips" ON video_clips FOR ALL USING (auth.uid() = user_id);
-CREATE POLICY "users own video_render_jobs" ON video_render_jobs FOR ALL USING (auth.uid() = user_id);
+DO $$ BEGIN
+  CREATE POLICY "users own video_projects" ON video_projects FOR ALL USING (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN
+  CREATE POLICY "users own video_segments" ON video_segments FOR ALL USING (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN
+  CREATE POLICY "users own video_clips" ON video_clips FOR ALL USING (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN
+  CREATE POLICY "users own video_render_jobs" ON video_render_jobs FOR ALL USING (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- Indexes
 CREATE INDEX IF NOT EXISTS idx_video_projects_user ON video_projects(user_id);

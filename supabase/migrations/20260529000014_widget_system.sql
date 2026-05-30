@@ -18,7 +18,9 @@ CREATE TABLE IF NOT EXISTS widget_instances (
   updated_at timestamptz DEFAULT now()
 );
 ALTER TABLE widget_instances ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "user own widgets" ON widget_instances FOR ALL USING (auth.uid() = user_id);
+DO $$ BEGIN
+  CREATE POLICY "user own widgets" ON widget_instances FOR ALL USING (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 CREATE INDEX idx_widgets_user ON widget_instances(user_id, created_at DESC);
 CREATE INDEX idx_widgets_project ON widget_instances(project_id);
 
@@ -33,8 +35,10 @@ CREATE TABLE IF NOT EXISTS widget_chat_logs (
   created_at timestamptz DEFAULT now()
 );
 ALTER TABLE widget_chat_logs ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "user own chat logs" ON widget_chat_logs FOR ALL
-  USING (EXISTS (SELECT 1 FROM widget_instances WHERE id = widget_chat_logs.widget_id AND user_id = auth.uid()));
+DO $$ BEGIN
+  CREATE POLICY "user own chat logs" ON widget_chat_logs FOR ALL
+    USING (EXISTS (SELECT 1 FROM widget_instances WHERE id = widget_chat_logs.widget_id AND user_id = auth.uid()));
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 CREATE INDEX idx_chat_logs_widget ON widget_chat_logs(widget_id, created_at DESC);
 
 -- Widget leads (from lead capture, quote calculator, appointment booker)
@@ -55,8 +59,10 @@ CREATE TABLE IF NOT EXISTS widget_leads (
   created_at timestamptz DEFAULT now()
 );
 ALTER TABLE widget_leads ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "user own leads" ON widget_leads FOR ALL
-  USING (EXISTS (SELECT 1 FROM widget_instances WHERE id = widget_leads.widget_id AND user_id = auth.uid()));
+DO $$ BEGIN
+  CREATE POLICY "user own leads" ON widget_leads FOR ALL
+    USING (EXISTS (SELECT 1 FROM widget_instances WHERE id = widget_leads.widget_id AND user_id = auth.uid()));
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 CREATE INDEX idx_leads_widget ON widget_leads(widget_id, created_at DESC);
 CREATE INDEX idx_leads_status ON widget_leads(status, created_at DESC);
 
@@ -69,8 +75,10 @@ CREATE TABLE IF NOT EXISTS widget_usage_stats (
   PRIMARY KEY (widget_id, date, action_type)
 );
 ALTER TABLE widget_usage_stats ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "user own usage" ON widget_usage_stats FOR ALL
-  USING (EXISTS (SELECT 1 FROM widget_instances WHERE id = widget_usage_stats.widget_id AND user_id = auth.uid()));
+DO $$ BEGIN
+  CREATE POLICY "user own usage" ON widget_usage_stats FOR ALL
+    USING (EXISTS (SELECT 1 FROM widget_instances WHERE id = widget_usage_stats.widget_id AND user_id = auth.uid()));
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- Increment usage count RPC
 CREATE OR REPLACE FUNCTION increment_widget_usage(p_widget_id text, p_action text)

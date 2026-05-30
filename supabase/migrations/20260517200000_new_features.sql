@@ -19,7 +19,9 @@ CREATE TABLE IF NOT EXISTS public.contacts (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 ALTER TABLE public.contacts ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "Users manage own contacts" ON public.contacts FOR ALL TO authenticated USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+DO $$ BEGIN
+  CREATE POLICY "Users manage own contacts" ON public.contacts FOR ALL TO authenticated USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 CREATE INDEX idx_contacts_user ON public.contacts(user_id);
 
 -- Contact interactions log
@@ -33,7 +35,9 @@ CREATE TABLE IF NOT EXISTS public.contact_interactions (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 ALTER TABLE public.contact_interactions ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "Users manage own interactions" ON public.contact_interactions FOR ALL TO authenticated USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+DO $$ BEGIN
+  CREATE POLICY "Users manage own interactions" ON public.contact_interactions FOR ALL TO authenticated USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- Health metrics (Oura / Apple Health)
 CREATE TABLE IF NOT EXISTS public.health_metrics (
@@ -54,7 +58,9 @@ CREATE TABLE IF NOT EXISTS public.health_metrics (
   UNIQUE(user_id, date, source)
 );
 ALTER TABLE public.health_metrics ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "Users manage own health metrics" ON public.health_metrics FOR ALL TO authenticated USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+DO $$ BEGIN
+  CREATE POLICY "Users manage own health metrics" ON public.health_metrics FOR ALL TO authenticated USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 CREATE INDEX idx_health_metrics_user_date ON public.health_metrics(user_id, date DESC);
 
 -- MAVIS proactive insights
@@ -70,7 +76,9 @@ CREATE TABLE IF NOT EXISTS public.mavis_insights (
   generated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 ALTER TABLE public.mavis_insights ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "Users manage own insights" ON public.mavis_insights FOR ALL TO authenticated USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+DO $$ BEGIN
+  CREATE POLICY "Users manage own insights" ON public.mavis_insights FOR ALL TO authenticated USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 CREATE INDEX idx_insights_user ON public.mavis_insights(user_id, generated_at DESC);
 
 -- Calendar events
@@ -88,7 +96,9 @@ CREATE TABLE IF NOT EXISTS public.calendar_events (
   UNIQUE(user_id, event_uid)
 );
 ALTER TABLE public.calendar_events ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "Users manage own calendar events" ON public.calendar_events FOR ALL TO authenticated USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+DO $$ BEGIN
+  CREATE POLICY "Users manage own calendar events" ON public.calendar_events FOR ALL TO authenticated USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- Add scheduled_at to mavis_social_posts if not present
 ALTER TABLE public.mavis_social_posts ADD COLUMN IF NOT EXISTS scheduled_at TIMESTAMPTZ;

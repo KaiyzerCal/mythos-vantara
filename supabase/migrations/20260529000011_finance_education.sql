@@ -13,7 +13,9 @@ CREATE TABLE IF NOT EXISTS era_financial_cache (
   UNIQUE(user_id, cache_type, period_start)
 );
 ALTER TABLE era_financial_cache ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "user own finance cache" ON era_financial_cache FOR ALL USING (auth.uid() = user_id);
+DO $$ BEGIN
+  CREATE POLICY "user own finance cache" ON era_financial_cache FOR ALL USING (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- Reclaim.ai schedule blocks
 CREATE TABLE IF NOT EXISTS reclaim_schedule_blocks (
@@ -28,7 +30,9 @@ CREATE TABLE IF NOT EXISTS reclaim_schedule_blocks (
   synced_at timestamptz DEFAULT now()
 );
 ALTER TABLE reclaim_schedule_blocks ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "user own schedule" ON reclaim_schedule_blocks FOR ALL USING (auth.uid() = user_id);
+DO $$ BEGIN
+  CREATE POLICY "user own schedule" ON reclaim_schedule_blocks FOR ALL USING (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 CREATE INDEX idx_reclaim_user_time ON reclaim_schedule_blocks(user_id, start_time);
 
 -- Khanmigo Socratic tutoring sessions
@@ -46,5 +50,7 @@ CREATE TABLE IF NOT EXISTS tutoring_sessions (
   updated_at timestamptz DEFAULT now()
 );
 ALTER TABLE tutoring_sessions ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "user own tutoring" ON tutoring_sessions FOR ALL USING (auth.uid() = user_id);
+DO $$ BEGIN
+  CREATE POLICY "user own tutoring" ON tutoring_sessions FOR ALL USING (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 CREATE INDEX idx_tutoring_user ON tutoring_sessions(user_id, created_at DESC);

@@ -13,7 +13,9 @@ CREATE TABLE IF NOT EXISTS meeting_notes (
   created_at TIMESTAMPTZ DEFAULT now()
 );
 ALTER TABLE meeting_notes ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "users own meeting_notes" ON meeting_notes FOR ALL USING (auth.uid() = user_id);
+DO $$ BEGIN
+  CREATE POLICY "users own meeting_notes" ON meeting_notes FOR ALL USING (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 CREATE INDEX IF NOT EXISTS idx_meeting_notes_user_date ON meeting_notes(user_id, created_at DESC);
 
 -- time_logs table
@@ -30,5 +32,7 @@ CREATE TABLE IF NOT EXISTS time_logs (
   created_at TIMESTAMPTZ DEFAULT now()
 );
 ALTER TABLE time_logs ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "users own time_logs" ON time_logs FOR ALL USING (auth.uid() = user_id);
+DO $$ BEGIN
+  CREATE POLICY "users own time_logs" ON time_logs FOR ALL USING (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 CREATE INDEX IF NOT EXISTS idx_time_logs_user_date ON time_logs(user_id, started_at DESC);

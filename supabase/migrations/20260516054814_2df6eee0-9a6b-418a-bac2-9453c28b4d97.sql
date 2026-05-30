@@ -11,10 +11,18 @@ CREATE TABLE public.mavis_notes (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 ALTER TABLE public.mavis_notes ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "Users view own notes" ON public.mavis_notes FOR SELECT USING (auth.uid() = user_id);
-CREATE POLICY "Users insert own notes" ON public.mavis_notes FOR INSERT WITH CHECK (auth.uid() = user_id);
-CREATE POLICY "Users update own notes" ON public.mavis_notes FOR UPDATE USING (auth.uid() = user_id);
-CREATE POLICY "Users delete own notes" ON public.mavis_notes FOR DELETE USING (auth.uid() = user_id);
+DO $$ BEGIN
+  CREATE POLICY "Users view own notes" ON public.mavis_notes FOR SELECT USING (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN
+  CREATE POLICY "Users insert own notes" ON public.mavis_notes FOR INSERT WITH CHECK (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN
+  CREATE POLICY "Users update own notes" ON public.mavis_notes FOR UPDATE USING (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN
+  CREATE POLICY "Users delete own notes" ON public.mavis_notes FOR DELETE USING (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 CREATE INDEX idx_mavis_notes_user ON public.mavis_notes(user_id);
 CREATE TRIGGER update_mavis_notes_updated_at BEFORE UPDATE ON public.mavis_notes FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
 
@@ -28,15 +36,21 @@ CREATE TABLE public.mavis_note_links (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 ALTER TABLE public.mavis_note_links ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "Users view own note links" ON public.mavis_note_links FOR SELECT USING (
-  EXISTS (SELECT 1 FROM public.mavis_notes n WHERE n.id = source_note_id AND n.user_id = auth.uid())
-);
-CREATE POLICY "Users insert own note links" ON public.mavis_note_links FOR INSERT WITH CHECK (
-  EXISTS (SELECT 1 FROM public.mavis_notes n WHERE n.id = source_note_id AND n.user_id = auth.uid())
-);
-CREATE POLICY "Users delete own note links" ON public.mavis_note_links FOR DELETE USING (
-  EXISTS (SELECT 1 FROM public.mavis_notes n WHERE n.id = source_note_id AND n.user_id = auth.uid())
-);
+DO $$ BEGIN
+  CREATE POLICY "Users view own note links" ON public.mavis_note_links FOR SELECT USING (
+    EXISTS (SELECT 1 FROM public.mavis_notes n WHERE n.id = source_note_id AND n.user_id = auth.uid())
+  );
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN
+  CREATE POLICY "Users insert own note links" ON public.mavis_note_links FOR INSERT WITH CHECK (
+    EXISTS (SELECT 1 FROM public.mavis_notes n WHERE n.id = source_note_id AND n.user_id = auth.uid())
+  );
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN
+  CREATE POLICY "Users delete own note links" ON public.mavis_note_links FOR DELETE USING (
+    EXISTS (SELECT 1 FROM public.mavis_notes n WHERE n.id = source_note_id AND n.user_id = auth.uid())
+  );
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 CREATE INDEX idx_mavis_note_links_source ON public.mavis_note_links(source_note_id);
 CREATE INDEX idx_mavis_note_links_target ON public.mavis_note_links(target_note_id);
 
@@ -50,10 +64,14 @@ CREATE TABLE public.mavis_note_versions (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 ALTER TABLE public.mavis_note_versions ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "Users view own note versions" ON public.mavis_note_versions FOR SELECT USING (
-  EXISTS (SELECT 1 FROM public.mavis_notes n WHERE n.id = note_id AND n.user_id = auth.uid())
-);
-CREATE POLICY "Users insert own note versions" ON public.mavis_note_versions FOR INSERT WITH CHECK (
-  EXISTS (SELECT 1 FROM public.mavis_notes n WHERE n.id = note_id AND n.user_id = auth.uid())
-);
+DO $$ BEGIN
+  CREATE POLICY "Users view own note versions" ON public.mavis_note_versions FOR SELECT USING (
+    EXISTS (SELECT 1 FROM public.mavis_notes n WHERE n.id = note_id AND n.user_id = auth.uid())
+  );
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN
+  CREATE POLICY "Users insert own note versions" ON public.mavis_note_versions FOR INSERT WITH CHECK (
+    EXISTS (SELECT 1 FROM public.mavis_notes n WHERE n.id = note_id AND n.user_id = auth.uid())
+  );
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 CREATE INDEX idx_mavis_note_versions_note ON public.mavis_note_versions(note_id);

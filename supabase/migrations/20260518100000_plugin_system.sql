@@ -24,10 +24,12 @@ CREATE TABLE IF NOT EXISTS public.mavis_plugins (
 );
 
 ALTER TABLE public.mavis_plugins ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "Users manage own plugins"
-  ON public.mavis_plugins FOR ALL
-  USING  (auth.uid() = user_id)
-  WITH CHECK (auth.uid() = user_id);
+DO $$ BEGIN
+  CREATE POLICY "Users manage own plugins"
+    ON public.mavis_plugins FOR ALL
+    USING  (auth.uid() = user_id)
+    WITH CHECK (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- ── A2A inter-agent message bus ───────────────────────────────
 -- Moltbook-style message envelope for agent-to-agent communication.
@@ -65,9 +67,11 @@ CREATE TABLE IF NOT EXISTS public.mavis_agent_messages (
 );
 
 ALTER TABLE public.mavis_agent_messages ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "Users manage own agent messages"
-  ON public.mavis_agent_messages FOR ALL
-  USING (auth.uid() = user_id);
+DO $$ BEGIN
+  CREATE POLICY "Users manage own agent messages"
+    ON public.mavis_agent_messages FOR ALL
+    USING (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 CREATE INDEX IF NOT EXISTS idx_agent_messages_to_agent
   ON public.mavis_agent_messages(to_agent_id, delivered, created_at DESC);
@@ -118,9 +122,11 @@ CREATE TABLE IF NOT EXISTS public.mavis_agent_memories (
 );
 
 ALTER TABLE public.mavis_agent_memories ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "Users manage own agent memories"
-  ON public.mavis_agent_memories FOR ALL
-  USING (auth.uid() = user_id);
+DO $$ BEGIN
+  CREATE POLICY "Users manage own agent memories"
+    ON public.mavis_agent_memories FOR ALL
+    USING (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 CREATE INDEX IF NOT EXISTS idx_agent_memories_agent
   ON public.mavis_agent_memories(agent_id, status, created_at DESC);
@@ -175,8 +181,10 @@ CREATE TABLE IF NOT EXISTS public.mavis_agent_karma (
 );
 
 ALTER TABLE public.mavis_agent_karma ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "Users manage own agent karma"
-  ON public.mavis_agent_karma FOR ALL USING (auth.uid() = user_id);
+DO $$ BEGIN
+  CREATE POLICY "Users manage own agent karma"
+    ON public.mavis_agent_karma FOR ALL USING (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- ── Plugin execution log ──────────────────────────────────────
 CREATE TABLE IF NOT EXISTS public.mavis_plugin_executions (
@@ -194,8 +202,10 @@ CREATE TABLE IF NOT EXISTS public.mavis_plugin_executions (
 );
 
 ALTER TABLE public.mavis_plugin_executions ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "Users view own plugin executions"
-  ON public.mavis_plugin_executions FOR ALL USING (auth.uid() = user_id);
+DO $$ BEGIN
+  CREATE POLICY "Users view own plugin executions"
+    ON public.mavis_plugin_executions FOR ALL USING (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 CREATE INDEX IF NOT EXISTS idx_plugin_executions_plugin
   ON public.mavis_plugin_executions(plugin_name, created_at DESC);

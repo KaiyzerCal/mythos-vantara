@@ -14,7 +14,9 @@ CREATE TABLE IF NOT EXISTS nora_content_queue (
   created_at timestamptz DEFAULT now()
 );
 ALTER TABLE nora_content_queue ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "user own nora content" ON nora_content_queue FOR ALL USING (auth.uid() = user_id);
+DO $$ BEGIN
+  CREATE POLICY "user own nora content" ON nora_content_queue FOR ALL USING (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 CREATE INDEX idx_nora_content_user ON nora_content_queue(user_id, scheduled_for);
 
 -- Screenpipe memory sync log
@@ -27,7 +29,9 @@ CREATE TABLE IF NOT EXISTS screenpipe_sync_log (
   context_window_minutes int DEFAULT 30
 );
 ALTER TABLE screenpipe_sync_log ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "user own screenpipe log" ON screenpipe_sync_log FOR ALL USING (auth.uid() = user_id);
+DO $$ BEGIN
+  CREATE POLICY "user own screenpipe log" ON screenpipe_sync_log FOR ALL USING (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- Wearable overlay history
 CREATE TABLE IF NOT EXISTS wearable_overlay_history (
@@ -40,4 +44,6 @@ CREATE TABLE IF NOT EXISTS wearable_overlay_history (
   duration_ms int
 );
 ALTER TABLE wearable_overlay_history ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "user own overlay history" ON wearable_overlay_history FOR ALL USING (auth.uid() = user_id);
+DO $$ BEGIN
+  CREATE POLICY "user own overlay history" ON wearable_overlay_history FOR ALL USING (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;

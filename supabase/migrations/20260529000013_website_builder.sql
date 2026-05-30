@@ -15,7 +15,9 @@ CREATE TABLE IF NOT EXISTS website_clients (
   updated_at timestamptz DEFAULT now()
 );
 ALTER TABLE website_clients ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "user own clients" ON website_clients FOR ALL USING (auth.uid() = user_id);
+DO $$ BEGIN
+  CREATE POLICY "user own clients" ON website_clients FOR ALL USING (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 CREATE INDEX idx_website_clients_user ON website_clients(user_id, created_at DESC);
 
 -- Website projects (one project = one client website)
@@ -47,7 +49,9 @@ CREATE TABLE IF NOT EXISTS website_projects (
   delivered_at timestamptz
 );
 ALTER TABLE website_projects ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "user own projects" ON website_projects FOR ALL USING (auth.uid() = user_id);
+DO $$ BEGIN
+  CREATE POLICY "user own projects" ON website_projects FOR ALL USING (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 CREATE INDEX idx_website_projects_user ON website_projects(user_id, created_at DESC);
 CREATE INDEX idx_website_projects_client ON website_projects(client_id);
 
@@ -65,7 +69,9 @@ CREATE TABLE IF NOT EXISTS wp_credentials (
   created_at timestamptz DEFAULT now()
 );
 ALTER TABLE wp_credentials ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "user own wp creds" ON wp_credentials FOR ALL USING (auth.uid() = user_id);
+DO $$ BEGIN
+  CREATE POLICY "user own wp creds" ON wp_credentials FOR ALL USING (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- Generated website pages
 CREATE TABLE IF NOT EXISTS website_pages (
@@ -89,7 +95,9 @@ CREATE TABLE IF NOT EXISTS website_pages (
   UNIQUE(project_id, page_type)
 );
 ALTER TABLE website_pages ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "user own pages" ON website_pages FOR ALL USING (auth.uid() = user_id);
+DO $$ BEGIN
+  CREATE POLICY "user own pages" ON website_pages FOR ALL USING (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 CREATE INDEX idx_website_pages_project ON website_pages(project_id);
 
 -- Website generation jobs (track long-running builds)
@@ -108,7 +116,9 @@ CREATE TABLE IF NOT EXISTS website_generation_jobs (
   created_at timestamptz DEFAULT now()
 );
 ALTER TABLE website_generation_jobs ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "user own jobs" ON website_generation_jobs FOR ALL USING (auth.uid() = user_id);
+DO $$ BEGIN
+  CREATE POLICY "user own jobs" ON website_generation_jobs FOR ALL USING (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- Service pricing tiers
 CREATE TABLE IF NOT EXISTS website_service_tiers (
@@ -127,7 +137,9 @@ CREATE TABLE IF NOT EXISTS website_service_tiers (
   created_at timestamptz DEFAULT now()
 );
 ALTER TABLE website_service_tiers ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "user own tiers" ON website_service_tiers FOR ALL USING (auth.uid() = user_id);
+DO $$ BEGIN
+  CREATE POLICY "user own tiers" ON website_service_tiers FOR ALL USING (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- Seed default service tiers (runs on first insert)
 -- Users will customize these
