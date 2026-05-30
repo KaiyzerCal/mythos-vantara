@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { supabase as _supabase } from "@/integrations/supabase/client";
 import { usePushNotifications } from "./usePushNotifications";
-import { useProfile } from "./useProfile";
+import { useAuth } from "@/contexts/AuthContext";
 
 const supabase = _supabase as any;
 const CHECK_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
@@ -16,7 +16,8 @@ interface PendingNotification {
 
 export function useMavisNotifications() {
   const { sendLocalNotification } = usePushNotifications();
-  const { profile } = useProfile();
+  const { user } = useAuth();
+  const userId = user?.id;
   const [budgetUsed, setBudgetUsed] = useState(0);
   const [budgetTotal, setBudgetTotal] = useState(5);
 

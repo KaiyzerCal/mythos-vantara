@@ -412,7 +412,7 @@ export default function VideoEditorPage() {
       const {
         data: { session: _session },
       } = await supabase.auth.getSession();
-      const { error } = await supabase.from("nora_content_queue").insert({
+      const { error } = await (supabase as any).from("nora_content_queue").insert({
         user_id: user?.id,
         platform: "twitter",
         content: clip.suggested_caption ?? clip.title,

@@ -73,12 +73,12 @@ const PlanBoard = lazy(() => import("@/pages/PlanBoard"));
 const WebsiteBuilderPage = lazy(() => import("@/pages/WebsiteBuilderPage"));
 const WidgetBuilderPage = lazy(() => import("@/pages/WidgetBuilderPage"));
 const VideoEditorPage = lazy(() => import("@/pages/VideoEditorPage"));
-const AchievementsPage = lazy(() => import("@/pages/AchievementsPage"));
-const ForecastPage = lazy(() => import("@/pages/ForecastPage"));
-const NotificationsPage = lazy(() => import("@/pages/NotificationsPage"));
-const StripeManagementPage = lazy(() => import("@/pages/StripeManagementPage"));
-const WorkflowsPage = lazy(() => import("@/pages/WorkflowsPage"));
-const ImportPage = lazy(() => import("@/pages/ImportPage"));
+const AchievementsPage = lazy(() => import("@/pages/AchievementsPage").then(m => ({ default: m.AchievementsPage })));
+const ForecastPage = lazy(() => import("@/pages/ForecastPage").then(m => ({ default: m.ForecastPage })));
+const NotificationsPage = lazy(() => import("@/pages/NotificationsPage").then(m => ({ default: m.NotificationsPage })));
+const StripeManagementPage = lazy(() => import("@/pages/StripeManagementPage").then(m => ({ default: m.StripeManagementPage })));
+const WorkflowsPage = lazy(() => import("@/pages/WorkflowsPage").then(m => ({ default: m.WorkflowsPage })));
+const ImportPage = lazy(() => import("@/pages/ImportPage").then(m => ({ default: m.ImportPage })));
 // Public demo — no auth required
 const MavisDemo = lazy(() => import("@/pages/MavisDemo"));
 
