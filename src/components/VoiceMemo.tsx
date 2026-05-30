@@ -91,10 +91,10 @@ export function VoiceMemo({ inline = false }: VoiceMemoProps) {
   };
 
   const saveJournalEntry = async () => {
-    if (!result || !profile?.id) return;
+    if (!result || !user?.id) return;
     try {
       await supabase.from("journal_entries").insert({
-        user_id: profile.id,
+        user_id: user.id,
         title: result.suggested_title,
         content: result.transcript,
         mood: result.mood,
