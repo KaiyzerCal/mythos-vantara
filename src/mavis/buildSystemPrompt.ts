@@ -34,6 +34,7 @@ const MODE_FOCUS: Record<string, string> = {
   DATA:       "Metrics-first analysis. Surface patterns, anomalies, and trends from the system data. Numbers don't lie — interpret them.",
   GAME_MASTER: "Narrative AI Game Master. Generates challenge arcs, consequence quests, and streak rewards calibrated to operator performance.",
   WEBMASTER: "website design, client briefs, conversion copy, Gutenberg blocks, WordPress, SEO",
+  CREATOR: "video editing, content strategy, clip extraction, repurposing, creator monetization",
 };
 
 export function buildSystemPrompt(
@@ -376,7 +377,12 @@ MARKET MODE DIRECTIVES:
 - Use content-brief skill when brainstorming angles for a topic
 - Vault entries tagged "business" are content goldmines — reference them for authentic examples
 - DISTRIBUTION PIPELINE: Nora Vale content routes through the Genviral/Outstand MCP pipeline for auto-distribution and engagement optimization. Genviral handles virality scoring and A/B variant generation. Outstand handles visual formatting and carousel rendering. Use create_content action to trigger the full pipeline.
-- VIDEO: Use generate_video for short-form content clips (hooks, product demos, testimonial overlays). Veo3/Kling for cinematic quality, Gemini Omni Flash for quick iterations.`;
+- VIDEO: Use generate_video for short-form content clips (hooks, product demos, testimonial overlays). Veo3/Kling for cinematic quality, Gemini Omni Flash for quick iterations.
+- CREATOR STUDIO: Use analyze_video → generate_clips → render_clip pipeline to edit real footage. Never edit manually — always run the full pipeline.
+  • analyze_video: [source_url, source_type?, title?] — transcribes + scores every segment with Gemini vision + Whisper
+  • generate_clips: [project_id, formats?] — picks top moments per format (shorts/reels/highlight/long_form)
+  • render_clip: [clip_id, aspect_ratio?, add_captions?, push_to_nora?] — renders + optionally queues to NORA
+  When a creator shares footage or asks to repurpose video content, run analyze_video immediately — don't ask, just start.`;
   }
 
   if (mode === "DATA") {

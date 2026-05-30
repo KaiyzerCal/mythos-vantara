@@ -172,6 +172,30 @@ export const CreateWidgetSchema = z.object({
   monthly_price_cents: z.number().int().min(0).optional(),
 });
 
+// VIDEO EDITOR — AI-powered clip extraction and editing
+export const AnalyzeVideoSchema = z.object({
+  type: z.literal("analyze_video"),
+  source_url: z.string().url(),
+  source_type: z.enum(["upload", "youtube", "loom", "url"]).optional(),
+  title: z.string().optional(),
+  language: z.string().optional(),
+});
+
+export const GenerateClipsSchema = z.object({
+  type: z.literal("generate_clips"),
+  project_id: z.string().uuid(),
+  formats: z.array(z.enum(["shorts", "reels", "highlight", "long_form"])).optional(),
+  count_per_format: z.number().int().min(1).max(10).optional(),
+});
+
+export const RenderClipSchema = z.object({
+  type: z.literal("render_clip"),
+  clip_id: z.string().uuid(),
+  aspect_ratio: z.enum(["9:16", "16:9", "1:1"]).optional(),
+  add_captions: z.boolean().optional(),
+  push_to_nora: z.boolean().optional(),
+});
+
 // UNION — ALL SCHEMAS
 export const ActionSchema = z.discriminatedUnion("type", [
   CreateQuestSchema, UpdateQuestSchema, DeleteQuestSchema,
@@ -199,6 +223,9 @@ export const ActionSchema = z.discriminatedUnion("type", [
   CreateWebsiteSchema,
   PublishWebpageSchema,
   CreateWidgetSchema,
+  AnalyzeVideoSchema,
+  GenerateClipsSchema,
+  RenderClipSchema,
 ]);
 
 export type ValidatedAction = z.infer<typeof ActionSchema>;
