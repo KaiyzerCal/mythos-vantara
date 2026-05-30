@@ -468,27 +468,35 @@ export default function CouncilBoard() {
             {activeSummonedPersonas.length > 0 && ` · ${activeSummonedPersonas.length} persona${activeSummonedPersonas.length > 1 ? "s" : ""} summoned`}
             {" · MAVIS presiding"}
           </p>
-          {/* Per-member 1-on-1 voice call buttons */}
+          {/* Per-member 1-on-1 voice call — dropdown */}
           {councilMembers.length > 0 && (
-            <div className="flex flex-wrap gap-1.5 mt-1.5">
-              {councilMembers.map((m) => (
-                <button
-                  key={m.id}
-                  onClick={() => setVoiceTarget({
-                    name: m.name,
-                    role: m.role ?? m.specialty,
-                    systemPrompt: buildCouncilMemberVoicePrompt(m, ""),
-                    entityId: m.id,
+            <div className="relative mt-1.5 inline-flex items-center gap-1 group">
+              <PhoneCall size={10} className="text-emerald-400/70 shrink-0" />
+              <select
+                defaultValue=""
+                onChange={(e) => {
+                  const member = councilMembers.find(m => m.id === e.target.value);
+                  if (!member) return;
+                  e.target.value = "";
+                  setVoiceTarget({
+                    name: member.name,
+                    role: member.role ?? member.specialty,
+                    systemPrompt: buildCouncilMemberVoicePrompt(member, ""),
+                    entityId: member.id,
                     entityType: "council",
                     userId: userId ?? undefined,
-                  })}
-                  className="flex items-center gap-1.5 text-[10px] font-mono font-medium text-emerald-400/80 hover:text-emerald-300 bg-emerald-950/30 hover:bg-emerald-950/50 border border-emerald-800/40 hover:border-emerald-500/50 rounded-md px-2.5 py-1 transition-all shadow-sm"
-                  title={`1-on-1 voice call with ${m.name}`}
-                >
-                  <PhoneCall size={10} className="shrink-0" />
-                  <span>{m.name}</span>
-                </button>
-              ))}
+                  });
+                }}
+                className="appearance-none text-[10px] font-mono font-medium text-emerald-400 bg-emerald-950/30 hover:bg-emerald-950/50 border border-emerald-800/40 hover:border-emerald-500/50 rounded-md pl-2 pr-6 py-1 transition-all cursor-pointer focus:outline-none focus:border-emerald-500/60"
+              >
+                <option value="" disabled className="text-muted-foreground bg-card">Call a member…</option>
+                {councilMembers.map((m) => (
+                  <option key={m.id} value={m.id} className="bg-card text-foreground">
+                    {m.name}{m.role ? ` — ${m.role}` : ""}
+                  </option>
+                ))}
+              </select>
+              <ChevronDown size={10} className="absolute right-1.5 text-emerald-400/60 pointer-events-none" />
             </div>
           )}
         </div>
