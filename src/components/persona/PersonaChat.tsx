@@ -5,6 +5,7 @@ import { cn } from "@/lib/utils";
 import { HudCard } from "@/components/SharedUI";
 import { AnimatePresence } from "framer-motion";
 import { VoiceChatOverlay } from "@/components/VoiceChatOverlay";
+import { VoiceMemo } from "@/components/VoiceMemo";
 import { usePersona } from "@/hooks/usePersona";
 import { useScrollKit, ScrollProgressBar, BackToTopButton, ScrollToBottomButton, EndOfFeed } from "@/components/chat/ScrollKit";
 import type { ForgedPersona } from "@/hooks/usePersonaForge";
@@ -476,7 +477,10 @@ export function PersonaChat({ persona, userId, onBack }: PersonaChatProps) {
           />
         )}
         <div className="flex items-end gap-2">
-          <AttachButton isUploading={isUploading} onUpload={upload} />
+          <div className="flex flex-col items-center gap-1">
+            <VoiceMemo inline />
+            <AttachButton isUploading={isUploading} onUpload={upload} />
+          </div>
           <textarea
             ref={inputRef}
             value={input}
