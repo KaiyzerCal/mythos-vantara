@@ -24,5 +24,7 @@ DO $$ BEGIN
 EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- Index for fast lookup by telegram_user_id (used by edge function)
-CREATE INDEX IF NOT EXISTS idx_telegram_linked_accounts_tg_user
-  ON public.telegram_linked_accounts(telegram_user_id);
+DO $$ BEGIN
+  CREATE INDEX IF NOT EXISTS idx_telegram_linked_accounts_tg_user
+    ON public.telegram_linked_accounts(telegram_user_id);
+EXCEPTION WHEN undefined_table THEN NULL; END $$;

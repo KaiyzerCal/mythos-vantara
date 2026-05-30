@@ -34,7 +34,9 @@ ALTER TABLE whoop_daily_data ENABLE ROW LEVEL SECURITY;
 DO $$ BEGIN
   CREATE POLICY "user own whoop data" ON whoop_daily_data FOR ALL USING (auth.uid() = user_id);
 EXCEPTION WHEN duplicate_object THEN NULL; END $$;
-CREATE INDEX idx_whoop_user_date ON whoop_daily_data(user_id, date DESC);
+DO $$ BEGIN
+  CREATE INDEX idx_whoop_user_date ON whoop_daily_data(user_id, date DESC);
+EXCEPTION WHEN undefined_table THEN NULL; END $$;
 
 -- Samsung Galaxy Ring daily data
 CREATE TABLE IF NOT EXISTS galaxy_ring_daily_data (
@@ -57,7 +59,9 @@ ALTER TABLE galaxy_ring_daily_data ENABLE ROW LEVEL SECURITY;
 DO $$ BEGIN
   CREATE POLICY "user own ring data" ON galaxy_ring_daily_data FOR ALL USING (auth.uid() = user_id);
 EXCEPTION WHEN duplicate_object THEN NULL; END $$;
-CREATE INDEX idx_ring_user_date ON galaxy_ring_daily_data(user_id, date DESC);
+DO $$ BEGIN
+  CREATE INDEX idx_ring_user_date ON galaxy_ring_daily_data(user_id, date DESC);
+EXCEPTION WHEN undefined_table THEN NULL; END $$;
 
 -- Health integration settings
 CREATE TABLE IF NOT EXISTS health_integration_settings (

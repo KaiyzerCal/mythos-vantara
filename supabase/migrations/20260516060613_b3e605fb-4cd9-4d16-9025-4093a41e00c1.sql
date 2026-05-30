@@ -2,8 +2,10 @@ CREATE EXTENSION IF NOT EXISTS vector;
 
 ALTER TABLE public.mavis_notes ADD COLUMN IF NOT EXISTS embedding vector(1536);
 
-CREATE INDEX IF NOT EXISTS mavis_notes_embedding_idx
-  ON public.mavis_notes USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100);
+DO $$ BEGIN
+  CREATE INDEX IF NOT EXISTS mavis_notes_embedding_idx
+    ON public.mavis_notes USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100);
+EXCEPTION WHEN undefined_table THEN NULL; END $$;
 
 CREATE OR REPLACE FUNCTION public.match_mavis_notes(
   query_embedding vector(1536),

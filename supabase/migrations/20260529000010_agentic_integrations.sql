@@ -16,7 +16,9 @@ ALTER TABLE a2a_tasks ENABLE ROW LEVEL SECURITY;
 DO $$ BEGIN
   CREATE POLICY "user own a2a tasks" ON a2a_tasks FOR ALL USING (auth.uid() = user_id);
 EXCEPTION WHEN duplicate_object THEN NULL; END $$;
-CREATE INDEX idx_a2a_tasks_user ON a2a_tasks(user_id, created_at DESC);
+DO $$ BEGIN
+  CREATE INDEX idx_a2a_tasks_user ON a2a_tasks(user_id, created_at DESC);
+EXCEPTION WHEN undefined_table THEN NULL; END $$;
 
 -- Code delegation sessions (Devin/Cursor)
 CREATE TABLE IF NOT EXISTS code_delegation_sessions (

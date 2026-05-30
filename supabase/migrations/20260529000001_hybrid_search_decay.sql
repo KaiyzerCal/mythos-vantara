@@ -4,8 +4,10 @@
 ALTER TABLE mavis_agent_memories
   ADD COLUMN IF NOT EXISTS fts tsvector;
 
-CREATE INDEX IF NOT EXISTS mavis_memories_fts_idx
-  ON mavis_agent_memories USING gin(fts);
+DO $$ BEGIN
+  CREATE INDEX IF NOT EXISTS mavis_memories_fts_idx
+    ON mavis_agent_memories USING gin(fts);
+EXCEPTION WHEN undefined_table THEN NULL; END $$;
 
 -- 2. Add episodic memory decay tracking columns
 ALTER TABLE mavis_agent_memories
@@ -93,8 +95,10 @@ $$;
 ALTER TABLE mavis_notes
   ADD COLUMN IF NOT EXISTS fts tsvector;
 
-CREATE INDEX IF NOT EXISTS mavis_notes_fts_idx
-  ON mavis_notes USING gin(fts);
+DO $$ BEGIN
+  CREATE INDEX IF NOT EXISTS mavis_notes_fts_idx
+    ON mavis_notes USING gin(fts);
+EXCEPTION WHEN undefined_table THEN NULL; END $$;
 
 ALTER TABLE mavis_notes
   ADD COLUMN IF NOT EXISTS last_accessed_at timestamptz DEFAULT now(),

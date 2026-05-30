@@ -18,7 +18,9 @@ ALTER TABLE website_clients ENABLE ROW LEVEL SECURITY;
 DO $$ BEGIN
   CREATE POLICY "user own clients" ON website_clients FOR ALL USING (auth.uid() = user_id);
 EXCEPTION WHEN duplicate_object THEN NULL; END $$;
-CREATE INDEX idx_website_clients_user ON website_clients(user_id, created_at DESC);
+DO $$ BEGIN
+  CREATE INDEX idx_website_clients_user ON website_clients(user_id, created_at DESC);
+EXCEPTION WHEN undefined_table THEN NULL; END $$;
 
 -- Website projects (one project = one client website)
 CREATE TABLE IF NOT EXISTS website_projects (
@@ -52,8 +54,12 @@ ALTER TABLE website_projects ENABLE ROW LEVEL SECURITY;
 DO $$ BEGIN
   CREATE POLICY "user own projects" ON website_projects FOR ALL USING (auth.uid() = user_id);
 EXCEPTION WHEN duplicate_object THEN NULL; END $$;
-CREATE INDEX idx_website_projects_user ON website_projects(user_id, created_at DESC);
-CREATE INDEX idx_website_projects_client ON website_projects(client_id);
+DO $$ BEGIN
+  CREATE INDEX idx_website_projects_user ON website_projects(user_id, created_at DESC);
+EXCEPTION WHEN undefined_table THEN NULL; END $$;
+DO $$ BEGIN
+  CREATE INDEX idx_website_projects_client ON website_projects(client_id);
+EXCEPTION WHEN undefined_table THEN NULL; END $$;
 
 -- WordPress credentials (per site)
 CREATE TABLE IF NOT EXISTS wp_credentials (
@@ -98,7 +104,9 @@ ALTER TABLE website_pages ENABLE ROW LEVEL SECURITY;
 DO $$ BEGIN
   CREATE POLICY "user own pages" ON website_pages FOR ALL USING (auth.uid() = user_id);
 EXCEPTION WHEN duplicate_object THEN NULL; END $$;
-CREATE INDEX idx_website_pages_project ON website_pages(project_id);
+DO $$ BEGIN
+  CREATE INDEX idx_website_pages_project ON website_pages(project_id);
+EXCEPTION WHEN undefined_table THEN NULL; END $$;
 
 -- Website generation jobs (track long-running builds)
 CREATE TABLE IF NOT EXISTS website_generation_jobs (

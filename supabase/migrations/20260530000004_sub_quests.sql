@@ -5,8 +5,10 @@ ALTER TABLE quests
   ADD COLUMN IF NOT EXISTS parent_quest_id uuid REFERENCES quests(id) ON DELETE CASCADE;
 
 -- Index for efficient sub-quest lookup
-CREATE INDEX IF NOT EXISTS idx_quests_parent_quest_id ON quests(parent_quest_id)
-  WHERE parent_quest_id IS NOT NULL;
+DO $$ BEGIN
+  CREATE INDEX IF NOT EXISTS idx_quests_parent_quest_id ON quests(parent_quest_id)
+    WHERE parent_quest_id IS NOT NULL;
+EXCEPTION WHEN undefined_table THEN NULL; END $$;
 
 -- View: quests with sub-quest count (useful for UI badges)
 CREATE OR REPLACE VIEW quest_with_sub_count AS

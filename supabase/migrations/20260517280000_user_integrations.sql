@@ -19,5 +19,7 @@ DO $$ BEGIN
     FOR ALL USING (auth.uid() = user_id);
 EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-CREATE INDEX IF NOT EXISTS idx_mavis_user_integrations_user
-  ON mavis_user_integrations(user_id, provider);
+DO $$ BEGIN
+  CREATE INDEX IF NOT EXISTS idx_mavis_user_integrations_user
+    ON mavis_user_integrations(user_id, provider);
+EXCEPTION WHEN undefined_table THEN NULL; END $$;

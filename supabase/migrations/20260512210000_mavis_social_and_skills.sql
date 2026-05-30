@@ -16,7 +16,9 @@ create table if not exists mavis_social_posts (
   posted_at timestamptz,
   created_at timestamptz default now()
 );
-CREATE INDEX IF NOT EXISTS idx_mavis_social_posts_user ON mavis_social_posts(user_id, platform, posted_at desc);
+DO $$ BEGIN
+  CREATE INDEX IF NOT EXISTS idx_mavis_social_posts_user ON mavis_social_posts(user_id, platform, posted_at desc);
+EXCEPTION WHEN undefined_table THEN NULL; END $$;
 alter table mavis_social_posts enable row level security;
 DO $$ BEGIN
   create policy "users own social posts" on mavis_social_posts for all using (auth.uid() = user_id);
@@ -41,7 +43,9 @@ create table if not exists mavis_skill_definitions (
   updated_at timestamptz default now(),
   unique(user_id, name)
 );
-CREATE INDEX IF NOT EXISTS idx_mavis_skill_definitions_user ON mavis_skill_definitions(user_id, is_active);
+DO $$ BEGIN
+  CREATE INDEX IF NOT EXISTS idx_mavis_skill_definitions_user ON mavis_skill_definitions(user_id, is_active);
+EXCEPTION WHEN undefined_table THEN NULL; END $$;
 alter table mavis_skill_definitions enable row level security;
 DO $$ BEGIN
   create policy "users own skill definitions" on mavis_skill_definitions for all using (auth.uid() = user_id);

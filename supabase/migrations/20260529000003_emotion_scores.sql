@@ -7,13 +7,17 @@ ALTER TABLE journal_entries
   ADD COLUMN IF NOT EXISTS dominant_emotion text;
 
 -- Index for emotion-based queries (e.g., "show me all anxious entries")
-CREATE INDEX IF NOT EXISTS journal_emotion_idx
-  ON journal_entries USING gin(emotion_scores);
+DO $$ BEGIN
+  CREATE INDEX IF NOT EXISTS journal_emotion_idx
+    ON journal_entries USING gin(emotion_scores);
+EXCEPTION WHEN undefined_table THEN NULL; END $$;
 
 -- Index for dominant emotion filtering
-CREATE INDEX IF NOT EXISTS journal_dominant_emotion_idx
-  ON journal_entries (user_id, dominant_emotion)
-  WHERE dominant_emotion IS NOT NULL;
+DO $$ BEGIN
+  CREATE INDEX IF NOT EXISTS journal_dominant_emotion_idx
+    ON journal_entries (user_id, dominant_emotion)
+    WHERE dominant_emotion IS NOT NULL;
+EXCEPTION WHEN undefined_table THEN NULL; END $$;
 
 -- Emotion trend view: aggregated weekly emotion averages per user
 CREATE OR REPLACE VIEW emotion_weekly_trends AS

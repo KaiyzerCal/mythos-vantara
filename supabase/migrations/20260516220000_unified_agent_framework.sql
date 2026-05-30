@@ -60,8 +60,12 @@ CREATE TABLE IF NOT EXISTS public.persona_revenue (
   stripe_payment_id  text,
   created_at         timestamptz DEFAULT now()
 );
-CREATE INDEX IF NOT EXISTS persona_revenue_user_idx    ON public.persona_revenue(user_id);
-CREATE INDEX IF NOT EXISTS persona_revenue_persona_idx ON public.persona_revenue(persona_id);
+DO $$ BEGIN
+  CREATE INDEX IF NOT EXISTS persona_revenue_user_idx    ON public.persona_revenue(user_id);
+EXCEPTION WHEN undefined_table THEN NULL; END $$;
+DO $$ BEGIN
+  CREATE INDEX IF NOT EXISTS persona_revenue_persona_idx ON public.persona_revenue(persona_id);
+EXCEPTION WHEN undefined_table THEN NULL; END $$;
 ALTER TABLE public.persona_revenue ENABLE ROW LEVEL SECURITY;
 DO $$ BEGIN
   CREATE POLICY "users own persona revenue"
@@ -90,7 +94,9 @@ CREATE TABLE IF NOT EXISTS public.persona_content (
   created_at        timestamptz DEFAULT now(),
   updated_at        timestamptz DEFAULT now()
 );
-CREATE INDEX IF NOT EXISTS persona_content_persona_idx ON public.persona_content(persona_id);
+DO $$ BEGIN
+  CREATE INDEX IF NOT EXISTS persona_content_persona_idx ON public.persona_content(persona_id);
+EXCEPTION WHEN undefined_table THEN NULL; END $$;
 ALTER TABLE public.persona_content ENABLE ROW LEVEL SECURITY;
 DO $$ BEGIN
   CREATE POLICY "users own persona content"

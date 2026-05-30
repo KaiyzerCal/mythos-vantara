@@ -21,8 +21,12 @@ ALTER TABLE widget_instances ENABLE ROW LEVEL SECURITY;
 DO $$ BEGIN
   CREATE POLICY "user own widgets" ON widget_instances FOR ALL USING (auth.uid() = user_id);
 EXCEPTION WHEN duplicate_object THEN NULL; END $$;
-CREATE INDEX idx_widgets_user ON widget_instances(user_id, created_at DESC);
-CREATE INDEX idx_widgets_project ON widget_instances(project_id);
+DO $$ BEGIN
+  CREATE INDEX idx_widgets_user ON widget_instances(user_id, created_at DESC);
+EXCEPTION WHEN undefined_table THEN NULL; END $$;
+DO $$ BEGIN
+  CREATE INDEX idx_widgets_project ON widget_instances(project_id);
+EXCEPTION WHEN undefined_table THEN NULL; END $$;
 
 -- Widget chat logs
 CREATE TABLE IF NOT EXISTS widget_chat_logs (
@@ -39,7 +43,9 @@ DO $$ BEGIN
   CREATE POLICY "user own chat logs" ON widget_chat_logs FOR ALL
     USING (EXISTS (SELECT 1 FROM widget_instances WHERE id = widget_chat_logs.widget_id AND user_id = auth.uid()));
 EXCEPTION WHEN duplicate_object THEN NULL; END $$;
-CREATE INDEX idx_chat_logs_widget ON widget_chat_logs(widget_id, created_at DESC);
+DO $$ BEGIN
+  CREATE INDEX idx_chat_logs_widget ON widget_chat_logs(widget_id, created_at DESC);
+EXCEPTION WHEN undefined_table THEN NULL; END $$;
 
 -- Widget leads (from lead capture, quote calculator, appointment booker)
 CREATE TABLE IF NOT EXISTS widget_leads (
@@ -63,8 +69,12 @@ DO $$ BEGIN
   CREATE POLICY "user own leads" ON widget_leads FOR ALL
     USING (EXISTS (SELECT 1 FROM widget_instances WHERE id = widget_leads.widget_id AND user_id = auth.uid()));
 EXCEPTION WHEN duplicate_object THEN NULL; END $$;
-CREATE INDEX idx_leads_widget ON widget_leads(widget_id, created_at DESC);
-CREATE INDEX idx_leads_status ON widget_leads(status, created_at DESC);
+DO $$ BEGIN
+  CREATE INDEX idx_leads_widget ON widget_leads(widget_id, created_at DESC);
+EXCEPTION WHEN undefined_table THEN NULL; END $$;
+DO $$ BEGIN
+  CREATE INDEX idx_leads_status ON widget_leads(status, created_at DESC);
+EXCEPTION WHEN undefined_table THEN NULL; END $$;
 
 -- Widget daily usage stats
 CREATE TABLE IF NOT EXISTS widget_usage_stats (
