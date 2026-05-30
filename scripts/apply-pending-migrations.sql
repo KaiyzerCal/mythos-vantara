@@ -757,7 +757,7 @@ EXCEPTION
   WHEN undefined_table THEN NULL;
   WHEN undefined_column THEN NULL;
 END $$;
-CREATE POLICY IF NOT EXISTS "tool_exec_own" ON mavis_tool_executions
+CREATE POLICY "tool_exec_own" ON mavis_tool_executions
   FOR ALL USING (auth.uid() = user_id);
 -- ── Knowledge graph traversal indexes ────────────────────────────────────────
 -- Fast BFS over mavis_note_wikilinks requires covering indexes on both
@@ -794,7 +794,7 @@ EXCEPTION
   WHEN undefined_table THEN NULL;
   WHEN undefined_column THEN NULL;
 END $$;
-CREATE POLICY IF NOT EXISTS "workflow_exec_own" ON mavis_workflow_executions
+CREATE POLICY "workflow_exec_own" ON mavis_workflow_executions
   FOR ALL USING (auth.uid() = user_id);
 -- ── Sequential thought log ────────────────────────────────────────────────────
 -- Stores reasoning chains MAVIS ran before complex actions.
@@ -819,7 +819,7 @@ EXCEPTION
   WHEN undefined_table THEN NULL;
   WHEN undefined_column THEN NULL;
 END $$;
-CREATE POLICY IF NOT EXISTS "thought_chains_own" ON mavis_thought_chains
+CREATE POLICY "thought_chains_own" ON mavis_thought_chains
   FOR ALL USING (auth.uid() = user_id);
 
 -- ---- 20260523233443_9db55db4-883f-4ecd-a772-0d5cb0f71cd2.sql ----
