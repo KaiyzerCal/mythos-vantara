@@ -1,6 +1,6 @@
 -- ================================================================
 -- apply-pending-migrations.sql  (ALL pending — May 17 onwards)
--- Safe to run multiple times. Paste into Supabase SQL Editor → Run
+-- Cron jobs skipped (configure via Supabase Dashboard if needed)
 -- ================================================================
 
 
@@ -21,18 +21,7 @@ CREATE EXTENSION IF NOT EXISTS pg_net;
 -- 1. Morning brief — 06:00 UTC daily
 --    Pushes the structured daily brief to Telegram with pattern alerts + operator prefs.
 -- ─────────────────────────────────────────────────────────────────────────────
-SELECT cron.schedule(
-  'mavis-morning-brief',
-  '0 6 * * *',
-  $$
-  SELECT net.http_post(
-    url     := current_setting('app.supabase_url') || '/functions/v1/mavis-morning-brief',
-    headers := jsonb_build_object(
-      'Content-Type',  'application/json',
-      'Authorization', 'Bearer ' || current_setting('app.service_role_key')
-    ),
-    body    := '{}'::jsonb
-  );
+-- (cron job skipped — configure via Supabase Dashboard)
   $$
 );
 
@@ -40,18 +29,7 @@ SELECT cron.schedule(
 -- 2. Nightly memory consolidation — 02:00 UTC daily
 --    Reads unconsolidated mavis_memory, extracts knowledge + tacit, marks consolidated.
 -- ─────────────────────────────────────────────────────────────────────────────
-SELECT cron.schedule(
-  'mavis-consolidate',
-  '0 2 * * *',
-  $$
-  SELECT net.http_post(
-    url     := current_setting('app.supabase_url') || '/functions/v1/mavis-consolidate',
-    headers := jsonb_build_object(
-      'Content-Type',  'application/json',
-      'Authorization', 'Bearer ' || current_setting('app.service_role_key')
-    ),
-    body    := '{}'::jsonb
-  );
+-- (cron job skipped — configure via Supabase Dashboard)
   $$
 );
 
@@ -59,18 +37,7 @@ SELECT cron.schedule(
 -- 3. Spaced repetition check — 05:30 UTC daily
 --    Surfaces notes due for review and sends reminders.
 -- ─────────────────────────────────────────────────────────────────────────────
-SELECT cron.schedule(
-  'mavis-spaced-repetition',
-  '30 5 * * *',
-  $$
-  SELECT net.http_post(
-    url     := current_setting('app.supabase_url') || '/functions/v1/mavis-spaced-repetition',
-    headers := jsonb_build_object(
-      'Content-Type',  'application/json',
-      'Authorization', 'Bearer ' || current_setting('app.service_role_key')
-    ),
-    body    := '{}'::jsonb
-  );
+-- (cron job skipped — configure via Supabase Dashboard)
   $$
 );
 
@@ -78,18 +45,7 @@ SELECT cron.schedule(
 -- 4. Streak alerts — 08:00 UTC daily
 --    Checks habit streaks and sends Telegram warnings before streaks break.
 -- ─────────────────────────────────────────────────────────────────────────────
-SELECT cron.schedule(
-  'mavis-streak-alerts',
-  '0 8 * * *',
-  $$
-  SELECT net.http_post(
-    url     := current_setting('app.supabase_url') || '/functions/v1/mavis-streak-alerts',
-    headers := jsonb_build_object(
-      'Content-Type',  'application/json',
-      'Authorization', 'Bearer ' || current_setting('app.service_role_key')
-    ),
-    body    := '{}'::jsonb
-  );
+-- (cron job skipped — configure via Supabase Dashboard)
   $$
 );
 
@@ -97,18 +53,7 @@ SELECT cron.schedule(
 -- 5. Periodic review — 03:00 UTC every Sunday
 --    Weekly system review: goal progress, stalled quests, energy trends.
 -- ─────────────────────────────────────────────────────────────────────────────
-SELECT cron.schedule(
-  'mavis-periodic-review',
-  '0 3 * * 0',
-  $$
-  SELECT net.http_post(
-    url     := current_setting('app.supabase_url') || '/functions/v1/mavis-periodic-review',
-    headers := jsonb_build_object(
-      'Content-Type',  'application/json',
-      'Authorization', 'Bearer ' || current_setting('app.service_role_key')
-    ),
-    body    := '{}'::jsonb
-  );
+-- (cron job skipped — configure via Supabase Dashboard)
   $$
 );
 
@@ -116,18 +61,7 @@ SELECT cron.schedule(
 -- 6. Self-reflection synthesis — 03:30 UTC every Sunday
 --    Groups raw corrections, synthesizes durable rules, upserts to mavis_tacit.
 -- ─────────────────────────────────────────────────────────────────────────────
-SELECT cron.schedule(
-  'mavis-self-reflect',
-  '30 3 * * 0',
-  $$
-  SELECT net.http_post(
-    url     := current_setting('app.supabase_url') || '/functions/v1/mavis-self-reflect',
-    headers := jsonb_build_object(
-      'Content-Type',  'application/json',
-      'Authorization', 'Bearer ' || current_setting('app.service_role_key')
-    ),
-    body    := '{}'::jsonb
-  );
+-- (cron job skipped — configure via Supabase Dashboard)
   $$
 );
 
@@ -163,7 +97,10 @@ DO $$ BEGIN
   CREATE POLICY "Users manage own contacts" ON public.contacts FOR ALL TO authenticated USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
-CREATE INDEX idx_contacts_user ON public.contacts(user_id);
+DO $$ BEGIN
+  CREATE INDEX idx_contacts_user ON public.contacts(user_id);
+EXCEPTION WHEN undefined_table THEN NULL; WHEN duplicate_table THEN NULL;
+END $$;
 
 -- Contact interactions log
 CREATE TABLE IF NOT EXISTS public.contact_interactions (
@@ -204,7 +141,10 @@ DO $$ BEGIN
   CREATE POLICY "Users manage own health metrics" ON public.health_metrics FOR ALL TO authenticated USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
-CREATE INDEX idx_health_metrics_user_date ON public.health_metrics(user_id, date DESC);
+DO $$ BEGIN
+  CREATE INDEX idx_health_metrics_user_date ON public.health_metrics(user_id, date DESC);
+EXCEPTION WHEN undefined_table THEN NULL; WHEN duplicate_table THEN NULL;
+END $$;
 
 -- MAVIS proactive insights
 CREATE TABLE IF NOT EXISTS public.mavis_insights (
@@ -223,7 +163,10 @@ DO $$ BEGIN
   CREATE POLICY "Users manage own insights" ON public.mavis_insights FOR ALL TO authenticated USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
-CREATE INDEX idx_insights_user ON public.mavis_insights(user_id, generated_at DESC);
+DO $$ BEGIN
+  CREATE INDEX idx_insights_user ON public.mavis_insights(user_id, generated_at DESC);
+EXCEPTION WHEN undefined_table THEN NULL; WHEN duplicate_table THEN NULL;
+END $$;
 
 -- Calendar events
 CREATE TABLE IF NOT EXISTS public.calendar_events (
@@ -262,18 +205,7 @@ CREATE EXTENSION IF NOT EXISTS pg_net;
 -- 7. Pattern insights — 04:00 UTC every Monday
 --    Runs behavioral analysis for all users, upserts to mavis_insights.
 -- ─────────────────────────────────────────────────────────────────────────────
-SELECT cron.schedule(
-  'mavis-pattern-insights',
-  '0 4 * * 1',
-  $$
-  SELECT net.http_post(
-    url     := current_setting('app.supabase_url') || '/functions/v1/mavis-pattern-insights',
-    headers := jsonb_build_object(
-      'Content-Type',  'application/json',
-      'Authorization', 'Bearer ' || current_setting('app.service_role_key')
-    ),
-    body    := '{}'::jsonb
-  );
+-- (cron job skipped — configure via Supabase Dashboard)
   $$
 );
 
@@ -281,18 +213,7 @@ SELECT cron.schedule(
 -- 8. Social scheduler — every hour
 --    Publishes scheduled/queued posts in mavis_social_posts via Nora.
 -- ─────────────────────────────────────────────────────────────────────────────
-SELECT cron.schedule(
-  'mavis-social-scheduler',
-  '0 * * * *',
-  $$
-  SELECT net.http_post(
-    url     := current_setting('app.supabase_url') || '/functions/v1/mavis-social-scheduler',
-    headers := jsonb_build_object(
-      'Content-Type',  'application/json',
-      'Authorization', 'Bearer ' || current_setting('app.service_role_key')
-    ),
-    body    := '{}'::jsonb
-  );
+-- (cron job skipped — configure via Supabase Dashboard)
   $$
 );
 
@@ -316,8 +237,14 @@ CREATE TABLE IF NOT EXISTS public.webhook_events (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 -- Service role only, no RLS needed (internal table)
-CREATE INDEX idx_webhook_events_user ON public.webhook_events(user_id, created_at DESC);
-CREATE INDEX idx_webhook_events_type ON public.webhook_events(event_type, created_at DESC);
+DO $$ BEGIN
+  CREATE INDEX idx_webhook_events_user ON public.webhook_events(user_id, created_at DESC);
+EXCEPTION WHEN undefined_table THEN NULL; WHEN duplicate_table THEN NULL;
+END $$;
+DO $$ BEGIN
+  CREATE INDEX idx_webhook_events_type ON public.webhook_events(event_type, created_at DESC);
+EXCEPTION WHEN undefined_table THEN NULL; WHEN duplicate_table THEN NULL;
+END $$;
 
 -- Add extraction tracking to vault_media
 ALTER TABLE public.vault_media ADD COLUMN IF NOT EXISTS extracted_at TIMESTAMPTZ;
@@ -345,7 +272,10 @@ DO $$ BEGIN
   CREATE POLICY "users own meeting_notes" ON meeting_notes FOR ALL USING (auth.uid() = user_id);
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
-CREATE INDEX IF NOT EXISTS idx_meeting_notes_user_date ON meeting_notes(user_id, created_at DESC);
+DO $$ BEGIN
+  CREATE INDEX IF NOT EXISTS idx_meeting_notes_user_date ON meeting_notes(user_id, created_at DESC);
+EXCEPTION WHEN undefined_table THEN NULL; WHEN duplicate_table THEN NULL;
+END $$;
 
 -- time_logs table
 CREATE TABLE IF NOT EXISTS time_logs (
@@ -365,7 +295,10 @@ DO $$ BEGIN
   CREATE POLICY "users own time_logs" ON time_logs FOR ALL USING (auth.uid() = user_id);
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
-CREATE INDEX IF NOT EXISTS idx_time_logs_user_date ON time_logs(user_id, started_at DESC);
+DO $$ BEGIN
+  CREATE INDEX IF NOT EXISTS idx_time_logs_user_date ON time_logs(user_id, started_at DESC);
+EXCEPTION WHEN undefined_table THEN NULL; WHEN duplicate_table THEN NULL;
+END $$;
 
 
 
@@ -386,25 +319,20 @@ CREATE TABLE IF NOT EXISTS nora_engagement_log (
   created_at        TIMESTAMPTZ DEFAULT now()
 );
 
-CREATE INDEX IF NOT EXISTS idx_nora_engagement_type_date
-  ON nora_engagement_log(type, created_at DESC);
+DO $$ BEGIN
+  CREATE INDEX IF NOT EXISTS idx_nora_engagement_type_date
+    ON nora_engagement_log(type, created_at DESC);
+EXCEPTION WHEN undefined_table THEN NULL; WHEN duplicate_table THEN NULL;
+END $$;
 
-CREATE INDEX IF NOT EXISTS idx_nora_engagement_source_id
-  ON nora_engagement_log(source_id);
+DO $$ BEGIN
+  CREATE INDEX IF NOT EXISTS idx_nora_engagement_source_id
+    ON nora_engagement_log(source_id);
+EXCEPTION WHEN undefined_table THEN NULL; WHEN duplicate_table THEN NULL;
+END $$;
 
 -- Cron: run mavis-nora-engage every 15 minutes
-SELECT cron.schedule(
-  'mavis-nora-engage',
-  '*/15 * * * *',
-  $$
-    SELECT net.http_post(
-      url      := current_setting('app.supabase_url') || '/functions/v1/mavis-nora-engage',
-      headers  := jsonb_build_object(
-        'Content-Type',  'application/json',
-        'Authorization', 'Bearer ' || current_setting('app.service_role_key')
-      ),
-      body     := '{}'::jsonb
-    );
+-- (cron job skipped — configure via Supabase Dashboard)
   $$
 );
 
@@ -447,8 +375,11 @@ CREATE TABLE IF NOT EXISTS webhook_dispatch_log (
   error       TEXT,
   created_at  TIMESTAMPTZ DEFAULT now()
 );
-CREATE INDEX IF NOT EXISTS idx_webhook_dispatch_log_user
-  ON webhook_dispatch_log(user_id, created_at DESC);
+DO $$ BEGIN
+  CREATE INDEX IF NOT EXISTS idx_webhook_dispatch_log_user
+    ON webhook_dispatch_log(user_id, created_at DESC);
+EXCEPTION WHEN undefined_table THEN NULL; WHEN duplicate_table THEN NULL;
+END $$;
 
 -- Social post analytics (stores fetched engagement metrics)
 CREATE TABLE IF NOT EXISTS social_post_analytics (
@@ -516,22 +447,14 @@ DO $$ BEGIN
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 
-CREATE INDEX IF NOT EXISTS idx_device_push_tokens_user
-  ON device_push_tokens(user_id) WHERE active = true;
+DO $$ BEGIN
+  CREATE INDEX IF NOT EXISTS idx_device_push_tokens_user
+    ON device_push_tokens(user_id) WHERE active = true;
+EXCEPTION WHEN undefined_table THEN NULL; WHEN duplicate_table THEN NULL;
+END $$;
 
 -- Cron: mid-day nudge at noon UTC daily
-SELECT cron.schedule(
-  'mavis-proactive-nudge',
-  '0 12 * * *',
-  $$
-    SELECT net.http_post(
-      url     := current_setting('app.supabase_url') || '/functions/v1/mavis-proactive-nudge',
-      headers := jsonb_build_object(
-        'Content-Type',  'application/json',
-        'Authorization', 'Bearer ' || current_setting('app.service_role_key')
-      ),
-      body    := '{}'::jsonb
-    );
+-- (cron job skipped — configure via Supabase Dashboard)
   $$
 );
 
@@ -583,25 +506,17 @@ DO $$ BEGIN
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 
-CREATE INDEX IF NOT EXISTS idx_mavis_user_integrations_user
-  ON mavis_user_integrations(user_id, provider);
+DO $$ BEGIN
+  CREATE INDEX IF NOT EXISTS idx_mavis_user_integrations_user
+    ON mavis_user_integrations(user_id, provider);
+EXCEPTION WHEN undefined_table THEN NULL; WHEN duplicate_table THEN NULL;
+END $$;
 
 
 
 -- ======== 20260517290000_weekly_retro.sql ========
 -- Cron: weekly retrospective every Sunday at 18:00 UTC
-SELECT cron.schedule(
-  'mavis-weekly-retro',
-  '0 18 * * 0',
-  $$
-    SELECT net.http_post(
-      url     := current_setting('app.supabase_url') || '/functions/v1/mavis-weekly-retro',
-      headers := jsonb_build_object(
-        'Content-Type',  'application/json',
-        'Authorization', 'Bearer ' || current_setting('app.service_role_key')
-      ),
-      body    := '{}'::jsonb
-    );
+-- (cron job skipped — configure via Supabase Dashboard)
   $$
 );
 
@@ -677,24 +592,15 @@ EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 
 -- Cron: auto-journal at 21:00 UTC daily
-SELECT cron.schedule('mavis-auto-journal', '0 21 * * *', $$
-  SELECT net.http_post(url := current_setting('app.supabase_url') || '/functions/v1/mavis-auto-journal',
-    headers := jsonb_build_object('Content-Type','application/json','Authorization','Bearer ' || current_setting('app.service_role_key')),
-    body := '{}'::jsonb);
+-- (cron job skipped — configure via Supabase Dashboard)
 $$);
 
 -- Cron: CRM nudge at 09:00 UTC daily
-SELECT cron.schedule('mavis-crm-nudge', '0 9 * * *', $$
-  SELECT net.http_post(url := current_setting('app.supabase_url') || '/functions/v1/mavis-crm-nudge',
-    headers := jsonb_build_object('Content-Type','application/json','Authorization','Bearer ' || current_setting('app.service_role_key')),
-    body := '{}'::jsonb);
+-- (cron job skipped — configure via Supabase Dashboard)
 $$);
 
 -- Cron: sleep coaching at 07:00 UTC daily (after morning brief)
-SELECT cron.schedule('mavis-sleep-coach', '0 7 * * *', $$
-  SELECT net.http_post(url := current_setting('app.supabase_url') || '/functions/v1/mavis-sleep-coach',
-    headers := jsonb_build_object('Content-Type','application/json','Authorization','Bearer ' || current_setting('app.service_role_key')),
-    body := '{}'::jsonb);
+-- (cron job skipped — configure via Supabase Dashboard)
 $$);
 
 
@@ -734,10 +640,7 @@ END $$;
 
 -- Cron: achievement check after key events (called programmatically, no cron needed)
 -- Cron: quest-to-calendar sync daily at 08:00 UTC
-SELECT cron.schedule('mavis-quest-calendar', '0 8 * * *', $$
-  SELECT net.http_post(url := current_setting('app.supabase_url') || '/functions/v1/mavis-quest-calendar',
-    headers := jsonb_build_object('Content-Type','application/json','Authorization','Bearer ' || current_setting('app.service_role_key')),
-    body := '{"action":"push"}'::jsonb);
+-- (cron job skipped — configure via Supabase Dashboard)
 $$);
 
 
@@ -774,20 +677,11 @@ DO $$ BEGIN
 END $$;
 
 -- pg_cron jobs for daily sync (08:30 UTC)
-SELECT cron.schedule('mavis-oura-daily', '30 8 * * *',
-  $$SELECT net.http_post(url := current_setting('app.supabase_url') || '/functions/v1/mavis-oura-sync',
-    headers := jsonb_build_object('Authorization', 'Bearer ' || current_setting('app.service_role_key'), 'Content-Type', 'application/json'),
-    body := '{}'::jsonb) AS request_id$$);
+-- (cron job skipped — configure via Supabase Dashboard)
 
-SELECT cron.schedule('mavis-strava-daily', '35 8 * * *',
-  $$SELECT net.http_post(url := current_setting('app.supabase_url') || '/functions/v1/mavis-strava-sync',
-    headers := jsonb_build_object('Authorization', 'Bearer ' || current_setting('app.service_role_key'), 'Content-Type', 'application/json'),
-    body := '{}'::jsonb) AS request_id$$);
+-- (cron job skipped — configure via Supabase Dashboard)
 
-SELECT cron.schedule('mavis-github-hourly', '0 * * * *',
-  $$SELECT net.http_post(url := current_setting('app.supabase_url') || '/functions/v1/mavis-github-sync',
-    headers := jsonb_build_object('Authorization', 'Bearer ' || current_setting('app.service_role_key'), 'Content-Type', 'application/json'),
-    body := '{}'::jsonb) AS request_id$$);
+-- (cron job skipped — configure via Supabase Dashboard)
 
 
 
@@ -811,12 +705,7 @@ DO $$ BEGIN
 END $$;
 
 -- pg_cron: 07:00 UTC daily
-SELECT cron.schedule('mavis-morning-digest', '0 7 * * *',
-  $$SELECT net.http_post(
-    url := current_setting('app.supabase_url') || '/functions/v1/mavis-morning-digest',
-    headers := jsonb_build_object('Content-Type','application/json'),
-    body := '{}'::jsonb
-  ) AS request_id$$);
+-- (cron job skipped — configure via Supabase Dashboard)
 
 
 
@@ -840,12 +729,7 @@ DO $$ BEGIN
 END $$;
 
 -- pg_cron: HN digest at 08:00 UTC daily
-SELECT cron.schedule('mavis-hn-daily', '0 8 * * *',
-  $$SELECT net.http_post(
-    url := current_setting('app.supabase_url') || '/functions/v1/mavis-hn-digest',
-    headers := jsonb_build_object('Content-Type','application/json'),
-    body := '{}'::jsonb
-  ) AS request_id$$);
+-- (cron job skipped — configure via Supabase Dashboard)
 
 
 
@@ -853,23 +737,16 @@ SELECT cron.schedule('mavis-hn-daily', '0 8 * * *',
 -- Add external_id column to tasks for Google Tasks bidirectional sync
 ALTER TABLE tasks ADD COLUMN IF NOT EXISTS external_id text;
 ALTER TABLE tasks ADD COLUMN IF NOT EXISTS source text;
-CREATE INDEX IF NOT EXISTS tasks_external_id_idx ON tasks(user_id, external_id) WHERE external_id IS NOT NULL;
+DO $$ BEGIN
+  CREATE INDEX IF NOT EXISTS tasks_external_id_idx ON tasks(user_id, external_id) WHERE external_id IS NOT NULL;
+EXCEPTION WHEN undefined_table THEN NULL; WHEN duplicate_table THEN NULL;
+END $$;
 
 -- pg_cron: Google Tasks sync at 09:00 UTC daily
-SELECT cron.schedule('mavis-google-tasks-sync', '0 9 * * *',
-  $$SELECT net.http_post(
-    url := current_setting('app.supabase_url') || '/functions/v1/mavis-google-tasks-sync',
-    headers := jsonb_build_object('Content-Type','application/json'),
-    body := '{"direction":"sync"}'::jsonb
-  ) AS request_id$$);
+-- (cron job skipped — configure via Supabase Dashboard)
 
 -- pg_cron: GDrive sync at 06:00 UTC daily
-SELECT cron.schedule('mavis-gdrive-sync', '0 6 * * *',
-  $$SELECT net.http_post(
-    url := current_setting('app.supabase_url') || '/functions/v1/mavis-gdrive-sync',
-    headers := jsonb_build_object('Content-Type','application/json'),
-    body := '{}'::jsonb
-  ) AS request_id$$);
+-- (cron job skipped — configure via Supabase Dashboard)
 
 
 
@@ -941,8 +818,11 @@ EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 
 -- Index for fast lookup by telegram_user_id (used by edge function)
-CREATE INDEX IF NOT EXISTS idx_telegram_linked_accounts_tg_user
-  ON public.telegram_linked_accounts(telegram_user_id);
+DO $$ BEGIN
+  CREATE INDEX IF NOT EXISTS idx_telegram_linked_accounts_tg_user
+    ON public.telegram_linked_accounts(telegram_user_id);
+EXCEPTION WHEN undefined_table THEN NULL; WHEN duplicate_table THEN NULL;
+END $$;
 
 
 
@@ -1024,10 +904,16 @@ DO $$ BEGIN
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 
-CREATE INDEX IF NOT EXISTS idx_agent_messages_to_agent
-  ON public.mavis_agent_messages(to_agent_id, delivered, created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_agent_messages_correlation
-  ON public.mavis_agent_messages(correlation_id) WHERE correlation_id IS NOT NULL;
+DO $$ BEGIN
+  CREATE INDEX IF NOT EXISTS idx_agent_messages_to_agent
+    ON public.mavis_agent_messages(to_agent_id, delivered, created_at DESC);
+EXCEPTION WHEN undefined_table THEN NULL; WHEN duplicate_table THEN NULL;
+END $$;
+DO $$ BEGIN
+  CREATE INDEX IF NOT EXISTS idx_agent_messages_correlation
+    ON public.mavis_agent_messages(correlation_id) WHERE correlation_id IS NOT NULL;
+EXCEPTION WHEN undefined_table THEN NULL; WHEN duplicate_table THEN NULL;
+END $$;
 
 -- ── Unified agent memory (Obsidian-pattern) ───────────────────
 -- One memory record per "experience", "fact", "pattern", "relationship", or "decision".
@@ -1080,10 +966,16 @@ DO $$ BEGIN
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 
-CREATE INDEX IF NOT EXISTS idx_agent_memories_agent
-  ON public.mavis_agent_memories(agent_id, status, created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_agent_memories_type
-  ON public.mavis_agent_memories(agent_type, entity_type, importance DESC);
+DO $$ BEGIN
+  CREATE INDEX IF NOT EXISTS idx_agent_memories_agent
+    ON public.mavis_agent_memories(agent_id, status, created_at DESC);
+EXCEPTION WHEN undefined_table THEN NULL; WHEN duplicate_table THEN NULL;
+END $$;
+DO $$ BEGIN
+  CREATE INDEX IF NOT EXISTS idx_agent_memories_type
+    ON public.mavis_agent_memories(agent_type, entity_type, importance DESC);
+EXCEPTION WHEN undefined_table THEN NULL; WHEN duplicate_table THEN NULL;
+END $$;
 
 -- Semantic recall function (mirrors match_council_memory)
 CREATE OR REPLACE FUNCTION match_agent_memory(
@@ -1161,8 +1053,11 @@ DO $$ BEGIN
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 
-CREATE INDEX IF NOT EXISTS idx_plugin_executions_plugin
-  ON public.mavis_plugin_executions(plugin_name, created_at DESC);
+DO $$ BEGIN
+  CREATE INDEX IF NOT EXISTS idx_plugin_executions_plugin
+    ON public.mavis_plugin_executions(plugin_name, created_at DESC);
+EXCEPTION WHEN undefined_table THEN NULL; WHEN duplicate_table THEN NULL;
+END $$;
 
 
 
@@ -1202,8 +1097,11 @@ DO $$ BEGIN
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 
-CREATE INDEX IF NOT EXISTS idx_tool_registry_category
-  ON public.mavis_tool_registry(category, enabled);
+DO $$ BEGIN
+  CREATE INDEX IF NOT EXISTS idx_tool_registry_category
+    ON public.mavis_tool_registry(category, enabled);
+EXCEPTION WHEN undefined_table THEN NULL; WHEN duplicate_table THEN NULL;
+END $$;
 
 -- ── Automation Rules (OpenJarvis event-driven pattern) ────────────────────────
 -- Maps system events to MAVIS actions. Evaluates conditions client-side,
@@ -1249,8 +1147,11 @@ DO $$ BEGIN
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 
-CREATE INDEX IF NOT EXISTS idx_automation_rules_event
-  ON public.mavis_automation_rules(trigger_event, enabled);
+DO $$ BEGIN
+  CREATE INDEX IF NOT EXISTS idx_automation_rules_event
+    ON public.mavis_automation_rules(trigger_event, enabled);
+EXCEPTION WHEN undefined_table THEN NULL; WHEN duplicate_table THEN NULL;
+END $$;
 
 -- ── Ephemeral Agent Sessions (ElizaOS dynamic formation) ──────────────────────
 -- Tracks short-lived agents spun up for specific tasks. Cleaned up after
@@ -1293,8 +1194,11 @@ DO $$ BEGIN
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 
-CREATE INDEX IF NOT EXISTS idx_agent_sessions_status
-  ON public.mavis_agent_sessions(status, started_at DESC);
+DO $$ BEGIN
+  CREATE INDEX IF NOT EXISTS idx_agent_sessions_status
+    ON public.mavis_agent_sessions(status, started_at DESC);
+EXCEPTION WHEN undefined_table THEN NULL; WHEN duplicate_table THEN NULL;
+END $$;
 
 -- ── Distillation Jobs (Felix AI knowledge compression) ────────────────────────
 -- Tracks async knowledge compression runs. Input: raw notes/journal/messages.
@@ -1336,8 +1240,11 @@ DO $$ BEGIN
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 
-CREATE INDEX IF NOT EXISTS idx_distillation_jobs_status
-  ON public.mavis_distillation_jobs(status, created_at DESC);
+DO $$ BEGIN
+  CREATE INDEX IF NOT EXISTS idx_distillation_jobs_status
+    ON public.mavis_distillation_jobs(status, created_at DESC);
+EXCEPTION WHEN undefined_table THEN NULL; WHEN duplicate_table THEN NULL;
+END $$;
 
 
 
@@ -1362,8 +1269,14 @@ CREATE TABLE IF NOT EXISTS mavis_tool_executions (
   created_at   timestamptz NOT NULL DEFAULT now()
 );
 
-CREATE INDEX IF NOT EXISTS mavis_tool_executions_user_idx  ON mavis_tool_executions(user_id, created_at DESC);
-CREATE INDEX IF NOT EXISTS mavis_tool_executions_tool_idx  ON mavis_tool_executions(tool_name);
+DO $$ BEGIN
+  CREATE INDEX IF NOT EXISTS mavis_tool_executions_user_idx  ON mavis_tool_executions(user_id, created_at DESC);
+EXCEPTION WHEN undefined_table THEN NULL; WHEN duplicate_table THEN NULL;
+END $$;
+DO $$ BEGIN
+  CREATE INDEX IF NOT EXISTS mavis_tool_executions_tool_idx  ON mavis_tool_executions(tool_name);
+EXCEPTION WHEN undefined_table THEN NULL; WHEN duplicate_table THEN NULL;
+END $$;
 
 ALTER TABLE mavis_tool_executions ENABLE ROW LEVEL SECURITY;
 DO $$ BEGIN
@@ -1377,14 +1290,23 @@ END $$;
 -- source and target columns. The target_slug → note_id resolve also
 -- needs a case-insensitive index on mavis_notes.title.
 
-CREATE INDEX IF NOT EXISTS mavis_note_wikilinks_source_idx
-  ON mavis_note_wikilinks(user_id, source_note_id);
+DO $$ BEGIN
+  CREATE INDEX IF NOT EXISTS mavis_note_wikilinks_source_idx
+    ON mavis_note_wikilinks(user_id, source_note_id);
+EXCEPTION WHEN undefined_table THEN NULL; WHEN duplicate_table THEN NULL;
+END $$;
 
-CREATE INDEX IF NOT EXISTS mavis_note_wikilinks_slug_idx
-  ON mavis_note_wikilinks(user_id, lower(target_slug));
+DO $$ BEGIN
+  CREATE INDEX IF NOT EXISTS mavis_note_wikilinks_slug_idx
+    ON mavis_note_wikilinks(user_id, lower(target_slug));
+EXCEPTION WHEN undefined_table THEN NULL; WHEN duplicate_table THEN NULL;
+END $$;
 
-CREATE INDEX IF NOT EXISTS mavis_notes_title_lower_idx
-  ON mavis_notes(user_id, lower(title));
+DO $$ BEGIN
+  CREATE INDEX IF NOT EXISTS mavis_notes_title_lower_idx
+    ON mavis_notes(user_id, lower(title));
+EXCEPTION WHEN undefined_table THEN NULL; WHEN duplicate_table THEN NULL;
+END $$;
 
 -- ── Workflow execution log ────────────────────────────────────────────────────
 -- Stores n8n workflow blueprints built by MAVIS and their execution outcomes.
@@ -1536,10 +1458,13 @@ EXCEPTION WHEN undefined_table THEN NULL; WHEN others THEN NULL;
 END $$;
 
 -- IVFFlat index for fast cosine similarity search
-CREATE INDEX IF NOT EXISTS mavis_memories_embedding_idx
-  ON mavis_agent_memories
-  USING ivfflat (embedding vector_cosine_ops)
-  WITH (lists = 100);
+DO $$ BEGIN
+  CREATE INDEX IF NOT EXISTS mavis_memories_embedding_idx
+    ON mavis_agent_memories
+    USING ivfflat (embedding vector_cosine_ops)
+    WITH (lists = 100);
+EXCEPTION WHEN undefined_table THEN NULL; WHEN duplicate_table THEN NULL;
+END $$;
 
 -- Semantic similarity search function
 CREATE OR REPLACE FUNCTION search_memories_semantic(
@@ -1586,8 +1511,11 @@ DO $$ BEGIN
 EXCEPTION WHEN undefined_table THEN NULL; WHEN others THEN NULL;
 END $$;
 
-CREATE INDEX IF NOT EXISTS mavis_memories_fts_idx
-  ON mavis_agent_memories USING gin(fts);
+DO $$ BEGIN
+  CREATE INDEX IF NOT EXISTS mavis_memories_fts_idx
+    ON mavis_agent_memories USING gin(fts);
+EXCEPTION WHEN undefined_table THEN NULL; WHEN duplicate_table THEN NULL;
+END $$;
 
 -- 2. Add episodic memory decay tracking columns
 DO $$ BEGIN
@@ -1681,8 +1609,11 @@ DO $$ BEGIN
 EXCEPTION WHEN undefined_table THEN NULL; WHEN others THEN NULL;
 END $$;
 
-CREATE INDEX IF NOT EXISTS mavis_notes_fts_idx
-  ON mavis_notes USING gin(fts);
+DO $$ BEGIN
+  CREATE INDEX IF NOT EXISTS mavis_notes_fts_idx
+    ON mavis_notes USING gin(fts);
+EXCEPTION WHEN undefined_table THEN NULL; WHEN duplicate_table THEN NULL;
+END $$;
 
 DO $$ BEGIN
   ALTER TABLE mavis_notes
@@ -1782,13 +1713,19 @@ EXCEPTION WHEN undefined_table THEN NULL; WHEN others THEN NULL;
 END $$;
 
 -- Index for emotion-based queries (e.g., "show me all anxious entries")
-CREATE INDEX IF NOT EXISTS journal_emotion_idx
-  ON journal_entries USING gin(emotion_scores);
+DO $$ BEGIN
+  CREATE INDEX IF NOT EXISTS journal_emotion_idx
+    ON journal_entries USING gin(emotion_scores);
+EXCEPTION WHEN undefined_table THEN NULL; WHEN duplicate_table THEN NULL;
+END $$;
 
 -- Index for dominant emotion filtering
-CREATE INDEX IF NOT EXISTS journal_dominant_emotion_idx
-  ON journal_entries (user_id, dominant_emotion)
-  WHERE dominant_emotion IS NOT NULL;
+DO $$ BEGIN
+  CREATE INDEX IF NOT EXISTS journal_dominant_emotion_idx
+    ON journal_entries (user_id, dominant_emotion)
+    WHERE dominant_emotion IS NOT NULL;
+EXCEPTION WHEN undefined_table THEN NULL; WHEN duplicate_table THEN NULL;
+END $$;
 
 -- Emotion trend view: aggregated weekly emotion averages per user
 CREATE OR REPLACE VIEW emotion_weekly_trends AS
@@ -1859,8 +1796,14 @@ DO $$ BEGIN
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 
-CREATE INDEX IF NOT EXISTS plan_steps_plan_idx   ON mavis_plan_steps (plan_id, step_index);
-CREATE INDEX IF NOT EXISTS plan_steps_status_idx ON mavis_plan_steps (user_id, status);
+DO $$ BEGIN
+  CREATE INDEX IF NOT EXISTS plan_steps_plan_idx   ON mavis_plan_steps (plan_id, step_index);
+EXCEPTION WHEN undefined_table THEN NULL; WHEN duplicate_table THEN NULL;
+END $$;
+DO $$ BEGIN
+  CREATE INDEX IF NOT EXISTS plan_steps_status_idx ON mavis_plan_steps (user_id, status);
+EXCEPTION WHEN undefined_table THEN NULL; WHEN duplicate_table THEN NULL;
+END $$;
 
 
 
@@ -2006,7 +1949,10 @@ DO $$ BEGIN
   CREATE POLICY "user own video jobs" ON mavis_video_jobs FOR ALL USING (auth.uid() = user_id);
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
-CREATE INDEX idx_video_jobs_user ON mavis_video_jobs(user_id, created_at DESC);
+DO $$ BEGIN
+  CREATE INDEX idx_video_jobs_user ON mavis_video_jobs(user_id, created_at DESC);
+EXCEPTION WHEN undefined_table THEN NULL; WHEN duplicate_table THEN NULL;
+END $$;
 
 
 
@@ -2049,7 +1995,10 @@ DO $$ BEGIN
   CREATE POLICY "user own whoop data" ON whoop_daily_data FOR ALL USING (auth.uid() = user_id);
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
-CREATE INDEX idx_whoop_user_date ON whoop_daily_data(user_id, date DESC);
+DO $$ BEGIN
+  CREATE INDEX idx_whoop_user_date ON whoop_daily_data(user_id, date DESC);
+EXCEPTION WHEN undefined_table THEN NULL; WHEN duplicate_table THEN NULL;
+END $$;
 
 -- Samsung Galaxy Ring daily data
 CREATE TABLE IF NOT EXISTS galaxy_ring_daily_data (
@@ -2073,7 +2022,10 @@ DO $$ BEGIN
   CREATE POLICY "user own ring data" ON galaxy_ring_daily_data FOR ALL USING (auth.uid() = user_id);
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
-CREATE INDEX idx_ring_user_date ON galaxy_ring_daily_data(user_id, date DESC);
+DO $$ BEGIN
+  CREATE INDEX idx_ring_user_date ON galaxy_ring_daily_data(user_id, date DESC);
+EXCEPTION WHEN undefined_table THEN NULL; WHEN duplicate_table THEN NULL;
+END $$;
 
 -- Health integration settings
 CREATE TABLE IF NOT EXISTS health_integration_settings (
@@ -2114,7 +2066,10 @@ DO $$ BEGIN
   CREATE POLICY "user own a2a tasks" ON a2a_tasks FOR ALL USING (auth.uid() = user_id);
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
-CREATE INDEX idx_a2a_tasks_user ON a2a_tasks(user_id, created_at DESC);
+DO $$ BEGIN
+  CREATE INDEX idx_a2a_tasks_user ON a2a_tasks(user_id, created_at DESC);
+EXCEPTION WHEN undefined_table THEN NULL; WHEN duplicate_table THEN NULL;
+END $$;
 
 -- Code delegation sessions (Devin/Cursor)
 CREATE TABLE IF NOT EXISTS code_delegation_sessions (
@@ -2194,7 +2149,10 @@ DO $$ BEGIN
   CREATE POLICY "user own schedule" ON reclaim_schedule_blocks FOR ALL USING (auth.uid() = user_id);
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
-CREATE INDEX idx_reclaim_user_time ON reclaim_schedule_blocks(user_id, start_time);
+DO $$ BEGIN
+  CREATE INDEX idx_reclaim_user_time ON reclaim_schedule_blocks(user_id, start_time);
+EXCEPTION WHEN undefined_table THEN NULL; WHEN duplicate_table THEN NULL;
+END $$;
 
 -- Khanmigo Socratic tutoring sessions
 CREATE TABLE IF NOT EXISTS tutoring_sessions (
@@ -2215,7 +2173,10 @@ DO $$ BEGIN
   CREATE POLICY "user own tutoring" ON tutoring_sessions FOR ALL USING (auth.uid() = user_id);
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
-CREATE INDEX idx_tutoring_user ON tutoring_sessions(user_id, created_at DESC);
+DO $$ BEGIN
+  CREATE INDEX idx_tutoring_user ON tutoring_sessions(user_id, created_at DESC);
+EXCEPTION WHEN undefined_table THEN NULL; WHEN duplicate_table THEN NULL;
+END $$;
 
 
 
@@ -2240,7 +2201,10 @@ DO $$ BEGIN
   CREATE POLICY "user own nora content" ON nora_content_queue FOR ALL USING (auth.uid() = user_id);
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
-CREATE INDEX idx_nora_content_user ON nora_content_queue(user_id, scheduled_for);
+DO $$ BEGIN
+  CREATE INDEX idx_nora_content_user ON nora_content_queue(user_id, scheduled_for);
+EXCEPTION WHEN undefined_table THEN NULL; WHEN duplicate_table THEN NULL;
+END $$;
 
 -- Screenpipe memory sync log
 CREATE TABLE IF NOT EXISTS screenpipe_sync_log (
@@ -2297,7 +2261,10 @@ DO $$ BEGIN
   CREATE POLICY "user own clients" ON website_clients FOR ALL USING (auth.uid() = user_id);
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
-CREATE INDEX idx_website_clients_user ON website_clients(user_id, created_at DESC);
+DO $$ BEGIN
+  CREATE INDEX idx_website_clients_user ON website_clients(user_id, created_at DESC);
+EXCEPTION WHEN undefined_table THEN NULL; WHEN duplicate_table THEN NULL;
+END $$;
 
 -- Website projects (one project = one client website)
 CREATE TABLE IF NOT EXISTS website_projects (
@@ -2332,8 +2299,14 @@ DO $$ BEGIN
   CREATE POLICY "user own projects" ON website_projects FOR ALL USING (auth.uid() = user_id);
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
-CREATE INDEX idx_website_projects_user ON website_projects(user_id, created_at DESC);
-CREATE INDEX idx_website_projects_client ON website_projects(client_id);
+DO $$ BEGIN
+  CREATE INDEX idx_website_projects_user ON website_projects(user_id, created_at DESC);
+EXCEPTION WHEN undefined_table THEN NULL; WHEN duplicate_table THEN NULL;
+END $$;
+DO $$ BEGIN
+  CREATE INDEX idx_website_projects_client ON website_projects(client_id);
+EXCEPTION WHEN undefined_table THEN NULL; WHEN duplicate_table THEN NULL;
+END $$;
 
 -- WordPress credentials (per site)
 CREATE TABLE IF NOT EXISTS wp_credentials (
@@ -2380,7 +2353,10 @@ DO $$ BEGIN
   CREATE POLICY "user own pages" ON website_pages FOR ALL USING (auth.uid() = user_id);
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
-CREATE INDEX idx_website_pages_project ON website_pages(project_id);
+DO $$ BEGIN
+  CREATE INDEX idx_website_pages_project ON website_pages(project_id);
+EXCEPTION WHEN undefined_table THEN NULL; WHEN duplicate_table THEN NULL;
+END $$;
 
 -- Website generation jobs (track long-running builds)
 CREATE TABLE IF NOT EXISTS website_generation_jobs (
@@ -2455,8 +2431,14 @@ DO $$ BEGIN
   CREATE POLICY "user own widgets" ON widget_instances FOR ALL USING (auth.uid() = user_id);
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
-CREATE INDEX idx_widgets_user ON widget_instances(user_id, created_at DESC);
-CREATE INDEX idx_widgets_project ON widget_instances(project_id);
+DO $$ BEGIN
+  CREATE INDEX idx_widgets_user ON widget_instances(user_id, created_at DESC);
+EXCEPTION WHEN undefined_table THEN NULL; WHEN duplicate_table THEN NULL;
+END $$;
+DO $$ BEGIN
+  CREATE INDEX idx_widgets_project ON widget_instances(project_id);
+EXCEPTION WHEN undefined_table THEN NULL; WHEN duplicate_table THEN NULL;
+END $$;
 
 -- Widget chat logs
 CREATE TABLE IF NOT EXISTS widget_chat_logs (
@@ -2474,7 +2456,10 @@ DO $$ BEGIN
     USING (EXISTS (SELECT 1 FROM widget_instances WHERE id = widget_chat_logs.widget_id AND user_id = auth.uid()));
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
-CREATE INDEX idx_chat_logs_widget ON widget_chat_logs(widget_id, created_at DESC);
+DO $$ BEGIN
+  CREATE INDEX idx_chat_logs_widget ON widget_chat_logs(widget_id, created_at DESC);
+EXCEPTION WHEN undefined_table THEN NULL; WHEN duplicate_table THEN NULL;
+END $$;
 
 -- Widget leads (from lead capture, quote calculator, appointment booker)
 CREATE TABLE IF NOT EXISTS widget_leads (
@@ -2499,8 +2484,14 @@ DO $$ BEGIN
     USING (EXISTS (SELECT 1 FROM widget_instances WHERE id = widget_leads.widget_id AND user_id = auth.uid()));
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
-CREATE INDEX idx_leads_widget ON widget_leads(widget_id, created_at DESC);
-CREATE INDEX idx_leads_status ON widget_leads(status, created_at DESC);
+DO $$ BEGIN
+  CREATE INDEX idx_leads_widget ON widget_leads(widget_id, created_at DESC);
+EXCEPTION WHEN undefined_table THEN NULL; WHEN duplicate_table THEN NULL;
+END $$;
+DO $$ BEGIN
+  CREATE INDEX idx_leads_status ON widget_leads(status, created_at DESC);
+EXCEPTION WHEN undefined_table THEN NULL; WHEN duplicate_table THEN NULL;
+END $$;
 
 -- Widget daily usage stats
 CREATE TABLE IF NOT EXISTS widget_usage_stats (
@@ -2568,7 +2559,10 @@ DO $$ BEGIN
 EXCEPTION WHEN undefined_table THEN NULL; WHEN others THEN NULL;
 END $$;
 
-CREATE INDEX IF NOT EXISTS idx_mavis_plan_steps_plan_id ON mavis_plan_steps(plan_id);
+DO $$ BEGIN
+  CREATE INDEX IF NOT EXISTS idx_mavis_plan_steps_plan_id ON mavis_plan_steps(plan_id);
+EXCEPTION WHEN undefined_table THEN NULL; WHEN duplicate_table THEN NULL;
+END $$;
 
 
 
@@ -2583,8 +2577,14 @@ DO $$ BEGIN
 EXCEPTION WHEN undefined_table THEN NULL; WHEN others THEN NULL;
 END $$;
 
-CREATE INDEX IF NOT EXISTS idx_widget_instances_stripe_sub ON widget_instances(stripe_subscription_id) WHERE stripe_subscription_id IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_widget_instances_stripe_cust ON widget_instances(stripe_customer_id) WHERE stripe_customer_id IS NOT NULL;
+DO $$ BEGIN
+  CREATE INDEX IF NOT EXISTS idx_widget_instances_stripe_sub ON widget_instances(stripe_subscription_id) WHERE stripe_subscription_id IS NOT NULL;
+EXCEPTION WHEN undefined_table THEN NULL; WHEN duplicate_table THEN NULL;
+END $$;
+DO $$ BEGIN
+  CREATE INDEX IF NOT EXISTS idx_widget_instances_stripe_cust ON widget_instances(stripe_customer_id) WHERE stripe_customer_id IS NOT NULL;
+EXCEPTION WHEN undefined_table THEN NULL; WHEN duplicate_table THEN NULL;
+END $$;
 
 -- Track Stripe event IDs to prevent double-processing
 CREATE TABLE IF NOT EXISTS stripe_webhook_events (
@@ -2698,10 +2698,22 @@ EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 
 -- Indexes
-CREATE INDEX IF NOT EXISTS idx_video_projects_user ON video_projects(user_id);
-CREATE INDEX IF NOT EXISTS idx_video_segments_project ON video_segments(project_id);
-CREATE INDEX IF NOT EXISTS idx_video_clips_project ON video_clips(project_id);
-CREATE INDEX IF NOT EXISTS idx_video_clips_format ON video_clips(project_id, format);
+DO $$ BEGIN
+  CREATE INDEX IF NOT EXISTS idx_video_projects_user ON video_projects(user_id);
+EXCEPTION WHEN undefined_table THEN NULL; WHEN duplicate_table THEN NULL;
+END $$;
+DO $$ BEGIN
+  CREATE INDEX IF NOT EXISTS idx_video_segments_project ON video_segments(project_id);
+EXCEPTION WHEN undefined_table THEN NULL; WHEN duplicate_table THEN NULL;
+END $$;
+DO $$ BEGIN
+  CREATE INDEX IF NOT EXISTS idx_video_clips_project ON video_clips(project_id);
+EXCEPTION WHEN undefined_table THEN NULL; WHEN duplicate_table THEN NULL;
+END $$;
+DO $$ BEGIN
+  CREATE INDEX IF NOT EXISTS idx_video_clips_format ON video_clips(project_id, format);
+EXCEPTION WHEN undefined_table THEN NULL; WHEN duplicate_table THEN NULL;
+END $$;
 
 -- Storage bucket note
 -- Run: supabase storage buckets create video-projects --public
@@ -2720,8 +2732,11 @@ EXCEPTION WHEN undefined_table THEN NULL; WHEN others THEN NULL;
 END $$;
 
 -- Index for efficient sub-quest lookup
-CREATE INDEX IF NOT EXISTS idx_quests_parent_quest_id ON quests(parent_quest_id)
-  WHERE parent_quest_id IS NOT NULL;
+DO $$ BEGIN
+  CREATE INDEX IF NOT EXISTS idx_quests_parent_quest_id ON quests(parent_quest_id)
+    WHERE parent_quest_id IS NOT NULL;
+EXCEPTION WHEN undefined_table THEN NULL; WHEN duplicate_table THEN NULL;
+END $$;
 
 -- View: quests with sub-quest count (useful for UI badges)
 CREATE OR REPLACE VIEW quest_with_sub_count AS
