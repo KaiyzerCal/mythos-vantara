@@ -20,21 +20,25 @@ const corsHeaders = {
 
 // ============================================================
 // IDENTITY LOCK
-// MAVIS Prime is bound to these user IDs only.
-// Add Calvin's and Caliyah's Supabase auth user IDs here.
-// Anyone else gets rejected at the gate.
+// Operator identity gate — read from Supabase Edge Function secrets at runtime.
+// Set MAVIS_OPERATOR_MAIN_ID and MAVIS_OPERATOR_CALIYAH_ID in the Supabase dashboard
+// under Settings → Edge Functions → Secrets. When these are not set, DEV_MODE is true
+// and all authenticated users can access MAVIS (development only).
 // ============================================================
-const BOUND_OPERATORS: Record<string, { name: string; isCaliyah: boolean }> = {
-  // Add your actual Supabase user IDs here:
-  // "your-calvin-user-id-from-supabase-auth": { name: "Calvin", isCaliyah: false },
-  // "caliyah-user-id-from-supabase-auth": { name: "Caliyah", isCaliyah: true },
-  //
-  // To find your user ID: Supabase Dashboard → Authentication → Users → copy the UUID
-  // Leave empty during development to allow all users (remove this comment when locking down)
-  "__DEV_MODE__": { name: "Calvin", isCaliyah: false },
-};
+const _mainId = Deno.env.get("MAVIS_OPERATOR_MAIN_ID")?.trim();
+const _caliyahId = Deno.env.get("MAVIS_OPERATOR_CALIYAH_ID")?.trim();
+const _extraIds = Deno.env.get("MAVIS_EXTRA_OPERATOR_IDS") ?? "";
 
-const DEV_MODE = BOUND_OPERATORS["__DEV_MODE__"] !== undefined && Object.keys(BOUND_OPERATORS).length === 1;
+const BOUND_OPERATORS: Record<string, { name: string; isCaliyah: boolean }> = {};
+if (_mainId) BOUND_OPERATORS[_mainId] = { name: "Calvin", isCaliyah: false };
+if (_caliyahId) BOUND_OPERATORS[_caliyahId] = { name: "Caliyah", isCaliyah: true };
+for (const id of _extraIds.split(",").map((s) => s.trim()).filter(Boolean)) {
+  if (!BOUND_OPERATORS[id]) BOUND_OPERATORS[id] = { name: "Operator", isCaliyah: false };
+}
+
+// DEV_MODE: true when no operator IDs are configured via secrets.
+// In production, always configure MAVIS_OPERATOR_MAIN_ID.
+const DEV_MODE = Object.keys(BOUND_OPERATORS).length === 0;
 
 // ============================================================
 // CAPABILITY ROUTER
