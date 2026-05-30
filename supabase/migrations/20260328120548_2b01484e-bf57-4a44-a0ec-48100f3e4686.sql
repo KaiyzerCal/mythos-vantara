@@ -1,0 +1,1 @@
+DELETE FROM public.profiles WHERE id = '6c5f8f70-b4a6-487f-a1d9-58e283d9378d'; DELETE FROM public.user_roles WHERE user_id = '6c5f8f70-b4a6-487f-a1d9-58e283d9378d';
