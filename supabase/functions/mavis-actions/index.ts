@@ -86,7 +86,11 @@ const ACTION_ALIASES: Record<string, string> = {
   "update_item": "update_inventory_item", "edit_item": "update_inventory_item",
   "delete_item": "delete_inventory_item", "remove_item": "delete_inventory_item",
   "add_quest": "create_quest", "new_quest": "create_quest", "edit_quest": "update_quest", "remove_quest": "delete_quest", "finish_quest": "complete_quest",
-  "add_task": "create_task", "new_task": "create_task", "edit_task": "update_task", "remove_task": "delete_task", "finish_task": "complete_task",
+  "create_task": "create_quest", "add_task": "create_quest", "new_task": "create_quest",
+  "create_habit": "create_quest", "add_habit": "create_quest",
+  "complete_task": "complete_quest", "finish_task": "complete_quest",
+  "delete_task": "delete_quest", "remove_task": "delete_quest",
+  "update_task": "update_quest", "edit_task": "update_quest",
   "add_skill": "create_skill", "new_skill": "create_skill", "edit_skill": "update_skill", "remove_skill": "delete_skill",
   "add_subskill": "create_subskill", "new_subskill": "create_subskill",
   "add_journal": "create_journal", "new_journal": "create_journal", "create_journal_entry": "create_journal", "add_journal_entry": "create_journal",
@@ -160,6 +164,7 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
         category: p.category ? String(p.category) : null,
         loot_rewards: p.loot_rewards || [],
         linked_skill_ids: asStringArray(p.linked_skill_ids),
+        parent_quest_id: p.parent_quest_id ? String(p.parent_quest_id) : null,
       });
       if (error) throw error;
       await logActivity(sb, userId, "quest_created", `Quest created: ${String(p.title || "New Quest")}`, 0);
@@ -199,58 +204,28 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
       return;
     }
 
-    // ── TASKS ────────────────────────────────────────────
+    // ── TASKS (legacy — all task actions redirect to quests) ─────────────
+    // NOTE: create_task / complete_task / update_task / delete_task are
+    // handled via ACTION_ALIASES above (→ create_quest / complete_quest /
+    // update_quest / delete_quest). These cases are kept as a safety net
+    // in case an alias lookup is bypassed (e.g. direct switch fall-through).
     case "create_task": {
-      const { error } = await sb.from("tasks").insert({
+      // Redirect: insert as a quest (type "side") instead of the tasks table
+      const { error } = await sb.from("quests").insert({
         user_id: userId,
-        title: String(p.title || "New Task"),
+        title: String(p.title || "New Quest"),
         description: p.description ? String(p.description) : null,
-        type: String(p.type || "task"),
+        type: String(p.type && p.type !== "task" && p.type !== "habit" ? p.type : "side"),
         status: "active",
-        recurrence: String(p.recurrence || "once"),
+        difficulty: String(p.difficulty || "Normal"),
         xp_reward: Number(p.xp_reward || 25),
-        streak: 0,
-        completed_count: 0,
+        codex_points_reward: 0,
+        progress_current: 0,
+        progress_target: 1,
+        parent_quest_id: p.parent_quest_id ? String(p.parent_quest_id) : null,
       });
       if (error) throw error;
-      await logActivity(sb, userId, "task_created", `Task created: ${String(p.title || "New Task")}`, 0);
-      return;
-    }
-
-    case "complete_task": {
-      const taskId = await resolveId(sb, userId, "tasks", (p.task_id || p.id) as string, (p.task_name || p.title) as string, "title");
-      if (!taskId) return;
-      const { data: task } = await sb.from("tasks").select("xp_reward, title, recurrence, completed_count, streak").eq("id", taskId).eq("user_id", userId).single();
-      if (!task) return;
-      const newStatus = task.recurrence === "once" ? "completed" : "active";
-      await sb.from("tasks").update({
-        status: newStatus,
-        completed_count: Number(task.completed_count || 0) + 1,
-        streak: Number(task.streak || 0) + 1,
-        last_completed: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      }).eq("id", taskId).eq("user_id", userId);
-      await awardXP(sb, userId, Number(task.xp_reward || 0));
-      await logActivity(sb, userId, "task_completed", `Task completed: ${task.title}`, Number(task.xp_reward || 0));
-      return;
-    }
-
-    case "update_task": {
-      const taskId = await resolveId(sb, userId, "tasks", (p.task_id || p.id) as string, (p.task_name || p.title) as string, "title");
-      if (!taskId) return;
-      const updates: Record<string, unknown> = {};
-      for (const key of ["title", "description", "type", "status", "recurrence", "xp_reward"]) {
-        if (p[key] !== undefined) updates[key] = p[key];
-      }
-      updates.updated_at = new Date().toISOString();
-      await sb.from("tasks").update(updates).eq("id", taskId).eq("user_id", userId);
-      return;
-    }
-
-    case "delete_task": {
-      const taskId = await resolveId(sb, userId, "tasks", (p.task_id || p.id) as string, (p.task_name || p.title) as string, "title");
-      if (!taskId) return;
-      await sb.from("tasks").delete().eq("id", taskId).eq("user_id", userId);
+      await logActivity(sb, userId, "quest_created", `Quest created (via create_task): ${String(p.title || "New Quest")}`, 0);
       return;
     }
 
