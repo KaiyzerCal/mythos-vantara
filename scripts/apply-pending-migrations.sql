@@ -1582,8 +1582,7 @@ $$;
 -- 1. Add tsvector column for BM25-style full-text search
 DO $$ BEGIN
   ALTER TABLE mavis_agent_memories
-    ADD COLUMN IF NOT EXISTS fts tsvector
-      GENERATED ALWAYS AS (to_tsvector('english', coalesce(content, ''))) STORED;
+    ADD COLUMN IF NOT EXISTS fts tsvector;
 EXCEPTION WHEN undefined_table THEN NULL; WHEN others THEN NULL;
 END $$;
 
@@ -1678,8 +1677,7 @@ $$;
 -- 5. Also add tsvector + decay to mavis_notes (knowledge graph) for consistency
 DO $$ BEGIN
   ALTER TABLE mavis_notes
-    ADD COLUMN IF NOT EXISTS fts tsvector
-      GENERATED ALWAYS AS (to_tsvector('english', coalesce(title, '') || ' ' || coalesce(content, ''))) STORED;
+    ADD COLUMN IF NOT EXISTS fts tsvector;
 EXCEPTION WHEN undefined_table THEN NULL; WHEN others THEN NULL;
 END $$;
 
@@ -2644,7 +2642,7 @@ CREATE TABLE IF NOT EXISTS video_clips (
   title text NOT NULL,
   start_seconds numeric NOT NULL,
   end_seconds numeric NOT NULL,
-  duration_seconds numeric GENERATED ALWAYS AS (end_seconds - start_seconds) STORED,
+  duration_seconds numeric,
   format text NOT NULL,               -- shorts|reels|highlight|long_form|custom
   aspect_ratio text DEFAULT '9:16',   -- 9:16|16:9|1:1
   viral_score numeric DEFAULT 0,

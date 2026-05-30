@@ -2,8 +2,7 @@
 
 -- 1. Add tsvector column for BM25-style full-text search
 ALTER TABLE mavis_agent_memories
-  ADD COLUMN IF NOT EXISTS fts tsvector
-    GENERATED ALWAYS AS (to_tsvector('english', coalesce(content, ''))) STORED;
+  ADD COLUMN IF NOT EXISTS fts tsvector;
 
 CREATE INDEX IF NOT EXISTS mavis_memories_fts_idx
   ON mavis_agent_memories USING gin(fts);
@@ -92,8 +91,7 @@ $$;
 
 -- 5. Also add tsvector + decay to mavis_notes (knowledge graph) for consistency
 ALTER TABLE mavis_notes
-  ADD COLUMN IF NOT EXISTS fts tsvector
-    GENERATED ALWAYS AS (to_tsvector('english', coalesce(title, '') || ' ' || coalesce(content, ''))) STORED;
+  ADD COLUMN IF NOT EXISTS fts tsvector;
 
 CREATE INDEX IF NOT EXISTS mavis_notes_fts_idx
   ON mavis_notes USING gin(fts);
