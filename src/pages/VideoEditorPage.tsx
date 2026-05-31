@@ -491,7 +491,8 @@ export default function VideoEditorPage() {
       );
       if (!res.ok) return;
       const data = await res.json();
-      setSelectedProject(normalizeProjectTranscript(data.project ?? project));
+      // Merge: preserve list-level fields (source_url, etc.) if edge function omits them
+      setSelectedProject(normalizeProjectTranscript({ ...project, ...(data.project ?? {}) }));
       setClips({
         shorts: data.clips?.shorts ?? [],
         reels: data.clips?.reels ?? [],
@@ -801,7 +802,11 @@ export default function VideoEditorPage() {
   // ── Build Compilation ─────────────────────────────────────────────────────
 
   async function handleBuildCompilation() {
-    if (!selectedProject?.source_url || compilationSelected.size === 0) return;
+    if (!selectedProject?.source_url) {
+      toast.error("No video source found — try re-opening the project.");
+      return;
+    }
+    if (compilationSelected.size === 0) return;
     const selectedClips = allClips
       .filter(c => compilationSelected.has(clipKey(c)))
       .sort((a, b) => (a.start ?? a.start_seconds ?? 0) - (b.start ?? b.start_seconds ?? 0));
