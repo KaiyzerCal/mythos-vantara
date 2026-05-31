@@ -6,7 +6,9 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-const GEMINI_KEY = Deno.env.get("GEMINI_API_KEY") ?? "";
+const GEMINI_KEY  = Deno.env.get("GEMINI_API_KEY") ?? "";
+const CLAUDE_KEY  = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
+const OPENAI_KEY  = Deno.env.get("OPENAI_API") ?? Deno.env.get("OPENAI_API_KEY") ?? "";
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
 const SUPABASE_SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 
@@ -173,35 +175,76 @@ Return a JSON object with this EXACT structure:
   }
 }`;
 
-  const GEMINI_MODELS = [
-    "gemini-2.5-flash-preview-05-20",
-    "gemini-2.0-flash",
-    "gemini-1.5-flash",
-  ];
-
-  const body = JSON.stringify({
-    contents: [{ role: "user", parts: [{ text: systemPrompt }] }],
-    generationConfig: {
-      temperature: 0.8,
-      responseMimeType: "application/json",
-      maxOutputTokens: 8192,
-    },
-  });
-
-  let res: Response | null = null;
-  for (const model of GEMINI_MODELS) {
-    res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_KEY}`,
-      { method: "POST", headers: { "Content-Type": "application/json" }, body },
-    );
-    if (res.ok) break;
-    if (res.status !== 403 && res.status !== 404) break; // only retry on access errors
+  // ── Tier 1: Gemini (try all models, skip on 403/404/429) ──
+  if (GEMINI_KEY) {
+    const GEMINI_MODELS = [
+      "gemini-2.5-flash-preview-05-20",
+      "gemini-2.0-flash",
+      "gemini-1.5-flash",
+    ];
+    const gemBody = JSON.stringify({
+      contents: [{ role: "user", parts: [{ text: systemPrompt }] }],
+      generationConfig: { temperature: 0.8, responseMimeType: "application/json", maxOutputTokens: 8192 },
+    });
+    for (const model of GEMINI_MODELS) {
+      const res = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_KEY}`,
+        { method: "POST", headers: { "Content-Type": "application/json" }, body: gemBody },
+      );
+      if (res.ok) {
+        const data = await res.json();
+        const text = data.candidates?.[0]?.content?.parts?.[0]?.text ?? "{}";
+        return JSON.parse(text);
+      }
+      // 429 = rate limit (quota shared across models — skip all Gemini)
+      if (res.status === 429) break;
+      // 403/404 = model access issue — try next model
+    }
   }
 
-  if (!res || !res.ok) throw new Error(`Gemini content gen failed: ${res?.status ?? "no response"}`);
-  const data = await res.json();
-  const text = data.candidates?.[0]?.content?.parts?.[0]?.text ?? "{}";
-  return JSON.parse(text);
+  // ── Tier 2: Claude Haiku ──────────────────────────────────
+  if (CLAUDE_KEY) {
+    const res = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-api-key": CLAUDE_KEY, "anthropic-version": "2023-06-01" },
+      body: JSON.stringify({
+        model: "claude-haiku-4-5-20251001",
+        max_tokens: 8192,
+        system: "You are an expert web copywriter. Always respond with valid JSON only — no markdown, no explanation.",
+        messages: [{ role: "user", content: systemPrompt }],
+      }),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      const text = data.content?.[0]?.text ?? "{}";
+      const match = text.match(/\{[\s\S]*\}/);
+      return JSON.parse(match ? match[0] : text);
+    }
+  }
+
+  // ── Tier 3: OpenAI gpt-4o-mini ───────────────────────────
+  if (OPENAI_KEY) {
+    const res = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${OPENAI_KEY}` },
+      body: JSON.stringify({
+        model: "gpt-4o-mini",
+        max_tokens: 8192,
+        response_format: { type: "json_object" },
+        messages: [
+          { role: "system", content: "You are an expert web copywriter. Respond with valid JSON only." },
+          { role: "user", content: systemPrompt },
+        ],
+      }),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      const text = data.choices?.[0]?.message?.content ?? "{}";
+      return JSON.parse(text);
+    }
+  }
+
+  throw new Error("All AI providers failed or have no funded keys — cannot generate site content.");
 }
 
 // ---------------------------------------------------------------------------
