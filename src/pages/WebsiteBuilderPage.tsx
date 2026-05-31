@@ -702,7 +702,7 @@ export default function WebsiteBuilderPage() {
         user_id: user.id,
         page_type: pageType,
         slug: pageType,
-        status: "generated",
+        status: "customized",
         gutenberg_html: html,
       }, { onConflict: "project_id,page_type" });
 
@@ -741,7 +741,7 @@ export default function WebsiteBuilderPage() {
             user_id: user.id,
             page_type: pageType,
             slug: pageType,
-            status: "generated",
+            status: "customized",
             gutenberg_html: html,
           }, { onConflict: "project_id,page_type" });
           if (error) throw error;
@@ -1106,7 +1106,12 @@ export default function WebsiteBuilderPage() {
                           >
                             <span className="text-base">{PAGE_TYPE_ICON[pageType] ?? "📄"}</span>
                             <div className="flex-1 min-w-0">
-                              <p className="text-sm font-medium capitalize">{pageType}</p>
+                              <p className="text-sm font-medium capitalize flex items-center gap-1.5">
+                                {pageType}
+                                {dbPage?.status === "customized" && (
+                                  <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-400 border border-blue-500/20">custom</span>
+                                )}
+                              </p>
                               {dbPage?.wp_url && (
                                 <a
                                   href={dbPage.wp_url}

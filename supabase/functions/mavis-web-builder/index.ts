@@ -2391,25 +2391,40 @@ serve(async (req: Request) => {
         if (project_id && user_id) {
           const sb = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
 
-          // Upsert every generated page, including HTML; merge WP data if available
+          // Fetch existing pages so we can preserve user-imported HTML
+          const { data: existingPages } = await sb
+            .from("website_pages")
+            .select("page_type, status")
+            .eq("project_id", project_id);
+          const customizedTypes = new Set(
+            (existingPages ?? [])
+              .filter((p: any) => p.status === "customized")
+              .map((p: any) => p.page_type),
+          );
+
+          // Upsert every generated page; skip overwriting HTML for user-customized pages
           const wpByType = Object.fromEntries(publishedPages.map((p) => [p.type, p]));
           for (const [pageType, html] of Object.entries(generatedHtmls)) {
             const wp = wpByType[pageType];
-            await sb.from("website_pages").upsert({
+            const isCustomized = customizedTypes.has(pageType);
+            const upsertData: Record<string, unknown> = {
               project_id,
               user_id,
               page_type: pageType,
               slug: pageType,
-              gutenberg_html: html,
-              ...(wp ? {
-                wp_page_id: wp.wp_id,
-                wp_url: wp.url,
-                status: "published",
-                published_at: new Date().toISOString(),
-              } : {
-                status: "generated",
-              }),
-            }, { onConflict: "project_id,page_type" });
+            };
+            // Preserve user-customized HTML — only write fresh HTML for MAVIS-generated pages
+            if (!isCustomized) {
+              upsertData.gutenberg_html = html;
+              upsertData.status = "generated";
+            }
+            if (wp) {
+              upsertData.wp_page_id = wp.wp_id;
+              upsertData.wp_url = wp.url;
+              upsertData.status = "published";
+              upsertData.published_at = new Date().toISOString();
+            }
+            await sb.from("website_pages").upsert(upsertData, { onConflict: "project_id,page_type" });
           }
 
           const totalPages = Object.keys(generatedHtmls).length;
