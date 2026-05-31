@@ -920,7 +920,10 @@ export default function VideoEditorPage() {
     toast.success(`MAVIS picked ${final.length} clips · ${formatDuration(secs)} highlight reel.`);
   }
 
-  // ── Build compilation in-browser via MediaRecorder ───────────────────────
+  // ── Build compilation in-browser via canvas + MediaRecorder ─────────────
+  // Uses canvas.captureStream() + ctx.drawImage() instead of video.captureStream().
+  // This is reliable regardless of element visibility because we draw frames
+  // explicitly — the browser never skips GPU compositing for invisible elements.
   async function buildCompilationInBrowser(clips: any[]): Promise<boolean> {
     if (!previewUrl) return false;
     if (typeof MediaRecorder === "undefined") return false;
@@ -934,67 +937,72 @@ export default function VideoEditorPage() {
 
     compilationAbortRef.current = false;
 
-    // Phase 1: fetch the source video into a local blob URL so that
-    // captureStream() is not affected by cross-origin restrictions and
-    // the full video is available for seeking without network stalls.
+    // Phase 1: download the source video as a blob URL so ctx.drawImage works
+    // without any cross-origin taint, and the full file is local for seeking.
     setCompilationResult({ status: "downloading" });
     let blobUrl: string | null = null;
     try {
       const resp = await fetch(previewUrl, { credentials: "omit" });
       if (resp.ok) blobUrl = URL.createObjectURL(await resp.blob());
-    } catch { /* fall through and use previewUrl directly */ }
+    } catch { /* will error out below */ }
 
-    if (compilationAbortRef.current) { setCompilationResult(null); return true; }
+    if (!blobUrl) {
+      toast.error("Could not download the video for compilation — the link may have expired. Try refreshing the page.");
+      setCompilationResult(null);
+      return false;
+    }
+    if (compilationAbortRef.current) { URL.revokeObjectURL(blobUrl); setCompilationResult(null); return true; }
 
-    // Phase 2: hidden off-screen video element so the main player is unaffected.
-    // captureStream() works on off-screen elements as long as they are in the DOM.
+    // Phase 2: hidden off-screen video + canvas
     const vid = document.createElement("video");
-    vid.src = blobUrl ?? previewUrl;
-    if (!blobUrl) vid.crossOrigin = "anonymous";
+    vid.src = blobUrl;
     vid.muted = true;
     vid.preload = "auto";
-    Object.assign(vid.style, {
-      position: "fixed", left: "-9999px", width: "640px", height: "360px", opacity: "0",
-    });
+    // Off-screen but NOT opacity:0 — opacity:0 causes browsers to skip GPU
+    // compositing, so ctx.drawImage would get blank frames.
+    Object.assign(vid.style, { position: "fixed", left: "-9999px", width: "640px", height: "360px" });
     document.body.appendChild(vid);
+
+    const canvas = document.createElement("canvas");
+    canvas.width = 640;
+    canvas.height = 360;
+    const ctx = canvas.getContext("2d")!;
 
     const cleanup = () => {
       try { document.body.removeChild(vid); } catch {}
-      if (blobUrl) { URL.revokeObjectURL(blobUrl); blobUrl = null; }
+      URL.revokeObjectURL(blobUrl!);
+      blobUrl = null;
     };
 
     const waitUntilReady = () => new Promise<void>((resolve) => {
-      if (vid.readyState >= 2) { resolve(); return; }
-      const h = () => { vid.removeEventListener("canplay", h); resolve(); };
-      vid.addEventListener("canplay", h);
-      setTimeout(() => { vid.removeEventListener("canplay", h); resolve(); }, 12_000);
+      if (vid.readyState >= 3) { resolve(); return; }
+      const h = () => { vid.removeEventListener("canplaythrough", h); resolve(); };
+      vid.addEventListener("canplaythrough", h);
+      setTimeout(() => { vid.removeEventListener("canplaythrough", h); resolve(); }, 15_000);
     });
 
     const seekTo = (time: number) => new Promise<void>((resolve) => {
-      if (Math.abs(vid.currentTime - time) < 0.15) { resolve(); return; }
+      if (Math.abs(vid.currentTime - time) < 0.1) { resolve(); return; }
       const h = () => { vid.removeEventListener("seeked", h); resolve(); };
       vid.addEventListener("seeked", h);
       vid.currentTime = time;
       setTimeout(() => { vid.removeEventListener("seeked", h); resolve(); }, 8_000);
     });
 
-    const captureStreamFn: (() => MediaStream) | undefined =
-      (vid as any).captureStream?.bind(vid) ?? (vid as any).mozCaptureStream?.bind(vid);
-    if (!captureStreamFn) { cleanup(); return false; }
-
     try {
       vid.load();
       await waitUntilReady();
       if (compilationAbortRef.current) { cleanup(); setCompilationResult(null); return true; }
 
-      const stream = captureStreamFn();
+      // Record from the canvas stream — reliable regardless of element compositing
+      const stream = canvas.captureStream(30);
       const chunks: BlobPart[] = [];
       const recorder = new MediaRecorder(stream, { mimeType, videoBitsPerSecond: 2_500_000 });
       recorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data); };
 
       let recorderDone = false;
       recorder.onstop = () => { recorderDone = true; };
-      recorder.start(250);
+      recorder.start(200);
 
       for (let i = 0; i < clips.length; i++) {
         if (compilationAbortRef.current) break;
@@ -1007,29 +1015,41 @@ export default function VideoEditorPage() {
 
         setActiveClipId(clip.id ?? null);
         await seekTo(start);
-        await new Promise(r => setTimeout(r, 120));
+        await new Promise(r => setTimeout(r, 80));
+
+        // Draw video frames onto the canvas while playing
+        let rafId = 0;
+        const drawFrame = () => {
+          ctx.drawImage(vid, 0, 0, canvas.width, canvas.height);
+          if (!compilationAbortRef.current) rafId = requestAnimationFrame(drawFrame);
+        };
+        ctx.drawImage(vid, 0, 0, canvas.width, canvas.height);
+        drawFrame();
+
         await vid.play().catch(() => {});
 
         const safetyMs = (end - start) * 1000 + 5_000;
         await new Promise<void>((resolve) => {
           let safetyTimer: ReturnType<typeof setTimeout>;
-          const check = () => {
+          const onTime = () => {
             if (compilationAbortRef.current || vid.currentTime >= end - 0.05) {
-              vid.removeEventListener("timeupdate", check);
+              vid.removeEventListener("timeupdate", onTime);
               clearTimeout(safetyTimer);
+              cancelAnimationFrame(rafId);
               vid.pause();
               resolve();
             }
           };
-          vid.addEventListener("timeupdate", check);
+          vid.addEventListener("timeupdate", onTime);
           safetyTimer = setTimeout(() => {
-            vid.removeEventListener("timeupdate", check);
+            vid.removeEventListener("timeupdate", onTime);
+            cancelAnimationFrame(rafId);
             vid.pause();
             resolve();
           }, safetyMs);
         });
 
-        await new Promise(r => setTimeout(r, 150));
+        await new Promise(r => setTimeout(r, 100));
       }
 
       recorder.stop();
@@ -1037,21 +1057,24 @@ export default function VideoEditorPage() {
 
       await new Promise<void>((resolve) => {
         const t = setInterval(() => { if (recorderDone) { clearInterval(t); resolve(); } }, 50);
-        setTimeout(() => { clearInterval(t); resolve(); }, 3_000);
+        setTimeout(() => { clearInterval(t); resolve(); }, 4_000);
       });
 
       cleanup();
       if (compilationAbortRef.current) { setCompilationResult(null); return true; }
 
       const blob = new Blob(chunks, { type: mimeType });
-      if (blob.size < 8_000) return false;
+      if (blob.size < 8_000) {
+        toast.error("Compilation produced an empty file — your browser may not support this recording method.");
+        return false;
+      }
 
       const url = URL.createObjectURL(blob);
       setCompilationResult({ status: "ready", render_url: url });
       toast.success("Compilation built! Click Download to save.");
       return true;
 
-    } catch {
+    } catch (err) {
       cleanup();
       return false;
     } finally {
@@ -1655,7 +1678,6 @@ export default function VideoEditorPage() {
                   ref={videoRef}
                   src={previewUrl}
                   controls
-                  crossOrigin="anonymous"
                   className="w-full max-h-80"
                   preload="auto"
                   onError={() => setPreviewError(true)}
@@ -2073,17 +2095,36 @@ export default function VideoEditorPage() {
                       : "border-red-500/30 bg-red-500/5"
                   }`}>
 
-                    {/* Ready — download */}
+                    {/* Ready — download + preview */}
                     {compilationResult.status === "ready" && compilationResult.render_url && (
                       <>
                         <p className="text-sm font-medium text-green-300 flex items-center gap-2">
                           <Check className="w-4 h-4" /> Compilation ready!
                         </p>
-                        <a href={compilationResult.render_url} download="compilation.webm" target="_blank" rel="noopener noreferrer">
-                          <Button size="sm" className="gap-1.5 bg-green-600 hover:bg-green-700 text-white">
-                            <Download className="w-3.5 h-3.5" /> Download Compilation
+                        <div className="flex gap-2 flex-wrap">
+                          <Button
+                            size="sm"
+                            className="gap-1.5 bg-green-600 hover:bg-green-700 text-white"
+                            onClick={() => {
+                              const a = document.createElement("a");
+                              a.href = compilationResult.render_url!;
+                              a.download = "compilation.webm";
+                              document.body.appendChild(a);
+                              a.click();
+                              document.body.removeChild(a);
+                            }}
+                          >
+                            <Download className="w-3.5 h-3.5" /> Download (.webm)
                           </Button>
-                        </a>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="gap-1.5 border-gray-600 text-gray-300 hover:text-white"
+                            onClick={() => window.open(compilationResult.render_url!, "_blank")}
+                          >
+                            <Eye className="w-3.5 h-3.5" /> Preview
+                          </Button>
+                        </div>
                       </>
                     )}
 
