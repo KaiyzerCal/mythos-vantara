@@ -3830,6 +3830,7 @@ export type Database = {
           blocks_json: string | null
           content_brief: string | null
           created_at: string | null
+          gutenberg_html: string | null
           hero_image_url: string | null
           id: string
           meta_description: string | null
@@ -3849,6 +3850,7 @@ export type Database = {
           blocks_json?: string | null
           content_brief?: string | null
           created_at?: string | null
+          gutenberg_html?: string | null
           hero_image_url?: string | null
           id?: string
           meta_description?: string | null
@@ -3868,6 +3870,7 @@ export type Database = {
           blocks_json?: string | null
           content_brief?: string | null
           created_at?: string | null
+          gutenberg_html?: string | null
           hero_image_url?: string | null
           id?: string
           meta_description?: string | null
