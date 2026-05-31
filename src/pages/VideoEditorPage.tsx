@@ -555,6 +555,31 @@ export default function VideoEditorPage() {
     handleAnalyze({ url: sourceUrl });
   }
 
+  // ── Download source video ─────────────────────────────────────────────────
+
+  async function downloadProjectSource(project: any) {
+    const sourceUrl: string | undefined = project.source_url;
+    if (!sourceUrl) { toast.error("No source video stored for this project."); return; }
+    let url = sourceUrl;
+    if (sourceUrl.includes("supabase.co/storage")) {
+      const match = sourceUrl.match(/video-projects\/(.+?)(?:\?|$)/);
+      if (match) {
+        const path = decodeURIComponent(match[1]);
+        const { data, error } = await supabase.storage.from("video-projects").createSignedUrl(path, 3600);
+        if (error || !data?.signedUrl) { toast.error("Could not generate download link — try re-uploading."); return; }
+        url = data.signedUrl;
+      }
+    }
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = project.title ? `${project.title}.mp4` : "video.mp4";
+    a.target = "_blank";
+    a.rel = "noopener";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  }
+
   // ── clipKey helper ────────────────────────────────────────────────────────
 
   function clipKey(clip: any): string {
@@ -897,12 +922,7 @@ export default function VideoEditorPage() {
 
   // ── Build compilation in-browser via MediaRecorder ───────────────────────
   async function buildCompilationInBrowser(clips: any[]): Promise<boolean> {
-    const vid = videoRef.current;
-    if (!vid || !previewUrl) return false;
-
-    const captureStreamFn: (() => MediaStream) | undefined =
-      (vid as any).captureStream?.bind(vid) ?? (vid as any).mozCaptureStream?.bind(vid);
-    if (!captureStreamFn) return false;
+    if (!previewUrl) return false;
     if (typeof MediaRecorder === "undefined") return false;
 
     const mimeType = [
@@ -913,33 +933,59 @@ export default function VideoEditorPage() {
     if (!mimeType) return false;
 
     compilationAbortRef.current = false;
-    vid.scrollIntoView({ behavior: "smooth", block: "start" });
 
-    // Switch to full preload so seeking works without buffering delays
-    const prevPreload = vid.preload;
+    // Phase 1: fetch the source video into a local blob URL so that
+    // captureStream() is not affected by cross-origin restrictions and
+    // the full video is available for seeking without network stalls.
+    setCompilationResult({ status: "downloading" });
+    let blobUrl: string | null = null;
+    try {
+      const resp = await fetch(previewUrl, { credentials: "omit" });
+      if (resp.ok) blobUrl = URL.createObjectURL(await resp.blob());
+    } catch { /* fall through and use previewUrl directly */ }
+
+    if (compilationAbortRef.current) { setCompilationResult(null); return true; }
+
+    // Phase 2: hidden off-screen video element so the main player is unaffected.
+    // captureStream() works on off-screen elements as long as they are in the DOM.
+    const vid = document.createElement("video");
+    vid.src = blobUrl ?? previewUrl;
+    if (!blobUrl) vid.crossOrigin = "anonymous";
+    vid.muted = true;
     vid.preload = "auto";
-    await new Promise(r => setTimeout(r, 300));
+    Object.assign(vid.style, {
+      position: "fixed", left: "-9999px", width: "640px", height: "360px", opacity: "0",
+    });
+    document.body.appendChild(vid);
 
-    // Wait until the video has enough data to play
+    const cleanup = () => {
+      try { document.body.removeChild(vid); } catch {}
+      if (blobUrl) { URL.revokeObjectURL(blobUrl); blobUrl = null; }
+    };
+
     const waitUntilReady = () => new Promise<void>((resolve) => {
       if (vid.readyState >= 2) { resolve(); return; }
       const h = () => { vid.removeEventListener("canplay", h); resolve(); };
       vid.addEventListener("canplay", h);
-      setTimeout(() => { vid.removeEventListener("canplay", h); resolve(); }, 8000);
+      setTimeout(() => { vid.removeEventListener("canplay", h); resolve(); }, 12_000);
     });
 
-    // Seek to a time and wait for the `seeked` event (not just a fixed delay)
     const seekTo = (time: number) => new Promise<void>((resolve) => {
       if (Math.abs(vid.currentTime - time) < 0.15) { resolve(); return; }
       const h = () => { vid.removeEventListener("seeked", h); resolve(); };
       vid.addEventListener("seeked", h);
       vid.currentTime = time;
-      // Safety: if seeked never fires (e.g. no network), give up after 6 s
-      setTimeout(() => { vid.removeEventListener("seeked", h); resolve(); }, 6000);
+      setTimeout(() => { vid.removeEventListener("seeked", h); resolve(); }, 8_000);
     });
 
+    const captureStreamFn: (() => MediaStream) | undefined =
+      (vid as any).captureStream?.bind(vid) ?? (vid as any).mozCaptureStream?.bind(vid);
+    if (!captureStreamFn) { cleanup(); return false; }
+
     try {
+      vid.load();
       await waitUntilReady();
+      if (compilationAbortRef.current) { cleanup(); setCompilationResult(null); return true; }
 
       const stream = captureStreamFn();
       const chunks: BlobPart[] = [];
@@ -960,14 +1006,11 @@ export default function VideoEditorPage() {
         if (end <= start) continue;
 
         setActiveClipId(clip.id ?? null);
-
-        // Seek first, wait for the browser to confirm the seek
         await seekTo(start);
-        await new Promise(r => setTimeout(r, 80));
+        await new Promise(r => setTimeout(r, 120));
         await vid.play().catch(() => {});
 
-        // Play until end, with a hard safety timeout = clip length + 5 s
-        const safetyMs = (end - start) * 1000 + 5000;
+        const safetyMs = (end - start) * 1000 + 5_000;
         await new Promise<void>((resolve) => {
           let safetyTimer: ReturnType<typeof setTimeout>;
           const check = () => {
@@ -986,22 +1029,22 @@ export default function VideoEditorPage() {
           }, safetyMs);
         });
 
-        await new Promise(r => setTimeout(r, 120));
+        await new Promise(r => setTimeout(r, 150));
       }
 
       recorder.stop();
       setActiveClipId(null);
 
-      // Wait for recorder to flush all chunks (max 3 s)
       await new Promise<void>((resolve) => {
         const t = setInterval(() => { if (recorderDone) { clearInterval(t); resolve(); } }, 50);
-        setTimeout(() => { clearInterval(t); resolve(); }, 3000);
+        setTimeout(() => { clearInterval(t); resolve(); }, 3_000);
       });
 
+      cleanup();
       if (compilationAbortRef.current) { setCompilationResult(null); return true; }
 
       const blob = new Blob(chunks, { type: mimeType });
-      if (blob.size < 8_000) return false; // probably CORS-blocked, try cloud
+      if (blob.size < 8_000) return false;
 
       const url = URL.createObjectURL(blob);
       setCompilationResult({ status: "ready", render_url: url });
@@ -1009,10 +1052,10 @@ export default function VideoEditorPage() {
       return true;
 
     } catch {
+      cleanup();
       return false;
     } finally {
       compilationAbortRef.current = false;
-      vid.preload = prevPreload;
     }
   }
 
@@ -1515,6 +1558,17 @@ export default function VideoEditorPage() {
                             Open Editor <ChevronRight className="w-3.5 h-3.5 ml-1" />
                           </Button>
                         )}
+                        {project.source_url && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="border-gray-600 text-gray-400 hover:text-blue-400 hover:border-blue-500/50 px-2"
+                            title="Download source video"
+                            onClick={() => downloadProjectSource(project)}
+                          >
+                            <Download className="w-3.5 h-3.5" />
+                          </Button>
+                        )}
                         <Button
                           size="sm"
                           variant="outline"
@@ -1567,6 +1621,16 @@ export default function VideoEditorPage() {
                   )}
                 </div>
               </div>
+              {selectedProject.source_url && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="border-gray-600 text-gray-400 hover:text-blue-400 hover:border-blue-500/50 shrink-0"
+                  onClick={() => downloadProjectSource(selectedProject)}
+                >
+                  <Download className="w-3.5 h-3.5 mr-1.5" /> Download Source
+                </Button>
+              )}
             </div>
 
             {/* Video preview player */}
@@ -1981,7 +2045,9 @@ export default function VideoEditorPage() {
                   disabled={compilationSelected.size < 2 || compilingInProgress}
                   onClick={handleBuildCompilation}
                 >
-                  {compilingInProgress && compilationResult?.status !== "recording" ? (
+                  {compilingInProgress && compilationResult?.status === "downloading" ? (
+                    <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Downloading…</>
+                  ) : compilingInProgress && compilationResult?.status !== "recording" ? (
                     <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Starting…</>
                   ) : (
                     <><Film className="w-4 h-4 mr-2" /> Build Compilation ({compilationSelected.size} clips)</>
@@ -2021,6 +2087,19 @@ export default function VideoEditorPage() {
                       </>
                     )}
 
+                    {/* Downloading source for compilation */}
+                    {compilationResult.status === "downloading" && (
+                      <div className="space-y-2">
+                        <p className="text-sm text-purple-300 flex items-center gap-2">
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                          Downloading video for compilation…
+                        </p>
+                        <p className="text-xs text-gray-400">
+                          Fetching the source file locally so clips can be extracted reliably. Keep this tab open.
+                        </p>
+                      </div>
+                    )}
+
                     {/* Recording in-browser */}
                     {compilationResult.status === "recording" && (
                       <div className="space-y-2">
@@ -2029,7 +2108,7 @@ export default function VideoEditorPage() {
                           Recording clip {compilationResult.clip_index ?? "?"} of {compilationResult.total_clips ?? "?"}…
                         </p>
                         <p className="text-xs text-gray-400">
-                          Playing through each clip in the preview player above. Keep this tab focused and visible.
+                          Stitching clips in a background element. Keep this tab open and visible.
                         </p>
                         <Button
                           size="sm"
