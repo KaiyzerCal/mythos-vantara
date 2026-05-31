@@ -521,7 +521,12 @@ export default function VideoEditorPage() {
       setTipIndex((i) => (i + 1) % CREATOR_TIPS.length);
     }, 3000);
 
-    try {
+      try {
+        if (source.file) {
+          const fileError = getVideoFileValidationError(source.file);
+          if (fileError) throw new Error(fileError);
+        }
+
       let sourceUrl = source.url;
 
       // Step 1: Upload file if provided
@@ -838,11 +843,12 @@ export default function VideoEditorPage() {
                     <input
                       ref={fileInputRef}
                       type="file"
-                      accept="video/*"
+                        accept="video/mp4,video/mpeg,video/webm,video/ogg,audio/ogg,audio/mp4,audio/mpeg,audio/wav,audio/flac,.mp4,.mpeg,.mpg,.webm,.ogg,.oga,.m4a,.mp3,.wav,.flac"
                       className="hidden"
-                      onChange={(e) =>
-                        setSelectedFile(e.target.files?.[0] ?? null)
-                      }
+                        onChange={(e) => {
+                          selectVideoFile(e.target.files?.[0] ?? null, setSelectedFile);
+                          e.target.value = "";
+                        }}
                     />
                     <div className="w-14 h-14 rounded-full bg-purple-500/20 flex items-center justify-center">
                       <FileVideo className="w-7 h-7 text-purple-400" />
@@ -863,22 +869,22 @@ export default function VideoEditorPage() {
                           Drag & drop your video here
                         </p>
                         <p className="text-xs text-gray-500 mt-1">
-                          MP4, MOV, WebM — max 24 MB / ~5 min
+                          MP4, WebM, OGG, M4A, MP3, WAV, FLAC — max 24 MB / ~5 min
                         </p>
                       </div>
                     )}
                   </div>
 
-                  {selectedFile && selectedFile.size > 24 * 1024 * 1024 && (
+                  {selectedFile && getVideoFileValidationError(selectedFile) && (
                     <div className="flex items-start gap-2 bg-red-500/10 border border-red-500/30 rounded-lg p-3 text-xs text-red-300">
                       <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-                      <span>This file is too large. Trim it to under 5 minutes or compress it below 24 MB before uploading.</span>
+                      <span>{getVideoFileValidationError(selectedFile)}</span>
                     </div>
                   )}
 
                   <Button
                     className="w-full bg-purple-600 hover:bg-purple-700 text-white"
-                    disabled={!selectedFile || selectedFile.size > 24 * 1024 * 1024}
+                    disabled={!selectedFile || !!getVideoFileValidationError(selectedFile)}
                     onClick={() =>
                       selectedFile && handleAnalyze({ file: selectedFile })
                     }
