@@ -663,6 +663,11 @@ export default function WebsiteBuilderPage() {
 
       if (Object.keys(files).length === 0) { toast.error("No pages to deploy"); return; }
 
+      // Ensure root always resolves — if no index.html was produced, promote the first file
+      if (!files["index.html"]) {
+        files["index.html"] = files[Object.keys(files)[0]];
+      }
+
       const uploadedCount = filteredPageTypes.filter(pt => {
         const p = latestPages.find((pg: any) => pg.page_type === pt);
         return p?.status === "customized" && p.gutenberg_html;
