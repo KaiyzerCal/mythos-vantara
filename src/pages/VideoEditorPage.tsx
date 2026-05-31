@@ -475,8 +475,15 @@ export default function VideoEditorPage() {
       ? Math.max(...allClips.map((c) => c.viral_score ?? c.score ?? 0))
       : 0;
 
-  const filteredTranscript = selectedProject?.transcript
-    ? (selectedProject.transcript as string[]).filter((line: string) =>
+  const transcriptArray: string[] = Array.isArray(selectedProject?.transcript)
+    ? (selectedProject!.transcript as string[])
+    : typeof selectedProject?.transcript === "string"
+      ? (selectedProject!.transcript as string).split(/\r?\n/).filter(Boolean)
+      : selectedProject?.transcript && typeof selectedProject.transcript === "object"
+        ? Object.values(selectedProject.transcript as Record<string, unknown>).map((v) => String(v))
+        : [];
+  const filteredTranscript = transcriptArray.length
+    ? transcriptArray.filter((line: string) =>
         transcriptSearch
           ? line.toLowerCase().includes(transcriptSearch.toLowerCase())
           : true
