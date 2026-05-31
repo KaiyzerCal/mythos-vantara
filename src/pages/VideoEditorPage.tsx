@@ -930,14 +930,16 @@ export default function VideoEditorPage() {
     toast.success(`MAVIS picked ${final.length} clips · ${formatDuration(secs)} highlight reel.`);
   }
 
-  // ── Build compilation in-browser via canvas + MediaRecorder ─────────────
+  // ── Build compilation in-browser via video.captureStream() + MediaRecorder ─
+  // Uses HTMLVideoElement.captureStream() directly — no crossOrigin or canvas
+  // needed. Unlike canvas.captureStream(), video.captureStream() does not check
+  // CORS origin, so it works with Supabase signed URLs that redirect through S3.
   async function buildCompilationInBrowser(clips: any[]): Promise<boolean> {
     if (typeof MediaRecorder === "undefined") {
       toast.error("Your browser does not support MediaRecorder — try Chrome or Firefox.");
       return false;
     }
 
-    // Safari uses mp4; Chrome/Firefox use webm
     const mimeType = [
       "video/webm;codecs=vp9,opus",
       "video/webm;codecs=vp8,opus",
@@ -950,46 +952,35 @@ export default function VideoEditorPage() {
       return false;
     }
 
-    compilationAbortRef.current = false;
-
     const videoSrc = previewUrl || selectedProject?.source_url;
     if (!videoSrc) {
       toast.error("No video URL available — try re-opening the project.");
       return false;
     }
 
+    compilationAbortRef.current = false;
     setCompilationResult({ status: "downloading" });
-    if (compilationAbortRef.current) { setCompilationResult(null); return true; }
 
-    // Load the video directly into a hidden element using crossOrigin="anonymous".
-    // This avoids downloading the file as a blob (which fails due to S3 CORS on
-    // fetch requests), and keeps the canvas untainted so captureStream() works.
-    // The video element without crossOrigin works for preview but taints the canvas.
+    // Hidden off-screen video — NOT opacity:0/display:none (either prevents GPU
+    // compositing). No crossOrigin needed: video.captureStream() captures decoded
+    // frames from the media pipeline without CORS origin checks.
     const vid = document.createElement("video");
     vid.src = videoSrc;
     vid.muted = true;
-    vid.crossOrigin = "anonymous";
     vid.preload = "auto";
-    // Off-screen but NOT opacity:0 or display:none — either prevents GPU compositing.
     Object.assign(vid.style, { position: "fixed", left: "-9999px", top: "0px", width: "640px", height: "360px" });
     document.body.appendChild(vid);
 
-    const canvas = document.createElement("canvas");
-    canvas.width = 640;
-    canvas.height = 360;
-    const ctx = canvas.getContext("2d")!;
-
-    const cleanup = () => {
-      try { document.body.removeChild(vid); } catch {}
-    };
+    const cleanup = () => { try { document.body.removeChild(vid); } catch {} };
 
     const waitUntilReady = () => new Promise<void>((resolve, reject) => {
       if (vid.readyState >= 3) { resolve(); return; }
-      const onOk  = () => { vid.removeEventListener("canplaythrough", onOk); vid.removeEventListener("error", onErr); resolve(); };
-      const onErr = () => { vid.removeEventListener("canplaythrough", onOk); vid.removeEventListener("error", onErr); reject(new Error("Video failed to load with CORS. Your Supabase storage bucket may need CORS configured — see supabase.com/docs/guides/storage/cors")); };
-      vid.addEventListener("canplaythrough", onOk);
-      vid.addEventListener("error", onErr);
-      setTimeout(() => { vid.removeEventListener("canplaythrough", onOk); vid.removeEventListener("error", onErr); if (vid.readyState >= 2) resolve(); else reject(new Error("Video load timed out.")); }, 20_000);
+      const ok  = () => { off(); resolve(); };
+      const err = () => { off(); reject(new Error("Video failed to load — the URL may have expired. Try re-opening the project.")); };
+      const off = () => { vid.removeEventListener("canplaythrough", ok); vid.removeEventListener("error", err); };
+      vid.addEventListener("canplaythrough", ok);
+      vid.addEventListener("error", err);
+      setTimeout(() => { off(); vid.readyState >= 2 ? resolve() : reject(new Error("Video load timed out.")); }, 20_000);
     });
 
     const seekTo = (time: number) => new Promise<void>((resolve) => {
@@ -1005,13 +996,13 @@ export default function VideoEditorPage() {
       await waitUntilReady();
       if (compilationAbortRef.current) { cleanup(); setCompilationResult(null); return true; }
 
-      // captureStream is prefixed in Firefox
+      // Capture from the video element directly — no CORS restriction here
       const stream: MediaStream =
-        (canvas as any).captureStream?.(30) ??
-        (canvas as any).mozCaptureStream?.(30);
+        (vid as any).captureStream?.() ??
+        (vid as any).mozCaptureStream?.();
       if (!stream) {
         cleanup();
-        toast.error("canvas.captureStream() not available — try Chrome or a newer browser.");
+        toast.error("video.captureStream() not available — try Chrome or Firefox.");
         return false;
       }
 
@@ -1029,56 +1020,40 @@ export default function VideoEditorPage() {
 
         const clip = clips[i];
         const start = clip.start ?? clip.start_seconds ?? 0;
-        const end = clip.end ?? clip.end_seconds ?? 0;
+        const end   = clip.end   ?? clip.end_seconds   ?? 0;
         if (end <= start) continue;
 
         setActiveClipId(clip.id ?? null);
         await seekTo(start);
         await new Promise(r => setTimeout(r, 100));
 
-        // RAF draw loop — frames are explicitly drawn so GPU compositing state doesn't matter
-        let rafId = 0;
-        const drawFrame = () => {
-          ctx.drawImage(vid, 0, 0, canvas.width, canvas.height);
-          if (!compilationAbortRef.current) rafId = requestAnimationFrame(drawFrame);
-        };
-        ctx.drawImage(vid, 0, 0, canvas.width, canvas.height);
-        drawFrame();
-
         const playErr = await vid.play().then(() => null).catch((e: any) => e);
         if (playErr) {
-          cancelAnimationFrame(rafId);
           cleanup();
-          toast.error("Video playback was blocked — click anywhere on the page, then try again.");
+          recorder.stop();
+          toast.error("Video playback was blocked — click somewhere on the page, then try again.");
           setCompilationResult(null);
           return false;
         }
 
         const safetyMs = (end - start) * 1000 + 6_000;
         await new Promise<void>((resolve) => {
-          let safetyTimer: ReturnType<typeof setTimeout>;
+          let timer: ReturnType<typeof setTimeout>;
           const onTime = () => {
             if (compilationAbortRef.current || vid.currentTime >= end - 0.05) {
               vid.removeEventListener("timeupdate", onTime);
-              clearTimeout(safetyTimer);
-              cancelAnimationFrame(rafId);
+              clearTimeout(timer);
               vid.pause();
               resolve();
             }
           };
           vid.addEventListener("timeupdate", onTime);
-          safetyTimer = setTimeout(() => {
-            vid.removeEventListener("timeupdate", onTime);
-            cancelAnimationFrame(rafId);
-            vid.pause();
-            resolve();
-          }, safetyMs);
+          timer = setTimeout(() => { vid.removeEventListener("timeupdate", onTime); vid.pause(); resolve(); }, safetyMs);
         });
 
         await new Promise(r => setTimeout(r, 120));
       }
 
-      // Flush buffered data then stop
       try { recorder.requestData(); } catch {}
       recorder.stop();
       setActiveClipId(null);
@@ -1090,7 +1065,7 @@ export default function VideoEditorPage() {
 
       const blob = new Blob(chunks, { type: mimeType });
       if (blob.size < 8_000) {
-        toast.error("Compilation produced an empty file — frames may not have rendered. Try keeping the tab visible and in focus.");
+        toast.error("Compilation produced an empty file — keep the tab visible and focused while recording.");
         setCompilationResult(null);
         return false;
       }
@@ -1102,8 +1077,7 @@ export default function VideoEditorPage() {
 
     } catch (err: any) {
       cleanup();
-      const msg = err?.message ?? String(err);
-      toast.error(`Compilation error: ${msg}`);
+      toast.error(`Compilation error: ${err?.message ?? String(err)}`);
       setCompilationResult(null);
       return false;
     } finally {
