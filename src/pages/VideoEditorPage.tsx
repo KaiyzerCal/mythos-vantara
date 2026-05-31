@@ -408,15 +408,43 @@ export default function VideoEditorPage() {
     if (!user) return;
     const { data } = await (supabase as any)
       .from("video_projects")
-      .select("id, title, status, source_url, duration_seconds, thumbnail_url, created_at")
+      .select("id, title, status, source_url, source_type, duration_seconds, thumbnail_url, created_at")
       .eq("user_id", user.id)
       .order("created_at", { ascending: false })
       .limit(50);
-    if (data) setProjects(data.map((p: any) => ({ ...p, duration: p.duration_seconds })));
+
+    const all = (data ?? []).map((p: any) => ({ ...p, duration: p.duration_seconds }));
+
+    // Auto-fail projects stuck "analyzing" for > 3 minutes — these are orphans
+    // from timed-out edge function calls (edge function never updated status).
+    const stuckIds = all
+      .filter((p: any) => p.status === "analyzing" && Date.now() - new Date(p.created_at).getTime() > 3 * 60 * 1000)
+      .map((p: any) => p.id);
+
+    if (stuckIds.length > 0) {
+      await (supabase as any)
+        .from("video_projects")
+        .update({ status: "failed" })
+        .in("id", stuckIds)
+        .eq("user_id", user.id);
+      setProjects(all.map((p: any) => stuckIds.includes(p.id) ? { ...p, status: "failed" } : p));
+    } else {
+      setProjects(all);
+    }
   }, [user]);
 
   // Load on mount
   useEffect(() => { loadProjects(); }, [loadProjects]);
+
+  // Poll every 5 s while any project is freshly "analyzing" (< 3 min old)
+  useEffect(() => {
+    const hasFreshAnalyzing = projects.some(
+      (p: any) => p.status === "analyzing" && Date.now() - new Date(p.created_at).getTime() < 3 * 60 * 1000
+    );
+    if (!hasFreshAnalyzing) return;
+    const id = setInterval(loadProjects, 5000);
+    return () => clearInterval(id);
+  }, [projects, loadProjects]);
 
   // Refresh a Supabase Storage signed URL so the video player can load it.
   async function refreshPreviewUrl(sourceUrl: string | undefined) {
@@ -637,6 +665,7 @@ export default function VideoEditorPage() {
     } catch (err: any) {
       toast.error(err.message ?? "Analysis failed");
       setView("upload");
+      loadProjects(); // surface any orphaned "analyzing" records so the user can retry
     } finally {
       clearInterval(tipInterval);
     }
@@ -885,9 +914,33 @@ export default function VideoEditorPage() {
 
     compilationAbortRef.current = false;
     vid.scrollIntoView({ behavior: "smooth", block: "start" });
-    await new Promise(r => setTimeout(r, 600));
+
+    // Switch to full preload so seeking works without buffering delays
+    const prevPreload = vid.preload;
+    vid.preload = "auto";
+    await new Promise(r => setTimeout(r, 300));
+
+    // Wait until the video has enough data to play
+    const waitUntilReady = () => new Promise<void>((resolve) => {
+      if (vid.readyState >= 2) { resolve(); return; }
+      const h = () => { vid.removeEventListener("canplay", h); resolve(); };
+      vid.addEventListener("canplay", h);
+      setTimeout(() => { vid.removeEventListener("canplay", h); resolve(); }, 8000);
+    });
+
+    // Seek to a time and wait for the `seeked` event (not just a fixed delay)
+    const seekTo = (time: number) => new Promise<void>((resolve) => {
+      if (Math.abs(vid.currentTime - time) < 0.15) { resolve(); return; }
+      const h = () => { vid.removeEventListener("seeked", h); resolve(); };
+      vid.addEventListener("seeked", h);
+      vid.currentTime = time;
+      // Safety: if seeked never fires (e.g. no network), give up after 6 s
+      setTimeout(() => { vid.removeEventListener("seeked", h); resolve(); }, 6000);
+    });
 
     try {
+      await waitUntilReady();
+
       const stream = captureStreamFn();
       const chunks: BlobPart[] = [];
       const recorder = new MediaRecorder(stream, { mimeType, videoBitsPerSecond: 2_500_000 });
@@ -904,37 +957,51 @@ export default function VideoEditorPage() {
         const clip = clips[i];
         const start = clip.start ?? clip.start_seconds ?? 0;
         const end = clip.end ?? clip.end_seconds ?? 0;
+        if (end <= start) continue;
 
         setActiveClipId(clip.id ?? null);
-        vid.currentTime = start;
-        await new Promise(r => setTimeout(r, 120));
+
+        // Seek first, wait for the browser to confirm the seek
+        await seekTo(start);
+        await new Promise(r => setTimeout(r, 80));
         await vid.play().catch(() => {});
 
+        // Play until end, with a hard safety timeout = clip length + 5 s
+        const safetyMs = (end - start) * 1000 + 5000;
         await new Promise<void>((resolve) => {
+          let safetyTimer: ReturnType<typeof setTimeout>;
           const check = () => {
-            if (compilationAbortRef.current || vid.currentTime >= end - 0.08) {
+            if (compilationAbortRef.current || vid.currentTime >= end - 0.05) {
               vid.removeEventListener("timeupdate", check);
+              clearTimeout(safetyTimer);
               vid.pause();
               resolve();
             }
           };
           vid.addEventListener("timeupdate", check);
+          safetyTimer = setTimeout(() => {
+            vid.removeEventListener("timeupdate", check);
+            vid.pause();
+            resolve();
+          }, safetyMs);
         });
 
-        await new Promise(r => setTimeout(r, 200));
+        await new Promise(r => setTimeout(r, 120));
       }
 
       recorder.stop();
       setActiveClipId(null);
 
+      // Wait for recorder to flush all chunks (max 3 s)
       await new Promise<void>((resolve) => {
         const t = setInterval(() => { if (recorderDone) { clearInterval(t); resolve(); } }, 50);
+        setTimeout(() => { clearInterval(t); resolve(); }, 3000);
       });
 
       if (compilationAbortRef.current) { setCompilationResult(null); return true; }
 
       const blob = new Blob(chunks, { type: mimeType });
-      if (blob.size < 8_000) return false; // too small → CORS blocked, try cloud
+      if (blob.size < 8_000) return false; // probably CORS-blocked, try cloud
 
       const url = URL.createObjectURL(blob);
       setCompilationResult({ status: "ready", render_url: url });
@@ -945,6 +1012,7 @@ export default function VideoEditorPage() {
       return false;
     } finally {
       compilationAbortRef.current = false;
+      vid.preload = prevPreload;
     }
   }
 
@@ -1525,7 +1593,7 @@ export default function VideoEditorPage() {
                   controls
                   crossOrigin="anonymous"
                   className="w-full max-h-80"
-                  preload="metadata"
+                  preload="auto"
                   onError={() => setPreviewError(true)}
                   onPause={() => setActiveClipId(null)}
                 />
