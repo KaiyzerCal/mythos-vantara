@@ -1,0 +1,22 @@
+{
+  "manifest_version": 3,
+  "name": "MAVIS Clipper",
+  "version": "1.0.0",
+  "description": "Clip web pages and selected text to your MAVIS Vault",
+  "permissions": ["activeTab", "storage", "scripting"],
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": { "48": "icon48.png", "128": "icon128.png" }
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "options_page": "settings.html"
+}

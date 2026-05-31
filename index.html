@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <script>
+      // Pre-hydration theme — prevents Android WebView/Chrome from flashing or sticking
+      // on the wrong theme before next-themes mounts.
+      (function () {
+        try {
+          var stored = localStorage.getItem("vantara-theme");
+          var theme = stored === "light" || stored === "dark" ? stored : "dark";
+          var root = document.documentElement;
+          root.classList.remove("dark", "light");
+          root.classList.add(theme);
+          root.style.colorScheme = theme;
+        } catch (e) {
+          document.documentElement.classList.add("dark");
+        }
+      })();
+    </script>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#0a0d1f" media="(prefers-color-scheme: dark)" />
+    <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
+    <meta name="color-scheme" content="dark light" />
+    <title>VANTARA.EXE — MAVIS-PRIME</title>
+    <meta name="description" content="VANTARA.EXE — MAVIS-PRIME AI orchestration platform. CODEXOS v21.1" />
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="VANTARA">
+    <meta name="theme-color" content="#0a0a0f">
+    <link rel="manifest" href="/manifest.json">
+    <link rel="apple-touch-icon" href="/icon.svg">
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
