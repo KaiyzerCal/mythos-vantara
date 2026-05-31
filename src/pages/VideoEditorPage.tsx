@@ -87,6 +87,64 @@ function formatFileSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+function normalizeTranscriptLines(transcript: unknown): string[] {
+  if (Array.isArray(transcript)) {
+    return transcript
+      .flatMap((item) => {
+        if (typeof item === "string") return item.split(/\r?\n/);
+        if (item && typeof item === "object") {
+          const candidate =
+            "text" in item
+              ? (item as { text?: unknown }).text
+              : "transcript" in item
+                ? (item as { transcript?: unknown }).transcript
+                : Object.values(item as Record<string, unknown>).find(
+                    (value) => typeof value === "string"
+                  );
+
+          return typeof candidate === "string" ? candidate.split(/\r?\n/) : [];
+        }
+
+        return typeof item === "number" ? [String(item)] : [];
+      })
+      .map((line) => line.trim())
+      .filter(Boolean);
+  }
+
+  if (typeof transcript === "string") {
+    return transcript
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean);
+  }
+
+  if (transcript && typeof transcript === "object") {
+    return Object.values(transcript as Record<string, unknown>)
+      .flatMap((value) =>
+        typeof value === "string"
+          ? value.split(/\r?\n/)
+          : typeof value === "number"
+            ? [String(value)]
+            : []
+      )
+      .map((line) => line.trim())
+      .filter(Boolean);
+  }
+
+  return [];
+}
+
+function normalizeProjectTranscript<T>(project: T): T {
+  if (!project || typeof project !== "object") return project;
+
+  return {
+    ...(project as Record<string, unknown>),
+    transcript: normalizeTranscriptLines(
+      (project as Record<string, unknown>).transcript
+    ),
+  } as T;
+}
+
 // ─── Clip Card ────────────────────────────────────────────────────────────────
 
 interface ClipCardProps {
@@ -337,7 +395,7 @@ export default function VideoEditorPage() {
       setAnalysisStep(5);
       await new Promise((r) => setTimeout(r, 600));
 
-      setSelectedProject(result);
+      setSelectedProject(normalizeProjectTranscript(result));
       setClips({
         shorts: result.clips?.shorts ?? [],
         reels: result.clips?.reels ?? [],
@@ -475,13 +533,7 @@ export default function VideoEditorPage() {
       ? Math.max(...allClips.map((c) => c.viral_score ?? c.score ?? 0))
       : 0;
 
-  const transcriptArray: string[] = Array.isArray(selectedProject?.transcript)
-    ? (selectedProject!.transcript as string[])
-    : typeof selectedProject?.transcript === "string"
-      ? (selectedProject!.transcript as string).split(/\r?\n/).filter(Boolean)
-      : selectedProject?.transcript && typeof selectedProject.transcript === "object"
-        ? Object.values(selectedProject.transcript as Record<string, unknown>).map((v) => String(v))
-        : [];
+  const transcriptArray = normalizeTranscriptLines(selectedProject?.transcript);
   const filteredTranscript = transcriptArray.length
     ? transcriptArray.filter((line: string) =>
         transcriptSearch
@@ -899,8 +951,8 @@ export default function VideoEditorPage() {
                       <Button
                         size="sm"
                         className="w-full bg-purple-600 hover:bg-purple-700"
-                        onClick={() => {
-                          setSelectedProject(project);
+                          onClick={() => {
+                            setSelectedProject(normalizeProjectTranscript(project));
                           setView("editor");
                         }}
                       >
