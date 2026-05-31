@@ -952,47 +952,25 @@ export default function VideoEditorPage() {
 
     compilationAbortRef.current = false;
 
-    // Phase 1: download the source video as a local blob.
-    // previewUrl is always the freshest signed URL — try that first via fetch.
-    // Fall back to supabase.storage.download() using the path from source_url.
-    setCompilationResult({ status: "downloading" });
-    let blobUrl: string | null = null;
-
-    if (previewUrl) {
-      try {
-        const resp = await fetch(previewUrl, { credentials: "omit" });
-        if (resp.ok) blobUrl = URL.createObjectURL(await resp.blob());
-      } catch { /* fall through */ }
-    }
-
-    if (!blobUrl) {
-      const srcUrl = selectedProject?.source_url ?? previewUrl ?? "";
-      const storageMatch = srcUrl.match(/\/storage\/v1\/object\/(?:sign|public)\/([^/]+)\/(.+?)(?:\?|$)/);
-      if (storageMatch) {
-        const [, bucket, rawPath] = storageMatch;
-        try {
-          const { data: dlData, error: dlErr } = await (supabase as any).storage
-            .from(bucket)
-            .download(decodeURIComponent(rawPath));
-          if (!dlErr && dlData) blobUrl = URL.createObjectURL(dlData);
-        } catch { /* fall through */ }
-      }
-    }
-
-    if (!blobUrl) {
-      toast.error("Could not download the video — the link may have expired. Try refreshing the page.");
-      setCompilationResult(null);
+    const videoSrc = previewUrl || selectedProject?.source_url;
+    if (!videoSrc) {
+      toast.error("No video URL available — try re-opening the project.");
       return false;
     }
-    if (compilationAbortRef.current) { URL.revokeObjectURL(blobUrl); setCompilationResult(null); return true; }
 
-    // Phase 2: off-screen video element + canvas for frame capture
+    setCompilationResult({ status: "downloading" });
+    if (compilationAbortRef.current) { setCompilationResult(null); return true; }
+
+    // Load the video directly into a hidden element using crossOrigin="anonymous".
+    // This avoids downloading the file as a blob (which fails due to S3 CORS on
+    // fetch requests), and keeps the canvas untainted so captureStream() works.
+    // The video element without crossOrigin works for preview but taints the canvas.
     const vid = document.createElement("video");
-    vid.src = blobUrl;
+    vid.src = videoSrc;
     vid.muted = true;
+    vid.crossOrigin = "anonymous";
     vid.preload = "auto";
-    // Off-screen but NOT opacity:0 or display:none — either prevents GPU compositing,
-    // causing ctx.drawImage to get blank frames.
+    // Off-screen but NOT opacity:0 or display:none — either prevents GPU compositing.
     Object.assign(vid.style, { position: "fixed", left: "-9999px", top: "0px", width: "640px", height: "360px" });
     document.body.appendChild(vid);
 
@@ -1003,14 +981,15 @@ export default function VideoEditorPage() {
 
     const cleanup = () => {
       try { document.body.removeChild(vid); } catch {}
-      if (blobUrl) { URL.revokeObjectURL(blobUrl); blobUrl = null; }
     };
 
-    const waitUntilReady = () => new Promise<void>((resolve) => {
+    const waitUntilReady = () => new Promise<void>((resolve, reject) => {
       if (vid.readyState >= 3) { resolve(); return; }
-      const h = () => { vid.removeEventListener("canplaythrough", h); resolve(); };
-      vid.addEventListener("canplaythrough", h);
-      setTimeout(() => { vid.removeEventListener("canplaythrough", h); resolve(); }, 20_000);
+      const onOk  = () => { vid.removeEventListener("canplaythrough", onOk); vid.removeEventListener("error", onErr); resolve(); };
+      const onErr = () => { vid.removeEventListener("canplaythrough", onOk); vid.removeEventListener("error", onErr); reject(new Error("Video failed to load with CORS. Your Supabase storage bucket may need CORS configured — see supabase.com/docs/guides/storage/cors")); };
+      vid.addEventListener("canplaythrough", onOk);
+      vid.addEventListener("error", onErr);
+      setTimeout(() => { vid.removeEventListener("canplaythrough", onOk); vid.removeEventListener("error", onErr); if (vid.readyState >= 2) resolve(); else reject(new Error("Video load timed out.")); }, 20_000);
     });
 
     const seekTo = (time: number) => new Promise<void>((resolve) => {
@@ -1024,13 +1003,6 @@ export default function VideoEditorPage() {
     try {
       vid.load();
       await waitUntilReady();
-
-      if (vid.readyState < 2) {
-        cleanup();
-        toast.error("Video could not be loaded for compilation — the format may be unsupported.");
-        setCompilationResult(null);
-        return false;
-      }
       if (compilationAbortRef.current) { cleanup(); setCompilationResult(null); return true; }
 
       // captureStream is prefixed in Firefox
