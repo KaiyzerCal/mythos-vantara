@@ -163,8 +163,14 @@ export default function WebsiteBuilderPage() {
       .from("website_pages")
       .select("*")
       .eq("project_id", projectId)
-      .order("created_at", { ascending: true });
-    setProjectPages(data ?? []);
+      .order("created_at", { ascending: false }); // newest first
+    // Deduplicate by page_type — keep the most-recently updated record.
+    // (Guard against missing UNIQUE constraint causing duplicate rows.)
+    const byType = new Map<string, any>();
+    for (const p of data ?? []) {
+      if (!byType.has(p.page_type)) byType.set(p.page_type, p);
+    }
+    setProjectPages([...byType.values()]);
   };
 
   useEffect(() => { loadProjects(); }, [user]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -576,37 +582,44 @@ export default function WebsiteBuilderPage() {
 
   // ── Deploy all pages to Netlify ──────────────────────────
   const deployToNetlify = async () => {
-    if (!selectedProject?.site_content?.pages || isDeployingToNetlify) return;
+    if (isDeployingToNetlify) return;
     if (!netlifyToken) { toast.error("Enter your Netlify personal access token first"); return; }
+    if (allDeployablePageTypes.length === 0) {
+      toast.error("No pages to deploy — generate or upload pages first.");
+      return;
+    }
     setIsDeployingToNetlify(true);
     try {
       const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
       const { data: { session } } = await supabase.auth.getSession();
-      const pageTypes = Object.keys(selectedProject.site_content.pages);
-      const primaryColor = selectedProject.site_content?.site?.primary_color ?? "#1a56db";
-      const siteTitle = selectedProject.business_name ?? selectedProject.project_name ?? "Website";
-      const pageList = pageTypes;
+      const primaryColor = selectedProject?.site_content?.site?.primary_color ?? "#1a56db";
+      const siteTitle = selectedProject?.business_name ?? selectedProject?.project_name ?? "Website";
 
-      // Generate HTML for every page
+      // Build files dict — prefer stored gutenberg_html (MAVIS-generated OR user-uploaded),
+      // only regenerate when a page has no stored HTML at all.
       const files: Record<string, string> = {};
-      for (const pageType of pageTypes) {
+      for (const pageType of allDeployablePageTypes) {
         const dbPage = projectPages.find((p: any) => p.page_type === pageType);
         if (dbPage?.gutenberg_html) {
+          // Use stored HTML (either MAVIS-generated or user-uploaded)
           files[pageType === "home" ? "index.html" : `${pageType}.html`] = dbPage.gutenberg_html;
           continue;
         }
+        // No stored HTML — regenerate from site_content if available
+        const pageContent = selectedProject?.site_content?.pages?.[pageType];
+        if (!pageContent) continue; // skip pages with no content source
         const res = await fetch(`${SUPABASE_URL}/functions/v1/mavis-web-builder`, {
           method: "POST",
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${session?.access_token}` },
           body: JSON.stringify({
             action: "generate_page",
             page_type: pageType,
-            page_content: selectedProject.site_content.pages[pageType] ?? {},
+            page_content: pageContent,
             primary_color: primaryColor,
             site_title: siteTitle,
-            page_list: pageList,
-            business_type: selectedProject.business_type,
-            style: selectedProject.style,
+            page_list: allDeployablePageTypes,
+            business_type: selectedProject?.business_type,
+            style: selectedProject?.style,
           }),
         });
         if (res.ok) {
@@ -653,25 +666,57 @@ export default function WebsiteBuilderPage() {
     }
   };
 
+  // ── Open a page's HTML in a new browser tab for preview ──
+  const openPagePreview = (dbPage?: any) => {
+    const html = dbPage?.gutenberg_html;
+    if (!html) {
+      toast.error("No HTML to preview — generate or upload this page first.");
+      return;
+    }
+    const blob = new Blob([html], { type: "text/html" });
+    const url = URL.createObjectURL(blob);
+    window.open(url, "_blank", "noopener");
+    setTimeout(() => URL.revokeObjectURL(url), 30_000);
+  };
+
+  // ── Unified list of all deployable page types ─────────────
+  // Combines MAVIS-generated pages (from site_content) + manually
+  // uploaded pages (from projectPages), deduplicating by page_type.
+  const allDeployablePageTypes: string[] = (() => {
+    const seen = new Set<string>();
+    const types: string[] = [];
+    for (const t of Object.keys(selectedProject?.site_content?.pages ?? {})) {
+      if (!seen.has(t)) { seen.add(t); types.push(t); }
+    }
+    for (const p of projectPages) {
+      if (p.gutenberg_html && !seen.has(p.page_type)) {
+        seen.add(p.page_type); types.push(p.page_type);
+      }
+    }
+    return types;
+  })();
+
   // ── Download every page as individual HTML files ──────────
   const handleDownloadAll = async () => {
-    if (!selectedProject?.site_content?.pages || isDownloadingAll) return;
+    if (isDownloadingAll) return;
+    if (allDeployablePageTypes.length === 0) {
+      toast.error("No pages available — generate or upload pages first.");
+      return;
+    }
     setIsDownloadingAll(true);
-    const pageTypes = Object.keys(selectedProject.site_content.pages);
     let downloaded = 0;
     try {
-      for (const pageType of pageTypes) {
+      for (const pageType of allDeployablePageTypes) {
         const dbPage = projectPages.find((p: any) => p.page_type === pageType);
         try {
           await exportPageHtml(pageType, dbPage);
           downloaded++;
-          // Stagger downloads so the browser doesn't swallow them
           await new Promise((r) => setTimeout(r, 600));
         } catch {
-          // Continue even if one page fails
+          // continue
         }
       }
-      toast.success(`${downloaded} of ${pageTypes.length} pages downloaded`);
+      toast.success(`${downloaded} of ${allDeployablePageTypes.length} pages downloaded`);
     } finally {
       setIsDownloadingAll(false);
     }
@@ -1072,14 +1117,14 @@ export default function WebsiteBuilderPage() {
                   </CardContent>
                 </Card>
 
-                {/* Pages — shown as soon as site_content exists (no WP required) */}
-                {selectedProject.site_content?.pages && Object.keys(selectedProject.site_content.pages).length > 0 && (
+                {/* Pages — shown whenever there are MAVIS-generated or user-uploaded pages */}
+                {allDeployablePageTypes.length > 0 && (
                   <Card className="border-border/50">
                     <CardHeader className="pb-2 pt-4 px-5">
                       <div className="flex items-center justify-between gap-3">
                         <CardTitle className="text-sm font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-2">
                           <Code2 size={13} />
-                          Generated Pages
+                          Pages ({allDeployablePageTypes.length})
                         </CardTitle>
                         <Button
                           size="sm"
@@ -1096,9 +1141,11 @@ export default function WebsiteBuilderPage() {
                       </div>
                     </CardHeader>
                     <CardContent className="px-5 pb-4 space-y-1">
-                      {Object.keys(selectedProject.site_content.pages).map((pageType) => {
+                      {allDeployablePageTypes.map((pageType) => {
                         const dbPage = projectPages.find((p: any) => p.page_type === pageType);
                         const isExporting = exportingPageId === pageType;
+                        const isCustom = dbPage?.status === "customized";
+                        const hasHtml = !!dbPage?.gutenberg_html;
                         return (
                           <div
                             key={pageType}
@@ -1108,7 +1155,7 @@ export default function WebsiteBuilderPage() {
                             <div className="flex-1 min-w-0">
                               <p className="text-sm font-medium capitalize flex items-center gap-1.5">
                                 {pageType}
-                                {dbPage?.status === "customized" && (
+                                {isCustom && (
                                   <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-400 border border-blue-500/20">custom</span>
                                 )}
                               </p>
@@ -1124,6 +1171,16 @@ export default function WebsiteBuilderPage() {
                               )}
                             </div>
                             <div className="flex items-center gap-1.5 shrink-0">
+                              {/* Preview in new tab */}
+                              {hasHtml && (
+                                <button
+                                  onClick={() => openPagePreview(dbPage)}
+                                  className="flex items-center gap-1 px-2.5 py-1 rounded border border-border/50 text-xs font-mono text-muted-foreground hover:text-purple-400 hover:border-purple-400/30 transition-colors"
+                                  title="Preview in new tab"
+                                >
+                                  <Eye size={11} /> preview
+                                </button>
+                              )}
                               {dbPage?.wp_url && (
                                 <>
                                   <a
@@ -1178,7 +1235,7 @@ export default function WebsiteBuilderPage() {
                 )}
 
                 {/* Netlify one-click publish */}
-                {selectedProject.site_content?.pages && Object.keys(selectedProject.site_content.pages).length > 0 && (
+                {allDeployablePageTypes.length > 0 && (
                   <Card className="border-border/50">
                     <CardHeader className="pb-2 pt-4 px-5">
                       <CardTitle className="text-sm font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-2">
