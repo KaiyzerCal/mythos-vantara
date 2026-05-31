@@ -158,9 +158,11 @@ interface ClipCardProps {
   format: string;
   renderingClipId: string | null;
   copiedId: string | null;
+  activeClipId: string | null;
   onRender: (clip: any) => void;
   onCopyCaption: (clip: any) => void;
   onPushToNora: (clip: any) => void;
+  onSeek: (clip: any) => void;
 }
 
 function ClipCard({
@@ -168,10 +170,13 @@ function ClipCard({
   format,
   renderingClipId,
   copiedId,
+  activeClipId,
   onRender,
   onCopyCaption,
   onPushToNora,
+  onSeek,
 }: ClipCardProps) {
+  const isPlaying = activeClipId === clip.id;
   const isRendering = renderingClipId === clip.id;
   const isCopied = copiedId === clip.id;
   const score = clip.viral_score ?? clip.score ?? 0;
@@ -237,10 +242,12 @@ function ClipCard({
           <Button
             size="sm"
             variant="ghost"
-            className="h-7 px-2 text-xs text-gray-300 hover:text-white"
-            onClick={() => toast.info("Preview coming soon — use Render to export.")}
+            className={`h-7 px-2 text-xs ${isPlaying ? "text-purple-400" : "text-gray-300 hover:text-white"}`}
+            onClick={() => onSeek(clip)}
           >
-            <Play className="w-3.5 h-3.5 mr-1" /> Preview
+            {isPlaying
+              ? <><Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" /> Playing…</>
+              : <><Play className="w-3.5 h-3.5 mr-1" /> Play in Preview</>}
           </Button>
 
           {clip.render_url ? (
@@ -328,8 +335,11 @@ export default function VideoEditorPage() {
   const [urlInput, setUrlInput] = useState("");
   const [tipIndex, setTipIndex] = useState(0);
   const [transcriptSearch, setTranscriptSearch] = useState("");
+  const [previewError, setPreviewError] = useState(false);
+  const [activeClipId, setActiveClipId] = useState<string | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
 
   // ── Load projects from DB on mount ───────────────────────────────────────
   const loadProjects = useCallback(async () => {
@@ -348,21 +358,35 @@ export default function VideoEditorPage() {
 
   // Refresh a Supabase Storage signed URL so the video player can load it.
   async function refreshPreviewUrl(sourceUrl: string | undefined) {
+    setPreviewError(false);
     if (!sourceUrl) { setPreviewUrl(null); return; }
     // Non-Supabase URLs (YouTube etc.) can be used as-is
-    if (!sourceUrl.includes("supabase")) { setPreviewUrl(sourceUrl); return; }
-    // Extract bucket + path from signed or public URL
+    if (!sourceUrl.includes("supabase.co")) { setPreviewUrl(sourceUrl); return; }
+    // Try to re-generate a fresh signed URL from the stored path
     const match = sourceUrl.match(/\/storage\/v1\/object\/(?:sign|public)\/([^/]+)\/(.+?)(?:\?|$)/);
     if (!match) { setPreviewUrl(sourceUrl); return; }
     const [, bucket, rawPath] = match;
-    const { data } = await supabase.storage.from(bucket).createSignedUrl(decodeURIComponent(rawPath), 3600);
-    setPreviewUrl(data?.signedUrl ?? sourceUrl);
+    try {
+      const { data, error } = await supabase.storage
+        .from(bucket)
+        .createSignedUrl(decodeURIComponent(rawPath), 7200);
+      if (error || !data?.signedUrl) {
+        // Fall back to the stored URL — it may still be valid if recently created
+        setPreviewUrl(sourceUrl);
+      } else {
+        setPreviewUrl(data.signedUrl);
+      }
+    } catch {
+      setPreviewUrl(sourceUrl);
+    }
   }
 
   // ── Open existing project — fetch full data including clips ──────────────
   async function openProject(project: any) {
     setSelectedProject(normalizeProjectTranscript(project));
     setPreviewUrl(null);
+    setPreviewError(false);
+    setActiveClipId(null);
     setView("editor");
     refreshPreviewUrl(project.source_url);
     try {
@@ -623,6 +647,28 @@ export default function VideoEditorPage() {
     } catch (_err: any) {
       toast.success("Queued for NORA — check your Inbox to approve.");
     }
+  }
+
+  // ── Seek video player to a clip's start time ─────────────────────────────
+  function seekToClip(clip: any) {
+    const start = clip.start ?? clip.start_seconds ?? 0;
+    const end = clip.end ?? clip.end_seconds ?? 0;
+    const vid = videoRef.current;
+    if (!vid) { toast.error("No video loaded — preview not available."); return; }
+    vid.currentTime = start;
+    vid.play().catch(() => {});
+    setActiveClipId(clip.id ?? null);
+    // Auto-pause at clip end
+    const onTimeUpdate = () => {
+      if (vid.currentTime >= end) {
+        vid.pause();
+        vid.removeEventListener("timeupdate", onTimeUpdate);
+        setActiveClipId(null);
+      }
+    };
+    vid.addEventListener("timeupdate", onTimeUpdate);
+    // Scroll the video into view
+    vid.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
   // ── Copy caption ──────────────────────────────────────────────────────────
@@ -1166,23 +1212,39 @@ export default function VideoEditorPage() {
             </div>
 
             {/* Video preview player */}
-            {previewUrl && (
+            {previewError ? (
+              <div className="rounded-xl bg-gray-800/60 border border-red-500/30 p-4 flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2 text-sm text-gray-400">
+                  <AlertCircle className="w-4 h-4 text-red-400 shrink-0" />
+                  <span>Preview unavailable — the video URL may have expired.</span>
+                </div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="border-gray-600 text-gray-300 shrink-0"
+                  onClick={() => refreshPreviewUrl(selectedProject?.source_url)}
+                >
+                  <RefreshCw className="w-3.5 h-3.5 mr-1" /> Refresh
+                </Button>
+              </div>
+            ) : previewUrl ? (
               <div className="rounded-xl overflow-hidden bg-black border border-gray-700/50">
                 <video
+                  ref={videoRef}
                   src={previewUrl}
                   controls
-                  className="w-full max-h-72 object-contain"
+                  className="w-full max-h-80"
                   preload="metadata"
-                  onError={() => setPreviewUrl(null)}
+                  onError={() => setPreviewError(true)}
+                  onPause={() => setActiveClipId(null)}
                 />
               </div>
-            )}
-            {!previewUrl && selectedProject?.source_url && (
+            ) : selectedProject?.source_url ? (
               <div className="rounded-xl bg-gray-800/60 border border-gray-700/50 flex items-center justify-center h-28 gap-2 text-gray-500 text-sm">
-                <Play className="w-4 h-4" />
+                <Loader2 className="w-4 h-4 animate-spin" />
                 <span>Loading preview…</span>
               </div>
-            )}
+            ) : null}
 
             {/* Tabs */}
             <Tabs defaultValue="clips">
@@ -1231,9 +1293,11 @@ export default function VideoEditorPage() {
                             format={section.key}
                             renderingClipId={renderingClipId}
                             copiedId={copiedId}
+                            activeClipId={activeClipId}
                             onRender={handleRenderClip}
                             onCopyCaption={handleCopyCaption}
                             onPushToNora={handlePushToNora}
+                            onSeek={seekToClip}
                           />
                         ))}
                       </div>
