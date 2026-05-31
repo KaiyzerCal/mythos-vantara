@@ -174,7 +174,10 @@ async function transcribeWithWhisper(videoUrl: string): Promise<{
     "video/webm": "webm",
   };
   const WHISPER_EXTS = new Set(["flac", "m4a", "mp3", "mp4", "mpeg", "mpga", "oga", "ogg", "wav", "webm"]);
-  const rawExt = (videoUrl.split("?")[0].split(".").pop() ?? "").toLowerCase();
+  const pathOnly = videoUrl.split("?")[0].split("#")[0];
+  const lastSeg = pathOnly.split("/").pop() ?? "";
+  const extMatch = lastSeg.match(/\.([a-z0-9]{2,5})$/i);
+  const rawExt = (extMatch?.[1] ?? "").toLowerCase();
   const responseMimeType = (videoBlob.type || responseContentType || "")
     .split(";")[0]
     .trim()
