@@ -589,7 +589,7 @@ export function VoiceChatOverlay({
             .eq("user_id", userId)
             .order("created_at", { ascending: true })
             .limit(40);
-          if (data?.length) personaHistoryRef.current = data as { role: string; content: string }[];
+          if (data?.length) personaHistoryRef.current = data as unknown as { role: string; content: string }[];
         } else if (entityType === "council") {
           const { data } = await (supabase as any)
             .from("council_chat_messages")
