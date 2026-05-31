@@ -16,7 +16,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import {
   Globe, Plus, Sparkles, ExternalLink, CheckCircle2,
   Loader2, Copy, Trash2, Eye, Settings, Users,
-  DollarSign, Code2, Layers, Zap,
+  DollarSign, Code2, Layers, Zap, Download, FileCode,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -99,6 +99,10 @@ export default function WebsiteBuilderPage() {
   const [generationProgress, setGenerationProgress] = useState(0);
   const [showWpSection, setShowWpSection] = useState(false);
   const [showSiteContent, setShowSiteContent] = useState(false);
+  const [showAddPagePicker, setShowAddPagePicker] = useState(false);
+  const [addingPageType, setAddingPageType] = useState("");
+  const [isAddingPage, setIsAddingPage] = useState(false);
+  const [exportingPageId, setExportingPageId] = useState<string | null>(null);
 
   // New website form
   const [form, setForm] = useState({
@@ -225,19 +229,20 @@ export default function WebsiteBuilderPage() {
       setGenerationProgress(100);
       setGenerationStep("Complete!");
 
+      const totalPages = result.pages_generated ?? result.pages_published ?? 0;
       // Update project with result
       await supabase
         .from("website_projects")
         .update({
           status: result.pages_published > 0 ? "published" : "generated",
-          pages_count: result.pages_published ?? 0,
+          pages_count: totalPages,
           site_content: result.site_content,
           hero_image_url: result.hero_image_url,
           preview_url: result.preview_url,
         })
         .eq("id", project.id);
 
-      toast.success(`Website built! ${result.pages_published ?? 0} pages published.`);
+      toast.success(`Website built! ${totalPages} pages generated${result.pages_published > 0 ? `, ${result.pages_published} published to WordPress` : ""}.`);
 
       setActiveTab("projects");
       await loadProjects();
@@ -300,21 +305,22 @@ export default function WebsiteBuilderPage() {
       setGenerationProgress(100);
       setGenerationStep("Complete!");
 
+      const regenTotal = result.pages_generated ?? result.pages_published ?? 0;
       await supabase.from("website_projects").update({
         status: result.pages_published > 0 ? "published" : "generated",
-        pages_count: result.pages_published ?? 0,
+        pages_count: regenTotal,
         site_content: result.site_content,
         hero_image_url: result.hero_image_url,
         preview_url: result.preview_url,
       }).eq("id", project.id);
 
-      toast.success(`Regenerated! ${result.pages_published ?? 0} pages built.`);
+      toast.success(`Regenerated! ${regenTotal} pages built${result.pages_published > 0 ? `, ${result.pages_published} published to WordPress` : ""}.`);
       await loadProjects();
       await loadProjectPages(project.id);
       setSelectedProject((p: any) => ({
         ...p,
         status: result.pages_published > 0 ? "published" : "generated",
-        pages_count: result.pages_published ?? 0,
+        pages_count: regenTotal,
         site_content: result.site_content,
         hero_image_url: result.hero_image_url,
         preview_url: result.preview_url,
@@ -334,6 +340,134 @@ export default function WebsiteBuilderPage() {
   const copyToClipboard = (text: string, label = "Copied") => {
     navigator.clipboard.writeText(text);
     toast.success(label);
+  };
+
+  // ── Add a single new page to an existing project ──────────
+  const handleAddPage = async () => {
+    if (!user || !selectedProject || !addingPageType || isAddingPage) return;
+    setIsAddingPage(true);
+    try {
+      const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
+      const { data: { session } } = await supabase.auth.getSession();
+
+      let pageContent = selectedProject.site_content?.pages?.[addingPageType];
+      let primaryColor = selectedProject.site_content?.site?.primary_color ?? "#1a56db";
+
+      // If content for this page type isn't cached, generate it
+      if (!pageContent) {
+        const planRes = await fetch(`${SUPABASE_URL}/functions/v1/mavis-web-builder`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${session?.access_token}` },
+          body: JSON.stringify({
+            action: "plan_site",
+            business_name: selectedProject.business_name,
+            business_type: selectedProject.business_type,
+            description: selectedProject.description,
+            target_audience: selectedProject.target_audience,
+            unique_value: selectedProject.unique_value,
+            location: selectedProject.location,
+            style: selectedProject.style,
+            color_scheme: selectedProject.color_scheme,
+            pages: [addingPageType],
+          }),
+        });
+        if (planRes.ok) {
+          const planData = await planRes.json();
+          pageContent = planData.content?.pages?.[addingPageType];
+          primaryColor = planData.content?.site?.primary_color ?? primaryColor;
+        }
+      }
+
+      // Build Gutenberg HTML
+      const genRes = await fetch(`${SUPABASE_URL}/functions/v1/mavis-web-builder`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session?.access_token}` },
+        body: JSON.stringify({
+          action: "generate_page",
+          page_type: addingPageType,
+          page_content: pageContent ?? {},
+          primary_color: primaryColor,
+        }),
+      });
+
+      if (!genRes.ok) {
+        const errText = await genRes.text();
+        throw new Error(`Page generation failed: ${errText.slice(0, 200)}`);
+      }
+      const genData = await genRes.json();
+
+      // Upsert into website_pages (UNIQUE constraint on project_id + page_type)
+      const { error: upsertErr } = await supabase.from("website_pages").upsert({
+        project_id: selectedProject.id,
+        user_id: user.id,
+        page_type: addingPageType,
+        slug: addingPageType,
+        status: "generated",
+        gutenberg_html: genData.html,
+      }, { onConflict: "project_id,page_type" });
+      if (upsertErr) throw upsertErr;
+
+      const newCount = (selectedProject.pages_count ?? 0) + 1;
+      await supabase.from("website_projects").update({ pages_count: newCount }).eq("id", selectedProject.id);
+
+      toast.success(`${addingPageType} page generated!`);
+      setShowAddPagePicker(false);
+      setAddingPageType("");
+      setSelectedProject((p: any) => ({ ...p, pages_count: newCount }));
+      await loadProjectPages(selectedProject.id);
+      await loadProjects();
+    } catch (err: any) {
+      toast.error(err.message ?? "Failed to add page");
+    } finally {
+      setIsAddingPage(false);
+    }
+  };
+
+  // ── Export a page as a standalone HTML file ────────────────
+  const handleExportPage = async (page: any) => {
+    if (exportingPageId === page.id) return;
+    setExportingPageId(page.id);
+    try {
+      let html: string = page.gutenberg_html;
+
+      if (!html) {
+        const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
+        const { data: { session } } = await supabase.auth.getSession();
+        const pageContent = selectedProject?.site_content?.pages?.[page.page_type];
+        const primaryColor = selectedProject?.site_content?.site?.primary_color ?? "#1a56db";
+
+        const res = await fetch(`${SUPABASE_URL}/functions/v1/mavis-web-builder`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${session?.access_token}` },
+          body: JSON.stringify({
+            action: "generate_page",
+            page_type: page.page_type,
+            page_content: pageContent ?? {},
+            primary_color: primaryColor,
+            hero_image_url: page.page_type === "home" ? selectedProject?.hero_image_url : undefined,
+          }),
+        });
+        if (!res.ok) throw new Error("Failed to generate HTML for export");
+        const data = await res.json();
+        html = data.html;
+
+        // Cache HTML back to the row so future exports are instant
+        await supabase.from("website_pages").update({ gutenberg_html: html }).eq("id", page.id);
+      }
+
+      const blob = new Blob([html], { type: "text/html" });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = `${page.page_type}.html`;
+      anchor.click();
+      URL.revokeObjectURL(url);
+      toast.success(`${page.page_type}.html downloaded`);
+    } catch (err: any) {
+      toast.error(err.message ?? "Export failed");
+    } finally {
+      setExportingPageId(null);
+    }
   };
 
   // ── Render ────────────────────────────────────────────────
@@ -511,12 +645,70 @@ export default function WebsiteBuilderPage() {
                         size="sm"
                         variant="outline"
                         className="gap-1.5 text-xs h-8"
-                        onClick={() => toast.info("Add page coming soon")}
+                        disabled={isAddingPage}
+                        onClick={() => {
+                          setShowAddPagePicker((v) => !v);
+                          setAddingPageType("");
+                        }}
                       >
                         <Plus size={11} />
                         Add Page
                       </Button>
                     </div>
+
+                    {/* Inline Add Page picker */}
+                    {showAddPagePicker && (() => {
+                      const existingTypes = new Set(projectPages.map((p: any) => p.page_type));
+                      const available = ALL_PAGES.filter((t) => !existingTypes.has(t));
+                      return (
+                        <div className="mt-3 pt-3 border-t border-border/50 space-y-3">
+                          <p className="text-xs font-mono text-muted-foreground">Select a page type to add:</p>
+                          {available.length === 0 ? (
+                            <p className="text-xs text-muted-foreground italic">All page types already added.</p>
+                          ) : (
+                            <>
+                              <div className="flex flex-wrap gap-2">
+                                {available.map((t) => (
+                                  <button
+                                    key={t}
+                                    onClick={() => setAddingPageType(t)}
+                                    className={`flex items-center gap-1.5 text-xs font-mono px-2.5 py-1.5 rounded border transition-all ${
+                                      addingPageType === t
+                                        ? "bg-primary/10 border-primary/40 text-primary"
+                                        : "border-border/50 text-muted-foreground hover:border-border hover:text-foreground"
+                                    }`}
+                                  >
+                                    {PAGE_TYPE_ICON[t] ?? "📄"} {t.charAt(0).toUpperCase() + t.slice(1)}
+                                  </button>
+                                ))}
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <Button
+                                  size="sm"
+                                  className="gap-1.5 text-xs h-8"
+                                  disabled={!addingPageType || isAddingPage}
+                                  onClick={handleAddPage}
+                                >
+                                  {isAddingPage ? (
+                                    <><Loader2 size={11} className="animate-spin" /> Generating...</>
+                                  ) : (
+                                    <><Sparkles size={11} /> Generate {addingPageType ? `${addingPageType.charAt(0).toUpperCase() + addingPageType.slice(1)} ` : ""}Page</>
+                                  )}
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  className="text-xs h-8"
+                                  onClick={() => { setShowAddPagePicker(false); setAddingPageType(""); }}
+                                >
+                                  Cancel
+                                </Button>
+                              </div>
+                            </>
+                          )}
+                        </div>
+                      );
+                    })()}
                   </CardContent>
                 </Card>
 
@@ -557,17 +749,31 @@ export default function WebsiteBuilderPage() {
                                   target="_blank"
                                   rel="noopener noreferrer"
                                   className="p-1.5 rounded border border-border/50 text-muted-foreground hover:text-primary hover:border-primary/30 transition-colors"
+                                  title="Open in WordPress"
                                 >
                                   <ExternalLink size={12} />
                                 </a>
                                 <button
                                   onClick={() => copyToClipboard(page.wp_url, "URL copied")}
                                   className="p-1.5 rounded border border-border/50 text-muted-foreground hover:text-primary hover:border-primary/30 transition-colors"
+                                  title="Copy URL"
                                 >
                                   <Copy size={12} />
                                 </button>
                               </>
                             )}
+                            <button
+                              onClick={() => handleExportPage(page)}
+                              disabled={exportingPageId === page.id}
+                              className="p-1.5 rounded border border-border/50 text-muted-foreground hover:text-emerald-400 hover:border-emerald-400/30 transition-colors disabled:opacity-40"
+                              title="Export HTML"
+                            >
+                              {exportingPageId === page.id ? (
+                                <Loader2 size={12} className="animate-spin" />
+                              ) : (
+                                <Download size={12} />
+                              )}
+                            </button>
                             <CheckCircle2 size={14} className="text-emerald-400" />
                           </div>
                         </div>

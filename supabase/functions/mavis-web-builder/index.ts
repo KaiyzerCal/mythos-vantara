@@ -1235,6 +1235,7 @@ serve(async (req: Request) => {
           url: string;
           slug: string;
         }> = [];
+        const generatedHtmls: Record<string, string> = {};
 
         for (const pageType of (pages as string[])) {
           const pageContent = siteContent.pages?.[pageType];
@@ -1246,6 +1247,7 @@ serve(async (req: Request) => {
             pageType === "home" ? heroImageUrl : undefined,
             primaryColor,
           );
+          generatedHtmls[pageType] = gutenbergHtml;
 
           // 3a. Generate SEO meta (best-effort)
           let metaTitle = "";
@@ -1362,25 +1364,34 @@ serve(async (req: Request) => {
         if (project_id && user_id) {
           const sb = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
 
-          for (const p of publishedPages) {
+          // Upsert every generated page, including HTML; merge WP data if available
+          const wpByType = Object.fromEntries(publishedPages.map((p) => [p.type, p]));
+          for (const [pageType, html] of Object.entries(generatedHtmls)) {
+            const wp = wpByType[pageType];
             await sb.from("website_pages").upsert({
               project_id,
               user_id,
-              page_type: p.type,
-              wp_page_id: p.wp_id,
-              wp_url: p.url,
-              slug: p.slug,
-              status: "published",
-              published_at: new Date().toISOString(),
-            });
+              page_type: pageType,
+              slug: pageType,
+              gutenberg_html: html,
+              ...(wp ? {
+                wp_page_id: wp.wp_id,
+                wp_url: wp.url,
+                status: "published",
+                published_at: new Date().toISOString(),
+              } : {
+                status: "generated",
+              }),
+            }, { onConflict: "project_id,page_type" });
           }
 
+          const totalPages = Object.keys(generatedHtmls).length;
           await sb
             .from("website_projects")
             .update({
-              status: "published",
-              pages_count: publishedPages.length,
-              published_at: new Date().toISOString(),
+              status: publishedPages.length > 0 ? "published" : "generated",
+              pages_count: totalPages,
+              published_at: publishedPages.length > 0 ? new Date().toISOString() : null,
             })
             .eq("id", project_id);
         }
@@ -1389,6 +1400,7 @@ serve(async (req: Request) => {
           JSON.stringify({
             success: true,
             pages_published: publishedPages.length,
+            pages_generated: Object.keys(generatedHtmls).length,
             pages: publishedPages,
             site_content: siteContent,
             hero_image_url: heroImageUrl,
