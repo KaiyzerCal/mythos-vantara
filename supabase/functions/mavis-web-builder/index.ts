@@ -173,23 +173,32 @@ Return a JSON object with this EXACT structure:
   }
 }`;
 
-  const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${GEMINI_KEY}`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [{ role: "user", parts: [{ text: systemPrompt }] }],
-        generationConfig: {
-          temperature: 0.8,
-          responseMimeType: "application/json",
-          maxOutputTokens: 8192,
-        },
-      }),
-    },
-  );
+  const GEMINI_MODELS = [
+    "gemini-2.5-flash-preview-05-20",
+    "gemini-2.0-flash",
+    "gemini-1.5-flash",
+  ];
 
-  if (!res.ok) throw new Error(`Gemini content gen failed: ${res.status}`);
+  const body = JSON.stringify({
+    contents: [{ role: "user", parts: [{ text: systemPrompt }] }],
+    generationConfig: {
+      temperature: 0.8,
+      responseMimeType: "application/json",
+      maxOutputTokens: 8192,
+    },
+  });
+
+  let res: Response | null = null;
+  for (const model of GEMINI_MODELS) {
+    res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_KEY}`,
+      { method: "POST", headers: { "Content-Type": "application/json" }, body },
+    );
+    if (res.ok) break;
+    if (res.status !== 403 && res.status !== 404) break; // only retry on access errors
+  }
+
+  if (!res || !res.ok) throw new Error(`Gemini content gen failed: ${res?.status ?? "no response"}`);
   const data = await res.json();
   const text = data.candidates?.[0]?.content?.parts?.[0]?.text ?? "{}";
   return JSON.parse(text);
