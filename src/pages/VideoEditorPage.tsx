@@ -11,7 +11,7 @@ import {
   Upload, Link, Play, Download, Share2, Scissors, Zap,
   Sparkles, Clock, TrendingUp, Eye, Copy, Check, Loader2,
   Video, ChevronRight, Star, Instagram, Twitter,
-  Youtube, AlertCircle, FileVideo, Send, BarChart3, Trash2, RefreshCw
+  Youtube, AlertCircle, FileVideo, Send, BarChart3, Trash2, RefreshCw, Film, ListChecks
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -381,6 +381,13 @@ export default function VideoEditorPage() {
   const [deletingProjectId, setDeletingProjectId] = useState<string | null>(null);
   const [retryingProjectId, setRetryingProjectId] = useState<string | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [compilationSelected, setCompilationSelected] = useState<Set<string>>(new Set());
+  const [compilationAspectRatio, setCompilationAspectRatio] = useState<"9:16" | "16:9" | "1:1">("9:16");
+  const [compilationFades, setCompilationFades] = useState(true);
+  const [compilingInProgress, setCompilingInProgress] = useState(false);
+  const [compilationResult, setCompilationResult] = useState<{
+    status: string; render_url?: string; job_id?: string; ffmpeg_cmd?: string;
+  } | null>(null);
 
   // Upload state
   const [dragOver, setDragOver] = useState(false);
@@ -516,6 +523,12 @@ export default function VideoEditorPage() {
     await (supabase as any).from("video_projects").delete().eq("id", project.id);
     setProjects((prev) => prev.filter((p) => p.id !== project.id));
     handleAnalyze({ url: sourceUrl });
+  }
+
+  // ── clipKey helper ────────────────────────────────────────────────────────
+
+  function clipKey(clip: any): string {
+    return clip.id ?? `${clip.start ?? clip.start_seconds ?? 0}:${clip.end ?? clip.end_seconds ?? 0}:${clip.format}`;
   }
 
   // ── Analyze ───────────────────────────────────────────────────────────────
@@ -727,6 +740,90 @@ export default function VideoEditorPage() {
     vid.addEventListener("timeupdate", onTimeUpdate);
     // Scroll the video into view
     vid.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  // ── Build Compilation ─────────────────────────────────────────────────────
+
+  async function handleBuildCompilation() {
+    if (!selectedProject?.source_url || compilationSelected.size === 0) return;
+    const selectedClips = allClips
+      .filter(c => compilationSelected.has(clipKey(c)))
+      .sort((a, b) => (a.start ?? a.start_seconds ?? 0) - (b.start ?? b.start_seconds ?? 0));
+    if (selectedClips.length < 2) {
+      toast.error("Select at least 2 clips for a compilation.");
+      return;
+    }
+    setCompilingInProgress(true);
+    setCompilationResult(null);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const res = await fetch(
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/mavis-video-render`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${session?.access_token}` },
+          body: JSON.stringify({
+            action: "compile",
+            user_id: user!.id,
+            source_url: selectedProject.source_url,
+            clips: selectedClips.map(c => ({
+              start: c.start ?? c.start_seconds ?? 0,
+              end: c.end ?? c.end_seconds ?? 0,
+              title: c.title ?? "Clip",
+            })),
+            aspect_ratio: compilationAspectRatio,
+            add_fades: compilationFades,
+          }),
+        }
+      );
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Compilation failed");
+      if (data.status === "rendering" && data.job_id) {
+        setCompilationResult({ status: "rendering", job_id: data.job_id });
+        toast.info("Compilation queued — polling for result…");
+        pollCompilation(data.job_id);
+      } else if (data.status === "manual") {
+        setCompilationResult({ status: "manual", ffmpeg_cmd: data.ffmpeg_cmd, render_url: data.render_url });
+        toast.info("Cloud rendering not configured — FFmpeg command ready below.");
+      } else if (data.render_url) {
+        setCompilationResult({ status: "ready", render_url: data.render_url });
+        toast.success("Compilation ready!");
+      }
+    } catch (err: any) {
+      toast.error("Compilation failed: " + (err.message ?? "unknown error"));
+      setCompilationResult(null);
+    } finally {
+      setCompilingInProgress(false);
+    }
+  }
+
+  async function pollCompilation(jobId: string) {
+    const { data: { session } } = await supabase.auth.getSession();
+    for (let attempt = 0; attempt < 30; attempt++) {
+      await new Promise(r => setTimeout(r, 3000));
+      try {
+        const res = await fetch(
+          `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/mavis-video-render`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${session?.access_token}` },
+            body: JSON.stringify({ action: "poll", job_id: jobId, user_id: user!.id }),
+          }
+        );
+        const data = await res.json();
+        if (data.status === "ready" && data.render_url) {
+          setCompilationResult({ status: "ready", render_url: data.render_url, job_id: jobId });
+          toast.success("Compilation ready! Download it below.");
+          return;
+        }
+        if (data.status === "failed") {
+          setCompilationResult({ status: "failed", job_id: jobId });
+          toast.error("Compilation rendering failed.");
+          return;
+        }
+      } catch {}
+    }
+    toast.warning("Compilation is taking longer than expected. Come back later.");
   }
 
   // ── Copy caption ──────────────────────────────────────────────────────────
@@ -1329,6 +1426,9 @@ export default function VideoEditorPage() {
                 <TabsTrigger value="stats" className="data-[state=active]:bg-purple-600 data-[state=active]:text-white">
                   <BarChart3 className="w-4 h-4 mr-1.5" /> Stats
                 </TabsTrigger>
+                <TabsTrigger value="compilation" className="data-[state=active]:bg-purple-600 data-[state=active]:text-white">
+                  <Film className="w-4 h-4 mr-1.5" /> Compilation
+                </TabsTrigger>
               </TabsList>
 
               {/* ── Tab: Clips ─────────────────────────────────────────── */}
@@ -1546,6 +1646,216 @@ export default function VideoEditorPage() {
                     <p className="text-gray-400 text-sm">
                       No analysis data available.
                     </p>
+                  </div>
+                )}
+              </TabsContent>
+
+              {/* ── Tab: Compilation ─────────────────────────────────── */}
+              <TabsContent value="compilation" className="mt-4 space-y-5">
+                {/* Instructions */}
+                <div className="flex items-start gap-3 bg-purple-500/10 border border-purple-500/20 rounded-xl p-4">
+                  <Film className="w-5 h-5 text-purple-400 shrink-0 mt-0.5" />
+                  <div>
+                    <p className="text-sm font-medium text-white">Build a Highlight Reel</p>
+                    <p className="text-xs text-gray-400 mt-0.5">
+                      Select clips below and MAVIS will stitch them together in chronological order into one video — with optional fade transitions between each clip.
+                    </p>
+                  </div>
+                </div>
+
+                {/* Quick-select buttons */}
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-xs text-gray-400 font-mono">Quick select:</span>
+                  {[3, 5, 7].map(n => (
+                    <button
+                      key={n}
+                      onClick={() => {
+                        const top = [...allClips]
+                          .sort((a, b) => (b.viral_score ?? 0) - (a.viral_score ?? 0))
+                          .slice(0, n);
+                        setCompilationSelected(new Set(top.map(clipKey)));
+                      }}
+                      className="px-2.5 py-1 text-xs font-mono rounded border border-gray-600 text-gray-300 hover:border-purple-500/50 hover:text-purple-300 transition-colors"
+                    >
+                      Top {n}
+                    </button>
+                  ))}
+                  <button
+                    onClick={() => setCompilationSelected(new Set(allClips.map(clipKey)))}
+                    className="px-2.5 py-1 text-xs font-mono rounded border border-gray-600 text-gray-300 hover:border-purple-500/50 hover:text-purple-300 transition-colors"
+                  >
+                    All
+                  </button>
+                  <button
+                    onClick={() => setCompilationSelected(new Set())}
+                    className="px-2.5 py-1 text-xs font-mono rounded border border-gray-600 text-gray-400 hover:border-red-500/40 hover:text-red-400 transition-colors"
+                  >
+                    Clear
+                  </button>
+                  {compilationSelected.size > 0 && (
+                    <span className="ml-auto text-xs text-purple-300 font-mono">
+                      {compilationSelected.size} selected ·{" "}
+                      {formatDuration(
+                        allClips
+                          .filter(c => compilationSelected.has(clipKey(c)))
+                          .reduce((s, c) => s + ((c.end ?? c.end_seconds ?? 0) - (c.start ?? c.start_seconds ?? 0)), 0)
+                      )} total
+                    </span>
+                  )}
+                </div>
+
+                {/* Clip list */}
+                {allClips.length === 0 ? (
+                  <div className="text-center py-10 text-gray-500 text-sm">No clips available to compile.</div>
+                ) : (
+                  <div className="space-y-1.5 max-h-72 overflow-y-auto pr-1">
+                    {allClips
+                      .slice()
+                      .sort((a, b) => (b.viral_score ?? 0) - (a.viral_score ?? 0))
+                      .map((clip, idx) => {
+                        const key = clipKey(clip);
+                        const isSelected = compilationSelected.has(key);
+                        const start = clip.start ?? clip.start_seconds ?? 0;
+                        const end = clip.end ?? clip.end_seconds ?? 0;
+                        return (
+                          <button
+                            key={key + idx}
+                            onClick={() => {
+                              setCompilationSelected(prev => {
+                                const next = new Set(prev);
+                                if (next.has(key)) next.delete(key); else next.add(key);
+                                return next;
+                              });
+                            }}
+                            className={`w-full flex items-center gap-3 p-2.5 rounded-lg border text-left transition-all ${
+                              isSelected
+                                ? "border-purple-500/50 bg-purple-500/10"
+                                : "border-gray-700/50 bg-gray-800/40 hover:border-gray-600"
+                            }`}
+                          >
+                            <div className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 transition-colors ${
+                              isSelected ? "bg-purple-500 border-purple-500" : "border-gray-500"
+                            }`}>
+                              {isSelected && <Check className="w-2.5 h-2.5 text-white" />}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-xs font-medium text-white truncate">{clip.title ?? "Clip"}</p>
+                              <p className="text-[11px] text-gray-400 font-mono">
+                                {formatTimestamp(start)} → {formatTimestamp(end)} · {formatDuration(end - start)}
+                              </p>
+                            </div>
+                            <div className="flex items-center gap-2 shrink-0">
+                              <span className="text-[10px] font-mono text-gray-500 border border-gray-600 rounded px-1.5 py-0.5">
+                                {FORMAT_LABELS[clip.format] ?? clip.format}
+                              </span>
+                              <ViralScoreBadge score={clip.viral_score ?? 0} />
+                            </div>
+                          </button>
+                        );
+                      })}
+                  </div>
+                )}
+
+                {/* Options */}
+                <div className="grid grid-cols-2 gap-3 pt-1">
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-mono text-gray-400">Aspect Ratio</label>
+                    <div className="flex gap-1.5">
+                      {(["9:16", "16:9", "1:1"] as const).map(ar => (
+                        <button
+                          key={ar}
+                          onClick={() => setCompilationAspectRatio(ar)}
+                          className={`flex-1 px-2 py-1.5 text-xs font-mono rounded border transition-colors ${
+                            compilationAspectRatio === ar
+                              ? "bg-purple-500/10 border-purple-500/50 text-purple-300"
+                              : "border-gray-600 text-gray-400 hover:border-gray-500"
+                          }`}
+                        >
+                          {ar}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-mono text-gray-400">Transitions</label>
+                    <button
+                      onClick={() => setCompilationFades(v => !v)}
+                      className={`w-full px-3 py-1.5 text-xs font-mono rounded border transition-colors ${
+                        compilationFades
+                          ? "bg-purple-500/10 border-purple-500/50 text-purple-300"
+                          : "border-gray-600 text-gray-400 hover:border-gray-500"
+                      }`}
+                    >
+                      {compilationFades ? "✓ Fade in/out" : "Clean cuts"}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Build button */}
+                <Button
+                  className="w-full bg-purple-600 hover:bg-purple-700 text-white h-11 font-semibold"
+                  disabled={compilationSelected.size < 2 || compilingInProgress}
+                  onClick={handleBuildCompilation}
+                >
+                  {compilingInProgress ? (
+                    <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Building compilation…</>
+                  ) : (
+                    <><Film className="w-4 h-4 mr-2" /> Build Compilation ({compilationSelected.size} clips)</>
+                  )}
+                </Button>
+
+                {/* Result */}
+                {compilationResult && (
+                  <div className={`rounded-xl border p-4 space-y-3 ${
+                    compilationResult.status === "ready"
+                      ? "border-green-500/30 bg-green-500/5"
+                      : compilationResult.status === "rendering"
+                      ? "border-purple-500/30 bg-purple-500/5"
+                      : compilationResult.status === "manual"
+                      ? "border-yellow-500/30 bg-yellow-500/5"
+                      : "border-red-500/30 bg-red-500/5"
+                  }`}>
+                    {compilationResult.status === "ready" && compilationResult.render_url && (
+                      <>
+                        <p className="text-sm font-medium text-green-300 flex items-center gap-2">
+                          <Check className="w-4 h-4" /> Compilation ready!
+                        </p>
+                        <a href={compilationResult.render_url} download target="_blank" rel="noopener noreferrer">
+                          <Button size="sm" className="gap-1.5 bg-green-600 hover:bg-green-700 text-white">
+                            <Download className="w-3.5 h-3.5" /> Download Compilation
+                          </Button>
+                        </a>
+                      </>
+                    )}
+                    {compilationResult.status === "rendering" && (
+                      <p className="text-sm text-purple-300 flex items-center gap-2">
+                        <Loader2 className="w-4 h-4 animate-spin" /> Rendering in cloud — this page will update when done.
+                      </p>
+                    )}
+                    {compilationResult.status === "failed" && (
+                      <p className="text-sm text-red-300 flex items-center gap-2">
+                        <AlertCircle className="w-4 h-4" /> Render failed. Try again or reduce number of clips.
+                      </p>
+                    )}
+                    {compilationResult.status === "manual" && compilationResult.ffmpeg_cmd && (
+                      <>
+                        <p className="text-xs text-yellow-300 font-medium">Cloud rendering not set up. Run this locally:</p>
+                        <pre className="text-[10px] font-mono text-yellow-100/80 bg-gray-900/60 rounded p-3 overflow-x-auto whitespace-pre-wrap break-all leading-relaxed">
+                          {compilationResult.ffmpeg_cmd}
+                        </pre>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="gap-1.5 border-yellow-500/40 text-yellow-300"
+                          onClick={() => {
+                            navigator.clipboard.writeText(compilationResult.ffmpeg_cmd!);
+                            toast.success("FFmpeg command copied!");
+                          }}
+                        >
+                          <Copy className="w-3.5 h-3.5" /> Copy Command
+                        </Button>
+                      </>
+                    )}
                   </div>
                 )}
               </TabsContent>

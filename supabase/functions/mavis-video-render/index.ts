@@ -40,7 +40,16 @@ interface ExtractThumbnailAction {
   clip_id?: string;
 }
 
-type VideoRenderAction = RenderAction | PollAction | ExtractThumbnailAction;
+interface CompileAction {
+  action: "compile";
+  user_id: string;
+  source_url: string;
+  clips: Array<{ start: number; end: number; title: string }>;
+  aspect_ratio?: "9:16" | "16:9" | "1:1";
+  add_fades?: boolean;
+}
+
+type VideoRenderAction = RenderAction | PollAction | ExtractThumbnailAction | CompileAction;
 
 // ── FFmpeg helpers ─────────────────────────────────────────
 
@@ -89,6 +98,52 @@ function buildFfmpegArgs(
   args.push("output.mp4");
 
   return args;
+}
+
+function buildCompilationFfmpegArgs(
+  clips: Array<{ start: number; end: number }>,
+  aspectRatio: string,
+  addFades: boolean,
+): string[] {
+  const N = clips.length;
+  const cropFilter = aspectRatio === "9:16"
+    ? "crop=ih*9/16:ih,scale=1080:1920,setsar=1"
+    : aspectRatio === "1:1"
+    ? "crop=ih:ih,scale=1080:1080,setsar=1"
+    : "scale=1920:1080,setsar=1";
+
+  const parts: string[] = [];
+  // Split input into N independent copies
+  parts.push(`[0:v]split=${N}${Array.from({ length: N }, (_, i) => `[sv${i}]`).join("")}`);
+  parts.push(`[0:a]asplit=${N}${Array.from({ length: N }, (_, i) => `[sa${i}]`).join("")}`);
+
+  for (let i = 0; i < N; i++) {
+    const { start, end } = clips[i];
+    const dur = end - start;
+    let vFilter = `[sv${i}]trim=start=${start}:end=${end},setpts=PTS-STARTPTS,${cropFilter}`;
+    let aFilter = `[sa${i}]atrim=start=${start}:end=${end},asetpts=PTS-STARTPTS`;
+    if (addFades && dur > 1) {
+      const fadeOut = Math.max(0.01, dur - 0.4).toFixed(2);
+      vFilter += `,fade=t=in:st=0:d=0.3,fade=t=out:st=${fadeOut}:d=0.3`;
+      aFilter += `,afade=t=in:st=0:d=0.3,afade=t=out:st=${fadeOut}:d=0.3`;
+    }
+    parts.push(`${vFilter}[v${i}]`);
+    parts.push(`${aFilter}[a${i}]`);
+  }
+
+  const concatInputs = Array.from({ length: N }, (_, i) => `[v${i}][a${i}]`).join("");
+  parts.push(`${concatInputs}concat=n=${N}:v=1:a=1[outv][outa]`);
+
+  return [
+    "-i", "input.mp4",
+    "-filter_complex", parts.join(";"),
+    "-map", "[outv]",
+    "-map", "[outa]",
+    "-c:v", "libx264", "-preset", "fast", "-crf", "22",
+    "-c:a", "aac", "-b:a", "128k",
+    "-movflags", "+faststart",
+    "output.mp4",
+  ];
 }
 
 async function submitFfmpegJob(inputUrl: string, ffmpegArgs: string[]): Promise<{ request_id: string }> {
@@ -380,6 +435,68 @@ async function handleExtractThumbnail(action: ExtractThumbnailAction, supabase: 
   };
 }
 
+async function handleCompile(action: CompileAction, supabase: ReturnType<typeof createClient>) {
+  const {
+    user_id: userId,
+    source_url: sourceUrl,
+    clips,
+    aspect_ratio: aspectRatio = "9:16",
+    add_fades: addFades = true,
+  } = action;
+
+  if (!clips || clips.length < 2) {
+    throw new Error("At least 2 clips are required to build a compilation.");
+  }
+  if (clips.length > 12) {
+    throw new Error("Maximum 12 clips per compilation.");
+  }
+
+  // Sort clips chronologically
+  const sorted = [...clips].sort((a, b) => a.start - b.start);
+
+  const ffmpegArgs = buildCompilationFfmpegArgs(sorted, aspectRatio, addFades);
+
+  let jobId: string | null = null;
+  let status = "rendering";
+  let ffmpegCmd: string | null = null;
+  let renderUrl: string | null = null;
+
+  try {
+    const { request_id } = await submitFfmpegJob(sourceUrl, ffmpegArgs);
+
+    const { data: jobRow, error: jobErr } = await supabase
+      .from("video_render_jobs")
+      .insert({
+        user_id: userId,
+        provider: "fal",
+        provider_job_id: request_id,
+        status: "rendering",
+        ffmpeg_args: ffmpegArgs,
+      })
+      .select("id")
+      .single();
+
+    if (jobErr) throw jobErr;
+    jobId = jobRow.id;
+
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.startsWith("fal_ffmpeg_unavailable")) {
+      // Build a manual ffmpeg command showing the filter
+      const times = sorted.map((c, i) =>
+        `  # Clip ${i + 1}: ${(c as any).title ?? "clip"} (${c.start}s → ${c.end}s)`
+      ).join("\n");
+      ffmpegCmd = `# Compilation — ${sorted.length} clips\n${times}\nffmpeg -i "INPUT_VIDEO_PATH" -filter_complex "${ffmpegArgs[ffmpegArgs.indexOf("-filter_complex") + 1]}" -map "[outv]" -map "[outa]" -c:v libx264 -preset fast -crf 22 -c:a aac -b:a 128k -movflags +faststart compilation.mp4`;
+      status = "manual";
+      renderUrl = sourceUrl;
+    } else {
+      throw err;
+    }
+  }
+
+  return { job_id: jobId, status, ffmpeg_cmd: ffmpegCmd, render_url: renderUrl };
+}
+
 // ── Main handler ───────────────────────────────────────────
 
 serve(async (req) => {
@@ -415,6 +532,10 @@ serve(async (req) => {
 
       case "extract_thumbnail":
         result = await handleExtractThumbnail(body as ExtractThumbnailAction, supabase);
+        break;
+
+      case "compile":
+        result = await handleCompile(body as CompileAction, supabase);
         break;
 
       default:
