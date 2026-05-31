@@ -790,6 +790,28 @@ export default function CouncilBoard() {
           <VoiceChatOverlay
             persona={voiceTarget}
             onClose={() => setVoiceTarget(null)}
+            onExchange={voiceTarget.entityType === "council" ? async (userText, replyText) => {
+              const uid = userId;
+              if (!uid) return;
+              const cid = await ensureConversation(uid);
+              const ts = Date.now();
+              const userMsg: CouncilBoardMessage = {
+                id: makeId(), speakerId: "user", speakerName: "Sovereign",
+                speakerRole: "You", speakerType: "user", content: userText,
+                timestamp: ts, isUser: true,
+              };
+              const memberMsg: CouncilBoardMessage = {
+                id: makeId(), speakerId: voiceTarget.entityId ?? "council",
+                speakerName: voiceTarget.name, speakerRole: voiceTarget.role ?? "Council Member",
+                speakerType: "council", content: replyText,
+                timestamp: ts + 1, isUser: false,
+              };
+              setMessages(prev => [...prev, userMsg, memberMsg]);
+              if (cid) {
+                await persist(cid, uid, userMsg);
+                await persist(cid, uid, memberMsg);
+              }
+            } : undefined}
           />
         )}
       </AnimatePresence>

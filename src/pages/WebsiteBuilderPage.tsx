@@ -253,6 +253,83 @@ export default function WebsiteBuilderPage() {
     }
   };
 
+  // ── Regenerate existing project ───────────────────────────
+  const handleRegenerate = async (project: any) => {
+    if (!user || isGenerating) return;
+    setIsGenerating(true);
+    setGenerationStep("Re-generating site content...");
+    setGenerationProgress(10);
+    try {
+      await supabase.from("website_projects").update({ status: "generating" }).eq("id", project.id);
+      setSelectedProject((p: any) => ({ ...p, status: "generating" }));
+
+      const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
+      const { data: { session } } = await supabase.auth.getSession();
+
+      const res = await fetch(`${SUPABASE_URL}/functions/v1/mavis-web-builder`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session?.access_token}` },
+        body: JSON.stringify({
+          action: "generate_site",
+          business_name: project.business_name,
+          business_type: project.business_type,
+          description: project.description,
+          target_audience: project.target_audience,
+          unique_value: project.unique_value,
+          location: project.location,
+          style: project.style,
+          color_scheme: project.color_scheme,
+          pages: project.pages ?? project.pages_requested ?? ["home", "about", "services", "contact"],
+          price_cents: project.price_cents,
+          client_name: project.client_name,
+          wp_site_url: project.wp_site_url || undefined,
+          wp_username: project.wp_username || undefined,
+          wp_app_password: project.wp_app_password || undefined,
+          user_id: user.id,
+          project_id: project.id,
+        }),
+      });
+
+      setGenerationProgress(70);
+      if (!res.ok) {
+        const errText = await res.text();
+        throw new Error(`Build failed: ${errText.slice(0, 200)}`);
+      }
+
+      const result = await res.json();
+      setGenerationProgress(100);
+      setGenerationStep("Complete!");
+
+      await supabase.from("website_projects").update({
+        status: result.pages_published > 0 ? "published" : "generated",
+        pages_count: result.pages_published ?? 0,
+        site_content: result.site_content,
+        hero_image_url: result.hero_image_url,
+        preview_url: result.preview_url,
+      }).eq("id", project.id);
+
+      toast.success(`Regenerated! ${result.pages_published ?? 0} pages built.`);
+      await loadProjects();
+      await loadProjectPages(project.id);
+      setSelectedProject((p: any) => ({
+        ...p,
+        status: result.pages_published > 0 ? "published" : "generated",
+        pages_count: result.pages_published ?? 0,
+        site_content: result.site_content,
+        hero_image_url: result.hero_image_url,
+        preview_url: result.preview_url,
+      }));
+    } catch (err: any) {
+      toast.error(err.message ?? "Regeneration failed");
+      await supabase.from("website_projects").update({ status: "planning" }).eq("id", project.id);
+      setSelectedProject((p: any) => ({ ...p, status: "planning" }));
+    } finally {
+      setIsGenerating(false);
+      setGenerationProgress(0);
+      setGenerationStep("");
+    }
+  };
+
   // ── Copy to clipboard ─────────────────────────────────────
   const copyToClipboard = (text: string, label = "Copied") => {
     navigator.clipboard.writeText(text);
@@ -424,10 +501,11 @@ export default function WebsiteBuilderPage() {
                         size="sm"
                         variant="outline"
                         className="gap-1.5 text-xs h-8"
-                        onClick={() => toast.info("Regenerate coming soon")}
+                        disabled={isGenerating}
+                        onClick={() => handleRegenerate(selectedProject)}
                       >
-                        <Sparkles size={11} />
-                        Regenerate Page
+                        <Sparkles size={11} className={isGenerating ? "animate-spin" : ""} />
+                        {isGenerating ? generationStep || "Generating..." : "Regenerate Site"}
                       </Button>
                       <Button
                         size="sm"
