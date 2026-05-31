@@ -105,7 +105,9 @@ export default function WebsiteBuilderPage() {
   const [exportingPageId, setExportingPageId] = useState<string | null>(null);
   const [isDownloadingAll, setIsDownloadingAll] = useState(false);
   const [importingPageType, setImportingPageType] = useState<string | null>(null);
+  const [isImportingAll, setIsImportingAll] = useState(false);
   const htmlImportRef = useRef<HTMLInputElement>(null);
+  const htmlMultiImportRef = useRef<HTMLInputElement>(null);
 
   // Netlify publishing
   const [netlifyToken, setNetlifyToken] = useState(() => localStorage.getItem("netlify_token") ?? "");
@@ -712,16 +714,80 @@ export default function WebsiteBuilderPage() {
     }
   };
 
+  // ── Bulk HTML import (multiple pages at once) ─────────────
+  const detectPageTypeFromFilename = (filename: string): string => {
+    const base = filename.replace(/\.html?$/i, "").toLowerCase().trim();
+    if (base === "index") return "home";
+    const known = ["home", "about", "services", "contact", "pricing", "portfolio", "blog", "team"];
+    return known.includes(base) ? base : base;
+  };
+
+  const handleImportAllHtmlFiles = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files ?? []);
+    e.target.value = "";
+    if (!files.length || !selectedProject || !user) return;
+
+    setIsImportingAll(true);
+    let imported = 0;
+    const errors: string[] = [];
+
+    try {
+      for (const file of files) {
+        const pageType = detectPageTypeFromFilename(file.name);
+        try {
+          const html = await file.text();
+          const { error } = await supabase.from("website_pages").upsert({
+            project_id: selectedProject.id,
+            user_id: user.id,
+            page_type: pageType,
+            slug: pageType,
+            status: "generated",
+            gutenberg_html: html,
+          }, { onConflict: "project_id,page_type" });
+          if (error) throw error;
+          imported++;
+        } catch (err: any) {
+          errors.push(`${file.name}: ${err.message ?? "failed"}`);
+        }
+      }
+
+      if (imported > 0) {
+        // Update pages_count on project
+        const newCount = Math.max(selectedProject.pages_count ?? 0, imported);
+        await supabase.from("website_projects").update({ pages_count: newCount }).eq("id", selectedProject.id);
+        setSelectedProject((p: any) => ({ ...p, pages_count: newCount }));
+        await loadProjectPages(selectedProject.id);
+        await loadProjects();
+      }
+
+      if (errors.length === 0) {
+        toast.success(`${imported} page${imported !== 1 ? "s" : ""} imported successfully.`);
+      } else {
+        toast.warning(`${imported} imported, ${errors.length} failed: ${errors[0]}`);
+      }
+    } finally {
+      setIsImportingAll(false);
+    }
+  };
+
   // ── Render ────────────────────────────────────────────────
   return (
     <div className="max-w-7xl mx-auto space-y-6">
-      {/* Hidden HTML file input for page import */}
+      {/* Hidden file inputs for HTML import */}
       <input
         ref={htmlImportRef}
         type="file"
         accept=".html,text/html"
         className="hidden"
         onChange={handleImportHtmlFile}
+      />
+      <input
+        ref={htmlMultiImportRef}
+        type="file"
+        accept=".html,text/html"
+        multiple
+        className="hidden"
+        onChange={handleImportAllHtmlFiles}
       />
 
       {/* Header */}
@@ -895,6 +961,19 @@ export default function WebsiteBuilderPage() {
                           {isDownloadingAll ? "Downloading..." : "Download HTML"}
                         </Button>
                       )}
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="gap-1.5 text-xs h-8"
+                        disabled={isImportingAll}
+                        title="Upload one or more HTML files. Files are matched to pages by filename (e.g. home.html → home, about.html → about)."
+                        onClick={() => htmlMultiImportRef.current?.click()}
+                      >
+                        {isImportingAll
+                          ? <Loader2 size={11} className="animate-spin" />
+                          : <Upload size={11} />}
+                        {isImportingAll ? "Importing..." : "Upload HTML"}
+                      </Button>
                       <Button
                         size="sm"
                         variant="outline"
