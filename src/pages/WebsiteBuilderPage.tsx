@@ -103,6 +103,7 @@ export default function WebsiteBuilderPage() {
   const [addingPageType, setAddingPageType] = useState("");
   const [isAddingPage, setIsAddingPage] = useState(false);
   const [exportingPageId, setExportingPageId] = useState<string | null>(null);
+  const [isDownloadingAll, setIsDownloadingAll] = useState(false);
 
   // WordPress.com OAuth — new project form
   const [wpAuthMode, setWpAuthMode] = useState<"app_password" | "wpcom">("app_password");
@@ -494,50 +495,88 @@ export default function WebsiteBuilderPage() {
     }
   };
 
-  // ── Export a page as a standalone HTML file ────────────────
-  const handleExportPage = async (page: any) => {
-    if (exportingPageId === page.id) return;
-    setExportingPageId(page.id);
+  // ── Generate HTML for one page and trigger a browser download ─
+  const exportPageHtml = async (pageType: string, dbPage?: any): Promise<string | null> => {
+    // Use cached DB row first
+    if (dbPage?.gutenberg_html) {
+      triggerHtmlDownload(dbPage.gutenberg_html, pageType);
+      return dbPage.gutenberg_html;
+    }
+
+    const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
+    const { data: { session } } = await supabase.auth.getSession();
+    const pageContent = selectedProject?.site_content?.pages?.[pageType] ?? {};
+    const primaryColor = selectedProject?.site_content?.site?.primary_color ?? "#1a56db";
+
+    const res = await fetch(`${SUPABASE_URL}/functions/v1/mavis-web-builder`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${session?.access_token}` },
+      body: JSON.stringify({
+        action: "generate_page",
+        page_type: pageType,
+        page_content: pageContent,
+        primary_color: primaryColor,
+        hero_image_url: pageType === "home" ? selectedProject?.hero_image_url : undefined,
+      }),
+    });
+    if (!res.ok) throw new Error(`Failed to generate HTML for ${pageType}`);
+    const data = await res.json();
+    const html: string = data.html;
+
+    triggerHtmlDownload(html, pageType);
+
+    // Cache back to DB row if it exists
+    if (dbPage?.id) {
+      await supabase.from("website_pages").update({ gutenberg_html: html }).eq("id", dbPage.id);
+    }
+    return html;
+  };
+
+  const triggerHtmlDownload = (html: string, pageType: string) => {
+    const blob = new Blob([html], { type: "text/html" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${pageType}.html`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  // ── Export a single page ──────────────────────────────────
+  const handleExportFromContent = async (pageType: string, dbPage?: any) => {
+    if (exportingPageId === pageType) return;
+    setExportingPageId(pageType);
     try {
-      let html: string = page.gutenberg_html;
-
-      if (!html) {
-        const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
-        const { data: { session } } = await supabase.auth.getSession();
-        const pageContent = selectedProject?.site_content?.pages?.[page.page_type];
-        const primaryColor = selectedProject?.site_content?.site?.primary_color ?? "#1a56db";
-
-        const res = await fetch(`${SUPABASE_URL}/functions/v1/mavis-web-builder`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", Authorization: `Bearer ${session?.access_token}` },
-          body: JSON.stringify({
-            action: "generate_page",
-            page_type: page.page_type,
-            page_content: pageContent ?? {},
-            primary_color: primaryColor,
-            hero_image_url: page.page_type === "home" ? selectedProject?.hero_image_url : undefined,
-          }),
-        });
-        if (!res.ok) throw new Error("Failed to generate HTML for export");
-        const data = await res.json();
-        html = data.html;
-
-        // Cache HTML back to the row so future exports are instant
-        await supabase.from("website_pages").update({ gutenberg_html: html }).eq("id", page.id);
-      }
-
-      const blob = new Blob([html], { type: "text/html" });
-      const url = URL.createObjectURL(blob);
-      const anchor = document.createElement("a");
-      anchor.href = url;
-      anchor.download = `${page.page_type}.html`;
-      anchor.click();
-      URL.revokeObjectURL(url);
-      toast.success(`${page.page_type}.html downloaded`);
+      await exportPageHtml(pageType, dbPage);
+      toast.success(`${pageType}.html downloaded`);
     } catch (err: any) {
       toast.error(err.message ?? "Export failed");
     } finally {
       setExportingPageId(null);
+    }
+  };
+
+  // ── Download every page as individual HTML files ──────────
+  const handleDownloadAll = async () => {
+    if (!selectedProject?.site_content?.pages || isDownloadingAll) return;
+    setIsDownloadingAll(true);
+    const pageTypes = Object.keys(selectedProject.site_content.pages);
+    let downloaded = 0;
+    try {
+      for (const pageType of pageTypes) {
+        const dbPage = projectPages.find((p: any) => p.page_type === pageType);
+        try {
+          await exportPageHtml(pageType, dbPage);
+          downloaded++;
+          // Stagger downloads so the browser doesn't swallow them
+          await new Promise((r) => setTimeout(r, 600));
+        } catch {
+          // Continue even if one page fails
+        }
+      }
+      toast.success(`${downloaded} of ${pageTypes.length} pages downloaded`);
+    } finally {
+      setIsDownloadingAll(false);
     }
   };
 
@@ -702,6 +741,19 @@ export default function WebsiteBuilderPage() {
                           Copy Preview URL
                         </Button>
                       )}
+                      {selectedProject.site_content?.pages && (
+                        <Button
+                          size="sm"
+                          className="gap-1.5 text-xs h-8 bg-emerald-600 hover:bg-emerald-700 text-white"
+                          disabled={isDownloadingAll}
+                          onClick={handleDownloadAll}
+                        >
+                          {isDownloadingAll
+                            ? <Loader2 size={11} className="animate-spin" />
+                            : <Download size={11} />}
+                          {isDownloadingAll ? "Downloading..." : "Download HTML"}
+                        </Button>
+                      )}
                       <Button
                         size="sm"
                         variant="outline"
@@ -800,72 +852,91 @@ export default function WebsiteBuilderPage() {
                   </CardContent>
                 </Card>
 
-                {/* Pages */}
-                {projectPages.length > 0 && (
+                {/* Pages — shown as soon as site_content exists (no WP required) */}
+                {selectedProject.site_content?.pages && Object.keys(selectedProject.site_content.pages).length > 0 && (
                   <Card className="border-border/50">
                     <CardHeader className="pb-2 pt-4 px-5">
-                      <CardTitle className="text-sm font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-2">
-                        <Code2 size={13} />
-                        Published Pages
-                      </CardTitle>
-                    </CardHeader>
-                    <CardContent className="px-5 pb-4 space-y-2">
-                      {projectPages.map((page: any) => (
-                        <div
-                          key={page.id}
-                          className="flex items-center gap-3 py-2 border-b border-border/30 last:border-0"
+                      <div className="flex items-center justify-between gap-3">
+                        <CardTitle className="text-sm font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-2">
+                          <Code2 size={13} />
+                          Generated Pages
+                        </CardTitle>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="gap-1.5 text-xs h-7 shrink-0"
+                          disabled={isDownloadingAll}
+                          onClick={handleDownloadAll}
                         >
-                          <span className="text-base">{PAGE_TYPE_ICON[page.page_type] ?? "📄"}</span>
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm font-medium capitalize">{page.page_type || page.page_name}</p>
-                            {page.wp_url && (
-                              <a
-                                href={page.wp_url}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="text-[11px] font-mono text-primary/70 hover:text-primary truncate block max-w-xs"
-                              >
-                                {page.wp_url}
-                              </a>
-                            )}
-                          </div>
-                          <div className="flex items-center gap-1.5 shrink-0">
-                            {page.wp_url && (
-                              <>
+                          {isDownloadingAll
+                            ? <Loader2 size={11} className="animate-spin" />
+                            : <Download size={11} />}
+                          Download All HTML
+                        </Button>
+                      </div>
+                    </CardHeader>
+                    <CardContent className="px-5 pb-4 space-y-1">
+                      {Object.keys(selectedProject.site_content.pages).map((pageType) => {
+                        const dbPage = projectPages.find((p: any) => p.page_type === pageType);
+                        const isExporting = exportingPageId === pageType;
+                        return (
+                          <div
+                            key={pageType}
+                            className="flex items-center gap-3 py-2 border-b border-border/30 last:border-0"
+                          >
+                            <span className="text-base">{PAGE_TYPE_ICON[pageType] ?? "📄"}</span>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-medium capitalize">{pageType}</p>
+                              {dbPage?.wp_url && (
                                 <a
-                                  href={page.wp_url}
+                                  href={dbPage.wp_url}
                                   target="_blank"
                                   rel="noopener noreferrer"
-                                  className="p-1.5 rounded border border-border/50 text-muted-foreground hover:text-primary hover:border-primary/30 transition-colors"
-                                  title="Open in WordPress"
+                                  className="text-[11px] font-mono text-primary/70 hover:text-primary truncate block max-w-xs"
                                 >
-                                  <ExternalLink size={12} />
+                                  {dbPage.wp_url}
                                 </a>
-                                <button
-                                  onClick={() => copyToClipboard(page.wp_url, "URL copied")}
-                                  className="p-1.5 rounded border border-border/50 text-muted-foreground hover:text-primary hover:border-primary/30 transition-colors"
-                                  title="Copy URL"
-                                >
-                                  <Copy size={12} />
-                                </button>
-                              </>
-                            )}
-                            <button
-                              onClick={() => handleExportPage(page)}
-                              disabled={exportingPageId === page.id}
-                              className="p-1.5 rounded border border-border/50 text-muted-foreground hover:text-emerald-400 hover:border-emerald-400/30 transition-colors disabled:opacity-40"
-                              title="Export HTML"
-                            >
-                              {exportingPageId === page.id ? (
-                                <Loader2 size={12} className="animate-spin" />
-                              ) : (
-                                <Download size={12} />
                               )}
-                            </button>
-                            <CheckCircle2 size={14} className="text-emerald-400" />
+                            </div>
+                            <div className="flex items-center gap-1.5 shrink-0">
+                              {dbPage?.wp_url && (
+                                <>
+                                  <a
+                                    href={dbPage.wp_url}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="p-1.5 rounded border border-border/50 text-muted-foreground hover:text-primary hover:border-primary/30 transition-colors"
+                                    title="Open in WordPress"
+                                  >
+                                    <ExternalLink size={12} />
+                                  </a>
+                                  <button
+                                    onClick={() => copyToClipboard(dbPage.wp_url, "URL copied")}
+                                    className="p-1.5 rounded border border-border/50 text-muted-foreground hover:text-primary hover:border-primary/30 transition-colors"
+                                    title="Copy URL"
+                                  >
+                                    <Copy size={12} />
+                                  </button>
+                                </>
+                              )}
+                              <button
+                                onClick={() => handleExportFromContent(pageType, dbPage)}
+                                disabled={isExporting || isDownloadingAll}
+                                className="flex items-center gap-1 px-2.5 py-1 rounded border border-border/50 text-xs font-mono text-muted-foreground hover:text-emerald-400 hover:border-emerald-400/30 transition-colors disabled:opacity-40"
+                                title="Download HTML file"
+                              >
+                                {isExporting
+                                  ? <Loader2 size={11} className="animate-spin" />
+                                  : <Download size={11} />}
+                                .html
+                              </button>
+                              {dbPage?.status === "published" && (
+                                <CheckCircle2 size={14} className="text-emerald-400" title="Published to WordPress" />
+                              )}
+                            </div>
                           </div>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </CardContent>
                   </Card>
                 )}
