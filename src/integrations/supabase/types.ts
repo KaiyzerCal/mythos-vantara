@@ -3898,6 +3898,7 @@ export type Database = {
           business_name: string | null
           business_type: string | null
           client_id: string | null
+          client_name: string | null
           color_scheme: string | null
           created_at: string | null
           delivered_at: string | null
@@ -3905,6 +3906,7 @@ export type Database = {
           hero_image_url: string | null
           id: string
           location: string | null
+          pages: string[] | null
           pages_count: number | null
           pages_requested: string[] | null
           paid: boolean | null
@@ -3919,12 +3921,15 @@ export type Database = {
           unique_value: string | null
           updated_at: string | null
           user_id: string
+          wp_app_password: string | null
           wp_site_url: string | null
+          wp_username: string | null
         }
         Insert: {
           business_name?: string | null
           business_type?: string | null
           client_id?: string | null
+          client_name?: string | null
           color_scheme?: string | null
           created_at?: string | null
           delivered_at?: string | null
@@ -3932,6 +3937,7 @@ export type Database = {
           hero_image_url?: string | null
           id?: string
           location?: string | null
+          pages?: string[] | null
           pages_count?: number | null
           pages_requested?: string[] | null
           paid?: boolean | null
@@ -3946,12 +3952,15 @@ export type Database = {
           unique_value?: string | null
           updated_at?: string | null
           user_id: string
+          wp_app_password?: string | null
           wp_site_url?: string | null
+          wp_username?: string | null
         }
         Update: {
           business_name?: string | null
           business_type?: string | null
           client_id?: string | null
+          client_name?: string | null
           color_scheme?: string | null
           created_at?: string | null
           delivered_at?: string | null
@@ -3959,6 +3968,7 @@ export type Database = {
           hero_image_url?: string | null
           id?: string
           location?: string | null
+          pages?: string[] | null
           pages_count?: number | null
           pages_requested?: string[] | null
           paid?: boolean | null
@@ -3973,7 +3983,9 @@ export type Database = {
           unique_value?: string | null
           updated_at?: string | null
           user_id?: string
+          wp_app_password?: string | null
           wp_site_url?: string | null
+          wp_username?: string | null
         }
         Relationships: [
           {
