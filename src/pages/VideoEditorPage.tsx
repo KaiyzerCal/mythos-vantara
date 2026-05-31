@@ -961,22 +961,50 @@ export default function VideoEditorPage() {
     compilationAbortRef.current = false;
     setCompilationResult({ status: "downloading" });
 
-    // Hidden off-screen video — NOT opacity:0/display:none (either prevents GPU
-    // compositing). No crossOrigin needed: video.captureStream() captures decoded
-    // frames from the media pipeline without CORS origin checks.
+    // Download the video via the proxy edge function so the browser gets a
+    // same-origin blob URL. Direct fetch of signed URLs fails (S3 CORS), and
+    // video.captureStream() fails on cross-origin elements (browser enforcement).
+    let blobUrl: string | null = null;
+    const storageMatch = videoSrc.match(/\/storage\/v1\/object\/(?:sign|public)\/([^/]+)\/(.+?)(?:\?|$)/);
+    if (storageMatch) {
+      const [, bucket, rawPath] = storageMatch;
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
+        const resp = await fetch(`${SUPABASE_URL}/functions/v1/mavis-video-render`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${session?.access_token}` },
+          body: JSON.stringify({ action: "proxy_video", bucket, path: decodeURIComponent(rawPath) }),
+        });
+        if (resp.ok) blobUrl = URL.createObjectURL(await resp.blob());
+        else console.warn("proxy_video failed:", resp.status, await resp.text().catch(() => ""));
+      } catch (e) { console.warn("proxy_video error:", e); }
+    }
+
+    if (!blobUrl) {
+      toast.error("Could not download the video for compilation. Make sure the mavis-video-render edge function is deployed.");
+      setCompilationResult(null);
+      return false;
+    }
+    if (compilationAbortRef.current) { URL.revokeObjectURL(blobUrl); setCompilationResult(null); return true; }
+
+    // Blob URL is same-origin — no CORS, captureStream() works without restriction
     const vid = document.createElement("video");
-    vid.src = videoSrc;
+    vid.src = blobUrl;
     vid.muted = true;
     vid.preload = "auto";
     Object.assign(vid.style, { position: "fixed", left: "-9999px", top: "0px", width: "640px", height: "360px" });
     document.body.appendChild(vid);
 
-    const cleanup = () => { try { document.body.removeChild(vid); } catch {} };
+    const cleanup = () => {
+      try { document.body.removeChild(vid); } catch {}
+      URL.revokeObjectURL(blobUrl!);
+    };
 
     const waitUntilReady = () => new Promise<void>((resolve, reject) => {
       if (vid.readyState >= 3) { resolve(); return; }
       const ok  = () => { off(); resolve(); };
-      const err = () => { off(); reject(new Error("Video failed to load — the URL may have expired. Try re-opening the project.")); };
+      const err = () => { off(); reject(new Error("Video failed to load from proxy blob.")); };
       const off = () => { vid.removeEventListener("canplaythrough", ok); vid.removeEventListener("error", err); };
       vid.addEventListener("canplaythrough", ok);
       vid.addEventListener("error", err);

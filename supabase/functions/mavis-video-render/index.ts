@@ -49,7 +49,13 @@ interface CompileAction {
   add_fades?: boolean;
 }
 
-type VideoRenderAction = RenderAction | PollAction | ExtractThumbnailAction | CompileAction;
+interface ProxyVideoAction {
+  action: "proxy_video";
+  bucket: string;
+  path: string;
+}
+
+type VideoRenderAction = RenderAction | PollAction | ExtractThumbnailAction | CompileAction | ProxyVideoAction;
 
 // ── FFmpeg helpers ─────────────────────────────────────────
 
@@ -537,6 +543,45 @@ serve(async (req) => {
       case "compile":
         result = await handleCompile(body as CompileAction, supabase);
         break;
+
+      case "proxy_video": {
+        // Download storage file server-side and return it with CORS headers so the
+        // browser can create a same-origin blob URL (bypasses S3 CORS restrictions).
+        const { bucket, path } = body as ProxyVideoAction;
+        if (!bucket || !path) {
+          return new Response(JSON.stringify({ error: "Missing bucket or path" }), {
+            status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+        // Verify the requesting user owns the file (first path segment = user id)
+        const jwt = authHeader.replace("Bearer ", "");
+        const { data: { user }, error: authErr } = await supabase.auth.getUser(jwt);
+        if (authErr || !user) {
+          return new Response(JSON.stringify({ error: "Unauthorized" }), {
+            status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+        const firstSegment = path.split("/")[0];
+        if (firstSegment !== user.id) {
+          return new Response(JSON.stringify({ error: "Forbidden" }), {
+            status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+        const { data: fileBlob, error: dlErr } = await supabase.storage.from(bucket).download(path);
+        if (dlErr || !fileBlob) {
+          return new Response(JSON.stringify({ error: "File not found", detail: dlErr?.message }), {
+            status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+        const buffer = await fileBlob.arrayBuffer();
+        return new Response(buffer, {
+          headers: {
+            ...corsHeaders,
+            "Content-Type": fileBlob.type || "video/mp4",
+            "Content-Length": String(buffer.byteLength),
+          },
+        });
+      }
 
       default:
         return new Response(
