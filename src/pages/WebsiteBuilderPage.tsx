@@ -450,7 +450,9 @@ export default function WebsiteBuilderPage() {
         }
       }
 
-      // Build Gutenberg HTML
+      // Build standalone HTML
+      const allPageKeys = Object.keys(selectedProject?.site_content?.pages ?? {});
+      const pageListForNav = allPageKeys.length > 0 ? allPageKeys : [addingPageType];
       const genRes = await fetch(`${SUPABASE_URL}/functions/v1/mavis-web-builder`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${session?.access_token}` },
@@ -459,6 +461,8 @@ export default function WebsiteBuilderPage() {
           page_type: addingPageType,
           page_content: pageContent ?? {},
           primary_color: primaryColor,
+          site_title: selectedProject?.business_name ?? selectedProject?.project_name ?? "Website",
+          page_list: pageListForNav,
         }),
       });
 
@@ -517,6 +521,8 @@ export default function WebsiteBuilderPage() {
         page_content: pageContent,
         primary_color: primaryColor,
         hero_image_url: pageType === "home" ? selectedProject?.hero_image_url : undefined,
+        site_title: selectedProject?.business_name ?? selectedProject?.project_name ?? "Website",
+        page_list: Object.keys(selectedProject?.site_content?.pages ?? {}),
       }),
     });
     if (!res.ok) throw new Error(`Failed to generate HTML for ${pageType}`);

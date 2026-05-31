@@ -1137,6 +1137,585 @@ ${paragraphs.map((para: string) => `<!-- wp:paragraph {"style":{"typography":{"f
 }
 
 // ---------------------------------------------------------------------------
+// Standalone HTML builder — professional, self-contained pages for download
+// ---------------------------------------------------------------------------
+
+function _hexToRgb(hex: string): string {
+  const c = hex.replace("#", "");
+  const f = c.length === 3 ? c.split("").map(x => x + x).join("") : c;
+  const n = parseInt(f, 16);
+  return `${(n >> 16) & 255},${(n >> 8) & 255},${n & 255}`;
+}
+
+function _darken(hex: string, pct: number): string {
+  const c = hex.replace("#", "");
+  const f = c.length === 3 ? c.split("").map(x => x + x).join("") : c;
+  const ch = (s: number, e: number) => Math.max(0, Math.round(parseInt(f.slice(s, e), 16) * (1 - pct)));
+  return `#${ch(0,2).toString(16).padStart(2,"0")}${ch(2,4).toString(16).padStart(2,"0")}${ch(4,6).toString(16).padStart(2,"0")}`;
+}
+
+function _css(p: string): string {
+  const rgb = _hexToRgb(p);
+  const dk  = _darken(p, 0.28);
+  return `*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html{font-size:16px;scroll-behavior:smooth;-webkit-font-smoothing:antialiased}
+body{font-family:'Inter',-apple-system,BlinkMacSystemFont,sans-serif;color:#111827;background:#fff;line-height:1.6}
+img{max-width:100%;height:auto;display:block}a{color:inherit;text-decoration:none}button{font-family:inherit;cursor:pointer;border:none;background:none}
+:root{--p:${p};--p-rgb:${rgb};--dk:${dk};--tx:#111827;--mu:#6B7280;--lt:#9CA3AF;--bd:#E5E7EB;--sf:#F9FAFB;--sf2:#F3F4F6;--wh:#fff;
+--sh:0 1px 3px rgba(0,0,0,.1),0 1px 2px rgba(0,0,0,.06);--sh-md:0 4px 6px -1px rgba(0,0,0,.1),0 2px 4px -1px rgba(0,0,0,.06);--sh-lg:0 10px 15px -3px rgba(0,0,0,.1),0 4px 6px -2px rgba(0,0,0,.05);--sh-xl:0 20px 25px -5px rgba(0,0,0,.1),0 10px 10px -5px rgba(0,0,0,.04);--r:12px;--r-sm:8px;--r-lg:16px;--r-full:999px;--t:.2s ease}
+.c{max-width:1200px;margin:0 auto;padding:0 24px}.c-sm{max-width:820px;margin:0 auto;padding:0 24px}
+.s{padding:96px 0}.s-md{padding:72px 0}.s-sm{padding:56px 0}.s-bg{background:var(--sf)}.s-dk{background:#0f172a}
+h1,h2,h3,h4{font-family:'Plus Jakarta Sans','Inter',sans-serif;line-height:1.15;letter-spacing:-.025em;color:var(--tx);font-weight:800}
+h1{font-size:clamp(2.25rem,5vw,4rem);letter-spacing:-.035em}h2{font-size:clamp(1.75rem,3.5vw,2.75rem);font-weight:700}h3{font-size:1.25rem;font-weight:700}h4{font-size:1.0625rem;font-weight:600}
+p{color:var(--mu);line-height:1.75}.lead{font-size:1.125rem;color:var(--mu)}.tc{text-align:center}
+.chip{display:inline-block;font-size:.75rem;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--p);background:rgba(${rgb},.1);padding:4px 14px;border-radius:var(--r-full);margin-bottom:16px}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;padding:14px 28px;border-radius:var(--r-sm);font-weight:600;font-size:.9375rem;cursor:pointer;transition:all var(--t);border:2px solid transparent;text-decoration:none;white-space:nowrap;font-family:inherit}
+.btn-p{background:var(--p);color:#fff;box-shadow:0 4px 14px -2px rgba(${rgb},.35)}
+.btn-p:hover{background:var(--dk);box-shadow:0 6px 20px -2px rgba(${rgb},.45);transform:translateY(-1px)}
+.btn-o{border-color:var(--bd);color:var(--tx);background:var(--wh);box-shadow:0 1px 2px rgba(0,0,0,.05)}
+.btn-o:hover{border-color:var(--p);color:var(--p)}
+.btn-gw{border:2px solid rgba(255,255,255,.35);color:#fff}.btn-gw:hover{background:rgba(255,255,255,.1);border-color:rgba(255,255,255,.6)}
+.btn-w{background:#fff;color:var(--p);font-weight:700}.btn-w:hover{background:#f0f4ff;transform:translateY(-1px);box-shadow:var(--sh-md)}
+.btn-lg{padding:17px 36px;font-size:1.0625rem;border-radius:var(--r)}.btn-full{width:100%;display:flex}
+nav{position:sticky;top:0;z-index:100;background:rgba(255,255,255,.96);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border-bottom:1px solid var(--bd);box-shadow:0 1px 2px rgba(0,0,0,.05)}
+.ni{display:flex;align-items:center;justify-content:space-between;height:72px}
+.logo{font-family:'Plus Jakarta Sans',sans-serif;font-size:1.1875rem;font-weight:800;color:var(--tx);letter-spacing:-.03em}
+.nl{display:flex;align-items:center;gap:28px}.nl a{font-size:.875rem;font-weight:500;color:var(--mu);transition:color var(--t)}.nl a:hover{color:var(--tx)}
+.hero{position:relative;overflow:hidden;background:linear-gradient(135deg,var(--p) 0%,var(--dk) 100%);padding:120px 0 96px}
+.h-ov{position:absolute;inset:0;background:radial-gradient(ellipse at 60% 0%,rgba(255,255,255,.13) 0%,transparent 65%)}
+.h-ov2{position:absolute;inset:0;background:radial-gradient(ellipse at 20% 100%,rgba(0,0,0,.18) 0%,transparent 60%)}
+.h-bg{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;opacity:.18}
+.hi{position:relative;text-align:center;max-width:900px;margin:0 auto}
+.hi h1{color:#fff;margin-bottom:24px}.hi .lead{color:rgba(255,255,255,.85);max-width:640px;margin:0 auto 40px}
+.ha{display:flex;gap:16px;justify-content:center;flex-wrap:wrap}
+.badge{display:inline-flex;align-items:center;gap:6px;background:rgba(255,255,255,.16);backdrop-filter:blur(8px);border:1px solid rgba(255,255,255,.25);border-radius:var(--r-full);padding:6px 16px;font-size:.8125rem;color:rgba(255,255,255,.92);margin-bottom:32px;font-weight:500}
+.sb{background:linear-gradient(90deg,var(--p) 0%,var(--dk) 100%)}
+.sg{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr))}
+.si{text-align:center;padding:36px 24px;position:relative}
+.si:not(:last-child)::after{content:'';position:absolute;right:0;top:25%;bottom:25%;width:1px;background:rgba(255,255,255,.18)}
+.sn{font-family:'Plus Jakarta Sans',sans-serif;font-size:2.25rem;font-weight:800;color:#fff;letter-spacing:-.04em;line-height:1}
+.sl{font-size:.8125rem;color:rgba(255,255,255,.7);margin-top:6px;font-weight:500}
+.fg{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:24px}
+.card{background:#fff;border:1px solid var(--bd);border-radius:var(--r-lg);padding:32px;transition:all var(--t)}
+.card:hover{border-color:rgba(${rgb},.5);box-shadow:0 0 0 3px rgba(${rgb},.07),var(--sh-md);transform:translateY(-2px)}
+.ci{width:52px;height:52px;border-radius:var(--r-sm);background:rgba(${rgb},.1);display:flex;align-items:center;justify-content:center;font-size:1.5rem;margin-bottom:20px}
+.card h3{margin-bottom:10px}.card p{font-size:.9375rem}
+.steps{display:grid;gap:40px;max-width:760px;margin:0 auto}
+.step{display:flex;gap:24px;align-items:flex-start}
+.snum{flex-shrink:0;width:52px;height:52px;border-radius:50%;background:var(--p);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:1.0625rem;font-family:'Plus Jakarta Sans',sans-serif;box-shadow:0 4px 12px -2px rgba(${rgb},.4)}
+.sbody h3{margin-bottom:8px}.sbody p{font-size:.9375rem}
+.tg{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:24px}
+.tc-card{background:#fff;border:1px solid var(--bd);border-radius:var(--r-lg);padding:32px;display:flex;flex-direction:column}
+.ts{color:#FBBF24;font-size:1rem;letter-spacing:3px;margin-bottom:16px}
+.tq{font-style:italic;color:var(--tx);line-height:1.75;flex:1;margin-bottom:24px;font-size:.9375rem}
+.ta{display:flex;align-items:center;gap:12px;padding-top:20px;border-top:1px solid var(--bd)}
+.tav{width:44px;height:44px;border-radius:50%;background:rgba(${rgb},.12);display:flex;align-items:center;justify-content:center;font-weight:700;color:var(--p);font-size:.875rem;flex-shrink:0}
+.tn{font-weight:600;font-size:.9375rem;color:var(--tx)}.tr{font-size:.8125rem;color:var(--mu)}
+.faq-list{max-width:760px;margin:0 auto}
+.faq-item{border-bottom:1px solid var(--bd)}
+.faq-q{width:100%;text-align:left;padding:20px 0;display:flex;justify-content:space-between;align-items:center;gap:16px;font-weight:600;font-size:1rem;color:var(--tx);cursor:pointer;background:none;border:none;font-family:inherit}
+.faq-icon{flex-shrink:0;color:var(--mu);transition:transform var(--t);line-height:1}
+.faq-a{padding:0 0 20px;display:none;color:var(--mu);font-size:.9375rem;line-height:1.75}
+.faq-item.open .faq-a{display:block}.faq-item.open .faq-icon{transform:rotate(45deg);color:var(--p)}
+.cta-s{position:relative;overflow:hidden;background:linear-gradient(135deg,var(--p) 0%,var(--dk) 100%);padding:96px 0;text-align:center}
+.cta-s::before{content:'';position:absolute;inset:0;background:radial-gradient(ellipse at 50% 120%,rgba(255,255,255,.07) 0%,transparent 65%)}
+.cta-in{position:relative}.cta-s h2{color:#fff;margin-bottom:16px}.cta-s .lead{color:rgba(255,255,255,.8);max-width:540px;margin:0 auto 40px}
+.cta-btns{display:flex;gap:16px;justify-content:center;flex-wrap:wrap}
+.pg{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:24px;align-items:start}
+.pc{background:#fff;border:2px solid var(--bd);border-radius:var(--r-lg);padding:40px 32px;position:relative;transition:all var(--t)}
+.pc.feat{border-color:var(--p);box-shadow:0 0 0 4px rgba(${rgb},.08),var(--sh-xl)}
+.pbadge{position:absolute;top:-14px;left:50%;transform:translateX(-50%);background:var(--p);color:#fff;padding:4px 18px;border-radius:var(--r-full);font-size:.6875rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;white-space:nowrap}
+.pname{font-size:.75rem;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--mu);margin-bottom:8px}
+.pprice{font-family:'Plus Jakarta Sans',sans-serif;font-size:3rem;font-weight:800;color:var(--tx);letter-spacing:-.04em;line-height:1.1}
+.pper{font-size:.875rem;color:var(--mu);font-weight:400}
+.pdesc{color:var(--mu);margin:16px 0 24px;font-size:.9375rem}
+.pdiv{border:none;border-top:1px solid var(--bd);margin:24px 0}
+.pfeats{list-style:none;display:grid;gap:12px;margin-bottom:32px}
+.pfeats li{display:flex;align-items:flex-start;gap:10px;font-size:.9375rem;color:var(--tx)}
+.pfeats li::before{content:'✓';color:var(--p);font-weight:700;flex-shrink:0;margin-top:1px}
+.cg{display:grid;grid-template-columns:1.2fr 1fr;gap:64px;align-items:start}
+.fg-grp{margin-bottom:20px}
+.fg-grp label{display:block;font-size:.875rem;font-weight:500;color:var(--tx);margin-bottom:6px}
+.fctrl{width:100%;padding:12px 16px;border:1.5px solid var(--bd);border-radius:var(--r-sm);font-size:.9375rem;font-family:inherit;color:var(--tx);background:#fff;transition:border-color var(--t),box-shadow var(--t);outline:none;line-height:1.5}
+.fctrl:focus{border-color:var(--p);box-shadow:0 0 0 3px rgba(${rgb},.12)}
+textarea.fctrl{min-height:140px;resize:vertical}
+.cd h3{margin-bottom:8px}.cd>.lead{margin-bottom:36px}
+.cdet{display:flex;align-items:flex-start;gap:16px;margin-bottom:24px}
+.cico{width:48px;height:48px;border-radius:var(--r-sm);background:rgba(${rgb},.1);display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:1.25rem}
+.clbl{font-size:.8125rem;color:var(--mu);margin-bottom:2px;font-weight:500}.cval{font-weight:600;color:var(--tx)}
+.team-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:32px}
+.team-card{text-align:center}
+.team-av{width:100px;height:100px;border-radius:50%;margin:0 auto 16px;background:rgba(${rgb},.12);display:flex;align-items:center;justify-content:center;font-size:2.25rem;font-weight:700;color:var(--p)}
+.team-name{font-weight:700;margin-bottom:4px;color:var(--tx)}.team-role{font-size:.875rem;color:var(--mu)}
+.vg{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:24px}
+.vc{text-align:center;padding:36px 24px;border:1px solid var(--bd);border-radius:var(--r-lg);background:#fff}
+.vic{font-size:2.5rem;margin-bottom:16px}.vc h3{margin-bottom:8px}
+.port-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:24px}
+.port-card{background:#fff;border:1px solid var(--bd);border-radius:var(--r-lg);overflow:hidden;transition:all var(--t)}
+.port-card:hover{transform:translateY(-3px);box-shadow:var(--sh-lg)}
+.port-img{height:220px;background:linear-gradient(135deg,rgba(${rgb},.12) 0%,rgba(${rgb},.25) 100%);display:flex;align-items:center;justify-content:center;font-size:3rem}
+.port-body{padding:24px}
+.port-body h3{margin-bottom:8px}.port-body p{font-size:.875rem}
+.port-tags{display:flex;flex-wrap:wrap;gap:8px;margin-top:16px}
+.port-tag{font-size:.75rem;font-weight:600;padding:4px 10px;border-radius:var(--r-full);background:rgba(${rgb},.08);color:var(--p)}
+footer{background:#0f172a;padding:64px 0 32px}
+.footer-grid{display:grid;grid-template-columns:2fr 1fr 1fr;gap:48px;margin-bottom:48px}
+.footer-logo{font-family:'Plus Jakarta Sans',sans-serif;font-size:1.125rem;font-weight:800;color:#fff;margin-bottom:12px}
+.footer-brand p{font-size:.875rem;color:rgba(255,255,255,.45);max-width:280px;line-height:1.7}
+.footer-col h4{color:rgba(255,255,255,.85);font-size:.8125rem;font-weight:700;margin-bottom:16px;letter-spacing:.07em;text-transform:uppercase}
+.footer-links{list-style:none;display:grid;gap:10px}
+.footer-links a{font-size:.875rem;color:rgba(255,255,255,.45);transition:color var(--t)}.footer-links a:hover{color:#fff}
+.footer-btm{border-top:1px solid rgba(255,255,255,.08);padding-top:28px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:16px}
+.footer-btm p{font-size:.8125rem;color:rgba(255,255,255,.3)}
+@media(max-width:1024px){.cg{grid-template-columns:1fr;gap:48px}.footer-grid{grid-template-columns:1fr 1fr;gap:36px}}
+@media(max-width:768px){.nl{display:none}.hero{padding:80px 0 64px}.s{padding:64px 0}.s-md{padding:52px 0}.fg{grid-template-columns:1fr}.tg{grid-template-columns:1fr}.sg{grid-template-columns:repeat(2,1fr)}.footer-grid{grid-template-columns:1fr;gap:32px}.pg{grid-template-columns:1fr}}
+@media(max-width:480px){.sg{grid-template-columns:1fr}.ha{flex-direction:column;align-items:center}.cta-btns{flex-direction:column;align-items:center}h1{font-size:clamp(1.75rem,8vw,2.5rem)}}`;
+}
+
+function _nav(title: string, pages: string[]): string {
+  const links = pages.map(p =>
+    `<a href="${p === "home" ? "index" : p}.html">${p.charAt(0).toUpperCase() + p.slice(1)}</a>`
+  ).join("");
+  return `<nav><div class="c"><div class="ni">
+<a href="index.html" class="logo">${title}</a>
+<div class="nl">${links}</div>
+<a href="contact.html" class="btn btn-p nav-cta" style="padding:10px 22px;font-size:.875rem">Get Started</a>
+</div></div></nav>`;
+}
+
+function _footer(title: string, pages: string[]): string {
+  const yr = new Date().getFullYear();
+  const links = pages.map(p =>
+    `<li><a href="${p === "home" ? "index" : p}.html">${p.charAt(0).toUpperCase() + p.slice(1)}</a></li>`
+  ).join("");
+  return `<footer><div class="c">
+<div class="footer-grid">
+<div class="footer-brand"><div class="footer-logo">${title}</div><p>Professional web presence for modern businesses.</p></div>
+<div class="footer-col"><h4>Pages</h4><ul class="footer-links">${links}</ul></div>
+<div class="footer-col"><h4>Contact</h4><ul class="footer-links"><li><a href="contact.html">Get in Touch</a></li></ul></div>
+</div>
+<div class="footer-btm"><p>© ${yr} ${title}. All rights reserved.</p><p>Built with MAVIS AI</p></div>
+</div></footer>`;
+}
+
+// ── Page body builders ───────────────────────────────────────────────────────
+
+function _homeBody(c: any, heroUrl: string | undefined, p: string): string {
+  const hero = c.hero ?? {};
+  const feats = (c.features ?? []) as any[];
+  const hiw = c.how_it_works ?? {};
+  const tests = (c.testimonials ?? []) as any[];
+  const stats = (c.stats ?? []) as any[];
+  const cta = c.cta_section ?? {};
+  const faq = (c.faq ?? []) as any[];
+  const sp = c.social_proof_bar ?? {};
+
+  return `
+<section class="hero">
+${heroUrl ? `<img class="h-bg" src="${heroUrl}" alt="">` : ""}
+<div class="h-ov"></div><div class="h-ov2"></div>
+<div class="c"><div class="hi">
+${sp.text ? `<div class="badge">✓ ${sp.text}</div>` : ""}
+<h1>${hero.headline ?? "Transform Your Business Today"}</h1>
+<p class="lead">${hero.subheadline ?? ""}</p>
+<div class="ha">
+<a href="${hero.cta_primary_url ?? "#contact"}" class="btn btn-w btn-lg">${hero.cta_primary ?? "Get Started Free"}</a>
+${hero.cta_secondary ? `<a href="${hero.cta_secondary_url ?? "#"}" class="btn btn-gw btn-lg">${hero.cta_secondary}</a>` : ""}
+</div>
+</div></div>
+</section>
+
+${stats.length > 0 ? `<div class="sb"><div class="c"><div class="sg">
+${stats.map((s: any) => `<div class="si"><div class="sn">${s.number}</div><div class="sl">${s.label}</div></div>`).join("")}
+</div></div></div>` : ""}
+
+${feats.length > 0 ? `<section class="s">
+<div class="c">
+<div class="tc" style="margin-bottom:56px">
+<span class="chip">Why Choose Us</span>
+<h2 style="margin-bottom:16px">${c.features_section_title ?? "Everything You Need"}</h2>
+<p class="lead" style="max-width:560px;margin:0 auto">All the tools and support to grow your business.</p>
+</div>
+<div class="fg">
+${feats.map((f: any) => `<div class="card"><div class="ci">${f.icon_emoji ?? "⚡"}</div><h3>${f.title}</h3><p>${f.description}</p></div>`).join("")}
+</div>
+</div>
+</section>` : ""}
+
+${hiw.steps?.length ? `<section class="s s-bg">
+<div class="c">
+<div class="tc" style="margin-bottom:56px">
+<span class="chip">Process</span>
+<h2>${hiw.title ?? "How It Works"}</h2>
+</div>
+<div class="steps">
+${(hiw.steps as any[]).map((s: any, i: number) => `<div class="step">
+<div class="snum">${s.number ?? String(i + 1).padStart(2, "0")}</div>
+<div class="sbody"><h3>${s.title}</h3><p>${s.description}</p></div>
+</div>`).join("")}
+</div>
+</div>
+</section>` : ""}
+
+${tests.length > 0 ? `<section class="s">
+<div class="c">
+<div class="tc" style="margin-bottom:56px">
+<span class="chip">Client Stories</span>
+<h2>What Our Clients Say</h2>
+</div>
+<div class="tg">
+${tests.slice(0, 3).map((t: any) => `<div class="tc-card">
+<div class="ts">${"★".repeat(t.rating ?? 5)}</div>
+<p class="tq">"${t.quote}"</p>
+<div class="ta"><div class="tav">${(t.author ?? "A").charAt(0)}</div>
+<div><div class="tn">${t.author}</div><div class="tr">${t.role}${t.company ? ", " + t.company : ""}</div></div>
+</div></div>`).join("")}
+</div>
+</div>
+</section>` : ""}
+
+${faq.length > 0 ? `<section class="s s-bg">
+<div class="c">
+<div class="tc" style="margin-bottom:48px">
+<span class="chip">FAQ</span>
+<h2>Frequently Asked Questions</h2>
+</div>
+<div class="faq-list">
+${faq.map((q: any, i: number) => `<div class="faq-item" id="faq-${i}">
+<button class="faq-q" onclick="toggleFaq(${i})"><span>${q.question}</span><span class="faq-icon">+</span></button>
+<div class="faq-a"><p>${q.answer}</p></div>
+</div>`).join("")}
+</div>
+</div>
+</section>` : ""}
+
+<section class="cta-s">
+<div class="c"><div class="cta-in">
+<h2>${cta.headline ?? "Ready to Get Started?"}</h2>
+<p class="lead">${cta.subheadline ?? "Join thousands of satisfied customers today."}</p>
+<div class="cta-btns">
+<a href="${cta.cta_url ?? "#contact"}" class="btn btn-w btn-lg">${cta.cta_text ?? "Get Started Today"}</a>
+${cta.secondary_cta ? `<a href="#contact" class="btn btn-gw btn-lg">${cta.secondary_cta}</a>` : ""}
+</div>
+</div></div>
+</section>`;
+}
+
+function _aboutBody(c: any, p: string): string {
+  const story = c.story ?? c.mission ?? {};
+  const values = (c.values ?? c.core_values ?? []) as any[];
+  const team = (c.team ?? c.team_members ?? []) as any[];
+  const hero = c.hero ?? {};
+  return `
+<section class="hero" style="padding:96px 0 80px">
+<div class="h-ov"></div>
+<div class="c"><div class="hi">
+<h1>${hero.headline ?? c.title ?? "About Us"}</h1>
+<p class="lead">${hero.subheadline ?? c.tagline ?? ""}</p>
+</div></div>
+</section>
+
+${story.content ?? story.text ?? c.intro ? `<section class="s">
+<div class="c-sm">
+${c.mission ? `<div style="text-align:center;margin-bottom:48px"><span class="chip">Our Mission</span><h2 style="margin-bottom:16px">${c.mission_title ?? "What Drives Us"}</h2></div>` : ""}
+<p class="lead" style="text-align:center;max-width:720px;margin:0 auto">${story.content ?? story.text ?? c.intro ?? ""}</p>
+</div>
+</section>` : ""}
+
+${values.length > 0 ? `<section class="s s-bg">
+<div class="c">
+<div class="tc" style="margin-bottom:48px"><span class="chip">Our Values</span><h2>What We Stand For</h2></div>
+<div class="vg">
+${values.map((v: any) => `<div class="vc"><div class="vic">${v.icon_emoji ?? "⭐"}</div><h3>${v.title ?? v.name}</h3><p>${v.description ?? ""}</p></div>`).join("")}
+</div>
+</div>
+</section>` : ""}
+
+${team.length > 0 ? `<section class="s">
+<div class="c">
+<div class="tc" style="margin-bottom:48px"><span class="chip">Our Team</span><h2>Meet the Team</h2></div>
+<div class="team-grid">
+${team.map((m: any) => `<div class="team-card">
+<div class="team-av">${(m.name ?? "T").charAt(0)}</div>
+<div class="team-name">${m.name}</div>
+<div class="team-role">${m.role ?? m.title ?? ""}</div>
+${m.bio ? `<p style="margin-top:12px;font-size:.875rem">${m.bio}</p>` : ""}
+</div>`).join("")}
+</div>
+</div>
+</section>` : ""}
+
+<section class="cta-s">
+<div class="c"><div class="cta-in">
+<h2>${c.cta_headline ?? "Ready to Work With Us?"}</h2>
+<p class="lead">${c.cta_subheadline ?? "Let's build something great together."}</p>
+<div class="cta-btns"><a href="contact.html" class="btn btn-w btn-lg">Get in Touch</a></div>
+</div></div>
+</section>`;
+}
+
+function _servicesBody(c: any, p: string): string {
+  const services = (c.services ?? c.service_list ?? c.items ?? []) as any[];
+  const hero = c.hero ?? {};
+  const process = (c.process ?? c.how_we_work ?? {}) as any;
+  return `
+<section class="hero" style="padding:96px 0 80px">
+<div class="h-ov"></div>
+<div class="c"><div class="hi">
+<h1>${hero.headline ?? c.title ?? "Our Services"}</h1>
+<p class="lead">${hero.subheadline ?? c.intro ?? "Professional solutions tailored to your needs."}</p>
+</div></div>
+</section>
+
+${services.length > 0 ? `<section class="s">
+<div class="c">
+<div class="tc" style="margin-bottom:56px">
+<span class="chip">What We Offer</span>
+<h2>${c.services_title ?? "Our Services"}</h2>
+<p class="lead" style="max-width:560px;margin:16px auto 0">${c.services_subtitle ?? "Everything you need to succeed."}</p>
+</div>
+<div class="fg">
+${services.map((s: any) => `<div class="card">
+<div class="ci">${s.icon_emoji ?? "⚡"}</div>
+<h3>${s.title ?? s.name}</h3>
+<p>${s.description ?? ""}</p>
+${s.price ? `<p style="margin-top:16px;font-weight:700;color:var(--p);font-size:.9375rem">${s.price}</p>` : ""}
+</div>`).join("")}
+</div>
+</div>
+</section>` : ""}
+
+${process.steps?.length ? `<section class="s s-bg">
+<div class="c">
+<div class="tc" style="margin-bottom:48px"><span class="chip">How We Work</span><h2>${process.title ?? "Our Process"}</h2></div>
+<div class="steps">
+${(process.steps as any[]).map((s: any, i: number) => `<div class="step">
+<div class="snum">${s.number ?? String(i + 1).padStart(2, "0")}</div>
+<div class="sbody"><h3>${s.title}</h3><p>${s.description}</p></div>
+</div>`).join("")}
+</div>
+</div>
+</section>` : ""}
+
+<section class="cta-s">
+<div class="c"><div class="cta-in">
+<h2>${c.cta_headline ?? "Ready to Get Started?"}</h2>
+<p class="lead">${c.cta_subheadline ?? "Let's discuss your project today."}</p>
+<div class="cta-btns"><a href="contact.html" class="btn btn-w btn-lg">Contact Us</a></div>
+</div></div>
+</section>`;
+}
+
+function _pricingBody(c: any, p: string): string {
+  const tiers = (c.tiers ?? c.plans ?? c.pricing_tiers ?? []) as any[];
+  const faq = (c.faq ?? []) as any[];
+  const hero = c.hero ?? {};
+  return `
+<section class="hero" style="padding:80px 0 64px">
+<div class="h-ov"></div>
+<div class="c"><div class="hi">
+<h1>${hero.headline ?? c.title ?? "Simple, Transparent Pricing"}</h1>
+<p class="lead">${hero.subheadline ?? c.intro ?? "No hidden fees. No surprises."}</p>
+</div></div>
+</section>
+
+<section class="s">
+<div class="c">
+${tiers.length > 0 ? `<div class="pg">
+${tiers.map((t: any, i: number) => `<div class="pc${t.highlighted || t.featured || i === 1 ? " feat" : ""}">
+${t.highlighted || t.featured || i === 1 ? `<div class="pbadge">${t.badge ?? "Most Popular"}</div>` : ""}
+<div class="pname">${t.name}</div>
+<div class="pprice">${t.price ?? "$0"}<span class="pper">${t.period ? " / " + t.period : ""}</span></div>
+<p class="pdesc">${t.description ?? ""}</p>
+<hr class="pdiv">
+<ul class="pfeats">
+${(t.features ?? t.includes ?? []).map((f: string) => `<li>${f}</li>`).join("")}
+</ul>
+<a href="contact.html" class="btn ${t.highlighted || t.featured || i === 1 ? "btn-p" : "btn-o"} btn-full">${t.cta ?? "Get Started"}</a>
+</div>`).join("")}
+</div>` : `<div class="tc"><p class="lead">Contact us for pricing tailored to your needs.</p><a href="contact.html" class="btn btn-p btn-lg" style="margin-top:32px">Get a Quote</a></div>`}
+</div>
+</section>
+
+${faq.length > 0 ? `<section class="s s-bg">
+<div class="c">
+<div class="tc" style="margin-bottom:48px"><span class="chip">FAQ</span><h2>Pricing Questions</h2></div>
+<div class="faq-list">
+${faq.map((q: any, i: number) => `<div class="faq-item" id="faq-${i}">
+<button class="faq-q" onclick="toggleFaq(${i})"><span>${q.question}</span><span class="faq-icon">+</span></button>
+<div class="faq-a"><p>${q.answer}</p></div>
+</div>`).join("")}
+</div>
+</div>
+</section>` : ""}
+
+<section class="cta-s">
+<div class="c"><div class="cta-in">
+<h2>Ready to Get Started?</h2>
+<p class="lead">Choose a plan and start building today.</p>
+<div class="cta-btns"><a href="contact.html" class="btn btn-w btn-lg">Contact Sales</a></div>
+</div></div>
+</section>`;
+}
+
+function _contactBody(c: any, p: string): string {
+  const info = c.contact_info ?? c.info ?? {};
+  const hero = c.hero ?? {};
+  return `
+<section class="hero" style="padding:80px 0 64px">
+<div class="h-ov"></div>
+<div class="c"><div class="hi">
+<h1>${hero.headline ?? c.title ?? "Get In Touch"}</h1>
+<p class="lead">${hero.subheadline ?? c.intro ?? "We'd love to hear from you."}</p>
+</div></div>
+</section>
+
+<section class="s">
+<div class="c">
+<div class="cg">
+<div>
+<h3 style="margin-bottom:8px">Send Us a Message</h3>
+<p style="margin-bottom:32px">Fill out the form below and we'll get back to you within 24 hours.</p>
+<form onsubmit="event.preventDefault();this.innerHTML='<p style=\\'color:var(--p);font-weight:600;padding:20px 0\\'>Thank you! We\\'ll be in touch soon.</p>'">
+<div class="fg-grp"><label>Full Name</label><input class="fctrl" type="text" placeholder="John Smith" required></div>
+<div class="fg-grp"><label>Email Address</label><input class="fctrl" type="email" placeholder="john@example.com" required></div>
+<div class="fg-grp"><label>Phone (Optional)</label><input class="fctrl" type="tel" placeholder="+1 (555) 000-0000"></div>
+<div class="fg-grp"><label>Message</label><textarea class="fctrl" placeholder="How can we help you?" required></textarea></div>
+<button type="submit" class="btn btn-p btn-full btn-lg">Send Message</button>
+</form>
+</div>
+<div class="cd">
+<h3>${c.contact_section_title ?? "Contact Information"}</h3>
+<p class="lead">${c.contact_intro ?? "Reach out through any of these channels."}</p>
+${info.phone ?? c.phone ? `<div class="cdet"><div class="cico">📞</div><div><div class="clbl">Phone</div><div class="cval">${info.phone ?? c.phone}</div></div></div>` : ""}
+${info.email ?? c.email ? `<div class="cdet"><div class="cico">✉️</div><div><div class="clbl">Email</div><div class="cval">${info.email ?? c.email}</div></div></div>` : ""}
+${info.address ?? c.address ?? c.location ? `<div class="cdet"><div class="cico">📍</div><div><div class="clbl">Address</div><div class="cval">${info.address ?? c.address ?? c.location}</div></div></div>` : ""}
+${info.hours ?? c.hours ? `<div class="cdet"><div class="cico">🕐</div><div><div class="clbl">Business Hours</div><div class="cval">${info.hours ?? c.hours}</div></div></div>` : ""}
+</div>
+</div>
+</div>
+</section>`;
+}
+
+function _portfolioBody(c: any, p: string): string {
+  const items = (c.projects ?? c.works ?? c.portfolio_items ?? c.items ?? []) as any[];
+  const hero = c.hero ?? {};
+  return `
+<section class="hero" style="padding:96px 0 80px">
+<div class="h-ov"></div>
+<div class="c"><div class="hi">
+<h1>${hero.headline ?? c.title ?? "Our Work"}</h1>
+<p class="lead">${hero.subheadline ?? c.intro ?? "A selection of our finest projects."}</p>
+</div></div>
+</section>
+
+<section class="s">
+<div class="c">
+<div class="port-grid">
+${items.length > 0 ? items.map((item: any) => `<div class="port-card">
+<div class="port-img">${item.icon_emoji ?? "🖼️"}</div>
+<div class="port-body">
+<h3>${item.title ?? item.name}</h3>
+<p>${item.description ?? item.summary ?? ""}</p>
+${(item.tags ?? item.technologies ?? []).length > 0 ? `<div class="port-tags">${(item.tags ?? item.technologies ?? []).map((t: string) => `<span class="port-tag">${t}</span>`).join("")}</div>` : ""}
+</div></div>`).join("") : `
+<div class="card"><div class="ci">🏆</div><h3>Award-Winning Project</h3><p>Delivered exceptional results for our client.</p></div>
+<div class="card"><div class="ci">🚀</div><h3>Innovative Solution</h3><p>Cutting-edge design that drives real business growth.</p></div>
+<div class="card"><div class="ci">💡</div><h3>Creative Campaign</h3><p>Strategy and execution that exceeded expectations.</p></div>`}
+</div>
+</div>
+</section>
+
+<section class="cta-s">
+<div class="c"><div class="cta-in">
+<h2>Let's Create Something Amazing</h2>
+<p class="lead">Ready to start your project? We'd love to help.</p>
+<div class="cta-btns"><a href="contact.html" class="btn btn-w btn-lg">Start Your Project</a></div>
+</div></div>
+</section>`;
+}
+
+function _genericBody(c: any, p: string, pageType: string): string {
+  const title = c.title ?? c.hero_headline ?? pageType.charAt(0).toUpperCase() + pageType.slice(1);
+  const body = c.body ?? c.intro ?? c.content ?? c.description ?? "";
+  const paras = body.split(/\n\n+/).map((s: string) => s.trim()).filter(Boolean);
+  const sections = (c.sections ?? []) as any[];
+  return `
+<section class="hero" style="padding:96px 0 80px">
+<div class="h-ov"></div>
+<div class="c"><div class="hi">
+<h1>${title}</h1>
+${c.subtitle ?? c.tagline ? `<p class="lead">${c.subtitle ?? c.tagline}</p>` : ""}
+</div></div>
+</section>
+
+${paras.length > 0 || sections.length > 0 ? `<section class="s">
+<div class="c-sm">
+${paras.map((par: string) => `<p style="margin-bottom:24px;font-size:1.0625rem;line-height:1.8">${par}</p>`).join("")}
+${sections.map((sec: any) => `<div style="margin-top:48px"><h2 style="margin-bottom:16px">${sec.title ?? ""}</h2><p>${sec.content ?? sec.description ?? ""}</p></div>`).join("")}
+</div>
+</section>` : ""}
+
+<section class="cta-s">
+<div class="c"><div class="cta-in">
+<h2>Ready to Get Started?</h2>
+<p class="lead">Contact us today to learn more.</p>
+<div class="cta-btns"><a href="contact.html" class="btn btn-w btn-lg">Contact Us</a></div>
+</div></div>
+</section>`;
+}
+
+// ── Entry point for standalone HTML generation ───────────────────────────────
+
+function buildStandaloneHtml(
+  pageType: string,
+  content: any,
+  heroImageUrl: string | undefined,
+  primaryColor: string,
+  siteTitle: string,
+  pageList: string[],
+): string {
+  const css = _css(primaryColor);
+  const nav = _nav(siteTitle, pageList.length > 0 ? pageList : ["home"]);
+  const ftr = _footer(siteTitle, pageList.length > 0 ? pageList : ["home"]);
+  const title = pageType === "home"
+    ? siteTitle
+    : `${pageType.charAt(0).toUpperCase() + pageType.slice(1)} | ${siteTitle}`;
+
+  let body = "";
+  switch (pageType) {
+    case "home":      body = _homeBody(content, heroImageUrl, primaryColor); break;
+    case "about":     body = _aboutBody(content, primaryColor); break;
+    case "services":  body = _servicesBody(content, primaryColor); break;
+    case "pricing":   body = _pricingBody(content, primaryColor); break;
+    case "contact":   body = _contactBody(content, primaryColor); break;
+    case "portfolio": body = _portfolioBody(content, primaryColor); break;
+    default:          body = _genericBody(content, primaryColor, pageType); break;
+  }
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>${title}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;0,900;1,400&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>${css}</style>
+</head>
+<body>
+${nav}
+<main>${body}</main>
+${ftr}
+<script>
+function toggleFaq(i){const el=document.getElementById('faq-'+i);el&&el.classList.toggle('open')}
+</script>
+</body>
+</html>`;
+}
+
+// ---------------------------------------------------------------------------
 // Main serve handler
 // ---------------------------------------------------------------------------
 
@@ -1160,12 +1739,14 @@ serve(async (req: Request) => {
 
       // -----------------------------------------------------------------------
       case "generate_page": {
-        const { page_type, page_content, primary_color, hero_image_url } = body;
-        const html = buildGutenbergPage(
+        const { page_type, page_content, primary_color, hero_image_url, site_title, page_list } = body;
+        const html = buildStandaloneHtml(
           page_type,
-          page_content,
+          page_content ?? {},
           hero_image_url,
-          primary_color,
+          primary_color ?? "#1a56db",
+          site_title ?? "Website",
+          page_list ?? [page_type],
         );
         return new Response(
           JSON.stringify({ success: true, html, page_type }),
@@ -1243,13 +1824,22 @@ serve(async (req: Request) => {
           const pageContent = siteContent.pages?.[pageType];
           if (!pageContent && pageType !== "home") continue;
 
-          const gutenbergHtml = buildGutenbergPage(
+          // Build WP Gutenberg HTML for publishing; build standalone HTML for download/storage
+          const wpHtml = buildGutenbergPage(
             pageType,
             pageContent ?? siteContent.pages?.home ?? {},
             pageType === "home" ? heroImageUrl : undefined,
             primaryColor,
           );
-          generatedHtmls[pageType] = gutenbergHtml;
+          const standaloneHtml = buildStandaloneHtml(
+            pageType,
+            pageContent ?? siteContent.pages?.home ?? {},
+            pageType === "home" ? heroImageUrl : undefined,
+            primaryColor,
+            body.business_name ?? siteContent.site?.title ?? "Website",
+            pages as string[],
+          );
+          generatedHtmls[pageType] = standaloneHtml;
 
           // 3a. Generate SEO meta (best-effort)
           let metaTitle = "";
@@ -1266,7 +1856,7 @@ serve(async (req: Request) => {
                 body: JSON.stringify({
                   action: "generate_meta",
                   page_title: `${pageType.charAt(0).toUpperCase() + pageType.slice(1)} - ${body.business_name}`,
-                  page_content: gutenbergHtml.slice(0, 500),
+                  page_content: wpHtml.slice(0, 500),
                   business_name: body.business_name,
                   business_type: body.business_type,
                 }),
@@ -1291,7 +1881,7 @@ serve(async (req: Request) => {
                 title: pageType === "home"
                   ? (body.business_name ?? siteContent.site?.title ?? "Home")
                   : `${pageType.charAt(0).toUpperCase() + pageType.slice(1)} - ${body.business_name}`,
-                content: gutenbergHtml,
+                content: wpHtml,
                 status: "publish",
                 slug: pageType === "home" ? "home" : pageType,
                 meta: {
