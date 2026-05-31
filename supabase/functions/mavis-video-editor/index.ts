@@ -87,11 +87,29 @@ async function transcribeWithWhisper(videoUrl: string): Promise<{
   text: string;
   chunks: Array<{ start: number; end: number; text: string }>;
 }> {
-  // Download video/audio from URL
-  const videoRes = await fetch(videoUrl, { signal: AbortSignal.timeout(60000) });
-  const videoBlob = await videoRes.blob();
+  // Download video/audio from URL.
+  // If the URL is a Supabase Storage public URL and the bucket is private,
+  // the fetch returns an error page rather than the video — generate a
+  // signed URL with the service role key as a fallback.
+  let resolvedUrl = videoUrl;
+  if (videoUrl.includes("/storage/v1/object/public/")) {
+    const bucket = videoUrl.split("/storage/v1/object/public/")[1]?.split("/")[0];
+    const objectPath = videoUrl.split(`/storage/v1/object/public/${bucket}/`)[1]?.split("?")[0];
+    if (bucket && objectPath && SUPABASE_SERVICE_KEY) {
+      const sb = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
+      const { data: signedData } = await sb.storage.from(bucket).createSignedUrl(decodeURIComponent(objectPath), 600);
+      if (signedData?.signedUrl) resolvedUrl = signedData.signedUrl;
+    }
+  }
 
-  // Storage often returns application/octet-stream — Whisper rejects that.
+  const videoRes = await fetch(resolvedUrl, { signal: AbortSignal.timeout(120000) });
+  if (!videoRes.ok) {
+    throw new Error(`Failed to fetch video (${videoRes.status}): ${(await videoRes.text()).slice(0, 200)}`);
+  }
+  const videoBlob = await videoRes.blob();
+  if (videoBlob.size === 0) throw new Error("Video file is empty");
+
+  // Whisper rejects files with generic MIME types (e.g. application/octet-stream).
   // Re-wrap the blob with the correct MIME type inferred from the URL extension.
   const MIME_MAP: Record<string, string> = {
     mp4: "video/mp4", mov: "video/mp4", m4a: "audio/mp4",

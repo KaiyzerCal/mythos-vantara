@@ -292,10 +292,12 @@ export default function VideoEditorPage() {
               setUploadProgress(Math.round((p.loaded / p.total) * 100)),
           });
         if (error) throw error;
-        const {
-          data: { publicUrl },
-        } = supabase.storage.from("video-projects").getPublicUrl(path);
-        sourceUrl = publicUrl;
+        // Use a signed URL so the edge function can access private buckets
+        const { data: signedData, error: signErr } = await supabase.storage
+          .from("video-projects")
+          .createSignedUrl(path, 3600);
+        if (signErr || !signedData?.signedUrl) throw signErr ?? new Error("Could not create signed URL");
+        sourceUrl = signedData.signedUrl;
       }
 
       setAnalysisStep(1);
