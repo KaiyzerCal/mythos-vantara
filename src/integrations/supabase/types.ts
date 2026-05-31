@@ -3906,6 +3906,10 @@ export type Database = {
           hero_image_url: string | null
           id: string
           location: string | null
+          netlify_deploy_id: string | null
+          netlify_deploy_status: string | null
+          netlify_site_id: string | null
+          netlify_site_url: string | null
           pages: string[] | null
           pages_count: number | null
           pages_requested: string[] | null
@@ -3937,6 +3941,10 @@ export type Database = {
           hero_image_url?: string | null
           id?: string
           location?: string | null
+          netlify_deploy_id?: string | null
+          netlify_deploy_status?: string | null
+          netlify_site_id?: string | null
+          netlify_site_url?: string | null
           pages?: string[] | null
           pages_count?: number | null
           pages_requested?: string[] | null
@@ -3968,6 +3976,10 @@ export type Database = {
           hero_image_url?: string | null
           id?: string
           location?: string | null
+          netlify_deploy_id?: string | null
+          netlify_deploy_status?: string | null
+          netlify_site_id?: string | null
+          netlify_site_url?: string | null
           pages?: string[] | null
           pages_count?: number | null
           pages_requested?: string[] | null
