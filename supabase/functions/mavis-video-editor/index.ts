@@ -250,26 +250,95 @@ async function analyzeFromTranscriptOnly(transcript: string): Promise<GeminiAnal
 TRANSCRIPT:
 ${transcript.slice(0, 12000)}
 
-Return ONLY valid JSON with the same schema as before (top_moments array with start/end/title/scores/viral_score/why_viral/suggested_caption/suggested_hashtags/best_format).
-
-Important: estimate timestamps based on speaking pace (~150 words/minute = 2.5 words/second).`;
-
-  const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=${GEMINI_KEY}`,
+Return ONLY valid JSON:
+{
+  "title": "string",
+  "summary": "string",
+  "total_duration_estimate": number,
+  "content_type": "education|entertainment|interview|tutorial|vlog|other",
+  "top_moments": [
     {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [{ role: "user", parts: [{ text: prompt }] }],
-        generationConfig: { responseMimeType: "application/json", temperature: 0.3 },
-      }),
-      signal: AbortSignal.timeout(60000),
+      "start": number,
+      "end": number,
+      "title": "string",
+      "transcript_excerpt": "string",
+      "scores": { "energy": 0-10, "insight": 0-10, "emotion": 0-10, "hook": 0-10, "quotability": 0-10, "visual": 0-10 },
+      "viral_score": 0-10,
+      "why_viral": "string",
+      "suggested_caption": "string",
+      "suggested_hashtags": ["string"]
     }
-  );
+  ]
+}
 
-  const data = await res.json();
-  const text = data.candidates?.[0]?.content?.parts?.[0]?.text ?? "{}";
-  return JSON.parse(text);
+Rules:
+- Return 6-10 top_moments minimum
+- Each moment should be 20-90 seconds long
+- Estimate timestamps from speaking pace (~150 words/min = 2.5 words/sec)
+- Space moments throughout the full video, not just the beginning`;
+
+  try {
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=${GEMINI_KEY}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: [{ role: "user", parts: [{ text: prompt }] }],
+          generationConfig: { responseMimeType: "application/json", temperature: 0.3 },
+        }),
+        signal: AbortSignal.timeout(60000),
+      }
+    );
+
+    if (!res.ok) return buildSyntheticAnalysis(transcript);
+    const data = await res.json();
+    const text = data.candidates?.[0]?.content?.parts?.[0]?.text ?? "{}";
+    const parsed = JSON.parse(text) as GeminiAnalysis;
+    if (!parsed.top_moments?.length) return buildSyntheticAnalysis(transcript);
+    return parsed;
+  } catch {
+    return buildSyntheticAnalysis(transcript);
+  }
+}
+
+// Last-resort: build synthetic top_moments directly from transcript timing
+// Used when Gemini is unavailable or returns empty/invalid results.
+function buildSyntheticAnalysis(transcript: string): GeminiAnalysis {
+  const words = transcript.trim().split(/\s+/);
+  const wordsPerSecond = 2.5;
+  const totalSeconds = Math.ceil(words.length / wordsPerSecond);
+  const clipDuration = 45; // target ~45s clips
+  const moments: GeminiAnalysis["top_moments"] = [];
+
+  for (let start = 0; start + clipDuration <= totalSeconds; start += clipDuration) {
+    const end = Math.min(start + clipDuration, totalSeconds);
+    const wordStart = Math.floor(start * wordsPerSecond);
+    const wordEnd = Math.min(Math.floor(end * wordsPerSecond), words.length);
+    const excerpt = words.slice(wordStart, wordEnd).join(" ").slice(0, 300);
+    const scores = estimateScoresFromText(excerpt);
+    const viral_score = Math.round(
+      scores.hook * 0.25 + scores.energy * 0.20 + scores.emotion * 0.25 +
+      scores.quotability * 0.15 + scores.insight * 0.10 + scores.visual * 0.05
+    );
+    moments.push({
+      start,
+      end,
+      title: excerpt.split(/[.!?]/)[0]?.slice(0, 80) ?? `Segment ${moments.length + 1}`,
+      transcript_excerpt: excerpt,
+      scores: scores as GeminiAnalysis["top_moments"][0]["scores"],
+      viral_score,
+    });
+    if (moments.length >= 10) break;
+  }
+
+  return {
+    title: "Video Analysis",
+    summary: transcript.slice(0, 200),
+    total_duration_estimate: totalSeconds,
+    content_type: "other",
+    top_moments: moments,
+  };
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -364,6 +433,8 @@ function selectClipsForFormat(
   format: string,
   count: number
 ): ClipRecommendation[] {
+  if (moments.length === 0) return [];
+
   const weights: Record<string, Record<string, number>> = {
     shorts: { hook: 0.35, energy: 0.20, emotion: 0.25, quotability: 0.20 },
     reels: { hook: 0.30, emotion: 0.30, energy: 0.20, quotability: 0.20 },
@@ -373,7 +444,6 @@ function selectClipsForFormat(
 
   const w = weights[format] ?? weights.shorts;
 
-  // Duration constraints per format
   const durationRange: Record<string, [number, number]> = {
     shorts: [15, 60],
     reels: [15, 90],
@@ -389,31 +459,106 @@ function selectClipsForFormat(
     long_form: "16:9",
   };
 
-  return moments
-    .filter(m => {
-      const dur = m.end - m.start;
-      return dur >= minDur && dur <= maxDur;
-    })
-    .map(m => {
-      const weighted_score = Object.entries(w).reduce((acc, [key, weight]) =>
-        acc + (m.scores[key as keyof typeof m.scores] ?? 5) * weight, 0
-      );
-      return {
-        start: m.start,
-        end: m.end,
-        title: m.title,
-        viral_score: m.viral_score,
-        why_viral: m.why_viral,
-        suggested_caption: m.suggested_caption,
-        suggested_hashtags: m.suggested_hashtags,
-        transcript_excerpt: m.transcript_excerpt,
-        format,
-        aspect_ratio: aspectRatio[format] ?? "9:16",
-        weighted_score,
-      } as ClipRecommendation;
-    })
+  const scoreAndWrap = (m: GeminiAnalysis["top_moments"][0]): ClipRecommendation => {
+    const weighted_score = Object.entries(w).reduce((acc, [key, weight]) =>
+      acc + (m.scores[key as keyof typeof m.scores] ?? 5) * weight, 0
+    );
+    return {
+      start: m.start,
+      end: m.end,
+      title: m.title,
+      viral_score: m.viral_score,
+      why_viral: m.why_viral,
+      suggested_caption: m.suggested_caption,
+      suggested_hashtags: m.suggested_hashtags,
+      transcript_excerpt: m.transcript_excerpt,
+      format,
+      aspect_ratio: aspectRatio[format] ?? "9:16",
+      weighted_score,
+    };
+  };
+
+  // Tier 1: strict duration match
+  let candidates = moments.filter(m => {
+    const dur = m.end - m.start;
+    return dur >= minDur && dur <= maxDur;
+  });
+
+  // Tier 2: relaxed — only enforce a 5-second minimum, ignore max
+  if (candidates.length < count) {
+    const relaxed = moments.filter(m => (m.end - m.start) >= 5);
+    if (relaxed.length > candidates.length) candidates = relaxed;
+  }
+
+  // Tier 3: all moments — never return empty if there's anything at all
+  if (candidates.length === 0) candidates = [...moments];
+
+  return candidates
+    .map(scoreAndWrap)
     .sort((a, b) => (b.weighted_score ?? 0) - (a.weighted_score ?? 0))
     .slice(0, count);
+}
+
+// Merge adjacent 10-second segments into longer moments suitable for clip selection.
+// Used by handleGenerateClips when only segment windows (not raw Gemini moments) are available.
+function mergeSegmentsIntoMoments(
+  segments: any[],
+  targetMin: number,
+  targetMax: number,
+): GeminiAnalysis["top_moments"] {
+  if (segments.length === 0) return [];
+
+  const sorted = [...segments].sort((a, b) => a.start_seconds - b.start_seconds);
+  const targetDur = Math.min((targetMin + targetMax) / 2, targetMax);
+  const moments: GeminiAnalysis["top_moments"] = [];
+  const used = new Set<number>();
+
+  // Pick seed segments by viral score, expand each into a clip
+  const byScore = [...sorted].sort((a, b) => (b.viral_score ?? 0) - (a.viral_score ?? 0));
+
+  for (const seed of byScore) {
+    const seedIdx = sorted.findIndex(s => s.start_seconds === seed.start_seconds);
+    if (used.has(seedIdx)) continue;
+
+    let startIdx = seedIdx;
+    let endIdx = seedIdx;
+
+    // Expand forward until we hit target duration or run out of segments
+    while (
+      endIdx + 1 < sorted.length &&
+      (sorted[endIdx].end_seconds - sorted[startIdx].start_seconds) < targetDur
+    ) {
+      endIdx++;
+    }
+
+    const clipStart = sorted[startIdx].start_seconds;
+    const clipEnd = Math.min(sorted[endIdx].end_seconds, clipStart + targetMax);
+    const window = sorted.slice(startIdx, endIdx + 1);
+
+    const avg = (key: string) =>
+      window.reduce((s, seg) => s + (seg[`score_${key}`] ?? 5), 0) / window.length;
+
+    moments.push({
+      start: clipStart,
+      end: clipEnd,
+      title: seed.transcript_text?.slice(0, 80) ?? "Highlight",
+      transcript_excerpt: window.map((s: any) => s.transcript_text).join(" ").slice(0, 400),
+      scores: {
+        energy: avg("energy"),
+        insight: avg("insight"),
+        emotion: avg("emotion"),
+        hook: avg("hook"),
+        quotability: avg("quotability"),
+        visual: avg("visual"),
+      },
+      viral_score: seed.viral_score ?? 5,
+    });
+
+    for (let i = startIdx; i <= endIdx; i++) used.add(i);
+    if (moments.length >= 15) break;
+  }
+
+  return moments;
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -466,7 +611,12 @@ async function handleAnalyze(
     // Step 3: Gemini visual + semantic analysis
     console.log(`[mavis-video-editor] Running Gemini analysis for project ${projectId}...`);
     const analysis = await analyzeWithGemini(source_url, transcript);
-    const moments = analysis.top_moments ?? [];
+    // Use Gemini moments if available; fall back to synthetic moments from transcript
+    const moments = (analysis.top_moments?.length ?? 0) > 0
+      ? analysis.top_moments
+      : buildSyntheticAnalysis(transcript).top_moments;
+
+    console.log(`[mavis-video-editor] ${moments.length} moments for clip selection`);
 
     // Step 4: Build scored 10-second segment windows
     const segments = buildScoredSegments(chunks, moments);
@@ -476,6 +626,7 @@ async function handleAnalyze(
     const clips: Record<string, ClipRecommendation[]> = {};
     for (const fmt of formats) {
       clips[fmt] = selectClipsForFormat(moments, fmt, 5);
+      console.log(`[mavis-video-editor] ${fmt}: ${clips[fmt].length} clips`);
     }
 
     // Find top clip across all formats by viral_score
@@ -616,8 +767,25 @@ async function handleGenerateClips(
     .eq("project_id", project_id)
     .order("segment_order", { ascending: true });
 
+  // Merge 10-second segments into longer moments per format target duration,
+  // then combine all format pools into one deduplicated moment list.
+  const durationRanges: Record<string, [number, number]> = {
+    shorts: [15, 60], reels: [15, 90], highlight: [30, 120], long_form: [60, 300],
+  };
+  const allMoments: GeminiAnalysis["top_moments"] = [];
+  const seenKeys = new Set<string>();
+  for (const fmt of formats) {
+    const [mn, mx] = durationRanges[fmt] ?? [15, 90];
+    for (const m of mergeSegmentsIntoMoments(segments ?? [], mn, mx)) {
+      const key = `${m.start}-${m.end}`;
+      if (!seenKeys.has(key)) { seenKeys.add(key); allMoments.push(m); }
+    }
+  }
+
   // Rebuild moment list from segments for selectClipsForFormat
-  const moments: GeminiAnalysis["top_moments"] = (segments ?? []).map((s: any) => ({
+  const moments: GeminiAnalysis["top_moments"] = allMoments.length > 0
+    ? allMoments
+    : (segments ?? []).map((s: any) => ({
     start: s.start_seconds,
     end: s.end_seconds,
     title: s.transcript_text?.slice(0, 80) ?? "Segment",

@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -322,6 +322,48 @@ export default function VideoEditorPage() {
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // ── Load projects from DB on mount ───────────────────────────────────────
+  const loadProjects = useCallback(async () => {
+    if (!user) return;
+    const { data } = await (supabase as any)
+      .from("video_projects")
+      .select("id, title, status, source_url, duration_seconds, thumbnail_url, created_at")
+      .eq("user_id", user.id)
+      .order("created_at", { ascending: false })
+      .limit(50);
+    if (data) setProjects(data.map((p: any) => ({ ...p, duration: p.duration_seconds })));
+  }, [user]);
+
+  // Load on mount
+  useEffect(() => { loadProjects(); }, [loadProjects]);
+
+  // ── Open existing project — fetch full data including clips ──────────────
+  async function openProject(project: any) {
+    setSelectedProject(normalizeProjectTranscript(project));
+    setView("editor");
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const res = await fetch(
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/mavis-video-editor`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${session?.access_token}` },
+          body: JSON.stringify({ action: "get_project", project_id: project.id }),
+        }
+      );
+      if (!res.ok) return;
+      const data = await res.json();
+      setSelectedProject(normalizeProjectTranscript(data.project ?? project));
+      setClips({
+        shorts: data.clips?.shorts ?? [],
+        reels: data.clips?.reels ?? [],
+        highlight: data.clips?.highlight ?? [],
+        long_form: data.clips?.long_form ?? [],
+      });
+      setSegments(data.segments ?? []);
+    } catch (_) {}
+  }
+
   // ── Analyze ───────────────────────────────────────────────────────────────
 
   async function handleAnalyze(source: { file?: File; url?: string }) {
@@ -404,6 +446,7 @@ export default function VideoEditorPage() {
       });
       setSegments(result.segments ?? []);
       setView("editor");
+      loadProjects();
       toast.success("Analysis complete! Your clips are ready.");
     } catch (err: any) {
       toast.error(err.message ?? "Analysis failed");
@@ -951,10 +994,7 @@ export default function VideoEditorPage() {
                       <Button
                         size="sm"
                         className="w-full bg-purple-600 hover:bg-purple-700"
-                          onClick={() => {
-                            setSelectedProject(normalizeProjectTranscript(project));
-                          setView("editor");
-                        }}
+                        onClick={() => openProject(project)}
                       >
                         Open Editor{" "}
                         <ChevronRight className="w-3.5 h-3.5 ml-1" />
