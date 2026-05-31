@@ -16,7 +16,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import {
   Globe, Plus, Sparkles, ExternalLink, CheckCircle2,
   Loader2, Copy, Trash2, Eye, Settings, Users,
-  DollarSign, Code2, Layers, Zap, Download, FileCode,
+  DollarSign, Code2, Layers, Zap, Download, FileCode, Link2, Unlink,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -103,6 +103,15 @@ export default function WebsiteBuilderPage() {
   const [addingPageType, setAddingPageType] = useState("");
   const [isAddingPage, setIsAddingPage] = useState(false);
   const [exportingPageId, setExportingPageId] = useState<string | null>(null);
+
+  // WordPress.com OAuth — new project form
+  const [wpAuthMode, setWpAuthMode] = useState<"app_password" | "wpcom">("app_password");
+  const [wpcomCred, setWpcomCred] = useState<{
+    access_token: string;
+    wpcom_blog_id: number;
+    wpcom_site_domain: string;
+  } | null>(null);
+  const [isConnectingWpcom, setIsConnectingWpcom] = useState(false);
 
   // New website form
   const [form, setForm] = useState({
@@ -211,9 +220,16 @@ export default function WebsiteBuilderPage() {
           ...form,
           user_id: user.id,
           project_id: project.id,
-          wp_site_url: form.wp_site_url || undefined,
-          wp_username: form.wp_username || undefined,
-          wp_app_password: form.wp_app_password || undefined,
+          // Use WP.com OAuth creds if connected, otherwise fall back to app-password fields
+          ...(wpcomCred ? {
+            access_token: wpcomCred.access_token,
+            wpcom_blog_id: wpcomCred.wpcom_blog_id,
+            wp_site_url: wpcomCred.wpcom_site_domain,
+          } : {
+            wp_site_url: form.wp_site_url || undefined,
+            wp_username: form.wp_username || undefined,
+            wp_app_password: form.wp_app_password || undefined,
+          }),
         }),
       });
 
@@ -340,6 +356,61 @@ export default function WebsiteBuilderPage() {
   const copyToClipboard = (text: string, label = "Copied") => {
     navigator.clipboard.writeText(text);
     toast.success(label);
+  };
+
+  // ── WordPress.com OAuth connect ───────────────────────────
+  const connectWordPressCom = async (projectId?: string) => {
+    if (!user || isConnectingWpcom) return;
+    setIsConnectingWpcom(true);
+    try {
+      const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
+      const { data: { session } } = await supabase.auth.getSession();
+
+      const res = await fetch(`${SUPABASE_URL}/functions/v1/mavis-wpcom-oauth`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session?.access_token}` },
+        body: JSON.stringify({ action: "get_auth_url", user_id: user.id, project_id: projectId ?? null }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      const { url } = await res.json();
+
+      // Open OAuth popup
+      const popup = window.open(url, "wpcom_oauth", "width=620,height=720,left=200,top=80");
+
+      // Listen for the postMessage from WpcomCallbackPage
+      const handler = (event: MessageEvent) => {
+        if (event.origin !== window.location.origin) return;
+        if (event.data?.type === "wpcom_oauth_success") {
+          const { access_token, wpcom_blog_id, wpcom_site_domain } = event.data;
+          setWpcomCred({ access_token, wpcom_blog_id, wpcom_site_domain });
+          if (projectId) {
+            // Update the selected project's wp_site_url to reflect the connected domain
+            setSelectedProject((p: any) => p ? { ...p, wp_site_url: wpcom_site_domain } : p);
+          }
+          toast.success(`Connected to ${wpcom_site_domain ?? "WordPress.com"}!`);
+          window.removeEventListener("message", handler);
+          clearInterval(pollClosed);
+        } else if (event.data?.type === "wpcom_oauth_error") {
+          toast.error(`WP.com error: ${event.data.error}`);
+          window.removeEventListener("message", handler);
+          clearInterval(pollClosed);
+        }
+        setIsConnectingWpcom(false);
+      };
+      window.addEventListener("message", handler);
+
+      // Clean up if popup is closed without completing auth
+      const pollClosed = setInterval(() => {
+        if (popup?.closed) {
+          clearInterval(pollClosed);
+          window.removeEventListener("message", handler);
+          setIsConnectingWpcom(false);
+        }
+      }, 800);
+    } catch (err: any) {
+      toast.error(err.message ?? "Failed to start WordPress.com auth");
+      setIsConnectingWpcom(false);
+    }
   };
 
   // ── Add a single new page to an existing project ──────────
@@ -653,6 +724,23 @@ export default function WebsiteBuilderPage() {
                       >
                         <Plus size={11} />
                         Add Page
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="gap-1.5 text-xs h-8"
+                        disabled={isConnectingWpcom}
+                        onClick={() => connectWordPressCom(selectedProject.id)}
+                        title={wpcomCred ? `Connected: ${wpcomCred.wpcom_site_domain}` : "Connect WordPress.com"}
+                      >
+                        {isConnectingWpcom ? (
+                          <Loader2 size={11} className="animate-spin" />
+                        ) : wpcomCred ? (
+                          <CheckCircle2 size={11} className="text-emerald-400" />
+                        ) : (
+                          <Link2 size={11} />
+                        )}
+                        {wpcomCred ? "WP.com Connected" : "Connect WP.com"}
                       </Button>
                     </div>
 
@@ -1011,46 +1099,97 @@ export default function WebsiteBuilderPage() {
             </button>
             {showWpSection && (
               <CardContent className="px-5 pb-5 space-y-3 pt-0">
-                <p className="text-xs text-muted-foreground">Connect a WordPress site to publish pages directly via the REST API.</p>
-                <div className="space-y-1.5">
-                  <label className="text-xs font-mono text-muted-foreground">WP Site URL</label>
-                  <Input
-                    placeholder="https://yourclient.com"
-                    value={form.wp_site_url}
-                    onChange={(e) => setForm((f) => ({ ...f, wp_site_url: e.target.value }))}
-                    className="bg-background/60 border-border/60 text-sm"
-                  />
+                <p className="text-xs text-muted-foreground">Connect a WordPress site to publish pages directly.</p>
+
+                {/* Auth mode toggle */}
+                <div className="flex gap-1 p-1 bg-muted/30 rounded-lg border border-border/50 w-fit">
+                  {(["app_password", "wpcom"] as const).map((mode) => (
+                    <button
+                      key={mode}
+                      onClick={() => setWpAuthMode(mode)}
+                      className={`px-3 py-1.5 text-xs font-mono rounded-md transition-all ${
+                        wpAuthMode === mode
+                          ? "bg-primary/10 text-primary border border-primary/30"
+                          : "text-muted-foreground hover:text-foreground"
+                      }`}
+                    >
+                      {mode === "app_password" ? "App Password" : "WordPress.com"}
+                    </button>
+                  ))}
                 </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="space-y-1.5">
-                    <label className="text-xs font-mono text-muted-foreground">WP Username</label>
-                    <Input
-                      placeholder="admin"
-                      value={form.wp_username}
-                      onChange={(e) => setForm((f) => ({ ...f, wp_username: e.target.value }))}
-                      className="bg-background/60 border-border/60 text-sm"
-                    />
+
+                {wpAuthMode === "app_password" ? (
+                  <>
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-mono text-muted-foreground">WP Site URL</label>
+                      <Input
+                        placeholder="https://yourclient.com"
+                        value={form.wp_site_url}
+                        onChange={(e) => setForm((f) => ({ ...f, wp_site_url: e.target.value }))}
+                        className="bg-background/60 border-border/60 text-sm"
+                      />
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-1.5">
+                        <label className="text-xs font-mono text-muted-foreground">WP Username</label>
+                        <Input
+                          placeholder="admin"
+                          value={form.wp_username}
+                          onChange={(e) => setForm((f) => ({ ...f, wp_username: e.target.value }))}
+                          className="bg-background/60 border-border/60 text-sm"
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <label className="text-xs font-mono text-muted-foreground">App Password</label>
+                        <Input
+                          type="password"
+                          placeholder="xxxx xxxx xxxx xxxx"
+                          value={form.wp_app_password}
+                          onChange={(e) => setForm((f) => ({ ...f, wp_app_password: e.target.value }))}
+                          className="bg-background/60 border-border/60 text-sm"
+                        />
+                      </div>
+                    </div>
+                  </>
+                ) : (
+                  <div className="space-y-2">
+                    {wpcomCred ? (
+                      <div className="flex items-center gap-3 px-3 py-2.5 rounded-lg border border-emerald-500/30 bg-emerald-500/5">
+                        <CheckCircle2 size={14} className="text-emerald-400 shrink-0" />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs font-semibold text-emerald-400">Connected</p>
+                          <p className="text-[11px] font-mono text-muted-foreground truncate">{wpcomCred.wpcom_site_domain}</p>
+                        </div>
+                        <button
+                          onClick={() => setWpcomCred(null)}
+                          className="p-1 rounded text-muted-foreground hover:text-destructive transition-colors"
+                          title="Disconnect"
+                        >
+                          <Unlink size={12} />
+                        </button>
+                      </div>
+                    ) : (
+                      <>
+                        <p className="text-xs text-muted-foreground">
+                          Authorize MAVIS to publish directly to your WordPress.com site via OAuth — no password needed.
+                        </p>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="gap-1.5 text-xs"
+                          disabled={isConnectingWpcom}
+                          onClick={() => connectWordPressCom()}
+                        >
+                          {isConnectingWpcom ? (
+                            <><Loader2 size={12} className="animate-spin" /> Connecting...</>
+                          ) : (
+                            <><Link2 size={12} /> Connect WordPress.com</>
+                          )}
+                        </Button>
+                      </>
+                    )}
                   </div>
-                  <div className="space-y-1.5">
-                    <label className="text-xs font-mono text-muted-foreground">App Password</label>
-                    <Input
-                      type="password"
-                      placeholder="xxxx xxxx xxxx xxxx"
-                      value={form.wp_app_password}
-                      onChange={(e) => setForm((f) => ({ ...f, wp_app_password: e.target.value }))}
-                      className="bg-background/60 border-border/60 text-sm"
-                    />
-                  </div>
-                </div>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="gap-1.5 text-xs"
-                  onClick={() => toast.info("WP connection test coming soon")}
-                >
-                  <Settings size={12} />
-                  Test Connection
-                </Button>
+                )}
               </CardContent>
             )}
           </Card>

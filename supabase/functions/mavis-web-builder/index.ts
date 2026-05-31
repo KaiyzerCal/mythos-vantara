@@ -1191,6 +1191,8 @@ serve(async (req: Request) => {
           wp_site_url,
           wp_username,
           wp_app_password,
+          access_token,    // WP.com OAuth — alternative to username/password
+          wpcom_blog_id,   // WP.com OAuth — blog numeric ID
           pages = ["home", "about", "services", "contact"],
           user_id,
           project_id,
@@ -1279,9 +1281,33 @@ serve(async (req: Request) => {
             // SEO meta is optional
           }
 
-          // 3b. Publish page to WordPress (best-effort)
-          if (wp_site_url && wp_username && wp_app_password) {
+          // 3b. Publish page to WordPress / WordPress.com (best-effort)
+          const hasAppPw  = wp_site_url && wp_username && wp_app_password;
+          const hasOAuth  = access_token && wpcom_blog_id;
+          if (hasAppPw || hasOAuth) {
             try {
+              const wpPayload: Record<string, unknown> = {
+                action: "create_page",
+                title: pageType === "home"
+                  ? (body.business_name ?? siteContent.site?.title ?? "Home")
+                  : `${pageType.charAt(0).toUpperCase() + pageType.slice(1)} - ${body.business_name}`,
+                content: gutenbergHtml,
+                status: "publish",
+                slug: pageType === "home" ? "home" : pageType,
+                meta: {
+                  _yoast_wpseo_title: metaTitle,
+                  _yoast_wpseo_metadesc: metaDesc,
+                },
+              };
+              if (hasOAuth) {
+                wpPayload.access_token  = access_token;
+                wpPayload.wpcom_blog_id = wpcom_blog_id;
+              } else {
+                wpPayload.site_url    = wp_site_url;
+                wpPayload.username    = wp_username;
+                wpPayload.app_password = wp_app_password;
+              }
+
               const wpRes = await fetch(
                 `${SUPABASE_URL}/functions/v1/mavis-wordpress`,
                 {
@@ -1290,30 +1316,15 @@ serve(async (req: Request) => {
                     "Content-Type": "application/json",
                     Authorization: req.headers.get("Authorization") ?? "",
                   },
-                  body: JSON.stringify({
-                    action: "create_page",
-                    site_url: wp_site_url,
-                    username: wp_username,
-                    app_password: wp_app_password,
-                    title: pageType === "home"
-                      ? (body.business_name ?? siteContent.site?.title ?? "Home")
-                      : `${pageType.charAt(0).toUpperCase() + pageType.slice(1)} - ${body.business_name}`,
-                    content: gutenbergHtml,
-                    status: "publish",
-                    slug: pageType === "home" ? "home" : pageType,
-                    meta: {
-                      _yoast_wpseo_title: metaTitle,
-                      _yoast_wpseo_metadesc: metaDesc,
-                    },
-                  }),
+                  body: JSON.stringify(wpPayload),
                 },
               );
               if (wpRes.ok) {
                 const wpData = await wpRes.json();
                 publishedPages.push({
                   type: pageType,
-                  wp_id: wpData.id,
-                  url: wpData.link,
+                  wp_id: wpData.data?.id ?? wpData.id,
+                  url: wpData.data?.link ?? wpData.link,
                   slug: pageType,
                 });
               }
@@ -1323,37 +1334,24 @@ serve(async (req: Request) => {
           }
         }
 
-        // 4. Set the homepage in WordPress
+        // 4. Set homepage + site identity in WordPress (best-effort)
         const homePage = publishedPages.find((p) => p.type === "home");
-        if (homePage && wp_site_url && wp_username && wp_app_password) {
-          // 4a. Set static homepage
+        const wpAuthPayload = access_token && wpcom_blog_id
+          ? { access_token, wpcom_blog_id }
+          : { site_url: wp_site_url, username: wp_username, app_password: wp_app_password };
+
+        if (homePage && (wp_site_url || wpcom_blog_id)) {
+          const wpHeaders = { "Content-Type": "application/json", Authorization: req.headers.get("Authorization") ?? "" };
+
           await fetch(`${SUPABASE_URL}/functions/v1/mavis-wordpress`, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: req.headers.get("Authorization") ?? "",
-            },
-            body: JSON.stringify({
-              action: "set_homepage",
-              site_url: wp_site_url,
-              username: wp_username,
-              app_password: wp_app_password,
-              home_page_id: homePage.wp_id,
-            }),
+            method: "POST", headers: wpHeaders,
+            body: JSON.stringify({ action: "set_homepage", ...wpAuthPayload, home_page_id: homePage.wp_id }),
           }).catch(() => {});
 
-          // 4b. Set site title + tagline
           await fetch(`${SUPABASE_URL}/functions/v1/mavis-wordpress`, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: req.headers.get("Authorization") ?? "",
-            },
+            method: "POST", headers: wpHeaders,
             body: JSON.stringify({
-              action: "set_site_identity",
-              site_url: wp_site_url,
-              username: wp_username,
-              app_password: wp_app_password,
+              action: "set_site_identity", ...wpAuthPayload,
               title: body.business_name ?? siteContent.site?.title ?? "",
               description: siteContent.site?.tagline ?? "",
             }),
