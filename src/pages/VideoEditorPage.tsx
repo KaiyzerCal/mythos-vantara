@@ -921,46 +921,67 @@ export default function VideoEditorPage() {
   }
 
   // ── Build compilation in-browser via canvas + MediaRecorder ─────────────
-  // Uses canvas.captureStream() + ctx.drawImage() instead of video.captureStream().
-  // This is reliable regardless of element visibility because we draw frames
-  // explicitly — the browser never skips GPU compositing for invisible elements.
   async function buildCompilationInBrowser(clips: any[]): Promise<boolean> {
-    if (!previewUrl) return false;
-    if (typeof MediaRecorder === "undefined") return false;
+    if (typeof MediaRecorder === "undefined") {
+      toast.error("Your browser does not support MediaRecorder — try Chrome or Firefox.");
+      return false;
+    }
 
+    // Safari uses mp4; Chrome/Firefox use webm
     const mimeType = [
       "video/webm;codecs=vp9,opus",
       "video/webm;codecs=vp8,opus",
       "video/webm",
+      "video/mp4;codecs=avc1",
+      "video/mp4",
     ].find(t => MediaRecorder.isTypeSupported(t));
-    if (!mimeType) return false;
+    if (!mimeType) {
+      toast.error("No supported video recording format in this browser — try Chrome.");
+      return false;
+    }
 
     compilationAbortRef.current = false;
 
-    // Phase 1: download the source video as a blob URL so ctx.drawImage works
-    // without any cross-origin taint, and the full file is local for seeking.
+    // Phase 1: download the source video as a local blob.
+    // Use Supabase storage client first (authenticated, avoids CORS fetch issues).
+    // Fall back to fetching previewUrl directly.
     setCompilationResult({ status: "downloading" });
     let blobUrl: string | null = null;
-    try {
-      const resp = await fetch(previewUrl, { credentials: "omit" });
-      if (resp.ok) blobUrl = URL.createObjectURL(await resp.blob());
-    } catch { /* will error out below */ }
+
+    const srcUrl = selectedProject?.source_url ?? "";
+    const storageMatch = srcUrl.match(/\/storage\/v1\/object\/(?:sign|public)\/([^/]+)\/(.+?)(?:\?|$)/);
+    if (storageMatch) {
+      const [, bucket, rawPath] = storageMatch;
+      try {
+        const { data: dlData, error: dlErr } = await (supabase as any).storage
+          .from(bucket)
+          .download(decodeURIComponent(rawPath));
+        if (!dlErr && dlData) blobUrl = URL.createObjectURL(dlData);
+      } catch { /* fall through */ }
+    }
+
+    if (!blobUrl && previewUrl) {
+      try {
+        const resp = await fetch(previewUrl, { credentials: "omit" });
+        if (resp.ok) blobUrl = URL.createObjectURL(await resp.blob());
+      } catch { /* fall through */ }
+    }
 
     if (!blobUrl) {
-      toast.error("Could not download the video for compilation — the link may have expired. Try refreshing the page.");
+      toast.error("Could not download the video — the link may have expired. Try refreshing the page.");
       setCompilationResult(null);
       return false;
     }
     if (compilationAbortRef.current) { URL.revokeObjectURL(blobUrl); setCompilationResult(null); return true; }
 
-    // Phase 2: hidden off-screen video + canvas
+    // Phase 2: off-screen video element + canvas for frame capture
     const vid = document.createElement("video");
     vid.src = blobUrl;
     vid.muted = true;
     vid.preload = "auto";
-    // Off-screen but NOT opacity:0 — opacity:0 causes browsers to skip GPU
-    // compositing, so ctx.drawImage would get blank frames.
-    Object.assign(vid.style, { position: "fixed", left: "-9999px", width: "640px", height: "360px" });
+    // Off-screen but NOT opacity:0 or display:none — either prevents GPU compositing,
+    // causing ctx.drawImage to get blank frames.
+    Object.assign(vid.style, { position: "fixed", left: "-9999px", top: "0px", width: "640px", height: "360px" });
     document.body.appendChild(vid);
 
     const canvas = document.createElement("canvas");
@@ -970,38 +991,52 @@ export default function VideoEditorPage() {
 
     const cleanup = () => {
       try { document.body.removeChild(vid); } catch {}
-      URL.revokeObjectURL(blobUrl!);
-      blobUrl = null;
+      if (blobUrl) { URL.revokeObjectURL(blobUrl); blobUrl = null; }
     };
 
     const waitUntilReady = () => new Promise<void>((resolve) => {
       if (vid.readyState >= 3) { resolve(); return; }
       const h = () => { vid.removeEventListener("canplaythrough", h); resolve(); };
       vid.addEventListener("canplaythrough", h);
-      setTimeout(() => { vid.removeEventListener("canplaythrough", h); resolve(); }, 15_000);
+      setTimeout(() => { vid.removeEventListener("canplaythrough", h); resolve(); }, 20_000);
     });
 
     const seekTo = (time: number) => new Promise<void>((resolve) => {
-      if (Math.abs(vid.currentTime - time) < 0.1) { resolve(); return; }
+      if (Math.abs(vid.currentTime - time) < 0.15) { resolve(); return; }
       const h = () => { vid.removeEventListener("seeked", h); resolve(); };
       vid.addEventListener("seeked", h);
       vid.currentTime = time;
-      setTimeout(() => { vid.removeEventListener("seeked", h); resolve(); }, 8_000);
+      setTimeout(() => { vid.removeEventListener("seeked", h); resolve(); }, 10_000);
     });
 
     try {
       vid.load();
       await waitUntilReady();
+
+      if (vid.readyState < 2) {
+        cleanup();
+        toast.error("Video could not be loaded for compilation — the format may be unsupported.");
+        setCompilationResult(null);
+        return false;
+      }
       if (compilationAbortRef.current) { cleanup(); setCompilationResult(null); return true; }
 
-      // Record from the canvas stream — reliable regardless of element compositing
-      const stream = canvas.captureStream(30);
+      // captureStream is prefixed in Firefox
+      const stream: MediaStream =
+        (canvas as any).captureStream?.(30) ??
+        (canvas as any).mozCaptureStream?.(30);
+      if (!stream) {
+        cleanup();
+        toast.error("canvas.captureStream() not available — try Chrome or a newer browser.");
+        return false;
+      }
+
       const chunks: BlobPart[] = [];
       const recorder = new MediaRecorder(stream, { mimeType, videoBitsPerSecond: 2_500_000 });
       recorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data); };
-
-      let recorderDone = false;
-      recorder.onstop = () => { recorderDone = true; };
+      const recorderStopped = new Promise<void>(resolve =>
+        recorder.addEventListener("stop", resolve, { once: true })
+      );
       recorder.start(200);
 
       for (let i = 0; i < clips.length; i++) {
@@ -1015,9 +1050,9 @@ export default function VideoEditorPage() {
 
         setActiveClipId(clip.id ?? null);
         await seekTo(start);
-        await new Promise(r => setTimeout(r, 80));
+        await new Promise(r => setTimeout(r, 100));
 
-        // Draw video frames onto the canvas while playing
+        // RAF draw loop — frames are explicitly drawn so GPU compositing state doesn't matter
         let rafId = 0;
         const drawFrame = () => {
           ctx.drawImage(vid, 0, 0, canvas.width, canvas.height);
@@ -1026,9 +1061,16 @@ export default function VideoEditorPage() {
         ctx.drawImage(vid, 0, 0, canvas.width, canvas.height);
         drawFrame();
 
-        await vid.play().catch(() => {});
+        const playErr = await vid.play().then(() => null).catch((e: any) => e);
+        if (playErr) {
+          cancelAnimationFrame(rafId);
+          cleanup();
+          toast.error("Video playback was blocked — click anywhere on the page, then try again.");
+          setCompilationResult(null);
+          return false;
+        }
 
-        const safetyMs = (end - start) * 1000 + 5_000;
+        const safetyMs = (end - start) * 1000 + 6_000;
         await new Promise<void>((resolve) => {
           let safetyTimer: ReturnType<typeof setTimeout>;
           const onTime = () => {
@@ -1049,23 +1091,23 @@ export default function VideoEditorPage() {
           }, safetyMs);
         });
 
-        await new Promise(r => setTimeout(r, 100));
+        await new Promise(r => setTimeout(r, 120));
       }
 
+      // Flush buffered data then stop
+      try { recorder.requestData(); } catch {}
       recorder.stop();
       setActiveClipId(null);
 
-      await new Promise<void>((resolve) => {
-        const t = setInterval(() => { if (recorderDone) { clearInterval(t); resolve(); } }, 50);
-        setTimeout(() => { clearInterval(t); resolve(); }, 4_000);
-      });
+      await Promise.race([recorderStopped, new Promise(r => setTimeout(r, 5_000))]);
 
       cleanup();
       if (compilationAbortRef.current) { setCompilationResult(null); return true; }
 
       const blob = new Blob(chunks, { type: mimeType });
       if (blob.size < 8_000) {
-        toast.error("Compilation produced an empty file — your browser may not support this recording method.");
+        toast.error("Compilation produced an empty file — frames may not have rendered. Try keeping the tab visible and in focus.");
+        setCompilationResult(null);
         return false;
       }
 
@@ -1074,8 +1116,11 @@ export default function VideoEditorPage() {
       toast.success("Compilation built! Click Download to save.");
       return true;
 
-    } catch (err) {
+    } catch (err: any) {
       cleanup();
+      const msg = err?.message ?? String(err);
+      toast.error(`Compilation error: ${msg}`);
+      setCompilationResult(null);
       return false;
     } finally {
       compilationAbortRef.current = false;
@@ -2108,7 +2153,7 @@ export default function VideoEditorPage() {
                             onClick={() => {
                               const a = document.createElement("a");
                               a.href = compilationResult.render_url!;
-                              a.download = "compilation.webm";
+                              a.download = compilationResult.render_url?.startsWith("blob:") ? "compilation.webm" : "compilation.mp4";
                               document.body.appendChild(a);
                               a.click();
                               document.body.removeChild(a);
