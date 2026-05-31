@@ -320,6 +320,7 @@ export default function VideoEditorPage() {
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [deletingProjectId, setDeletingProjectId] = useState<string | null>(null);
   const [retryingProjectId, setRetryingProjectId] = useState<string | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
 
   // Upload state
   const [dragOver, setDragOver] = useState(false);
@@ -345,10 +346,25 @@ export default function VideoEditorPage() {
   // Load on mount
   useEffect(() => { loadProjects(); }, [loadProjects]);
 
+  // Refresh a Supabase Storage signed URL so the video player can load it.
+  async function refreshPreviewUrl(sourceUrl: string | undefined) {
+    if (!sourceUrl) { setPreviewUrl(null); return; }
+    // Non-Supabase URLs (YouTube etc.) can be used as-is
+    if (!sourceUrl.includes("supabase")) { setPreviewUrl(sourceUrl); return; }
+    // Extract bucket + path from signed or public URL
+    const match = sourceUrl.match(/\/storage\/v1\/object\/(?:sign|public)\/([^/]+)\/(.+?)(?:\?|$)/);
+    if (!match) { setPreviewUrl(sourceUrl); return; }
+    const [, bucket, rawPath] = match;
+    const { data } = await supabase.storage.from(bucket).createSignedUrl(decodeURIComponent(rawPath), 3600);
+    setPreviewUrl(data?.signedUrl ?? sourceUrl);
+  }
+
   // ── Open existing project — fetch full data including clips ──────────────
   async function openProject(project: any) {
     setSelectedProject(normalizeProjectTranscript(project));
+    setPreviewUrl(null);
     setView("editor");
+    refreshPreviewUrl(project.source_url);
     try {
       const { data: { session } } = await supabase.auth.getSession();
       const res = await fetch(
@@ -509,6 +525,7 @@ export default function VideoEditorPage() {
       setSegments(result.segments ?? []);
       setView("editor");
       loadProjects();
+      refreshPreviewUrl(result.source_url ?? sourceUrl);
 
       const totalClips = Object.values(newClips).reduce((n: number, arr: any[]) => n + arr.length, 0);
       if (totalClips > 0) {
@@ -533,17 +550,12 @@ export default function VideoEditorPage() {
   async function handleRenderClip(clip: any) {
     setRenderingClipId(clip.id);
     try {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
+      const { data: { session } } = await supabase.auth.getSession();
       const res = await fetch(
         `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/mavis-video-render`,
         {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${session?.access_token}`,
-          },
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${session?.access_token}` },
           body: JSON.stringify({
             action: "render",
             clip_id: clip.id,
@@ -558,21 +570,30 @@ export default function VideoEditorPage() {
       );
 
       const data = await res.json();
+
+      if (data.status === "manual") {
+        // fal.ai not configured — offer source video download with timestamps
+        toast.info(
+          `Cloud rendering not set up. Download the source video and cut from ${formatDuration(clip.start ?? clip.start_seconds)} to ${formatDuration(clip.end ?? clip.end_seconds)}.`,
+          { duration: 8000 }
+        );
+        if (data.render_url) window.open(data.render_url, "_blank");
+        return;
+      }
+
       if (data.render_url || data.ffmpeg_cmd) {
         toast.success("Clip ready! Click download to save.");
         setClips((prev) => {
           const updated = { ...prev };
-          for (const format of Object.keys(updated) as Array<
-            keyof typeof updated
-          >) {
+          for (const format of Object.keys(updated) as Array<keyof typeof updated>) {
             updated[format] = updated[format].map((c) =>
-              c.id === clip.id
-                ? { ...c, render_url: data.render_url, render_status: "ready" }
-                : c
+              c.id === clip.id ? { ...c, render_url: data.render_url, render_status: "ready" } : c
             );
           }
           return updated;
         });
+      } else if (data.error) {
+        toast.error("Render failed: " + data.error);
       }
     } catch (err: any) {
       toast.error("Render failed: " + err.message);
@@ -1143,6 +1164,25 @@ export default function VideoEditorPage() {
                 </div>
               </div>
             </div>
+
+            {/* Video preview player */}
+            {previewUrl && (
+              <div className="rounded-xl overflow-hidden bg-black border border-gray-700/50">
+                <video
+                  src={previewUrl}
+                  controls
+                  className="w-full max-h-72 object-contain"
+                  preload="metadata"
+                  onError={() => setPreviewUrl(null)}
+                />
+              </div>
+            )}
+            {!previewUrl && selectedProject?.source_url && (
+              <div className="rounded-xl bg-gray-800/60 border border-gray-700/50 flex items-center justify-center h-28 gap-2 text-gray-500 text-sm">
+                <Play className="w-4 h-4" />
+                <span>Loading preview…</span>
+              </div>
+            )}
 
             {/* Tabs */}
             <Tabs defaultValue="clips">

@@ -205,49 +205,19 @@ async function handleRender(action: RenderAction, supabase: ReturnType<typeof cr
     const msg = err instanceof Error ? err.message : String(err);
 
     if (msg.startsWith("fal_ffmpeg_unavailable")) {
-      // Fallback: generate a shell script and store it
-      const scriptContent = `#!/bin/bash
-# MAVIS Creator Studio — Clip Render Script
-# Generated ${new Date().toISOString()}
-ffmpeg -i "INPUT_VIDEO_PATH" \\
-  ${ffmpegArgs.join(" \\\n  ")}`;
+      // fal.ai not configured — return clip info so the frontend can offer a
+      // direct download of the source video with timestamp guidance.
+      const ffmpegCmdStr = `ffmpeg -i "INPUT_VIDEO_PATH" -ss ${startSeconds} -t ${endSeconds - startSeconds} ${ffmpegArgs.slice(ffmpegArgs.indexOf("-vf")).join(" ")}`;
 
-      const scriptPath = `render-scripts/${userId}/${clipId}/render.sh`;
-      await supabase.storage.from("video-projects").upload(scriptPath, scriptContent, {
-        contentType: "text/plain",
-        upsert: true,
-      });
-      const { data: { publicUrl } } = supabase.storage.from("video-projects").getPublicUrl(scriptPath);
-
-      // Update clip with script URL and mark ready
+      // Mark clip as "manual" so UI shows the timestamp-download flow
       await supabase
         .from("video_clips")
-        .update({
-          render_status: "ready",
-          render_url: publicUrl,
-        })
+        .update({ render_status: "manual" })
         .eq("id", clipId);
 
-      // Insert job record for audit
-      const { data: jobRow } = await supabase
-        .from("video_render_jobs")
-        .insert({
-          clip_id: clipId,
-          user_id: userId,
-          provider: "script_fallback",
-          provider_job_id: null,
-          status: "ready",
-          ffmpeg_args: ffmpegArgs,
-          render_url: publicUrl,
-          notes: "fal.ai ffmpeg-api unavailable; render script generated",
-        })
-        .select("id")
-        .single();
-
-      jobId = jobRow?.id ?? null;
-      status = "ready";
-      ffmpegCmd = `ffmpeg -i "INPUT_VIDEO_PATH" \\\n  ${ffmpegArgs.join(" \\\n  ")}`;
-      renderUrl = publicUrl;
+      status = "manual";
+      ffmpegCmd = ffmpegCmdStr;
+      renderUrl = sourceUrl; // direct link to source video
     } else {
       // Unexpected error — rethrow
       throw err;
