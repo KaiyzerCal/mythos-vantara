@@ -1024,7 +1024,7 @@ export default function WebsiteBuilderPage() {
                                 .html
                               </button>
                               {dbPage?.status === "published" && (
-                                <CheckCircle2 size={14} className="text-emerald-400" title="Published to WordPress" />
+                                <span title="Published to WordPress"><CheckCircle2 size={14} className="text-emerald-400" /></span>
                               )}
                             </div>
                           </div>
