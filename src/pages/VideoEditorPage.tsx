@@ -387,7 +387,9 @@ export default function VideoEditorPage() {
   const [compilingInProgress, setCompilingInProgress] = useState(false);
   const [compilationResult, setCompilationResult] = useState<{
     status: string; render_url?: string; job_id?: string; ffmpeg_cmd?: string;
+    clip_index?: number; total_clips?: number;
   } | null>(null);
+  const compilationAbortRef = useRef(false);
 
   // Upload state
   const [dragOver, setDragOver] = useState(false);
@@ -753,9 +755,16 @@ export default function VideoEditorPage() {
       toast.error("Select at least 2 clips for a compilation.");
       return;
     }
+
     setCompilingInProgress(true);
     setCompilationResult(null);
+
     try {
+      // Try browser-based capture first (no API key required)
+      const browserOk = await buildCompilationInBrowser(selectedClips);
+      if (browserOk) return;
+
+      // Browser capture unavailable or failed — fall back to cloud render (fal.ai)
       const { data: { session } } = await supabase.auth.getSession();
       const res = await fetch(
         `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/mavis-video-render`,
@@ -778,16 +787,17 @@ export default function VideoEditorPage() {
       );
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Compilation failed");
+
       if (data.status === "rendering" && data.job_id) {
         setCompilationResult({ status: "rendering", job_id: data.job_id });
         toast.info("Compilation queued — polling for result…");
         pollCompilation(data.job_id);
-      } else if (data.status === "manual") {
-        setCompilationResult({ status: "manual", ffmpeg_cmd: data.ffmpeg_cmd, render_url: data.render_url });
-        toast.info("Cloud rendering not configured — FFmpeg command ready below.");
-      } else if (data.render_url) {
+      } else if (data.render_url && data.status !== "manual") {
         setCompilationResult({ status: "ready", render_url: data.render_url });
         toast.success("Compilation ready!");
+      } else {
+        // fal.ai not configured
+        setCompilationResult({ status: "no_cloud" });
       }
     } catch (err: any) {
       toast.error("Compilation failed: " + (err.message ?? "unknown error"));
@@ -824,6 +834,118 @@ export default function VideoEditorPage() {
       } catch {}
     }
     toast.warning("Compilation is taking longer than expected. Come back later.");
+  }
+
+  // ── MAVIS Auto-Pick: select best non-overlapping clips targeting ~90s ────────
+  function handleMavisAutoPick() {
+    if (allClips.length === 0) { toast.error("No clips to pick from."); return; }
+
+    const sorted = [...allClips].sort((a, b) => (b.viral_score ?? 0) - (a.viral_score ?? 0));
+    const picked: typeof sorted = [];
+    let totalSecs = 0;
+
+    for (const clip of sorted) {
+      if (picked.length >= 7) break;
+      const cs = clip.start ?? clip.start_seconds ?? 0;
+      const ce = clip.end ?? clip.end_seconds ?? 0;
+      const dur = ce - cs;
+      const overlaps = picked.some(p => {
+        const ps = p.start ?? p.start_seconds ?? 0;
+        const pe = p.end ?? p.end_seconds ?? 0;
+        return cs < pe && ce > ps;
+      });
+      if (overlaps) continue;
+      if (totalSecs + dur > 120) continue;
+      picked.push(clip);
+      totalSecs += dur;
+    }
+
+    const final = picked.length >= 2 ? picked : sorted.slice(0, Math.min(5, sorted.length));
+    setCompilationSelected(new Set(final.map(clipKey)));
+    const secs = final.reduce((s, c) => s + ((c.end ?? c.end_seconds ?? 0) - (c.start ?? c.start_seconds ?? 0)), 0);
+    toast.success(`MAVIS picked ${final.length} clips · ${formatDuration(secs)} highlight reel.`);
+  }
+
+  // ── Build compilation in-browser via MediaRecorder ───────────────────────
+  async function buildCompilationInBrowser(clips: any[]): Promise<boolean> {
+    const vid = videoRef.current;
+    if (!vid || !previewUrl) return false;
+
+    const captureStreamFn: (() => MediaStream) | undefined =
+      (vid as any).captureStream?.bind(vid) ?? (vid as any).mozCaptureStream?.bind(vid);
+    if (!captureStreamFn) return false;
+    if (typeof MediaRecorder === "undefined") return false;
+
+    const mimeType = [
+      "video/webm;codecs=vp9,opus",
+      "video/webm;codecs=vp8,opus",
+      "video/webm",
+    ].find(t => MediaRecorder.isTypeSupported(t));
+    if (!mimeType) return false;
+
+    compilationAbortRef.current = false;
+    vid.scrollIntoView({ behavior: "smooth", block: "start" });
+    await new Promise(r => setTimeout(r, 600));
+
+    try {
+      const stream = captureStreamFn();
+      const chunks: BlobPart[] = [];
+      const recorder = new MediaRecorder(stream, { mimeType, videoBitsPerSecond: 2_500_000 });
+      recorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data); };
+
+      let recorderDone = false;
+      recorder.onstop = () => { recorderDone = true; };
+      recorder.start(250);
+
+      for (let i = 0; i < clips.length; i++) {
+        if (compilationAbortRef.current) break;
+        setCompilationResult({ status: "recording", clip_index: i + 1, total_clips: clips.length });
+
+        const clip = clips[i];
+        const start = clip.start ?? clip.start_seconds ?? 0;
+        const end = clip.end ?? clip.end_seconds ?? 0;
+
+        setActiveClipId(clip.id ?? null);
+        vid.currentTime = start;
+        await new Promise(r => setTimeout(r, 120));
+        await vid.play().catch(() => {});
+
+        await new Promise<void>((resolve) => {
+          const check = () => {
+            if (compilationAbortRef.current || vid.currentTime >= end - 0.08) {
+              vid.removeEventListener("timeupdate", check);
+              vid.pause();
+              resolve();
+            }
+          };
+          vid.addEventListener("timeupdate", check);
+        });
+
+        await new Promise(r => setTimeout(r, 200));
+      }
+
+      recorder.stop();
+      setActiveClipId(null);
+
+      await new Promise<void>((resolve) => {
+        const t = setInterval(() => { if (recorderDone) { clearInterval(t); resolve(); } }, 50);
+      });
+
+      if (compilationAbortRef.current) { setCompilationResult(null); return true; }
+
+      const blob = new Blob(chunks, { type: mimeType });
+      if (blob.size < 8_000) return false; // too small → CORS blocked, try cloud
+
+      const url = URL.createObjectURL(blob);
+      setCompilationResult({ status: "ready", render_url: url });
+      toast.success("Compilation built! Click Download to save.");
+      return true;
+
+    } catch {
+      return false;
+    } finally {
+      compilationAbortRef.current = false;
+    }
   }
 
   // ── Copy caption ──────────────────────────────────────────────────────────
@@ -1401,6 +1523,7 @@ export default function VideoEditorPage() {
                   ref={videoRef}
                   src={previewUrl}
                   controls
+                  crossOrigin="anonymous"
                   className="w-full max-h-80"
                   preload="metadata"
                   onError={() => setPreviewError(true)}
@@ -1663,23 +1786,16 @@ export default function VideoEditorPage() {
                   </div>
                 </div>
 
-                {/* Quick-select buttons */}
+                {/* Selection bar */}
                 <div className="flex items-center gap-2 flex-wrap">
-                  <span className="text-xs text-gray-400 font-mono">Quick select:</span>
-                  {[3, 5, 7].map(n => (
-                    <button
-                      key={n}
-                      onClick={() => {
-                        const top = [...allClips]
-                          .sort((a, b) => (b.viral_score ?? 0) - (a.viral_score ?? 0))
-                          .slice(0, n);
-                        setCompilationSelected(new Set(top.map(clipKey)));
-                      }}
-                      className="px-2.5 py-1 text-xs font-mono rounded border border-gray-600 text-gray-300 hover:border-purple-500/50 hover:text-purple-300 transition-colors"
-                    >
-                      Top {n}
-                    </button>
-                  ))}
+                  <Button
+                    size="sm"
+                    className="gap-1.5 h-7 text-xs bg-purple-600 hover:bg-purple-700 text-white"
+                    onClick={handleMavisAutoPick}
+                    disabled={allClips.length === 0}
+                  >
+                    <Sparkles className="w-3 h-3" /> MAVIS Auto-Pick
+                  </Button>
                   <button
                     onClick={() => setCompilationSelected(new Set(allClips.map(clipKey)))}
                     className="px-2.5 py-1 text-xs font-mono rounded border border-gray-600 text-gray-300 hover:border-purple-500/50 hover:text-purple-300 transition-colors"
@@ -1694,12 +1810,12 @@ export default function VideoEditorPage() {
                   </button>
                   {compilationSelected.size > 0 && (
                     <span className="ml-auto text-xs text-purple-300 font-mono">
-                      {compilationSelected.size} selected ·{" "}
+                      {compilationSelected.size} clips ·{" "}
                       {formatDuration(
                         allClips
                           .filter(c => compilationSelected.has(clipKey(c)))
                           .reduce((s, c) => s + ((c.end ?? c.end_seconds ?? 0) - (c.start ?? c.start_seconds ?? 0)), 0)
-                      )} total
+                      )}
                     </span>
                   )}
                 </div>
@@ -1797,64 +1913,97 @@ export default function VideoEditorPage() {
                   disabled={compilationSelected.size < 2 || compilingInProgress}
                   onClick={handleBuildCompilation}
                 >
-                  {compilingInProgress ? (
-                    <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Building compilation…</>
+                  {compilingInProgress && compilationResult?.status !== "recording" ? (
+                    <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Starting…</>
                   ) : (
                     <><Film className="w-4 h-4 mr-2" /> Build Compilation ({compilationSelected.size} clips)</>
                   )}
                 </Button>
+
+                {/* Note: browser builds the video in real-time — keep this tab focused */}
+                {!compilingInProgress && compilationSelected.size >= 2 && !compilationResult && (
+                  <p className="text-[11px] text-gray-500 text-center -mt-2">
+                    Builds right in your browser — no upload needed. Keep this tab open while recording.
+                  </p>
+                )}
 
                 {/* Result */}
                 {compilationResult && (
                   <div className={`rounded-xl border p-4 space-y-3 ${
                     compilationResult.status === "ready"
                       ? "border-green-500/30 bg-green-500/5"
-                      : compilationResult.status === "rendering"
+                      : compilationResult.status === "recording" || compilationResult.status === "rendering"
                       ? "border-purple-500/30 bg-purple-500/5"
-                      : compilationResult.status === "manual"
+                      : compilationResult.status === "no_cloud"
                       ? "border-yellow-500/30 bg-yellow-500/5"
                       : "border-red-500/30 bg-red-500/5"
                   }`}>
+
+                    {/* Ready — download */}
                     {compilationResult.status === "ready" && compilationResult.render_url && (
                       <>
                         <p className="text-sm font-medium text-green-300 flex items-center gap-2">
                           <Check className="w-4 h-4" /> Compilation ready!
                         </p>
-                        <a href={compilationResult.render_url} download target="_blank" rel="noopener noreferrer">
+                        <a href={compilationResult.render_url} download="compilation.webm" target="_blank" rel="noopener noreferrer">
                           <Button size="sm" className="gap-1.5 bg-green-600 hover:bg-green-700 text-white">
                             <Download className="w-3.5 h-3.5" /> Download Compilation
                           </Button>
                         </a>
                       </>
                     )}
-                    {compilationResult.status === "rendering" && (
-                      <p className="text-sm text-purple-300 flex items-center gap-2">
-                        <Loader2 className="w-4 h-4 animate-spin" /> Rendering in cloud — this page will update when done.
-                      </p>
-                    )}
-                    {compilationResult.status === "failed" && (
-                      <p className="text-sm text-red-300 flex items-center gap-2">
-                        <AlertCircle className="w-4 h-4" /> Render failed. Try again or reduce number of clips.
-                      </p>
-                    )}
-                    {compilationResult.status === "manual" && compilationResult.ffmpeg_cmd && (
-                      <>
-                        <p className="text-xs text-yellow-300 font-medium">Cloud rendering not set up. Run this locally:</p>
-                        <pre className="text-[10px] font-mono text-yellow-100/80 bg-gray-900/60 rounded p-3 overflow-x-auto whitespace-pre-wrap break-all leading-relaxed">
-                          {compilationResult.ffmpeg_cmd}
-                        </pre>
+
+                    {/* Recording in-browser */}
+                    {compilationResult.status === "recording" && (
+                      <div className="space-y-2">
+                        <p className="text-sm text-purple-300 flex items-center gap-2">
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                          Recording clip {compilationResult.clip_index ?? "?"} of {compilationResult.total_clips ?? "?"}…
+                        </p>
+                        <p className="text-xs text-gray-400">
+                          Playing through each clip in the preview player above. Keep this tab focused and visible.
+                        </p>
                         <Button
                           size="sm"
                           variant="outline"
-                          className="gap-1.5 border-yellow-500/40 text-yellow-300"
+                          className="gap-1.5 border-red-500/40 text-red-400 h-7 text-xs"
                           onClick={() => {
-                            navigator.clipboard.writeText(compilationResult.ffmpeg_cmd!);
-                            toast.success("FFmpeg command copied!");
+                            compilationAbortRef.current = true;
+                            videoRef.current?.pause();
+                            setActiveClipId(null);
+                            setCompilingInProgress(false);
+                            setCompilationResult(null);
                           }}
                         >
-                          <Copy className="w-3.5 h-3.5" /> Copy Command
+                          Cancel
                         </Button>
-                      </>
+                      </div>
+                    )}
+
+                    {/* Cloud rendering in progress */}
+                    {compilationResult.status === "rendering" && (
+                      <p className="text-sm text-purple-300 flex items-center gap-2">
+                        <Loader2 className="w-4 h-4 animate-spin" /> Rendering in cloud — page updates when done.
+                      </p>
+                    )}
+
+                    {/* Cloud not configured */}
+                    {compilationResult.status === "no_cloud" && (
+                      <div className="space-y-1.5">
+                        <p className="text-xs text-yellow-300 font-medium flex items-center gap-1.5">
+                          <AlertCircle className="w-3.5 h-3.5" /> Browser recording unavailable in this environment.
+                        </p>
+                        <p className="text-xs text-gray-400">
+                          To enable compilation, add a <span className="font-mono text-yellow-200">FAL_API_KEY</span> secret in your Supabase edge function settings, then redeploy <span className="font-mono">mavis-video-render</span>.
+                        </p>
+                      </div>
+                    )}
+
+                    {/* Cloud render failed */}
+                    {compilationResult.status === "failed" && (
+                      <p className="text-sm text-red-300 flex items-center gap-2">
+                        <AlertCircle className="w-4 h-4" /> Render failed. Try fewer clips or re-try.
+                      </p>
                     )}
                   </div>
                 )}
