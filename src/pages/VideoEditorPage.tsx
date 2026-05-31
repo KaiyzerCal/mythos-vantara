@@ -491,8 +491,13 @@ export default function VideoEditorPage() {
       );
       if (!res.ok) return;
       const data = await res.json();
-      // Merge: preserve list-level fields (source_url, etc.) if edge function omits them
-      setSelectedProject(normalizeProjectTranscript({ ...project, ...(data.project ?? {}) }));
+      // Merge: edge function may return source_url: null; always keep the best available value
+      const edgeProj = data.project ?? {};
+      setSelectedProject(normalizeProjectTranscript({
+        ...project,
+        ...edgeProj,
+        source_url: edgeProj.source_url || project.source_url,
+      }));
       setClips({
         shorts: data.clips?.shorts ?? [],
         reels: data.clips?.reels ?? [],
