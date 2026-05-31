@@ -966,8 +966,10 @@ export default function VideoEditorPage() {
     // video.captureStream() fails on cross-origin elements (browser enforcement).
     let blobUrl: string | null = null;
     const storageMatch = videoSrc.match(/\/storage\/v1\/object\/(?:sign|public)\/([^/]+)\/(.+?)(?:\?|$)/);
+    console.log("[compilation] videoSrc:", videoSrc?.slice(0, 80), "storageMatch:", !!storageMatch);
     if (storageMatch) {
       const [, bucket, rawPath] = storageMatch;
+      console.log("[compilation] proxy_video bucket:", bucket, "path:", decodeURIComponent(rawPath));
       try {
         const { data: { session } } = await supabase.auth.getSession();
         const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
@@ -976,9 +978,12 @@ export default function VideoEditorPage() {
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${session?.access_token}` },
           body: JSON.stringify({ action: "proxy_video", bucket, path: decodeURIComponent(rawPath) }),
         });
+        console.log("[compilation] proxy_video response:", resp.status, resp.ok);
         if (resp.ok) blobUrl = URL.createObjectURL(await resp.blob());
-        else console.warn("proxy_video failed:", resp.status, await resp.text().catch(() => ""));
-      } catch (e) { console.warn("proxy_video error:", e); }
+        else console.error("[compilation] proxy_video failed:", resp.status, await resp.text().catch(() => ""));
+      } catch (e) { console.error("[compilation] proxy_video error:", e); }
+    } else {
+      console.error("[compilation] storageMatch null — videoSrc doesn't match Supabase storage pattern:", videoSrc);
     }
 
     if (!blobUrl) {
