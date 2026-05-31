@@ -282,7 +282,8 @@ export default function VideoEditorPage() {
       // Step 1: Upload file if provided
       if (source.file) {
         setAnalysisStep(0);
-        const path = `${user.id}/${Date.now()}-${source.file.name}`;
+        const safeName = source.file.name.replace(/[^a-zA-Z0-9._-]/g, "_").replace(/_+/g, "_");
+        const path = `${user.id}/${Date.now()}-${safeName}`;
         const { error } = await supabase.storage
           .from("video-projects")
           .upload(path, source.file, {
