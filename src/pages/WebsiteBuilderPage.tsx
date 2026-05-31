@@ -13,6 +13,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 import {
   Globe, Plus, Sparkles, ExternalLink, CheckCircle2,
   Loader2, Copy, Trash2, Eye, Settings, Users,
@@ -113,6 +114,8 @@ export default function WebsiteBuilderPage() {
   const [netlifyToken, setNetlifyToken] = useState(() => localStorage.getItem("netlify_token") ?? "");
   const [isDeployingToNetlify, setIsDeployingToNetlify] = useState(false);
   const [netlifyUrl, setNetlifyUrl] = useState<string | null>(null);
+  // Pages excluded from the next Netlify deploy (all enabled by default)
+  const [disabledPages, setDisabledPages] = useState<Set<string>>(new Set());
 
   // WordPress.com OAuth — new project form
   const [wpAuthMode, setWpAuthMode] = useState<"app_password" | "wpcom">("app_password");
@@ -178,6 +181,7 @@ export default function WebsiteBuilderPage() {
   const handleSelectProject = async (project: any) => {
     setSelectedProject(project);
     setNetlifyUrl(project.netlify_site_url ?? null);
+    setDisabledPages(new Set());
     await loadProjectPages(project.id);
   };
 
@@ -618,14 +622,17 @@ export default function WebsiteBuilderPage() {
         }
       }
 
-      if (pageTypesToDeploy.length === 0) {
-        toast.error("No pages to deploy — generate or upload pages first.");
+      // Filter out pages the user has toggled off
+      const filteredPageTypes = pageTypesToDeploy.filter(t => !disabledPages.has(t));
+
+      if (filteredPageTypes.length === 0) {
+        toast.error("No pages to deploy — enable at least one page or generate pages first.");
         return;
       }
 
       // Build files dict — DB HTML always wins; only regenerate when no HTML is stored.
       const files: Record<string, string> = {};
-      for (const pageType of pageTypesToDeploy) {
+      for (const pageType of filteredPageTypes) {
         const dbPage = latestPages.find((p: any) => p.page_type === pageType);
         if (dbPage?.gutenberg_html) {
           files[pageType === "home" ? "index.html" : `${pageType}.html`] = dbPage.gutenberg_html;
@@ -643,7 +650,7 @@ export default function WebsiteBuilderPage() {
             page_content: pageContent,
             primary_color: primaryColor,
             site_title: siteTitle,
-            page_list: pageTypesToDeploy,
+            page_list: filteredPageTypes,
             business_type: selectedProject?.business_type,
             style: selectedProject?.style,
           }),
@@ -656,7 +663,7 @@ export default function WebsiteBuilderPage() {
 
       if (Object.keys(files).length === 0) { toast.error("No pages to deploy"); return; }
 
-      const uploadedCount = pageTypesToDeploy.filter(pt => {
+      const uploadedCount = filteredPageTypes.filter(pt => {
         const p = latestPages.find((pg: any) => pg.page_type === pt);
         return p?.status === "customized" && p.gutenberg_html;
       }).length;
@@ -1160,20 +1167,32 @@ export default function WebsiteBuilderPage() {
                       <div className="flex items-center justify-between gap-3">
                         <CardTitle className="text-sm font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-2">
                           <Code2 size={13} />
-                          Pages ({allDeployablePageTypes.length})
+                          Pages ({allDeployablePageTypes.length - disabledPages.size} of {allDeployablePageTypes.length} enabled)
                         </CardTitle>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="gap-1.5 text-xs h-7 shrink-0"
-                          disabled={isDownloadingAll}
-                          onClick={handleDownloadAll}
-                        >
-                          {isDownloadingAll
-                            ? <Loader2 size={11} className="animate-spin" />
-                            : <Download size={11} />}
-                          Download All HTML
-                        </Button>
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <button
+                            onClick={() => setDisabledPages(new Set())}
+                            className="text-[10px] font-mono px-2 py-1 rounded border border-border/40 text-muted-foreground hover:text-emerald-400 hover:border-emerald-400/30 transition-colors"
+                            title="Enable all pages"
+                          >all</button>
+                          <button
+                            onClick={() => setDisabledPages(new Set(allDeployablePageTypes))}
+                            className="text-[10px] font-mono px-2 py-1 rounded border border-border/40 text-muted-foreground hover:text-rose-400 hover:border-rose-400/30 transition-colors"
+                            title="Disable all pages"
+                          >none</button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="gap-1.5 text-xs h-7"
+                            disabled={isDownloadingAll}
+                            onClick={handleDownloadAll}
+                          >
+                            {isDownloadingAll
+                              ? <Loader2 size={11} className="animate-spin" />
+                              : <Download size={11} />}
+                            Download All HTML
+                          </Button>
+                        </div>
                       </div>
                     </CardHeader>
                     <CardContent className="px-5 pb-4 space-y-1">
@@ -1182,11 +1201,24 @@ export default function WebsiteBuilderPage() {
                         const isExporting = exportingPageId === pageType;
                         const isCustom = dbPage?.status === "customized";
                         const hasHtml = !!dbPage?.gutenberg_html;
+                        const isEnabled = !disabledPages.has(pageType);
                         return (
                           <div
                             key={pageType}
-                            className="flex items-center gap-3 py-2 border-b border-border/30 last:border-0"
+                            className={`flex items-center gap-3 py-2 border-b border-border/30 last:border-0 transition-opacity ${isEnabled ? "" : "opacity-40"}`}
                           >
+                            <Switch
+                              checked={isEnabled}
+                              onCheckedChange={(checked) => {
+                                setDisabledPages(prev => {
+                                  const next = new Set(prev);
+                                  if (checked) next.delete(pageType);
+                                  else next.add(pageType);
+                                  return next;
+                                });
+                              }}
+                              className="scale-75 shrink-0"
+                            />
                             <span className="text-base">{PAGE_TYPE_ICON[pageType] ?? "📄"}</span>
                             <div className="flex-1 min-w-0">
                               <p className="text-sm font-medium capitalize flex items-center gap-1.5">
