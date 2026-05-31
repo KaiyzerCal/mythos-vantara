@@ -167,10 +167,11 @@ async function transcribeWithWhisper(videoUrl: string): Promise<{
   };
   const WHISPER_EXTS = new Set(["flac", "m4a", "mp3", "mp4", "mpeg", "mpga", "oga", "ogg", "wav", "webm"]);
   const rawExt = (videoUrl.split("?")[0].split(".").pop() ?? "").toLowerCase();
-  const responseMimeType = (videoBlob.type || videoRes.headers.get("content-type") || "")
+  const responseMimeType = (videoBlob.type || responseContentType || "")
     .split(";")[0]
     .trim()
     .toLowerCase();
+
   const ext = WHISPER_EXTS.has(rawExt) ? rawExt : (MIME_TO_EXT[responseMimeType] ?? "");
 
   if (!ext) {
