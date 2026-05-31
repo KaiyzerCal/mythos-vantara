@@ -131,25 +131,58 @@ async function transcribeWithWhisper(videoUrl: string): Promise<{
     );
   }
 
-  // Whisper rejects files with generic MIME types (e.g. application/octet-stream).
-  // Re-wrap the blob with the correct MIME type inferred from the URL extension.
+  // Whisper only accepts a narrow set of media containers/codecs. Re-labelling a
+  // QuickTime/MOV blob as MP4 does not transcode it, so reject unsupported inputs
+  // early with a clear error instead of sending a guaranteed-bad request upstream.
   const MIME_MAP: Record<string, string> = {
-    mp4: "video/mp4", mov: "video/mp4", m4a: "audio/mp4",
-    mp3: "audio/mpeg", wav: "audio/wav", webm: "video/webm",
-    ogg: "audio/ogg", oga: "audio/ogg", flac: "audio/flac",
-    mpeg: "video/mpeg", mpga: "audio/mpeg",
+    flac: "audio/flac",
+    m4a: "audio/mp4",
+    mp3: "audio/mpeg",
+    mp4: "video/mp4",
+    mpeg: "video/mpeg",
+    mpga: "audio/mpeg",
+    oga: "audio/ogg",
+    ogg: "audio/ogg",
+    wav: "audio/wav",
+    webm: "video/webm",
   };
+  const MIME_TO_EXT: Record<string, string> = {
+    "audio/flac": "flac",
+    "audio/mp4": "m4a",
+    "audio/mpeg": "mp3",
+    "audio/ogg": "ogg",
+    "audio/wav": "wav",
+    "audio/wave": "wav",
+    "audio/webm": "webm",
+    "audio/x-flac": "flac",
+    "audio/x-wav": "wav",
+    "video/mp4": "mp4",
+    "video/mpeg": "mpeg",
+    "video/ogg": "ogg",
+    "video/webm": "webm",
+  };
+  const WHISPER_EXTS = new Set(["flac", "m4a", "mp3", "mp4", "mpeg", "mpga", "oga", "ogg", "wav", "webm"]);
   const rawExt = (videoUrl.split("?")[0].split(".").pop() ?? "").toLowerCase();
-  // Whisper-supported extensions only. Map unsupported (e.g. mov, octet) to mp4.
-  const WHISPER_EXTS = new Set(["flac","m4a","mp3","mp4","mpeg","mpga","oga","ogg","wav","webm"]);
-  const ext = WHISPER_EXTS.has(rawExt) ? rawExt : "mp4";
-  const mimeType = (!videoBlob.type || videoBlob.type === "application/octet-stream")
-    ? (MIME_MAP[ext] ?? "video/mp4")
-    : videoBlob.type;
+  const responseMimeType = (videoBlob.type || videoRes.headers.get("content-type") || "")
+    .split(";")[0]
+    .trim()
+    .toLowerCase();
+  const ext = WHISPER_EXTS.has(rawExt) ? rawExt : (MIME_TO_EXT[responseMimeType] ?? "");
+
+  if (!ext) {
+    const suffix = rawExt ? ` (.${rawExt})` : "";
+    throw new Error(
+      `Unsupported audio/video format for transcription${suffix}. ` +
+      `Please upload MP4, MPEG, WebM, OGG/OGA, M4A, MP3, WAV, or FLAC. ` +
+      `QuickTime/MOV files must be converted to MP4 first.`
+    );
+  }
+
+  const mimeType = MIME_MAP[ext] ?? responseMimeType;
   const fileBlob = new Blob([await videoBlob.arrayBuffer()], { type: mimeType });
 
   const form = new FormData();
-  form.append("file", fileBlob, `audio.${ext}`);
+  form.append("file", fileBlob, `media.${ext}`);
   form.append("model", "whisper-1");
   form.append("response_format", "verbose_json");
   form.append("timestamp_granularities[]", "segment");
