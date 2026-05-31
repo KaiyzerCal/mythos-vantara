@@ -327,21 +327,30 @@ Rules:
   }
 }
 
-// Last-resort: build synthetic top_moments directly from transcript timing
-// Used when Gemini is unavailable or returns empty/invalid results.
-function buildSyntheticAnalysis(transcript: string): GeminiAnalysis {
-  const words = transcript.trim().split(/\s+/);
+// Last-resort: build synthetic top_moments directly from transcript timing.
+// Guaranteed to return at least 1 moment even with an empty transcript.
+function buildSyntheticAnalysis(transcript: string, knownDuration?: number): GeminiAnalysis {
+  const trimmed = transcript.trim();
+  const words = trimmed ? trimmed.split(/\s+/) : [];
   const wordsPerSecond = 2.5;
-  const totalSeconds = Math.ceil(words.length / wordsPerSecond);
-  const clipDuration = 45; // target ~45s clips
+  // Use known duration if provided; estimate from word count otherwise, minimum 60s
+  const totalSeconds = knownDuration ?? Math.max(Math.ceil(words.length / wordsPerSecond), 60);
+  const clipDuration = Math.min(45, Math.floor(totalSeconds / 2) || 30);
   const moments: GeminiAnalysis["top_moments"] = [];
 
-  for (let start = 0; start + clipDuration <= totalSeconds; start += clipDuration) {
+  const makeScores = (text: string) => {
+    const s = estimateScoresFromText(text);
+    return s as GeminiAnalysis["top_moments"][0]["scores"];
+  };
+
+  for (let start = 0; start < totalSeconds; start += clipDuration) {
     const end = Math.min(start + clipDuration, totalSeconds);
     const wordStart = Math.floor(start * wordsPerSecond);
     const wordEnd = Math.min(Math.floor(end * wordsPerSecond), words.length);
-    const excerpt = words.slice(wordStart, wordEnd).join(" ").slice(0, 300);
-    const scores = estimateScoresFromText(excerpt);
+    const excerpt = words.length > 0
+      ? words.slice(wordStart, wordEnd).join(" ").slice(0, 300)
+      : `Segment ${moments.length + 1}`;
+    const scores = makeScores(excerpt);
     const viral_score = Math.round(
       scores.hook * 0.25 + scores.energy * 0.20 + scores.emotion * 0.25 +
       scores.quotability * 0.15 + scores.insight * 0.10 + scores.visual * 0.05
@@ -349,12 +358,24 @@ function buildSyntheticAnalysis(transcript: string): GeminiAnalysis {
     moments.push({
       start,
       end,
-      title: excerpt.split(/[.!?]/)[0]?.slice(0, 80) ?? `Segment ${moments.length + 1}`,
+      title: excerpt.split(/[.!?]/)[0]?.slice(0, 80) || `Segment ${moments.length + 1}`,
       transcript_excerpt: excerpt,
-      scores: scores as GeminiAnalysis["top_moments"][0]["scores"],
-      viral_score,
+      scores,
+      viral_score: Math.max(viral_score, 4), // floor at 4 so clips always rank
     });
     if (moments.length >= 10) break;
+  }
+
+  // Absolute guarantee: if loop produced nothing, emit one full-video moment
+  if (moments.length === 0) {
+    moments.push({
+      start: 0,
+      end: totalSeconds,
+      title: "Full Video",
+      transcript_excerpt: trimmed.slice(0, 200) || "No transcript available",
+      scores: { energy: 5, insight: 5, emotion: 5, hook: 5, quotability: 5, visual: 5 },
+      viral_score: 5,
+    });
   }
 
   return {
@@ -636,10 +657,16 @@ async function handleAnalyze(
     // Step 3: Gemini visual + semantic analysis
     console.log(`[mavis-video-editor] Running Gemini analysis for project ${projectId}...`);
     const analysis = await analyzeWithGemini(source_url, transcript);
+
+    // Estimate video duration from Whisper chunks if Gemini didn't report it
+    const chunksDuration = chunks.length > 0 ? chunks[chunks.length - 1].end : undefined;
+
     // Use Gemini moments if available; fall back to synthetic moments from transcript
     const moments = (analysis.top_moments?.length ?? 0) > 0
       ? analysis.top_moments
-      : buildSyntheticAnalysis(transcript).top_moments;
+      : buildSyntheticAnalysis(transcript, chunksDuration).top_moments;
+
+    console.log(`[mavis-video-editor] ${moments.length} moments, transcript ${transcript.length} chars`);
 
     console.log(`[mavis-video-editor] ${moments.length} moments for clip selection`);
 
@@ -742,6 +769,9 @@ async function handleAnalyze(
       }
     }
 
+    const totalClips = Object.values(clips).reduce((n, arr) => n + arr.length, 0);
+    console.log(`[mavis-video-editor] Done: ${totalClips} clips total, ${segments.length} segments`);
+
     return {
       project_id: projectId,
       title: analysis.title ?? title ?? "Untitled Video",
@@ -751,6 +781,11 @@ async function handleAnalyze(
       segment_count: segments.length,
       clips,
       top_clip: topClip,
+      _meta: {
+        transcript_chars: transcript.length,
+        moments_used: moments.length,
+        clips_per_format: Object.fromEntries(Object.entries(clips).map(([k, v]) => [k, v.length])),
+      },
     };
   } catch (err: any) {
     // Mark project as failed so UI can show error state

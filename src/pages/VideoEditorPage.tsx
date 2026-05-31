@@ -499,16 +499,27 @@ export default function VideoEditorPage() {
       await new Promise((r) => setTimeout(r, 600));
 
       setSelectedProject(normalizeProjectTranscript(result));
-      setClips({
+      const newClips = {
         shorts: result.clips?.shorts ?? [],
         reels: result.clips?.reels ?? [],
         highlight: result.clips?.highlight ?? [],
         long_form: result.clips?.long_form ?? [],
-      });
+      };
+      setClips(newClips);
       setSegments(result.segments ?? []);
       setView("editor");
       loadProjects();
-      toast.success("Analysis complete! Your clips are ready.");
+
+      const totalClips = Object.values(newClips).reduce((n: number, arr: any[]) => n + arr.length, 0);
+      if (totalClips > 0) {
+        toast.success(`Analysis complete! ${totalClips} clips ready.`);
+      } else {
+        const meta = result._meta;
+        const detail = meta
+          ? `Transcript: ${meta.transcript_chars} chars, ${meta.moments_used} moments found.`
+          : "";
+        toast.warning(`Analysis finished but no clips were generated. ${detail}`.trim());
+      }
     } catch (err: any) {
       toast.error(err.message ?? "Analysis failed");
       setView("upload");
