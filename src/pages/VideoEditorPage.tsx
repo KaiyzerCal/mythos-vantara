@@ -807,7 +807,7 @@ export default function VideoEditorPage() {
   // ── Build Compilation ─────────────────────────────────────────────────────
 
   async function handleBuildCompilation() {
-    if (!selectedProject?.source_url) {
+    if (!selectedProject?.source_url && !previewUrl) {
       toast.error("No video source found — try re-opening the project.");
       return;
     }
@@ -953,28 +953,30 @@ export default function VideoEditorPage() {
     compilationAbortRef.current = false;
 
     // Phase 1: download the source video as a local blob.
-    // Use Supabase storage client first (authenticated, avoids CORS fetch issues).
-    // Fall back to fetching previewUrl directly.
+    // previewUrl is always the freshest signed URL — try that first via fetch.
+    // Fall back to supabase.storage.download() using the path from source_url.
     setCompilationResult({ status: "downloading" });
     let blobUrl: string | null = null;
 
-    const srcUrl = selectedProject?.source_url ?? "";
-    const storageMatch = srcUrl.match(/\/storage\/v1\/object\/(?:sign|public)\/([^/]+)\/(.+?)(?:\?|$)/);
-    if (storageMatch) {
-      const [, bucket, rawPath] = storageMatch;
-      try {
-        const { data: dlData, error: dlErr } = await (supabase as any).storage
-          .from(bucket)
-          .download(decodeURIComponent(rawPath));
-        if (!dlErr && dlData) blobUrl = URL.createObjectURL(dlData);
-      } catch { /* fall through */ }
-    }
-
-    if (!blobUrl && previewUrl) {
+    if (previewUrl) {
       try {
         const resp = await fetch(previewUrl, { credentials: "omit" });
         if (resp.ok) blobUrl = URL.createObjectURL(await resp.blob());
       } catch { /* fall through */ }
+    }
+
+    if (!blobUrl) {
+      const srcUrl = selectedProject?.source_url ?? previewUrl ?? "";
+      const storageMatch = srcUrl.match(/\/storage\/v1\/object\/(?:sign|public)\/([^/]+)\/(.+?)(?:\?|$)/);
+      if (storageMatch) {
+        const [, bucket, rawPath] = storageMatch;
+        try {
+          const { data: dlData, error: dlErr } = await (supabase as any).storage
+            .from(bucket)
+            .download(decodeURIComponent(rawPath));
+          if (!dlErr && dlData) blobUrl = URL.createObjectURL(dlData);
+        } catch { /* fall through */ }
+      }
     }
 
     if (!blobUrl) {
