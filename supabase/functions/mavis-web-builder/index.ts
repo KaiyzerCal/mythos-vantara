@@ -38,6 +38,91 @@ interface SiteContent {
   pages?: Record<string, any>;
 }
 
+type SectionData =
+  | { type: "hero"; headline: string; subheadline: string; cta_primary: string; cta_secondary?: string; badge?: string }
+  | { type: "stats"; items: Array<{ number: string; label: string }> }
+  | { type: "features"; headline: string; subheadline?: string; chip?: string; items: Array<{ icon: string; title: string; description: string }> }
+  | { type: "steps"; headline: string; subheadline?: string; chip?: string; items: Array<{ title: string; description: string }> }
+  | { type: "testimonials"; headline: string; chip?: string; items: Array<{ quote: string; author: string; role: string }> }
+  | { type: "cta"; headline: string; subheadline: string; cta_primary: string; cta_secondary?: string }
+  | { type: "pricing"; headline: string; subheadline?: string; chip?: string; plans: Array<{ name: string; price: string; period?: string; description?: string; features: string[]; highlighted?: boolean; cta?: string }> }
+  | { type: "faq"; headline: string; chip?: string; items: Array<{ question: string; answer: string }> }
+  | { type: "contact"; headline: string; subheadline?: string; email?: string; phone?: string; address?: string; hours?: string }
+  | { type: "team"; headline: string; subheadline?: string; members: Array<{ name: string; role: string; bio: string; emoji?: string }> }
+  | { type: "portfolio"; headline: string; subheadline?: string; items: Array<{ title: string; category: string; description: string }> }
+  | { type: "about_hero"; headline: string; subheadline: string; body: string }
+  | { type: "services"; headline: string; subheadline?: string; chip?: string; items: Array<{ title: string; description: string; price?: string; icon?: string }> }
+  | { type: "values"; headline: string; subheadline?: string; items: Array<{ emoji: string; title: string; description: string }> }
+  | { type: "content_block"; headline?: string; body: string; chip?: string; bg?: boolean }
+  | { type: "image_text"; headline: string; body: string; image_side?: "left" | "right"; cta?: string; chip?: string };
+
+interface PageBrief { business_name?: string; business_type?: string; style?: string }
+
+// ---------------------------------------------------------------------------
+// AI cascade helpers
+// ---------------------------------------------------------------------------
+
+async function callAI(prompt: string, maxTokens = 8192): Promise<any> {
+  if (GEMINI_KEY) {
+    const GEMINI_MODELS = ["gemini-2.5-flash-preview-05-20", "gemini-2.0-flash", "gemini-1.5-flash"];
+    const gemBody = JSON.stringify({
+      contents: [{ role: "user", parts: [{ text: prompt }] }],
+      generationConfig: { temperature: 0.8, responseMimeType: "application/json", maxOutputTokens: maxTokens },
+    });
+    for (const model of GEMINI_MODELS) {
+      const res = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_KEY}`,
+        { method: "POST", headers: { "Content-Type": "application/json" }, body: gemBody },
+      );
+      if (res.ok) {
+        const data = await res.json();
+        const text = data.candidates?.[0]?.content?.parts?.[0]?.text ?? "{}";
+        return JSON.parse(text);
+      }
+      if (res.status === 429) break;
+    }
+  }
+  if (CLAUDE_KEY) {
+    const res = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-api-key": CLAUDE_KEY, "anthropic-version": "2023-06-01" },
+      body: JSON.stringify({
+        model: "claude-haiku-4-5-20251001",
+        max_tokens: maxTokens,
+        system: "You are an expert web designer. Always respond with valid JSON only — no markdown, no explanation.",
+        messages: [{ role: "user", content: prompt }],
+      }),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      const text = data.content?.[0]?.text ?? "{}";
+      const match = text.match(/\{[\s\S]*\}|\[[\s\S]*\]/);
+      return JSON.parse(match ? match[0] : text);
+    }
+  }
+  if (OPENAI_KEY) {
+    const res = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${OPENAI_KEY}` },
+      body: JSON.stringify({
+        model: "gpt-4o-mini",
+        max_tokens: maxTokens,
+        response_format: { type: "json_object" },
+        messages: [
+          { role: "system", content: "You are an expert web designer. Respond with valid JSON only." },
+          { role: "user", content: prompt },
+        ],
+      }),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      const text = data.choices?.[0]?.message?.content ?? "{}";
+      return JSON.parse(text);
+    }
+  }
+  throw new Error("All AI providers failed or have no funded keys.");
+}
+
 // ---------------------------------------------------------------------------
 // Gemini content generation
 // ---------------------------------------------------------------------------
@@ -175,76 +260,127 @@ Return a JSON object with this EXACT structure:
   }
 }`;
 
-  // ── Tier 1: Gemini (try all models, skip on 403/404/429) ──
-  if (GEMINI_KEY) {
-    const GEMINI_MODELS = [
-      "gemini-2.5-flash-preview-05-20",
-      "gemini-2.0-flash",
-      "gemini-1.5-flash",
-    ];
-    const gemBody = JSON.stringify({
-      contents: [{ role: "user", parts: [{ text: systemPrompt }] }],
-      generationConfig: { temperature: 0.8, responseMimeType: "application/json", maxOutputTokens: 8192 },
-    });
-    for (const model of GEMINI_MODELS) {
-      const res = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_KEY}`,
-        { method: "POST", headers: { "Content-Type": "application/json" }, body: gemBody },
-      );
-      if (res.ok) {
-        const data = await res.json();
-        const text = data.candidates?.[0]?.content?.parts?.[0]?.text ?? "{}";
-        return JSON.parse(text);
-      }
-      // 429 = rate limit (quota shared across models — skip all Gemini)
-      if (res.status === 429) break;
-      // 403/404 = model access issue — try next model
-    }
-  }
+  return callAI(systemPrompt, 8192);
+}
 
-  // ── Tier 2: Claude Haiku ──────────────────────────────────
-  if (CLAUDE_KEY) {
-    const res = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "x-api-key": CLAUDE_KEY, "anthropic-version": "2023-06-01" },
-      body: JSON.stringify({
-        model: "claude-haiku-4-5-20251001",
-        max_tokens: 8192,
-        system: "You are an expert web copywriter. Always respond with valid JSON only — no markdown, no explanation.",
-        messages: [{ role: "user", content: systemPrompt }],
-      }),
-    });
-    if (res.ok) {
-      const data = await res.json();
-      const text = data.content?.[0]?.text ?? "{}";
-      const match = text.match(/\{[\s\S]*\}/);
-      return JSON.parse(match ? match[0] : text);
-    }
-  }
+// ---------------------------------------------------------------------------
+// AI-driven page section generation
+// ---------------------------------------------------------------------------
 
-  // ── Tier 3: OpenAI gpt-4o-mini ───────────────────────────
-  if (OPENAI_KEY) {
-    const res = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${OPENAI_KEY}` },
-      body: JSON.stringify({
-        model: "gpt-4o-mini",
-        max_tokens: 8192,
-        response_format: { type: "json_object" },
-        messages: [
-          { role: "system", content: "You are an expert web copywriter. Respond with valid JSON only." },
-          { role: "user", content: systemPrompt },
-        ],
-      }),
-    });
-    if (res.ok) {
-      const data = await res.json();
-      const text = data.choices?.[0]?.message?.content ?? "{}";
-      return JSON.parse(text);
+function fallbackSections(pageType: string, content: any): SectionData[] {
+  const c = content ?? {};
+  const hero = c.hero ?? {};
+  const cta = c.cta_section ?? {};
+  const defaultCta: SectionData = {
+    type: "cta",
+    headline: cta.headline ?? "Ready to Get Started?",
+    subheadline: cta.subtext ?? "Join us and experience the difference.",
+    cta_primary: cta.cta_text ?? "Get Started Today",
+  };
+  switch (pageType) {
+    case "home": {
+      const out: SectionData[] = [
+        { type: "hero", headline: hero.headline ?? "Welcome", subheadline: hero.subheadline ?? "", cta_primary: hero.cta_primary ?? "Get Started", badge: c.social_proof_bar?.text },
+      ];
+      if (c.stats?.length) out.push({ type: "stats", items: c.stats });
+      if (c.features?.length) out.push({ type: "features", headline: c.features_title ?? "Why Choose Us", subheadline: c.features_subtitle, chip: "Features", items: c.features.map((f: any) => ({ icon: f.icon_emoji ?? "⚡", title: f.title ?? f.name, description: f.description ?? "" })) });
+      if (c.how_it_works?.steps?.length) out.push({ type: "steps", headline: c.how_it_works.title ?? "How It Works", chip: "Process", items: c.how_it_works.steps.map((s: any) => ({ title: s.title, description: s.description })) });
+      if (c.testimonials?.length) out.push({ type: "testimonials", headline: "What Our Clients Say", chip: "Testimonials", items: c.testimonials });
+      if (c.faq?.length) out.push({ type: "faq", headline: "Frequently Asked Questions", chip: "FAQ", items: c.faq });
+      out.push(defaultCta);
+      return out;
     }
+    case "about": {
+      const out: SectionData[] = [
+        { type: "about_hero", headline: c.hero_headline ?? "About Us", subheadline: c.mission ?? c.tagline ?? "", body: c.story ?? c.intro ?? "We are dedicated to excellence." },
+      ];
+      if (c.values?.length) out.push({ type: "values", headline: "Our Values", chip: "Values", items: c.values.map((v: any) => ({ emoji: v.icon_emoji ?? "⭐", title: v.title ?? v.name, description: v.description ?? "" })) });
+      if (c.team?.length || c.team_members?.length) out.push({ type: "team", headline: "Meet the Team", chip: "Team", members: (c.team ?? c.team_members ?? []).map((m: any) => ({ name: m.name, role: m.role ?? m.title ?? "", bio: m.bio ?? "" })) });
+      out.push(defaultCta);
+      return out;
+    }
+    case "services": {
+      const out: SectionData[] = [
+        { type: "hero", headline: c.hero_headline ?? "Our Services", subheadline: c.intro ?? "", cta_primary: "Get a Quote" },
+      ];
+      if (c.services?.length ?? c.service_list?.length) out.push({ type: "services", headline: "What We Offer", chip: "Services", items: (c.services ?? c.service_list ?? []).map((s: any) => ({ icon: s.icon_emoji ?? "⚡", title: s.title ?? s.name, description: s.description ?? "", price: s.price })) });
+      if (c.process_steps?.length) out.push({ type: "steps", headline: c.process_title ?? "Our Process", chip: "Process", items: c.process_steps.map((s: any) => ({ title: s.title, description: s.description })) });
+      if (c.testimonials?.length) out.push({ type: "testimonials", headline: "Client Results", chip: "Testimonials", items: c.testimonials });
+      out.push(defaultCta);
+      return out;
+    }
+    case "pricing": {
+      const out: SectionData[] = [
+        { type: "content_block", headline: c.hero_headline ?? "Simple, Transparent Pricing", body: c.intro ?? "No hidden fees. No surprises.", chip: "Pricing" },
+      ];
+      if (c.plans?.length) out.push({ type: "pricing", headline: "Choose Your Plan", subheadline: c.subtitle, chip: "Plans", plans: c.plans });
+      if (c.faq?.length) out.push({ type: "faq", headline: "Pricing FAQ", chip: "FAQ", items: c.faq });
+      out.push(defaultCta);
+      return out;
+    }
+    case "contact":
+      return [{ type: "contact", headline: c.hero_headline ?? "Get in Touch", subheadline: c.intro, email: c.email, phone: c.phone, address: c.address, hours: c.hours }];
+    case "portfolio": {
+      const out: SectionData[] = [
+        { type: "content_block", headline: "Our Work", body: c.intro ?? "Explore our portfolio of projects.", chip: "Portfolio" },
+      ];
+      if (c.projects?.length ?? c.portfolio?.length) out.push({ type: "portfolio", headline: "Featured Projects", items: (c.projects ?? c.portfolio ?? []).map((p: any) => ({ title: p.title, category: p.category ?? "Project", description: p.description ?? "" })) });
+      if (c.testimonials?.length) out.push({ type: "testimonials", headline: "Client Feedback", items: c.testimonials });
+      out.push(defaultCta);
+      return out;
+    }
+    default:
+      return [
+        { type: "content_block", headline: c.title ?? pageType.charAt(0).toUpperCase() + pageType.slice(1), body: c.intro ?? c.description ?? "More information coming soon." },
+        defaultCta,
+      ];
   }
+}
 
-  throw new Error("All AI providers failed or have no funded keys — cannot generate site content.");
+async function generatePageSections(pageType: string, brief: PageBrief, content: any): Promise<SectionData[]> {
+  const prompt = `You are a professional web designer. Build a "${pageType}" page for this business.
+
+Business: "${brief.business_name ?? "Business"}" (${brief.business_type ?? "business"})
+Style: ${brief.style ?? "modern"}
+
+AVAILABLE SECTION TYPES (use ONLY these exact type strings):
+hero: {type:"hero",headline,subheadline,cta_primary,cta_secondary?,badge?}
+stats: {type:"stats",items:[{number,label}]}  (3-4 items)
+features: {type:"features",headline,subheadline?,chip?,items:[{icon,title,description}]}  (icon=emoji, 3-6 items)
+steps: {type:"steps",headline,subheadline?,chip?,items:[{title,description}]}  (3-5 steps)
+testimonials: {type:"testimonials",headline,chip?,items:[{quote,author,role}]}  (3 items)
+cta: {type:"cta",headline,subheadline,cta_primary,cta_secondary?}
+pricing: {type:"pricing",headline,subheadline?,chip?,plans:[{name,price,period?,description?,features[],highlighted?,cta?}]}
+faq: {type:"faq",headline,chip?,items:[{question,answer}]}  (4-6 items)
+contact: {type:"contact",headline,subheadline?,email?,phone?,address?,hours?}
+team: {type:"team",headline,subheadline?,members:[{name,role,bio,emoji?}]}  (3-6 members)
+portfolio: {type:"portfolio",headline,subheadline?,items:[{title,category,description}]}
+about_hero: {type:"about_hero",headline,subheadline,body}  (body = 2-3 paragraph story)
+services: {type:"services",headline,subheadline?,chip?,items:[{title,description,price?,icon?}]}
+values: {type:"values",headline,subheadline?,items:[{emoji,title,description}]}  (3-4 values)
+content_block: {type:"content_block",headline?,body,chip?,bg?:boolean}
+image_text: {type:"image_text",headline,body,image_side?:"left"|"right",cta?,chip?}
+
+PAGE RULES:
+home → hero, stats, features, (steps or image_text), testimonials, cta  [5-7 sections]
+about → about_hero, (values or image_text), team, cta  [4-5 sections]
+services → hero, services, steps, testimonials, cta  [5 sections]
+pricing → content_block, pricing, faq, cta  [4 sections]
+contact → content_block, contact, faq?  [2-3 sections]
+portfolio → content_block, portfolio, testimonials, cta  [4 sections]
+other → content_block, features, cta  [3 sections]
+
+Use this existing content (fill gaps with compelling, specific copy):
+${JSON.stringify(content).slice(0, 2500)}
+
+Return ONLY: {"sections":[...]}`;
+
+  try {
+    const result = await callAI(prompt, 4096);
+    const arr: SectionData[] = result.sections ?? (Array.isArray(result) ? result : []);
+    if (arr.length > 0) return arr;
+  } catch { /* fall through */ }
+  return fallbackSections(pageType, content);
 }
 
 // ---------------------------------------------------------------------------
@@ -1298,7 +1434,356 @@ function _footer(title: string, pages: string[]): string {
 </div></footer>`;
 }
 
-// ── Page body builders ───────────────────────────────────────────────────────
+// ── Section component renderers ──────────────────────────────────────────────
+
+function _sHero(s: any, heroUrl?: string): string {
+  return `<section class="hero">
+${heroUrl ? `<img class="h-bg" src="${heroUrl}" alt="">` : ""}
+<div class="h-ov"></div><div class="h-ov2"></div>
+<div class="c"><div class="hi">
+${s.badge ? `<div class="badge">✦ ${s.badge}</div>` : ""}
+<h1>${s.headline}</h1>
+<p class="lead">${s.subheadline}</p>
+<div class="ha">
+<a href="contact.html" class="btn btn-w btn-lg">${s.cta_primary}</a>
+${s.cta_secondary ? `<a href="#" class="btn btn-gw btn-lg">${s.cta_secondary}</a>` : ""}
+</div>
+</div></div>
+</section>`;
+}
+
+function _sStats(s: any): string {
+  return `<div class="sb"><div class="c"><div class="sg">
+${(s.items ?? []).slice(0,5).map((i: any) => `<div class="si"><div class="sn">${i.number}</div><div class="sl">${i.label}</div></div>`).join("")}
+</div></div></div>`;
+}
+
+function _sFeatures(s: any): string {
+  return `<section class="s">
+<div class="c">
+<div class="tc" style="margin-bottom:56px">
+${s.chip ? `<span class="chip">${s.chip}</span>` : ""}
+<h2>${s.headline}</h2>
+${s.subheadline ? `<p class="lead" style="max-width:560px;margin:16px auto 0">${s.subheadline}</p>` : ""}
+</div>
+<div class="fg">
+${(s.items ?? []).map((f: any) => `<div class="card"><div class="ci">${f.icon ?? "⚡"}</div><h3>${f.title}</h3><p>${f.description}</p></div>`).join("")}
+</div>
+</div>
+</section>`;
+}
+
+function _sSteps(s: any): string {
+  return `<section class="s s-bg">
+<div class="c">
+<div class="tc" style="margin-bottom:56px">
+${s.chip ? `<span class="chip">${s.chip}</span>` : ""}
+<h2>${s.headline}</h2>
+${s.subheadline ? `<p class="lead" style="max-width:560px;margin:16px auto 0">${s.subheadline}</p>` : ""}
+</div>
+<div class="steps">
+${(s.items ?? []).map((st: any, i: number) => `<div class="step">
+<div class="snum">${String(i + 1).padStart(2, "0")}</div>
+<div class="sbody"><h3>${st.title}</h3><p>${st.description}</p></div>
+</div>`).join("")}
+</div>
+</div>
+</section>`;
+}
+
+function _sTestimonials(s: any): string {
+  return `<section class="s s-bg">
+<div class="c">
+<div class="tc" style="margin-bottom:56px">
+${s.chip ? `<span class="chip">${s.chip}</span>` : ""}
+<h2>${s.headline}</h2>
+</div>
+<div class="tg">
+${(s.items ?? []).map((t: any) => `<div class="tc-card">
+<div class="ts">★★★★★</div>
+<p class="tq">"${t.quote}"</p>
+<div class="ta"><div class="tav">${(t.author ?? "A").charAt(0)}</div>
+<div><div class="tn">${t.author}</div><div class="tr">${t.role}</div></div>
+</div>
+</div>`).join("")}
+</div>
+</div>
+</section>`;
+}
+
+function _sCta(s: any): string {
+  return `<section class="cta-s">
+<div class="c"><div class="cta-in">
+<h2>${s.headline}</h2>
+<p class="lead">${s.subheadline}</p>
+<div class="cta-btns">
+<a href="contact.html" class="btn btn-w btn-lg">${s.cta_primary}</a>
+${s.cta_secondary ? `<a href="#" class="btn btn-gw btn-lg">${s.cta_secondary}</a>` : ""}
+</div>
+</div></div>
+</section>`;
+}
+
+function _sPricing(s: any): string {
+  return `<section class="s">
+<div class="c">
+<div class="tc" style="margin-bottom:56px">
+${s.chip ? `<span class="chip">${s.chip}</span>` : ""}
+<h2>${s.headline}</h2>
+${s.subheadline ? `<p class="lead" style="max-width:560px;margin:16px auto 0">${s.subheadline}</p>` : ""}
+</div>
+<div class="pg">
+${(s.plans ?? []).map((p: any) => `<div class="pc${p.highlighted ? " feat" : ""}">
+${p.highlighted ? `<div class="pbadge">Most Popular</div>` : ""}
+<div class="pname">${p.name}</div>
+<div class="pprice">${p.price}<span class="pper">${p.period ? `/${p.period}` : ""}</span></div>
+${p.description ? `<p class="pdesc">${p.description}</p>` : ""}
+<hr class="pdiv">
+<ul class="pfeats">${(p.features ?? []).map((f: string) => `<li>${f}</li>`).join("")}</ul>
+<a href="contact.html" class="btn ${p.highlighted ? "btn-p" : "btn-o"} btn-full">${p.cta ?? "Get Started"}</a>
+</div>`).join("")}
+</div>
+</div>
+</section>`;
+}
+
+function _sFaq(s: any): string {
+  return `<section class="s s-bg">
+<div class="c">
+<div class="tc" style="margin-bottom:56px">
+${s.chip ? `<span class="chip">${s.chip}</span>` : ""}
+<h2>${s.headline}</h2>
+</div>
+<div class="faq-list">
+${(s.items ?? []).map((f: any, i: number) => `<div class="faq-item">
+<button class="faq-q" onclick="toggleFaq(${i})"><span>${f.question}</span><span class="faq-icon">+</span></button>
+<div class="faq-a" id="faq-${i}">${f.answer}</div>
+</div>`).join("")}
+</div>
+</div>
+</section>`;
+}
+
+function _sContact(s: any): string {
+  return `<section class="s">
+<div class="c">
+<div class="cg">
+<div>
+<h2>${s.headline}</h2>
+${s.subheadline ? `<p class="lead" style="margin-bottom:36px">${s.subheadline}</p>` : ""}
+<form>
+<div class="fg-grp"><label>Your Name</label><input class="fctrl" type="text" placeholder="Jane Smith"></div>
+<div class="fg-grp"><label>Email Address</label><input class="fctrl" type="email" placeholder="jane@example.com"></div>
+<div class="fg-grp"><label>Subject</label><input class="fctrl" type="text" placeholder="How can we help?"></div>
+<div class="fg-grp"><label>Message</label><textarea class="fctrl" placeholder="Tell us about your project…"></textarea></div>
+<button type="submit" class="btn btn-p btn-lg" style="width:100%">Send Message →</button>
+</form>
+</div>
+<div class="cd">
+<h3>Contact Information</h3>
+<p class="lead" style="margin-bottom:36px">We're here to help and answer any questions you might have.</p>
+${s.email ? `<div class="cdet"><div class="cico">✉️</div><div><div class="clbl">Email</div><div class="cval">${s.email}</div></div></div>` : ""}
+${s.phone ? `<div class="cdet"><div class="cico">📞</div><div><div class="clbl">Phone</div><div class="cval">${s.phone}</div></div></div>` : ""}
+${s.address ? `<div class="cdet"><div class="cico">📍</div><div><div class="clbl">Address</div><div class="cval">${s.address}</div></div></div>` : ""}
+${s.hours ? `<div class="cdet"><div class="cico">🕐</div><div><div class="clbl">Hours</div><div class="cval">${s.hours}</div></div></div>` : ""}
+</div>
+</div>
+</div>
+</section>`;
+}
+
+function _sTeam(s: any): string {
+  return `<section class="s">
+<div class="c">
+<div class="tc" style="margin-bottom:56px">
+${s.chip ? `<span class="chip">${s.chip}</span>` : ""}
+<h2>${s.headline}</h2>
+${s.subheadline ? `<p class="lead" style="max-width:560px;margin:16px auto 0">${s.subheadline}</p>` : ""}
+</div>
+<div class="team-grid">
+${(s.members ?? []).map((m: any) => `<div class="team-card">
+<div class="team-av">${m.emoji ?? (m.name ?? "T").charAt(0)}</div>
+<div class="team-name">${m.name}</div>
+<div class="team-role">${m.role}</div>
+${m.bio ? `<p style="margin-top:12px;font-size:.875rem">${m.bio}</p>` : ""}
+</div>`).join("")}
+</div>
+</div>
+</section>`;
+}
+
+function _sPortfolio(s: any): string {
+  const emojis = ["🎨","🚀","💡","⚡","🌟","🔥","💎","🏆","🎯","🌈"];
+  return `<section class="s">
+<div class="c">
+<div class="tc" style="margin-bottom:56px">
+${s.chip ? `<span class="chip">${s.chip}</span>` : ""}
+<h2>${s.headline}</h2>
+${s.subheadline ? `<p class="lead" style="max-width:560px;margin:16px auto 0">${s.subheadline}</p>` : ""}
+</div>
+<div class="port-grid">
+${(s.items ?? []).map((p: any, i: number) => `<div class="port-card">
+<div class="port-img">${emojis[i % emojis.length]}</div>
+<div class="port-body">
+<h3>${p.title}</h3>
+<p>${p.description}</p>
+<div class="port-tags"><span class="port-tag">${p.category}</span></div>
+</div>
+</div>`).join("")}
+</div>
+</div>
+</section>`;
+}
+
+function _sAboutHero(s: any): string {
+  const paragraphs = (s.body ?? "").split("\n\n").filter(Boolean);
+  return `<section class="hero" style="padding:100px 0 84px">
+<div class="h-ov"></div>
+<div class="c"><div class="hi">
+<h1>${s.headline}</h1>
+<p class="lead">${s.subheadline}</p>
+</div></div>
+</section>
+<section class="s">
+<div class="c-sm">
+${paragraphs.length > 0 ? paragraphs.map((p: string) => `<p class="lead" style="margin-bottom:28px">${p}</p>`).join("") : `<p class="lead">${s.body}</p>`}
+</div>
+</section>`;
+}
+
+function _sServices(s: any): string {
+  return `<section class="s">
+<div class="c">
+<div class="tc" style="margin-bottom:56px">
+${s.chip ? `<span class="chip">${s.chip}</span>` : ""}
+<h2>${s.headline}</h2>
+${s.subheadline ? `<p class="lead" style="max-width:560px;margin:16px auto 0">${s.subheadline}</p>` : ""}
+</div>
+<div class="fg">
+${(s.items ?? []).map((svc: any) => `<div class="card">
+<div class="ci">${svc.icon ?? "⚡"}</div>
+<h3>${svc.title}</h3>
+<p>${svc.description}</p>
+${svc.price ? `<p style="margin-top:16px;font-weight:700;color:var(--p)">${svc.price}</p>` : ""}
+</div>`).join("")}
+</div>
+</div>
+</section>`;
+}
+
+function _sValues(s: any): string {
+  return `<section class="s s-bg">
+<div class="c">
+<div class="tc" style="margin-bottom:56px">
+${s.chip ? `<span class="chip">${s.chip}</span>` : ""}
+<h2>${s.headline}</h2>
+${s.subheadline ? `<p class="lead" style="max-width:560px;margin:16px auto 0">${s.subheadline}</p>` : ""}
+</div>
+<div class="vg">
+${(s.items ?? []).map((v: any) => `<div class="vc"><div class="vic">${v.emoji}</div><h3>${v.title}</h3><p>${v.description}</p></div>`).join("")}
+</div>
+</div>
+</section>`;
+}
+
+function _sContentBlock(s: any): string {
+  const bg = s.bg !== false;
+  return `<section class="s${bg ? " s-bg" : ""}">
+<div class="c-sm" style="text-align:center">
+${s.chip ? `<span class="chip">${s.chip}</span>` : ""}
+${s.headline ? `<h2 style="margin-top:12px;margin-bottom:20px">${s.headline}</h2>` : ""}
+<p class="lead">${s.body}</p>
+</div>
+</section>`;
+}
+
+function _sImageText(s: any): string {
+  const imgLeft = s.image_side === "left";
+  const textBlock = `<div>
+${s.chip ? `<span class="chip">${s.chip}</span>` : ""}
+<h2 style="margin-top:12px;margin-bottom:16px">${s.headline}</h2>
+<p class="lead">${s.body}</p>
+${s.cta ? `<a href="contact.html" class="btn btn-p" style="margin-top:28px">${s.cta}</a>` : ""}
+</div>`;
+  const imgBlock = `<div style="background:linear-gradient(135deg,rgba(var(--p-rgb),.12) 0%,rgba(var(--p-rgb),.25) 100%);border-radius:var(--r-lg);min-height:360px;display:flex;align-items:center;justify-content:center;font-size:5rem">✨</div>`;
+  return `<section class="s">
+<div class="c">
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:64px;align-items:center">
+${imgLeft ? `${imgBlock}${textBlock}` : `${textBlock}${imgBlock}`}
+</div>
+</div>
+</section>`;
+}
+
+function renderSection(s: SectionData, heroUrl?: string): string {
+  switch (s.type) {
+    case "hero":          return _sHero(s, heroUrl);
+    case "stats":         return _sStats(s);
+    case "features":      return _sFeatures(s);
+    case "steps":         return _sSteps(s);
+    case "testimonials":  return _sTestimonials(s);
+    case "cta":           return _sCta(s);
+    case "pricing":       return _sPricing(s);
+    case "faq":           return _sFaq(s);
+    case "contact":       return _sContact(s);
+    case "team":          return _sTeam(s);
+    case "portfolio":     return _sPortfolio(s);
+    case "about_hero":    return _sAboutHero(s);
+    case "services":      return _sServices(s);
+    case "values":        return _sValues(s);
+    case "content_block": return _sContentBlock(s);
+    case "image_text":    return _sImageText(s);
+    default: return "";
+  }
+}
+
+// ── Entry point for standalone HTML generation ───────────────────────────────
+
+async function buildStandaloneHtml(
+  pageType: string,
+  content: any,
+  heroImageUrl: string | undefined,
+  primaryColor: string,
+  siteTitle: string,
+  pageList: string[],
+  brief?: PageBrief,
+  useAI = true,
+): Promise<string> {
+  const css = _css(primaryColor);
+  const safeList = pageList.length > 0 ? pageList : ["home"];
+  const nav = _nav(siteTitle, safeList);
+  const ftr = _footer(siteTitle, safeList);
+  const title = pageType === "home" ? siteTitle : `${pageType.charAt(0).toUpperCase() + pageType.slice(1)} | ${siteTitle}`;
+
+  const sections = useAI
+    ? await generatePageSections(pageType, brief ?? {}, content)
+    : fallbackSections(pageType, content);
+
+  const body = sections.map(s => renderSection(s, pageType === "home" ? heroImageUrl : undefined)).join("\n");
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>${title}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;0,900;1,400&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>${css}</style>
+</head>
+<body>
+${nav}
+<main>${body}</main>
+${ftr}
+<script>
+function toggleFaq(i){const a=document.getElementById('faq-'+i);a&&a.parentElement.classList.toggle('open')}
+</script>
+</body>
+</html>`;
+}
+
+// ── LEGACY stub — kept only so _homeBody reference in old code compiles ──────
 
 function _homeBody(c: any, heroUrl: string | undefined, p: string): string {
   const hero = c.hero ?? {};
@@ -1665,56 +2150,6 @@ ${sections.map((sec: any) => `<div style="margin-top:48px"><h2 style="margin-bot
 </section>`;
 }
 
-// ── Entry point for standalone HTML generation ───────────────────────────────
-
-function buildStandaloneHtml(
-  pageType: string,
-  content: any,
-  heroImageUrl: string | undefined,
-  primaryColor: string,
-  siteTitle: string,
-  pageList: string[],
-): string {
-  const css = _css(primaryColor);
-  const nav = _nav(siteTitle, pageList.length > 0 ? pageList : ["home"]);
-  const ftr = _footer(siteTitle, pageList.length > 0 ? pageList : ["home"]);
-  const title = pageType === "home"
-    ? siteTitle
-    : `${pageType.charAt(0).toUpperCase() + pageType.slice(1)} | ${siteTitle}`;
-
-  let body = "";
-  switch (pageType) {
-    case "home":      body = _homeBody(content, heroImageUrl, primaryColor); break;
-    case "about":     body = _aboutBody(content, primaryColor); break;
-    case "services":  body = _servicesBody(content, primaryColor); break;
-    case "pricing":   body = _pricingBody(content, primaryColor); break;
-    case "contact":   body = _contactBody(content, primaryColor); break;
-    case "portfolio": body = _portfolioBody(content, primaryColor); break;
-    default:          body = _genericBody(content, primaryColor, pageType); break;
-  }
-
-  return `<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1.0">
-<title>${title}</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;0,900;1,400&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-<style>${css}</style>
-</head>
-<body>
-${nav}
-<main>${body}</main>
-${ftr}
-<script>
-function toggleFaq(i){const el=document.getElementById('faq-'+i);el&&el.classList.toggle('open')}
-</script>
-</body>
-</html>`;
-}
-
 // ---------------------------------------------------------------------------
 // Main serve handler
 // ---------------------------------------------------------------------------
@@ -1739,14 +2174,16 @@ serve(async (req: Request) => {
 
       // -----------------------------------------------------------------------
       case "generate_page": {
-        const { page_type, page_content, primary_color, hero_image_url, site_title, page_list } = body;
-        const html = buildStandaloneHtml(
+        const { page_type, page_content, primary_color, hero_image_url, site_title, page_list, business_type, style } = body;
+        const html = await buildStandaloneHtml(
           page_type,
           page_content ?? {},
           hero_image_url,
           primary_color ?? "#1a56db",
           site_title ?? "Website",
           page_list ?? [page_type],
+          { business_name: site_title, business_type, style },
+          true,
         );
         return new Response(
           JSON.stringify({ success: true, html, page_type }),
@@ -1831,13 +2268,15 @@ serve(async (req: Request) => {
             pageType === "home" ? heroImageUrl : undefined,
             primaryColor,
           );
-          const standaloneHtml = buildStandaloneHtml(
+          const standaloneHtml = await buildStandaloneHtml(
             pageType,
             pageContent ?? siteContent.pages?.home ?? {},
             pageType === "home" ? heroImageUrl : undefined,
             primaryColor,
             body.business_name ?? siteContent.site?.title ?? "Website",
             pages as string[],
+            { business_name: body.business_name, business_type: body.business_type, style: body.style },
+            false,
           );
           generatedHtmls[pageType] = standaloneHtml;
 

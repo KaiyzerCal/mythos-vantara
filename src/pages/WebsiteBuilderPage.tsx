@@ -105,6 +105,11 @@ export default function WebsiteBuilderPage() {
   const [exportingPageId, setExportingPageId] = useState<string | null>(null);
   const [isDownloadingAll, setIsDownloadingAll] = useState(false);
 
+  // Netlify publishing
+  const [netlifyToken, setNetlifyToken] = useState(() => localStorage.getItem("netlify_token") ?? "");
+  const [isDeployingToNetlify, setIsDeployingToNetlify] = useState(false);
+  const [netlifyUrl, setNetlifyUrl] = useState<string | null>(null);
+
   // WordPress.com OAuth — new project form
   const [wpAuthMode, setWpAuthMode] = useState<"app_password" | "wpcom">("app_password");
   const [wpcomCred, setWpcomCred] = useState<{
@@ -162,6 +167,7 @@ export default function WebsiteBuilderPage() {
 
   const handleSelectProject = async (project: any) => {
     setSelectedProject(project);
+    setNetlifyUrl(project.netlify_site_url ?? null);
     await loadProjectPages(project.id);
   };
 
@@ -523,6 +529,8 @@ export default function WebsiteBuilderPage() {
         hero_image_url: pageType === "home" ? selectedProject?.hero_image_url : undefined,
         site_title: selectedProject?.business_name ?? selectedProject?.project_name ?? "Website",
         page_list: Object.keys(selectedProject?.site_content?.pages ?? {}),
+        business_type: selectedProject?.business_type,
+        style: selectedProject?.style,
       }),
     });
     if (!res.ok) throw new Error(`Failed to generate HTML for ${pageType}`);
@@ -559,6 +567,85 @@ export default function WebsiteBuilderPage() {
       toast.error(err.message ?? "Export failed");
     } finally {
       setExportingPageId(null);
+    }
+  };
+
+  // ── Deploy all pages to Netlify ──────────────────────────
+  const deployToNetlify = async () => {
+    if (!selectedProject?.site_content?.pages || isDeployingToNetlify) return;
+    if (!netlifyToken) { toast.error("Enter your Netlify personal access token first"); return; }
+    setIsDeployingToNetlify(true);
+    try {
+      const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
+      const { data: { session } } = await supabase.auth.getSession();
+      const pageTypes = Object.keys(selectedProject.site_content.pages);
+      const primaryColor = selectedProject.site_content?.site?.primary_color ?? "#1a56db";
+      const siteTitle = selectedProject.business_name ?? selectedProject.project_name ?? "Website";
+      const pageList = pageTypes;
+
+      // Generate HTML for every page
+      const files: Record<string, string> = {};
+      for (const pageType of pageTypes) {
+        const dbPage = projectPages.find((p: any) => p.page_type === pageType);
+        if (dbPage?.gutenberg_html) {
+          files[pageType === "home" ? "index.html" : `${pageType}.html`] = dbPage.gutenberg_html;
+          continue;
+        }
+        const res = await fetch(`${SUPABASE_URL}/functions/v1/mavis-web-builder`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${session?.access_token}` },
+          body: JSON.stringify({
+            action: "generate_page",
+            page_type: pageType,
+            page_content: selectedProject.site_content.pages[pageType] ?? {},
+            primary_color: primaryColor,
+            site_title: siteTitle,
+            page_list: pageList,
+            business_type: selectedProject.business_type,
+            style: selectedProject.style,
+          }),
+        });
+        if (res.ok) {
+          const d = await res.json();
+          files[pageType === "home" ? "index.html" : `${pageType}.html`] = d.html;
+        }
+      }
+
+      if (Object.keys(files).length === 0) { toast.error("No pages to deploy"); return; }
+
+      // Deploy via mavis-netlify edge function
+      const slug = siteTitle.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+      const deployRes = await fetch(`${SUPABASE_URL}/functions/v1/mavis-netlify`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session?.access_token}` },
+        body: JSON.stringify({
+          action: "deploy",
+          netlify_token: netlifyToken,
+          files,
+          site_id: selectedProject.netlify_site_id ?? undefined,
+          site_name: `mavis-${slug}-${selectedProject.id?.slice(0, 6)}`,
+        }),
+      });
+
+      if (!deployRes.ok) throw new Error("Netlify deploy failed");
+      const deployData = await deployRes.json();
+      const { site_id, site_url, deploy_id } = deployData.data ?? {};
+
+      // Save Netlify metadata to project
+      await supabase.from("website_projects").update({
+        netlify_site_id: site_id,
+        netlify_site_url: site_url,
+        netlify_deploy_id: deploy_id,
+        netlify_deploy_status: "ready",
+      }).eq("id", selectedProject.id);
+
+      setSelectedProject((p: any) => ({ ...p, netlify_site_id: site_id, netlify_site_url: site_url }));
+      setNetlifyUrl(site_url);
+      toast.success("Site deployed to Netlify!");
+    } catch (err: any) {
+      toast.error(err.message ?? "Deployment failed");
+    } finally {
+      setIsDeployingToNetlify(false);
     }
   };
 
@@ -943,6 +1030,59 @@ export default function WebsiteBuilderPage() {
                           </div>
                         );
                       })}
+                    </CardContent>
+                  </Card>
+                )}
+
+                {/* Netlify one-click publish */}
+                {selectedProject.site_content?.pages && Object.keys(selectedProject.site_content.pages).length > 0 && (
+                  <Card className="border-border/50">
+                    <CardHeader className="pb-2 pt-4 px-5">
+                      <CardTitle className="text-sm font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-2">
+                        <Globe size={13} />
+                        Publish to Web (Netlify)
+                      </CardTitle>
+                      <CardDescription className="text-xs">
+                        Deploy all pages as a live website instantly — no WordPress needed.
+                        {selectedProject.netlify_site_url && (
+                          <a href={selectedProject.netlify_site_url} target="_blank" rel="noopener noreferrer" className="ml-1 text-emerald-400 hover:underline font-mono">
+                            {selectedProject.netlify_site_url}
+                          </a>
+                        )}
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent className="px-5 pb-4 space-y-3">
+                      <div className="flex gap-2">
+                        <Input
+                          type="password"
+                          placeholder="Netlify personal access token"
+                          value={netlifyToken}
+                          onChange={(e) => {
+                            setNetlifyToken(e.target.value);
+                            localStorage.setItem("netlify_token", e.target.value);
+                          }}
+                          className="h-8 text-xs font-mono flex-1"
+                        />
+                        <Button
+                          size="sm"
+                          className="gap-1.5 text-xs h-8 shrink-0 bg-emerald-600 hover:bg-emerald-700 text-white"
+                          disabled={isDeployingToNetlify || !netlifyToken}
+                          onClick={deployToNetlify}
+                        >
+                          {isDeployingToNetlify
+                            ? <Loader2 size={11} className="animate-spin" />
+                            : <ExternalLink size={11} />}
+                          {isDeployingToNetlify ? "Deploying…" : selectedProject.netlify_site_url ? "Redeploy" : "Deploy"}
+                        </Button>
+                      </div>
+                      {netlifyUrl && (
+                        <p className="text-xs text-emerald-400 font-mono break-all">
+                          ✓ Live at: <a href={netlifyUrl} target="_blank" rel="noopener noreferrer" className="underline">{netlifyUrl}</a>
+                        </p>
+                      )}
+                      <p className="text-[11px] text-muted-foreground">
+                        Get a free token at <span className="font-mono">app.netlify.com → User settings → Applications → Personal access tokens</span>
+                      </p>
                     </CardContent>
                   </Card>
                 )}
