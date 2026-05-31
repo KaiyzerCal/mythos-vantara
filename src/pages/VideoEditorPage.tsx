@@ -11,7 +11,7 @@ import {
   Upload, Link, Play, Download, Share2, Scissors, Zap,
   Sparkles, Clock, TrendingUp, Eye, Copy, Check, Loader2,
   Video, ChevronRight, Star, Instagram, Twitter,
-  Youtube, AlertCircle, FileVideo, Send, BarChart3
+  Youtube, AlertCircle, FileVideo, Send, BarChart3, Trash2
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -312,6 +312,7 @@ export default function VideoEditorPage() {
   const [uploadProgress, setUploadProgress] = useState(0);
   const [renderingClipId, setRenderingClipId] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [deletingProjectId, setDeletingProjectId] = useState<string | null>(null);
 
   // Upload state
   const [dragOver, setDragOver] = useState(false);
@@ -362,6 +363,26 @@ export default function VideoEditorPage() {
       });
       setSegments(data.segments ?? []);
     } catch (_) {}
+  }
+
+  // ── Delete project ────────────────────────────────────────────────────────
+  async function handleDeleteProject(project: any) {
+    if (!confirm(`Delete "${project.title ?? "this video"}"? This cannot be undone.`)) return;
+    setDeletingProjectId(project.id);
+    try {
+      const { error } = await (supabase as any)
+        .from("video_projects")
+        .delete()
+        .eq("id", project.id)
+        .eq("user_id", user!.id);
+      if (error) throw error;
+      setProjects((prev) => prev.filter((p) => p.id !== project.id));
+      toast.success("Video deleted.");
+    } catch (err: any) {
+      toast.error("Delete failed: " + (err.message ?? "unknown error"));
+    } finally {
+      setDeletingProjectId(null);
+    }
   }
 
   // ── Analyze ───────────────────────────────────────────────────────────────
@@ -991,14 +1012,26 @@ export default function VideoEditorPage() {
                         </p>
                       )}
 
-                      <Button
-                        size="sm"
-                        className="w-full bg-purple-600 hover:bg-purple-700"
-                        onClick={() => openProject(project)}
-                      >
-                        Open Editor{" "}
-                        <ChevronRight className="w-3.5 h-3.5 ml-1" />
-                      </Button>
+                      <div className="flex gap-2">
+                        <Button
+                          size="sm"
+                          className="flex-1 bg-purple-600 hover:bg-purple-700"
+                          onClick={() => openProject(project)}
+                        >
+                          Open Editor <ChevronRight className="w-3.5 h-3.5 ml-1" />
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="border-gray-600 text-gray-400 hover:text-red-400 hover:border-red-500/50 px-2"
+                          disabled={deletingProjectId === project.id}
+                          onClick={() => handleDeleteProject(project)}
+                        >
+                          {deletingProjectId === project.id
+                            ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            : <Trash2 className="w-3.5 h-3.5" />}
+                        </Button>
+                      </div>
                     </CardContent>
                   </Card>
                 ))}

@@ -235,9 +235,12 @@ Return 6-12 top moments minimum. Focus on clips 15-120 seconds long.`;
   }
 
   const data = await res.json();
-  const text = data.candidates?.[0]?.content?.parts?.[0]?.text ?? "{}";
+  const text = data.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
+  if (!text) return await analyzeFromTranscriptOnly(transcript);
   try {
-    return JSON.parse(text);
+    const parsed = JSON.parse(text) as GeminiAnalysis;
+    if (!parsed.top_moments?.length) return await analyzeFromTranscriptOnly(transcript);
+    return parsed;
   } catch {
     return await analyzeFromTranscriptOnly(transcript);
   }
