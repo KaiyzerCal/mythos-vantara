@@ -87,6 +87,50 @@ function formatFileSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+const SUPPORTED_TRANSCRIPTION_VIDEO_EXTENSIONS = new Set([
+  "flac",
+  "m4a",
+  "mp3",
+  "mp4",
+  "mpeg",
+  "mpga",
+  "oga",
+  "ogg",
+  "wav",
+  "webm",
+]);
+
+function getVideoFileValidationError(file: File): string | null {
+  const ext = file.name.split(".").pop()?.toLowerCase() ?? "";
+  if (!file.type.startsWith("video/") && !file.type.startsWith("audio/")) {
+    return "Please upload a video or audio file.";
+  }
+  if (!SUPPORTED_TRANSCRIPTION_VIDEO_EXTENSIONS.has(ext)) {
+    return "This format can’t be transcribed yet. Convert it to MP4, WebM, OGG, M4A, MP3, WAV, or FLAC first.";
+  }
+  if (file.size > 24 * 1024 * 1024) {
+    return "This file is too large. Trim it to under 5 minutes or compress it below 24 MB before uploading.";
+  }
+  return null;
+}
+
+function selectVideoFile(
+  file: File | null,
+  setSelectedFile: (file: File | null) => void,
+) {
+  if (!file) {
+    setSelectedFile(null);
+    return;
+  }
+  const error = getVideoFileValidationError(file);
+  if (error) {
+    setSelectedFile(null);
+    toast.error(error);
+    return;
+  }
+  setSelectedFile(file);
+}
+
 function normalizeTranscriptLines(transcript: unknown): string[] {
   if (Array.isArray(transcript)) {
     return transcript
@@ -687,12 +731,8 @@ export default function VideoEditorPage() {
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     setDragOver(false);
-    const file = e.dataTransfer.files[0];
-    if (file && file.type.startsWith("video/")) {
-      setSelectedFile(file);
-    } else {
-      toast.error("Please drop a video file.");
-    }
+    const file = e.dataTransfer.files[0] ?? null;
+    selectVideoFile(file, setSelectedFile);
   }, []);
 
   // ── Stats helpers ─────────────────────────────────────────────────────────
