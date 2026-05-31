@@ -584,10 +584,7 @@ export default function WebsiteBuilderPage() {
   const deployToNetlify = async () => {
     if (isDeployingToNetlify) return;
     if (!netlifyToken) { toast.error("Enter your Netlify personal access token first"); return; }
-    if (allDeployablePageTypes.length === 0) {
-      toast.error("No pages to deploy — generate or upload pages first.");
-      return;
-    }
+    if (!selectedProject) return;
     setIsDeployingToNetlify(true);
     try {
       const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
@@ -595,19 +592,48 @@ export default function WebsiteBuilderPage() {
       const primaryColor = selectedProject?.site_content?.site?.primary_color ?? "#1a56db";
       const siteTitle = selectedProject?.business_name ?? selectedProject?.project_name ?? "Website";
 
-      // Build files dict — prefer stored gutenberg_html (MAVIS-generated OR user-uploaded),
-      // only regenerate when a page has no stored HTML at all.
+      // Re-fetch pages directly from the DB right now so the deploy always uses
+      // the latest stored HTML — not whatever is currently in React state.
+      const { data: rawPages } = await supabase
+        .from("website_pages")
+        .select("*")
+        .eq("project_id", selectedProject.id)
+        .order("created_at", { ascending: false });
+
+      const byType = new Map<string, any>();
+      for (const p of rawPages ?? []) {
+        if (!byType.has(p.page_type)) byType.set(p.page_type, p);
+      }
+      const latestPages = [...byType.values()];
+
+      // Compute deployable page types from the fresh DB data
+      const seenTypes = new Set<string>();
+      const pageTypesToDeploy: string[] = [];
+      for (const t of Object.keys(selectedProject?.site_content?.pages ?? {})) {
+        if (!seenTypes.has(t)) { seenTypes.add(t); pageTypesToDeploy.push(t); }
+      }
+      for (const p of latestPages) {
+        if (p.gutenberg_html && !seenTypes.has(p.page_type)) {
+          seenTypes.add(p.page_type); pageTypesToDeploy.push(p.page_type);
+        }
+      }
+
+      if (pageTypesToDeploy.length === 0) {
+        toast.error("No pages to deploy — generate or upload pages first.");
+        return;
+      }
+
+      // Build files dict — DB HTML always wins; only regenerate when no HTML is stored.
       const files: Record<string, string> = {};
-      for (const pageType of allDeployablePageTypes) {
-        const dbPage = projectPages.find((p: any) => p.page_type === pageType);
+      for (const pageType of pageTypesToDeploy) {
+        const dbPage = latestPages.find((p: any) => p.page_type === pageType);
         if (dbPage?.gutenberg_html) {
-          // Use stored HTML (either MAVIS-generated or user-uploaded)
           files[pageType === "home" ? "index.html" : `${pageType}.html`] = dbPage.gutenberg_html;
           continue;
         }
         // No stored HTML — regenerate from site_content if available
         const pageContent = selectedProject?.site_content?.pages?.[pageType];
-        if (!pageContent) continue; // skip pages with no content source
+        if (!pageContent) continue;
         const res = await fetch(`${SUPABASE_URL}/functions/v1/mavis-web-builder`, {
           method: "POST",
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${session?.access_token}` },
@@ -617,7 +643,7 @@ export default function WebsiteBuilderPage() {
             page_content: pageContent,
             primary_color: primaryColor,
             site_title: siteTitle,
-            page_list: allDeployablePageTypes,
+            page_list: pageTypesToDeploy,
             business_type: selectedProject?.business_type,
             style: selectedProject?.style,
           }),
@@ -629,6 +655,12 @@ export default function WebsiteBuilderPage() {
       }
 
       if (Object.keys(files).length === 0) { toast.error("No pages to deploy"); return; }
+
+      const uploadedCount = pageTypesToDeploy.filter(pt => {
+        const p = latestPages.find((pg: any) => pg.page_type === pt);
+        return p?.status === "customized" && p.gutenberg_html;
+      }).length;
+      toast.info(`Deploying ${Object.keys(files).length} page${Object.keys(files).length !== 1 ? "s" : ""}${uploadedCount > 0 ? ` · ${uploadedCount} from your uploads` : ""}…`);
 
       // Deploy via mavis-netlify edge function
       const slug = siteTitle.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
@@ -648,16 +680,20 @@ export default function WebsiteBuilderPage() {
       const deployData = await deployRes.json();
       const { site_id, site_url, deploy_id } = deployData.data ?? {};
 
-      // Save Netlify metadata to project
-      await supabase.from("website_projects").update({
+      // Persist Netlify metadata — only overwrite site_url if the API returned one
+      // (on redeploy to an existing site the API may return an empty url).
+      const updatePayload: Record<string, any> = {
         netlify_site_id: site_id,
-        netlify_site_url: site_url,
         netlify_deploy_id: deploy_id,
         netlify_deploy_status: "ready",
-      }).eq("id", selectedProject.id);
+      };
+      if (site_url) updatePayload.netlify_site_url = site_url;
 
-      setSelectedProject((p: any) => ({ ...p, netlify_site_id: site_id, netlify_site_url: site_url }));
-      setNetlifyUrl(site_url);
+      await supabase.from("website_projects").update(updatePayload).eq("id", selectedProject.id);
+
+      const liveUrl = site_url || selectedProject.netlify_site_url;
+      setSelectedProject((p: any) => ({ ...p, netlify_site_id: site_id, netlify_site_url: liveUrl }));
+      if (liveUrl) setNetlifyUrl(liveUrl);
       toast.success("Site deployed to Netlify!");
     } catch (err: any) {
       toast.error(err.message ?? "Deployment failed");
