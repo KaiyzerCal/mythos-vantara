@@ -87,49 +87,53 @@ async function transcribeWithWhisper(videoUrl: string): Promise<{
   text: string;
   chunks: Array<{ start: number; end: number; text: string }>;
 }> {
-  // Download video/audio from URL.
-  // If the URL is a Supabase Storage public URL and the bucket is private,
-  // the fetch returns an error page rather than the video — generate a
-  // signed URL with the service role key as a fallback.
-  let resolvedUrl = videoUrl;
-  if (videoUrl.includes("/storage/v1/object/public/")) {
-    const bucket = videoUrl.split("/storage/v1/object/public/")[1]?.split("/")[0];
-    const objectPath = videoUrl.split(`/storage/v1/object/public/${bucket}/`)[1]?.split("?")[0];
-    if (bucket && objectPath && SUPABASE_SERVICE_KEY) {
-      const sb = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
-      const { data: signedData } = await sb.storage.from(bucket).createSignedUrl(decodeURIComponent(objectPath), 600);
-      if (signedData?.signedUrl) resolvedUrl = signedData.signedUrl;
+  // Download video/audio. For Supabase Storage URLs, download directly via the
+  // storage SDK using the service role key — this bypasses the public CDN
+  // (which rate-limits with 429 + HTML error pages) and works for both public
+  // and private buckets.
+  let videoBlob: Blob | null = null;
+  let responseContentType = "";
+
+  const storageMatch = videoUrl.match(/\/storage\/v1\/object\/(?:public|sign)\/([^/]+)\/([^?]+)/);
+  if (storageMatch && SUPABASE_SERVICE_KEY) {
+    const bucket = storageMatch[1];
+    const objectPath = decodeURIComponent(storageMatch[2]);
+    const sb = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
+    const { data: dlData, error: dlErr } = await sb.storage.from(bucket).download(objectPath);
+    if (dlErr || !dlData) {
+      throw new Error(`Failed to download video from storage: ${dlErr?.message ?? "no data"}`);
     }
+    videoBlob = dlData;
+    responseContentType = dlData.type ?? "";
+  } else {
+    // External URL — fetch with retry on 429
+    let videoRes: Response | null = null;
+    let lastErr = "";
+    for (let attempt = 0; attempt < 3; attempt++) {
+      videoRes = await fetch(videoUrl, { signal: AbortSignal.timeout(90000) });
+      if (videoRes.ok) break;
+      lastErr = `${videoRes.status}: ${(await videoRes.text()).slice(0, 200)}`;
+      if (videoRes.status === 429 || videoRes.status >= 500) {
+        await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)));
+        continue;
+      }
+      break;
+    }
+    if (!videoRes || !videoRes.ok) {
+      throw new Error(`Failed to fetch video (${lastErr})`);
+    }
+    videoBlob = await videoRes.blob();
+    responseContentType = videoRes.headers.get("content-type") ?? videoBlob.type ?? "";
   }
 
-  // Pre-flight: check file size via HEAD request before downloading.
-  // Whisper rejects files > 25 MB; downloading large files also risks timeout.
-  try {
-    const head = await fetch(resolvedUrl, { method: "HEAD", signal: AbortSignal.timeout(10000) });
-    const contentLength = Number(head.headers.get("content-length") ?? 0);
-    if (contentLength > 24 * 1024 * 1024) {
-      throw new Error(
-        `Video file is too large for transcription (${(contentLength / 1024 / 1024).toFixed(0)} MB). ` +
-        `Please upload a video under 24 MB, or trim it to under 5 minutes first.`
-      );
-    }
-  } catch (sizeErr: any) {
-    if (sizeErr.message.includes("too large")) throw sizeErr;
-    // HEAD failed (some servers don't support it) — proceed and check after download
-  }
-
-  const videoRes = await fetch(resolvedUrl, { signal: AbortSignal.timeout(90000) });
-  if (!videoRes.ok) {
-    throw new Error(`Failed to fetch video (${videoRes.status}): ${(await videoRes.text()).slice(0, 200)}`);
-  }
-  const videoBlob = await videoRes.blob();
-  if (videoBlob.size === 0) throw new Error("Video file is empty");
+  if (!videoBlob || videoBlob.size === 0) throw new Error("Video file is empty");
   if (videoBlob.size > 24 * 1024 * 1024) {
     throw new Error(
       `Video file is too large for transcription (${(videoBlob.size / 1024 / 1024).toFixed(0)} MB). ` +
       `Please upload a video under 24 MB, or trim it to under 5 minutes first.`
     );
   }
+
 
   // Whisper only accepts a narrow set of media containers/codecs. Re-labelling a
   // QuickTime/MOV blob as MP4 does not transcode it, so reject unsupported inputs
