@@ -102,12 +102,34 @@ async function transcribeWithWhisper(videoUrl: string): Promise<{
     }
   }
 
-  const videoRes = await fetch(resolvedUrl, { signal: AbortSignal.timeout(120000) });
+  // Pre-flight: check file size via HEAD request before downloading.
+  // Whisper rejects files > 25 MB; downloading large files also risks timeout.
+  try {
+    const head = await fetch(resolvedUrl, { method: "HEAD", signal: AbortSignal.timeout(10000) });
+    const contentLength = Number(head.headers.get("content-length") ?? 0);
+    if (contentLength > 24 * 1024 * 1024) {
+      throw new Error(
+        `Video file is too large for transcription (${(contentLength / 1024 / 1024).toFixed(0)} MB). ` +
+        `Please upload a video under 24 MB, or trim it to under 5 minutes first.`
+      );
+    }
+  } catch (sizeErr: any) {
+    if (sizeErr.message.includes("too large")) throw sizeErr;
+    // HEAD failed (some servers don't support it) — proceed and check after download
+  }
+
+  const videoRes = await fetch(resolvedUrl, { signal: AbortSignal.timeout(90000) });
   if (!videoRes.ok) {
     throw new Error(`Failed to fetch video (${videoRes.status}): ${(await videoRes.text()).slice(0, 200)}`);
   }
   const videoBlob = await videoRes.blob();
   if (videoBlob.size === 0) throw new Error("Video file is empty");
+  if (videoBlob.size > 24 * 1024 * 1024) {
+    throw new Error(
+      `Video file is too large for transcription (${(videoBlob.size / 1024 / 1024).toFixed(0)} MB). ` +
+      `Please upload a video under 24 MB, or trim it to under 5 minutes first.`
+    );
+  }
 
   // Whisper rejects files with generic MIME types (e.g. application/octet-stream).
   // Re-wrap the blob with the correct MIME type inferred from the URL extension.
@@ -136,7 +158,7 @@ async function transcribeWithWhisper(videoUrl: string): Promise<{
     method: "POST",
     headers: { Authorization: `Bearer ${OPENAI_KEY}` },
     body: form,
-    signal: AbortSignal.timeout(120000),
+    signal: AbortSignal.timeout(90000),
   });
 
   if (!res.ok) {

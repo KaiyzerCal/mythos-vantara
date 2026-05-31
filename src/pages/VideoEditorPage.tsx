@@ -11,7 +11,7 @@ import {
   Upload, Link, Play, Download, Share2, Scissors, Zap,
   Sparkles, Clock, TrendingUp, Eye, Copy, Check, Loader2,
   Video, ChevronRight, Star, Instagram, Twitter,
-  Youtube, AlertCircle, FileVideo, Send, BarChart3, Trash2
+  Youtube, AlertCircle, FileVideo, Send, BarChart3, Trash2, RefreshCw
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -143,6 +143,12 @@ function normalizeProjectTranscript<T>(project: T): T {
       (project as Record<string, unknown>).transcript
     ),
   } as T;
+}
+
+function isStuck(project: any): boolean {
+  if (project.status !== "analyzing") return false;
+  const age = Date.now() - new Date(project.created_at).getTime();
+  return age > 5 * 60 * 1000; // stuck if analyzing for > 5 minutes
 }
 
 // ─── Clip Card ────────────────────────────────────────────────────────────────
@@ -313,6 +319,7 @@ export default function VideoEditorPage() {
   const [renderingClipId, setRenderingClipId] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [deletingProjectId, setDeletingProjectId] = useState<string | null>(null);
+  const [retryingProjectId, setRetryingProjectId] = useState<string | null>(null);
 
   // Upload state
   const [dragOver, setDragOver] = useState(false);
@@ -383,6 +390,39 @@ export default function VideoEditorPage() {
     } finally {
       setDeletingProjectId(null);
     }
+  }
+
+  // ── Retry stuck/failed analysis ───────────────────────────────────────────
+  async function handleRetryAnalysis(project: any) {
+    if (!user) return;
+    const sourceUrl: string | undefined = project.source_url;
+    if (!sourceUrl) { toast.error("No source URL stored — please re-upload the video."); return; }
+    if (project.source_type === "upload") {
+      // Uploaded files' signed URLs expire; we need a fresh signed URL from the stored path
+      // source_url for uploads is a signed URL — try to regenerate from the storage path
+      const pathMatch = sourceUrl.match(/video-projects\/(.+?)(?:\?|$)/);
+      if (!pathMatch) {
+        toast.error("Cannot retry upload — please re-upload the video file.");
+        return;
+      }
+      const storagePath = decodeURIComponent(pathMatch[1]);
+      const { data: freshSigned, error: signErr } = await supabase.storage
+        .from("video-projects")
+        .createSignedUrl(storagePath, 3600);
+      if (signErr || !freshSigned?.signedUrl) {
+        toast.error("Could not re-access the video file — please re-upload it.");
+        return;
+      }
+      // Delete the stuck project first so a fresh one gets created
+      await (supabase as any).from("video_projects").delete().eq("id", project.id);
+      setProjects((prev) => prev.filter((p) => p.id !== project.id));
+      handleAnalyze({ url: freshSigned.signedUrl });
+      return;
+    }
+    // URL-based: delete old stuck project and re-run
+    await (supabase as any).from("video_projects").delete().eq("id", project.id);
+    setProjects((prev) => prev.filter((p) => p.id !== project.id));
+    handleAnalyze({ url: sourceUrl });
   }
 
   // ── Analyze ───────────────────────────────────────────────────────────────
@@ -694,8 +734,9 @@ export default function VideoEditorPage() {
                         <p className="text-sm font-medium text-white">
                           {selectedFile.name}
                         </p>
-                        <p className="text-xs text-gray-400 mt-1">
+                        <p className={`text-xs mt-1 ${selectedFile.size > 24 * 1024 * 1024 ? "text-red-400" : "text-gray-400"}`}>
                           {formatFileSize(selectedFile.size)}
+                          {selectedFile.size > 24 * 1024 * 1024 && " — too large (24 MB max)"}
                         </p>
                       </div>
                     ) : (
@@ -704,15 +745,22 @@ export default function VideoEditorPage() {
                           Drag & drop your video here
                         </p>
                         <p className="text-xs text-gray-500 mt-1">
-                          MP4, MOV, WebM — up to 2 GB
+                          MP4, MOV, WebM — max 24 MB / ~5 min
                         </p>
                       </div>
                     )}
                   </div>
 
+                  {selectedFile && selectedFile.size > 24 * 1024 * 1024 && (
+                    <div className="flex items-start gap-2 bg-red-500/10 border border-red-500/30 rounded-lg p-3 text-xs text-red-300">
+                      <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                      <span>This file is too large. Trim it to under 5 minutes or compress it below 24 MB before uploading.</span>
+                    </div>
+                  )}
+
                   <Button
                     className="w-full bg-purple-600 hover:bg-purple-700 text-white"
-                    disabled={!selectedFile}
+                    disabled={!selectedFile || selectedFile.size > 24 * 1024 * 1024}
                     onClick={() =>
                       selectedFile && handleAnalyze({ file: selectedFile })
                     }
@@ -986,22 +1034,17 @@ export default function VideoEditorPage() {
                           className={`text-xs ${
                             project.status === "ready"
                               ? "border-green-500/50 text-green-400"
-                              : project.status === "analyzing"
-                              ? "border-yellow-500/50 text-yellow-400"
-                              : "border-red-500/50 text-red-400"
+                              : isStuck(project) || project.status === "failed"
+                              ? "border-red-500/50 text-red-400"
+                              : "border-yellow-500/50 text-yellow-400"
                           }`}
                         >
-                          {project.status ?? "ready"}
+                          {isStuck(project) ? "stuck" : (project.status ?? "ready")}
                         </Badge>
                         {project.duration && (
                           <span className="text-xs text-gray-400 font-mono flex items-center gap-1">
                             <Clock className="w-3 h-3" />
                             {formatDuration(project.duration)}
-                          </span>
-                        )}
-                        {project.clip_count != null && (
-                          <span className="text-xs text-gray-400">
-                            {project.clip_count} clips
                           </span>
                         )}
                       </div>
@@ -1013,13 +1056,29 @@ export default function VideoEditorPage() {
                       )}
 
                       <div className="flex gap-2">
-                        <Button
-                          size="sm"
-                          className="flex-1 bg-purple-600 hover:bg-purple-700"
-                          onClick={() => openProject(project)}
-                        >
-                          Open Editor <ChevronRight className="w-3.5 h-3.5 ml-1" />
-                        </Button>
+                        {isStuck(project) || project.status === "failed" ? (
+                          <Button
+                            size="sm"
+                            className="flex-1 bg-yellow-600 hover:bg-yellow-700 text-white"
+                            disabled={retryingProjectId === project.id}
+                            onClick={() => {
+                              setRetryingProjectId(project.id);
+                              handleRetryAnalysis(project).finally(() => setRetryingProjectId(null));
+                            }}
+                          >
+                            {retryingProjectId === project.id
+                              ? <><Loader2 className="w-3.5 h-3.5 animate-spin mr-1" /> Retrying…</>
+                              : <><RefreshCw className="w-3.5 h-3.5 mr-1" /> Retry Analysis</>}
+                          </Button>
+                        ) : (
+                          <Button
+                            size="sm"
+                            className="flex-1 bg-purple-600 hover:bg-purple-700"
+                            onClick={() => openProject(project)}
+                          >
+                            Open Editor <ChevronRight className="w-3.5 h-3.5 ml-1" />
+                          </Button>
+                        )}
                         <Button
                           size="sm"
                           variant="outline"
@@ -1132,13 +1191,22 @@ export default function VideoEditorPage() {
 
                 {allClips.length === 0 && (
                   <div className="text-center py-16">
-                    <Scissors className="w-12 h-12 text-gray-600 mx-auto mb-3" />
-                    <p className="text-gray-400 text-sm">
-                      No clips generated yet.
+                    <AlertCircle className="w-12 h-12 text-gray-600 mx-auto mb-3" />
+                    <p className="text-gray-400 text-sm font-medium mb-1">
+                      No clips found for this video.
                     </p>
-                    <p className="text-gray-500 text-xs mt-1">
-                      Try analyzing a video first.
+                    <p className="text-gray-500 text-xs mb-4">
+                      The analysis may have timed out or the video may need to be re-analyzed.
                     </p>
+                    {selectedProject?.source_url && (
+                      <Button
+                        size="sm"
+                        className="bg-purple-600 hover:bg-purple-700"
+                        onClick={() => handleRetryAnalysis(selectedProject)}
+                      >
+                        <RefreshCw className="w-3.5 h-3.5 mr-1.5" /> Re-analyze Video
+                      </Button>
+                    )}
                   </div>
                 )}
               </TabsContent>
