@@ -2,7 +2,7 @@
 // VANTARA.EXE — WebsiteBuilderPage
 // MAVIS website-building service — autonomous client site generation
 // ============================================================
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { supabase as _supabase } from "@/integrations/supabase/client";
 const supabase = _supabase as any;
 import { useAuth } from "@/contexts/AuthContext";
@@ -16,7 +16,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import {
   Globe, Plus, Sparkles, ExternalLink, CheckCircle2,
   Loader2, Copy, Trash2, Eye, Settings, Users,
-  DollarSign, Code2, Layers, Zap, Download, FileCode, Link2, Unlink,
+  DollarSign, Code2, Layers, Zap, Download, FileCode, Link2, Unlink, Upload,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -104,6 +104,8 @@ export default function WebsiteBuilderPage() {
   const [isAddingPage, setIsAddingPage] = useState(false);
   const [exportingPageId, setExportingPageId] = useState<string | null>(null);
   const [isDownloadingAll, setIsDownloadingAll] = useState(false);
+  const [importingPageType, setImportingPageType] = useState<string | null>(null);
+  const htmlImportRef = useRef<HTMLInputElement>(null);
 
   // Netlify publishing
   const [netlifyToken, setNetlifyToken] = useState(() => localStorage.getItem("netlify_token") ?? "");
@@ -673,9 +675,55 @@ export default function WebsiteBuilderPage() {
     }
   };
 
+  // ── Import an HTML file back into a page ─────────────────
+  const handleImportHtml = (pageType: string) => {
+    setImportingPageType(pageType);
+    htmlImportRef.current?.click();
+  };
+
+  const handleImportHtmlFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    // Reset input so the same file can be re-selected later
+    e.target.value = "";
+    if (!file || !importingPageType || !selectedProject || !user) {
+      setImportingPageType(null);
+      return;
+    }
+
+    const html = await file.text();
+    const pageType = importingPageType;
+    setImportingPageType(null);
+
+    try {
+      const { error } = await supabase.from("website_pages").upsert({
+        project_id: selectedProject.id,
+        user_id: user.id,
+        page_type: pageType,
+        slug: pageType,
+        status: "generated",
+        gutenberg_html: html,
+      }, { onConflict: "project_id,page_type" });
+
+      if (error) throw error;
+      toast.success(`${pageType}.html imported — page updated.`);
+      await loadProjectPages(selectedProject.id);
+    } catch (err: any) {
+      toast.error(err.message ?? "Import failed");
+    }
+  };
+
   // ── Render ────────────────────────────────────────────────
   return (
     <div className="max-w-7xl mx-auto space-y-6">
+      {/* Hidden HTML file input for page import */}
+      <input
+        ref={htmlImportRef}
+        type="file"
+        accept=".html,text/html"
+        className="hidden"
+        onChange={handleImportHtmlFile}
+      />
+
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -1022,6 +1070,17 @@ export default function WebsiteBuilderPage() {
                                   ? <Loader2 size={11} className="animate-spin" />
                                   : <Download size={11} />}
                                 .html
+                              </button>
+                              <button
+                                onClick={() => handleImportHtml(pageType)}
+                                disabled={importingPageType === pageType}
+                                className="flex items-center gap-1 px-2.5 py-1 rounded border border-border/50 text-xs font-mono text-muted-foreground hover:text-blue-400 hover:border-blue-400/30 transition-colors disabled:opacity-40"
+                                title="Import customized HTML file"
+                              >
+                                {importingPageType === pageType
+                                  ? <Loader2 size={11} className="animate-spin" />
+                                  : <Upload size={11} />}
+                                import
                               </button>
                               {dbPage?.status === "published" && (
                                 <span title="Published to WordPress"><CheckCircle2 size={14} className="text-emerald-400" /></span>

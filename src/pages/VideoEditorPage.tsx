@@ -56,6 +56,15 @@ const FORMAT_LABELS: Record<string, string> = {
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
+function isStreamingUrl(url: string): boolean {
+  try {
+    const hostname = new URL(url).hostname.replace(/^www\./, "");
+    return ["youtube.com", "youtu.be", "loom.com", "vimeo.com", "wistia.com", "wistia.net"].includes(hostname);
+  } catch {
+    return false;
+  }
+}
+
 function ViralScoreBadge({ score }: { score: number }) {
   const color =
     score >= 8
@@ -900,30 +909,46 @@ export default function VideoEditorPage() {
                 <CardHeader>
                   <CardTitle className="text-base text-white flex items-center gap-2">
                     <Link className="w-4 h-4 text-purple-400" />
-                    Or Paste a Video URL
+                    Or Paste a Direct Video URL
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <p className="text-xs text-gray-400">
-                    YouTube, Loom, Vimeo, Wistia, or any direct video link.
+                    Paste a direct link to a video file (MP4, WebM, etc.). YouTube, Loom, and Vimeo links won't work — download the file first and upload it.
                   </p>
                   <Input
-                    placeholder="https://youtube.com/watch?v=..."
+                    placeholder="https://example.com/video.mp4"
                     value={urlInput}
                     onChange={(e) => setUrlInput(e.target.value)}
-                    className="bg-gray-900 border-gray-600 text-white placeholder:text-gray-500 focus:border-purple-500"
-                    onKeyDown={(e) =>
-                      e.key === "Enter" &&
-                      urlInput.trim() &&
-                      handleAnalyze({ url: urlInput.trim() })
-                    }
+                    className={`bg-gray-900 border-gray-600 text-white placeholder:text-gray-500 focus:border-purple-500 ${urlInput.trim() && isStreamingUrl(urlInput.trim()) ? "border-red-500/60" : ""}`}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && urlInput.trim()) {
+                        if (isStreamingUrl(urlInput.trim())) {
+                          toast.error("YouTube, Loom, and Vimeo URLs can't be downloaded directly. Download the video file first, then upload it.");
+                        } else {
+                          handleAnalyze({ url: urlInput.trim() });
+                        }
+                      }
+                    }}
                   />
+                  {urlInput.trim() && isStreamingUrl(urlInput.trim()) && (
+                    <div className="flex items-start gap-2 bg-red-500/10 border border-red-500/30 rounded-lg p-3 text-xs text-red-300">
+                      <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                      <span>YouTube, Loom, and Vimeo URLs can't be downloaded directly. Download the video file first, then upload it above.</span>
+                    </div>
+                  )}
                   <Button
                     className="w-full bg-purple-600 hover:bg-purple-700 text-white"
-                    disabled={!urlInput.trim()}
-                    onClick={() =>
-                      urlInput.trim() && handleAnalyze({ url: urlInput.trim() })
-                    }
+                    disabled={!urlInput.trim() || isStreamingUrl(urlInput.trim())}
+                    onClick={() => {
+                      const trimmed = urlInput.trim();
+                      if (!trimmed) return;
+                      if (isStreamingUrl(trimmed)) {
+                        toast.error("YouTube, Loom, and Vimeo URLs can't be downloaded directly. Download the video file first, then upload it.");
+                        return;
+                      }
+                      handleAnalyze({ url: trimmed });
+                    }}
                   >
                     <Sparkles className="w-4 h-4 mr-2" />
                     Analyze URL
@@ -931,9 +956,9 @@ export default function VideoEditorPage() {
 
                   <div className="mt-4 space-y-2">
                     {[
-                      { icon: <Youtube className="w-4 h-4 text-red-400" />, label: "YouTube" },
-                      { icon: <Video className="w-4 h-4 text-blue-400" />, label: "Loom / Vimeo" },
-                      { icon: <Play className="w-4 h-4 text-green-400" />, label: "Direct MP4 URL" },
+                      { icon: <Play className="w-4 h-4 text-green-400" />, label: "Direct MP4 / WebM link" },
+                      { icon: <FileVideo className="w-4 h-4 text-blue-400" />, label: "CDN-hosted video URL" },
+                      { icon: <Upload className="w-4 h-4 text-purple-400" />, label: "YouTube/Loom → download first" },
                     ].map((item) => (
                       <div
                         key={item.label}

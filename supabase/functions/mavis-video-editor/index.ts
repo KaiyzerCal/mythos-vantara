@@ -88,9 +88,9 @@ async function transcribeWithWhisper(videoUrl: string): Promise<{
   chunks: Array<{ start: number; end: number; text: string }>;
 }> {
   // Reject streaming-site URLs early — we can't fetch a media blob from them.
-  if (/(?:youtube\.com|youtu\.be|vimeo\.com|tiktok\.com|instagram\.com|facebook\.com|twitter\.com|x\.com)/i.test(videoUrl)) {
+  if (/(?:youtube\.com|youtu\.be|vimeo\.com|tiktok\.com|instagram\.com|facebook\.com|twitter\.com|x\.com|loom\.com|wistia\.com|wistia\.net)/i.test(videoUrl)) {
     throw new Error(
-      "Streaming-site URLs (YouTube, Vimeo, TikTok, etc.) can't be transcribed directly. " +
+      "Streaming-site URLs (YouTube, Vimeo, Loom, TikTok, etc.) can't be transcribed directly. " +
       "Please download the video as MP4/MP3 and upload the file instead."
     );
   }
