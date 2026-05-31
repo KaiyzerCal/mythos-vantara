@@ -87,6 +87,14 @@ async function transcribeWithWhisper(videoUrl: string): Promise<{
   text: string;
   chunks: Array<{ start: number; end: number; text: string }>;
 }> {
+  // Reject streaming-site URLs early — we can't fetch a media blob from them.
+  if (/(?:youtube\.com|youtu\.be|vimeo\.com|tiktok\.com|instagram\.com|facebook\.com|twitter\.com|x\.com)/i.test(videoUrl)) {
+    throw new Error(
+      "Streaming-site URLs (YouTube, Vimeo, TikTok, etc.) can't be transcribed directly. " +
+      "Please download the video as MP4/MP3 and upload the file instead."
+    );
+  }
+
   // Download video/audio. For Supabase Storage URLs, download directly via the
   // storage SDK using the service role key — this bypasses the public CDN
   // (which rate-limits with 429 + HTML error pages) and works for both public
