@@ -99,7 +99,10 @@ async function transcribeWithWhisper(videoUrl: string): Promise<{
     ogg: "audio/ogg", oga: "audio/ogg", flac: "audio/flac",
     mpeg: "video/mpeg", mpga: "audio/mpeg",
   };
-  const ext = (videoUrl.split("?")[0].split(".").pop() ?? "mp4").toLowerCase();
+  const rawExt = (videoUrl.split("?")[0].split(".").pop() ?? "").toLowerCase();
+  // Whisper-supported extensions only. Map unsupported (e.g. mov, octet) to mp4.
+  const WHISPER_EXTS = new Set(["flac","m4a","mp3","mp4","mpeg","mpga","oga","ogg","wav","webm"]);
+  const ext = WHISPER_EXTS.has(rawExt) ? rawExt : "mp4";
   const mimeType = (!videoBlob.type || videoBlob.type === "application/octet-stream")
     ? (MIME_MAP[ext] ?? "video/mp4")
     : videoBlob.type;
