@@ -4367,40 +4367,52 @@ export type Database = {
       }
       wp_credentials: {
         Row: {
-          app_password: string
+          app_password: string | null
+          auth_type: string | null
           created_at: string | null
           id: string
           label: string | null
           last_used_at: string | null
           project_id: string | null
-          site_url: string
+          site_url: string | null
           user_id: string
           verified: boolean | null
-          wp_username: string
+          wp_username: string | null
+          wpcom_access_token: string | null
+          wpcom_blog_id: number | null
+          wpcom_site_domain: string | null
         }
         Insert: {
-          app_password: string
+          app_password?: string | null
+          auth_type?: string | null
           created_at?: string | null
           id?: string
           label?: string | null
           last_used_at?: string | null
           project_id?: string | null
-          site_url: string
+          site_url?: string | null
           user_id: string
           verified?: boolean | null
-          wp_username: string
+          wp_username?: string | null
+          wpcom_access_token?: string | null
+          wpcom_blog_id?: number | null
+          wpcom_site_domain?: string | null
         }
         Update: {
-          app_password?: string
+          app_password?: string | null
+          auth_type?: string | null
           created_at?: string | null
           id?: string
           label?: string | null
           last_used_at?: string | null
           project_id?: string | null
-          site_url?: string
+          site_url?: string | null
           user_id?: string
           verified?: boolean | null
-          wp_username?: string
+          wp_username?: string | null
+          wpcom_access_token?: string | null
+          wpcom_blog_id?: number | null
+          wpcom_site_domain?: string | null
         }
         Relationships: [
           {
