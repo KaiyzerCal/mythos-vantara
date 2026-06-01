@@ -961,33 +961,41 @@ export default function VideoEditorPage() {
     compilationAbortRef.current = false;
     setCompilationResult({ status: "downloading" });
 
-    // Download the video via the proxy edge function so the browser gets a
-    // same-origin blob URL. Direct fetch of signed URLs fails (S3 CORS), and
-    // video.captureStream() fails on cross-origin elements (browser enforcement).
+    // Download the video as a same-origin blob URL so captureStream() has no CORS
+    // restrictions. Signed URLs redirect to S3 (no CORS), so we use the Supabase
+    // storage SDK which goes through Supabase's CORS-enabled API, not S3 directly.
     let blobUrl: string | null = null;
     const storageMatch = videoSrc.match(/\/storage\/v1\/object\/(?:sign|public)\/([^/]+)\/(.+?)(?:\?|$)/);
-    console.log("[compilation] videoSrc:", videoSrc?.slice(0, 80), "storageMatch:", !!storageMatch);
     if (storageMatch) {
       const [, bucket, rawPath] = storageMatch;
-      console.log("[compilation] proxy_video bucket:", bucket, "path:", decodeURIComponent(rawPath));
+      const decodedPath = decodeURIComponent(rawPath);
+      // Primary: SDK download (goes through Supabase API with CORS headers, not S3)
       try {
-        const { data: { session } } = await supabase.auth.getSession();
-        const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
-        const resp = await fetch(`${SUPABASE_URL}/functions/v1/mavis-video-render`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", Authorization: `Bearer ${session?.access_token}` },
-          body: JSON.stringify({ action: "proxy_video", bucket, path: decodeURIComponent(rawPath) }),
-        });
-        console.log("[compilation] proxy_video response:", resp.status, resp.ok);
-        if (resp.ok) blobUrl = URL.createObjectURL(await resp.blob());
-        else console.error("[compilation] proxy_video failed:", resp.status, await resp.text().catch(() => ""));
-      } catch (e) { console.error("[compilation] proxy_video error:", e); }
+        const { data: fileData, error: dlErr } = await supabase.storage
+          .from(bucket)
+          .download(decodedPath);
+        if (fileData && !dlErr) {
+          blobUrl = URL.createObjectURL(fileData);
+        } else {
+          console.error("[compilation] storage.download failed:", dlErr?.message);
+          // Fallback: edge function proxy
+          const { data: { session } } = await supabase.auth.getSession();
+          const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
+          const resp = await fetch(`${SUPABASE_URL}/functions/v1/mavis-video-render`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${session?.access_token}` },
+            body: JSON.stringify({ action: "proxy_video", bucket, path: decodedPath }),
+          });
+          if (resp.ok) blobUrl = URL.createObjectURL(await resp.blob());
+          else console.error("[compilation] proxy_video fallback failed:", resp.status, await resp.text().catch(() => ""));
+        }
+      } catch (e) { console.error("[compilation] download error:", e); }
     } else {
-      console.error("[compilation] storageMatch null — videoSrc doesn't match Supabase storage pattern:", videoSrc);
+      console.error("[compilation] storageMatch null — videoSrc:", videoSrc?.slice(0, 120));
     }
 
     if (!blobUrl) {
-      toast.error("Could not download the video for compilation. Make sure the mavis-video-render edge function is deployed.");
+      toast.error("Could not download the video for compilation — check the browser console for details.");
       setCompilationResult(null);
       return false;
     }
