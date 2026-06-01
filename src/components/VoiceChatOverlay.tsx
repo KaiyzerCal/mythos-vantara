@@ -69,6 +69,19 @@ export function VoiceChatOverlay({
   const livePlayingRef = useRef(false);
   const liveMicStreamRef = useRef<MediaStream | null>(null);
   const liveScriptProcessorRef = useRef<ScriptProcessorNode | null>(null);
+  // iOS Safari requires speechSynthesis.speak() to be called within a user gesture.
+  // We unlock the audio session on the first tap so async speakReply() works.
+  const audioUnlockedRef = useRef(false);
+
+  const unlockAudio = useCallback(() => {
+    if (audioUnlockedRef.current || !window.speechSynthesis) return;
+    audioUnlockedRef.current = true;
+    // Speaking a zero-width space (volume 0) during the tap activates the iOS
+    // audio session, allowing subsequent async speak() calls to play sound.
+    const u = new SpeechSynthesisUtterance('​');
+    u.volume = 0;
+    window.speechSynthesis.speak(u);
+  }, []);
 
   const effectiveLoading = persona ? personaLoading : isLoading;
   const effectiveReply   = persona ? personaReply   : lastBotMessage;
@@ -314,6 +327,8 @@ export function VoiceChatOverlay({
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
         liveMicStreamRef.current = stream;
         const audioCtx = liveAudioContextRef.current ??= new AudioContext({ sampleRate: 16000 });
+        // iOS suspends AudioContext by default; resume must happen close to a user gesture
+        if (audioCtx.state === "suspended") await audioCtx.resume();
         const source = audioCtx.createMediaStreamSource(stream);
         // ScriptProcessor is deprecated but has the widest support without extra deps
         const processor = audioCtx.createScriptProcessor(4096, 1, 1);
@@ -344,6 +359,7 @@ export function VoiceChatOverlay({
         if (msg.type === "audio" && msg.data) {
           const audioData = Uint8Array.from(atob(msg.data), (c) => c.charCodeAt(0));
           const audioCtx = liveAudioContextRef.current ??= new AudioContext({ sampleRate: 24000 });
+          if (audioCtx.state === "suspended") await audioCtx.resume();
           try {
             const buffer = await audioCtx.decodeAudioData(audioData.buffer);
             liveAudioQueueRef.current.push(buffer);
@@ -609,9 +625,15 @@ export function VoiceChatOverlay({
     if (window.speechSynthesis && !window.speechSynthesis.getVoices().length) {
       window.speechSynthesis.getVoices();
     }
+    // Reset unlock flag so the audio session is re-activated on every overlay open.
+    // iOS can re-lock audio if the page is backgrounded between sessions.
+    audioUnlockedRef.current = false;
   }, []);
 
   const handleOrbOrMicTap = useCallback(() => {
+    // Unlock iOS audio session on every tap so async speakReply() can play sound.
+    // On other platforms this is a harmless no-op after the first call.
+    unlockAudio();
     if (liveMode) {
       // In live mode, tapping sends an interrupt signal
       if (liveWsRef.current?.readyState === WebSocket.OPEN) {
@@ -626,7 +648,7 @@ export function VoiceChatOverlay({
       if (window.speechSynthesis) window.speechSynthesis.cancel();
       setPhase("idle");
     }
-  }, [phase, liveMode, startListening]);
+  }, [phase, liveMode, startListening, unlockAudio]);
 
   const phaseLabel: Record<Phase, string> = {
     idle: "TAP TO SPEAK",
