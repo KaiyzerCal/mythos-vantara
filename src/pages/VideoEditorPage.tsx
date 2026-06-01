@@ -1051,9 +1051,9 @@ export default function VideoEditorPage() {
       const chunks: BlobPart[] = [];
       const recorder = new MediaRecorder(stream, { mimeType, videoBitsPerSecond: 2_500_000 });
       recorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data); };
-      const recorderStopped = new Promise<void>(resolve =>
-        recorder.addEventListener("stop", resolve, { once: true })
-      );
+      const recorderStopped = new Promise<void>(resolve => {
+        recorder.addEventListener("stop", () => resolve(), { once: true });
+      });
       recorder.start(200);
 
       for (let i = 0; i < clips.length; i++) {
