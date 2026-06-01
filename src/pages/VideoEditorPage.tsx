@@ -991,11 +991,12 @@ export default function VideoEditorPage() {
         }
       } catch (e) { console.error("[compilation] download error:", e); }
     } else {
-      console.error("[compilation] storageMatch null — videoSrc:", videoSrc?.slice(0, 120));
+      // External URL (not Supabase storage) — can't download in browser; let server-side compile handle it
+      console.info("[compilation] External URL detected, skipping browser download:", videoSrc?.slice(0, 80));
     }
 
     if (!blobUrl) {
-      toast.error("Could not download the video for compilation — check the browser console for details.");
+      // Silently return false so handleBuildCompilation can fall through to fal.ai server-side compile
       setCompilationResult(null);
       return false;
     }
@@ -2223,11 +2224,17 @@ export default function VideoEditorPage() {
                     {compilationResult.status === "no_cloud" && (
                       <div className="space-y-1.5">
                         <p className="text-xs text-yellow-300 font-medium flex items-center gap-1.5">
-                          <AlertCircle className="w-3.5 h-3.5" /> Browser recording unavailable in this environment.
+                          <AlertCircle className="w-3.5 h-3.5" /> Compilation unavailable for this video.
                         </p>
-                        <p className="text-xs text-gray-400">
-                          To enable compilation, add a <span className="font-mono text-yellow-200">FAL_API_KEY</span> secret in your Supabase edge function settings, then redeploy <span className="font-mono">mavis-video-render</span>.
-                        </p>
+                        {selectedProject?.source_type === "url" ? (
+                          <p className="text-xs text-gray-400">
+                            This video was imported from an external link. Browser compilation only works for uploaded videos. <span className="text-yellow-200">Download the video file and re-upload it</span> to compile clips, or add a <span className="font-mono text-yellow-200">FAL_API_KEY</span> secret to enable server-side compilation.
+                          </p>
+                        ) : (
+                          <p className="text-xs text-gray-400">
+                            To enable compilation, add a <span className="font-mono text-yellow-200">FAL_API_KEY</span> secret in your Supabase edge function settings, then redeploy <span className="font-mono">mavis-video-render</span>.
+                          </p>
+                        )}
                       </div>
                     )}
 
