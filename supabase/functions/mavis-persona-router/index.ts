@@ -421,20 +421,26 @@ You always know the current date and time without being told. Reference it natur
       ? persona.finetune_model
       : persona.model;
 
+    // Capture timestamps before/after LLM so the DB rows get strictly ordered
+    // timestamps. Batch-inserting both rows with the same NOW() causes non-deterministic
+    // ordering when history is fetched, making the AI see malformed context and
+    // repeat its previous message.
+    const userMsgAt = new Date().toISOString();
     const response = await callLLM(activeModel, systemPrompt, llmMessages);
+    const assistantMsgAt = new Date().toISOString();
 
     // Save messages and update relationship state in parallel
     await Promise.all([
       supabase.from("persona_conversations").insert([
-        { persona_id, user_id, role: "user", content: message },
-        { persona_id, user_id, role: "assistant", content: response },
+        { persona_id, user_id, role: "user", content: message, created_at: userMsgAt },
+        { persona_id, user_id, role: "assistant", content: response, created_at: assistantMsgAt },
       ]),
       supabase.from("relationship_states").upsert({
         persona_id,
         user_id,
         total_interactions: (relState?.total_interactions ?? 0) + 1,
-        last_interaction_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
+        last_interaction_at: assistantMsgAt,
+        updated_at: assistantMsgAt,
       }, { onConflict: "persona_id,user_id" }),
     ]);
 
