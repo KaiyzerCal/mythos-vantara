@@ -19,16 +19,30 @@ type StepType =
   | "mavis_generate"
   | "upsert_record"
   | "sync_connector"
-  | "query_db";
+  | "query_db"
+  | "condition"
+  | "for_each"
+  | "set_variable";
 
 interface Step {
   id: string;
   type: StepType;
   name: string;
   config: Record<string, any>;
+  // For condition: branches = { true: Step[], false: Step[] }
+  branches?: { true?: Step[]; false?: Step[] };
+  // For for_each: body = Step[]
+  body?: Step[];
 }
 
 // ─── Step executor ────────────────────────────────────────────
+
+// Resolve {{varName}} and {{output}} template strings
+function resolveTemplate(template: string, prevOutput: string, vars: Record<string, string>): string {
+  return template
+    .replace(/\{\{output\}\}/g, prevOutput)
+    .replace(/\{\{(\w+)\}\}/g, (_, k) => vars[k] ?? "");
+}
 
 async function executeStep(
   step: Step,
@@ -40,12 +54,15 @@ async function executeStep(
   chatId: string,
   supabaseUrl: string,
   serviceKey: string,
+  vars: Record<string, string> = {},
+  stepsLog: any[] = [],
 ): Promise<string> {
   const c = step.config;
+  const resolve = (s: string) => resolveTemplate(s ?? "", prevOutput, vars);
 
   switch (step.type) {
     case "send_telegram": {
-      const msg = (c.message ?? prevOutput).replace("{{output}}", prevOutput);
+      const msg = resolve(c.message ?? prevOutput);
       await fetch(`https://api.telegram.org/bot${telegramToken}/sendMessage`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -54,8 +71,92 @@ async function executeStep(
       return `Telegram sent: ${msg.slice(0, 100)}`;
     }
 
+    case "send_email": {
+      const emailBody: Record<string, string> = {
+        to: resolve(c.to ?? ""),
+        from_name: resolve(c.from_name ?? "MAVIS"),
+        subject: resolve(c.subject ?? ""),
+      };
+      if (c.generate_prompt) {
+        emailBody.generate_prompt = resolve(c.generate_prompt);
+      } else {
+        emailBody.body = resolve(c.body ?? prevOutput);
+      }
+      const res = await fetch(`${supabaseUrl}/functions/v1/mavis-email-send`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${serviceKey}`,
+        },
+        body: JSON.stringify(emailBody),
+      });
+      const d = await res.json();
+      if (!res.ok) throw new Error(d.error ?? "Email send failed");
+      return `Email sent to ${emailBody.to}`;
+    }
+
+    case "set_variable": {
+      const varName = (c.var_name ?? "").trim();
+      const varValue = resolve(c.value ?? prevOutput);
+      if (varName) vars[varName] = varValue;
+      return varValue;
+    }
+
+    case "condition": {
+      const left = resolve(c.left ?? prevOutput);
+      const right = resolve(c.right ?? "");
+      let condResult = false;
+      switch (c.operator ?? "equals") {
+        case "equals": condResult = left === right; break;
+        case "not_equals": condResult = left !== right; break;
+        case "contains": condResult = left.includes(right); break;
+        case "not_contains": condResult = !left.includes(right); break;
+        case "gt": condResult = parseFloat(left) > parseFloat(right); break;
+        case "lt": condResult = parseFloat(left) < parseFloat(right); break;
+        case "truthy": condResult = !!left && left !== "false" && left !== "0"; break;
+      }
+      const branchSteps: Step[] = (condResult ? step.branches?.true : step.branches?.false) ?? [];
+      let branchOutput = prevOutput;
+      for (const bs of branchSteps) {
+        const bStart = Date.now();
+        let bOut = "", bErr = "";
+        try {
+          bOut = await executeStep(bs, uid, adminSb, branchOutput, claudeKey, telegramToken, chatId, supabaseUrl, serviceKey, vars, stepsLog);
+          branchOutput = bOut;
+        } catch (e: any) { bErr = e.message ?? "failed"; }
+        stepsLog.push({ id: bs.id, name: bs.name, type: bs.type, status: bErr ? "failed" : "ok", output: bOut.slice(0, 500), error: bErr, duration_ms: Date.now() - bStart });
+        if (bErr) throw new Error(`Condition branch failed: ${bErr}`);
+      }
+      return branchOutput;
+    }
+
+    case "for_each": {
+      let items: any[] = [];
+      try { items = JSON.parse(resolve(c.items ?? prevOutput)); } catch { items = []; }
+      if (!Array.isArray(items)) items = [items];
+      const bodySteps: Step[] = step.body ?? [];
+      let lastOut = prevOutput;
+      for (const item of items) {
+        const itemStr = typeof item === "string" ? item : JSON.stringify(item);
+        vars["item"] = itemStr;
+        let iterOutput = itemStr;
+        for (const bs of bodySteps) {
+          const bStart = Date.now();
+          let bOut = "", bErr = "";
+          try {
+            bOut = await executeStep(bs, uid, adminSb, iterOutput, claudeKey, telegramToken, chatId, supabaseUrl, serviceKey, vars, stepsLog);
+            iterOutput = bOut;
+          } catch (e: any) { bErr = e.message ?? "failed"; }
+          stepsLog.push({ id: bs.id, name: bs.name, type: bs.type, status: bErr ? "failed" : "ok", output: bOut.slice(0, 500), error: bErr, duration_ms: Date.now() - bStart });
+          if (bErr) throw new Error(`Loop body failed: ${bErr}`);
+        }
+        lastOut = iterOutput;
+      }
+      return lastOut;
+    }
+
     case "mavis_generate": {
-      const prompt = (c.prompt ?? "Summarize: ").replace("{{output}}", prevOutput);
+      const prompt = resolve(c.prompt ?? "Summarize: ");
       const res = await fetch("https://api.anthropic.com/v1/messages", {
         method: "POST",
         headers: {
@@ -75,7 +176,7 @@ async function executeStep(
     }
 
     case "http_request": {
-      const res = await fetch(c.url, {
+      const res = await fetch(resolve(c.url ?? ""), {
         method: c.method ?? "GET",
         headers: c.headers ?? {},
         body: c.body ? JSON.stringify(c.body) : undefined,
@@ -201,6 +302,7 @@ serve(async (req) => {
 
     // Execute steps sequentially
     const stepsLog: any[] = [];
+    const vars: Record<string, string> = {};
     let lastOutput = "";
     let success = true;
 
@@ -219,21 +321,37 @@ serve(async (req) => {
           chatId,
           supabaseUrl,
           serviceKey,
+          vars,
+          stepsLog,
         );
         lastOutput = output;
       } catch (e: any) {
         error = e.message ?? "Step failed";
         success = false;
       }
-      stepsLog.push({
-        id: step.id,
-        name: step.name,
-        type: step.type,
-        status: error ? "failed" : "ok",
-        output: output.slice(0, 500),
-        error,
-        duration_ms: Date.now() - stepStart,
-      });
+      // condition/for_each push their own sub-step logs; only push top-level for non-compound steps
+      const isCompound = step.type === "condition" || step.type === "for_each";
+      if (!isCompound) {
+        stepsLog.push({
+          id: step.id,
+          name: step.name,
+          type: step.type,
+          status: error ? "failed" : "ok",
+          output: output.slice(0, 500),
+          error,
+          duration_ms: Date.now() - stepStart,
+        });
+      } else {
+        stepsLog.push({
+          id: step.id,
+          name: step.name,
+          type: step.type,
+          status: error ? "failed" : "ok",
+          output: error ? "" : `(${step.type} completed)`,
+          error,
+          duration_ms: Date.now() - stepStart,
+        });
+      }
       if (error) break;
     }
 
