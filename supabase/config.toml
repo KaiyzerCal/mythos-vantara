@@ -25,3 +25,7 @@ verify_jwt = false
 # A2A Protocol gateway — external agents call without Supabase JWT
 [functions.mavis-a2a-gateway]
 verify_jwt = false
+
+# Resend inbound email webhook — Resend sends no Supabase JWT
+[functions.mavis-email-inbound]
+verify_jwt = false

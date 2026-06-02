@@ -19,9 +19,13 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-const OPENAI_KEY = Deno.env.get("OPENAI_API") ?? Deno.env.get("OPENAI_API_KEY") ?? "";
-const SB_URL = Deno.env.get("SUPABASE_URL") ?? "";
-const SB_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+const OPENAI_KEY   = Deno.env.get("OPENAI_API") ?? Deno.env.get("OPENAI_API_KEY") ?? "";
+const SB_URL       = Deno.env.get("SUPABASE_URL") ?? "";
+const SB_KEY       = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+// Self-hosted Playwright browser server (see browser-server/Dockerfile).
+// Handles browse, scrape, and PDF tasks without OpenAI.
+// Set: BROWSER_URL=http://your-server:3000
+const BROWSER_URL  = Deno.env.get("BROWSER_URL") ?? "";
 
 interface ComputerUseRequest {
   task: string;
@@ -45,6 +49,39 @@ interface ComputerUseResponse {
   thinking: string;
   completed: boolean;
   task_id?: string;
+  screenshot?: string;
+}
+
+// Detect if a task is browse/scrape (can run locally without OpenAI vision)
+function isBrowseTask(task: string): boolean {
+  const t = task.toLowerCase();
+  return t.includes("browse") || t.includes("visit") || t.includes("scrape") ||
+    t.includes("extract") || t.includes("get info from") || t.includes("read the page") ||
+    t.includes("go to ") || t.includes("check the website") || t.includes("look up") ||
+    t.includes("find on") || t.includes("search the web") || t.includes("open url");
+}
+
+function extractUrlFromTask(text: string): string | undefined {
+  return text.match(/https?:\/\/[^\s"'<>)]+/)?.[0];
+}
+
+async function browseWithPlaywright(task: string, url: string | undefined): Promise<ComputerUseResponse> {
+  const targetUrl = url ?? extractUrlFromTask(task);
+  if (!targetUrl) throw new Error("No URL found in task. Provide url parameter or include a URL in the task.");
+  const res = await fetch(`${BROWSER_URL}/browse`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ url: targetUrl, extract: "text" }),
+    signal: AbortSignal.timeout(45000),
+  });
+  if (!res.ok) throw new Error(`Browser server error: ${res.status}`);
+  const data = await res.json() as Record<string, unknown>;
+  return {
+    actions: [{ type: "screenshot" }],
+    thinking: `Browsed ${data.url}\nTitle: ${data.title}\n\n${String(data.content ?? "").slice(0, 4000)}`,
+    completed: true,
+    screenshot: data.screenshot as string | undefined,
+  };
 }
 
 function parseActions(output: unknown[]): ComputerAction[] {
@@ -159,13 +196,6 @@ serve(async (req) => {
       });
     }
 
-    if (!OPENAI_KEY) {
-      return new Response(
-        JSON.stringify({ error: "OpenAI not configured", configured: false }),
-        { status: 503, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-      );
-    }
-
     const { task, screenshot_base64, url, model, user_id } = await req.json() as ComputerUseRequest;
 
     if (!task) {
@@ -173,6 +203,28 @@ serve(async (req) => {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
+    }
+
+    // ── Route browse/scrape tasks to self-hosted Playwright (no OpenAI needed) ──
+    if (BROWSER_URL && isBrowseTask(task)) {
+      try {
+        const result = await browseWithPlaywright(task, url);
+        try {
+          await createClient(SB_URL, SB_KEY)
+            .from("computer_use_tasks")
+            .insert({ user_id: user_id ?? user.id, task_description: task, model: "playwright", actions_taken: result.actions, status: "completed", result: result.thinking });
+        } catch { /* non-fatal */ }
+        return new Response(JSON.stringify(result), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      } catch (e) {
+        console.warn("[mavis-computer-use] Playwright fallback failed, trying OpenAI:", (e as Error).message);
+      }
+    }
+
+    if (!OPENAI_KEY) {
+      return new Response(
+        JSON.stringify({ error: "No automation service available. Set OPENAI_API or BROWSER_URL.", configured: false }),
+        { status: 503, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
     }
 
     // Build content array — task text + optional screenshot

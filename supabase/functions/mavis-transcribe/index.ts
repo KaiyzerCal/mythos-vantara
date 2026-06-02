@@ -11,7 +11,40 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
-const OPENAI_KEY = Deno.env.get("OPENAI_API") ?? "";
+const OPENAI_KEY  = Deno.env.get("OPENAI_API") ?? "";
+// Self-hosted Whisper (faster-whisper FastAPI server). OpenAI-compatible endpoint.
+// Deploy whisper-server/Dockerfile, set WHISPER_URL=http://your-server:9000
+const WHISPER_URL = Deno.env.get("WHISPER_URL");
+
+// ─────────────────────────────────────────────────────────────
+// Self-hosted Whisper fallback
+// ─────────────────────────────────────────────────────────────
+
+async function transcribeWithLocalWhisper(
+  audioBytes: ArrayBuffer,
+  mimeType: string,
+  fileName: string,
+  language: string,
+): Promise<string | null> {
+  if (!WHISPER_URL) return null;
+  try {
+    const formData = new FormData();
+    formData.append("file", new Blob([audioBytes], { type: mimeType }), fileName);
+    formData.append("model", "whisper-1");
+    formData.append("language", language);
+    formData.append("response_format", "json");
+    const res = await fetch(`${WHISPER_URL}/v1/audio/transcriptions`, {
+      method: "POST",
+      body: formData,
+      signal: AbortSignal.timeout(90000),
+    });
+    if (!res.ok) return null;
+    const d = await res.json();
+    return typeof d.text === "string" ? d.text : null;
+  } catch {
+    return null;
+  }
+}
 
 // ─────────────────────────────────────────────────────────────
 // Helpers
@@ -59,10 +92,10 @@ serve(async (req) => {
     );
   }
 
-  if (!OPENAI_KEY) {
+  if (!OPENAI_KEY && !WHISPER_URL) {
     return new Response(
-      JSON.stringify({ error: "OPENAI_API key not configured" }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      JSON.stringify({ error: "No transcription service configured. Set OPENAI_API or WHISPER_URL." }),
+      { status: 503, headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );
   }
 
@@ -119,6 +152,22 @@ serve(async (req) => {
 
   const fileExtension = urlLower.split(".").pop() ?? "webm";
   const fileName = `recording.${fileExtension}`;
+
+  // ── Try self-hosted Whisper first (free, private) ────────────────────────────
+  const localTranscript = await transcribeWithLocalWhisper(audioBytes, mimeType, fileName, language);
+  if (localTranscript !== null) {
+    return new Response(
+      JSON.stringify({ transcript: localTranscript, duration_estimate: estimateDuration(localTranscript), provider: "whisper-local" }),
+      { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+    );
+  }
+
+  if (!OPENAI_KEY) {
+    return new Response(
+      JSON.stringify({ error: "Self-hosted Whisper unavailable and OPENAI_API not configured." }),
+      { status: 503, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+    );
+  }
 
   // Build multipart form for Whisper
   const formData = new FormData();
