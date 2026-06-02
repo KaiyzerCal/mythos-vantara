@@ -182,12 +182,44 @@ async function callGemini(messages: any[], system: string, key: string, opts: { 
   return parts.filter((p: any) => p.text && !p.thought).map((p: any) => p.text).join("") || "";
 }
 
+// ── Ollama (self-hosted LLM — optional, set OLLAMA_BASE_URL to activate) ──────
+// When configured, Ollama is tried first for simple/routine tasks.
+// Complex reasoning modes (ARCH, CODEX, DEEP, etc.) always use cloud LLMs.
+// Completely transparent fallback — if Ollama fails or isn't set, cascade continues.
+const OLLAMA_BASE_URL = Deno.env.get("OLLAMA_BASE_URL"); // e.g. "http://192.168.1.x:11434"
+const OLLAMA_MODEL    = Deno.env.get("OLLAMA_MODEL") ?? "llama3.2:3b";
+const OLLAMA_COMPLEX_MODES = new Set(["ARCH","CODEX","SOVEREIGN","DEEP","QUEST","FORGE","RESEARCH","VISION"]);
+
+async function callOllama(messages: any[], system: string): Promise<string | null> {
+  if (!OLLAMA_BASE_URL) return null;
+  try {
+    const res = await fetch(`${OLLAMA_BASE_URL}/api/chat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: OLLAMA_MODEL,
+        messages: [{ role: "system", content: system }, ...messages],
+        stream: false,
+        options: { num_predict: 1024, temperature: 0.8 },
+      }),
+      signal: AbortSignal.timeout(25000),
+    });
+    if (!res.ok) return null;
+    const d = await res.json();
+    return d.message?.content?.trim() || null;
+  } catch {
+    return null; // silently fall through to cloud providers
+  }
+}
+
 // Cascade order (cheapest/free → premium):
-//   1. Gemini Flash (free quota)
+//  -1. Ollama (self-hosted, if OLLAMA_BASE_URL set + simple mode)
+//   0. Gemini Flash (free quota)
+//   1. Mode-designated: Claude (deep reasoning) / Grok (real-time)
 //   2. OpenAI gpt-4o-mini
 //   3. Claude Haiku
 //   4. Claude Sonnet
-//   5. Grok (last resort, real-time persona-routed default)
+//   5. Grok (last resort)
 // If `primary` explicitly requests claude/grok (mode-routed), try that first,
 // then fall through the standard cascade.
 async function callWithFallback(
@@ -198,6 +230,12 @@ async function callWithFallback(
   useThinking = false,
   mode = "PRIME",
 ): Promise<{ content: string; provider: string }> {
+  // Tier -1 — Ollama (self-hosted, zero cost, privacy-preserving)
+  if (OLLAMA_BASE_URL && !OLLAMA_COMPLEX_MODES.has(mode?.toUpperCase())) {
+    const result = await callOllama(messages, system);
+    if (result) return { content: result, provider: `ollama/${OLLAMA_MODEL}` };
+  }
+
   // Tier 0 — Free Gemini (always attempted first)
   if (keys.gemini) {
     try {
@@ -519,6 +557,20 @@ async function callWithFallbackStream(
   useThinking = false,
   mode = "PRIME",
 ): Promise<{ stream: ReadableStream<string>; provider: string }> {
+  // Tier -1 — Ollama (self-hosted, simple modes only)
+  if (OLLAMA_BASE_URL && !OLLAMA_COMPLEX_MODES.has(mode?.toUpperCase())) {
+    const result = await callOllama(messages, system);
+    if (result) {
+      // Wrap non-streaming response as a single-chunk ReadableStream
+      return {
+        provider: `ollama/${OLLAMA_MODEL}`,
+        stream: new ReadableStream({
+          start(controller) { controller.enqueue(result); controller.close(); },
+        }),
+      };
+    }
+  }
+
   // Tier 0 — Free Gemini (always attempted first)
   if (keys.gemini) {
     try {
