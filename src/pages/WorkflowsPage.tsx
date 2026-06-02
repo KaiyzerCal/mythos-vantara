@@ -93,7 +93,7 @@ type FieldDef =
 
 interface StepDef {
   label: string;
-  Icon: React.ComponentType<{ size?: number; className?: string }>;
+  Icon: React.ComponentType<{ size?: number | string; className?: string }>;
   color: string;
   borderColor: string;
   bgColor: string;
