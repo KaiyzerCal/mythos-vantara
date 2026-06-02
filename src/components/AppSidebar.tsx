@@ -7,7 +7,7 @@ import {
   UserCheck, BarChart2, Repeat2, Heart, DollarSign, CalendarClock,
   Crosshair, GraduationCap, Clock, Video, BookMarked,
   TrendingUp, Mail, Webhook, KeyRound, Archive,
-  Clapperboard, Globe, LayoutTemplate, Workflow, Kanban,
+  Clapperboard, Globe, LayoutTemplate, Workflow, Kanban, UserSquare2,
   Users2, LayoutGrid, Trophy, Gauge, Bell, CreditCard, Upload,
   BrainCircuit, SlidersHorizontal,
 } from "lucide-react";
@@ -60,6 +60,7 @@ const INTEL_NAV = [
 
 const CREATOR_NAV = [
   { to: "/creator", icon: Clapperboard, label: "Video Editor" },
+  { to: "/avatar-studio", icon: UserSquare2, label: "Avatar Studio" },
   { to: "/websites", icon: Globe, label: "Website Builder" },
   { to: "/widgets", icon: LayoutTemplate, label: "Widgets" },
   { to: "/workflows", icon: Workflow, label: "Workflows" },

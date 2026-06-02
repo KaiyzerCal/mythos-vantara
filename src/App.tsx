@@ -78,6 +78,7 @@ const ForecastPage = lazy(() => import("@/pages/ForecastPage").then(m => ({ defa
 const NotificationsPage = lazy(() => import("@/pages/NotificationsPage").then(m => ({ default: m.NotificationsPage })));
 const StripeManagementPage = lazy(() => import("@/pages/StripeManagementPage").then(m => ({ default: m.StripeManagementPage })));
 const WorkflowsPage = lazy(() => import("@/pages/WorkflowsPage").then(m => ({ default: m.WorkflowsPage })));
+const AvatarStudioPage = lazy(() => import("@/pages/AvatarStudioPage").then(m => ({ default: m.AvatarStudioPage })));
 const ImportPage = lazy(() => import("@/pages/ImportPage").then(m => ({ default: m.ImportPage })));
 const SystemSettingsPage = lazy(() => import("@/pages/SystemSettingsPage").then(m => ({ default: m.SystemSettingsPage })));
 const AgentDashboardPage = lazy(() => import("@/pages/AgentDashboardPage").then(m => ({ default: m.AgentDashboardPage })));
@@ -177,6 +178,7 @@ function AppContent() {
               <Route path="/workflows" element={<WorkflowsPage />} />
               <Route path="/import" element={<ImportPage />} />
               <Route path="/creator" element={<VideoEditorPage />} />
+              <Route path="/avatar-studio" element={<AvatarStudioPage />} />
               <Route path="/system-settings" element={<SystemSettingsPage />} />
               <Route path="/agents" element={<AgentDashboardPage />} />
               <Route path="/wpcom-callback" element={<WpcomCallbackPage />} />
