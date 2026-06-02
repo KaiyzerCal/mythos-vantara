@@ -1038,6 +1038,33 @@ export type Database = {
         }
         Relationships: []
       }
+      mavis_autonomous_runs: {
+        Row: {
+          id: number
+          job_name: string
+          notes: string | null
+          response_code: number | null
+          status: string | null
+          triggered_at: string | null
+        }
+        Insert: {
+          id?: number
+          job_name: string
+          notes?: string | null
+          response_code?: number | null
+          status?: string | null
+          triggered_at?: string | null
+        }
+        Update: {
+          id?: number
+          job_name?: string
+          notes?: string | null
+          response_code?: number | null
+          status?: string | null
+          triggered_at?: string | null
+        }
+        Relationships: []
+      }
       mavis_bond: {
         Row: {
           bond_level: number | null
@@ -1195,6 +1222,36 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      mavis_cron_config: {
+        Row: {
+          created_at: string | null
+          edge_function: string
+          enabled: boolean | null
+          id: number
+          job_name: string
+          payload: Json | null
+          schedule: string
+        }
+        Insert: {
+          created_at?: string | null
+          edge_function: string
+          enabled?: boolean | null
+          id?: number
+          job_name: string
+          payload?: Json | null
+          schedule: string
+        }
+        Update: {
+          created_at?: string | null
+          edge_function?: string
+          enabled?: boolean | null
+          id?: number
+          job_name?: string
+          payload?: Json | null
+          schedule?: string
+        }
+        Relationships: []
       }
       mavis_custom_skills: {
         Row: {
@@ -1420,6 +1477,7 @@ export type Database = {
           consolidated: boolean | null
           content: string
           created_at: string | null
+          embedding: string | null
           id: string
           importance_score: number | null
           role: string
@@ -1431,6 +1489,7 @@ export type Database = {
           consolidated?: boolean | null
           content: string
           created_at?: string | null
+          embedding?: string | null
           id?: string
           importance_score?: number | null
           role: string
@@ -1442,11 +1501,33 @@ export type Database = {
           consolidated?: boolean | null
           content?: string
           created_at?: string | null
+          embedding?: string | null
           id?: string
           importance_score?: number | null
           role?: string
           session_id?: string
           timestamp?: number
+          user_id?: string
+        }
+        Relationships: []
+      }
+      mavis_memory_embed_queue: {
+        Row: {
+          created_at: string | null
+          id: number
+          memory_id: number
+          user_id: string
+        }
+        Insert: {
+          created_at?: string | null
+          id?: number
+          memory_id: number
+          user_id: string
+        }
+        Update: {
+          created_at?: string | null
+          id?: number
+          memory_id?: number
           user_id?: string
         }
         Relationships: []
@@ -4590,6 +4671,26 @@ export type Database = {
           similarity: number
           tags: string[]
           title: string
+        }[]
+      }
+      mavis_log_cron_run: {
+        Args: { p_code: number; p_job_name: string }
+        Returns: undefined
+      }
+      search_mavis_memories: {
+        Args: {
+          match_count?: number
+          match_threshold?: number
+          match_user_id: string
+          query_embedding: string
+        }
+        Returns: {
+          content: string
+          created_at: string
+          id: number
+          importance_score: number
+          role: string
+          similarity: number
         }[]
       }
       search_memories_hybrid: {
