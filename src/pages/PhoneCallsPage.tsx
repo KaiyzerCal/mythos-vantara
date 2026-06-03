@@ -123,7 +123,7 @@ export default function PhoneCallsPage() {
       <PageHeader
         title="AI Phone Calls"
         subtitle="MAVIS calls on your behalf — reserve, schedule, follow up, or handle anything over the phone."
-        icon={Phone}
+        icon={<Phone size={20} />}
       />
 
       {/* Initiate Call */}

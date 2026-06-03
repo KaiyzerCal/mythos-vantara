@@ -90,7 +90,7 @@ export default function ApiKeysPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader title="API Keys" subtitle="Programmatic access to MAVIS for external services and automations." icon={Key} />
+      <PageHeader title="API Keys" subtitle="Programmatic access to MAVIS for external services and automations." icon={<Key size={20} />} />
 
       {revealedKey && (
         <HudCard className="p-4 border-primary/40 bg-primary/5">

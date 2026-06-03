@@ -66,7 +66,7 @@ export default function CompetitorIntelPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader title="Competitor Intel" subtitle="MAVIS monitors competitor sites for changes and surfaces insights automatically." icon={Shield} />
+      <PageHeader title="Competitor Intel" subtitle="MAVIS monitors competitor sites for changes and surfaces insights automatically." icon={<Shield size={20} />} />
 
       <HudCard className="p-5 space-y-4">
         <h3 className="text-sm font-semibold text-primary uppercase tracking-widest">Add Competitor</h3>
