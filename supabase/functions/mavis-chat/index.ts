@@ -1457,7 +1457,7 @@ You always know the current date and time without being told. Reference it natur
               accumulated += value;
               controller.enqueue(enc.encode(`data: ${JSON.stringify({ t: value })}\n\n`));
             }
-            sb.from("mavis_llm_calls").insert({ user_id: user.id, provider: streamProv, model: streamProv, mode: modeUpper, duration_ms: Date.now() - streamStartMs, success: true }).catch(() => {});
+            sb.from("mavis_llm_calls").insert({ user_id: user.id, provider: streamProv, model: streamProv, mode: modeUpper, duration_ms: Date.now() - streamStartMs, success: true }).then(() => {}, () => {});
             let imgUrl: string | null = null;
             let imageMediaId: string | null = null;
             if (IMAGE_KWS.some(kw => lastUserText.toLowerCase().includes(kw))) {
@@ -1503,14 +1503,14 @@ You always know the current date and time without being told. Reference it natur
             }
             controller.enqueue(enc.encode(`data: ${JSON.stringify({ done: true, provider: streamProv, conversationId, searched: !!webSearchResults, imageUrl: imgUrl, imageMediaId })}\n\n`));
           } catch (e: any) {
-            sb.from("mavis_llm_calls").insert({ user_id: user.id, provider: provider, model: provider, mode: modeUpper, duration_ms: Date.now() - streamStartMs, success: false, error_msg: String(e?.message ?? "stream error").slice(0, 200) }).catch(() => {});
+            sb.from("mavis_llm_calls").insert({ user_id: user.id, provider: provider, model: provider, mode: modeUpper, duration_ms: Date.now() - streamStartMs, success: false, error_msg: String(e?.message ?? "stream error").slice(0, 200) }).then(() => {}, () => {});
             controller.enqueue(enc.encode(`data: ${JSON.stringify({ error: e.message ?? "Stream error" })}\n\n`));
           } finally {
             controller.close();
             if (accumulated.length > 5) {
               const CORR_RE = /\b(no[,.]?\s+that'?s?\s+wrong|that'?s?\s+not\s+right|not\s+what\s+i\s+(said|meant|wanted)|stop\s+(doing|saying|using|calling)\s+\w|don'?t\s+(do|say|use|call)\s+\w|never\s+(do|say|use|call)\s+\w|i\s+(hate|dislike)\s+when\s+you|you'?re\s+wrong|wrong\s+answer|incorrect[,.]?\s+\w|that'?s?\s+incorrect)\b/i;
               if (lastUserText.length > 5 && CORR_RE.test(lastUserText)) {
-                sb.from("mavis_tacit").insert({ user_id: user.id, category: "correction", key: `correction_${Date.now()}`, value: `[OPERATOR CORRECTION] User said: "${lastUserText.slice(0, 300)}" | Context: "${accumulated.slice(0, 200)}"` }).catch(() => {});
+                sb.from("mavis_tacit").insert({ user_id: user.id, category: "correction", key: `correction_${Date.now()}`, value: `[OPERATOR CORRECTION] User said: "${lastUserText.slice(0, 300)}" | Context: "${accumulated.slice(0, 200)}"` }).then(() => {}, () => {});
               }
               (async () => {
                 try {
@@ -1524,7 +1524,7 @@ You always know the current date and time without being told. Reference it natur
               sb.from("mavis_memory").insert([
                 { user_id: user.id, session_id: sid, role: "user", content: lastUserText.slice(0, 4000), timestamp: ts, importance_score: scoreImportance(lastUserText), consolidated: false },
                 { user_id: user.id, session_id: sid, role: "assistant", content: accumulated.slice(0, 4000), timestamp: ts + 1, importance_score: scoreImportance(accumulated), consolidated: false },
-              ]).catch(() => {});
+              ]).then(() => {}, () => {});
 
               // AI-powered tacit extraction (same as non-streaming path)
               if (lastUserText.length > 20 && accumulated.length > 20) {
@@ -1599,7 +1599,7 @@ You always know the current date and time without being told. Reference it natur
       modeUpper,
       resolvedOllamaModel,
     );
-    sb.from("mavis_llm_calls").insert({ user_id: user.id, provider: usedProvider, model: usedProvider, mode: modeUpper, duration_ms: Date.now() - nonStreamStart, success: true }).catch(() => {});
+    sb.from("mavis_llm_calls").insert({ user_id: user.id, provider: usedProvider, model: usedProvider, mode: modeUpper, duration_ms: Date.now() - nonStreamStart, success: true }).then(() => {}, () => {});
 
     // ── Tacit learning (non-blocking) ───────────────────────
     // Extract preferences/rules/lessons from this exchange and store in mavis_tacit.
