@@ -73,3 +73,19 @@ verify_jwt = false
 # OpenAI Fine-tuning Pipeline — triggered from mavis-self-improve with service-role key.
 [functions.mavis-openai-finetune]
 verify_jwt = false
+
+# World Model — triggered by pg_cron weekly (Sunday 5am) and on-demand with service-role key.
+[functions.mavis-world-model]
+verify_jwt = false
+
+# Narrative Engine — triggered by pg_cron weekly (Sunday 4am) and on-demand with service-role key.
+[functions.mavis-narrative-engine]
+verify_jwt = false
+
+# Relationship Intel — triggered by pg_cron Monday 8am and on-demand with service-role key.
+[functions.mavis-relationship-intel]
+verify_jwt = false
+
+# Compound Learning — records interaction signals and consolidates operator preferences.
+[functions.mavis-compound-learning]
+verify_jwt = false

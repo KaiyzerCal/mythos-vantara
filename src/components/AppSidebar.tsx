@@ -9,7 +9,7 @@ import {
   TrendingUp, Mail, Webhook, KeyRound, Archive,
   Clapperboard, Globe, LayoutTemplate, Workflow, Kanban, UserSquare2,
   Users2, LayoutGrid, Trophy, Gauge, Bell, CreditCard, Upload,
-  BrainCircuit, SlidersHorizontal, Phone, MessageSquare, Key, Users2 as UserGroup, Shield as ShieldIcon, PhoneCall,
+  BrainCircuit, Brain, SlidersHorizontal, Phone, MessageSquare, Key, Users2 as UserGroup, Shield as ShieldIcon, PhoneCall,
 } from "lucide-react";
 import { useState, useContext } from "react";
 import { motion, AnimatePresence } from "framer-motion";
@@ -24,6 +24,7 @@ const PRIMARY_NAV = [
   { to: "/mavis", icon: Cpu, label: "MAVIS" },
   { to: "/mavis-ui", icon: Sparkles, label: "MavisUI" },
   { to: "/agents", icon: BrainCircuit, label: "Agent Dashboard" },
+  { to: "/intelligence", icon: Brain, label: "Intelligence" },
   { to: "/phone", icon: Phone, label: "AI Phone Calls" },
   { to: "/receptionist", icon: PhoneCall, label: "AI Receptionist" },
   { to: "/sms", icon: MessageSquare, label: "SMS & WhatsApp" },

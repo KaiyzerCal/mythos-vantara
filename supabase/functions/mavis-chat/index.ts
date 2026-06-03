@@ -967,6 +967,7 @@ serve(async (req) => {
       tacitRes,
       naviPersonasRes, naviRelationsRes,
       stalledRes, streakRes, revenueRes,
+      predictionsRes, worldModelRes, narrativeRes,
     ] = await Promise.all([
       sb.from("profiles").select("*").eq("id", user.id).single(),
       sb.from("quests").select("id,title,description,type,status,difficulty,xp_reward,progress_current,progress_target,deadline,real_world_mapping").eq("user_id", user.id).order("created_at", { ascending: false }).limit(lim("quest", 25, 10)),
@@ -996,6 +997,10 @@ serve(async (req) => {
       sb.from("quests").select("title").eq("user_id", user.id).eq("status", "active").lt("updated_at", sevenDaysAgo).limit(5),
       sb.from("tasks").select("title,streak").eq("user_id", user.id).eq("type", "habit").gt("streak", 2).lt("updated_at", twoDaysAgo).limit(5),
       sb.from("mavis_revenue").select("id").eq("user_id", user.id).gte("created_at", sevenDaysAgo).limit(1),
+      // intelligence layer — graceful if tables pending migration
+      sb.from("mavis_predictions").select("prediction_type,title,content,confidence").eq("user_id", user.id).eq("acted_on", false).order("confidence", { ascending: false }).limit(3),
+      sb.from("mavis_world_model").select("summary,trajectory").eq("user_id", user.id).order("created_at", { ascending: false }).limit(1),
+      sb.from("mavis_narrative").select("identity_summary,themes").eq("user_id", user.id).order("created_at", { ascending: false }).limit(1),
     ]);
 
     const profile = profileRes.data;
@@ -1034,6 +1039,27 @@ serve(async (req) => {
         }
       }
     } catch { /* non-critical */ }
+
+    // ── Intelligence Layer (world model + predictions + narrative) ───────────
+    let intelligenceBlock = "";
+    try {
+      const parts: string[] = [];
+      const narrative = narrativeRes?.data?.[0] ?? narrativeRes?.data as any;
+      const worldModel = worldModelRes?.data?.[0] ?? worldModelRes?.data as any;
+      const predictions = predictionsRes?.data ?? [];
+      if (narrative?.identity_summary) {
+        parts.push(`OPERATOR IDENTITY:\n${narrative.identity_summary}`);
+      }
+      if (worldModel?.summary) {
+        parts.push(`CURRENT WORLD STATE:\n${worldModel.summary}${worldModel.trajectory ? `\nTrajectory: ${worldModel.trajectory.slice(0, 300)}` : ""}`);
+      }
+      if (Array.isArray(predictions) && predictions.length > 0) {
+        parts.push(`ACTIVE INTELLIGENCE:\n${(predictions as any[]).map((p: any) => `• [${p.prediction_type}] ${p.title}: ${String(p.content ?? "").slice(0, 180)}`).join("\n")}`);
+      }
+      if (parts.length > 0) {
+        intelligenceBlock = `\n═══ MAVIS INTELLIGENCE LAYER ═══\n${parts.join("\n\n")}\n═══ END INTELLIGENCE LAYER ═══`;
+      }
+    } catch { /* non-critical — tables may not exist yet */ }
 
     // ── NAVI Ecosystem Context ────────────────────────────────────────────────
     let naviBlock = "";
@@ -1403,6 +1429,7 @@ You always know the current date and time without being told. Reference it natur
       timeBlock,
       authoritativeContext,
       tacitBlock,
+      intelligenceBlock,
       naviBlock,
       knowledgeBlock,
       attachmentsBlock,

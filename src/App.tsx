@@ -91,6 +91,7 @@ const CompetitorIntelPage = lazy(() => import("@/pages/CompetitorIntelPage"));
 const ReceptionistPage = lazy(() => import("@/pages/ReceptionistPage"));
 // Public demo — no auth required
 const MavisDemo = lazy(() => import("@/pages/MavisDemo"));
+const IntelligencePage = lazy(() => import("@/pages/IntelligencePage"));
 
 const queryClient = new QueryClient();
 
@@ -187,6 +188,7 @@ function AppContent() {
               <Route path="/avatar-studio" element={<AvatarStudioPage />} />
               <Route path="/system-settings" element={<SystemSettingsPage />} />
               <Route path="/agents" element={<AgentDashboardPage />} />
+              <Route path="/intelligence" element={<IntelligencePage />} />
               <Route path="/wpcom-callback" element={<WpcomCallbackPage />} />
               <Route path="/phone" element={<PhoneCallsPage />} />
               <Route path="/receptionist" element={<ReceptionistPage />} />

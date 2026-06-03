@@ -1307,7 +1307,6 @@ serve(async (req) => {
     const openaiKey = Deno.env.get("OPENAI_API") ?? "";
     const claudeKey = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
     const tavilyKey = Deno.env.get("Tavily_API") ?? "";
-    const geminiKey = Deno.env.get("GEMINI_API_KEY") ?? "";
 
     if (!claudeKey) {
       return new Response(JSON.stringify({ error: "ANTHROPIC_API_KEY not set" }), {
@@ -1355,37 +1354,14 @@ serve(async (req) => {
           let messages: any[] = trimmed;
 
           const MODEL = "claude-sonnet-4-6";
-          const MAX_ITER = 8;
+          const MAX_ITER = 12;
           // Accumulates web_search sources for citation display
           const sources: Array<{ title: string; url: string }> = [];
 
-          // ── Tier 0: Gemini pre-flight (no tools) ───────────
-          let lvHandled = false;
-          if (geminiKey) {
-            try {
-              const lvMsgs = messages.map((m: any) => ({
-                role: m.role === "user" ? "user" : "model",
-                parts: [{ text: typeof m.content === "string" ? m.content : JSON.stringify(m.content) }],
-              }));
-              const lvRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiKey}`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                  systemInstruction: { parts: [{ text: systemPrompt }] },
-                  contents: lvMsgs,
-                  generationConfig: { maxOutputTokens: 4096 },
-                }),
-              });
-              if (lvRes.ok) {
-                const lvData = await lvRes.json();
-                const lvText: string = (lvData.candidates?.[0]?.content?.parts?.[0]?.text ?? "").trim();
-                if (lvText) { finalText = lvText; lvHandled = true; }
-              }
-            } catch { /* fall through to Claude ReAct loop */ }
-          }
-
           // ── ReAct loop ─────────────────────────────────────
-          if (!lvHandled)
+          // NOTE: No Gemini pre-flight here — the agent endpoint's entire purpose is
+          // tool execution via Claude's ReAct loop. Gemini has no tool access and would
+          // describe actions rather than execute them.
           while (iteration < MAX_ITER) {
             iteration++;
 
