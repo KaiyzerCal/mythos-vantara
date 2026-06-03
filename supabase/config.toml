@@ -29,3 +29,8 @@ verify_jwt = false
 # Resend inbound email webhook — Resend sends no Supabase JWT
 [functions.mavis-email-inbound]
 verify_jwt = false
+
+# Live voice WebSocket — browsers cannot send Authorization headers on WS upgrade.
+# Auth is done via the first WebSocket message instead.
+[functions.mavis-live-voice]
+verify_jwt = false

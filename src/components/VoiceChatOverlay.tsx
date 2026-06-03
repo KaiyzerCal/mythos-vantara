@@ -69,6 +69,8 @@ export function VoiceChatOverlay({
   const livePlayingRef = useRef(false);
   const liveMicStreamRef = useRef<MediaStream | null>(null);
   const liveScriptProcessorRef = useRef<ScriptProcessorNode | null>(null);
+  // ElevenLabs TTS audio context (used when persona has a voice_id set)
+  const elevenLabsAudioCtxRef = useRef<AudioContext | null>(null);
   // iOS Safari requires speechSynthesis.speak() to be called within a user gesture.
   // We unlock the audio session on the first tap so async speakReply() works.
   const audioUnlockedRef = useRef(false);
@@ -191,6 +193,52 @@ export function VoiceChatOverlay({
     }
   }, [pickVoice]);
 
+  // ── ElevenLabs TTS — used for persona voices (voiceId set) ────────────────
+  // Falls back to browser speech synthesis on any error.
+  const speakWithElevenLabs = useCallback(async (text: string, voiceId: string) => {
+    setDisplayedReply(text);
+    setSpokenUpTo(0);
+    setPhase("speaking");
+    try {
+      const { data, error } = await supabase.functions.invoke("mavis-tts", {
+        body: { text, voice_id: voiceId },
+      });
+      if (error || !data?.audioContent) throw new Error("TTS unavailable");
+
+      const bytes  = Uint8Array.from(atob(data.audioContent), (c) => c.charCodeAt(0));
+      const audioCtx = elevenLabsAudioCtxRef.current ?? new AudioContext();
+      elevenLabsAudioCtxRef.current = audioCtx;
+      if (audioCtx.state === "suspended") await audioCtx.resume();
+
+      const buffer = await audioCtx.decodeAudioData(bytes.buffer);
+      const source = audioCtx.createBufferSource();
+      source.buffer = buffer;
+      source.connect(audioCtx.destination);
+
+      // Simulate karaoke using actual audio duration for accurate timing
+      const words      = text.split(/\s+/);
+      const msPerWord  = (buffer.duration * 1000) / Math.max(words.length, 1);
+      let charPos = 0;
+      let wordIdx = 0;
+      const tick = () => {
+        if (wordIdx >= words.length || closingRef.current) { setSpokenUpTo(text.length); return; }
+        charPos += words[wordIdx].length + 1;
+        setSpokenUpTo(Math.min(charPos, text.length));
+        wordIdx++;
+        karaokeTickRef.current = setTimeout(tick, msPerWord);
+      };
+      karaokeTickRef.current = setTimeout(tick, msPerWord);
+
+      source.onended = () => {
+        if (karaokeTickRef.current) { clearTimeout(karaokeTickRef.current); karaokeTickRef.current = null; }
+        if (!closingRef.current) { setSpokenUpTo(text.length); setPhase("idle"); }
+      };
+      source.start();
+    } catch {
+      speakReply(text); // graceful fallback
+    }
+  }, [speakReply]);
+
   // ── Transition: thinking → speaking when loading finishes ──
   useEffect(() => {
     if (prevLoadingRef.current && !effectiveLoading && phase === "thinking" && !closingRef.current) {
@@ -217,6 +265,9 @@ export function VoiceChatOverlay({
             karaokeTickRef.current = setTimeout(tick, 140);
           };
           karaokeTickRef.current = setTimeout(tick, 140);
+        } else if (personaRef.current?.voiceId) {
+          // Persona has an ElevenLabs voice — use it for dramatically better TTS
+          speakWithElevenLabs(msg, personaRef.current.voiceId);
         } else {
           speakReply(msg);
         }
@@ -225,7 +276,7 @@ export function VoiceChatOverlay({
       }
     }
     prevLoadingRef.current = effectiveLoading;
-  }, [effectiveLoading, phase, externalAudio, speakReply]);
+  }, [effectiveLoading, phase, externalAudio, speakReply, speakWithElevenLabs]);
 
   // Stable refs for dispatch fns so startListening doesn't change identity on
   // every parent render — that was cancelling the 1s auto-restart timer and
@@ -585,6 +636,8 @@ export function VoiceChatOverlay({
     stopListening();
     disconnectLiveVoice();
     if (window.speechSynthesis) window.speechSynthesis.cancel();
+    elevenLabsAudioCtxRef.current?.close().catch(() => {});
+    elevenLabsAudioCtxRef.current = null;
     onClose();
   }, [onClose, stopListening, disconnectLiveVoice]);
 
