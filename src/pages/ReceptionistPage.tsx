@@ -599,7 +599,7 @@ export default function ReceptionistPage() {
   }
 
   async function markRead(msgId: string) {
-    await supabase.from("receptionist_messages").update({ is_read: true }).eq("id", msgId);
+    await (supabase as any).from("receptionist_messages").update({ is_read: true }).eq("id", msgId);
     setMessages(ms => ms.map(m => m.id === msgId ? { ...m, is_read: true } : m));
   }
 
