@@ -42,3 +42,11 @@ verify_jwt = false
 # External API gateway — validated by x-mavis-api-key header instead of Supabase JWT.
 [functions.mavis-api-gateway]
 verify_jwt = false
+
+# Autonomous task runner — triggered by pg_cron with service-role key (no user JWT).
+[functions.mavis-autonomous-runner]
+verify_jwt = false
+
+# Ambient monitor — triggered by pg_cron with service-role key (no user JWT).
+[functions.mavis-ambient-monitor]
+verify_jwt = false

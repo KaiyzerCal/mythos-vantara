@@ -397,6 +397,57 @@ const AGENT_TOOLS = [
       required: ["goal"],
     },
   },
+  {
+    name: "run_sandbox",
+    description: "Execute code in a secure, isolated E2B cloud sandbox. Unlike run_code (JS-only, in-process), run_sandbox runs real Python, Bash, JavaScript, or R in a containerized environment with full stdlib access, pip/npm packages, file I/O, and no security constraints. Use for: data analysis scripts, ML model inference, system commands, multi-file programs, anything that needs a real runtime.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        code: { type: "string", description: "The code to execute." },
+        language: { type: "string", enum: ["python3", "javascript", "bash", "r"], description: "Runtime to use. Default: python3" },
+        timeout: { type: "number", description: "Timeout in seconds (1-120, default 30)" },
+      },
+      required: ["code"],
+    },
+  },
+  {
+    name: "generate_image",
+    description: "Generate an image using DALL-E 3. Returns a URL to the generated image. Use for: creating visuals, illustrations, concept art, mockups, diagrams, or any image the operator needs. Be specific and detailed in the prompt for best results.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        prompt: { type: "string", description: "Detailed description of the image to generate. Include style, mood, composition, colors." },
+        size: { type: "string", enum: ["1024x1024", "1792x1024", "1024x1792"], description: "Image dimensions. Default: 1024x1024" },
+        quality: { type: "string", enum: ["standard", "hd"], description: "Image quality. HD takes longer but is more detailed. Default: standard" },
+      },
+      required: ["prompt"],
+    },
+  },
+  {
+    name: "generate_video",
+    description: "Generate a short video clip using AI (Replicate / MiniMax Video-01). Returns a URL to the generated video. Use when the operator needs a video visualization, animation, or motion content from a text description.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        prompt: { type: "string", description: "Detailed description of the video to generate. Include scene, motion, style, mood." },
+        duration: { type: "number", description: "Duration in seconds (1-10, default 5)" },
+        aspect_ratio: { type: "string", enum: ["16:9", "9:16", "1:1"], description: "Video aspect ratio. Default: 16:9" },
+      },
+      required: ["prompt"],
+    },
+  },
+  {
+    name: "spawn_autonomous_task",
+    description: "Create a long-horizon autonomous task that MAVIS will execute step-by-step over multiple cron cycles (every 2 minutes). Use for complex multi-step goals that take too long for a single response: research + write + publish workflows, monitoring + alert pipelines, scheduled multi-step operations. MAVIS will plan the steps, execute them autonomously, and store results.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        goal: { type: "string", description: "The complete goal MAVIS should accomplish autonomously. Be thorough — this runs without human input until complete." },
+        context: { type: "string", description: "Any relevant context, constraints, or background for the goal." },
+      },
+      required: ["goal"],
+    },
+  },
 ];
 
 // ── Tool executor ─────────────────────────────────────────────────────────────
@@ -867,13 +918,119 @@ async function executeTool(
         }
       }
 
-      case "crew_run": {
+      case "run_sandbox": {
         const supabaseUrl10 = Deno.env.get("SUPABASE_URL") ?? "";
         const serviceKey10  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
         try {
-          const res = await fetch(`${supabaseUrl10}/functions/v1/mavis-crew-orchestrator`, {
+          const res = await fetch(`${supabaseUrl10}/functions/v1/mavis-e2b-sandbox`, {
             method: "POST",
             headers: { "Content-Type": "application/json", Authorization: `Bearer ${serviceKey10}` },
+            body: JSON.stringify({
+              code: String(input.code ?? ""),
+              language: input.language ? String(input.language) : "python3",
+              timeout: input.timeout ? Number(input.timeout) : 30,
+            }),
+          });
+          const data = await res.json();
+          if (!res.ok) return JSON.stringify({ error: data.error ?? `Sandbox error: ${res.status}` });
+          return JSON.stringify(data);
+        } catch (err: any) {
+          return JSON.stringify({ error: err.message ?? "Sandbox execution failed" });
+        }
+      }
+
+      case "generate_image": {
+        const openaiKey11 = Deno.env.get("OPENAI_API") ?? "";
+        if (!openaiKey11) return JSON.stringify({ error: "OPENAI_API not configured" });
+        try {
+          const res = await fetch("https://api.openai.com/v1/images/generations", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${openaiKey11}` },
+            body: JSON.stringify({
+              model: "dall-e-3",
+              prompt: String(input.prompt ?? ""),
+              n: 1,
+              size: input.size ? String(input.size) : "1024x1024",
+              quality: input.quality ? String(input.quality) : "standard",
+            }),
+          });
+          const data = await res.json();
+          if (!res.ok) return JSON.stringify({ error: data.error?.message ?? `Image generation failed: ${res.status}` });
+          const url = data.data?.[0]?.url ?? "";
+          const revised = data.data?.[0]?.revised_prompt ?? "";
+          return JSON.stringify({ url, revised_prompt: revised, message: `Image generated. URL valid for ~1 hour: ${url}` });
+        } catch (err: any) {
+          return JSON.stringify({ error: err.message ?? "Image generation failed" });
+        }
+      }
+
+      case "generate_video": {
+        const supabaseUrl11 = Deno.env.get("SUPABASE_URL") ?? "";
+        const serviceKey11  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+        const videoGenUrl = `${supabaseUrl11}/functions/v1/mavis-video-gen`;
+        const videoHeaders = { "Content-Type": "application/json", Authorization: `Bearer ${serviceKey11}` };
+        try {
+          // Submit
+          const submitRes = await fetch(videoGenUrl, {
+            method: "POST",
+            headers: videoHeaders,
+            body: JSON.stringify({
+              prompt: String(input.prompt ?? ""),
+              duration: input.duration ? Number(input.duration) : 5,
+              aspect_ratio: input.aspect_ratio ? String(input.aspect_ratio) : "16:9",
+            }),
+          });
+          const submitData = await submitRes.json();
+          if (!submitRes.ok) return JSON.stringify({ error: submitData.error ?? `Video generation failed: ${submitRes.status}` });
+          // If already complete (sync path), return immediately
+          if (submitData.url) return JSON.stringify(submitData);
+          // Async path: poll until complete (max 90s)
+          const { request_id, operation_name, provider } = submitData;
+          if (!request_id && !operation_name) return JSON.stringify(submitData);
+          const deadline = Date.now() + 90_000;
+          while (Date.now() < deadline) {
+            await new Promise(r => setTimeout(r, 4000));
+            const pollRes = await fetch(videoGenUrl, {
+              method: "POST",
+              headers: videoHeaders,
+              body: JSON.stringify({ action: "poll", provider, request_id, operation_name }),
+            });
+            const pollData = await pollRes.json();
+            if (pollData.url || pollData.status === "complete") return JSON.stringify(pollData);
+            if (pollData.error) return JSON.stringify(pollData);
+          }
+          return JSON.stringify({ status: "processing", message: "Video generation is taking longer than expected. Check back shortly.", request_id, operation_name, provider });
+        } catch (err: any) {
+          return JSON.stringify({ error: err.message ?? "Video generation failed" });
+        }
+      }
+
+      case "spawn_autonomous_task": {
+        try {
+          const { data, error } = await adminSb.from("mavis_autonomous_tasks").insert({
+            user_id: userId,
+            goal: String(input.goal ?? ""),
+            context: input.context ? { initial: String(input.context) } : {},
+            status: "pending",
+          }).select("id").single();
+          if (error) return JSON.stringify({ error: error.message });
+          return JSON.stringify({
+            success: true,
+            task_id: data.id,
+            message: `Autonomous task created (ID: ${data.id}). MAVIS will plan and execute this goal over the next few cycles (~2 min intervals). Check /agents for progress.`,
+          });
+        } catch (err: any) {
+          return JSON.stringify({ error: err.message ?? "Failed to spawn autonomous task" });
+        }
+      }
+
+      case "crew_run": {
+        const supabaseUrl12 = Deno.env.get("SUPABASE_URL") ?? "";
+        const serviceKey12  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+        try {
+          const res = await fetch(`${supabaseUrl12}/functions/v1/mavis-crew-orchestrator`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${serviceKey12}` },
             body: JSON.stringify({
               goal: String(input.goal ?? ""),
               context: input.context ? String(input.context) : undefined,
@@ -883,12 +1040,13 @@ async function executeTool(
           });
           const data = await res.json();
           if (!res.ok) return JSON.stringify({ error: data.error ?? `Crew run failed: ${res.status}` });
-          const { synthesis, agents, agent_count: count, duration_ms } = data;
+          const { synthesis, agents, agent_count: count, duration_ms, run_id } = data;
           const agentSummary = (agents ?? []).map((a: any) =>
             `[${a.role}] ${a.task}: ${a.success ? a.output?.slice(0, 200) : "FAILED"}`
           ).join("\n");
           return JSON.stringify({
             synthesis,
+            run_id,
             agent_count: count,
             duration_ms,
             agent_outputs: agentSummary,

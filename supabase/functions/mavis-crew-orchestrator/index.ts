@@ -224,14 +224,39 @@ async function decomposeGoal(
   }
 }
 
+// ── Progress event emitter (fire-and-forget) ─────────────────────────────────
+function emitProgress(
+  runId: string,
+  userId: string,
+  agentRole: string,
+  eventType: "start" | "complete" | "error" | "synthesis",
+  content: string,
+): void {
+  (async () => {
+    try {
+      await supabase.from("mavis_crew_progress").insert({
+        run_id: runId,
+        user_id: userId,
+        agent_role: agentRole,
+        event_type: eventType,
+        content: content.slice(0, 1000),
+      });
+    } catch { /* non-fatal */ }
+  })();
+}
+
 // ── Step 2: Run a single agent ────────────────────────────────────────────────
 async function runAgent(
   subTask: SubTask,
   goal: string,
   context: string,
+  runId: string,
+  userId: string,
 ): Promise<AgentResult> {
   const agentStart = Date.now();
   const systemPrompt = AGENT_PERSONAS[subTask.agent];
+
+  emitProgress(runId, userId, subTask.agent, "start", subTask.task);
 
   const userMsg =
     `MAIN GOAL: ${goal}\n\n` +
@@ -247,6 +272,7 @@ async function runAgent(
       "claude-haiku-4-5-20251001",
       2048,
     );
+    emitProgress(runId, userId, subTask.agent, "complete", output);
     return {
       role: subTask.agent,
       task: subTask.task,
@@ -258,6 +284,7 @@ async function runAgent(
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
     console.error(`[crew-orchestrator] Agent ${subTask.agent} failed:`, message);
+    emitProgress(runId, userId, subTask.agent, "error", message);
     return {
       role: subTask.agent,
       task: subTask.task,
@@ -395,6 +422,8 @@ serve(async (req: Request): Promise<Response> => {
   const maxAgents = Math.max(2, Math.min(5, isNaN(rawMax) ? 5 : rawMax));
 
   const overallStart = Date.now();
+  // Stable run ID for progress streaming — clients subscribe by run_id
+  const runId = crypto.randomUUID();
 
   // ── Step 1: Decompose ───────────────────────────────────────────────────────
   let subTasks: SubTask[];
@@ -411,7 +440,7 @@ serve(async (req: Request): Promise<Response> => {
 
   // ── Step 2: Parallel agent execution ────────────────────────────────────────
   const agentResults: AgentResult[] = await Promise.all(
-    subTasks.map((task) => runAgent(task, goal, context)),
+    subTasks.map((task) => runAgent(task, goal, context, runId, userId)),
   );
 
   // Hard failure: every single agent failed
@@ -446,11 +475,15 @@ serve(async (req: Request): Promise<Response> => {
 
   const totalDurationMs = Date.now() - overallStart;
 
+  // Emit synthesis progress event
+  emitProgress(runId, userId, "synthesizer", "synthesis", synthesis);
+
   // ── Persist run (fire-and-forget) ────────────────────────────────────────────
   persistRun(userId, goal, agentResults, synthesis, totalDurationMs);
 
   // ── Build response ───────────────────────────────────────────────────────────
-  const response: OrchestratorResponse = {
+  const response: OrchestratorResponse & { run_id: string } = {
+    run_id: runId,
     synthesis,
     agents: agentResults.map((r) => ({
       role: r.role,
