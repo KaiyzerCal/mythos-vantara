@@ -89,3 +89,19 @@ verify_jwt = false
 # Compound Learning — records interaction signals and consolidates operator preferences.
 [functions.mavis-compound-learning]
 verify_jwt = false
+
+# Daily morning brief — triggered by pg_cron at 6am with service-role key.
+[functions.mavis-morning-brief]
+verify_jwt = false
+
+# Strategy council — called from mavis-agent with service-role key.
+[functions.mavis-strategy-council]
+verify_jwt = false
+
+# Opportunity scanner — triggered by pg_cron with service-role key.
+[functions.mavis-opportunity-scanner]
+verify_jwt = false
+
+# Performance Science Engine — triggered by pg_cron with service-role key.
+[functions.mavis-performance-science]
+verify_jwt = false

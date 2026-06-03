@@ -1,14 +1,16 @@
 import { motion } from "framer-motion";
 import { useNavigate } from "react-router-dom";
+import { useState, useEffect } from "react";
 import {
   Target, Flame, Zap, Sparkles, Package, BookLock, ShoppingBag,
   Medal, TowerControl, Activity, Users, CheckSquare, BookOpen,
-  Shield, Cpu, Crown, Copy, TrendingUp,
+  Shield, Cpu, Crown, Copy, TrendingUp, CalendarDays,
 } from "lucide-react";
 import { useAppData } from "@/contexts/AppDataContext";
 import { PageHeader, HudCard, ProgressBar, StatBadge, RankBadge, QuestTypeBadge } from "@/components/SharedUI";
 import { RANK_COLORS } from "@/types/rpg";
 import { StreakHeatmap } from "@/components/StreakHeatmap";
+import { supabase } from "@/integrations/supabase/client";
 
 const fadeIn = (delay = 0) => ({
   initial: { opacity: 0, y: 12 },
@@ -53,6 +55,56 @@ export default function Dashboard() {
     : 0;
 
   const activeQuests = quests.filter((q) => q.status === "active").slice(0, 4);
+
+  // ── Morning Brief ──
+  const [morningBrief, setMorningBrief] = useState<{
+    brief_date: string;
+    brief_text: string;
+  } | null>(null);
+
+  useEffect(() => {
+    const today = new Date().toISOString().slice(0, 10);
+    supabase
+      .from("mavis_daily_briefs")
+      .select("brief_date, brief_text")
+      .eq("brief_date", today)
+      .maybeSingle()
+      .then(({ data }) => setMorningBrief(data ?? null));
+  }, []);
+
+  // ── Performance Score ──
+  const [perfScore, setPerfScore] = useState<{
+    score: number;
+    trend: string;
+    optimal_window: string;
+    recommendation: string;
+  } | null>(null);
+
+  useEffect(() => {
+    const today = new Date().toISOString().slice(0, 10);
+    supabase
+      .from("mavis_daily_scores")
+      .select("score, trend, optimal_window, recommendation")
+      .eq("score_date", today)
+      .maybeSingle()
+      .then(({ data }) => setPerfScore(data ?? null));
+  }, []);
+
+  const scoreColor =
+    perfScore === null
+      ? "text-muted-foreground"
+      : perfScore.score >= 75
+      ? "text-green-400"
+      : perfScore.score >= 50
+      ? "text-amber-400"
+      : "text-red-400";
+
+  const trendArrow =
+    perfScore?.trend === "improving"
+      ? "↑"
+      : perfScore?.trend === "declining"
+      ? "↓"
+      : "→";
 
   const copyStats = () => {
     const text = [
@@ -165,6 +217,78 @@ export default function Dashboard() {
           {CORE_STATS.map(({ key, label }) => (
             <StatBadge key={key} label={label} value={(profile as any)[key]} />
           ))}
+        </div>
+      </motion.div>
+
+      {/* ── Today's Intelligence ── */}
+      <motion.div {...fadeIn(0.08)}>
+        <h3 className="text-xs font-mono text-muted-foreground uppercase tracking-widest mb-2">
+          Today's Intelligence
+        </h3>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+
+          {/* Morning Brief Card */}
+          <HudCard>
+            <div className="flex items-center gap-2 mb-3">
+              <CalendarDays size={14} className="text-primary shrink-0" />
+              <h3 className="text-sm font-display text-foreground">Morning Brief</h3>
+              {morningBrief && (
+                <span className="ml-auto text-[10px] font-mono text-muted-foreground">
+                  {morningBrief.brief_date}
+                </span>
+              )}
+            </div>
+            {morningBrief ? (
+              <p className="text-xs font-body text-foreground/80 leading-relaxed">
+                {morningBrief.brief_text.length > 400
+                  ? morningBrief.brief_text.slice(0, 400) + "..."
+                  : morningBrief.brief_text}
+              </p>
+            ) : (
+              <p className="text-xs font-mono text-muted-foreground text-center py-3">
+                Brief generates at 6am daily
+              </p>
+            )}
+          </HudCard>
+
+          {/* Performance Score Card */}
+          <HudCard>
+            <div className="flex items-center gap-2 mb-3">
+              <Activity size={14} className="text-primary shrink-0" />
+              <h3 className="text-sm font-display text-foreground">Today's Performance</h3>
+            </div>
+            {perfScore ? (
+              <div className="space-y-2">
+                <div className="flex items-center gap-3">
+                  <span className={`text-3xl font-display font-bold ${scoreColor}`}>
+                    {perfScore.score}
+                  </span>
+                  <span className="text-sm font-mono text-muted-foreground">/100</span>
+                  <span className={`text-lg font-mono ${scoreColor}`}>{trendArrow}</span>
+                  <span className="text-[10px] font-mono text-muted-foreground capitalize">
+                    {perfScore.trend}
+                  </span>
+                </div>
+                {perfScore.optimal_window && (
+                  <p className="text-[10px] font-mono text-primary">
+                    Peak: {perfScore.optimal_window}
+                  </p>
+                )}
+                {perfScore.recommendation && (
+                  <p className="text-xs font-body text-foreground/70 leading-relaxed">
+                    {perfScore.recommendation.length > 120
+                      ? perfScore.recommendation.slice(0, 120) + "..."
+                      : perfScore.recommendation}
+                  </p>
+                )}
+              </div>
+            ) : (
+              <p className="text-xs font-mono text-muted-foreground text-center py-3">
+                Score generates at 7am daily
+              </p>
+            )}
+          </HudCard>
+
         </div>
       </motion.div>
 

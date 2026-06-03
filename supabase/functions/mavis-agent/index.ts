@@ -525,6 +525,104 @@ const AGENT_TOOLS = [
       required: [],
     },
   },
+  {
+    name: "strategy_council",
+    description: "Convene MAVIS's 5-advisor strategy council (STRATEGIST, DEVIL'S ADVOCATE, OPERATOR, INVESTOR, VISIONARY) to deeply analyze a question or decision. Synthesized by Opus with extended thinking. Use for major decisions, strategic planning, and complex trade-offs.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        question: { type: "string", description: "The strategic question or decision to analyze" },
+        context: { type: "string", description: "Additional context about the situation" },
+      },
+      required: ["question"],
+    },
+  },
+  {
+    name: "scan_opportunities",
+    description: "Run MAVIS's cross-domain opportunity scanner. Identifies skill gap bridges, timing windows, dormant assets, relationship leverage, financial optimizations. Returns fresh actionable opportunities.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        force_refresh: { type: "boolean", description: "Force fresh scan even if one ran recently" },
+      },
+      required: [],
+    },
+  },
+  {
+    name: "relationship_health",
+    description: "Get MAVIS's relationship health report — which contacts are dormant, who needs attention, AI nurturing suggestions. Scores each contact 0-10.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        limit: { type: "number", description: "Max contacts to return (default 10)" },
+      },
+      required: [],
+    },
+  },
+  {
+    name: "build_world_model",
+    description: "Rebuild MAVIS's world model — synthesis of all life data streams into current state, trajectory, insights, opportunities and risks. Use when operator wants a big-picture assessment.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        force_rebuild: { type: "boolean", description: "Force rebuild even if one exists from today" },
+      },
+      required: [],
+    },
+  },
+  {
+    name: "run_narrative",
+    description: "Rebuild MAVIS's living narrative — the story of who the operator is, their identity, themes, and arc. Produces an identity_summary injected into future conversations.",
+    input_schema: {
+      type: "object" as const,
+      properties: {},
+      required: [],
+    },
+  },
+  {
+    name: "get_insights",
+    description: "Retrieve MAVIS's behavioral pattern insights — trends and observations from analyzing rituals, tasks, journals, and energy data over 30 days.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        limit: { type: "number", description: "Max insights (default 5)" },
+      },
+      required: [],
+    },
+  },
+  {
+    name: "compound_learning_record",
+    description: "Record a learning signal to MAVIS's compound learning system. Use when the operator corrects, confirms, or expresses a strong preference so MAVIS permanently adapts.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        signal_type: { type: "string", enum: ["positive", "negative", "correction", "preference"], description: "Type of feedback signal" },
+        content: { type: "string", description: "The correction or preference being recorded" },
+        context: { type: "string", description: "Context about what triggered this feedback" },
+      },
+      required: ["signal_type", "content"],
+    },
+  },
+  {
+    name: "get_morning_brief",
+    description: "Retrieve today's MAVIS morning brief — daily intelligence digest with schedule, overdue quests, pending approvals, spaced repetition notes, revenue snapshot, and key insight.",
+    input_schema: {
+      type: "object" as const,
+      properties: {},
+      required: [],
+    },
+  },
+  {
+    name: "get_performance_score",
+    description: "Get the operator's daily performance score (0-100) derived from sleep quality, HRV, energy, task completion, habit streaks, and output. Includes trend, optimal deep-work window, and a personalized recommendation for today.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        force_recompute: { type: "boolean", description: "Recompute the score even if one exists for today" },
+      },
+      required: [],
+    },
+  },
 ];
 
 // ── Tool executor ─────────────────────────────────────────────────────────────
@@ -1281,6 +1379,168 @@ async function executeTool(
         }
       }
 
+      case "strategy_council": {
+        const sbUrl = Deno.env.get("SUPABASE_URL") ?? "";
+        const sk = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+        try {
+          const res = await fetch(`${sbUrl}/functions/v1/mavis-strategy-council`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${sk}` },
+            body: JSON.stringify({ user_id: userId, question: String(input.question ?? ""), context: input.context ? String(input.context) : undefined }),
+          });
+          const data = await res.json();
+          if (!res.ok) return JSON.stringify({ error: data.error ?? "Strategy council failed" });
+          return JSON.stringify({
+            recommendation: data.recommendation,
+            synthesis: String(data.synthesis ?? "").slice(0, 1500),
+            confidence: data.confidence,
+            advisors: (data.advisor_outputs ?? []).map((a: any) => `[${a.role}] ${String(a.analysis ?? "").slice(0, 250)}`).join("\n\n"),
+          });
+        } catch (err: any) { return JSON.stringify({ error: err.message ?? "Strategy council failed" }); }
+      }
+
+      case "scan_opportunities": {
+        const sbUrl = Deno.env.get("SUPABASE_URL") ?? "";
+        const sk = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+        try {
+          // Return cached opportunities first
+          const { data: cached } = await adminSb
+            .from("mavis_opportunities")
+            .select("opportunity_type,title,description,action_steps,estimated_impact")
+            .eq("user_id", userId)
+            .gte("expires_at", new Date().toISOString())
+            .order("created_at", { ascending: false })
+            .limit(5);
+          if (cached && cached.length > 0 && !input.force_refresh) {
+            return JSON.stringify({ opportunities: cached, source: "cached" });
+          }
+          // Trigger fresh scan
+          const res = await fetch(`${sbUrl}/functions/v1/mavis-opportunity-scanner`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${sk}` },
+            body: JSON.stringify({ user_id: userId }),
+          });
+          const data = await res.json();
+          if (!res.ok) return JSON.stringify({ error: data.error ?? "Opportunity scan failed" });
+          return JSON.stringify({ opportunities: data.opportunities ?? data.data ?? [], generated: true });
+        } catch (err: any) { return JSON.stringify({ error: err.message ?? "Opportunity scan failed" }); }
+      }
+
+      case "relationship_health": {
+        try {
+          const { data, error } = await adminSb
+            .from("mavis_relationship_health")
+            .select("contact_name,health_score,days_since_contact,urgency_level,nurturing_suggestion,frequency")
+            .eq("user_id", userId)
+            .order("health_score", { ascending: true })
+            .limit(Number(input.limit ?? 10));
+          if (error) return JSON.stringify({ error: error.message });
+          if (!data || data.length === 0) return "No relationship health data yet. MAVIS will analyze your contacts on the next Monday scan.";
+          return JSON.stringify({ contacts: data });
+        } catch (err: any) { return JSON.stringify({ error: err.message ?? "Relationship health check failed" }); }
+      }
+
+      case "build_world_model": {
+        const sbUrl = Deno.env.get("SUPABASE_URL") ?? "";
+        const sk = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+        try {
+          if (!input.force_rebuild) {
+            const { data: existing } = await adminSb.from("mavis_world_model").select("summary,trajectory,key_insights,created_at").eq("user_id", userId).order("created_at", { ascending: false }).limit(1).maybeSingle();
+            if (existing) {
+              const ageHours = (Date.now() - new Date(existing.created_at).getTime()) / 3600000;
+              if (ageHours < 24) return JSON.stringify({ from_cache: true, summary: existing.summary, trajectory: existing.trajectory, key_insights: existing.key_insights });
+            }
+          }
+          const res = await fetch(`${sbUrl}/functions/v1/mavis-world-model`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${sk}` },
+            body: JSON.stringify({ user_id: userId }),
+          });
+          const data = await res.json();
+          if (!res.ok) return JSON.stringify({ error: data.error ?? "World model build failed" });
+          return JSON.stringify({ summary: data.summary, trajectory: data.trajectory, key_insights: (data.key_insights ?? []).slice(0, 5), opportunities: (data.opportunities ?? []).slice(0, 3) });
+        } catch (err: any) { return JSON.stringify({ error: err.message ?? "World model build failed" }); }
+      }
+
+      case "run_narrative": {
+        const sbUrl = Deno.env.get("SUPABASE_URL") ?? "";
+        const sk = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+        try {
+          const res = await fetch(`${sbUrl}/functions/v1/mavis-narrative-engine`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${sk}` },
+            body: JSON.stringify({ user_id: userId }),
+          });
+          const data = await res.json();
+          if (!res.ok) return JSON.stringify({ error: data.error ?? "Narrative engine failed" });
+          return JSON.stringify({ identity_summary: String(data.identity_summary ?? "").slice(0, 500), themes: data.themes, arc: String(data.arc ?? "").slice(0, 200) });
+        } catch (err: any) { return JSON.stringify({ error: err.message ?? "Narrative engine failed" }); }
+      }
+
+      case "get_insights": {
+        try {
+          const { data, error } = await adminSb
+            .from("mavis_insights")
+            .select("type,title,content,created_at")
+            .eq("user_id", userId)
+            .order("created_at", { ascending: false })
+            .limit(Number(input.limit ?? 5));
+          if (error) return JSON.stringify({ error: error.message });
+          if (!data || data.length === 0) return "No pattern insights yet. MAVIS's pattern engine will generate insights after analyzing your 30-day behavioral data.";
+          return data.map((i: any) => `[${i.type ?? "insight"}] **${i.title}**\n${i.content}`).join("\n\n");
+        } catch (err: any) { return JSON.stringify({ error: err.message ?? "Failed to fetch insights" }); }
+      }
+
+      case "compound_learning_record": {
+        const sbUrl = Deno.env.get("SUPABASE_URL") ?? "";
+        const sk = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+        try {
+          const res = await fetch(`${sbUrl}/functions/v1/mavis-compound-learning`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${sk}` },
+            body: JSON.stringify({ action: "record", user_id: userId, signal_type: String(input.signal_type ?? "positive"), content: String(input.content ?? ""), context: input.context ? String(input.context) : undefined }),
+          });
+          const data = await res.json();
+          if (!res.ok) return JSON.stringify({ error: data.error ?? "Learning record failed" });
+          return JSON.stringify({ success: true, message: "Learning signal recorded. MAVIS will incorporate this into future behavior." });
+        } catch (err: any) { return JSON.stringify({ error: err.message ?? "Compound learning record failed" }); }
+      }
+
+      case "get_morning_brief": {
+        try {
+          const today = new Date().toISOString().slice(0, 10);
+          const { data } = await adminSb.from("mavis_daily_briefs").select("brief_text,sections,brief_date").eq("user_id", userId).eq("brief_date", today).maybeSingle();
+          if (data) return JSON.stringify({ brief_date: data.brief_date, brief: data.brief_text, sections: data.sections });
+          // No brief today — return latest instead
+          const { data: latest } = await adminSb.from("mavis_daily_briefs").select("brief_text,sections,brief_date").eq("user_id", userId).order("brief_date", { ascending: false }).limit(1).maybeSingle();
+          if (latest) return JSON.stringify({ brief_date: latest.brief_date, brief: latest.brief_text, sections: latest.sections, note: "No brief generated yet today — showing most recent." });
+          return "No morning brief available yet. Briefs are generated daily at 6am.";
+        } catch (err: any) { return JSON.stringify({ error: err.message ?? "Failed to fetch morning brief" }); }
+      }
+
+      case "get_performance_score": {
+        const sbUrl = Deno.env.get("SUPABASE_URL") ?? "";
+        const sk = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+        try {
+          const today = new Date().toISOString().slice(0, 10);
+          const { data: existing } = await adminSb.from("mavis_daily_scores").select("score,trend,optimal_window,recommendation,components,score_date").eq("user_id", userId).eq("score_date", today).maybeSingle();
+          if (existing && !input.force_recompute) {
+            const arrow = existing.trend === "improving" ? "↑" : existing.trend === "declining" ? "↓" : "→";
+            return JSON.stringify({ score: existing.score, trend: `${existing.trend} ${arrow}`, optimal_window: existing.optimal_window, recommendation: existing.recommendation, components: existing.components });
+          }
+          // Compute fresh score
+          const res = await fetch(`${sbUrl}/functions/v1/mavis-performance-science`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${sk}` },
+            body: JSON.stringify({ user_id: userId }),
+          });
+          const data = await res.json();
+          if (!res.ok) return JSON.stringify({ error: data.error ?? "Performance score computation failed" });
+          const arrow = data.trend === "improving" ? "↑" : data.trend === "declining" ? "↓" : "→";
+          return JSON.stringify({ score: data.score, trend: `${data.trend} ${arrow}`, optimal_window: data.optimal_window, recommendation: data.recommendation, components: data.components });
+        } catch (err: any) { return JSON.stringify({ error: err.message ?? "Failed to get performance score" }); }
+      }
+
       default:
         return JSON.stringify({ error: `Unknown tool: ${name}` });
     }
@@ -1353,10 +1613,20 @@ serve(async (req) => {
           }
           let messages: any[] = trimmed;
 
-          const MODEL = "claude-sonnet-4-6";
-          const MAX_ITER = 12;
           // Accumulates web_search sources for citation display
           const sources: Array<{ title: string; url: string }> = [];
+
+          // ── Complexity detection → extended thinking ──────────────────
+          const lastUserText = messages.filter((m: any) => m.role === "user").slice(-1)[0]?.content ?? "";
+          const userText = typeof lastUserText === "string" ? lastUserText : JSON.stringify(lastUserText);
+          const deepThinkMode = body.mode === "think" || body.mode === "deep";
+          const complexKeywords = ["strategy", "strategize", "decide", "best approach", "should i", "evaluate all", "trade-off", "tradeoff", "comprehensive plan", "think through", "help me figure out", "walk me through", "analyze in depth", "weigh the options", "pros and cons"];
+          const isComplex = deepThinkMode || (userText.split(/\s+/).length > 100 && complexKeywords.some(k => userText.toLowerCase().includes(k)));
+
+          const MODEL = isComplex ? "claude-opus-4-8" : "claude-sonnet-4-6";
+          const MAX_TOKENS = isComplex ? 16000 : 4096;
+          const MAX_ITER = 12;
+          if (isComplex) send({ thinking: "Engaging deep reasoning (Opus + extended thinking)…" });
 
           // ── ReAct loop ─────────────────────────────────────
           // NOTE: No Gemini pre-flight here — the agent endpoint's entire purpose is
@@ -1365,20 +1635,27 @@ serve(async (req) => {
           while (iteration < MAX_ITER) {
             iteration++;
 
+            const claudeBody: Record<string, any> = {
+              model: MODEL,
+              max_tokens: MAX_TOKENS,
+              system: systemPrompt,
+              tools: AGENT_TOOLS,
+              messages,
+            };
+            if (isComplex) {
+              claudeBody.thinking = { type: "enabled", budget_tokens: 10000 };
+            }
+            const claudeHeaders: Record<string, string> = {
+              "Content-Type": "application/json",
+              "x-api-key": claudeKey,
+              "anthropic-version": "2023-06-01",
+            };
+            if (isComplex) claudeHeaders["anthropic-beta"] = "interleaved-thinking-2025-05-14";
+
             const res = await fetch("https://api.anthropic.com/v1/messages", {
               method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-                "x-api-key": claudeKey,
-                "anthropic-version": "2023-06-01",
-              },
-              body: JSON.stringify({
-                model: MODEL,
-                max_tokens: 4096,
-                system: systemPrompt,
-                tools: AGENT_TOOLS,
-                messages,
-              }),
+              headers: claudeHeaders,
+              body: JSON.stringify(claudeBody),
             });
 
             if (!res.ok) {
@@ -1388,6 +1665,10 @@ serve(async (req) => {
 
             const d = await res.json();
             const content: any[] = d.content ?? [];
+            // Stream extended thinking blocks if present
+            for (const block of content.filter((b: any) => b.type === "thinking")) {
+              if (block.thinking) send({ thinking: `💭 ${block.thinking.slice(0, 400)}${block.thinking.length > 400 ? "…" : ""}` });
+            }
             const stopReason: string = d.stop_reason ?? "end_turn";
 
             messages = [...messages, { role: "assistant", content }];

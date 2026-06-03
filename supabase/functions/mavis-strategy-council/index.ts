@@ -146,11 +146,21 @@ serve(async (req) => {
     new Response(JSON.stringify(data), { status, headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
   const authHeader = req.headers.get("Authorization") ?? "";
-  const { data: { user } } = await createClient(SB_URL, SB_KEY).auth.getUser(authHeader.replace("Bearer ", ""));
-  if (!user) return json({ error: "Unauthorized" }, 401);
+  const token = authHeader.replace("Bearer ", "");
 
   let body: any;
   try { body = await req.json(); } catch { return json({ error: "Invalid JSON" }, 400); }
+
+  // Support service-role calls from mavis-agent (user_id in body)
+  let userId: string;
+  if (token === SB_KEY) {
+    if (!body.user_id) return json({ error: "user_id required for service-role calls" }, 400);
+    userId = String(body.user_id);
+  } else {
+    const { data: { user } } = await createClient(SB_URL, SB_KEY).auth.getUser(token);
+    if (!user) return json({ error: "Unauthorized" }, 401);
+    userId = user.id;
+  }
 
   const question = String(body.question ?? "");
   const context = String(body.context ?? "");
@@ -161,9 +171,9 @@ serve(async (req) => {
   try {
     // Fetch operator context
     const [profileRes, worldModelRes, narrativeRes] = await Promise.all([
-      sb().from("profiles").select("display_name,rank,level").eq("id", user.id).maybeSingle(),
-      sb().from("mavis_world_model").select("summary").eq("user_id", user.id).order("created_at", { ascending: false }).limit(1).maybeSingle(),
-      sb().from("mavis_narrative").select("identity_summary").eq("user_id", user.id).order("created_at", { ascending: false }).limit(1).maybeSingle(),
+      sb().from("profiles").select("display_name,rank,level").eq("id", userId).maybeSingle(),
+      sb().from("mavis_world_model").select("summary").eq("user_id", userId).order("created_at", { ascending: false }).limit(1).maybeSingle(),
+      sb().from("mavis_narrative").select("identity_summary").eq("user_id", userId).order("created_at", { ascending: false }).limit(1).maybeSingle(),
     ]);
 
     const profile = profileRes.data;
@@ -188,7 +198,7 @@ serve(async (req) => {
     const { data: memo } = await sb()
       .from("mavis_strategy_memos")
       .insert({
-        user_id: user.id,
+        user_id: userId,
         question,
         synthesis,
         advisor_outputs: advisorOutputs,

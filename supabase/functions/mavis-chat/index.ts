@@ -968,6 +968,7 @@ serve(async (req) => {
       naviPersonasRes, naviRelationsRes,
       stalledRes, streakRes, revenueRes,
       predictionsRes, worldModelRes, narrativeRes,
+      insightsRes, dailyBriefRes, perfScoreRes,
     ] = await Promise.all([
       sb.from("profiles").select("*").eq("id", user.id).single(),
       sb.from("quests").select("id,title,description,type,status,difficulty,xp_reward,progress_current,progress_target,deadline,real_world_mapping").eq("user_id", user.id).order("created_at", { ascending: false }).limit(lim("quest", 25, 10)),
@@ -1001,6 +1002,10 @@ serve(async (req) => {
       sb.from("mavis_predictions").select("prediction_type,title,content,confidence").eq("user_id", user.id).eq("acted_on", false).order("confidence", { ascending: false }).limit(3),
       sb.from("mavis_world_model").select("summary,trajectory").eq("user_id", user.id).order("created_at", { ascending: false }).limit(1),
       sb.from("mavis_narrative").select("identity_summary,themes").eq("user_id", user.id).order("created_at", { ascending: false }).limit(1),
+      // extended intelligence — pattern insights, morning brief, performance score
+      sb.from("mavis_insights").select("type,title,content").eq("user_id", user.id).order("created_at", { ascending: false }).limit(2),
+      sb.from("mavis_daily_briefs").select("brief_text,sections").eq("user_id", user.id).eq("brief_date", new Date().toISOString().slice(0, 10)).maybeSingle(),
+      sb.from("mavis_daily_scores").select("score,trend,optimal_window,recommendation").eq("user_id", user.id).eq("score_date", new Date().toISOString().slice(0, 10)).maybeSingle(),
     ]);
 
     const profile = profileRes.data;
@@ -1040,21 +1045,36 @@ serve(async (req) => {
       }
     } catch { /* non-critical */ }
 
-    // ── Intelligence Layer (world model + predictions + narrative) ───────────
+    // ── Intelligence Layer (world model + predictions + narrative + insights + brief + performance) ──
     let intelligenceBlock = "";
     try {
       const parts: string[] = [];
-      const narrative = narrativeRes?.data?.[0] ?? narrativeRes?.data as any;
+      const narrative  = narrativeRes?.data?.[0] ?? narrativeRes?.data as any;
       const worldModel = worldModelRes?.data?.[0] ?? worldModelRes?.data as any;
       const predictions = predictionsRes?.data ?? [];
+      const insights   = insightsRes?.data ?? [];
+      const brief      = (dailyBriefRes as any)?.data ?? null;
+      const perfScore  = (perfScoreRes as any)?.data ?? null;
+
       if (narrative?.identity_summary) {
         parts.push(`OPERATOR IDENTITY:\n${narrative.identity_summary}`);
       }
       if (worldModel?.summary) {
-        parts.push(`CURRENT WORLD STATE:\n${worldModel.summary}${worldModel.trajectory ? `\nTrajectory: ${worldModel.trajectory.slice(0, 300)}` : ""}`);
+        parts.push(`CURRENT WORLD STATE:\n${worldModel.summary}${worldModel.trajectory ? `\nTrajectory: ${worldModel.trajectory.slice(0, 250)}` : ""}`);
       }
       if (Array.isArray(predictions) && predictions.length > 0) {
-        parts.push(`ACTIVE INTELLIGENCE:\n${(predictions as any[]).map((p: any) => `• [${p.prediction_type}] ${p.title}: ${String(p.content ?? "").slice(0, 180)}`).join("\n")}`);
+        parts.push(`ACTIVE PREDICTIONS:\n${(predictions as any[]).map((p: any) => `• [${p.prediction_type}] ${p.title}: ${String(p.content ?? "").slice(0, 150)}`).join("\n")}`);
+      }
+      if (Array.isArray(insights) && insights.length > 0) {
+        parts.push(`BEHAVIORAL INSIGHTS:\n${(insights as any[]).map((i: any) => `• [${i.type ?? "insight"}] ${i.title}: ${String(i.content ?? "").slice(0, 120)}`).join("\n")}`);
+      }
+      if (perfScore?.score != null) {
+        const arrow = perfScore.trend === "improving" ? "↑" : perfScore.trend === "declining" ? "↓" : "→";
+        parts.push(`TODAY'S PERFORMANCE: ${perfScore.score}/100 ${arrow} | Peak window: ${perfScore.optimal_window ?? "unknown"}\n${perfScore.recommendation ?? ""}`);
+      }
+      if (brief?.brief_text) {
+        // Include just the first 300 chars of today's brief as context
+        parts.push(`TODAY'S BRIEF:\n${String(brief.brief_text).slice(0, 300)}…`);
       }
       if (parts.length > 0) {
         intelligenceBlock = `\n═══ MAVIS INTELLIGENCE LAYER ═══\n${parts.join("\n\n")}\n═══ END INTELLIGENCE LAYER ═══`;
