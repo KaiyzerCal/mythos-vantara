@@ -1,11 +1,16 @@
 -- Schedule mavis-ambient-monitor to run every 5 minutes via pg_cron + pg_net
 DO $$ BEGIN
-  -- Enable extensions if not already enabled
   CREATE EXTENSION IF NOT EXISTS pg_cron;
+EXCEPTION WHEN others THEN NULL; END $$;
+
+DO $$ BEGIN
   CREATE EXTENSION IF NOT EXISTS pg_net;
-EXCEPTION WHEN others THEN
-  NULL;
-END $$;
+EXCEPTION WHEN others THEN NULL; END $$;
+
+-- Remove existing job if it exists, then re-create cleanly
+DO $$ BEGIN
+  PERFORM cron.unschedule('mavis-ambient-monitor');
+EXCEPTION WHEN others THEN NULL; END $$;
 
 SELECT cron.schedule(
   'mavis-ambient-monitor',
@@ -20,4 +25,4 @@ SELECT cron.schedule(
     body := '{}'::jsonb
   );
   $$
-) ON CONFLICT (jobname) DO UPDATE SET schedule = EXCLUDED.schedule;
+);
