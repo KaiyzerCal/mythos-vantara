@@ -555,12 +555,12 @@ export default function ReceptionistPage() {
     if (!token || !session?.user?.id) return;
     setCallsLoading(true);
     try {
-      const { data } = await supabase
+      const { data } = await (supabase as any)
         .from("receptionist_calls")
         .select("*")
         .order("created_at", { ascending: false })
         .limit(50);
-      setCalls(data ?? []);
+      setCalls((data ?? []) as Call[]);
     } catch { /* non-fatal */ } finally {
       setCallsLoading(false);
     }
@@ -570,12 +570,12 @@ export default function ReceptionistPage() {
     if (!token || !session?.user?.id) return;
     setMsgsLoading(true);
     try {
-      const { data } = await supabase
+      const { data } = await (supabase as any)
         .from("receptionist_messages")
         .select("*")
         .order("created_at", { ascending: false })
         .limit(50);
-      setMessages(data ?? []);
+      setMessages((data ?? []) as Message[]);
     } catch { /* non-fatal */ } finally {
       setMsgsLoading(false);
     }
@@ -599,7 +599,7 @@ export default function ReceptionistPage() {
   }
 
   async function markRead(msgId: string) {
-    await supabase.from("receptionist_messages").update({ is_read: true }).eq("id", msgId);
+    await (supabase as any).from("receptionist_messages").update({ is_read: true }).eq("id", msgId);
     setMessages(ms => ms.map(m => m.id === msgId ? { ...m, is_read: true } : m));
   }
 
