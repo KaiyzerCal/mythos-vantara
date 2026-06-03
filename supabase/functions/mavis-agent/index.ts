@@ -437,6 +437,37 @@ const AGENT_TOOLS = [
     },
   },
   {
+    name: "code_agent",
+    description: "Invoke MAVIS Code Agent — a Claude-native software engineer that autonomously reads, writes, tests, and commits code to a GitHub repository. Can create branches and open pull requests. Use for: fixing bugs, adding features, refactoring, writing tests, creating new files. Requires GitHub connected in Integrations.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        task: { type: "string", description: "What to build, fix, or change. Be specific: include file paths, desired behavior, constraints." },
+        owner: { type: "string", description: "GitHub repo owner (username or org). Defaults to authenticated user." },
+        repo: { type: "string", description: "GitHub repository name." },
+        branch: { type: "string", description: "Branch to work on (default: 'mavis-agent-work'). Created automatically if it doesn't exist." },
+        base_branch: { type: "string", description: "Base branch for PR (default: 'main')." },
+        create_pr: { type: "boolean", description: "Whether to open a PR when done (default: true)." },
+        max_turns: { type: "number", description: "Max tool-use iterations (default: 12, max: 20)." },
+      },
+      required: ["task"],
+    },
+  },
+  {
+    name: "call_agent",
+    description: "Call an external A2A-compatible agent (Claude Agent SDK, Google A2A protocol, or any agent exposing a JSON-RPC 2.0 endpoint). Use to delegate specialized tasks to other AI agents — e.g. a legal research agent, a financial modeling agent, or another MAVIS instance.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        agent_url: { type: "string", description: "Base URL of the agent endpoint (e.g. 'https://other-agent.example.com/api/agent')" },
+        task: { type: "string", description: "The task or question to send to the external agent." },
+        context: { type: "string", description: "Optional context to include with the task." },
+        skill_id: { type: "string", description: "Optional specific skill ID to invoke on the agent (per A2A agent card)." },
+      },
+      required: ["agent_url", "task"],
+    },
+  },
+  {
     name: "browse_goal",
     description: "Launch a persistent browser agent to research a topic or goal across multiple web pages. The agent searches, reads pages, extracts information, and synthesizes a comprehensive answer. Supports resumable sessions — pass session_id to continue where it left off. Best for: deep research requiring multiple sources, fact-checking across sites, competitive analysis, price comparison, news aggregation.",
     input_schema: {
@@ -1015,6 +1046,81 @@ async function executeTool(
           return JSON.stringify({ status: "processing", message: "Video generation is taking longer than expected. Check back shortly.", request_id, operation_name, provider });
         } catch (err: any) {
           return JSON.stringify({ error: err.message ?? "Video generation failed" });
+        }
+      }
+
+      case "code_agent": {
+        const supabaseUrlCa = Deno.env.get("SUPABASE_URL") ?? "";
+        const serviceKeyCa  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+        try {
+          const res = await fetch(`${supabaseUrlCa}/functions/v1/mavis-code-agent`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${serviceKeyCa}` },
+            body: JSON.stringify({
+              task:        String(input.task ?? ""),
+              owner:       input.owner       ? String(input.owner)       : undefined,
+              repo:        input.repo        ? String(input.repo)        : undefined,
+              branch:      input.branch      ? String(input.branch)      : undefined,
+              base_branch: input.base_branch ? String(input.base_branch) : undefined,
+              create_pr:   input.create_pr   != null ? Boolean(input.create_pr) : true,
+              max_turns:   input.max_turns   ? Number(input.max_turns)   : 12,
+            }),
+          });
+          const data = await res.json();
+          if (!res.ok) return JSON.stringify({ error: data.error ?? `Code agent failed: ${res.status}` });
+          const { summary, files_changed, pr_url, turns_used, repo, branch } = data;
+          return JSON.stringify({
+            summary,
+            files_changed,
+            pr_url,
+            turns_used,
+            repo,
+            branch,
+            message: pr_url
+              ? `Code agent completed in ${turns_used} turns. PR: ${pr_url}`
+              : `Code agent completed in ${turns_used} turns. ${files_changed?.length ?? 0} file(s) changed on branch '${branch}'.`,
+          });
+        } catch (err: any) {
+          return JSON.stringify({ error: err.message ?? "Code agent failed" });
+        }
+      }
+
+      case "call_agent": {
+        const agentUrl = String(input.agent_url ?? "").trim();
+        if (!agentUrl) return JSON.stringify({ error: "agent_url is required" });
+        try {
+          const taskText = String(input.task ?? "");
+          const context  = input.context ? `\n\nContext: ${String(input.context)}` : "";
+          const skillId  = input.skill_id ? String(input.skill_id) : undefined;
+          // A2A JSON-RPC 2.0 request (tasks/send method)
+          const a2aBody: Record<string, any> = {
+            jsonrpc: "2.0",
+            id: crypto.randomUUID(),
+            method: "tasks/send",
+            params: {
+              id: crypto.randomUUID(),
+              message: {
+                role: "user",
+                parts: [{ type: "text", text: taskText + context }],
+              },
+              ...(skillId ? { skillId } : {}),
+            },
+          };
+          const res = await fetch(agentUrl, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(a2aBody),
+            signal: AbortSignal.timeout(30000),
+          });
+          const data = await res.json();
+          if (!res.ok) return JSON.stringify({ error: data.error?.message ?? `Agent returned ${res.status}` });
+          // Extract text from A2A response
+          const result = data.result;
+          const parts: any[] = result?.status?.message?.parts ?? result?.message?.parts ?? [];
+          const text = parts.filter((p: any) => p.type === "text").map((p: any) => p.text).join("\n") || JSON.stringify(result);
+          return JSON.stringify({ agent_url: agentUrl, response: text, status: result?.status?.state ?? "completed" });
+        } catch (err: any) {
+          return JSON.stringify({ error: err.message ?? "Agent call failed" });
         }
       }
 
