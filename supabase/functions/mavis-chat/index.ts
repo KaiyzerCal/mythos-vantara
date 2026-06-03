@@ -102,7 +102,7 @@ async function callOpenAI(messages: any[], system: string, key: string, model = 
   return d.choices?.[0]?.message?.content ?? "";
 }
 
-async function callClaude(messages: any[], system: string, key: string, model = "claude-haiku-4-5-20251001", useThinking = false): Promise<string> {
+async function callClaude(messages: any[], system: string, key: string, model = "claude-haiku-4-5-20251001", useThinking = false, thinkingBudget = 10000): Promise<string> {
   const res = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: {
@@ -112,8 +112,8 @@ async function callClaude(messages: any[], system: string, key: string, model = 
     },
     body: JSON.stringify({
       model,
-      max_tokens: useThinking ? 16000 : 4096,
-      ...(useThinking ? { thinking: { type: "enabled", budget_tokens: 8000 } } : {}),
+      max_tokens: useThinking ? 20000 : 4096,
+      ...(useThinking ? { thinking: { type: "enabled", budget_tokens: thinkingBudget } } : {}),
       system,
       messages: messages.map((m: any) => ({ role: m.role, content: m.content })),
     }),
@@ -254,7 +254,8 @@ async function callWithFallback(
   // Tier 1 — Mode-designated provider (Claude for deep reasoning, Grok for real-time)
   if (primary === "claude" && keys.claude) {
     try {
-      return { content: await callClaude(messages, system, keys.claude, "claude-sonnet-4-6", useThinking), provider: useThinking ? "claude-sonnet-thinking" : "claude-sonnet" };
+      const thinkBudget = mode === "SOVEREIGN" ? 20000 : mode === "ARCH" ? 16000 : 10000;
+      return { content: await callClaude(messages, system, keys.claude, "claude-sonnet-4-6", useThinking, thinkBudget), provider: useThinking ? "claude-sonnet-thinking" : "claude-sonnet" };
     } catch (err: any) {
       if (!(err instanceof ProviderUnavailableError)) throw err;
       console.warn(`[fallback] claude-sonnet unfunded (${err.status}) → cascading`);
@@ -1411,7 +1412,7 @@ You always know the current date and time without being told. Reference it natur
 
     // ── Route and call (with cascading fallback) ────────────
     const modeUpper = (mode ?? "PRIME").toUpperCase();
-    const useThinking = ["ARCH", "SOVEREIGN"].includes(modeUpper);
+    const useThinking = ["ARCH", "SOVEREIGN", "CODEX", "REFLECT"].includes(modeUpper);
     const provider = routeToProvider(mode ?? "PRIME", lastUserMsg?.content ?? "");
     const aiKeys = { openai: openaiKey, claude: claudeKey, grok: grokKey, gemini: geminiKey };
 

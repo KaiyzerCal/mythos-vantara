@@ -384,6 +384,19 @@ const AGENT_TOOLS = [
       required: ["to", "purpose"],
     },
   },
+  {
+    name: "crew_run",
+    description: "Spawn a parallel multi-agent crew to tackle a complex goal. MAVIS decomposes the goal into 2-5 specialized sub-agents (SCOUT, CIPHER, COMPASS, JUDGE, FORGE) that execute simultaneously, then synthesizes their outputs into a unified response. Use for tasks that benefit from multiple expert perspectives: deep research, strategic planning, creative ideation, comprehensive analysis, multi-domain problems.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        goal: { type: "string", description: "The high-level objective for the crew to accomplish. Be specific and comprehensive." },
+        context: { type: "string", description: "Additional context, constraints, or background the crew should know about." },
+        agent_count: { type: "number", description: "Number of parallel agents to spawn (2-5, default: auto-determined by goal complexity)" },
+      },
+      required: ["goal"],
+    },
+  },
 ];
 
 // ── Tool executor ─────────────────────────────────────────────────────────────
@@ -851,6 +864,37 @@ async function executeTool(
           return JSON.stringify({ success: true, ...data, message: `Call initiated to ${input.to}. MAVIS is dialing.` });
         } catch (err: any) {
           return JSON.stringify({ error: err.message ?? "Phone call failed" });
+        }
+      }
+
+      case "crew_run": {
+        const supabaseUrl10 = Deno.env.get("SUPABASE_URL") ?? "";
+        const serviceKey10  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+        try {
+          const res = await fetch(`${supabaseUrl10}/functions/v1/mavis-crew-orchestrator`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${serviceKey10}` },
+            body: JSON.stringify({
+              goal: String(input.goal ?? ""),
+              context: input.context ? String(input.context) : undefined,
+              agent_count: input.agent_count ? Number(input.agent_count) : undefined,
+              user_id: userId,
+            }),
+          });
+          const data = await res.json();
+          if (!res.ok) return JSON.stringify({ error: data.error ?? `Crew run failed: ${res.status}` });
+          const { synthesis, agents, agent_count: count, duration_ms } = data;
+          const agentSummary = (agents ?? []).map((a: any) =>
+            `[${a.role}] ${a.task}: ${a.success ? a.output?.slice(0, 200) : "FAILED"}`
+          ).join("\n");
+          return JSON.stringify({
+            synthesis,
+            agent_count: count,
+            duration_ms,
+            agent_outputs: agentSummary,
+          });
+        } catch (err: any) {
+          return JSON.stringify({ error: err.message ?? "Crew run failed" });
         }
       }
 
