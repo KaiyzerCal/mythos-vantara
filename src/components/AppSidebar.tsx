@@ -9,7 +9,7 @@ import {
   TrendingUp, Mail, Webhook, KeyRound, Archive,
   Clapperboard, Globe, LayoutTemplate, Workflow, Kanban, UserSquare2,
   Users2, LayoutGrid, Trophy, Gauge, Bell, CreditCard, Upload,
-  BrainCircuit, SlidersHorizontal,
+  BrainCircuit, SlidersHorizontal, Phone,
 } from "lucide-react";
 import { useState, useContext } from "react";
 import { motion, AnimatePresence } from "framer-motion";
@@ -24,6 +24,7 @@ const PRIMARY_NAV = [
   { to: "/mavis", icon: Cpu, label: "MAVIS" },
   { to: "/mavis-ui", icon: Sparkles, label: "MavisUI" },
   { to: "/agents", icon: BrainCircuit, label: "Agent Dashboard" },
+  { to: "/phone", icon: Phone, label: "AI Phone Calls" },
   { to: "/inbox", icon: Inbox, label: "Inbox" },
   { to: "/quests", icon: Target, label: "Quests" },
   { to: "/councils", icon: Users, label: "Councils" },

@@ -272,6 +272,33 @@ const AGENT_TOOLS = [
       required: [],
     },
   },
+  {
+    name: "dispatch_task",
+    description: "Queue an autonomous background task for MAVIS to execute. Use when the operator asks MAVIS to handle something that requires multiple steps, external calls, or extended time. The task runs automatically via the autonomous engine. Task types: 'goal' (multi-step objective), 'create_product', 'demand_scan', 'send_announcement', 'nora_tweet', 'revenue_snapshot'.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        type: { type: "string", description: "Task type: goal | create_product | demand_scan | send_announcement | nora_tweet | revenue_snapshot" },
+        description: { type: "string", description: "Human-readable description of what this task will do" },
+        payload: { type: "object", description: "Task-specific parameters. For 'goal': { objective, context }. For 'create_product': { title, description, price_cents }. For 'nora_tweet': { content }." },
+        scheduled_at: { type: "string", description: "ISO timestamp to delay execution (optional — omit to run immediately)" },
+      },
+      required: ["type", "description", "payload"],
+    },
+  },
+  {
+    name: "make_phone_call",
+    description: "Initiate an outbound AI phone call. MAVIS will call the number and speak on the operator's behalf to accomplish the stated purpose — e.g. make a reservation, follow up with a client, cancel an appointment, gather information.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        to: { type: "string", description: "Phone number in international format: +15551234567" },
+        purpose: { type: "string", description: "What MAVIS should accomplish on the call. Be specific: 'Reserve a table for 2 at La Piazza on Friday at 7pm under the name Caliyah Johnson.'" },
+        caller_name: { type: "string", description: "Name MAVIS introduces itself as (default: MAVIS)" },
+      },
+      required: ["to", "purpose"],
+    },
+  },
 ];
 
 // ── Tool executor ─────────────────────────────────────────────────────────────
@@ -618,6 +645,48 @@ async function executeTool(
           return JSON.stringify(await res.json());
         } catch (err: any) {
           return JSON.stringify({ error: err.message ?? "TikTok post failed" });
+        }
+      }
+
+      case "dispatch_task": {
+        const taskType   = String(input.type ?? "goal");
+        const taskDesc   = String(input.description ?? "");
+        const taskPayload = (input.payload ?? {}) as Record<string, unknown>;
+        const scheduledAt = input.scheduled_at ? String(input.scheduled_at) : null;
+        try {
+          const { data, error } = await adminSb.from("mavis_tasks").insert({
+            user_id: userId,
+            type: taskType,
+            description: taskDesc,
+            payload: taskPayload,
+            status: "pending",
+            scheduled_at: scheduledAt,
+          }).select("id").single();
+          if (error) return JSON.stringify({ error: error.message });
+          return JSON.stringify({ success: true, task_id: data.id, type: taskType, message: `Task queued. MAVIS will execute: ${taskDesc}` });
+        } catch (err: any) {
+          return JSON.stringify({ error: err.message ?? "Failed to dispatch task" });
+        }
+      }
+
+      case "make_phone_call": {
+        const supabaseUrl9 = Deno.env.get("SUPABASE_URL") ?? "";
+        const serviceKey9  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+        try {
+          const res = await fetch(`${supabaseUrl9}/functions/v1/mavis-phone-call`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${serviceKey9}` },
+            body: JSON.stringify({
+              to: String(input.to ?? ""),
+              purpose: String(input.purpose ?? ""),
+              caller_name: input.caller_name ? String(input.caller_name) : "MAVIS",
+            }),
+          });
+          const data = await res.json();
+          if (!res.ok) return JSON.stringify({ error: data.error ?? `Phone call failed: ${res.status}` });
+          return JSON.stringify({ success: true, ...data, message: `Call initiated to ${input.to}. MAVIS is dialing.` });
+        } catch (err: any) {
+          return JSON.stringify({ error: err.message ?? "Phone call failed" });
         }
       }
 

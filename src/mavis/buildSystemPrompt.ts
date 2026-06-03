@@ -3,6 +3,8 @@ import type { AppContextSnapshot } from "./appContextLoader";
 import { getStandingOrders } from "./standingOrders";
 import { buildMemoryContext } from "./memoryEngine";
 import { gatherProviderContext } from "./contextProviders";
+import { supabase as _sb } from "@/integrations/supabase/client";
+const _supabase = _sb as any;
 
 export interface MavisAppContext {
   quests?: any[];
@@ -536,6 +538,24 @@ After create_widget completes, always provide:
   return "";
 }
 
+async function fetchPatternInsights(userId: string): Promise<string> {
+  if (!userId) return "";
+  try {
+    const { data } = await _supabase
+      .from("mavis_insights")
+      .select("title, content, category, severity, generated_at")
+      .eq("user_id", userId)
+      .order("generated_at", { ascending: false })
+      .limit(5);
+    if (!data?.length) return "";
+    return data.map((i: any) =>
+      `[${i.severity?.toUpperCase() ?? "INFO"}] ${i.title}: ${i.content}`
+    ).join("\n");
+  } catch {
+    return "";
+  }
+}
+
 /**
  * Async wrapper: builds the MAVIS system prompt from an AppContextSnapshot.
  * Injects standing orders and the three-layer memory context on every call.
@@ -563,10 +583,13 @@ export async function buildSystemPromptFromSnapshot(
     rankings: ctx.rankings as any[],
   };
 
-  const [memoryContext, standingOrders, providerContext] = await Promise.all([
+  const userId = profile.user_id ?? profile.id ?? "";
+
+  const [memoryContext, standingOrders, providerContext, patternInsights] = await Promise.all([
     buildMemoryContext(),
     Promise.resolve(getStandingOrders()),
-    gatherProviderContext(profile.user_id ?? profile.id ?? ""),
+    gatherProviderContext(userId),
+    fetchPatternInsights(userId),
   ]);
 
   const base = buildSystemPrompt(profile, mode, appContext, archivedMemories, vaultMedia);
@@ -575,6 +598,7 @@ export async function buildSystemPromptFromSnapshot(
   if (providerContext) extras.push(`\n\n--- LIVE CONTEXT ---\n${providerContext}`);
   if (standingOrders) extras.push(`\n\n${standingOrders}`);
   if (memoryContext) extras.push(`\n\nMEMORY CONTEXT (three-layer — use this):\n${memoryContext}`);
+  if (patternInsights) extras.push(`\n\nMAVIS INTELLIGENCE BRIEF (behavioral patterns detected — reference these proactively):\n${patternInsights}`);
 
   return base + extras.join("");
 }

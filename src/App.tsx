@@ -83,6 +83,7 @@ const ImportPage = lazy(() => import("@/pages/ImportPage").then(m => ({ default:
 const SystemSettingsPage = lazy(() => import("@/pages/SystemSettingsPage").then(m => ({ default: m.SystemSettingsPage })));
 const AgentDashboardPage = lazy(() => import("@/pages/AgentDashboardPage").then(m => ({ default: m.AgentDashboardPage })));
 const WpcomCallbackPage = lazy(() => import("@/pages/WpcomCallbackPage"));
+const PhoneCallsPage = lazy(() => import("@/pages/PhoneCallsPage"));
 // Public demo — no auth required
 const MavisDemo = lazy(() => import("@/pages/MavisDemo"));
 
@@ -182,6 +183,7 @@ function AppContent() {
               <Route path="/system-settings" element={<SystemSettingsPage />} />
               <Route path="/agents" element={<AgentDashboardPage />} />
               <Route path="/wpcom-callback" element={<WpcomCallbackPage />} />
+              <Route path="/phone" element={<PhoneCallsPage />} />
               <Route path="*" element={<NotFound />} />
             </Routes>
           </Suspense>

@@ -34,3 +34,7 @@ verify_jwt = false
 # Auth is done via the first WebSocket message instead.
 [functions.mavis-live-voice]
 verify_jwt = false
+
+# VAPI phone call webhook — VAPI sends no Supabase JWT. Secured by x-vapi-secret header.
+[functions.mavis-vapi-webhook]
+verify_jwt = false
