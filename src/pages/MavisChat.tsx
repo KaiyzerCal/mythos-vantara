@@ -16,6 +16,7 @@ import { DEFAULT_VOICE_BY_GENDER, findVoice } from "@/lib/voiceCatalog";
 import { ScrollProgressBar, BackToTopButton, ScrollToBottomButton, EndOfFeed } from "@/components/chat/ScrollKit";
 import { SessionBlock, groupMessagesIntoSessions } from "@/components/chat/SessionBlock";
 import { VoiceChatOverlay } from "@/components/VoiceChatOverlay";
+import { MavisRealtimeVoice } from "@/components/MavisRealtimeVoice";
 
 // ── MAVIS modules ───────────────────────────────────────────
 import { buildSystemPromptFromSnapshot } from "@/mavis/buildSystemPrompt";
@@ -82,6 +83,7 @@ export default function MavisChat() {
   const [showBackToTop, setShowBackToTop] = useState(false);
   const [isComposing, setIsComposing] = useState(false);
   const [voiceOverlayOpen, setVoiceOverlayOpen] = useState(false);
+  const [realtimeVoiceOpen, setRealtimeVoiceOpen] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const [agentThinking, setAgentThinking] = useState<string | null>(null);
   const [artifactContent, setArtifactContent] = useState<string | null>(null);
@@ -982,6 +984,11 @@ export default function MavisChat() {
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-primary/30 text-primary/70 hover:text-primary hover:bg-primary/10 text-xs font-mono transition-all">
           <Mic size={12} /> VOICE
         </button>
+        <button onClick={() => setRealtimeVoiceOpen(true)}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-cyan-400/40 text-cyan-400/70 hover:text-cyan-400 hover:bg-cyan-400/10 text-xs font-mono transition-all"
+          title="Realtime voice — OpenAI WebRTC, ultra-low latency">
+          <Zap size={12} /> REALTIME
+        </button>
       </div>
       </div>
 
@@ -1430,6 +1437,13 @@ export default function MavisChat() {
           lastBotMessage={lastBotMessage}
           isLoading={isLoading}
           externalAudio={ttsEnabled}
+        />
+      )}
+    </AnimatePresence>
+    <AnimatePresence>
+      {realtimeVoiceOpen && (
+        <MavisRealtimeVoice
+          onClose={() => setRealtimeVoiceOpen(false)}
         />
       )}
     </AnimatePresence>

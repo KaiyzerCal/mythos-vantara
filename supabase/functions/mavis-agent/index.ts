@@ -437,6 +437,19 @@ const AGENT_TOOLS = [
     },
   },
   {
+    name: "browse_goal",
+    description: "Launch a persistent browser agent to research a topic or goal across multiple web pages. The agent searches, reads pages, extracts information, and synthesizes a comprehensive answer. Supports resumable sessions — pass session_id to continue where it left off. Best for: deep research requiring multiple sources, fact-checking across sites, competitive analysis, price comparison, news aggregation.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        goal: { type: "string", description: "What to research or find across the web. Be specific." },
+        session_id: { type: "string", description: "Resume an existing session (optional — omit to start fresh)" },
+        max_turns: { type: "number", description: "Maximum pages/searches per call (2-8, default 6)" },
+      },
+      required: ["goal"],
+    },
+  },
+  {
     name: "spawn_autonomous_task",
     description: "Create a long-horizon autonomous task that MAVIS will execute step-by-step over multiple cron cycles (every 2 minutes). Use for complex multi-step goals that take too long for a single response: research + write + publish workflows, monitoring + alert pipelines, scheduled multi-step operations. MAVIS will plan the steps, execute them autonomously, and store results.",
     input_schema: {
@@ -1002,6 +1015,35 @@ async function executeTool(
           return JSON.stringify({ status: "processing", message: "Video generation is taking longer than expected. Check back shortly.", request_id, operation_name, provider });
         } catch (err: any) {
           return JSON.stringify({ error: err.message ?? "Video generation failed" });
+        }
+      }
+
+      case "browse_goal": {
+        const supabaseUrlBg = Deno.env.get("SUPABASE_URL") ?? "";
+        const serviceKeyBg  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+        try {
+          const res = await fetch(`${supabaseUrlBg}/functions/v1/mavis-browser-agent`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${serviceKeyBg}` },
+            body: JSON.stringify({
+              goal: String(input.goal ?? ""),
+              session_id: input.session_id ? String(input.session_id) : undefined,
+              max_turns: input.max_turns ? Number(input.max_turns) : 6,
+            }),
+          });
+          const data = await res.json();
+          if (!res.ok) return JSON.stringify({ error: data.error ?? `Browser agent failed: ${res.status}` });
+          if (data.status === "completed") {
+            return JSON.stringify({ result: data.result, steps_taken: data.steps_taken, session_id: data.session_id, status: "completed" });
+          }
+          return JSON.stringify({
+            status: "running",
+            message: `Browser agent has completed ${data.steps_taken} steps. Call browse_goal again with session_id: "${data.session_id}" to continue.`,
+            session_id: data.session_id,
+            last_action: data.last_action,
+          });
+        } catch (err: any) {
+          return JSON.stringify({ error: err.message ?? "Browser agent failed" });
         }
       }
 

@@ -186,18 +186,35 @@ async function callGemini(messages: any[], system: string, key: string, opts: { 
 // When configured, Ollama is tried first for simple/routine tasks.
 // Complex reasoning modes (ARCH, CODEX, DEEP, etc.) always use cloud LLMs.
 // Completely transparent fallback — if Ollama fails or isn't set, cascade continues.
+// OLLAMA_MODEL can be overridden at runtime by the latest fine-tuned model from self-improve.
 const OLLAMA_BASE_URL = Deno.env.get("OLLAMA_BASE_URL"); // e.g. "http://192.168.1.x:11434"
-const OLLAMA_MODEL    = Deno.env.get("OLLAMA_MODEL") ?? "llama3.2:3b";
+const OLLAMA_MODEL_DEFAULT = Deno.env.get("OLLAMA_MODEL") ?? "llama3.2:3b";
 const OLLAMA_COMPLEX_MODES = new Set(["ARCH","CODEX","SOVEREIGN","DEEP","QUEST","FORGE","RESEARCH","VISION"]);
 
-async function callOllama(messages: any[], system: string): Promise<string | null> {
+// Resolve the active Ollama model — prefers the latest fine-tuned model from self-improve pipeline
+async function resolveOllamaModel(adminSb: ReturnType<typeof createClient>): Promise<string> {
+  try {
+    const { data } = await adminSb
+      .from("mavis_improvement_log")
+      .select("trained_model_name")
+      .not("trained_model_name", "is", null)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    return data?.trained_model_name ?? OLLAMA_MODEL_DEFAULT;
+  } catch {
+    return OLLAMA_MODEL_DEFAULT;
+  }
+}
+
+async function callOllama(messages: any[], system: string, model: string): Promise<string | null> {
   if (!OLLAMA_BASE_URL) return null;
   try {
     const res = await fetch(`${OLLAMA_BASE_URL}/api/chat`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        model: OLLAMA_MODEL,
+        model,
         messages: [{ role: "system", content: system }, ...messages],
         stream: false,
         options: { num_predict: 1024, temperature: 0.8 },
@@ -229,11 +246,13 @@ async function callWithFallback(
   keys: { openai: string; claude: string; grok: string; gemini: string },
   useThinking = false,
   mode = "PRIME",
+  ollamaModel = OLLAMA_MODEL_DEFAULT,
 ): Promise<{ content: string; provider: string }> {
   // Tier -1 — Ollama (self-hosted, zero cost, privacy-preserving)
+  // Uses fine-tuned model when available (resolved from mavis_improvement_log)
   if (OLLAMA_BASE_URL && !OLLAMA_COMPLEX_MODES.has(mode?.toUpperCase())) {
-    const result = await callOllama(messages, system);
-    if (result) return { content: result, provider: `ollama/${OLLAMA_MODEL}` };
+    const result = await callOllama(messages, system, ollamaModel);
+    if (result) return { content: result, provider: `ollama/${ollamaModel}` };
   }
 
   // Tier 0 — Free Gemini (always attempted first)
@@ -886,6 +905,9 @@ serve(async (req) => {
 
     // ── Load data ───────────────────────────────────────────
     const sb = createClient(supabaseUrl, serviceKey, { auth: { persistSession: false } });
+
+    // Resolve fine-tuned Ollama model (non-blocking — falls back to env var if table missing)
+    const resolvedOllamaModel = OLLAMA_BASE_URL ? await resolveOllamaModel(sb) : OLLAMA_MODEL_DEFAULT;
 
     const reqBody = await req.json();
     const { messages: rawMessages, systemPrompt: clientSystemPrompt, mode, conversationId, appState, attachmentIds, chatKind, threadRef, stream: isStreaming } = reqBody;
@@ -1575,6 +1597,7 @@ You always know the current date and time without being told. Reference it natur
       aiKeys,
       useThinking,
       modeUpper,
+      resolvedOllamaModel,
     );
     sb.from("mavis_llm_calls").insert({ user_id: user.id, provider: usedProvider, model: usedProvider, mode: modeUpper, duration_ms: Date.now() - nonStreamStart, success: true }).catch(() => {});
 

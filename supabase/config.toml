@@ -50,3 +50,6 @@ verify_jwt = false
 # Ambient monitor — triggered by pg_cron with service-role key (no user JWT).
 [functions.mavis-ambient-monitor]
 verify_jwt = false
+# Browser agent — called with service-role key from mavis-agent tool executor.
+# verify_jwt = true (default) since mavis-agent passes service role key as Bearer token.
+# No entry needed — listed for documentation only.

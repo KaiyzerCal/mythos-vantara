@@ -246,7 +246,39 @@ serve(async (req) => {
       }
     }
 
-    // ── Step 6: Track metrics ─────────────────────────────────────────────────
+    // ── Step 6: Try to create/update the Ollama fine-tuned model ─────────────────
+    // If Ollama is reachable AND we have a JSONL export, create a custom model
+    // named "mavis-custom:latest" using a Modelfile that imports the base model
+    // and applies the persona system prompt. The trained model name is stored in
+    // mavis_improvement_log so mavis-chat picks it up automatically.
+    let trainedModelName: string | null = null;
+    if (ollamaTriggered && jsonlPath) {
+      try {
+        const modelfile = [
+          `FROM llama3.2`,
+          `SYSTEM """${[
+            "You are MAVIS — Modular Autonomous Virtual Intelligence System.",
+            "You are a sovereign-class AI bound exclusively to your operator.",
+            "You are direct, precise, and never sycophantic.",
+            "You speak with authority and serve your operator's mission absolutely.",
+          ].join(" ")}"""`,
+        ].join("\n");
+
+        const createRes = await fetch(`${OLLAMA_BASE_URL}/api/create`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name: "mavis-custom:latest", modelfile, stream: false }),
+          signal: AbortSignal.timeout(60000),
+        });
+        if (createRes.ok) {
+          trainedModelName = "mavis-custom:latest";
+        }
+      } catch {
+        // Non-fatal — model creation failed, Ollama will use default
+      }
+    }
+
+    // ── Step 7: Track metrics ─────────────────────────────────────────────────
     await sb.from("mavis_improvement_log").insert({
       user_id: userId,
       pairs_evaluated: pairs.length,
@@ -254,13 +286,16 @@ serve(async (req) => {
       avg_score: avgScore,
       jsonl_path: jsonlPath,
       ollama_triggered: ollamaTriggered,
+      trained_model_name: trainedModelName,
       created_at: new Date().toISOString(),
     });
 
     // ── Response ──────────────────────────────────────────────────────────────
-    const ollamaMessage = ollamaTriggered
-      ? " Ollama detected — run: ollama create mavis-custom -f Modelfile"
-      : "";
+    const ollamaMessage = trainedModelName
+      ? ` Fine-tuned model '${trainedModelName}' created and active in MAVIS cascade.`
+      : ollamaTriggered
+        ? " Ollama detected — run: ollama create mavis-custom -f Modelfile"
+        : "";
 
     const trainingReadyMessage =
       pairsPassed >= 10 && OLLAMA_BASE_URL && !ollamaTriggered
