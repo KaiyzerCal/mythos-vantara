@@ -87,7 +87,7 @@ export default function LeadGenPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader title="Lead Generation" subtitle="MAVIS researches prospects and drafts personalized outreach for SkyforgeAI." icon={Users} />
+      <PageHeader title="Lead Generation" subtitle="MAVIS researches prospects and drafts personalized outreach for SkyforgeAI." icon={<Users size={20} />} />
 
       <HudCard className="p-5 space-y-4">
         <h3 className="text-sm font-semibold text-primary uppercase tracking-widest">Research New Lead</h3>
