@@ -88,6 +88,7 @@ const SMSPage = lazy(() => import("@/pages/SMSPage"));
 const ApiKeysPage = lazy(() => import("@/pages/ApiKeysPage"));
 const LeadGenPage = lazy(() => import("@/pages/LeadGenPage"));
 const CompetitorIntelPage = lazy(() => import("@/pages/CompetitorIntelPage"));
+const ReceptionistPage = lazy(() => import("@/pages/ReceptionistPage"));
 // Public demo — no auth required
 const MavisDemo = lazy(() => import("@/pages/MavisDemo"));
 
@@ -188,6 +189,7 @@ function AppContent() {
               <Route path="/agents" element={<AgentDashboardPage />} />
               <Route path="/wpcom-callback" element={<WpcomCallbackPage />} />
               <Route path="/phone" element={<PhoneCallsPage />} />
+              <Route path="/receptionist" element={<ReceptionistPage />} />
               <Route path="/sms" element={<SMSPage />} />
               <Route path="/api-keys" element={<ApiKeysPage />} />
               <Route path="/leads" element={<LeadGenPage />} />

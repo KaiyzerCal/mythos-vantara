@@ -57,3 +57,7 @@ verify_jwt = false
 # MCP Server — external MCP clients authenticate via x-mavis-api-key, no Supabase JWT.
 [functions.mavis-mcp-server]
 verify_jwt = false
+
+# AI Receptionist inbound webhook — VAPI sends no Supabase JWT. Auth by phoneNumberId lookup.
+[functions.mavis-receptionist-inbound]
+verify_jwt = false
