@@ -50,7 +50,7 @@ export default function SMSPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader title="SMS & WhatsApp" subtitle="Send messages via MAVIS — Twilio powered." icon={MessageSquare} />
+      <PageHeader title="SMS & WhatsApp" subtitle="Send messages via MAVIS — Twilio powered." icon={<MessageSquare size={20} />} />
 
       <HudCard className="p-5 space-y-4">
         <h3 className="text-sm font-semibold text-primary uppercase tracking-widest">Send Message</h3>
