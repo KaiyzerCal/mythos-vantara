@@ -570,12 +570,12 @@ export default function ReceptionistPage() {
     if (!token || !session?.user?.id) return;
     setMsgsLoading(true);
     try {
-      const { data } = await supabase
+      const { data } = await (supabase as any)
         .from("receptionist_messages")
         .select("*")
         .order("created_at", { ascending: false })
         .limit(50);
-      setMessages(data ?? []);
+      setMessages((data ?? []) as Message[]);
     } catch { /* non-fatal */ } finally {
       setMsgsLoading(false);
     }
