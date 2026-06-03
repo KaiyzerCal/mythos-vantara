@@ -1101,6 +1101,69 @@ export type Database = {
         }
         Relationships: []
       }
+      mavis_calls: {
+        Row: {
+          cost_cents: number | null
+          created_at: string | null
+          direction: string
+          duration_seconds: number | null
+          ended_at: string | null
+          from_number: string | null
+          id: string
+          metadata: Json | null
+          outcome: string | null
+          purpose: string
+          recording_url: string | null
+          status: string
+          summary: string | null
+          to_number: string | null
+          transcript: Json | null
+          updated_at: string | null
+          user_id: string
+          vapi_call_id: string | null
+        }
+        Insert: {
+          cost_cents?: number | null
+          created_at?: string | null
+          direction?: string
+          duration_seconds?: number | null
+          ended_at?: string | null
+          from_number?: string | null
+          id?: string
+          metadata?: Json | null
+          outcome?: string | null
+          purpose: string
+          recording_url?: string | null
+          status?: string
+          summary?: string | null
+          to_number?: string | null
+          transcript?: Json | null
+          updated_at?: string | null
+          user_id: string
+          vapi_call_id?: string | null
+        }
+        Update: {
+          cost_cents?: number | null
+          created_at?: string | null
+          direction?: string
+          duration_seconds?: number | null
+          ended_at?: string | null
+          from_number?: string | null
+          id?: string
+          metadata?: Json | null
+          outcome?: string | null
+          purpose?: string
+          recording_url?: string | null
+          status?: string
+          summary?: string | null
+          to_number?: string | null
+          transcript?: Json | null
+          updated_at?: string | null
+          user_id?: string
+          vapi_call_id?: string | null
+        }
+        Relationships: []
+      }
       mavis_consolidation_log: {
         Row: {
           created_at: string | null
