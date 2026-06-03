@@ -9,7 +9,7 @@ import {
   TrendingUp, Mail, Webhook, KeyRound, Archive,
   Clapperboard, Globe, LayoutTemplate, Workflow, Kanban, UserSquare2,
   Users2, LayoutGrid, Trophy, Gauge, Bell, CreditCard, Upload,
-  BrainCircuit, SlidersHorizontal, Phone,
+  BrainCircuit, SlidersHorizontal, Phone, MessageSquare, Key, Users2 as UserGroup, Shield as ShieldIcon,
 } from "lucide-react";
 import { useState, useContext } from "react";
 import { motion, AnimatePresence } from "framer-motion";
@@ -25,6 +25,7 @@ const PRIMARY_NAV = [
   { to: "/mavis-ui", icon: Sparkles, label: "MavisUI" },
   { to: "/agents", icon: BrainCircuit, label: "Agent Dashboard" },
   { to: "/phone", icon: Phone, label: "AI Phone Calls" },
+  { to: "/sms", icon: MessageSquare, label: "SMS & WhatsApp" },
   { to: "/inbox", icon: Inbox, label: "Inbox" },
   { to: "/quests", icon: Target, label: "Quests" },
   { to: "/councils", icon: Users, label: "Councils" },
@@ -54,6 +55,9 @@ const INTEL_NAV = [
   { to: "/highlights", icon: BookMarked, label: "Highlights" },
   { to: "/social-analytics", icon: TrendingUp, label: "Social Analytics" },
   { to: "/email", icon: Mail, label: "Email" },
+  { to: "/leads", icon: UserGroup, label: "Lead Generation" },
+  { to: "/competitors", icon: ShieldIcon, label: "Competitor Intel" },
+  { to: "/api-keys", icon: Key, label: "API Keys" },
   { to: "/webhooks", icon: Webhook, label: "Webhooks" },
   { to: "/integrations", icon: KeyRound, label: "Integrations" },
   { to: "/export", icon: Archive, label: "Export Data" },

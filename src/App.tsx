@@ -84,6 +84,10 @@ const SystemSettingsPage = lazy(() => import("@/pages/SystemSettingsPage").then(
 const AgentDashboardPage = lazy(() => import("@/pages/AgentDashboardPage").then(m => ({ default: m.AgentDashboardPage })));
 const WpcomCallbackPage = lazy(() => import("@/pages/WpcomCallbackPage"));
 const PhoneCallsPage = lazy(() => import("@/pages/PhoneCallsPage"));
+const SMSPage = lazy(() => import("@/pages/SMSPage"));
+const ApiKeysPage = lazy(() => import("@/pages/ApiKeysPage"));
+const LeadGenPage = lazy(() => import("@/pages/LeadGenPage"));
+const CompetitorIntelPage = lazy(() => import("@/pages/CompetitorIntelPage"));
 // Public demo — no auth required
 const MavisDemo = lazy(() => import("@/pages/MavisDemo"));
 
@@ -184,6 +188,10 @@ function AppContent() {
               <Route path="/agents" element={<AgentDashboardPage />} />
               <Route path="/wpcom-callback" element={<WpcomCallbackPage />} />
               <Route path="/phone" element={<PhoneCallsPage />} />
+              <Route path="/sms" element={<SMSPage />} />
+              <Route path="/api-keys" element={<ApiKeysPage />} />
+              <Route path="/leads" element={<LeadGenPage />} />
+              <Route path="/competitors" element={<CompetitorIntelPage />} />
               <Route path="*" element={<NotFound />} />
             </Routes>
           </Suspense>

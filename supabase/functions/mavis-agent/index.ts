@@ -273,6 +273,91 @@ const AGENT_TOOLS = [
     },
   },
   {
+    name: "send_sms",
+    description: "Send an SMS or WhatsApp message on the operator's behalf. Use for quick notifications, reminders, or follow-ups that don't require a full phone call.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        to: { type: "string", description: "Recipient phone number in international format: +15551234567" },
+        message: { type: "string", description: "Message text to send" },
+        channel: { type: "string", description: "sms (default) or whatsapp" },
+      },
+      required: ["to", "message"],
+    },
+  },
+  {
+    name: "transcribe_meeting",
+    description: "Transcribe a meeting audio file and extract action items, decisions, and next steps. Can automatically create tasks from action items.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        audio_url: { type: "string", description: "Public URL to the audio file (MP3, MP4, WAV, M4A)" },
+        meeting_title: { type: "string", description: "Name of the meeting for context" },
+        participants: { type: "array", items: { type: "string" }, description: "List of participant names" },
+        create_quests: { type: "boolean", description: "If true, automatically queue action items as MAVIS tasks" },
+      },
+      required: ["audio_url"],
+    },
+  },
+  {
+    name: "calendar_action",
+    description: "Perform Google Calendar operations: find free time slots, create events, reschedule, cancel, or list upcoming events.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        action: { type: "string", description: "find_free_time | create_event | reschedule_event | cancel_event | list_events" },
+        title: { type: "string", description: "Event title (for create_event)" },
+        start_date: { type: "string", description: "Date in YYYY-MM-DD format" },
+        start_time: { type: "string", description: "Time in HH:MM:SS format (e.g. 14:00:00)" },
+        end_date: { type: "string", description: "End date" },
+        end_time: { type: "string", description: "End time" },
+        duration_minutes: { type: "number", description: "Duration in minutes (for find_free_time)" },
+        event_id: { type: "string", description: "Google Calendar event ID (for reschedule/cancel)" },
+        location: { type: "string", description: "Event location" },
+        description: { type: "string", description: "Event description" },
+        attendees: { type: "array", items: { type: "string" }, description: "Attendee email addresses" },
+      },
+      required: ["action"],
+    },
+  },
+  {
+    name: "research_lead",
+    description: "Research a company as a potential SkyforgeAI lead. MAVIS scrapes the web, profiles the company, scores the lead, and optionally drafts outreach.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        company: { type: "string", description: "Company name to research" },
+        target_role: { type: "string", description: "Target decision-maker role (CEO, Head of Marketing, etc.)" },
+        draft_outreach: { type: "boolean", description: "If true, also draft a personalized cold email after researching" },
+      },
+      required: ["company"],
+    },
+  },
+  {
+    name: "monitor_competitor",
+    description: "Add a competitor website to MAVIS's monitoring list, or run a check on all monitored competitors to detect changes.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        action: { type: "string", description: "add (add new competitor) or check (run monitoring check on all)" },
+        name: { type: "string", description: "Competitor company name (for add action)" },
+        url: { type: "string", description: "Competitor website URL (for add action)" },
+      },
+      required: ["action"],
+    },
+  },
+  {
+    name: "health_protocol",
+    description: "Synthesize wearable and health data (Oura, WHOOP, Strava, health_metrics) into today's personalized performance protocol — training recommendation, nutrition focus, readiness score.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        date: { type: "string", description: "Date to generate protocol for (YYYY-MM-DD, defaults to today)" },
+      },
+      required: [],
+    },
+  },
+  {
     name: "dispatch_task",
     description: "Queue an autonomous background task for MAVIS to execute. Use when the operator asks MAVIS to handle something that requires multiple steps, external calls, or extended time. The task runs automatically via the autonomous engine. Task types: 'goal' (multi-step objective), 'create_product', 'demand_scan', 'send_announcement', 'nora_tweet', 'revenue_snapshot'.",
     input_schema: {
@@ -646,6 +731,85 @@ async function executeTool(
         } catch (err: any) {
           return JSON.stringify({ error: err.message ?? "TikTok post failed" });
         }
+      }
+
+      case "send_sms": {
+        const sbUrl = Deno.env.get("SUPABASE_URL") ?? "";
+        const sk = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+        const res = await fetch(`${sbUrl}/functions/v1/mavis-sms`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${sk}` },
+          body: JSON.stringify({ to: String(input.to ?? ""), message: String(input.message ?? ""), channel: input.channel ?? "sms" }),
+        });
+        return JSON.stringify(await res.json());
+      }
+
+      case "transcribe_meeting": {
+        const sbUrl = Deno.env.get("SUPABASE_URL") ?? "";
+        const sk = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+        const res = await fetch(`${sbUrl}/functions/v1/mavis-meeting-transcribe`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${sk}` },
+          body: JSON.stringify({ audio_url: input.audio_url, meeting_title: input.meeting_title, participants: input.participants, create_quests: input.create_quests ?? false }),
+        });
+        const data = await res.json();
+        if (!res.ok) return JSON.stringify({ error: data.error ?? "Transcription failed" });
+        return JSON.stringify({ success: true, summary: data.summary, action_items: data.action_items, decisions: data.decisions });
+      }
+
+      case "calendar_action": {
+        const sbUrl = Deno.env.get("SUPABASE_URL") ?? "";
+        const sk = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+        const res = await fetch(`${sbUrl}/functions/v1/mavis-calendar-manage`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${sk}` },
+          body: JSON.stringify({ ...input }),
+        });
+        return JSON.stringify(await res.json());
+      }
+
+      case "research_lead": {
+        const sbUrl = Deno.env.get("SUPABASE_URL") ?? "";
+        const sk = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+        const res = await fetch(`${sbUrl}/functions/v1/mavis-lead-gen`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${sk}` },
+          body: JSON.stringify({ company: input.company, target_role: input.target_role, action: "research" }),
+        });
+        const leadData = await res.json();
+        if (!res.ok) return JSON.stringify({ error: leadData.error });
+        if (input.draft_outreach) {
+          const draftRes = await fetch(`${sbUrl}/functions/v1/mavis-lead-gen`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${sk}` },
+            body: JSON.stringify({ action: "draft_outreach", lead_id: leadData.id }),
+          });
+          const draftData = await draftRes.json();
+          return JSON.stringify({ ...leadData, outreach_draft: draftData.outreach_draft });
+        }
+        return JSON.stringify(leadData);
+      }
+
+      case "monitor_competitor": {
+        const sbUrl = Deno.env.get("SUPABASE_URL") ?? "";
+        const sk = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+        const res = await fetch(`${sbUrl}/functions/v1/mavis-competitor-monitor`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${sk}` },
+          body: JSON.stringify({ action: input.action, name: input.name, url: input.url }),
+        });
+        return JSON.stringify(await res.json());
+      }
+
+      case "health_protocol": {
+        const sbUrl = Deno.env.get("SUPABASE_URL") ?? "";
+        const sk = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+        const res = await fetch(`${sbUrl}/functions/v1/mavis-health-protocol`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${sk}` },
+          body: JSON.stringify({ date: input.date }),
+        });
+        return JSON.stringify(await res.json());
       }
 
       case "dispatch_task": {

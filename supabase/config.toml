@@ -38,3 +38,7 @@ verify_jwt = false
 # VAPI phone call webhook — VAPI sends no Supabase JWT. Secured by x-vapi-secret header.
 [functions.mavis-vapi-webhook]
 verify_jwt = false
+
+# External API gateway — validated by x-mavis-api-key header instead of Supabase JWT.
+[functions.mavis-api-gateway]
+verify_jwt = false
