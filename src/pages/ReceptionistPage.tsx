@@ -555,12 +555,12 @@ export default function ReceptionistPage() {
     if (!token || !session?.user?.id) return;
     setCallsLoading(true);
     try {
-      const { data } = await supabase
+      const { data } = await (supabase as any)
         .from("receptionist_calls")
         .select("*")
         .order("created_at", { ascending: false })
         .limit(50);
-      setCalls(data ?? []);
+      setCalls((data ?? []) as Call[]);
     } catch { /* non-fatal */ } finally {
       setCallsLoading(false);
     }
