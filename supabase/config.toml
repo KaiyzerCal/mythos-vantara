@@ -61,3 +61,15 @@ verify_jwt = false
 # AI Receptionist inbound webhook — VAPI sends no Supabase JWT. Auth by phoneNumberId lookup.
 [functions.mavis-receptionist-inbound]
 verify_jwt = false
+
+# Predictive Intelligence Engine — triggered by pg_cron with service-role key (no user JWT).
+[functions.mavis-predictive-engine]
+verify_jwt = false
+
+# Entity Knowledge Graph — triggered by pg_cron and mavis-agent with service-role key.
+[functions.mavis-entity-graph]
+verify_jwt = false
+
+# OpenAI Fine-tuning Pipeline — triggered from mavis-self-improve with service-role key.
+[functions.mavis-openai-finetune]
+verify_jwt = false

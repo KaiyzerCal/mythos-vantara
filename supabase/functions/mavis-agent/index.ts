@@ -492,6 +492,39 @@ const AGENT_TOOLS = [
       required: ["goal"],
     },
   },
+  {
+    name: "query_entity_graph",
+    description: "Search MAVIS's entity knowledge graph — a structured map of people, companies, projects, places, concepts, and their relationships extracted from all conversations. Use this to recall who someone is, what projects exist, how entities are connected, or to get a rich contextual picture of any named entity in the operator's world.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        query: { type: "string", description: "Name or keyword to search for (e.g. 'John Smith', 'Acme Corp', 'Project Atlas')" },
+        type: {
+          type: "string",
+          enum: ["person", "company", "project", "place", "concept", "product", "event"],
+          description: "Filter by entity type (optional)",
+        },
+        limit: { type: "number", description: "Max results (default 5)" },
+      },
+      required: ["query"],
+    },
+  },
+  {
+    name: "get_predictions",
+    description: "Retrieve MAVIS's proactive intelligence predictions — behavioral patterns, upcoming needs, risk alerts, and opportunities identified from analyzing the operator's interaction history. Use this to surface what MAVIS predicts the operator needs before they ask.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        type: {
+          type: "string",
+          enum: ["upcoming_need", "behavioral_pattern", "risk_alert", "opportunity", "productivity_window"],
+          description: "Filter by prediction type (optional — omit for all active predictions)",
+        },
+        limit: { type: "number", description: "Max results (default 10)" },
+      },
+      required: [],
+    },
+  },
 ];
 
 // ── Tool executor ─────────────────────────────────────────────────────────────
@@ -1201,6 +1234,50 @@ async function executeTool(
           });
         } catch (err: any) {
           return JSON.stringify({ error: err.message ?? "Crew run failed" });
+        }
+      }
+
+      case "query_entity_graph": {
+        const supabaseUrlEG = Deno.env.get("SUPABASE_URL") ?? "";
+        const serviceKeyEG  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+        try {
+          const res = await fetch(`${supabaseUrlEG}/functions/v1/mavis-entity-graph`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${serviceKeyEG}` },
+            body: JSON.stringify({
+              action: "query",
+              user_id: userId,
+              query: String(input.query ?? ""),
+              type: input.type ? String(input.type) : undefined,
+              limit: Number(input.limit ?? 5),
+            }),
+          });
+          const data = await res.json();
+          if (!res.ok) return JSON.stringify({ error: data.error ?? "Entity graph query failed" });
+          return data.result ?? "No entities found.";
+        } catch (err: any) {
+          return JSON.stringify({ error: err.message ?? "Entity graph query failed" });
+        }
+      }
+
+      case "get_predictions": {
+        try {
+          let q = adminSb
+            .from("mavis_predictions")
+            .select("prediction_type, title, content, confidence, created_at")
+            .eq("user_id", userId)
+            .eq("acted_on", false)
+            .order("confidence", { ascending: false })
+            .limit(Number(input.limit ?? 10));
+          if (input.type) q = q.eq("prediction_type", String(input.type));
+          const { data, error } = await q;
+          if (error) return JSON.stringify({ error: error.message });
+          if (!data || data.length === 0) return "No active predictions found. MAVIS's predictive engine will generate insights after analyzing your usage patterns.";
+          return data.map((p: any) =>
+            `**[${p.prediction_type}]** ${p.title} (confidence: ${Math.round(p.confidence * 100)}%)\n${p.content}`
+          ).join("\n\n");
+        } catch (err: any) {
+          return JSON.stringify({ error: err.message ?? "Failed to fetch predictions" });
         }
       }
 

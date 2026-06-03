@@ -206,9 +206,12 @@ serve(async (req) => {
 
     let jsonlPath: string | null = null;
 
-    if (highQuality.length > 0) {
-      const lines = highQuality.map(toChatMLLine);
-      const jsonlContent = lines.join("\n") + "\n";
+    // Expose JSONL content for OpenAI fine-tuning trigger
+    const jsonlContent = highQuality.length > 0
+      ? highQuality.map(toChatMLLine).join("\n") + "\n"
+      : null;
+
+    if (jsonlContent) {
       const enc = new TextEncoder();
       const fileName = `self-improve/mavis-training-${userId.slice(0, 8)}-${Date.now()}.jsonl`;
 
@@ -278,6 +281,38 @@ serve(async (req) => {
       }
     }
 
+    // ── Step 6b: OpenAI fine-tuning trigger ──────────────────────────────────
+    let openaiJobId: string | null = null;
+    let openaiJobTriggered = false;
+
+    if (pairsPassed >= 10 && jsonlContent && Deno.env.get("OPENAI_API")) {
+      try {
+        const ftRes = await fetch(`${SB_URL}/functions/v1/mavis-openai-finetune`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${SB_KEY}`,
+          },
+          body: JSON.stringify({
+            user_id: userId,
+            jsonl_content: jsonlContent,
+            pairs_count: pairsPassed,
+            jsonl_path: jsonlPath ?? "",
+          }),
+          signal: AbortSignal.timeout(30000),
+        });
+        if (ftRes.ok) {
+          const ftData = await ftRes.json();
+          if (ftData.success) {
+            openaiJobId = ftData.openai_job_id ?? null;
+            openaiJobTriggered = true;
+          }
+        }
+      } catch {
+        // Non-fatal — OpenAI fine-tuning is optional
+      }
+    }
+
     // ── Step 7: Track metrics ─────────────────────────────────────────────────
     await sb.from("mavis_improvement_log").insert({
       user_id: userId,
@@ -287,6 +322,7 @@ serve(async (req) => {
       jsonl_path: jsonlPath,
       ollama_triggered: ollamaTriggered,
       trained_model_name: trainedModelName,
+      openai_job_id: openaiJobId,
       created_at: new Date().toISOString(),
     });
 
@@ -302,6 +338,10 @@ serve(async (req) => {
         ? " Training data ready. Run: ollama create mavis-custom -f Modelfile"
         : "";
 
+    const openaiMessage = openaiJobTriggered
+      ? ` OpenAI fine-tuning job submitted (${openaiJobId}). Your custom gpt-4o-mini model will be ready in 15-60 minutes.`
+      : "";
+
     return json({
       pairs_evaluated: pairs.length,
       pairs_passed: pairsPassed,
@@ -309,10 +349,13 @@ serve(async (req) => {
       high_quality_pairs: pairsPassed,
       jsonl_path: jsonlPath,
       ollama_triggered: ollamaTriggered,
+      openai_job_triggered: openaiJobTriggered,
+      openai_job_id: openaiJobId,
       message:
         `${pairsPassed} high-quality training pair(s) exported. Avg quality: ${avgScore}/10.` +
         ollamaMessage +
-        trainingReadyMessage,
+        trainingReadyMessage +
+        openaiMessage,
     });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
