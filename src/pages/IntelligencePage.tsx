@@ -7,7 +7,8 @@ import {
   Send, BookOpen, Zap, Clock, ArrowRight,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase as supabaseTyped } from "@/integrations/supabase/client";
+const supabase: any = supabaseTyped;
 
 const SB_URL = import.meta.env.VITE_SUPABASE_URL ?? "";
 
