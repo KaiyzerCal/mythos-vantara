@@ -17,11 +17,21 @@ function ThemeColorSync() {
   const { resolvedTheme } = useTheme();
   useEffect(() => {
     const color = resolvedTheme === "light" ? "#ffffff" : "#0a0d1f";
+    const colorScheme = resolvedTheme === "light" ? "light" : "dark";
     document.querySelectorAll('meta[name="theme-color"]').forEach((el) => el.remove());
     const meta = document.createElement("meta");
     meta.name = "theme-color";
     meta.content = color;
     document.head.appendChild(meta);
+
+    document.documentElement.style.backgroundColor = color;
+    document.documentElement.style.colorScheme = colorScheme;
+    document.body.style.backgroundColor = color;
+    document.body.style.colorScheme = colorScheme;
+    const root = document.getElementById("root");
+    if (root) {
+      root.style.backgroundColor = color;
+    }
   }, [resolvedTheme]);
   return null;
 }
