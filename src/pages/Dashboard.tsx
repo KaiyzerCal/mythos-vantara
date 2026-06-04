@@ -64,12 +64,12 @@ export default function Dashboard() {
 
   useEffect(() => {
     const today = new Date().toISOString().slice(0, 10);
-    supabase
+    (supabase as any)
       .from("mavis_daily_briefs")
       .select("brief_date, brief_text")
       .eq("brief_date", today)
       .maybeSingle()
-      .then(({ data }) => setMorningBrief(data ?? null));
+      .then(({ data }: any) => setMorningBrief(data ?? null));
   }, []);
 
   // ── Market Intel ──
