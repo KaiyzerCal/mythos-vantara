@@ -93,6 +93,59 @@ export default function Dashboard() {
       .then(({ data }) => setMarketIntel(data ?? []));
   }, []);
 
+  // ── Action Queue ──
+  const [actionQueue, setActionQueue] = useState<Array<{
+    id: string;
+    action_type: string;
+    autonomy_tier: string;
+    source_context: string;
+    priority: number;
+    action_payload: Record<string, any>;
+  }>>([]);
+
+  useEffect(() => {
+    supabase
+      .from("mavis_action_queue")
+      .select("id, action_type, autonomy_tier, source_context, priority, action_payload")
+      .eq("status", "pending")
+      .order("priority", { ascending: true })
+      .limit(5)
+      .then(({ data }) => setActionQueue(data ?? []));
+  }, []);
+
+  // ── Outcome Accuracy ──
+  const [outcomeAccuracy, setOutcomeAccuracy] = useState<number | null>(null);
+
+  useEffect(() => {
+    supabase
+      .from("mavis_outcome_events")
+      .select("outcome_status")
+      .not("outcome_status", "eq", "pending")
+      .limit(50)
+      .then(({ data }) => {
+        if (!data || data.length === 0) return;
+        const confirmed = data.filter(e => e.outcome_status === "confirmed").length;
+        setOutcomeAccuracy(Math.round((confirmed / data.length) * 100));
+      });
+  }, []);
+
+  // ── Evolution Log ──
+  const [lastEvolution, setLastEvolution] = useState<{
+    evolution_type: string;
+    affected_key: string;
+    reason: string;
+  } | null>(null);
+
+  useEffect(() => {
+    supabase
+      .from("mavis_evolution_log")
+      .select("evolution_type, affected_key, reason")
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle()
+      .then(({ data }) => setLastEvolution(data ?? null));
+  }, []);
+
   // ── Performance Score ──
   const [perfScore, setPerfScore] = useState<{
     score: number;
@@ -339,6 +392,76 @@ export default function Dashboard() {
           </HudCard>
         </motion.div>
       )}
+
+      {/* ── Autonomous Actions + Intelligence Feedback ── */}
+      <motion.div {...fadeIn(0.06)} className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+
+        {/* Autonomy Queue */}
+        <HudCard>
+          <div className="flex items-center gap-2 mb-3">
+            <Zap size={14} className="text-amber-400 shrink-0" />
+            <h3 className="text-sm font-display text-foreground">Action Queue</h3>
+            {actionQueue.length > 0 && (
+              <span className="ml-auto text-[10px] font-mono text-amber-400 border border-amber-400/40 rounded px-1">{actionQueue.length} pending</span>
+            )}
+          </div>
+          {actionQueue.length > 0 ? (
+            <div className="space-y-2">
+              {actionQueue.map((item) => (
+                <div key={item.id} className="flex items-start gap-2">
+                  <span className={`text-[9px] font-mono px-1 py-0.5 rounded mt-0.5 ${item.autonomy_tier === "auto" ? "bg-green-400/20 text-green-400" : item.autonomy_tier === "queue" ? "bg-amber-400/20 text-amber-400" : "bg-red-400/20 text-red-400"}`}>
+                    {item.autonomy_tier}
+                  </span>
+                  <div className="min-w-0">
+                    <p className="text-[10px] font-mono text-foreground truncate">{item.action_payload?.title ?? item.action_type}</p>
+                    <p className="text-[9px] font-body text-muted-foreground truncate">{item.source_context}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-xs font-mono text-muted-foreground text-center py-3">No pending actions</p>
+          )}
+        </HudCard>
+
+        {/* Outcome Accuracy */}
+        <HudCard>
+          <div className="flex items-center gap-2 mb-3">
+            <TrendingUp size={14} className="text-primary shrink-0" />
+            <h3 className="text-sm font-display text-foreground">Prediction Accuracy</h3>
+          </div>
+          {outcomeAccuracy !== null ? (
+            <div className="flex flex-col items-center justify-center py-2">
+              <span className={`text-4xl font-display font-bold ${outcomeAccuracy >= 70 ? "text-green-400" : outcomeAccuracy >= 50 ? "text-amber-400" : "text-red-400"}`}>
+                {outcomeAccuracy}%
+              </span>
+              <p className="text-[10px] font-mono text-muted-foreground mt-1">of predictions confirmed</p>
+            </div>
+          ) : (
+            <p className="text-xs font-mono text-muted-foreground text-center py-3">Tracking accumulates as Mavis operates</p>
+          )}
+        </HudCard>
+
+        {/* Self-Evolution */}
+        <HudCard>
+          <div className="flex items-center gap-2 mb-3">
+            <Sparkles size={14} className="text-primary shrink-0" />
+            <h3 className="text-sm font-display text-foreground">Self-Evolution</h3>
+          </div>
+          {lastEvolution ? (
+            <div className="space-y-1">
+              <span className={`text-[9px] font-mono px-1 py-0.5 rounded ${lastEvolution.evolution_type.includes("added") || lastEvolution.evolution_type.includes("strengthened") ? "bg-green-400/20 text-green-400" : "bg-amber-400/20 text-amber-400"}`}>
+                {lastEvolution.evolution_type.replace(/_/g, " ")}
+              </span>
+              <p className="text-[10px] font-mono text-foreground mt-1">{lastEvolution.affected_key}</p>
+              <p className="text-[9px] font-body text-muted-foreground leading-relaxed line-clamp-3">{lastEvolution.reason}</p>
+            </div>
+          ) : (
+            <p className="text-xs font-mono text-muted-foreground text-center py-3">Evolves weekly via self-analysis</p>
+          )}
+        </HudCard>
+
+      </motion.div>
 
       {/* ── Quest Stats + Active Quests ── */}
       <motion.div {...fadeIn(0.1)} className="grid grid-cols-1 lg:grid-cols-2 gap-4">

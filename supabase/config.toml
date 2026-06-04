@@ -117,3 +117,13 @@ verify_jwt = false
 # Meeting Prep — triggered by pg_cron every 30 min and on-demand with service-role key.
 [functions.mavis-meeting-prep]
 verify_jwt = false
+
+[functions.mavis-outcome-tracker]
+verify_jwt = false
+
+# Self-Evolve — triggered by pg_cron weekly (Sunday 3am) and on-demand with service-role key.
+[functions.mavis-self-evolve]
+verify_jwt = false
+
+[functions.mavis-autonomous-actions]
+verify_jwt = false

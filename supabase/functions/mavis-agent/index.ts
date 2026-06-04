@@ -651,6 +651,42 @@ const AGENT_TOOLS = [
       required: [],
     },
   },
+  {
+    name: "get_action_queue",
+    description: "View the autonomous action queue — actions Mavis has queued for auto-execution or operator approval. Use to show what Mavis is planning to do, approve/reject items, or check status of recent executions.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        status: { type: "string", description: "Filter by status: pending, approved, rejected, executed (default: pending)" },
+        action: { type: "string", description: "Set to 'approve' or 'reject' combined with action_id to process an item" },
+        action_id: { type: "string", description: "UUID of the action queue item to approve or reject" },
+      },
+      required: [],
+    },
+  },
+  {
+    name: "get_outcome_accuracy",
+    description: "Check Mavis's prediction and recommendation accuracy. Shows how often Mavis's predictions came true, recommendation follow-through rates, and overall intelligence accuracy across all source types.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        source_type: { type: "string", description: "Filter to specific type: prediction, recommendation, outreach, meeting_prep, recovery_plan, opportunity" },
+      },
+      required: [],
+    },
+  },
+  {
+    name: "get_evolution_log",
+    description: "See how Mavis has evolved its own intelligence over time — which rules were strengthened, weakened, added, or pruned, and why. Shows Mavis's self-improvement history.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        limit: { type: "number", description: "Number of evolution events to return (default 10)" },
+        trigger_evolution: { type: "boolean", description: "Trigger an immediate self-evolution cycle (normally runs weekly)" },
+      },
+      required: [],
+    },
+  },
 ];
 
 // ── Tool executor ─────────────────────────────────────────────────────────────
@@ -1569,6 +1605,71 @@ async function executeTool(
         } catch (err: any) { return JSON.stringify({ error: err.message ?? "Failed to get performance score" }); }
       }
 
+      case "get_action_queue": {
+        const sbUrlAq = Deno.env.get("SUPABASE_URL") ?? "";
+        const skAq    = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+        try {
+          if ((input.action === "approve" || input.action === "reject") && input.action_id) {
+            const res = await fetch(`${sbUrlAq}/functions/v1/mavis-autonomous-actions`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json", Authorization: `Bearer ${skAq}` },
+              body: JSON.stringify({ action: input.action, user_id: userId, action_id: String(input.action_id) }),
+            });
+            const data = await res.json();
+            return JSON.stringify({ success: res.ok, ...data });
+          }
+          const statusFilter = String(input.status ?? "pending");
+          let q = adminSb.from("mavis_action_queue").select("id,action_type,action_payload,autonomy_tier,status,priority,source_context,created_at,expires_at").eq("user_id", userId).order("priority", { ascending: true }).limit(20);
+          if (statusFilter !== "all") q = q.eq("status", statusFilter);
+          const { data, error } = await q;
+          if (error) return JSON.stringify({ error: error.message });
+          if (!data || data.length === 0) return `No ${statusFilter} actions in queue.`;
+          return JSON.stringify({ queue: data, count: data.length });
+        } catch (err: any) { return JSON.stringify({ error: err.message ?? "Action queue fetch failed" }); }
+      }
+
+      case "get_outcome_accuracy": {
+        try {
+          const { data: events } = await adminSb.from("mavis_outcome_events").select("source_type,outcome_status,confidence_score").eq("user_id", userId).not("outcome_status", "eq", "pending").order("created_at", { ascending: false }).limit(100);
+          if (!events || events.length === 0) return "No outcome data yet. Predictions and recommendations will be tracked automatically as Mavis operates.";
+          const byType: Record<string, { total: number; confirmed: number; failed: number; partial: number }> = {};
+          for (const e of events as any[]) {
+            if (!byType[e.source_type]) byType[e.source_type] = { total: 0, confirmed: 0, failed: 0, partial: 0 };
+            byType[e.source_type].total++;
+            if (e.outcome_status === "confirmed") byType[e.source_type].confirmed++;
+            else if (e.outcome_status === "failed") byType[e.source_type].failed++;
+            else if (e.outcome_status === "partial") byType[e.source_type].partial++;
+          }
+          const summary = Object.entries(byType).map(([type, stats]) => {
+            const acc = stats.total > 0 ? Math.round((stats.confirmed / stats.total) * 100) : 0;
+            return `• ${type}: ${acc}% accurate (${stats.confirmed}/${stats.total} confirmed)`;
+          }).join("\n");
+          const overall = Math.round((events as any[]).filter((e: any) => e.outcome_status === "confirmed").length / events.length * 100);
+          return `Overall accuracy: ${overall}%\n\n${summary}`;
+        } catch (err: any) { return JSON.stringify({ error: err.message ?? "Outcome accuracy fetch failed" }); }
+      }
+
+      case "get_evolution_log": {
+        const sbUrlEv = Deno.env.get("SUPABASE_URL") ?? "";
+        const skEv    = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+        try {
+          if (input.trigger_evolution) {
+            const res = await fetch(`${sbUrlEv}/functions/v1/mavis-self-evolve`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json", Authorization: `Bearer ${skEv}` },
+              body: JSON.stringify({ user_id: userId }),
+            });
+            const data = await res.json();
+            if (!res.ok) return JSON.stringify({ error: data.error ?? "Evolution failed" });
+            return JSON.stringify({ evolved: true, ...data });
+          }
+          const { data, error } = await adminSb.from("mavis_evolution_log").select("evolution_type,affected_key,old_value,new_value,old_confidence,new_confidence,reason").eq("user_id", userId).order("created_at", { ascending: false }).limit(Number(input.limit ?? 10));
+          if (error) return JSON.stringify({ error: error.message });
+          if (!data || data.length === 0) return "No evolution history yet. Mavis evolves weekly (Sunday 3am) once outcome data accumulates.";
+          return data.map((e: any) => `[${e.evolution_type}] ${e.affected_key}: ${e.reason}${e.new_confidence ? ` (confidence: ${e.old_confidence} → ${e.new_confidence})` : ""}`).join("\n");
+        } catch (err: any) { return JSON.stringify({ error: err.message ?? "Evolution log fetch failed" }); }
+      }
+
       case "get_market_intel": {
         const sbUrl = Deno.env.get("SUPABASE_URL") ?? "";
         const sk = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
@@ -1888,6 +1989,34 @@ serve(async (req) => {
               })();
             }
           }
+
+            // ── Outcome recording — non-blocking, best-effort ──────────────
+            // Detect if the agent response contains a trackable recommendation/prediction
+            if (finalText && lastUserMsg) {
+              (async () => {
+                try {
+                  const supabaseUrl12 = Deno.env.get("SUPABASE_URL") ?? "";
+                  const serviceKey12  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+                  const hasRec = /\b(recommend|suggest|should|predict|will likely|i think you|action:|next step|plan:|strategy:)/i.test(finalText);
+                  const hasPred = /\b(predict|forecast|expect|likely|probability|will happen|trend shows|by \w+ you)/i.test(finalText);
+                  if (hasRec || hasPred) {
+                    await fetch(`${supabaseUrl12}/functions/v1/mavis-outcome-tracker`, {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json", Authorization: `Bearer ${serviceKey12}` },
+                      body: JSON.stringify({
+                        action: "record",
+                        user_id: userId,
+                        source_type: hasPred ? "prediction" : "recommendation",
+                        prediction_text: finalText.slice(0, 600),
+                        predicted_outcome: `Operator follows through on: ${lastUserMsg.slice(0, 200)}`,
+                        due_days: hasPred ? 7 : 5,
+                      }),
+                      signal: AbortSignal.timeout(4000),
+                    });
+                  }
+                } catch { /* non-critical */ }
+              })();
+            }
         }
       },
     });

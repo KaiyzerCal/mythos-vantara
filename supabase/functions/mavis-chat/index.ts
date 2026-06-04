@@ -1121,6 +1121,52 @@ serve(async (req) => {
       }
     } catch { /* non-critical — tables may not exist yet */ }
 
+    // ── Signal-to-Action: intelligence layer → autonomous action queue (fire and forget) ───
+    try {
+      const sbUrlS2a = Deno.env.get("SUPABASE_URL") ?? "";
+      const skS2a    = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+      const causalChains2 = causalChainsRes?.data ?? [];
+      const predictions2  = predictionsRes?.data ?? [];
+      const actionPayloads: Array<{ action_type: string; payload: Record<string, unknown>; context: string; priority: number }> = [];
+
+      // High-confidence causal chains with action implications → create_task
+      for (const chain of (causalChains2 as any[]).slice(0, 2)) {
+        if (chain.action_implication && chain.confidence >= 0.7) {
+          actionPayloads.push({
+            action_type: "create_task",
+            payload: { title: chain.action_implication.slice(0, 120), description: `Causal insight: ${chain.description}`, type: "task", xp_reward: 25 },
+            context: `causal-engine: ${chain.cause} → ${chain.effect} (confidence ${chain.confidence})`,
+            priority: 3,
+          });
+        }
+      }
+
+      // Unacted high-confidence predictions → create_note
+      for (const pred of (predictions2 as any[]).slice(0, 1)) {
+        if (pred.confidence >= 0.8 && pred.content) {
+          actionPayloads.push({
+            action_type: "create_note",
+            payload: { title: `Prediction: ${pred.title}`, content: pred.content, tags: ["prediction", "auto"], importance: 7 },
+            context: `predictive-engine: ${pred.prediction_type} confidence ${pred.confidence}`,
+            priority: 5,
+          });
+        }
+      }
+
+      if (actionPayloads.length > 0 && sbUrlS2a && skS2a) {
+        (async () => {
+          for (const ap of actionPayloads) {
+            await fetch(`${sbUrlS2a}/functions/v1/mavis-autonomous-actions`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json", Authorization: `Bearer ${skS2a}` },
+              body: JSON.stringify({ action: "enqueue", user_id: user.id, source_system: "mavis-chat-s2a", ...ap }),
+              signal: AbortSignal.timeout(3000),
+            }).catch(() => null);
+          }
+        })();
+      }
+    } catch { /* non-critical */ }
+
     // ── NAVI Ecosystem Context ────────────────────────────────────────────────
     let naviBlock = "";
     try {
