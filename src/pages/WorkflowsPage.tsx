@@ -2,6 +2,7 @@
 // VANTARA.EXE — WorkflowsPage (Visual Node Graph Editor)
 // ============================================================
 import { useState, useEffect, useCallback } from "react";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 import {
   ReactFlow,
   useNodesState,
@@ -704,6 +705,7 @@ export function WorkflowsPage() {
   const [selectedWorkflow, setSelectedWorkflow] = useState<WorkflowRow | null>(null);
   const [runs, setRuns] = useState<WorkflowRun[]>([]);
   const [expandedRun, setExpandedRun] = useState<string | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<{ id: string; label: string } | null>(null);
 
   const loadWorkflows = useCallback(async () => {
     if (!user) return;
@@ -809,7 +811,6 @@ export function WorkflowsPage() {
   }
 
   async function deleteWorkflow(wf: WorkflowRow) {
-    if (!confirm(`Delete "${wf.name}"?`)) return;
     await (supabase as any).from("workflows").delete().eq("id", wf.id);
     toast.success("Workflow deleted");
     if (selectedWorkflow?.id === wf.id) setSelectedWorkflow(null);

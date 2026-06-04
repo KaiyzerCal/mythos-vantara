@@ -9,6 +9,7 @@ import { PageHeader, HudCard, RarityBadge } from "@/components/SharedUI";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { useEffect } from "react";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 
 // ── Tier filter options
 const TIERS = ["All", "Spartan", "Saiyan", "Thorn", "Karma", "Regalia", "Ouroboros", "BlackHeart", "FinalAscent"] as const;
@@ -69,6 +70,7 @@ export default function FormsPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draftForm, setDraftForm] = useState<Omit<Transformation, "id" | "user_id">>(EMPTY_FORM);
   const [copied, setCopied] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState<{ id: string; label: string } | null>(null);
 
   // ── Fetch transformations
   useEffect(() => {
@@ -173,6 +175,8 @@ export default function FormsPage() {
     setForms((prev) => prev.filter((f) => f.id !== id));
     await supabase.from("transformations").delete().eq("id", id);
   };
+
+  // handleDelete is now only called from ConfirmDialog onConfirm
 
   const handleActivate = async (form: Transformation) => {
     await updateProfile({ current_form: form.name });
@@ -416,7 +420,7 @@ export default function FormsPage() {
                   <button onClick={() => handleEdit(form)} className="p-1.5 text-muted-foreground hover:text-primary transition-colors" title="Edit">
                     <Edit2 size={12} />
                   </button>
-                  <button onClick={() => handleDelete(form.id)} className="p-1.5 text-muted-foreground hover:text-destructive transition-colors">
+                  <button onClick={() => setConfirmDelete({ id: form.id, label: form.name })} className="p-1.5 text-muted-foreground hover:text-destructive transition-colors">
                     <Trash2 size={12} />
                   </button>
                   {isOpen ? <ChevronDown size={14} className="text-muted-foreground" /> : <ChevronRight size={14} className="text-muted-foreground" />}
@@ -499,6 +503,18 @@ export default function FormsPage() {
           </p>
         )}
       </div>
+
+      <ConfirmDialog
+        open={confirmDelete !== null}
+        title={`Delete "${confirmDelete?.label}"?`}
+        description="This action cannot be undone."
+        onConfirm={async () => {
+          if (!confirmDelete) return;
+          await handleDelete(confirmDelete.id);
+          setConfirmDelete(null);
+        }}
+        onCancel={() => setConfirmDelete(null)}
+      />
     </div>
   );
 }

@@ -2,6 +2,7 @@
 // VANTARA.EXE — QuestsPage, CouncilsPage, EnergyPage
 // ============================================================
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { motion, AnimatePresence } from "framer-motion";
 import { Target, Plus, Trash2, CheckCircle2, Filter, Loader2, Users, MessageCircle, Send, Square, X, Edit2, ArrowDown, ArrowUp, Database, PhoneCall, Check } from "lucide-react";
 import { useAppData } from "@/contexts/AppDataContext";
@@ -90,6 +91,7 @@ export function QuestsPage() {
   const [showCreate, setShowCreate] = useState(false);
   const [expandedQuest, setExpandedQuest] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<{ id: string; label: string } | null>(null);
   const [form, setForm] = useState({
     title: "", description: "", type: "daily", difficulty: "Normal", xp_reward: 100,
     real_world_mapping: "", linked_skill_ids: [] as string[], linked_stat: "", linked_energy_id: "",
@@ -521,7 +523,7 @@ export function QuestsPage() {
                       <button onClick={() => handleEdit(q)} className="p-1 text-muted-foreground hover:text-primary hover:bg-primary/10 rounded transition-all" title="Edit">
                         <Edit2 size={14} />
                       </button>
-                      <button onClick={() => deleteQuest(q.id)} className="p-1 text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded transition-all" title="Delete">
+                      <button onClick={() => setConfirmDelete({ id: q.id, label: q.title })} className="p-1 text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded transition-all" title="Delete">
                         <Trash2 size={14} />
                       </button>
                     </div>
@@ -555,6 +557,18 @@ export function QuestsPage() {
           <p className="text-xs font-mono text-muted-foreground text-center py-8">No quests found — adjust filters or create a new quest.</p>
         )}
       </div>
+
+      <ConfirmDialog
+        open={confirmDelete !== null}
+        title={`Delete "${confirmDelete?.label}"?`}
+        description="This action cannot be undone."
+        onConfirm={async () => {
+          if (!confirmDelete) return;
+          await deleteQuest(confirmDelete.id);
+          setConfirmDelete(null);
+        }}
+        onCancel={() => setConfirmDelete(null)}
+      />
     </div>
   );
 }
@@ -1154,6 +1168,7 @@ export function CouncilsPage() {
   const [voiceTarget, setVoiceTarget] = useState<VoicePersona | null>(null);
   const [appCtx, setAppCtx] = useState<AppContextSnapshot | null>(null);
   const [form, setForm] = useState({ name: "", role: "", specialty: "", class: "advisory", notes: "" });
+  const [confirmDelete, setConfirmDelete] = useState<{ id: string; label: string } | null>(null);
 
   // Pre-load app context for voice calls (60s cache shared with MAVIS)
   useEffect(() => {
@@ -1187,7 +1202,8 @@ export function CouncilsPage() {
 
   const handleDelete = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    await deleteCouncilMember(id);
+    const member = councils.find((c) => c.id === id);
+    setConfirmDelete({ id, label: member?.name ?? id });
   };
 
   const grouped = {
@@ -1322,6 +1338,18 @@ export function CouncilsPage() {
           />
         )}
       </AnimatePresence>
+
+      <ConfirmDialog
+        open={confirmDelete !== null}
+        title={`Delete "${confirmDelete?.label}"?`}
+        description="This action cannot be undone."
+        onConfirm={async () => {
+          if (!confirmDelete) return;
+          await deleteCouncilMember(confirmDelete.id);
+          setConfirmDelete(null);
+        }}
+        onCancel={() => setConfirmDelete(null)}
+      />
     </div>
   );
 }
@@ -1334,6 +1362,7 @@ export function EnergyPage() {
   const [showCreate, setShowCreate] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState({ type: "", description: "", color: "#08C284", current_value: 100, max_value: 100, status: "developing" });
+  const [confirmDelete, setConfirmDelete] = useState<{ id: string; label: string } | null>(null);
 
   useEffect(() => {
     if (!energyLoading && energySystems.length === 0) {
@@ -1423,7 +1452,7 @@ export function EnergyPage() {
                     <p className={`text-[9px] font-mono uppercase ${statusColors[e.status] ?? "text-muted-foreground"}`}>{e.status}</p>
                   </div>
                   <button onClick={() => handleEdit(e)} className="p-1 text-muted-foreground hover:text-primary transition-colors"><Edit2 size={12} /></button>
-                  <button onClick={() => deleteEnergy(e.id)} className="p-1 text-muted-foreground hover:text-destructive transition-colors"><Trash2 size={12} /></button>
+                  <button onClick={() => setConfirmDelete({ id: e.id, label: e.type })} className="p-1 text-muted-foreground hover:text-destructive transition-colors"><Trash2 size={12} /></button>
                 </div>
               </div>
               <div className="flex items-center gap-2">
@@ -1441,6 +1470,18 @@ export function EnergyPage() {
           </HudCard>
         ))}
       </div>
+
+      <ConfirmDialog
+        open={confirmDelete !== null}
+        title={`Delete "${confirmDelete?.label}"?`}
+        description="This action cannot be undone."
+        onConfirm={async () => {
+          if (!confirmDelete) return;
+          await deleteEnergy(confirmDelete.id);
+          setConfirmDelete(null);
+        }}
+        onCancel={() => setConfirmDelete(null)}
+      />
     </div>
   );
 }

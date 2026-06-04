@@ -1,4 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from "react";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -396,6 +397,7 @@ export default function VideoEditorPage() {
   const [renderingClipId, setRenderingClipId] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [deletingProjectId, setDeletingProjectId] = useState<string | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<{ id: string; label: string } | null>(null);
   const [retryingProjectId, setRetryingProjectId] = useState<string | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [compilationSelected, setCompilationSelected] = useState<Set<string>>(new Set());
@@ -553,7 +555,6 @@ export default function VideoEditorPage() {
 
   // ── Delete project ────────────────────────────────────────────────────────
   async function handleDeleteProject(project: any) {
-    if (!confirm(`Delete "${project.title ?? "this video"}"? This cannot be undone.`)) return;
     setDeletingProjectId(project.id);
     try {
       const { error } = await (supabase as any)
@@ -1892,7 +1893,7 @@ export default function VideoEditorPage() {
                           variant="outline"
                           className="border-gray-600 text-gray-400 hover:text-red-400 hover:border-red-500/50 px-2"
                           disabled={deletingProjectId === project.id}
-                          onClick={() => handleDeleteProject(project)}
+                          onClick={() => setConfirmDelete({ id: project.id, label: project.title ?? project.name ?? "this video" })}
                         >
                           {deletingProjectId === project.id
                             ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -2602,6 +2603,18 @@ export default function VideoEditorPage() {
           </div>
         )}
       </div>
+      <ConfirmDialog
+        open={confirmDelete !== null}
+        title={`Delete "${confirmDelete?.label}"?`}
+        description="This action cannot be undone."
+        onConfirm={async () => {
+          if (!confirmDelete) return;
+          const project = { id: confirmDelete.id, title: confirmDelete.label };
+          await handleDeleteProject(project);
+          setConfirmDelete(null);
+        }}
+        onCancel={() => setConfirmDelete(null)}
+      />
     </div>
   );
 }
