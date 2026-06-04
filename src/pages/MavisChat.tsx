@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { Send, Square, Cpu, Copy, Check, ChevronDown, Zap, Brain, Target, Crown, Flame, Database, Mic, MicOff, Users, Search, FileCode, X, Download, Gamepad2, Layers, Globe, ThumbsUp, ThumbsDown } from "lucide-react";
+import { Send, Square, Cpu, Copy, Check, ChevronDown, Zap, Brain, Target, Crown, Flame, Database, Mic, MicOff, Users, Search, FileCode, X, Download, Gamepad2, Layers, Globe, ThumbsUp, ThumbsDown, AlertTriangle } from "lucide-react";
 import { useAppData } from "@/contexts/AppDataContext";
 import { supabase as _supabase } from "@/integrations/supabase/client";
 const supabase = _supabase as any;
@@ -30,7 +30,7 @@ import { buildRecallContext } from "@/mavis/proactiveRecall";
 import { captureProceduralMemory } from "@/mavis/proceduralMemory";
 import { autoCrewDispatch } from "@/mavis/crewCoordinator";
 import { getCustomOrders, addStandingOrder, removeStandingOrder } from "@/mavis/standingOrders";
-import type { ExecutionResult } from "@/mavis/types";
+import type { ExecutionResult, ParsedAction } from "@/mavis/types";
 // Trigger skill self-registration
 import "@/mavis/skills/_loader";
 
@@ -740,6 +740,35 @@ export default function MavisChat() {
     setTimeout(() => setCopiedId(null), 2000);
   };
 
+  // ── Pending action helpers ──────────────────────────────────
+  function getActionLabel(action: ParsedAction): string {
+    const p = action.payload as any;
+    const name = p?.title || p?.name || p?.display_name || p?.quest_id || p?.skill_id || p?.entry_id || p?.id || "";
+    const typeLabel = action.type.replace(/_/g, " ");
+    return name ? `${typeLabel}: "${String(name).slice(0, 50)}"` : typeLabel;
+  }
+
+  async function approvePendingAction(index: number) {
+    const result = pendingActions[index];
+    if (!result) return;
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) return;
+      await supabase.functions.invoke("mavis-actions", {
+        body: { actions: [result.action.payload] },
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      });
+      setPendingActions(prev => prev.filter((_, i) => i !== index));
+      refetchAll?.();
+    } catch (err) {
+      console.error("Failed to execute approved action:", err);
+    }
+  }
+
+  function rejectPendingAction(index: number) {
+    setPendingActions(prev => prev.filter((_, i) => i !== index));
+  }
+
   const clearChat = useCallback(async () => {
     await handleOmniSync();
 
@@ -846,24 +875,38 @@ export default function MavisChat() {
       </AnimatePresence>
 
       {/* Pending confirmations banner */}
-      <AnimatePresence>
-        {pendingActions.length > 0 && (
-          <motion.div
-            initial={{ opacity: 0, y: -4 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -4 }}
-            className="flex items-center justify-between gap-2 px-3 py-1.5 rounded border border-amber-500/30 bg-amber-500/5 text-xs font-mono text-amber-400"
-          >
-            <span>⚠ {pendingActions.length} action{pendingActions.length > 1 ? "s" : ""} require confirmation</span>
-            <button
-              onClick={() => setPendingActions([])}
-              className="text-[10px] text-muted-foreground hover:text-destructive transition-colors"
-            >
-              dismiss
-            </button>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      {pendingActions.length > 0 && (
+        <div className="space-y-1.5 mb-1">
+          {pendingActions.map((result, i) => {
+            const action = result.action;
+            const label = getActionLabel(action);
+            return (
+              <motion.div
+                key={i}
+                initial={{ opacity: 0, y: -4 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -4 }}
+                className="flex items-center gap-2 px-3 py-2 rounded border border-amber-500/30 bg-amber-500/5 text-xs font-mono"
+              >
+                <AlertTriangle size={12} className="text-amber-400 shrink-0" />
+                <span className="flex-1 text-amber-300 truncate">Confirm: {label}</span>
+                <button
+                  onClick={() => approvePendingAction(i)}
+                  className="px-2 py-0.5 rounded bg-primary/10 border border-primary/30 text-primary hover:bg-primary/20 text-[10px]"
+                >
+                  Approve
+                </button>
+                <button
+                  onClick={() => rejectPendingAction(i)}
+                  className="px-2 py-0.5 rounded text-muted-foreground hover:text-destructive text-[10px]"
+                >
+                  Reject
+                </button>
+              </motion.div>
+            );
+          })}
+        </div>
+      )}
 
       {/* Standing Orders Panel */}
       <AnimatePresence>
