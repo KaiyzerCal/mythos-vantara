@@ -156,12 +156,12 @@ export default function Dashboard() {
 
   useEffect(() => {
     const today = new Date().toISOString().slice(0, 10);
-    supabase
+    (supabase as any)
       .from("mavis_daily_scores")
       .select("score, trend, optimal_window, recommendation")
       .eq("score_date", today)
       .maybeSingle()
-      .then(({ data }) => setPerfScore(data ?? null));
+      .then(({ data }: any) => setPerfScore(data ?? null));
   }, []);
 
   const scoreColor =
