@@ -29,7 +29,7 @@ const READ_TABLES = new Set([
 
 const WRITE_TABLES = new Set([
   "quests", "tasks", "rituals", "mavis_notes", "mavis_memory", "mavis_tasks",
-  "contacts", "contact_interactions",
+  "contacts", "contact_interactions", "transformations",
 ]);
 
 // ── Sandboxed JS executor (mirrors mavis-code-exec) ───────────────────────────
@@ -118,7 +118,7 @@ const AGENT_TOOLS = [
       type: "object" as const,
       properties: {
         table: { type: "string", description: `Table name. Allowed for writes: ${[...WRITE_TABLES].join(", ")}` },
-        data: { type: "object", description: "Record fields. Do NOT include user_id — it is injected automatically." },
+        data: { type: "object", description: "Record fields. Do NOT include user_id — it is injected automatically. For 'transformations': active_buffs and passive_buffs must be arrays like [{\"label\":\"Speed\",\"value\":10,\"unit\":\"%\"}]; abilities must be [{\"title\":\"Skill Name\",\"irl\":\"Real-world application description\"}]; tier must be one of Spartan/Saiyan/Thorn/Karma/Regalia/Ouroboros/BlackHeart/FinalAscent." },
         on_conflict: { type: "string", description: "Column(s) for upsert dedup (e.g. 'id'). Omit for pure insert." },
       },
       required: ["table", "data"],
