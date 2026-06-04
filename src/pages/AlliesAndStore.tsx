@@ -7,6 +7,7 @@ import { Shield, Plus, Trash2, Heart, Loader2, Edit2, ShoppingBag, Lock, CheckCi
 import { useAppData } from "@/contexts/AppDataContext";
 import { PageHeader, HudCard, ProgressBar, RarityBadge } from "@/components/SharedUI";
 import { AvatarUploader } from "@/components/AvatarUploader";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 
 export function AlliesPage() {
   const { allies, alliesLoading, createAlly, updateAlly, deleteAlly } = useAppData();
@@ -14,6 +15,7 @@ export function AlliesPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [filter, setFilter] = useState("all");
   const [form, setForm] = useState({ name: "", relationship: "ally", level: 1, specialty: "General", affinity: 50, notes: "" });
+  const [confirmDelete, setConfirmDelete] = useState<{ id: string; label: string; type: 'ally' | 'store_item' } | null>(null);
 
   const RELATIONSHIP_COLORS: Record<string, string> = { ally: "text-green-400", council: "text-blue-400", rival: "text-red-400" };
   const filtered = allies.filter((a) => filter === "all" || a.relationship === filter);
@@ -123,7 +125,7 @@ export function AlliesPage() {
                 <button onClick={() => handleEdit(ally)} className="p-1 text-muted-foreground hover:text-primary transition-colors" title="Edit">
                   <Edit2 size={12} />
                 </button>
-                <button onClick={() => deleteAlly(ally.id)} className="p-1 text-muted-foreground hover:text-destructive transition-colors" title="Delete">
+                <button onClick={() => setConfirmDelete({ id: ally.id, label: ally.name, type: 'ally' })} className="p-1 text-muted-foreground hover:text-destructive transition-colors" title="Delete">
                   <Trash2 size={12} />
                 </button>
               </div>
@@ -132,6 +134,18 @@ export function AlliesPage() {
         ))}
         {filtered.length === 0 && <p className="text-xs font-mono text-muted-foreground text-center py-8 col-span-2">No allies — expand your network.</p>}
       </div>
+
+      <ConfirmDialog
+        open={confirmDelete !== null}
+        title={`Delete "${confirmDelete?.label}"?`}
+        description="This action cannot be undone."
+        onConfirm={async () => {
+          if (!confirmDelete) return;
+          await deleteAlly(confirmDelete.id);
+          setConfirmDelete(null);
+        }}
+        onCancel={() => setConfirmDelete(null)}
+      />
     </div>
   );
 }
@@ -150,6 +164,7 @@ export function StorePage() {
   const [showCreate, setShowCreate] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState({ ...EMPTY_STORE_FORM });
+  const [confirmDelete, setConfirmDelete] = useState<{ id: string; label: string; type: 'ally' | 'store_item' } | null>(null);
 
   const filtered = storeItems.filter((i) => catFilter === "all" || i.category === catFilter);
 
@@ -270,7 +285,7 @@ export function StorePage() {
                     <button onClick={() => handleBuy(item.id)} className="px-2 py-1 text-[9px] font-mono text-primary border border-primary/30 rounded hover:bg-primary/10 transition-all">Buy</button>
                   )}
                   <button onClick={() => handleEdit(item)} className="p-1 text-muted-foreground hover:text-primary transition-colors"><Edit2 size={12} /></button>
-                  <button onClick={() => deleteStoreItem(item.id)} className="p-1 text-muted-foreground hover:text-destructive transition-colors"><Trash2 size={12} /></button>
+                  <button onClick={() => setConfirmDelete({ id: item.id, label: item.name, type: 'store_item' })} className="p-1 text-muted-foreground hover:text-destructive transition-colors"><Trash2 size={12} /></button>
                 </div>
               </div>
             </HudCard>
@@ -278,6 +293,18 @@ export function StorePage() {
         })}
         {filtered.length === 0 && <p className="text-xs font-mono text-muted-foreground text-center py-8 col-span-3">No store items. Add your first item above.</p>}
       </div>
+
+      <ConfirmDialog
+        open={confirmDelete !== null}
+        title={`Delete "${confirmDelete?.label}"?`}
+        description="This action cannot be undone."
+        onConfirm={async () => {
+          if (!confirmDelete) return;
+          await deleteStoreItem(confirmDelete.id);
+          setConfirmDelete(null);
+        }}
+        onCancel={() => setConfirmDelete(null)}
+      />
     </div>
   );
 }
