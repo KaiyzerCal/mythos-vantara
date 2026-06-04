@@ -2549,10 +2549,16 @@ export default function VideoEditorPage() {
                     )}
 
                     {/* Cloud rendering in progress */}
-                    {compilationResult.status === "rendering" && (
-                      <p className="text-sm text-purple-300 flex items-center gap-2">
-                        <Loader2 className="w-4 h-4 animate-spin" /> Rendering in cloud — page updates when done.
-                      </p>
+                    {(compilationResult.status === "rendering" || compilationResult.status === "preparing" || compilationResult.status === "processing") && (
+                      <div className="space-y-2">
+                        <p className="text-sm text-purple-300 flex items-center gap-2">
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                          {compilationResult.status === "preparing" ? "Preparing compilation…" : "Rendering in cloud — page updates when done."}
+                        </p>
+                        {compilationProgress > 0 && (
+                          <Progress value={compilationProgress} className="h-1.5 bg-gray-700" />
+                        )}
+                      </div>
                     )}
 
                     {/* Cloud not configured */}
