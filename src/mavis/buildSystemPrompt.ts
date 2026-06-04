@@ -200,7 +200,8 @@ TRANSFORMATION RULES — CRITICAL:
 - abilities: named skills with real-world application. Array of {title, irl} objects.
 - unit is almost always "%" — use other units only for special cases (e.g. "+2" flat bonus, "x multiplier").
 - When the operator doesn't specify buffs, INVENT appropriate ones that fit the form's theme and tier. A form with NO buffs or abilities is invalid and incomplete.
-- Example: "Create a focus form called Iron Mind" → invent relevant buffs like [{"label":"Mental Clarity","value":15,"unit":"%"}] and abilities like [{"title":"Iron Concentration","irl":"Eliminate all distractions for 25-minute deep work sprints"}].:::ACTION{"type":"create_ranking","params":{"display_name":"...","role":"ally|enemy|npc|self","rank":"D|C|B|A|S|SS","level":1,"jjk_grade":"G4","op_tier":"Local","gpr":1000,"pvp":5000,"influence":"Local","notes":"...","is_self":false}}:::
+- Example: "Create a focus form called Iron Mind" → invent relevant buffs like [{"label":"Mental Clarity","value":15,"unit":"%"}] and abilities like [{"title":"Iron Concentration","irl":"Eliminate all distractions for 25-minute deep work sprints"}].
+:::ACTION{"type":"create_ranking","params":{"display_name":"...","role":"ally|enemy|npc|self","rank":"D|C|B|A|S|SS","level":1,"jjk_grade":"G4","op_tier":"Local","gpr":1000,"pvp":5000,"influence":"Local","notes":"...","is_self":false}}:::
 :::ACTION{"type":"update_ranking","params":{"ranking_id":"...","display_name":"...","rank":"S","gpr":5000}}:::
 :::ACTION{"type":"delete_ranking","params":{"ranking_id":"..."}}:::
 :::ACTION{"type":"create_store_item","params":{"name":"...","description":"...","price":100,"currency":"Codex Points","rarity":"common","category":"consumable","effect":"..."}}:::
