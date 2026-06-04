@@ -623,6 +623,34 @@ const AGENT_TOOLS = [
       required: [],
     },
   },
+  {
+    name: "get_market_intel",
+    description: "Retrieve today's market intelligence — news signals, trends, and opportunities relevant to the operator's interests. High-relevance signals are automatically pushed via Telegram. Use this to surface what's happening in the operator's world right now.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        days: { type: "number", description: "Number of days of intel to retrieve (default 1, max 7)" },
+        min_relevance: { type: "number", description: "Minimum relevance score 0-1 (default 0.5)" },
+        trigger_fresh: { type: "boolean", description: "Trigger a fresh radar scan instead of returning cached results" },
+      },
+      required: [],
+    },
+  },
+  {
+    name: "trigger_meeting_prep",
+    description: "Generate a meeting preparation brief for an upcoming event. Pulls attendee context from memory, generates talking points, key questions, and desired outcomes. Also returns recent preps if no event specified.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        event_title: { type: "string", description: "Title or name of the meeting/event" },
+        event_start: { type: "string", description: "ISO datetime of the event (e.g. '2026-06-04T14:00:00Z')" },
+        attendees: { type: "array", items: { type: "string" }, description: "List of attendee names" },
+        event_id: { type: "string", description: "Unique ID for the event (any string, used to avoid duplicates)" },
+        get_recent: { type: "boolean", description: "Return recent meeting preps instead of generating a new one" },
+      },
+      required: [],
+    },
+  },
 ];
 
 // ── Tool executor ─────────────────────────────────────────────────────────────
@@ -1539,6 +1567,74 @@ async function executeTool(
           const arrow = data.trend === "improving" ? "↑" : data.trend === "declining" ? "↓" : "→";
           return JSON.stringify({ score: data.score, trend: `${data.trend} ${arrow}`, optimal_window: data.optimal_window, recommendation: data.recommendation, components: data.components });
         } catch (err: any) { return JSON.stringify({ error: err.message ?? "Failed to get performance score" }); }
+      }
+
+      case "get_market_intel": {
+        const sbUrl = Deno.env.get("SUPABASE_URL") ?? "";
+        const sk = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+        try {
+          if (input.trigger_fresh) {
+            const res = await fetch(`${sbUrl}/functions/v1/mavis-market-radar`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json", Authorization: `Bearer ${sk}` },
+              body: JSON.stringify({ user_id: userId }),
+            });
+            const data = await res.json();
+            if (!res.ok) return JSON.stringify({ error: data.error ?? "Market radar scan failed" });
+            return JSON.stringify({ triggered: true, message: "Fresh market scan complete.", intel: data.intel ?? [] });
+          }
+          const days = Math.min(Number(input.days ?? 1), 7);
+          const minRel = Number(input.min_relevance ?? 0.5);
+          const since = new Date(Date.now() - days * 86400000).toISOString();
+          const { data, error } = await adminSb
+            .from("mavis_market_intel")
+            .select("topic,headline,summary,relevance_score,signal_type,url,source_date")
+            .eq("user_id", userId)
+            .gte("relevance_score", minRel)
+            .gte("created_at", since)
+            .order("relevance_score", { ascending: false })
+            .limit(20);
+          if (error) return JSON.stringify({ error: error.message });
+          if (!data || data.length === 0) return "No market intelligence found for this period. Try trigger_fresh:true to run a fresh scan.";
+          return JSON.stringify({ intel: data, count: data.length });
+        } catch (err: any) { return JSON.stringify({ error: err.message ?? "Market intel fetch failed" }); }
+      }
+
+      case "trigger_meeting_prep": {
+        const sbUrl = Deno.env.get("SUPABASE_URL") ?? "";
+        const sk = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+        try {
+          if (input.get_recent || !input.event_title) {
+            const { data } = await adminSb
+              .from("mavis_meeting_preps")
+              .select("event_title,event_start,attendees,prep_brief,talking_points,created_at")
+              .eq("user_id", userId)
+              .order("event_start", { ascending: false })
+              .limit(5);
+            if (!data || data.length === 0) return "No meeting preps on record yet.";
+            return JSON.stringify({ preps: data });
+          }
+          const eventId = String(input.event_id ?? `manual-${Date.now()}`);
+          const res = await fetch(`${sbUrl}/functions/v1/mavis-meeting-prep`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${sk}` },
+            body: JSON.stringify({
+              user_id: userId,
+              event_id: eventId,
+              event_title: String(input.event_title ?? ""),
+              event_start: String(input.event_start ?? new Date(Date.now() + 1800000).toISOString()),
+              attendees: Array.isArray(input.attendees) ? input.attendees : [],
+            }),
+          });
+          const data = await res.json();
+          if (!res.ok) return JSON.stringify({ error: data.error ?? "Meeting prep failed" });
+          return JSON.stringify({
+            event: input.event_title,
+            prep_brief: data.prep_brief,
+            talking_points: data.talking_points,
+            message: "Meeting prep ready. Brief sent to Telegram.",
+          });
+        } catch (err: any) { return JSON.stringify({ error: err.message ?? "Meeting prep failed" }); }
       }
 
       default:

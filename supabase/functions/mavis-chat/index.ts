@@ -935,6 +935,20 @@ serve(async (req) => {
     // building the system prompt and calling the AI.
     const lastUserMsgEarly = [...(messages || [])].reverse().find((m: any) => m.role === "user");
     const q = (lastUserMsgEarly?.content || "").toLowerCase();
+
+    // ── Dynamic semantic retrieval — embed query concurrently with DB fetch ────
+    // Fire-and-forget: starts before Promise.all, resolved after it completes.
+    // Zero added latency since DB roundtrip (~300ms) > embedding (~200ms).
+    const openaiKeyForEmbed = Deno.env.get("OPENAI_API") ?? "";
+    const queryEmbedPromise: Promise<number[] | null> = (openaiKeyForEmbed && q.length > 15)
+      ? fetch("https://api.openai.com/v1/embeddings", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${openaiKeyForEmbed}` },
+          body: JSON.stringify({ model: "text-embedding-3-small", input: q.slice(0, 500) }),
+          signal: AbortSignal.timeout(5000),
+        }).then(r => r.ok ? r.json() : null).then((d: any) => d?.data?.[0]?.embedding ?? null).catch(() => null)
+      : Promise.resolve(null);
+
     const wants = {
       journal:    /\bjournal|diary|entry|entries|wrote|writing\b/.test(q),
       vault:      /\bvault|evidence|document|legal|file\b/.test(q),
@@ -968,7 +982,7 @@ serve(async (req) => {
       naviPersonasRes, naviRelationsRes,
       stalledRes, streakRes, revenueRes,
       predictionsRes, worldModelRes, narrativeRes,
-      insightsRes, dailyBriefRes, perfScoreRes,
+      insightsRes, dailyBriefRes, perfScoreRes, causalChainsRes,
     ] = await Promise.all([
       sb.from("profiles").select("*").eq("id", user.id).single(),
       sb.from("quests").select("id,title,description,type,status,difficulty,xp_reward,progress_current,progress_target,deadline,real_world_mapping").eq("user_id", user.id).order("created_at", { ascending: false }).limit(lim("quest", 25, 10)),
@@ -1006,7 +1020,25 @@ serve(async (req) => {
       sb.from("mavis_insights").select("type,title,content").eq("user_id", user.id).order("created_at", { ascending: false }).limit(2),
       sb.from("mavis_daily_briefs").select("brief_text,sections").eq("user_id", user.id).eq("brief_date", new Date().toISOString().slice(0, 10)).maybeSingle(),
       sb.from("mavis_daily_scores").select("score,trend,optimal_window,recommendation").eq("user_id", user.id).eq("score_date", new Date().toISOString().slice(0, 10)).maybeSingle(),
+      sb.from("mavis_causal_chains").select("cause,effect,lag_days,description,action_implication").eq("user_id", user.id).order("confidence", { ascending: false }).limit(2),
     ]);
+
+    // ── Semantic context resolution (concurrent with Promise.all above) ────────
+    let semanticContextData: any[] = [];
+    try {
+      const queryEmbedding = await queryEmbedPromise;
+      if (queryEmbedding) {
+        const { data: semData } = await sb.rpc("match_mavis_notes", {
+          query_embedding: queryEmbedding,
+          match_threshold: 0.65,
+          match_count: 4,
+          p_user_id: user.id,
+        });
+        semanticContextData = (semData ?? []).filter((n: any) =>
+          !Array.isArray(n.tags) || !n.tags.includes("document")
+        );
+      }
+    } catch { /* non-critical — vector search may not be configured */ }
 
     const profile = profileRes.data;
     if (!profile) throw new Error("Profile not found");
@@ -1067,6 +1099,14 @@ serve(async (req) => {
       }
       if (Array.isArray(insights) && insights.length > 0) {
         parts.push(`BEHAVIORAL INSIGHTS:\n${(insights as any[]).map((i: any) => `• [${i.type ?? "insight"}] ${i.title}: ${String(i.content ?? "").slice(0, 120)}`).join("\n")}`);
+      }
+      if (semanticContextData.length > 0) {
+        const relevant = semanticContextData.slice(0, 2).map((n: any) => `• ${n.title}: ${String(n.content ?? "").slice(0, 180)}`);
+        parts.push(`RELEVANT KNOWLEDGE (matched to this query):\n${relevant.join("\n")}`);
+      }
+      const causalChains = causalChainsRes?.data ?? [];
+      if (Array.isArray(causalChains) && causalChains.length > 0) {
+        parts.push(`CAUSAL PATTERNS (what actually drives your outcomes):\n${causalChains.map((c: any) => `• ${c.description}${c.action_implication ? ` → ${c.action_implication}` : ""}`).join("\n")}`);
       }
       if (perfScore?.score != null) {
         const arrow = perfScore.trend === "improving" ? "↑" : perfScore.trend === "declining" ? "↓" : "→";

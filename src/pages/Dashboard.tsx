@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import {
   Target, Flame, Zap, Sparkles, Package, BookLock, ShoppingBag,
   Medal, TowerControl, Activity, Users, CheckSquare, BookOpen,
-  Shield, Cpu, Crown, Copy, TrendingUp, CalendarDays,
+  Shield, Cpu, Crown, Copy, TrendingUp, CalendarDays, Radio,
 } from "lucide-react";
 import { useAppData } from "@/contexts/AppDataContext";
 import { PageHeader, HudCard, ProgressBar, StatBadge, RankBadge, QuestTypeBadge } from "@/components/SharedUI";
@@ -70,6 +70,27 @@ export default function Dashboard() {
       .eq("brief_date", today)
       .maybeSingle()
       .then(({ data }) => setMorningBrief(data ?? null));
+  }, []);
+
+  // ── Market Intel ──
+  const [marketIntel, setMarketIntel] = useState<Array<{
+    topic: string;
+    headline: string;
+    summary: string;
+    relevance_score: number;
+    signal_type: string;
+  }>>([]);
+
+  useEffect(() => {
+    const yesterday = new Date(Date.now() - 86400000).toISOString();
+    supabase
+      .from("mavis_market_intel")
+      .select("topic, headline, summary, relevance_score, signal_type")
+      .gte("relevance_score", 0.6)
+      .gte("created_at", yesterday)
+      .order("relevance_score", { ascending: false })
+      .limit(3)
+      .then(({ data }) => setMarketIntel(data ?? []));
   }, []);
 
   // ── Performance Score ──
@@ -291,6 +312,33 @@ export default function Dashboard() {
 
         </div>
       </motion.div>
+
+      {/* ── Market Intel ── */}
+      {marketIntel.length > 0 && (
+        <motion.div {...fadeIn(0.05)}>
+          <HudCard>
+            <div className="flex items-center gap-2 mb-3">
+              <Radio size={14} className="text-primary shrink-0" />
+              <h3 className="text-sm font-display text-foreground">Market Radar</h3>
+              <span className="ml-auto text-[10px] font-mono text-muted-foreground">last 24h</span>
+            </div>
+            <div className="space-y-3">
+              {marketIntel.map((item, i) => (
+                <div key={i} className="border-l-2 border-primary/30 pl-2">
+                  <div className="flex items-center gap-2 mb-0.5">
+                    <span className="text-[10px] font-mono text-primary uppercase">{item.signal_type}</span>
+                    <span className="text-[10px] font-mono text-muted-foreground">·</span>
+                    <span className="text-[10px] font-mono text-muted-foreground">{item.topic}</span>
+                    <span className="ml-auto text-[10px] font-mono text-green-400">{Math.round(item.relevance_score * 100)}%</span>
+                  </div>
+                  <p className="text-xs font-display text-foreground leading-tight">{item.headline}</p>
+                  <p className="text-[10px] font-body text-foreground/60 leading-relaxed mt-0.5 line-clamp-2">{item.summary}</p>
+                </div>
+              ))}
+            </div>
+          </HudCard>
+        </motion.div>
+      )}
 
       {/* ── Quest Stats + Active Quests ── */}
       <motion.div {...fadeIn(0.1)} className="grid grid-cols-1 lg:grid-cols-2 gap-4">
