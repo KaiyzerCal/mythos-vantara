@@ -922,6 +922,60 @@ export type Database = {
         }
         Relationships: []
       }
+      mavis_action_queue: {
+        Row: {
+          action_payload: Json
+          action_type: string
+          approved_at: string | null
+          autonomy_tier: string
+          created_at: string
+          executed_at: string | null
+          expires_at: string
+          id: string
+          priority: number
+          result_data: Json | null
+          source_context: string | null
+          source_system: string | null
+          status: string
+          telegram_message_id: string | null
+          user_id: string
+        }
+        Insert: {
+          action_payload?: Json
+          action_type: string
+          approved_at?: string | null
+          autonomy_tier?: string
+          created_at?: string
+          executed_at?: string | null
+          expires_at?: string
+          id?: string
+          priority?: number
+          result_data?: Json | null
+          source_context?: string | null
+          source_system?: string | null
+          status?: string
+          telegram_message_id?: string | null
+          user_id: string
+        }
+        Update: {
+          action_payload?: Json
+          action_type?: string
+          approved_at?: string | null
+          autonomy_tier?: string
+          created_at?: string
+          executed_at?: string | null
+          expires_at?: string
+          id?: string
+          priority?: number
+          result_data?: Json | null
+          source_context?: string | null
+          source_system?: string | null
+          status?: string
+          telegram_message_id?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
       mavis_agent_karma: {
         Row: {
           agent_id: string
@@ -1065,6 +1119,36 @@ export type Database = {
         }
         Relationships: []
       }
+      mavis_autonomy_settings: {
+        Row: {
+          action_type: string
+          approval_count: number
+          id: string
+          last_action_at: string
+          rejection_count: number
+          tier: string
+          user_id: string
+        }
+        Insert: {
+          action_type: string
+          approval_count?: number
+          id?: string
+          last_action_at?: string
+          rejection_count?: number
+          tier?: string
+          user_id: string
+        }
+        Update: {
+          action_type?: string
+          approval_count?: number
+          id?: string
+          last_action_at?: string
+          rejection_count?: number
+          tier?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       mavis_bond: {
         Row: {
           bond_level: number | null
@@ -1161,6 +1245,51 @@ export type Database = {
           updated_at?: string | null
           user_id?: string
           vapi_call_id?: string | null
+        }
+        Relationships: []
+      }
+      mavis_causal_chains: {
+        Row: {
+          action_implication: string | null
+          cause: string
+          confidence: number
+          correlation: number
+          created_at: string
+          description: string
+          effect: string
+          id: string
+          lag_days: number
+          sample_size: number
+          user_id: string
+          week_of: string
+        }
+        Insert: {
+          action_implication?: string | null
+          cause: string
+          confidence: number
+          correlation: number
+          created_at?: string
+          description: string
+          effect: string
+          id?: string
+          lag_days?: number
+          sample_size?: number
+          user_id: string
+          week_of?: string
+        }
+        Update: {
+          action_implication?: string | null
+          cause?: string
+          confidence?: number
+          correlation?: number
+          created_at?: string
+          description?: string
+          effect?: string
+          id?: string
+          lag_days?: number
+          sample_size?: number
+          user_id?: string
+          week_of?: string
         }
         Relationships: []
       }
@@ -1361,6 +1490,48 @@ export type Database = {
         }
         Relationships: []
       }
+      mavis_evolution_log: {
+        Row: {
+          affected_key: string | null
+          created_at: string
+          evidence: string | null
+          evolution_type: string
+          id: string
+          new_confidence: number | null
+          new_value: string | null
+          old_confidence: number | null
+          old_value: string | null
+          reason: string
+          user_id: string
+        }
+        Insert: {
+          affected_key?: string | null
+          created_at?: string
+          evidence?: string | null
+          evolution_type: string
+          id?: string
+          new_confidence?: number | null
+          new_value?: string | null
+          old_confidence?: number | null
+          old_value?: string | null
+          reason: string
+          user_id: string
+        }
+        Update: {
+          affected_key?: string | null
+          created_at?: string
+          evidence?: string | null
+          evolution_type?: string
+          id?: string
+          new_confidence?: number | null
+          new_value?: string | null
+          old_confidence?: number | null
+          old_value?: string | null
+          reason?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       mavis_expenses: {
         Row: {
           amount: number
@@ -1507,6 +1678,90 @@ export type Database = {
           provider?: string
           success?: boolean | null
           total_tokens?: number | null
+          user_id?: string
+        }
+        Relationships: []
+      }
+      mavis_market_intel: {
+        Row: {
+          created_at: string
+          headline: string
+          id: string
+          notified: boolean
+          relevance_score: number
+          signal_type: string
+          source_date: string
+          summary: string
+          topic: string
+          url: string | null
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          headline: string
+          id?: string
+          notified?: boolean
+          relevance_score: number
+          signal_type?: string
+          source_date?: string
+          summary: string
+          topic: string
+          url?: string | null
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          headline?: string
+          id?: string
+          notified?: boolean
+          relevance_score?: number
+          signal_type?: string
+          source_date?: string
+          summary?: string
+          topic?: string
+          url?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
+      mavis_meeting_preps: {
+        Row: {
+          attendees: string[]
+          context_notes: string | null
+          created_at: string
+          event_id: string
+          event_start: string
+          event_title: string
+          id: string
+          prep_brief: string
+          prep_sent: boolean
+          talking_points: string[]
+          user_id: string
+        }
+        Insert: {
+          attendees?: string[]
+          context_notes?: string | null
+          created_at?: string
+          event_id: string
+          event_start: string
+          event_title: string
+          id?: string
+          prep_brief: string
+          prep_sent?: boolean
+          talking_points?: string[]
+          user_id: string
+        }
+        Update: {
+          attendees?: string[]
+          context_notes?: string | null
+          created_at?: string
+          event_id?: string
+          event_start?: string
+          event_title?: string
+          id?: string
+          prep_brief?: string
+          prep_sent?: boolean
+          talking_points?: string[]
           user_id?: string
         }
         Relationships: []
@@ -1716,6 +1971,81 @@ export type Database = {
           tags?: string[]
           title?: string
           updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      mavis_outcome_events: {
+        Row: {
+          actual_outcome: string | null
+          checked_at: string | null
+          confidence_score: number | null
+          created_at: string
+          due_check_at: string
+          evidence_data: Json | null
+          id: string
+          outcome_status: string
+          predicted_outcome: string | null
+          prediction_text: string
+          source_id: string | null
+          source_type: string
+          user_id: string
+        }
+        Insert: {
+          actual_outcome?: string | null
+          checked_at?: string | null
+          confidence_score?: number | null
+          created_at?: string
+          due_check_at?: string
+          evidence_data?: Json | null
+          id?: string
+          outcome_status?: string
+          predicted_outcome?: string | null
+          prediction_text: string
+          source_id?: string | null
+          source_type: string
+          user_id: string
+        }
+        Update: {
+          actual_outcome?: string | null
+          checked_at?: string | null
+          confidence_score?: number | null
+          created_at?: string
+          due_check_at?: string
+          evidence_data?: Json | null
+          id?: string
+          outcome_status?: string
+          predicted_outcome?: string | null
+          prediction_text?: string
+          source_id?: string | null
+          source_type?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      mavis_outreach_drafts: {
+        Row: {
+          contact_name: string
+          created_at: string
+          drafted_message: string
+          id: string
+          status: string
+          user_id: string
+        }
+        Insert: {
+          contact_name: string
+          created_at?: string
+          drafted_message: string
+          id?: string
+          status?: string
+          user_id: string
+        }
+        Update: {
+          contact_name?: string
+          created_at?: string
+          drafted_message?: string
+          id?: string
+          status?: string
           user_id?: string
         }
         Relationships: []
@@ -3565,6 +3895,7 @@ export type Database = {
       video_clips: {
         Row: {
           aspect_ratio: string | null
+          caption_words: Json | null
           created_at: string | null
           duration_seconds: number | null
           end_seconds: number
@@ -3575,6 +3906,7 @@ export type Database = {
           render_job_id: string | null
           render_status: string | null
           render_url: string | null
+          source_url: string | null
           start_seconds: number
           suggested_caption: string | null
           suggested_hashtags: string[] | null
@@ -3587,6 +3919,7 @@ export type Database = {
         }
         Insert: {
           aspect_ratio?: string | null
+          caption_words?: Json | null
           created_at?: string | null
           duration_seconds?: number | null
           end_seconds: number
@@ -3597,6 +3930,7 @@ export type Database = {
           render_job_id?: string | null
           render_status?: string | null
           render_url?: string | null
+          source_url?: string | null
           start_seconds: number
           suggested_caption?: string | null
           suggested_hashtags?: string[] | null
@@ -3609,6 +3943,7 @@ export type Database = {
         }
         Update: {
           aspect_ratio?: string | null
+          caption_words?: Json | null
           created_at?: string | null
           duration_seconds?: number | null
           end_seconds?: number
@@ -3619,6 +3954,7 @@ export type Database = {
           render_job_id?: string | null
           render_status?: string | null
           render_url?: string | null
+          source_url?: string | null
           start_seconds?: number
           suggested_caption?: string | null
           suggested_hashtags?: string[] | null
@@ -3696,47 +4032,92 @@ export type Database = {
         }
         Relationships: []
       }
+      video_quota: {
+        Row: {
+          analyses_limit: number
+          analyses_used: number
+          id: string
+          period_start: string
+          renders_limit: number
+          renders_used: number
+          tier: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          analyses_limit?: number
+          analyses_used?: number
+          id?: string
+          period_start?: string
+          renders_limit?: number
+          renders_used?: number
+          tier?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          analyses_limit?: number
+          analyses_used?: number
+          id?: string
+          period_start?: string
+          renders_limit?: number
+          renders_used?: number
+          tier?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       video_render_jobs: {
         Row: {
-          clip_id: string
+          clip_id: string | null
           completed_at: string | null
           created_at: string | null
           error_message: string | null
           ffmpeg_cmd: string | null
           id: string
-          input_url: string
+          input_url: string | null
           output_url: string | null
+          progress: number | null
+          project_id: string | null
           provider: string | null
           provider_job_id: string | null
           status: string | null
+          updated_at: string | null
           user_id: string
         }
         Insert: {
-          clip_id: string
+          clip_id?: string | null
           completed_at?: string | null
           created_at?: string | null
           error_message?: string | null
           ffmpeg_cmd?: string | null
           id?: string
-          input_url: string
+          input_url?: string | null
           output_url?: string | null
+          progress?: number | null
+          project_id?: string | null
           provider?: string | null
           provider_job_id?: string | null
           status?: string | null
+          updated_at?: string | null
           user_id: string
         }
         Update: {
-          clip_id?: string
+          clip_id?: string | null
           completed_at?: string | null
           created_at?: string | null
           error_message?: string | null
           ffmpeg_cmd?: string | null
           id?: string
-          input_url?: string
+          input_url?: string | null
           output_url?: string | null
+          progress?: number | null
+          project_id?: string | null
           provider?: string | null
           provider_job_id?: string | null
           status?: string | null
+          updated_at?: string | null
           user_id?: string
         }
         Relationships: [
@@ -3745,6 +4126,13 @@ export type Database = {
             columns: ["clip_id"]
             isOneToOne: false
             referencedRelation: "video_clips"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "video_render_jobs_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "video_projects"
             referencedColumns: ["id"]
           },
         ]
@@ -3915,6 +4303,47 @@ export type Database = {
           user_id?: string
         }
         Relationships: []
+      }
+      website_form_submissions: {
+        Row: {
+          created_at: string
+          data: Json
+          form_type: string
+          id: string
+          ip_address: string | null
+          notified: boolean
+          project_id: string | null
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          data?: Json
+          form_type?: string
+          id?: string
+          ip_address?: string | null
+          notified?: boolean
+          project_id?: string | null
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          data?: Json
+          form_type?: string
+          id?: string
+          ip_address?: string | null
+          notified?: boolean
+          project_id?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "website_form_submissions_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "website_projects"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       website_generation_jobs: {
         Row: {
