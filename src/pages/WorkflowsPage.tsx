@@ -904,7 +904,7 @@ export function WorkflowsPage() {
                       <Edit2 size={14} />
                     </button>
                     <button
-                      onClick={() => deleteWorkflow(wf)}
+                      onClick={() => setConfirmDelete({ id: wf.id, label: wf.name })}
                       title="Delete"
                       className="p-1.5 rounded text-red-400 hover:bg-red-900/30 transition-colors"
                     >
