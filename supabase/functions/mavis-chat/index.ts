@@ -819,9 +819,10 @@ RITUALS:
 :::ACTION{"type":"complete_ritual","params":{"ritual_id":"..."}}:::
 :::ACTION{"type":"delete_ritual","params":{"ritual_id":"..."}}:::
 TRANSFORMATIONS / FORMS:
-:::ACTION{"type":"create_transformation","params":{"name":"...","tier":"...","form_order":1,"bpm_range":"60-200","energy":"Emerald Flames","jjk_grade":"Special Grade","op_tier":"God Tier","description":"...","unlocked":false,"abilities":[],"active_buffs":[],"passive_buffs":[]}}:::
-:::ACTION{"type":"update_transformation","params":{"transformation_id":"...","unlocked":true,"description":"..."}}:::
+:::ACTION{"type":"create_transformation","params":{"name":"...","tier":"Spartan|Saiyan|Thorn|Karma|Regalia|Ouroboros|BlackHeart|FinalAscent","form_order":1,"bpm_range":"65–85","energy":"Ki","jjk_grade":"Special Grade","op_tier":"God Tier","description":"...","unlocked":false,"active_buffs":[{"label":"Speed","value":15,"unit":"%"},{"label":"Focus","value":10,"unit":"%"}],"passive_buffs":[{"label":"Endurance","value":8,"unit":"%"}],"abilities":[{"title":"Ability Name","irl":"Real-world application of this ability"}]}}:::
+:::ACTION{"type":"update_transformation","params":{"transformation_id":"...","unlocked":true,"description":"...","active_buffs":[{"label":"Power","value":20,"unit":"%"}],"passive_buffs":[{"label":"Resilience","value":12,"unit":"%"}],"abilities":[{"title":"Skill Name","irl":"How to apply this IRL"}]}}:::
 :::ACTION{"type":"delete_transformation","params":{"transformation_id":"..."}}:::
+TRANSFORMATION RULES — CRITICAL: active_buffs, passive_buffs, and abilities are REQUIRED. NEVER emit empty arrays. If the operator doesn't specify, INVENT appropriate ones matching the form's theme and tier. Example: a focus form → active_buffs:[{"label":"Mental Clarity","value":15,"unit":"%"}], abilities:[{"title":"Iron Concentration","irl":"Eliminate distractions for 25-min deep work sprints"}]. A form with empty buffs/abilities is INVALID.
 RANKINGS / SCOUTER:
 :::ACTION{"type":"create_ranking_profile","params":{"display_name":"...","role":"npc|ally|rival","rank":"D","level":1,"gpr":1000,"pvp":5000,"jjk_grade":"G4","op_tier":"Local","influence":"Local","is_self":false,"notes":"..."}}:::
 :::ACTION{"type":"update_ranking_profile","params":{"ranking_id":"...","rank":"S","level":80,"gpr":9999}}:::
