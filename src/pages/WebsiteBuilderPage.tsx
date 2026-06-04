@@ -103,6 +103,7 @@ export default function WebsiteBuilderPage() {
   const [showAddPagePicker, setShowAddPagePicker] = useState(false);
   const [addingPageType, setAddingPageType] = useState("");
   const [isAddingPage, setIsAddingPage] = useState(false);
+  const [previewPageId, setPreviewPageId] = useState<string | null>(null);
   const [exportingPageId, setExportingPageId] = useState<string | null>(null);
   const [isDownloadingAll, setIsDownloadingAll] = useState(false);
   const [importingPageType, setImportingPageType] = useState<string | null>(null);
@@ -151,7 +152,7 @@ export default function WebsiteBuilderPage() {
     try {
       const { data } = await supabase
         .from("website_projects")
-        .select("*")
+        .select("*, website_pages(count)")
         .eq("user_id", user.id)
         .order("created_at", { ascending: false });
       setProjects(data ?? []);
@@ -962,7 +963,7 @@ export default function WebsiteBuilderPage() {
                       <p className="text-[11px] text-muted-foreground mb-1">Client: {project.client_name}</p>
                     )}
                     <div className="flex items-center justify-between text-[10px] text-muted-foreground font-mono">
-                      <span>{project.pages_count ?? 0} pages</span>
+                      <span>{project.website_pages?.[0]?.count ?? project.pages_count ?? 0} pages</span>
                       <span>{fmtDate(project.created_at)}</span>
                     </div>
                     {project.price_cents > 0 && (
@@ -1208,9 +1209,9 @@ export default function WebsiteBuilderPage() {
                         const hasHtml = !!dbPage?.gutenberg_html;
                         const isEnabled = !disabledPages.has(pageType);
                         return (
+                          <div key={pageType} className={`py-2 border-b border-border/30 last:border-0 transition-opacity ${isEnabled ? "" : "opacity-40"}`}>
                           <div
-                            key={pageType}
-                            className={`flex items-center gap-3 py-2 border-b border-border/30 last:border-0 transition-opacity ${isEnabled ? "" : "opacity-40"}`}
+                            className="flex items-center gap-3"
                           >
                             <Switch
                               checked={isEnabled}
@@ -1244,14 +1245,24 @@ export default function WebsiteBuilderPage() {
                               )}
                             </div>
                             <div className="flex items-center gap-1.5 shrink-0">
-                              {/* Preview in new tab */}
+                              {/* Inline preview toggle */}
+                              {hasHtml && (
+                                <button
+                                  onClick={() => setPreviewPageId((prev) => prev === dbPage?.id ? null : dbPage?.id ?? null)}
+                                  className={`flex items-center gap-1 px-2.5 py-1 rounded border text-xs font-mono transition-colors ${previewPageId === dbPage?.id ? "bg-purple-500/10 border-purple-400/40 text-purple-400" : "border-border/50 text-muted-foreground hover:text-purple-400 hover:border-purple-400/30"}`}
+                                  title={previewPageId === dbPage?.id ? "Close preview" : "Inline preview"}
+                                >
+                                  <Eye size={11} /> preview
+                                </button>
+                              )}
+                              {/* Open in new tab */}
                               {hasHtml && (
                                 <button
                                   onClick={() => openPagePreview(dbPage)}
-                                  className="flex items-center gap-1 px-2.5 py-1 rounded border border-border/50 text-xs font-mono text-muted-foreground hover:text-purple-400 hover:border-purple-400/30 transition-colors"
+                                  className="p-1.5 rounded border border-border/50 text-muted-foreground hover:text-purple-400 hover:border-purple-400/30 transition-colors"
                                   title="Preview in new tab"
                                 >
-                                  <Eye size={11} /> preview
+                                  <ExternalLink size={12} />
                                 </button>
                               )}
                               {dbPage?.wp_url && (
@@ -1300,6 +1311,18 @@ export default function WebsiteBuilderPage() {
                                 <span title="Published to WordPress"><CheckCircle2 size={14} className="text-emerald-400" /></span>
                               )}
                             </div>
+                          </div>
+                          {/* Inline iframe preview */}
+                          {previewPageId === dbPage?.id && dbPage?.gutenberg_html && (
+                            <div className="mt-2 rounded border border-border overflow-hidden" style={{ height: '400px' }}>
+                              <iframe
+                                srcDoc={dbPage.gutenberg_html}
+                                className="w-full h-full"
+                                sandbox="allow-scripts"
+                                title={`Preview: ${pageType}`}
+                              />
+                            </div>
+                          )}
                           </div>
                         );
                       })}
@@ -1353,6 +1376,9 @@ export default function WebsiteBuilderPage() {
                           ✓ Live at: <a href={netlifyUrl} target="_blank" rel="noopener noreferrer" className="underline">{netlifyUrl}</a>
                         </p>
                       )}
+                      <p className="text-[10px] text-amber-400 mt-1">
+                        ⚠ Token stored in browser session only. For production deployments, configure the Netlify integration in your account settings.
+                      </p>
                       <p className="text-[11px] text-muted-foreground">
                         Get a free token at <span className="font-mono">app.netlify.com → User settings → Applications → Personal access tokens</span>
                       </p>

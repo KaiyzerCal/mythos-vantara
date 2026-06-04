@@ -127,3 +127,7 @@ verify_jwt = false
 
 [functions.mavis-autonomous-actions]
 verify_jwt = false
+
+# Contact form backend — called from public client websites (no Supabase JWT).
+[functions.mavis-form-submit]
+verify_jwt = false

@@ -6,6 +6,15 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
+function sanitizeHtml(str: string): string {
+  return String(str ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
 const GEMINI_KEY  = Deno.env.get("GEMINI_API_KEY") ?? "";
 const CLAUDE_KEY  = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
 const OPENAI_KEY  = Deno.env.get("OPENAI_API") ?? Deno.env.get("OPENAI_API_KEY") ?? "";
@@ -72,7 +81,7 @@ async function callAI(prompt: string, maxTokens = 8192): Promise<any> {
     for (const model of GEMINI_MODELS) {
       const res = await fetch(
         `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_KEY}`,
-        { method: "POST", headers: { "Content-Type": "application/json" }, body: gemBody },
+        { method: "POST", headers: { "Content-Type": "application/json" }, body: gemBody, signal: AbortSignal.timeout(30000) },
       );
       if (res.ok) {
         const data = await res.json();
@@ -86,6 +95,7 @@ async function callAI(prompt: string, maxTokens = 8192): Promise<any> {
     const res = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: { "Content-Type": "application/json", "x-api-key": CLAUDE_KEY, "anthropic-version": "2023-06-01" },
+      signal: AbortSignal.timeout(30000),
       body: JSON.stringify({
         model: "claude-haiku-4-5-20251001",
         max_tokens: maxTokens,
@@ -104,6 +114,7 @@ async function callAI(prompt: string, maxTokens = 8192): Promise<any> {
     const res = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${OPENAI_KEY}` },
+      signal: AbortSignal.timeout(30000),
       body: JSON.stringify({
         model: "gpt-4o-mini",
         max_tokens: maxTokens,
@@ -147,8 +158,10 @@ Generate content for these pages: ${pageList}
 CRITICAL RULES:
 - Headlines must be powerful, specific, and benefit-driven (not generic like "Welcome to our website")
 - Copy must speak directly to the target audience's pain points
-- Every CTA must be action-oriented and specific
-- Testimonials should feel authentic and specific (with realistic names, roles, companies)
+- Every CTA must be action-oriented and specific — use verbs tied to this business type: "Book a Free Consultation", "Get a Quote", "Reserve Your Table", NOT generic "Get Started" or "Learn More"
+- NEVER use placeholder text, fake statistics, or lorem ipsum. All content must be specific to the business.
+- Do NOT invent testimonials. If testimonials are requested, write a testimonials section placeholder with items whose quote field says "ADD REAL CLIENT TESTIMONIAL HERE" and leave author/role as empty strings.
+- Be specific about the business type: a law firm page should mention legal services and case outcomes; a restaurant should mention cuisine, dining experience, and atmosphere; a tech company should mention software and innovation.
 - Features should be benefit-first, not feature-first
 
 Return a JSON object with this EXACT structure:
@@ -342,6 +355,12 @@ async function generatePageSections(pageType: string, brief: PageBrief, content:
 
 Business: "${brief.business_name ?? "Business"}" (${brief.business_type ?? "business"})
 Style: ${brief.style ?? "modern"}
+
+CRITICAL CONTENT RULES:
+- NEVER use placeholder text, fake statistics, or lorem ipsum. All content must be specific to this business.
+- Do NOT invent testimonials. If a testimonials section is needed, set each quote to "ADD REAL CLIENT TESTIMONIAL HERE" and leave author/role blank.
+- Be specific to the business type: a law firm gets legal language, a restaurant gets cuisine/dining copy, etc.
+- CTAs must be action-specific for this industry (e.g. "Book a Free Consultation", "Get a Quote", "Reserve Your Table") — never generic "Get Started" or "Learn More".
 
 AVAILABLE SECTION TYPES (use ONLY these exact type strings):
 hero: {type:"hero",headline,subheadline,cta_primary,cta_secondary?,badge?}
@@ -1413,7 +1432,7 @@ function _nav(title: string, pages: string[]): string {
     `<a href="${p === "home" ? "index" : p}.html">${p.charAt(0).toUpperCase() + p.slice(1)}</a>`
   ).join("");
   return `<nav><div class="c"><div class="ni">
-<a href="index.html" class="logo">${title}</a>
+<a href="index.html" class="logo">${sanitizeHtml(title)}</a>
 <div class="nl">${links}</div>
 <a href="contact.html" class="btn btn-p nav-cta" style="padding:10px 22px;font-size:.875rem">Get Started</a>
 </div></div></nav>`;
@@ -1426,11 +1445,11 @@ function _footer(title: string, pages: string[]): string {
   ).join("");
   return `<footer><div class="c">
 <div class="footer-grid">
-<div class="footer-brand"><div class="footer-logo">${title}</div><p>Professional web presence for modern businesses.</p></div>
+<div class="footer-brand"><div class="footer-logo">${sanitizeHtml(title)}</div><p>Professional web presence for modern businesses.</p></div>
 <div class="footer-col"><h4>Pages</h4><ul class="footer-links">${links}</ul></div>
 <div class="footer-col"><h4>Contact</h4><ul class="footer-links"><li><a href="contact.html">Get in Touch</a></li></ul></div>
 </div>
-<div class="footer-btm"><p>© ${yr} ${title}. All rights reserved.</p><p>Built with MAVIS AI</p></div>
+<div class="footer-btm"><p>© ${yr} ${sanitizeHtml(title)}. All rights reserved.</p><p>Built with MAVIS AI</p></div>
 </div></footer>`;
 }
 
@@ -1564,28 +1583,63 @@ ${(s.items ?? []).map((f: any, i: number) => `<div class="faq-item">
 </section>`;
 }
 
-function _sContact(s: any): string {
+function _sContact(s: any, ctx?: { supabaseUrl: string; projectId: string; userId: string }): string {
+  const formAction = ctx
+    ? `${ctx.supabaseUrl}/functions/v1/mavis-form-submit`
+    : "#";
+  const hiddenFields = ctx
+    ? `<input type="hidden" name="project_id" value="${ctx.projectId}" />\n  <input type="hidden" name="user_id" value="${ctx.userId}" />`
+    : "";
+  const formTag = ctx
+    ? `<form class="contact-form" method="POST" action="${formAction}" id="contactForm" onsubmit="handleFormSubmit(event)">`
+    : `<form>`;
+  const submitBtn = ctx
+    ? `<button type="submit" class="btn btn-p btn-lg" style="width:100%">Send Message →</button>`
+    : `<button type="submit" class="btn btn-p btn-lg" style="width:100%">Send Message →</button>`;
+  const formScript = ctx ? `<script>
+async function handleFormSubmit(e) {
+  e.preventDefault();
+  const form = e.target;
+  const btn = form.querySelector('button[type="submit"]');
+  btn.disabled = true; btn.textContent = 'Sending...';
+  try {
+    const res = await fetch(form.action, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(Object.fromEntries(new FormData(form))),
+    });
+    if (res.ok) {
+      form.innerHTML = '<div class="success-msg" style="padding:2rem;text-align:center;color:#16a34a;font-size:1.1rem;">✓ Message sent! We\'ll be in touch soon.</div>';
+    } else { throw new Error(); }
+  } catch {
+    btn.disabled = false; btn.textContent = 'Send Message';
+    alert('Something went wrong. Please try again.');
+  }
+}
+</script>` : "";
   return `<section class="s">
 <div class="c">
 <div class="cg">
 <div>
 <h2>${s.headline}</h2>
 ${s.subheadline ? `<p class="lead" style="margin-bottom:36px">${s.subheadline}</p>` : ""}
-<form>
-<div class="fg-grp"><label>Your Name</label><input class="fctrl" type="text" placeholder="Jane Smith"></div>
-<div class="fg-grp"><label>Email Address</label><input class="fctrl" type="email" placeholder="jane@example.com"></div>
-<div class="fg-grp"><label>Subject</label><input class="fctrl" type="text" placeholder="How can we help?"></div>
-<div class="fg-grp"><label>Message</label><textarea class="fctrl" placeholder="Tell us about your project…"></textarea></div>
-<button type="submit" class="btn btn-p btn-lg" style="width:100%">Send Message →</button>
+${formTag}
+${hiddenFields}
+<div class="fg-grp"><label>Your Name</label><input class="fctrl" type="text" name="name" placeholder="Jane Smith"></div>
+<div class="fg-grp"><label>Email Address</label><input class="fctrl" type="email" name="email" placeholder="jane@example.com"></div>
+<div class="fg-grp"><label>Subject</label><input class="fctrl" type="text" name="subject" placeholder="How can we help?"></div>
+<div class="fg-grp"><label>Message</label><textarea class="fctrl" name="message" placeholder="Tell us about your project…"></textarea></div>
+${submitBtn}
 </form>
+${formScript}
 </div>
 <div class="cd">
 <h3>Contact Information</h3>
 <p class="lead" style="margin-bottom:36px">We're here to help and answer any questions you might have.</p>
-${s.email ? `<div class="cdet"><div class="cico">✉️</div><div><div class="clbl">Email</div><div class="cval">${s.email}</div></div></div>` : ""}
-${s.phone ? `<div class="cdet"><div class="cico">📞</div><div><div class="clbl">Phone</div><div class="cval">${s.phone}</div></div></div>` : ""}
-${s.address ? `<div class="cdet"><div class="cico">📍</div><div><div class="clbl">Address</div><div class="cval">${s.address}</div></div></div>` : ""}
-${s.hours ? `<div class="cdet"><div class="cico">🕐</div><div><div class="clbl">Hours</div><div class="cval">${s.hours}</div></div></div>` : ""}
+${s.email ? `<div class="cdet"><div class="cico">✉️</div><div><div class="clbl">Email</div><div class="cval">${sanitizeHtml(s.email)}</div></div></div>` : ""}
+${s.phone ? `<div class="cdet"><div class="cico">📞</div><div><div class="clbl">Phone</div><div class="cval">${sanitizeHtml(s.phone)}</div></div></div>` : ""}
+${s.address ? `<div class="cdet"><div class="cico">📍</div><div><div class="clbl">Address</div><div class="cval">${sanitizeHtml(s.address)}</div></div></div>` : ""}
+${s.hours ? `<div class="cdet"><div class="cico">🕐</div><div><div class="clbl">Hours</div><div class="cval">${sanitizeHtml(s.hours)}</div></div></div>` : ""}
 </div>
 </div>
 </div>
@@ -1715,7 +1769,7 @@ ${imgLeft ? `${imgBlock}${textBlock}` : `${textBlock}${imgBlock}`}
 </section>`;
 }
 
-function renderSection(s: SectionData, heroUrl?: string): string {
+function renderSection(s: SectionData, heroUrl?: string, contactCtx?: { supabaseUrl: string; projectId: string; userId: string }): string {
   switch (s.type) {
     case "hero":          return _sHero(s, heroUrl);
     case "stats":         return _sStats(s);
@@ -1725,7 +1779,7 @@ function renderSection(s: SectionData, heroUrl?: string): string {
     case "cta":           return _sCta(s);
     case "pricing":       return _sPricing(s);
     case "faq":           return _sFaq(s);
-    case "contact":       return _sContact(s);
+    case "contact":       return _sContact(s, contactCtx);
     case "team":          return _sTeam(s);
     case "portfolio":     return _sPortfolio(s);
     case "about_hero":    return _sAboutHero(s);
@@ -1748,18 +1802,29 @@ async function buildStandaloneHtml(
   pageList: string[],
   brief?: PageBrief,
   useAI = true,
+  contactCtx?: { supabaseUrl: string; projectId: string; userId: string },
 ): Promise<string> {
   const css = _css(primaryColor);
   const safeList = pageList.length > 0 ? pageList : ["home"];
   const nav = _nav(siteTitle, safeList);
   const ftr = _footer(siteTitle, safeList);
-  const title = pageType === "home" ? siteTitle : `${pageType.charAt(0).toUpperCase() + pageType.slice(1)} | ${siteTitle}`;
+  const title = pageType === "home" ? sanitizeHtml(siteTitle) : `${pageType.charAt(0).toUpperCase() + pageType.slice(1)} | ${sanitizeHtml(siteTitle)}`;
 
   const sections = useAI
     ? await generatePageSections(pageType, brief ?? {}, content)
     : fallbackSections(pageType, content);
 
-  const body = sections.map(s => renderSection(s, pageType === "home" ? heroImageUrl : undefined)).join("\n");
+  const body = sections.map(s => renderSection(s, pageType === "home" ? heroImageUrl : undefined, contactCtx)).join("\n");
+
+  const ga4Id = Deno.env.get("GA4_MEASUREMENT_ID") ?? "G-XXXXXXXXXX";
+  const ga4Snippet = `<!-- Analytics: replace G-XXXXXXXXXX with your GA4 measurement ID -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=${ga4Id}"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+  gtag('config', '${ga4Id}');
+</script>`;
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -1771,6 +1836,7 @@ async function buildStandaloneHtml(
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;0,900;1,400&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>${css}</style>
+${ga4Snippet}
 </head>
 <body>
 ${nav}
@@ -2175,6 +2241,9 @@ serve(async (req: Request) => {
       // -----------------------------------------------------------------------
       case "generate_page": {
         const { page_type, page_content, primary_color, hero_image_url, site_title, page_list, business_type, style } = body;
+        const gpContactCtx = body.project_id && body.user_id
+          ? { supabaseUrl: SUPABASE_URL, projectId: String(body.project_id), userId: String(body.user_id) }
+          : undefined;
         const html = await buildStandaloneHtml(
           page_type,
           page_content ?? {},
@@ -2184,6 +2253,7 @@ serve(async (req: Request) => {
           page_list ?? [page_type],
           { business_name: site_title, business_type, style },
           true,
+          gpContactCtx,
         );
         return new Response(
           JSON.stringify({ success: true, html, page_type }),
@@ -2257,109 +2327,128 @@ serve(async (req: Request) => {
         }> = [];
         const generatedHtmls: Record<string, string> = {};
 
-        for (const pageType of (pages as string[])) {
-          const pageContent = siteContent.pages?.[pageType];
-          if (!pageContent && pageType !== "home") continue;
+        const pageResults = await Promise.allSettled(
+          (pages as string[]).map(async (pageType) => {
+            const pageContent = siteContent.pages?.[pageType];
+            if (!pageContent && pageType !== "home") return null;
 
-          // Build WP Gutenberg HTML for publishing; build standalone HTML for download/storage
-          const wpHtml = buildGutenbergPage(
-            pageType,
-            pageContent ?? siteContent.pages?.home ?? {},
-            pageType === "home" ? heroImageUrl : undefined,
-            primaryColor,
-          );
-          const standaloneHtml = await buildStandaloneHtml(
-            pageType,
-            pageContent ?? siteContent.pages?.home ?? {},
-            pageType === "home" ? heroImageUrl : undefined,
-            primaryColor,
-            body.business_name ?? siteContent.site?.title ?? "Website",
-            pages as string[],
-            { business_name: body.business_name, business_type: body.business_type, style: body.style },
-            false,
-          );
-          generatedHtmls[pageType] = standaloneHtml;
-
-          // 3a. Generate SEO meta (best-effort)
-          let metaTitle = "";
-          let metaDesc = "";
-          try {
-            const seoRes = await fetch(
-              `${SUPABASE_URL}/functions/v1/mavis-seo-engine`,
-              {
-                method: "POST",
-                headers: {
-                  "Content-Type": "application/json",
-                  Authorization: req.headers.get("Authorization") ?? "",
-                },
-                body: JSON.stringify({
-                  action: "generate_meta",
-                  page_title: `${pageType.charAt(0).toUpperCase() + pageType.slice(1)} - ${body.business_name}`,
-                  page_content: wpHtml.slice(0, 500),
-                  business_name: body.business_name,
-                  business_type: body.business_type,
-                }),
-              },
+            // Build WP Gutenberg HTML for publishing; build standalone HTML for download/storage
+            const wpHtml = buildGutenbergPage(
+              pageType,
+              pageContent ?? siteContent.pages?.home ?? {},
+              pageType === "home" ? heroImageUrl : undefined,
+              primaryColor,
             );
-            if (seoRes.ok) {
-              const seoData = await seoRes.json();
-              metaTitle = seoData.meta_title ?? "";
-              metaDesc = seoData.meta_description ?? "";
-            }
-          } catch {
-            // SEO meta is optional
-          }
+            const gsContactCtx = project_id && user_id
+              ? { supabaseUrl: SUPABASE_URL, projectId: String(project_id), userId: String(user_id) }
+              : undefined;
+            const standaloneHtml = await buildStandaloneHtml(
+              pageType,
+              pageContent ?? siteContent.pages?.home ?? {},
+              pageType === "home" ? heroImageUrl : undefined,
+              primaryColor,
+              body.business_name ?? siteContent.site?.title ?? "Website",
+              pages as string[],
+              { business_name: body.business_name, business_type: body.business_type, style: body.style },
+              false,
+              gsContactCtx,
+            );
 
-          // 3b. Publish page to WordPress / WordPress.com (best-effort)
-          const hasAppPw  = wp_site_url && wp_username && wp_app_password;
-          const hasOAuth  = access_token && wpcom_blog_id;
-          if (hasAppPw || hasOAuth) {
+            // 3a. Generate SEO meta (best-effort)
+            let metaTitle = "";
+            let metaDesc = "";
             try {
-              const wpPayload: Record<string, unknown> = {
-                action: "create_page",
-                title: pageType === "home"
-                  ? (body.business_name ?? siteContent.site?.title ?? "Home")
-                  : `${pageType.charAt(0).toUpperCase() + pageType.slice(1)} - ${body.business_name}`,
-                content: wpHtml,
-                status: "publish",
-                slug: pageType === "home" ? "home" : pageType,
-                meta: {
-                  _yoast_wpseo_title: metaTitle,
-                  _yoast_wpseo_metadesc: metaDesc,
-                },
-              };
-              if (hasOAuth) {
-                wpPayload.access_token  = access_token;
-                wpPayload.wpcom_blog_id = wpcom_blog_id;
-              } else {
-                wpPayload.site_url    = wp_site_url;
-                wpPayload.username    = wp_username;
-                wpPayload.app_password = wp_app_password;
-              }
-
-              const wpRes = await fetch(
-                `${SUPABASE_URL}/functions/v1/mavis-wordpress`,
+              const seoRes = await fetch(
+                `${SUPABASE_URL}/functions/v1/mavis-seo-engine`,
                 {
                   method: "POST",
                   headers: {
                     "Content-Type": "application/json",
                     Authorization: req.headers.get("Authorization") ?? "",
                   },
-                  body: JSON.stringify(wpPayload),
+                  body: JSON.stringify({
+                    action: "generate_meta",
+                    page_title: `${pageType.charAt(0).toUpperCase() + pageType.slice(1)} - ${body.business_name}`,
+                    page_content: wpHtml.slice(0, 500),
+                    business_name: body.business_name,
+                    business_type: body.business_type,
+                  }),
                 },
               );
-              if (wpRes.ok) {
-                const wpData = await wpRes.json();
-                publishedPages.push({
-                  type: pageType,
-                  wp_id: wpData.data?.id ?? wpData.id,
-                  url: wpData.data?.link ?? wpData.link,
-                  slug: pageType,
-                });
+              if (seoRes.ok) {
+                const seoData = await seoRes.json();
+                metaTitle = seoData.meta_title ?? "";
+                metaDesc = seoData.meta_description ?? "";
               }
-            } catch (e) {
-              console.warn(`Failed to publish ${pageType}:`, e);
+            } catch {
+              // SEO meta is optional
             }
+
+            // 3b. Publish page to WordPress / WordPress.com (best-effort)
+            const hasAppPw  = wp_site_url && wp_username && wp_app_password;
+            const hasOAuth  = access_token && wpcom_blog_id;
+            let publishedPage: { type: string; wp_id: number; url: string; slug: string } | null = null;
+            if (hasAppPw || hasOAuth) {
+              try {
+                const wpPayload: Record<string, unknown> = {
+                  action: "create_page",
+                  title: pageType === "home"
+                    ? (body.business_name ?? siteContent.site?.title ?? "Home")
+                    : `${pageType.charAt(0).toUpperCase() + pageType.slice(1)} - ${body.business_name}`,
+                  content: wpHtml,
+                  status: "publish",
+                  slug: pageType === "home" ? "home" : pageType,
+                  meta: {
+                    _yoast_wpseo_title: metaTitle,
+                    _yoast_wpseo_metadesc: metaDesc,
+                  },
+                };
+                if (hasOAuth) {
+                  wpPayload.access_token  = access_token;
+                  wpPayload.wpcom_blog_id = wpcom_blog_id;
+                } else {
+                  wpPayload.site_url    = wp_site_url;
+                  wpPayload.username    = wp_username;
+                  wpPayload.app_password = wp_app_password;
+                }
+
+                const wpRes = await fetch(
+                  `${SUPABASE_URL}/functions/v1/mavis-wordpress`,
+                  {
+                    method: "POST",
+                    headers: {
+                      "Content-Type": "application/json",
+                      Authorization: req.headers.get("Authorization") ?? "",
+                    },
+                    body: JSON.stringify(wpPayload),
+                  },
+                );
+                if (wpRes.ok) {
+                  const wpData = await wpRes.json();
+                  publishedPage = {
+                    type: pageType,
+                    wp_id: wpData.data?.id ?? wpData.id,
+                    url: wpData.data?.link ?? wpData.link,
+                    slug: pageType,
+                  };
+                }
+              } catch (e) {
+                console.warn(`Failed to publish ${pageType}:`, e);
+              }
+            }
+
+            return { pageType, standaloneHtml, publishedPage };
+          }),
+        );
+
+        // Collect results from allSettled — fulfilled entries with non-null value
+        for (const result of pageResults) {
+          if (result.status === "fulfilled" && result.value) {
+            const { pageType, standaloneHtml, publishedPage } = result.value;
+            generatedHtmls[pageType] = standaloneHtml;
+            if (publishedPage) publishedPages.push(publishedPage);
+          } else if (result.status === "rejected") {
+            console.warn("Page generation failed:", result.reason);
           }
         }
 

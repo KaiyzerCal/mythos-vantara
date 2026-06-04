@@ -80,6 +80,21 @@ interface ClipRecommendation {
 }
 
 // ─────────────────────────────────────────────────────────────
+// Helpers
+// ─────────────────────────────────────────────────────────────
+
+function detectVideoMimeType(url: string): string {
+  const lower = url.toLowerCase().split("?")[0]; // strip query params
+  if (lower.endsWith(".webm")) return "video/webm";
+  if (lower.endsWith(".mov") || lower.endsWith(".qt")) return "video/quicktime";
+  if (lower.endsWith(".avi")) return "video/x-msvideo";
+  if (lower.endsWith(".mpeg") || lower.endsWith(".mpg")) return "video/mpeg";
+  if (lower.endsWith(".3gp")) return "video/3gpp";
+  if (lower.endsWith(".ogg") || lower.endsWith(".ogv")) return "video/ogg";
+  return "video/mp4"; // default
+}
+
+// ─────────────────────────────────────────────────────────────
 // Step 2: Whisper transcription
 // ─────────────────────────────────────────────────────────────
 
@@ -290,13 +305,13 @@ Return 6-12 top moments minimum. Focus on clips 15-120 seconds long.`;
             role: "user",
             parts: [
               { text: prompt },
-              { fileData: { mimeType: "video/mp4", fileUri: videoUrl } },
+              { fileData: { mimeType: detectVideoMimeType(videoUrl), fileUri: videoUrl } },
             ],
           },
         ],
         generationConfig: { responseMimeType: "application/json", temperature: 0.3 },
       }),
-      signal: AbortSignal.timeout(90000),
+      signal: AbortSignal.timeout(120000), // video analysis needs more time than transcript-only
     }
   );
 
@@ -410,7 +425,7 @@ function buildSyntheticAnalysis(transcript: string, knownDuration?: number): Gem
       title: excerpt.split(/[.!?]/)[0]?.slice(0, 80) || `Segment ${moments.length + 1}`,
       transcript_excerpt: excerpt,
       scores,
-      viral_score: Math.max(viral_score, 4), // floor at 4 so clips always rank
+      viral_score,
     });
     if (moments.length >= 10) break;
   }
@@ -676,6 +691,54 @@ async function handleAnalyze(
     throw new Error("source_url is required");
   }
 
+  // Idempotency: return existing project if same video was analyzed in the last 24h
+  const { data: existing } = await supabase
+    .from("video_projects")
+    .select("id, status, clips_count")
+    .eq("user_id", userId)
+    .eq("video_url", source_url)
+    .gte("created_at", new Date(Date.now() - 86400000).toISOString())
+    .maybeSingle();
+
+  if (existing && existing.status !== "failed") {
+    return {
+      project_id: existing.id,
+      status: existing.status,
+      clips_count: existing.clips_count,
+      message: "Returning existing analysis for this video",
+    };
+  }
+
+  // Quota check: verify user has not exceeded their monthly analysis limit
+  const currentMonth = new Date().toISOString().slice(0, 7) + "-01";
+  const { data: quota } = await supabase
+    .from("video_quota")
+    .select("analyses_used, analyses_limit, tier")
+    .eq("user_id", userId)
+    .eq("period_start", currentMonth)
+    .maybeSingle();
+
+  const analysesUsed = quota?.analyses_used ?? 0;
+  const analysesLimit = quota?.analyses_limit ?? 5;
+
+  if (analysesUsed >= analysesLimit) {
+    throw Object.assign(new Error("Monthly analysis quota reached"), {
+      _quotaError: true,
+      used: analysesUsed,
+      limit: analysesLimit,
+      tier: quota?.tier ?? "free",
+      upgrade_message: "Upgrade your plan to analyze more videos this month.",
+    });
+  }
+
+  // Increment usage counter (non-blocking)
+  supabase.from("video_quota").upsert({
+    user_id: userId,
+    period_start: currentMonth,
+    analyses_used: analysesUsed + 1,
+    updated_at: new Date().toISOString(),
+  }, { onConflict: "user_id,period_start" }).then(() => null).catch(() => null);
+
   // Step 1: Create project record with status "analyzing"
   const { data: project, error: projectErr } = await supabase
     .from("video_projects")
@@ -701,11 +764,25 @@ async function handleAnalyze(
   try {
     // Step 2: Transcribe with Whisper
     console.log(`[mavis-video-editor] Transcribing project ${projectId}...`);
+    const signedUrlCreatedAt = Date.now();
     const { text: transcript, chunks } = await transcribeWithWhisper(source_url);
 
     // Step 3: Gemini visual + semantic analysis
+    // Refresh signed URL if Whisper took >45s (URL may be near expiry)
+    let videoUrlForGemini = source_url;
+    const storagePathMatch = source_url.match(/\/storage\/v1\/object\/(?:public|sign)\/([^/]+)\/([^?]+)/);
+    if (storagePathMatch && Date.now() - signedUrlCreatedAt > 45000) {
+      try {
+        const storagePath = decodeURIComponent(storagePathMatch[2]);
+        const { data: refreshData } = await supabase.storage
+          .from(storagePathMatch[1])
+          .createSignedUrl(storagePath, 3600);
+        if (refreshData?.signedUrl) videoUrlForGemini = refreshData.signedUrl;
+      } catch { /* use original if refresh fails */ }
+    }
+
     console.log(`[mavis-video-editor] Running Gemini analysis for project ${projectId}...`);
-    const analysis = await analyzeWithGemini(source_url, transcript);
+    const analysis = await analyzeWithGemini(videoUrlForGemini, transcript);
 
     // Estimate video duration from Whisper chunks if Gemini didn't report it
     const chunksDuration = chunks.length > 0 ? chunks[chunks.length - 1].end : undefined;
@@ -1151,6 +1228,18 @@ serve(async (req) => {
     );
   } catch (err: any) {
     console.error(`[mavis-video-editor] action=${action} error:`, err?.message);
+    if (err?._quotaError) {
+      return new Response(
+        JSON.stringify({
+          error: err.message,
+          used: err.used,
+          limit: err.limit,
+          tier: err.tier,
+          upgrade_message: err.upgrade_message,
+        }),
+        { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
     return new Response(
       JSON.stringify({ error: err?.message ?? "Internal server error" }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }

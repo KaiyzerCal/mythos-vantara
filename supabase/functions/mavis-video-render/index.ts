@@ -221,6 +221,19 @@ async function handleRender(action: RenderAction, supabase: ReturnType<typeof cr
     caption_text: captionText,
   } = action;
 
+  // Increment render quota (non-blocking, best-effort)
+  try {
+    const currentMonth = new Date().toISOString().slice(0, 7) + "-01";
+    const { data: quota } = await supabase.from("video_quota").select("renders_used,renders_limit").eq("user_id", userId).eq("period_start", currentMonth).maybeSingle();
+    const rendersUsed = quota?.renders_used ?? 0;
+    const rendersLimit = quota?.renders_limit ?? 20;
+    if (rendersUsed >= rendersLimit) throw new Error(`Monthly render quota reached (${rendersUsed}/${rendersLimit}). Upgrade to render more clips.`);
+    supabase.from("video_quota").upsert({ user_id: userId, period_start: currentMonth, renders_used: rendersUsed + 1, updated_at: new Date().toISOString() }, { onConflict: "user_id,period_start" }).then(() => null).catch(() => null);
+  } catch (quotaErr: any) {
+    if (String(quotaErr?.message).includes("quota reached")) throw quotaErr;
+    // quota table may not exist yet — non-critical, continue
+  }
+
   const ffmpegArgs = buildFfmpegArgs(
     startSeconds,
     endSeconds,
@@ -559,6 +572,12 @@ serve(async (req) => {
         if (authErr || !user) {
           return new Response(JSON.stringify({ error: "Unauthorized" }), {
             status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+        // Normalize path and reject traversal attempts
+        if (path.includes("..") || path.includes("//") || path.startsWith("/")) {
+          return new Response(JSON.stringify({ error: "Forbidden" }), {
+            status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" },
           });
         }
         const firstSegment = path.split("/")[0];

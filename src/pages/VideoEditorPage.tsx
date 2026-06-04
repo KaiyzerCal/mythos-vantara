@@ -140,11 +140,24 @@ function selectVideoFile(
   setSelectedFile(file);
 }
 
+function splitLongTranscript(text: string): string[] {
+  // If the string has no line breaks but is long, split into ~30-word chunks
+  if (!text.includes("\n") && text.length > 500) {
+    const words = text.split(/\s+/);
+    const chunks: string[] = [];
+    for (let i = 0; i < words.length; i += 30) {
+      chunks.push(words.slice(i, i + 30).join(" "));
+    }
+    return chunks.filter(Boolean);
+  }
+  return text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+}
+
 function normalizeTranscriptLines(transcript: unknown): string[] {
   if (Array.isArray(transcript)) {
     return transcript
       .flatMap((item) => {
-        if (typeof item === "string") return item.split(/\r?\n/);
+        if (typeof item === "string") return splitLongTranscript(item);
         if (item && typeof item === "object") {
           const candidate =
             "text" in item
@@ -155,7 +168,7 @@ function normalizeTranscriptLines(transcript: unknown): string[] {
                     (value) => typeof value === "string"
                   );
 
-          return typeof candidate === "string" ? candidate.split(/\r?\n/) : [];
+          return typeof candidate === "string" ? splitLongTranscript(candidate) : [];
         }
 
         return typeof item === "number" ? [String(item)] : [];
@@ -165,17 +178,14 @@ function normalizeTranscriptLines(transcript: unknown): string[] {
   }
 
   if (typeof transcript === "string") {
-    return transcript
-      .split(/\r?\n/)
-      .map((line) => line.trim())
-      .filter(Boolean);
+    return splitLongTranscript(transcript);
   }
 
   if (transcript && typeof transcript === "object") {
     return Object.values(transcript as Record<string, unknown>)
       .flatMap((value) =>
         typeof value === "string"
-          ? value.split(/\r?\n/)
+          ? splitLongTranscript(value)
           : typeof value === "number"
             ? [String(value)]
             : []
@@ -390,6 +400,10 @@ export default function VideoEditorPage() {
     clip_index?: number; total_clips?: number;
   } | null>(null);
   const compilationAbortRef = useRef(false);
+  const [compilationProgress, setCompilationProgress] = useState(0);
+  const [renderFailedClipId, setRenderFailedClipId] = useState<string | null>(null);
+  const [renderFailedFfmpegCmd, setRenderFailedFfmpegCmd] = useState<string | null>(null);
+  const [quota, setQuota] = useState<{ used: number; limit: number; tier: string } | null>(null);
 
   // Upload state
   const [dragOver, setDragOver] = useState(false);
@@ -435,6 +449,21 @@ export default function VideoEditorPage() {
 
   // Load on mount
   useEffect(() => { loadProjects(); }, [loadProjects]);
+
+  // Load quota on mount
+  useEffect(() => {
+    if (!user) return;
+    const month = new Date().toISOString().slice(0, 7) + "-01";
+    (supabase as any)
+      .from("video_quota")
+      .select("analyses_used,analyses_limit,tier")
+      .eq("user_id", user.id)
+      .eq("period_start", month)
+      .maybeSingle()
+      .then(({ data }: { data: any }) => {
+        if (data) setQuota({ used: data.analyses_used, limit: data.analyses_limit, tier: data.tier });
+      });
+  }, [user]);
 
   // Poll every 5 s while any project is freshly "analyzing" (< 3 min old)
   useEffect(() => {
@@ -738,7 +767,7 @@ export default function VideoEditorPage() {
         return;
       }
 
-      if (data.render_url || data.ffmpeg_cmd) {
+      if (data.render_url) {
         toast.success("Clip ready! Click download to save.");
         setClips((prev) => {
           const updated = { ...prev };
@@ -749,8 +778,11 @@ export default function VideoEditorPage() {
           }
           return updated;
         });
-      } else if (data.error) {
-        toast.error("Render failed: " + data.error);
+      } else if (data.ffmpeg_cmd || data.error) {
+        // Rendering service failed — show a friendly message and hide the technical FFmpeg details
+        setRenderFailedClipId(clip.id);
+        setRenderFailedFfmpegCmd(data.ffmpeg_cmd ?? null);
+        toast.error("Rendering service is temporarily unavailable. Your clip is saved — try again in a few minutes, or use the 'Download Source' button to get the original video and trim it manually.");
       }
     } catch (err: any) {
       toast.error("Render failed: " + err.message);
@@ -1002,12 +1034,22 @@ export default function VideoEditorPage() {
     }
     if (compilationAbortRef.current) { URL.revokeObjectURL(blobUrl); setCompilationResult(null); return true; }
 
+    // Resolution based on selected aspect ratio
+    const FORMAT_DIMENSIONS: Record<string, { w: number; h: number }> = {
+      "9:16": { w: 1080, h: 1920 },
+      "16:9": { w: 1920, h: 1080 },
+      "1:1": { w: 1080, h: 1080 },
+      "4:5": { w: 1080, h: 1350 },
+      "default": { w: 1280, h: 720 },
+    };
+    const dims = FORMAT_DIMENSIONS[compilationAspectRatio] ?? FORMAT_DIMENSIONS["default"];
+
     // Blob URL is same-origin — no CORS, captureStream() works without restriction
     const vid = document.createElement("video");
     vid.src = blobUrl;
     vid.muted = true;
     vid.preload = "auto";
-    Object.assign(vid.style, { position: "fixed", left: "-9999px", top: "0px", width: "640px", height: "360px" });
+    Object.assign(vid.style, { position: "fixed", left: "-9999px", top: "0px", width: `${dims.w}px`, height: `${dims.h}px` });
     document.body.appendChild(vid);
 
     const cleanup = () => {
@@ -1056,8 +1098,10 @@ export default function VideoEditorPage() {
       });
       recorder.start(200);
 
+      setCompilationProgress(0);
       for (let i = 0; i < clips.length; i++) {
         if (compilationAbortRef.current) break;
+        setCompilationProgress(Math.round((i / clips.length) * 100));
         setCompilationResult({ status: "recording", clip_index: i + 1, total_clips: clips.length });
 
         const clip = clips[i];
@@ -1099,6 +1143,7 @@ export default function VideoEditorPage() {
       try { recorder.requestData(); } catch {}
       recorder.stop();
       setActiveClipId(null);
+      setCompilationProgress(100);
 
       await Promise.race([recorderStopped, new Promise(r => setTimeout(r, 5_000))]);
 
@@ -1106,8 +1151,8 @@ export default function VideoEditorPage() {
       if (compilationAbortRef.current) { setCompilationResult(null); return true; }
 
       const blob = new Blob(chunks, { type: mimeType });
-      if (blob.size < 8_000) {
-        toast.error("Compilation produced an empty file — keep the tab visible and focused while recording.");
+      if (blob.size < 50_000) {
+        toast.error("Compilation produced an empty or corrupt file — keep the tab visible and focused while recording.");
         setCompilationResult(null);
         return false;
       }
@@ -1149,12 +1194,23 @@ export default function VideoEditorPage() {
 
   // ── Stats helpers ─────────────────────────────────────────────────────────
 
-  const allClips = [
+  function hasTimeOverlap(
+    clip: { start_time: number; end_time: number },
+    selected: Array<{ start_time: number; end_time: number }>
+  ): boolean {
+    return selected.some(s =>
+      clip.start_time < s.end_time && clip.end_time > s.start_time
+    );
+  }
+
+  const allClipsRaw = [
     ...clips.shorts,
     ...clips.reels,
     ...clips.highlight,
     ...clips.long_form,
   ];
+  // Deduplicate by id to prevent the same clip appearing twice
+  const allClips = Array.from(new Map(allClipsRaw.map((c: any) => [c.id ?? clipKey(c), c])).values());
 
   const avgScore =
     allClips.length > 0
@@ -1191,9 +1247,19 @@ export default function VideoEditorPage() {
               <Scissors className="w-6 h-6 text-purple-400" />
               Creator Studio
             </h1>
-            <p className="text-gray-400 text-sm mt-0.5">
-              AI-powered clip extraction — never edit manually again
-            </p>
+            <div className="flex items-center gap-3 mt-0.5">
+              <p className="text-gray-400 text-sm">
+                AI-powered clip extraction — never edit manually again
+              </p>
+              {quota && (
+                <span className="text-xs text-gray-500 font-mono border border-gray-700 rounded px-2 py-0.5">
+                  {quota.used}/{quota.limit} analyses used this month
+                  {quota.tier && quota.tier !== "free" && (
+                    <span className="ml-1 text-purple-400">· {quota.tier}</span>
+                  )}
+                </span>
+              )}
+            </div>
           </div>
           <div className="flex gap-2">
             {view !== "upload" && (
@@ -1736,6 +1802,33 @@ export default function VideoEditorPage() {
               </div>
             ) : null}
 
+            {/* Render failure message with optional technical details */}
+            {renderFailedClipId && (
+              <div className="rounded-xl border border-red-500/30 bg-red-500/5 p-4 space-y-2">
+                <div className="flex items-start justify-between gap-2">
+                  <p className="text-sm text-red-300 flex items-start gap-2">
+                    <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                    Rendering service is temporarily unavailable. Your clip is saved — try again in a few minutes, or use the &apos;Download Source&apos; button to get the original video and trim it manually.
+                  </p>
+                  <button
+                    onClick={() => { setRenderFailedClipId(null); setRenderFailedFfmpegCmd(null); }}
+                    className="text-gray-500 hover:text-gray-300 text-xs shrink-0"
+                    aria-label="Dismiss"
+                  >
+                    ✕
+                  </button>
+                </div>
+                {renderFailedFfmpegCmd && (
+                  <details className="text-xs">
+                    <summary className="cursor-pointer text-gray-500 hover:text-gray-300 transition-colors">Show technical details</summary>
+                    <pre className="mt-2 bg-gray-900 rounded p-2 text-gray-400 text-[10px] overflow-x-auto whitespace-pre-wrap break-all">
+                      {renderFailedFfmpegCmd}
+                    </pre>
+                  </details>
+                )}
+              </div>
+            )}
+
             {/* Tabs */}
             <Tabs defaultValue="clips">
               <TabsList className="bg-gray-800 border border-gray-700">
@@ -2038,7 +2131,26 @@ export default function VideoEditorPage() {
                             onClick={() => {
                               setCompilationSelected(prev => {
                                 const next = new Set(prev);
-                                if (next.has(key)) next.delete(key); else next.add(key);
+                                if (next.has(key)) {
+                                  next.delete(key);
+                                } else {
+                                  // Check for time overlap with already-selected clips
+                                  const selectedClipObjects = allClips.filter((c: any) => next.has(clipKey(c)));
+                                  const clipStart = clip.start ?? clip.start_seconds ?? 0;
+                                  const clipEnd = clip.end ?? clip.end_seconds ?? 0;
+                                  const overlaps = hasTimeOverlap(
+                                    { start_time: clipStart, end_time: clipEnd },
+                                    selectedClipObjects.map((c: any) => ({
+                                      start_time: c.start ?? c.start_seconds ?? 0,
+                                      end_time: c.end ?? c.end_seconds ?? 0,
+                                    }))
+                                  );
+                                  if (overlaps) {
+                                    toast.warning("This clip overlaps with an already-selected clip.");
+                                    return prev;
+                                  }
+                                  next.add(key);
+                                }
                                 return next;
                               });
                             }}
@@ -2193,6 +2305,7 @@ export default function VideoEditorPage() {
                           <Loader2 className="w-4 h-4 animate-spin" />
                           Recording clip {compilationResult.clip_index ?? "?"} of {compilationResult.total_clips ?? "?"}…
                         </p>
+                        <Progress value={compilationProgress} className="h-1.5 bg-gray-700" />
                         <p className="text-xs text-gray-400">
                           Stitching clips in a background element. Keep this tab open and visible.
                         </p>
@@ -2240,9 +2353,19 @@ export default function VideoEditorPage() {
 
                     {/* Cloud render failed */}
                     {compilationResult.status === "failed" && (
-                      <p className="text-sm text-red-300 flex items-center gap-2">
-                        <AlertCircle className="w-4 h-4" /> Render failed. Try fewer clips or re-try.
-                      </p>
+                      <div className="space-y-2">
+                        <p className="text-sm text-red-300 flex items-center gap-2">
+                          <AlertCircle className="w-4 h-4" /> Rendering service is temporarily unavailable. Your clip is saved — try again in a few minutes, or use the &apos;Download Source&apos; button to get the original video and trim it manually.
+                        </p>
+                        {compilationResult.ffmpeg_cmd && (
+                          <details className="text-xs">
+                            <summary className="cursor-pointer text-gray-500 hover:text-gray-300 transition-colors">Show technical details</summary>
+                            <pre className="mt-2 bg-gray-900 rounded p-2 text-gray-400 text-[10px] overflow-x-auto whitespace-pre-wrap break-all">
+                              {compilationResult.ffmpeg_cmd}
+                            </pre>
+                          </details>
+                        )}
+                      </div>
                     )}
                   </div>
                 )}
