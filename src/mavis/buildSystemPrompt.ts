@@ -189,10 +189,18 @@ Available actions (embed in response, never in a code block):
 :::ACTION{"type":"create_ally","params":{"name":"...","relationship":"ally|council|rival","level":1,"specialty":"...","affinity":50,"notes":"..."}}:::
 :::ACTION{"type":"update_ally","params":{"ally_id":"...","affinity":75,"notes":"..."}}:::
 :::ACTION{"type":"delete_ally","params":{"ally_id":"..."}}:::
-:::ACTION{"type":"create_transformation","params":{"name":"...","tier":"...","form_order":0,"bpm_range":"65-75","energy":"Ki","jjk_grade":"Special Grade","op_tier":"God Tier","description":"...","unlocked":false,"category":"..."}}:::
-:::ACTION{"type":"update_transformation","params":{"transformation_id":"...","name":"...","unlocked":true,"description":"..."}}:::
+:::ACTION{"type":"create_transformation","params":{"name":"...","tier":"Spartan|Saiyan|Thorn|Karma|Regalia|Ouroboros|BlackHeart|FinalAscent","form_order":0,"bpm_range":"65–75","energy":"Ki","jjk_grade":"Special Grade","op_tier":"God Tier","description":"...","unlocked":false,"active_buffs":[{"label":"Speed","value":15,"unit":"%"},{"label":"Focus","value":10,"unit":"%"}],"passive_buffs":[{"label":"Endurance","value":8,"unit":"%"}],"abilities":[{"title":"Ability Name","irl":"Real-world application of this ability"}]}}:::
+:::ACTION{"type":"update_transformation","params":{"transformation_id":"...","name":"...","unlocked":true,"description":"...","active_buffs":[{"label":"Power","value":20,"unit":"%"}],"passive_buffs":[{"label":"Resilience","value":12,"unit":"%"}],"abilities":[{"title":"Skill Name","irl":"How to apply this IRL"}]}}:::
 :::ACTION{"type":"delete_transformation","params":{"transformation_id":"..."}}:::
-:::ACTION{"type":"create_ranking","params":{"display_name":"...","role":"ally|enemy|npc|self","rank":"D|C|B|A|S|SS","level":1,"jjk_grade":"G4","op_tier":"Local","gpr":1000,"pvp":5000,"influence":"Local","notes":"...","is_self":false}}:::
+
+TRANSFORMATION RULES — CRITICAL:
+- active_buffs, passive_buffs, and abilities are REQUIRED fields. NEVER omit them.
+- active_buffs: combat/performance buffs that activate during use. Array of {label, value, unit} objects.
+- passive_buffs: permanent background buffs. Array of {label, value, unit} objects.
+- abilities: named skills with real-world application. Array of {title, irl} objects.
+- unit is almost always "%" — use other units only for special cases (e.g. "+2" flat bonus, "x multiplier").
+- When the operator doesn't specify buffs, INVENT appropriate ones that fit the form's theme and tier. A form with NO buffs or abilities is invalid and incomplete.
+- Example: "Create a focus form called Iron Mind" → invent relevant buffs like [{"label":"Mental Clarity","value":15,"unit":"%"}] and abilities like [{"title":"Iron Concentration","irl":"Eliminate all distractions for 25-minute deep work sprints"}].:::ACTION{"type":"create_ranking","params":{"display_name":"...","role":"ally|enemy|npc|self","rank":"D|C|B|A|S|SS","level":1,"jjk_grade":"G4","op_tier":"Local","gpr":1000,"pvp":5000,"influence":"Local","notes":"...","is_self":false}}:::
 :::ACTION{"type":"update_ranking","params":{"ranking_id":"...","display_name":"...","rank":"S","gpr":5000}}:::
 :::ACTION{"type":"delete_ranking","params":{"ranking_id":"..."}}:::
 :::ACTION{"type":"create_store_item","params":{"name":"...","description":"...","price":100,"currency":"Codex Points","rarity":"common","category":"consumable","effect":"..."}}:::
