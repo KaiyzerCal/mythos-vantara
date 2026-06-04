@@ -3,6 +3,7 @@
 // Unified alert, insight, and approval hub
 // ============================================================
 import { useState, useEffect, useCallback } from "react";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { motion, AnimatePresence } from "framer-motion";
 import { Bell, CheckCircle2, Eye, Trash2, Loader2, RefreshCw, AlertTriangle, Info, Zap, Activity, Lightbulb } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
@@ -67,6 +68,7 @@ export function NotificationsPage() {
   const [commitments, setCommitments] = useState<InferredCommitment[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<"all" | "unread">("unread");
+  const [confirmDelete, setConfirmDelete] = useState<{ id: string; label: string } | null>(null);
 
   const load = useCallback(async () => {
     if (!session) { setLoading(false); return; }
@@ -232,7 +234,7 @@ export function NotificationsPage() {
                           </button>
                         )}
                         <button
-                          onClick={() => deleteInsight(ins.id)}
+                          onClick={() => setConfirmDelete({ id: ins.id, label: ins.title })}
                           className="p-1 rounded text-muted-foreground hover:text-destructive transition-colors"
                           title="Dismiss"
                         >
@@ -337,6 +339,18 @@ export function NotificationsPage() {
           </HudCard>
         )}
       </section>
+
+      <ConfirmDialog
+        open={confirmDelete !== null}
+        title={`Delete "${confirmDelete?.label}"?`}
+        description="This action cannot be undone."
+        onConfirm={async () => {
+          if (!confirmDelete) return;
+          await deleteInsight(confirmDelete.id);
+          setConfirmDelete(null);
+        }}
+        onCancel={() => setConfirmDelete(null)}
+      />
     </div>
   );
 }

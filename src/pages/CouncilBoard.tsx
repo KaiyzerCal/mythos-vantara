@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from "react";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { Send, ArrowLeft, Users, Database, Square, Mic, MicOff, Zap, ChevronDown, ChevronUp, PhoneCall } from "lucide-react";
@@ -73,6 +74,7 @@ export default function CouncilBoard() {
   const [showBackToTop,    setShowBackToTop]    = useState(false);
   const [isListening,      setIsListening]      = useState(false);
   const [voiceTarget,      setVoiceTarget]      = useState<VoicePersona | null>(null);
+  const [confirmClear,     setConfirmClear]     = useState(false);
 
   // ── Realtime streaming state ──────────────────────────────────────
   // Keyed by speakerId; populated as council member responses arrive via broadcast.
@@ -520,7 +522,7 @@ export default function CouncilBoard() {
           <Database size={10} /> OmniSync
         </button>
         <button
-          onClick={handleClear}
+          onClick={() => setConfirmClear(true)}
           className="text-[10px] font-mono text-muted-foreground hover:text-destructive border border-border hover:border-destructive/40 rounded px-2 py-1 transition-colors"
         >
           Clear
@@ -815,6 +817,17 @@ export default function CouncilBoard() {
           />
         )}
       </AnimatePresence>
+
+      <ConfirmDialog
+        open={confirmClear}
+        title='Delete "this conversation"?'
+        description="This action cannot be undone."
+        onConfirm={async () => {
+          setConfirmClear(false);
+          await handleClear();
+        }}
+        onCancel={() => setConfirmClear(false)}
+      />
     </div>
   );
 }

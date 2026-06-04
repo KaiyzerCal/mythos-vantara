@@ -1002,6 +1002,19 @@ export function WorkflowsPage() {
           )}
         </div>
       </div>
+
+      <ConfirmDialog
+        open={confirmDelete !== null}
+        title={`Delete "${confirmDelete?.label}"?`}
+        description="This action cannot be undone."
+        onConfirm={async () => {
+          if (!confirmDelete) return;
+          const wf = workflows.find((w) => w.id === confirmDelete.id);
+          if (wf) await deleteWorkflow(wf);
+          setConfirmDelete(null);
+        }}
+        onCancel={() => setConfirmDelete(null)}
+      />
     </div>
   );
 }
