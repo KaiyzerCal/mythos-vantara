@@ -40,12 +40,47 @@ interface ExtractThumbnailAction {
   clip_id?: string;
 }
 
+interface CaptionWord {
+  word: string;
+  start: number;
+  end: number;
+}
+
+interface TextOverlay {
+  text: string;
+  x?: number;
+  y?: number;
+  fontsize?: number;
+  fontcolor?: string;
+  start_time?: number;
+  end_time?: number;
+}
+
+interface CompileClip {
+  id?: string;
+  start?: number;
+  end?: number;
+  title?: string;
+  // New fields from server-side compile payload
+  storage_path?: string;
+  start_time?: number;
+  end_time?: number;
+  volume?: number;
+  text_overlays?: TextOverlay[];
+  caption_words?: CaptionWord[];
+}
+
 interface CompileAction {
   action: "compile";
   user_id: string;
-  source_url: string;
-  clips: Array<{ start: number; end: number; title: string }>;
+  project_id?: string;
+  source_url?: string;
+  clips: CompileClip[];
   aspect_ratio?: "9:16" | "16:9" | "1:1";
+  output_format?: string;
+  width?: number;
+  height?: number;
+  fps?: number;
   add_fades?: boolean;
 }
 

@@ -131,3 +131,7 @@ verify_jwt = false
 # Contact form backend — called from public client websites (no Supabase JWT).
 [functions.mavis-form-submit]
 verify_jwt = false
+
+# Video download / YouTube import — called from the frontend with anon key.
+[functions.mavis-video-download]
+verify_jwt = false

@@ -101,6 +101,7 @@ function detectVideoMimeType(url: string): string {
 async function transcribeWithWhisper(videoUrl: string): Promise<{
   text: string;
   chunks: Array<{ start: number; end: number; text: string }>;
+  captionWords: Array<{ word: string; start: number; end: number }>;
 }> {
   // Reject streaming-site URLs early — we can't fetch a media blob from them.
   if (/(?:youtube\.com|youtu\.be|vimeo\.com|tiktok\.com|instagram\.com|facebook\.com|twitter\.com|x\.com|loom\.com|wistia\.com|wistia\.net)/i.test(videoUrl)) {
@@ -217,6 +218,7 @@ async function transcribeWithWhisper(videoUrl: string): Promise<{
   form.append("model", "whisper-1");
   form.append("response_format", "verbose_json");
   form.append("timestamp_granularities[]", "segment");
+  form.append("timestamp_granularities[]", "word");
 
   const res = await fetch("https://api.openai.com/v1/audio/transcriptions", {
     method: "POST",
@@ -237,7 +239,14 @@ async function transcribeWithWhisper(videoUrl: string): Promise<{
     text: s.text.trim(),
   }));
 
-  return { text: data.text ?? "", chunks };
+  // Extract word-level timestamps from Whisper verbose_json response
+  const captionWords = (data.words ?? []).map((w: any) => ({
+    word: (w.word ?? "").trim(),
+    start: w.start,
+    end: w.end,
+  }));
+
+  return { text: data.text ?? "", chunks, captionWords };
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -765,7 +774,7 @@ async function handleAnalyze(
     // Step 2: Transcribe with Whisper
     console.log(`[mavis-video-editor] Transcribing project ${projectId}...`);
     const signedUrlCreatedAt = Date.now();
-    const { text: transcript, chunks } = await transcribeWithWhisper(source_url);
+    const { text: transcript, chunks, captionWords } = await transcribeWithWhisper(source_url);
 
     // Step 3: Gemini visual + semantic analysis
     // Refresh signed URL if Whisper took >45s (URL may be near expiry)
@@ -862,9 +871,14 @@ async function handleAnalyze(
     }
 
     // Insert clip recommendations (bulk)
+    // Attach caption_words to each clip by filtering words within the clip's time range
     const clipRows: any[] = [];
     for (const [fmt, fmtClips] of Object.entries(clips)) {
       for (const clip of fmtClips) {
+        // Filter caption words that fall within this clip's time range
+        const clipCaptionWords = captionWords.filter(
+          (w) => w.start >= clip.start && w.end <= clip.end
+        );
         clipRows.push({
           project_id: projectId,
           user_id: userId,
@@ -879,6 +893,7 @@ async function handleAnalyze(
           transcript_excerpt: clip.transcript_excerpt ?? null,
           aspect_ratio: clip.aspect_ratio,
           weighted_score: clip.weighted_score ?? null,
+          caption_words: clipCaptionWords.length > 0 ? clipCaptionWords : [],
           status: "pending",
           created_at: new Date().toISOString(),
         });

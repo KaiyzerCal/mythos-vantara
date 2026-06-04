@@ -20,6 +20,7 @@ const CLAUDE_KEY  = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
 const OPENAI_KEY  = Deno.env.get("OPENAI_API") ?? Deno.env.get("OPENAI_API_KEY") ?? "";
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
 const SUPABASE_SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+const UNSPLASH_ACCESS_KEY = Deno.env.get("UNSPLASH_ACCESS_KEY") ?? "";
 
 // ---------------------------------------------------------------------------
 // Types
