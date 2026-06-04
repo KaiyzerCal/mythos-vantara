@@ -23,6 +23,774 @@ const SUPABASE_SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 const UNSPLASH_ACCESS_KEY = Deno.env.get("UNSPLASH_ACCESS_KEY") ?? "";
 
 // ---------------------------------------------------------------------------
+// Unsplash image fetcher
+// ---------------------------------------------------------------------------
+
+async function fetchUnsplashImage(query: string, fallback = ""): Promise<string> {
+  if (!UNSPLASH_ACCESS_KEY) return fallback;
+  try {
+    const url = `https://api.unsplash.com/search/photos?query=${encodeURIComponent(query)}&per_page=5&orientation=landscape&content_filter=high`;
+    const res = await fetch(url, {
+      headers: { Authorization: `Client-ID ${UNSPLASH_ACCESS_KEY}` },
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!res.ok) return fallback;
+    const data = await res.json();
+    const photos = data.results || [];
+    if (!photos.length) return fallback;
+    const photo = photos[Math.floor(Math.random() * photos.length)];
+    return photo.urls.regular + "&w=1200&q=80";
+  } catch { return fallback; }
+}
+
+// ---------------------------------------------------------------------------
+// Tailwind section template library
+// ---------------------------------------------------------------------------
+
+const SECTION_TEMPLATES: Record<string, string> = {
+  hero_gradient: `<section class="relative bg-gradient-to-br from-indigo-900 via-purple-900 to-pink-900 text-white py-24 px-6">
+  <div class="max-w-6xl mx-auto flex flex-col lg:flex-row items-center gap-12">
+    <div class="flex-1">
+      <div class="inline-block bg-white/10 text-white text-sm font-semibold px-4 py-1.5 rounded-full mb-6">{{BADGE}}</div>
+      <h1 class="text-5xl lg:text-7xl font-black leading-tight mb-6">{{HEADLINE}}</h1>
+      <p class="text-xl text-white/80 mb-8 max-w-xl">{{SUBHEADLINE}}</p>
+      <div class="flex flex-wrap gap-4">
+        <a href="#contact" class="bg-white text-indigo-900 font-bold px-8 py-4 rounded-full hover:bg-indigo-50 transition-all shadow-lg">{{CTA_PRIMARY}}</a>
+        <a href="#about" class="border-2 border-white/40 text-white font-semibold px-8 py-4 rounded-full hover:border-white/80 transition-all">{{CTA_SECONDARY}}</a>
+      </div>
+    </div>
+    <div class="flex-1 flex justify-center">
+      <img src="{{HERO_IMAGE}}" alt="{{HEADLINE}}" class="rounded-2xl shadow-2xl max-w-md w-full object-cover" onerror="this.style.display='none'" />
+    </div>
+  </div>
+</section>
+{{UNSPLASH_CREDIT}}`,
+
+  features_grid: `<section class="py-20 px-6 bg-white" id="features">
+  <div class="max-w-6xl mx-auto">
+    <div class="text-center mb-14">
+      <span class="inline-block text-indigo-600 text-sm font-bold uppercase tracking-widest mb-3">{{CHIP}}</span>
+      <h2 class="text-4xl font-black text-gray-900 mb-4">{{HEADLINE}}</h2>
+      <p class="text-lg text-gray-500 max-w-2xl mx-auto">{{SUBHEADLINE}}</p>
+    </div>
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-8">
+      <div class="bg-gray-50 rounded-2xl p-8 hover:shadow-lg transition-shadow">
+        <div class="text-4xl mb-4">{{ICON_1}}</div>
+        <h3 class="text-xl font-bold text-gray-900 mb-2">{{TITLE_1}}</h3>
+        <p class="text-gray-500">{{DESC_1}}</p>
+      </div>
+      <div class="bg-gray-50 rounded-2xl p-8 hover:shadow-lg transition-shadow">
+        <div class="text-4xl mb-4">{{ICON_2}}</div>
+        <h3 class="text-xl font-bold text-gray-900 mb-2">{{TITLE_2}}</h3>
+        <p class="text-gray-500">{{DESC_2}}</p>
+      </div>
+      <div class="bg-gray-50 rounded-2xl p-8 hover:shadow-lg transition-shadow">
+        <div class="text-4xl mb-4">{{ICON_3}}</div>
+        <h3 class="text-xl font-bold text-gray-900 mb-2">{{TITLE_3}}</h3>
+        <p class="text-gray-500">{{DESC_3}}</p>
+      </div>
+    </div>
+  </div>
+</section>`,
+
+  testimonials_cards: `<section class="py-20 px-6 bg-gray-50" id="testimonials">
+  <div class="max-w-6xl mx-auto">
+    <div class="text-center mb-14">
+      <span class="inline-block text-indigo-600 text-sm font-bold uppercase tracking-widest mb-3">{{CHIP}}</span>
+      <h2 class="text-4xl font-black text-gray-900 mb-4">{{HEADLINE}}</h2>
+    </div>
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-8">
+      <div class="bg-white rounded-2xl p-8 shadow-sm border border-gray-100">
+        <div class="text-yellow-400 text-lg mb-4">★★★★★</div>
+        <p class="text-gray-700 italic mb-6">"{{QUOTE_1}}"</p>
+        <div class="border-t border-gray-100 pt-4">
+          <div class="font-bold text-gray-900">{{AUTHOR_1}}</div>
+          <div class="text-sm text-gray-400">{{ROLE_1}}, {{COMPANY_1}}</div>
+        </div>
+      </div>
+      <div class="bg-white rounded-2xl p-8 shadow-sm border border-gray-100">
+        <div class="text-yellow-400 text-lg mb-4">★★★★★</div>
+        <p class="text-gray-700 italic mb-6">"{{QUOTE_2}}"</p>
+        <div class="border-t border-gray-100 pt-4">
+          <div class="font-bold text-gray-900">{{AUTHOR_2}}</div>
+          <div class="text-sm text-gray-400">{{ROLE_2}}, {{COMPANY_2}}</div>
+        </div>
+      </div>
+      <div class="bg-white rounded-2xl p-8 shadow-sm border border-gray-100">
+        <div class="text-yellow-400 text-lg mb-4">★★★★★</div>
+        <p class="text-gray-700 italic mb-6">"{{QUOTE_3}}"</p>
+        <div class="border-t border-gray-100 pt-4">
+          <div class="font-bold text-gray-900">{{AUTHOR_3}}</div>
+          <div class="text-sm text-gray-400">{{ROLE_3}}, {{COMPANY_3}}</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>`,
+
+  pricing_table: `<section class="py-20 px-6 bg-white" id="pricing">
+  <div class="max-w-5xl mx-auto">
+    <div class="text-center mb-14">
+      <span class="inline-block text-indigo-600 text-sm font-bold uppercase tracking-widest mb-3">Pricing</span>
+      <h2 class="text-4xl font-black text-gray-900 mb-4">{{HEADLINE}}</h2>
+      <p class="text-lg text-gray-500">{{SUBHEADLINE}}</p>
+    </div>
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-8">
+      <div class="border-2 border-gray-200 rounded-2xl p-8">
+        <div class="text-sm font-bold uppercase tracking-widest text-gray-400 mb-2">Starter</div>
+        <div class="text-5xl font-black text-gray-900 mb-1">{{PRICE_1}}</div>
+        <div class="text-gray-400 text-sm mb-6">{{PERIOD_1}}</div>
+        <ul class="space-y-3 mb-8 text-gray-600 text-sm">{{FEATURES_1}}</ul>
+        <a href="#contact" class="block text-center border-2 border-indigo-600 text-indigo-600 font-bold py-3 rounded-xl hover:bg-indigo-50 transition-colors">{{CTA_1}}</a>
+      </div>
+      <div class="border-2 border-indigo-600 rounded-2xl p-8 bg-indigo-50 relative">
+        <div class="absolute -top-4 left-1/2 -translate-x-1/2 bg-indigo-600 text-white text-xs font-bold px-4 py-1.5 rounded-full">Most Popular</div>
+        <div class="text-sm font-bold uppercase tracking-widest text-indigo-600 mb-2">Pro</div>
+        <div class="text-5xl font-black text-gray-900 mb-1">{{PRICE_2}}</div>
+        <div class="text-gray-400 text-sm mb-6">{{PERIOD_2}}</div>
+        <ul class="space-y-3 mb-8 text-gray-600 text-sm">{{FEATURES_2}}</ul>
+        <a href="#contact" class="block text-center bg-indigo-600 text-white font-bold py-3 rounded-xl hover:bg-indigo-700 transition-colors">{{CTA_2}}</a>
+      </div>
+      <div class="border-2 border-gray-200 rounded-2xl p-8">
+        <div class="text-sm font-bold uppercase tracking-widest text-gray-400 mb-2">Enterprise</div>
+        <div class="text-5xl font-black text-gray-900 mb-1">{{PRICE_3}}</div>
+        <div class="text-gray-400 text-sm mb-6">{{PERIOD_3}}</div>
+        <ul class="space-y-3 mb-8 text-gray-600 text-sm">{{FEATURES_3}}</ul>
+        <a href="#contact" class="block text-center border-2 border-indigo-600 text-indigo-600 font-bold py-3 rounded-xl hover:bg-indigo-50 transition-colors">{{CTA_3}}</a>
+      </div>
+    </div>
+  </div>
+</section>`,
+
+  contact_form: `<section class="py-20 px-6 bg-gray-50" id="contact">
+  <div class="max-w-5xl mx-auto">
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-16">
+      <div>
+        <h2 class="text-4xl font-black text-gray-900 mb-4">{{HEADLINE}}</h2>
+        <p class="text-lg text-gray-500 mb-8">{{SUBHEADLINE}}</p>
+        <div class="space-y-4">
+          <div class="flex items-start gap-4"><span class="text-2xl">✉️</span><div><div class="font-semibold text-gray-900">Email</div><div class="text-gray-500">{{EMAIL}}</div></div></div>
+          <div class="flex items-start gap-4"><span class="text-2xl">📞</span><div><div class="font-semibold text-gray-900">Phone</div><div class="text-gray-500">{{PHONE}}</div></div></div>
+          <div class="flex items-start gap-4"><span class="text-2xl">📍</span><div><div class="font-semibold text-gray-900">Address</div><div class="text-gray-500">{{ADDRESS}}</div></div></div>
+        </div>
+      </div>
+      <div class="bg-white rounded-2xl p-8 shadow-sm">
+        <form onsubmit="event.preventDefault();this.innerHTML='<p class=&quot;text-green-600 font-semibold text-lg text-center py-8&quot;>✓ Message sent! We will be in touch soon.</p>'">
+          <div class="grid grid-cols-2 gap-4 mb-4">
+            <div><label class="block text-sm font-semibold text-gray-700 mb-1">Name</label><input type="text" required placeholder="Your name" class="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-indigo-500 transition-colors"></div>
+            <div><label class="block text-sm font-semibold text-gray-700 mb-1">Email</label><input type="email" required placeholder="your@email.com" class="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-indigo-500 transition-colors"></div>
+          </div>
+          <div class="mb-4"><label class="block text-sm font-semibold text-gray-700 mb-1">Subject</label><input type="text" placeholder="How can we help?" class="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-indigo-500 transition-colors"></div>
+          <div class="mb-6"><label class="block text-sm font-semibold text-gray-700 mb-1">Message</label><textarea rows="5" placeholder="Tell us about your project..." class="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-indigo-500 transition-colors resize-none"></textarea></div>
+          <button type="submit" class="w-full bg-indigo-600 text-white font-bold py-4 rounded-xl hover:bg-indigo-700 transition-colors">Send Message →</button>
+        </form>
+      </div>
+    </div>
+  </div>
+</section>`,
+
+  about_split: `<section class="py-20 px-6 bg-white" id="about">
+  <div class="max-w-6xl mx-auto">
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-16 items-center">
+      <div class="relative">
+        <img src="{{ABOUT_IMAGE}}" alt="About us" class="rounded-2xl shadow-xl w-full object-cover" onerror="this.parentElement.innerHTML='<div class=&quot;bg-gradient-to-br from-indigo-100 to-purple-100 rounded-2xl h-80 flex items-center justify-center text-6xl&quot;>✨</div>'" />
+        <div class="absolute -bottom-6 -right-6 bg-indigo-600 text-white rounded-2xl p-6 shadow-xl">
+          <div class="text-3xl font-black">{{YEARS}}+</div>
+          <div class="text-sm text-indigo-200">Years of Excellence</div>
+        </div>
+      </div>
+      <div>
+        <span class="inline-block text-indigo-600 text-sm font-bold uppercase tracking-widest mb-3">{{CHIP}}</span>
+        <h2 class="text-4xl font-black text-gray-900 mb-6">{{HEADLINE}}</h2>
+        <p class="text-lg text-gray-500 mb-8">{{BODY}}</p>
+        <div class="grid grid-cols-3 gap-6 mb-8">
+          <div class="text-center"><div class="text-3xl font-black text-indigo-600">{{STAT_1_NUM}}</div><div class="text-sm text-gray-500">{{STAT_1_LABEL}}</div></div>
+          <div class="text-center"><div class="text-3xl font-black text-indigo-600">{{STAT_2_NUM}}</div><div class="text-sm text-gray-500">{{STAT_2_LABEL}}</div></div>
+          <div class="text-center"><div class="text-3xl font-black text-indigo-600">{{STAT_3_NUM}}</div><div class="text-sm text-gray-500">{{STAT_3_LABEL}}</div></div>
+        </div>
+        <a href="#contact" class="inline-block bg-indigo-600 text-white font-bold px-8 py-4 rounded-xl hover:bg-indigo-700 transition-colors">{{CTA}}</a>
+      </div>
+    </div>
+  </div>
+</section>
+{{UNSPLASH_CREDIT}}`,
+
+  services_list: `<section class="py-20 px-6 bg-gray-50" id="services">
+  <div class="max-w-6xl mx-auto">
+    <div class="text-center mb-14">
+      <span class="inline-block text-indigo-600 text-sm font-bold uppercase tracking-widest mb-3">{{CHIP}}</span>
+      <h2 class="text-4xl font-black text-gray-900 mb-4">{{HEADLINE}}</h2>
+      <p class="text-lg text-gray-500 max-w-2xl mx-auto">{{SUBHEADLINE}}</p>
+    </div>
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+      <div class="bg-white rounded-2xl p-6 shadow-sm hover:shadow-md transition-shadow">
+        <div class="text-3xl mb-4">{{SVC_ICON_1}}</div>
+        <h3 class="text-lg font-bold text-gray-900 mb-2">{{SVC_TITLE_1}}</h3>
+        <p class="text-gray-500 text-sm mb-4">{{SVC_DESC_1}}</p>
+        <a href="#contact" class="text-indigo-600 font-semibold text-sm hover:underline">Learn more →</a>
+      </div>
+      <div class="bg-white rounded-2xl p-6 shadow-sm hover:shadow-md transition-shadow">
+        <div class="text-3xl mb-4">{{SVC_ICON_2}}</div>
+        <h3 class="text-lg font-bold text-gray-900 mb-2">{{SVC_TITLE_2}}</h3>
+        <p class="text-gray-500 text-sm mb-4">{{SVC_DESC_2}}</p>
+        <a href="#contact" class="text-indigo-600 font-semibold text-sm hover:underline">Learn more →</a>
+      </div>
+      <div class="bg-white rounded-2xl p-6 shadow-sm hover:shadow-md transition-shadow">
+        <div class="text-3xl mb-4">{{SVC_ICON_3}}</div>
+        <h3 class="text-lg font-bold text-gray-900 mb-2">{{SVC_TITLE_3}}</h3>
+        <p class="text-gray-500 text-sm mb-4">{{SVC_DESC_3}}</p>
+        <a href="#contact" class="text-indigo-600 font-semibold text-sm hover:underline">Learn more →</a>
+      </div>
+      <div class="bg-white rounded-2xl p-6 shadow-sm hover:shadow-md transition-shadow">
+        <div class="text-3xl mb-4">{{SVC_ICON_4}}</div>
+        <h3 class="text-lg font-bold text-gray-900 mb-2">{{SVC_TITLE_4}}</h3>
+        <p class="text-gray-500 text-sm mb-4">{{SVC_DESC_4}}</p>
+        <a href="#contact" class="text-indigo-600 font-semibold text-sm hover:underline">Learn more →</a>
+      </div>
+    </div>
+  </div>
+</section>`,
+
+  portfolio_grid: `<section class="py-20 px-6 bg-white" id="portfolio">
+  <div class="max-w-6xl mx-auto">
+    <div class="text-center mb-14">
+      <span class="inline-block text-indigo-600 text-sm font-bold uppercase tracking-widest mb-3">{{CHIP}}</span>
+      <h2 class="text-4xl font-black text-gray-900 mb-4">{{HEADLINE}}</h2>
+      <p class="text-lg text-gray-500 max-w-2xl mx-auto">{{SUBHEADLINE}}</p>
+    </div>
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+      <div class="group relative overflow-hidden rounded-2xl bg-gray-100 aspect-video cursor-pointer">
+        <img src="{{PORT_IMG_1}}" alt="{{PORT_TITLE_1}}" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" onerror="this.parentElement.classList.add('bg-gradient-to-br','from-indigo-100','to-purple-100');this.style.display='none'" />
+        <div class="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-end p-6">
+          <div><div class="text-white font-bold text-lg">{{PORT_TITLE_1}}</div><div class="text-indigo-300 text-sm">{{PORT_CAT_1}}</div></div>
+        </div>
+      </div>
+      <div class="group relative overflow-hidden rounded-2xl bg-gray-100 aspect-video cursor-pointer">
+        <img src="{{PORT_IMG_2}}" alt="{{PORT_TITLE_2}}" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" onerror="this.parentElement.classList.add('bg-gradient-to-br','from-purple-100','to-pink-100');this.style.display='none'" />
+        <div class="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-end p-6">
+          <div><div class="text-white font-bold text-lg">{{PORT_TITLE_2}}</div><div class="text-indigo-300 text-sm">{{PORT_CAT_2}}</div></div>
+        </div>
+      </div>
+      <div class="group relative overflow-hidden rounded-2xl bg-gray-100 aspect-video cursor-pointer">
+        <img src="{{PORT_IMG_3}}" alt="{{PORT_TITLE_3}}" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" onerror="this.parentElement.classList.add('bg-gradient-to-br','from-pink-100','to-orange-100');this.style.display='none'" />
+        <div class="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-end p-6">
+          <div><div class="text-white font-bold text-lg">{{PORT_TITLE_3}}</div><div class="text-indigo-300 text-sm">{{PORT_CAT_3}}</div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>`,
+
+  team_cards: `<section class="py-20 px-6 bg-gray-50" id="team">
+  <div class="max-w-6xl mx-auto">
+    <div class="text-center mb-14">
+      <span class="inline-block text-indigo-600 text-sm font-bold uppercase tracking-widest mb-3">{{CHIP}}</span>
+      <h2 class="text-4xl font-black text-gray-900 mb-4">{{HEADLINE}}</h2>
+      <p class="text-lg text-gray-500 max-w-2xl mx-auto">{{SUBHEADLINE}}</p>
+    </div>
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-8">
+      <div class="bg-white rounded-2xl p-8 text-center shadow-sm">
+        <div class="w-20 h-20 rounded-full bg-indigo-100 flex items-center justify-center text-3xl mx-auto mb-4">{{MEMBER_EMOJI_1}}</div>
+        <h3 class="text-xl font-bold text-gray-900 mb-1">{{MEMBER_NAME_1}}</h3>
+        <div class="text-indigo-600 font-semibold text-sm mb-3">{{MEMBER_TITLE_1}}</div>
+        <p class="text-gray-500 text-sm">{{MEMBER_BIO_1}}</p>
+      </div>
+      <div class="bg-white rounded-2xl p-8 text-center shadow-sm">
+        <div class="w-20 h-20 rounded-full bg-purple-100 flex items-center justify-center text-3xl mx-auto mb-4">{{MEMBER_EMOJI_2}}</div>
+        <h3 class="text-xl font-bold text-gray-900 mb-1">{{MEMBER_NAME_2}}</h3>
+        <div class="text-indigo-600 font-semibold text-sm mb-3">{{MEMBER_TITLE_2}}</div>
+        <p class="text-gray-500 text-sm">{{MEMBER_BIO_2}}</p>
+      </div>
+      <div class="bg-white rounded-2xl p-8 text-center shadow-sm">
+        <div class="w-20 h-20 rounded-full bg-pink-100 flex items-center justify-center text-3xl mx-auto mb-4">{{MEMBER_EMOJI_3}}</div>
+        <h3 class="text-xl font-bold text-gray-900 mb-1">{{MEMBER_NAME_3}}</h3>
+        <div class="text-indigo-600 font-semibold text-sm mb-3">{{MEMBER_TITLE_3}}</div>
+        <p class="text-gray-500 text-sm">{{MEMBER_BIO_3}}</p>
+      </div>
+    </div>
+  </div>
+</section>`,
+
+  cta_banner: `<section class="py-24 px-6 bg-gray-900 text-white">
+  <div class="max-w-3xl mx-auto text-center">
+    <h2 class="text-4xl lg:text-5xl font-black mb-6">{{HEADLINE}}</h2>
+    <p class="text-xl text-gray-400 mb-10 max-w-xl mx-auto">{{SUBHEADLINE}}</p>
+    <a href="#contact" class="inline-block bg-indigo-600 text-white font-bold px-10 py-5 rounded-full text-lg hover:bg-indigo-500 transition-colors shadow-xl">{{CTA_PRIMARY}}</a>
+  </div>
+</section>`,
+
+  stats_row: `<section class="py-16 px-6 bg-indigo-600 text-white">
+  <div class="max-w-5xl mx-auto">
+    <div class="grid grid-cols-2 lg:grid-cols-4 gap-8 text-center">
+      <div><div class="text-4xl lg:text-5xl font-black mb-2">{{STAT_1_NUM}}</div><div class="text-indigo-200 font-medium">{{STAT_1_LABEL}}</div></div>
+      <div><div class="text-4xl lg:text-5xl font-black mb-2">{{STAT_2_NUM}}</div><div class="text-indigo-200 font-medium">{{STAT_2_LABEL}}</div></div>
+      <div><div class="text-4xl lg:text-5xl font-black mb-2">{{STAT_3_NUM}}</div><div class="text-indigo-200 font-medium">{{STAT_3_LABEL}}</div></div>
+      <div><div class="text-4xl lg:text-5xl font-black mb-2">{{STAT_4_NUM}}</div><div class="text-indigo-200 font-medium">{{STAT_4_LABEL}}</div></div>
+    </div>
+  </div>
+</section>`,
+
+  faq_accordion: `<section class="py-20 px-6 bg-gray-50" id="faq">
+  <div class="max-w-3xl mx-auto">
+    <div class="text-center mb-14">
+      <span class="inline-block text-indigo-600 text-sm font-bold uppercase tracking-widest mb-3">{{CHIP}}</span>
+      <h2 class="text-4xl font-black text-gray-900 mb-4">{{HEADLINE}}</h2>
+    </div>
+    <div class="space-y-3" id="faq-container">
+      {{FAQ_ITEMS}}
+    </div>
+  </div>
+  <script>
+    document.querySelectorAll('.tw-faq-btn').forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        var item = this.closest('.tw-faq-item');
+        var ans = item.querySelector('.tw-faq-ans');
+        var icon = item.querySelector('.tw-faq-icon');
+        var isOpen = !ans.classList.contains('hidden');
+        document.querySelectorAll('.tw-faq-ans').forEach(function(a){ a.classList.add('hidden'); });
+        document.querySelectorAll('.tw-faq-icon').forEach(function(ic){ ic.textContent='+'; });
+        if (!isOpen) { ans.classList.remove('hidden'); icon.textContent='−'; }
+      });
+    });
+  </script>
+</section>`,
+
+  blog_grid: `<section class="py-20 px-6 bg-white" id="blog">
+  <div class="max-w-6xl mx-auto">
+    <div class="text-center mb-14">
+      <span class="inline-block text-indigo-600 text-sm font-bold uppercase tracking-widest mb-3">{{CHIP}}</span>
+      <h2 class="text-4xl font-black text-gray-900 mb-4">{{HEADLINE}}</h2>
+      <p class="text-lg text-gray-500 max-w-2xl mx-auto">{{SUBHEADLINE}}</p>
+    </div>
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-8">
+      <article class="bg-gray-50 rounded-2xl overflow-hidden hover:shadow-lg transition-shadow">
+        <div class="h-48 bg-gradient-to-br from-indigo-100 to-purple-100 flex items-center justify-center text-4xl">{{BLOG_IMG_1}}</div>
+        <div class="p-6">
+          <span class="text-indigo-600 text-xs font-bold uppercase tracking-widest">{{BLOG_CAT_1}}</span>
+          <h3 class="text-lg font-bold text-gray-900 mt-2 mb-2">{{BLOG_TITLE_1}}</h3>
+          <p class="text-gray-500 text-sm mb-4">{{BLOG_EXCERPT_1}}</p>
+          <a href="#" class="text-indigo-600 font-semibold text-sm hover:underline">Read more →</a>
+        </div>
+      </article>
+      <article class="bg-gray-50 rounded-2xl overflow-hidden hover:shadow-lg transition-shadow">
+        <div class="h-48 bg-gradient-to-br from-purple-100 to-pink-100 flex items-center justify-center text-4xl">{{BLOG_IMG_2}}</div>
+        <div class="p-6">
+          <span class="text-indigo-600 text-xs font-bold uppercase tracking-widest">{{BLOG_CAT_2}}</span>
+          <h3 class="text-lg font-bold text-gray-900 mt-2 mb-2">{{BLOG_TITLE_2}}</h3>
+          <p class="text-gray-500 text-sm mb-4">{{BLOG_EXCERPT_2}}</p>
+          <a href="#" class="text-indigo-600 font-semibold text-sm hover:underline">Read more →</a>
+        </div>
+      </article>
+      <article class="bg-gray-50 rounded-2xl overflow-hidden hover:shadow-lg transition-shadow">
+        <div class="h-48 bg-gradient-to-br from-pink-100 to-orange-100 flex items-center justify-center text-4xl">{{BLOG_IMG_3}}</div>
+        <div class="p-6">
+          <span class="text-indigo-600 text-xs font-bold uppercase tracking-widest">{{BLOG_CAT_3}}</span>
+          <h3 class="text-lg font-bold text-gray-900 mt-2 mb-2">{{BLOG_TITLE_3}}</h3>
+          <p class="text-gray-500 text-sm mb-4">{{BLOG_EXCERPT_3}}</p>
+          <a href="#" class="text-indigo-600 font-semibold text-sm hover:underline">Read more →</a>
+        </div>
+      </article>
+    </div>
+  </div>
+</section>`,
+
+  footer_rich: `<footer class="bg-gray-900 text-white pt-16 pb-8 px-6">
+  <div class="max-w-6xl mx-auto">
+    <div class="grid grid-cols-1 md:grid-cols-4 gap-10 mb-12">
+      <div class="md:col-span-2">
+        <div class="text-2xl font-black mb-4">{{SITE_TITLE}}</div>
+        <p class="text-gray-400 max-w-xs mb-6">{{TAGLINE}}</p>
+        <div class="flex gap-4">
+          <a href="#" class="text-gray-400 hover:text-white transition-colors text-xl">𝕏</a>
+          <a href="#" class="text-gray-400 hover:text-white transition-colors text-xl">in</a>
+          <a href="#" class="text-gray-400 hover:text-white transition-colors text-xl">f</a>
+        </div>
+      </div>
+      <div>
+        <h4 class="text-sm font-bold uppercase tracking-widest text-gray-400 mb-4">Pages</h4>
+        <ul class="space-y-2">{{FOOTER_LINKS}}</ul>
+      </div>
+      <div>
+        <h4 class="text-sm font-bold uppercase tracking-widest text-gray-400 mb-4">Contact</h4>
+        <ul class="space-y-2 text-gray-400 text-sm">
+          <li>{{FOOTER_EMAIL}}</li>
+          <li>{{FOOTER_PHONE}}</li>
+          <li>{{FOOTER_ADDRESS}}</li>
+        </ul>
+      </div>
+    </div>
+    <div class="border-t border-white/10 pt-8 flex flex-col md:flex-row justify-between items-center gap-4 text-gray-500 text-sm">
+      <span>© {{YEAR}} {{SITE_TITLE}}. All rights reserved.</span>
+      <span>Built with MAVIS AI</span>
+    </div>
+  </div>
+</footer>`,
+};
+
+// ---------------------------------------------------------------------------
+// Template-based section renderer (Tailwind)
+// ---------------------------------------------------------------------------
+
+function renderSectionFromTemplate(
+  sectionType: string,
+  content: Record<string, string>,
+  imageUrl?: string,
+  unsplashCredit?: string,
+): string {
+  const template = SECTION_TEMPLATES[sectionType] ?? SECTION_TEMPLATES["cta_banner"];
+  // Replace all {{KEY}} placeholders with content values; unknown keys → empty string
+  const html = template.replace(/\{\{([A-Z0-9_]+)\}\}/g, (_match: string, key: string) => {
+    if (key === "HERO_IMAGE" || key === "ABOUT_IMAGE") return imageUrl ?? content[key] ?? "";
+    if (key === "UNSPLASH_CREDIT") {
+      return unsplashCredit ? `<!-- ${unsplashCredit} -->` : "";
+    }
+    return content[key] ?? "";
+  });
+  return html;
+}
+
+// Build a Tailwind-based standalone HTML page using section templates
+async function buildTailwindPage(
+  pageType: string,
+  content: any,
+  brief: PageBrief,
+  siteTitle: string,
+  pageList: string[],
+  contactCtx?: { supabaseUrl: string; projectId: string; userId: string },
+): Promise<string> {
+  const sections: SectionData[] = await generatePageSections(pageType, brief, content);
+  const primaryColor = content._primaryColor ?? "#6366f1";
+  const title = pageType === "home" ? sanitizeHtml(siteTitle) : `${pageType.charAt(0).toUpperCase() + pageType.slice(1)} | ${sanitizeHtml(siteTitle)}`;
+
+  // Build nav links
+  const navLinks = pageList.map(p =>
+    `<a href="${p === "home" ? "index" : p}.html" class="text-sm font-medium text-gray-600 hover:text-gray-900 transition-colors">${p.charAt(0).toUpperCase() + p.slice(1)}</a>`
+  ).join("");
+
+  const nav = `<nav class="sticky top-0 z-50 bg-white/95 backdrop-blur border-b border-gray-100 shadow-sm">
+  <div class="max-w-6xl mx-auto px-6 flex items-center justify-between h-16">
+    <a href="index.html" class="text-xl font-black text-gray-900">${sanitizeHtml(siteTitle)}</a>
+    <div class="hidden md:flex items-center gap-6">${navLinks}</div>
+    <a href="contact.html" class="hidden md:inline-flex bg-indigo-600 text-white font-semibold px-5 py-2.5 rounded-xl text-sm hover:bg-indigo-700 transition-colors">Get Started</a>
+  </div>
+</nav>`;
+
+  const yr = new Date().getFullYear();
+  const footerLinks = pageList.map(p =>
+    `<li><a href="${p === "home" ? "index" : p}.html" class="text-gray-400 hover:text-white transition-colors text-sm">${p.charAt(0).toUpperCase() + p.slice(1)}</a></li>`
+  ).join("");
+
+  const footer = `<footer class="bg-gray-900 text-white pt-12 pb-6 px-6">
+  <div class="max-w-6xl mx-auto flex flex-col md:flex-row justify-between gap-8 mb-8">
+    <div>
+      <div class="text-xl font-black mb-2">${sanitizeHtml(siteTitle)}</div>
+      <p class="text-gray-400 text-sm max-w-xs">Professional web presence for modern businesses.</p>
+    </div>
+    <div>
+      <h4 class="text-xs font-bold uppercase tracking-widest text-gray-500 mb-3">Pages</h4>
+      <ul class="space-y-2">${footerLinks}</ul>
+    </div>
+  </div>
+  <div class="max-w-6xl mx-auto border-t border-white/10 pt-6 flex justify-between items-center text-gray-500 text-xs">
+    <span>© ${yr} ${sanitizeHtml(siteTitle)}. All rights reserved.</span>
+    <span>Built with MAVIS AI</span>
+  </div>
+</footer>`;
+
+  // Render each section using templates where possible, else fall back to existing renderers
+  const bodyParts: string[] = [];
+  for (const sec of sections) {
+    const rendered = renderSectionWithTailwind(sec, pageType === "home" ? (content._heroImageUrl ?? undefined) : undefined, contactCtx, content);
+    bodyParts.push(rendered);
+  }
+
+  const ga4Id = Deno.env.get("GA4_MEASUREMENT_ID") ?? "G-XXXXXXXXXX";
+  const ga4Snippet = `<!-- Analytics: replace G-XXXXXXXXXX with your GA4 measurement ID -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=${ga4Id}"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+  gtag('config', '${ga4Id}');
+</script>`;
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>${title}</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script>tailwind.config = { theme: { extend: {} } }</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Plus+Jakarta+Sans:wght@400;600;700;800&display=swap" rel="stylesheet">
+<style>body{font-family:'Inter','Plus Jakarta Sans',sans-serif;}</style>
+${ga4Snippet}
+</head>
+<body class="bg-white text-gray-900 antialiased">
+${nav}
+<main>${bodyParts.join("\n")}</main>
+${footer}
+</body>
+</html>`;
+}
+
+// Map section data to Tailwind template or fall back to existing CSS renderer
+function renderSectionWithTailwind(
+  s: SectionData,
+  heroUrl?: string,
+  contactCtx?: { supabaseUrl: string; projectId: string; userId: string },
+  pageContent?: any,
+): string {
+  switch (s.type) {
+    case "hero": {
+      const c: Record<string, string> = {
+        BADGE: (s as any).badge ?? "",
+        HEADLINE: s.headline,
+        SUBHEADLINE: s.subheadline,
+        CTA_PRIMARY: s.cta_primary,
+        CTA_SECONDARY: (s as any).cta_secondary ?? "Learn More",
+        HERO_IMAGE: heroUrl ?? "",
+      };
+      const credit = (pageContent?._heroImageCredit as string) ?? "";
+      return renderSectionFromTemplate("hero_gradient", c, heroUrl, credit);
+    }
+    case "stats": {
+      const items = s.items ?? [];
+      const c: Record<string, string> = {
+        STAT_1_NUM: items[0]?.number ?? "",
+        STAT_1_LABEL: items[0]?.label ?? "",
+        STAT_2_NUM: items[1]?.number ?? "",
+        STAT_2_LABEL: items[1]?.label ?? "",
+        STAT_3_NUM: items[2]?.number ?? "",
+        STAT_3_LABEL: items[2]?.label ?? "",
+        STAT_4_NUM: items[3]?.number ?? "",
+        STAT_4_LABEL: items[3]?.label ?? "",
+      };
+      return renderSectionFromTemplate("stats_row", c);
+    }
+    case "features": {
+      const items = (s as any).items ?? [];
+      const c: Record<string, string> = {
+        CHIP: (s as any).chip ?? "Features",
+        HEADLINE: s.headline,
+        SUBHEADLINE: (s as any).subheadline ?? "",
+        ICON_1: items[0]?.icon ?? "⚡",
+        TITLE_1: items[0]?.title ?? "",
+        DESC_1: items[0]?.description ?? "",
+        ICON_2: items[1]?.icon ?? "🎯",
+        TITLE_2: items[1]?.title ?? "",
+        DESC_2: items[1]?.description ?? "",
+        ICON_3: items[2]?.icon ?? "🚀",
+        TITLE_3: items[2]?.title ?? "",
+        DESC_3: items[2]?.description ?? "",
+      };
+      return renderSectionFromTemplate("features_grid", c);
+    }
+    case "testimonials": {
+      const items = (s as any).items ?? [];
+      const c: Record<string, string> = {
+        CHIP: (s as any).chip ?? "Testimonials",
+        HEADLINE: s.headline,
+        QUOTE_1: items[0]?.quote ?? "",
+        AUTHOR_1: items[0]?.author ?? "",
+        ROLE_1: items[0]?.role ?? "",
+        COMPANY_1: items[0]?.company ?? "",
+        QUOTE_2: items[1]?.quote ?? "",
+        AUTHOR_2: items[1]?.author ?? "",
+        ROLE_2: items[1]?.role ?? "",
+        COMPANY_2: items[1]?.company ?? "",
+        QUOTE_3: items[2]?.quote ?? "",
+        AUTHOR_3: items[2]?.author ?? "",
+        ROLE_3: items[2]?.role ?? "",
+        COMPANY_3: items[2]?.company ?? "",
+      };
+      return renderSectionFromTemplate("testimonials_cards", c);
+    }
+    case "pricing": {
+      const plans = (s as any).plans ?? [];
+      const featsHtml = (feats: string[]) => (feats ?? []).map((f: string) => `<li class="flex items-center gap-2"><span class="text-indigo-600">✓</span>${sanitizeHtml(f)}</li>`).join("");
+      const c: Record<string, string> = {
+        HEADLINE: s.headline,
+        SUBHEADLINE: (s as any).subheadline ?? "",
+        PRICE_1: plans[0]?.price ?? "Free",
+        PERIOD_1: plans[0]?.period ? `/ ${plans[0].period}` : "",
+        FEATURES_1: featsHtml(plans[0]?.features ?? []),
+        CTA_1: plans[0]?.cta ?? "Get Started",
+        PRICE_2: plans[1]?.price ?? "$49",
+        PERIOD_2: plans[1]?.period ? `/ ${plans[1].period}` : "",
+        FEATURES_2: featsHtml(plans[1]?.features ?? []),
+        CTA_2: plans[1]?.cta ?? "Get Started",
+        PRICE_3: plans[2]?.price ?? "Custom",
+        PERIOD_3: plans[2]?.period ? `/ ${plans[2].period}` : "",
+        FEATURES_3: featsHtml(plans[2]?.features ?? []),
+        CTA_3: plans[2]?.cta ?? "Contact Us",
+      };
+      return renderSectionFromTemplate("pricing_table", c);
+    }
+    case "faq": {
+      const items = (s as any).items ?? [];
+      const faqItemsHtml = items.map((f: any, i: number) => `<div class="tw-faq-item bg-white rounded-xl border border-gray-200 overflow-hidden">
+  <button class="tw-faq-btn w-full text-left px-6 py-4 flex justify-between items-center font-semibold text-gray-900 hover:bg-gray-50 transition-colors">
+    <span>${sanitizeHtml(f.question)}</span><span class="tw-faq-icon text-gray-400 text-xl leading-none">+</span>
+  </button>
+  <div class="tw-faq-ans hidden px-6 pb-4 text-gray-500 text-sm leading-relaxed">${sanitizeHtml(f.answer)}</div>
+</div>`).join("\n");
+      const c: Record<string, string> = {
+        CHIP: (s as any).chip ?? "FAQ",
+        HEADLINE: s.headline,
+        FAQ_ITEMS: faqItemsHtml,
+      };
+      return renderSectionFromTemplate("faq_accordion", c);
+    }
+    case "contact":
+      return _sContact(s, contactCtx);
+    case "team": {
+      const members = (s as any).members ?? [];
+      const c: Record<string, string> = {
+        CHIP: (s as any).chip ?? "Team",
+        HEADLINE: s.headline,
+        SUBHEADLINE: (s as any).subheadline ?? "",
+        MEMBER_EMOJI_1: members[0]?.emoji ?? (members[0]?.name ?? "T").charAt(0),
+        MEMBER_NAME_1: members[0]?.name ?? "",
+        MEMBER_TITLE_1: members[0]?.role ?? "",
+        MEMBER_BIO_1: members[0]?.bio ?? "",
+        MEMBER_EMOJI_2: members[1]?.emoji ?? (members[1]?.name ?? "T").charAt(0),
+        MEMBER_NAME_2: members[1]?.name ?? "",
+        MEMBER_TITLE_2: members[1]?.role ?? "",
+        MEMBER_BIO_2: members[1]?.bio ?? "",
+        MEMBER_EMOJI_3: members[2]?.emoji ?? (members[2]?.name ?? "T").charAt(0),
+        MEMBER_NAME_3: members[2]?.name ?? "",
+        MEMBER_TITLE_3: members[2]?.role ?? "",
+        MEMBER_BIO_3: members[2]?.bio ?? "",
+      };
+      return renderSectionFromTemplate("team_cards", c);
+    }
+    case "portfolio": {
+      const items = (s as any).items ?? [];
+      const c: Record<string, string> = {
+        CHIP: (s as any).chip ?? "Portfolio",
+        HEADLINE: s.headline,
+        SUBHEADLINE: (s as any).subheadline ?? "",
+        PORT_IMG_1: items[0]?.image ?? "",
+        PORT_TITLE_1: items[0]?.title ?? "",
+        PORT_CAT_1: items[0]?.category ?? "",
+        PORT_IMG_2: items[1]?.image ?? "",
+        PORT_TITLE_2: items[1]?.title ?? "",
+        PORT_CAT_2: items[1]?.category ?? "",
+        PORT_IMG_3: items[2]?.image ?? "",
+        PORT_TITLE_3: items[2]?.title ?? "",
+        PORT_CAT_3: items[2]?.category ?? "",
+      };
+      return renderSectionFromTemplate("portfolio_grid", c);
+    }
+    case "about_hero": {
+      const paragraphs = (s.body ?? "").split("\n\n").filter(Boolean);
+      return `<section class="bg-gradient-to-br from-indigo-900 to-purple-900 text-white py-24 px-6">
+  <div class="max-w-3xl mx-auto text-center">
+    <h1 class="text-5xl font-black mb-6">${s.headline}</h1>
+    <p class="text-xl text-white/80 mb-8">${s.subheadline}</p>
+  </div>
+</section>
+<section class="py-20 px-6 bg-white">
+  <div class="max-w-3xl mx-auto">
+    ${paragraphs.map((p: string) => `<p class="text-lg text-gray-600 mb-6 leading-relaxed">${p}</p>`).join("")}
+  </div>
+</section>`;
+    }
+    case "services": {
+      const items = (s as any).items ?? [];
+      const c: Record<string, string> = {
+        CHIP: (s as any).chip ?? "Services",
+        HEADLINE: s.headline,
+        SUBHEADLINE: (s as any).subheadline ?? "",
+        SVC_ICON_1: items[0]?.icon ?? "⚡",
+        SVC_TITLE_1: items[0]?.title ?? "",
+        SVC_DESC_1: items[0]?.description ?? "",
+        SVC_ICON_2: items[1]?.icon ?? "🎯",
+        SVC_TITLE_2: items[1]?.title ?? "",
+        SVC_DESC_2: items[1]?.description ?? "",
+        SVC_ICON_3: items[2]?.icon ?? "🚀",
+        SVC_TITLE_3: items[2]?.title ?? "",
+        SVC_DESC_3: items[2]?.description ?? "",
+        SVC_ICON_4: items[3]?.icon ?? "💡",
+        SVC_TITLE_4: items[3]?.title ?? "",
+        SVC_DESC_4: items[3]?.description ?? "",
+      };
+      return renderSectionFromTemplate("services_list", c);
+    }
+    case "values": {
+      const items = (s as any).items ?? [];
+      const valCards = items.map((v: any) => `<div class="bg-white rounded-2xl p-6 text-center shadow-sm border border-gray-100">
+  <div class="text-4xl mb-4">${v.emoji ?? "⭐"}</div>
+  <h3 class="text-lg font-bold text-gray-900 mb-2">${v.title}</h3>
+  <p class="text-gray-500 text-sm">${v.description}</p>
+</div>`).join("");
+      return `<section class="py-20 px-6 bg-gray-50">
+  <div class="max-w-5xl mx-auto">
+    <div class="text-center mb-14">
+      ${(s as any).chip ? `<span class="inline-block text-indigo-600 text-sm font-bold uppercase tracking-widest mb-3">${(s as any).chip}</span>` : ""}
+      <h2 class="text-4xl font-black text-gray-900 mb-4">${s.headline}</h2>
+      ${(s as any).subheadline ? `<p class="text-lg text-gray-500">${(s as any).subheadline}</p>` : ""}
+    </div>
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-6">${valCards}</div>
+  </div>
+</section>`;
+    }
+    case "cta": {
+      const c: Record<string, string> = {
+        HEADLINE: s.headline,
+        SUBHEADLINE: s.subheadline,
+        CTA_PRIMARY: s.cta_primary,
+      };
+      return renderSectionFromTemplate("cta_banner", c);
+    }
+    case "steps": {
+      const items = (s as any).items ?? [];
+      const stepsHtml = items.map((st: any, i: number) => `<div class="flex gap-6 items-start">
+  <div class="flex-shrink-0 w-12 h-12 rounded-full bg-indigo-600 text-white flex items-center justify-center font-black text-lg">${String(i + 1).padStart(2, "0")}</div>
+  <div><h3 class="text-lg font-bold text-gray-900 mb-1">${st.title}</h3><p class="text-gray-500">${st.description}</p></div>
+</div>`).join("\n");
+      return `<section class="py-20 px-6 bg-gray-50">
+  <div class="max-w-3xl mx-auto">
+    <div class="text-center mb-14">
+      ${(s as any).chip ? `<span class="inline-block text-indigo-600 text-sm font-bold uppercase tracking-widest mb-3">${(s as any).chip}</span>` : ""}
+      <h2 class="text-4xl font-black text-gray-900 mb-4">${s.headline}</h2>
+      ${(s as any).subheadline ? `<p class="text-lg text-gray-500">${(s as any).subheadline}</p>` : ""}
+    </div>
+    <div class="space-y-10">${stepsHtml}</div>
+  </div>
+</section>`;
+    }
+    case "content_block": {
+      return `<section class="py-20 px-6 ${(s as any).bg !== false ? "bg-gray-50" : "bg-white"}">
+  <div class="max-w-3xl mx-auto text-center">
+    ${(s as any).chip ? `<span class="inline-block text-indigo-600 text-sm font-bold uppercase tracking-widest mb-3">${(s as any).chip}</span>` : ""}
+    ${(s as any).headline ? `<h2 class="text-4xl font-black text-gray-900 mb-6">${(s as any).headline}</h2>` : ""}
+    <p class="text-lg text-gray-600 leading-relaxed">${(s as any).body}</p>
+  </div>
+</section>`;
+    }
+    case "image_text": {
+      const imgLeft = (s as any).image_side === "left";
+      const textBlock = `<div>${(s as any).chip ? `<span class="inline-block text-indigo-600 text-sm font-bold uppercase tracking-widest mb-3">${(s as any).chip}</span>` : ""}
+<h2 class="text-4xl font-black text-gray-900 mb-6 mt-2">${s.headline}</h2>
+<p class="text-lg text-gray-600 leading-relaxed mb-8">${(s as any).body}</p>
+${(s as any).cta ? `<a href="contact.html" class="inline-block bg-indigo-600 text-white font-bold px-8 py-4 rounded-xl hover:bg-indigo-700 transition-colors">${(s as any).cta}</a>` : ""}</div>`;
+      const imgBlock = `<div class="rounded-2xl overflow-hidden bg-gradient-to-br from-indigo-100 to-purple-100 h-80 flex items-center justify-center text-7xl">✨</div>`;
+      return `<section class="py-20 px-6 bg-white">
+  <div class="max-w-5xl mx-auto grid grid-cols-1 lg:grid-cols-2 gap-16 items-center">
+    ${imgLeft ? `${imgBlock}${textBlock}` : `${textBlock}${imgBlock}`}
+  </div>
+</section>`;
+    }
+    default:
+      return "";
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
@@ -1805,49 +2573,30 @@ async function buildStandaloneHtml(
   useAI = true,
   contactCtx?: { supabaseUrl: string; projectId: string; userId: string },
 ): Promise<string> {
-  const css = _css(primaryColor);
   const safeList = pageList.length > 0 ? pageList : ["home"];
-  const nav = _nav(siteTitle, safeList);
-  const ftr = _footer(siteTitle, safeList);
-  const title = pageType === "home" ? sanitizeHtml(siteTitle) : `${pageType.charAt(0).toUpperCase() + pageType.slice(1)} | ${sanitizeHtml(siteTitle)}`;
 
-  const sections = useAI
-    ? await generatePageSections(pageType, brief ?? {}, content)
-    : fallbackSections(pageType, content);
+  // Attempt to fetch an Unsplash image for the hero if we have an API key and no image yet
+  let finalHeroUrl = heroImageUrl;
+  let heroCredit = "";
+  if (!finalHeroUrl && pageType === "home" && UNSPLASH_ACCESS_KEY) {
+    const query = brief?.business_type
+      ? `${brief.business_type} professional business`
+      : "professional business office";
+    finalHeroUrl = await fetchUnsplashImage(query, "");
+    if (finalHeroUrl) heroCredit = `Photo from Unsplash`;
+  }
 
-  const body = sections.map(s => renderSection(s, pageType === "home" ? heroImageUrl : undefined, contactCtx)).join("\n");
+  // Attach hero image info to content for template substitution
+  const enrichedContent = { ...content, _heroImageUrl: finalHeroUrl, _heroImageCredit: heroCredit, _primaryColor: primaryColor };
 
-  const ga4Id = Deno.env.get("GA4_MEASUREMENT_ID") ?? "G-XXXXXXXXXX";
-  const ga4Snippet = `<!-- Analytics: replace G-XXXXXXXXXX with your GA4 measurement ID -->
-<script async src="https://www.googletagmanager.com/gtag/js?id=${ga4Id}"></script>
-<script>
-  window.dataLayer = window.dataLayer || [];
-  function gtag(){dataLayer.push(arguments);}
-  gtag('js', new Date());
-  gtag('config', '${ga4Id}');
-</script>`;
-
-  return `<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1.0">
-<title>${title}</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;0,900;1,400&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-<style>${css}</style>
-${ga4Snippet}
-</head>
-<body>
-${nav}
-<main>${body}</main>
-${ftr}
-<script>
-function toggleFaq(i){const a=document.getElementById('faq-'+i);a&&a.parentElement.classList.toggle('open')}
-</script>
-</body>
-</html>`;
+  return buildTailwindPage(
+    pageType,
+    enrichedContent,
+    brief ?? {},
+    siteTitle,
+    safeList,
+    contactCtx,
+  );
 }
 
 // ── LEGACY stub — kept only so _homeBody reference in old code compiles ──────
@@ -2291,7 +3040,7 @@ serve(async (req: Request) => {
         const siteContent = await generateSiteContent(body as SiteBrief);
         const primaryColor = siteContent.site?.primary_color ?? "#1a56db";
 
-        // 2. Generate hero image (best-effort)
+        // 2. Generate hero image (best-effort: try mavis-image-gen first, then Unsplash)
         let heroImageUrl: string | undefined;
         const heroImagePrompt = siteContent.pages?.home?.hero?.hero_image_prompt;
         if (heroImagePrompt) {
@@ -2315,8 +3064,15 @@ serve(async (req: Request) => {
               heroImageUrl = imgData.url;
             }
           } catch {
-            // hero image is optional — continue without it
+            // hero image is optional — fall through to Unsplash
           }
+        }
+        // Fallback: fetch hero image from Unsplash if we still don't have one
+        if (!heroImageUrl) {
+          const unsplashQuery = body.business_type
+            ? `${body.business_type} professional business`
+            : "professional business office";
+          heroImageUrl = await fetchUnsplashImage(unsplashQuery) || undefined;
         }
 
         // 3. Build + publish each page
