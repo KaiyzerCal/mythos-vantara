@@ -19,17 +19,87 @@ function scoreImportance(text: string): number {
 
 // ── Allowed tables ────────────────────────────────────────────────────────────
 const READ_TABLES = new Set([
+  // Character / RPG system
   "quests", "tasks", "skills", "rituals", "allies", "inventory",
   "journal_entries", "vault_entries", "mavis_notes", "mavis_memory",
   "mavis_tacit", "mavis_tasks", "energy_systems", "bpm_sessions",
-  "store_items", "transformations",
-  "contacts", "contact_interactions", "health_metrics",
-  "mavis_insights", "calendar_events",
+  "store_items", "transformations", "rankings_profiles",
+  // Contacts & CRM
+  "contacts", "contact_interactions", "mavis_leads", "mavis_opportunities",
+  "mavis_relationship_health",
+  // Intelligence & analytics
+  "mavis_insights", "mavis_behavioral_patterns", "mavis_predictions",
+  "mavis_world_model", "mavis_narrative", "mavis_strategy_memos",
+  "mavis_causal_chains", "mavis_market_intel", "mavis_meeting_preps",
+  "mavis_outcome_events", "mavis_evolution_log", "mavis_action_queue",
+  "mavis_autonomy_settings", "mavis_learning_signals", "mavis_learned_preferences",
+  "mavis_improvement_log",
+  // Calendar, planning & goals
+  "calendar_events", "mavis_plans", "mavis_plan_steps", "meeting_notes",
+  "mavis_goals", "time_logs",
+  // Health & biometrics
+  "health_metrics", "health_integration_settings", "whoop_daily_data",
+  "galaxy_ring_daily_data",
+  // Finance
+  "mavis_expenses", "era_financial_cache",
+  // Team & competition
+  "mavis_team_members", "mavis_teams", "mavis_team_memory",
+  "mavis_competitors",
+  // Personas & content
+  "personas", "persona_memories", "persona_conversations", "persona_content", "persona_revenue",
+  "nora_content_queue", "nora_engagement_log", "social_post_analytics",
+  // Video
+  "video_projects", "video_clips", "video_render_jobs", "video_segments",
+  // Website
+  "website_projects", "website_pages", "website_clients", "website_generation_jobs",
+  "website_service_tiers",
+  // Workflows & automation
+  "workflows", "workflow_runs", "mavis_automation_rules",
+  // Widgets & receptionist
+  "widget_instances", "widget_leads", "widget_chat_logs", "widget_usage_stats",
+  "receptionist_businesses", "receptionist_calls", "receptionist_messages",
+  // Knowledge graph
+  "mavis_entities", "mavis_entity_relationships", "mavis_thought_chains",
+  // Communications
+  "mavis_calls", "mavis_sms_log", "mavis_inbound_emails",
+  // Profile & achievements
+  "profiles", "achievements", "activity_log",
+  // Notifications & subscriptions
+  "navi_notifications", "mavis_bond",
 ]);
 
 const WRITE_TABLES = new Set([
-  "quests", "tasks", "rituals", "mavis_notes", "mavis_memory", "mavis_tasks",
-  "contacts", "contact_interactions", "transformations",
+  // Character / RPG system
+  "quests", "tasks", "skills", "rituals", "allies", "inventory",
+  "journal_entries", "vault_entries", "mavis_notes", "mavis_memory",
+  "mavis_tasks", "energy_systems", "bpm_sessions",
+  "store_items", "transformations", "rankings_profiles",
+  // Contacts & CRM
+  "contacts", "contact_interactions", "mavis_leads", "mavis_opportunities",
+  // Intelligence
+  "mavis_strategy_memos", "mavis_plans", "mavis_plan_steps",
+  "mavis_action_queue", "mavis_autonomy_settings",
+  "mavis_learning_signals", "mavis_learned_preferences",
+  // Calendar, planning & goals
+  "calendar_events", "meeting_notes", "mavis_goals", "time_logs",
+  // Health
+  "health_metrics",
+  // Finance
+  "mavis_expenses",
+  // Team & competition
+  "mavis_team_members", "mavis_teams", "mavis_competitors",
+  // Personas & content
+  "personas", "nora_content_queue",
+  // Video
+  "video_projects", "video_clips",
+  // Website
+  "website_projects", "website_pages",
+  // Workflows
+  "workflows", "mavis_automation_rules",
+  // Knowledge graph
+  "mavis_entities", "mavis_entity_relationships", "mavis_thought_chains",
+  // Notifications
+  "navi_notifications",
 ]);
 
 // ── Sandboxed JS executor (mirrors mavis-code-exec) ───────────────────────────
@@ -69,7 +139,7 @@ const AGENT_TOOLS = [
   {
     name: "query_db",
     description:
-      "Query a MAVIS database table. Use to look up the operator's quests, tasks, skills, rituals, allies, inventory, notes, memories, or tacit rules. Always query before claiming something doesn't exist.",
+      "Query any MAVIS database table. Full access to all app data: quests, skills, journal, vault, contacts, goals, calendar, health, finance, personas, video projects, website projects, competitors, leads, workflows, rankings, transformations, meeting notes, time logs, achievements, activity_log, and more. Always query before claiming something doesn't exist.",
     input_schema: {
       type: "object" as const,
       properties: {

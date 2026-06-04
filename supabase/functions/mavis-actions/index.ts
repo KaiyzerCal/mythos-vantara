@@ -1193,6 +1193,186 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
       return await rcRes.json();
     }
 
+    // ── CALENDAR EVENTS ─────────────────────────────────────────────────
+    case "create_calendar_event":
+    case "add_calendar_event":
+    case "schedule_event": {
+      const { error } = await sb.from("calendar_events").insert({
+        user_id: userId,
+        title: String(p.title || "New Event"),
+        start_time: String(p.start_time || p.start || new Date().toISOString()),
+        end_time: String(p.end_time || p.end || new Date(Date.now() + 3600000).toISOString()),
+        description: String(p.description || ""),
+        location: String(p.location || ""),
+        event_type: String(p.event_type || p.type || "general"),
+        all_day: Boolean(p.all_day ?? false),
+      });
+      if (error) throw error;
+      await logActivity(sb, userId, "calendar_event_created", `Event scheduled: ${p.title || ""}`, 0);
+      return;
+    }
+
+    case "update_calendar_event":
+    case "edit_calendar_event": {
+      const evId = String(p.event_id || p.id || "");
+      if (!evId) throw new Error("update_calendar_event requires event_id");
+      const evUpdates: Record<string, unknown> = {};
+      for (const k of ["title", "start_time", "end_time", "description", "location", "all_day", "event_type"]) {
+        if (p[k] !== undefined) evUpdates[k] = p[k];
+      }
+      await sb.from("calendar_events").update(evUpdates).eq("id", evId).eq("user_id", userId);
+      return;
+    }
+
+    case "delete_calendar_event": {
+      const evId2 = String(p.event_id || p.id || "");
+      if (!evId2) throw new Error("delete_calendar_event requires event_id");
+      await sb.from("calendar_events").delete().eq("id", evId2).eq("user_id", userId);
+      return;
+    }
+
+    // ── TIME TRACKING ────────────────────────────────────────────────────
+    case "log_time":
+    case "track_time":
+    case "create_time_log": {
+      const { error } = await sb.from("time_logs").insert({
+        user_id: userId,
+        title: String(p.title || p.task || "Time logged"),
+        category: String(p.category || "work"),
+        duration_minutes: Number(p.duration_minutes || p.minutes || p.duration || 0),
+        start_time: p.start_time ? String(p.start_time) : null,
+        end_time: p.end_time ? String(p.end_time) : null,
+        notes: String(p.notes || ""),
+        tags: asStringArray(p.tags),
+        logged_at: new Date().toISOString(),
+      });
+      if (error) throw error;
+      await logActivity(sb, userId, "time_logged", `${p.duration_minutes || p.minutes || 0}min — ${p.title || ""}`, 0);
+      return;
+    }
+
+    // ── MEETING NOTES ────────────────────────────────────────────────────
+    case "create_meeting_note":
+    case "add_meeting_note":
+    case "log_meeting": {
+      const { error } = await sb.from("meeting_notes").insert({
+        user_id: userId,
+        title: String(p.title || "Meeting Notes"),
+        content: String(p.content || p.notes || ""),
+        attendees: Array.isArray(p.attendees) ? p.attendees : (p.attendees ? [String(p.attendees)] : []),
+        action_items: Array.isArray(p.action_items) ? p.action_items : [],
+        meeting_date: p.meeting_date ? String(p.meeting_date) : new Date().toISOString(),
+        tags: asStringArray(p.tags),
+      });
+      if (error) throw error;
+      await logActivity(sb, userId, "meeting_noted", `Meeting notes: ${p.title || ""}`, 0);
+      return;
+    }
+
+    case "update_meeting_note":
+    case "edit_meeting_note": {
+      const mnId = String(p.note_id || p.id || "");
+      if (!mnId) throw new Error("update_meeting_note requires note_id");
+      const mnUpdates: Record<string, unknown> = {};
+      for (const k of ["title", "content", "attendees", "action_items", "meeting_date", "tags"]) {
+        if (p[k] !== undefined) mnUpdates[k] = p[k];
+      }
+      await sb.from("meeting_notes").update(mnUpdates).eq("id", mnId).eq("user_id", userId);
+      return;
+    }
+
+    // ── HEALTH METRICS ───────────────────────────────────────────────────
+    case "log_health_metric":
+    case "health_metric":
+    case "record_health": {
+      const { error } = await sb.from("health_metrics").insert({
+        user_id: userId,
+        metric_type: String(p.metric_type || p.type || "general"),
+        value: Number(p.value || 0),
+        unit: String(p.unit || ""),
+        notes: String(p.notes || ""),
+        recorded_at: p.recorded_at ? String(p.recorded_at) : new Date().toISOString(),
+      });
+      if (error) throw error;
+      return;
+    }
+
+    // ── COMPETITORS ──────────────────────────────────────────────────────
+    case "add_competitor":
+    case "create_competitor":
+    case "track_competitor": {
+      const { error } = await sb.from("mavis_competitors").insert({
+        user_id: userId,
+        name: String(p.name || p.company || "Competitor"),
+        url: String(p.url || p.website || ""),
+        description: String(p.description || ""),
+        strengths: Array.isArray(p.strengths) ? p.strengths : [],
+        weaknesses: Array.isArray(p.weaknesses) ? p.weaknesses : [],
+        notes: String(p.notes || ""),
+        tags: asStringArray(p.tags),
+      });
+      if (error) throw error;
+      await logActivity(sb, userId, "competitor_tracked", `Competitor: ${p.name || ""}`, 0);
+      return;
+    }
+
+    case "update_competitor": {
+      const compId = String(p.competitor_id || p.id || "");
+      if (!compId) throw new Error("update_competitor requires competitor_id");
+      const compUpdates: Record<string, unknown> = {};
+      for (const k of ["name", "url", "description", "strengths", "weaknesses", "notes", "tags"]) {
+        if (p[k] !== undefined) compUpdates[k] = p[k];
+      }
+      await sb.from("mavis_competitors").update(compUpdates).eq("id", compId).eq("user_id", userId);
+      return;
+    }
+
+    // ── MAVIS GOALS ──────────────────────────────────────────────────────
+    case "create_mavis_goal":
+    case "add_goal":
+    case "set_mavis_goal": {
+      const { error } = await sb.from("mavis_goals").insert({
+        user_id: userId,
+        title: String(p.title || "New Goal"),
+        description: String(p.description || ""),
+        category: String(p.category || "general"),
+        target_date: p.target_date ? String(p.target_date) : null,
+        milestones: Array.isArray(p.milestones) ? p.milestones : [],
+        status: String(p.status || "active"),
+        priority: String(p.priority || "medium"),
+      });
+      if (error) throw error;
+      await logActivity(sb, userId, "goal_created", `Goal: ${p.title || ""}`, 0);
+      return;
+    }
+
+    case "update_mavis_goal":
+    case "update_goal": {
+      const goalId = String(p.goal_id || p.id || "");
+      if (!goalId) throw new Error("update_mavis_goal requires goal_id");
+      const gUpdates: Record<string, unknown> = {};
+      for (const k of ["title", "description", "status", "priority", "target_date", "milestones", "progress"]) {
+        if (p[k] !== undefined) gUpdates[k] = p[k];
+      }
+      await sb.from("mavis_goals").update(gUpdates).eq("id", goalId).eq("user_id", userId);
+      return;
+    }
+
+    // ── NOTIFICATION ─────────────────────────────────────────────────────
+    case "send_notification":
+    case "push_notification": {
+      const { error } = await sb.from("navi_notifications").insert({
+        user_id: userId,
+        title: String(p.title || "MAVIS Alert"),
+        body: String(p.body || p.message || p.content || ""),
+        type: String(p.type || "info"),
+        category: String(p.category || "general"),
+        priority: String(p.priority || "normal"),
+      });
+      if (error) throw error;
+      return;
+    }
+
     default:
       throw new Error(`Unknown MAVIS action: ${action.type}`);
   }
