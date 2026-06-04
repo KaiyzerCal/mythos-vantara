@@ -104,6 +104,10 @@ export default function WebsiteBuilderPage() {
   const [addingPageType, setAddingPageType] = useState("");
   const [isAddingPage, setIsAddingPage] = useState(false);
   const [previewPageId, setPreviewPageId] = useState<string | null>(null);
+  const [previewKey, setPreviewKey] = useState(0);
+  const [editModeEnabled, setEditModeEnabled] = useState(false);
+  const [pendingEdits, setPendingEdits] = useState<Record<string, { html: string; text: string }>>({});
+  const [isSavingEdits, setIsSavingEdits] = useState(false);
   const [exportingPageId, setExportingPageId] = useState<string | null>(null);
   const [isDownloadingAll, setIsDownloadingAll] = useState(false);
   const [importingPageType, setImportingPageType] = useState<string | null>(null);
@@ -178,6 +182,20 @@ export default function WebsiteBuilderPage() {
   };
 
   useEffect(() => { loadProjects(); }, [user]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Contenteditable postMessage bridge ───────────────────
+  useEffect(() => {
+    const handler = (event: MessageEvent) => {
+      if (event.data?.type === 'ELEMENT_CHANGED') {
+        setPendingEdits(prev => ({
+          ...prev,
+          [event.data.path]: { html: event.data.html, text: event.data.text }
+        }));
+      }
+    };
+    window.addEventListener('message', handler);
+    return () => window.removeEventListener('message', handler);
+  }, []);
 
   const handleSelectProject = async (project: any) => {
     setSelectedProject(project);
@@ -864,6 +882,50 @@ export default function WebsiteBuilderPage() {
     }
   };
 
+  // ── Save inline edits back to the DB ─────────────────────
+  const saveInlineEdits = async () => {
+    if (!previewPageId || Object.keys(pendingEdits).length === 0) return;
+    setIsSavingEdits(true);
+    try {
+      const { data: page } = await supabase
+        .from('website_pages')
+        .select('gutenberg_html')
+        .eq('id', previewPageId)
+        .single();
+
+      if (page?.gutenberg_html) {
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(page.gutenberg_html, 'text/html');
+
+        Object.entries(pendingEdits).forEach(([path, { html }]) => {
+          try {
+            const el = doc.querySelector(path);
+            if (el) el.innerHTML = html;
+          } catch { /* invalid selector — skip */ }
+        });
+
+        const updatedHtml = doc.documentElement.outerHTML;
+
+        await supabase
+          .from('website_pages')
+          .update({ gutenberg_html: updatedHtml })
+          .eq('id', previewPageId);
+
+        // Refresh local state so the iframe re-renders with saved content
+        await loadProjectPages(selectedProject.id);
+      }
+
+      setPendingEdits({});
+      setPreviewKey(k => k + 1);
+      toast.success('Edits saved!');
+    } catch (err: any) {
+      console.error('Failed to save inline edits:', err);
+      toast.error(err.message ?? 'Failed to save edits');
+    } finally {
+      setIsSavingEdits(false);
+    }
+  };
+
   // ── Render ────────────────────────────────────────────────
   return (
     <div className="max-w-7xl mx-auto space-y-6">
@@ -1314,13 +1376,88 @@ export default function WebsiteBuilderPage() {
                           </div>
                           {/* Inline iframe preview */}
                           {previewPageId === dbPage?.id && dbPage?.gutenberg_html && (
-                            <div className="mt-2 rounded border border-border overflow-hidden" style={{ height: '400px' }}>
-                              <iframe
-                                srcDoc={dbPage.gutenberg_html}
-                                className="w-full h-full"
-                                sandbox="allow-scripts"
-                                title={`Preview: ${pageType}`}
-                              />
+                            <div className="mt-2 space-y-2">
+                              {/* Edit mode toolbar */}
+                              <div className="flex items-center gap-2">
+                                <button
+                                  onClick={() => { setEditModeEnabled(e => !e); setPendingEdits({}); }}
+                                  className={`text-xs px-3 py-1.5 rounded-lg border font-medium transition-colors ${editModeEnabled ? 'bg-indigo-100 border-indigo-400 text-indigo-700' : 'bg-white border-gray-300 text-gray-600 hover:bg-gray-50'}`}
+                                >
+                                  {editModeEnabled ? '✏️ Editing' : '✏️ Edit Text'}
+                                </button>
+                                {editModeEnabled && (
+                                  <span className="text-xs text-indigo-600 font-mono">Click any text in the preview to edit it</span>
+                                )}
+                              </div>
+
+                              {/* Pending edits banner */}
+                              {Object.keys(pendingEdits).length > 0 && (
+                                <div className="flex items-center gap-3 p-3 bg-indigo-50 border border-indigo-200 rounded-lg">
+                                  <span className="text-sm text-indigo-700 font-medium">
+                                    {Object.keys(pendingEdits).length} unsaved edit{Object.keys(pendingEdits).length > 1 ? 's' : ''}
+                                  </span>
+                                  <button
+                                    onClick={saveInlineEdits}
+                                    disabled={isSavingEdits}
+                                    className="ml-auto bg-indigo-600 text-white text-sm font-semibold px-4 py-1.5 rounded-lg hover:bg-indigo-700 disabled:opacity-50 transition-colors"
+                                  >
+                                    {isSavingEdits ? 'Saving...' : 'Save Changes'}
+                                  </button>
+                                  <button
+                                    onClick={() => setPendingEdits({})}
+                                    className="text-sm text-gray-500 hover:text-gray-700"
+                                  >
+                                    Discard
+                                  </button>
+                                </div>
+                              )}
+
+                              <div className="rounded border border-border overflow-hidden" style={{ height: '400px' }}>
+                                <iframe
+                                  key={previewKey}
+                                  srcDoc={editModeEnabled ? (() => {
+                                    const editScript = `<script>
+document.querySelectorAll('h1,h2,h3,h4,p,li,span,a,button,label').forEach(el => {
+  el.contentEditable = 'true';
+  el.style.cursor = 'text';
+  el.style.outline = 'none';
+  el.addEventListener('focus', () => {
+    el.style.boxShadow = '0 0 0 2px #6366f1';
+    el.style.borderRadius = '3px';
+  });
+  el.addEventListener('blur', () => {
+    el.style.boxShadow = '';
+    const path = getElementPath(el);
+    window.parent.postMessage({ type: 'ELEMENT_CHANGED', path, html: el.innerHTML, text: el.innerText }, '*');
+  });
+  el.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); el.blur(); }
+    if (e.key === 'Escape') { el.blur(); }
+  });
+});
+function getElementPath(el) {
+  const parts = [];
+  let node = el;
+  while (node && node !== document.body) {
+    const siblings = Array.from(node.parentNode?.children || []);
+    const idx = siblings.indexOf(node);
+    parts.unshift(node.tagName.toLowerCase() + ':nth-child(' + (idx + 1) + ')');
+    node = node.parentNode;
+  }
+  return parts.join(' > ');
+}
+<\/script>`;
+                                    const html = dbPage.gutenberg_html;
+                                    const bodyCloseIdx = html.lastIndexOf('</body>');
+                                    return bodyCloseIdx !== -1
+                                      ? html.slice(0, bodyCloseIdx) + editScript + html.slice(bodyCloseIdx)
+                                      : html + editScript;
+                                  })() : dbPage.gutenberg_html}
+                                  className="w-full h-full"
+                                  sandbox="allow-scripts"
+                                  title={`Preview: ${pageType}`}
+                                />
+                              </div>
                             </div>
                           )}
                           </div>
