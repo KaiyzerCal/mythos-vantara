@@ -110,7 +110,7 @@ export default function Dashboard() {
       .eq("status", "pending")
       .order("priority", { ascending: true })
       .limit(5)
-      .then(({ data }) => setActionQueue(data ?? []));
+      .then(({ data }) => setActionQueue((data as any) ?? []));
   }, []);
 
   // ── Outcome Accuracy ──
