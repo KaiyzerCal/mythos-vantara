@@ -54,6 +54,13 @@ const FORMAT_LABELS: Record<string, string> = {
   long_form: "Long Form",
 };
 
+const FORMAT_DIMENSIONS: Record<string, { width: number; height: number }> = {
+  "9:16": { width: 1080, height: 1920 },
+  "16:9": { width: 1920, height: 1080 },
+  "1:1": { width: 1080, height: 1080 },
+  "4:5": { width: 1080, height: 1350 },
+};
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function isStreamingUrl(url: string): boolean {
@@ -404,6 +411,7 @@ export default function VideoEditorPage() {
   const [renderFailedClipId, setRenderFailedClipId] = useState<string | null>(null);
   const [renderFailedFfmpegCmd, setRenderFailedFfmpegCmd] = useState<string | null>(null);
   const [quota, setQuota] = useState<{ used: number; limit: number; tier: string } | null>(null);
+  const [compiledVideoUrl, setCompiledVideoUrl] = useState<string | null>(null);
 
   // Upload state
   const [dragOver, setDragOver] = useState(false);
@@ -413,6 +421,12 @@ export default function VideoEditorPage() {
   const [transcriptSearch, setTranscriptSearch] = useState("");
   const [previewError, setPreviewError] = useState(false);
   const [activeClipId, setActiveClipId] = useState<string | null>(null);
+  const [currentVideoTime, setCurrentVideoTime] = useState(0);
+
+  // URL import state
+  const [importUrl, setImportUrl] = useState('');
+  const [isImporting, setIsImporting] = useState(false);
+  const [importError, setImportError] = useState('');
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -932,6 +946,146 @@ export default function VideoEditorPage() {
     toast.warning("Compilation is taking longer than expected. Come back later.");
   }
 
+  // ── Server-Side Compilation ───────────────────────────────────────────────
+
+  async function handleServerSideCompile() {
+    if (!selectedProject || compilationSelected.size === 0) return;
+    const selectedClips = allClips
+      .filter(c => compilationSelected.has(clipKey(c)))
+      .sort((a, b) => (a.start ?? a.start_seconds ?? 0) - (b.start ?? b.start_seconds ?? 0));
+
+    if (selectedClips.length < 2) {
+      toast.error("Select at least 2 clips for a compilation.");
+      return;
+    }
+
+    setCompilingInProgress(true);
+    setCompilationResult({ status: 'preparing' });
+    setCompiledVideoUrl(null);
+
+    try {
+      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+      const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+
+      const clipsPayload = selectedClips.map(clip => ({
+        id: clip.id,
+        storage_path: clip.storage_path,
+        start_time: clip.trim_start ?? clip.start ?? clip.start_seconds ?? 0,
+        end_time: clip.trim_end ?? clip.end ?? clip.end_seconds ?? 0,
+        volume: clip.volume ?? 1.0,
+        text_overlays: clip.text_overlays ?? [],
+        caption_words: clip.caption_words ?? [],
+      }));
+
+      const { width, height } = FORMAT_DIMENSIONS[compilationAspectRatio] ?? { width: 1920, height: 1080 };
+
+      const response = await fetch(`${supabaseUrl}/functions/v1/mavis-video-render`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${supabaseKey}`,
+        },
+        body: JSON.stringify({
+          action: 'compile',
+          project_id: selectedProject.id,
+          user_id: user?.id,
+          clips: clipsPayload,
+          output_format: compilationAspectRatio,
+          width,
+          height,
+          fps: 30,
+        }),
+      });
+
+      if (!response.ok) {
+        const err = await response.json();
+        throw new Error(err.error || 'Compilation failed');
+      }
+
+      const result = await response.json();
+
+      if (result.job_id) {
+        setCompilationResult({ status: 'rendering', job_id: result.job_id });
+        toast.info("Compilation queued — polling for result…");
+        await pollCompilationJob(result.job_id, selectedProject.id);
+      } else if (result.output_url || result.signed_url) {
+        const url = result.output_url || result.signed_url;
+        setCompilationResult({ status: 'ready', render_url: url });
+        setCompiledVideoUrl(url);
+        toast.success("Compilation ready!");
+      } else if (result.render_url) {
+        setCompilationResult({ status: 'ready', render_url: result.render_url });
+        setCompiledVideoUrl(result.render_url);
+        toast.success("Compilation ready!");
+      } else {
+        setCompilationResult({ status: 'no_cloud' });
+      }
+    } catch (err: any) {
+      toast.error("Server-side compilation failed: " + (err.message ?? "unknown error"));
+      setCompilationResult({ status: 'failed' });
+    } finally {
+      setCompilingInProgress(false);
+    }
+  }
+
+  async function pollCompilationJob(jobId: string, projectId: string) {
+    const maxAttempts = 60; // 5 minutes
+    for (let i = 0; i < maxAttempts; i++) {
+      await new Promise(r => setTimeout(r, 5000));
+
+      const { data } = await (supabase as any)
+        .from('video_render_jobs')
+        .select('status, progress, output_url, error_message')
+        .eq('id', jobId)
+        .single();
+
+      if (!data) continue;
+
+      setCompilationProgress(data.progress ?? Math.min(20 + i * 1.5, 95));
+
+      if ((data.status === 'complete' || data.status === 'ready') && data.output_url) {
+        setCompilationResult({ status: 'ready', render_url: data.output_url, job_id: jobId });
+        setCompiledVideoUrl(data.output_url);
+        toast.success("Compilation ready! Download it below.");
+        return;
+      }
+      if (data.status === 'failed') {
+        throw new Error(data.error_message || 'Render job failed');
+      }
+    }
+    throw new Error('Compilation timed out');
+  }
+
+  // ── URL Import ────────────────────────────────────────────────────────────
+
+  async function handleUrlImport() {
+    if (!importUrl.trim() || !selectedProject?.id || !user?.id) return;
+    setIsImporting(true);
+    setImportError('');
+    try {
+      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+      const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+
+      const res = await fetch(`${supabaseUrl}/functions/v1/mavis-video-download`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${supabaseKey}` },
+        body: JSON.stringify({ url: importUrl.trim(), project_id: selectedProject.id, user_id: user.id }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Import failed');
+
+      // Refresh clips from the project
+      await openProject(selectedProject);
+      setImportUrl('');
+      toast.success("Video imported successfully!");
+    } catch (err: any) {
+      setImportError(err.message || 'Failed to import video');
+    } finally {
+      setIsImporting(false);
+    }
+  }
+
   // ── MAVIS Auto-Pick: select best non-overlapping clips targeting ~90s ────────
   function handleMavisAutoPick() {
     if (allClips.length === 0) { toast.error("No clips to pick from."); return; }
@@ -1437,6 +1591,36 @@ export default function VideoEditorPage() {
               </Card>
             </div>
 
+            {/* URL Import Panel */}
+            <div className="border border-dashed border-gray-600 rounded-xl p-4 bg-gray-800/40">
+              <h3 className="text-sm font-semibold text-gray-300 mb-2 flex items-center gap-2">
+                <Youtube className="w-4 h-4 text-red-400" />
+                Import from YouTube or Direct URL
+              </h3>
+              <div className="flex gap-2">
+                <input
+                  type="url"
+                  value={importUrl}
+                  onChange={e => setImportUrl(e.target.value)}
+                  placeholder="YouTube URL or direct video link (MP4, WebM…)"
+                  className="flex-1 bg-gray-900 border border-gray-600 rounded-lg px-3 py-2 text-sm text-white placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  onKeyDown={e => { if (e.key === 'Enter' && importUrl.trim() && selectedProject?.id) handleUrlImport(); }}
+                />
+                <button
+                  onClick={handleUrlImport}
+                  disabled={isImporting || !importUrl.trim() || !selectedProject?.id}
+                  className="bg-indigo-600 text-white text-sm font-semibold px-4 py-2 rounded-lg hover:bg-indigo-700 disabled:opacity-50 transition-colors whitespace-nowrap"
+                >
+                  {isImporting ? 'Importing…' : 'Import'}
+                </button>
+              </div>
+              {!selectedProject?.id && (
+                <p className="text-xs text-yellow-400 mt-1">Open a project first to import videos into it.</p>
+              )}
+              {importError && <p className="text-red-400 text-xs mt-1">{importError}</p>}
+              <p className="text-xs text-gray-500 mt-1">Supports YouTube videos and direct MP4/WebM/MOV links. Large videos may take a minute to download.</p>
+            </div>
+
             {/* Feature callouts */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               {[
@@ -1793,7 +1977,30 @@ export default function VideoEditorPage() {
                   preload="auto"
                   onError={() => setPreviewError(true)}
                   onPause={() => setActiveClipId(null)}
+                  onTimeUpdate={(e) => setCurrentVideoTime((e.target as HTMLVideoElement).currentTime)}
                 />
+                {/* Word-by-word caption preview */}
+                {(() => {
+                  const activeClip = allClips.find(c => c.id === activeClipId);
+                  return activeClip?.caption_words && activeClip.caption_words.length > 0 ? (
+                    <div className="relative bg-black py-3 px-4 min-h-[3rem]">
+                      <div className="flex flex-wrap justify-center gap-1">
+                        {activeClip.caption_words.map((w: { word: string; start: number; end: number }, i: number) => (
+                          <span
+                            key={i}
+                            className={`text-white font-bold text-lg transition-all duration-150 px-1 rounded ${
+                              currentVideoTime >= w.start && currentVideoTime <= w.end
+                                ? 'bg-yellow-400 text-black scale-110'
+                                : 'opacity-60'
+                            }`}
+                          >
+                            {w.word}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null;
+                })()}
               </div>
             ) : selectedProject?.source_url ? (
               <div className="rounded-xl bg-gray-800/60 border border-gray-700/50 flex items-center justify-center h-28 gap-2 text-gray-500 text-sm">
@@ -2218,25 +2425,39 @@ export default function VideoEditorPage() {
                   </div>
                 </div>
 
-                {/* Build button */}
-                <Button
-                  className="w-full bg-purple-600 hover:bg-purple-700 text-white h-11 font-semibold"
-                  disabled={compilationSelected.size < 2 || compilingInProgress}
-                  onClick={handleBuildCompilation}
-                >
-                  {compilingInProgress && compilationResult?.status === "downloading" ? (
-                    <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Downloading…</>
-                  ) : compilingInProgress && compilationResult?.status !== "recording" ? (
-                    <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Starting…</>
-                  ) : (
-                    <><Film className="w-4 h-4 mr-2" /> Build Compilation ({compilationSelected.size} clips)</>
-                  )}
-                </Button>
+                {/* Build buttons */}
+                <div className="flex gap-2">
+                  <Button
+                    className="flex-1 bg-purple-600 hover:bg-purple-700 text-white h-11 font-semibold"
+                    disabled={compilationSelected.size < 2 || compilingInProgress}
+                    onClick={handleBuildCompilation}
+                  >
+                    {compilingInProgress && compilationResult?.status === "downloading" ? (
+                      <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Downloading…</>
+                    ) : compilingInProgress && compilationResult?.status !== "recording" ? (
+                      <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Starting…</>
+                    ) : (
+                      <><Film className="w-4 h-4 mr-2" /> Build in Browser ({compilationSelected.size})</>
+                    )}
+                  </Button>
+                  <Button
+                    className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white h-11 font-semibold"
+                    disabled={compilationSelected.size < 2 || compilingInProgress}
+                    onClick={handleServerSideCompile}
+                    title="Server-side compilation via cloud render"
+                  >
+                    {compilingInProgress && (compilationResult?.status === 'preparing' || compilationResult?.status === 'processing') ? (
+                      <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Processing…</>
+                    ) : (
+                      <><Zap className="w-4 h-4 mr-2" /> Cloud Compile</>
+                    )}
+                  </Button>
+                </div>
 
                 {/* Note: browser builds the video in real-time — keep this tab focused */}
                 {!compilingInProgress && compilationSelected.size >= 2 && !compilationResult && (
                   <p className="text-[11px] text-gray-500 text-center -mt-2">
-                    Builds right in your browser — no upload needed. Keep this tab open while recording.
+                    Browser compile: keep this tab open. Cloud compile: renders server-side, no tab required.
                   </p>
                 )}
 
@@ -2245,7 +2466,7 @@ export default function VideoEditorPage() {
                   <div className={`rounded-xl border p-4 space-y-3 ${
                     compilationResult.status === "ready"
                       ? "border-green-500/30 bg-green-500/5"
-                      : compilationResult.status === "recording" || compilationResult.status === "rendering"
+                      : compilationResult.status === "recording" || compilationResult.status === "rendering" || compilationResult.status === "preparing" || compilationResult.status === "processing"
                       ? "border-purple-500/30 bg-purple-500/5"
                       : compilationResult.status === "no_cloud"
                       ? "border-yellow-500/30 bg-yellow-500/5"
@@ -2253,7 +2474,7 @@ export default function VideoEditorPage() {
                   }`}>
 
                     {/* Ready — download + preview */}
-                    {compilationResult.status === "ready" && compilationResult.render_url && (
+                    {compilationResult.status === "ready" && (compilationResult.render_url || compiledVideoUrl) && (
                       <>
                         <p className="text-sm font-medium text-green-300 flex items-center gap-2">
                           <Check className="w-4 h-4" /> Compilation ready!
@@ -2263,21 +2484,22 @@ export default function VideoEditorPage() {
                             size="sm"
                             className="gap-1.5 bg-green-600 hover:bg-green-700 text-white"
                             onClick={() => {
+                              const url = compilationResult.render_url ?? compiledVideoUrl!;
                               const a = document.createElement("a");
-                              a.href = compilationResult.render_url!;
-                              a.download = compilationResult.render_url?.startsWith("blob:") ? "compilation.webm" : "compilation.mp4";
+                              a.href = url;
+                              a.download = url.startsWith("blob:") ? "compilation.webm" : "compilation.mp4";
                               document.body.appendChild(a);
                               a.click();
                               document.body.removeChild(a);
                             }}
                           >
-                            <Download className="w-3.5 h-3.5" /> Download (.webm)
+                            <Download className="w-3.5 h-3.5" /> Download
                           </Button>
                           <Button
                             size="sm"
                             variant="outline"
                             className="gap-1.5 border-gray-600 text-gray-300 hover:text-white"
-                            onClick={() => window.open(compilationResult.render_url!, "_blank")}
+                            onClick={() => window.open(compilationResult.render_url ?? compiledVideoUrl ?? "", "_blank")}
                           >
                             <Eye className="w-3.5 h-3.5" /> Preview
                           </Button>
