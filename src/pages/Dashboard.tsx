@@ -64,12 +64,12 @@ export default function Dashboard() {
 
   useEffect(() => {
     const today = new Date().toISOString().slice(0, 10);
-    supabase
+    (supabase as any)
       .from("mavis_daily_briefs")
       .select("brief_date, brief_text")
       .eq("brief_date", today)
       .maybeSingle()
-      .then(({ data }) => setMorningBrief(data ?? null));
+      .then(({ data }: any) => setMorningBrief(data ?? null));
   }, []);
 
   // ── Market Intel ──
@@ -110,7 +110,7 @@ export default function Dashboard() {
       .eq("status", "pending")
       .order("priority", { ascending: true })
       .limit(5)
-      .then(({ data }) => setActionQueue(data ?? []));
+      .then(({ data }) => setActionQueue((data as any) ?? []));
   }, []);
 
   // ── Outcome Accuracy ──
@@ -156,12 +156,12 @@ export default function Dashboard() {
 
   useEffect(() => {
     const today = new Date().toISOString().slice(0, 10);
-    supabase
+    (supabase as any)
       .from("mavis_daily_scores")
       .select("score, trend, optimal_window, recommendation")
       .eq("score_date", today)
       .maybeSingle()
-      .then(({ data }) => setPerfScore(data ?? null));
+      .then(({ data }: any) => setPerfScore(data ?? null));
   }, []);
 
   const scoreColor =
