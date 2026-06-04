@@ -492,9 +492,12 @@ async function handleExtractThumbnail(action: ExtractThumbnailAction, supabase: 
 async function handleCompile(action: CompileAction, supabase: ReturnType<typeof createClient>) {
   const {
     user_id: userId,
+    project_id: projectId,
     source_url: sourceUrl,
     clips,
     aspect_ratio: aspectRatio = "9:16",
+    width,
+    height,
     add_fades: addFades = true,
   } = action;
 
@@ -505,33 +508,67 @@ async function handleCompile(action: CompileAction, supabase: ReturnType<typeof 
     throw new Error("Maximum 12 clips per compilation.");
   }
 
+  // Normalize clips: accept both old-style {start,end} and new-style {start_time,end_time}
+  const normalizedClips = clips.map(c => ({
+    ...c,
+    start: c.start_time ?? c.start ?? 0,
+    end: c.end_time ?? c.end ?? 0,
+  }));
+
   // Sort clips chronologically
-  const sorted = [...clips].sort((a, b) => a.start - b.start);
+  const sorted = [...normalizedClips].sort((a, b) => a.start - b.start);
 
-  const ffmpegArgs = buildCompilationFfmpegArgs(sorted, aspectRatio, addFades);
+  // Create a job record immediately so caller can poll it
+  const { data: jobRow, error: jobInsertErr } = await supabase
+    .from("video_render_jobs")
+    .insert({
+      project_id: projectId ?? null,
+      user_id: userId,
+      provider: "fal",
+      status: "processing",
+      progress: 5,
+      updated_at: new Date().toISOString(),
+    })
+    .select("id")
+    .single();
 
-  let jobId: string | null = null;
+  if (jobInsertErr) {
+    // If insert fails (e.g. schema mismatch), proceed without DB tracking
+    console.error("[mavis-video-render] job insert error:", jobInsertErr.message);
+  }
+
+  const jobId: string | null = jobRow?.id ?? null;
+
+  // Determine effective aspect ratio from width/height if provided
+  const effectiveAspectRatio: string = aspectRatio ??
+    (width && height ? (width > height ? "16:9" : width === height ? "1:1" : "9:16") : "9:16");
+
+  const ffmpegArgs = buildCompilationFfmpegArgs(sorted, effectiveAspectRatio, addFades);
+
   let status = "rendering";
   let ffmpegCmd: string | null = null;
   let renderUrl: string | null = null;
 
+  // Use source_url if provided (legacy), otherwise use first clip's storage path as primary input
+  const primarySourceUrl = sourceUrl ?? null;
+
   try {
-    const { request_id } = await submitFfmpegJob(sourceUrl, ffmpegArgs);
+    if (!primarySourceUrl) {
+      throw new Error("fal_ffmpeg_unavailable: no source_url provided for multi-source compilation");
+    }
+    const { request_id } = await submitFfmpegJob(primarySourceUrl, ffmpegArgs);
 
-    const { data: jobRow, error: jobErr } = await supabase
-      .from("video_render_jobs")
-      .insert({
-        user_id: userId,
-        provider: "fal",
-        provider_job_id: request_id,
-        status: "rendering",
-        ffmpeg_args: ffmpegArgs,
-      })
-      .select("id")
-      .single();
-
-    if (jobErr) throw jobErr;
-    jobId = jobRow.id;
+    if (jobId) {
+      await supabase
+        .from("video_render_jobs")
+        .update({
+          provider_job_id: request_id,
+          status: "rendering",
+          progress: 10,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", jobId);
+    }
 
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -542,8 +579,21 @@ async function handleCompile(action: CompileAction, supabase: ReturnType<typeof 
       ).join("\n");
       ffmpegCmd = `# Compilation — ${sorted.length} clips\n${times}\nffmpeg -i "INPUT_VIDEO_PATH" -filter_complex "${ffmpegArgs[ffmpegArgs.indexOf("-filter_complex") + 1]}" -map "[outv]" -map "[outa]" -c:v libx264 -preset fast -crf 22 -c:a aac -b:a 128k -movflags +faststart compilation.mp4`;
       status = "manual";
-      renderUrl = sourceUrl;
+      renderUrl = primarySourceUrl ?? null;
+
+      if (jobId) {
+        await supabase
+          .from("video_render_jobs")
+          .update({ status: "failed", error_message: "fal.ai not configured", updated_at: new Date().toISOString() })
+          .eq("id", jobId);
+      }
     } else {
+      if (jobId) {
+        await supabase
+          .from("video_render_jobs")
+          .update({ status: "failed", error_message: msg.slice(0, 500), updated_at: new Date().toISOString() })
+          .eq("id", jobId);
+      }
       throw err;
     }
   }

@@ -18,14 +18,19 @@ CREATE TABLE IF NOT EXISTS video_render_jobs (
 );
 
 -- If the table already existed from a prior migration (video_editor.sql) it will have
--- clip_id NOT NULL and lack project_id/progress/error_message/updated_at.
+-- clip_id NOT NULL, input_url NOT NULL, and lack project_id/progress/error_message/updated_at.
 -- Patch it to support the server-side compile workflow.
 ALTER TABLE video_render_jobs ADD COLUMN IF NOT EXISTS project_id UUID REFERENCES video_projects(id) ON DELETE CASCADE;
 ALTER TABLE video_render_jobs ADD COLUMN IF NOT EXISTS progress INTEGER DEFAULT 0;
 ALTER TABLE video_render_jobs ADD COLUMN IF NOT EXISTS error_message TEXT;
 ALTER TABLE video_render_jobs ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT now();
--- Make clip_id nullable so compile jobs (which have no single clip_id) can be inserted
-ALTER TABLE video_render_jobs ALTER COLUMN clip_id DROP NOT NULL;
+-- Make clip_id and input_url nullable so compile jobs can be inserted without them
+DO $$ BEGIN
+  ALTER TABLE video_render_jobs ALTER COLUMN clip_id DROP NOT NULL;
+EXCEPTION WHEN undefined_column THEN NULL; END $$;
+DO $$ BEGIN
+  ALTER TABLE video_render_jobs ALTER COLUMN input_url DROP NOT NULL;
+EXCEPTION WHEN undefined_column THEN NULL; END $$;
 
 CREATE INDEX IF NOT EXISTS idx_video_render_jobs_project ON video_render_jobs(project_id);
 CREATE INDEX IF NOT EXISTS idx_video_render_jobs_user ON video_render_jobs(user_id);
