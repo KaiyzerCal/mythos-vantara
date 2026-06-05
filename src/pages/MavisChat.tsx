@@ -310,6 +310,9 @@ export default function MavisChat() {
         if (!convos?.length) { setDbLoaded(true); return; }
 
         const convoId = convos[0].id;
+        // Always restore the conversation ID — even if it has no messages yet.
+        // Without this, ensureConversation() creates a new thread on every fast load.
+        setConversationId(convoId);
 
         const { data: msgs } = await supabase
           .from("chat_messages")
@@ -328,7 +331,6 @@ export default function MavisChat() {
             timestamp: new Date(m.created_at),
           }));
           setChatMessages(restored);
-          setConversationId(convoId);
         }
       } catch (err) {
         console.error("Failed to restore chat:", err);
@@ -360,8 +362,25 @@ export default function MavisChat() {
     try {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session?.user) return null;
+
+      // Fast path: ID already in context
       if (conversationId) return conversationId;
 
+      // Race condition safety: DB load may still be in flight — check DB before creating
+      const { data: existing } = await supabase
+        .from("chat_conversations")
+        .select("id")
+        .eq("user_id", session.user.id)
+        .order("updated_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (existing?.id) {
+        setConversationId(existing.id);
+        return existing.id;
+      }
+
+      // No existing conversation — create one
       const { data, error } = await supabase.from("chat_conversations").insert({
         user_id: session.user.id,
         title: `MAVIS Thread — ${new Date().toLocaleDateString()}`,
