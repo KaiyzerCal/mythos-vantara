@@ -53,7 +53,7 @@ Deno.serve(async (req) => {
       });
     }
 
-    if (!GEMINI_KEY) {
+    if (!LOVABLE_API_KEY) {
       return new Response(JSON.stringify({ results: [] }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
