@@ -114,9 +114,8 @@ function scoreImportance(text: string): number {
 
 // Find or create the operator's main web conversation so Telegram messages
 // appear in the same thread as the /mavis web UI.
-let _webConvoId: string | null = null;
+// Always queries fresh — no module-level cache that could go stale between invocations.
 async function getWebConversationId(): Promise<string | null> {
-  if (_webConvoId) return _webConvoId;
   try {
     const { data } = await supabase
       .from("chat_conversations")
@@ -126,10 +125,7 @@ async function getWebConversationId(): Promise<string | null> {
       .limit(1)
       .maybeSingle();
 
-    if (data?.id) {
-      _webConvoId = data.id;
-      return _webConvoId;
-    }
+    if (data?.id) return data.id;
 
     // No conversation exists yet — create one
     const { data: created } = await supabase
@@ -138,14 +134,15 @@ async function getWebConversationId(): Promise<string | null> {
       .select("id")
       .single();
 
-    _webConvoId = created?.id ?? null;
-    return _webConvoId;
+    return created?.id ?? null;
   } catch { return null; }
 }
 
 async function persistMessage(chatId: string, role: string, content: string): Promise<void> {
+  // Write to mavis_memory (powers context + long-term recall).
+  // This is intentionally independent: a mavis_memory failure must NOT prevent
+  // chat_messages from being written.
   try {
-    // Write to mavis_memory (powers context + long-term recall)
     await supabase.from("mavis_memory").insert({
       user_id:          OPERATOR_USER_ID,
       session_id:       `${SESSION_PREFIX}${chatId}`,
@@ -155,8 +152,13 @@ async function persistMessage(chatId: string, role: string, content: string): Pr
       importance_score: scoreImportance(content),
       consolidated:     false,
     });
+  } catch (err) {
+    console.warn("[Telegram] mavis_memory write failed (non-fatal):", err);
+  }
 
-    // Also write to chat_messages so messages appear in the /mavis web UI thread
+  // Write to chat_messages so messages appear in the /mavis web UI thread.
+  // Runs independently of the mavis_memory write above.
+  try {
     const convoId = await getWebConversationId();
     if (convoId) {
       // Prefix user messages with [Telegram] so the source is visible in the web UI
@@ -173,7 +175,9 @@ async function persistMessage(chatId: string, role: string, content: string): Pr
         .update({ updated_at: new Date().toISOString() })
         .eq("id", convoId);
     }
-  } catch { /* non-fatal */ }
+  } catch (err) {
+    console.warn("[Telegram] chat_messages write failed (non-fatal):", err);
+  }
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -1955,7 +1959,9 @@ Deno.serve(async (req) => {
     if (activePersona) {
       // ── PERSONA MODE: route through mavis-persona-router ──
       const personaMessage = mediaContext ? `${mediaContext}${inputText}` : inputText;
+      await persistMessage(chatId, "user", inputText);
       const reply = await callPersona(activePersona.persona_id, personaMessage, chatId);
+      await persistMessage(chatId, "assistant", reply);
       await sendPlain(chatId, reply);
       return new Response("OK");
     }
