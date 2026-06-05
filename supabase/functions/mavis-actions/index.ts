@@ -1408,18 +1408,17 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
     case "send_notification":
     case "push_notification":
     case "notify": {
-      const title = String(p.title ?? p.message ?? p.text ?? "MAVIS Alert").slice(0, 255);
-      const body  = String(p.body ?? p.message ?? p.text ?? "").slice(0, 1000);
-      const notifType = String(p.type ?? p.notification_type ?? "info").slice(0, 50);
+      const notifText = String(p.title ?? p.message ?? p.text ?? "MAVIS Alert").slice(0, 255);
+      const body      = String(p.body ?? p.message ?? p.text ?? "").slice(0, 1000);
+      const notifType = String(p.notification_type ?? "info").slice(0, 50);
       await sb.from("mavis_tasks").insert({
         user_id: userId,
-        title,
-        description: body || null,
         type: "push_notification",
+        description: notifText,
+        payload: { notification_type: notifType, body },
         status: "pending",
-        metadata: { notification_type: notifType, body },
       });
-      await logActivity(sb, userId, "notification_sent", `Notification: ${title}`, 0);
+      await logActivity(sb, userId, "notification_sent", `Notification: ${notifText}`, 0);
       return;
     }
 

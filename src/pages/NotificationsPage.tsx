@@ -8,6 +8,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Bell, CheckCircle2, Eye, Trash2, Loader2, RefreshCw, AlertTriangle, Info, Zap, Activity, Lightbulb } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
+import { useAppData } from "@/contexts/AppDataContext";
 import { PageHeader, HudCard } from "@/components/SharedUI";
 import { toast } from "sonner";
 
@@ -32,8 +33,7 @@ interface ActivityEntry {
 
 interface InferredCommitment {
   id: string;
-  title: string;
-  description: string | null;
+  description: string;
   status: string;
   created_at: string;
 }
@@ -62,6 +62,7 @@ function timeAgo(iso: string) {
 
 export function NotificationsPage() {
   const { session } = useAuth();
+  const { lastActionTs } = useAppData();
 
   const [insights, setInsights] = useState<MavisInsight[]>([]);
   const [activity, setActivity] = useState<ActivityEntry[]>([]);
@@ -86,8 +87,8 @@ export function NotificationsPage() {
         .limit(20),
       (supabase as any)
         .from("mavis_tasks")
-        .select("id, title, description, status, created_at")
-        .eq("source_skill", "inferred_commitment")
+        .select("id, description, status, created_at")
+        .eq("type", "inferred_commitment")
         .order("created_at", { ascending: false })
         .limit(15),
     ]);
@@ -98,6 +99,7 @@ export function NotificationsPage() {
   }, [session]);
 
   useEffect(() => { load(); }, [load]);
+  useEffect(() => { if (lastActionTs) load(); }, [lastActionTs]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function markRead(id: string) {
     const { error } = await (supabase as any)
@@ -261,9 +263,9 @@ export function NotificationsPage() {
           <HudCard>
             <div className="space-y-2">
               {commitments.map((c, i) => {
-                const displayTitle = c.title.startsWith("Commitment: ")
-                  ? c.title.slice("Commitment: ".length)
-                  : c.title;
+                const displayTitle = (c.description ?? "").startsWith("Commitment: ")
+                  ? c.description.slice("Commitment: ".length)
+                  : (c.description ?? "");
                 return (
                   <motion.div
                     key={c.id}
