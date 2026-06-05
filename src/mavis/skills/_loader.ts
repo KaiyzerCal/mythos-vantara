@@ -14,3 +14,4 @@ import "./comprehensive-review/index";
 import "./enterprise-search/index";
 import "./outreach-prep/index";
 import "./content-brief/index";
+import "./design-generate/index";
