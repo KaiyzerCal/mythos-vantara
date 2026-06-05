@@ -79,6 +79,28 @@ export function PersonaChat({ persona, userId, onBack }: PersonaChatProps) {
     });
   }, [loadHistory, loadRelationshipState, loadConversationCount]);
 
+  // Realtime: new persona_conversations rows (Telegram messages land here live)
+  useEffect(() => {
+    const channel = (supabase as any)
+      .channel(`persona-conv-${persona.id}-${userId}`)
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "persona_conversations", filter: `persona_id=eq.${persona.id}` },
+        (payload: any) => {
+          const row = payload.new;
+          if (!row || row.user_id !== userId) return;
+          setMessages((prev) => {
+            // Deduplicate by content+role (the local optimistic message already added it)
+            const isDup = prev.some((m) => m.role === row.role && m.content === row.content);
+            if (isDup) return prev;
+            return [...prev, { role: row.role, content: row.content }];
+          });
+        },
+      )
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [persona.id, userId]);
+
   // Live realtime updates for the relationship row — bond/trust/mood
   // bars in the chat header reflect the current state immediately.
   useEffect(() => {

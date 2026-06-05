@@ -1514,6 +1514,23 @@ serve(async (req) => {
       }
     }
 
+    // Fire achievement check after any successful action — non-blocking.
+    // The check is idempotent (skips already-unlocked keys) so safe to call on every write.
+    const hadSuccess = results.some((r) => r.success);
+    const achievementTriggerTypes = new Set([
+      "complete_quest", "update_quest", "complete_task", "update_task",
+      "create_vault", "create_journal", "award_xp", "log_bpm_session",
+      "log_revenue", "create_skill", "update_skill",
+    ]);
+    const shouldCheckAchievements = hadSuccess && actions.some((a) => achievementTriggerTypes.has(String(a.type)));
+    if (shouldCheckAchievements) {
+      fetch(`${supabaseUrl}/functions/v1/mavis-achievement-check`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${serviceRoleKey}` },
+        body: JSON.stringify({ user_id: userId }),
+      }).catch((err: unknown) => console.warn("[mavis-actions] achievement check failed:", err));
+    }
+
     return new Response(JSON.stringify({ ok: true, results }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });

@@ -94,7 +94,6 @@ serve(async (req) => {
             description: achievement.description,
             icon: achievement.icon,
             category: achievement.category,
-            trigger,
             unlocked_at: new Date().toISOString(),
           });
 
