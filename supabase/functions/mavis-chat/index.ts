@@ -746,9 +746,9 @@ RITUALS:
 :::ACTION{"type":"update_ritual","params":{"ritual_id":"...","name":"...","xp_reward":25}}:::
 :::ACTION{"type":"complete_ritual","params":{"ritual_id":"..."}}:::
 :::ACTION{"type":"delete_ritual","params":{"ritual_id":"..."}}:::
-TRANSFORMATIONS / FORMS:
-:::ACTION{"type":"create_transformation","params":{"name":"...","tier":"...","form_order":1,"bpm_range":"60-200","energy":"Emerald Flames","jjk_grade":"Special Grade","op_tier":"God Tier","description":"...","unlocked":false,"abilities":[],"active_buffs":[],"passive_buffs":[]}}:::
-:::ACTION{"type":"update_transformation","params":{"transformation_id":"...","unlocked":true,"description":"..."}}:::
+TRANSFORMATIONS / FORMS — active_buffs, passive_buffs, abilities are MANDATORY. NEVER emit empty arrays. Each buff = {"label":"...","value":N,"unit":"%"}. Each ability = {"title":"...","irl":"..."}:
+:::ACTION{"type":"create_transformation","params":{"name":"Spartan Warlord","tier":"Spartan","form_order":1,"bpm_range":"65–85","energy":"Ki","jjk_grade":"Special Grade","op_tier":"God Tier","description":"First awakening — raw physical dominance and iron discipline","unlocked":false,"active_buffs":[{"label":"Strength","value":20,"unit":"%"},{"label":"Speed","value":15,"unit":"%"},{"label":"Focus","value":10,"unit":"%"}],"passive_buffs":[{"label":"Endurance","value":12,"unit":"%"},{"label":"Recovery","value":8,"unit":"%"}],"abilities":[{"title":"Iron Will","irl":"Push through discomfort and complete the training set"},{"title":"War Stance","irl":"Enter a state of total physical readiness before a workout"}]}}:::
+:::ACTION{"type":"update_transformation","params":{"transformation_id":"...","unlocked":true,"description":"...","active_buffs":[{"label":"Strength","value":25,"unit":"%"}],"passive_buffs":[{"label":"Endurance","value":15,"unit":"%"}],"abilities":[{"title":"New Ability","irl":"Real-world application"}]}}:::
 :::ACTION{"type":"delete_transformation","params":{"transformation_id":"..."}}:::
 RANKINGS / SCOUTER:
 :::ACTION{"type":"create_ranking_profile","params":{"display_name":"...","role":"npc|ally|rival","rank":"D","level":1,"gpr":1000,"pvp":5000,"jjk_grade":"G4","op_tier":"Local","influence":"Local","is_self":false,"notes":"..."}}:::
