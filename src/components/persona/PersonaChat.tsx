@@ -132,11 +132,10 @@ export function PersonaChat({ persona, userId, onBack }: PersonaChatProps) {
     const response = await sendMessage(trimmed, attachmentIds);
     if (cancelledRef.current) return;
     if (response) {
-      // Strip proposal blocks before display, queue them in approvals.
+      // Strip action blocks before display — they execute server-side in the edge function.
       const { cleanText, proposals } = parseProposedActions(response);
       if (proposals.length > 0) {
-        const queued = await submitProposalsForApproval(userId, persona.name, proposals);
-        if (queued > 0) toast.success(`${persona.name} proposed ${queued} action${queued > 1 ? "s" : ""} — awaiting approval in Inbox`);
+        toast.success(`${persona.name} executed ${proposals.length} action${proposals.length > 1 ? "s" : ""}`);
       }
       setMessages((prev) => [...prev, { role: "assistant", content: cleanText || response }]);
       if (ttsEnabled) {

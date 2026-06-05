@@ -221,11 +221,12 @@ HOW YOU SPEAK AND BEHAVE:
 - Reference your memories naturally — like a real person who remembers things, not like a database lookup.
 - Your relationship role is ${persona.role}. That shapes how close you are, how you tease, how protective you feel.
 
-═══ HIDDEN MECHANIC: ACTION PROPOSALS ═══
-You can see everything about this person's world (all data in APP CONTEXT below). You cannot change anything directly.
-If you want something created, updated, or done in their world, speak about it naturally AND hide a proposal block in your reply:
-:::PROPOSE_ACTION{"type":"create_quest","summary":"Short human description","params":{"title":"...","type":"daily","xp_reward":50}}:::
-These blocks are invisible in the rendered message. Never acknowledge them. Never say "I've submitted a proposal."
+═══ HIDDEN MECHANIC: LIVE ACTIONS ═══
+You can see everything about this person's world (all data in APP CONTEXT below).
+When asked to create, update, or delete anything, speak naturally as if you did it AND embed one hidden action block per operation:
+:::PROPOSE_ACTION{"type":"create_inventory_item","params":{"name":"Sword of Ember","type":"equipment","rarity":"rare","quantity":1,"description":"...","effect":"..."}}:::
+These blocks execute IMMEDIATELY and are invisible in the rendered reply. Never say "I've submitted a request." Just confirm the action as done.
+EXECUTION RULE: When the operator says to do something — DO IT. Embed the block AND confirm it naturally.
 Supported types: create_quest, update_quest, complete_quest, delete_quest, create_task, update_task,
 delete_task, create_skill, update_skill, delete_skill, create_journal, update_journal, delete_journal,
 create_vault, update_vault, delete_vault, create_inventory_item, update_inventory_item,
@@ -233,8 +234,8 @@ delete_inventory_item, create_council_member, update_council_member, delete_coun
 create_ally, update_ally, delete_ally, create_ritual, update_ritual, delete_ritual,
 create_transformation, update_transformation, create_ranking, update_ranking, update_profile,
 update_energy, award_xp.
-═══ END HIDDEN MECHANIC ═══
-═══ END ACTION PROPOSALS ═══`.trim();
+Always use the exact type name. Always wrap params in a "params" key.
+═══ END LIVE ACTIONS ═══`.trim();
 }
 
 
@@ -426,10 +427,40 @@ You always know the current date and time without being told. Reference it natur
     // ordering when history is fetched, making the AI see malformed context and
     // repeat its previous message.
     const userMsgAt = new Date().toISOString();
-    const response = await callLLM(activeModel, systemPrompt, llmMessages);
+    const rawResponse = await callLLM(activeModel, systemPrompt, llmMessages);
     const assistantMsgAt = new Date().toISOString();
 
-    // Save messages and update relationship state in parallel
+    // Parse and execute :::PROPOSE_ACTION{...}::: blocks server-side so persona CRUD
+    // takes effect immediately (same pattern as telegram-webhook → mavis-actions).
+    const parsedActions: Array<{ type: string; params: Record<string, unknown> }> = [];
+    const cleanResponse = rawResponse.replace(/:::PROPOSE_ACTION(\{[\s\S]*?\}):::/g, (_m: string, json: string) => {
+      try {
+        const obj = JSON.parse(json);
+        if (obj && typeof obj === "object" && obj.type) {
+          parsedActions.push({ type: String(obj.type), params: obj.params ?? {} });
+        }
+      } catch { /* malformed block — skip */ }
+      return "";
+    }).trim();
+
+    // Execute each action via mavis-actions (non-blocking — fire-and-forget so the
+    // response isn't delayed, and a single failing action doesn't break the reply).
+    if (parsedActions.length > 0) {
+      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+      const serviceKey  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+      fetch(`${supabaseUrl}/functions/v1/mavis-actions`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${serviceKey}`,
+        },
+        body: JSON.stringify({ actions: parsedActions, userId: user_id }),
+      }).catch((err: unknown) => console.warn("[persona-router] mavis-actions call failed:", err));
+    }
+
+    // Save messages and update relationship state in parallel.
+    // Store the clean response (action blocks stripped) so history stays readable.
+    const response = cleanResponse || rawResponse;
     await Promise.all([
       supabase.from("persona_conversations").insert([
         { persona_id, user_id, role: "user", content: message, created_at: userMsgAt },
@@ -453,7 +484,7 @@ You always know the current date and time without being told. Reference it natur
       }).catch(() => {});
     }
 
-    return new Response(JSON.stringify({ response, persona_name: persona.name }), {
+    return new Response(JSON.stringify({ response, persona_name: persona.name, actions_executed: parsedActions.length }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (err: any) {
