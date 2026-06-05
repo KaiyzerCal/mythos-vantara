@@ -112,6 +112,7 @@ interface AppDataContextType {
   createTransformation: (input: any) => Promise<Transformation | null>;
   updateTransformation: (id: string, input: any) => Promise<void>;
   deleteTransformation: (id: string) => Promise<void>;
+  refetchTransformations: () => Promise<void>;
 
   // Rankings
   rankings: RankingProfile[];
@@ -190,10 +191,11 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
       .on("postgres_changes", { event: "*", schema: "public", table: "allies" }, () => { refetchAllies().catch(() => {}); })
       .on("postgres_changes", { event: "*", schema: "public", table: "inventory" }, () => { refetchInventory().catch(() => {}); })
       .on("postgres_changes", { event: "*", schema: "public", table: "council_members" }, () => { refetchCouncils().catch(() => {}); })
+      .on("postgres_changes", { event: "*", schema: "public", table: "transformations" }, () => { refetchTransformations().catch(() => {}); })
       .subscribe();
     realtimeRef.current = channel;
     return () => { (supabase as any).removeChannel(channel); };
-  }, [refetchQuests, refetchTasks, refetchEnergy, refetchJournal, refetchSkills, refetchAllies, refetchInventory, refetchCouncils]);
+  }, [refetchQuests, refetchTasks, refetchEnergy, refetchJournal, refetchSkills, refetchAllies, refetchInventory, refetchCouncils, refetchTransformations]);
 
   // MAVIS chat state
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([INITIAL_MAVIS_MSG]);
@@ -215,7 +217,7 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
         allies, alliesLoading, createAlly, updateAlly, deleteAlly,
         bpmSessions, bpmLoading, logBpmSession,
         storeItems, storeLoading, createStoreItem, updateStoreItem, deleteStoreItem,
-        transformations, transformationsLoading, createTransformation, updateTransformation, deleteTransformation,
+        transformations, transformationsLoading, createTransformation, updateTransformation, deleteTransformation, refetchTransformations,
         rankings, rankingsLoading, createRanking, updateRanking, deleteRanking,
         logActivity,
         refetchAll,

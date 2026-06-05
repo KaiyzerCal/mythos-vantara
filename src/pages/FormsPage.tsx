@@ -60,10 +60,10 @@ const EMPTY_FORM: Omit<Transformation, "id" | "user_id"> = {
 
 export default function FormsPage() {
   const { user } = useAuth();
-  const { profile, updateProfile } = useAppData();
+  const { profile, updateProfile, transformations, transformationsLoading, createTransformation, updateTransformation, deleteTransformation, refetchTransformations } = useAppData();
 
-  const [forms, setForms] = useState<Transformation[]>([]);
-  const [loading, setLoading] = useState(true);
+  const forms = (transformations as unknown as Transformation[]) ?? [];
+  const loading = transformationsLoading;
   const [tierFilter, setTierFilter] = useState("All");
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
@@ -71,20 +71,6 @@ export default function FormsPage() {
   const [draftForm, setDraftForm] = useState<Omit<Transformation, "id" | "user_id">>(EMPTY_FORM);
   const [copied, setCopied] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState<{ id: string; label: string } | null>(null);
-
-  // ── Fetch transformations
-  useEffect(() => {
-    if (!user) return;
-    supabase
-      .from("transformations")
-      .select("*")
-      .eq("user_id", user.id)
-      .order("form_order")
-      .then(({ data }) => {
-        if (data) setForms(data as unknown as Transformation[]);
-        setLoading(false);
-      });
-  }, [user]);
 
   const seedDefaultForms = async () => {
     if (!user || forms.length > 0) return;
@@ -135,8 +121,7 @@ export default function FormsPage() {
       { tier: "FinalAscent", name: "Emerald Sovereign", form_order: 100, bpm_range: "Any", energy: "Emerald Flames + Black Heart", jjk_grade: "Transcendent", op_tier: "Imu Tier", description: "The final ascent. Abraxas + Azaroth fusion. Full sovereignty over all domains.", active_buffs: [{ label: "All Stats", value: 50, unit: "%" }, { label: "Reality Override", value: 30, unit: "%" }], passive_buffs: [{ label: "Omnipresence", value: 40, unit: "%" }], abilities: [{ title: "Sovereign Will", irl: "Absolute authority over personal domain." }, { title: "Emerald Throne", irl: "Command from a place of complete ownership." }, { title: "Final Ascent", irl: "There is no ceiling. Continuous transcendence." }], unlocked: false },
     ].map((f) => ({ ...f, user_id: user.id }));
     await supabase.from("transformations").insert(defaults);
-    const { data: refreshed } = await supabase.from("transformations").select("*").eq("user_id", user.id).order("form_order");
-    if (refreshed) setForms(refreshed as unknown as Transformation[]);
+    await refetchTransformations();
   };
 
   useEffect(() => {
@@ -146,16 +131,10 @@ export default function FormsPage() {
   const handleSave = async () => {
     if (!user || !draftForm.name.trim()) return;
     if (editingId) {
-      await supabase.from("transformations").update(draftForm).eq("id", editingId);
-      setForms((prev) => prev.map((f) => f.id === editingId ? { ...f, ...draftForm } as Transformation : f).sort((a, b) => a.form_order - b.form_order));
+      await updateTransformation(editingId, draftForm);
       setEditingId(null);
     } else {
-      const { data } = await supabase
-        .from("transformations")
-        .insert({ ...draftForm, user_id: user.id })
-        .select()
-        .single();
-      if (data) setForms((prev) => [...prev, data as unknown as Transformation].sort((a, b) => a.form_order - b.form_order));
+      await createTransformation(draftForm as any);
     }
     setDraftForm(EMPTY_FORM);
     setShowCreate(false);
@@ -172,8 +151,7 @@ export default function FormsPage() {
   };
 
   const handleDelete = async (id: string) => {
-    setForms((prev) => prev.filter((f) => f.id !== id));
-    await supabase.from("transformations").delete().eq("id", id);
+    await deleteTransformation(id);
   };
 
   // handleDelete is now only called from ConfirmDialog onConfirm
