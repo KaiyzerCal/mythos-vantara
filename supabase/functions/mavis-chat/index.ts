@@ -950,7 +950,7 @@ serve(async (req) => {
       sb.from("vault_media").select("id,file_name,file_type,description,vault_entry_id").eq("user_id", user.id).order("created_at", { ascending: false }).limit(lim("vault", 15, 5)),
       sb.from("activity_log").select("event_type,xp_amount,description,created_at").eq("user_id", user.id).order("created_at", { ascending: false }).limit(lim("activity", 12, 4)),
       sb.from("memories").select("title,content,metadata,source").eq("user_id", user.id).order("created_at", { ascending: false }).limit(lim("memory", 6, 2)),
-      sb.from("contacts").select("id,name,email,phone,company,role,notes,last_contact_at").eq("user_id", user.id).order("created_at", { ascending: false }).limit(lim("contact", 30, 10)),
+      sb.from("contacts").select("id,name,relationship_type,notes,last_contact_at,profile").eq("user_id", user.id).order("created_at", { ascending: false }).limit(lim("contact", 30, 10)),
       sb.from("calendar_events").select("id,title,description,start_at,end_at,location").eq("user_id", user.id).order("start_at", { ascending: true }).limit(lim("calendar", 20, 8)),
       sb.from("meeting_notes").select("id,title,summary,attendees,key_points,decisions,action_items,created_at").eq("user_id", user.id).order("created_at", { ascending: false }).limit(lim("meeting", 15, 5)),
       sb.from("health_metrics").select("id,date,source,sleep_duration_minutes,sleep_efficiency,hrv_avg,resting_hr,readiness_score,raw_data,created_at").eq("user_id", user.id).order("date", { ascending: false }).limit(lim("health", 20, 8)),
@@ -1112,9 +1112,10 @@ When relevant, acknowledge the user's companion network — the bonds they've bu
     const fmtMemories = dbState.memories.map((m: any) =>
       `  • [${m.source}] ${m.title}: ${(((m.metadata as any)?.topic_summary) || m.content || "").slice(0, 200)}`
     ).join("\n") || "  None";
-    const fmtContacts = dbState.contacts.map((c: any) =>
-      `  • [${c.id}] ${c.name}${c.company ? ` @ ${c.company}` : ""}${c.role ? ` (${c.role})` : ""}${c.email ? ` <${c.email}>` : ""}${c.phone ? ` ${c.phone}` : ""}${c.last_contact_at ? ` last:${c.last_contact_at.slice(0, 10)}` : ""}${wants.contact && c.notes ? ` — ${c.notes.slice(0, 120)}` : ""}`
-    ).join("\n") || "  None";
+    const fmtContacts = dbState.contacts.map((c: any) => {
+      const prof = (c.profile && typeof c.profile === "object") ? c.profile : {};
+      return `  • [${c.id}] ${c.name}${prof.company ? ` @ ${prof.company}` : ""}${c.relationship_type ? ` (${c.relationship_type})` : ""}${prof.email ? ` <${prof.email}>` : ""}${prof.phone ? ` ${prof.phone}` : ""}${c.last_contact_at ? ` last:${c.last_contact_at.slice(0, 10)}` : ""}${wants.contact && c.notes ? ` — ${c.notes.slice(0, 120)}` : ""}`;
+    }).join("\n") || "  None";
     const fmtCalendar = dbState.calendarEvents.map((e: any) =>
       `  • [${e.id}] ${e.title} @ ${e.start_at ? e.start_at.slice(0, 16) : "?"}${e.end_at ? `→${e.end_at.slice(11, 16)}` : ""}${e.location ? ` 📍${e.location}` : ""}${wants.calendar && e.description ? ` — ${e.description.slice(0, 100)}` : ""}`
     ).join("\n") || "  None";

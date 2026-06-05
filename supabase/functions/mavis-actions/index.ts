@@ -894,6 +894,14 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
     case "create_contact":
     case "add_contact":
     case "new_contact": {
+      // email, phone, company, role come from MAVIS action params — store in profile JSONB
+      // since contacts table does not have those as top-level columns
+      const baseProfile = (p.profile && typeof p.profile === "object") ? p.profile as Record<string, unknown> : {};
+      const profileData: Record<string, unknown> = { ...baseProfile };
+      if (p.email)   profileData.email   = String(p.email);
+      if (p.phone)   profileData.phone   = String(p.phone);
+      if (p.company) profileData.company = String(p.company);
+      if (p.role)    profileData.role    = String(p.role);
       const { error } = await sb.from("contacts").insert({
         user_id: userId,
         name: String(p.name || "New Contact"),
@@ -902,7 +910,7 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
         follow_up_date: p.follow_up_date ? String(p.follow_up_date) : null,
         notes: String(p.notes || ""),
         tags: asStringArray(p.tags),
-        profile: (p.profile && typeof p.profile === "object") ? p.profile : {},
+        profile: profileData,
       });
       if (error) throw error;
       await logActivity(sb, userId, "contact_created", `Contact added: ${String(p.name || "New Contact")}`, 0);
@@ -914,8 +922,22 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
       const contactId = await resolveId(sb, userId, "contacts", (p.contact_id || p.id) as string, (p.contact_name || p.name) as string);
       if (!contactId) return;
       const updates: Record<string, unknown> = { updated_at: new Date().toISOString() };
-      for (const key of ["name", "relationship_type", "last_contact_at", "follow_up_date", "notes", "tags", "profile"]) {
+      for (const key of ["name", "relationship_type", "last_contact_at", "follow_up_date", "notes", "tags"]) {
         if (p[key] !== undefined) updates[key] = key === "tags" ? asStringArray(p[key]) : p[key];
+      }
+      // Merge email/phone/company/role into profile JSONB if provided
+      if (p.email || p.phone || p.company || p.role || p.profile) {
+        const { data: existing } = await sb.from("contacts").select("profile").eq("id", contactId).eq("user_id", userId).single();
+        const existingProfile = (existing?.profile && typeof existing.profile === "object") ? existing.profile as Record<string, unknown> : {};
+        const incomingProfile = (p.profile && typeof p.profile === "object") ? p.profile as Record<string, unknown> : {};
+        updates.profile = {
+          ...existingProfile,
+          ...incomingProfile,
+          ...(p.email   ? { email:   String(p.email) }   : {}),
+          ...(p.phone   ? { phone:   String(p.phone) }   : {}),
+          ...(p.company ? { company: String(p.company) } : {}),
+          ...(p.role    ? { role:    String(p.role) }    : {}),
+        };
       }
       await sb.from("contacts").update(updates).eq("id", contactId).eq("user_id", userId);
       return;
