@@ -4,9 +4,9 @@ import { useProfile, type ProfileData } from "@/hooks/useProfile";
 import { useQuests, type Quest } from "@/hooks/useQuests";
 import {
   useTasks, useJournal, useVault, useCouncils,
-  useSkills, useEnergySystems, useInventory, useAllies, useBpmSessions, useActivityLog, useStoreItems, useTransformations, useRankings,
+  useSkills, useEnergySystems, useInventory, useAllies, useBpmSessions, useActivityLog, useStoreItems, useTransformations, useRankings, useRituals,
   type Task, type JournalEntry, type VaultEntry,
-  type CouncilMember, type Skill, type EnergySystem, type InventoryItem, type Ally, type BpmSession, type StoreItem, type Transformation, type RankingProfile,
+  type CouncilMember, type Skill, type EnergySystem, type InventoryItem, type Ally, type BpmSession, type StoreItem, type Transformation, type RankingProfile, type Ritual,
 } from "@/hooks/useDataHooks";
 
 export interface ChatMessage {
@@ -34,6 +34,10 @@ interface AppDataContextType {
   completeQuest: (id: string) => Promise<void>;
   deleteQuest: (id: string) => Promise<void>;
   refetchQuests: () => Promise<void>;
+
+  // Rituals
+  rituals: Ritual[];
+  ritualsLoading: boolean;
 
   // Tasks
   tasks: Task[];
@@ -156,6 +160,7 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
   const { profile, loading: profileLoading, updateProfile, awardXP, refetchProfile } = useProfile();
   const { quests, loading: questsLoading, stats: questStats, createQuest, updateQuest, completeQuest, deleteQuest, refetch: refetchQuests } = useQuests();
 
+  const { data: rituals, loading: ritualsLoading, refetch: refetchRituals } = useRituals();
   const { data: tasks, loading: tasksLoading, create: createTask, update: updateTask, remove: deleteTask, refetch: refetchTasks } = useTasks();
   const { data: journalEntries, loading: journalLoading, create: createJournalEntry, update: updateJournalEntry, remove: deleteJournalEntry, refetch: refetchJournal } = useJournal();
   const { data: vaultEntries, loading: vaultLoading, create: createVaultEntry, update: updateVaultEntry, remove: deleteVaultEntry, refetch: refetchVault } = useVault();
@@ -174,9 +179,9 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
     await Promise.all([
       refetchProfile(), refetchQuests(), refetchTasks(),
       refetchJournal(), refetchVault(), refetchCouncils(), refetchSkills(),
-      refetchEnergy(), refetchInventory(), refetchAllies(), refetchBpm(), refetchStore(), refetchTransformations(), refetchRankings(),
+      refetchEnergy(), refetchInventory(), refetchAllies(), refetchBpm(), refetchStore(), refetchTransformations(), refetchRankings(), refetchRituals(),
     ]);
-  }, [refetchProfile, refetchQuests, refetchTasks, refetchJournal, refetchVault, refetchCouncils, refetchSkills, refetchEnergy, refetchInventory, refetchAllies, refetchBpm, refetchStore, refetchTransformations, refetchRankings]);
+  }, [refetchProfile, refetchQuests, refetchTasks, refetchJournal, refetchVault, refetchCouncils, refetchSkills, refetchEnergy, refetchInventory, refetchAllies, refetchBpm, refetchStore, refetchTransformations, refetchRankings, refetchRituals]);
 
   // Supabase Realtime — live sync for core tables
   const realtimeRef = useRef<any>(null);
@@ -192,10 +197,11 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
       .on("postgres_changes", { event: "*", schema: "public", table: "inventory" }, () => { refetchInventory().catch(() => {}); })
       .on("postgres_changes", { event: "*", schema: "public", table: "council_members" }, () => { refetchCouncils().catch(() => {}); })
       .on("postgres_changes", { event: "*", schema: "public", table: "transformations" }, () => { refetchTransformations().catch(() => {}); })
+      .on("postgres_changes", { event: "*", schema: "public", table: "rituals" }, () => { refetchRituals().catch(() => {}); })
       .subscribe();
     realtimeRef.current = channel;
     return () => { (supabase as any).removeChannel(channel); };
-  }, [refetchQuests, refetchTasks, refetchEnergy, refetchJournal, refetchSkills, refetchAllies, refetchInventory, refetchCouncils, refetchTransformations]);
+  }, [refetchQuests, refetchTasks, refetchEnergy, refetchJournal, refetchSkills, refetchAllies, refetchInventory, refetchCouncils, refetchTransformations, refetchRituals]);
 
   // MAVIS chat state
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([INITIAL_MAVIS_MSG]);
@@ -207,6 +213,7 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
       value={{
         profile, profileLoading, updateProfile, awardXP, refetchProfile,
         quests, questsLoading, questStats, createQuest, updateQuest, completeQuest, deleteQuest, refetchQuests,
+        rituals, ritualsLoading,
         tasks, tasksLoading, createTask, updateTask, deleteTask,
         journalEntries, journalLoading, createJournalEntry, updateJournalEntry, deleteJournalEntry,
         vaultEntries, vaultLoading, createVaultEntry, updateVaultEntry, deleteVaultEntry,

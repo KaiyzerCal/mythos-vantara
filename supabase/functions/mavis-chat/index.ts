@@ -922,6 +922,13 @@ serve(async (req) => {
       council:    /\bcouncil|advisor|member\b/.test(q),
       activity:   /\bactivity|log|history|recent\b/.test(q),
       memory:     /\bmemor|remember|recall|past conversation\b/.test(q),
+      contact:    /\bcontact|person|phone|email|client|customer\b/.test(q),
+      calendar:   /\bcalendar|event|schedul|appointment|remind\b/.test(q),
+      meeting:    /\bmeeting|standup|notes|minutes|recap\b/.test(q),
+      health:     /\bhealth|metric|weight|sleep|workout|fitness|body\b/.test(q),
+      finance:    /\bexpense|spend|cost|money|budget|financ\b/.test(q),
+      competitor: /\bcompetitor|rival|competition|market player\b/.test(q),
+      goal:       /\bgoal|north star|objective|target|achiev\b/.test(q),
     };
     const lim = (key: keyof typeof wants, deep: number, shallow: number) => wants[key] ? deep : shallow;
 
@@ -930,6 +937,7 @@ serve(async (req) => {
       alliesRes, energyRes, inventoryRes, ritualsRes, transformationsRes,
       rankingsRes, bpmRes, storeRes, currenciesRes, vaultMediaRes,
       activityRes, memoriesRes,
+      contactsRes, calendarRes, meetingRes, healthRes, expensesRes, competitorsRes, goalsRes,
     ] = await Promise.all([
       sb.from("quests").select("id,title,description,type,status,difficulty,xp_reward,progress_current,progress_target,deadline,real_world_mapping").eq("user_id", user.id).order("created_at", { ascending: false }).limit(lim("quest", 25, 10)),
       sb.from("tasks").select("id,title,description,type,status,recurrence,xp_reward,streak,completed_count").eq("user_id", user.id).order("created_at", { ascending: false }).limit(lim("task", 20, 8)),
@@ -949,6 +957,13 @@ serve(async (req) => {
       sb.from("vault_media").select("id,file_name,file_type,description,vault_entry_id").eq("user_id", user.id).order("created_at", { ascending: false }).limit(lim("vault", 15, 5)),
       sb.from("activity_log").select("event_type,xp_amount,description,created_at").eq("user_id", user.id).order("created_at", { ascending: false }).limit(lim("activity", 12, 4)),
       sb.from("memories").select("title,content,metadata,source").eq("user_id", user.id).order("created_at", { ascending: false }).limit(lim("memory", 6, 2)),
+      sb.from("contacts").select("id,name,email,phone,company,role,notes,last_contact_at").eq("user_id", user.id).order("created_at", { ascending: false }).limit(lim("contact", 30, 10)),
+      sb.from("calendar_events").select("id,title,description,start_time,end_time,location,attendees,status").eq("user_id", user.id).order("start_time", { ascending: true }).limit(lim("calendar", 20, 8)),
+      sb.from("meeting_notes").select("id,title,summary,attendees,key_points,decisions,action_items,created_at").eq("user_id", user.id).order("created_at", { ascending: false }).limit(lim("meeting", 15, 5)),
+      sb.from("health_metrics").select("id,type,value,unit,notes,recorded_at").eq("user_id", user.id).order("recorded_at", { ascending: false }).limit(lim("health", 20, 8)),
+      sb.from("mavis_expenses").select("id,amount,currency,category,description,date").eq("user_id", user.id).order("date", { ascending: false }).limit(lim("finance", 20, 8)),
+      sb.from("mavis_competitors").select("id,name,website,strengths,weaknesses,notes,updated_at").eq("user_id", user.id).limit(lim("competitor", 20, 8)),
+      sb.from("mavis_goals").select("id,objective,context,status,decomposed,quest_ids,created_at").eq("user_id", user.id).order("created_at", { ascending: false }).limit(lim("goal", 15, 6)),
     ]);
 
     const dbState = {
@@ -958,6 +973,9 @@ serve(async (req) => {
       rituals: ritualsRes.data || [], transformations: transformationsRes.data || [], rankings: rankingsRes.data || [],
       bpmSessions: bpmRes.data || [], storeItems: storeRes.data || [], currencies: currenciesRes.data || [],
       vaultMedia: vaultMediaRes.data || [], activityLog: activityRes.data || [], memories: memoriesRes.data || [],
+      contacts: contactsRes.data || [], calendarEvents: calendarRes.data || [], meetingNotes: meetingRes.data || [],
+      healthMetrics: healthRes.data || [], expenses: expensesRes.data || [], competitors: competitorsRes.data || [],
+      goals: goalsRes.data || [],
     };
 
     // ── Tacit memory injection ──────────────────────────────────────────────────
@@ -1094,6 +1112,27 @@ When relevant, acknowledge the user's companion network — the bonds they've bu
     const fmtMemories = dbState.memories.map((m: any) =>
       `  • [${m.source}] ${m.title}: ${(((m.metadata as any)?.topic_summary) || m.content || "").slice(0, 200)}`
     ).join("\n") || "  None";
+    const fmtContacts = dbState.contacts.map((c: any) =>
+      `  • [${c.id}] ${c.name}${c.company ? ` @ ${c.company}` : ""}${c.role ? ` (${c.role})` : ""}${c.email ? ` <${c.email}>` : ""}${c.phone ? ` ${c.phone}` : ""}${c.last_contact_at ? ` last:${c.last_contact_at.slice(0, 10)}` : ""}${wants.contact && c.notes ? ` — ${c.notes.slice(0, 120)}` : ""}`
+    ).join("\n") || "  None";
+    const fmtCalendar = dbState.calendarEvents.map((e: any) =>
+      `  • [${e.id}] ${e.title} @ ${e.start_time ? e.start_time.slice(0, 16) : "?"}${e.end_time ? `→${e.end_time.slice(11, 16)}` : ""}${e.location ? ` 📍${e.location}` : ""}${e.status ? ` [${e.status}]` : ""}${wants.calendar && e.description ? ` — ${e.description.slice(0, 100)}` : ""}`
+    ).join("\n") || "  None";
+    const fmtMeetings = dbState.meetingNotes.map((m: any) =>
+      `  • [${m.id}] "${m.title}" ${m.created_at ? m.created_at.slice(0, 10) : ""}${m.summary ? ` — ${m.summary.slice(0, 150)}` : ""}${wants.meeting && Array.isArray(m.action_items) && m.action_items.length ? ` | Actions: ${m.action_items.map((a: any) => a.task || a).join(", ")}` : ""}`
+    ).join("\n") || "  None";
+    const fmtHealth = dbState.healthMetrics.map((h: any) =>
+      `  • [${h.id}] ${h.type}: ${h.value}${h.unit}${h.recorded_at ? ` @ ${h.recorded_at.slice(0, 10)}` : ""}${wants.health && h.notes ? ` — ${h.notes.slice(0, 80)}` : ""}`
+    ).join("\n") || "  None";
+    const fmtExpenses = dbState.expenses.map((e: any) =>
+      `  • [${e.id}] ${e.date ? e.date.slice(0, 10) : ""} ${e.category}: ${e.amount} ${e.currency || "USD"}${e.description ? ` — ${e.description.slice(0, 100)}` : ""}`
+    ).join("\n") || "  None";
+    const fmtCompetitors = dbState.competitors.map((c: any) =>
+      `  • [${c.id}] ${c.name}${c.website ? ` (${c.website})` : ""}${wants.competitor && c.strengths ? ` | Strengths: ${String(c.strengths).slice(0, 100)}` : ""}${wants.competitor && c.weaknesses ? ` | Weaknesses: ${String(c.weaknesses).slice(0, 100)}` : ""}`
+    ).join("\n") || "  None";
+    const fmtGoals = dbState.goals.map((g: any) =>
+      `  • [${g.id}] [${g.status}] ${g.objective}${wants.goal && g.context ? ` — ${g.context.slice(0, 150)}` : ""}${g.decomposed ? " [decomposed]" : ""}`
+    ).join("\n") || "  None";
 
     const authoritativeContext = `
 ═══ LIVE BACKEND STATE (server-fetched) ═══
@@ -1153,6 +1192,27 @@ ${fmtActivity}
 
 MEMORIES (${dbState.memories.length}):
 ${fmtMemories}
+
+CONTACTS (${dbState.contacts.length}):
+${fmtContacts}
+
+CALENDAR (${dbState.calendarEvents.length}):
+${fmtCalendar}
+
+MEETING NOTES (${dbState.meetingNotes.length}):
+${fmtMeetings}
+
+HEALTH METRICS (${dbState.healthMetrics.length}):
+${fmtHealth}
+
+EXPENSES (${dbState.expenses.length}):
+${fmtExpenses}
+
+COMPETITORS (${dbState.competitors.length}):
+${fmtCompetitors}
+
+GOALS (${dbState.goals.length}):
+${fmtGoals}
 ═══ END STATE ═══
 `;
 

@@ -1061,7 +1061,6 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
             content: `**Prompt:** ${prompt}\n\n**Aspect Ratio:** ${aspectRatio}\n\n*Awaiting manual image generation.*`,
             category: "image-prompt",
             tags: ["image-prompt", "ai-generated"],
-            is_public: false,
           }).catch(() => {});
         }
         return { note, prompt, aspect_ratio: aspectRatio };

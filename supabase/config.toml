@@ -135,3 +135,428 @@ verify_jwt = false
 # Video download / YouTube import — called from the frontend with anon key.
 [functions.mavis-video-download]
 verify_jwt = false
+
+# ── Core AI functions — called from authenticated frontend ──
+[functions.mavis-chat]
+verify_jwt = true
+
+[functions.mavis-actions]
+verify_jwt = true
+
+[functions.mavis-agent]
+verify_jwt = true
+
+[functions.mavis-planner]
+verify_jwt = true
+
+# ── Media generation ──
+[functions.mavis-image-gen]
+verify_jwt = true
+
+[functions.mavis-video-gen]
+verify_jwt = true
+
+[functions.mavis-video-editor]
+verify_jwt = true
+
+[functions.mavis-video-render]
+verify_jwt = true
+
+# ── Website / widget builders ──
+[functions.mavis-web-builder]
+verify_jwt = true
+
+[functions.mavis-widget-gen]
+verify_jwt = true
+
+[functions.mavis-widget-plugin]
+verify_jwt = false
+
+# ── Knowledge / memory ──
+[functions.mavis-knowledge]
+verify_jwt = true
+
+# ── Persona system ──
+[functions.mavis-persona-forge]
+verify_jwt = true
+
+[functions.mavis-persona-router]
+verify_jwt = true
+
+[functions.mavis-personaplex]
+verify_jwt = true
+
+# ── Web scraping / search ──
+[functions.mavis-web-scraper]
+verify_jwt = true
+
+# ── Webhook dispatch — internal service calls ──
+[functions.mavis-webhook]
+verify_jwt = false
+
+[functions.mavis-webhook-dispatch]
+verify_jwt = false
+
+# ── Content & social ──
+[functions.mavis-nora-post]
+verify_jwt = false
+
+[functions.mavis-nora-engage]
+verify_jwt = false
+
+[functions.mavis-nora-discord]
+verify_jwt = false
+
+[functions.mavis-nora-instagram]
+verify_jwt = false
+
+[functions.mavis-nora-linkedin]
+verify_jwt = false
+
+[functions.mavis-nora-tiktok]
+verify_jwt = false
+
+[functions.mavis-repurpose]
+verify_jwt = true
+
+[functions.mavis-content-pipeline]
+verify_jwt = true
+
+# ── Comms ──
+[functions.mavis-email-send]
+verify_jwt = true
+
+[functions.mavis-sms]
+verify_jwt = false
+
+[functions.mavis-push-notify]
+verify_jwt = true
+
+[functions.mavis-tts]
+verify_jwt = true
+
+[functions.mavis-phone-call]
+verify_jwt = false
+
+# ── Data / export ──
+[functions.mavis-pdf-gen]
+verify_jwt = true
+
+[functions.mavis-data-export]
+verify_jwt = true
+
+[functions.mavis-import]
+verify_jwt = true
+
+[functions.mavis-ingest]
+verify_jwt = true
+
+[functions.mavis-ingest-url]
+verify_jwt = true
+
+# ── Sync integrations ──
+[functions.mavis-gmail-sync]
+verify_jwt = false
+
+[functions.mavis-gdrive-sync]
+verify_jwt = false
+
+[functions.mavis-gcontacts-sync]
+verify_jwt = false
+
+[functions.mavis-calendar-sync]
+verify_jwt = false
+
+[functions.mavis-calendar-manage]
+verify_jwt = true
+
+[functions.mavis-spotify-sync]
+verify_jwt = false
+
+[functions.mavis-strava-sync]
+verify_jwt = false
+
+[functions.mavis-oura-sync]
+verify_jwt = false
+
+[functions.mavis-whoop-sync]
+verify_jwt = false
+
+[functions.mavis-readwise-import]
+verify_jwt = true
+
+[functions.mavis-google-tasks-sync]
+verify_jwt = false
+
+# ── Health & biology ──
+[functions.mavis-health-protocol]
+verify_jwt = true
+
+[functions.mavis-sleep-coach]
+verify_jwt = true
+
+# ── Finance ──
+[functions.mavis-finance]
+verify_jwt = true
+
+# ── CRM / lead gen ──
+[functions.mavis-lead-gen]
+verify_jwt = true
+
+[functions.mavis-crm-nudge]
+verify_jwt = false
+
+# ── Quest & goal support ──
+[functions.mavis-goal-engine]
+verify_jwt = true
+
+[functions.mavis-goal-review]
+verify_jwt = true
+
+[functions.mavis-quest-calendar]
+verify_jwt = false
+
+[functions.mavis-quest-nudge]
+verify_jwt = false
+
+[functions.mavis-streak-alerts]
+verify_jwt = false
+
+[functions.mavis-achievement-check]
+verify_jwt = false
+
+# ── Learning / analytics ──
+[functions.mavis-spaced-repetition]
+verify_jwt = true
+
+[functions.mavis-pattern-insights]
+verify_jwt = true
+
+[functions.mavis-deep-research]
+verify_jwt = true
+
+[functions.mavis-quality-eval]
+verify_jwt = true
+
+[functions.mavis-emotion-engine]
+verify_jwt = true
+
+[functions.mavis-emotion-tag]
+verify_jwt = true
+
+# ── Exec / code agents ──
+[functions.mavis-code-agent]
+verify_jwt = true
+
+[functions.mavis-code-delegate]
+verify_jwt = true
+
+[functions.mavis-code-deploy]
+verify_jwt = true
+
+[functions.mavis-code-exec]
+verify_jwt = true
+
+[functions.mavis-task-executor]
+verify_jwt = true
+
+[functions.mavis-workflow-run]
+verify_jwt = true
+
+[functions.mavis-crew-orchestrator]
+verify_jwt = true
+
+[functions.mavis-autonomous-engine]
+verify_jwt = false
+
+[functions.mavis-browser]
+verify_jwt = true
+
+[functions.mavis-browser-agent]
+verify_jwt = true
+
+# ── Research / competitive intel ──
+[functions.mavis-competitor-monitor]
+verify_jwt = true
+
+[functions.mavis-demand-scan]
+verify_jwt = true
+
+[functions.mavis-hn-digest]
+verify_jwt = false
+
+[functions.mavis-weather]
+verify_jwt = true
+
+# ── Voice ──
+[functions.mavis-voice-session]
+verify_jwt = true
+
+[functions.mavis-transcribe]
+verify_jwt = true
+
+[functions.mavis-transcribe-memo]
+verify_jwt = true
+
+[functions.mavis-meeting-transcribe]
+verify_jwt = true
+
+[functions.mavis-meeting-notes]
+verify_jwt = true
+
+[functions.mavis-translate]
+verify_jwt = true
+
+# ── Infra / system ──
+[functions.mavis-cron-setup]
+verify_jwt = false
+
+[functions.mavis-announce]
+verify_jwt = false
+
+[functions.mavis-team]
+verify_jwt = true
+
+[functions.mavis-consolidate]
+verify_jwt = false
+
+[functions.mavis-tacit-prune]
+verify_jwt = false
+
+[functions.mavis-weekly-retro]
+verify_jwt = false
+
+[functions.mavis-periodic-review]
+verify_jwt = false
+
+[functions.mavis-daily-notes]
+verify_jwt = false
+
+[functions.mavis-morning-digest]
+verify_jwt = false
+
+[functions.mavis-self-reflect]
+verify_jwt = false
+
+[functions.mavis-self-improve]
+verify_jwt = false
+
+[functions.mavis-auto-journal]
+verify_jwt = false
+
+[functions.mavis-attachment-process]
+verify_jwt = false
+
+[functions.mavis-proactive-nudge]
+verify_jwt = false
+
+[functions.mavis-council-heartbeat]
+verify_jwt = false
+
+[functions.mavis-wearable-overlay]
+verify_jwt = false
+
+[functions.mavis-galaxy-ring]
+verify_jwt = false
+
+[functions.mavis-avatar-video]
+verify_jwt = true
+
+[functions.mavis-realtime-v2]
+verify_jwt = false
+
+[functions.mavis-memory-embed]
+verify_jwt = false
+
+[functions.mavis-mem0]
+verify_jwt = true
+
+[functions.mavis-letta]
+verify_jwt = true
+
+[functions.mavis-computer-use]
+verify_jwt = true
+
+[functions.mavis-e2b-sandbox]
+verify_jwt = true
+
+[functions.mavis-python-exec]
+verify_jwt = true
+
+[functions.mavis-brand-voice]
+verify_jwt = true
+
+[functions.mavis-seo-engine]
+verify_jwt = true
+
+[functions.mavis-demo]
+verify_jwt = false
+
+[functions.mavis-netlify]
+verify_jwt = false
+
+[functions.mavis-wordpress]
+verify_jwt = true
+
+[functions.mavis-wpcom-oauth]
+verify_jwt = false
+
+[functions.mavis-youtube-ingest]
+verify_jwt = true
+
+[functions.mavis-product-creator]
+verify_jwt = true
+
+[functions.mavis-gumroad]
+verify_jwt = true
+
+[functions.mavis-screenpipe]
+verify_jwt = true
+
+[functions.mavis-slack-bot]
+verify_jwt = false
+
+[functions.mavis-fine-tune-export]
+verify_jwt = true
+
+[functions.mavis-khanmigo]
+verify_jwt = true
+
+[functions.mavis-receptionist-config]
+verify_jwt = true
+
+[functions.mavis-receptionist-provision]
+verify_jwt = true
+
+[functions.mavis-reclaim]
+verify_jwt = false
+
+[functions.mavis-social-scheduler]
+verify_jwt = true
+
+[functions.mavis-doc-extract]
+verify_jwt = true
+
+[functions.mavis-market-data]
+verify_jwt = true
+
+[functions.mavis-local-mesh-proxy]
+verify_jwt = false
+
+[functions.embed-and-search]
+verify_jwt = true
+
+[functions.agent-telegram-gateway]
+verify_jwt = false
+
+[functions.navi-finetune-check]
+verify_jwt = false
+
+[functions.navi-finetune-pipeline]
+verify_jwt = false
+
+[functions.navi-heartbeat]
+verify_jwt = false
+
+[functions.navi-memory-consolidator]
+verify_jwt = false
