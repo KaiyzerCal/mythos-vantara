@@ -1490,6 +1490,170 @@ export type Database = {
         }
         Relationships: []
       }
+      mavis_design_components: {
+        Row: {
+          accessibility_score: number | null
+          component_name: string
+          component_type: string
+          created_at: string | null
+          css_code: string | null
+          design_tokens: Json | null
+          id: string
+          is_reusable: boolean | null
+          performance_notes: string | null
+          project_id: string | null
+          props_interface: string | null
+          storybook_story: string | null
+          tags: string[] | null
+          times_used: number | null
+          tsx_code: string | null
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          accessibility_score?: number | null
+          component_name: string
+          component_type: string
+          created_at?: string | null
+          css_code?: string | null
+          design_tokens?: Json | null
+          id?: string
+          is_reusable?: boolean | null
+          performance_notes?: string | null
+          project_id?: string | null
+          props_interface?: string | null
+          storybook_story?: string | null
+          tags?: string[] | null
+          times_used?: number | null
+          tsx_code?: string | null
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          accessibility_score?: number | null
+          component_name?: string
+          component_type?: string
+          created_at?: string | null
+          css_code?: string | null
+          design_tokens?: Json | null
+          id?: string
+          is_reusable?: boolean | null
+          performance_notes?: string | null
+          project_id?: string | null
+          props_interface?: string | null
+          storybook_story?: string | null
+          tags?: string[] | null
+          times_used?: number | null
+          tsx_code?: string | null
+          updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "mavis_design_components_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "mavis_design_projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      mavis_design_projects: {
+        Row: {
+          aesthetic_directives: string | null
+          brand: string
+          client_name: string | null
+          competitor_urls: string[] | null
+          created_at: string | null
+          deadline_tier: string | null
+          design_system: Json | null
+          generated_files: Json | null
+          id: string
+          key_features: string[] | null
+          project_goal: string
+          project_name: string
+          project_value: number | null
+          quality_gate_results: Json | null
+          status: string | null
+          strategic_blueprint: Json | null
+          target_audience: string
+          updated_at: string | null
+          user_id: string
+          user_journey: string | null
+        }
+        Insert: {
+          aesthetic_directives?: string | null
+          brand?: string
+          client_name?: string | null
+          competitor_urls?: string[] | null
+          created_at?: string | null
+          deadline_tier?: string | null
+          design_system?: Json | null
+          generated_files?: Json | null
+          id?: string
+          key_features?: string[] | null
+          project_goal: string
+          project_name: string
+          project_value?: number | null
+          quality_gate_results?: Json | null
+          status?: string | null
+          strategic_blueprint?: Json | null
+          target_audience: string
+          updated_at?: string | null
+          user_id: string
+          user_journey?: string | null
+        }
+        Update: {
+          aesthetic_directives?: string | null
+          brand?: string
+          client_name?: string | null
+          competitor_urls?: string[] | null
+          created_at?: string | null
+          deadline_tier?: string | null
+          design_system?: Json | null
+          generated_files?: Json | null
+          id?: string
+          key_features?: string[] | null
+          project_goal?: string
+          project_name?: string
+          project_value?: number | null
+          quality_gate_results?: Json | null
+          status?: string | null
+          strategic_blueprint?: Json | null
+          target_audience?: string
+          updated_at?: string | null
+          user_id?: string
+          user_journey?: string | null
+        }
+        Relationships: []
+      }
+      mavis_design_tokens: {
+        Row: {
+          brand: string
+          created_at: string | null
+          id: string
+          is_default: boolean | null
+          token_set: Json
+          user_id: string
+        }
+        Insert: {
+          brand?: string
+          created_at?: string | null
+          id?: string
+          is_default?: boolean | null
+          token_set: Json
+          user_id: string
+        }
+        Update: {
+          brand?: string
+          created_at?: string | null
+          id?: string
+          is_default?: boolean | null
+          token_set?: Json
+          user_id?: string
+        }
+        Relationships: []
+      }
       mavis_evolution_log: {
         Row: {
           affected_key: string | null
