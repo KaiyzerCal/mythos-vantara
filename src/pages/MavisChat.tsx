@@ -95,6 +95,9 @@ export default function MavisChat() {
   const abortRef = useRef<AbortController | null>(null);
   const cancelledRef = useRef(false);
   const recognitionRef = useRef<any>(null);
+  // Tracks content written by the web chat so Realtime events for those
+  // messages can be skipped — prevents duplicates when we receive our own writes.
+  const recentWebWrites = useRef<Map<string, number>>(new Map());
 
   // ── Crew coordinator state ──
   const [agentPanelTab, setAgentPanelTab] = useState<"specialist" | "crew">("specialist");
@@ -345,6 +348,10 @@ export default function MavisChat() {
     try {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session?.user) return;
+      // Register this write so the Realtime handler can skip it (avoids duplicates)
+      const writeKey = `${msg.role}:${msg.content}`;
+      recentWebWrites.current.set(writeKey, Date.now());
+      setTimeout(() => recentWebWrites.current.delete(writeKey), 30_000);
       await supabase.from("chat_messages").insert({
         conversation_id: convoId,
         user_id: session.user.id,
@@ -398,6 +405,55 @@ export default function MavisChat() {
   useEffect(() => {
     scrollToBottom();
   }, [chatMessages, scrollToBottom]);
+
+  // ── Realtime: pick up messages written by Telegram (or any external source) ──
+  // The web chat writes messages optimistically to state with temp IDs.
+  // recentWebWrites tracks those to avoid duplicates when Realtime fires.
+  useEffect(() => {
+    if (!conversationId) return;
+
+    const channel = (supabase as any)
+      .channel(`chat-rt-${conversationId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "chat_messages",
+          filter: `conversation_id=eq.${conversationId}`,
+        },
+        (payload: any) => {
+          const row = payload.new;
+          if (!row) return;
+
+          // If we wrote this from the web chat ourselves, skip it
+          const key = `${row.role}:${row.content}`;
+          const writtenAt = recentWebWrites.current.get(key);
+          if (writtenAt && Date.now() - writtenAt < 30_000) {
+            recentWebWrites.current.delete(key);
+            return;
+          }
+
+          // External message (from Telegram, etc.) — append to thread
+          setChatMessages((prev) => {
+            if (prev.some((m) => m.id === row.id)) return prev; // already present
+            return [
+              ...prev,
+              {
+                id: row.id,
+                role: row.role as "user" | "assistant",
+                content: row.content,
+                mode: row.mode ?? "PRIME",
+                timestamp: new Date(row.created_at),
+              },
+            ];
+          });
+        },
+      )
+      .subscribe();
+
+    return () => { (supabase as any).removeChannel(channel); };
+  }, [conversationId, setChatMessages]);
 
   const currentMode = MAVIS_MODES.find((m) => m.id === chatMode) ?? MAVIS_MODES[0];
 
