@@ -8,6 +8,7 @@ import { Heart, Loader2, RefreshCw, Calendar, Clock, Plus, CheckCircle2, MapPin 
 import { supabase as _supabase } from "@/integrations/supabase/client";
 const supabase = _supabase as any;
 import { useAuth } from "@/contexts/AuthContext";
+import { useAppData } from "@/contexts/AppDataContext";
 import { PageHeader, HudCard } from "@/components/SharedUI";
 import { toast } from "sonner";
 
@@ -70,6 +71,7 @@ function fmtDateTime(iso: string) {
 // ─── HealthPage ─────────────────────────────────────────────
 export function HealthPage() {
   const { session } = useAuth();
+  const { lastActionTs } = useAppData();
 
   // Oura
   const [ouraToken, setOuraToken] = useState("");
@@ -101,7 +103,7 @@ export function HealthPage() {
     if (!session) return;
     loadMetrics();
     loadUpcomingEvents();
-  }, [session]);
+  }, [session, lastActionTs]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ─── Load metrics ──────────────────────────────────────────
   async function loadMetrics() {

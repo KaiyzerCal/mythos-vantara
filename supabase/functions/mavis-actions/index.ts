@@ -1361,14 +1361,19 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
     case "health_log": {
       const value = Number(p.value ?? 0);
       const metricType = String(p.metric_type ?? p.type ?? "general");
-      const { error } = await sb.from("health_metrics").insert({
-        user_id:     userId,
-        metric_type: metricType,
-        value,
-        unit:        String(p.unit ?? ""),
-        metric_date: p.date ?? new Date().toISOString().slice(0, 10),
-        source:      "mavis",
-      });
+      const dateVal = String(p.date ?? new Date().toISOString().slice(0, 10));
+      // Map to existing schema columns; store the raw metric_type+value in raw_data
+      const row: Record<string, unknown> = {
+        user_id: userId,
+        date:    dateVal,
+        source:  "mavis",
+        raw_data: { metric_type: metricType, value, unit: p.unit ?? "" },
+      };
+      if (metricType === "sleep") row.sleep_duration_minutes = Math.round(value * 60);
+      if (metricType === "hrv")   row.hrv_avg = value;
+      if (metricType === "resting_hr" || metricType === "hr") row.resting_hr = value;
+      if (metricType === "readiness") row.readiness_score = value;
+      const { error } = await sb.from("health_metrics").upsert(row, { onConflict: "user_id,date,source" });
       if (error) throw error;
       await logActivity(sb, userId, "health_logged", `Health: ${metricType} = ${value}${p.unit ? ` ${p.unit}` : ""}`, 0);
       return;

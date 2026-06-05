@@ -67,7 +67,7 @@ const STATUS_BADGE: Record<GoalStatus, string> = {
 // ─── GoalsPage ──────────────────────────────────────────────
 export function GoalsPage() {
   const { user } = useAuth();
-  const { quests, tasks } = useAppData();
+  const { quests, tasks, lastActionTs } = useAppData();
 
   const [goals, setGoals] = useState<MavisGoal[]>([]);
   const [mavisTasks, setMavisTasks] = useState<MavisTask[]>([]);
@@ -101,6 +101,7 @@ export function GoalsPage() {
   }, [user]);
 
   useEffect(() => { fetchGoals(); }, [fetchGoals]);
+  useEffect(() => { if (lastActionTs) fetchGoals(); }, [lastActionTs]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ─── Create goal ───────────────────────────────────────────
   async function handleCreate() {

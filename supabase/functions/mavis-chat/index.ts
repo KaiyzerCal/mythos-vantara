@@ -960,7 +960,7 @@ serve(async (req) => {
       sb.from("contacts").select("id,name,email,phone,company,role,notes,last_contact_at").eq("user_id", user.id).order("created_at", { ascending: false }).limit(lim("contact", 30, 10)),
       sb.from("calendar_events").select("id,title,description,start_time,end_time,location,attendees,status").eq("user_id", user.id).order("start_time", { ascending: true }).limit(lim("calendar", 20, 8)),
       sb.from("meeting_notes").select("id,title,summary,attendees,key_points,decisions,action_items,created_at").eq("user_id", user.id).order("created_at", { ascending: false }).limit(lim("meeting", 15, 5)),
-      sb.from("health_metrics").select("id,type,value,unit,notes,recorded_at").eq("user_id", user.id).order("recorded_at", { ascending: false }).limit(lim("health", 20, 8)),
+      sb.from("health_metrics").select("id,date,source,sleep_duration_minutes,sleep_efficiency,hrv_avg,resting_hr,readiness_score,raw_data,created_at").eq("user_id", user.id).order("date", { ascending: false }).limit(lim("health", 20, 8)),
       sb.from("mavis_expenses").select("id,amount,currency,category,description,date").eq("user_id", user.id).order("date", { ascending: false }).limit(lim("finance", 20, 8)),
       sb.from("mavis_competitors").select("id,name,website,strengths,weaknesses,notes,updated_at").eq("user_id", user.id).limit(lim("competitor", 20, 8)),
       sb.from("mavis_goals").select("id,objective,context,status,decomposed,quest_ids,created_at").eq("user_id", user.id).order("created_at", { ascending: false }).limit(lim("goal", 15, 6)),
@@ -1121,9 +1121,17 @@ When relevant, acknowledge the user's companion network — the bonds they've bu
     const fmtMeetings = dbState.meetingNotes.map((m: any) =>
       `  • [${m.id}] "${m.title}" ${m.created_at ? m.created_at.slice(0, 10) : ""}${m.summary ? ` — ${m.summary.slice(0, 150)}` : ""}${wants.meeting && Array.isArray(m.action_items) && m.action_items.length ? ` | Actions: ${m.action_items.map((a: any) => a.task || a).join(", ")}` : ""}`
     ).join("\n") || "  None";
-    const fmtHealth = dbState.healthMetrics.map((h: any) =>
-      `  • [${h.id}] ${h.type}: ${h.value}${h.unit}${h.recorded_at ? ` @ ${h.recorded_at.slice(0, 10)}` : ""}${wants.health && h.notes ? ` — ${h.notes.slice(0, 80)}` : ""}`
-    ).join("\n") || "  None";
+    const fmtHealth = dbState.healthMetrics.map((h: any) => {
+      const extras = [];
+      if (h.sleep_duration_minutes) extras.push(`sleep:${Math.round(h.sleep_duration_minutes / 60 * 10) / 10}h`);
+      if (h.hrv_avg) extras.push(`HRV:${h.hrv_avg}`);
+      if (h.resting_hr) extras.push(`HR:${h.resting_hr}`);
+      if (h.readiness_score) extras.push(`readiness:${h.readiness_score}`);
+      if (wants.health && h.raw_data && typeof h.raw_data === "object") {
+        Object.entries(h.raw_data as Record<string, unknown>).forEach(([k, v]) => extras.push(`${k}:${v}`));
+      }
+      return `  • [${h.source}] ${h.date}${extras.length ? ` — ${extras.join(", ")}` : ""}`;
+    }).join("\n") || "  None";
     const fmtExpenses = dbState.expenses.map((e: any) =>
       `  • [${e.id}] ${e.date ? e.date.slice(0, 10) : ""} ${e.category}: ${e.amount} ${e.currency || "USD"}${e.description ? ` — ${e.description.slice(0, 100)}` : ""}`
     ).join("\n") || "  None";

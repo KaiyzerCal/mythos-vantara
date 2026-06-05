@@ -130,6 +130,8 @@ interface AppDataContextType {
 
   // Refetch all data (used after MAVIS actions)
   refetchAll: () => Promise<void>;
+  // Increments every time refetchAll completes — pages subscribe to auto-refresh
+  lastActionTs: number;
 
   // MAVIS chat state (persists across route changes)
   chatMessages: ChatMessage[];
@@ -181,6 +183,7 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
       refetchJournal(), refetchVault(), refetchCouncils(), refetchSkills(),
       refetchEnergy(), refetchInventory(), refetchAllies(), refetchBpm(), refetchStore(), refetchTransformations(), refetchRankings(), refetchRituals(),
     ]);
+    setLastActionTs(Date.now());
   }, [refetchProfile, refetchQuests, refetchTasks, refetchJournal, refetchVault, refetchCouncils, refetchSkills, refetchEnergy, refetchInventory, refetchAllies, refetchBpm, refetchStore, refetchTransformations, refetchRankings, refetchRituals]);
 
   // Supabase Realtime — live sync for core tables
@@ -202,6 +205,8 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
     realtimeRef.current = channel;
     return () => { (supabase as any).removeChannel(channel); };
   }, [refetchQuests, refetchTasks, refetchEnergy, refetchJournal, refetchSkills, refetchAllies, refetchInventory, refetchCouncils, refetchTransformations, refetchRituals]);
+
+  const [lastActionTs, setLastActionTs] = useState(0);
 
   // MAVIS chat state
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([INITIAL_MAVIS_MSG]);
@@ -228,6 +233,7 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
         rankings, rankingsLoading, createRanking, updateRanking, deleteRanking,
         logActivity,
         refetchAll,
+        lastActionTs,
         chatMessages, setChatMessages, conversationId, setConversationId,
         chatMode, setChatMode,
       }}

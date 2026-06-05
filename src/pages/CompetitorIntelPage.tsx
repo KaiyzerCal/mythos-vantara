@@ -4,6 +4,7 @@ import { Shield, Plus, RefreshCw, Loader2, AlertTriangle, CheckCircle, ChevronDo
 import { supabase as _supabase } from "@/integrations/supabase/client";
 const supabase = _supabase as any;
 import { useAuth } from "@/contexts/AuthContext";
+import { useAppData } from "@/contexts/AppDataContext";
 import { PageHeader, HudCard } from "@/components/SharedUI";
 import { toast } from "sonner";
 
@@ -19,6 +20,7 @@ interface Competitor {
 
 export default function CompetitorIntelPage() {
   const { user } = useAuth() as any;
+  const { lastActionTs } = useAppData();
   const [competitors, setCompetitors] = useState<Competitor[]>([]);
   const [loading, setLoading] = useState(true);
   const [adding, setAdding] = useState(false);
@@ -34,6 +36,7 @@ export default function CompetitorIntelPage() {
   }, [user?.id]);
 
   useEffect(() => { fetch(); }, [fetch]);
+  useEffect(() => { if (lastActionTs) fetch(); }, [lastActionTs]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function addCompetitor() {
     if (!name.trim() || !url.trim()) { toast.error("Name and URL required"); return; }

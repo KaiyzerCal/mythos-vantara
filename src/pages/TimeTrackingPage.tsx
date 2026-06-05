@@ -8,6 +8,7 @@ import { Clock, Trash2, Play, Square, Loader2, Plus } from "lucide-react";
 import { supabase as _supabase } from "@/integrations/supabase/client";
 const supabase = _supabase as any;
 import { useAuth } from "@/contexts/AuthContext";
+import { useAppData } from "@/contexts/AppDataContext";
 import { PageHeader, HudCard } from "@/components/SharedUI";
 import { toast } from "sonner";
 
@@ -77,6 +78,7 @@ function weekStart(): Date {
 // ─── TimeTrackingPage ───────────────────────────────────────
 export function TimeTrackingPage() {
   const { user } = useAuth();
+  const { lastActionTs } = useAppData();
 
   const [logs, setLogs] = useState<TimeLog[]>([]);
   const [loading, setLoading] = useState(true);
@@ -107,6 +109,7 @@ export function TimeTrackingPage() {
   useEffect(() => {
     loadLogs();
   }, [loadLogs]);
+  useEffect(() => { if (lastActionTs) loadLogs(); }, [lastActionTs]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ─── Timer interval ─────────────────────────────────────────
   useEffect(() => {

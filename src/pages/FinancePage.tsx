@@ -7,6 +7,7 @@ import { motion } from "framer-motion";
 import { DollarSign, TrendingDown, Plus, Trash2, Loader2, X } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
+import { useAppData } from "@/contexts/AppDataContext";
 import { PageHeader, HudCard, ProgressBar } from "@/components/SharedUI";
 import { toast } from "sonner";
 
@@ -85,6 +86,7 @@ function last6Months(): string[] {
 // ─── FinancePage ────────────────────────────────────────────
 export function FinancePage() {
   const { user } = useAuth();
+  const { lastActionTs } = useAppData();
 
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [loading, setLoading] = useState(true);
@@ -116,6 +118,7 @@ export function FinancePage() {
   }, [user]);
 
   useEffect(() => { fetchExpenses(); }, [fetchExpenses]);
+  useEffect(() => { if (lastActionTs) fetchExpenses(); }, [lastActionTs]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ─── Computed stats ────────────────────────────────────────
   const totalSpend = expenses.reduce((s, e) => s + Number(e.amount), 0);

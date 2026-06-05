@@ -8,6 +8,7 @@ import { Users, Plus, X, Edit2, Trash2, MessageCircle, Phone, Mail, Calendar, Ta
 import { supabase as _supabase } from "@/integrations/supabase/client";
 const supabase = _supabase as any;
 import { useAuth } from "@/contexts/AuthContext";
+import { useAppData } from "@/contexts/AppDataContext";
 import { PageHeader, HudCard } from "@/components/SharedUI";
 import { toast } from "sonner";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
@@ -79,6 +80,7 @@ function formatDate(iso: string | null) {
 // ─── ContactsPage ───────────────────────────────────────────
 export function ContactsPage() {
   const { session } = useAuth();
+  const { lastActionTs } = useAppData();
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [interactions, setInteractions] = useState<Record<string, ContactInteraction[]>>({});
   const [loading, setLoading] = useState(true);
@@ -110,7 +112,7 @@ export function ContactsPage() {
   useEffect(() => {
     if (!session) return;
     loadContacts();
-  }, [session]);
+  }, [session, lastActionTs]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function loadContacts() {
     setLoading(true);
