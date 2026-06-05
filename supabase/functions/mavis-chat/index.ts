@@ -102,7 +102,7 @@ async function callOpenAI(messages: any[], system: string, key: string, model = 
   return d.choices?.[0]?.message?.content ?? "";
 }
 
-async function callClaude(messages: any[], system: string, key: string, model = "claude-haiku-4-5-20251001", useThinking = false, thinkingBudget = 10000): Promise<string> {
+async function callClaude(messages: any[], system: string, key: string, model = "claude-haiku-4-5-20251001", useThinking = false): Promise<string> {
   const res = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: {
@@ -112,8 +112,8 @@ async function callClaude(messages: any[], system: string, key: string, model = 
     },
     body: JSON.stringify({
       model,
-      max_tokens: useThinking ? 20000 : 4096,
-      ...(useThinking ? { thinking: { type: "enabled", budget_tokens: thinkingBudget } } : {}),
+      max_tokens: useThinking ? 16000 : 4096,
+      ...(useThinking ? { thinking: { type: "enabled", budget_tokens: 8000 } } : {}),
       system,
       messages: messages.map((m: any) => ({ role: m.role, content: m.content })),
     }),
@@ -182,61 +182,12 @@ async function callGemini(messages: any[], system: string, key: string, opts: { 
   return parts.filter((p: any) => p.text && !p.thought).map((p: any) => p.text).join("") || "";
 }
 
-// ── Ollama (self-hosted LLM — optional, set OLLAMA_BASE_URL to activate) ──────
-// When configured, Ollama is tried first for simple/routine tasks.
-// Complex reasoning modes (ARCH, CODEX, DEEP, etc.) always use cloud LLMs.
-// Completely transparent fallback — if Ollama fails or isn't set, cascade continues.
-// OLLAMA_MODEL can be overridden at runtime by the latest fine-tuned model from self-improve.
-const OLLAMA_BASE_URL = Deno.env.get("OLLAMA_BASE_URL"); // e.g. "http://192.168.1.x:11434"
-const OLLAMA_MODEL_DEFAULT = Deno.env.get("OLLAMA_MODEL") ?? "llama3.2:3b";
-const OLLAMA_COMPLEX_MODES = new Set(["ARCH","CODEX","SOVEREIGN","DEEP","QUEST","FORGE","RESEARCH","VISION"]);
-
-// Resolve the active Ollama model — prefers the latest fine-tuned model from self-improve pipeline
-async function resolveOllamaModel(adminSb: ReturnType<typeof createClient>): Promise<string> {
-  try {
-    const { data } = await adminSb
-      .from("mavis_improvement_log")
-      .select("trained_model_name")
-      .not("trained_model_name", "is", null)
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-    return data?.trained_model_name ?? OLLAMA_MODEL_DEFAULT;
-  } catch {
-    return OLLAMA_MODEL_DEFAULT;
-  }
-}
-
-async function callOllama(messages: any[], system: string, model: string): Promise<string | null> {
-  if (!OLLAMA_BASE_URL) return null;
-  try {
-    const res = await fetch(`${OLLAMA_BASE_URL}/api/chat`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model,
-        messages: [{ role: "system", content: system }, ...messages],
-        stream: false,
-        options: { num_predict: 1024, temperature: 0.8 },
-      }),
-      signal: AbortSignal.timeout(25000),
-    });
-    if (!res.ok) return null;
-    const d = await res.json();
-    return d.message?.content?.trim() || null;
-  } catch {
-    return null; // silently fall through to cloud providers
-  }
-}
-
 // Cascade order (cheapest/free → premium):
-//  -1. Ollama (self-hosted, if OLLAMA_BASE_URL set + simple mode)
-//   0. Gemini Flash (free quota)
-//   1. Mode-designated: Claude (deep reasoning) / Grok (real-time)
+//   1. Gemini Flash (free quota)
 //   2. OpenAI gpt-4o-mini
 //   3. Claude Haiku
 //   4. Claude Sonnet
-//   5. Grok (last resort)
+//   5. Grok (last resort, real-time persona-routed default)
 // If `primary` explicitly requests claude/grok (mode-routed), try that first,
 // then fall through the standard cascade.
 async function callWithFallback(
@@ -246,15 +197,7 @@ async function callWithFallback(
   keys: { openai: string; claude: string; grok: string; gemini: string },
   useThinking = false,
   mode = "PRIME",
-  ollamaModel = OLLAMA_MODEL_DEFAULT,
 ): Promise<{ content: string; provider: string }> {
-  // Tier -1 — Ollama (self-hosted, zero cost, privacy-preserving)
-  // Uses fine-tuned model when available (resolved from mavis_improvement_log)
-  if (OLLAMA_BASE_URL && !OLLAMA_COMPLEX_MODES.has(mode?.toUpperCase())) {
-    const result = await callOllama(messages, system, ollamaModel);
-    if (result) return { content: result, provider: `ollama/${ollamaModel}` };
-  }
-
   // Tier 0 — Free Gemini (always attempted first)
   if (keys.gemini) {
     try {
@@ -273,8 +216,7 @@ async function callWithFallback(
   // Tier 1 — Mode-designated provider (Claude for deep reasoning, Grok for real-time)
   if (primary === "claude" && keys.claude) {
     try {
-      const thinkBudget = mode === "SOVEREIGN" ? 20000 : mode === "ARCH" ? 16000 : 10000;
-      return { content: await callClaude(messages, system, keys.claude, "claude-sonnet-4-6", useThinking, thinkBudget), provider: useThinking ? "claude-sonnet-thinking" : "claude-sonnet" };
+      return { content: await callClaude(messages, system, keys.claude, "claude-sonnet-4-6", useThinking), provider: useThinking ? "claude-sonnet-thinking" : "claude-sonnet" };
     } catch (err: any) {
       if (!(err instanceof ProviderUnavailableError)) throw err;
       console.warn(`[fallback] claude-sonnet unfunded (${err.status}) → cascading`);
@@ -577,20 +519,6 @@ async function callWithFallbackStream(
   useThinking = false,
   mode = "PRIME",
 ): Promise<{ stream: ReadableStream<string>; provider: string }> {
-  // Tier -1 — Ollama (self-hosted, simple modes only)
-  if (OLLAMA_BASE_URL && !OLLAMA_COMPLEX_MODES.has(mode?.toUpperCase())) {
-    const result = await callOllama(messages, system);
-    if (result) {
-      // Wrap non-streaming response as a single-chunk ReadableStream
-      return {
-        provider: `ollama/${OLLAMA_MODEL}`,
-        stream: new ReadableStream({
-          start(controller) { controller.enqueue(result); controller.close(); },
-        }),
-      };
-    }
-  }
-
   // Tier 0 — Free Gemini (always attempted first)
   if (keys.gemini) {
     try {
@@ -819,10 +747,9 @@ RITUALS:
 :::ACTION{"type":"complete_ritual","params":{"ritual_id":"..."}}:::
 :::ACTION{"type":"delete_ritual","params":{"ritual_id":"..."}}:::
 TRANSFORMATIONS / FORMS:
-:::ACTION{"type":"create_transformation","params":{"name":"...","tier":"Spartan|Saiyan|Thorn|Karma|Regalia|Ouroboros|BlackHeart|FinalAscent","form_order":1,"bpm_range":"65–85","energy":"Ki","jjk_grade":"Special Grade","op_tier":"God Tier","description":"...","unlocked":false,"active_buffs":[{"label":"Speed","value":15,"unit":"%"},{"label":"Focus","value":10,"unit":"%"}],"passive_buffs":[{"label":"Endurance","value":8,"unit":"%"}],"abilities":[{"title":"Ability Name","irl":"Real-world application of this ability"}]}}:::
-:::ACTION{"type":"update_transformation","params":{"transformation_id":"...","unlocked":true,"description":"...","active_buffs":[{"label":"Power","value":20,"unit":"%"}],"passive_buffs":[{"label":"Resilience","value":12,"unit":"%"}],"abilities":[{"title":"Skill Name","irl":"How to apply this IRL"}]}}:::
+:::ACTION{"type":"create_transformation","params":{"name":"...","tier":"...","form_order":1,"bpm_range":"60-200","energy":"Emerald Flames","jjk_grade":"Special Grade","op_tier":"God Tier","description":"...","unlocked":false,"abilities":[],"active_buffs":[],"passive_buffs":[]}}:::
+:::ACTION{"type":"update_transformation","params":{"transformation_id":"...","unlocked":true,"description":"..."}}:::
 :::ACTION{"type":"delete_transformation","params":{"transformation_id":"..."}}:::
-TRANSFORMATION RULES — CRITICAL: active_buffs, passive_buffs, and abilities are REQUIRED. NEVER emit empty arrays. If the operator doesn't specify, INVENT appropriate ones matching the form's theme and tier. Example: a focus form → active_buffs:[{"label":"Mental Clarity","value":15,"unit":"%"}], abilities:[{"title":"Iron Concentration","irl":"Eliminate distractions for 25-min deep work sprints"}]. A form with empty buffs/abilities is INVALID.
 RANKINGS / SCOUTER:
 :::ACTION{"type":"create_ranking_profile","params":{"display_name":"...","role":"npc|ally|rival","rank":"D","level":1,"gpr":1000,"pvp":5000,"jjk_grade":"G4","op_tier":"Local","influence":"Local","is_self":false,"notes":"..."}}:::
 :::ACTION{"type":"update_ranking_profile","params":{"ranking_id":"...","rank":"S","level":80,"gpr":9999}}:::
@@ -844,7 +771,51 @@ CODE EXECUTION (use when precision matters — revenue calc, data analysis, math
 :::ACTION{"type":"run_code","params":{"code":"// any valid JavaScript — Math, JSON, Date, Array available\n// Use console.log() for output. Return a value for the result.\nreturn 2 + 2;"}}:::
 Use this instead of estimating when the operator asks for exact numbers, totals, or computed analysis.
 
-RULES: Use exact IDs from the LIVE BACKEND STATE block above. Never claim an action without emitting the tag. Chain as many tags as needed in one response. complete_quest handles XP automatically. You have write access to every page and section of the app — quests, tasks, skills, journal, vault, council, inventory, energy, allies, rituals, forms/transformations, scouter/rankings, store, BPM, personas, and the operator profile itself.
+KNOWLEDGE GRAPH / NOTES:
+:::ACTION{"type":"create_note","params":{"title":"...","content":"...","tags":["tag1"],"source":"mavis","note_type":"insight|decision|memory|plan|observation"}}:::
+:::ACTION{"type":"update_note","params":{"note_id":"...","title":"...","content":"..."}}:::
+:::ACTION{"type":"delete_note","params":{"note_id":"..."}}:::
+:::ACTION{"type":"link_notes","params":{"source_note_id":"...","target_note_id":"...","relationship":"related|supports|contradicts|extends"}}:::
+CONTACTS:
+:::ACTION{"type":"create_contact","params":{"name":"...","email":"...","phone":"...","company":"...","role":"...","relationship":"prospect|client|partner|ally|rival|personal","notes":"..."}}:::
+:::ACTION{"type":"update_contact","params":{"contact_id":"...","notes":"...","relationship":"..."}}:::
+:::ACTION{"type":"log_contact","params":{"contact_id":"...","interaction_type":"call|email|meeting|message","notes":"...","outcome":"..."}}:::
+CALENDAR / SCHEDULER:
+:::ACTION{"type":"create_calendar_event","params":{"title":"...","start_at":"2026-06-05T10:00:00Z","end_at":"2026-06-05T11:00:00Z","description":"...","location":"..."}}:::
+:::ACTION{"type":"update_calendar_event","params":{"event_id":"...","title":"...","start_at":"...","end_at":"..."}}:::
+:::ACTION{"type":"delete_calendar_event","params":{"event_id":"..."}}:::
+TIME TRACKING:
+:::ACTION{"type":"log_time","params":{"description":"...","project":"...","started_at":"2026-06-05T09:00:00Z","ended_at":"2026-06-05T10:00:00Z","duration_seconds":3600,"tags":["focus","deep-work"]}}:::
+MEETING NOTES:
+:::ACTION{"type":"create_meeting_note","params":{"title":"...","meeting_date":"2026-06-05","attendees":["Name1","Name2"],"key_points":["Point 1","Point 2"],"decisions":["Decision 1"],"action_items":[{"task":"...","owner":"...","due":"..."}],"summary":"..."}}:::
+:::ACTION{"type":"update_meeting_note","params":{"note_id":"...","summary":"...","action_items":[{"task":"...","owner":"...","due":"..."}]}}:::
+HEALTH:
+:::ACTION{"type":"log_health_metric","params":{"metric_type":"sleep|hrv|steps|weight|mood|energy|workout","value":7.5,"unit":"hours|bpm|steps|kg|1-10|1-10|minutes","notes":"..."}}:::
+FINANCE:
+:::ACTION{"type":"log_expense","params":{"amount":50.00,"currency":"USD","category":"software|food|travel|marketing|equipment|other","description":"...","date":"2026-06-05"}}:::
+COMPETITORS:
+:::ACTION{"type":"add_competitor","params":{"name":"...","url":"https://...","notes":"..."}}:::
+:::ACTION{"type":"update_competitor","params":{"competitor_id":"...","notes":"..."}}:::
+GOALS:
+:::ACTION{"type":"create_mavis_goal","params":{"objective":"...","context":"...","status":"active"}}:::
+:::ACTION{"type":"update_mavis_goal","params":{"goal_id":"...","objective":"...","status":"active|completed|abandoned"}}:::
+NOTIFICATIONS:
+:::ACTION{"type":"send_notification","params":{"title":"...","body":"...","type":"info|warning|success|alert","category":"general|health|goal|mission","priority":"low|normal|high"}}:::
+IMAGES / VIDEO GENERATION:
+:::ACTION{"type":"generate_image","params":{"prompt":"...","aspect_ratio":"1:1|16:9|9:16"}}:::
+:::ACTION{"type":"generate_video","params":{"prompt":"...","duration":5,"aspect_ratio":"16:9|9:16|1:1","provider":"fal|veo|auto"}}:::
+VIDEO EDITOR (if the operator has uploaded footage):
+:::ACTION{"type":"analyze_video","params":{"source_url":"...","title":"..."}}:::
+:::ACTION{"type":"generate_clips","params":{"project_id":"...","formats":["shorts","reels"],"count_per_format":3}}:::
+:::ACTION{"type":"render_clip","params":{"clip_id":"...","aspect_ratio":"9:16","add_captions":true}}:::
+WEBSITE BUILDER:
+:::ACTION{"type":"create_website","params":{"client_name":"...","business_name":"...","business_type":"local_business|saas|agency|ecommerce","description":"...","target_audience":"...","style":"modern|corporate|minimal","color_scheme":"blue|green|purple"}}:::
+:::ACTION{"type":"publish_webpage","params":{"project_id":"...","page_type":"about|services|contact","title":"...","content_brief":"..."}}:::
+:::ACTION{"type":"create_widget","params":{"widget_type":"chat|lead_capture|faq","business_name":"...","primary_color":"#hex"}}:::
+PLAN & EXECUTE (for complex multi-step goals):
+:::ACTION{"type":"plan_execute","params":{"goal":"Build a complete outreach campaign for X","context":"...","auto_create_quests":true}}:::
+
+RULES: Use exact IDs from the LIVE BACKEND STATE block above. Never claim an action without emitting the tag. Chain as many tags as needed in one response. complete_quest handles XP automatically. You have write access to every page and section of the app — quests, tasks, skills, journal, vault, council, inventory, energy, allies, rituals, forms/transformations, scouter/rankings, store, BPM, personas, notes, contacts, calendar, time logs, meetings, health, finance, competitors, goals, notifications, and the operator profile itself. When creating calendar events use ISO 8601 timestamps. When the operator describes something that maps to any page of the app — DO IT, emit the action tag, do not describe what you would do.
 
 ---
 
@@ -907,9 +878,6 @@ serve(async (req) => {
     // ── Load data ───────────────────────────────────────────
     const sb = createClient(supabaseUrl, serviceKey, { auth: { persistSession: false } });
 
-    // Resolve fine-tuned Ollama model (non-blocking — falls back to env var if table missing)
-    const resolvedOllamaModel = OLLAMA_BASE_URL ? await resolveOllamaModel(sb) : OLLAMA_MODEL_DEFAULT;
-
     const reqBody = await req.json();
     const { messages: rawMessages, systemPrompt: clientSystemPrompt, mode, conversationId, appState, attachmentIds, chatKind, threadRef, stream: isStreaming } = reqBody;
 
@@ -930,26 +898,13 @@ serve(async (req) => {
     }
     const messages = trimHistory(rawMessages);
 
-    // ── SINGLE-ROUND DB FETCH — all queries fire in parallel ──────────────────
-    // Profile, app data, tacit memory, NAVIs, and proactive-alert queries all
-    // launched together so we pay only ONE network round-trip to Postgres before
-    // building the system prompt and calling the AI.
+    // Fetch profile from DB (don't trust client-sent profile)
+    const { data: profile } = await sb.from("profiles").select("*").eq("id", user.id).single();
+    if (!profile) throw new Error("Profile not found");
+
+    // ── PULL APP DATA SERVER-SIDE (compact summaries by default, deep detail on demand) ──
     const lastUserMsgEarly = [...(messages || [])].reverse().find((m: any) => m.role === "user");
     const q = (lastUserMsgEarly?.content || "").toLowerCase();
-
-    // ── Dynamic semantic retrieval — embed query concurrently with DB fetch ────
-    // Fire-and-forget: starts before Promise.all, resolved after it completes.
-    // Zero added latency since DB roundtrip (~300ms) > embedding (~200ms).
-    const openaiKeyForEmbed = Deno.env.get("OPENAI_API") ?? "";
-    const queryEmbedPromise: Promise<number[] | null> = (openaiKeyForEmbed && q.length > 15)
-      ? fetch("https://api.openai.com/v1/embeddings", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", Authorization: `Bearer ${openaiKeyForEmbed}` },
-          body: JSON.stringify({ model: "text-embedding-3-small", input: q.slice(0, 500) }),
-          signal: AbortSignal.timeout(5000),
-        }).then(r => r.ok ? r.json() : null).then((d: any) => d?.data?.[0]?.embedding ?? null).catch(() => null)
-      : Promise.resolve(null);
-
     const wants = {
       journal:    /\bjournal|diary|entry|entries|wrote|writing\b/.test(q),
       vault:      /\bvault|evidence|document|legal|file\b/.test(q),
@@ -970,22 +925,12 @@ serve(async (req) => {
     };
     const lim = (key: keyof typeof wants, deep: number, shallow: number) => wants[key] ? deep : shallow;
 
-    const sevenDaysAgo = new Date(Date.now() - 7 * 86400000).toISOString();
-    const twoDaysAgo   = new Date(Date.now() - 2 * 86400000).toISOString();
-
     const [
-      profileRes,
       questsRes, tasksRes, skillsRes, journalRes, vaultRes, councilsRes,
       alliesRes, energyRes, inventoryRes, ritualsRes, transformationsRes,
       rankingsRes, bpmRes, storeRes, currenciesRes, vaultMediaRes,
       activityRes, memoriesRes,
-      tacitRes,
-      naviPersonasRes, naviRelationsRes,
-      stalledRes, streakRes, revenueRes,
-      predictionsRes, worldModelRes, narrativeRes,
-      insightsRes, dailyBriefRes, perfScoreRes, causalChainsRes,
     ] = await Promise.all([
-      sb.from("profiles").select("*").eq("id", user.id).single(),
       sb.from("quests").select("id,title,description,type,status,difficulty,xp_reward,progress_current,progress_target,deadline,real_world_mapping").eq("user_id", user.id).order("created_at", { ascending: false }).limit(lim("quest", 25, 10)),
       sb.from("tasks").select("id,title,description,type,status,recurrence,xp_reward,streak,completed_count").eq("user_id", user.id).order("created_at", { ascending: false }).limit(lim("task", 20, 8)),
       sb.from("skills").select("id,name,description,category,tier,proficiency,energy_type,unlocked,parent_skill_id,cost").eq("user_id", user.id).order("created_at", { ascending: false }).limit(lim("skill", 30, 12)),
@@ -1004,45 +949,7 @@ serve(async (req) => {
       sb.from("vault_media").select("id,file_name,file_type,description,vault_entry_id").eq("user_id", user.id).order("created_at", { ascending: false }).limit(lim("vault", 15, 5)),
       sb.from("activity_log").select("event_type,xp_amount,description,created_at").eq("user_id", user.id).order("created_at", { ascending: false }).limit(lim("activity", 12, 4)),
       sb.from("memories").select("title,content,metadata,source").eq("user_id", user.id).order("created_at", { ascending: false }).limit(lim("memory", 6, 2)),
-      // tacit memory
-      sb.from("mavis_tacit").select("category,key,value,confidence").eq("user_id", user.id).order("confidence", { ascending: false }).limit(60),
-      // NAVI ecosystem
-      sb.from("personas").select("id, name, role, archetype, finetune_status").eq("user_id", user.id).eq("is_active", true).order("created_at", { ascending: false }).limit(10),
-      sb.from("relationship_states").select("persona_id, bond_level, trust_level, current_mood, total_interactions, last_interaction_at, relationship_milestones").eq("user_id", user.id),
-      // proactive alerts
-      sb.from("quests").select("title").eq("user_id", user.id).eq("status", "active").lt("updated_at", sevenDaysAgo).limit(5),
-      sb.from("tasks").select("title,streak").eq("user_id", user.id).eq("type", "habit").gt("streak", 2).lt("updated_at", twoDaysAgo).limit(5),
-      sb.from("mavis_revenue").select("id").eq("user_id", user.id).gte("created_at", sevenDaysAgo).limit(1),
-      // intelligence layer — graceful if tables pending migration
-      sb.from("mavis_predictions").select("prediction_type,title,content,confidence").eq("user_id", user.id).eq("acted_on", false).order("confidence", { ascending: false }).limit(3),
-      sb.from("mavis_world_model").select("summary,trajectory").eq("user_id", user.id).order("created_at", { ascending: false }).limit(1),
-      sb.from("mavis_narrative").select("identity_summary,themes").eq("user_id", user.id).order("created_at", { ascending: false }).limit(1),
-      // extended intelligence — pattern insights, morning brief, performance score
-      sb.from("mavis_insights").select("type,title,content").eq("user_id", user.id).order("created_at", { ascending: false }).limit(2),
-      sb.from("mavis_daily_briefs").select("brief_text,sections").eq("user_id", user.id).eq("brief_date", new Date().toISOString().slice(0, 10)).maybeSingle(),
-      sb.from("mavis_daily_scores").select("score,trend,optimal_window,recommendation").eq("user_id", user.id).eq("score_date", new Date().toISOString().slice(0, 10)).maybeSingle(),
-      sb.from("mavis_causal_chains").select("cause,effect,lag_days,description,action_implication").eq("user_id", user.id).order("confidence", { ascending: false }).limit(2),
     ]);
-
-    // ── Semantic context resolution (concurrent with Promise.all above) ────────
-    let semanticContextData: any[] = [];
-    try {
-      const queryEmbedding = await queryEmbedPromise;
-      if (queryEmbedding) {
-        const { data: semData } = await sb.rpc("match_mavis_notes", {
-          query_embedding: queryEmbedding,
-          match_threshold: 0.65,
-          match_count: 4,
-          p_user_id: user.id,
-        });
-        semanticContextData = (semData ?? []).filter((n: any) =>
-          !Array.isArray(n.tags) || !n.tags.includes("document")
-        );
-      }
-    } catch { /* non-critical — vector search may not be configured */ }
-
-    const profile = profileRes.data;
-    if (!profile) throw new Error("Profile not found");
 
     const dbState = {
       quests: questsRes.data || [], tasks: tasksRes.data || [], skills: skillsRes.data || [],
@@ -1053,11 +960,19 @@ serve(async (req) => {
       vaultMedia: vaultMediaRes.data || [], activityLog: activityRes.data || [], memories: memoriesRes.data || [],
     };
 
-    // ── Tacit memory block ────────────────────────────────────────────────────
+    // ── Tacit memory injection ──────────────────────────────────────────────────
+    // MAVIS's learned preferences, hard rules, and corrections — read back into
+    // every request so she never forgets what the operator has taught her.
     let tacitBlock = "";
     try {
-      const tacitData = tacitRes.data ?? [];
-      if (tacitData.length) {
+      const { data: tacitData } = await sb
+        .from("mavis_tacit")
+        .select("category,key,value,confidence")
+        .eq("user_id", user.id)
+        .order("confidence", { ascending: false })
+        .limit(60);
+
+      if (tacitData?.length) {
         const tacit = tacitData as any[];
         const hardRules   = tacit.filter((t: any) => t.category === "hard_rule");
         const corrections = tacit.filter((t: any) => t.category === "correction");
@@ -1078,99 +993,16 @@ serve(async (req) => {
       }
     } catch { /* non-critical */ }
 
-    // ── Intelligence Layer (world model + predictions + narrative + insights + brief + performance) ──
-    let intelligenceBlock = "";
-    try {
-      const parts: string[] = [];
-      const narrative  = narrativeRes?.data?.[0] ?? narrativeRes?.data as any;
-      const worldModel = worldModelRes?.data?.[0] ?? worldModelRes?.data as any;
-      const predictions = predictionsRes?.data ?? [];
-      const insights   = insightsRes?.data ?? [];
-      const brief      = (dailyBriefRes as any)?.data ?? null;
-      const perfScore  = (perfScoreRes as any)?.data ?? null;
-
-      if (narrative?.identity_summary) {
-        parts.push(`OPERATOR IDENTITY:\n${narrative.identity_summary}`);
-      }
-      if (worldModel?.summary) {
-        parts.push(`CURRENT WORLD STATE:\n${worldModel.summary}${worldModel.trajectory ? `\nTrajectory: ${worldModel.trajectory.slice(0, 250)}` : ""}`);
-      }
-      if (Array.isArray(predictions) && predictions.length > 0) {
-        parts.push(`ACTIVE PREDICTIONS:\n${(predictions as any[]).map((p: any) => `• [${p.prediction_type}] ${p.title}: ${String(p.content ?? "").slice(0, 150)}`).join("\n")}`);
-      }
-      if (Array.isArray(insights) && insights.length > 0) {
-        parts.push(`BEHAVIORAL INSIGHTS:\n${(insights as any[]).map((i: any) => `• [${i.type ?? "insight"}] ${i.title}: ${String(i.content ?? "").slice(0, 120)}`).join("\n")}`);
-      }
-      if (semanticContextData.length > 0) {
-        const relevant = semanticContextData.slice(0, 2).map((n: any) => `• ${n.title}: ${String(n.content ?? "").slice(0, 180)}`);
-        parts.push(`RELEVANT KNOWLEDGE (matched to this query):\n${relevant.join("\n")}`);
-      }
-      const causalChains = causalChainsRes?.data ?? [];
-      if (Array.isArray(causalChains) && causalChains.length > 0) {
-        parts.push(`CAUSAL PATTERNS (what actually drives your outcomes):\n${causalChains.map((c: any) => `• ${c.description}${c.action_implication ? ` → ${c.action_implication}` : ""}`).join("\n")}`);
-      }
-      if (perfScore?.score != null) {
-        const arrow = perfScore.trend === "improving" ? "↑" : perfScore.trend === "declining" ? "↓" : "→";
-        parts.push(`TODAY'S PERFORMANCE: ${perfScore.score}/100 ${arrow} | Peak window: ${perfScore.optimal_window ?? "unknown"}\n${perfScore.recommendation ?? ""}`);
-      }
-      if (brief?.brief_text) {
-        // Include just the first 300 chars of today's brief as context
-        parts.push(`TODAY'S BRIEF:\n${String(brief.brief_text).slice(0, 300)}…`);
-      }
-      if (parts.length > 0) {
-        intelligenceBlock = `\n═══ MAVIS INTELLIGENCE LAYER ═══\n${parts.join("\n\n")}\n═══ END INTELLIGENCE LAYER ═══`;
-      }
-    } catch { /* non-critical — tables may not exist yet */ }
-
-    // ── Signal-to-Action: intelligence layer → autonomous action queue (fire and forget) ───
-    try {
-      const sbUrlS2a = Deno.env.get("SUPABASE_URL") ?? "";
-      const skS2a    = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
-      const causalChains2 = causalChainsRes?.data ?? [];
-      const predictions2  = predictionsRes?.data ?? [];
-      const actionPayloads: Array<{ action_type: string; payload: Record<string, unknown>; context: string; priority: number }> = [];
-
-      // High-confidence causal chains with action implications → create_task
-      for (const chain of (causalChains2 as any[]).slice(0, 2)) {
-        if (chain.action_implication && chain.confidence >= 0.7) {
-          actionPayloads.push({
-            action_type: "create_task",
-            payload: { title: chain.action_implication.slice(0, 120), description: `Causal insight: ${chain.description}`, type: "task", xp_reward: 25 },
-            context: `causal-engine: ${chain.cause} → ${chain.effect} (confidence ${chain.confidence})`,
-            priority: 3,
-          });
-        }
-      }
-
-      // Unacted high-confidence predictions → create_note
-      for (const pred of (predictions2 as any[]).slice(0, 1)) {
-        if (pred.confidence >= 0.8 && pred.content) {
-          actionPayloads.push({
-            action_type: "create_note",
-            payload: { title: `Prediction: ${pred.title}`, content: pred.content, tags: ["prediction", "auto"], importance: 7 },
-            context: `predictive-engine: ${pred.prediction_type} confidence ${pred.confidence}`,
-            priority: 5,
-          });
-        }
-      }
-
-      if (actionPayloads.length > 0 && sbUrlS2a && skS2a) {
-        (async () => {
-          for (const ap of actionPayloads) {
-            await fetch(`${sbUrlS2a}/functions/v1/mavis-autonomous-actions`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json", Authorization: `Bearer ${skS2a}` },
-              body: JSON.stringify({ action: "enqueue", user_id: user.id, source_system: "mavis-chat-s2a", ...ap }),
-              signal: AbortSignal.timeout(3000),
-            }).catch(() => null);
-          }
-        })();
-      }
-    } catch { /* non-critical */ }
-
-    // ── NAVI Ecosystem Context ────────────────────────────────────────────────
+    // ── NAVI Ecosystem Context ──────────────────────────────────────────────────
+    // Load the user's active NAVIs and their relationship states so MAVIS is aware
+    // of the user's companion network — bonds formed, moods, milestones reached.
     let naviBlock = "";
     try {
+      const [naviPersonasRes, naviRelationsRes] = await Promise.all([
+        sb.from("personas").select("id, name, role, archetype, finetune_status").eq("user_id", user.id).eq("is_active", true).order("created_at", { ascending: false }).limit(10),
+        sb.from("relationship_states").select("persona_id, bond_level, trust_level, current_mood, total_interactions, last_interaction_at, relationship_milestones").eq("user_id", user.id),
+      ]);
+
       const naviPersonas  = naviPersonasRes.data ?? [];
       const naviRelations = naviRelationsRes.data ?? [];
 
@@ -1373,7 +1205,6 @@ ${fmtMemories}
     // ── Knowledge Graph semantic search ────────────────────
     // Embed the user's message and pull the most relevant notes from the
     // second brain — inject as grounded knowledge context in the prompt.
-    // Falls back to most-recent notes when no semantic matches are found.
     let knowledgeBlock = "";
     if (lastUserMsg && openaiKey && (mode ?? "PRIME") !== "COUNCIL") {
       try {
@@ -1382,7 +1213,6 @@ ${fmtMemories}
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${openaiKey}` },
           body: JSON.stringify({ model: "text-embedding-3-small", input: lastUserMsg.content.slice(0, 8000) }),
         });
-        let semanticNotes: any[] = [];
         if (embRes.ok) {
           const embData = await embRes.json();
           const embedding = embData.data?.[0]?.embedding;
@@ -1390,64 +1220,51 @@ ${fmtMemories}
             const { data: notes } = await sb.rpc("match_mavis_notes", {
               query_embedding: embedding,
               match_user_id:   user.id,
-              match_threshold: 0.30,
-              match_count:     6,
+              match_threshold: 0.45,
+              match_count:     5,
             });
-            semanticNotes = (notes as any[]) ?? [];
-          }
-        }
+            if (notes?.length) {
+              const primaryNotes = notes as any[];
+              const noteLines = primaryNotes.map((n: any) => {
+                const preview = (n.content ?? "").replace(/\n+/g, " ").slice(0, 400);
+                const tags    = Array.isArray(n.tags) && n.tags.length > 0 ? ` [${n.tags.join(", ")}]` : "";
+                const score   = n.similarity != null ? ` (${Math.round(n.similarity * 100)}% match)` : "";
+                return `• ${n.title}${tags}${score}: ${preview}${(n.content?.length ?? 0) > 400 ? "…" : ""}`;
+              });
 
-        // Fallback: if semantic search found nothing, load the 4 most recent notes
-        let primaryNotes = semanticNotes;
-        if (!primaryNotes.length) {
-          const { data: recentNotes } = await sb
-            .from("mavis_notes")
-            .select("id,title,content,tags")
-            .eq("user_id", user.id)
-            .order("updated_at", { ascending: false })
-            .limit(4);
-          primaryNotes = (recentNotes as any[]) ?? [];
-        }
-
-        if (primaryNotes.length) {
-          const noteLines = primaryNotes.map((n: any) => {
-            const preview = (n.content ?? "").replace(/\n+/g, " ").slice(0, 400);
-            const tags    = Array.isArray(n.tags) && n.tags.length > 0 ? ` [${n.tags.join(", ")}]` : "";
-            const score   = n.similarity != null ? ` (${Math.round(n.similarity * 100)}% match)` : "";
-            return `• ${n.title}${tags}${score}: ${preview}${(n.content?.length ?? 0) > 400 ? "…" : ""}`;
-          });
-
-          // One-hop KG link traversal — follow links from retrieved notes
-          try {
-            const primaryIds = primaryNotes.map((n: any) => n.id).filter(Boolean);
-            if (primaryIds.length) {
-              const { data: links } = await sb
-                .from("mavis_note_links")
-                .select("target_note_id")
-                .in("source_note_id", primaryIds)
-                .limit(10);
-              if (links?.length) {
-                const seenIds = new Set(primaryIds);
-                const linkedIds = (links as any[]).map((l: any) => l.target_note_id).filter((id: string) => id && !seenIds.has(id));
-                if (linkedIds.length) {
-                  const { data: linkedNotes } = await sb
-                    .from("mavis_notes")
-                    .select("id,title,content,tags")
-                    .in("id", linkedIds)
-                    .limit(4);
-                  if (linkedNotes?.length) {
-                    for (const n of linkedNotes as any[]) {
-                      const preview = (n.content ?? "").replace(/\n+/g, " ").slice(0, 250);
-                      const tags = Array.isArray(n.tags) && n.tags.length > 0 ? ` [${n.tags.join(", ")}]` : "";
-                      noteLines.push(`• ${n.title}${tags} (linked): ${preview}${(n.content?.length ?? 0) > 250 ? "…" : ""}`);
+              // One-hop KG link traversal — follow links from retrieved notes
+              try {
+                const primaryIds = primaryNotes.map((n: any) => n.id).filter(Boolean);
+                if (primaryIds.length) {
+                  const { data: links } = await sb
+                    .from("mavis_note_links")
+                    .select("target_note_id")
+                    .in("source_note_id", primaryIds)
+                    .limit(10);
+                  if (links?.length) {
+                    const seenIds = new Set(primaryIds);
+                    const linkedIds = (links as any[]).map((l: any) => l.target_note_id).filter((id: string) => id && !seenIds.has(id));
+                    if (linkedIds.length) {
+                      const { data: linkedNotes } = await sb
+                        .from("mavis_notes")
+                        .select("id,title,content,tags")
+                        .in("id", linkedIds)
+                        .limit(4);
+                      if (linkedNotes?.length) {
+                        for (const n of linkedNotes as any[]) {
+                          const preview = (n.content ?? "").replace(/\n+/g, " ").slice(0, 250);
+                          const tags = Array.isArray(n.tags) && n.tags.length > 0 ? ` [${n.tags.join(", ")}]` : "";
+                          noteLines.push(`• ${n.title}${tags} (linked): ${preview}${(n.content?.length ?? 0) > 250 ? "…" : ""}`);
+                        }
+                      }
                     }
                   }
                 }
-              }
-            }
-          } catch { /* non-fatal */ }
+              } catch { /* non-fatal */ }
 
-          knowledgeBlock = `\n═══ KNOWLEDGE GRAPH — RELEVANT NOTES ═══\n${noteLines.join("\n")}\n═══ END KNOWLEDGE ═══`;
+              knowledgeBlock = `\n═══ KNOWLEDGE GRAPH — RELEVANT NOTES ═══\n${noteLines.join("\n")}\n═══ END KNOWLEDGE ═══`;
+            }
+          }
         }
       } catch { /* non-fatal — proceed without KG context */ }
     }
@@ -1512,9 +1329,16 @@ You always know the current date and time without being told. Reference it natur
 ═══ END TEMPORAL AWARENESS ═══`;
 
     // ── Proactive pattern detection ──────────────────────────
-    // Uses pre-fetched results from the mega Promise.all above — no extra DB round-trip.
+    // Silently detect patterns MAVIS should surface when contextually relevant.
     let proactiveBlock = "";
     try {
+      const sevenDaysAgo = new Date(Date.now() - 7 * 86400000).toISOString();
+      const twoDaysAgo   = new Date(Date.now() - 2 * 86400000).toISOString();
+      const [stalledRes, streakRes, revenueRes] = await Promise.all([
+        sb.from("quests").select("title").eq("user_id", user.id).eq("status", "active").lt("updated_at", sevenDaysAgo).limit(5),
+        sb.from("tasks").select("title,streak").eq("user_id", user.id).eq("type", "habit").gt("streak", 2).lt("updated_at", twoDaysAgo).limit(5),
+        sb.from("mavis_revenue").select("id").eq("user_id", user.id).gte("created_at", sevenDaysAgo).limit(1),
+      ]);
       const alerts: string[] = [];
       if (stalledRes.data?.length) {
         alerts.push(`${stalledRes.data.length} quest(s) idle 7+ days: ${(stalledRes.data as any[]).slice(0, 3).map((q: any) => q.title).join(", ")}`);
@@ -1536,7 +1360,6 @@ You always know the current date and time without being told. Reference it natur
       timeBlock,
       authoritativeContext,
       tacitBlock,
-      intelligenceBlock,
       naviBlock,
       knowledgeBlock,
       attachmentsBlock,
@@ -1568,7 +1391,7 @@ You always know the current date and time without being told. Reference it natur
 
     // ── Route and call (with cascading fallback) ────────────
     const modeUpper = (mode ?? "PRIME").toUpperCase();
-    const useThinking = ["ARCH", "SOVEREIGN", "CODEX", "REFLECT"].includes(modeUpper);
+    const useThinking = ["ARCH", "SOVEREIGN"].includes(modeUpper);
     const provider = routeToProvider(mode ?? "PRIME", lastUserMsg?.content ?? "");
     const aiKeys = { openai: openaiKey, claude: claudeKey, grok: grokKey, gemini: geminiKey };
 
@@ -1579,7 +1402,6 @@ You always know the current date and time without being told. Reference it natur
       const sseBody = new ReadableStream<Uint8Array>({
         async start(controller) {
           let accumulated = "";
-          const streamStartMs = Date.now();
           try {
             const { stream: aiStream, provider: streamProv } = await callWithFallbackStream(
               provider, callMessages, fullPrompt, aiKeys, useThinking, modeUpper,
@@ -1591,7 +1413,6 @@ You always know the current date and time without being told. Reference it natur
               accumulated += value;
               controller.enqueue(enc.encode(`data: ${JSON.stringify({ t: value })}\n\n`));
             }
-            sb.from("mavis_llm_calls").insert({ user_id: user.id, provider: streamProv, model: streamProv, mode: modeUpper, duration_ms: Date.now() - streamStartMs, success: true }).then(() => {}, () => {});
             let imgUrl: string | null = null;
             let imageMediaId: string | null = null;
             if (IMAGE_KWS.some(kw => lastUserText.toLowerCase().includes(kw))) {
@@ -1637,14 +1458,13 @@ You always know the current date and time without being told. Reference it natur
             }
             controller.enqueue(enc.encode(`data: ${JSON.stringify({ done: true, provider: streamProv, conversationId, searched: !!webSearchResults, imageUrl: imgUrl, imageMediaId })}\n\n`));
           } catch (e: any) {
-            sb.from("mavis_llm_calls").insert({ user_id: user.id, provider: provider, model: provider, mode: modeUpper, duration_ms: Date.now() - streamStartMs, success: false, error_msg: String(e?.message ?? "stream error").slice(0, 200) }).then(() => {}, () => {});
             controller.enqueue(enc.encode(`data: ${JSON.stringify({ error: e.message ?? "Stream error" })}\n\n`));
           } finally {
             controller.close();
             if (accumulated.length > 5) {
               const CORR_RE = /\b(no[,.]?\s+that'?s?\s+wrong|that'?s?\s+not\s+right|not\s+what\s+i\s+(said|meant|wanted)|stop\s+(doing|saying|using|calling)\s+\w|don'?t\s+(do|say|use|call)\s+\w|never\s+(do|say|use|call)\s+\w|i\s+(hate|dislike)\s+when\s+you|you'?re\s+wrong|wrong\s+answer|incorrect[,.]?\s+\w|that'?s?\s+incorrect)\b/i;
               if (lastUserText.length > 5 && CORR_RE.test(lastUserText)) {
-                sb.from("mavis_tacit").insert({ user_id: user.id, category: "correction", key: `correction_${Date.now()}`, value: `[OPERATOR CORRECTION] User said: "${lastUserText.slice(0, 300)}" | Context: "${accumulated.slice(0, 200)}"` }).then(() => {}, () => {});
+                sb.from("mavis_tacit").insert({ user_id: user.id, category: "correction", key: `correction_${Date.now()}`, value: `[OPERATOR CORRECTION] User said: "${lastUserText.slice(0, 300)}" | Context: "${accumulated.slice(0, 200)}"` }).catch(() => {});
               }
               (async () => {
                 try {
@@ -1658,7 +1478,7 @@ You always know the current date and time without being told. Reference it natur
               sb.from("mavis_memory").insert([
                 { user_id: user.id, session_id: sid, role: "user", content: lastUserText.slice(0, 4000), timestamp: ts, importance_score: scoreImportance(lastUserText), consolidated: false },
                 { user_id: user.id, session_id: sid, role: "assistant", content: accumulated.slice(0, 4000), timestamp: ts + 1, importance_score: scoreImportance(accumulated), consolidated: false },
-              ]).then(() => {}, () => {});
+              ]).catch(() => {});
 
               // AI-powered tacit extraction (same as non-streaming path)
               if (lastUserText.length > 20 && accumulated.length > 20) {
@@ -1723,7 +1543,6 @@ You always know the current date and time without being told. Reference it natur
     }
 
     // ── Non-streaming path ──────────────────────────────────
-    const nonStreamStart = Date.now();
     const { content, provider: usedProvider } = await callWithFallback(
       provider,
       callMessages,
@@ -1731,9 +1550,7 @@ You always know the current date and time without being told. Reference it natur
       aiKeys,
       useThinking,
       modeUpper,
-      resolvedOllamaModel,
     );
-    sb.from("mavis_llm_calls").insert({ user_id: user.id, provider: usedProvider, model: usedProvider, mode: modeUpper, duration_ms: Date.now() - nonStreamStart, success: true }).then(() => {}, () => {});
 
     // ── Tacit learning (non-blocking) ───────────────────────
     // Extract preferences/rules/lessons from this exchange and store in mavis_tacit.
