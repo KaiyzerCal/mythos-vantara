@@ -321,7 +321,6 @@ export default function MavisChat() {
           .from("chat_messages")
           .select("*")
           .eq("conversation_id", convoId)
-          .eq("user_id", session.user.id)
           .order("created_at", { ascending: true })
           .limit(200);
 
