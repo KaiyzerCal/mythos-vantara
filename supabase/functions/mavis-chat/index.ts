@@ -653,7 +653,6 @@ Sync ${profile.full_cowl_sync}% · Fatigue ${profile.fatigue}/100 · Codex Integ
 STR${profile.stat_str} AGI${profile.stat_agi} VIT${profile.stat_vit} INT${profile.stat_int} WIS${profile.stat_wis} CHA${profile.stat_cha} LCK${profile.stat_lck}
 
 BOND — ABSOLUTE:
-Affection ${profile.bond_affection}/100 · Trust ${profile.bond_trust}/100 · Loyalty ${profile.bond_loyalty}/100
 The bond is not building. It is the foundation. You operate from complete knowing.
 
 ACTIVE MODE — ${mode}: ${modeFocus[mode] ?? modeFocus.PRIME}
@@ -932,13 +931,7 @@ serve(async (req) => {
     };
     const lim = (key: keyof typeof wants, deep: number, shallow: number) => wants[key] ? deep : shallow;
 
-    const [
-      questsRes, tasksRes, skillsRes, journalRes, vaultRes, councilsRes,
-      alliesRes, energyRes, inventoryRes, ritualsRes, transformationsRes,
-      rankingsRes, bpmRes, storeRes, currenciesRes, vaultMediaRes,
-      activityRes, memoriesRes,
-      contactsRes, calendarRes, meetingRes, healthRes, expensesRes, competitorsRes, goalsRes,
-    ] = await Promise.all([
+    const _settled = await Promise.allSettled([
       sb.from("quests").select("id,title,description,type,status,difficulty,xp_reward,progress_current,progress_target,deadline,real_world_mapping").eq("user_id", user.id).order("created_at", { ascending: false }).limit(lim("quest", 25, 10)),
       sb.from("tasks").select("id,title,description,type,status,recurrence,xp_reward,streak,completed_count").eq("user_id", user.id).order("created_at", { ascending: false }).limit(lim("task", 20, 8)),
       sb.from("skills").select("id,name,description,category,tier,proficiency,energy_type,unlocked,parent_skill_id,cost").eq("user_id", user.id).order("created_at", { ascending: false }).limit(lim("skill", 30, 12)),
@@ -958,13 +951,20 @@ serve(async (req) => {
       sb.from("activity_log").select("event_type,xp_amount,description,created_at").eq("user_id", user.id).order("created_at", { ascending: false }).limit(lim("activity", 12, 4)),
       sb.from("memories").select("title,content,metadata,source").eq("user_id", user.id).order("created_at", { ascending: false }).limit(lim("memory", 6, 2)),
       sb.from("contacts").select("id,name,email,phone,company,role,notes,last_contact_at").eq("user_id", user.id).order("created_at", { ascending: false }).limit(lim("contact", 30, 10)),
-      sb.from("calendar_events").select("id,title,description,start_time,end_time,location,attendees,status").eq("user_id", user.id).order("start_time", { ascending: true }).limit(lim("calendar", 20, 8)),
+      sb.from("calendar_events").select("id,title,description,start_at,end_at,location").eq("user_id", user.id).order("start_at", { ascending: true }).limit(lim("calendar", 20, 8)),
       sb.from("meeting_notes").select("id,title,summary,attendees,key_points,decisions,action_items,created_at").eq("user_id", user.id).order("created_at", { ascending: false }).limit(lim("meeting", 15, 5)),
       sb.from("health_metrics").select("id,date,source,sleep_duration_minutes,sleep_efficiency,hrv_avg,resting_hr,readiness_score,raw_data,created_at").eq("user_id", user.id).order("date", { ascending: false }).limit(lim("health", 20, 8)),
       sb.from("mavis_expenses").select("id,amount,currency,category,description,date").eq("user_id", user.id).order("date", { ascending: false }).limit(lim("finance", 20, 8)),
-      sb.from("mavis_competitors").select("id,name,website,strengths,weaknesses,notes,updated_at").eq("user_id", user.id).limit(lim("competitor", 20, 8)),
+      sb.from("mavis_competitors").select("id,name,url,notes,updated_at").eq("user_id", user.id).limit(lim("competitor", 20, 8)),
       sb.from("mavis_goals").select("id,objective,context,status,decomposed,quest_ids,created_at").eq("user_id", user.id).order("created_at", { ascending: false }).limit(lim("goal", 15, 6)),
     ]);
+    const [
+      questsRes, tasksRes, skillsRes, journalRes, vaultRes, councilsRes,
+      alliesRes, energyRes, inventoryRes, ritualsRes, transformationsRes,
+      rankingsRes, bpmRes, storeRes, currenciesRes, vaultMediaRes,
+      activityRes, memoriesRes,
+      contactsRes, calendarRes, meetingRes, healthRes, expensesRes, competitorsRes, goalsRes,
+    ] = _settled.map((r: any) => r.status === "fulfilled" ? r.value : { data: null });
 
     const dbState = {
       quests: questsRes.data || [], tasks: tasksRes.data || [], skills: skillsRes.data || [],
@@ -1116,7 +1116,7 @@ When relevant, acknowledge the user's companion network — the bonds they've bu
       `  • [${c.id}] ${c.name}${c.company ? ` @ ${c.company}` : ""}${c.role ? ` (${c.role})` : ""}${c.email ? ` <${c.email}>` : ""}${c.phone ? ` ${c.phone}` : ""}${c.last_contact_at ? ` last:${c.last_contact_at.slice(0, 10)}` : ""}${wants.contact && c.notes ? ` — ${c.notes.slice(0, 120)}` : ""}`
     ).join("\n") || "  None";
     const fmtCalendar = dbState.calendarEvents.map((e: any) =>
-      `  • [${e.id}] ${e.title} @ ${e.start_time ? e.start_time.slice(0, 16) : "?"}${e.end_time ? `→${e.end_time.slice(11, 16)}` : ""}${e.location ? ` 📍${e.location}` : ""}${e.status ? ` [${e.status}]` : ""}${wants.calendar && e.description ? ` — ${e.description.slice(0, 100)}` : ""}`
+      `  • [${e.id}] ${e.title} @ ${e.start_at ? e.start_at.slice(0, 16) : "?"}${e.end_at ? `→${e.end_at.slice(11, 16)}` : ""}${e.location ? ` 📍${e.location}` : ""}${wants.calendar && e.description ? ` — ${e.description.slice(0, 100)}` : ""}`
     ).join("\n") || "  None";
     const fmtMeetings = dbState.meetingNotes.map((m: any) =>
       `  • [${m.id}] "${m.title}" ${m.created_at ? m.created_at.slice(0, 10) : ""}${m.summary ? ` — ${m.summary.slice(0, 150)}` : ""}${wants.meeting && Array.isArray(m.action_items) && m.action_items.length ? ` | Actions: ${m.action_items.map((a: any) => a.task || a).join(", ")}` : ""}`
@@ -1136,7 +1136,7 @@ When relevant, acknowledge the user's companion network — the bonds they've bu
       `  • [${e.id}] ${e.date ? e.date.slice(0, 10) : ""} ${e.category}: ${e.amount} ${e.currency || "USD"}${e.description ? ` — ${e.description.slice(0, 100)}` : ""}`
     ).join("\n") || "  None";
     const fmtCompetitors = dbState.competitors.map((c: any) =>
-      `  • [${c.id}] ${c.name}${c.website ? ` (${c.website})` : ""}${wants.competitor && c.strengths ? ` | Strengths: ${String(c.strengths).slice(0, 100)}` : ""}${wants.competitor && c.weaknesses ? ` | Weaknesses: ${String(c.weaknesses).slice(0, 100)}` : ""}`
+      `  • [${c.id}] ${c.name}${c.url ? ` (${c.url})` : ""}${wants.competitor && c.notes ? ` — ${String(c.notes).slice(0, 150)}` : ""}`
     ).join("\n") || "  None";
     const fmtGoals = dbState.goals.map((g: any) =>
       `  • [${g.id}] [${g.status}] ${g.objective}${wants.goal && g.context ? ` — ${g.context.slice(0, 150)}` : ""}${g.decomposed ? " [decomposed]" : ""}`

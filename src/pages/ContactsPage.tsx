@@ -206,7 +206,7 @@ export function ContactsPage() {
       interaction_count: (contacts.find((c) => c.id === contactId)?.interaction_count || 0) + 1,
       last_contact_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
-    }).eq("id", contactId);
+    }).eq("id", contactId).eq("user_id", session!.user.id);
 
     toast.success("Interaction logged");
     setInteractionForm({ interaction_type: "note", notes: "", sentiment: "neutral" });
