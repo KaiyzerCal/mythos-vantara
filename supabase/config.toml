@@ -560,3 +560,15 @@ verify_jwt = false
 
 [functions.navi-memory-consolidator]
 verify_jwt = false
+
+[functions.mavis-archivist]
+verify_jwt = false
+
+[functions.mavis-so-curator]
+verify_jwt = false
+
+[functions.mavis-user-model-refresh]
+verify_jwt = false
+
+[functions.mavis-goal-judge]
+verify_jwt = false
