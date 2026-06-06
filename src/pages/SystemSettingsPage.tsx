@@ -16,6 +16,18 @@ import {
   ChevronDown,
   ChevronUp,
   AlertTriangle,
+  ShoppingBag,
+  Stethoscope,
+  Monitor,
+  Search,
+  Download,
+  RefreshCw,
+  CheckCircle,
+  XCircle,
+  AlertCircle,
+  Laptop,
+  Smartphone,
+  Globe,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
@@ -1338,6 +1350,440 @@ function LlmAnalyticsTab() {
 }
 
 // ============================================================
+// SkillCatalogTab — browse, search, and install catalog skills
+// ============================================================
+
+interface CatalogSkill {
+  slug: string;
+  name: string;
+  description: string;
+  category: string;
+  trigger_phrase: string;
+  tags: string[];
+  is_featured: boolean;
+  installed: boolean;
+}
+
+const CATEGORY_LABELS: Record<string, string> = {
+  "productivity": "Productivity",
+  "research": "Research",
+  "creative": "Creative",
+  "email": "Email",
+  "github": "GitHub",
+  "social-media": "Social Media",
+  "software-development": "Software Dev",
+  "data-science": "Data Science",
+  "devops": "DevOps",
+  "note-taking": "Note Taking",
+  "autonomous-ai-agents": "AI Agents",
+  "mlops": "MLOps",
+  "smart-home": "Smart Home",
+  "apple": "Apple",
+};
+
+function SkillCatalogTab() {
+  const { user } = useAuth() as any;
+  const [skills, setSkills] = useState<CatalogSkill[]>([]);
+  const [categories, setCategories] = useState<string[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [activeCategory, setActiveCategory] = useState<string>("all");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [installingSlug, setInstallingSlug] = useState<string | null>(null);
+  const [uninstallingSlug, setUninstallingSlug] = useState<string | null>(null);
+
+  const fetchCatalog = useCallback(async (query?: string, category?: string) => {
+    if (!user?.id) return;
+    setLoading(true);
+    try {
+      const supabaseTyped = supabase as any;
+      let result;
+      if (query?.trim()) {
+        result = await supabaseTyped.functions.invoke("mavis-skill-catalog", {
+          body: { action: "search", query: query.trim() },
+        });
+      } else {
+        result = await supabaseTyped.functions.invoke("mavis-skill-catalog", {
+          body: { action: "list", category: category && category !== "all" ? category : undefined },
+        });
+      }
+      const { data, error } = result;
+      if (error || data?.error) throw new Error(data?.error ?? error?.message);
+      setSkills(data.skills ?? []);
+      if (data.categories) setCategories(data.categories);
+    } catch (e: any) {
+      toast.error(e.message);
+    } finally {
+      setLoading(false);
+    }
+  }, [user?.id]);
+
+  useEffect(() => { fetchCatalog(); }, [fetchCatalog]);
+
+  async function install(slug: string) {
+    setInstallingSlug(slug);
+    try {
+      const { data, error } = await (supabase as any).functions.invoke("mavis-skill-catalog", {
+        body: { action: "install", slug },
+      });
+      if (error || data?.error) throw new Error(data?.error ?? error?.message);
+      toast.success(`Installed: ${data.skill_name}`);
+      await fetchCatalog(searchQuery || undefined, activeCategory);
+    } catch (e: any) {
+      toast.error(e.message);
+    } finally {
+      setInstallingSlug(null);
+    }
+  }
+
+  async function uninstall(slug: string) {
+    setUninstallingSlug(slug);
+    try {
+      const { data, error } = await (supabase as any).functions.invoke("mavis-skill-catalog", {
+        body: { action: "uninstall", slug },
+      });
+      if (error || data?.error) throw new Error(data?.error ?? error?.message);
+      toast.success("Skill removed");
+      await fetchCatalog(searchQuery || undefined, activeCategory);
+    } catch (e: any) {
+      toast.error(e.message);
+    } finally {
+      setUninstallingSlug(null);
+    }
+  }
+
+  function handleSearch(e: React.FormEvent) {
+    e.preventDefault();
+    fetchCatalog(searchQuery, activeCategory);
+  }
+
+  function selectCategory(cat: string) {
+    setActiveCategory(cat);
+    setSearchQuery("");
+    fetchCatalog(undefined, cat);
+  }
+
+  const installedCount = skills.filter(s => s.installed).length;
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <p className="text-xs text-muted-foreground font-mono">
+          {skills.length} skills · {installedCount} installed
+        </p>
+      </div>
+
+      {/* Search */}
+      <form onSubmit={handleSearch} className="flex gap-2">
+        <div className="relative flex-1">
+          <Search size={12} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            value={searchQuery}
+            onChange={e => setSearchQuery(e.target.value)}
+            placeholder="Search skills…"
+            className="pl-8 h-8 text-xs font-mono"
+          />
+        </div>
+        <Button type="submit" size="sm" variant="outline" className="h-8 text-xs font-mono px-3">
+          Search
+        </Button>
+      </form>
+
+      {/* Category pills */}
+      <div className="flex flex-wrap gap-1">
+        <button
+          onClick={() => selectCategory("all")}
+          className={`text-[10px] font-mono px-2 py-1 rounded border transition-colors ${activeCategory === "all" ? "bg-primary/10 text-primary border-primary/40" : "text-muted-foreground border-border hover:border-primary/30"}`}
+        >
+          All
+        </button>
+        {categories.map(cat => (
+          <button
+            key={cat}
+            onClick={() => selectCategory(cat)}
+            className={`text-[10px] font-mono px-2 py-1 rounded border transition-colors ${activeCategory === cat ? "bg-primary/10 text-primary border-primary/40" : "text-muted-foreground border-border hover:border-primary/30"}`}
+          >
+            {CATEGORY_LABELS[cat] ?? cat}
+          </button>
+        ))}
+      </div>
+
+      {/* Skills grid */}
+      {loading ? (
+        <div className="flex justify-center py-10"><Loader2 size={20} className="animate-spin text-muted-foreground" /></div>
+      ) : skills.length === 0 ? (
+        <p className="text-muted-foreground text-sm text-center py-8 font-mono">No skills found.</p>
+      ) : (
+        <div className="grid grid-cols-1 gap-3">
+          {skills.map(skill => (
+            <div key={skill.slug} className="border border-border rounded-lg p-3 flex gap-3 items-start hover:border-primary/30 transition-colors">
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 mb-0.5 flex-wrap">
+                  <span className="text-sm font-medium font-mono">{skill.name}</span>
+                  {skill.is_featured && <Badge variant="secondary" className="text-[9px] px-1 py-0 h-4">Featured</Badge>}
+                  {skill.installed && <Badge variant="outline" className="text-[9px] px-1 py-0 h-4 text-green-400 border-green-400/30">Installed</Badge>}
+                  <span className="text-[9px] font-mono text-muted-foreground border border-border rounded px-1 py-0">
+                    {CATEGORY_LABELS[skill.category] ?? skill.category}
+                  </span>
+                </div>
+                <p className="text-xs text-muted-foreground leading-snug">{skill.description}</p>
+                <p className="text-[9px] font-mono text-primary/50 mt-1">trigger: "{skill.trigger_phrase}"</p>
+              </div>
+              <div className="shrink-0">
+                {skill.installed ? (
+                  <button
+                    onClick={() => uninstall(skill.slug)}
+                    disabled={uninstallingSlug === skill.slug}
+                    className="text-[10px] font-mono text-red-400/70 border border-red-400/20 rounded px-2 py-1 hover:bg-red-500/10 transition-colors disabled:opacity-50"
+                  >
+                    {uninstallingSlug === skill.slug ? <Loader2 size={10} className="animate-spin" /> : "Remove"}
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => install(skill.slug)}
+                    disabled={installingSlug === skill.slug}
+                    className="text-[10px] font-mono text-primary border border-primary/30 rounded px-2 py-1 hover:bg-primary/10 transition-colors disabled:opacity-50 flex items-center gap-1"
+                  >
+                    {installingSlug === skill.slug ? <Loader2 size={10} className="animate-spin" /> : <Download size={10} />}
+                    Install
+                  </button>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ============================================================
+// RunDoctorTab — health diagnostics for all integrations
+// ============================================================
+
+type HealthStatus = "healthy" | "degraded" | "error" | "unconfigured" | "unknown";
+
+interface HealthCheck {
+  integration_name: string;
+  status: HealthStatus;
+  response_ms: number;
+  message: string;
+  checked_at?: string;
+}
+
+const STATUS_ICON: Record<HealthStatus, React.ReactNode> = {
+  healthy:      <CheckCircle size={13} className="text-green-400" />,
+  degraded:     <AlertCircle size={13} className="text-yellow-400" />,
+  error:        <XCircle size={13} className="text-red-400" />,
+  unconfigured: <AlertTriangle size={13} className="text-muted-foreground" />,
+  unknown:      <AlertCircle size={13} className="text-muted-foreground" />,
+};
+
+const STATUS_BADGE: Record<HealthStatus, string> = {
+  healthy:      "text-green-400 border-green-400/30",
+  degraded:     "text-yellow-400 border-yellow-400/30",
+  error:        "text-red-400 border-red-400/30",
+  unconfigured: "text-muted-foreground border-border",
+  unknown:      "text-muted-foreground border-border",
+};
+
+function RunDoctorTab() {
+  const { user } = useAuth() as any;
+  const [checks, setChecks] = useState<HealthCheck[]>([]);
+  const [summary, setSummary] = useState<{ healthy: number; issues: number; unconfigured: number; total: number } | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [lastRun, setLastRun] = useState<string | null>(null);
+
+  const runCheck = useCallback(async () => {
+    if (!user?.id) return;
+    setLoading(true);
+    try {
+      const { data, error } = await (supabase as any).functions.invoke("mavis-run-doctor", { body: {} });
+      if (error || data?.error) throw new Error(data?.error ?? error?.message);
+      setChecks(data.checks ?? []);
+      setSummary(data.summary ?? null);
+      setLastRun(new Date().toLocaleTimeString());
+      toast.success(`Doctor run: ${data.summary?.healthy ?? 0} healthy`);
+    } catch (e: any) {
+      toast.error(e.message);
+    } finally {
+      setLoading(false);
+    }
+  }, [user?.id]);
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <div>
+          {summary && (
+            <p className="text-xs font-mono text-muted-foreground">
+              <span className="text-green-400">{summary.healthy} healthy</span>
+              {summary.issues > 0 && <> · <span className="text-red-400">{summary.issues} issues</span></>}
+              {summary.unconfigured > 0 && <> · <span className="text-muted-foreground">{summary.unconfigured} unconfigured</span></>}
+              {lastRun && <> · checked {lastRun}</>}
+            </p>
+          )}
+          {!summary && <p className="text-xs font-mono text-muted-foreground">Run a check to see integration health</p>}
+        </div>
+        <Button onClick={runCheck} disabled={loading} size="sm" variant="outline" className="h-8 text-xs font-mono gap-1.5">
+          {loading ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
+          Run Check
+        </Button>
+      </div>
+
+      {checks.length > 0 && (
+        <div className="space-y-1.5">
+          {checks.map(check => (
+            <div key={check.integration_name} className="flex items-center gap-3 px-3 py-2 rounded border border-border bg-muted/5 text-xs font-mono">
+              {STATUS_ICON[check.status] ?? STATUS_ICON.unknown}
+              <span className="w-28 text-foreground capitalize">{check.integration_name.replace(/_/g, " ")}</span>
+              <span className={`text-[9px] border rounded px-1.5 py-0.5 ${STATUS_BADGE[check.status] ?? STATUS_BADGE.unknown}`}>
+                {check.status}
+              </span>
+              <span className="flex-1 text-muted-foreground truncate">{check.message}</span>
+              <span className="text-muted-foreground/50 shrink-0">{check.response_ms}ms</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {checks.length === 0 && !loading && (
+        <div className="text-center py-10 text-muted-foreground text-sm font-mono">
+          Click "Run Check" to diagnose all integrations
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ============================================================
+// DevicesTab — device session management
+// ============================================================
+
+interface DeviceSession {
+  id: string;
+  device_name: string;
+  device_fingerprint: string;
+  platform: string | null;
+  user_agent: string | null;
+  status: "pending" | "approved" | "revoked";
+  last_seen_at: string | null;
+  approved_at: string | null;
+  revoked_at: string | null;
+}
+
+function DeviceIcon({ platform }: { platform: string | null }) {
+  const p = (platform ?? "").toLowerCase();
+  if (p.includes("mobile") || p.includes("ios") || p.includes("android")) return <Smartphone size={14} />;
+  if (p.includes("mac") || p.includes("win") || p.includes("linux")) return <Laptop size={14} />;
+  return <Globe size={14} />;
+}
+
+function DevicesTab() {
+  const { user } = useAuth() as any;
+  const [devices, setDevices] = useState<DeviceSession[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [actionId, setActionId] = useState<string | null>(null);
+
+  const fetchDevices = useCallback(async () => {
+    if (!user?.id) return;
+    const { data } = await (supabase as any)
+      .from("mavis_device_sessions")
+      .select("*")
+      .eq("user_id", user.id)
+      .order("last_seen_at", { ascending: false });
+    setDevices((data as DeviceSession[]) ?? []);
+    setLoading(false);
+  }, [user?.id]);
+
+  useEffect(() => { fetchDevices(); }, [fetchDevices]);
+
+  async function updateStatus(id: string, status: "approved" | "revoked") {
+    setActionId(id);
+    try {
+      const updates: Record<string, any> = { status };
+      if (status === "approved") updates.approved_at = new Date().toISOString();
+      if (status === "revoked") updates.revoked_at = new Date().toISOString();
+      await (supabase as any).from("mavis_device_sessions").update(updates).eq("id", id).eq("user_id", user.id);
+      toast.success(status === "approved" ? "Device approved" : "Device revoked");
+      await fetchDevices();
+    } catch (e: any) {
+      toast.error(e.message);
+    } finally {
+      setActionId(null);
+    }
+  }
+
+  const STATUS_COLOR: Record<string, string> = {
+    approved: "text-green-400 border-green-400/30",
+    pending:  "text-yellow-400 border-yellow-400/30",
+    revoked:  "text-muted-foreground border-border",
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <p className="text-xs font-mono text-muted-foreground">{devices.length} device{devices.length !== 1 ? "s" : ""} registered</p>
+        <Button onClick={fetchDevices} size="sm" variant="ghost" className="h-7 text-xs gap-1">
+          <RefreshCw size={11} />
+          Refresh
+        </Button>
+      </div>
+
+      {loading ? (
+        <div className="flex justify-center py-10"><Loader2 size={20} className="animate-spin text-muted-foreground" /></div>
+      ) : devices.length === 0 ? (
+        <p className="text-muted-foreground text-sm text-center py-8 font-mono">No devices registered yet.</p>
+      ) : (
+        <div className="space-y-2">
+          {devices.map(device => (
+            <div key={device.id} className="border border-border rounded-lg p-3 flex items-start gap-3">
+              <div className="text-muted-foreground mt-0.5">
+                <DeviceIcon platform={device.platform} />
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-sm font-mono font-medium">{device.device_name || "Unknown Device"}</span>
+                  <span className={`text-[9px] border rounded px-1.5 py-0.5 font-mono ${STATUS_COLOR[device.status] ?? ""}`}>
+                    {device.status}
+                  </span>
+                  {device.platform && <span className="text-[9px] text-muted-foreground font-mono">{device.platform}</span>}
+                </div>
+                <p className="text-[10px] text-muted-foreground font-mono mt-0.5">
+                  {device.last_seen_at ? `Last seen: ${new Date(device.last_seen_at).toLocaleString()}` : "Never seen"}
+                </p>
+                <p className="text-[9px] text-muted-foreground/50 font-mono mt-0.5 truncate">
+                  {device.device_fingerprint.slice(0, 20)}…
+                </p>
+              </div>
+              <div className="flex gap-1.5 shrink-0">
+                {device.status !== "approved" && (
+                  <button
+                    onClick={() => updateStatus(device.id, "approved")}
+                    disabled={actionId === device.id}
+                    className="text-[10px] font-mono text-green-400 border border-green-400/30 rounded px-2 py-1 hover:bg-green-500/10 transition-colors disabled:opacity-50"
+                  >
+                    {actionId === device.id ? <Loader2 size={10} className="animate-spin" /> : "Approve"}
+                  </button>
+                )}
+                {device.status !== "revoked" && (
+                  <button
+                    onClick={() => updateStatus(device.id, "revoked")}
+                    disabled={actionId === device.id}
+                    className="text-[10px] font-mono text-red-400/70 border border-red-400/20 rounded px-2 py-1 hover:bg-red-500/10 transition-colors disabled:opacity-50"
+                  >
+                    Revoke
+                  </button>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ============================================================
 // SystemSettingsPage — root export
 // ============================================================
 
@@ -1351,7 +1797,7 @@ export function SystemSettingsPage() {
       />
 
       <Tabs defaultValue="standing-orders" className="w-full">
-        <TabsList className="font-mono text-xs h-9 mb-4">
+        <TabsList className="font-mono text-xs h-9 mb-4 flex-wrap h-auto gap-0.5">
           <TabsTrigger value="standing-orders" className="gap-1.5 text-xs font-mono">
             <BookOpen size={12} />
             Standing Orders
@@ -1359,6 +1805,18 @@ export function SystemSettingsPage() {
           <TabsTrigger value="custom-skills" className="gap-1.5 text-xs font-mono">
             <Wrench size={12} />
             Custom Skills
+          </TabsTrigger>
+          <TabsTrigger value="skill-catalog" className="gap-1.5 text-xs font-mono">
+            <ShoppingBag size={12} />
+            Skill Catalog
+          </TabsTrigger>
+          <TabsTrigger value="run-doctor" className="gap-1.5 text-xs font-mono">
+            <Stethoscope size={12} />
+            Run Doctor
+          </TabsTrigger>
+          <TabsTrigger value="devices" className="gap-1.5 text-xs font-mono">
+            <Monitor size={12} />
+            Devices
           </TabsTrigger>
           <TabsTrigger value="llm-analytics" className="gap-1.5 text-xs font-mono">
             <BarChart2 size={12} />
@@ -1372,6 +1830,18 @@ export function SystemSettingsPage() {
 
         <TabsContent value="custom-skills">
           <CustomSkillsTab />
+        </TabsContent>
+
+        <TabsContent value="skill-catalog">
+          <SkillCatalogTab />
+        </TabsContent>
+
+        <TabsContent value="run-doctor">
+          <RunDoctorTab />
+        </TabsContent>
+
+        <TabsContent value="devices">
+          <DevicesTab />
         </TabsContent>
 
         <TabsContent value="llm-analytics">

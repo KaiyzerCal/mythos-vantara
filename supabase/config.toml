@@ -567,6 +567,18 @@ verify_jwt = false
 [functions.mavis-archivist]
 verify_jwt = false
 
+[functions.mavis-heartbeat]
+verify_jwt = false
+
+[functions.mavis-skill-catalog]
+verify_jwt = true
+
+[functions.mavis-run-doctor]
+verify_jwt = true
+
+[functions.mavis-obsidian-export]
+verify_jwt = true
+
 [functions.mavis-so-curator]
 verify_jwt = false
 
