@@ -30,6 +30,7 @@ import { buildRecallContext } from "@/mavis/proactiveRecall";
 import { captureProceduralMemory } from "@/mavis/proceduralMemory";
 import { autoCrewDispatch } from "@/mavis/crewCoordinator";
 import { getCustomOrders, addStandingOrder, removeStandingOrder } from "@/mavis/standingOrders";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 import type { ExecutionResult, ParsedAction } from "@/mavis/types";
 // Trigger skill self-registration
 import "@/mavis/skills/_loader";
@@ -109,6 +110,7 @@ export default function MavisChat() {
   const [showOrdersPanel, setShowOrdersPanel] = useState(false);
   const [customOrders, setCustomOrders] = useState<string[]>([]);
   const [newOrder, setNewOrder] = useState("");
+  const [confirmRemoveOrder, setConfirmRemoveOrder] = useState<string | null>(null);
 
   // ── Persona injection ──
   const [selectedPersonaPrompt, setSelectedPersonaPrompt] = useState<string | null>(null);
@@ -1026,7 +1028,7 @@ export default function MavisChat() {
                 {customOrders.map((o) => (
                   <div key={o} className="flex items-center gap-2">
                     <span className="text-[9px] font-mono flex-1 text-foreground/80">• {o}</span>
-                    <button onClick={() => { removeStandingOrder(o); setCustomOrders(getCustomOrders()); }} className="text-muted-foreground hover:text-destructive"><X size={10} /></button>
+                    <button onClick={() => setConfirmRemoveOrder(o)} className="text-muted-foreground hover:text-destructive"><X size={10} /></button>
                   </div>
                 ))}
               </div>
@@ -1591,6 +1593,18 @@ export default function MavisChat() {
         />
       )}
     </AnimatePresence>
+    <ConfirmDialog
+      open={confirmRemoveOrder !== null}
+      title="Remove standing order?"
+      description={`"${confirmRemoveOrder}" will be removed from your custom directives.`}
+      onConfirm={() => {
+        if (!confirmRemoveOrder) return;
+        removeStandingOrder(confirmRemoveOrder);
+        setCustomOrders(getCustomOrders());
+        setConfirmRemoveOrder(null);
+      }}
+      onCancel={() => setConfirmRemoveOrder(null)}
+    />
     </>
   );
 }

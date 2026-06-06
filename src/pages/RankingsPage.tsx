@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Medal, Plus, Trash2, Edit2, Copy, Loader2 } from "lucide-react";
 import { PageHeader, HudCard, RankBadge } from "@/components/SharedUI";
 import { useAppData } from "@/contexts/AppDataContext";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 
 const ROLE_COLORS: Record<string, string> = { self: "text-primary", ally: "text-green-400", enemy: "text-red-400", npc: "text-muted-foreground" };
 
@@ -15,6 +16,7 @@ export default function RankingsPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState({ ...EMPTY_FORM });
   const [detailId, setDetailId] = useState<string | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<{ id: string; label: string } | null>(null);
 
   const resetForm = () => { setForm({ ...EMPTY_FORM }); setEditingId(null); setShowCreate(false); };
 
@@ -84,7 +86,7 @@ export default function RankingsPage() {
                 {detailEntry.notes && <p className="text-xs font-body text-muted-foreground mt-2">{detailEntry.notes}</p>}
                 <div className="flex gap-2 mt-2">
                   <button onClick={() => { handleEdit(detailEntry); setDetailId(null); }} className="px-3 py-1 text-[10px] font-mono bg-primary/10 border border-primary/30 text-primary rounded">Edit</button>
-                  <button onClick={() => { deleteRanking(detailEntry.id); setDetailId(null); }} className="px-3 py-1 text-[10px] font-mono border border-destructive/30 text-destructive rounded">Delete</button>
+                  <button onClick={() => setConfirmDelete({ id: detailEntry.id, label: detailEntry.display_name })} className="px-3 py-1 text-[10px] font-mono border border-destructive/30 text-destructive rounded">Delete</button>
                 </div>
               </div>
             </HudCard>
@@ -198,7 +200,7 @@ export default function RankingsPage() {
                 </div>
                 <div className="flex flex-col gap-1 shrink-0 ml-1">
                   <button onClick={(e) => { e.stopPropagation(); handleEdit(entry); }} className="p-1 text-muted-foreground hover:text-primary transition-colors"><Edit2 size={12} /></button>
-                  <button onClick={(e) => { e.stopPropagation(); deleteRanking(entry.id); }} className="p-1 text-muted-foreground hover:text-destructive transition-colors"><Trash2 size={12} /></button>
+                  <button onClick={(e) => { e.stopPropagation(); setConfirmDelete({ id: entry.id, label: entry.display_name }); }} className="p-1 text-muted-foreground hover:text-destructive transition-colors"><Trash2 size={12} /></button>
                 </div>
               </div>
             </HudCard>
@@ -206,6 +208,19 @@ export default function RankingsPage() {
         ))}
         {rankings.length === 0 && <p className="text-xs font-mono text-muted-foreground text-center py-8">No rankings yet. Add your first entry or ask MAVIS.</p>}
       </div>
+
+      <ConfirmDialog
+        open={confirmDelete !== null}
+        title={`Delete "${confirmDelete?.label}"?`}
+        description="This action cannot be undone."
+        onConfirm={() => {
+          if (!confirmDelete) return;
+          deleteRanking(confirmDelete.id);
+          if (detailId === confirmDelete.id) setDetailId(null);
+          setConfirmDelete(null);
+        }}
+        onCancel={() => setConfirmDelete(null)}
+      />
     </div>
   );
 }

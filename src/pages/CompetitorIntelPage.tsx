@@ -7,6 +7,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useAppData } from "@/contexts/AppDataContext";
 import { PageHeader, HudCard } from "@/components/SharedUI";
 import { toast } from "sonner";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 
 interface Competitor {
   id: string;
@@ -27,6 +28,7 @@ export default function CompetitorIntelPage() {
   const [checking, setChecking] = useState(false);
   const [name, setName] = useState("");
   const [url, setUrl] = useState("");
+  const [confirmDelete, setConfirmDelete] = useState<{ id: string; label: string } | null>(null);
 
   const fetch = useCallback(async () => {
     if (!user?.id) return;
@@ -117,11 +119,22 @@ export default function CompetitorIntelPage() {
                     {c.last_checked_at && <span className="text-xs text-muted-foreground shrink-0">checked {new Date(c.last_checked_at).toLocaleDateString()}</span>}
                   </div>
                 </div>
-                <button onClick={() => remove(c.id)} className="p-1.5 border border-border rounded text-muted-foreground hover:text-red-400 hover:border-red-400/30 transition-colors text-xs">✕</button>
+                <button onClick={() => setConfirmDelete({ id: c.id, label: c.name })} className="p-1.5 border border-border rounded text-muted-foreground hover:text-red-400 hover:border-red-400/30 transition-colors text-xs">✕</button>
               </div>
             ))}
           </div>}
       </HudCard>
+      <ConfirmDialog
+        open={confirmDelete !== null}
+        title={`Remove "${confirmDelete?.label}" from monitoring?`}
+        description="This action cannot be undone."
+        onConfirm={async () => {
+          if (!confirmDelete) return;
+          await remove(confirmDelete.id);
+          setConfirmDelete(null);
+        }}
+        onCancel={() => setConfirmDelete(null)}
+      />
     </div>
   );
 }

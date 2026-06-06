@@ -11,6 +11,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useAppData } from "@/contexts/AppDataContext";
 import { PageHeader, HudCard } from "@/components/SharedUI";
 import { toast } from "sonner";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 
 // ─── Types ──────────────────────────────────────────────────
 interface TimeLog {
@@ -86,6 +87,7 @@ export function TimeTrackingPage() {
   const [timerDisplay, setTimerDisplay] = useState("00:00:00");
   const [newForm, setNewForm] = useState<NewForm>({ description: "", project: "", tags: "" });
   const [stopping, setStopping] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState<{ id: string; label: string } | null>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // ─── Fetch logs ─────────────────────────────────────────────
@@ -395,7 +397,7 @@ export function TimeTrackingPage() {
                     {formatDuration(log.duration_seconds)}
                   </span>
                   <button
-                    onClick={() => deleteLog(log.id)}
+                    onClick={() => setConfirmDelete({ id: log.id, label: log.description })}
                     className="shrink-0 text-muted-foreground hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all"
                   >
                     <Trash2 size={11} />
@@ -406,6 +408,18 @@ export function TimeTrackingPage() {
           )}
         </HudCard>
       </motion.div>
+
+      <ConfirmDialog
+        open={confirmDelete !== null}
+        title={`Delete "${confirmDelete?.label}"?`}
+        description="This action cannot be undone."
+        onConfirm={async () => {
+          if (!confirmDelete) return;
+          await deleteLog(confirmDelete.id);
+          setConfirmDelete(null);
+        }}
+        onCancel={() => setConfirmDelete(null)}
+      />
 
       {/* ── Manual Add hint ──────────────────────────────────── */}
       {!loading && !activeTimer && (

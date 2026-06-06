@@ -10,6 +10,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useAppData } from "@/contexts/AppDataContext";
 import { PageHeader, HudCard, ProgressBar } from "@/components/SharedUI";
 import { toast } from "sonner";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 
 // ─── Types ──────────────────────────────────────────────────
 interface Expense {
@@ -92,6 +93,7 @@ export function FinancePage() {
   const [loading, setLoading] = useState(true);
   const [showAddForm, setShowAddForm] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState<{ id: string; label: string } | null>(null);
   const [addForm, setAddForm] = useState<AddForm>({
     description: "",
     amount: "",
@@ -409,7 +411,7 @@ export function FinancePage() {
                       -{fmtCurrency(Number(e.amount), e.currency)}
                     </span>
                     <button
-                      onClick={() => handleDelete(e.id)}
+                      onClick={() => setConfirmDelete({ id: e.id, label: e.description })}
                       className="shrink-0 text-muted-foreground hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all"
                     >
                       <Trash2 size={11} />
@@ -421,6 +423,18 @@ export function FinancePage() {
           </HudCard>
         </div>
       </motion.div>
+
+      <ConfirmDialog
+        open={confirmDelete !== null}
+        title={`Delete "${confirmDelete?.label}"?`}
+        description="This action cannot be undone."
+        onConfirm={async () => {
+          if (!confirmDelete) return;
+          await handleDelete(confirmDelete.id);
+          setConfirmDelete(null);
+        }}
+        onCancel={() => setConfirmDelete(null)}
+      />
 
       {/* ── Empty state fallback ──────────────────────────────── */}
       {!loading && expenses.length === 0 && (

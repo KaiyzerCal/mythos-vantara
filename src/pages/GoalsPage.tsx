@@ -14,6 +14,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useAppData } from "@/contexts/AppDataContext";
 import { PageHeader, HudCard, ProgressBar } from "@/components/SharedUI";
 import { toast } from "sonner";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 
 // ─── Types ──────────────────────────────────────────────────
 type GoalStatus = "active" | "completed" | "abandoned";
@@ -78,6 +79,7 @@ export function GoalsPage() {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [createForm, setCreateForm] = useState<CreateForm>({ objective: "", context: "" });
+  const [confirmDelete, setConfirmDelete] = useState<{ id: string; label: string } | null>(null);
 
   // ─── Fetch ─────────────────────────────────────────────────
   const fetchGoals = useCallback(async () => {
@@ -453,7 +455,7 @@ export function GoalsPage() {
                               </button>
                             )}
                             <button
-                              onClick={() => handleDelete(goal.id)}
+                              onClick={() => setConfirmDelete({ id: goal.id, label: goal.objective.slice(0, 60) })}
                               className="flex items-center gap-1 px-3 py-1.5 text-xs font-mono bg-red-900/20 border border-red-700/40 text-red-400 rounded hover:bg-red-900/40 transition-colors ml-auto"
                             >
                               <Trash2 size={10} /> Delete
@@ -469,6 +471,17 @@ export function GoalsPage() {
           })}
         </div>
       )}
+      <ConfirmDialog
+        open={confirmDelete !== null}
+        title="Delete goal?"
+        description="This action cannot be undone."
+        onConfirm={async () => {
+          if (!confirmDelete) return;
+          await handleDelete(confirmDelete.id);
+          setConfirmDelete(null);
+        }}
+        onCancel={() => setConfirmDelete(null)}
+      />
     </div>
   );
 }

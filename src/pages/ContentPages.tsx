@@ -9,6 +9,7 @@ import { useAppData } from "@/contexts/AppDataContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { PageHeader, HudCard, RarityBadge, ProgressBar } from "@/components/SharedUI";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { toast } from "sonner";
 
 // ─── Journal templates ─────────────────────────────────────
@@ -30,6 +31,7 @@ export function JournalPage() {
   const [showTemplates, setShowTemplates] = useState(false);
   const [recording, setRecording] = useState(false);
   const [transcribing, setTranscribing] = useState(false);
+  const [confirmDeleteJournal, setConfirmDeleteJournal] = useState<{ id: string; label: string } | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
 
@@ -224,7 +226,7 @@ export function JournalPage() {
                   <div className="flex flex-col items-end gap-1 shrink-0" onClick={(ev) => ev.stopPropagation()}>
                     <span className="text-[10px] font-mono text-green-400">+{e.xp_earned} XP</span>
                     <button onClick={() => handleEdit(e)} className="p-1 text-muted-foreground hover:text-primary transition-colors"><Edit2 size={12} /></button>
-                    <button onClick={() => deleteJournalEntry(e.id)} className="p-1 text-muted-foreground hover:text-destructive transition-colors"><Trash2 size={12} /></button>
+                    <button onClick={() => setConfirmDeleteJournal({ id: e.id, label: e.title })} className="p-1 text-muted-foreground hover:text-destructive transition-colors"><Trash2 size={12} /></button>
                   </div>
                 </div>
               </div>
@@ -234,6 +236,17 @@ export function JournalPage() {
         })}
         {journalEntries.length === 0 && <p className="text-xs font-mono text-muted-foreground text-center py-8">No journal entries yet. Start logging your arc.</p>}
       </div>
+      <ConfirmDialog
+        open={confirmDeleteJournal !== null}
+        title={`Delete "${confirmDeleteJournal?.label}"?`}
+        description="This action cannot be undone."
+        onConfirm={() => {
+          if (!confirmDeleteJournal) return;
+          deleteJournalEntry(confirmDeleteJournal.id);
+          setConfirmDeleteJournal(null);
+        }}
+        onCancel={() => setConfirmDeleteJournal(null)}
+      />
     </div>
   );
 }
@@ -252,6 +265,8 @@ export function VaultCodexPage() {
   const [showUploadFor, setShowUploadFor] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [showGallery, setShowGallery] = useState(false);
+  const [confirmDeleteMedia, setConfirmDeleteMedia] = useState<{ id: string; fileUrl: string; label: string } | null>(null);
+  const [confirmDeleteVault, setConfirmDeleteVault] = useState<{ id: string; label: string } | null>(null);
   const [galleryTab, setGalleryTab] = useState<"all" | "image" | "video" | "audio" | "document">("all");
   const [lightboxItem, setLightboxItem] = useState<any>(null);
   const [showIngestUrl, setShowIngestUrl] = useState(false);
@@ -639,7 +654,7 @@ export function VaultCodexPage() {
                       <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
                         <button className="p-1.5 bg-primary/20 rounded-full"><Eye size={13} className="text-primary" /></button>
                         <button
-                          onClick={(ev) => { ev.stopPropagation(); deleteMedia(m.id, m.file_url); }}
+                          onClick={(ev) => { ev.stopPropagation(); setConfirmDeleteMedia({ id: m.id, fileUrl: m.file_url, label: m.file_name }); }}
                           className="p-1.5 bg-destructive/20 rounded-full"
                         >
                           <Trash2 size={13} className="text-destructive" />
@@ -751,7 +766,7 @@ export function VaultCodexPage() {
                 )}
                 <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
                   <a href={m.file_url} target="_blank" rel="noopener noreferrer" className="p-1 bg-primary/20 rounded"><Eye size={12} className="text-primary" /></a>
-                  <button onClick={() => deleteMedia(m.id, m.file_url)} className="p-1 bg-destructive/20 rounded"><Trash2 size={12} className="text-destructive" /></button>
+                  <button onClick={() => setConfirmDeleteMedia({ id: m.id, fileUrl: m.file_url, label: m.file_name })} className="p-1 bg-destructive/20 rounded"><Trash2 size={12} className="text-destructive" /></button>
                 </div>
                 <div className="px-1.5 py-1 bg-card">
                   <p className="text-[8px] font-mono truncate text-muted-foreground">{formatFileSize(m.file_size)}</p>
@@ -826,7 +841,7 @@ export function VaultCodexPage() {
                                 )}
                                 <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
                                   <a href={m.file_url} target="_blank" rel="noopener noreferrer" className="p-1 bg-primary/20 rounded"><Eye size={10} className="text-primary" /></a>
-                                  <button onClick={(ev) => { ev.stopPropagation(); deleteMedia(m.id, m.file_url); }} className="p-1 bg-destructive/20 rounded"><Trash2 size={10} className="text-destructive" /></button>
+                                  <button onClick={(ev) => { ev.stopPropagation(); setConfirmDeleteMedia({ id: m.id, fileUrl: m.file_url, label: m.file_name }); }} className="p-1 bg-destructive/20 rounded"><Trash2 size={10} className="text-destructive" /></button>
                                 </div>
                               </div>
                             ))}
@@ -860,7 +875,7 @@ export function VaultCodexPage() {
                 </div>
                 <div className="flex flex-col gap-1 shrink-0" onClick={(ev) => ev.stopPropagation()}>
                   <button onClick={() => handleEdit(e)} className="p-1 text-muted-foreground hover:text-primary transition-colors"><Edit2 size={12} /></button>
-                  <button onClick={() => deleteVaultEntry(e.id)} className="p-1 text-muted-foreground hover:text-destructive transition-colors"><Trash2 size={12} /></button>
+                  <button onClick={() => setConfirmDeleteVault({ id: e.id, label: e.title })} className="p-1 text-muted-foreground hover:text-destructive transition-colors"><Trash2 size={12} /></button>
                 </div>
               </div>
             </div>
@@ -870,6 +885,28 @@ export function VaultCodexPage() {
         {filtered.length === 0 && <p className="text-xs font-mono text-muted-foreground text-center py-8">Vault empty — classified knowledge awaits.</p>}
       </div>
       </>}
+      <ConfirmDialog
+        open={confirmDeleteMedia !== null}
+        title={`Delete "${confirmDeleteMedia?.label}"?`}
+        description="This file will be permanently deleted."
+        onConfirm={() => {
+          if (!confirmDeleteMedia) return;
+          deleteMedia(confirmDeleteMedia.id, confirmDeleteMedia.fileUrl);
+          setConfirmDeleteMedia(null);
+        }}
+        onCancel={() => setConfirmDeleteMedia(null)}
+      />
+      <ConfirmDialog
+        open={confirmDeleteVault !== null}
+        title={`Delete "${confirmDeleteVault?.label}"?`}
+        description="This action cannot be undone."
+        onConfirm={() => {
+          if (!confirmDeleteVault) return;
+          deleteVaultEntry(confirmDeleteVault.id);
+          setConfirmDeleteVault(null);
+        }}
+        onCancel={() => setConfirmDeleteVault(null)}
+      />
     </div>
   );
 }
@@ -943,6 +980,7 @@ export function SkillsPage() {
   const [seeding, setSeeding] = useState(false);
   const [expandedSkills, setExpandedSkills] = useState<Set<string>>(new Set());
   const [expandedDetail, setExpandedDetail] = useState<string | null>(null);
+  const [confirmDeleteSkill, setConfirmDeleteSkill] = useState<{ id: string; label: string } | null>(null);
 
   // Auto-seed skills on first load
   useEffect(() => {
@@ -1078,7 +1116,7 @@ export function SkillsPage() {
                   <div className="flex flex-col gap-1 shrink-0">
                     <button onClick={(e) => { e.stopPropagation(); handleAddSubskill(s.id); }} className="p-1 text-muted-foreground hover:text-primary transition-colors" title="Add subskill"><Plus size={12} /></button>
                     <button onClick={(e) => { e.stopPropagation(); handleEdit(s); }} className="p-1 text-muted-foreground hover:text-primary transition-colors"><Edit2 size={12} /></button>
-                    <button onClick={(e) => { e.stopPropagation(); deleteSkill(s.id); }} className="p-1 text-muted-foreground hover:text-destructive transition-colors"><Trash2 size={12} /></button>
+                    <button onClick={(e) => { e.stopPropagation(); setConfirmDeleteSkill({ id: s.id, label: s.name }); }} className="p-1 text-muted-foreground hover:text-destructive transition-colors"><Trash2 size={12} /></button>
                   </div>
                 </div>
               </HudCard>
@@ -1106,7 +1144,7 @@ export function SkillsPage() {
                       </div>
                       <div className="flex flex-col gap-0.5 shrink-0">
                         <button onClick={(e) => { e.stopPropagation(); handleEdit(sub); }} className="p-0.5 text-muted-foreground hover:text-primary transition-colors"><Edit2 size={10} /></button>
-                        <button onClick={(e) => { e.stopPropagation(); deleteSkill(sub.id); }} className="p-0.5 text-muted-foreground hover:text-destructive transition-colors"><Trash2 size={10} /></button>
+                        <button onClick={(e) => { e.stopPropagation(); setConfirmDeleteSkill({ id: sub.id, label: sub.name }); }} className="p-0.5 text-muted-foreground hover:text-destructive transition-colors"><Trash2 size={10} /></button>
                       </div>
                     </div>
                   </HudCard>
@@ -1117,6 +1155,17 @@ export function SkillsPage() {
         })}
         {filtered.length === 0 && <p className="text-xs font-mono text-muted-foreground text-center py-8 col-span-2">No skills — unlock your first ability.</p>}
       </div>
+      <ConfirmDialog
+        open={confirmDeleteSkill !== null}
+        title={`Delete "${confirmDeleteSkill?.label}"?`}
+        description="This action cannot be undone."
+        onConfirm={() => {
+          if (!confirmDeleteSkill) return;
+          deleteSkill(confirmDeleteSkill.id);
+          setConfirmDeleteSkill(null);
+        }}
+        onCancel={() => setConfirmDeleteSkill(null)}
+      />
     </div>
   );
 }
@@ -1129,6 +1178,7 @@ export function InventoryPage() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [typeFilter, setTypeFilter] = useState("all");
   const [form, setForm] = useState({ name: "", description: "", type: "equipment", rarity: "common", quantity: 1, effect: "" });
+  const [confirmDeleteItem, setConfirmDeleteItem] = useState<{ id: string; label: string } | null>(null);
 
   useEffect(() => {
     void refetchInventory();
@@ -1223,7 +1273,7 @@ export function InventoryPage() {
                 </div>
                 <div className="flex flex-col gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
                   <button onClick={() => handleEdit(item)} className="p-1 text-muted-foreground hover:text-primary transition-colors"><Edit2 size={12} /></button>
-                  <button onClick={() => deleteInventoryItem(item.id)} className="p-1 text-muted-foreground hover:text-destructive transition-colors"><Trash2 size={12} /></button>
+                  <button onClick={() => setConfirmDeleteItem({ id: item.id, label: item.name })} className="p-1 text-muted-foreground hover:text-destructive transition-colors"><Trash2 size={12} /></button>
                 </div>
               </div>
             </div>
@@ -1232,6 +1282,17 @@ export function InventoryPage() {
         })}
         {filtered.length === 0 && <p className="text-xs font-mono text-muted-foreground text-center py-8 col-span-3">Inventory empty.</p>}
       </div>
+      <ConfirmDialog
+        open={confirmDeleteItem !== null}
+        title={`Delete "${confirmDeleteItem?.label}"?`}
+        description="This action cannot be undone."
+        onConfirm={() => {
+          if (!confirmDeleteItem) return;
+          deleteInventoryItem(confirmDeleteItem.id);
+          setConfirmDeleteItem(null);
+        }}
+        onCancel={() => setConfirmDeleteItem(null)}
+      />
     </div>
   );
 }
