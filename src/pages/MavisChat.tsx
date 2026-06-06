@@ -307,6 +307,7 @@ export default function MavisChat() {
           .from("chat_conversations")
           .select("id, title")
           .eq("user_id", session.user.id)
+          .not("title", "ilike", "Council Board%")
           .order("updated_at", { ascending: false })
           .limit(1);
 
@@ -358,6 +359,10 @@ export default function MavisChat() {
         content: msg.content,
         mode: msg.mode ?? "PRIME",
       });
+      // Keep updated_at current so the mount-time query always finds this conversation first
+      await supabase.from("chat_conversations")
+        .update({ updated_at: new Date().toISOString() })
+        .eq("id", convoId);
     } catch (err) {
       console.error("Failed to persist message:", err);
     }
@@ -377,6 +382,7 @@ export default function MavisChat() {
         .from("chat_conversations")
         .select("id")
         .eq("user_id", session.user.id)
+        .not("title", "ilike", "Council Board%")
         .order("updated_at", { ascending: false })
         .limit(1)
         .maybeSingle();
