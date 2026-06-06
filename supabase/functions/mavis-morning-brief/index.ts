@@ -323,7 +323,47 @@ Deno.serve(async (req) => {
       }
     } catch { /* non-critical, skip on error */ }
 
-    await sendTelegram(sections.join("\n\n"));
+    const briefText = sections.join("\n\n");
+    await sendTelegram(briefText);
+
+    // Store brief in DB for in-app display
+    try {
+      const sectionsData: Record<string, unknown> = {
+        pending_approvals: approvals.length,
+        overdue_quests: overdue.length,
+        tasks_today: tasks.slice(0, 5).map((t: any) => t.title),
+        sr_notes_due: srNotes.length,
+        revenue_24h: totalRevenue,
+        expenses_24h: totalExpenses,
+        net_24h: totalRevenue - totalExpenses,
+        council_actions: council.reduce((s: number, c: any) => s + Number(c.actions_executed ?? 0), 0),
+        stalled_quests: stalled.length,
+        streak_risks: streakRisk.length,
+        revenue_gap_7d: revenueGap.length === 0,
+      };
+      await supabase.from("mavis_daily_briefs").upsert({
+        user_id: uid,
+        brief_date: todayIso,
+        brief_text: briefText,
+        sections: sectionsData,
+      }, { onConflict: "user_id,brief_date" });
+    } catch { /* non-critical — Telegram already sent */ }
+
+    // ── Push summary to mavis_insights for in-app Notifications page ─────────
+    // OpenHuman morning briefing pattern: brief is delivered both to external
+    // channel (Telegram) and persisted as an in-app notification/insight.
+    try {
+      const alertCount = patternAlerts.length + overdue.length + approvals.length;
+      const severity = alertCount > 3 ? "warning" : alertCount > 0 ? "info" : "info";
+      await supabase.from("mavis_insights").insert({
+        user_id: uid,
+        title: `Morning Brief — ${new Date().toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" })}`,
+        content: briefText.slice(0, 2000),
+        category: "morning_brief",
+        severity,
+        source: "morning_brief",
+      });
+    } catch { /* non-critical */ }
 
     return new Response(
       JSON.stringify({ ok: true, sections: sections.length - 2 }),

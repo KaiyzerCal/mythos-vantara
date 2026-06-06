@@ -2,7 +2,7 @@
 // VANTARA.EXE — WebsiteBuilderPage
 // MAVIS website-building service — autonomous client site generation
 // ============================================================
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { supabase as _supabase } from "@/integrations/supabase/client";
 const supabase = _supabase as any;
 import { useAuth } from "@/contexts/AuthContext";
@@ -13,10 +13,11 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 import {
   Globe, Plus, Sparkles, ExternalLink, CheckCircle2,
   Loader2, Copy, Trash2, Eye, Settings, Users,
-  DollarSign, Code2, Layers, Zap,
+  DollarSign, Code2, Layers, Zap, Download, FileCode, Link2, Unlink, Upload,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -99,6 +100,36 @@ export default function WebsiteBuilderPage() {
   const [generationProgress, setGenerationProgress] = useState(0);
   const [showWpSection, setShowWpSection] = useState(false);
   const [showSiteContent, setShowSiteContent] = useState(false);
+  const [showAddPagePicker, setShowAddPagePicker] = useState(false);
+  const [addingPageType, setAddingPageType] = useState("");
+  const [isAddingPage, setIsAddingPage] = useState(false);
+  const [previewPageId, setPreviewPageId] = useState<string | null>(null);
+  const [previewKey, setPreviewKey] = useState(0);
+  const [editModeEnabled, setEditModeEnabled] = useState(false);
+  const [pendingEdits, setPendingEdits] = useState<Record<string, { html: string; text: string }>>({});
+  const [isSavingEdits, setIsSavingEdits] = useState(false);
+  const [exportingPageId, setExportingPageId] = useState<string | null>(null);
+  const [isDownloadingAll, setIsDownloadingAll] = useState(false);
+  const [importingPageType, setImportingPageType] = useState<string | null>(null);
+  const [isImportingAll, setIsImportingAll] = useState(false);
+  const htmlImportRef = useRef<HTMLInputElement>(null);
+  const htmlMultiImportRef = useRef<HTMLInputElement>(null);
+
+  // Netlify publishing
+  const [netlifyToken, setNetlifyToken] = useState(() => localStorage.getItem("netlify_token") ?? "");
+  const [isDeployingToNetlify, setIsDeployingToNetlify] = useState(false);
+  const [netlifyUrl, setNetlifyUrl] = useState<string | null>(null);
+  // Pages excluded from the next Netlify deploy (all enabled by default)
+  const [disabledPages, setDisabledPages] = useState<Set<string>>(new Set());
+
+  // WordPress.com OAuth — new project form
+  const [wpAuthMode, setWpAuthMode] = useState<"app_password" | "wpcom">("app_password");
+  const [wpcomCred, setWpcomCred] = useState<{
+    access_token: string;
+    wpcom_blog_id: number;
+    wpcom_site_domain: string;
+  } | null>(null);
+  const [isConnectingWpcom, setIsConnectingWpcom] = useState(false);
 
   // New website form
   const [form, setForm] = useState({
@@ -125,7 +156,7 @@ export default function WebsiteBuilderPage() {
     try {
       const { data } = await supabase
         .from("website_projects")
-        .select("*")
+        .select("*, website_pages(count)")
         .eq("user_id", user.id)
         .order("created_at", { ascending: false });
       setProjects(data ?? []);
@@ -140,14 +171,36 @@ export default function WebsiteBuilderPage() {
       .from("website_pages")
       .select("*")
       .eq("project_id", projectId)
-      .order("created_at", { ascending: true });
-    setProjectPages(data ?? []);
+      .order("created_at", { ascending: false }); // newest first
+    // Deduplicate by page_type — keep the most-recently updated record.
+    // (Guard against missing UNIQUE constraint causing duplicate rows.)
+    const byType = new Map<string, any>();
+    for (const p of data ?? []) {
+      if (!byType.has(p.page_type)) byType.set(p.page_type, p);
+    }
+    setProjectPages([...byType.values()]);
   };
 
   useEffect(() => { loadProjects(); }, [user]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // ── Contenteditable postMessage bridge ───────────────────
+  useEffect(() => {
+    const handler = (event: MessageEvent) => {
+      if (event.data?.type === 'ELEMENT_CHANGED') {
+        setPendingEdits(prev => ({
+          ...prev,
+          [event.data.path]: { html: event.data.html, text: event.data.text }
+        }));
+      }
+    };
+    window.addEventListener('message', handler);
+    return () => window.removeEventListener('message', handler);
+  }, []);
+
   const handleSelectProject = async (project: any) => {
     setSelectedProject(project);
+    setNetlifyUrl(project.netlify_site_url ?? null);
+    setDisabledPages(new Set());
     await loadProjectPages(project.id);
   };
 
@@ -207,9 +260,16 @@ export default function WebsiteBuilderPage() {
           ...form,
           user_id: user.id,
           project_id: project.id,
-          wp_site_url: form.wp_site_url || undefined,
-          wp_username: form.wp_username || undefined,
-          wp_app_password: form.wp_app_password || undefined,
+          // Use WP.com OAuth creds if connected, otherwise fall back to app-password fields
+          ...(wpcomCred ? {
+            access_token: wpcomCred.access_token,
+            wpcom_blog_id: wpcomCred.wpcom_blog_id,
+            wp_site_url: wpcomCred.wpcom_site_domain,
+          } : {
+            wp_site_url: form.wp_site_url || undefined,
+            wp_username: form.wp_username || undefined,
+            wp_app_password: form.wp_app_password || undefined,
+          }),
         }),
       });
 
@@ -225,19 +285,20 @@ export default function WebsiteBuilderPage() {
       setGenerationProgress(100);
       setGenerationStep("Complete!");
 
+      const totalPages = result.pages_generated ?? result.pages_published ?? 0;
       // Update project with result
       await supabase
         .from("website_projects")
         .update({
           status: result.pages_published > 0 ? "published" : "generated",
-          pages_count: result.pages_published ?? 0,
+          pages_count: totalPages,
           site_content: result.site_content,
           hero_image_url: result.hero_image_url,
           preview_url: result.preview_url,
         })
         .eq("id", project.id);
 
-      toast.success(`Website built! ${result.pages_published ?? 0} pages published.`);
+      toast.success(`Website built! ${totalPages} pages generated${result.pages_published > 0 ? `, ${result.pages_published} published to WordPress` : ""}.`);
 
       setActiveTab("projects");
       await loadProjects();
@@ -300,21 +361,22 @@ export default function WebsiteBuilderPage() {
       setGenerationProgress(100);
       setGenerationStep("Complete!");
 
+      const regenTotal = result.pages_generated ?? result.pages_published ?? 0;
       await supabase.from("website_projects").update({
         status: result.pages_published > 0 ? "published" : "generated",
-        pages_count: result.pages_published ?? 0,
+        pages_count: regenTotal,
         site_content: result.site_content,
         hero_image_url: result.hero_image_url,
         preview_url: result.preview_url,
       }).eq("id", project.id);
 
-      toast.success(`Regenerated! ${result.pages_published ?? 0} pages built.`);
+      toast.success(`Regenerated! ${regenTotal} pages built${result.pages_published > 0 ? `, ${result.pages_published} published to WordPress` : ""}.`);
       await loadProjects();
       await loadProjectPages(project.id);
       setSelectedProject((p: any) => ({
         ...p,
         status: result.pages_published > 0 ? "published" : "generated",
-        pages_count: result.pages_published ?? 0,
+        pages_count: regenTotal,
         site_content: result.site_content,
         hero_image_url: result.hero_image_url,
         preview_url: result.preview_url,
@@ -336,9 +398,554 @@ export default function WebsiteBuilderPage() {
     toast.success(label);
   };
 
+  // ── WordPress.com OAuth connect ───────────────────────────
+  const connectWordPressCom = async (projectId?: string) => {
+    if (!user || isConnectingWpcom) return;
+    setIsConnectingWpcom(true);
+    try {
+      const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
+      const { data: { session } } = await supabase.auth.getSession();
+
+      const res = await fetch(`${SUPABASE_URL}/functions/v1/mavis-wpcom-oauth`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session?.access_token}` },
+        body: JSON.stringify({ action: "get_auth_url", user_id: user.id, project_id: projectId ?? null }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      const { url } = await res.json();
+
+      // Open OAuth popup
+      const popup = window.open(url, "wpcom_oauth", "width=620,height=720,left=200,top=80");
+
+      // Listen for the postMessage from WpcomCallbackPage
+      const handler = (event: MessageEvent) => {
+        if (event.origin !== window.location.origin) return;
+        if (event.data?.type === "wpcom_oauth_success") {
+          const { access_token, wpcom_blog_id, wpcom_site_domain } = event.data;
+          setWpcomCred({ access_token, wpcom_blog_id, wpcom_site_domain });
+          if (projectId) {
+            // Update the selected project's wp_site_url to reflect the connected domain
+            setSelectedProject((p: any) => p ? { ...p, wp_site_url: wpcom_site_domain } : p);
+          }
+          toast.success(`Connected to ${wpcom_site_domain ?? "WordPress.com"}!`);
+          window.removeEventListener("message", handler);
+          clearInterval(pollClosed);
+        } else if (event.data?.type === "wpcom_oauth_error") {
+          toast.error(`WP.com error: ${event.data.error}`);
+          window.removeEventListener("message", handler);
+          clearInterval(pollClosed);
+        }
+        setIsConnectingWpcom(false);
+      };
+      window.addEventListener("message", handler);
+
+      // Clean up if popup is closed without completing auth
+      const pollClosed = setInterval(() => {
+        if (popup?.closed) {
+          clearInterval(pollClosed);
+          window.removeEventListener("message", handler);
+          setIsConnectingWpcom(false);
+        }
+      }, 800);
+    } catch (err: any) {
+      toast.error(err.message ?? "Failed to start WordPress.com auth");
+      setIsConnectingWpcom(false);
+    }
+  };
+
+  // ── Add a single new page to an existing project ──────────
+  const handleAddPage = async () => {
+    if (!user || !selectedProject || !addingPageType || isAddingPage) return;
+    setIsAddingPage(true);
+    try {
+      const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
+      const { data: { session } } = await supabase.auth.getSession();
+
+      let pageContent = selectedProject.site_content?.pages?.[addingPageType];
+      let primaryColor = selectedProject.site_content?.site?.primary_color ?? "#1a56db";
+
+      // If content for this page type isn't cached, generate it
+      if (!pageContent) {
+        const planRes = await fetch(`${SUPABASE_URL}/functions/v1/mavis-web-builder`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${session?.access_token}` },
+          body: JSON.stringify({
+            action: "plan_site",
+            business_name: selectedProject.business_name,
+            business_type: selectedProject.business_type,
+            description: selectedProject.description,
+            target_audience: selectedProject.target_audience,
+            unique_value: selectedProject.unique_value,
+            location: selectedProject.location,
+            style: selectedProject.style,
+            color_scheme: selectedProject.color_scheme,
+            pages: [addingPageType],
+          }),
+        });
+        if (planRes.ok) {
+          const planData = await planRes.json();
+          pageContent = planData.content?.pages?.[addingPageType];
+          primaryColor = planData.content?.site?.primary_color ?? primaryColor;
+        }
+      }
+
+      // Build standalone HTML
+      const allPageKeys = Object.keys(selectedProject?.site_content?.pages ?? {});
+      const pageListForNav = allPageKeys.length > 0 ? allPageKeys : [addingPageType];
+      const genRes = await fetch(`${SUPABASE_URL}/functions/v1/mavis-web-builder`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session?.access_token}` },
+        body: JSON.stringify({
+          action: "generate_page",
+          page_type: addingPageType,
+          page_content: pageContent ?? {},
+          primary_color: primaryColor,
+          site_title: selectedProject?.business_name ?? selectedProject?.project_name ?? "Website",
+          page_list: pageListForNav,
+        }),
+      });
+
+      if (!genRes.ok) {
+        const errText = await genRes.text();
+        throw new Error(`Page generation failed: ${errText.slice(0, 200)}`);
+      }
+      const genData = await genRes.json();
+
+      // Upsert into website_pages (UNIQUE constraint on project_id + page_type)
+      const { error: upsertErr } = await supabase.from("website_pages").upsert({
+        project_id: selectedProject.id,
+        user_id: user.id,
+        page_type: addingPageType,
+        slug: addingPageType,
+        status: "generated",
+        gutenberg_html: genData.html,
+      }, { onConflict: "project_id,page_type" });
+      if (upsertErr) throw upsertErr;
+
+      const newCount = (selectedProject.pages_count ?? 0) + 1;
+      await supabase.from("website_projects").update({ pages_count: newCount }).eq("id", selectedProject.id);
+
+      toast.success(`${addingPageType} page generated!`);
+      setShowAddPagePicker(false);
+      setAddingPageType("");
+      setSelectedProject((p: any) => ({ ...p, pages_count: newCount }));
+      await loadProjectPages(selectedProject.id);
+      await loadProjects();
+    } catch (err: any) {
+      toast.error(err.message ?? "Failed to add page");
+    } finally {
+      setIsAddingPage(false);
+    }
+  };
+
+  // ── Generate HTML for one page and trigger a browser download ─
+  const exportPageHtml = async (pageType: string, dbPage?: any): Promise<string | null> => {
+    // Use cached DB row first
+    if (dbPage?.gutenberg_html) {
+      triggerHtmlDownload(dbPage.gutenberg_html, pageType);
+      return dbPage.gutenberg_html;
+    }
+
+    const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
+    const { data: { session } } = await supabase.auth.getSession();
+    const pageContent = selectedProject?.site_content?.pages?.[pageType] ?? {};
+    const primaryColor = selectedProject?.site_content?.site?.primary_color ?? "#1a56db";
+
+    const res = await fetch(`${SUPABASE_URL}/functions/v1/mavis-web-builder`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${session?.access_token}` },
+      body: JSON.stringify({
+        action: "generate_page",
+        page_type: pageType,
+        page_content: pageContent,
+        primary_color: primaryColor,
+        hero_image_url: pageType === "home" ? selectedProject?.hero_image_url : undefined,
+        site_title: selectedProject?.business_name ?? selectedProject?.project_name ?? "Website",
+        page_list: Object.keys(selectedProject?.site_content?.pages ?? {}),
+        business_type: selectedProject?.business_type,
+        style: selectedProject?.style,
+      }),
+    });
+    if (!res.ok) throw new Error(`Failed to generate HTML for ${pageType}`);
+    const data = await res.json();
+    const html: string = data.html;
+
+    triggerHtmlDownload(html, pageType);
+
+    // Cache back to DB row if it exists
+    if (dbPage?.id) {
+      await supabase.from("website_pages").update({ gutenberg_html: html }).eq("id", dbPage.id);
+    }
+    return html;
+  };
+
+  const triggerHtmlDownload = (html: string, pageType: string) => {
+    const blob = new Blob([html], { type: "text/html" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${pageType}.html`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  // ── Export a single page ──────────────────────────────────
+  const handleExportFromContent = async (pageType: string, dbPage?: any) => {
+    if (exportingPageId === pageType) return;
+    setExportingPageId(pageType);
+    try {
+      await exportPageHtml(pageType, dbPage);
+      toast.success(`${pageType}.html downloaded`);
+    } catch (err: any) {
+      toast.error(err.message ?? "Export failed");
+    } finally {
+      setExportingPageId(null);
+    }
+  };
+
+  // ── Deploy all pages to Netlify ──────────────────────────
+  const deployToNetlify = async () => {
+    if (isDeployingToNetlify) return;
+    if (!netlifyToken) { toast.error("Enter your Netlify personal access token first"); return; }
+    if (!selectedProject) return;
+    setIsDeployingToNetlify(true);
+    try {
+      const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
+      const { data: { session } } = await supabase.auth.getSession();
+      const primaryColor = selectedProject?.site_content?.site?.primary_color ?? "#1a56db";
+      const siteTitle = selectedProject?.business_name ?? selectedProject?.project_name ?? "Website";
+
+      // Re-fetch pages directly from the DB right now so the deploy always uses
+      // the latest stored HTML — not whatever is currently in React state.
+      const { data: rawPages } = await supabase
+        .from("website_pages")
+        .select("*")
+        .eq("project_id", selectedProject.id)
+        .order("created_at", { ascending: false });
+
+      const byType = new Map<string, any>();
+      for (const p of rawPages ?? []) {
+        if (!byType.has(p.page_type)) byType.set(p.page_type, p);
+      }
+      const latestPages = [...byType.values()];
+
+      // Compute deployable page types from the fresh DB data
+      const seenTypes = new Set<string>();
+      const pageTypesToDeploy: string[] = [];
+      for (const t of Object.keys(selectedProject?.site_content?.pages ?? {})) {
+        if (!seenTypes.has(t)) { seenTypes.add(t); pageTypesToDeploy.push(t); }
+      }
+      for (const p of latestPages) {
+        if (p.gutenberg_html && !seenTypes.has(p.page_type)) {
+          seenTypes.add(p.page_type); pageTypesToDeploy.push(p.page_type);
+        }
+      }
+
+      // Filter out pages the user has toggled off
+      const filteredPageTypes = pageTypesToDeploy.filter(t => !disabledPages.has(t));
+
+      if (filteredPageTypes.length === 0) {
+        toast.error("No pages to deploy — enable at least one page or generate pages first.");
+        return;
+      }
+
+      // Build files dict — DB HTML always wins; only regenerate when no HTML is stored.
+      const files: Record<string, string> = {};
+      for (const pageType of filteredPageTypes) {
+        const dbPage = latestPages.find((p: any) => p.page_type === pageType);
+        if (dbPage?.gutenberg_html) {
+          files[pageType === "home" ? "index.html" : `${pageType}.html`] = dbPage.gutenberg_html;
+          continue;
+        }
+        // No stored HTML — regenerate from site_content if available
+        const pageContent = selectedProject?.site_content?.pages?.[pageType];
+        if (!pageContent) continue;
+        const res = await fetch(`${SUPABASE_URL}/functions/v1/mavis-web-builder`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${session?.access_token}` },
+          body: JSON.stringify({
+            action: "generate_page",
+            page_type: pageType,
+            page_content: pageContent,
+            primary_color: primaryColor,
+            site_title: siteTitle,
+            page_list: filteredPageTypes,
+            business_type: selectedProject?.business_type,
+            style: selectedProject?.style,
+          }),
+        });
+        if (res.ok) {
+          const d = await res.json();
+          files[pageType === "home" ? "index.html" : `${pageType}.html`] = d.html;
+        }
+      }
+
+      if (Object.keys(files).length === 0) { toast.error("No pages to deploy"); return; }
+
+      // Ensure root always resolves — if no index.html was produced, promote the first file
+      if (!files["index.html"]) {
+        files["index.html"] = files[Object.keys(files)[0]];
+      }
+
+      const uploadedCount = filteredPageTypes.filter(pt => {
+        const p = latestPages.find((pg: any) => pg.page_type === pt);
+        return p?.status === "customized" && p.gutenberg_html;
+      }).length;
+      toast.info(`Deploying ${Object.keys(files).length} page${Object.keys(files).length !== 1 ? "s" : ""}${uploadedCount > 0 ? ` · ${uploadedCount} from your uploads` : ""}…`);
+
+      // Deploy via mavis-netlify edge function
+      const slug = siteTitle.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+      const deployRes = await fetch(`${SUPABASE_URL}/functions/v1/mavis-netlify`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session?.access_token}` },
+        body: JSON.stringify({
+          action: "deploy",
+          netlify_token: netlifyToken,
+          files,
+          site_id: selectedProject.netlify_site_id ?? undefined,
+          site_name: `mavis-${slug}-${selectedProject.id?.slice(0, 6)}`,
+        }),
+      });
+
+      if (!deployRes.ok) throw new Error("Netlify deploy failed");
+      const deployData = await deployRes.json();
+      const { site_id, site_url, deploy_id } = deployData.data ?? {};
+
+      // Persist Netlify metadata — only overwrite site_url if the API returned one
+      // (on redeploy to an existing site the API may return an empty url).
+      const updatePayload: Record<string, any> = {
+        netlify_site_id: site_id,
+        netlify_deploy_id: deploy_id,
+        netlify_deploy_status: "ready",
+      };
+      if (site_url) updatePayload.netlify_site_url = site_url;
+
+      await supabase.from("website_projects").update(updatePayload).eq("id", selectedProject.id);
+
+      const liveUrl = site_url || selectedProject.netlify_site_url;
+      setSelectedProject((p: any) => ({ ...p, netlify_site_id: site_id, netlify_site_url: liveUrl }));
+      if (liveUrl) setNetlifyUrl(liveUrl);
+      toast.success("Site deployed to Netlify!");
+    } catch (err: any) {
+      toast.error(err.message ?? "Deployment failed");
+    } finally {
+      setIsDeployingToNetlify(false);
+    }
+  };
+
+  // ── Open a page's HTML in a new browser tab for preview ──
+  const openPagePreview = (dbPage?: any) => {
+    const html = dbPage?.gutenberg_html;
+    if (!html) {
+      toast.error("No HTML to preview — generate or upload this page first.");
+      return;
+    }
+    const blob = new Blob([html], { type: "text/html" });
+    const url = URL.createObjectURL(blob);
+    window.open(url, "_blank", "noopener");
+    setTimeout(() => URL.revokeObjectURL(url), 30_000);
+  };
+
+  // ── Unified list of all deployable page types ─────────────
+  // Combines MAVIS-generated pages (from site_content) + manually
+  // uploaded pages (from projectPages), deduplicating by page_type.
+  const allDeployablePageTypes: string[] = (() => {
+    const seen = new Set<string>();
+    const types: string[] = [];
+    for (const t of Object.keys(selectedProject?.site_content?.pages ?? {})) {
+      if (!seen.has(t)) { seen.add(t); types.push(t); }
+    }
+    for (const p of projectPages) {
+      if (p.gutenberg_html && !seen.has(p.page_type)) {
+        seen.add(p.page_type); types.push(p.page_type);
+      }
+    }
+    return types;
+  })();
+
+  // ── Download every page as individual HTML files ──────────
+  const handleDownloadAll = async () => {
+    if (isDownloadingAll) return;
+    if (allDeployablePageTypes.length === 0) {
+      toast.error("No pages available — generate or upload pages first.");
+      return;
+    }
+    setIsDownloadingAll(true);
+    let downloaded = 0;
+    try {
+      for (const pageType of allDeployablePageTypes) {
+        const dbPage = projectPages.find((p: any) => p.page_type === pageType);
+        try {
+          await exportPageHtml(pageType, dbPage);
+          downloaded++;
+          await new Promise((r) => setTimeout(r, 600));
+        } catch {
+          // continue
+        }
+      }
+      toast.success(`${downloaded} of ${allDeployablePageTypes.length} pages downloaded`);
+    } finally {
+      setIsDownloadingAll(false);
+    }
+  };
+
+  // ── Import an HTML file back into a page ─────────────────
+  const handleImportHtml = (pageType: string) => {
+    setImportingPageType(pageType);
+    htmlImportRef.current?.click();
+  };
+
+  const handleImportHtmlFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    // Reset input so the same file can be re-selected later
+    e.target.value = "";
+    if (!file || !importingPageType || !selectedProject || !user) {
+      setImportingPageType(null);
+      return;
+    }
+
+    const html = await file.text();
+    const pageType = importingPageType;
+    setImportingPageType(null);
+
+    try {
+      const { error } = await supabase.from("website_pages").upsert({
+        project_id: selectedProject.id,
+        user_id: user.id,
+        page_type: pageType,
+        slug: pageType,
+        status: "customized",
+        gutenberg_html: html,
+      }, { onConflict: "project_id,page_type" });
+
+      if (error) throw error;
+      toast.success(`${pageType}.html imported — page updated.`);
+      await loadProjectPages(selectedProject.id);
+    } catch (err: any) {
+      toast.error(err.message ?? "Import failed");
+    }
+  };
+
+  // ── Bulk HTML import (multiple pages at once) ─────────────
+  const detectPageTypeFromFilename = (filename: string): string => {
+    const base = filename.replace(/\.html?$/i, "").toLowerCase().trim();
+    if (base === "index") return "home";
+    const known = ["home", "about", "services", "contact", "pricing", "portfolio", "blog", "team"];
+    return known.includes(base) ? base : base;
+  };
+
+  const handleImportAllHtmlFiles = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files ?? []);
+    e.target.value = "";
+    if (!files.length || !selectedProject || !user) return;
+
+    setIsImportingAll(true);
+    let imported = 0;
+    const errors: string[] = [];
+
+    try {
+      for (const file of files) {
+        const pageType = detectPageTypeFromFilename(file.name);
+        try {
+          const html = await file.text();
+          const { error } = await supabase.from("website_pages").upsert({
+            project_id: selectedProject.id,
+            user_id: user.id,
+            page_type: pageType,
+            slug: pageType,
+            status: "customized",
+            gutenberg_html: html,
+          }, { onConflict: "project_id,page_type" });
+          if (error) throw error;
+          imported++;
+        } catch (err: any) {
+          errors.push(`${file.name}: ${err.message ?? "failed"}`);
+        }
+      }
+
+      if (imported > 0) {
+        // Update pages_count on project
+        const newCount = Math.max(selectedProject.pages_count ?? 0, imported);
+        await supabase.from("website_projects").update({ pages_count: newCount }).eq("id", selectedProject.id);
+        setSelectedProject((p: any) => ({ ...p, pages_count: newCount }));
+        await loadProjectPages(selectedProject.id);
+        await loadProjects();
+      }
+
+      if (errors.length === 0) {
+        toast.success(`${imported} page${imported !== 1 ? "s" : ""} imported successfully.`);
+      } else {
+        toast.warning(`${imported} imported, ${errors.length} failed: ${errors[0]}`);
+      }
+    } finally {
+      setIsImportingAll(false);
+    }
+  };
+
+  // ── Save inline edits back to the DB ─────────────────────
+  const saveInlineEdits = async () => {
+    if (!previewPageId || Object.keys(pendingEdits).length === 0) return;
+    setIsSavingEdits(true);
+    try {
+      const { data: page } = await supabase
+        .from('website_pages')
+        .select('gutenberg_html')
+        .eq('id', previewPageId)
+        .single();
+
+      if (page?.gutenberg_html) {
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(page.gutenberg_html, 'text/html');
+
+        Object.entries(pendingEdits).forEach(([path, { html }]) => {
+          try {
+            const el = doc.querySelector(path);
+            if (el) el.innerHTML = html;
+          } catch { /* invalid selector — skip */ }
+        });
+
+        const updatedHtml = doc.documentElement.outerHTML;
+
+        await supabase
+          .from('website_pages')
+          .update({ gutenberg_html: updatedHtml })
+          .eq('id', previewPageId);
+
+        // Refresh local state so the iframe re-renders with saved content
+        await loadProjectPages(selectedProject.id);
+      }
+
+      setPendingEdits({});
+      setPreviewKey(k => k + 1);
+      toast.success('Edits saved!');
+    } catch (err: any) {
+      console.error('Failed to save inline edits:', err);
+      toast.error(err.message ?? 'Failed to save edits');
+    } finally {
+      setIsSavingEdits(false);
+    }
+  };
+
   // ── Render ────────────────────────────────────────────────
   return (
     <div className="max-w-7xl mx-auto space-y-6">
+      {/* Hidden file inputs for HTML import */}
+      <input
+        ref={htmlImportRef}
+        type="file"
+        accept=".html,text/html"
+        className="hidden"
+        onChange={handleImportHtmlFile}
+      />
+      <input
+        ref={htmlMultiImportRef}
+        type="file"
+        accept=".html,text/html"
+        multiple
+        className="hidden"
+        onChange={handleImportAllHtmlFiles}
+      />
+
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -418,7 +1025,7 @@ export default function WebsiteBuilderPage() {
                       <p className="text-[11px] text-muted-foreground mb-1">Client: {project.client_name}</p>
                     )}
                     <div className="flex items-center justify-between text-[10px] text-muted-foreground font-mono">
-                      <span>{project.pages_count ?? 0} pages</span>
+                      <span>{project.website_pages?.[0]?.count ?? project.pages_count ?? 0} pages</span>
                       <span>{fmtDate(project.created_at)}</span>
                     </div>
                     {project.price_cents > 0 && (
@@ -497,6 +1104,32 @@ export default function WebsiteBuilderPage() {
                           Copy Preview URL
                         </Button>
                       )}
+                      {selectedProject.site_content?.pages && (
+                        <Button
+                          size="sm"
+                          className="gap-1.5 text-xs h-8 bg-emerald-600 hover:bg-emerald-700 text-white"
+                          disabled={isDownloadingAll}
+                          onClick={handleDownloadAll}
+                        >
+                          {isDownloadingAll
+                            ? <Loader2 size={11} className="animate-spin" />
+                            : <Download size={11} />}
+                          {isDownloadingAll ? "Downloading..." : "Download HTML"}
+                        </Button>
+                      )}
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="gap-1.5 text-xs h-8"
+                        disabled={isImportingAll}
+                        title="Upload one or more HTML files. Files are matched to pages by filename (e.g. home.html → home, about.html → about)."
+                        onClick={() => htmlMultiImportRef.current?.click()}
+                      >
+                        {isImportingAll
+                          ? <Loader2 size={11} className="animate-spin" />
+                          : <Upload size={11} />}
+                        {isImportingAll ? "Importing..." : "Upload HTML"}
+                      </Button>
                       <Button
                         size="sm"
                         variant="outline"
@@ -511,67 +1144,381 @@ export default function WebsiteBuilderPage() {
                         size="sm"
                         variant="outline"
                         className="gap-1.5 text-xs h-8"
-                        onClick={() => toast.info("Add page coming soon")}
+                        disabled={isAddingPage}
+                        onClick={() => {
+                          setShowAddPagePicker((v) => !v);
+                          setAddingPageType("");
+                        }}
                       >
                         <Plus size={11} />
                         Add Page
                       </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="gap-1.5 text-xs h-8"
+                        disabled={isConnectingWpcom}
+                        onClick={() => connectWordPressCom(selectedProject.id)}
+                        title={wpcomCred ? `Connected: ${wpcomCred.wpcom_site_domain}` : "Connect WordPress.com"}
+                      >
+                        {isConnectingWpcom ? (
+                          <Loader2 size={11} className="animate-spin" />
+                        ) : wpcomCred ? (
+                          <CheckCircle2 size={11} className="text-emerald-400" />
+                        ) : (
+                          <Link2 size={11} />
+                        )}
+                        {wpcomCred ? "WP.com Connected" : "Connect WP.com"}
+                      </Button>
                     </div>
+
+                    {/* Inline Add Page picker */}
+                    {showAddPagePicker && (() => {
+                      const existingTypes = new Set(projectPages.map((p: any) => p.page_type));
+                      const available = ALL_PAGES.filter((t) => !existingTypes.has(t));
+                      return (
+                        <div className="mt-3 pt-3 border-t border-border/50 space-y-3">
+                          <p className="text-xs font-mono text-muted-foreground">Select a page type to add:</p>
+                          {available.length === 0 ? (
+                            <p className="text-xs text-muted-foreground italic">All page types already added.</p>
+                          ) : (
+                            <>
+                              <div className="flex flex-wrap gap-2">
+                                {available.map((t) => (
+                                  <button
+                                    key={t}
+                                    onClick={() => setAddingPageType(t)}
+                                    className={`flex items-center gap-1.5 text-xs font-mono px-2.5 py-1.5 rounded border transition-all ${
+                                      addingPageType === t
+                                        ? "bg-primary/10 border-primary/40 text-primary"
+                                        : "border-border/50 text-muted-foreground hover:border-border hover:text-foreground"
+                                    }`}
+                                  >
+                                    {PAGE_TYPE_ICON[t] ?? "📄"} {t.charAt(0).toUpperCase() + t.slice(1)}
+                                  </button>
+                                ))}
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <Button
+                                  size="sm"
+                                  className="gap-1.5 text-xs h-8"
+                                  disabled={!addingPageType || isAddingPage}
+                                  onClick={handleAddPage}
+                                >
+                                  {isAddingPage ? (
+                                    <><Loader2 size={11} className="animate-spin" /> Generating...</>
+                                  ) : (
+                                    <><Sparkles size={11} /> Generate {addingPageType ? `${addingPageType.charAt(0).toUpperCase() + addingPageType.slice(1)} ` : ""}Page</>
+                                  )}
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  className="text-xs h-8"
+                                  onClick={() => { setShowAddPagePicker(false); setAddingPageType(""); }}
+                                >
+                                  Cancel
+                                </Button>
+                              </div>
+                            </>
+                          )}
+                        </div>
+                      );
+                    })()}
                   </CardContent>
                 </Card>
 
-                {/* Pages */}
-                {projectPages.length > 0 && (
+                {/* Pages — shown whenever there are MAVIS-generated or user-uploaded pages */}
+                {allDeployablePageTypes.length > 0 && (
+                  <Card className="border-border/50">
+                    <CardHeader className="pb-2 pt-4 px-5">
+                      <div className="flex items-center justify-between gap-3">
+                        <CardTitle className="text-sm font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-2">
+                          <Code2 size={13} />
+                          Pages ({allDeployablePageTypes.length - disabledPages.size} of {allDeployablePageTypes.length} enabled)
+                        </CardTitle>
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <button
+                            onClick={() => setDisabledPages(new Set())}
+                            className="text-[10px] font-mono px-2 py-1 rounded border border-border/40 text-muted-foreground hover:text-emerald-400 hover:border-emerald-400/30 transition-colors"
+                            title="Enable all pages"
+                          >all</button>
+                          <button
+                            onClick={() => setDisabledPages(new Set(allDeployablePageTypes))}
+                            className="text-[10px] font-mono px-2 py-1 rounded border border-border/40 text-muted-foreground hover:text-rose-400 hover:border-rose-400/30 transition-colors"
+                            title="Disable all pages"
+                          >none</button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="gap-1.5 text-xs h-7"
+                            disabled={isDownloadingAll}
+                            onClick={handleDownloadAll}
+                          >
+                            {isDownloadingAll
+                              ? <Loader2 size={11} className="animate-spin" />
+                              : <Download size={11} />}
+                            Download All HTML
+                          </Button>
+                        </div>
+                      </div>
+                    </CardHeader>
+                    <CardContent className="px-5 pb-4 space-y-1">
+                      {allDeployablePageTypes.map((pageType) => {
+                        const dbPage = projectPages.find((p: any) => p.page_type === pageType);
+                        const isExporting = exportingPageId === pageType;
+                        const isCustom = dbPage?.status === "customized";
+                        const hasHtml = !!dbPage?.gutenberg_html;
+                        const isEnabled = !disabledPages.has(pageType);
+                        return (
+                          <div key={pageType} className={`py-2 border-b border-border/30 last:border-0 transition-opacity ${isEnabled ? "" : "opacity-40"}`}>
+                          <div
+                            className="flex items-center gap-3"
+                          >
+                            <Switch
+                              checked={isEnabled}
+                              onCheckedChange={(checked) => {
+                                setDisabledPages(prev => {
+                                  const next = new Set(prev);
+                                  if (checked) next.delete(pageType);
+                                  else next.add(pageType);
+                                  return next;
+                                });
+                              }}
+                              className="scale-75 shrink-0"
+                            />
+                            <span className="text-base">{PAGE_TYPE_ICON[pageType] ?? "📄"}</span>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-medium capitalize flex items-center gap-1.5">
+                                {pageType}
+                                {isCustom && (
+                                  <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-400 border border-blue-500/20">custom</span>
+                                )}
+                              </p>
+                              {dbPage?.wp_url && (
+                                <a
+                                  href={dbPage.wp_url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-[11px] font-mono text-primary/70 hover:text-primary truncate block max-w-xs"
+                                >
+                                  {dbPage.wp_url}
+                                </a>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-1.5 shrink-0">
+                              {/* Inline preview toggle */}
+                              {hasHtml && (
+                                <button
+                                  onClick={() => setPreviewPageId((prev) => prev === dbPage?.id ? null : dbPage?.id ?? null)}
+                                  className={`flex items-center gap-1 px-2.5 py-1 rounded border text-xs font-mono transition-colors ${previewPageId === dbPage?.id ? "bg-purple-500/10 border-purple-400/40 text-purple-400" : "border-border/50 text-muted-foreground hover:text-purple-400 hover:border-purple-400/30"}`}
+                                  title={previewPageId === dbPage?.id ? "Close preview" : "Inline preview"}
+                                >
+                                  <Eye size={11} /> preview
+                                </button>
+                              )}
+                              {/* Open in new tab */}
+                              {hasHtml && (
+                                <button
+                                  onClick={() => openPagePreview(dbPage)}
+                                  className="p-1.5 rounded border border-border/50 text-muted-foreground hover:text-purple-400 hover:border-purple-400/30 transition-colors"
+                                  title="Preview in new tab"
+                                >
+                                  <ExternalLink size={12} />
+                                </button>
+                              )}
+                              {dbPage?.wp_url && (
+                                <>
+                                  <a
+                                    href={dbPage.wp_url}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="p-1.5 rounded border border-border/50 text-muted-foreground hover:text-primary hover:border-primary/30 transition-colors"
+                                    title="Open in WordPress"
+                                  >
+                                    <ExternalLink size={12} />
+                                  </a>
+                                  <button
+                                    onClick={() => copyToClipboard(dbPage.wp_url, "URL copied")}
+                                    className="p-1.5 rounded border border-border/50 text-muted-foreground hover:text-primary hover:border-primary/30 transition-colors"
+                                    title="Copy URL"
+                                  >
+                                    <Copy size={12} />
+                                  </button>
+                                </>
+                              )}
+                              <button
+                                onClick={() => handleExportFromContent(pageType, dbPage)}
+                                disabled={isExporting || isDownloadingAll}
+                                className="flex items-center gap-1 px-2.5 py-1 rounded border border-border/50 text-xs font-mono text-muted-foreground hover:text-emerald-400 hover:border-emerald-400/30 transition-colors disabled:opacity-40"
+                                title="Download HTML file"
+                              >
+                                {isExporting
+                                  ? <Loader2 size={11} className="animate-spin" />
+                                  : <Download size={11} />}
+                                .html
+                              </button>
+                              <button
+                                onClick={() => handleImportHtml(pageType)}
+                                disabled={importingPageType === pageType}
+                                className="flex items-center gap-1 px-2.5 py-1 rounded border border-border/50 text-xs font-mono text-muted-foreground hover:text-blue-400 hover:border-blue-400/30 transition-colors disabled:opacity-40"
+                                title="Import customized HTML file"
+                              >
+                                {importingPageType === pageType
+                                  ? <Loader2 size={11} className="animate-spin" />
+                                  : <Upload size={11} />}
+                                import
+                              </button>
+                              {dbPage?.status === "published" && (
+                                <span title="Published to WordPress"><CheckCircle2 size={14} className="text-emerald-400" /></span>
+                              )}
+                            </div>
+                          </div>
+                          {/* Inline iframe preview */}
+                          {previewPageId === dbPage?.id && dbPage?.gutenberg_html && (
+                            <div className="mt-2 space-y-2">
+                              {/* Edit mode toolbar */}
+                              <div className="flex items-center gap-2">
+                                <button
+                                  onClick={() => { setEditModeEnabled(e => !e); setPendingEdits({}); }}
+                                  className={`text-xs px-3 py-1.5 rounded-lg border font-medium transition-colors ${editModeEnabled ? 'bg-indigo-100 border-indigo-400 text-indigo-700' : 'bg-white border-gray-300 text-gray-600 hover:bg-gray-50'}`}
+                                >
+                                  {editModeEnabled ? '✏️ Editing' : '✏️ Edit Text'}
+                                </button>
+                                {editModeEnabled && (
+                                  <span className="text-xs text-indigo-600 font-mono">Click any text in the preview to edit it</span>
+                                )}
+                              </div>
+
+                              {/* Pending edits banner */}
+                              {Object.keys(pendingEdits).length > 0 && (
+                                <div className="flex items-center gap-3 p-3 bg-indigo-50 border border-indigo-200 rounded-lg">
+                                  <span className="text-sm text-indigo-700 font-medium">
+                                    {Object.keys(pendingEdits).length} unsaved edit{Object.keys(pendingEdits).length > 1 ? 's' : ''}
+                                  </span>
+                                  <button
+                                    onClick={saveInlineEdits}
+                                    disabled={isSavingEdits}
+                                    className="ml-auto bg-indigo-600 text-white text-sm font-semibold px-4 py-1.5 rounded-lg hover:bg-indigo-700 disabled:opacity-50 transition-colors"
+                                  >
+                                    {isSavingEdits ? 'Saving...' : 'Save Changes'}
+                                  </button>
+                                  <button
+                                    onClick={() => setPendingEdits({})}
+                                    className="text-sm text-gray-500 hover:text-gray-700"
+                                  >
+                                    Discard
+                                  </button>
+                                </div>
+                              )}
+
+                              <div className="rounded border border-border overflow-hidden" style={{ height: '400px' }}>
+                                <iframe
+                                  key={previewKey}
+                                  srcDoc={editModeEnabled ? (() => {
+                                    const editScript = `<script>
+document.querySelectorAll('h1,h2,h3,h4,p,li,span,a,button,label').forEach(el => {
+  el.contentEditable = 'true';
+  el.style.cursor = 'text';
+  el.style.outline = 'none';
+  el.addEventListener('focus', () => {
+    el.style.boxShadow = '0 0 0 2px #6366f1';
+    el.style.borderRadius = '3px';
+  });
+  el.addEventListener('blur', () => {
+    el.style.boxShadow = '';
+    const path = getElementPath(el);
+    window.parent.postMessage({ type: 'ELEMENT_CHANGED', path, html: el.innerHTML, text: el.innerText }, '*');
+  });
+  el.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); el.blur(); }
+    if (e.key === 'Escape') { el.blur(); }
+  });
+});
+function getElementPath(el) {
+  const parts = [];
+  let node = el;
+  while (node && node !== document.body) {
+    const siblings = Array.from(node.parentNode?.children || []);
+    const idx = siblings.indexOf(node);
+    parts.unshift(node.tagName.toLowerCase() + ':nth-child(' + (idx + 1) + ')');
+    node = node.parentNode;
+  }
+  return parts.join(' > ');
+}
+<\/script>`;
+                                    const html = dbPage.gutenberg_html;
+                                    const bodyCloseIdx = html.lastIndexOf('</body>');
+                                    return bodyCloseIdx !== -1
+                                      ? html.slice(0, bodyCloseIdx) + editScript + html.slice(bodyCloseIdx)
+                                      : html + editScript;
+                                  })() : dbPage.gutenberg_html}
+                                  className="w-full h-full"
+                                  sandbox="allow-scripts"
+                                  title={`Preview: ${pageType}`}
+                                />
+                              </div>
+                            </div>
+                          )}
+                          </div>
+                        );
+                      })}
+                    </CardContent>
+                  </Card>
+                )}
+
+                {/* Netlify one-click publish */}
+                {allDeployablePageTypes.length > 0 && (
                   <Card className="border-border/50">
                     <CardHeader className="pb-2 pt-4 px-5">
                       <CardTitle className="text-sm font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-2">
-                        <Code2 size={13} />
-                        Published Pages
+                        <Globe size={13} />
+                        Publish to Web (Netlify)
                       </CardTitle>
+                      <CardDescription className="text-xs">
+                        Deploy all pages as a live website instantly — no WordPress needed.
+                        {selectedProject.netlify_site_url && (
+                          <a href={selectedProject.netlify_site_url} target="_blank" rel="noopener noreferrer" className="ml-1 text-emerald-400 hover:underline font-mono">
+                            {selectedProject.netlify_site_url}
+                          </a>
+                        )}
+                      </CardDescription>
                     </CardHeader>
-                    <CardContent className="px-5 pb-4 space-y-2">
-                      {projectPages.map((page: any) => (
-                        <div
-                          key={page.id}
-                          className="flex items-center gap-3 py-2 border-b border-border/30 last:border-0"
+                    <CardContent className="px-5 pb-4 space-y-3">
+                      <div className="flex gap-2">
+                        <Input
+                          type="password"
+                          placeholder="Netlify personal access token"
+                          value={netlifyToken}
+                          onChange={(e) => {
+                            setNetlifyToken(e.target.value);
+                            localStorage.setItem("netlify_token", e.target.value);
+                          }}
+                          className="h-8 text-xs font-mono flex-1"
+                        />
+                        <Button
+                          size="sm"
+                          className="gap-1.5 text-xs h-8 shrink-0 bg-emerald-600 hover:bg-emerald-700 text-white"
+                          disabled={isDeployingToNetlify || !netlifyToken}
+                          onClick={deployToNetlify}
                         >
-                          <span className="text-base">{PAGE_TYPE_ICON[page.page_type] ?? "📄"}</span>
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm font-medium capitalize">{page.page_type || page.page_name}</p>
-                            {page.wp_url && (
-                              <a
-                                href={page.wp_url}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="text-[11px] font-mono text-primary/70 hover:text-primary truncate block max-w-xs"
-                              >
-                                {page.wp_url}
-                              </a>
-                            )}
-                          </div>
-                          <div className="flex items-center gap-1.5 shrink-0">
-                            {page.wp_url && (
-                              <>
-                                <a
-                                  href={page.wp_url}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="p-1.5 rounded border border-border/50 text-muted-foreground hover:text-primary hover:border-primary/30 transition-colors"
-                                >
-                                  <ExternalLink size={12} />
-                                </a>
-                                <button
-                                  onClick={() => copyToClipboard(page.wp_url, "URL copied")}
-                                  className="p-1.5 rounded border border-border/50 text-muted-foreground hover:text-primary hover:border-primary/30 transition-colors"
-                                >
-                                  <Copy size={12} />
-                                </button>
-                              </>
-                            )}
-                            <CheckCircle2 size={14} className="text-emerald-400" />
-                          </div>
-                        </div>
-                      ))}
+                          {isDeployingToNetlify
+                            ? <Loader2 size={11} className="animate-spin" />
+                            : <ExternalLink size={11} />}
+                          {isDeployingToNetlify ? "Deploying…" : selectedProject.netlify_site_url ? "Redeploy" : "Deploy"}
+                        </Button>
+                      </div>
+                      {netlifyUrl && (
+                        <p className="text-xs text-emerald-400 font-mono break-all">
+                          ✓ Live at: <a href={netlifyUrl} target="_blank" rel="noopener noreferrer" className="underline">{netlifyUrl}</a>
+                        </p>
+                      )}
+                      <p className="text-[10px] text-amber-400 mt-1">
+                        ⚠ Token stored in browser session only. For production deployments, configure the Netlify integration in your account settings.
+                      </p>
+                      <p className="text-[11px] text-muted-foreground">
+                        Get a free token at <span className="font-mono">app.netlify.com → User settings → Applications → Personal access tokens</span>
+                      </p>
                     </CardContent>
                   </Card>
                 )}
@@ -805,46 +1752,97 @@ export default function WebsiteBuilderPage() {
             </button>
             {showWpSection && (
               <CardContent className="px-5 pb-5 space-y-3 pt-0">
-                <p className="text-xs text-muted-foreground">Connect a WordPress site to publish pages directly via the REST API.</p>
-                <div className="space-y-1.5">
-                  <label className="text-xs font-mono text-muted-foreground">WP Site URL</label>
-                  <Input
-                    placeholder="https://yourclient.com"
-                    value={form.wp_site_url}
-                    onChange={(e) => setForm((f) => ({ ...f, wp_site_url: e.target.value }))}
-                    className="bg-background/60 border-border/60 text-sm"
-                  />
+                <p className="text-xs text-muted-foreground">Connect a WordPress site to publish pages directly.</p>
+
+                {/* Auth mode toggle */}
+                <div className="flex gap-1 p-1 bg-muted/30 rounded-lg border border-border/50 w-fit">
+                  {(["app_password", "wpcom"] as const).map((mode) => (
+                    <button
+                      key={mode}
+                      onClick={() => setWpAuthMode(mode)}
+                      className={`px-3 py-1.5 text-xs font-mono rounded-md transition-all ${
+                        wpAuthMode === mode
+                          ? "bg-primary/10 text-primary border border-primary/30"
+                          : "text-muted-foreground hover:text-foreground"
+                      }`}
+                    >
+                      {mode === "app_password" ? "App Password" : "WordPress.com"}
+                    </button>
+                  ))}
                 </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="space-y-1.5">
-                    <label className="text-xs font-mono text-muted-foreground">WP Username</label>
-                    <Input
-                      placeholder="admin"
-                      value={form.wp_username}
-                      onChange={(e) => setForm((f) => ({ ...f, wp_username: e.target.value }))}
-                      className="bg-background/60 border-border/60 text-sm"
-                    />
+
+                {wpAuthMode === "app_password" ? (
+                  <>
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-mono text-muted-foreground">WP Site URL</label>
+                      <Input
+                        placeholder="https://yourclient.com"
+                        value={form.wp_site_url}
+                        onChange={(e) => setForm((f) => ({ ...f, wp_site_url: e.target.value }))}
+                        className="bg-background/60 border-border/60 text-sm"
+                      />
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-1.5">
+                        <label className="text-xs font-mono text-muted-foreground">WP Username</label>
+                        <Input
+                          placeholder="admin"
+                          value={form.wp_username}
+                          onChange={(e) => setForm((f) => ({ ...f, wp_username: e.target.value }))}
+                          className="bg-background/60 border-border/60 text-sm"
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <label className="text-xs font-mono text-muted-foreground">App Password</label>
+                        <Input
+                          type="password"
+                          placeholder="xxxx xxxx xxxx xxxx"
+                          value={form.wp_app_password}
+                          onChange={(e) => setForm((f) => ({ ...f, wp_app_password: e.target.value }))}
+                          className="bg-background/60 border-border/60 text-sm"
+                        />
+                      </div>
+                    </div>
+                  </>
+                ) : (
+                  <div className="space-y-2">
+                    {wpcomCred ? (
+                      <div className="flex items-center gap-3 px-3 py-2.5 rounded-lg border border-emerald-500/30 bg-emerald-500/5">
+                        <CheckCircle2 size={14} className="text-emerald-400 shrink-0" />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs font-semibold text-emerald-400">Connected</p>
+                          <p className="text-[11px] font-mono text-muted-foreground truncate">{wpcomCred.wpcom_site_domain}</p>
+                        </div>
+                        <button
+                          onClick={() => setWpcomCred(null)}
+                          className="p-1 rounded text-muted-foreground hover:text-destructive transition-colors"
+                          title="Disconnect"
+                        >
+                          <Unlink size={12} />
+                        </button>
+                      </div>
+                    ) : (
+                      <>
+                        <p className="text-xs text-muted-foreground">
+                          Authorize MAVIS to publish directly to your WordPress.com site via OAuth — no password needed.
+                        </p>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="gap-1.5 text-xs"
+                          disabled={isConnectingWpcom}
+                          onClick={() => connectWordPressCom()}
+                        >
+                          {isConnectingWpcom ? (
+                            <><Loader2 size={12} className="animate-spin" /> Connecting...</>
+                          ) : (
+                            <><Link2 size={12} /> Connect WordPress.com</>
+                          )}
+                        </Button>
+                      </>
+                    )}
                   </div>
-                  <div className="space-y-1.5">
-                    <label className="text-xs font-mono text-muted-foreground">App Password</label>
-                    <Input
-                      type="password"
-                      placeholder="xxxx xxxx xxxx xxxx"
-                      value={form.wp_app_password}
-                      onChange={(e) => setForm((f) => ({ ...f, wp_app_password: e.target.value }))}
-                      className="bg-background/60 border-border/60 text-sm"
-                    />
-                  </div>
-                </div>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="gap-1.5 text-xs"
-                  onClick={() => toast.info("WP connection test coming soon")}
-                >
-                  <Settings size={12} />
-                  Test Connection
-                </Button>
+                )}
               </CardContent>
             )}
           </Card>

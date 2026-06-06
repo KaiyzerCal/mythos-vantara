@@ -19,6 +19,7 @@ import {
   Star,
 } from "lucide-react";
 import { PageHeader, HudCard } from "@/components/SharedUI";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 
 // ─── Types ──────────────────────────────────────────────────
 
@@ -267,6 +268,7 @@ function AgentMemoriesTab({ userId }: { userId: string }) {
   const [loading, setLoading] = useState(false);
   const [loadingMembers, setLoadingMembers] = useState(true);
   const [deleting, setDeleting] = useState<string | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<{ id: string; label: string } | null>(null);
 
   useEffect(() => {
     (async () => {
@@ -414,7 +416,7 @@ function AgentMemoriesTab({ userId }: { userId: string }) {
                   </div>
                 </div>
                 <button
-                  onClick={() => handleDelete(mem.id)}
+                  onClick={() => setConfirmDelete({ id: mem.id, label: mem.content.slice(0, 60) })}
                   disabled={deleting === mem.id}
                   className="shrink-0 p-1.5 rounded text-muted-foreground/40 hover:text-destructive hover:bg-destructive/10 transition-colors disabled:opacity-30 opacity-0 group-hover:opacity-100"
                   title="Delete memory"
@@ -446,6 +448,18 @@ function AgentMemoriesTab({ userId }: { userId: string }) {
           )}
         </div>
       )}
+
+      <ConfirmDialog
+        open={confirmDelete !== null}
+        title="Delete memory?"
+        description="This action cannot be undone."
+        onConfirm={async () => {
+          if (!confirmDelete) return;
+          await handleDelete(confirmDelete.id);
+          setConfirmDelete(null);
+        }}
+        onCancel={() => setConfirmDelete(null)}
+      />
     </div>
   );
 }

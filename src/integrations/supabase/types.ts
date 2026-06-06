@@ -130,6 +130,7 @@ export type Database = {
           notes: string
           relationship: string
           specialty: string
+          updated_at: string
           user_id: string
         }
         Insert: {
@@ -142,6 +143,7 @@ export type Database = {
           notes?: string
           relationship?: string
           specialty?: string
+          updated_at?: string
           user_id: string
         }
         Update: {
@@ -154,6 +156,7 @@ export type Database = {
           notes?: string
           relationship?: string
           specialty?: string
+          updated_at?: string
           user_id?: string
         }
         Relationships: []
@@ -264,6 +267,7 @@ export type Database = {
           id: string
           mood: string | null
           notes: string | null
+          updated_at: string
           user_id: string
         }
         Insert: {
@@ -274,6 +278,7 @@ export type Database = {
           id?: string
           mood?: string | null
           notes?: string | null
+          updated_at?: string
           user_id: string
         }
         Update: {
@@ -284,6 +289,7 @@ export type Database = {
           id?: string
           mood?: string | null
           notes?: string | null
+          updated_at?: string
           user_id?: string
         }
         Relationships: []
@@ -837,6 +843,7 @@ export type Database = {
           stat_effects: Json
           tier: string | null
           type: string
+          updated_at: string
           user_id: string
         }
         Insert: {
@@ -852,6 +859,7 @@ export type Database = {
           stat_effects?: Json
           tier?: string | null
           type?: string
+          updated_at?: string
           user_id: string
         }
         Update: {
@@ -867,6 +875,7 @@ export type Database = {
           stat_effects?: Json
           tier?: string | null
           type?: string
+          updated_at?: string
           user_id?: string
         }
         Relationships: []
@@ -919,6 +928,60 @@ export type Database = {
           updated_at?: string
           user_id?: string
           xp_earned?: number
+        }
+        Relationships: []
+      }
+      mavis_action_queue: {
+        Row: {
+          action_payload: Json
+          action_type: string
+          approved_at: string | null
+          autonomy_tier: string
+          created_at: string
+          executed_at: string | null
+          expires_at: string
+          id: string
+          priority: number
+          result_data: Json | null
+          source_context: string | null
+          source_system: string | null
+          status: string
+          telegram_message_id: string | null
+          user_id: string
+        }
+        Insert: {
+          action_payload?: Json
+          action_type: string
+          approved_at?: string | null
+          autonomy_tier?: string
+          created_at?: string
+          executed_at?: string | null
+          expires_at?: string
+          id?: string
+          priority?: number
+          result_data?: Json | null
+          source_context?: string | null
+          source_system?: string | null
+          status?: string
+          telegram_message_id?: string | null
+          user_id: string
+        }
+        Update: {
+          action_payload?: Json
+          action_type?: string
+          approved_at?: string | null
+          autonomy_tier?: string
+          created_at?: string
+          executed_at?: string | null
+          expires_at?: string
+          id?: string
+          priority?: number
+          result_data?: Json | null
+          source_context?: string | null
+          source_system?: string | null
+          status?: string
+          telegram_message_id?: string | null
+          user_id?: string
         }
         Relationships: []
       }
@@ -1038,6 +1101,63 @@ export type Database = {
         }
         Relationships: []
       }
+      mavis_autonomous_runs: {
+        Row: {
+          id: number
+          job_name: string
+          notes: string | null
+          response_code: number | null
+          status: string | null
+          triggered_at: string | null
+        }
+        Insert: {
+          id?: number
+          job_name: string
+          notes?: string | null
+          response_code?: number | null
+          status?: string | null
+          triggered_at?: string | null
+        }
+        Update: {
+          id?: number
+          job_name?: string
+          notes?: string | null
+          response_code?: number | null
+          status?: string | null
+          triggered_at?: string | null
+        }
+        Relationships: []
+      }
+      mavis_autonomy_settings: {
+        Row: {
+          action_type: string
+          approval_count: number
+          id: string
+          last_action_at: string
+          rejection_count: number
+          tier: string
+          user_id: string
+        }
+        Insert: {
+          action_type: string
+          approval_count?: number
+          id?: string
+          last_action_at?: string
+          rejection_count?: number
+          tier?: string
+          user_id: string
+        }
+        Update: {
+          action_type?: string
+          approval_count?: number
+          id?: string
+          last_action_at?: string
+          rejection_count?: number
+          tier?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       mavis_bond: {
         Row: {
           bond_level: number | null
@@ -1071,6 +1191,114 @@ export type Database = {
           trust_level?: number | null
           updated_at?: string | null
           user_id?: string
+        }
+        Relationships: []
+      }
+      mavis_calls: {
+        Row: {
+          cost_cents: number | null
+          created_at: string | null
+          direction: string
+          duration_seconds: number | null
+          ended_at: string | null
+          from_number: string | null
+          id: string
+          metadata: Json | null
+          outcome: string | null
+          purpose: string
+          recording_url: string | null
+          status: string
+          summary: string | null
+          to_number: string | null
+          transcript: Json | null
+          updated_at: string | null
+          user_id: string
+          vapi_call_id: string | null
+        }
+        Insert: {
+          cost_cents?: number | null
+          created_at?: string | null
+          direction?: string
+          duration_seconds?: number | null
+          ended_at?: string | null
+          from_number?: string | null
+          id?: string
+          metadata?: Json | null
+          outcome?: string | null
+          purpose: string
+          recording_url?: string | null
+          status?: string
+          summary?: string | null
+          to_number?: string | null
+          transcript?: Json | null
+          updated_at?: string | null
+          user_id: string
+          vapi_call_id?: string | null
+        }
+        Update: {
+          cost_cents?: number | null
+          created_at?: string | null
+          direction?: string
+          duration_seconds?: number | null
+          ended_at?: string | null
+          from_number?: string | null
+          id?: string
+          metadata?: Json | null
+          outcome?: string | null
+          purpose?: string
+          recording_url?: string | null
+          status?: string
+          summary?: string | null
+          to_number?: string | null
+          transcript?: Json | null
+          updated_at?: string | null
+          user_id?: string
+          vapi_call_id?: string | null
+        }
+        Relationships: []
+      }
+      mavis_causal_chains: {
+        Row: {
+          action_implication: string | null
+          cause: string
+          confidence: number
+          correlation: number
+          created_at: string
+          description: string
+          effect: string
+          id: string
+          lag_days: number
+          sample_size: number
+          user_id: string
+          week_of: string
+        }
+        Insert: {
+          action_implication?: string | null
+          cause: string
+          confidence: number
+          correlation: number
+          created_at?: string
+          description: string
+          effect: string
+          id?: string
+          lag_days?: number
+          sample_size?: number
+          user_id: string
+          week_of?: string
+        }
+        Update: {
+          action_implication?: string | null
+          cause?: string
+          confidence?: number
+          correlation?: number
+          created_at?: string
+          description?: string
+          effect?: string
+          id?: string
+          lag_days?: number
+          sample_size?: number
+          user_id?: string
+          week_of?: string
         }
         Relationships: []
       }
@@ -1196,6 +1424,36 @@ export type Database = {
           },
         ]
       }
+      mavis_cron_config: {
+        Row: {
+          created_at: string | null
+          edge_function: string
+          enabled: boolean | null
+          id: number
+          job_name: string
+          payload: Json | null
+          schedule: string
+        }
+        Insert: {
+          created_at?: string | null
+          edge_function: string
+          enabled?: boolean | null
+          id?: number
+          job_name: string
+          payload?: Json | null
+          schedule: string
+        }
+        Update: {
+          created_at?: string | null
+          edge_function?: string
+          enabled?: boolean | null
+          id?: number
+          job_name?: string
+          payload?: Json | null
+          schedule?: string
+        }
+        Relationships: []
+      }
       mavis_custom_skills: {
         Row: {
           created_at: string | null
@@ -1238,6 +1496,212 @@ export type Database = {
           updated_at?: string | null
           user_id?: string
           version?: number | null
+        }
+        Relationships: []
+      }
+      mavis_design_components: {
+        Row: {
+          accessibility_score: number | null
+          component_name: string
+          component_type: string
+          created_at: string | null
+          css_code: string | null
+          design_tokens: Json | null
+          id: string
+          is_reusable: boolean | null
+          performance_notes: string | null
+          project_id: string | null
+          props_interface: string | null
+          storybook_story: string | null
+          tags: string[] | null
+          times_used: number | null
+          tsx_code: string | null
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          accessibility_score?: number | null
+          component_name: string
+          component_type: string
+          created_at?: string | null
+          css_code?: string | null
+          design_tokens?: Json | null
+          id?: string
+          is_reusable?: boolean | null
+          performance_notes?: string | null
+          project_id?: string | null
+          props_interface?: string | null
+          storybook_story?: string | null
+          tags?: string[] | null
+          times_used?: number | null
+          tsx_code?: string | null
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          accessibility_score?: number | null
+          component_name?: string
+          component_type?: string
+          created_at?: string | null
+          css_code?: string | null
+          design_tokens?: Json | null
+          id?: string
+          is_reusable?: boolean | null
+          performance_notes?: string | null
+          project_id?: string | null
+          props_interface?: string | null
+          storybook_story?: string | null
+          tags?: string[] | null
+          times_used?: number | null
+          tsx_code?: string | null
+          updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "mavis_design_components_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "mavis_design_projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      mavis_design_projects: {
+        Row: {
+          aesthetic_directives: string | null
+          brand: string
+          client_name: string | null
+          competitor_urls: string[] | null
+          created_at: string | null
+          deadline_tier: string | null
+          design_system: Json | null
+          generated_files: Json | null
+          id: string
+          key_features: string[] | null
+          project_goal: string
+          project_name: string
+          project_value: number | null
+          quality_gate_results: Json | null
+          status: string | null
+          strategic_blueprint: Json | null
+          target_audience: string
+          updated_at: string | null
+          user_id: string
+          user_journey: string | null
+        }
+        Insert: {
+          aesthetic_directives?: string | null
+          brand?: string
+          client_name?: string | null
+          competitor_urls?: string[] | null
+          created_at?: string | null
+          deadline_tier?: string | null
+          design_system?: Json | null
+          generated_files?: Json | null
+          id?: string
+          key_features?: string[] | null
+          project_goal: string
+          project_name: string
+          project_value?: number | null
+          quality_gate_results?: Json | null
+          status?: string | null
+          strategic_blueprint?: Json | null
+          target_audience: string
+          updated_at?: string | null
+          user_id: string
+          user_journey?: string | null
+        }
+        Update: {
+          aesthetic_directives?: string | null
+          brand?: string
+          client_name?: string | null
+          competitor_urls?: string[] | null
+          created_at?: string | null
+          deadline_tier?: string | null
+          design_system?: Json | null
+          generated_files?: Json | null
+          id?: string
+          key_features?: string[] | null
+          project_goal?: string
+          project_name?: string
+          project_value?: number | null
+          quality_gate_results?: Json | null
+          status?: string | null
+          strategic_blueprint?: Json | null
+          target_audience?: string
+          updated_at?: string | null
+          user_id?: string
+          user_journey?: string | null
+        }
+        Relationships: []
+      }
+      mavis_design_tokens: {
+        Row: {
+          brand: string
+          created_at: string | null
+          id: string
+          is_default: boolean | null
+          token_set: Json
+          user_id: string
+        }
+        Insert: {
+          brand?: string
+          created_at?: string | null
+          id?: string
+          is_default?: boolean | null
+          token_set: Json
+          user_id: string
+        }
+        Update: {
+          brand?: string
+          created_at?: string | null
+          id?: string
+          is_default?: boolean | null
+          token_set?: Json
+          user_id?: string
+        }
+        Relationships: []
+      }
+      mavis_evolution_log: {
+        Row: {
+          affected_key: string | null
+          created_at: string
+          evidence: string | null
+          evolution_type: string
+          id: string
+          new_confidence: number | null
+          new_value: string | null
+          old_confidence: number | null
+          old_value: string | null
+          reason: string
+          user_id: string
+        }
+        Insert: {
+          affected_key?: string | null
+          created_at?: string
+          evidence?: string | null
+          evolution_type: string
+          id?: string
+          new_confidence?: number | null
+          new_value?: string | null
+          old_confidence?: number | null
+          old_value?: string | null
+          reason: string
+          user_id: string
+        }
+        Update: {
+          affected_key?: string | null
+          created_at?: string
+          evidence?: string | null
+          evolution_type?: string
+          id?: string
+          new_confidence?: number | null
+          new_value?: string | null
+          old_confidence?: number | null
+          old_value?: string | null
+          reason?: string
+          user_id?: string
         }
         Relationships: []
       }
@@ -1391,6 +1855,90 @@ export type Database = {
         }
         Relationships: []
       }
+      mavis_market_intel: {
+        Row: {
+          created_at: string
+          headline: string
+          id: string
+          notified: boolean
+          relevance_score: number
+          signal_type: string
+          source_date: string
+          summary: string
+          topic: string
+          url: string | null
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          headline: string
+          id?: string
+          notified?: boolean
+          relevance_score: number
+          signal_type?: string
+          source_date?: string
+          summary: string
+          topic: string
+          url?: string | null
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          headline?: string
+          id?: string
+          notified?: boolean
+          relevance_score?: number
+          signal_type?: string
+          source_date?: string
+          summary?: string
+          topic?: string
+          url?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
+      mavis_meeting_preps: {
+        Row: {
+          attendees: string[]
+          context_notes: string | null
+          created_at: string
+          event_id: string
+          event_start: string
+          event_title: string
+          id: string
+          prep_brief: string
+          prep_sent: boolean
+          talking_points: string[]
+          user_id: string
+        }
+        Insert: {
+          attendees?: string[]
+          context_notes?: string | null
+          created_at?: string
+          event_id: string
+          event_start: string
+          event_title: string
+          id?: string
+          prep_brief: string
+          prep_sent?: boolean
+          talking_points?: string[]
+          user_id: string
+        }
+        Update: {
+          attendees?: string[]
+          context_notes?: string | null
+          created_at?: string
+          event_id?: string
+          event_start?: string
+          event_title?: string
+          id?: string
+          prep_brief?: string
+          prep_sent?: boolean
+          talking_points?: string[]
+          user_id?: string
+        }
+        Relationships: []
+      }
       mavis_mem0_sync_log: {
         Row: {
           conversation_id: string | null
@@ -1420,6 +1968,7 @@ export type Database = {
           consolidated: boolean | null
           content: string
           created_at: string | null
+          embedding: string | null
           id: string
           importance_score: number | null
           role: string
@@ -1431,6 +1980,7 @@ export type Database = {
           consolidated?: boolean | null
           content: string
           created_at?: string | null
+          embedding?: string | null
           id?: string
           importance_score?: number | null
           role: string
@@ -1442,11 +1992,33 @@ export type Database = {
           consolidated?: boolean | null
           content?: string
           created_at?: string | null
+          embedding?: string | null
           id?: string
           importance_score?: number | null
           role?: string
           session_id?: string
           timestamp?: number
+          user_id?: string
+        }
+        Relationships: []
+      }
+      mavis_memory_embed_queue: {
+        Row: {
+          created_at: string | null
+          id: number
+          memory_id: number
+          user_id: string
+        }
+        Insert: {
+          created_at?: string | null
+          id?: number
+          memory_id: number
+          user_id: string
+        }
+        Update: {
+          created_at?: string | null
+          id?: number
+          memory_id?: number
           user_id?: string
         }
         Relationships: []
@@ -1572,6 +2144,81 @@ export type Database = {
           tags?: string[]
           title?: string
           updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      mavis_outcome_events: {
+        Row: {
+          actual_outcome: string | null
+          checked_at: string | null
+          confidence_score: number | null
+          created_at: string
+          due_check_at: string
+          evidence_data: Json | null
+          id: string
+          outcome_status: string
+          predicted_outcome: string | null
+          prediction_text: string
+          source_id: string | null
+          source_type: string
+          user_id: string
+        }
+        Insert: {
+          actual_outcome?: string | null
+          checked_at?: string | null
+          confidence_score?: number | null
+          created_at?: string
+          due_check_at?: string
+          evidence_data?: Json | null
+          id?: string
+          outcome_status?: string
+          predicted_outcome?: string | null
+          prediction_text: string
+          source_id?: string | null
+          source_type: string
+          user_id: string
+        }
+        Update: {
+          actual_outcome?: string | null
+          checked_at?: string | null
+          confidence_score?: number | null
+          created_at?: string
+          due_check_at?: string
+          evidence_data?: Json | null
+          id?: string
+          outcome_status?: string
+          predicted_outcome?: string | null
+          prediction_text?: string
+          source_id?: string | null
+          source_type?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      mavis_outreach_drafts: {
+        Row: {
+          contact_name: string
+          created_at: string
+          drafted_message: string
+          id: string
+          status: string
+          user_id: string
+        }
+        Insert: {
+          contact_name: string
+          created_at?: string
+          drafted_message: string
+          id?: string
+          status?: string
+          user_id: string
+        }
+        Update: {
+          contact_name?: string
+          created_at?: string
+          drafted_message?: string
+          id?: string
+          status?: string
           user_id?: string
         }
         Relationships: []
@@ -2902,6 +3549,7 @@ export type Database = {
           name: string
           streak: number
           type: string
+          updated_at: string
           user_id: string
           xp_reward: number
         }
@@ -2915,6 +3563,7 @@ export type Database = {
           name: string
           streak?: number
           type?: string
+          updated_at?: string
           user_id: string
           xp_reward?: number
         }
@@ -2928,6 +3577,7 @@ export type Database = {
           name?: string
           streak?: number
           type?: string
+          updated_at?: string
           user_id?: string
           xp_reward?: number
         }
@@ -3208,6 +3858,7 @@ export type Database = {
           passive_buffs: Json
           tier: string
           unlocked: boolean
+          updated_at: string
           user_id: string
         }
         Insert: {
@@ -3226,6 +3877,7 @@ export type Database = {
           passive_buffs?: Json
           tier: string
           unlocked?: boolean
+          updated_at?: string
           user_id: string
         }
         Update: {
@@ -3244,6 +3896,7 @@ export type Database = {
           passive_buffs?: Json
           tier?: string
           unlocked?: boolean
+          updated_at?: string
           user_id?: string
         }
         Relationships: []
@@ -3421,6 +4074,7 @@ export type Database = {
       video_clips: {
         Row: {
           aspect_ratio: string | null
+          caption_words: Json | null
           created_at: string | null
           duration_seconds: number | null
           end_seconds: number
@@ -3431,6 +4085,7 @@ export type Database = {
           render_job_id: string | null
           render_status: string | null
           render_url: string | null
+          source_url: string | null
           start_seconds: number
           suggested_caption: string | null
           suggested_hashtags: string[] | null
@@ -3443,6 +4098,7 @@ export type Database = {
         }
         Insert: {
           aspect_ratio?: string | null
+          caption_words?: Json | null
           created_at?: string | null
           duration_seconds?: number | null
           end_seconds: number
@@ -3453,6 +4109,7 @@ export type Database = {
           render_job_id?: string | null
           render_status?: string | null
           render_url?: string | null
+          source_url?: string | null
           start_seconds: number
           suggested_caption?: string | null
           suggested_hashtags?: string[] | null
@@ -3465,6 +4122,7 @@ export type Database = {
         }
         Update: {
           aspect_ratio?: string | null
+          caption_words?: Json | null
           created_at?: string | null
           duration_seconds?: number | null
           end_seconds?: number
@@ -3475,6 +4133,7 @@ export type Database = {
           render_job_id?: string | null
           render_status?: string | null
           render_url?: string | null
+          source_url?: string | null
           start_seconds?: number
           suggested_caption?: string | null
           suggested_hashtags?: string[] | null
@@ -3552,47 +4211,92 @@ export type Database = {
         }
         Relationships: []
       }
+      video_quota: {
+        Row: {
+          analyses_limit: number
+          analyses_used: number
+          id: string
+          period_start: string
+          renders_limit: number
+          renders_used: number
+          tier: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          analyses_limit?: number
+          analyses_used?: number
+          id?: string
+          period_start?: string
+          renders_limit?: number
+          renders_used?: number
+          tier?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          analyses_limit?: number
+          analyses_used?: number
+          id?: string
+          period_start?: string
+          renders_limit?: number
+          renders_used?: number
+          tier?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       video_render_jobs: {
         Row: {
-          clip_id: string
+          clip_id: string | null
           completed_at: string | null
           created_at: string | null
           error_message: string | null
           ffmpeg_cmd: string | null
           id: string
-          input_url: string
+          input_url: string | null
           output_url: string | null
+          progress: number | null
+          project_id: string | null
           provider: string | null
           provider_job_id: string | null
           status: string | null
+          updated_at: string | null
           user_id: string
         }
         Insert: {
-          clip_id: string
+          clip_id?: string | null
           completed_at?: string | null
           created_at?: string | null
           error_message?: string | null
           ffmpeg_cmd?: string | null
           id?: string
-          input_url: string
+          input_url?: string | null
           output_url?: string | null
+          progress?: number | null
+          project_id?: string | null
           provider?: string | null
           provider_job_id?: string | null
           status?: string | null
+          updated_at?: string | null
           user_id: string
         }
         Update: {
-          clip_id?: string
+          clip_id?: string | null
           completed_at?: string | null
           created_at?: string | null
           error_message?: string | null
           ffmpeg_cmd?: string | null
           id?: string
-          input_url?: string
+          input_url?: string | null
           output_url?: string | null
+          progress?: number | null
+          project_id?: string | null
           provider?: string | null
           provider_job_id?: string | null
           status?: string | null
+          updated_at?: string | null
           user_id?: string
         }
         Relationships: [
@@ -3601,6 +4305,13 @@ export type Database = {
             columns: ["clip_id"]
             isOneToOne: false
             referencedRelation: "video_clips"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "video_render_jobs_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "video_projects"
             referencedColumns: ["id"]
           },
         ]
@@ -3772,6 +4483,47 @@ export type Database = {
         }
         Relationships: []
       }
+      website_form_submissions: {
+        Row: {
+          created_at: string
+          data: Json
+          form_type: string
+          id: string
+          ip_address: string | null
+          notified: boolean
+          project_id: string | null
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          data?: Json
+          form_type?: string
+          id?: string
+          ip_address?: string | null
+          notified?: boolean
+          project_id?: string | null
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          data?: Json
+          form_type?: string
+          id?: string
+          ip_address?: string | null
+          notified?: boolean
+          project_id?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "website_form_submissions_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "website_projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       website_generation_jobs: {
         Row: {
           completed_at: string | null
@@ -3830,6 +4582,7 @@ export type Database = {
           blocks_json: string | null
           content_brief: string | null
           created_at: string | null
+          gutenberg_html: string | null
           hero_image_url: string | null
           id: string
           meta_description: string | null
@@ -3849,6 +4602,7 @@ export type Database = {
           blocks_json?: string | null
           content_brief?: string | null
           created_at?: string | null
+          gutenberg_html?: string | null
           hero_image_url?: string | null
           id?: string
           meta_description?: string | null
@@ -3868,6 +4622,7 @@ export type Database = {
           blocks_json?: string | null
           content_brief?: string | null
           created_at?: string | null
+          gutenberg_html?: string | null
           hero_image_url?: string | null
           id?: string
           meta_description?: string | null
@@ -3906,6 +4661,10 @@ export type Database = {
           hero_image_url: string | null
           id: string
           location: string | null
+          netlify_deploy_id: string | null
+          netlify_deploy_status: string | null
+          netlify_site_id: string | null
+          netlify_site_url: string | null
           pages: string[] | null
           pages_count: number | null
           pages_requested: string[] | null
@@ -3937,6 +4696,10 @@ export type Database = {
           hero_image_url?: string | null
           id?: string
           location?: string | null
+          netlify_deploy_id?: string | null
+          netlify_deploy_status?: string | null
+          netlify_site_id?: string | null
+          netlify_site_url?: string | null
           pages?: string[] | null
           pages_count?: number | null
           pages_requested?: string[] | null
@@ -3968,6 +4731,10 @@ export type Database = {
           hero_image_url?: string | null
           id?: string
           location?: string | null
+          netlify_deploy_id?: string | null
+          netlify_deploy_status?: string | null
+          netlify_site_id?: string | null
+          netlify_site_url?: string | null
           pages?: string[] | null
           pages_count?: number | null
           pages_requested?: string[] | null
@@ -4367,40 +5134,52 @@ export type Database = {
       }
       wp_credentials: {
         Row: {
-          app_password: string
+          app_password: string | null
+          auth_type: string | null
           created_at: string | null
           id: string
           label: string | null
           last_used_at: string | null
           project_id: string | null
-          site_url: string
+          site_url: string | null
           user_id: string
           verified: boolean | null
-          wp_username: string
+          wp_username: string | null
+          wpcom_access_token: string | null
+          wpcom_blog_id: number | null
+          wpcom_site_domain: string | null
         }
         Insert: {
-          app_password: string
+          app_password?: string | null
+          auth_type?: string | null
           created_at?: string | null
           id?: string
           label?: string | null
           last_used_at?: string | null
           project_id?: string | null
-          site_url: string
+          site_url?: string | null
           user_id: string
           verified?: boolean | null
-          wp_username: string
+          wp_username?: string | null
+          wpcom_access_token?: string | null
+          wpcom_blog_id?: number | null
+          wpcom_site_domain?: string | null
         }
         Update: {
-          app_password?: string
+          app_password?: string | null
+          auth_type?: string | null
           created_at?: string | null
           id?: string
           label?: string | null
           last_used_at?: string | null
           project_id?: string | null
-          site_url?: string
+          site_url?: string | null
           user_id?: string
           verified?: boolean | null
-          wp_username?: string
+          wp_username?: string | null
+          wpcom_access_token?: string | null
+          wpcom_blog_id?: number | null
+          wpcom_site_domain?: string | null
         }
         Relationships: [
           {
@@ -4563,6 +5342,26 @@ export type Database = {
           similarity: number
           tags: string[]
           title: string
+        }[]
+      }
+      mavis_log_cron_run: {
+        Args: { p_code: number; p_job_name: string }
+        Returns: undefined
+      }
+      search_mavis_memories: {
+        Args: {
+          match_count?: number
+          match_threshold?: number
+          match_user_id: string
+          query_embedding: string
+        }
+        Returns: {
+          content: string
+          created_at: string
+          id: number
+          importance_score: number
+          role: string
+          similarity: number
         }[]
       }
       search_memories_hybrid: {

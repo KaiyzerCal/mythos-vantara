@@ -11,6 +11,7 @@ import {
 import { supabase as _supabase } from "@/integrations/supabase/client";
 const supabase = _supabase as any;
 import { useAuth } from "@/contexts/AuthContext";
+import { useAppData } from "@/contexts/AppDataContext";
 import { PageHeader, HudCard } from "@/components/SharedUI";
 import { toast } from "sonner";
 
@@ -57,6 +58,7 @@ function fmtDate(iso: string) {
 // ─── MeetingNotesPage ────────────────────────────────────────
 export function MeetingNotesPage() {
   const { user, session } = useAuth();
+  const { lastActionTs } = useAppData();
 
   const [meetings, setMeetings] = useState<MeetingNote[]>([]);
   const [loading, setLoading] = useState(true);
@@ -90,6 +92,7 @@ export function MeetingNotesPage() {
   useEffect(() => {
     loadMeetings();
   }, [loadMeetings]);
+  useEffect(() => { if (lastActionTs) loadMeetings(); }, [lastActionTs]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ─── Process transcript ─────────────────────────────────────
   async function processTranscript() {

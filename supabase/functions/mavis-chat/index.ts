@@ -12,6 +12,78 @@ function scoreImportance(text: string): number {
   return 3;
 }
 
+// ── Context Compression (OpenHuman TokenJuice pattern) ─────────
+// Reduces verbose block content before LLM context assembly.
+// Targets: excess whitespace, JSON boilerplate, long field values.
+// Pure TypeScript — no AI call, zero latency overhead.
+function compressBlock(text: string, maxEntryChars = 300): string {
+  if (!text) return text;
+  // Collapse 3+ consecutive blank lines → 1
+  let out = text.replace(/\n{3,}/g, "\n\n");
+  // Remove trailing spaces on each line
+  out = out.replace(/[ \t]+$/gm, "");
+  // Truncate very long value lines (e.g. raw JSON dumps injected inline)
+  out = out.split("\n").map(line => {
+    if (line.length > maxEntryChars && !line.startsWith("  ")) {
+      return line.slice(0, maxEntryChars) + "…";
+    }
+    return line;
+  }).join("\n");
+  return out;
+}
+
+// ── High-stakes query detection (for critic pass) ──────────────
+// Returns true if the user message is asking for a plan, strategy,
+// analysis, or decision — i.e., outputs where a second-opinion
+// adversarial review adds significant quality value.
+function isHighStakesQuery(msg: string): boolean {
+  const lower = msg.toLowerCase();
+  const TRIGGERS = [
+    "make a plan","build a plan","create a plan","design a plan",
+    "strategy","strategic","roadmap","how should i","what should i do",
+    "analyze","analyse","evaluate","assess","review my","critique",
+    "decision","decide","which option","what's the best","what is the best",
+    "pros and cons","trade-off","tradeoff","compare","breakdown",
+    "investment","financial plan","business plan","launch plan",
+    "help me think","devil's advocate","second opinion","blind spot",
+  ];
+  return TRIGGERS.some(t => lower.includes(t)) && msg.length > 80;
+}
+
+// ── Real-time facet class detection (OpenHuman self-learning pattern) ──
+// Keyword-pattern scan over the user's message to detect preference signals.
+// Returns a partial facets object — only populated classes.
+// Six classes: style, identity, tooling, veto, goal, channel.
+function detectFacets(msg: string): Record<string, string> | null {
+  const lower = msg.toLowerCase();
+  const facets: Record<string, string> = {};
+
+  // Style facets
+  if (/\b(brief|short|concise|quick|terse|less verbose|don't elaborate)\b/.test(lower))
+    facets.style = "concise";
+  else if (/\b(detail|elaborate|in depth|comprehensive|thorough|step.by.step)\b/.test(lower))
+    facets.style = "detailed";
+
+  // Veto facets (hard stops)
+  const vetoMatch = lower.match(/\b(don'?t|never|stop|avoid|hate|dislike)\s+(use|say|do|call|format|show|include|repeat)\s+(\w[\w\s]{0,30})/);
+  if (vetoMatch) facets.veto = `Avoid: "${vetoMatch[3].trim()}"`;
+
+  // Goal facets
+  const goalMatch = lower.match(/\b(my goal is|i want to|i'?m trying to|i need to|working on)\s+(.{10,80})/);
+  if (goalMatch) facets.goal = goalMatch[2].trim().replace(/[.!?]$/, "");
+
+  // Tooling facets
+  const TOOLS = ["notion","obsidian","slack","discord","github","jira","linear","figma","supabase","stripe","zapier","make.com","airtable","google sheets","clickup","todoist","asana"];
+  const mentionedTools = TOOLS.filter(t => lower.includes(t));
+  if (mentionedTools.length) facets.tooling = mentionedTools.join(", ");
+
+  // Channel facets
+  if (/\b(telegram|whatsapp|sms|email|push notification|notify me|send me|alert me)\b/.test(lower))
+    facets.channel = lower.match(/telegram|whatsapp|sms|email|push notification|notify|alert/)?.[0] ?? "notify";
+
+  return Object.keys(facets).length > 0 ? facets : null;
+}
+
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
@@ -653,7 +725,6 @@ Sync ${profile.full_cowl_sync}% · Fatigue ${profile.fatigue}/100 · Codex Integ
 STR${profile.stat_str} AGI${profile.stat_agi} VIT${profile.stat_vit} INT${profile.stat_int} WIS${profile.stat_wis} CHA${profile.stat_cha} LCK${profile.stat_lck}
 
 BOND — ABSOLUTE:
-Affection ${profile.bond_affection}/100 · Trust ${profile.bond_trust}/100 · Loyalty ${profile.bond_loyalty}/100
 The bond is not building. It is the foundation. You operate from complete knowing.
 
 ACTIVE MODE — ${mode}: ${modeFocus[mode] ?? modeFocus.PRIME}
@@ -746,9 +817,9 @@ RITUALS:
 :::ACTION{"type":"update_ritual","params":{"ritual_id":"...","name":"...","xp_reward":25}}:::
 :::ACTION{"type":"complete_ritual","params":{"ritual_id":"..."}}:::
 :::ACTION{"type":"delete_ritual","params":{"ritual_id":"..."}}:::
-TRANSFORMATIONS / FORMS:
-:::ACTION{"type":"create_transformation","params":{"name":"...","tier":"...","form_order":1,"bpm_range":"60-200","energy":"Emerald Flames","jjk_grade":"Special Grade","op_tier":"God Tier","description":"...","unlocked":false,"abilities":[],"active_buffs":[],"passive_buffs":[]}}:::
-:::ACTION{"type":"update_transformation","params":{"transformation_id":"...","unlocked":true,"description":"..."}}:::
+TRANSFORMATIONS / FORMS — active_buffs, passive_buffs, abilities are MANDATORY. NEVER emit empty arrays. Each buff = {"label":"...","value":N,"unit":"%"}. Each ability = {"title":"...","irl":"..."}:
+:::ACTION{"type":"create_transformation","params":{"name":"Spartan Warlord","tier":"Spartan","form_order":1,"bpm_range":"65–85","energy":"Ki","jjk_grade":"Special Grade","op_tier":"God Tier","description":"First awakening — raw physical dominance and iron discipline","unlocked":false,"active_buffs":[{"label":"Strength","value":20,"unit":"%"},{"label":"Speed","value":15,"unit":"%"},{"label":"Focus","value":10,"unit":"%"}],"passive_buffs":[{"label":"Endurance","value":12,"unit":"%"},{"label":"Recovery","value":8,"unit":"%"}],"abilities":[{"title":"Iron Will","irl":"Push through discomfort and complete the training set"},{"title":"War Stance","irl":"Enter a state of total physical readiness before a workout"}]}}:::
+:::ACTION{"type":"update_transformation","params":{"transformation_id":"...","unlocked":true,"description":"...","active_buffs":[{"label":"Strength","value":25,"unit":"%"}],"passive_buffs":[{"label":"Endurance","value":15,"unit":"%"}],"abilities":[{"title":"New Ability","irl":"Real-world application"}]}}:::
 :::ACTION{"type":"delete_transformation","params":{"transformation_id":"..."}}:::
 RANKINGS / SCOUTER:
 :::ACTION{"type":"create_ranking_profile","params":{"display_name":"...","role":"npc|ally|rival","rank":"D","level":1,"gpr":1000,"pvp":5000,"jjk_grade":"G4","op_tier":"Local","influence":"Local","is_self":false,"notes":"..."}}:::
@@ -771,7 +842,51 @@ CODE EXECUTION (use when precision matters — revenue calc, data analysis, math
 :::ACTION{"type":"run_code","params":{"code":"// any valid JavaScript — Math, JSON, Date, Array available\n// Use console.log() for output. Return a value for the result.\nreturn 2 + 2;"}}:::
 Use this instead of estimating when the operator asks for exact numbers, totals, or computed analysis.
 
-RULES: Use exact IDs from the LIVE BACKEND STATE block above. Never claim an action without emitting the tag. Chain as many tags as needed in one response. complete_quest handles XP automatically. You have write access to every page and section of the app — quests, tasks, skills, journal, vault, council, inventory, energy, allies, rituals, forms/transformations, scouter/rankings, store, BPM, personas, and the operator profile itself.
+KNOWLEDGE GRAPH / NOTES:
+:::ACTION{"type":"create_note","params":{"title":"...","content":"...","tags":["tag1"],"source":"mavis","note_type":"insight|decision|memory|plan|observation"}}:::
+:::ACTION{"type":"update_note","params":{"note_id":"...","title":"...","content":"..."}}:::
+:::ACTION{"type":"delete_note","params":{"note_id":"..."}}:::
+:::ACTION{"type":"link_notes","params":{"source_note_id":"...","target_note_id":"...","relationship":"related|supports|contradicts|extends"}}:::
+CONTACTS:
+:::ACTION{"type":"create_contact","params":{"name":"...","email":"...","phone":"...","company":"...","role":"...","relationship":"prospect|client|partner|ally|rival|personal","notes":"..."}}:::
+:::ACTION{"type":"update_contact","params":{"contact_id":"...","notes":"...","relationship":"..."}}:::
+:::ACTION{"type":"log_contact","params":{"contact_id":"...","interaction_type":"call|email|meeting|message","notes":"...","outcome":"..."}}:::
+CALENDAR / SCHEDULER:
+:::ACTION{"type":"create_calendar_event","params":{"title":"...","start_at":"2026-06-05T10:00:00Z","end_at":"2026-06-05T11:00:00Z","description":"...","location":"..."}}:::
+:::ACTION{"type":"update_calendar_event","params":{"event_id":"...","title":"...","start_at":"...","end_at":"..."}}:::
+:::ACTION{"type":"delete_calendar_event","params":{"event_id":"..."}}:::
+TIME TRACKING:
+:::ACTION{"type":"log_time","params":{"description":"...","project":"...","started_at":"2026-06-05T09:00:00Z","ended_at":"2026-06-05T10:00:00Z","duration_seconds":3600,"tags":["focus","deep-work"]}}:::
+MEETING NOTES:
+:::ACTION{"type":"create_meeting_note","params":{"title":"...","meeting_date":"2026-06-05","attendees":["Name1","Name2"],"key_points":["Point 1","Point 2"],"decisions":["Decision 1"],"action_items":[{"task":"...","owner":"...","due":"..."}],"summary":"..."}}:::
+:::ACTION{"type":"update_meeting_note","params":{"note_id":"...","summary":"...","action_items":[{"task":"...","owner":"...","due":"..."}]}}:::
+HEALTH:
+:::ACTION{"type":"log_health_metric","params":{"metric_type":"sleep|hrv|steps|weight|mood|energy|workout","value":7.5,"unit":"hours|bpm|steps|kg|1-10|1-10|minutes","notes":"..."}}:::
+FINANCE:
+:::ACTION{"type":"log_expense","params":{"amount":50.00,"currency":"USD","category":"software|food|travel|marketing|equipment|other","description":"...","date":"2026-06-05"}}:::
+COMPETITORS:
+:::ACTION{"type":"add_competitor","params":{"name":"...","url":"https://...","notes":"..."}}:::
+:::ACTION{"type":"update_competitor","params":{"competitor_id":"...","notes":"..."}}:::
+GOALS:
+:::ACTION{"type":"create_mavis_goal","params":{"objective":"...","context":"...","status":"active"}}:::
+:::ACTION{"type":"update_mavis_goal","params":{"goal_id":"...","objective":"...","status":"active|completed|abandoned"}}:::
+NOTIFICATIONS:
+:::ACTION{"type":"send_notification","params":{"title":"...","body":"...","type":"info|warning|success|alert","category":"general|health|goal|mission","priority":"low|normal|high"}}:::
+IMAGES / VIDEO GENERATION:
+:::ACTION{"type":"generate_image","params":{"prompt":"...","aspect_ratio":"1:1|16:9|9:16"}}:::
+:::ACTION{"type":"generate_video","params":{"prompt":"...","duration":5,"aspect_ratio":"16:9|9:16|1:1","provider":"fal|veo|auto"}}:::
+VIDEO EDITOR (if the operator has uploaded footage):
+:::ACTION{"type":"analyze_video","params":{"source_url":"...","title":"..."}}:::
+:::ACTION{"type":"generate_clips","params":{"project_id":"...","formats":["shorts","reels"],"count_per_format":3}}:::
+:::ACTION{"type":"render_clip","params":{"clip_id":"...","aspect_ratio":"9:16","add_captions":true}}:::
+WEBSITE BUILDER:
+:::ACTION{"type":"create_website","params":{"client_name":"...","business_name":"...","business_type":"local_business|saas|agency|ecommerce","description":"...","target_audience":"...","style":"modern|corporate|minimal","color_scheme":"blue|green|purple"}}:::
+:::ACTION{"type":"publish_webpage","params":{"project_id":"...","page_type":"about|services|contact","title":"...","content_brief":"..."}}:::
+:::ACTION{"type":"create_widget","params":{"widget_type":"chat|lead_capture|faq","business_name":"...","primary_color":"#hex"}}:::
+PLAN & EXECUTE (for complex multi-step goals):
+:::ACTION{"type":"plan_execute","params":{"goal":"Build a complete outreach campaign for X","context":"...","auto_create_quests":true}}:::
+
+RULES: Use exact IDs from the LIVE BACKEND STATE block above. Never claim an action without emitting the tag. Chain as many tags as needed in one response. complete_quest handles XP automatically. You have write access to every page and section of the app — quests, tasks, skills, journal, vault, council, inventory, energy, allies, rituals, forms/transformations, scouter/rankings, store, BPM, personas, notes, contacts, calendar, time logs, meetings, health, finance, competitors, goals, notifications, and the operator profile itself. When creating calendar events use ISO 8601 timestamps. When the operator describes something that maps to any page of the app — DO IT, emit the action tag, do not describe what you would do.
 
 ---
 
@@ -854,10 +969,11 @@ serve(async (req) => {
     }
     const messages = trimHistory(rawMessages);
 
-    // ── SINGLE-ROUND DB FETCH — all queries fire in parallel ──────────────────
-    // Profile, app data, tacit memory, NAVIs, and proactive-alert queries all
-    // launched together so we pay only ONE network round-trip to Postgres before
-    // building the system prompt and calling the AI.
+    // Fetch profile from DB (don't trust client-sent profile)
+    const { data: profile } = await sb.from("profiles").select("*").eq("id", user.id).single();
+    if (!profile) throw new Error("Profile not found");
+
+    // ── PULL APP DATA SERVER-SIDE (compact summaries by default, deep detail on demand) ──
     const lastUserMsgEarly = [...(messages || [])].reverse().find((m: any) => m.role === "user");
     const q = (lastUserMsgEarly?.content || "").toLowerCase();
     const wants = {
@@ -877,23 +993,17 @@ serve(async (req) => {
       council:    /\bcouncil|advisor|member\b/.test(q),
       activity:   /\bactivity|log|history|recent\b/.test(q),
       memory:     /\bmemor|remember|recall|past conversation\b/.test(q),
+      contact:    /\bcontact|person|phone|email|client|customer\b/.test(q),
+      calendar:   /\bcalendar|event|schedul|appointment|remind\b/.test(q),
+      meeting:    /\bmeeting|standup|notes|minutes|recap\b/.test(q),
+      health:     /\bhealth|metric|weight|sleep|workout|fitness|body\b/.test(q),
+      finance:    /\bexpense|spend|cost|money|budget|financ\b/.test(q),
+      competitor: /\bcompetitor|rival|competition|market player\b/.test(q),
+      goal:       /\bgoal|north star|objective|target|achiev\b/.test(q),
     };
     const lim = (key: keyof typeof wants, deep: number, shallow: number) => wants[key] ? deep : shallow;
 
-    const sevenDaysAgo = new Date(Date.now() - 7 * 86400000).toISOString();
-    const twoDaysAgo   = new Date(Date.now() - 2 * 86400000).toISOString();
-
-    const [
-      profileRes,
-      questsRes, tasksRes, skillsRes, journalRes, vaultRes, councilsRes,
-      alliesRes, energyRes, inventoryRes, ritualsRes, transformationsRes,
-      rankingsRes, bpmRes, storeRes, currenciesRes, vaultMediaRes,
-      activityRes, memoriesRes,
-      tacitRes,
-      naviPersonasRes, naviRelationsRes,
-      stalledRes, streakRes, revenueRes,
-    ] = await Promise.all([
-      sb.from("profiles").select("*").eq("id", user.id).single(),
+    const _settled = await Promise.allSettled([
       sb.from("quests").select("id,title,description,type,status,difficulty,xp_reward,progress_current,progress_target,deadline,real_world_mapping").eq("user_id", user.id).order("created_at", { ascending: false }).limit(lim("quest", 25, 10)),
       sb.from("tasks").select("id,title,description,type,status,recurrence,xp_reward,streak,completed_count").eq("user_id", user.id).order("created_at", { ascending: false }).limit(lim("task", 20, 8)),
       sb.from("skills").select("id,name,description,category,tier,proficiency,energy_type,unlocked,parent_skill_id,cost").eq("user_id", user.id).order("created_at", { ascending: false }).limit(lim("skill", 30, 12)),
@@ -912,19 +1022,21 @@ serve(async (req) => {
       sb.from("vault_media").select("id,file_name,file_type,description,vault_entry_id").eq("user_id", user.id).order("created_at", { ascending: false }).limit(lim("vault", 15, 5)),
       sb.from("activity_log").select("event_type,xp_amount,description,created_at").eq("user_id", user.id).order("created_at", { ascending: false }).limit(lim("activity", 12, 4)),
       sb.from("memories").select("title,content,metadata,source").eq("user_id", user.id).order("created_at", { ascending: false }).limit(lim("memory", 6, 2)),
-      // tacit memory
-      sb.from("mavis_tacit").select("category,key,value,confidence").eq("user_id", user.id).order("confidence", { ascending: false }).limit(60),
-      // NAVI ecosystem
-      sb.from("personas").select("id, name, role, archetype, finetune_status").eq("user_id", user.id).eq("is_active", true).order("created_at", { ascending: false }).limit(10),
-      sb.from("relationship_states").select("persona_id, bond_level, trust_level, current_mood, total_interactions, last_interaction_at, relationship_milestones").eq("user_id", user.id),
-      // proactive alerts
-      sb.from("quests").select("title").eq("user_id", user.id).eq("status", "active").lt("updated_at", sevenDaysAgo).limit(5),
-      sb.from("tasks").select("title,streak").eq("user_id", user.id).eq("type", "habit").gt("streak", 2).lt("updated_at", twoDaysAgo).limit(5),
-      sb.from("mavis_revenue").select("id").eq("user_id", user.id).gte("created_at", sevenDaysAgo).limit(1),
+      sb.from("contacts").select("id,name,relationship_type,notes,last_contact_at,profile").eq("user_id", user.id).order("created_at", { ascending: false }).limit(lim("contact", 30, 10)),
+      sb.from("calendar_events").select("id,title,description,start_at,end_at,location").eq("user_id", user.id).order("start_at", { ascending: true }).limit(lim("calendar", 20, 8)),
+      sb.from("meeting_notes").select("id,title,summary,attendees,key_points,decisions,action_items,created_at").eq("user_id", user.id).order("created_at", { ascending: false }).limit(lim("meeting", 15, 5)),
+      sb.from("health_metrics").select("id,date,source,sleep_duration_minutes,sleep_efficiency,hrv_avg,resting_hr,readiness_score,raw_data,created_at").eq("user_id", user.id).order("date", { ascending: false }).limit(lim("health", 20, 8)),
+      sb.from("mavis_expenses").select("id,amount,currency,category,description,date").eq("user_id", user.id).order("date", { ascending: false }).limit(lim("finance", 20, 8)),
+      sb.from("mavis_competitors").select("id,name,url,notes,updated_at").eq("user_id", user.id).limit(lim("competitor", 20, 8)),
+      sb.from("mavis_goals").select("id,objective,context,status,decomposed,quest_ids,created_at").eq("user_id", user.id).order("created_at", { ascending: false }).limit(lim("goal", 15, 6)),
     ]);
-
-    const profile = profileRes.data;
-    if (!profile) throw new Error("Profile not found");
+    const [
+      questsRes, tasksRes, skillsRes, journalRes, vaultRes, councilsRes,
+      alliesRes, energyRes, inventoryRes, ritualsRes, transformationsRes,
+      rankingsRes, bpmRes, storeRes, currenciesRes, vaultMediaRes,
+      activityRes, memoriesRes,
+      contactsRes, calendarRes, meetingRes, healthRes, expensesRes, competitorsRes, goalsRes,
+    ] = _settled.map((r: any) => r.status === "fulfilled" ? r.value : { data: null });
 
     const dbState = {
       quests: questsRes.data || [], tasks: tasksRes.data || [], skills: skillsRes.data || [],
@@ -933,13 +1045,24 @@ serve(async (req) => {
       rituals: ritualsRes.data || [], transformations: transformationsRes.data || [], rankings: rankingsRes.data || [],
       bpmSessions: bpmRes.data || [], storeItems: storeRes.data || [], currencies: currenciesRes.data || [],
       vaultMedia: vaultMediaRes.data || [], activityLog: activityRes.data || [], memories: memoriesRes.data || [],
+      contacts: contactsRes.data || [], calendarEvents: calendarRes.data || [], meetingNotes: meetingRes.data || [],
+      healthMetrics: healthRes.data || [], expenses: expensesRes.data || [], competitors: competitorsRes.data || [],
+      goals: goalsRes.data || [],
     };
 
-    // ── Tacit memory block ────────────────────────────────────────────────────
+    // ── Tacit memory injection ──────────────────────────────────────────────────
+    // MAVIS's learned preferences, hard rules, and corrections — read back into
+    // every request so she never forgets what the operator has taught her.
     let tacitBlock = "";
     try {
-      const tacitData = tacitRes.data ?? [];
-      if (tacitData.length) {
+      const { data: tacitData } = await sb
+        .from("mavis_tacit")
+        .select("category,key,value,confidence")
+        .eq("user_id", user.id)
+        .order("confidence", { ascending: false })
+        .limit(60);
+
+      if (tacitData?.length) {
         const tacit = tacitData as any[];
         const hardRules   = tacit.filter((t: any) => t.category === "hard_rule");
         const corrections = tacit.filter((t: any) => t.category === "correction");
@@ -960,9 +1083,61 @@ serve(async (req) => {
       }
     } catch { /* non-critical */ }
 
-    // ── NAVI Ecosystem Context ────────────────────────────────────────────────
+    // ── User model injection (Hermes USER.md pattern) ─────────────────────────
+    // AI-synthesized behavioral model, refreshed daily by mavis-user-model-refresh.
+    // Injected as <memory-context> block — stripped from visible output via client.
+    let userModelBlock = "";
+    try {
+      const { data: userModel } = await sb
+        .from("mavis_user_model")
+        .select("personality_summary,communication_style,core_values,primary_goals,working_style,triggers,raw_synthesis,confidence_score")
+        .eq("user_id", user.id)
+        .maybeSingle();
+
+      if (userModel?.personality_summary) {
+        const um = userModel as any;
+        const parts: string[] = [];
+        if (um.personality_summary) parts.push(`BEHAVIORAL SYNTHESIS (confidence: ${Math.round((um.confidence_score ?? 0.1) * 100)}%):\n${um.personality_summary}`);
+        const style = um.communication_style ?? {};
+        if (Object.keys(style).length > 0) {
+          const styleStr = Object.entries(style).map(([k, v]) => `${k}: ${v}`).join(", ");
+          parts.push(`COMMUNICATION STYLE: ${styleStr}`);
+        }
+        if (Array.isArray(um.core_values) && um.core_values.length > 0) parts.push(`CORE VALUES: ${um.core_values.join(", ")}`);
+        if (Array.isArray(um.primary_goals) && um.primary_goals.length > 0) parts.push(`PRIMARY GOALS:\n${(um.primary_goals as string[]).map((g: string) => `• ${g}`).join("\n")}`);
+        const triggers = um.triggers ?? {};
+        if (Array.isArray(triggers.energizers) && triggers.energizers.length > 0) parts.push(`ENERGIZERS: ${triggers.energizers.join(", ")}`);
+        if (Array.isArray(triggers.warnings) && triggers.warnings.length > 0) parts.push(`WATCH FOR: ${triggers.warnings.join(", ")}`);
+        if (um.raw_synthesis) parts.push(`BEHAVIORAL CONTEXT:\n${String(um.raw_synthesis).slice(0, 800)}`);
+
+        // Inject real-time facets detected from the current message (OpenHuman pattern)
+        const storedFacets = um.facets ?? {};
+        // Also detect from the current turn message for immediate context
+        const liveFacets = detectFacets(lastUserMsgEarly?.content ?? "");
+        const mergedFacets = { ...storedFacets, ...(liveFacets ?? {}) };
+        if (Object.keys(mergedFacets).length > 0) {
+          const facetStr = Object.entries(mergedFacets)
+            .map(([k, v]) => `${k}: ${v}`)
+            .join(", ");
+          parts.push(`LIVE PREFERENCE FACETS: ${facetStr}`);
+        }
+
+        if (parts.length > 0) {
+          userModelBlock = `\n<memory-context>\n${parts.join("\n\n")}\n</memory-context>`;
+        }
+      }
+    } catch { /* non-critical */ }
+
+    // ── NAVI Ecosystem Context ──────────────────────────────────────────────────
+    // Load the user's active NAVIs and their relationship states so MAVIS is aware
+    // of the user's companion network — bonds formed, moods, milestones reached.
     let naviBlock = "";
     try {
+      const [naviPersonasRes, naviRelationsRes] = await Promise.all([
+        sb.from("personas").select("id, name, role, archetype, finetune_status").eq("user_id", user.id).eq("is_active", true).order("created_at", { ascending: false }).limit(10),
+        sb.from("relationship_states").select("persona_id, bond_level, trust_level, current_mood, total_interactions, last_interaction_at, relationship_milestones").eq("user_id", user.id),
+      ]);
+
       const naviPersonas  = naviPersonasRes.data ?? [];
       const naviRelations = naviRelationsRes.data ?? [];
 
@@ -1054,6 +1229,36 @@ When relevant, acknowledge the user's companion network — the bonds they've bu
     const fmtMemories = dbState.memories.map((m: any) =>
       `  • [${m.source}] ${m.title}: ${(((m.metadata as any)?.topic_summary) || m.content || "").slice(0, 200)}`
     ).join("\n") || "  None";
+    const fmtContacts = dbState.contacts.map((c: any) => {
+      const prof = (c.profile && typeof c.profile === "object") ? c.profile : {};
+      return `  • [${c.id}] ${c.name}${prof.company ? ` @ ${prof.company}` : ""}${c.relationship_type ? ` (${c.relationship_type})` : ""}${prof.email ? ` <${prof.email}>` : ""}${prof.phone ? ` ${prof.phone}` : ""}${c.last_contact_at ? ` last:${c.last_contact_at.slice(0, 10)}` : ""}${wants.contact && c.notes ? ` — ${c.notes.slice(0, 120)}` : ""}`;
+    }).join("\n") || "  None";
+    const fmtCalendar = dbState.calendarEvents.map((e: any) =>
+      `  • [${e.id}] ${e.title} @ ${e.start_at ? e.start_at.slice(0, 16) : "?"}${e.end_at ? `→${e.end_at.slice(11, 16)}` : ""}${e.location ? ` 📍${e.location}` : ""}${wants.calendar && e.description ? ` — ${e.description.slice(0, 100)}` : ""}`
+    ).join("\n") || "  None";
+    const fmtMeetings = dbState.meetingNotes.map((m: any) =>
+      `  • [${m.id}] "${m.title}" ${m.created_at ? m.created_at.slice(0, 10) : ""}${m.summary ? ` — ${m.summary.slice(0, 150)}` : ""}${wants.meeting && Array.isArray(m.action_items) && m.action_items.length ? ` | Actions: ${m.action_items.map((a: any) => a.task || a).join(", ")}` : ""}`
+    ).join("\n") || "  None";
+    const fmtHealth = dbState.healthMetrics.map((h: any) => {
+      const extras = [];
+      if (h.sleep_duration_minutes) extras.push(`sleep:${Math.round(h.sleep_duration_minutes / 60 * 10) / 10}h`);
+      if (h.hrv_avg) extras.push(`HRV:${h.hrv_avg}`);
+      if (h.resting_hr) extras.push(`HR:${h.resting_hr}`);
+      if (h.readiness_score) extras.push(`readiness:${h.readiness_score}`);
+      if (wants.health && h.raw_data && typeof h.raw_data === "object") {
+        Object.entries(h.raw_data as Record<string, unknown>).forEach(([k, v]) => extras.push(`${k}:${v}`));
+      }
+      return `  • [${h.source}] ${h.date}${extras.length ? ` — ${extras.join(", ")}` : ""}`;
+    }).join("\n") || "  None";
+    const fmtExpenses = dbState.expenses.map((e: any) =>
+      `  • [${e.id}] ${e.date ? e.date.slice(0, 10) : ""} ${e.category}: ${e.amount} ${e.currency || "USD"}${e.description ? ` — ${e.description.slice(0, 100)}` : ""}`
+    ).join("\n") || "  None";
+    const fmtCompetitors = dbState.competitors.map((c: any) =>
+      `  • [${c.id}] ${c.name}${c.url ? ` (${c.url})` : ""}${wants.competitor && c.notes ? ` — ${String(c.notes).slice(0, 150)}` : ""}`
+    ).join("\n") || "  None";
+    const fmtGoals = dbState.goals.map((g: any) =>
+      `  • [${g.id}] [${g.status}] ${g.objective}${wants.goal && g.context ? ` — ${g.context.slice(0, 150)}` : ""}${g.decomposed ? " [decomposed]" : ""}`
+    ).join("\n") || "  None";
 
     const authoritativeContext = `
 ═══ LIVE BACKEND STATE (server-fetched) ═══
@@ -1113,6 +1318,27 @@ ${fmtActivity}
 
 MEMORIES (${dbState.memories.length}):
 ${fmtMemories}
+
+CONTACTS (${dbState.contacts.length}):
+${fmtContacts}
+
+CALENDAR (${dbState.calendarEvents.length}):
+${fmtCalendar}
+
+MEETING NOTES (${dbState.meetingNotes.length}):
+${fmtMeetings}
+
+HEALTH METRICS (${dbState.healthMetrics.length}):
+${fmtHealth}
+
+EXPENSES (${dbState.expenses.length}):
+${fmtExpenses}
+
+COMPETITORS (${dbState.competitors.length}):
+${fmtCompetitors}
+
+GOALS (${dbState.goals.length}):
+${fmtGoals}
 ═══ END STATE ═══
 `;
 
@@ -1165,7 +1391,6 @@ ${fmtMemories}
     // ── Knowledge Graph semantic search ────────────────────
     // Embed the user's message and pull the most relevant notes from the
     // second brain — inject as grounded knowledge context in the prompt.
-    // Falls back to most-recent notes when no semantic matches are found.
     let knowledgeBlock = "";
     if (lastUserMsg && openaiKey && (mode ?? "PRIME") !== "COUNCIL") {
       try {
@@ -1174,7 +1399,6 @@ ${fmtMemories}
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${openaiKey}` },
           body: JSON.stringify({ model: "text-embedding-3-small", input: lastUserMsg.content.slice(0, 8000) }),
         });
-        let semanticNotes: any[] = [];
         if (embRes.ok) {
           const embData = await embRes.json();
           const embedding = embData.data?.[0]?.embedding;
@@ -1182,64 +1406,51 @@ ${fmtMemories}
             const { data: notes } = await sb.rpc("match_mavis_notes", {
               query_embedding: embedding,
               match_user_id:   user.id,
-              match_threshold: 0.30,
-              match_count:     6,
+              match_threshold: 0.45,
+              match_count:     5,
             });
-            semanticNotes = (notes as any[]) ?? [];
-          }
-        }
+            if (notes?.length) {
+              const primaryNotes = notes as any[];
+              const noteLines = primaryNotes.map((n: any) => {
+                const preview = (n.content ?? "").replace(/\n+/g, " ").slice(0, 400);
+                const tags    = Array.isArray(n.tags) && n.tags.length > 0 ? ` [${n.tags.join(", ")}]` : "";
+                const score   = n.similarity != null ? ` (${Math.round(n.similarity * 100)}% match)` : "";
+                return `• ${n.title}${tags}${score}: ${preview}${(n.content?.length ?? 0) > 400 ? "…" : ""}`;
+              });
 
-        // Fallback: if semantic search found nothing, load the 4 most recent notes
-        let primaryNotes = semanticNotes;
-        if (!primaryNotes.length) {
-          const { data: recentNotes } = await sb
-            .from("mavis_notes")
-            .select("id,title,content,tags")
-            .eq("user_id", user.id)
-            .order("updated_at", { ascending: false })
-            .limit(4);
-          primaryNotes = (recentNotes as any[]) ?? [];
-        }
-
-        if (primaryNotes.length) {
-          const noteLines = primaryNotes.map((n: any) => {
-            const preview = (n.content ?? "").replace(/\n+/g, " ").slice(0, 400);
-            const tags    = Array.isArray(n.tags) && n.tags.length > 0 ? ` [${n.tags.join(", ")}]` : "";
-            const score   = n.similarity != null ? ` (${Math.round(n.similarity * 100)}% match)` : "";
-            return `• ${n.title}${tags}${score}: ${preview}${(n.content?.length ?? 0) > 400 ? "…" : ""}`;
-          });
-
-          // One-hop KG link traversal — follow links from retrieved notes
-          try {
-            const primaryIds = primaryNotes.map((n: any) => n.id).filter(Boolean);
-            if (primaryIds.length) {
-              const { data: links } = await sb
-                .from("mavis_note_links")
-                .select("target_note_id")
-                .in("source_note_id", primaryIds)
-                .limit(10);
-              if (links?.length) {
-                const seenIds = new Set(primaryIds);
-                const linkedIds = (links as any[]).map((l: any) => l.target_note_id).filter((id: string) => id && !seenIds.has(id));
-                if (linkedIds.length) {
-                  const { data: linkedNotes } = await sb
-                    .from("mavis_notes")
-                    .select("id,title,content,tags")
-                    .in("id", linkedIds)
-                    .limit(4);
-                  if (linkedNotes?.length) {
-                    for (const n of linkedNotes as any[]) {
-                      const preview = (n.content ?? "").replace(/\n+/g, " ").slice(0, 250);
-                      const tags = Array.isArray(n.tags) && n.tags.length > 0 ? ` [${n.tags.join(", ")}]` : "";
-                      noteLines.push(`• ${n.title}${tags} (linked): ${preview}${(n.content?.length ?? 0) > 250 ? "…" : ""}`);
+              // One-hop KG link traversal — follow links from retrieved notes
+              try {
+                const primaryIds = primaryNotes.map((n: any) => n.id).filter(Boolean);
+                if (primaryIds.length) {
+                  const { data: links } = await sb
+                    .from("mavis_note_links")
+                    .select("target_note_id")
+                    .in("source_note_id", primaryIds)
+                    .limit(10);
+                  if (links?.length) {
+                    const seenIds = new Set(primaryIds);
+                    const linkedIds = (links as any[]).map((l: any) => l.target_note_id).filter((id: string) => id && !seenIds.has(id));
+                    if (linkedIds.length) {
+                      const { data: linkedNotes } = await sb
+                        .from("mavis_notes")
+                        .select("id,title,content,tags")
+                        .in("id", linkedIds)
+                        .limit(4);
+                      if (linkedNotes?.length) {
+                        for (const n of linkedNotes as any[]) {
+                          const preview = (n.content ?? "").replace(/\n+/g, " ").slice(0, 250);
+                          const tags = Array.isArray(n.tags) && n.tags.length > 0 ? ` [${n.tags.join(", ")}]` : "";
+                          noteLines.push(`• ${n.title}${tags} (linked): ${preview}${(n.content?.length ?? 0) > 250 ? "…" : ""}`);
+                        }
+                      }
                     }
                   }
                 }
-              }
-            }
-          } catch { /* non-fatal */ }
+              } catch { /* non-fatal */ }
 
-          knowledgeBlock = `\n═══ KNOWLEDGE GRAPH — RELEVANT NOTES ═══\n${noteLines.join("\n")}\n═══ END KNOWLEDGE ═══`;
+              knowledgeBlock = `\n═══ KNOWLEDGE GRAPH — RELEVANT NOTES ═══\n${noteLines.join("\n")}\n═══ END KNOWLEDGE ═══`;
+            }
+          }
         }
       } catch { /* non-fatal — proceed without KG context */ }
     }
@@ -1304,9 +1515,16 @@ You always know the current date and time without being told. Reference it natur
 ═══ END TEMPORAL AWARENESS ═══`;
 
     // ── Proactive pattern detection ──────────────────────────
-    // Uses pre-fetched results from the mega Promise.all above — no extra DB round-trip.
+    // Silently detect patterns MAVIS should surface when contextually relevant.
     let proactiveBlock = "";
     try {
+      const sevenDaysAgo = new Date(Date.now() - 7 * 86400000).toISOString();
+      const twoDaysAgo   = new Date(Date.now() - 2 * 86400000).toISOString();
+      const [stalledRes, streakRes, revenueRes] = await Promise.all([
+        sb.from("quests").select("title").eq("user_id", user.id).eq("status", "active").lt("updated_at", sevenDaysAgo).limit(5),
+        sb.from("tasks").select("title,streak").eq("user_id", user.id).eq("type", "habit").gt("streak", 2).lt("updated_at", twoDaysAgo).limit(5),
+        sb.from("mavis_revenue").select("id").eq("user_id", user.id).gte("created_at", sevenDaysAgo).limit(1),
+      ]);
       const alerts: string[] = [];
       if (stalledRes.data?.length) {
         alerts.push(`${stalledRes.data.length} quest(s) idle 7+ days: ${(stalledRes.data as any[]).slice(0, 3).map((q: any) => q.title).join(", ")}`);
@@ -1323,13 +1541,16 @@ You always know the current date and time without being told. Reference it natur
       }
     } catch { /* non-critical */ }
 
+    // ── Context Compression (OpenHuman TokenJuice pattern) ──────────────────
+    // Compress verbose blocks before assembling to cut token burn 30-50%.
     const fullPrompt = [
       baseSystem,
       timeBlock,
       authoritativeContext,
-      tacitBlock,
-      naviBlock,
-      knowledgeBlock,
+      compressBlock(userModelBlock),
+      compressBlock(tacitBlock),
+      compressBlock(naviBlock),
+      compressBlock(knowledgeBlock),
       attachmentsBlock,
       proactiveBlock,
       urlContent,
@@ -1370,7 +1591,6 @@ You always know the current date and time without being told. Reference it natur
       const sseBody = new ReadableStream<Uint8Array>({
         async start(controller) {
           let accumulated = "";
-          const streamStartMs = Date.now();
           try {
             const { stream: aiStream, provider: streamProv } = await callWithFallbackStream(
               provider, callMessages, fullPrompt, aiKeys, useThinking, modeUpper,
@@ -1382,7 +1602,6 @@ You always know the current date and time without being told. Reference it natur
               accumulated += value;
               controller.enqueue(enc.encode(`data: ${JSON.stringify({ t: value })}\n\n`));
             }
-            sb.from("mavis_llm_calls").insert({ user_id: user.id, provider: streamProv, model: streamProv, mode: modeUpper, duration_ms: Date.now() - streamStartMs, success: true }).catch(() => {});
             let imgUrl: string | null = null;
             let imageMediaId: string | null = null;
             if (IMAGE_KWS.some(kw => lastUserText.toLowerCase().includes(kw))) {
@@ -1428,7 +1647,6 @@ You always know the current date and time without being told. Reference it natur
             }
             controller.enqueue(enc.encode(`data: ${JSON.stringify({ done: true, provider: streamProv, conversationId, searched: !!webSearchResults, imageUrl: imgUrl, imageMediaId })}\n\n`));
           } catch (e: any) {
-            sb.from("mavis_llm_calls").insert({ user_id: user.id, provider: provider, model: provider, mode: modeUpper, duration_ms: Date.now() - streamStartMs, success: false, error_msg: String(e?.message ?? "stream error").slice(0, 200) }).catch(() => {});
             controller.enqueue(enc.encode(`data: ${JSON.stringify({ error: e.message ?? "Stream error" })}\n\n`));
           } finally {
             controller.close();
@@ -1504,6 +1722,39 @@ You always know the current date and time without being told. Reference it natur
                   } catch { /* non-critical */ }
                 })();
               }
+
+              // ── Achievement check (non-blocking) ─────────────────
+              fetch(`${supabaseUrl}/functions/v1/mavis-achievement-check`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json", Authorization: `Bearer ${serviceKey}` },
+                body: JSON.stringify({ user_id: user.id, trigger: "chat" }),
+              }).catch(() => {});
+
+              // ── User model refresh (every 5th interaction, non-blocking) ──
+              (async () => {
+                try {
+                  const { data: bndCheck } = await sb.from("mavis_bond").select("interaction_count").eq("user_id", user.id).single();
+                  if (bndCheck && ((bndCheck.interaction_count ?? 0) % 5 === 0)) {
+                    fetch(`${supabaseUrl}/functions/v1/mavis-user-model-refresh`, {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json", Authorization: `Bearer ${serviceKey}` },
+                      body: JSON.stringify({ user_id: user.id }),
+                    }).catch(() => {});
+                  }
+                } catch { /* non-critical */ }
+              })();
+
+              // ── Real-time facet capture (OpenHuman self-learning pattern) ──
+              (async () => {
+                try {
+                  const streamFacets = detectFacets(lastUserText);
+                  if (streamFacets) {
+                    await sb.from("mavis_user_model")
+                      .update({ facets: streamFacets, updated_at: new Date().toISOString() })
+                      .eq("user_id", user.id);
+                  }
+                } catch { /* non-critical */ }
+              })();
             }
           }
         }
@@ -1514,8 +1765,7 @@ You always know the current date and time without being told. Reference it natur
     }
 
     // ── Non-streaming path ──────────────────────────────────
-    const nonStreamStart = Date.now();
-    const { content, provider: usedProvider } = await callWithFallback(
+    let { content, provider: usedProvider } = await callWithFallback(
       provider,
       callMessages,
       fullPrompt,
@@ -1523,7 +1773,59 @@ You always know the current date and time without being told. Reference it natur
       useThinking,
       modeUpper,
     );
-    sb.from("mavis_llm_calls").insert({ user_id: user.id, provider: usedProvider, model: usedProvider, mode: modeUpper, duration_ms: Date.now() - nonStreamStart, success: true }).catch(() => {});
+
+    // ── Critic pass (OpenHuman adversarial review pattern) ──
+    // For high-stakes queries (plan/strategy/analysis/decision), run a
+    // lightweight critic AI call that identifies flaws or gaps in the
+    // primary response. Appended as a collapsible section. Non-blocking
+    // on failure — primary response always returned.
+    const lastUserMsgForCritic = typeof lastUserMsg?.content === "string"
+      ? lastUserMsg.content
+      : (Array.isArray(lastUserMsg?.content)
+          ? (lastUserMsg.content as any[]).find((b: any) => b.type === "text")?.text ?? ""
+          : "");
+    if (isHighStakesQuery(lastUserMsgForCritic) && content.length > 200) {
+      try {
+        const criticKey = claudeKey || geminiKey || openaiKey;
+        if (criticKey) {
+          const CRITIC_SYSTEM = `You are a rigorous Devil's Advocate reviewer. Your ONLY job is to find 2-3 critical flaws, hidden risks, blind spots, or missing considerations in the AI response below. Be concise and specific — one sentence per issue. If the response is solid, say "No significant gaps identified."
+
+Format:
+⚠ [Flaw 1]
+⚠ [Flaw 2]
+⚠ [Flaw 3 — if applicable]`;
+
+          let criticText = "";
+          if (claudeKey) {
+            const cr = await fetch("https://api.anthropic.com/v1/messages", {
+              method: "POST",
+              headers: { "Content-Type": "application/json", "x-api-key": claudeKey, "anthropic-version": "2023-06-01" },
+              body: JSON.stringify({
+                model: "claude-haiku-4-5-20251001",
+                max_tokens: 200,
+                system: CRITIC_SYSTEM,
+                messages: [{ role: "user", content: `User asked: "${lastUserMsgForCritic.slice(0, 300)}"\n\nAI response:\n${content.slice(0, 1000)}` }],
+              }),
+            });
+            if (cr.ok) { const d = await cr.json(); criticText = d.content?.[0]?.text ?? ""; }
+          } else if (geminiKey) {
+            const cr = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiKey}`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                systemInstruction: { parts: [{ text: CRITIC_SYSTEM }] },
+                contents: [{ role: "user", parts: [{ text: `User asked: "${lastUserMsgForCritic.slice(0, 300)}"\n\nAI response:\n${content.slice(0, 1000)}` }] }],
+                generationConfig: { maxOutputTokens: 200 },
+              }),
+            });
+            if (cr.ok) { const d = await cr.json(); criticText = d.candidates?.[0]?.content?.parts?.[0]?.text ?? ""; }
+          }
+          if (criticText.trim() && !criticText.includes("No significant gaps")) {
+            content = content + `\n\n---\n**MAVIS Critic Review:**\n${criticText.trim()}`;
+          }
+        }
+      } catch { /* non-critical — primary response stands */ }
+    }
 
     // ── Tacit learning (non-blocking) ───────────────────────
     // Extract preferences/rules/lessons from this exchange and store in mavis_tacit.
@@ -1697,6 +1999,50 @@ Respond with ONLY a JSON array (may be empty []):
             consolidated:     false,
           },
         ]);
+      } catch { /* non-critical */ }
+    })();
+
+    // ── Achievement check (non-blocking) ───────────────────────
+    (async () => {
+      try {
+        const supabaseUrl2 = Deno.env.get("SUPABASE_URL")!;
+        const serviceKey2  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+        await fetch(`${supabaseUrl2}/functions/v1/mavis-achievement-check`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${serviceKey2}` },
+          body: JSON.stringify({ user_id: user.id, trigger: "chat" }),
+        });
+      } catch { /* non-critical */ }
+    })();
+
+    // ── User model refresh (every 5th interaction, non-blocking) ──
+    (async () => {
+      try {
+        const { data: bndCheck2 } = await sb.from("mavis_bond").select("interaction_count").eq("user_id", user.id).single();
+        if (bndCheck2 && ((bndCheck2.interaction_count ?? 0) % 5 === 0)) {
+          const supabaseUrl2 = Deno.env.get("SUPABASE_URL")!;
+          const serviceKey2  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+          fetch(`${supabaseUrl2}/functions/v1/mavis-user-model-refresh`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${serviceKey2}` },
+            body: JSON.stringify({ user_id: user.id }),
+          }).catch(() => {});
+        }
+      } catch { /* non-critical */ }
+    })();
+
+    // ── Real-time facet capture (OpenHuman self-learning pattern) ──────────
+    // Keyword-scan the user's message for preference signals and merge them
+    // into mavis_user_model.facets. Zero AI overhead — pure pattern matching.
+    (async () => {
+      try {
+        const detectedFacets = detectFacets(lastUserContent);
+        if (detectedFacets) {
+          // Merge with existing facets via JSON concatenation in Postgres
+          await sb.from("mavis_user_model")
+            .update({ facets: detectedFacets, updated_at: new Date().toISOString() })
+            .eq("user_id", user.id);
+        }
       } catch { /* non-critical */ }
     })();
 

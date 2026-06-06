@@ -754,7 +754,7 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
     // ── COUNCIL NOTIFY — direct Telegram from a council member ──────────
     case "council_notify": {
       const msg = String(p.message ?? (action as any).message ?? "").slice(0, 1000);
-      if (!msg) break;
+      if (!msg) return;
       const botToken = Deno.env.get("TELEGRAM_BOT_TOKEN");
       const chatId   = Deno.env.get("TELEGRAM_OPERATOR_CHAT_ID");
       if (botToken && chatId) {
@@ -765,7 +765,7 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
         });
         await logActivity(sb, userId, "council_notify", `Council alert: ${msg.slice(0, 80)}`, 1);
       }
-      break;
+      return;
     }
 
     // ── NORA TWEET — queue for confirmation then fire via task executor ──
@@ -894,6 +894,14 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
     case "create_contact":
     case "add_contact":
     case "new_contact": {
+      // email, phone, company, role come from MAVIS action params — store in profile JSONB
+      // since contacts table does not have those as top-level columns
+      const baseProfile = (p.profile && typeof p.profile === "object") ? p.profile as Record<string, unknown> : {};
+      const profileData: Record<string, unknown> = { ...baseProfile };
+      if (p.email)   profileData.email   = String(p.email);
+      if (p.phone)   profileData.phone   = String(p.phone);
+      if (p.company) profileData.company = String(p.company);
+      if (p.role)    profileData.role    = String(p.role);
       const { error } = await sb.from("contacts").insert({
         user_id: userId,
         name: String(p.name || "New Contact"),
@@ -902,7 +910,7 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
         follow_up_date: p.follow_up_date ? String(p.follow_up_date) : null,
         notes: String(p.notes || ""),
         tags: asStringArray(p.tags),
-        profile: (p.profile && typeof p.profile === "object") ? p.profile : {},
+        profile: profileData,
       });
       if (error) throw error;
       await logActivity(sb, userId, "contact_created", `Contact added: ${String(p.name || "New Contact")}`, 0);
@@ -914,8 +922,22 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
       const contactId = await resolveId(sb, userId, "contacts", (p.contact_id || p.id) as string, (p.contact_name || p.name) as string);
       if (!contactId) return;
       const updates: Record<string, unknown> = { updated_at: new Date().toISOString() };
-      for (const key of ["name", "relationship_type", "last_contact_at", "follow_up_date", "notes", "tags", "profile"]) {
+      for (const key of ["name", "relationship_type", "last_contact_at", "follow_up_date", "notes", "tags"]) {
         if (p[key] !== undefined) updates[key] = key === "tags" ? asStringArray(p[key]) : p[key];
+      }
+      // Merge email/phone/company/role into profile JSONB if provided
+      if (p.email || p.phone || p.company || p.role || p.profile) {
+        const { data: existing } = await sb.from("contacts").select("profile").eq("id", contactId).eq("user_id", userId).single();
+        const existingProfile = (existing?.profile && typeof existing.profile === "object") ? existing.profile as Record<string, unknown> : {};
+        const incomingProfile = (p.profile && typeof p.profile === "object") ? p.profile as Record<string, unknown> : {};
+        updates.profile = {
+          ...existingProfile,
+          ...incomingProfile,
+          ...(p.email   ? { email:   String(p.email) }   : {}),
+          ...(p.phone   ? { phone:   String(p.phone) }   : {}),
+          ...(p.company ? { company: String(p.company) } : {}),
+          ...(p.role    ? { role:    String(p.role) }    : {}),
+        };
       }
       await sb.from("contacts").update(updates).eq("id", contactId).eq("user_id", userId);
       return;
@@ -1061,7 +1083,6 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
             content: `**Prompt:** ${prompt}\n\n**Aspect Ratio:** ${aspectRatio}\n\n*Awaiting manual image generation.*`,
             category: "image-prompt",
             tags: ["image-prompt", "ai-generated"],
-            is_public: false,
           }).catch(() => {});
         }
         return { note, prompt, aspect_ratio: aspectRatio };
@@ -1193,6 +1214,236 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
       return await rcRes.json();
     }
 
+    // ── MAVIS GOALS ──────────────────────────────────────────────────────
+    case "create_mavis_goal":
+    case "add_goal":
+    case "set_mavis_goal": {
+      const { error } = await sb.from("mavis_goals").insert({
+        user_id: userId,
+        objective: String(p.objective || p.title || p.goal || "New Goal"),
+        context: String(p.context || p.description || ""),
+        status: String(p.status || "active"),
+      });
+      if (error) throw error;
+      await logActivity(sb, userId, "goal_created", `Goal: ${p.objective || p.title || ""}`, 0);
+      return;
+    }
+
+    case "update_mavis_goal":
+    case "update_goal": {
+      const goalId = String(p.goal_id || p.id || "");
+      if (!goalId) throw new Error("update_mavis_goal requires goal_id");
+      const gUpdates: Record<string, unknown> = {};
+      for (const k of ["objective", "context", "status"]) {
+        if (p[k] !== undefined) gUpdates[k] = p[k];
+      }
+      // Also accept "title" as alias for "objective" and "description" as alias for "context"
+      if (p.title !== undefined && p.objective === undefined) gUpdates.objective = p.title;
+      if (p.description !== undefined && p.context === undefined) gUpdates.context = p.description;
+      await sb.from("mavis_goals").update(gUpdates).eq("id", goalId).eq("user_id", userId);
+      return;
+    }
+
+    // ── RITUALS ──────────────────────────────────────────────────────────
+    case "create_ritual": {
+      const { error } = await sb.from("rituals").insert({
+        user_id: userId,
+        name: String(p.name || "New Ritual"),
+        description: String(p.description || ""),
+        type: String(p.type || "other"),
+        category: p.category ? String(p.category) : null,
+        xp_reward: Number(p.xp_reward || 25),
+        completed: false,
+        streak: 0,
+      });
+      if (error) throw error;
+      await logActivity(sb, userId, "ritual_created", `Ritual: ${p.name || "New Ritual"}`, 0);
+      return;
+    }
+
+    case "update_ritual": {
+      const ritualId = await resolveId(sb, userId, "rituals", (p.ritual_id || p.id) as string, (p.ritual_name || p.name) as string);
+      if (!ritualId) return;
+      const updates: Record<string, unknown> = {};
+      for (const k of ["name", "description", "type", "category", "xp_reward"]) {
+        if (p[k] !== undefined) updates[k] = p[k];
+      }
+      const { error } = await sb.from("rituals").update(updates).eq("id", ritualId).eq("user_id", userId);
+      if (error) throw error;
+      return;
+    }
+
+    case "complete_ritual": {
+      const ritualId = await resolveId(sb, userId, "rituals", (p.ritual_id || p.id) as string, (p.ritual_name || p.name) as string);
+      if (!ritualId) return;
+      const { data: ritual } = await sb.from("rituals").select("streak, xp_reward, name").eq("id", ritualId).eq("user_id", userId).single();
+      if (!ritual) return;
+      const newStreak = Number(ritual.streak || 0) + 1;
+      await sb.from("rituals").update({
+        completed: true,
+        streak: newStreak,
+        last_completed: new Date().toISOString(),
+      }).eq("id", ritualId).eq("user_id", userId);
+      await awardXP(sb, userId, Number(ritual.xp_reward || 25));
+      await logActivity(sb, userId, "ritual_completed", `Ritual completed: ${ritual.name} (streak: ${newStreak})`, Number(ritual.xp_reward || 25));
+      return;
+    }
+
+    case "delete_ritual": {
+      const ritualId = await resolveId(sb, userId, "rituals", (p.ritual_id || p.id) as string, (p.ritual_name || p.name) as string);
+      if (!ritualId) return;
+      await sb.from("rituals").delete().eq("id", ritualId).eq("user_id", userId);
+      await logActivity(sb, userId, "ritual_deleted", "Ritual deleted", 0);
+      return;
+    }
+
+    // ── CALENDAR EVENTS ─────────────────────────────────
+    case "create_calendar_event":
+    case "schedule_event": {
+      const { error } = await sb.from("calendar_events").insert({
+        user_id:     userId,
+        title:       String(p.title ?? "Untitled Event"),
+        start_at:    String(p.start_at ?? p.start_time ?? new Date().toISOString()),
+        end_at:      p.end_at ?? p.end_time ? String(p.end_at ?? p.end_time) : null,
+        description: p.description ? String(p.description) : null,
+        location:    p.location ? String(p.location) : null,
+      });
+      if (error) throw error;
+      await logActivity(sb, userId, "calendar_event_created", `Event: ${String(p.title ?? "Untitled")}`, 0);
+      return;
+    }
+
+    case "update_calendar_event": {
+      const eventId = String(p.event_id ?? p.id ?? "");
+      if (!eventId) return;
+      const upd: Record<string, unknown> = {};
+      for (const k of ["title", "start_at", "end_at", "description", "location"]) {
+        if (p[k] !== undefined) upd[k] = p[k];
+      }
+      await sb.from("calendar_events").update(upd).eq("id", eventId).eq("user_id", userId);
+      return;
+    }
+
+    case "delete_calendar_event": {
+      const eventId = String(p.event_id ?? p.id ?? "");
+      if (!eventId) return;
+      await sb.from("calendar_events").delete().eq("id", eventId).eq("user_id", userId);
+      return;
+    }
+
+    // ── TIME LOGS ────────────────────────────────────────
+    case "log_time":
+    case "create_time_log": {
+      const { error } = await sb.from("time_logs").insert({
+        user_id:          userId,
+        description:      String(p.description ?? p.title ?? "Time log"),
+        project:          p.project ? String(p.project) : null,
+        started_at:       p.started_at ? String(p.started_at) : null,
+        ended_at:         p.ended_at ? String(p.ended_at) : null,
+        duration_seconds: p.duration_seconds ? Number(p.duration_seconds) : null,
+        tags:             Array.isArray(p.tags) ? p.tags : [],
+      });
+      if (error) throw error;
+      await logActivity(sb, userId, "time_logged", `Time: ${String(p.description ?? p.project ?? "log")}`, 0);
+      return;
+    }
+
+    // ── MEETING NOTES ────────────────────────────────────
+    case "create_meeting_note":
+    case "log_meeting": {
+      const { error } = await sb.from("meeting_notes").insert({
+        user_id:      userId,
+        title:        String(p.title ?? "Meeting"),
+        meeting_date: p.meeting_date ? String(p.meeting_date) : new Date().toISOString().slice(0, 10),
+        attendees:    Array.isArray(p.attendees) ? p.attendees : [],
+        key_points:   Array.isArray(p.key_points) ? p.key_points : [],
+        decisions:    Array.isArray(p.decisions) ? p.decisions : [],
+        action_items: Array.isArray(p.action_items) ? p.action_items : null,
+        summary:      p.summary ? String(p.summary) : null,
+      });
+      if (error) throw error;
+      await logActivity(sb, userId, "meeting_logged", `Meeting: ${String(p.title ?? "Meeting")}`, 0);
+      return;
+    }
+
+    case "update_meeting_note": {
+      const noteId = String(p.note_id ?? p.id ?? "");
+      if (!noteId) return;
+      const upd: Record<string, unknown> = {};
+      for (const k of ["title", "summary", "key_points", "decisions", "action_items", "attendees"]) {
+        if (p[k] !== undefined) upd[k] = p[k];
+      }
+      await sb.from("meeting_notes").update(upd).eq("id", noteId).eq("user_id", userId);
+      return;
+    }
+
+    // ── HEALTH METRICS ───────────────────────────────────
+    case "log_health_metric":
+    case "log_health":
+    case "health_log": {
+      const value = Number(p.value ?? 0);
+      const metricType = String(p.metric_type ?? p.type ?? "general");
+      const dateVal = String(p.date ?? new Date().toISOString().slice(0, 10));
+      // Map to existing schema columns; store the raw metric_type+value in raw_data
+      const row: Record<string, unknown> = {
+        user_id: userId,
+        date:    dateVal,
+        source:  "mavis",
+        raw_data: { metric_type: metricType, value, unit: p.unit ?? "" },
+      };
+      if (metricType === "sleep") row.sleep_duration_minutes = Math.round(value * 60);
+      if (metricType === "hrv")   row.hrv_avg = value;
+      if (metricType === "resting_hr" || metricType === "hr") row.resting_hr = value;
+      if (metricType === "readiness") row.readiness_score = value;
+      const { error } = await sb.from("health_metrics").upsert(row, { onConflict: "user_id,date,source" });
+      if (error) throw error;
+      await logActivity(sb, userId, "health_logged", `Health: ${metricType} = ${value}${p.unit ? ` ${p.unit}` : ""}`, 0);
+      return;
+    }
+
+    // ── COMPETITORS ──────────────────────────────────────
+    case "add_competitor":
+    case "create_competitor": {
+      const { error } = await sb.from("mavis_competitors").insert({
+        user_id: userId,
+        name:    String(p.name ?? "Competitor"),
+        url:     p.url ? String(p.url) : null,
+        notes:   p.notes ? String(p.notes) : null,
+      });
+      if (error) throw error;
+      await logActivity(sb, userId, "competitor_added", `Competitor: ${String(p.name ?? "")}`, 0);
+      return;
+    }
+
+    case "update_competitor": {
+      const compId = String(p.competitor_id ?? p.id ?? "");
+      if (!compId) return;
+      const upd: Record<string, unknown> = { updated_at: new Date().toISOString() };
+      for (const k of ["name", "url", "notes", "snapshot"]) {
+        if (p[k] !== undefined) upd[k] = p[k];
+      }
+      await sb.from("mavis_competitors").update(upd).eq("id", compId).eq("user_id", userId);
+      return;
+    }
+
+    // ── SEND NOTIFICATION — log a push notification / alert ────────────────
+    case "send_notification":
+    case "push_notification":
+    case "notify": {
+      const notifText = String(p.title ?? p.message ?? p.text ?? "MAVIS Alert").slice(0, 255);
+      const body      = String(p.body ?? p.message ?? p.text ?? "").slice(0, 1000);
+      const notifType = String(p.notification_type ?? "info").slice(0, 50);
+      await sb.from("mavis_tasks").insert({
+        user_id: userId,
+        type: "push_notification",
+        description: notifText,
+        payload: { notification_type: notifType, body },
+        status: "pending",
+      });
+      await logActivity(sb, userId, "notification_sent", `Notification: ${notifText}`, 0);
+      return;
+    }
+
     default:
       throw new Error(`Unknown MAVIS action: ${action.type}`);
   }
@@ -1261,6 +1512,23 @@ serve(async (req) => {
           error: error instanceof Error ? error.message : String(error),
         });
       }
+    }
+
+    // Fire achievement check after any successful action — non-blocking.
+    // The check is idempotent (skips already-unlocked keys) so safe to call on every write.
+    const hadSuccess = results.some((r) => r.success);
+    const achievementTriggerTypes = new Set([
+      "complete_quest", "update_quest", "complete_task", "update_task",
+      "create_vault", "create_journal", "award_xp", "log_bpm_session",
+      "log_revenue", "create_skill", "update_skill",
+    ]);
+    const shouldCheckAchievements = hadSuccess && actions.some((a) => achievementTriggerTypes.has(String(a.type)));
+    if (shouldCheckAchievements) {
+      fetch(`${supabaseUrl}/functions/v1/mavis-achievement-check`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${serviceRoleKey}` },
+        body: JSON.stringify({ user_id: userId }),
+      }).catch((err: unknown) => console.warn("[mavis-actions] achievement check failed:", err));
     }
 
     return new Response(JSON.stringify({ ok: true, results }), {

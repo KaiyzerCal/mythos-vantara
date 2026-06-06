@@ -1,5 +1,10 @@
 // ElevenLabs TTS for MAVIS, Council members, and Personas.
 // Returns base64 MP3 in JSON so the client can play it with `data:audio/mpeg;base64,...`.
+//
+// Self-hosting: set KOKORO_API_URL to use a self-hosted Kokoro TTS server instead.
+// Kokoro produces near-ElevenLabs quality at zero API cost.
+// Deploy: https://github.com/remsky/Kokoro-FastAPI  (Docker image available)
+// Set: KOKORO_API_URL=http://your-server:8880
 
 import { encode as base64Encode } from "https://deno.land/std@0.168.0/encoding/base64.ts";
 
@@ -8,6 +13,48 @@ const corsHeaders = {
   "Access-Control-Allow-Headers":
     "authorization, x-client-info, apikey, content-type",
 };
+
+// ── Kokoro self-hosted TTS ────────────────────────────────────────────────────
+const KOKORO_API_URL = Deno.env.get("KOKORO_API_URL"); // e.g. "http://your-server:8880"
+
+// Map ElevenLabs voice IDs → closest Kokoro voice equivalent
+const ELEVENLABS_TO_KOKORO: Record<string, string> = {
+  "JBFqnCBsd6RMkjVDRZzb": "bm_george",    // George → British male George
+  "EXAVITQu4vr4xnSDxMaL": "af_sarah",     // Sarah → American female Sarah
+  "TX3LPaxmHKxFdv7VOQHJ": "am_liam",      // Liam → American male Liam
+  "XB0fDUnXU5powFXDhCwa": "bf_emma",      // Charlotte → British female Emma
+  "nPczCjzI2devNBz1zQrb": "am_adam",      // Brian → American male Adam
+  "pFZP5JQG7iQjIQuC4Bku": "af_heart",     // Lily → warm female
+  "cgSgspJ2msm6clMCkdW9": "af_jessica",   // Jessica
+  "iP95p4xoKVk53GoZ742B": "am_michael",   // Chris → American male Michael
+};
+
+async function callKokoro(
+  text: string,
+  voiceId: string,
+  speed: number,
+): Promise<ArrayBuffer | null> {
+  if (!KOKORO_API_URL) return null;
+  try {
+    const kokoroVoice = ELEVENLABS_TO_KOKORO[voiceId] ?? "af_sky";
+    const res = await fetch(`${KOKORO_API_URL}/v1/audio/speech`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: "kokoro",
+        input: text.slice(0, 4500),
+        voice: kokoroVoice,
+        speed: Math.max(0.7, Math.min(1.5, speed)),
+        response_format: "mp3",
+      }),
+      signal: AbortSignal.timeout(30000),
+    });
+    if (!res.ok) return null;
+    return await res.arrayBuffer();
+  } catch {
+    return null; // fall through to ElevenLabs
+  }
+}
 
 // Default fallback voices (publicly available ElevenLabs voices)
 const DEFAULT_MALE = "JBFqnCBsd6RMkjVDRZzb"; // George
@@ -104,6 +151,17 @@ Deno.serve(async (req) => {
     // prosody than the turbo models — the small latency cost is worth it for
     // natural human-feeling speech.
     const model_id = typeof body.model_id === "string" ? body.model_id : "eleven_multilingual_v2";
+
+    // ── Kokoro self-hosted TTS (free, no API key needed) ──────────────────────
+    // Tried first if KOKORO_API_URL is set; silently falls back to ElevenLabs.
+    const kokoroBuf = await callKokoro(text, voiceId, speed);
+    if (kokoroBuf) {
+      const audioContent = base64Encode(kokoroBuf);
+      return new Response(
+        JSON.stringify({ audioContent, mime: "audio/mpeg", voice_id: voiceId, provider: "kokoro" }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
 
     const url = `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}?output_format=mp3_44100_128`;
     const ttsRes = await fetch(url, {

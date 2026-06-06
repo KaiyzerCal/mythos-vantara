@@ -3,6 +3,7 @@
 // Social post scheduling and queue management
 // ============================================================
 import { useState, useEffect, useCallback } from "react";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { motion, AnimatePresence } from "framer-motion";
 import { Calendar, Plus, Trash2, CheckCircle2, Clock, Send, Loader2, X, MessageSquare } from "lucide-react";
 import { supabase as _supabase } from "@/integrations/supabase/client";
@@ -71,6 +72,7 @@ export function SchedulerPage() {
   const [scheduleDate, setScheduleDate] = useState("");
   const [scheduleLoading, setScheduleLoading] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<{ id: string; label: string } | null>(null);
 
   // ─── Fetch ─────────────────────────────────────────────────
   const fetchPosts = useCallback(async () => {
@@ -323,7 +325,7 @@ export function SchedulerPage() {
                       )}
                     </div>
                     <button
-                      onClick={() => handleDelete(post.id)}
+                      onClick={() => setConfirmDelete({ id: post.id, label: post.content.slice(0, 40) + (post.content.length > 40 ? "…" : "") })}
                       className="text-muted-foreground hover:text-red-400 transition-colors shrink-0"
                       title="Delete"
                     >
@@ -480,6 +482,18 @@ export function SchedulerPage() {
           )}
         </div>
       )}
+
+      <ConfirmDialog
+        open={confirmDelete !== null}
+        title={`Delete "${confirmDelete?.label}"?`}
+        description="This action cannot be undone."
+        onConfirm={async () => {
+          if (!confirmDelete) return;
+          await handleDelete(confirmDelete.id);
+          setConfirmDelete(null);
+        }}
+        onCancel={() => setConfirmDelete(null)}
+      />
     </div>
   );
 }

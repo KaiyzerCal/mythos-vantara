@@ -3,6 +3,7 @@
 // Outbound webhook endpoints for Zapier / Make / n8n / HTTP
 // ============================================================
 import { useState, useEffect, useCallback } from "react";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Zap,
@@ -109,6 +110,7 @@ export function WebhookConfigPage() {
   const [saving, setSaving] = useState(false);
   const [showSecret, setShowSecret] = useState(false);
   const [expandedConfigId, setExpandedConfigId] = useState<string | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<{ id: string; label: string } | null>(null);
 
   const [form, setForm] = useState<CreateForm>({
     name: "",
@@ -530,7 +532,7 @@ export function WebhookConfigPage() {
 
                       {/* Delete */}
                       <button
-                        onClick={() => deleteConfig(cfg.id)}
+                        onClick={() => setConfirmDelete({ id: cfg.id, label: cfg.name || cfg.endpoint_url })}
                         className="shrink-0 text-muted-foreground hover:text-red-400 transition-colors mt-0.5"
                         title="Delete endpoint"
                       >
@@ -679,6 +681,18 @@ export function WebhookConfigPage() {
           </pre>
         </HudCard>
       </section>
+
+      <ConfirmDialog
+        open={confirmDelete !== null}
+        title={`Delete "${confirmDelete?.label}"?`}
+        description="This action cannot be undone."
+        onConfirm={async () => {
+          if (!confirmDelete) return;
+          await deleteConfig(confirmDelete.id);
+          setConfirmDelete(null);
+        }}
+        onCancel={() => setConfirmDelete(null)}
+      />
     </div>
   );
 }

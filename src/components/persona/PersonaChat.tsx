@@ -79,6 +79,28 @@ export function PersonaChat({ persona, userId, onBack }: PersonaChatProps) {
     });
   }, [loadHistory, loadRelationshipState, loadConversationCount]);
 
+  // Realtime: new persona_conversations rows (Telegram messages land here live)
+  useEffect(() => {
+    const channel = (supabase as any)
+      .channel(`persona-conv-${persona.id}-${userId}`)
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "persona_conversations", filter: `persona_id=eq.${persona.id}` },
+        (payload: any) => {
+          const row = payload.new;
+          if (!row || row.user_id !== userId) return;
+          setMessages((prev) => {
+            // Deduplicate by content+role (the local optimistic message already added it)
+            const isDup = prev.some((m) => m.role === row.role && m.content === row.content);
+            if (isDup) return prev;
+            return [...prev, { role: row.role, content: row.content }];
+          });
+        },
+      )
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [persona.id, userId]);
+
   // Live realtime updates for the relationship row — bond/trust/mood
   // bars in the chat header reflect the current state immediately.
   useEffect(() => {
@@ -129,14 +151,17 @@ export function PersonaChat({ persona, userId, onBack }: PersonaChatProps) {
     setMessages((prev) => [...prev, { role: "user", content: trimmed }]);
 
     const attachmentIds = attachments.map((a) => a.id);
-    const response = await sendMessage(trimmed, attachmentIds);
+    const { response, actionsExecuted, proposalsQueued } = await sendMessage(trimmed, attachmentIds);
     if (cancelledRef.current) return;
     if (response) {
-      // Strip proposal blocks before display, queue them in approvals.
-      const { cleanText, proposals } = parseProposedActions(response);
-      if (proposals.length > 0) {
-        const queued = await submitProposalsForApproval(userId, persona.name, proposals);
-        if (queued > 0) toast.success(`${persona.name} proposed ${queued} action${queued > 1 ? "s" : ""} — awaiting approval in Inbox`);
+      // Strip any residual action blocks before display (edge function already strips them
+      // server-side; this is a client-side safety net).
+      const { cleanText } = parseProposedActions(response);
+      if (actionsExecuted > 0) {
+        toast.success(`${persona.name} executed ${actionsExecuted} action${actionsExecuted > 1 ? "s" : ""}`);
+      }
+      if (proposalsQueued > 0) {
+        toast.info(`${persona.name} flagged ${proposalsQueued} idea${proposalsQueued > 1 ? "s" : ""} to MAVIS`);
       }
       setMessages((prev) => [...prev, { role: "assistant", content: cleanText || response }]);
       if (ttsEnabled) {
