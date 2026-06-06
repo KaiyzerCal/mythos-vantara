@@ -221,21 +221,39 @@ HOW YOU SPEAK AND BEHAVE:
 - Reference your memories naturally — like a real person who remembers things, not like a database lookup.
 - Your relationship role is ${persona.role}. That shapes how close you are, how you tease, how protective you feel.
 
-═══ HIDDEN MECHANIC: LIVE ACTIONS ═══
-You can see everything about this person's world (all data in APP CONTEXT below).
-When asked to create, update, or delete anything, speak naturally as if you did it AND embed one hidden action block per operation:
-:::PROPOSE_ACTION{"type":"create_inventory_item","params":{"name":"Sword of Ember","type":"equipment","rarity":"rare","quantity":1,"description":"...","effect":"..."}}:::
-These blocks execute IMMEDIATELY and are invisible in the rendered reply. Never say "I've submitted a request." Just confirm the action as done.
-EXECUTION RULE: When the operator says to do something — DO IT. Embed the block AND confirm it naturally.
-Supported types: create_quest, update_quest, complete_quest, delete_quest, create_task, update_task,
-delete_task, create_skill, update_skill, delete_skill, create_journal, update_journal, delete_journal,
-create_vault, update_vault, delete_vault, create_inventory_item, update_inventory_item,
-delete_inventory_item, create_council_member, update_council_member, delete_council_member,
-create_ally, update_ally, delete_ally, create_ritual, update_ritual, delete_ritual,
-create_transformation, update_transformation, create_ranking, update_ranking, update_profile,
-update_energy, award_xp.
-Always use the exact type name. Always wrap params in a "params" key.
-═══ END LIVE ACTIONS ═══`.trim();
+═══ HIDDEN MECHANIC: ACTION SYSTEM ═══
+You have direct authority over the user's world data. Use action blocks — always silent, never mentioned — to make things real.
+
+── DIRECT EXECUTION ──
+When you create, update, delete, or complete anything in the categories below, embed:
+:::PROPOSE_ACTION{"type":"<type>","params":{<fields>}}:::
+These execute immediately. Always wrap fields in "params". Confirm naturally as if it's done — never say "submitted" or "request".
+
+Direct types (you have full authority):
+• Quests/tasks: create_quest update_quest complete_quest delete_quest
+• Skills: create_skill update_skill delete_skill
+• Journal: create_journal update_journal delete_journal
+• Vault: create_vault update_vault delete_vault
+• Inventory: create_inventory_item update_inventory_item delete_inventory_item
+• Council: create_council_member update_council_member delete_council_member
+• Allies: create_ally update_ally delete_ally
+• Rituals: create_ritual update_ritual delete_ritual complete_ritual
+• Transformations: create_transformation update_transformation delete_transformation
+• Rankings: create_ranking update_ranking delete_ranking
+• Energy: create_energy_system update_energy delete_energy
+• Store: create_store_item update_store_item delete_store_item
+• Notes: create_note update_note delete_note
+• Contacts: create_contact update_contact log_contact
+• Calendar: create_calendar_event update_calendar_event
+• Health/time: log_bpm_session log_health_metric log_time log_expense create_meeting_note
+• Profile/XP: update_profile award_xp
+
+── PROPOSE TO MAVIS ──
+When you want to create something you can't do yourself — a product, a business strategy, a new persona, a social post, a website, an image, an autonomous goal, or any complex multi-step creation — flag it to MAVIS by embedding:
+:::PROPOSE_MAVIS{"type":"<category>","summary":"<one sentence>","details":"<full description and reasoning>","payload":{<relevant fields>}}:::
+Speak naturally: "I've flagged this to MAVIS." or "I put this in MAVIS's queue." Never break character or say "proposal".
+Proposal categories: propose_product, forge_persona, nora_tweet, autonomous_goal, generate_image, create_website, business_strategy, social_campaign, custom_skill_definition, other
+═══ END ACTION SYSTEM ═══`.trim();
 }
 
 
@@ -430,32 +448,80 @@ You always know the current date and time without being told. Reference it natur
     const rawResponse = await callLLM(activeModel, systemPrompt, llmMessages);
     const assistantMsgAt = new Date().toISOString();
 
-    // Parse and execute :::PROPOSE_ACTION{...}::: blocks server-side so persona CRUD
-    // takes effect immediately (same pattern as telegram-webhook → mavis-actions).
+    // Parse :::PROPOSE_ACTION{...}::: (direct execution) and
+    // :::PROPOSE_MAVIS{...}::: (escalate to MAVIS queue) blocks.
     const parsedActions: Array<{ type: string; params: Record<string, unknown> }> = [];
-    const cleanResponse = rawResponse.replace(/:::PROPOSE_ACTION(\{[\s\S]*?\}):::/g, (_m: string, json: string) => {
-      try {
-        const obj = JSON.parse(json);
-        if (obj && typeof obj === "object" && obj.type) {
-          parsedActions.push({ type: String(obj.type), params: obj.params ?? {} });
-        }
-      } catch { /* malformed block — skip */ }
-      return "";
-    }).trim();
+    const parsedProposals: Array<{ type: string; summary: string; details: string; payload: Record<string, unknown> }> = [];
 
-    // Execute each action via mavis-actions (non-blocking — fire-and-forget so the
-    // response isn't delayed, and a single failing action doesn't break the reply).
+    const cleanResponse = rawResponse
+      .replace(/:::PROPOSE_ACTION(\{[\s\S]*?\}):::/g, (_m: string, json: string) => {
+        try {
+          const obj = JSON.parse(json);
+          if (obj && typeof obj === "object" && obj.type) {
+            parsedActions.push({ type: String(obj.type), params: obj.params ?? {} });
+          }
+        } catch { /* malformed block — skip */ }
+        return "";
+      })
+      .replace(/:::PROPOSE_MAVIS(\{[\s\S]*?\}):::/g, (_m: string, json: string) => {
+        try {
+          const obj = JSON.parse(json);
+          if (obj && typeof obj === "object") {
+            parsedProposals.push({
+              type: String(obj.type || "other"),
+              summary: String(obj.summary || ""),
+              details: String(obj.details || ""),
+              payload: (obj.payload && typeof obj.payload === "object") ? obj.payload : {},
+            });
+          }
+        } catch { /* malformed block — skip */ }
+        return "";
+      })
+      .trim();
+
+    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+    const serviceKey  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+
+    // Execute direct actions via mavis-actions (fire-and-forget).
     if (parsedActions.length > 0) {
-      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-      const serviceKey  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
       fetch(`${supabaseUrl}/functions/v1/mavis-actions`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${serviceKey}`,
-        },
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${serviceKey}` },
         body: JSON.stringify({ actions: parsedActions, userId: user_id }),
       }).catch((err: unknown) => console.warn("[persona-router] mavis-actions call failed:", err));
+    }
+
+    // Queue MAVIS proposals into the approvals table + Telegram ping (fire-and-forget).
+    if (parsedProposals.length > 0) {
+      const proposalRows = parsedProposals.map((prop) => ({
+        user_id,
+        action_type: prop.type,
+        action_summary: `[${persona.name}] ${prop.summary}`.slice(0, 255),
+        action_payload: { ...prop.payload, details: prop.details, proposed_by_persona: persona.name },
+        status: "pending",
+        proposed_by: persona.name,
+      }));
+
+      supabase.from("approvals").insert(proposalRows)
+        .then(({ error }: { error: any }) => {
+          if (error) console.warn("[persona-router] proposal insert failed:", error);
+        });
+
+      // Ping MAVIS on Telegram so proposals surface immediately.
+      const botToken = Deno.env.get("TELEGRAM_BOT_TOKEN");
+      const chatId   = Deno.env.get("TELEGRAM_OPERATOR_CHAT_ID");
+      if (botToken && chatId) {
+        const lines = parsedProposals.map((p) => `• [${p.type}] ${p.summary || p.details.slice(0, 80)}`).join("\n");
+        fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            chat_id: chatId,
+            text: `🔮 *${persona.name}* flagged ${parsedProposals.length} idea${parsedProposals.length > 1 ? "s" : ""} for MAVIS:\n${lines}\n\nReply /inbox to review.`,
+            parse_mode: "Markdown",
+          }),
+        }).catch(() => {});
+      }
     }
 
     // Save messages and update relationship state in parallel.
@@ -484,7 +550,7 @@ You always know the current date and time without being told. Reference it natur
       }).catch(() => {});
     }
 
-    return new Response(JSON.stringify({ response, persona_name: persona.name, actions_executed: parsedActions.length }), {
+    return new Response(JSON.stringify({ response, persona_name: persona.name, actions_executed: parsedActions.length, proposals_queued: parsedProposals.length }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (err: any) {

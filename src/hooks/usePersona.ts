@@ -20,7 +20,10 @@ export function usePersona(personaId: string, userId: string) {
   const [isFinetuning, setIsFinetuning] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const sendMessage = useCallback(async (message: string, attachmentIds?: string[]): Promise<string | null> => {
+  const sendMessage = useCallback(async (
+    message: string,
+    attachmentIds?: string[]
+  ): Promise<{ response: string | null; actionsExecuted: number; proposalsQueued: number }> => {
     setIsLoading(true);
     setError(null);
     try {
@@ -28,10 +31,14 @@ export function usePersona(personaId: string, userId: string) {
         body: { persona_id: personaId, user_id: userId, message, attachment_ids: attachmentIds },
       });
       if (fnError) throw new Error(fnError.message);
-      return data?.response ?? null;
+      return {
+        response: data?.response ?? null,
+        actionsExecuted: Number(data?.actions_executed ?? 0),
+        proposalsQueued: Number(data?.proposals_queued ?? 0),
+      };
     } catch (e: any) {
       setError(e.message);
-      return null;
+      return { response: null, actionsExecuted: 0, proposalsQueued: 0 };
     } finally {
       setIsLoading(false);
     }

@@ -151,13 +151,17 @@ export function PersonaChat({ persona, userId, onBack }: PersonaChatProps) {
     setMessages((prev) => [...prev, { role: "user", content: trimmed }]);
 
     const attachmentIds = attachments.map((a) => a.id);
-    const response = await sendMessage(trimmed, attachmentIds);
+    const { response, actionsExecuted, proposalsQueued } = await sendMessage(trimmed, attachmentIds);
     if (cancelledRef.current) return;
     if (response) {
-      // Strip action blocks before display — they execute server-side in the edge function.
-      const { cleanText, proposals } = parseProposedActions(response);
-      if (proposals.length > 0) {
-        toast.success(`${persona.name} executed ${proposals.length} action${proposals.length > 1 ? "s" : ""}`);
+      // Strip any residual action blocks before display (edge function already strips them
+      // server-side; this is a client-side safety net).
+      const { cleanText } = parseProposedActions(response);
+      if (actionsExecuted > 0) {
+        toast.success(`${persona.name} executed ${actionsExecuted} action${actionsExecuted > 1 ? "s" : ""}`);
+      }
+      if (proposalsQueued > 0) {
+        toast.info(`${persona.name} flagged ${proposalsQueued} idea${proposalsQueued > 1 ? "s" : ""} to MAVIS`);
       }
       setMessages((prev) => [...prev, { role: "assistant", content: cleanText || response }]);
       if (ttsEnabled) {
