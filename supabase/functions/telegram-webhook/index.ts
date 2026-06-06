@@ -2038,15 +2038,24 @@ Deno.serve(async (req) => {
   await sendTyping(chatId);
 
   try {
+    // ── Check for active council mode ──────────────────────
+    if (await getCouncilMode(chatId)) {
+      const councilReply = await runCouncilTurn(chatId, inputText);
+      await sendPlain(chatId, councilReply);
+      return new Response("OK");
+    }
+
     // ── Check for active persona ───────────────────────────
     const activePersona = await getActivePersona(chatId);
 
     if (activePersona) {
       // ── PERSONA MODE: route through mavis-persona-router ──
-      const personaMessage = mediaContext ? `${mediaContext}${inputText}` : inputText;
-      await persistMessage(chatId, "user", inputText);
+      // persona-router persists to persona_conversations (the persona's app
+      // chat thread). We prefix with [Telegram] so the source is visible.
+      // Do NOT write to chat_messages here — that would pollute MAVIS thread.
+      const sourcedInput = `[Telegram] ${inputText}`;
+      const personaMessage = mediaContext ? `${mediaContext}${sourcedInput}` : sourcedInput;
       const reply = await callPersona(activePersona.persona_id, personaMessage, chatId);
-      await persistMessage(chatId, "assistant", reply);
       await sendPlain(chatId, reply);
       return new Response("OK");
     }
