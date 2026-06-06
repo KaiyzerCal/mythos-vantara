@@ -10,18 +10,42 @@ function wpBase64Auth(username: string, appPassword: string): string {
   return btoa(creds);
 }
 
-async function wpFetch(
-  siteUrl: string,
+function normalizeSiteUrl(siteUrl: string): string {
+  if (!siteUrl.startsWith("http://") && !siteUrl.startsWith("https://")) {
+    return `https://${siteUrl}`;
+  }
+  return siteUrl;
+}
+
+// ── Unified API fetch — supports both app-password and WP.com OAuth ──
+// For app-password: base = {siteUrl}/wp-json, auth = Basic {header}
+// For WP.com OAuth: base = https://public-api.wordpress.com,
+//   path /wp/v2/foo becomes /wp/v2/sites/{blogId}/foo, auth = Bearer {token}
+type AuthMode =
+  | { type: "basic"; header: string; siteUrl: string }
+  | { type: "wpcom"; token: string; blogId: number | string };
+
+async function apiFetch(
+  auth: AuthMode,
   path: string,
   method: string,
-  authHeader: string,
   body?: unknown,
   isFormData = false,
 ): Promise<any> {
-  const url = `${siteUrl.replace(/\/$/, "")}/wp-json${path}`;
-  const headers: Record<string, string> = {
-    Authorization: `Basic ${authHeader}`,
-  };
+  let url: string;
+  let authValue: string;
+
+  if (auth.type === "wpcom") {
+    // Inject /sites/{blogId} after /wp/v2 in the path
+    const wpcomPath = path.replace(/^\/wp\/v2/, `/wp/v2/sites/${auth.blogId}`);
+    url = `https://public-api.wordpress.com${wpcomPath}`;
+    authValue = `Bearer ${auth.token}`;
+  } else {
+    url = `${auth.siteUrl.replace(/\/$/, "")}/wp-json${path}`;
+    authValue = `Basic ${auth.header}`;
+  }
+
+  const headers: Record<string, string> = { Authorization: authValue };
   if (!isFormData) headers["Content-Type"] = "application/json";
 
   const res = await fetch(url, {
@@ -38,13 +62,6 @@ async function wpFetch(
   return res.json();
 }
 
-function normalizeSiteUrl(siteUrl: string): string {
-  if (!siteUrl.startsWith("http://") && !siteUrl.startsWith("https://")) {
-    return `https://${siteUrl}`;
-  }
-  return siteUrl;
-}
-
 serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
@@ -57,25 +74,37 @@ serve(async (req: Request) => {
       site_url: rawSiteUrl,
       username,
       app_password,
+      access_token,    // WP.com OAuth
+      wpcom_blog_id,   // WP.com OAuth
       ...rest
     } = body;
 
-    if (!rawSiteUrl || !username || !app_password) {
-      return new Response(
-        JSON.stringify({ error: "site_url, username, and app_password are required" }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-      );
+    // ── Resolve auth mode ─────────────────────────────────────────────
+    let auth: AuthMode;
+    let site_url = rawSiteUrl ? normalizeSiteUrl(rawSiteUrl) : "";
+
+    if (access_token && wpcom_blog_id) {
+      auth = { type: "wpcom", token: access_token, blogId: Number(wpcom_blog_id) };
+    } else {
+      if (!rawSiteUrl || !username || !app_password) {
+        return new Response(
+          JSON.stringify({ error: "Provide either (site_url + username + app_password) or (access_token + wpcom_blog_id)" }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+      }
+      auth = { type: "basic", header: wpBase64Auth(username, app_password), siteUrl: site_url };
     }
 
-    const site_url = normalizeSiteUrl(rawSiteUrl);
-    const auth = wpBase64Auth(username, app_password);
+    // Convenience wrapper — callers pass just (path, method, body?, isFormData?)
+    const api = (path: string, method: string, body?: unknown, isFormData = false) =>
+      apiFetch(auth, path, method, body, isFormData);
 
     let result: unknown;
 
     switch (action) {
       case "test_connection": {
-        const me = await wpFetch(site_url, "/wp/v2/users/me", "GET", auth);
-        const settings = await wpFetch(site_url, "/wp/v2/settings", "GET", auth).catch(() => null);
+        const me = await api("/wp/v2/users/me", "GET");
+        const settings = await api("/wp/v2/settings", "GET").catch(() => null);
         result = {
           connected: true,
           site_title: settings?.title ?? null,
@@ -86,7 +115,7 @@ serve(async (req: Request) => {
       }
 
       case "get_site_info": {
-        const settings = await wpFetch(site_url, "/wp/v2/settings", "GET", auth);
+        const settings = await api("/wp/v2/settings", "GET");
         result = {
           title: settings.title,
           tagline: settings.description,
@@ -98,7 +127,7 @@ serve(async (req: Request) => {
 
       case "set_site_identity": {
         const { title, description, logo_base64, logo_filename } = rest;
-        const updated = await wpFetch(site_url, "/wp/v2/settings", "POST", auth, {
+        const updated = await api("/wp/v2/settings", "POST", {
           title,
           description,
         });
@@ -115,7 +144,7 @@ serve(async (req: Request) => {
           const blob = new Blob([bytes], { type: mimeType });
           const form = new FormData();
           form.append("file", blob, filename);
-          logoMedia = await wpFetch(site_url, "/wp/v2/media", "POST", auth, form, true);
+          logoMedia = await api("/wp/v2/media", "POST", form, true);
         }
 
         result = {
@@ -127,7 +156,7 @@ serve(async (req: Request) => {
       }
 
       case "get_pages": {
-        const pages = await wpFetch(site_url, "/wp/v2/pages?per_page=100&status=any", "GET", auth);
+        const pages = await api("/wp/v2/pages?per_page=100&status=any", "GET");
         result = pages.map((p: any) => ({
           id: p.id,
           title: p.title?.rendered ?? p.title,
@@ -139,7 +168,7 @@ serve(async (req: Request) => {
       }
 
       case "get_posts": {
-        const posts = await wpFetch(site_url, "/wp/v2/posts?per_page=20&status=any", "GET", auth);
+        const posts = await api("/wp/v2/posts?per_page=20&status=any", "GET");
         result = posts.map((p: any) => ({
           id: p.id,
           title: p.title?.rendered ?? p.title,
@@ -158,7 +187,7 @@ serve(async (req: Request) => {
         if (template) pageBody.template = template;
         if (meta) pageBody.meta = meta;
 
-        const page = await wpFetch(site_url, "/wp/v2/pages", "POST", auth, pageBody);
+        const page = await api("/wp/v2/pages", "POST", pageBody);
         result = {
           id: page.id,
           link: page.link,
@@ -180,7 +209,7 @@ serve(async (req: Request) => {
         if (template !== undefined) pageBody.template = template;
         if (meta !== undefined) pageBody.meta = meta;
 
-        const page = await wpFetch(site_url, `/wp/v2/pages/${id}`, "PUT", auth, pageBody);
+        const page = await api(`/wp/v2/pages/${id}`, "PUT", pageBody);
         result = {
           id: page.id,
           link: page.link,
@@ -201,7 +230,7 @@ serve(async (req: Request) => {
         if (tags) postBody.tags = tags;
         if (meta) postBody.meta = meta;
 
-        const post = await wpFetch(site_url, "/wp/v2/posts", "POST", auth, postBody);
+        const post = await api("/wp/v2/posts", "POST", postBody);
         result = { id: post.id, link: post.link };
         break;
       }
@@ -230,7 +259,7 @@ serve(async (req: Request) => {
         form.append("file", blob, filename);
         if (alt_text) form.append("alt_text", alt_text);
 
-        const media = await wpFetch(site_url, "/wp/v2/media", "POST", auth, form, true);
+        const media = await api("/wp/v2/media", "POST", form, true);
         result = {
           id: media.id,
           source_url: media.source_url,
@@ -246,11 +275,9 @@ serve(async (req: Request) => {
         if (!resourceId) throw new Error("page_id or post_id is required for set_featured_image");
         if (!media_id) throw new Error("media_id is required for set_featured_image");
 
-        const updated = await wpFetch(
-          site_url,
+        const updated = await api(
           `/wp/v2/${resourceType}/${resourceId}`,
           "PUT",
-          auth,
           { featured_media: media_id },
         );
         result = { id: updated.id, featured_media: updated.featured_media };
@@ -263,12 +290,7 @@ serve(async (req: Request) => {
 
         if (!homePageId) {
           // Try to find an existing "Home" page
-          const pages = await wpFetch(
-            site_url,
-            '/wp/v2/pages?per_page=100&status=any&search=Home',
-            "GET",
-            auth,
-          );
+          const pages = await api('/wp/v2/pages?per_page=100&status=any&search=Home', "GET");
           const homePage = pages.find(
             (p: any) => (p.title?.rendered ?? p.title)?.toLowerCase() === "home",
           );
@@ -277,7 +299,7 @@ serve(async (req: Request) => {
             homePageId = homePage.id;
           } else {
             // Create a Home page
-            const newPage = await wpFetch(site_url, "/wp/v2/pages", "POST", auth, {
+            const newPage = await api("/wp/v2/pages", "POST", {
               title: "Home",
               status: "publish",
               slug: "home",
@@ -286,7 +308,7 @@ serve(async (req: Request) => {
           }
         }
 
-        await wpFetch(site_url, "/wp/v2/settings", "POST", auth, {
+        await api("/wp/v2/settings", "POST", {
           show_on_front: "page",
           page_on_front: homePageId,
         });
@@ -299,14 +321,14 @@ serve(async (req: Request) => {
         const { name, items } = rest;
         const menuName = name ?? "Main Menu";
 
-        const menu = await wpFetch(site_url, "/wp/v2/menus", "POST", auth, { name: menuName });
+        const menu = await api("/wp/v2/menus", "POST", { name: menuName });
         const menuId = menu.id;
 
         const createdItems: unknown[] = [];
         if (Array.isArray(items)) {
           for (let i = 0; i < items.length; i++) {
             const item = items[i];
-            const menuItem = await wpFetch(site_url, "/wp/v2/menu-items", "POST", auth, {
+            const menuItem = await api("/wp/v2/menu-items", "POST", {
               title: item.title,
               url: item.url,
               menus: menuId,
@@ -322,7 +344,7 @@ serve(async (req: Request) => {
       }
 
       case "get_categories": {
-        const cats = await wpFetch(site_url, "/wp/v2/categories", "GET", auth);
+        const cats = await api("/wp/v2/categories", "GET");
         result = cats.map((c: any) => ({
           id: c.id,
           name: c.name,
@@ -338,13 +360,13 @@ serve(async (req: Request) => {
         if (slug) catBody.slug = slug;
         if (description) catBody.description = description;
 
-        const cat = await wpFetch(site_url, "/wp/v2/categories", "POST", auth, catBody);
+        const cat = await api("/wp/v2/categories", "POST", catBody);
         result = { id: cat.id, name: cat.name, slug: cat.slug };
         break;
       }
 
       case "get_plugins": {
-        const plugins = await wpFetch(site_url, "/wp/v2/plugins", "GET", auth);
+        const plugins = await api("/wp/v2/plugins", "GET");
         result = plugins.map((p: any) => ({
           plugin: p.plugin,
           name: p.name,
@@ -382,7 +404,7 @@ serve(async (req: Request) => {
         } = rest;
 
         try {
-          const product = await wpFetch(site_url, "/wc/v3/products", "POST", auth, {
+          const product = await api("/wc/v3/products", "POST", {
             name,
             type: type ?? "simple",
             regular_price,
@@ -405,12 +427,7 @@ serve(async (req: Request) => {
 
       case "get_woocommerce_products": {
         try {
-          const products = await wpFetch(
-            site_url,
-            "/wc/v3/products?per_page=20",
-            "GET",
-            auth,
-          );
+          const products = await api("/wc/v3/products?per_page=20", "GET");
           result = products.map((p: any) => ({
             id: p.id,
             name: p.name,
@@ -442,7 +459,7 @@ serve(async (req: Request) => {
           if (p.slug) pageBody.slug = p.slug;
           if (p.meta) pageBody.meta = p.meta;
 
-          const page = await wpFetch(site_url, "/wp/v2/pages", "POST", auth, pageBody);
+          const page = await api("/wp/v2/pages", "POST", pageBody);
           created.push({ id: page.id, link: page.link, slug: page.slug });
         }
 

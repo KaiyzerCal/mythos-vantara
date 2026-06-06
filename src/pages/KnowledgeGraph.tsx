@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { PageHeader } from "@/components/SharedUI";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 import {
   Network, Plus, Search, Link2, Trash2, Save,
   X, Edit3, Clock, Hash, ArrowRight, ArrowLeft, List, GitGraph,
@@ -91,6 +92,8 @@ export default function KnowledgeGraph() {
   const [allLinks, setAllLinks]     = useState<NoteLink[]>([]);
   const [loadingGraph, setLoadingGraph] = useState(false);
   const [filterTag, setFilterTag]   = useState<string>("");
+  const [confirmDeleteNote, setConfirmDeleteNote] = useState<{ id: string; title: string } | null>(null);
+  const [confirmDeleteLink, setConfirmDeleteLink] = useState<{ id: string } | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const loadNotes = useCallback(async () => {
@@ -452,7 +455,7 @@ export default function KnowledgeGraph() {
                     <button onClick={() => setShowVersions(!showVersions)} className="flex items-center gap-1 px-2 py-1 rounded text-[10px] font-mono text-muted-foreground hover:text-primary border border-border hover:border-primary/30 transition-colors">
                       <Clock size={10} /> v{versions.length}
                     </button>
-                    <button onClick={() => { if (confirm(`Delete "${selected.title}"?`)) deleteNote(selected.id); }}
+                    <button onClick={() => setConfirmDeleteNote({ id: selected.id, title: selected.title })}
                       className="flex items-center gap-1 px-2 py-1 rounded text-[10px] font-mono text-red-400 hover:bg-red-500/10 border border-border hover:border-red-500/30 transition-colors">
                       <Trash2 size={10} />
                     </button>
@@ -553,7 +556,7 @@ export default function KnowledgeGraph() {
                               <span className="text-[8px] font-mono text-muted-foreground">{link.type.replace(/_/g, " ")}</span>
                               {link.description && <p className="text-[8px] font-mono text-muted-foreground/70 truncate">{link.description}</p>}
                             </div>
-                            <button onClick={() => removeLink(link.id)} className="opacity-0 group-hover:opacity-100 transition-opacity">
+                            <button onClick={() => setConfirmDeleteLink({ id: link.id })} className="opacity-0 group-hover:opacity-100 transition-opacity">
                               <X size={8} className="text-red-400" />
                             </button>
                           </div>
@@ -653,6 +656,30 @@ export default function KnowledgeGraph() {
           </motion.div>
         )}
       </AnimatePresence>
+
+      <ConfirmDialog
+        open={confirmDeleteNote !== null}
+        title={`Delete "${confirmDeleteNote?.title}"?`}
+        description="This will permanently delete the note and all its links."
+        onConfirm={() => {
+          if (!confirmDeleteNote) return;
+          deleteNote(confirmDeleteNote.id);
+          setConfirmDeleteNote(null);
+        }}
+        onCancel={() => setConfirmDeleteNote(null)}
+      />
+
+      <ConfirmDialog
+        open={confirmDeleteLink !== null}
+        title="Remove this link?"
+        description="This action cannot be undone."
+        onConfirm={() => {
+          if (!confirmDeleteLink) return;
+          removeLink(confirmDeleteLink.id);
+          setConfirmDeleteLink(null);
+        }}
+        onCancel={() => setConfirmDeleteLink(null)}
+      />
     </div>
   );
 }

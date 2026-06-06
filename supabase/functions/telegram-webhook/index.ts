@@ -114,9 +114,8 @@ function scoreImportance(text: string): number {
 
 // Find or create the operator's main web conversation so Telegram messages
 // appear in the same thread as the /mavis web UI.
-let _webConvoId: string | null = null;
+// Always queries fresh — no module-level cache that could go stale between invocations.
 async function getWebConversationId(): Promise<string | null> {
-  if (_webConvoId) return _webConvoId;
   try {
     const { data } = await supabase
       .from("chat_conversations")
@@ -126,10 +125,7 @@ async function getWebConversationId(): Promise<string | null> {
       .limit(1)
       .maybeSingle();
 
-    if (data?.id) {
-      _webConvoId = data.id;
-      return _webConvoId;
-    }
+    if (data?.id) return data.id;
 
     // No conversation exists yet — create one
     const { data: created } = await supabase
@@ -138,14 +134,15 @@ async function getWebConversationId(): Promise<string | null> {
       .select("id")
       .single();
 
-    _webConvoId = created?.id ?? null;
-    return _webConvoId;
+    return created?.id ?? null;
   } catch { return null; }
 }
 
 async function persistMessage(chatId: string, role: string, content: string): Promise<void> {
+  // Write to mavis_memory (powers context + long-term recall).
+  // This is intentionally independent: a mavis_memory failure must NOT prevent
+  // chat_messages from being written.
   try {
-    // Write to mavis_memory (powers context + long-term recall)
     await supabase.from("mavis_memory").insert({
       user_id:          OPERATOR_USER_ID,
       session_id:       `${SESSION_PREFIX}${chatId}`,
@@ -155,8 +152,13 @@ async function persistMessage(chatId: string, role: string, content: string): Pr
       importance_score: scoreImportance(content),
       consolidated:     false,
     });
+  } catch (err) {
+    console.warn("[Telegram] mavis_memory write failed (non-fatal):", err);
+  }
 
-    // Also write to chat_messages so messages appear in the /mavis web UI thread
+  // Write to chat_messages so messages appear in the /mavis web UI thread.
+  // Runs independently of the mavis_memory write above.
+  try {
     const convoId = await getWebConversationId();
     if (convoId) {
       // Prefix user messages with [Telegram] so the source is visible in the web UI
@@ -173,7 +175,9 @@ async function persistMessage(chatId: string, role: string, content: string): Pr
         .update({ updated_at: new Date().toISOString() })
         .eq("id", convoId);
     }
-  } catch { /* non-fatal */ }
+  } catch (err) {
+    console.warn("[Telegram] chat_messages write failed (non-fatal):", err);
+  }
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -1259,6 +1263,125 @@ async function callPersona(personaId: string, message: string, chatId: string): 
 }
 
 // ─────────────────────────────────────────────────────────────
+// COUNCIL SESSION STATE + TURN HANDLER
+// Stored in mavis_memory with session_id "telegram-council-<chatId>" so the
+// sustained council mode survives function restarts. When active, every
+// inbound message is routed through mavis-strategy-council and persisted to
+// the user's Council Board chat thread (chat_conversations title
+// "Council Board …" + chat_messages).
+// ─────────────────────────────────────────────────────────────
+
+const COUNCIL_STATE_PREFIX = "telegram-council-";
+
+async function getCouncilMode(chatId: string): Promise<boolean> {
+  try {
+    const { data } = await supabase
+      .from("mavis_memory")
+      .select("content")
+      .eq("user_id", OPERATOR_USER_ID)
+      .eq("session_id", `${COUNCIL_STATE_PREFIX}${chatId}`)
+      .eq("role", "system")
+      .limit(1)
+      .maybeSingle();
+    return data?.content === "on";
+  } catch { return false; }
+}
+
+async function setCouncilMode(chatId: string, on: boolean): Promise<void> {
+  try {
+    await supabase
+      .from("mavis_memory")
+      .delete()
+      .eq("user_id", OPERATOR_USER_ID)
+      .eq("session_id", `${COUNCIL_STATE_PREFIX}${chatId}`)
+      .eq("role", "system");
+    if (on) {
+      await supabase.from("mavis_memory").insert({
+        user_id: OPERATOR_USER_ID,
+        session_id: `${COUNCIL_STATE_PREFIX}${chatId}`,
+        role: "system",
+        content: "on",
+        timestamp: Date.now(),
+      });
+    }
+  } catch { /* non-fatal */ }
+}
+
+async function getOrCreateCouncilConversation(): Promise<string | null> {
+  const { data: convos } = await supabase
+    .from("chat_conversations")
+    .select("id")
+    .eq("user_id", OPERATOR_USER_ID)
+    .ilike("title", "Council Board%")
+    .order("updated_at", { ascending: false })
+    .limit(1);
+  if (convos?.length) return convos[0].id;
+  const { data: created } = await supabase
+    .from("chat_conversations")
+    .insert({ user_id: OPERATOR_USER_ID, title: `Council Board — ${new Date().toLocaleDateString()}` })
+    .select("id").single();
+  return created?.id ?? null;
+}
+
+async function runCouncilTurn(_chatId: string, question: string): Promise<string> {
+  const cid = await getOrCreateCouncilConversation();
+  if (!cid) return "Failed to open council session.";
+
+  // Persist the user's question to the Council Board thread (with source marker)
+  await supabase.from("chat_messages").insert({
+    conversation_id: cid, user_id: OPERATOR_USER_ID,
+    role: "user", content: `[Telegram] ${question}`, mode: "USER",
+  });
+
+  const supabaseUrl2 = Deno.env.get("SUPABASE_URL")!;
+  const serviceKey2  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+  const councilRes = await fetch(`${supabaseUrl2}/functions/v1/mavis-strategy-council`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${serviceKey2}` },
+    body: JSON.stringify({ question, user_id: OPERATOR_USER_ID }),
+  });
+
+  if (!councilRes.ok) {
+    const errText = await councilRes.text().catch(() => "");
+    console.error("[Telegram/council] strategy-council error:", errText);
+    return "The Strategy Council failed to respond.";
+  }
+
+  const councilData = await councilRes.json();
+  const advisorOutputs: Array<{ role: string; output: string }> = councilData.advisor_outputs ?? [];
+  const synthesis: string = councilData.synthesis ?? "";
+  const recommendation: string = councilData.recommendation ?? "";
+
+  for (const a of advisorOutputs) {
+    const role = String(a.role ?? "Advisor").toLowerCase().replace(/[^a-z]/g, "-");
+    const label = String(a.role ?? "Advisor");
+    await supabase.from("chat_messages").insert({
+      conversation_id: cid, user_id: OPERATOR_USER_ID,
+      role: "assistant", content: String(a.output ?? ""),
+      mode: `council-${role}|${label}|Strategic Advisor|council`,
+    });
+  }
+  if (synthesis) {
+    await supabase.from("chat_messages").insert({
+      conversation_id: cid, user_id: OPERATOR_USER_ID,
+      role: "assistant", content: synthesis,
+      mode: `mavis|MAVIS Synthesis|Sovereign Intelligence|mavis`,
+    });
+  }
+  await supabase.from("chat_conversations")
+    .update({ updated_at: new Date().toISOString() })
+    .eq("id", cid);
+
+  const summaryParts = [
+    recommendation ? `RECOMMENDATION: ${recommendation.slice(0, 300)}` : null,
+    synthesis ? `\n\nSYNTHESIS:\n${synthesis.slice(0, 600)}` : null,
+    `\n\n(Full council analysis in the Council Board)`,
+  ].filter(Boolean).join("");
+  return summaryParts || "Council deliberated. Full analysis in the Council Board.";
+}
+
+
+// ─────────────────────────────────────────────────────────────
 // COMMAND HANDLERS
 // ─────────────────────────────────────────────────────────────
 
@@ -1266,7 +1389,7 @@ async function handleCommand(command: string, chatId: string, fullText: string):
   switch (command.toLowerCase()) {
     case "/start":
     case "/help":
-      return `MAVIS Online — Telegram Interface\n\nCommands:\n/brief — morning brief (overdue, approvals, SR, revenue, goals)\n/quests — active quests\n/energy — energy status\n/revenue — revenue report\n/expense [amount] [desc] — log an expense\n/tasks — run pending tasks now\n/scan — demand scan for product opportunities\n/orders — view Inbox (pending tasks & approvals)\n/approve [id] — approve a pending item\n/reject [id] — reject a pending item\n/preview [id] — preview full content before approving\n/council — council status + trigger check-ins\n/daily — save today's activity log to Knowledge Graph\n/review — surface notes due for spaced repetition\n/weekly — generate weekly review summary\n/monthly — generate monthly review summary\n/goals — view active goals and quest progress\n/search [query] — search your Knowledge Graph\n/note [title] — fetch a specific note\n/addnote [title] | [content] — quick note to Knowledge Graph\n/personas — list your NAVI roster\n/switch [name] — talk to a persona\n/mavis — return to MAVIS\n/ingest [url or text] — save a URL or text to your Knowledge Graph\n/imagine [description] — generate an image with DALL-E 3\n\nVoice messages, photos, and files also work.\nOr just talk to me.`;
+      return `MAVIS Online — Telegram Interface\n\nCommands:\n/brief — morning brief (overdue, approvals, SR, revenue, goals)\n/quests — active quests\n/energy — energy status\n/revenue — revenue report\n/expense [amount] [desc] — log an expense\n/tasks — run pending tasks now\n/scan — demand scan for product opportunities\n/orders — view Inbox (pending tasks & approvals)\n/approve [id] — approve a pending item\n/reject [id] — reject a pending item\n/preview [id] — preview full content before approving\n/council [question] — one-shot strategic council convene\n/council-mode — sustained council session (every message convenes the board)\n/council-off — exit council mode\n/daily — save today's activity log to Knowledge Graph\n/review — surface notes due for spaced repetition\n/weekly — generate weekly review summary\n/monthly — generate monthly review summary\n/goals — view active goals and quest progress\n/search [query] — search your Knowledge Graph\n/note [title] — fetch a specific note\n/addnote [title] | [content] — quick note to Knowledge Graph\n/personas — list your NAVI roster\n/switch [name] — talk to a persona (chats land in their app thread)\n/mavis — return to MAVIS\n/ingest [url or text] — save a URL or text to your Knowledge Graph\n/imagine [description] — generate an image with DALL-E 3\n\nVoice messages, photos, and files also work.\nOr just talk to me.`;
 
     case "/brief": {
       const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
@@ -1808,9 +1931,29 @@ async function handleCommand(command: string, chatId: string, fullText: string):
     case "/mavis": {
       const current = await getActivePersona(chatId);
       await setActivePersona(chatId, null);
+      await setCouncilMode(chatId, false);
       if (current) return `Returning to MAVIS. ${current.persona_name} is standing by.`;
       return "MAVIS online. What do you need?";
     }
+
+    case "/council-mode":
+    case "/council-on": {
+      await setActivePersona(chatId, null);
+      await setCouncilMode(chatId, true);
+      return "Council Mode engaged. Every message you send convenes the full advisory council and lands in your Council Board thread. Use /mavis or /council-off to exit.";
+    }
+
+    case "/council-off": {
+      await setCouncilMode(chatId, false);
+      return "Council Mode disengaged. Back to MAVIS.";
+    }
+
+    case "/council": {
+      const question = fullText.replace(/^\/council\s*/i, "").trim();
+      if (!question) return "Usage: /council [strategic question]\n\nExample: /council Should I launch the product now or wait?\n\nOr use /council-mode to enter a sustained council session.";
+      return await runCouncilTurn(chatId, question);
+    }
+
 
     case "/switch": {
       const nameQuery = fullText.replace(/^\/switch\s*/i, "").trim();
@@ -1949,12 +2092,23 @@ Deno.serve(async (req) => {
   await sendTyping(chatId);
 
   try {
+    // ── Check for active council mode ──────────────────────
+    if (await getCouncilMode(chatId)) {
+      const councilReply = await runCouncilTurn(chatId, inputText);
+      await sendPlain(chatId, councilReply);
+      return new Response("OK");
+    }
+
     // ── Check for active persona ───────────────────────────
     const activePersona = await getActivePersona(chatId);
 
     if (activePersona) {
       // ── PERSONA MODE: route through mavis-persona-router ──
-      const personaMessage = mediaContext ? `${mediaContext}${inputText}` : inputText;
+      // persona-router persists to persona_conversations (the persona's app
+      // chat thread). We prefix with [Telegram] so the source is visible.
+      // Do NOT write to chat_messages here — that would pollute MAVIS thread.
+      const sourcedInput = `[Telegram] ${inputText}`;
+      const personaMessage = mediaContext ? `${mediaContext}${sourcedInput}` : sourcedInput;
       const reply = await callPersona(activePersona.persona_id, personaMessage, chatId);
       await sendPlain(chatId, reply);
       return new Response("OK");

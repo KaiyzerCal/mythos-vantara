@@ -9,6 +9,7 @@ import { useAppData } from "@/contexts/AppDataContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { PageHeader, HudCard, RarityBadge, ProgressBar } from "@/components/SharedUI";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { toast } from "sonner";
 
 // ─── Journal templates ─────────────────────────────────────
@@ -30,6 +31,7 @@ export function JournalPage() {
   const [showTemplates, setShowTemplates] = useState(false);
   const [recording, setRecording] = useState(false);
   const [transcribing, setTranscribing] = useState(false);
+  const [confirmDeleteJournal, setConfirmDeleteJournal] = useState<{ id: string; label: string } | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
 
@@ -164,9 +166,9 @@ export function JournalPage() {
         )}
       </AnimatePresence>
 
-      {showCreate && (
+      {showCreate && !editingId && (
         <HudCard className="border-primary/20">
-          <p className="text-[9px] font-mono text-primary uppercase tracking-widest mb-3">{editingId ? "Edit Entry" : "New Entry"}</p>
+          <p className="text-[9px] font-mono text-primary uppercase tracking-widest mb-3">New Entry</p>
           <div className="space-y-2">
             <input value={form.title} onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))} placeholder="Title..." className="w-full bg-muted/30 border border-border rounded px-3 py-1.5 text-sm focus:outline-none focus:border-primary/40" />
             <textarea value={form.content} onChange={(e) => setForm((f) => ({ ...f, content: e.target.value }))} placeholder="Entry content..." rows={4} className="w-full bg-muted/30 border border-border rounded px-3 py-2 text-sm font-body resize-none focus:outline-none focus:border-primary/40" />
@@ -182,7 +184,7 @@ export function JournalPage() {
             <input value={form.tags} onChange={(e) => setForm((f) => ({ ...f, tags: e.target.value }))} placeholder="Tags (comma-separated)" className="w-full bg-muted/30 border border-border rounded px-3 py-1.5 text-xs font-mono focus:outline-none" />
             <div className="flex gap-2 justify-end">
               <button onClick={resetForm} className="px-3 py-1.5 text-xs font-mono text-muted-foreground border border-border rounded">Cancel</button>
-              <button onClick={handleSave} className="px-3 py-1.5 text-xs font-mono bg-primary/10 border border-primary/30 text-primary rounded">{editingId ? "Save" : "Log Entry (+10 XP)"}</button>
+              <button onClick={handleSave} className="px-3 py-1.5 text-xs font-mono bg-primary/10 border border-primary/30 text-primary rounded">Log Entry (+10 XP)</button>
             </div>
           </div>
         </HudCard>
@@ -190,6 +192,35 @@ export function JournalPage() {
       <div className="space-y-2">
         {journalEntries.map((e, i) => {
           const isExpanded = expandedId === e.id;
+
+          if (editingId === e.id) {
+            return (
+              <motion.div key={e.id} initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }}>
+                <HudCard className="border-primary/20">
+                  <p className="text-[9px] font-mono text-primary uppercase tracking-widest mb-3">Edit Entry</p>
+                  <div className="space-y-2">
+                    <input value={form.title} onChange={(ev) => setForm((f) => ({ ...f, title: ev.target.value }))} placeholder="Title..." className="w-full bg-muted/30 border border-border rounded px-3 py-1.5 text-sm focus:outline-none focus:border-primary/40" />
+                    <textarea value={form.content} onChange={(ev) => setForm((f) => ({ ...f, content: ev.target.value }))} placeholder="Entry content..." rows={4} className="w-full bg-muted/30 border border-border rounded px-3 py-2 text-sm font-body resize-none focus:outline-none focus:border-primary/40" />
+                    <div className="grid grid-cols-3 gap-2">
+                      <select value={form.category} onChange={(ev) => setForm((f) => ({ ...f, category: ev.target.value }))} className="bg-muted/30 border border-border rounded px-2 py-1.5 text-xs font-mono focus:outline-none">
+                        {["personal", "business", "fitness", "legal", "reflection"].map((c) => <option key={c}>{c}</option>)}
+                      </select>
+                      <select value={form.importance} onChange={(ev) => setForm((f) => ({ ...f, importance: ev.target.value }))} className="bg-muted/30 border border-border rounded px-2 py-1.5 text-xs font-mono focus:outline-none">
+                        {["low", "medium", "high", "critical"].map((imp) => <option key={imp}>{imp}</option>)}
+                      </select>
+                      <input value={form.mood} onChange={(ev) => setForm((f) => ({ ...f, mood: ev.target.value }))} placeholder="Mood" className="bg-muted/30 border border-border rounded px-3 py-1.5 text-xs font-mono focus:outline-none" />
+                    </div>
+                    <input value={form.tags} onChange={(ev) => setForm((f) => ({ ...f, tags: ev.target.value }))} placeholder="Tags (comma-separated)" className="w-full bg-muted/30 border border-border rounded px-3 py-1.5 text-xs font-mono focus:outline-none" />
+                    <div className="flex gap-2 justify-end">
+                      <button onClick={resetForm} className="px-3 py-1.5 text-xs font-mono text-muted-foreground border border-border rounded">Cancel</button>
+                      <button onClick={handleSave} className="px-3 py-1.5 text-xs font-mono bg-primary/10 border border-primary/30 text-primary rounded">Save</button>
+                    </div>
+                  </div>
+                </HudCard>
+              </motion.div>
+            );
+          }
+
           return (
           <motion.div key={e.id} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.03 }}>
             <HudCard className={`cursor-pointer transition-all ${isExpanded ? "border-primary/30" : ""}`}>
@@ -224,7 +255,7 @@ export function JournalPage() {
                   <div className="flex flex-col items-end gap-1 shrink-0" onClick={(ev) => ev.stopPropagation()}>
                     <span className="text-[10px] font-mono text-green-400">+{e.xp_earned} XP</span>
                     <button onClick={() => handleEdit(e)} className="p-1 text-muted-foreground hover:text-primary transition-colors"><Edit2 size={12} /></button>
-                    <button onClick={() => deleteJournalEntry(e.id)} className="p-1 text-muted-foreground hover:text-destructive transition-colors"><Trash2 size={12} /></button>
+                    <button onClick={() => setConfirmDeleteJournal({ id: e.id, label: e.title })} className="p-1 text-muted-foreground hover:text-destructive transition-colors"><Trash2 size={12} /></button>
                   </div>
                 </div>
               </div>
@@ -234,6 +265,17 @@ export function JournalPage() {
         })}
         {journalEntries.length === 0 && <p className="text-xs font-mono text-muted-foreground text-center py-8">No journal entries yet. Start logging your arc.</p>}
       </div>
+      <ConfirmDialog
+        open={confirmDeleteJournal !== null}
+        title={`Delete "${confirmDeleteJournal?.label}"?`}
+        description="This action cannot be undone."
+        onConfirm={() => {
+          if (!confirmDeleteJournal) return;
+          deleteJournalEntry(confirmDeleteJournal.id);
+          setConfirmDeleteJournal(null);
+        }}
+        onCancel={() => setConfirmDeleteJournal(null)}
+      />
     </div>
   );
 }
@@ -252,6 +294,8 @@ export function VaultCodexPage() {
   const [showUploadFor, setShowUploadFor] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [showGallery, setShowGallery] = useState(false);
+  const [confirmDeleteMedia, setConfirmDeleteMedia] = useState<{ id: string; fileUrl: string; label: string } | null>(null);
+  const [confirmDeleteVault, setConfirmDeleteVault] = useState<{ id: string; label: string } | null>(null);
   const [galleryTab, setGalleryTab] = useState<"all" | "image" | "video" | "audio" | "document">("all");
   const [lightboxItem, setLightboxItem] = useState<any>(null);
   const [showIngestUrl, setShowIngestUrl] = useState(false);
@@ -538,9 +582,9 @@ export function VaultCodexPage() {
         </HudCard>
       )}
 
-      {showCreate && (
+      {showCreate && !editingId && (
         <HudCard className="border-primary/20">
-          <p className="text-[9px] font-mono text-primary uppercase tracking-widest mb-3">{editingId ? "Edit Entry" : "New Entry"}</p>
+          <p className="text-[9px] font-mono text-primary uppercase tracking-widest mb-3">New Entry</p>
           <div className="space-y-2">
             <input value={form.title} onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))} placeholder="Entry title..." className="w-full bg-muted/30 border border-border rounded px-3 py-1.5 text-sm focus:outline-none focus:border-primary/40" />
             <textarea value={form.content} onChange={(e) => setForm((f) => ({ ...f, content: e.target.value }))} placeholder="Vault content (evidence, notes, data)..." rows={4} className="w-full bg-muted/30 border border-border rounded px-3 py-2 text-sm resize-none focus:outline-none" />
@@ -554,7 +598,7 @@ export function VaultCodexPage() {
             </div>
             <div className="flex gap-2 justify-end">
               <button onClick={resetForm} className="px-3 py-1.5 text-xs font-mono text-muted-foreground border border-border rounded">Cancel</button>
-              <button onClick={handleSave} className="px-3 py-1.5 text-xs font-mono bg-primary/10 border border-primary/30 text-primary rounded">{editingId ? "Save" : "Store"}</button>
+              <button onClick={handleSave} className="px-3 py-1.5 text-xs font-mono bg-primary/10 border border-primary/30 text-primary rounded">Store</button>
             </div>
           </div>
         </HudCard>
@@ -639,7 +683,7 @@ export function VaultCodexPage() {
                       <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
                         <button className="p-1.5 bg-primary/20 rounded-full"><Eye size={13} className="text-primary" /></button>
                         <button
-                          onClick={(ev) => { ev.stopPropagation(); deleteMedia(m.id, m.file_url); }}
+                          onClick={(ev) => { ev.stopPropagation(); setConfirmDeleteMedia({ id: m.id, fileUrl: m.file_url, label: m.file_name }); }}
                           className="p-1.5 bg-destructive/20 rounded-full"
                         >
                           <Trash2 size={13} className="text-destructive" />
@@ -751,7 +795,7 @@ export function VaultCodexPage() {
                 )}
                 <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
                   <a href={m.file_url} target="_blank" rel="noopener noreferrer" className="p-1 bg-primary/20 rounded"><Eye size={12} className="text-primary" /></a>
-                  <button onClick={() => deleteMedia(m.id, m.file_url)} className="p-1 bg-destructive/20 rounded"><Trash2 size={12} className="text-destructive" /></button>
+                  <button onClick={() => setConfirmDeleteMedia({ id: m.id, fileUrl: m.file_url, label: m.file_name })} className="p-1 bg-destructive/20 rounded"><Trash2 size={12} className="text-destructive" /></button>
                 </div>
                 <div className="px-1.5 py-1 bg-card">
                   <p className="text-[8px] font-mono truncate text-muted-foreground">{formatFileSize(m.file_size)}</p>
@@ -766,6 +810,33 @@ export function VaultCodexPage() {
         {filtered.map((e) => {
           const isExpanded = expandedId === e.id;
           const media = entryMedia[e.id] || [];
+
+          if (editingId === e.id) {
+            return (
+              <motion.div key={e.id} initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }}>
+                <HudCard className="border-primary/20">
+                  <p className="text-[9px] font-mono text-primary uppercase tracking-widest mb-3">Edit Entry</p>
+                  <div className="space-y-2">
+                    <input value={form.title} onChange={(ev) => setForm((f) => ({ ...f, title: ev.target.value }))} placeholder="Entry title..." className="w-full bg-muted/30 border border-border rounded px-3 py-1.5 text-sm focus:outline-none focus:border-primary/40" />
+                    <textarea value={form.content} onChange={(ev) => setForm((f) => ({ ...f, content: ev.target.value }))} placeholder="Vault content (evidence, notes, data)..." rows={4} className="w-full bg-muted/30 border border-border rounded px-3 py-2 text-sm resize-none focus:outline-none" />
+                    <div className="grid grid-cols-2 gap-2">
+                      <select value={form.category} onChange={(ev) => setForm((f) => ({ ...f, category: ev.target.value }))} className="bg-muted/30 border border-border rounded px-2 py-1.5 text-xs font-mono focus:outline-none">
+                        {["legal", "business", "personal", "evidence", "achievement"].map((c) => <option key={c}>{c}</option>)}
+                      </select>
+                      <select value={form.importance} onChange={(ev) => setForm((f) => ({ ...f, importance: ev.target.value }))} className="bg-muted/30 border border-border rounded px-2 py-1.5 text-xs font-mono focus:outline-none">
+                        {["low", "medium", "high", "critical"].map((imp) => <option key={imp}>{imp}</option>)}
+                      </select>
+                    </div>
+                    <div className="flex gap-2 justify-end">
+                      <button onClick={resetForm} className="px-3 py-1.5 text-xs font-mono text-muted-foreground border border-border rounded">Cancel</button>
+                      <button onClick={handleSave} className="px-3 py-1.5 text-xs font-mono bg-primary/10 border border-primary/30 text-primary rounded">Save</button>
+                    </div>
+                  </div>
+                </HudCard>
+              </motion.div>
+            );
+          }
+
           return (
           <HudCard key={e.id} className={`cursor-pointer transition-all ${importanceBorder[e.importance]} ${isExpanded ? "border-primary/30" : ""}`}>
             <div onClick={() => { const next = isExpanded ? null : e.id; setExpandedId(next); if (next) { loadBacklinks(next); syncWikilinks(next, e.content ?? ""); } }}>
@@ -826,7 +897,7 @@ export function VaultCodexPage() {
                                 )}
                                 <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
                                   <a href={m.file_url} target="_blank" rel="noopener noreferrer" className="p-1 bg-primary/20 rounded"><Eye size={10} className="text-primary" /></a>
-                                  <button onClick={(ev) => { ev.stopPropagation(); deleteMedia(m.id, m.file_url); }} className="p-1 bg-destructive/20 rounded"><Trash2 size={10} className="text-destructive" /></button>
+                                  <button onClick={(ev) => { ev.stopPropagation(); setConfirmDeleteMedia({ id: m.id, fileUrl: m.file_url, label: m.file_name }); }} className="p-1 bg-destructive/20 rounded"><Trash2 size={10} className="text-destructive" /></button>
                                 </div>
                               </div>
                             ))}
@@ -860,7 +931,7 @@ export function VaultCodexPage() {
                 </div>
                 <div className="flex flex-col gap-1 shrink-0" onClick={(ev) => ev.stopPropagation()}>
                   <button onClick={() => handleEdit(e)} className="p-1 text-muted-foreground hover:text-primary transition-colors"><Edit2 size={12} /></button>
-                  <button onClick={() => deleteVaultEntry(e.id)} className="p-1 text-muted-foreground hover:text-destructive transition-colors"><Trash2 size={12} /></button>
+                  <button onClick={() => setConfirmDeleteVault({ id: e.id, label: e.title })} className="p-1 text-muted-foreground hover:text-destructive transition-colors"><Trash2 size={12} /></button>
                 </div>
               </div>
             </div>
@@ -870,6 +941,28 @@ export function VaultCodexPage() {
         {filtered.length === 0 && <p className="text-xs font-mono text-muted-foreground text-center py-8">Vault empty — classified knowledge awaits.</p>}
       </div>
       </>}
+      <ConfirmDialog
+        open={confirmDeleteMedia !== null}
+        title={`Delete "${confirmDeleteMedia?.label}"?`}
+        description="This file will be permanently deleted."
+        onConfirm={() => {
+          if (!confirmDeleteMedia) return;
+          deleteMedia(confirmDeleteMedia.id, confirmDeleteMedia.fileUrl);
+          setConfirmDeleteMedia(null);
+        }}
+        onCancel={() => setConfirmDeleteMedia(null)}
+      />
+      <ConfirmDialog
+        open={confirmDeleteVault !== null}
+        title={`Delete "${confirmDeleteVault?.label}"?`}
+        description="This action cannot be undone."
+        onConfirm={() => {
+          if (!confirmDeleteVault) return;
+          deleteVaultEntry(confirmDeleteVault.id);
+          setConfirmDeleteVault(null);
+        }}
+        onCancel={() => setConfirmDeleteVault(null)}
+      />
     </div>
   );
 }
@@ -943,6 +1036,7 @@ export function SkillsPage() {
   const [seeding, setSeeding] = useState(false);
   const [expandedSkills, setExpandedSkills] = useState<Set<string>>(new Set());
   const [expandedDetail, setExpandedDetail] = useState<string | null>(null);
+  const [confirmDeleteSkill, setConfirmDeleteSkill] = useState<{ id: string; label: string } | null>(null);
 
   // Auto-seed skills on first load
   useEffect(() => {
@@ -1003,9 +1097,9 @@ export function SkillsPage() {
       <PageHeader title="Skill Trees" subtitle={`${skills.filter((s) => s.unlocked).length} / ${skills.length} skills unlocked`} icon={<Sparkles size={18} />}
         actions={<button onClick={() => { resetForm(); setShowCreate(true); }} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono bg-primary/10 border border-primary/30 text-primary rounded"><Plus size={12} /> Add Skill</button>}
       />
-      {showCreate && (
+      {showCreate && !editingId && (
         <HudCard className="border-primary/20">
-          <p className="text-[9px] font-mono text-primary uppercase tracking-widest mb-3">{editingId ? "Edit Skill" : form.parent_skill_id ? "New Subskill" : "New Skill"}</p>
+          <p className="text-[9px] font-mono text-primary uppercase tracking-widest mb-3">{form.parent_skill_id ? "New Subskill" : "New Skill"}</p>
           <div className="space-y-2">
             <div className="grid grid-cols-2 gap-2">
               <input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} placeholder="Skill name" className="bg-muted/30 border border-border rounded px-3 py-1.5 text-sm focus:outline-none focus:border-primary/40" />
@@ -1017,7 +1111,6 @@ export function SkillsPage() {
               <input type="number" value={form.tier} onChange={(e) => setForm((f) => ({ ...f, tier: Number(e.target.value) }))} placeholder="Tier" className="bg-muted/30 border border-border rounded px-3 py-1.5 text-xs font-mono focus:outline-none" min={1} max={10} />
               <input type="number" value={form.proficiency} onChange={(e) => setForm((f) => ({ ...f, proficiency: Number(e.target.value) }))} placeholder="Proficiency %" className="bg-muted/30 border border-border rounded px-3 py-1.5 text-xs font-mono focus:outline-none" min={0} max={100} />
             </div>
-            {/* Parent skill selector */}
             <div>
               <p className="text-[9px] font-mono text-muted-foreground uppercase mb-1">Parent Skill (leave empty for top-level)</p>
               <select value={form.parent_skill_id} onChange={(e) => setForm((f) => ({ ...f, parent_skill_id: e.target.value }))} className="w-full bg-muted/30 border border-border rounded px-2 py-1.5 text-xs font-mono focus:outline-none">
@@ -1027,7 +1120,7 @@ export function SkillsPage() {
             </div>
             <div className="flex gap-2 justify-end">
               <button onClick={resetForm} className="px-3 py-1.5 text-xs font-mono text-muted-foreground border border-border rounded">Cancel</button>
-              <button onClick={handleSave} className="px-3 py-1.5 text-xs font-mono bg-primary/10 border border-primary/30 text-primary rounded">{editingId ? "Save" : "Unlock"}</button>
+              <button onClick={handleSave} className="px-3 py-1.5 text-xs font-mono bg-primary/10 border border-primary/30 text-primary rounded">Unlock</button>
             </div>
           </div>
         </HudCard>
@@ -1041,6 +1134,33 @@ export function SkillsPage() {
         {filtered.map((s) => {
           const subs = getSubskills(s.id);
           const isExpanded = expandedSkills.has(s.id);
+
+          if (editingId === s.id) {
+            return (
+              <div key={s.id} className="sm:col-span-2">
+                <HudCard className="border-primary/20">
+                  <p className="text-[9px] font-mono text-primary uppercase tracking-widest mb-3">Edit Skill: {s.name}</p>
+                  <div className="space-y-2">
+                    <div className="grid grid-cols-2 gap-2">
+                      <input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} placeholder="Skill name" className="bg-muted/30 border border-border rounded px-3 py-1.5 text-sm focus:outline-none focus:border-primary/40" />
+                      <input value={form.category} onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))} placeholder="Category" className="bg-muted/30 border border-border rounded px-3 py-1.5 text-sm focus:outline-none" />
+                    </div>
+                    <textarea value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))} placeholder="Description..." rows={2} className="w-full bg-muted/30 border border-border rounded px-3 py-1.5 text-sm resize-none focus:outline-none" />
+                    <div className="grid grid-cols-3 gap-2">
+                      <input value={form.energy_type} onChange={(e) => setForm((f) => ({ ...f, energy_type: e.target.value }))} placeholder="Energy type" className="bg-muted/30 border border-border rounded px-3 py-1.5 text-xs font-mono focus:outline-none" />
+                      <input type="number" value={form.tier} onChange={(e) => setForm((f) => ({ ...f, tier: Number(e.target.value) }))} placeholder="Tier" className="bg-muted/30 border border-border rounded px-3 py-1.5 text-xs font-mono focus:outline-none" min={1} max={10} />
+                      <input type="number" value={form.proficiency} onChange={(e) => setForm((f) => ({ ...f, proficiency: Number(e.target.value) }))} placeholder="Proficiency %" className="bg-muted/30 border border-border rounded px-3 py-1.5 text-xs font-mono focus:outline-none" min={0} max={100} />
+                    </div>
+                    <div className="flex gap-2 justify-end">
+                      <button onClick={resetForm} className="px-3 py-1.5 text-xs font-mono text-muted-foreground border border-border rounded">Cancel</button>
+                      <button onClick={handleSave} className="px-3 py-1.5 text-xs font-mono bg-primary/10 border border-primary/30 text-primary rounded">Save</button>
+                    </div>
+                  </div>
+                </HudCard>
+              </div>
+            );
+          }
+
           return (
              <div key={s.id} className="space-y-1">
               <HudCard className={`cursor-pointer transition-all ${s.unlocked ? "" : "opacity-50"} ${expandedDetail === s.id ? "ring-1 ring-primary/30" : ""}`} onClick={() => setExpandedDetail(expandedDetail === s.id ? null : s.id)}>
@@ -1078,13 +1198,34 @@ export function SkillsPage() {
                   <div className="flex flex-col gap-1 shrink-0">
                     <button onClick={(e) => { e.stopPropagation(); handleAddSubskill(s.id); }} className="p-1 text-muted-foreground hover:text-primary transition-colors" title="Add subskill"><Plus size={12} /></button>
                     <button onClick={(e) => { e.stopPropagation(); handleEdit(s); }} className="p-1 text-muted-foreground hover:text-primary transition-colors"><Edit2 size={12} /></button>
-                    <button onClick={(e) => { e.stopPropagation(); deleteSkill(s.id); }} className="p-1 text-muted-foreground hover:text-destructive transition-colors"><Trash2 size={12} /></button>
+                    <button onClick={(e) => { e.stopPropagation(); setConfirmDeleteSkill({ id: s.id, label: s.name }); }} className="p-1 text-muted-foreground hover:text-destructive transition-colors"><Trash2 size={12} /></button>
                   </div>
                 </div>
               </HudCard>
               {/* Subskills */}
               {isExpanded && subs.map((sub) => (
                 <div key={sub.id} className="ml-6">
+                  {editingId === sub.id ? (
+                    <HudCard className="border-primary/20">
+                      <p className="text-[9px] font-mono text-primary uppercase tracking-widest mb-3">Edit Subskill: {sub.name}</p>
+                      <div className="space-y-2">
+                        <div className="grid grid-cols-2 gap-2">
+                          <input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} placeholder="Skill name" className="bg-muted/30 border border-border rounded px-3 py-1.5 text-sm focus:outline-none focus:border-primary/40" />
+                          <input value={form.category} onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))} placeholder="Category" className="bg-muted/30 border border-border rounded px-3 py-1.5 text-sm focus:outline-none" />
+                        </div>
+                        <textarea value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))} placeholder="Description..." rows={2} className="w-full bg-muted/30 border border-border rounded px-3 py-1.5 text-sm resize-none focus:outline-none" />
+                        <div className="grid grid-cols-3 gap-2">
+                          <input value={form.energy_type} onChange={(e) => setForm((f) => ({ ...f, energy_type: e.target.value }))} placeholder="Energy type" className="bg-muted/30 border border-border rounded px-3 py-1.5 text-xs font-mono focus:outline-none" />
+                          <input type="number" value={form.tier} onChange={(e) => setForm((f) => ({ ...f, tier: Number(e.target.value) }))} placeholder="Tier" className="bg-muted/30 border border-border rounded px-3 py-1.5 text-xs font-mono focus:outline-none" min={1} max={10} />
+                          <input type="number" value={form.proficiency} onChange={(e) => setForm((f) => ({ ...f, proficiency: Number(e.target.value) }))} placeholder="Proficiency %" className="bg-muted/30 border border-border rounded px-3 py-1.5 text-xs font-mono focus:outline-none" min={0} max={100} />
+                        </div>
+                        <div className="flex gap-2 justify-end">
+                          <button onClick={resetForm} className="px-3 py-1.5 text-xs font-mono text-muted-foreground border border-border rounded">Cancel</button>
+                          <button onClick={handleSave} className="px-3 py-1.5 text-xs font-mono bg-primary/10 border border-primary/30 text-primary rounded">Save</button>
+                        </div>
+                      </div>
+                    </HudCard>
+                  ) : (
                   <HudCard className={`border-l-2 border-primary/20 cursor-pointer transition-all ${expandedDetail === sub.id ? "ring-1 ring-primary/30" : ""}`} onClick={() => setExpandedDetail(expandedDetail === sub.id ? null : sub.id)}>
                     <div className="flex items-start gap-2">
                       <div className="flex-1 min-w-0">
@@ -1106,10 +1247,11 @@ export function SkillsPage() {
                       </div>
                       <div className="flex flex-col gap-0.5 shrink-0">
                         <button onClick={(e) => { e.stopPropagation(); handleEdit(sub); }} className="p-0.5 text-muted-foreground hover:text-primary transition-colors"><Edit2 size={10} /></button>
-                        <button onClick={(e) => { e.stopPropagation(); deleteSkill(sub.id); }} className="p-0.5 text-muted-foreground hover:text-destructive transition-colors"><Trash2 size={10} /></button>
+                        <button onClick={(e) => { e.stopPropagation(); setConfirmDeleteSkill({ id: sub.id, label: sub.name }); }} className="p-0.5 text-muted-foreground hover:text-destructive transition-colors"><Trash2 size={10} /></button>
                       </div>
                     </div>
                   </HudCard>
+                  )}
                 </div>
               ))}
             </div>
@@ -1117,6 +1259,17 @@ export function SkillsPage() {
         })}
         {filtered.length === 0 && <p className="text-xs font-mono text-muted-foreground text-center py-8 col-span-2">No skills — unlock your first ability.</p>}
       </div>
+      <ConfirmDialog
+        open={confirmDeleteSkill !== null}
+        title={`Delete "${confirmDeleteSkill?.label}"?`}
+        description="This action cannot be undone."
+        onConfirm={() => {
+          if (!confirmDeleteSkill) return;
+          deleteSkill(confirmDeleteSkill.id);
+          setConfirmDeleteSkill(null);
+        }}
+        onCancel={() => setConfirmDeleteSkill(null)}
+      />
     </div>
   );
 }
@@ -1129,6 +1282,7 @@ export function InventoryPage() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [typeFilter, setTypeFilter] = useState("all");
   const [form, setForm] = useState({ name: "", description: "", type: "equipment", rarity: "common", quantity: 1, effect: "" });
+  const [confirmDeleteItem, setConfirmDeleteItem] = useState<{ id: string; label: string } | null>(null);
 
   useEffect(() => {
     void refetchInventory();
@@ -1162,9 +1316,9 @@ export function InventoryPage() {
       <PageHeader title="Inventory" subtitle={`${inventory.length} items — ${inventory.filter((i) => i.is_equipped).length} equipped`} icon={<Package size={18} />}
         actions={<button onClick={() => { resetForm(); setShowCreate(true); }} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono bg-primary/10 border border-primary/30 text-primary rounded"><Plus size={12} /> Add Item</button>}
       />
-      {showCreate && (
+      {showCreate && !editingId && (
         <HudCard className="border-primary/20">
-          <p className="text-[9px] font-mono text-primary uppercase tracking-widest mb-3">{editingId ? "Edit Item" : "New Item"}</p>
+          <p className="text-[9px] font-mono text-primary uppercase tracking-widest mb-3">New Item</p>
           <div className="space-y-2">
             <div className="grid grid-cols-2 gap-2">
               <input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} placeholder="Item name" className="bg-muted/30 border border-border rounded px-3 py-1.5 text-sm focus:outline-none focus:border-primary/40" />
@@ -1180,7 +1334,7 @@ export function InventoryPage() {
             <input value={form.effect} onChange={(e) => setForm((f) => ({ ...f, effect: e.target.value }))} placeholder="Effect" className="w-full bg-muted/30 border border-border rounded px-3 py-1.5 text-xs font-mono focus:outline-none" />
             <div className="flex gap-2 justify-end">
               <button onClick={resetForm} className="px-3 py-1.5 text-xs font-mono text-muted-foreground border border-border rounded">Cancel</button>
-              <button onClick={handleSave} className="px-3 py-1.5 text-xs font-mono bg-primary/10 border border-primary/30 text-primary rounded">{editingId ? "Save" : "Add"}</button>
+              <button onClick={handleSave} className="px-3 py-1.5 text-xs font-mono bg-primary/10 border border-primary/30 text-primary rounded">Add</button>
             </div>
           </div>
         </HudCard>
@@ -1193,6 +1347,33 @@ export function InventoryPage() {
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
         {filtered.map((item) => {
           const isExpanded = expandedId === item.id;
+
+          if (editingId === item.id) {
+            return (
+              <HudCard key={item.id} className="border-primary/20 sm:col-span-2 lg:col-span-3">
+                <p className="text-[9px] font-mono text-primary uppercase tracking-widest mb-3">Edit Item</p>
+                <div className="space-y-2">
+                  <div className="grid grid-cols-2 gap-2">
+                    <input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} placeholder="Item name" className="bg-muted/30 border border-border rounded px-3 py-1.5 text-sm focus:outline-none focus:border-primary/40" />
+                    <input type="number" value={form.quantity} onChange={(e) => setForm((f) => ({ ...f, quantity: Number(e.target.value) }))} placeholder="Qty" className="bg-muted/30 border border-border rounded px-3 py-1.5 text-sm focus:outline-none" min={1} />
+                    <select value={form.type} onChange={(e) => setForm((f) => ({ ...f, type: e.target.value }))} className="bg-muted/30 border border-border rounded px-2 py-1.5 text-xs font-mono focus:outline-none">
+                      {["equipment", "consumable", "material", "artifact"].map((t) => <option key={t}>{t}</option>)}
+                    </select>
+                    <select value={form.rarity} onChange={(e) => setForm((f) => ({ ...f, rarity: e.target.value }))} className="bg-muted/30 border border-border rounded px-2 py-1.5 text-xs font-mono focus:outline-none">
+                      {["common", "rare", "epic", "legendary", "mythic"].map((r) => <option key={r}>{r}</option>)}
+                    </select>
+                  </div>
+                  <input value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))} placeholder="Description" className="w-full bg-muted/30 border border-border rounded px-3 py-1.5 text-sm focus:outline-none" />
+                  <input value={form.effect} onChange={(e) => setForm((f) => ({ ...f, effect: e.target.value }))} placeholder="Effect" className="w-full bg-muted/30 border border-border rounded px-3 py-1.5 text-xs font-mono focus:outline-none" />
+                  <div className="flex gap-2 justify-end">
+                    <button onClick={resetForm} className="px-3 py-1.5 text-xs font-mono text-muted-foreground border border-border rounded">Cancel</button>
+                    <button onClick={handleSave} className="px-3 py-1.5 text-xs font-mono bg-primary/10 border border-primary/30 text-primary rounded">Save</button>
+                  </div>
+                </div>
+              </HudCard>
+            );
+          }
+
           return (
           <HudCard key={item.id} className={`cursor-pointer transition-all ${item.is_equipped ? "border-primary/30" : ""} ${isExpanded ? "border-primary/30" : ""}`}>
             <div onClick={() => setExpandedId(isExpanded ? null : item.id)}>
@@ -1223,7 +1404,7 @@ export function InventoryPage() {
                 </div>
                 <div className="flex flex-col gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
                   <button onClick={() => handleEdit(item)} className="p-1 text-muted-foreground hover:text-primary transition-colors"><Edit2 size={12} /></button>
-                  <button onClick={() => deleteInventoryItem(item.id)} className="p-1 text-muted-foreground hover:text-destructive transition-colors"><Trash2 size={12} /></button>
+                  <button onClick={() => setConfirmDeleteItem({ id: item.id, label: item.name })} className="p-1 text-muted-foreground hover:text-destructive transition-colors"><Trash2 size={12} /></button>
                 </div>
               </div>
             </div>
@@ -1232,6 +1413,17 @@ export function InventoryPage() {
         })}
         {filtered.length === 0 && <p className="text-xs font-mono text-muted-foreground text-center py-8 col-span-3">Inventory empty.</p>}
       </div>
+      <ConfirmDialog
+        open={confirmDeleteItem !== null}
+        title={`Delete "${confirmDeleteItem?.label}"?`}
+        description="This action cannot be undone."
+        onConfirm={() => {
+          if (!confirmDeleteItem) return;
+          deleteInventoryItem(confirmDeleteItem.id);
+          setConfirmDeleteItem(null);
+        }}
+        onCancel={() => setConfirmDeleteItem(null)}
+      />
     </div>
   );
 }

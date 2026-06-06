@@ -7,9 +7,9 @@ import {
   UserCheck, BarChart2, Repeat2, Heart, DollarSign, CalendarClock,
   Crosshair, GraduationCap, Clock, Video, BookMarked,
   TrendingUp, Mail, Webhook, KeyRound, Archive,
-  Clapperboard, Globe, LayoutTemplate, Workflow, Kanban,
+  Clapperboard, Globe, LayoutTemplate, Workflow, Kanban, UserSquare2, Palette,
   Users2, LayoutGrid, Trophy, Gauge, Bell, CreditCard, Upload,
-  BrainCircuit, SlidersHorizontal,
+  BrainCircuit, Brain, SlidersHorizontal, Phone, MessageSquare, Key, Users2 as UserGroup, Shield as ShieldIcon, PhoneCall,
 } from "lucide-react";
 import { useState, useContext } from "react";
 import { motion, AnimatePresence } from "framer-motion";
@@ -24,6 +24,10 @@ const PRIMARY_NAV = [
   { to: "/mavis", icon: Cpu, label: "MAVIS" },
   { to: "/mavis-ui", icon: Sparkles, label: "MavisUI" },
   { to: "/agents", icon: BrainCircuit, label: "Agent Dashboard" },
+  { to: "/intelligence", icon: Brain, label: "Intelligence" },
+  { to: "/phone", icon: Phone, label: "AI Phone Calls" },
+  { to: "/receptionist", icon: PhoneCall, label: "AI Receptionist" },
+  { to: "/sms", icon: MessageSquare, label: "SMS & WhatsApp" },
   { to: "/inbox", icon: Inbox, label: "Inbox" },
   { to: "/quests", icon: Target, label: "Quests" },
   { to: "/councils", icon: Users, label: "Councils" },
@@ -47,12 +51,17 @@ const INTEL_NAV = [
   { to: "/finance", icon: DollarSign, label: "Finance" },
   { to: "/scheduler", icon: CalendarClock, label: "Scheduler" },
   { to: "/goals", icon: Crosshair, label: "Goals" },
+  { to: "/playbooks", icon: BookOpen, label: "Playbooks" },
+  { to: "/so-templates", icon: BookMarked, label: "SO Templates" },
   { to: "/study", icon: GraduationCap, label: "Study" },
   { to: "/time", icon: Clock, label: "Time Tracker" },
   { to: "/meetings", icon: Video, label: "Meetings" },
   { to: "/highlights", icon: BookMarked, label: "Highlights" },
   { to: "/social-analytics", icon: TrendingUp, label: "Social Analytics" },
   { to: "/email", icon: Mail, label: "Email" },
+  { to: "/leads", icon: UserGroup, label: "Lead Generation" },
+  { to: "/competitors", icon: ShieldIcon, label: "Competitor Intel" },
+  { to: "/api-keys", icon: Key, label: "API Keys" },
   { to: "/webhooks", icon: Webhook, label: "Webhooks" },
   { to: "/integrations", icon: KeyRound, label: "Integrations" },
   { to: "/export", icon: Archive, label: "Export Data" },
@@ -60,8 +69,10 @@ const INTEL_NAV = [
 
 const CREATOR_NAV = [
   { to: "/creator", icon: Clapperboard, label: "Video Editor" },
+  { to: "/avatar-studio", icon: UserSquare2, label: "Avatar Studio" },
   { to: "/websites", icon: Globe, label: "Website Builder" },
   { to: "/widgets", icon: LayoutTemplate, label: "Widgets" },
+  { to: "/design-studio", icon: Palette, label: "Design Studio" },
   { to: "/workflows", icon: Workflow, label: "Workflows" },
   { to: "/plans", icon: Kanban, label: "Plan Board" },
 ];

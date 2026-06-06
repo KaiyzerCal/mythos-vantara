@@ -40,7 +40,57 @@ interface ExtractThumbnailAction {
   clip_id?: string;
 }
 
-type VideoRenderAction = RenderAction | PollAction | ExtractThumbnailAction;
+interface CaptionWord {
+  word: string;
+  start: number;
+  end: number;
+}
+
+interface TextOverlay {
+  text: string;
+  x?: number;
+  y?: number;
+  fontsize?: number;
+  fontcolor?: string;
+  start_time?: number;
+  end_time?: number;
+}
+
+interface CompileClip {
+  id?: string;
+  start?: number;
+  end?: number;
+  title?: string;
+  // New fields from server-side compile payload
+  storage_path?: string;
+  start_time?: number;
+  end_time?: number;
+  volume?: number;
+  text_overlays?: TextOverlay[];
+  caption_words?: CaptionWord[];
+}
+
+interface CompileAction {
+  action: "compile";
+  user_id: string;
+  project_id?: string;
+  source_url?: string;
+  clips: CompileClip[];
+  aspect_ratio?: "9:16" | "16:9" | "1:1";
+  output_format?: string;
+  width?: number;
+  height?: number;
+  fps?: number;
+  add_fades?: boolean;
+}
+
+interface ProxyVideoAction {
+  action: "proxy_video";
+  bucket: string;
+  path: string;
+}
+
+type VideoRenderAction = RenderAction | PollAction | ExtractThumbnailAction | CompileAction | ProxyVideoAction;
 
 // ── FFmpeg helpers ─────────────────────────────────────────
 
@@ -89,6 +139,52 @@ function buildFfmpegArgs(
   args.push("output.mp4");
 
   return args;
+}
+
+function buildCompilationFfmpegArgs(
+  clips: Array<{ start: number; end: number }>,
+  aspectRatio: string,
+  addFades: boolean,
+): string[] {
+  const N = clips.length;
+  const cropFilter = aspectRatio === "9:16"
+    ? "crop=ih*9/16:ih,scale=1080:1920,setsar=1"
+    : aspectRatio === "1:1"
+    ? "crop=ih:ih,scale=1080:1080,setsar=1"
+    : "scale=1920:1080,setsar=1";
+
+  const parts: string[] = [];
+  // Split input into N independent copies
+  parts.push(`[0:v]split=${N}${Array.from({ length: N }, (_, i) => `[sv${i}]`).join("")}`);
+  parts.push(`[0:a]asplit=${N}${Array.from({ length: N }, (_, i) => `[sa${i}]`).join("")}`);
+
+  for (let i = 0; i < N; i++) {
+    const { start, end } = clips[i];
+    const dur = end - start;
+    let vFilter = `[sv${i}]trim=start=${start}:end=${end},setpts=PTS-STARTPTS,${cropFilter}`;
+    let aFilter = `[sa${i}]atrim=start=${start}:end=${end},asetpts=PTS-STARTPTS`;
+    if (addFades && dur > 1) {
+      const fadeOut = Math.max(0.01, dur - 0.4).toFixed(2);
+      vFilter += `,fade=t=in:st=0:d=0.3,fade=t=out:st=${fadeOut}:d=0.3`;
+      aFilter += `,afade=t=in:st=0:d=0.3,afade=t=out:st=${fadeOut}:d=0.3`;
+    }
+    parts.push(`${vFilter}[v${i}]`);
+    parts.push(`${aFilter}[a${i}]`);
+  }
+
+  const concatInputs = Array.from({ length: N }, (_, i) => `[v${i}][a${i}]`).join("");
+  parts.push(`${concatInputs}concat=n=${N}:v=1:a=1[outv][outa]`);
+
+  return [
+    "-i", "input.mp4",
+    "-filter_complex", parts.join(";"),
+    "-map", "[outv]",
+    "-map", "[outa]",
+    "-c:v", "libx264", "-preset", "fast", "-crf", "22",
+    "-c:a", "aac", "-b:a", "128k",
+    "-movflags", "+faststart",
+    "output.mp4",
+  ];
 }
 
 async function submitFfmpegJob(inputUrl: string, ffmpegArgs: string[]): Promise<{ request_id: string }> {
@@ -160,6 +256,19 @@ async function handleRender(action: RenderAction, supabase: ReturnType<typeof cr
     caption_text: captionText,
   } = action;
 
+  // Increment render quota (non-blocking, best-effort)
+  try {
+    const currentMonth = new Date().toISOString().slice(0, 7) + "-01";
+    const { data: quota } = await supabase.from("video_quota").select("renders_used,renders_limit").eq("user_id", userId).eq("period_start", currentMonth).maybeSingle();
+    const rendersUsed = quota?.renders_used ?? 0;
+    const rendersLimit = quota?.renders_limit ?? 20;
+    if (rendersUsed >= rendersLimit) throw new Error(`Monthly render quota reached (${rendersUsed}/${rendersLimit}). Upgrade to render more clips.`);
+    supabase.from("video_quota").upsert({ user_id: userId, period_start: currentMonth, renders_used: rendersUsed + 1, updated_at: new Date().toISOString() }, { onConflict: "user_id,period_start" }).then(() => null).catch(() => null);
+  } catch (quotaErr: any) {
+    if (String(quotaErr?.message).includes("quota reached")) throw quotaErr;
+    // quota table may not exist yet — non-critical, continue
+  }
+
   const ffmpegArgs = buildFfmpegArgs(
     startSeconds,
     endSeconds,
@@ -205,49 +314,19 @@ async function handleRender(action: RenderAction, supabase: ReturnType<typeof cr
     const msg = err instanceof Error ? err.message : String(err);
 
     if (msg.startsWith("fal_ffmpeg_unavailable")) {
-      // Fallback: generate a shell script and store it
-      const scriptContent = `#!/bin/bash
-# MAVIS Creator Studio — Clip Render Script
-# Generated ${new Date().toISOString()}
-ffmpeg -i "INPUT_VIDEO_PATH" \\
-  ${ffmpegArgs.join(" \\\n  ")}`;
+      // fal.ai not configured — return clip info so the frontend can offer a
+      // direct download of the source video with timestamp guidance.
+      const ffmpegCmdStr = `ffmpeg -i "INPUT_VIDEO_PATH" -ss ${startSeconds} -t ${endSeconds - startSeconds} ${ffmpegArgs.slice(ffmpegArgs.indexOf("-vf")).join(" ")}`;
 
-      const scriptPath = `render-scripts/${userId}/${clipId}/render.sh`;
-      await supabase.storage.from("video-projects").upload(scriptPath, scriptContent, {
-        contentType: "text/plain",
-        upsert: true,
-      });
-      const { data: { publicUrl } } = supabase.storage.from("video-projects").getPublicUrl(scriptPath);
-
-      // Update clip with script URL and mark ready
+      // Mark clip as "manual" so UI shows the timestamp-download flow
       await supabase
         .from("video_clips")
-        .update({
-          render_status: "ready",
-          render_url: publicUrl,
-        })
+        .update({ render_status: "manual" })
         .eq("id", clipId);
 
-      // Insert job record for audit
-      const { data: jobRow } = await supabase
-        .from("video_render_jobs")
-        .insert({
-          clip_id: clipId,
-          user_id: userId,
-          provider: "script_fallback",
-          provider_job_id: null,
-          status: "ready",
-          ffmpeg_args: ffmpegArgs,
-          render_url: publicUrl,
-          notes: "fal.ai ffmpeg-api unavailable; render script generated",
-        })
-        .select("id")
-        .single();
-
-      jobId = jobRow?.id ?? null;
-      status = "ready";
-      ffmpegCmd = `ffmpeg -i "INPUT_VIDEO_PATH" \\\n  ${ffmpegArgs.join(" \\\n  ")}`;
-      renderUrl = publicUrl;
+      status = "manual";
+      ffmpegCmd = ffmpegCmdStr;
+      renderUrl = sourceUrl; // direct link to source video
     } else {
       // Unexpected error — rethrow
       throw err;
@@ -410,6 +489,118 @@ async function handleExtractThumbnail(action: ExtractThumbnailAction, supabase: 
   };
 }
 
+async function handleCompile(action: CompileAction, supabase: ReturnType<typeof createClient>) {
+  const {
+    user_id: userId,
+    project_id: projectId,
+    source_url: sourceUrl,
+    clips,
+    aspect_ratio: aspectRatio = "9:16",
+    width,
+    height,
+    add_fades: addFades = true,
+  } = action;
+
+  if (!clips || clips.length < 2) {
+    throw new Error("At least 2 clips are required to build a compilation.");
+  }
+  if (clips.length > 12) {
+    throw new Error("Maximum 12 clips per compilation.");
+  }
+
+  // Normalize clips: accept both old-style {start,end} and new-style {start_time,end_time}
+  const normalizedClips = clips.map(c => ({
+    ...c,
+    start: c.start_time ?? c.start ?? 0,
+    end: c.end_time ?? c.end ?? 0,
+  }));
+
+  // Sort clips chronologically
+  const sorted = [...normalizedClips].sort((a, b) => a.start - b.start);
+
+  // Create a job record immediately so caller can poll it
+  const { data: jobRow, error: jobInsertErr } = await supabase
+    .from("video_render_jobs")
+    .insert({
+      project_id: projectId ?? null,
+      user_id: userId,
+      provider: "fal",
+      status: "processing",
+      progress: 5,
+      updated_at: new Date().toISOString(),
+    })
+    .select("id")
+    .single();
+
+  if (jobInsertErr) {
+    // If insert fails (e.g. schema mismatch), proceed without DB tracking
+    console.error("[mavis-video-render] job insert error:", jobInsertErr.message);
+  }
+
+  const jobId: string | null = jobRow?.id ?? null;
+
+  // Determine effective aspect ratio from width/height if provided
+  const effectiveAspectRatio: string = aspectRatio ??
+    (width && height ? (width > height ? "16:9" : width === height ? "1:1" : "9:16") : "9:16");
+
+  const ffmpegArgs = buildCompilationFfmpegArgs(sorted, effectiveAspectRatio, addFades);
+
+  let status = "rendering";
+  let ffmpegCmd: string | null = null;
+  let renderUrl: string | null = null;
+
+  // Use source_url if provided (legacy), otherwise use first clip's storage path as primary input
+  const primarySourceUrl = sourceUrl ?? null;
+
+  try {
+    if (!primarySourceUrl) {
+      throw new Error("fal_ffmpeg_unavailable: no source_url provided for multi-source compilation");
+    }
+    const { request_id } = await submitFfmpegJob(primarySourceUrl, ffmpegArgs);
+
+    if (jobId) {
+      await supabase
+        .from("video_render_jobs")
+        .update({
+          provider_job_id: request_id,
+          status: "rendering",
+          progress: 10,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", jobId);
+    }
+
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.startsWith("fal_ffmpeg_unavailable")) {
+      // Build a manual ffmpeg command showing the filter
+      const times = sorted.map((c, i) =>
+        `  # Clip ${i + 1}: ${(c as any).title ?? "clip"} (${c.start}s → ${c.end}s)`
+      ).join("\n");
+      ffmpegCmd = `# Compilation — ${sorted.length} clips\n${times}\nffmpeg -i "INPUT_VIDEO_PATH" -filter_complex "${ffmpegArgs[ffmpegArgs.indexOf("-filter_complex") + 1]}" -map "[outv]" -map "[outa]" -c:v libx264 -preset fast -crf 22 -c:a aac -b:a 128k -movflags +faststart compilation.mp4`;
+      status = "manual";
+      renderUrl = primarySourceUrl ?? null;
+
+      if (jobId) {
+        await supabase
+          .from("video_render_jobs")
+          .update({ status: "failed", error_message: "fal.ai not configured", updated_at: new Date().toISOString() })
+          .eq("id", jobId);
+      }
+    } else {
+      if (jobId) {
+        await supabase
+          .from("video_render_jobs")
+          .update({ status: "failed", error_message: msg.slice(0, 500), updated_at: new Date().toISOString() })
+          .eq("id", jobId);
+      }
+      throw err;
+    }
+  }
+
+  return { job_id: jobId, status, ffmpeg_cmd: ffmpegCmd, render_url: renderUrl };
+}
+
 // ── Main handler ───────────────────────────────────────────
 
 serve(async (req) => {
@@ -446,6 +637,55 @@ serve(async (req) => {
       case "extract_thumbnail":
         result = await handleExtractThumbnail(body as ExtractThumbnailAction, supabase);
         break;
+
+      case "compile":
+        result = await handleCompile(body as CompileAction, supabase);
+        break;
+
+      case "proxy_video": {
+        // Download storage file server-side and return it with CORS headers so the
+        // browser can create a same-origin blob URL (bypasses S3 CORS restrictions).
+        const { bucket, path } = body as ProxyVideoAction;
+        if (!bucket || !path) {
+          return new Response(JSON.stringify({ error: "Missing bucket or path" }), {
+            status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+        // Verify the requesting user owns the file (first path segment = user id)
+        const jwt = authHeader.replace("Bearer ", "");
+        const { data: { user }, error: authErr } = await supabase.auth.getUser(jwt);
+        if (authErr || !user) {
+          return new Response(JSON.stringify({ error: "Unauthorized" }), {
+            status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+        // Normalize path and reject traversal attempts
+        if (path.includes("..") || path.includes("//") || path.startsWith("/")) {
+          return new Response(JSON.stringify({ error: "Forbidden" }), {
+            status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+        const firstSegment = path.split("/")[0];
+        if (firstSegment !== user.id) {
+          return new Response(JSON.stringify({ error: "Forbidden" }), {
+            status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+        const { data: fileBlob, error: dlErr } = await supabase.storage.from(bucket).download(path);
+        if (dlErr || !fileBlob) {
+          return new Response(JSON.stringify({ error: "File not found", detail: dlErr?.message }), {
+            status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+        const buffer = await fileBlob.arrayBuffer();
+        return new Response(buffer, {
+          headers: {
+            ...corsHeaders,
+            "Content-Type": fileBlob.type || "video/mp4",
+            "Content-Length": String(buffer.byteLength),
+          },
+        });
+      }
 
       default:
         return new Response(

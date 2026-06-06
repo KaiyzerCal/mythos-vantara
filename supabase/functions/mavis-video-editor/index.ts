@@ -80,28 +80,151 @@ interface ClipRecommendation {
 }
 
 // ─────────────────────────────────────────────────────────────
+// Helpers
+// ─────────────────────────────────────────────────────────────
+
+function detectVideoMimeType(url: string): string {
+  const lower = url.toLowerCase().split("?")[0]; // strip query params
+  if (lower.endsWith(".webm")) return "video/webm";
+  if (lower.endsWith(".mov") || lower.endsWith(".qt")) return "video/quicktime";
+  if (lower.endsWith(".avi")) return "video/x-msvideo";
+  if (lower.endsWith(".mpeg") || lower.endsWith(".mpg")) return "video/mpeg";
+  if (lower.endsWith(".3gp")) return "video/3gpp";
+  if (lower.endsWith(".ogg") || lower.endsWith(".ogv")) return "video/ogg";
+  return "video/mp4"; // default
+}
+
+// ─────────────────────────────────────────────────────────────
 // Step 2: Whisper transcription
 // ─────────────────────────────────────────────────────────────
 
 async function transcribeWithWhisper(videoUrl: string): Promise<{
   text: string;
   chunks: Array<{ start: number; end: number; text: string }>;
+  captionWords: Array<{ word: string; start: number; end: number }>;
 }> {
-  // Download video/audio from URL
-  const videoRes = await fetch(videoUrl, { signal: AbortSignal.timeout(60000) });
-  const videoBlob = await videoRes.blob();
+  // Reject streaming-site URLs early — we can't fetch a media blob from them.
+  if (/(?:youtube\.com|youtu\.be|vimeo\.com|tiktok\.com|instagram\.com|facebook\.com|twitter\.com|x\.com|loom\.com|wistia\.com|wistia\.net)/i.test(videoUrl)) {
+    throw new Error(
+      "Streaming-site URLs (YouTube, Vimeo, Loom, TikTok, etc.) can't be transcribed directly. " +
+      "Please download the video as MP4/MP3 and upload the file instead."
+    );
+  }
+
+  // Download video/audio. For Supabase Storage URLs, download directly via the
+  // storage SDK using the service role key — this bypasses the public CDN
+  // (which rate-limits with 429 + HTML error pages) and works for both public
+  // and private buckets.
+  let videoBlob: Blob | null = null;
+  let responseContentType = "";
+
+  const storageMatch = videoUrl.match(/\/storage\/v1\/object\/(?:public|sign)\/([^/]+)\/([^?]+)/);
+  if (storageMatch && SUPABASE_SERVICE_KEY) {
+    const bucket = storageMatch[1];
+    const objectPath = decodeURIComponent(storageMatch[2]);
+    const sb = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
+    const { data: dlData, error: dlErr } = await sb.storage.from(bucket).download(objectPath);
+    if (dlErr || !dlData) {
+      throw new Error(`Failed to download video from storage: ${dlErr?.message ?? "no data"}`);
+    }
+    videoBlob = dlData;
+    responseContentType = dlData.type ?? "";
+  } else {
+    // External URL — fetch with retry on 429
+    let videoRes: Response | null = null;
+    let lastErr = "";
+    for (let attempt = 0; attempt < 3; attempt++) {
+      videoRes = await fetch(videoUrl, { signal: AbortSignal.timeout(90000) });
+      if (videoRes.ok) break;
+      lastErr = `${videoRes.status}: ${(await videoRes.text()).slice(0, 200)}`;
+      if (videoRes.status === 429 || videoRes.status >= 500) {
+        await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)));
+        continue;
+      }
+      break;
+    }
+    if (!videoRes || !videoRes.ok) {
+      throw new Error(`Failed to fetch video (${lastErr})`);
+    }
+    videoBlob = await videoRes.blob();
+    responseContentType = videoRes.headers.get("content-type") ?? videoBlob.type ?? "";
+  }
+
+  if (!videoBlob || videoBlob.size === 0) throw new Error("Video file is empty");
+  if (videoBlob.size > 24 * 1024 * 1024) {
+    throw new Error(
+      `Video file is too large for transcription (${(videoBlob.size / 1024 / 1024).toFixed(0)} MB). ` +
+      `Please upload a video under 24 MB, or trim it to under 5 minutes first.`
+    );
+  }
+
+
+  // Whisper only accepts a narrow set of media containers/codecs. Re-labelling a
+  // QuickTime/MOV blob as MP4 does not transcode it, so reject unsupported inputs
+  // early with a clear error instead of sending a guaranteed-bad request upstream.
+  const MIME_MAP: Record<string, string> = {
+    flac: "audio/flac",
+    m4a: "audio/mp4",
+    mp3: "audio/mpeg",
+    mp4: "video/mp4",
+    mpeg: "video/mpeg",
+    mpga: "audio/mpeg",
+    oga: "audio/ogg",
+    ogg: "audio/ogg",
+    wav: "audio/wav",
+    webm: "video/webm",
+  };
+  const MIME_TO_EXT: Record<string, string> = {
+    "audio/flac": "flac",
+    "audio/mp4": "m4a",
+    "audio/mpeg": "mp3",
+    "audio/ogg": "ogg",
+    "audio/wav": "wav",
+    "audio/wave": "wav",
+    "audio/webm": "webm",
+    "audio/x-flac": "flac",
+    "audio/x-wav": "wav",
+    "video/mp4": "mp4",
+    "video/mpeg": "mpeg",
+    "video/ogg": "ogg",
+    "video/webm": "webm",
+  };
+  const WHISPER_EXTS = new Set(["flac", "m4a", "mp3", "mp4", "mpeg", "mpga", "oga", "ogg", "wav", "webm"]);
+  const pathOnly = videoUrl.split("?")[0].split("#")[0];
+  const lastSeg = pathOnly.split("/").pop() ?? "";
+  const extMatch = lastSeg.match(/\.([a-z0-9]{2,5})$/i);
+  const rawExt = (extMatch?.[1] ?? "").toLowerCase();
+  const responseMimeType = (videoBlob.type || responseContentType || "")
+    .split(";")[0]
+    .trim()
+    .toLowerCase();
+
+  const ext = WHISPER_EXTS.has(rawExt) ? rawExt : (MIME_TO_EXT[responseMimeType] ?? "");
+
+  if (!ext) {
+    const suffix = rawExt ? ` (.${rawExt})` : "";
+    throw new Error(
+      `Unsupported audio/video format for transcription${suffix}. ` +
+      `Please upload MP4, MPEG, WebM, OGG/OGA, M4A, MP3, WAV, or FLAC. ` +
+      `QuickTime/MOV files must be converted to MP4 first.`
+    );
+  }
+
+  const mimeType = MIME_MAP[ext] ?? responseMimeType;
+  const fileBlob = new Blob([await videoBlob.arrayBuffer()], { type: mimeType });
 
   const form = new FormData();
-  form.append("file", videoBlob, "video.mp4");
+  form.append("file", fileBlob, `media.${ext}`);
   form.append("model", "whisper-1");
   form.append("response_format", "verbose_json");
   form.append("timestamp_granularities[]", "segment");
+  form.append("timestamp_granularities[]", "word");
 
   const res = await fetch("https://api.openai.com/v1/audio/transcriptions", {
     method: "POST",
     headers: { Authorization: `Bearer ${OPENAI_KEY}` },
     body: form,
-    signal: AbortSignal.timeout(120000),
+    signal: AbortSignal.timeout(90000),
   });
 
   if (!res.ok) {
@@ -116,7 +239,14 @@ async function transcribeWithWhisper(videoUrl: string): Promise<{
     text: s.text.trim(),
   }));
 
-  return { text: data.text ?? "", chunks };
+  // Extract word-level timestamps from Whisper verbose_json response
+  const captionWords = (data.words ?? []).map((w: any) => ({
+    word: (w.word ?? "").trim(),
+    start: w.start,
+    end: w.end,
+  }));
+
+  return { text: data.text ?? "", chunks, captionWords };
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -184,13 +314,13 @@ Return 6-12 top moments minimum. Focus on clips 15-120 seconds long.`;
             role: "user",
             parts: [
               { text: prompt },
-              { fileData: { mimeType: "video/mp4", fileUri: videoUrl } },
+              { fileData: { mimeType: detectVideoMimeType(videoUrl), fileUri: videoUrl } },
             ],
           },
         ],
         generationConfig: { responseMimeType: "application/json", temperature: 0.3 },
       }),
-      signal: AbortSignal.timeout(90000),
+      signal: AbortSignal.timeout(120000), // video analysis needs more time than transcript-only
     }
   );
 
@@ -200,9 +330,12 @@ Return 6-12 top moments minimum. Focus on clips 15-120 seconds long.`;
   }
 
   const data = await res.json();
-  const text = data.candidates?.[0]?.content?.parts?.[0]?.text ?? "{}";
+  const text = data.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
+  if (!text) return await analyzeFromTranscriptOnly(transcript);
   try {
-    return JSON.parse(text);
+    const parsed = JSON.parse(text) as GeminiAnalysis;
+    if (!parsed.top_moments?.length) return await analyzeFromTranscriptOnly(transcript);
+    return parsed;
   } catch {
     return await analyzeFromTranscriptOnly(transcript);
   }
@@ -215,26 +348,116 @@ async function analyzeFromTranscriptOnly(transcript: string): Promise<GeminiAnal
 TRANSCRIPT:
 ${transcript.slice(0, 12000)}
 
-Return ONLY valid JSON with the same schema as before (top_moments array with start/end/title/scores/viral_score/why_viral/suggested_caption/suggested_hashtags/best_format).
-
-Important: estimate timestamps based on speaking pace (~150 words/minute = 2.5 words/second).`;
-
-  const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=${GEMINI_KEY}`,
+Return ONLY valid JSON:
+{
+  "title": "string",
+  "summary": "string",
+  "total_duration_estimate": number,
+  "content_type": "education|entertainment|interview|tutorial|vlog|other",
+  "top_moments": [
     {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [{ role: "user", parts: [{ text: prompt }] }],
-        generationConfig: { responseMimeType: "application/json", temperature: 0.3 },
-      }),
-      signal: AbortSignal.timeout(60000),
+      "start": number,
+      "end": number,
+      "title": "string",
+      "transcript_excerpt": "string",
+      "scores": { "energy": 0-10, "insight": 0-10, "emotion": 0-10, "hook": 0-10, "quotability": 0-10, "visual": 0-10 },
+      "viral_score": 0-10,
+      "why_viral": "string",
+      "suggested_caption": "string",
+      "suggested_hashtags": ["string"]
     }
-  );
+  ]
+}
 
-  const data = await res.json();
-  const text = data.candidates?.[0]?.content?.parts?.[0]?.text ?? "{}";
-  return JSON.parse(text);
+Rules:
+- Return 6-10 top_moments minimum
+- Each moment should be 20-90 seconds long
+- Estimate timestamps from speaking pace (~150 words/min = 2.5 words/sec)
+- Space moments throughout the full video, not just the beginning`;
+
+  try {
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=${GEMINI_KEY}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: [{ role: "user", parts: [{ text: prompt }] }],
+          generationConfig: { responseMimeType: "application/json", temperature: 0.3 },
+        }),
+        signal: AbortSignal.timeout(60000),
+      }
+    );
+
+    if (!res.ok) return buildSyntheticAnalysis(transcript);
+    const data = await res.json();
+    const text = data.candidates?.[0]?.content?.parts?.[0]?.text ?? "{}";
+    const parsed = JSON.parse(text) as GeminiAnalysis;
+    if (!parsed.top_moments?.length) return buildSyntheticAnalysis(transcript);
+    return parsed;
+  } catch {
+    return buildSyntheticAnalysis(transcript);
+  }
+}
+
+// Last-resort: build synthetic top_moments directly from transcript timing.
+// Guaranteed to return at least 1 moment even with an empty transcript.
+function buildSyntheticAnalysis(transcript: string, knownDuration?: number): GeminiAnalysis {
+  const trimmed = transcript.trim();
+  const words = trimmed ? trimmed.split(/\s+/) : [];
+  const wordsPerSecond = 2.5;
+  // Use known duration if provided; estimate from word count otherwise, minimum 60s
+  const totalSeconds = knownDuration ?? Math.max(Math.ceil(words.length / wordsPerSecond), 60);
+  const clipDuration = Math.min(45, Math.floor(totalSeconds / 2) || 30);
+  const moments: GeminiAnalysis["top_moments"] = [];
+
+  const makeScores = (text: string) => {
+    const s = estimateScoresFromText(text);
+    return s as GeminiAnalysis["top_moments"][0]["scores"];
+  };
+
+  for (let start = 0; start < totalSeconds; start += clipDuration) {
+    const end = Math.min(start + clipDuration, totalSeconds);
+    const wordStart = Math.floor(start * wordsPerSecond);
+    const wordEnd = Math.min(Math.floor(end * wordsPerSecond), words.length);
+    const excerpt = words.length > 0
+      ? words.slice(wordStart, wordEnd).join(" ").slice(0, 300)
+      : `Segment ${moments.length + 1}`;
+    const scores = makeScores(excerpt);
+    const viral_score = Math.round(
+      scores.hook * 0.25 + scores.energy * 0.20 + scores.emotion * 0.25 +
+      scores.quotability * 0.15 + scores.insight * 0.10 + scores.visual * 0.05
+    );
+    moments.push({
+      start,
+      end,
+      title: excerpt.split(/[.!?]/)[0]?.slice(0, 80) || `Segment ${moments.length + 1}`,
+      transcript_excerpt: excerpt,
+      scores,
+      viral_score,
+    });
+    if (moments.length >= 10) break;
+  }
+
+  // Absolute guarantee: if loop produced nothing, emit one full-video moment
+  if (moments.length === 0) {
+    moments.push({
+      start: 0,
+      end: totalSeconds,
+      title: "Full Video",
+      transcript_excerpt: trimmed.slice(0, 200) || "No transcript available",
+      scores: { energy: 5, insight: 5, emotion: 5, hook: 5, quotability: 5, visual: 5 },
+      viral_score: 5,
+    });
+  }
+
+  return {
+    title: "Video Analysis",
+    summary: transcript.slice(0, 200),
+    total_duration_estimate: totalSeconds,
+    content_type: "other",
+    top_moments: moments,
+  };
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -329,6 +552,8 @@ function selectClipsForFormat(
   format: string,
   count: number
 ): ClipRecommendation[] {
+  if (moments.length === 0) return [];
+
   const weights: Record<string, Record<string, number>> = {
     shorts: { hook: 0.35, energy: 0.20, emotion: 0.25, quotability: 0.20 },
     reels: { hook: 0.30, emotion: 0.30, energy: 0.20, quotability: 0.20 },
@@ -338,7 +563,6 @@ function selectClipsForFormat(
 
   const w = weights[format] ?? weights.shorts;
 
-  // Duration constraints per format
   const durationRange: Record<string, [number, number]> = {
     shorts: [15, 60],
     reels: [15, 90],
@@ -354,31 +578,106 @@ function selectClipsForFormat(
     long_form: "16:9",
   };
 
-  return moments
-    .filter(m => {
-      const dur = m.end - m.start;
-      return dur >= minDur && dur <= maxDur;
-    })
-    .map(m => {
-      const weighted_score = Object.entries(w).reduce((acc, [key, weight]) =>
-        acc + (m.scores[key as keyof typeof m.scores] ?? 5) * weight, 0
-      );
-      return {
-        start: m.start,
-        end: m.end,
-        title: m.title,
-        viral_score: m.viral_score,
-        why_viral: m.why_viral,
-        suggested_caption: m.suggested_caption,
-        suggested_hashtags: m.suggested_hashtags,
-        transcript_excerpt: m.transcript_excerpt,
-        format,
-        aspect_ratio: aspectRatio[format] ?? "9:16",
-        weighted_score,
-      } as ClipRecommendation;
-    })
+  const scoreAndWrap = (m: GeminiAnalysis["top_moments"][0]): ClipRecommendation => {
+    const weighted_score = Object.entries(w).reduce((acc, [key, weight]) =>
+      acc + (m.scores[key as keyof typeof m.scores] ?? 5) * weight, 0
+    );
+    return {
+      start: m.start,
+      end: m.end,
+      title: m.title,
+      viral_score: m.viral_score,
+      why_viral: m.why_viral,
+      suggested_caption: m.suggested_caption,
+      suggested_hashtags: m.suggested_hashtags,
+      transcript_excerpt: m.transcript_excerpt,
+      format,
+      aspect_ratio: aspectRatio[format] ?? "9:16",
+      weighted_score,
+    };
+  };
+
+  // Tier 1: strict duration match
+  let candidates = moments.filter(m => {
+    const dur = m.end - m.start;
+    return dur >= minDur && dur <= maxDur;
+  });
+
+  // Tier 2: relaxed — only enforce a 5-second minimum, ignore max
+  if (candidates.length < count) {
+    const relaxed = moments.filter(m => (m.end - m.start) >= 5);
+    if (relaxed.length > candidates.length) candidates = relaxed;
+  }
+
+  // Tier 3: all moments — never return empty if there's anything at all
+  if (candidates.length === 0) candidates = [...moments];
+
+  return candidates
+    .map(scoreAndWrap)
     .sort((a, b) => (b.weighted_score ?? 0) - (a.weighted_score ?? 0))
     .slice(0, count);
+}
+
+// Merge adjacent 10-second segments into longer moments suitable for clip selection.
+// Used by handleGenerateClips when only segment windows (not raw Gemini moments) are available.
+function mergeSegmentsIntoMoments(
+  segments: any[],
+  targetMin: number,
+  targetMax: number,
+): GeminiAnalysis["top_moments"] {
+  if (segments.length === 0) return [];
+
+  const sorted = [...segments].sort((a, b) => a.start_seconds - b.start_seconds);
+  const targetDur = Math.min((targetMin + targetMax) / 2, targetMax);
+  const moments: GeminiAnalysis["top_moments"] = [];
+  const used = new Set<number>();
+
+  // Pick seed segments by viral score, expand each into a clip
+  const byScore = [...sorted].sort((a, b) => (b.viral_score ?? 0) - (a.viral_score ?? 0));
+
+  for (const seed of byScore) {
+    const seedIdx = sorted.findIndex(s => s.start_seconds === seed.start_seconds);
+    if (used.has(seedIdx)) continue;
+
+    let startIdx = seedIdx;
+    let endIdx = seedIdx;
+
+    // Expand forward until we hit target duration or run out of segments
+    while (
+      endIdx + 1 < sorted.length &&
+      (sorted[endIdx].end_seconds - sorted[startIdx].start_seconds) < targetDur
+    ) {
+      endIdx++;
+    }
+
+    const clipStart = sorted[startIdx].start_seconds;
+    const clipEnd = Math.min(sorted[endIdx].end_seconds, clipStart + targetMax);
+    const window = sorted.slice(startIdx, endIdx + 1);
+
+    const avg = (key: string) =>
+      window.reduce((s, seg) => s + (seg[`score_${key}`] ?? 5), 0) / window.length;
+
+    moments.push({
+      start: clipStart,
+      end: clipEnd,
+      title: seed.transcript_text?.slice(0, 80) ?? "Highlight",
+      transcript_excerpt: window.map((s: any) => s.transcript_text).join(" ").slice(0, 400),
+      scores: {
+        energy: avg("energy"),
+        insight: avg("insight"),
+        emotion: avg("emotion"),
+        hook: avg("hook"),
+        quotability: avg("quotability"),
+        visual: avg("visual"),
+      },
+      viral_score: seed.viral_score ?? 5,
+    });
+
+    for (let i = startIdx; i <= endIdx; i++) used.add(i);
+    if (moments.length >= 15) break;
+  }
+
+  return moments;
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -400,6 +699,54 @@ async function handleAnalyze(
   if (!source_url?.trim()) {
     throw new Error("source_url is required");
   }
+
+  // Idempotency: return existing project if same video was analyzed in the last 24h
+  const { data: existing } = await supabase
+    .from("video_projects")
+    .select("id, status, clips_count")
+    .eq("user_id", userId)
+    .eq("video_url", source_url)
+    .gte("created_at", new Date(Date.now() - 86400000).toISOString())
+    .maybeSingle();
+
+  if (existing && existing.status !== "failed") {
+    return {
+      project_id: existing.id,
+      status: existing.status,
+      clips_count: existing.clips_count,
+      message: "Returning existing analysis for this video",
+    };
+  }
+
+  // Quota check: verify user has not exceeded their monthly analysis limit
+  const currentMonth = new Date().toISOString().slice(0, 7) + "-01";
+  const { data: quota } = await supabase
+    .from("video_quota")
+    .select("analyses_used, analyses_limit, tier")
+    .eq("user_id", userId)
+    .eq("period_start", currentMonth)
+    .maybeSingle();
+
+  const analysesUsed = quota?.analyses_used ?? 0;
+  const analysesLimit = quota?.analyses_limit ?? 5;
+
+  if (analysesUsed >= analysesLimit) {
+    throw Object.assign(new Error("Monthly analysis quota reached"), {
+      _quotaError: true,
+      used: analysesUsed,
+      limit: analysesLimit,
+      tier: quota?.tier ?? "free",
+      upgrade_message: "Upgrade your plan to analyze more videos this month.",
+    });
+  }
+
+  // Increment usage counter (non-blocking)
+  supabase.from("video_quota").upsert({
+    user_id: userId,
+    period_start: currentMonth,
+    analyses_used: analysesUsed + 1,
+    updated_at: new Date().toISOString(),
+  }, { onConflict: "user_id,period_start" }).then(() => null).catch(() => null);
 
   // Step 1: Create project record with status "analyzing"
   const { data: project, error: projectErr } = await supabase
@@ -426,12 +773,37 @@ async function handleAnalyze(
   try {
     // Step 2: Transcribe with Whisper
     console.log(`[mavis-video-editor] Transcribing project ${projectId}...`);
-    const { text: transcript, chunks } = await transcribeWithWhisper(source_url);
+    const signedUrlCreatedAt = Date.now();
+    const { text: transcript, chunks, captionWords } = await transcribeWithWhisper(source_url);
 
     // Step 3: Gemini visual + semantic analysis
+    // Refresh signed URL if Whisper took >45s (URL may be near expiry)
+    let videoUrlForGemini = source_url;
+    const storagePathMatch = source_url.match(/\/storage\/v1\/object\/(?:public|sign)\/([^/]+)\/([^?]+)/);
+    if (storagePathMatch && Date.now() - signedUrlCreatedAt > 45000) {
+      try {
+        const storagePath = decodeURIComponent(storagePathMatch[2]);
+        const { data: refreshData } = await supabase.storage
+          .from(storagePathMatch[1])
+          .createSignedUrl(storagePath, 3600);
+        if (refreshData?.signedUrl) videoUrlForGemini = refreshData.signedUrl;
+      } catch { /* use original if refresh fails */ }
+    }
+
     console.log(`[mavis-video-editor] Running Gemini analysis for project ${projectId}...`);
-    const analysis = await analyzeWithGemini(source_url, transcript);
-    const moments = analysis.top_moments ?? [];
+    const analysis = await analyzeWithGemini(videoUrlForGemini, transcript);
+
+    // Estimate video duration from Whisper chunks if Gemini didn't report it
+    const chunksDuration = chunks.length > 0 ? chunks[chunks.length - 1].end : undefined;
+
+    // Use Gemini moments if available; fall back to synthetic moments from transcript
+    const moments = (analysis.top_moments?.length ?? 0) > 0
+      ? analysis.top_moments
+      : buildSyntheticAnalysis(transcript, chunksDuration).top_moments;
+
+    console.log(`[mavis-video-editor] ${moments.length} moments, transcript ${transcript.length} chars`);
+
+    console.log(`[mavis-video-editor] ${moments.length} moments for clip selection`);
 
     // Step 4: Build scored 10-second segment windows
     const segments = buildScoredSegments(chunks, moments);
@@ -441,6 +813,7 @@ async function handleAnalyze(
     const clips: Record<string, ClipRecommendation[]> = {};
     for (const fmt of formats) {
       clips[fmt] = selectClipsForFormat(moments, fmt, 5);
+      console.log(`[mavis-video-editor] ${fmt}: ${clips[fmt].length} clips`);
     }
 
     // Find top clip across all formats by viral_score
@@ -498,9 +871,14 @@ async function handleAnalyze(
     }
 
     // Insert clip recommendations (bulk)
+    // Attach caption_words to each clip by filtering words within the clip's time range
     const clipRows: any[] = [];
     for (const [fmt, fmtClips] of Object.entries(clips)) {
       for (const clip of fmtClips) {
+        // Filter caption words that fall within this clip's time range
+        const clipCaptionWords = captionWords.filter(
+          (w) => w.start >= clip.start && w.end <= clip.end
+        );
         clipRows.push({
           project_id: projectId,
           user_id: userId,
@@ -515,6 +893,7 @@ async function handleAnalyze(
           transcript_excerpt: clip.transcript_excerpt ?? null,
           aspect_ratio: clip.aspect_ratio,
           weighted_score: clip.weighted_score ?? null,
+          caption_words: clipCaptionWords.length > 0 ? clipCaptionWords : [],
           status: "pending",
           created_at: new Date().toISOString(),
         });
@@ -531,6 +910,9 @@ async function handleAnalyze(
       }
     }
 
+    const totalClips = Object.values(clips).reduce((n, arr) => n + arr.length, 0);
+    console.log(`[mavis-video-editor] Done: ${totalClips} clips total, ${segments.length} segments`);
+
     return {
       project_id: projectId,
       title: analysis.title ?? title ?? "Untitled Video",
@@ -540,6 +922,11 @@ async function handleAnalyze(
       segment_count: segments.length,
       clips,
       top_clip: topClip,
+      _meta: {
+        transcript_chars: transcript.length,
+        moments_used: moments.length,
+        clips_per_format: Object.fromEntries(Object.entries(clips).map(([k, v]) => [k, v.length])),
+      },
     };
   } catch (err: any) {
     // Mark project as failed so UI can show error state
@@ -581,8 +968,25 @@ async function handleGenerateClips(
     .eq("project_id", project_id)
     .order("segment_order", { ascending: true });
 
+  // Merge 10-second segments into longer moments per format target duration,
+  // then combine all format pools into one deduplicated moment list.
+  const durationRanges: Record<string, [number, number]> = {
+    shorts: [15, 60], reels: [15, 90], highlight: [30, 120], long_form: [60, 300],
+  };
+  const allMoments: GeminiAnalysis["top_moments"] = [];
+  const seenKeys = new Set<string>();
+  for (const fmt of formats) {
+    const [mn, mx] = durationRanges[fmt] ?? [15, 90];
+    for (const m of mergeSegmentsIntoMoments(segments ?? [], mn, mx)) {
+      const key = `${m.start}-${m.end}`;
+      if (!seenKeys.has(key)) { seenKeys.add(key); allMoments.push(m); }
+    }
+  }
+
   // Rebuild moment list from segments for selectClipsForFormat
-  const moments: GeminiAnalysis["top_moments"] = (segments ?? []).map((s: any) => ({
+  const moments: GeminiAnalysis["top_moments"] = allMoments.length > 0
+    ? allMoments
+    : (segments ?? []).map((s: any) => ({
     start: s.start_seconds,
     end: s.end_seconds,
     title: s.transcript_text?.slice(0, 80) ?? "Segment",
@@ -839,6 +1243,18 @@ serve(async (req) => {
     );
   } catch (err: any) {
     console.error(`[mavis-video-editor] action=${action} error:`, err?.message);
+    if (err?._quotaError) {
+      return new Response(
+        JSON.stringify({
+          error: err.message,
+          used: err.used,
+          limit: err.limit,
+          tier: err.tier,
+          upgrade_message: err.upgrade_message,
+        }),
+        { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
     return new Response(
       JSON.stringify({ error: err?.message ?? "Internal server error" }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }

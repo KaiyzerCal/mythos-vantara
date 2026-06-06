@@ -3,6 +3,7 @@ import { motion } from "framer-motion";
 import { ScrollText, Zap, Shield, ShieldOff, Package, Star, Filter, Target, BookOpen, Archive, Users, Layers, Heart, Swords, Trophy, Trash2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
+import { useAppData } from "@/contexts/AppDataContext";
 import { PageHeader, HudCard } from "@/components/SharedUI";
 
 interface ActivityEntry {
@@ -61,6 +62,7 @@ const FILTERS = [
 
 export default function ActivityLogPage() {
   const { user } = useAuth();
+  const { lastActionTs } = useAppData();
   const [entries, setEntries] = useState<ActivityEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState("all");
@@ -84,6 +86,7 @@ export default function ActivityLogPage() {
   }, [user, filter]);
 
   useEffect(() => { fetchEntries(); }, [fetchEntries]);
+  useEffect(() => { if (lastActionTs) fetchEntries(); }, [lastActionTs]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const grouped = entries.reduce<Record<string, ActivityEntry[]>>((acc, e) => {
     const day = new Date(e.created_at).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });

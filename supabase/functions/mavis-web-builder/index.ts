@@ -6,9 +6,789 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-const GEMINI_KEY = Deno.env.get("GEMINI_API_KEY") ?? "";
+function sanitizeHtml(str: string): string {
+  return String(str ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+const GEMINI_KEY  = Deno.env.get("GEMINI_API_KEY") ?? "";
+const CLAUDE_KEY  = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
+const OPENAI_KEY  = Deno.env.get("OPENAI_API") ?? Deno.env.get("OPENAI_API_KEY") ?? "";
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
 const SUPABASE_SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+const UNSPLASH_ACCESS_KEY = Deno.env.get("UNSPLASH_ACCESS_KEY") ?? "";
+
+// ---------------------------------------------------------------------------
+// Unsplash image fetcher
+// ---------------------------------------------------------------------------
+
+async function fetchUnsplashImage(query: string, fallback = ""): Promise<string> {
+  if (!UNSPLASH_ACCESS_KEY) return fallback;
+  try {
+    const url = `https://api.unsplash.com/search/photos?query=${encodeURIComponent(query)}&per_page=5&orientation=landscape&content_filter=high`;
+    const res = await fetch(url, {
+      headers: { Authorization: `Client-ID ${UNSPLASH_ACCESS_KEY}` },
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!res.ok) return fallback;
+    const data = await res.json();
+    const photos = data.results || [];
+    if (!photos.length) return fallback;
+    const photo = photos[Math.floor(Math.random() * photos.length)];
+    return photo.urls.regular + "&w=1200&q=80";
+  } catch { return fallback; }
+}
+
+// ---------------------------------------------------------------------------
+// Tailwind section template library
+// ---------------------------------------------------------------------------
+
+const SECTION_TEMPLATES: Record<string, string> = {
+  hero_gradient: `<section class="relative bg-gradient-to-br from-indigo-900 via-purple-900 to-pink-900 text-white py-24 px-6">
+  <div class="max-w-6xl mx-auto flex flex-col lg:flex-row items-center gap-12">
+    <div class="flex-1">
+      <div class="inline-block bg-white/10 text-white text-sm font-semibold px-4 py-1.5 rounded-full mb-6">{{BADGE}}</div>
+      <h1 class="text-5xl lg:text-7xl font-black leading-tight mb-6">{{HEADLINE}}</h1>
+      <p class="text-xl text-white/80 mb-8 max-w-xl">{{SUBHEADLINE}}</p>
+      <div class="flex flex-wrap gap-4">
+        <a href="#contact" class="bg-white text-indigo-900 font-bold px-8 py-4 rounded-full hover:bg-indigo-50 transition-all shadow-lg">{{CTA_PRIMARY}}</a>
+        <a href="#about" class="border-2 border-white/40 text-white font-semibold px-8 py-4 rounded-full hover:border-white/80 transition-all">{{CTA_SECONDARY}}</a>
+      </div>
+    </div>
+    <div class="flex-1 flex justify-center">
+      <img src="{{HERO_IMAGE}}" alt="{{HEADLINE}}" class="rounded-2xl shadow-2xl max-w-md w-full object-cover" onerror="this.style.display='none'" />
+    </div>
+  </div>
+</section>
+{{UNSPLASH_CREDIT}}`,
+
+  features_grid: `<section class="py-20 px-6 bg-white" id="features">
+  <div class="max-w-6xl mx-auto">
+    <div class="text-center mb-14">
+      <span class="inline-block text-indigo-600 text-sm font-bold uppercase tracking-widest mb-3">{{CHIP}}</span>
+      <h2 class="text-4xl font-black text-gray-900 mb-4">{{HEADLINE}}</h2>
+      <p class="text-lg text-gray-500 max-w-2xl mx-auto">{{SUBHEADLINE}}</p>
+    </div>
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-8">
+      <div class="bg-gray-50 rounded-2xl p-8 hover:shadow-lg transition-shadow">
+        <div class="text-4xl mb-4">{{ICON_1}}</div>
+        <h3 class="text-xl font-bold text-gray-900 mb-2">{{TITLE_1}}</h3>
+        <p class="text-gray-500">{{DESC_1}}</p>
+      </div>
+      <div class="bg-gray-50 rounded-2xl p-8 hover:shadow-lg transition-shadow">
+        <div class="text-4xl mb-4">{{ICON_2}}</div>
+        <h3 class="text-xl font-bold text-gray-900 mb-2">{{TITLE_2}}</h3>
+        <p class="text-gray-500">{{DESC_2}}</p>
+      </div>
+      <div class="bg-gray-50 rounded-2xl p-8 hover:shadow-lg transition-shadow">
+        <div class="text-4xl mb-4">{{ICON_3}}</div>
+        <h3 class="text-xl font-bold text-gray-900 mb-2">{{TITLE_3}}</h3>
+        <p class="text-gray-500">{{DESC_3}}</p>
+      </div>
+    </div>
+  </div>
+</section>`,
+
+  testimonials_cards: `<section class="py-20 px-6 bg-gray-50" id="testimonials">
+  <div class="max-w-6xl mx-auto">
+    <div class="text-center mb-14">
+      <span class="inline-block text-indigo-600 text-sm font-bold uppercase tracking-widest mb-3">{{CHIP}}</span>
+      <h2 class="text-4xl font-black text-gray-900 mb-4">{{HEADLINE}}</h2>
+    </div>
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-8">
+      <div class="bg-white rounded-2xl p-8 shadow-sm border border-gray-100">
+        <div class="text-yellow-400 text-lg mb-4">★★★★★</div>
+        <p class="text-gray-700 italic mb-6">"{{QUOTE_1}}"</p>
+        <div class="border-t border-gray-100 pt-4">
+          <div class="font-bold text-gray-900">{{AUTHOR_1}}</div>
+          <div class="text-sm text-gray-400">{{ROLE_1}}, {{COMPANY_1}}</div>
+        </div>
+      </div>
+      <div class="bg-white rounded-2xl p-8 shadow-sm border border-gray-100">
+        <div class="text-yellow-400 text-lg mb-4">★★★★★</div>
+        <p class="text-gray-700 italic mb-6">"{{QUOTE_2}}"</p>
+        <div class="border-t border-gray-100 pt-4">
+          <div class="font-bold text-gray-900">{{AUTHOR_2}}</div>
+          <div class="text-sm text-gray-400">{{ROLE_2}}, {{COMPANY_2}}</div>
+        </div>
+      </div>
+      <div class="bg-white rounded-2xl p-8 shadow-sm border border-gray-100">
+        <div class="text-yellow-400 text-lg mb-4">★★★★★</div>
+        <p class="text-gray-700 italic mb-6">"{{QUOTE_3}}"</p>
+        <div class="border-t border-gray-100 pt-4">
+          <div class="font-bold text-gray-900">{{AUTHOR_3}}</div>
+          <div class="text-sm text-gray-400">{{ROLE_3}}, {{COMPANY_3}}</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>`,
+
+  pricing_table: `<section class="py-20 px-6 bg-white" id="pricing">
+  <div class="max-w-5xl mx-auto">
+    <div class="text-center mb-14">
+      <span class="inline-block text-indigo-600 text-sm font-bold uppercase tracking-widest mb-3">Pricing</span>
+      <h2 class="text-4xl font-black text-gray-900 mb-4">{{HEADLINE}}</h2>
+      <p class="text-lg text-gray-500">{{SUBHEADLINE}}</p>
+    </div>
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-8">
+      <div class="border-2 border-gray-200 rounded-2xl p-8">
+        <div class="text-sm font-bold uppercase tracking-widest text-gray-400 mb-2">Starter</div>
+        <div class="text-5xl font-black text-gray-900 mb-1">{{PRICE_1}}</div>
+        <div class="text-gray-400 text-sm mb-6">{{PERIOD_1}}</div>
+        <ul class="space-y-3 mb-8 text-gray-600 text-sm">{{FEATURES_1}}</ul>
+        <a href="#contact" class="block text-center border-2 border-indigo-600 text-indigo-600 font-bold py-3 rounded-xl hover:bg-indigo-50 transition-colors">{{CTA_1}}</a>
+      </div>
+      <div class="border-2 border-indigo-600 rounded-2xl p-8 bg-indigo-50 relative">
+        <div class="absolute -top-4 left-1/2 -translate-x-1/2 bg-indigo-600 text-white text-xs font-bold px-4 py-1.5 rounded-full">Most Popular</div>
+        <div class="text-sm font-bold uppercase tracking-widest text-indigo-600 mb-2">Pro</div>
+        <div class="text-5xl font-black text-gray-900 mb-1">{{PRICE_2}}</div>
+        <div class="text-gray-400 text-sm mb-6">{{PERIOD_2}}</div>
+        <ul class="space-y-3 mb-8 text-gray-600 text-sm">{{FEATURES_2}}</ul>
+        <a href="#contact" class="block text-center bg-indigo-600 text-white font-bold py-3 rounded-xl hover:bg-indigo-700 transition-colors">{{CTA_2}}</a>
+      </div>
+      <div class="border-2 border-gray-200 rounded-2xl p-8">
+        <div class="text-sm font-bold uppercase tracking-widest text-gray-400 mb-2">Enterprise</div>
+        <div class="text-5xl font-black text-gray-900 mb-1">{{PRICE_3}}</div>
+        <div class="text-gray-400 text-sm mb-6">{{PERIOD_3}}</div>
+        <ul class="space-y-3 mb-8 text-gray-600 text-sm">{{FEATURES_3}}</ul>
+        <a href="#contact" class="block text-center border-2 border-indigo-600 text-indigo-600 font-bold py-3 rounded-xl hover:bg-indigo-50 transition-colors">{{CTA_3}}</a>
+      </div>
+    </div>
+  </div>
+</section>`,
+
+  contact_form: `<section class="py-20 px-6 bg-gray-50" id="contact">
+  <div class="max-w-5xl mx-auto">
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-16">
+      <div>
+        <h2 class="text-4xl font-black text-gray-900 mb-4">{{HEADLINE}}</h2>
+        <p class="text-lg text-gray-500 mb-8">{{SUBHEADLINE}}</p>
+        <div class="space-y-4">
+          <div class="flex items-start gap-4"><span class="text-2xl">✉️</span><div><div class="font-semibold text-gray-900">Email</div><div class="text-gray-500">{{EMAIL}}</div></div></div>
+          <div class="flex items-start gap-4"><span class="text-2xl">📞</span><div><div class="font-semibold text-gray-900">Phone</div><div class="text-gray-500">{{PHONE}}</div></div></div>
+          <div class="flex items-start gap-4"><span class="text-2xl">📍</span><div><div class="font-semibold text-gray-900">Address</div><div class="text-gray-500">{{ADDRESS}}</div></div></div>
+        </div>
+      </div>
+      <div class="bg-white rounded-2xl p-8 shadow-sm">
+        <form onsubmit="event.preventDefault();this.innerHTML='<p class=&quot;text-green-600 font-semibold text-lg text-center py-8&quot;>✓ Message sent! We will be in touch soon.</p>'">
+          <div class="grid grid-cols-2 gap-4 mb-4">
+            <div><label class="block text-sm font-semibold text-gray-700 mb-1">Name</label><input type="text" required placeholder="Your name" class="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-indigo-500 transition-colors"></div>
+            <div><label class="block text-sm font-semibold text-gray-700 mb-1">Email</label><input type="email" required placeholder="your@email.com" class="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-indigo-500 transition-colors"></div>
+          </div>
+          <div class="mb-4"><label class="block text-sm font-semibold text-gray-700 mb-1">Subject</label><input type="text" placeholder="How can we help?" class="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-indigo-500 transition-colors"></div>
+          <div class="mb-6"><label class="block text-sm font-semibold text-gray-700 mb-1">Message</label><textarea rows="5" placeholder="Tell us about your project..." class="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-indigo-500 transition-colors resize-none"></textarea></div>
+          <button type="submit" class="w-full bg-indigo-600 text-white font-bold py-4 rounded-xl hover:bg-indigo-700 transition-colors">Send Message →</button>
+        </form>
+      </div>
+    </div>
+  </div>
+</section>`,
+
+  about_split: `<section class="py-20 px-6 bg-white" id="about">
+  <div class="max-w-6xl mx-auto">
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-16 items-center">
+      <div class="relative">
+        <img src="{{ABOUT_IMAGE}}" alt="About us" class="rounded-2xl shadow-xl w-full object-cover" onerror="this.parentElement.innerHTML='<div class=&quot;bg-gradient-to-br from-indigo-100 to-purple-100 rounded-2xl h-80 flex items-center justify-center text-6xl&quot;>✨</div>'" />
+        <div class="absolute -bottom-6 -right-6 bg-indigo-600 text-white rounded-2xl p-6 shadow-xl">
+          <div class="text-3xl font-black">{{YEARS}}+</div>
+          <div class="text-sm text-indigo-200">Years of Excellence</div>
+        </div>
+      </div>
+      <div>
+        <span class="inline-block text-indigo-600 text-sm font-bold uppercase tracking-widest mb-3">{{CHIP}}</span>
+        <h2 class="text-4xl font-black text-gray-900 mb-6">{{HEADLINE}}</h2>
+        <p class="text-lg text-gray-500 mb-8">{{BODY}}</p>
+        <div class="grid grid-cols-3 gap-6 mb-8">
+          <div class="text-center"><div class="text-3xl font-black text-indigo-600">{{STAT_1_NUM}}</div><div class="text-sm text-gray-500">{{STAT_1_LABEL}}</div></div>
+          <div class="text-center"><div class="text-3xl font-black text-indigo-600">{{STAT_2_NUM}}</div><div class="text-sm text-gray-500">{{STAT_2_LABEL}}</div></div>
+          <div class="text-center"><div class="text-3xl font-black text-indigo-600">{{STAT_3_NUM}}</div><div class="text-sm text-gray-500">{{STAT_3_LABEL}}</div></div>
+        </div>
+        <a href="#contact" class="inline-block bg-indigo-600 text-white font-bold px-8 py-4 rounded-xl hover:bg-indigo-700 transition-colors">{{CTA}}</a>
+      </div>
+    </div>
+  </div>
+</section>
+{{UNSPLASH_CREDIT}}`,
+
+  services_list: `<section class="py-20 px-6 bg-gray-50" id="services">
+  <div class="max-w-6xl mx-auto">
+    <div class="text-center mb-14">
+      <span class="inline-block text-indigo-600 text-sm font-bold uppercase tracking-widest mb-3">{{CHIP}}</span>
+      <h2 class="text-4xl font-black text-gray-900 mb-4">{{HEADLINE}}</h2>
+      <p class="text-lg text-gray-500 max-w-2xl mx-auto">{{SUBHEADLINE}}</p>
+    </div>
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+      <div class="bg-white rounded-2xl p-6 shadow-sm hover:shadow-md transition-shadow">
+        <div class="text-3xl mb-4">{{SVC_ICON_1}}</div>
+        <h3 class="text-lg font-bold text-gray-900 mb-2">{{SVC_TITLE_1}}</h3>
+        <p class="text-gray-500 text-sm mb-4">{{SVC_DESC_1}}</p>
+        <a href="#contact" class="text-indigo-600 font-semibold text-sm hover:underline">Learn more →</a>
+      </div>
+      <div class="bg-white rounded-2xl p-6 shadow-sm hover:shadow-md transition-shadow">
+        <div class="text-3xl mb-4">{{SVC_ICON_2}}</div>
+        <h3 class="text-lg font-bold text-gray-900 mb-2">{{SVC_TITLE_2}}</h3>
+        <p class="text-gray-500 text-sm mb-4">{{SVC_DESC_2}}</p>
+        <a href="#contact" class="text-indigo-600 font-semibold text-sm hover:underline">Learn more →</a>
+      </div>
+      <div class="bg-white rounded-2xl p-6 shadow-sm hover:shadow-md transition-shadow">
+        <div class="text-3xl mb-4">{{SVC_ICON_3}}</div>
+        <h3 class="text-lg font-bold text-gray-900 mb-2">{{SVC_TITLE_3}}</h3>
+        <p class="text-gray-500 text-sm mb-4">{{SVC_DESC_3}}</p>
+        <a href="#contact" class="text-indigo-600 font-semibold text-sm hover:underline">Learn more →</a>
+      </div>
+      <div class="bg-white rounded-2xl p-6 shadow-sm hover:shadow-md transition-shadow">
+        <div class="text-3xl mb-4">{{SVC_ICON_4}}</div>
+        <h3 class="text-lg font-bold text-gray-900 mb-2">{{SVC_TITLE_4}}</h3>
+        <p class="text-gray-500 text-sm mb-4">{{SVC_DESC_4}}</p>
+        <a href="#contact" class="text-indigo-600 font-semibold text-sm hover:underline">Learn more →</a>
+      </div>
+    </div>
+  </div>
+</section>`,
+
+  portfolio_grid: `<section class="py-20 px-6 bg-white" id="portfolio">
+  <div class="max-w-6xl mx-auto">
+    <div class="text-center mb-14">
+      <span class="inline-block text-indigo-600 text-sm font-bold uppercase tracking-widest mb-3">{{CHIP}}</span>
+      <h2 class="text-4xl font-black text-gray-900 mb-4">{{HEADLINE}}</h2>
+      <p class="text-lg text-gray-500 max-w-2xl mx-auto">{{SUBHEADLINE}}</p>
+    </div>
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+      <div class="group relative overflow-hidden rounded-2xl bg-gray-100 aspect-video cursor-pointer">
+        <img src="{{PORT_IMG_1}}" alt="{{PORT_TITLE_1}}" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" onerror="this.parentElement.classList.add('bg-gradient-to-br','from-indigo-100','to-purple-100');this.style.display='none'" />
+        <div class="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-end p-6">
+          <div><div class="text-white font-bold text-lg">{{PORT_TITLE_1}}</div><div class="text-indigo-300 text-sm">{{PORT_CAT_1}}</div></div>
+        </div>
+      </div>
+      <div class="group relative overflow-hidden rounded-2xl bg-gray-100 aspect-video cursor-pointer">
+        <img src="{{PORT_IMG_2}}" alt="{{PORT_TITLE_2}}" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" onerror="this.parentElement.classList.add('bg-gradient-to-br','from-purple-100','to-pink-100');this.style.display='none'" />
+        <div class="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-end p-6">
+          <div><div class="text-white font-bold text-lg">{{PORT_TITLE_2}}</div><div class="text-indigo-300 text-sm">{{PORT_CAT_2}}</div></div>
+        </div>
+      </div>
+      <div class="group relative overflow-hidden rounded-2xl bg-gray-100 aspect-video cursor-pointer">
+        <img src="{{PORT_IMG_3}}" alt="{{PORT_TITLE_3}}" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" onerror="this.parentElement.classList.add('bg-gradient-to-br','from-pink-100','to-orange-100');this.style.display='none'" />
+        <div class="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-end p-6">
+          <div><div class="text-white font-bold text-lg">{{PORT_TITLE_3}}</div><div class="text-indigo-300 text-sm">{{PORT_CAT_3}}</div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>`,
+
+  team_cards: `<section class="py-20 px-6 bg-gray-50" id="team">
+  <div class="max-w-6xl mx-auto">
+    <div class="text-center mb-14">
+      <span class="inline-block text-indigo-600 text-sm font-bold uppercase tracking-widest mb-3">{{CHIP}}</span>
+      <h2 class="text-4xl font-black text-gray-900 mb-4">{{HEADLINE}}</h2>
+      <p class="text-lg text-gray-500 max-w-2xl mx-auto">{{SUBHEADLINE}}</p>
+    </div>
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-8">
+      <div class="bg-white rounded-2xl p-8 text-center shadow-sm">
+        <div class="w-20 h-20 rounded-full bg-indigo-100 flex items-center justify-center text-3xl mx-auto mb-4">{{MEMBER_EMOJI_1}}</div>
+        <h3 class="text-xl font-bold text-gray-900 mb-1">{{MEMBER_NAME_1}}</h3>
+        <div class="text-indigo-600 font-semibold text-sm mb-3">{{MEMBER_TITLE_1}}</div>
+        <p class="text-gray-500 text-sm">{{MEMBER_BIO_1}}</p>
+      </div>
+      <div class="bg-white rounded-2xl p-8 text-center shadow-sm">
+        <div class="w-20 h-20 rounded-full bg-purple-100 flex items-center justify-center text-3xl mx-auto mb-4">{{MEMBER_EMOJI_2}}</div>
+        <h3 class="text-xl font-bold text-gray-900 mb-1">{{MEMBER_NAME_2}}</h3>
+        <div class="text-indigo-600 font-semibold text-sm mb-3">{{MEMBER_TITLE_2}}</div>
+        <p class="text-gray-500 text-sm">{{MEMBER_BIO_2}}</p>
+      </div>
+      <div class="bg-white rounded-2xl p-8 text-center shadow-sm">
+        <div class="w-20 h-20 rounded-full bg-pink-100 flex items-center justify-center text-3xl mx-auto mb-4">{{MEMBER_EMOJI_3}}</div>
+        <h3 class="text-xl font-bold text-gray-900 mb-1">{{MEMBER_NAME_3}}</h3>
+        <div class="text-indigo-600 font-semibold text-sm mb-3">{{MEMBER_TITLE_3}}</div>
+        <p class="text-gray-500 text-sm">{{MEMBER_BIO_3}}</p>
+      </div>
+    </div>
+  </div>
+</section>`,
+
+  cta_banner: `<section class="py-24 px-6 bg-gray-900 text-white">
+  <div class="max-w-3xl mx-auto text-center">
+    <h2 class="text-4xl lg:text-5xl font-black mb-6">{{HEADLINE}}</h2>
+    <p class="text-xl text-gray-400 mb-10 max-w-xl mx-auto">{{SUBHEADLINE}}</p>
+    <a href="#contact" class="inline-block bg-indigo-600 text-white font-bold px-10 py-5 rounded-full text-lg hover:bg-indigo-500 transition-colors shadow-xl">{{CTA_PRIMARY}}</a>
+  </div>
+</section>`,
+
+  stats_row: `<section class="py-16 px-6 bg-indigo-600 text-white">
+  <div class="max-w-5xl mx-auto">
+    <div class="grid grid-cols-2 lg:grid-cols-4 gap-8 text-center">
+      <div><div class="text-4xl lg:text-5xl font-black mb-2">{{STAT_1_NUM}}</div><div class="text-indigo-200 font-medium">{{STAT_1_LABEL}}</div></div>
+      <div><div class="text-4xl lg:text-5xl font-black mb-2">{{STAT_2_NUM}}</div><div class="text-indigo-200 font-medium">{{STAT_2_LABEL}}</div></div>
+      <div><div class="text-4xl lg:text-5xl font-black mb-2">{{STAT_3_NUM}}</div><div class="text-indigo-200 font-medium">{{STAT_3_LABEL}}</div></div>
+      <div><div class="text-4xl lg:text-5xl font-black mb-2">{{STAT_4_NUM}}</div><div class="text-indigo-200 font-medium">{{STAT_4_LABEL}}</div></div>
+    </div>
+  </div>
+</section>`,
+
+  faq_accordion: `<section class="py-20 px-6 bg-gray-50" id="faq">
+  <div class="max-w-3xl mx-auto">
+    <div class="text-center mb-14">
+      <span class="inline-block text-indigo-600 text-sm font-bold uppercase tracking-widest mb-3">{{CHIP}}</span>
+      <h2 class="text-4xl font-black text-gray-900 mb-4">{{HEADLINE}}</h2>
+    </div>
+    <div class="space-y-3" id="faq-container">
+      {{FAQ_ITEMS}}
+    </div>
+  </div>
+  <script>
+    document.querySelectorAll('.tw-faq-btn').forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        var item = this.closest('.tw-faq-item');
+        var ans = item.querySelector('.tw-faq-ans');
+        var icon = item.querySelector('.tw-faq-icon');
+        var isOpen = !ans.classList.contains('hidden');
+        document.querySelectorAll('.tw-faq-ans').forEach(function(a){ a.classList.add('hidden'); });
+        document.querySelectorAll('.tw-faq-icon').forEach(function(ic){ ic.textContent='+'; });
+        if (!isOpen) { ans.classList.remove('hidden'); icon.textContent='−'; }
+      });
+    });
+  </script>
+</section>`,
+
+  blog_grid: `<section class="py-20 px-6 bg-white" id="blog">
+  <div class="max-w-6xl mx-auto">
+    <div class="text-center mb-14">
+      <span class="inline-block text-indigo-600 text-sm font-bold uppercase tracking-widest mb-3">{{CHIP}}</span>
+      <h2 class="text-4xl font-black text-gray-900 mb-4">{{HEADLINE}}</h2>
+      <p class="text-lg text-gray-500 max-w-2xl mx-auto">{{SUBHEADLINE}}</p>
+    </div>
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-8">
+      <article class="bg-gray-50 rounded-2xl overflow-hidden hover:shadow-lg transition-shadow">
+        <div class="h-48 bg-gradient-to-br from-indigo-100 to-purple-100 flex items-center justify-center text-4xl">{{BLOG_IMG_1}}</div>
+        <div class="p-6">
+          <span class="text-indigo-600 text-xs font-bold uppercase tracking-widest">{{BLOG_CAT_1}}</span>
+          <h3 class="text-lg font-bold text-gray-900 mt-2 mb-2">{{BLOG_TITLE_1}}</h3>
+          <p class="text-gray-500 text-sm mb-4">{{BLOG_EXCERPT_1}}</p>
+          <a href="#" class="text-indigo-600 font-semibold text-sm hover:underline">Read more →</a>
+        </div>
+      </article>
+      <article class="bg-gray-50 rounded-2xl overflow-hidden hover:shadow-lg transition-shadow">
+        <div class="h-48 bg-gradient-to-br from-purple-100 to-pink-100 flex items-center justify-center text-4xl">{{BLOG_IMG_2}}</div>
+        <div class="p-6">
+          <span class="text-indigo-600 text-xs font-bold uppercase tracking-widest">{{BLOG_CAT_2}}</span>
+          <h3 class="text-lg font-bold text-gray-900 mt-2 mb-2">{{BLOG_TITLE_2}}</h3>
+          <p class="text-gray-500 text-sm mb-4">{{BLOG_EXCERPT_2}}</p>
+          <a href="#" class="text-indigo-600 font-semibold text-sm hover:underline">Read more →</a>
+        </div>
+      </article>
+      <article class="bg-gray-50 rounded-2xl overflow-hidden hover:shadow-lg transition-shadow">
+        <div class="h-48 bg-gradient-to-br from-pink-100 to-orange-100 flex items-center justify-center text-4xl">{{BLOG_IMG_3}}</div>
+        <div class="p-6">
+          <span class="text-indigo-600 text-xs font-bold uppercase tracking-widest">{{BLOG_CAT_3}}</span>
+          <h3 class="text-lg font-bold text-gray-900 mt-2 mb-2">{{BLOG_TITLE_3}}</h3>
+          <p class="text-gray-500 text-sm mb-4">{{BLOG_EXCERPT_3}}</p>
+          <a href="#" class="text-indigo-600 font-semibold text-sm hover:underline">Read more →</a>
+        </div>
+      </article>
+    </div>
+  </div>
+</section>`,
+
+  footer_rich: `<footer class="bg-gray-900 text-white pt-16 pb-8 px-6">
+  <div class="max-w-6xl mx-auto">
+    <div class="grid grid-cols-1 md:grid-cols-4 gap-10 mb-12">
+      <div class="md:col-span-2">
+        <div class="text-2xl font-black mb-4">{{SITE_TITLE}}</div>
+        <p class="text-gray-400 max-w-xs mb-6">{{TAGLINE}}</p>
+        <div class="flex gap-4">
+          <a href="#" class="text-gray-400 hover:text-white transition-colors text-xl">𝕏</a>
+          <a href="#" class="text-gray-400 hover:text-white transition-colors text-xl">in</a>
+          <a href="#" class="text-gray-400 hover:text-white transition-colors text-xl">f</a>
+        </div>
+      </div>
+      <div>
+        <h4 class="text-sm font-bold uppercase tracking-widest text-gray-400 mb-4">Pages</h4>
+        <ul class="space-y-2">{{FOOTER_LINKS}}</ul>
+      </div>
+      <div>
+        <h4 class="text-sm font-bold uppercase tracking-widest text-gray-400 mb-4">Contact</h4>
+        <ul class="space-y-2 text-gray-400 text-sm">
+          <li>{{FOOTER_EMAIL}}</li>
+          <li>{{FOOTER_PHONE}}</li>
+          <li>{{FOOTER_ADDRESS}}</li>
+        </ul>
+      </div>
+    </div>
+    <div class="border-t border-white/10 pt-8 flex flex-col md:flex-row justify-between items-center gap-4 text-gray-500 text-sm">
+      <span>© {{YEAR}} {{SITE_TITLE}}. All rights reserved.</span>
+      <span>Built with MAVIS AI</span>
+    </div>
+  </div>
+</footer>`,
+};
+
+// ---------------------------------------------------------------------------
+// Template-based section renderer (Tailwind)
+// ---------------------------------------------------------------------------
+
+function renderSectionFromTemplate(
+  sectionType: string,
+  content: Record<string, string>,
+  imageUrl?: string,
+  unsplashCredit?: string,
+): string {
+  const template = SECTION_TEMPLATES[sectionType] ?? SECTION_TEMPLATES["cta_banner"];
+  // Replace all {{KEY}} placeholders with content values; unknown keys → empty string
+  const html = template.replace(/\{\{([A-Z0-9_]+)\}\}/g, (_match: string, key: string) => {
+    if (key === "HERO_IMAGE" || key === "ABOUT_IMAGE") return imageUrl ?? content[key] ?? "";
+    if (key === "UNSPLASH_CREDIT") {
+      return unsplashCredit ? `<!-- ${unsplashCredit} -->` : "";
+    }
+    return content[key] ?? "";
+  });
+  return html;
+}
+
+// Build a Tailwind-based standalone HTML page using section templates
+async function buildTailwindPage(
+  pageType: string,
+  content: any,
+  brief: PageBrief,
+  siteTitle: string,
+  pageList: string[],
+  contactCtx?: { supabaseUrl: string; projectId: string; userId: string },
+): Promise<string> {
+  const sections: SectionData[] = await generatePageSections(pageType, brief, content);
+  const primaryColor = content._primaryColor ?? "#6366f1";
+  const title = pageType === "home" ? sanitizeHtml(siteTitle) : `${pageType.charAt(0).toUpperCase() + pageType.slice(1)} | ${sanitizeHtml(siteTitle)}`;
+
+  // Build nav links
+  const navLinks = pageList.map(p =>
+    `<a href="${p === "home" ? "index" : p}.html" class="text-sm font-medium text-gray-600 hover:text-gray-900 transition-colors">${p.charAt(0).toUpperCase() + p.slice(1)}</a>`
+  ).join("");
+
+  const nav = `<nav class="sticky top-0 z-50 bg-white/95 backdrop-blur border-b border-gray-100 shadow-sm">
+  <div class="max-w-6xl mx-auto px-6 flex items-center justify-between h-16">
+    <a href="index.html" class="text-xl font-black text-gray-900">${sanitizeHtml(siteTitle)}</a>
+    <div class="hidden md:flex items-center gap-6">${navLinks}</div>
+    <a href="contact.html" class="hidden md:inline-flex bg-indigo-600 text-white font-semibold px-5 py-2.5 rounded-xl text-sm hover:bg-indigo-700 transition-colors">Get Started</a>
+  </div>
+</nav>`;
+
+  const yr = new Date().getFullYear();
+  const footerLinks = pageList.map(p =>
+    `<li><a href="${p === "home" ? "index" : p}.html" class="text-gray-400 hover:text-white transition-colors text-sm">${p.charAt(0).toUpperCase() + p.slice(1)}</a></li>`
+  ).join("");
+
+  const footer = `<footer class="bg-gray-900 text-white pt-12 pb-6 px-6">
+  <div class="max-w-6xl mx-auto flex flex-col md:flex-row justify-between gap-8 mb-8">
+    <div>
+      <div class="text-xl font-black mb-2">${sanitizeHtml(siteTitle)}</div>
+      <p class="text-gray-400 text-sm max-w-xs">Professional web presence for modern businesses.</p>
+    </div>
+    <div>
+      <h4 class="text-xs font-bold uppercase tracking-widest text-gray-500 mb-3">Pages</h4>
+      <ul class="space-y-2">${footerLinks}</ul>
+    </div>
+  </div>
+  <div class="max-w-6xl mx-auto border-t border-white/10 pt-6 flex justify-between items-center text-gray-500 text-xs">
+    <span>© ${yr} ${sanitizeHtml(siteTitle)}. All rights reserved.</span>
+    <span>Built with MAVIS AI</span>
+  </div>
+</footer>`;
+
+  // Render each section using templates where possible, else fall back to existing renderers
+  const bodyParts: string[] = [];
+  for (const sec of sections) {
+    const rendered = renderSectionWithTailwind(sec, pageType === "home" ? (content._heroImageUrl ?? undefined) : undefined, contactCtx, content);
+    bodyParts.push(rendered);
+  }
+
+  const ga4Id = Deno.env.get("GA4_MEASUREMENT_ID") ?? "G-XXXXXXXXXX";
+  const ga4Snippet = `<!-- Analytics: replace G-XXXXXXXXXX with your GA4 measurement ID -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=${ga4Id}"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+  gtag('config', '${ga4Id}');
+</script>`;
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>${title}</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script>tailwind.config = { theme: { extend: {} } }</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Plus+Jakarta+Sans:wght@400;600;700;800&display=swap" rel="stylesheet">
+<style>body{font-family:'Inter','Plus Jakarta Sans',sans-serif;}</style>
+${ga4Snippet}
+</head>
+<body class="bg-white text-gray-900 antialiased">
+${nav}
+<main>${bodyParts.join("\n")}</main>
+${footer}
+</body>
+</html>`;
+}
+
+// Map section data to Tailwind template or fall back to existing CSS renderer
+function renderSectionWithTailwind(
+  s: SectionData,
+  heroUrl?: string,
+  contactCtx?: { supabaseUrl: string; projectId: string; userId: string },
+  pageContent?: any,
+): string {
+  switch (s.type) {
+    case "hero": {
+      const c: Record<string, string> = {
+        BADGE: (s as any).badge ?? "",
+        HEADLINE: s.headline,
+        SUBHEADLINE: s.subheadline,
+        CTA_PRIMARY: s.cta_primary,
+        CTA_SECONDARY: (s as any).cta_secondary ?? "Learn More",
+        HERO_IMAGE: heroUrl ?? "",
+      };
+      const credit = (pageContent?._heroImageCredit as string) ?? "";
+      return renderSectionFromTemplate("hero_gradient", c, heroUrl, credit);
+    }
+    case "stats": {
+      const items = s.items ?? [];
+      const c: Record<string, string> = {
+        STAT_1_NUM: items[0]?.number ?? "",
+        STAT_1_LABEL: items[0]?.label ?? "",
+        STAT_2_NUM: items[1]?.number ?? "",
+        STAT_2_LABEL: items[1]?.label ?? "",
+        STAT_3_NUM: items[2]?.number ?? "",
+        STAT_3_LABEL: items[2]?.label ?? "",
+        STAT_4_NUM: items[3]?.number ?? "",
+        STAT_4_LABEL: items[3]?.label ?? "",
+      };
+      return renderSectionFromTemplate("stats_row", c);
+    }
+    case "features": {
+      const items = (s as any).items ?? [];
+      const c: Record<string, string> = {
+        CHIP: (s as any).chip ?? "Features",
+        HEADLINE: s.headline,
+        SUBHEADLINE: (s as any).subheadline ?? "",
+        ICON_1: items[0]?.icon ?? "⚡",
+        TITLE_1: items[0]?.title ?? "",
+        DESC_1: items[0]?.description ?? "",
+        ICON_2: items[1]?.icon ?? "🎯",
+        TITLE_2: items[1]?.title ?? "",
+        DESC_2: items[1]?.description ?? "",
+        ICON_3: items[2]?.icon ?? "🚀",
+        TITLE_3: items[2]?.title ?? "",
+        DESC_3: items[2]?.description ?? "",
+      };
+      return renderSectionFromTemplate("features_grid", c);
+    }
+    case "testimonials": {
+      const items = (s as any).items ?? [];
+      const c: Record<string, string> = {
+        CHIP: (s as any).chip ?? "Testimonials",
+        HEADLINE: s.headline,
+        QUOTE_1: items[0]?.quote ?? "",
+        AUTHOR_1: items[0]?.author ?? "",
+        ROLE_1: items[0]?.role ?? "",
+        COMPANY_1: items[0]?.company ?? "",
+        QUOTE_2: items[1]?.quote ?? "",
+        AUTHOR_2: items[1]?.author ?? "",
+        ROLE_2: items[1]?.role ?? "",
+        COMPANY_2: items[1]?.company ?? "",
+        QUOTE_3: items[2]?.quote ?? "",
+        AUTHOR_3: items[2]?.author ?? "",
+        ROLE_3: items[2]?.role ?? "",
+        COMPANY_3: items[2]?.company ?? "",
+      };
+      return renderSectionFromTemplate("testimonials_cards", c);
+    }
+    case "pricing": {
+      const plans = (s as any).plans ?? [];
+      const featsHtml = (feats: string[]) => (feats ?? []).map((f: string) => `<li class="flex items-center gap-2"><span class="text-indigo-600">✓</span>${sanitizeHtml(f)}</li>`).join("");
+      const c: Record<string, string> = {
+        HEADLINE: s.headline,
+        SUBHEADLINE: (s as any).subheadline ?? "",
+        PRICE_1: plans[0]?.price ?? "Free",
+        PERIOD_1: plans[0]?.period ? `/ ${plans[0].period}` : "",
+        FEATURES_1: featsHtml(plans[0]?.features ?? []),
+        CTA_1: plans[0]?.cta ?? "Get Started",
+        PRICE_2: plans[1]?.price ?? "$49",
+        PERIOD_2: plans[1]?.period ? `/ ${plans[1].period}` : "",
+        FEATURES_2: featsHtml(plans[1]?.features ?? []),
+        CTA_2: plans[1]?.cta ?? "Get Started",
+        PRICE_3: plans[2]?.price ?? "Custom",
+        PERIOD_3: plans[2]?.period ? `/ ${plans[2].period}` : "",
+        FEATURES_3: featsHtml(plans[2]?.features ?? []),
+        CTA_3: plans[2]?.cta ?? "Contact Us",
+      };
+      return renderSectionFromTemplate("pricing_table", c);
+    }
+    case "faq": {
+      const items = (s as any).items ?? [];
+      const faqItemsHtml = items.map((f: any, i: number) => `<div class="tw-faq-item bg-white rounded-xl border border-gray-200 overflow-hidden">
+  <button class="tw-faq-btn w-full text-left px-6 py-4 flex justify-between items-center font-semibold text-gray-900 hover:bg-gray-50 transition-colors">
+    <span>${sanitizeHtml(f.question)}</span><span class="tw-faq-icon text-gray-400 text-xl leading-none">+</span>
+  </button>
+  <div class="tw-faq-ans hidden px-6 pb-4 text-gray-500 text-sm leading-relaxed">${sanitizeHtml(f.answer)}</div>
+</div>`).join("\n");
+      const c: Record<string, string> = {
+        CHIP: (s as any).chip ?? "FAQ",
+        HEADLINE: s.headline,
+        FAQ_ITEMS: faqItemsHtml,
+      };
+      return renderSectionFromTemplate("faq_accordion", c);
+    }
+    case "contact":
+      return _sContact(s, contactCtx);
+    case "team": {
+      const members = (s as any).members ?? [];
+      const c: Record<string, string> = {
+        CHIP: (s as any).chip ?? "Team",
+        HEADLINE: s.headline,
+        SUBHEADLINE: (s as any).subheadline ?? "",
+        MEMBER_EMOJI_1: members[0]?.emoji ?? (members[0]?.name ?? "T").charAt(0),
+        MEMBER_NAME_1: members[0]?.name ?? "",
+        MEMBER_TITLE_1: members[0]?.role ?? "",
+        MEMBER_BIO_1: members[0]?.bio ?? "",
+        MEMBER_EMOJI_2: members[1]?.emoji ?? (members[1]?.name ?? "T").charAt(0),
+        MEMBER_NAME_2: members[1]?.name ?? "",
+        MEMBER_TITLE_2: members[1]?.role ?? "",
+        MEMBER_BIO_2: members[1]?.bio ?? "",
+        MEMBER_EMOJI_3: members[2]?.emoji ?? (members[2]?.name ?? "T").charAt(0),
+        MEMBER_NAME_3: members[2]?.name ?? "",
+        MEMBER_TITLE_3: members[2]?.role ?? "",
+        MEMBER_BIO_3: members[2]?.bio ?? "",
+      };
+      return renderSectionFromTemplate("team_cards", c);
+    }
+    case "portfolio": {
+      const items = (s as any).items ?? [];
+      const c: Record<string, string> = {
+        CHIP: (s as any).chip ?? "Portfolio",
+        HEADLINE: s.headline,
+        SUBHEADLINE: (s as any).subheadline ?? "",
+        PORT_IMG_1: items[0]?.image ?? "",
+        PORT_TITLE_1: items[0]?.title ?? "",
+        PORT_CAT_1: items[0]?.category ?? "",
+        PORT_IMG_2: items[1]?.image ?? "",
+        PORT_TITLE_2: items[1]?.title ?? "",
+        PORT_CAT_2: items[1]?.category ?? "",
+        PORT_IMG_3: items[2]?.image ?? "",
+        PORT_TITLE_3: items[2]?.title ?? "",
+        PORT_CAT_3: items[2]?.category ?? "",
+      };
+      return renderSectionFromTemplate("portfolio_grid", c);
+    }
+    case "about_hero": {
+      const paragraphs = (s.body ?? "").split("\n\n").filter(Boolean);
+      return `<section class="bg-gradient-to-br from-indigo-900 to-purple-900 text-white py-24 px-6">
+  <div class="max-w-3xl mx-auto text-center">
+    <h1 class="text-5xl font-black mb-6">${s.headline}</h1>
+    <p class="text-xl text-white/80 mb-8">${s.subheadline}</p>
+  </div>
+</section>
+<section class="py-20 px-6 bg-white">
+  <div class="max-w-3xl mx-auto">
+    ${paragraphs.map((p: string) => `<p class="text-lg text-gray-600 mb-6 leading-relaxed">${p}</p>`).join("")}
+  </div>
+</section>`;
+    }
+    case "services": {
+      const items = (s as any).items ?? [];
+      const c: Record<string, string> = {
+        CHIP: (s as any).chip ?? "Services",
+        HEADLINE: s.headline,
+        SUBHEADLINE: (s as any).subheadline ?? "",
+        SVC_ICON_1: items[0]?.icon ?? "⚡",
+        SVC_TITLE_1: items[0]?.title ?? "",
+        SVC_DESC_1: items[0]?.description ?? "",
+        SVC_ICON_2: items[1]?.icon ?? "🎯",
+        SVC_TITLE_2: items[1]?.title ?? "",
+        SVC_DESC_2: items[1]?.description ?? "",
+        SVC_ICON_3: items[2]?.icon ?? "🚀",
+        SVC_TITLE_3: items[2]?.title ?? "",
+        SVC_DESC_3: items[2]?.description ?? "",
+        SVC_ICON_4: items[3]?.icon ?? "💡",
+        SVC_TITLE_4: items[3]?.title ?? "",
+        SVC_DESC_4: items[3]?.description ?? "",
+      };
+      return renderSectionFromTemplate("services_list", c);
+    }
+    case "values": {
+      const items = (s as any).items ?? [];
+      const valCards = items.map((v: any) => `<div class="bg-white rounded-2xl p-6 text-center shadow-sm border border-gray-100">
+  <div class="text-4xl mb-4">${v.emoji ?? "⭐"}</div>
+  <h3 class="text-lg font-bold text-gray-900 mb-2">${v.title}</h3>
+  <p class="text-gray-500 text-sm">${v.description}</p>
+</div>`).join("");
+      return `<section class="py-20 px-6 bg-gray-50">
+  <div class="max-w-5xl mx-auto">
+    <div class="text-center mb-14">
+      ${(s as any).chip ? `<span class="inline-block text-indigo-600 text-sm font-bold uppercase tracking-widest mb-3">${(s as any).chip}</span>` : ""}
+      <h2 class="text-4xl font-black text-gray-900 mb-4">${s.headline}</h2>
+      ${(s as any).subheadline ? `<p class="text-lg text-gray-500">${(s as any).subheadline}</p>` : ""}
+    </div>
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-6">${valCards}</div>
+  </div>
+</section>`;
+    }
+    case "cta": {
+      const c: Record<string, string> = {
+        HEADLINE: s.headline,
+        SUBHEADLINE: s.subheadline,
+        CTA_PRIMARY: s.cta_primary,
+      };
+      return renderSectionFromTemplate("cta_banner", c);
+    }
+    case "steps": {
+      const items = (s as any).items ?? [];
+      const stepsHtml = items.map((st: any, i: number) => `<div class="flex gap-6 items-start">
+  <div class="flex-shrink-0 w-12 h-12 rounded-full bg-indigo-600 text-white flex items-center justify-center font-black text-lg">${String(i + 1).padStart(2, "0")}</div>
+  <div><h3 class="text-lg font-bold text-gray-900 mb-1">${st.title}</h3><p class="text-gray-500">${st.description}</p></div>
+</div>`).join("\n");
+      return `<section class="py-20 px-6 bg-gray-50">
+  <div class="max-w-3xl mx-auto">
+    <div class="text-center mb-14">
+      ${(s as any).chip ? `<span class="inline-block text-indigo-600 text-sm font-bold uppercase tracking-widest mb-3">${(s as any).chip}</span>` : ""}
+      <h2 class="text-4xl font-black text-gray-900 mb-4">${s.headline}</h2>
+      ${(s as any).subheadline ? `<p class="text-lg text-gray-500">${(s as any).subheadline}</p>` : ""}
+    </div>
+    <div class="space-y-10">${stepsHtml}</div>
+  </div>
+</section>`;
+    }
+    case "content_block": {
+      return `<section class="py-20 px-6 ${(s as any).bg !== false ? "bg-gray-50" : "bg-white"}">
+  <div class="max-w-3xl mx-auto text-center">
+    ${(s as any).chip ? `<span class="inline-block text-indigo-600 text-sm font-bold uppercase tracking-widest mb-3">${(s as any).chip}</span>` : ""}
+    ${(s as any).headline ? `<h2 class="text-4xl font-black text-gray-900 mb-6">${(s as any).headline}</h2>` : ""}
+    <p class="text-lg text-gray-600 leading-relaxed">${(s as any).body}</p>
+  </div>
+</section>`;
+    }
+    case "image_text": {
+      const imgLeft = (s as any).image_side === "left";
+      const textBlock = `<div>${(s as any).chip ? `<span class="inline-block text-indigo-600 text-sm font-bold uppercase tracking-widest mb-3">${(s as any).chip}</span>` : ""}
+<h2 class="text-4xl font-black text-gray-900 mb-6 mt-2">${s.headline}</h2>
+<p class="text-lg text-gray-600 leading-relaxed mb-8">${(s as any).body}</p>
+${(s as any).cta ? `<a href="contact.html" class="inline-block bg-indigo-600 text-white font-bold px-8 py-4 rounded-xl hover:bg-indigo-700 transition-colors">${(s as any).cta}</a>` : ""}</div>`;
+      const imgBlock = `<div class="rounded-2xl overflow-hidden bg-gradient-to-br from-indigo-100 to-purple-100 h-80 flex items-center justify-center text-7xl">✨</div>`;
+      return `<section class="py-20 px-6 bg-white">
+  <div class="max-w-5xl mx-auto grid grid-cols-1 lg:grid-cols-2 gap-16 items-center">
+    ${imgLeft ? `${imgBlock}${textBlock}` : `${textBlock}${imgBlock}`}
+  </div>
+</section>`;
+    }
+    default:
+      return "";
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Types
@@ -36,6 +816,93 @@ interface SiteContent {
   pages?: Record<string, any>;
 }
 
+type SectionData =
+  | { type: "hero"; headline: string; subheadline: string; cta_primary: string; cta_secondary?: string; badge?: string }
+  | { type: "stats"; items: Array<{ number: string; label: string }> }
+  | { type: "features"; headline: string; subheadline?: string; chip?: string; items: Array<{ icon: string; title: string; description: string }> }
+  | { type: "steps"; headline: string; subheadline?: string; chip?: string; items: Array<{ title: string; description: string }> }
+  | { type: "testimonials"; headline: string; chip?: string; items: Array<{ quote: string; author: string; role: string }> }
+  | { type: "cta"; headline: string; subheadline: string; cta_primary: string; cta_secondary?: string }
+  | { type: "pricing"; headline: string; subheadline?: string; chip?: string; plans: Array<{ name: string; price: string; period?: string; description?: string; features: string[]; highlighted?: boolean; cta?: string }> }
+  | { type: "faq"; headline: string; chip?: string; items: Array<{ question: string; answer: string }> }
+  | { type: "contact"; headline: string; subheadline?: string; email?: string; phone?: string; address?: string; hours?: string }
+  | { type: "team"; headline: string; subheadline?: string; members: Array<{ name: string; role: string; bio: string; emoji?: string }> }
+  | { type: "portfolio"; headline: string; subheadline?: string; items: Array<{ title: string; category: string; description: string }> }
+  | { type: "about_hero"; headline: string; subheadline: string; body: string }
+  | { type: "services"; headline: string; subheadline?: string; chip?: string; items: Array<{ title: string; description: string; price?: string; icon?: string }> }
+  | { type: "values"; headline: string; subheadline?: string; items: Array<{ emoji: string; title: string; description: string }> }
+  | { type: "content_block"; headline?: string; body: string; chip?: string; bg?: boolean }
+  | { type: "image_text"; headline: string; body: string; image_side?: "left" | "right"; cta?: string; chip?: string };
+
+interface PageBrief { business_name?: string; business_type?: string; style?: string }
+
+// ---------------------------------------------------------------------------
+// AI cascade helpers
+// ---------------------------------------------------------------------------
+
+async function callAI(prompt: string, maxTokens = 8192): Promise<any> {
+  if (GEMINI_KEY) {
+    const GEMINI_MODELS = ["gemini-2.5-flash-preview-05-20", "gemini-2.0-flash", "gemini-1.5-flash"];
+    const gemBody = JSON.stringify({
+      contents: [{ role: "user", parts: [{ text: prompt }] }],
+      generationConfig: { temperature: 0.8, responseMimeType: "application/json", maxOutputTokens: maxTokens },
+    });
+    for (const model of GEMINI_MODELS) {
+      const res = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_KEY}`,
+        { method: "POST", headers: { "Content-Type": "application/json" }, body: gemBody, signal: AbortSignal.timeout(30000) },
+      );
+      if (res.ok) {
+        const data = await res.json();
+        const text = data.candidates?.[0]?.content?.parts?.[0]?.text ?? "{}";
+        return JSON.parse(text);
+      }
+      if (res.status === 429) break;
+    }
+  }
+  if (CLAUDE_KEY) {
+    const res = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-api-key": CLAUDE_KEY, "anthropic-version": "2023-06-01" },
+      signal: AbortSignal.timeout(30000),
+      body: JSON.stringify({
+        model: "claude-haiku-4-5-20251001",
+        max_tokens: maxTokens,
+        system: "You are an expert web designer. Always respond with valid JSON only — no markdown, no explanation.",
+        messages: [{ role: "user", content: prompt }],
+      }),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      const text = data.content?.[0]?.text ?? "{}";
+      const match = text.match(/\{[\s\S]*\}|\[[\s\S]*\]/);
+      return JSON.parse(match ? match[0] : text);
+    }
+  }
+  if (OPENAI_KEY) {
+    const res = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${OPENAI_KEY}` },
+      signal: AbortSignal.timeout(30000),
+      body: JSON.stringify({
+        model: "gpt-4o-mini",
+        max_tokens: maxTokens,
+        response_format: { type: "json_object" },
+        messages: [
+          { role: "system", content: "You are an expert web designer. Respond with valid JSON only." },
+          { role: "user", content: prompt },
+        ],
+      }),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      const text = data.choices?.[0]?.message?.content ?? "{}";
+      return JSON.parse(text);
+    }
+  }
+  throw new Error("All AI providers failed or have no funded keys.");
+}
+
 // ---------------------------------------------------------------------------
 // Gemini content generation
 // ---------------------------------------------------------------------------
@@ -60,8 +927,10 @@ Generate content for these pages: ${pageList}
 CRITICAL RULES:
 - Headlines must be powerful, specific, and benefit-driven (not generic like "Welcome to our website")
 - Copy must speak directly to the target audience's pain points
-- Every CTA must be action-oriented and specific
-- Testimonials should feel authentic and specific (with realistic names, roles, companies)
+- Every CTA must be action-oriented and specific — use verbs tied to this business type: "Book a Free Consultation", "Get a Quote", "Reserve Your Table", NOT generic "Get Started" or "Learn More"
+- NEVER use placeholder text, fake statistics, or lorem ipsum. All content must be specific to the business.
+- Do NOT invent testimonials. If testimonials are requested, write a testimonials section placeholder with items whose quote field says "ADD REAL CLIENT TESTIMONIAL HERE" and leave author/role as empty strings.
+- Be specific about the business type: a law firm page should mention legal services and case outcomes; a restaurant should mention cuisine, dining experience, and atmosphere; a tech company should mention software and innovation.
 - Features should be benefit-first, not feature-first
 
 Return a JSON object with this EXACT structure:
@@ -173,35 +1042,133 @@ Return a JSON object with this EXACT structure:
   }
 }`;
 
-  const GEMINI_MODELS = [
-    "gemini-2.5-flash-preview-05-20",
-    "gemini-2.0-flash",
-    "gemini-1.5-flash",
-  ];
+  return callAI(systemPrompt, 8192);
+}
 
-  const body = JSON.stringify({
-    contents: [{ role: "user", parts: [{ text: systemPrompt }] }],
-    generationConfig: {
-      temperature: 0.8,
-      responseMimeType: "application/json",
-      maxOutputTokens: 8192,
-    },
-  });
+// ---------------------------------------------------------------------------
+// AI-driven page section generation
+// ---------------------------------------------------------------------------
 
-  let res: Response | null = null;
-  for (const model of GEMINI_MODELS) {
-    res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_KEY}`,
-      { method: "POST", headers: { "Content-Type": "application/json" }, body },
-    );
-    if (res.ok) break;
-    if (res.status !== 403 && res.status !== 404) break; // only retry on access errors
+function fallbackSections(pageType: string, content: any): SectionData[] {
+  const c = content ?? {};
+  const hero = c.hero ?? {};
+  const cta = c.cta_section ?? {};
+  const defaultCta: SectionData = {
+    type: "cta",
+    headline: cta.headline ?? "Ready to Get Started?",
+    subheadline: cta.subtext ?? "Join us and experience the difference.",
+    cta_primary: cta.cta_text ?? "Get Started Today",
+  };
+  switch (pageType) {
+    case "home": {
+      const out: SectionData[] = [
+        { type: "hero", headline: hero.headline ?? "Welcome", subheadline: hero.subheadline ?? "", cta_primary: hero.cta_primary ?? "Get Started", badge: c.social_proof_bar?.text },
+      ];
+      if (c.stats?.length) out.push({ type: "stats", items: c.stats });
+      if (c.features?.length) out.push({ type: "features", headline: c.features_title ?? "Why Choose Us", subheadline: c.features_subtitle, chip: "Features", items: c.features.map((f: any) => ({ icon: f.icon_emoji ?? "⚡", title: f.title ?? f.name, description: f.description ?? "" })) });
+      if (c.how_it_works?.steps?.length) out.push({ type: "steps", headline: c.how_it_works.title ?? "How It Works", chip: "Process", items: c.how_it_works.steps.map((s: any) => ({ title: s.title, description: s.description })) });
+      if (c.testimonials?.length) out.push({ type: "testimonials", headline: "What Our Clients Say", chip: "Testimonials", items: c.testimonials });
+      if (c.faq?.length) out.push({ type: "faq", headline: "Frequently Asked Questions", chip: "FAQ", items: c.faq });
+      out.push(defaultCta);
+      return out;
+    }
+    case "about": {
+      const out: SectionData[] = [
+        { type: "about_hero", headline: c.hero_headline ?? "About Us", subheadline: c.mission ?? c.tagline ?? "", body: c.story ?? c.intro ?? "We are dedicated to excellence." },
+      ];
+      if (c.values?.length) out.push({ type: "values", headline: "Our Values", chip: "Values", items: c.values.map((v: any) => ({ emoji: v.icon_emoji ?? "⭐", title: v.title ?? v.name, description: v.description ?? "" })) });
+      if (c.team?.length || c.team_members?.length) out.push({ type: "team", headline: "Meet the Team", chip: "Team", members: (c.team ?? c.team_members ?? []).map((m: any) => ({ name: m.name, role: m.role ?? m.title ?? "", bio: m.bio ?? "" })) });
+      out.push(defaultCta);
+      return out;
+    }
+    case "services": {
+      const out: SectionData[] = [
+        { type: "hero", headline: c.hero_headline ?? "Our Services", subheadline: c.intro ?? "", cta_primary: "Get a Quote" },
+      ];
+      if (c.services?.length ?? c.service_list?.length) out.push({ type: "services", headline: "What We Offer", chip: "Services", items: (c.services ?? c.service_list ?? []).map((s: any) => ({ icon: s.icon_emoji ?? "⚡", title: s.title ?? s.name, description: s.description ?? "", price: s.price })) });
+      if (c.process_steps?.length) out.push({ type: "steps", headline: c.process_title ?? "Our Process", chip: "Process", items: c.process_steps.map((s: any) => ({ title: s.title, description: s.description })) });
+      if (c.testimonials?.length) out.push({ type: "testimonials", headline: "Client Results", chip: "Testimonials", items: c.testimonials });
+      out.push(defaultCta);
+      return out;
+    }
+    case "pricing": {
+      const out: SectionData[] = [
+        { type: "content_block", headline: c.hero_headline ?? "Simple, Transparent Pricing", body: c.intro ?? "No hidden fees. No surprises.", chip: "Pricing" },
+      ];
+      if (c.plans?.length) out.push({ type: "pricing", headline: "Choose Your Plan", subheadline: c.subtitle, chip: "Plans", plans: c.plans });
+      if (c.faq?.length) out.push({ type: "faq", headline: "Pricing FAQ", chip: "FAQ", items: c.faq });
+      out.push(defaultCta);
+      return out;
+    }
+    case "contact":
+      return [{ type: "contact", headline: c.hero_headline ?? "Get in Touch", subheadline: c.intro, email: c.email, phone: c.phone, address: c.address, hours: c.hours }];
+    case "portfolio": {
+      const out: SectionData[] = [
+        { type: "content_block", headline: "Our Work", body: c.intro ?? "Explore our portfolio of projects.", chip: "Portfolio" },
+      ];
+      if (c.projects?.length ?? c.portfolio?.length) out.push({ type: "portfolio", headline: "Featured Projects", items: (c.projects ?? c.portfolio ?? []).map((p: any) => ({ title: p.title, category: p.category ?? "Project", description: p.description ?? "" })) });
+      if (c.testimonials?.length) out.push({ type: "testimonials", headline: "Client Feedback", items: c.testimonials });
+      out.push(defaultCta);
+      return out;
+    }
+    default:
+      return [
+        { type: "content_block", headline: c.title ?? pageType.charAt(0).toUpperCase() + pageType.slice(1), body: c.intro ?? c.description ?? "More information coming soon." },
+        defaultCta,
+      ];
   }
+}
 
-  if (!res || !res.ok) throw new Error(`Gemini content gen failed: ${res?.status ?? "no response"}`);
-  const data = await res.json();
-  const text = data.candidates?.[0]?.content?.parts?.[0]?.text ?? "{}";
-  return JSON.parse(text);
+async function generatePageSections(pageType: string, brief: PageBrief, content: any): Promise<SectionData[]> {
+  const prompt = `You are a professional web designer. Build a "${pageType}" page for this business.
+
+Business: "${brief.business_name ?? "Business"}" (${brief.business_type ?? "business"})
+Style: ${brief.style ?? "modern"}
+
+CRITICAL CONTENT RULES:
+- NEVER use placeholder text, fake statistics, or lorem ipsum. All content must be specific to this business.
+- Do NOT invent testimonials. If a testimonials section is needed, set each quote to "ADD REAL CLIENT TESTIMONIAL HERE" and leave author/role blank.
+- Be specific to the business type: a law firm gets legal language, a restaurant gets cuisine/dining copy, etc.
+- CTAs must be action-specific for this industry (e.g. "Book a Free Consultation", "Get a Quote", "Reserve Your Table") — never generic "Get Started" or "Learn More".
+
+AVAILABLE SECTION TYPES (use ONLY these exact type strings):
+hero: {type:"hero",headline,subheadline,cta_primary,cta_secondary?,badge?}
+stats: {type:"stats",items:[{number,label}]}  (3-4 items)
+features: {type:"features",headline,subheadline?,chip?,items:[{icon,title,description}]}  (icon=emoji, 3-6 items)
+steps: {type:"steps",headline,subheadline?,chip?,items:[{title,description}]}  (3-5 steps)
+testimonials: {type:"testimonials",headline,chip?,items:[{quote,author,role}]}  (3 items)
+cta: {type:"cta",headline,subheadline,cta_primary,cta_secondary?}
+pricing: {type:"pricing",headline,subheadline?,chip?,plans:[{name,price,period?,description?,features[],highlighted?,cta?}]}
+faq: {type:"faq",headline,chip?,items:[{question,answer}]}  (4-6 items)
+contact: {type:"contact",headline,subheadline?,email?,phone?,address?,hours?}
+team: {type:"team",headline,subheadline?,members:[{name,role,bio,emoji?}]}  (3-6 members)
+portfolio: {type:"portfolio",headline,subheadline?,items:[{title,category,description}]}
+about_hero: {type:"about_hero",headline,subheadline,body}  (body = 2-3 paragraph story)
+services: {type:"services",headline,subheadline?,chip?,items:[{title,description,price?,icon?}]}
+values: {type:"values",headline,subheadline?,items:[{emoji,title,description}]}  (3-4 values)
+content_block: {type:"content_block",headline?,body,chip?,bg?:boolean}
+image_text: {type:"image_text",headline,body,image_side?:"left"|"right",cta?,chip?}
+
+PAGE RULES:
+home → hero, stats, features, (steps or image_text), testimonials, cta  [5-7 sections]
+about → about_hero, (values or image_text), team, cta  [4-5 sections]
+services → hero, services, steps, testimonials, cta  [5 sections]
+pricing → content_block, pricing, faq, cta  [4 sections]
+contact → content_block, contact, faq?  [2-3 sections]
+portfolio → content_block, portfolio, testimonials, cta  [4 sections]
+other → content_block, features, cta  [3 sections]
+
+Use this existing content (fill gaps with compelling, specific copy):
+${JSON.stringify(content).slice(0, 2500)}
+
+Return ONLY: {"sections":[...]}`;
+
+  try {
+    const result = await callAI(prompt, 4096);
+    const arr: SectionData[] = result.sections ?? (Array.isArray(result) ? result : []);
+    if (arr.length > 0) return arr;
+  } catch { /* fall through */ }
+  return fallbackSections(pageType, content);
 }
 
 // ---------------------------------------------------------------------------
@@ -1094,6 +2061,912 @@ ${paragraphs.map((para: string) => `<!-- wp:paragraph {"style":{"typography":{"f
 }
 
 // ---------------------------------------------------------------------------
+// Standalone HTML builder — professional, self-contained pages for download
+// ---------------------------------------------------------------------------
+
+function _hexToRgb(hex: string): string {
+  const c = hex.replace("#", "");
+  const f = c.length === 3 ? c.split("").map(x => x + x).join("") : c;
+  const n = parseInt(f, 16);
+  return `${(n >> 16) & 255},${(n >> 8) & 255},${n & 255}`;
+}
+
+function _darken(hex: string, pct: number): string {
+  const c = hex.replace("#", "");
+  const f = c.length === 3 ? c.split("").map(x => x + x).join("") : c;
+  const ch = (s: number, e: number) => Math.max(0, Math.round(parseInt(f.slice(s, e), 16) * (1 - pct)));
+  return `#${ch(0,2).toString(16).padStart(2,"0")}${ch(2,4).toString(16).padStart(2,"0")}${ch(4,6).toString(16).padStart(2,"0")}`;
+}
+
+function _css(p: string): string {
+  const rgb = _hexToRgb(p);
+  const dk  = _darken(p, 0.28);
+  return `*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html{font-size:16px;scroll-behavior:smooth;-webkit-font-smoothing:antialiased}
+body{font-family:'Inter',-apple-system,BlinkMacSystemFont,sans-serif;color:#111827;background:#fff;line-height:1.6}
+img{max-width:100%;height:auto;display:block}a{color:inherit;text-decoration:none}button{font-family:inherit;cursor:pointer;border:none;background:none}
+:root{--p:${p};--p-rgb:${rgb};--dk:${dk};--tx:#111827;--mu:#6B7280;--lt:#9CA3AF;--bd:#E5E7EB;--sf:#F9FAFB;--sf2:#F3F4F6;--wh:#fff;
+--sh:0 1px 3px rgba(0,0,0,.1),0 1px 2px rgba(0,0,0,.06);--sh-md:0 4px 6px -1px rgba(0,0,0,.1),0 2px 4px -1px rgba(0,0,0,.06);--sh-lg:0 10px 15px -3px rgba(0,0,0,.1),0 4px 6px -2px rgba(0,0,0,.05);--sh-xl:0 20px 25px -5px rgba(0,0,0,.1),0 10px 10px -5px rgba(0,0,0,.04);--r:12px;--r-sm:8px;--r-lg:16px;--r-full:999px;--t:.2s ease}
+.c{max-width:1200px;margin:0 auto;padding:0 24px}.c-sm{max-width:820px;margin:0 auto;padding:0 24px}
+.s{padding:96px 0}.s-md{padding:72px 0}.s-sm{padding:56px 0}.s-bg{background:var(--sf)}.s-dk{background:#0f172a}
+h1,h2,h3,h4{font-family:'Plus Jakarta Sans','Inter',sans-serif;line-height:1.15;letter-spacing:-.025em;color:var(--tx);font-weight:800}
+h1{font-size:clamp(2.25rem,5vw,4rem);letter-spacing:-.035em}h2{font-size:clamp(1.75rem,3.5vw,2.75rem);font-weight:700}h3{font-size:1.25rem;font-weight:700}h4{font-size:1.0625rem;font-weight:600}
+p{color:var(--mu);line-height:1.75}.lead{font-size:1.125rem;color:var(--mu)}.tc{text-align:center}
+.chip{display:inline-block;font-size:.75rem;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--p);background:rgba(${rgb},.1);padding:4px 14px;border-radius:var(--r-full);margin-bottom:16px}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;padding:14px 28px;border-radius:var(--r-sm);font-weight:600;font-size:.9375rem;cursor:pointer;transition:all var(--t);border:2px solid transparent;text-decoration:none;white-space:nowrap;font-family:inherit}
+.btn-p{background:var(--p);color:#fff;box-shadow:0 4px 14px -2px rgba(${rgb},.35)}
+.btn-p:hover{background:var(--dk);box-shadow:0 6px 20px -2px rgba(${rgb},.45);transform:translateY(-1px)}
+.btn-o{border-color:var(--bd);color:var(--tx);background:var(--wh);box-shadow:0 1px 2px rgba(0,0,0,.05)}
+.btn-o:hover{border-color:var(--p);color:var(--p)}
+.btn-gw{border:2px solid rgba(255,255,255,.35);color:#fff}.btn-gw:hover{background:rgba(255,255,255,.1);border-color:rgba(255,255,255,.6)}
+.btn-w{background:#fff;color:var(--p);font-weight:700}.btn-w:hover{background:#f0f4ff;transform:translateY(-1px);box-shadow:var(--sh-md)}
+.btn-lg{padding:17px 36px;font-size:1.0625rem;border-radius:var(--r)}.btn-full{width:100%;display:flex}
+nav{position:sticky;top:0;z-index:100;background:rgba(255,255,255,.96);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border-bottom:1px solid var(--bd);box-shadow:0 1px 2px rgba(0,0,0,.05)}
+.ni{display:flex;align-items:center;justify-content:space-between;height:72px}
+.logo{font-family:'Plus Jakarta Sans',sans-serif;font-size:1.1875rem;font-weight:800;color:var(--tx);letter-spacing:-.03em}
+.nl{display:flex;align-items:center;gap:28px}.nl a{font-size:.875rem;font-weight:500;color:var(--mu);transition:color var(--t)}.nl a:hover{color:var(--tx)}
+.hero{position:relative;overflow:hidden;background:linear-gradient(135deg,var(--p) 0%,var(--dk) 100%);padding:120px 0 96px}
+.h-ov{position:absolute;inset:0;background:radial-gradient(ellipse at 60% 0%,rgba(255,255,255,.13) 0%,transparent 65%)}
+.h-ov2{position:absolute;inset:0;background:radial-gradient(ellipse at 20% 100%,rgba(0,0,0,.18) 0%,transparent 60%)}
+.h-bg{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;opacity:.18}
+.hi{position:relative;text-align:center;max-width:900px;margin:0 auto}
+.hi h1{color:#fff;margin-bottom:24px}.hi .lead{color:rgba(255,255,255,.85);max-width:640px;margin:0 auto 40px}
+.ha{display:flex;gap:16px;justify-content:center;flex-wrap:wrap}
+.badge{display:inline-flex;align-items:center;gap:6px;background:rgba(255,255,255,.16);backdrop-filter:blur(8px);border:1px solid rgba(255,255,255,.25);border-radius:var(--r-full);padding:6px 16px;font-size:.8125rem;color:rgba(255,255,255,.92);margin-bottom:32px;font-weight:500}
+.sb{background:linear-gradient(90deg,var(--p) 0%,var(--dk) 100%)}
+.sg{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr))}
+.si{text-align:center;padding:36px 24px;position:relative}
+.si:not(:last-child)::after{content:'';position:absolute;right:0;top:25%;bottom:25%;width:1px;background:rgba(255,255,255,.18)}
+.sn{font-family:'Plus Jakarta Sans',sans-serif;font-size:2.25rem;font-weight:800;color:#fff;letter-spacing:-.04em;line-height:1}
+.sl{font-size:.8125rem;color:rgba(255,255,255,.7);margin-top:6px;font-weight:500}
+.fg{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:24px}
+.card{background:#fff;border:1px solid var(--bd);border-radius:var(--r-lg);padding:32px;transition:all var(--t)}
+.card:hover{border-color:rgba(${rgb},.5);box-shadow:0 0 0 3px rgba(${rgb},.07),var(--sh-md);transform:translateY(-2px)}
+.ci{width:52px;height:52px;border-radius:var(--r-sm);background:rgba(${rgb},.1);display:flex;align-items:center;justify-content:center;font-size:1.5rem;margin-bottom:20px}
+.card h3{margin-bottom:10px}.card p{font-size:.9375rem}
+.steps{display:grid;gap:40px;max-width:760px;margin:0 auto}
+.step{display:flex;gap:24px;align-items:flex-start}
+.snum{flex-shrink:0;width:52px;height:52px;border-radius:50%;background:var(--p);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:1.0625rem;font-family:'Plus Jakarta Sans',sans-serif;box-shadow:0 4px 12px -2px rgba(${rgb},.4)}
+.sbody h3{margin-bottom:8px}.sbody p{font-size:.9375rem}
+.tg{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:24px}
+.tc-card{background:#fff;border:1px solid var(--bd);border-radius:var(--r-lg);padding:32px;display:flex;flex-direction:column}
+.ts{color:#FBBF24;font-size:1rem;letter-spacing:3px;margin-bottom:16px}
+.tq{font-style:italic;color:var(--tx);line-height:1.75;flex:1;margin-bottom:24px;font-size:.9375rem}
+.ta{display:flex;align-items:center;gap:12px;padding-top:20px;border-top:1px solid var(--bd)}
+.tav{width:44px;height:44px;border-radius:50%;background:rgba(${rgb},.12);display:flex;align-items:center;justify-content:center;font-weight:700;color:var(--p);font-size:.875rem;flex-shrink:0}
+.tn{font-weight:600;font-size:.9375rem;color:var(--tx)}.tr{font-size:.8125rem;color:var(--mu)}
+.faq-list{max-width:760px;margin:0 auto}
+.faq-item{border-bottom:1px solid var(--bd)}
+.faq-q{width:100%;text-align:left;padding:20px 0;display:flex;justify-content:space-between;align-items:center;gap:16px;font-weight:600;font-size:1rem;color:var(--tx);cursor:pointer;background:none;border:none;font-family:inherit}
+.faq-icon{flex-shrink:0;color:var(--mu);transition:transform var(--t);line-height:1}
+.faq-a{padding:0 0 20px;display:none;color:var(--mu);font-size:.9375rem;line-height:1.75}
+.faq-item.open .faq-a{display:block}.faq-item.open .faq-icon{transform:rotate(45deg);color:var(--p)}
+.cta-s{position:relative;overflow:hidden;background:linear-gradient(135deg,var(--p) 0%,var(--dk) 100%);padding:96px 0;text-align:center}
+.cta-s::before{content:'';position:absolute;inset:0;background:radial-gradient(ellipse at 50% 120%,rgba(255,255,255,.07) 0%,transparent 65%)}
+.cta-in{position:relative}.cta-s h2{color:#fff;margin-bottom:16px}.cta-s .lead{color:rgba(255,255,255,.8);max-width:540px;margin:0 auto 40px}
+.cta-btns{display:flex;gap:16px;justify-content:center;flex-wrap:wrap}
+.pg{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:24px;align-items:start}
+.pc{background:#fff;border:2px solid var(--bd);border-radius:var(--r-lg);padding:40px 32px;position:relative;transition:all var(--t)}
+.pc.feat{border-color:var(--p);box-shadow:0 0 0 4px rgba(${rgb},.08),var(--sh-xl)}
+.pbadge{position:absolute;top:-14px;left:50%;transform:translateX(-50%);background:var(--p);color:#fff;padding:4px 18px;border-radius:var(--r-full);font-size:.6875rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;white-space:nowrap}
+.pname{font-size:.75rem;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--mu);margin-bottom:8px}
+.pprice{font-family:'Plus Jakarta Sans',sans-serif;font-size:3rem;font-weight:800;color:var(--tx);letter-spacing:-.04em;line-height:1.1}
+.pper{font-size:.875rem;color:var(--mu);font-weight:400}
+.pdesc{color:var(--mu);margin:16px 0 24px;font-size:.9375rem}
+.pdiv{border:none;border-top:1px solid var(--bd);margin:24px 0}
+.pfeats{list-style:none;display:grid;gap:12px;margin-bottom:32px}
+.pfeats li{display:flex;align-items:flex-start;gap:10px;font-size:.9375rem;color:var(--tx)}
+.pfeats li::before{content:'✓';color:var(--p);font-weight:700;flex-shrink:0;margin-top:1px}
+.cg{display:grid;grid-template-columns:1.2fr 1fr;gap:64px;align-items:start}
+.fg-grp{margin-bottom:20px}
+.fg-grp label{display:block;font-size:.875rem;font-weight:500;color:var(--tx);margin-bottom:6px}
+.fctrl{width:100%;padding:12px 16px;border:1.5px solid var(--bd);border-radius:var(--r-sm);font-size:.9375rem;font-family:inherit;color:var(--tx);background:#fff;transition:border-color var(--t),box-shadow var(--t);outline:none;line-height:1.5}
+.fctrl:focus{border-color:var(--p);box-shadow:0 0 0 3px rgba(${rgb},.12)}
+textarea.fctrl{min-height:140px;resize:vertical}
+.cd h3{margin-bottom:8px}.cd>.lead{margin-bottom:36px}
+.cdet{display:flex;align-items:flex-start;gap:16px;margin-bottom:24px}
+.cico{width:48px;height:48px;border-radius:var(--r-sm);background:rgba(${rgb},.1);display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:1.25rem}
+.clbl{font-size:.8125rem;color:var(--mu);margin-bottom:2px;font-weight:500}.cval{font-weight:600;color:var(--tx)}
+.team-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:32px}
+.team-card{text-align:center}
+.team-av{width:100px;height:100px;border-radius:50%;margin:0 auto 16px;background:rgba(${rgb},.12);display:flex;align-items:center;justify-content:center;font-size:2.25rem;font-weight:700;color:var(--p)}
+.team-name{font-weight:700;margin-bottom:4px;color:var(--tx)}.team-role{font-size:.875rem;color:var(--mu)}
+.vg{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:24px}
+.vc{text-align:center;padding:36px 24px;border:1px solid var(--bd);border-radius:var(--r-lg);background:#fff}
+.vic{font-size:2.5rem;margin-bottom:16px}.vc h3{margin-bottom:8px}
+.port-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:24px}
+.port-card{background:#fff;border:1px solid var(--bd);border-radius:var(--r-lg);overflow:hidden;transition:all var(--t)}
+.port-card:hover{transform:translateY(-3px);box-shadow:var(--sh-lg)}
+.port-img{height:220px;background:linear-gradient(135deg,rgba(${rgb},.12) 0%,rgba(${rgb},.25) 100%);display:flex;align-items:center;justify-content:center;font-size:3rem}
+.port-body{padding:24px}
+.port-body h3{margin-bottom:8px}.port-body p{font-size:.875rem}
+.port-tags{display:flex;flex-wrap:wrap;gap:8px;margin-top:16px}
+.port-tag{font-size:.75rem;font-weight:600;padding:4px 10px;border-radius:var(--r-full);background:rgba(${rgb},.08);color:var(--p)}
+footer{background:#0f172a;padding:64px 0 32px}
+.footer-grid{display:grid;grid-template-columns:2fr 1fr 1fr;gap:48px;margin-bottom:48px}
+.footer-logo{font-family:'Plus Jakarta Sans',sans-serif;font-size:1.125rem;font-weight:800;color:#fff;margin-bottom:12px}
+.footer-brand p{font-size:.875rem;color:rgba(255,255,255,.45);max-width:280px;line-height:1.7}
+.footer-col h4{color:rgba(255,255,255,.85);font-size:.8125rem;font-weight:700;margin-bottom:16px;letter-spacing:.07em;text-transform:uppercase}
+.footer-links{list-style:none;display:grid;gap:10px}
+.footer-links a{font-size:.875rem;color:rgba(255,255,255,.45);transition:color var(--t)}.footer-links a:hover{color:#fff}
+.footer-btm{border-top:1px solid rgba(255,255,255,.08);padding-top:28px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:16px}
+.footer-btm p{font-size:.8125rem;color:rgba(255,255,255,.3)}
+@media(max-width:1024px){.cg{grid-template-columns:1fr;gap:48px}.footer-grid{grid-template-columns:1fr 1fr;gap:36px}}
+@media(max-width:768px){.nl{display:none}.hero{padding:80px 0 64px}.s{padding:64px 0}.s-md{padding:52px 0}.fg{grid-template-columns:1fr}.tg{grid-template-columns:1fr}.sg{grid-template-columns:repeat(2,1fr)}.footer-grid{grid-template-columns:1fr;gap:32px}.pg{grid-template-columns:1fr}}
+@media(max-width:480px){.sg{grid-template-columns:1fr}.ha{flex-direction:column;align-items:center}.cta-btns{flex-direction:column;align-items:center}h1{font-size:clamp(1.75rem,8vw,2.5rem)}}`;
+}
+
+function _nav(title: string, pages: string[]): string {
+  const links = pages.map(p =>
+    `<a href="${p === "home" ? "index" : p}.html">${p.charAt(0).toUpperCase() + p.slice(1)}</a>`
+  ).join("");
+  return `<nav><div class="c"><div class="ni">
+<a href="index.html" class="logo">${sanitizeHtml(title)}</a>
+<div class="nl">${links}</div>
+<a href="contact.html" class="btn btn-p nav-cta" style="padding:10px 22px;font-size:.875rem">Get Started</a>
+</div></div></nav>`;
+}
+
+function _footer(title: string, pages: string[]): string {
+  const yr = new Date().getFullYear();
+  const links = pages.map(p =>
+    `<li><a href="${p === "home" ? "index" : p}.html">${p.charAt(0).toUpperCase() + p.slice(1)}</a></li>`
+  ).join("");
+  return `<footer><div class="c">
+<div class="footer-grid">
+<div class="footer-brand"><div class="footer-logo">${sanitizeHtml(title)}</div><p>Professional web presence for modern businesses.</p></div>
+<div class="footer-col"><h4>Pages</h4><ul class="footer-links">${links}</ul></div>
+<div class="footer-col"><h4>Contact</h4><ul class="footer-links"><li><a href="contact.html">Get in Touch</a></li></ul></div>
+</div>
+<div class="footer-btm"><p>© ${yr} ${sanitizeHtml(title)}. All rights reserved.</p><p>Built with MAVIS AI</p></div>
+</div></footer>`;
+}
+
+// ── Section component renderers ──────────────────────────────────────────────
+
+function _sHero(s: any, heroUrl?: string): string {
+  return `<section class="hero">
+${heroUrl ? `<img class="h-bg" src="${heroUrl}" alt="">` : ""}
+<div class="h-ov"></div><div class="h-ov2"></div>
+<div class="c"><div class="hi">
+${s.badge ? `<div class="badge">✦ ${s.badge}</div>` : ""}
+<h1>${s.headline}</h1>
+<p class="lead">${s.subheadline}</p>
+<div class="ha">
+<a href="contact.html" class="btn btn-w btn-lg">${s.cta_primary}</a>
+${s.cta_secondary ? `<a href="#" class="btn btn-gw btn-lg">${s.cta_secondary}</a>` : ""}
+</div>
+</div></div>
+</section>`;
+}
+
+function _sStats(s: any): string {
+  return `<div class="sb"><div class="c"><div class="sg">
+${(s.items ?? []).slice(0,5).map((i: any) => `<div class="si"><div class="sn">${i.number}</div><div class="sl">${i.label}</div></div>`).join("")}
+</div></div></div>`;
+}
+
+function _sFeatures(s: any): string {
+  return `<section class="s">
+<div class="c">
+<div class="tc" style="margin-bottom:56px">
+${s.chip ? `<span class="chip">${s.chip}</span>` : ""}
+<h2>${s.headline}</h2>
+${s.subheadline ? `<p class="lead" style="max-width:560px;margin:16px auto 0">${s.subheadline}</p>` : ""}
+</div>
+<div class="fg">
+${(s.items ?? []).map((f: any) => `<div class="card"><div class="ci">${f.icon ?? "⚡"}</div><h3>${f.title}</h3><p>${f.description}</p></div>`).join("")}
+</div>
+</div>
+</section>`;
+}
+
+function _sSteps(s: any): string {
+  return `<section class="s s-bg">
+<div class="c">
+<div class="tc" style="margin-bottom:56px">
+${s.chip ? `<span class="chip">${s.chip}</span>` : ""}
+<h2>${s.headline}</h2>
+${s.subheadline ? `<p class="lead" style="max-width:560px;margin:16px auto 0">${s.subheadline}</p>` : ""}
+</div>
+<div class="steps">
+${(s.items ?? []).map((st: any, i: number) => `<div class="step">
+<div class="snum">${String(i + 1).padStart(2, "0")}</div>
+<div class="sbody"><h3>${st.title}</h3><p>${st.description}</p></div>
+</div>`).join("")}
+</div>
+</div>
+</section>`;
+}
+
+function _sTestimonials(s: any): string {
+  return `<section class="s s-bg">
+<div class="c">
+<div class="tc" style="margin-bottom:56px">
+${s.chip ? `<span class="chip">${s.chip}</span>` : ""}
+<h2>${s.headline}</h2>
+</div>
+<div class="tg">
+${(s.items ?? []).map((t: any) => `<div class="tc-card">
+<div class="ts">★★★★★</div>
+<p class="tq">"${t.quote}"</p>
+<div class="ta"><div class="tav">${(t.author ?? "A").charAt(0)}</div>
+<div><div class="tn">${t.author}</div><div class="tr">${t.role}</div></div>
+</div>
+</div>`).join("")}
+</div>
+</div>
+</section>`;
+}
+
+function _sCta(s: any): string {
+  return `<section class="cta-s">
+<div class="c"><div class="cta-in">
+<h2>${s.headline}</h2>
+<p class="lead">${s.subheadline}</p>
+<div class="cta-btns">
+<a href="contact.html" class="btn btn-w btn-lg">${s.cta_primary}</a>
+${s.cta_secondary ? `<a href="#" class="btn btn-gw btn-lg">${s.cta_secondary}</a>` : ""}
+</div>
+</div></div>
+</section>`;
+}
+
+function _sPricing(s: any): string {
+  return `<section class="s">
+<div class="c">
+<div class="tc" style="margin-bottom:56px">
+${s.chip ? `<span class="chip">${s.chip}</span>` : ""}
+<h2>${s.headline}</h2>
+${s.subheadline ? `<p class="lead" style="max-width:560px;margin:16px auto 0">${s.subheadline}</p>` : ""}
+</div>
+<div class="pg">
+${(s.plans ?? []).map((p: any) => `<div class="pc${p.highlighted ? " feat" : ""}">
+${p.highlighted ? `<div class="pbadge">Most Popular</div>` : ""}
+<div class="pname">${p.name}</div>
+<div class="pprice">${p.price}<span class="pper">${p.period ? `/${p.period}` : ""}</span></div>
+${p.description ? `<p class="pdesc">${p.description}</p>` : ""}
+<hr class="pdiv">
+<ul class="pfeats">${(p.features ?? []).map((f: string) => `<li>${f}</li>`).join("")}</ul>
+<a href="contact.html" class="btn ${p.highlighted ? "btn-p" : "btn-o"} btn-full">${p.cta ?? "Get Started"}</a>
+</div>`).join("")}
+</div>
+</div>
+</section>`;
+}
+
+function _sFaq(s: any): string {
+  return `<section class="s s-bg">
+<div class="c">
+<div class="tc" style="margin-bottom:56px">
+${s.chip ? `<span class="chip">${s.chip}</span>` : ""}
+<h2>${s.headline}</h2>
+</div>
+<div class="faq-list">
+${(s.items ?? []).map((f: any, i: number) => `<div class="faq-item">
+<button class="faq-q" onclick="toggleFaq(${i})"><span>${f.question}</span><span class="faq-icon">+</span></button>
+<div class="faq-a" id="faq-${i}">${f.answer}</div>
+</div>`).join("")}
+</div>
+</div>
+</section>`;
+}
+
+function _sContact(s: any, ctx?: { supabaseUrl: string; projectId: string; userId: string }): string {
+  const formAction = ctx
+    ? `${ctx.supabaseUrl}/functions/v1/mavis-form-submit`
+    : "#";
+  const hiddenFields = ctx
+    ? `<input type="hidden" name="project_id" value="${ctx.projectId}" />\n  <input type="hidden" name="user_id" value="${ctx.userId}" />`
+    : "";
+  const formTag = ctx
+    ? `<form class="contact-form" method="POST" action="${formAction}" id="contactForm" onsubmit="handleFormSubmit(event)">`
+    : `<form>`;
+  const submitBtn = ctx
+    ? `<button type="submit" class="btn btn-p btn-lg" style="width:100%">Send Message →</button>`
+    : `<button type="submit" class="btn btn-p btn-lg" style="width:100%">Send Message →</button>`;
+  const formScript = ctx ? `<script>
+async function handleFormSubmit(e) {
+  e.preventDefault();
+  const form = e.target;
+  const btn = form.querySelector('button[type="submit"]');
+  btn.disabled = true; btn.textContent = 'Sending...';
+  try {
+    const res = await fetch(form.action, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(Object.fromEntries(new FormData(form))),
+    });
+    if (res.ok) {
+      form.innerHTML = '<div class="success-msg" style="padding:2rem;text-align:center;color:#16a34a;font-size:1.1rem;">✓ Message sent! We\'ll be in touch soon.</div>';
+    } else { throw new Error(); }
+  } catch {
+    btn.disabled = false; btn.textContent = 'Send Message';
+    alert('Something went wrong. Please try again.');
+  }
+}
+</script>` : "";
+  return `<section class="s">
+<div class="c">
+<div class="cg">
+<div>
+<h2>${s.headline}</h2>
+${s.subheadline ? `<p class="lead" style="margin-bottom:36px">${s.subheadline}</p>` : ""}
+${formTag}
+${hiddenFields}
+<div class="fg-grp"><label>Your Name</label><input class="fctrl" type="text" name="name" placeholder="Jane Smith"></div>
+<div class="fg-grp"><label>Email Address</label><input class="fctrl" type="email" name="email" placeholder="jane@example.com"></div>
+<div class="fg-grp"><label>Subject</label><input class="fctrl" type="text" name="subject" placeholder="How can we help?"></div>
+<div class="fg-grp"><label>Message</label><textarea class="fctrl" name="message" placeholder="Tell us about your project…"></textarea></div>
+${submitBtn}
+</form>
+${formScript}
+</div>
+<div class="cd">
+<h3>Contact Information</h3>
+<p class="lead" style="margin-bottom:36px">We're here to help and answer any questions you might have.</p>
+${s.email ? `<div class="cdet"><div class="cico">✉️</div><div><div class="clbl">Email</div><div class="cval">${sanitizeHtml(s.email)}</div></div></div>` : ""}
+${s.phone ? `<div class="cdet"><div class="cico">📞</div><div><div class="clbl">Phone</div><div class="cval">${sanitizeHtml(s.phone)}</div></div></div>` : ""}
+${s.address ? `<div class="cdet"><div class="cico">📍</div><div><div class="clbl">Address</div><div class="cval">${sanitizeHtml(s.address)}</div></div></div>` : ""}
+${s.hours ? `<div class="cdet"><div class="cico">🕐</div><div><div class="clbl">Hours</div><div class="cval">${sanitizeHtml(s.hours)}</div></div></div>` : ""}
+</div>
+</div>
+</div>
+</section>`;
+}
+
+function _sTeam(s: any): string {
+  return `<section class="s">
+<div class="c">
+<div class="tc" style="margin-bottom:56px">
+${s.chip ? `<span class="chip">${s.chip}</span>` : ""}
+<h2>${s.headline}</h2>
+${s.subheadline ? `<p class="lead" style="max-width:560px;margin:16px auto 0">${s.subheadline}</p>` : ""}
+</div>
+<div class="team-grid">
+${(s.members ?? []).map((m: any) => `<div class="team-card">
+<div class="team-av">${m.emoji ?? (m.name ?? "T").charAt(0)}</div>
+<div class="team-name">${m.name}</div>
+<div class="team-role">${m.role}</div>
+${m.bio ? `<p style="margin-top:12px;font-size:.875rem">${m.bio}</p>` : ""}
+</div>`).join("")}
+</div>
+</div>
+</section>`;
+}
+
+function _sPortfolio(s: any): string {
+  const emojis = ["🎨","🚀","💡","⚡","🌟","🔥","💎","🏆","🎯","🌈"];
+  return `<section class="s">
+<div class="c">
+<div class="tc" style="margin-bottom:56px">
+${s.chip ? `<span class="chip">${s.chip}</span>` : ""}
+<h2>${s.headline}</h2>
+${s.subheadline ? `<p class="lead" style="max-width:560px;margin:16px auto 0">${s.subheadline}</p>` : ""}
+</div>
+<div class="port-grid">
+${(s.items ?? []).map((p: any, i: number) => `<div class="port-card">
+<div class="port-img">${emojis[i % emojis.length]}</div>
+<div class="port-body">
+<h3>${p.title}</h3>
+<p>${p.description}</p>
+<div class="port-tags"><span class="port-tag">${p.category}</span></div>
+</div>
+</div>`).join("")}
+</div>
+</div>
+</section>`;
+}
+
+function _sAboutHero(s: any): string {
+  const paragraphs = (s.body ?? "").split("\n\n").filter(Boolean);
+  return `<section class="hero" style="padding:100px 0 84px">
+<div class="h-ov"></div>
+<div class="c"><div class="hi">
+<h1>${s.headline}</h1>
+<p class="lead">${s.subheadline}</p>
+</div></div>
+</section>
+<section class="s">
+<div class="c-sm">
+${paragraphs.length > 0 ? paragraphs.map((p: string) => `<p class="lead" style="margin-bottom:28px">${p}</p>`).join("") : `<p class="lead">${s.body}</p>`}
+</div>
+</section>`;
+}
+
+function _sServices(s: any): string {
+  return `<section class="s">
+<div class="c">
+<div class="tc" style="margin-bottom:56px">
+${s.chip ? `<span class="chip">${s.chip}</span>` : ""}
+<h2>${s.headline}</h2>
+${s.subheadline ? `<p class="lead" style="max-width:560px;margin:16px auto 0">${s.subheadline}</p>` : ""}
+</div>
+<div class="fg">
+${(s.items ?? []).map((svc: any) => `<div class="card">
+<div class="ci">${svc.icon ?? "⚡"}</div>
+<h3>${svc.title}</h3>
+<p>${svc.description}</p>
+${svc.price ? `<p style="margin-top:16px;font-weight:700;color:var(--p)">${svc.price}</p>` : ""}
+</div>`).join("")}
+</div>
+</div>
+</section>`;
+}
+
+function _sValues(s: any): string {
+  return `<section class="s s-bg">
+<div class="c">
+<div class="tc" style="margin-bottom:56px">
+${s.chip ? `<span class="chip">${s.chip}</span>` : ""}
+<h2>${s.headline}</h2>
+${s.subheadline ? `<p class="lead" style="max-width:560px;margin:16px auto 0">${s.subheadline}</p>` : ""}
+</div>
+<div class="vg">
+${(s.items ?? []).map((v: any) => `<div class="vc"><div class="vic">${v.emoji}</div><h3>${v.title}</h3><p>${v.description}</p></div>`).join("")}
+</div>
+</div>
+</section>`;
+}
+
+function _sContentBlock(s: any): string {
+  const bg = s.bg !== false;
+  return `<section class="s${bg ? " s-bg" : ""}">
+<div class="c-sm" style="text-align:center">
+${s.chip ? `<span class="chip">${s.chip}</span>` : ""}
+${s.headline ? `<h2 style="margin-top:12px;margin-bottom:20px">${s.headline}</h2>` : ""}
+<p class="lead">${s.body}</p>
+</div>
+</section>`;
+}
+
+function _sImageText(s: any): string {
+  const imgLeft = s.image_side === "left";
+  const textBlock = `<div>
+${s.chip ? `<span class="chip">${s.chip}</span>` : ""}
+<h2 style="margin-top:12px;margin-bottom:16px">${s.headline}</h2>
+<p class="lead">${s.body}</p>
+${s.cta ? `<a href="contact.html" class="btn btn-p" style="margin-top:28px">${s.cta}</a>` : ""}
+</div>`;
+  const imgBlock = `<div style="background:linear-gradient(135deg,rgba(var(--p-rgb),.12) 0%,rgba(var(--p-rgb),.25) 100%);border-radius:var(--r-lg);min-height:360px;display:flex;align-items:center;justify-content:center;font-size:5rem">✨</div>`;
+  return `<section class="s">
+<div class="c">
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:64px;align-items:center">
+${imgLeft ? `${imgBlock}${textBlock}` : `${textBlock}${imgBlock}`}
+</div>
+</div>
+</section>`;
+}
+
+function renderSection(s: SectionData, heroUrl?: string, contactCtx?: { supabaseUrl: string; projectId: string; userId: string }): string {
+  switch (s.type) {
+    case "hero":          return _sHero(s, heroUrl);
+    case "stats":         return _sStats(s);
+    case "features":      return _sFeatures(s);
+    case "steps":         return _sSteps(s);
+    case "testimonials":  return _sTestimonials(s);
+    case "cta":           return _sCta(s);
+    case "pricing":       return _sPricing(s);
+    case "faq":           return _sFaq(s);
+    case "contact":       return _sContact(s, contactCtx);
+    case "team":          return _sTeam(s);
+    case "portfolio":     return _sPortfolio(s);
+    case "about_hero":    return _sAboutHero(s);
+    case "services":      return _sServices(s);
+    case "values":        return _sValues(s);
+    case "content_block": return _sContentBlock(s);
+    case "image_text":    return _sImageText(s);
+    default: return "";
+  }
+}
+
+// ── Entry point for standalone HTML generation ───────────────────────────────
+
+async function buildStandaloneHtml(
+  pageType: string,
+  content: any,
+  heroImageUrl: string | undefined,
+  primaryColor: string,
+  siteTitle: string,
+  pageList: string[],
+  brief?: PageBrief,
+  useAI = true,
+  contactCtx?: { supabaseUrl: string; projectId: string; userId: string },
+): Promise<string> {
+  const safeList = pageList.length > 0 ? pageList : ["home"];
+
+  // Attempt to fetch an Unsplash image for the hero if we have an API key and no image yet
+  let finalHeroUrl = heroImageUrl;
+  let heroCredit = "";
+  if (!finalHeroUrl && pageType === "home" && UNSPLASH_ACCESS_KEY) {
+    const query = brief?.business_type
+      ? `${brief.business_type} professional business`
+      : "professional business office";
+    finalHeroUrl = await fetchUnsplashImage(query, "");
+    if (finalHeroUrl) heroCredit = `Photo from Unsplash`;
+  }
+
+  // Attach hero image info to content for template substitution
+  const enrichedContent = { ...content, _heroImageUrl: finalHeroUrl, _heroImageCredit: heroCredit, _primaryColor: primaryColor };
+
+  return buildTailwindPage(
+    pageType,
+    enrichedContent,
+    brief ?? {},
+    siteTitle,
+    safeList,
+    contactCtx,
+  );
+}
+
+// ── LEGACY stub — kept only so _homeBody reference in old code compiles ──────
+
+function _homeBody(c: any, heroUrl: string | undefined, p: string): string {
+  const hero = c.hero ?? {};
+  const feats = (c.features ?? []) as any[];
+  const hiw = c.how_it_works ?? {};
+  const tests = (c.testimonials ?? []) as any[];
+  const stats = (c.stats ?? []) as any[];
+  const cta = c.cta_section ?? {};
+  const faq = (c.faq ?? []) as any[];
+  const sp = c.social_proof_bar ?? {};
+
+  return `
+<section class="hero">
+${heroUrl ? `<img class="h-bg" src="${heroUrl}" alt="">` : ""}
+<div class="h-ov"></div><div class="h-ov2"></div>
+<div class="c"><div class="hi">
+${sp.text ? `<div class="badge">✓ ${sp.text}</div>` : ""}
+<h1>${hero.headline ?? "Transform Your Business Today"}</h1>
+<p class="lead">${hero.subheadline ?? ""}</p>
+<div class="ha">
+<a href="${hero.cta_primary_url ?? "#contact"}" class="btn btn-w btn-lg">${hero.cta_primary ?? "Get Started Free"}</a>
+${hero.cta_secondary ? `<a href="${hero.cta_secondary_url ?? "#"}" class="btn btn-gw btn-lg">${hero.cta_secondary}</a>` : ""}
+</div>
+</div></div>
+</section>
+
+${stats.length > 0 ? `<div class="sb"><div class="c"><div class="sg">
+${stats.map((s: any) => `<div class="si"><div class="sn">${s.number}</div><div class="sl">${s.label}</div></div>`).join("")}
+</div></div></div>` : ""}
+
+${feats.length > 0 ? `<section class="s">
+<div class="c">
+<div class="tc" style="margin-bottom:56px">
+<span class="chip">Why Choose Us</span>
+<h2 style="margin-bottom:16px">${c.features_section_title ?? "Everything You Need"}</h2>
+<p class="lead" style="max-width:560px;margin:0 auto">All the tools and support to grow your business.</p>
+</div>
+<div class="fg">
+${feats.map((f: any) => `<div class="card"><div class="ci">${f.icon_emoji ?? "⚡"}</div><h3>${f.title}</h3><p>${f.description}</p></div>`).join("")}
+</div>
+</div>
+</section>` : ""}
+
+${hiw.steps?.length ? `<section class="s s-bg">
+<div class="c">
+<div class="tc" style="margin-bottom:56px">
+<span class="chip">Process</span>
+<h2>${hiw.title ?? "How It Works"}</h2>
+</div>
+<div class="steps">
+${(hiw.steps as any[]).map((s: any, i: number) => `<div class="step">
+<div class="snum">${s.number ?? String(i + 1).padStart(2, "0")}</div>
+<div class="sbody"><h3>${s.title}</h3><p>${s.description}</p></div>
+</div>`).join("")}
+</div>
+</div>
+</section>` : ""}
+
+${tests.length > 0 ? `<section class="s">
+<div class="c">
+<div class="tc" style="margin-bottom:56px">
+<span class="chip">Client Stories</span>
+<h2>What Our Clients Say</h2>
+</div>
+<div class="tg">
+${tests.slice(0, 3).map((t: any) => `<div class="tc-card">
+<div class="ts">${"★".repeat(t.rating ?? 5)}</div>
+<p class="tq">"${t.quote}"</p>
+<div class="ta"><div class="tav">${(t.author ?? "A").charAt(0)}</div>
+<div><div class="tn">${t.author}</div><div class="tr">${t.role}${t.company ? ", " + t.company : ""}</div></div>
+</div></div>`).join("")}
+</div>
+</div>
+</section>` : ""}
+
+${faq.length > 0 ? `<section class="s s-bg">
+<div class="c">
+<div class="tc" style="margin-bottom:48px">
+<span class="chip">FAQ</span>
+<h2>Frequently Asked Questions</h2>
+</div>
+<div class="faq-list">
+${faq.map((q: any, i: number) => `<div class="faq-item" id="faq-${i}">
+<button class="faq-q" onclick="toggleFaq(${i})"><span>${q.question}</span><span class="faq-icon">+</span></button>
+<div class="faq-a"><p>${q.answer}</p></div>
+</div>`).join("")}
+</div>
+</div>
+</section>` : ""}
+
+<section class="cta-s">
+<div class="c"><div class="cta-in">
+<h2>${cta.headline ?? "Ready to Get Started?"}</h2>
+<p class="lead">${cta.subheadline ?? "Join thousands of satisfied customers today."}</p>
+<div class="cta-btns">
+<a href="${cta.cta_url ?? "#contact"}" class="btn btn-w btn-lg">${cta.cta_text ?? "Get Started Today"}</a>
+${cta.secondary_cta ? `<a href="#contact" class="btn btn-gw btn-lg">${cta.secondary_cta}</a>` : ""}
+</div>
+</div></div>
+</section>`;
+}
+
+function _aboutBody(c: any, p: string): string {
+  const story = c.story ?? c.mission ?? {};
+  const values = (c.values ?? c.core_values ?? []) as any[];
+  const team = (c.team ?? c.team_members ?? []) as any[];
+  const hero = c.hero ?? {};
+  return `
+<section class="hero" style="padding:96px 0 80px">
+<div class="h-ov"></div>
+<div class="c"><div class="hi">
+<h1>${hero.headline ?? c.title ?? "About Us"}</h1>
+<p class="lead">${hero.subheadline ?? c.tagline ?? ""}</p>
+</div></div>
+</section>
+
+${story.content ?? story.text ?? c.intro ? `<section class="s">
+<div class="c-sm">
+${c.mission ? `<div style="text-align:center;margin-bottom:48px"><span class="chip">Our Mission</span><h2 style="margin-bottom:16px">${c.mission_title ?? "What Drives Us"}</h2></div>` : ""}
+<p class="lead" style="text-align:center;max-width:720px;margin:0 auto">${story.content ?? story.text ?? c.intro ?? ""}</p>
+</div>
+</section>` : ""}
+
+${values.length > 0 ? `<section class="s s-bg">
+<div class="c">
+<div class="tc" style="margin-bottom:48px"><span class="chip">Our Values</span><h2>What We Stand For</h2></div>
+<div class="vg">
+${values.map((v: any) => `<div class="vc"><div class="vic">${v.icon_emoji ?? "⭐"}</div><h3>${v.title ?? v.name}</h3><p>${v.description ?? ""}</p></div>`).join("")}
+</div>
+</div>
+</section>` : ""}
+
+${team.length > 0 ? `<section class="s">
+<div class="c">
+<div class="tc" style="margin-bottom:48px"><span class="chip">Our Team</span><h2>Meet the Team</h2></div>
+<div class="team-grid">
+${team.map((m: any) => `<div class="team-card">
+<div class="team-av">${(m.name ?? "T").charAt(0)}</div>
+<div class="team-name">${m.name}</div>
+<div class="team-role">${m.role ?? m.title ?? ""}</div>
+${m.bio ? `<p style="margin-top:12px;font-size:.875rem">${m.bio}</p>` : ""}
+</div>`).join("")}
+</div>
+</div>
+</section>` : ""}
+
+<section class="cta-s">
+<div class="c"><div class="cta-in">
+<h2>${c.cta_headline ?? "Ready to Work With Us?"}</h2>
+<p class="lead">${c.cta_subheadline ?? "Let's build something great together."}</p>
+<div class="cta-btns"><a href="contact.html" class="btn btn-w btn-lg">Get in Touch</a></div>
+</div></div>
+</section>`;
+}
+
+function _servicesBody(c: any, p: string): string {
+  const services = (c.services ?? c.service_list ?? c.items ?? []) as any[];
+  const hero = c.hero ?? {};
+  const process = (c.process ?? c.how_we_work ?? {}) as any;
+  return `
+<section class="hero" style="padding:96px 0 80px">
+<div class="h-ov"></div>
+<div class="c"><div class="hi">
+<h1>${hero.headline ?? c.title ?? "Our Services"}</h1>
+<p class="lead">${hero.subheadline ?? c.intro ?? "Professional solutions tailored to your needs."}</p>
+</div></div>
+</section>
+
+${services.length > 0 ? `<section class="s">
+<div class="c">
+<div class="tc" style="margin-bottom:56px">
+<span class="chip">What We Offer</span>
+<h2>${c.services_title ?? "Our Services"}</h2>
+<p class="lead" style="max-width:560px;margin:16px auto 0">${c.services_subtitle ?? "Everything you need to succeed."}</p>
+</div>
+<div class="fg">
+${services.map((s: any) => `<div class="card">
+<div class="ci">${s.icon_emoji ?? "⚡"}</div>
+<h3>${s.title ?? s.name}</h3>
+<p>${s.description ?? ""}</p>
+${s.price ? `<p style="margin-top:16px;font-weight:700;color:var(--p);font-size:.9375rem">${s.price}</p>` : ""}
+</div>`).join("")}
+</div>
+</div>
+</section>` : ""}
+
+${process.steps?.length ? `<section class="s s-bg">
+<div class="c">
+<div class="tc" style="margin-bottom:48px"><span class="chip">How We Work</span><h2>${process.title ?? "Our Process"}</h2></div>
+<div class="steps">
+${(process.steps as any[]).map((s: any, i: number) => `<div class="step">
+<div class="snum">${s.number ?? String(i + 1).padStart(2, "0")}</div>
+<div class="sbody"><h3>${s.title}</h3><p>${s.description}</p></div>
+</div>`).join("")}
+</div>
+</div>
+</section>` : ""}
+
+<section class="cta-s">
+<div class="c"><div class="cta-in">
+<h2>${c.cta_headline ?? "Ready to Get Started?"}</h2>
+<p class="lead">${c.cta_subheadline ?? "Let's discuss your project today."}</p>
+<div class="cta-btns"><a href="contact.html" class="btn btn-w btn-lg">Contact Us</a></div>
+</div></div>
+</section>`;
+}
+
+function _pricingBody(c: any, p: string): string {
+  const tiers = (c.tiers ?? c.plans ?? c.pricing_tiers ?? []) as any[];
+  const faq = (c.faq ?? []) as any[];
+  const hero = c.hero ?? {};
+  return `
+<section class="hero" style="padding:80px 0 64px">
+<div class="h-ov"></div>
+<div class="c"><div class="hi">
+<h1>${hero.headline ?? c.title ?? "Simple, Transparent Pricing"}</h1>
+<p class="lead">${hero.subheadline ?? c.intro ?? "No hidden fees. No surprises."}</p>
+</div></div>
+</section>
+
+<section class="s">
+<div class="c">
+${tiers.length > 0 ? `<div class="pg">
+${tiers.map((t: any, i: number) => `<div class="pc${t.highlighted || t.featured || i === 1 ? " feat" : ""}">
+${t.highlighted || t.featured || i === 1 ? `<div class="pbadge">${t.badge ?? "Most Popular"}</div>` : ""}
+<div class="pname">${t.name}</div>
+<div class="pprice">${t.price ?? "$0"}<span class="pper">${t.period ? " / " + t.period : ""}</span></div>
+<p class="pdesc">${t.description ?? ""}</p>
+<hr class="pdiv">
+<ul class="pfeats">
+${(t.features ?? t.includes ?? []).map((f: string) => `<li>${f}</li>`).join("")}
+</ul>
+<a href="contact.html" class="btn ${t.highlighted || t.featured || i === 1 ? "btn-p" : "btn-o"} btn-full">${t.cta ?? "Get Started"}</a>
+</div>`).join("")}
+</div>` : `<div class="tc"><p class="lead">Contact us for pricing tailored to your needs.</p><a href="contact.html" class="btn btn-p btn-lg" style="margin-top:32px">Get a Quote</a></div>`}
+</div>
+</section>
+
+${faq.length > 0 ? `<section class="s s-bg">
+<div class="c">
+<div class="tc" style="margin-bottom:48px"><span class="chip">FAQ</span><h2>Pricing Questions</h2></div>
+<div class="faq-list">
+${faq.map((q: any, i: number) => `<div class="faq-item" id="faq-${i}">
+<button class="faq-q" onclick="toggleFaq(${i})"><span>${q.question}</span><span class="faq-icon">+</span></button>
+<div class="faq-a"><p>${q.answer}</p></div>
+</div>`).join("")}
+</div>
+</div>
+</section>` : ""}
+
+<section class="cta-s">
+<div class="c"><div class="cta-in">
+<h2>Ready to Get Started?</h2>
+<p class="lead">Choose a plan and start building today.</p>
+<div class="cta-btns"><a href="contact.html" class="btn btn-w btn-lg">Contact Sales</a></div>
+</div></div>
+</section>`;
+}
+
+function _contactBody(c: any, p: string): string {
+  const info = c.contact_info ?? c.info ?? {};
+  const hero = c.hero ?? {};
+  return `
+<section class="hero" style="padding:80px 0 64px">
+<div class="h-ov"></div>
+<div class="c"><div class="hi">
+<h1>${hero.headline ?? c.title ?? "Get In Touch"}</h1>
+<p class="lead">${hero.subheadline ?? c.intro ?? "We'd love to hear from you."}</p>
+</div></div>
+</section>
+
+<section class="s">
+<div class="c">
+<div class="cg">
+<div>
+<h3 style="margin-bottom:8px">Send Us a Message</h3>
+<p style="margin-bottom:32px">Fill out the form below and we'll get back to you within 24 hours.</p>
+<form onsubmit="event.preventDefault();this.innerHTML='<p style=\\'color:var(--p);font-weight:600;padding:20px 0\\'>Thank you! We\\'ll be in touch soon.</p>'">
+<div class="fg-grp"><label>Full Name</label><input class="fctrl" type="text" placeholder="John Smith" required></div>
+<div class="fg-grp"><label>Email Address</label><input class="fctrl" type="email" placeholder="john@example.com" required></div>
+<div class="fg-grp"><label>Phone (Optional)</label><input class="fctrl" type="tel" placeholder="+1 (555) 000-0000"></div>
+<div class="fg-grp"><label>Message</label><textarea class="fctrl" placeholder="How can we help you?" required></textarea></div>
+<button type="submit" class="btn btn-p btn-full btn-lg">Send Message</button>
+</form>
+</div>
+<div class="cd">
+<h3>${c.contact_section_title ?? "Contact Information"}</h3>
+<p class="lead">${c.contact_intro ?? "Reach out through any of these channels."}</p>
+${info.phone ?? c.phone ? `<div class="cdet"><div class="cico">📞</div><div><div class="clbl">Phone</div><div class="cval">${info.phone ?? c.phone}</div></div></div>` : ""}
+${info.email ?? c.email ? `<div class="cdet"><div class="cico">✉️</div><div><div class="clbl">Email</div><div class="cval">${info.email ?? c.email}</div></div></div>` : ""}
+${info.address ?? c.address ?? c.location ? `<div class="cdet"><div class="cico">📍</div><div><div class="clbl">Address</div><div class="cval">${info.address ?? c.address ?? c.location}</div></div></div>` : ""}
+${info.hours ?? c.hours ? `<div class="cdet"><div class="cico">🕐</div><div><div class="clbl">Business Hours</div><div class="cval">${info.hours ?? c.hours}</div></div></div>` : ""}
+</div>
+</div>
+</div>
+</section>`;
+}
+
+function _portfolioBody(c: any, p: string): string {
+  const items = (c.projects ?? c.works ?? c.portfolio_items ?? c.items ?? []) as any[];
+  const hero = c.hero ?? {};
+  return `
+<section class="hero" style="padding:96px 0 80px">
+<div class="h-ov"></div>
+<div class="c"><div class="hi">
+<h1>${hero.headline ?? c.title ?? "Our Work"}</h1>
+<p class="lead">${hero.subheadline ?? c.intro ?? "A selection of our finest projects."}</p>
+</div></div>
+</section>
+
+<section class="s">
+<div class="c">
+<div class="port-grid">
+${items.length > 0 ? items.map((item: any) => `<div class="port-card">
+<div class="port-img">${item.icon_emoji ?? "🖼️"}</div>
+<div class="port-body">
+<h3>${item.title ?? item.name}</h3>
+<p>${item.description ?? item.summary ?? ""}</p>
+${(item.tags ?? item.technologies ?? []).length > 0 ? `<div class="port-tags">${(item.tags ?? item.technologies ?? []).map((t: string) => `<span class="port-tag">${t}</span>`).join("")}</div>` : ""}
+</div></div>`).join("") : `
+<div class="card"><div class="ci">🏆</div><h3>Award-Winning Project</h3><p>Delivered exceptional results for our client.</p></div>
+<div class="card"><div class="ci">🚀</div><h3>Innovative Solution</h3><p>Cutting-edge design that drives real business growth.</p></div>
+<div class="card"><div class="ci">💡</div><h3>Creative Campaign</h3><p>Strategy and execution that exceeded expectations.</p></div>`}
+</div>
+</div>
+</section>
+
+<section class="cta-s">
+<div class="c"><div class="cta-in">
+<h2>Let's Create Something Amazing</h2>
+<p class="lead">Ready to start your project? We'd love to help.</p>
+<div class="cta-btns"><a href="contact.html" class="btn btn-w btn-lg">Start Your Project</a></div>
+</div></div>
+</section>`;
+}
+
+function _genericBody(c: any, p: string, pageType: string): string {
+  const title = c.title ?? c.hero_headline ?? pageType.charAt(0).toUpperCase() + pageType.slice(1);
+  const body = c.body ?? c.intro ?? c.content ?? c.description ?? "";
+  const paras = body.split(/\n\n+/).map((s: string) => s.trim()).filter(Boolean);
+  const sections = (c.sections ?? []) as any[];
+  return `
+<section class="hero" style="padding:96px 0 80px">
+<div class="h-ov"></div>
+<div class="c"><div class="hi">
+<h1>${title}</h1>
+${c.subtitle ?? c.tagline ? `<p class="lead">${c.subtitle ?? c.tagline}</p>` : ""}
+</div></div>
+</section>
+
+${paras.length > 0 || sections.length > 0 ? `<section class="s">
+<div class="c-sm">
+${paras.map((par: string) => `<p style="margin-bottom:24px;font-size:1.0625rem;line-height:1.8">${par}</p>`).join("")}
+${sections.map((sec: any) => `<div style="margin-top:48px"><h2 style="margin-bottom:16px">${sec.title ?? ""}</h2><p>${sec.content ?? sec.description ?? ""}</p></div>`).join("")}
+</div>
+</section>` : ""}
+
+<section class="cta-s">
+<div class="c"><div class="cta-in">
+<h2>Ready to Get Started?</h2>
+<p class="lead">Contact us today to learn more.</p>
+<div class="cta-btns"><a href="contact.html" class="btn btn-w btn-lg">Contact Us</a></div>
+</div></div>
+</section>`;
+}
+
+// ---------------------------------------------------------------------------
 // Main serve handler
 // ---------------------------------------------------------------------------
 
@@ -1117,12 +2990,20 @@ serve(async (req: Request) => {
 
       // -----------------------------------------------------------------------
       case "generate_page": {
-        const { page_type, page_content, primary_color, hero_image_url } = body;
-        const html = buildGutenbergPage(
+        const { page_type, page_content, primary_color, hero_image_url, site_title, page_list, business_type, style } = body;
+        const gpContactCtx = body.project_id && body.user_id
+          ? { supabaseUrl: SUPABASE_URL, projectId: String(body.project_id), userId: String(body.user_id) }
+          : undefined;
+        const html = await buildStandaloneHtml(
           page_type,
-          page_content,
+          page_content ?? {},
           hero_image_url,
-          primary_color,
+          primary_color ?? "#1a56db",
+          site_title ?? "Website",
+          page_list ?? [page_type],
+          { business_name: site_title, business_type, style },
+          true,
+          gpContactCtx,
         );
         return new Response(
           JSON.stringify({ success: true, html, page_type }),
@@ -1148,6 +3029,8 @@ serve(async (req: Request) => {
           wp_site_url,
           wp_username,
           wp_app_password,
+          access_token,    // WP.com OAuth — alternative to username/password
+          wpcom_blog_id,   // WP.com OAuth — blog numeric ID
           pages = ["home", "about", "services", "contact"],
           user_id,
           project_id,
@@ -1157,7 +3040,7 @@ serve(async (req: Request) => {
         const siteContent = await generateSiteContent(body as SiteBrief);
         const primaryColor = siteContent.site?.primary_color ?? "#1a56db";
 
-        // 2. Generate hero image (best-effort)
+        // 2. Generate hero image (best-effort: try mavis-image-gen first, then Unsplash)
         let heroImageUrl: string | undefined;
         const heroImagePrompt = siteContent.pages?.home?.hero?.hero_image_prompt;
         if (heroImagePrompt) {
@@ -1181,8 +3064,15 @@ serve(async (req: Request) => {
               heroImageUrl = imgData.url;
             }
           } catch {
-            // hero image is optional — continue without it
+            // hero image is optional — fall through to Unsplash
           }
+        }
+        // Fallback: fetch hero image from Unsplash if we still don't have one
+        if (!heroImageUrl) {
+          const unsplashQuery = body.business_type
+            ? `${body.business_type} professional business`
+            : "professional business office";
+          heroImageUrl = await fetchUnsplashImage(unsplashQuery) || undefined;
         }
 
         // 3. Build + publish each page
@@ -1192,53 +3082,41 @@ serve(async (req: Request) => {
           url: string;
           slug: string;
         }> = [];
+        const generatedHtmls: Record<string, string> = {};
 
-        for (const pageType of (pages as string[])) {
-          const pageContent = siteContent.pages?.[pageType];
-          if (!pageContent && pageType !== "home") continue;
+        const pageResults = await Promise.allSettled(
+          (pages as string[]).map(async (pageType) => {
+            const pageContent = siteContent.pages?.[pageType];
+            if (!pageContent && pageType !== "home") return null;
 
-          const gutenbergHtml = buildGutenbergPage(
-            pageType,
-            pageContent ?? siteContent.pages?.home ?? {},
-            pageType === "home" ? heroImageUrl : undefined,
-            primaryColor,
-          );
-
-          // 3a. Generate SEO meta (best-effort)
-          let metaTitle = "";
-          let metaDesc = "";
-          try {
-            const seoRes = await fetch(
-              `${SUPABASE_URL}/functions/v1/mavis-seo-engine`,
-              {
-                method: "POST",
-                headers: {
-                  "Content-Type": "application/json",
-                  Authorization: req.headers.get("Authorization") ?? "",
-                },
-                body: JSON.stringify({
-                  action: "generate_meta",
-                  page_title: `${pageType.charAt(0).toUpperCase() + pageType.slice(1)} - ${body.business_name}`,
-                  page_content: gutenbergHtml.slice(0, 500),
-                  business_name: body.business_name,
-                  business_type: body.business_type,
-                }),
-              },
+            // Build WP Gutenberg HTML for publishing; build standalone HTML for download/storage
+            const wpHtml = buildGutenbergPage(
+              pageType,
+              pageContent ?? siteContent.pages?.home ?? {},
+              pageType === "home" ? heroImageUrl : undefined,
+              primaryColor,
             );
-            if (seoRes.ok) {
-              const seoData = await seoRes.json();
-              metaTitle = seoData.meta_title ?? "";
-              metaDesc = seoData.meta_description ?? "";
-            }
-          } catch {
-            // SEO meta is optional
-          }
+            const gsContactCtx = project_id && user_id
+              ? { supabaseUrl: SUPABASE_URL, projectId: String(project_id), userId: String(user_id) }
+              : undefined;
+            const standaloneHtml = await buildStandaloneHtml(
+              pageType,
+              pageContent ?? siteContent.pages?.home ?? {},
+              pageType === "home" ? heroImageUrl : undefined,
+              primaryColor,
+              body.business_name ?? siteContent.site?.title ?? "Website",
+              pages as string[],
+              { business_name: body.business_name, business_type: body.business_type, style: body.style },
+              false,
+              gsContactCtx,
+            );
 
-          // 3b. Publish page to WordPress (best-effort)
-          if (wp_site_url && wp_username && wp_app_password) {
+            // 3a. Generate SEO meta (best-effort)
+            let metaTitle = "";
+            let metaDesc = "";
             try {
-              const wpRes = await fetch(
-                `${SUPABASE_URL}/functions/v1/mavis-wordpress`,
+              const seoRes = await fetch(
+                `${SUPABASE_URL}/functions/v1/mavis-seo-engine`,
                 {
                   method: "POST",
                   headers: {
@@ -1246,69 +3124,109 @@ serve(async (req: Request) => {
                     Authorization: req.headers.get("Authorization") ?? "",
                   },
                   body: JSON.stringify({
-                    action: "create_page",
-                    site_url: wp_site_url,
-                    username: wp_username,
-                    app_password: wp_app_password,
-                    title: pageType === "home"
-                      ? (body.business_name ?? siteContent.site?.title ?? "Home")
-                      : `${pageType.charAt(0).toUpperCase() + pageType.slice(1)} - ${body.business_name}`,
-                    content: gutenbergHtml,
-                    status: "publish",
-                    slug: pageType === "home" ? "home" : pageType,
-                    meta: {
-                      _yoast_wpseo_title: metaTitle,
-                      _yoast_wpseo_metadesc: metaDesc,
-                    },
+                    action: "generate_meta",
+                    page_title: `${pageType.charAt(0).toUpperCase() + pageType.slice(1)} - ${body.business_name}`,
+                    page_content: wpHtml.slice(0, 500),
+                    business_name: body.business_name,
+                    business_type: body.business_type,
                   }),
                 },
               );
-              if (wpRes.ok) {
-                const wpData = await wpRes.json();
-                publishedPages.push({
-                  type: pageType,
-                  wp_id: wpData.id,
-                  url: wpData.link,
-                  slug: pageType,
-                });
+              if (seoRes.ok) {
+                const seoData = await seoRes.json();
+                metaTitle = seoData.meta_title ?? "";
+                metaDesc = seoData.meta_description ?? "";
               }
-            } catch (e) {
-              console.warn(`Failed to publish ${pageType}:`, e);
+            } catch {
+              // SEO meta is optional
             }
+
+            // 3b. Publish page to WordPress / WordPress.com (best-effort)
+            const hasAppPw  = wp_site_url && wp_username && wp_app_password;
+            const hasOAuth  = access_token && wpcom_blog_id;
+            let publishedPage: { type: string; wp_id: number; url: string; slug: string } | null = null;
+            if (hasAppPw || hasOAuth) {
+              try {
+                const wpPayload: Record<string, unknown> = {
+                  action: "create_page",
+                  title: pageType === "home"
+                    ? (body.business_name ?? siteContent.site?.title ?? "Home")
+                    : `${pageType.charAt(0).toUpperCase() + pageType.slice(1)} - ${body.business_name}`,
+                  content: wpHtml,
+                  status: "publish",
+                  slug: pageType === "home" ? "home" : pageType,
+                  meta: {
+                    _yoast_wpseo_title: metaTitle,
+                    _yoast_wpseo_metadesc: metaDesc,
+                  },
+                };
+                if (hasOAuth) {
+                  wpPayload.access_token  = access_token;
+                  wpPayload.wpcom_blog_id = wpcom_blog_id;
+                } else {
+                  wpPayload.site_url    = wp_site_url;
+                  wpPayload.username    = wp_username;
+                  wpPayload.app_password = wp_app_password;
+                }
+
+                const wpRes = await fetch(
+                  `${SUPABASE_URL}/functions/v1/mavis-wordpress`,
+                  {
+                    method: "POST",
+                    headers: {
+                      "Content-Type": "application/json",
+                      Authorization: req.headers.get("Authorization") ?? "",
+                    },
+                    body: JSON.stringify(wpPayload),
+                  },
+                );
+                if (wpRes.ok) {
+                  const wpData = await wpRes.json();
+                  publishedPage = {
+                    type: pageType,
+                    wp_id: wpData.data?.id ?? wpData.id,
+                    url: wpData.data?.link ?? wpData.link,
+                    slug: pageType,
+                  };
+                }
+              } catch (e) {
+                console.warn(`Failed to publish ${pageType}:`, e);
+              }
+            }
+
+            return { pageType, standaloneHtml, publishedPage };
+          }),
+        );
+
+        // Collect results from allSettled — fulfilled entries with non-null value
+        for (const result of pageResults) {
+          if (result.status === "fulfilled" && result.value) {
+            const { pageType, standaloneHtml, publishedPage } = result.value;
+            generatedHtmls[pageType] = standaloneHtml;
+            if (publishedPage) publishedPages.push(publishedPage);
+          } else if (result.status === "rejected") {
+            console.warn("Page generation failed:", result.reason);
           }
         }
 
-        // 4. Set the homepage in WordPress
+        // 4. Set homepage + site identity in WordPress (best-effort)
         const homePage = publishedPages.find((p) => p.type === "home");
-        if (homePage && wp_site_url && wp_username && wp_app_password) {
-          // 4a. Set static homepage
+        const wpAuthPayload = access_token && wpcom_blog_id
+          ? { access_token, wpcom_blog_id }
+          : { site_url: wp_site_url, username: wp_username, app_password: wp_app_password };
+
+        if (homePage && (wp_site_url || wpcom_blog_id)) {
+          const wpHeaders = { "Content-Type": "application/json", Authorization: req.headers.get("Authorization") ?? "" };
+
           await fetch(`${SUPABASE_URL}/functions/v1/mavis-wordpress`, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: req.headers.get("Authorization") ?? "",
-            },
-            body: JSON.stringify({
-              action: "set_homepage",
-              site_url: wp_site_url,
-              username: wp_username,
-              app_password: wp_app_password,
-              home_page_id: homePage.wp_id,
-            }),
+            method: "POST", headers: wpHeaders,
+            body: JSON.stringify({ action: "set_homepage", ...wpAuthPayload, home_page_id: homePage.wp_id }),
           }).catch(() => {});
 
-          // 4b. Set site title + tagline
           await fetch(`${SUPABASE_URL}/functions/v1/mavis-wordpress`, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: req.headers.get("Authorization") ?? "",
-            },
+            method: "POST", headers: wpHeaders,
             body: JSON.stringify({
-              action: "set_site_identity",
-              site_url: wp_site_url,
-              username: wp_username,
-              app_password: wp_app_password,
+              action: "set_site_identity", ...wpAuthPayload,
               title: body.business_name ?? siteContent.site?.title ?? "",
               description: siteContent.site?.tagline ?? "",
             }),
@@ -1319,25 +3237,49 @@ serve(async (req: Request) => {
         if (project_id && user_id) {
           const sb = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
 
-          for (const p of publishedPages) {
-            await sb.from("website_pages").upsert({
+          // Fetch existing pages so we can preserve user-imported HTML
+          const { data: existingPages } = await sb
+            .from("website_pages")
+            .select("page_type, status")
+            .eq("project_id", project_id);
+          const customizedTypes = new Set(
+            (existingPages ?? [])
+              .filter((p: any) => p.status === "customized")
+              .map((p: any) => p.page_type),
+          );
+
+          // Upsert every generated page; skip overwriting HTML for user-customized pages
+          const wpByType = Object.fromEntries(publishedPages.map((p) => [p.type, p]));
+          for (const [pageType, html] of Object.entries(generatedHtmls)) {
+            const wp = wpByType[pageType];
+            const isCustomized = customizedTypes.has(pageType);
+            const upsertData: Record<string, unknown> = {
               project_id,
               user_id,
-              page_type: p.type,
-              wp_page_id: p.wp_id,
-              wp_url: p.url,
-              slug: p.slug,
-              status: "published",
-              published_at: new Date().toISOString(),
-            });
+              page_type: pageType,
+              slug: pageType,
+            };
+            // Preserve user-customized HTML — only write fresh HTML for MAVIS-generated pages
+            if (!isCustomized) {
+              upsertData.gutenberg_html = html;
+              upsertData.status = "generated";
+            }
+            if (wp) {
+              upsertData.wp_page_id = wp.wp_id;
+              upsertData.wp_url = wp.url;
+              upsertData.status = "published";
+              upsertData.published_at = new Date().toISOString();
+            }
+            await sb.from("website_pages").upsert(upsertData, { onConflict: "project_id,page_type" });
           }
 
+          const totalPages = Object.keys(generatedHtmls).length;
           await sb
             .from("website_projects")
             .update({
-              status: "published",
-              pages_count: publishedPages.length,
-              published_at: new Date().toISOString(),
+              status: publishedPages.length > 0 ? "published" : "generated",
+              pages_count: totalPages,
+              published_at: publishedPages.length > 0 ? new Date().toISOString() : null,
             })
             .eq("id", project_id);
         }
@@ -1346,6 +3288,7 @@ serve(async (req: Request) => {
           JSON.stringify({
             success: true,
             pages_published: publishedPages.length,
+            pages_generated: Object.keys(generatedHtmls).length,
             pages: publishedPages,
             site_content: siteContent,
             hero_image_url: heroImageUrl,

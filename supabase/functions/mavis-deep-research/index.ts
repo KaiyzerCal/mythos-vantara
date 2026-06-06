@@ -14,6 +14,9 @@ const SERVICE_KEY  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const ANTHROPIC_KEY = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
 const GEMINI_KEY    = Deno.env.get("GEMINI_API_KEY") ?? "";
 const TAVILY_KEY    = Deno.env.get("Tavily_API") ?? "";
+// Self-hosted SearXNG meta-search engine. No API key needed.
+// Deploy: docker run -d -p 8888:8080 searxng/searxng  |  set SEARXNG_URL=http://your-server:8888
+const SEARXNG_URL   = Deno.env.get("SEARXNG_URL") ?? "";
 
 const supabase = createClient(SUPABASE_URL, SERVICE_KEY);
 
@@ -96,7 +99,7 @@ async function planSearchAngles(query: string, depth: number): Promise<string[]>
   return JSON.parse(match[0]) as string[];
 }
 
-// ── Tavily search ─────────────────────────────────────────────
+// ── Search providers ──────────────────────────────────────────
 interface TavilyResult {
   title: string;
   url: string;
@@ -104,23 +107,53 @@ interface TavilyResult {
 }
 
 async function tavilySearch(angle: string): Promise<TavilyResult[]> {
-  const res = await fetch("https://api.tavily.com/search", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      api_key: TAVILY_KEY,
-      query: angle,
-      search_depth: "advanced",
-      max_results: 3,
-      include_raw_content: false,
-    }),
-  });
-  if (!res.ok) {
-    console.error(`[mavis-deep-research] Tavily error for angle "${angle}": ${res.status}`);
+  if (!TAVILY_KEY) return [];
+  try {
+    const res = await fetch("https://api.tavily.com/search", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        api_key: TAVILY_KEY,
+        query: angle,
+        search_depth: "advanced",
+        max_results: 3,
+        include_raw_content: false,
+      }),
+      signal: AbortSignal.timeout(15000),
+    });
+    if (!res.ok) return [];
+    const data = await res.json();
+    return (data.results ?? []) as TavilyResult[];
+  } catch {
     return [];
   }
-  const data = await res.json();
-  return (data.results ?? []) as TavilyResult[];
+}
+
+async function searxngSearch(angle: string): Promise<TavilyResult[]> {
+  if (!SEARXNG_URL) return [];
+  try {
+    const params = new URLSearchParams({ q: angle, format: "json", categories: "general", language: "en" });
+    const res = await fetch(`${SEARXNG_URL}/search?${params}`, {
+      headers: { Accept: "application/json" },
+      signal: AbortSignal.timeout(15000),
+    });
+    if (!res.ok) return [];
+    const data = await res.json();
+    return ((data.results ?? []) as any[]).slice(0, 5).map((r) => ({
+      title: r.title ?? "",
+      url: r.url ?? "",
+      content: r.content ?? r.snippet ?? "",
+    }));
+  } catch {
+    return [];
+  }
+}
+
+// Tries Tavily first (higher quality), falls back to self-hosted SearXNG.
+async function webSearch(angle: string): Promise<TavilyResult[]> {
+  const results = await tavilySearch(angle);
+  if (results.length > 0) return results;
+  return searxngSearch(angle);
 }
 
 // ── Build context string from results ────────────────────────
@@ -166,9 +199,9 @@ serve(async (req) => {
   const rawDepth = Number(body.depth ?? 3);
   const depth    = Math.max(1, Math.min(5, isNaN(rawDepth) ? 3 : rawDepth));
 
-  // Check Tavily key early
-  if (!TAVILY_KEY) {
-    const note = "Web search isn't configured (Tavily_API key missing). Please add the Tavily_API secret to proceed with deep research.";
+  // Require at least one search provider
+  if (!TAVILY_KEY && !SEARXNG_URL) {
+    const note = "Web search isn't configured. Add Tavily_API (cloud) or SEARXNG_URL (self-hosted) to enable deep research.";
     const stream = new ReadableStream({
       start(controller) {
         const enc = new TextEncoder();
@@ -216,7 +249,7 @@ serve(async (req) => {
       const allResults: TavilyResult[] = [];
       for (const angle of angles) {
         try {
-          const results = await tavilySearch(angle);
+          const results = await webSearch(angle);
           allResults.push(...results);
         } catch (e) {
           console.error("[mavis-deep-research] Tavily angle error:", e);

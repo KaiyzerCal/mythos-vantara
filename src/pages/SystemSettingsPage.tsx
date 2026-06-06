@@ -21,6 +21,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { PageHeader, HudCard } from "@/components/SharedUI";
 import { toast } from "sonner";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -186,6 +187,7 @@ function StandingOrdersTab() {
   const [entries, setEntries] = useState<TacitEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [deleting, setDeleting] = useState<string | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<{ id: string; label: string } | null>(null);
 
   // inline-edit state
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -594,7 +596,7 @@ function StandingOrdersTab() {
                                   <Pencil size={12} />
                                 </button>
                                 <button
-                                  onClick={() => handleDelete(entry.id)}
+                                  onClick={() => setConfirmDelete({ id: entry.id, label: entry.key })}
                                   disabled={deleting === entry.id}
                                   className="p-1.5 rounded hover:bg-red-900/30 text-muted-foreground hover:text-red-400 transition-all disabled:opacity-40"
                                   title="Delete"
@@ -628,6 +630,18 @@ function StandingOrdersTab() {
           )}
         </div>
       )}
+
+      <ConfirmDialog
+        open={confirmDelete !== null}
+        title={`Delete "${confirmDelete?.label}"?`}
+        description="This action cannot be undone."
+        onConfirm={async () => {
+          if (!confirmDelete) return;
+          await handleDelete(confirmDelete.id);
+          setConfirmDelete(null);
+        }}
+        onCancel={() => setConfirmDelete(null)}
+      />
     </div>
   );
 }
@@ -803,6 +817,7 @@ function CustomSkillsTab() {
   const [loading, setLoading] = useState(true);
   const [deleting, setDeleting] = useState<string | null>(null);
   const [toggling, setToggling] = useState<string | null>(null);
+  const [confirmDeleteSkill, setConfirmDeleteSkill] = useState<{ id: string; label: string } | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [savingEdit, setSavingEdit] = useState(false);
   const [showAdd, setShowAdd] = useState(false);
@@ -1038,7 +1053,7 @@ function CustomSkillsTab() {
                       <Pencil size={12} />
                     </button>
                     <button
-                      onClick={() => handleDelete(skill.id)}
+                      onClick={() => setConfirmDeleteSkill({ id: skill.id, label: skill.name })}
                       disabled={deleting === skill.id}
                       className="p-1.5 rounded hover:bg-red-900/30 text-muted-foreground hover:text-red-400 transition-all disabled:opacity-40"
                       title="Delete"
@@ -1066,6 +1081,18 @@ function CustomSkillsTab() {
           )}
         </div>
       )}
+
+      <ConfirmDialog
+        open={confirmDeleteSkill !== null}
+        title={`Delete skill "${confirmDeleteSkill?.label}"?`}
+        description="This action cannot be undone."
+        onConfirm={async () => {
+          if (!confirmDeleteSkill) return;
+          await handleDelete(confirmDeleteSkill.id);
+          setConfirmDeleteSkill(null);
+        }}
+        onCancel={() => setConfirmDeleteSkill(null)}
+      />
     </div>
   );
 }

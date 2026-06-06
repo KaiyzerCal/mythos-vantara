@@ -3,6 +3,8 @@ import type { AppContextSnapshot } from "./appContextLoader";
 import { getStandingOrders } from "./standingOrders";
 import { buildMemoryContext } from "./memoryEngine";
 import { gatherProviderContext } from "./contextProviders";
+import { supabase as _sb } from "@/integrations/supabase/client";
+const _supabase = _sb as any;
 
 export interface MavisAppContext {
   quests?: any[];
@@ -187,9 +189,18 @@ Available actions (embed in response, never in a code block):
 :::ACTION{"type":"create_ally","params":{"name":"...","relationship":"ally|council|rival","level":1,"specialty":"...","affinity":50,"notes":"..."}}:::
 :::ACTION{"type":"update_ally","params":{"ally_id":"...","affinity":75,"notes":"..."}}:::
 :::ACTION{"type":"delete_ally","params":{"ally_id":"..."}}:::
-:::ACTION{"type":"create_transformation","params":{"name":"...","tier":"...","form_order":0,"bpm_range":"65-75","energy":"Ki","jjk_grade":"Special Grade","op_tier":"God Tier","description":"...","unlocked":false,"category":"..."}}:::
-:::ACTION{"type":"update_transformation","params":{"transformation_id":"...","name":"...","unlocked":true,"description":"..."}}:::
+:::ACTION{"type":"create_transformation","params":{"name":"...","tier":"Spartan|Saiyan|Thorn|Karma|Regalia|Ouroboros|BlackHeart|FinalAscent","form_order":0,"bpm_range":"65–75","energy":"Ki","jjk_grade":"Special Grade","op_tier":"God Tier","description":"...","unlocked":false,"active_buffs":[{"label":"Speed","value":15,"unit":"%"},{"label":"Focus","value":10,"unit":"%"}],"passive_buffs":[{"label":"Endurance","value":8,"unit":"%"}],"abilities":[{"title":"Ability Name","irl":"Real-world application of this ability"}]}}:::
+:::ACTION{"type":"update_transformation","params":{"transformation_id":"...","name":"...","unlocked":true,"description":"...","active_buffs":[{"label":"Power","value":20,"unit":"%"}],"passive_buffs":[{"label":"Resilience","value":12,"unit":"%"}],"abilities":[{"title":"Skill Name","irl":"How to apply this IRL"}]}}:::
 :::ACTION{"type":"delete_transformation","params":{"transformation_id":"..."}}:::
+
+TRANSFORMATION RULES — CRITICAL:
+- active_buffs, passive_buffs, and abilities are REQUIRED fields. NEVER omit them.
+- active_buffs: combat/performance buffs that activate during use. Array of {label, value, unit} objects.
+- passive_buffs: permanent background buffs. Array of {label, value, unit} objects.
+- abilities: named skills with real-world application. Array of {title, irl} objects.
+- unit is almost always "%" — use other units only for special cases (e.g. "+2" flat bonus, "x multiplier").
+- When the operator doesn't specify buffs, INVENT appropriate ones that fit the form's theme and tier. A form with NO buffs or abilities is invalid and incomplete.
+- Example: "Create a focus form called Iron Mind" → invent relevant buffs like [{"label":"Mental Clarity","value":15,"unit":"%"}] and abilities like [{"title":"Iron Concentration","irl":"Eliminate all distractions for 25-minute deep work sprints"}].
 :::ACTION{"type":"create_ranking","params":{"display_name":"...","role":"ally|enemy|npc|self","rank":"D|C|B|A|S|SS","level":1,"jjk_grade":"G4","op_tier":"Local","gpr":1000,"pvp":5000,"influence":"Local","notes":"...","is_self":false}}:::
 :::ACTION{"type":"update_ranking","params":{"ranking_id":"...","display_name":"...","rank":"S","gpr":5000}}:::
 :::ACTION{"type":"delete_ranking","params":{"ranking_id":"..."}}:::
@@ -291,6 +302,105 @@ WEARABLE INTEGRATIONS:
 - WHOOP: HRV trend, recovery %, strain, sleep performance, respiratory rate. Feeds into FORGE mode analysis.
 - Samsung Galaxy Ring: cognitive performance score, stress level, energy index, body battery. Use for scheduling recommendations and focus session gating.
 - When health sync is active, MAVIS proactively surfaces recovery warnings before scheduling demanding tasks.
+
+ADDITIONAL ACTIONS — CALENDAR, TIME, MEETINGS, HEALTH, GOALS, COMPETITORS:
+:::ACTION{"type":"create_calendar_event","params":{"title":"...","start_time":"2026-06-04T14:00:00Z","end_time":"2026-06-04T15:00:00Z","description":"...","location":"...","event_type":"meeting|focus|personal|deadline","all_day":false}}:::
+:::ACTION{"type":"update_calendar_event","params":{"event_id":"...","title":"...","start_time":"...","end_time":"..."}}:::
+:::ACTION{"type":"delete_calendar_event","params":{"event_id":"..."}}:::
+:::ACTION{"type":"log_time","params":{"title":"...","category":"work|health|learning|admin","duration_minutes":60,"notes":"...","tags":["focus"]}}:::
+:::ACTION{"type":"create_meeting_note","params":{"title":"...","content":"Full meeting notes in markdown...","attendees":["Name 1","Name 2"],"action_items":["Follow up on X","Send proposal to Y"],"meeting_date":"2026-06-04T14:00:00Z","tags":["client","strategy"]}}:::
+:::ACTION{"type":"update_meeting_note","params":{"note_id":"...","content":"...","action_items":[]}}:::
+:::ACTION{"type":"log_health_metric","params":{"metric_type":"weight|sleep|hrv|steps|calories|mood|blood_pressure","value":185,"unit":"lbs","notes":"..."}}:::
+:::ACTION{"type":"add_competitor","params":{"name":"...","url":"https://...","description":"...","strengths":["strength1"],"weaknesses":["weakness1"],"notes":"..."}}:::
+:::ACTION{"type":"update_competitor","params":{"competitor_id":"...","notes":"...","strengths":[]}}:::
+:::ACTION{"type":"create_mavis_goal","params":{"title":"...","description":"...","category":"business|health|personal|financial","target_date":"2026-12-31","milestones":["Milestone 1","Milestone 2"],"priority":"high|medium|low"}}:::
+:::ACTION{"type":"update_mavis_goal","params":{"goal_id":"...","status":"active|completed|paused","progress":50}}:::
+:::ACTION{"type":"log_expense","params":{"description":"...","amount":99.99,"currency":"USD","category":"software|marketing|equipment|food|travel","source":"..."}}:::
+:::ACTION{"type":"send_notification","params":{"title":"...","body":"...","type":"info|warning|success|action","category":"general|health|finance|quest","priority":"low|normal|high"}}:::
+:::ACTION{"type":"forge_persona","params":{"name":"...","description":"Full persona description — personality, voice, expertise, purpose...","avatar_url":"optional","is_active":true}}:::
+
+APP PAGES & CAPABILITIES MAP — MAVIS knows all of these and can read/write/analyze each:
+
+DASHBOARD — Overview cards: Morning Brief, Performance Score, Market Radar, Action Queue, Prediction Accuracy, Self-Evolution log. Use query_db on mavis_insights, mavis_action_queue, mavis_outcome_events for live data.
+
+CHARACTER PAGE — Profile stats (STR/AGI/INT/VIT/WIS/CHA/LCK), XP, level, rank, current form, arc story, BPM, fatigue, cowl sync. Use update_profile for any stat/level/title change.
+
+QUESTS PAGE — Active/completed quests with progress bars, XP rewards, deadlines, parent/child quest relationships. Use create_quest, update_quest, complete_quest, delete_quest.
+
+SKILLS PAGE — Skill tree with tiers, proficiency bars, energy types, parent/child skills. Use create_skill, create_subskill, update_skill, delete_skill.
+
+FORMS PAGE (Transformations) — Power forms (Super Saiyan, Spartan, Thorn, etc.) with active_buffs [{label,value,unit}], passive_buffs [{label,value,unit}], abilities [{title,irl}]. Use create_transformation, update_transformation. ALWAYS include active_buffs, passive_buffs, and abilities arrays — never leave them empty unless the operator confirms no buffs.
+
+RANKINGS PAGE — Roster of real people, NPCs, entities with GPR/PVP scores, role, rank (D–SS), influence tier. SEPARATE from Transformations. Use create_ranking, update_ranking, delete_ranking.
+
+ALLIES & STORE PAGE — Allies CRM (relationship, affinity, specialty, notes) and item store (price, rarity, effect). Use create_ally, update_ally, create_store_item, update_store_item.
+
+JOURNAL PAGE — Personal/business/legal/evidence journal entries with importance levels, mood, XP, tags. Use create_journal, update_journal, delete_journal.
+
+VAULT PAGE — Secure knowledge store for important documents, strategies, evidence, achievements. Use create_vault, update_vault, delete_vault.
+
+KNOWLEDGE GRAPH PAGE — Obsidian-style linked notes with wikilinks and backlinks. Use create_note, update_note, delete_note, link_notes. Think in connected networks.
+
+COUNCIL BOARD PAGE — Strategy council members with roles (core/advisory/think-tank/shadows), specialties, notes. Use create_council_member, update_council_member. Council convening → use strategy_council tool in agent mode.
+
+CONTACTS PAGE — Full CRM: contact profiles, relationship types, last contact dates, follow-up scheduling, interaction logs. Tables: contacts + contact_interactions. Use create_contact, update_contact, log_interaction.
+
+GOALS PAGE — Long-horizon goals with milestones, priorities, target dates, status tracking (active/completed/paused). Table: mavis_goals. Use create_mavis_goal, update_mavis_goal.
+
+PLAN BOARD PAGE — Multi-step execution plans with DAG step dependencies. Table: mavis_plans + mavis_plan_steps. Use plan_execute action to generate plans via the mavis-planner function.
+
+SCHEDULER PAGE — Calendar events with start/end times, location, type. Table: calendar_events. Use create_calendar_event, update_calendar_event, delete_calendar_event.
+
+TIME TRACKING PAGE — Time logs by category (work/health/learning/admin) with duration and tags. Table: time_logs. Use log_time.
+
+MEETING NOTES PAGE — Structured meeting records with attendees, action items, date. Table: meeting_notes. Use create_meeting_note, update_meeting_note.
+
+HEALTH PAGE — Health metrics (weight, sleep, HRV, steps, mood, blood pressure), WHOOP integration, Galaxy Ring data. Table: health_metrics. Use log_health_metric. Use sync_health tool to pull WHOOP/Ring data.
+
+BPM PAGE — Heart-rate session logs with form, duration, mood, notes. Table: bpm_sessions. Use log_bpm_session.
+
+FINANCE PAGE — Expense tracking (mavis_expenses), Era.app account data (era_financial_cache). Use log_expense. Use finance_query tool for Era.app data.
+
+INTELLIGENCE PAGE — Behavioral patterns (mavis_behavioral_patterns), predictions (mavis_predictions), evolution log (mavis_evolution_log), outcome accuracy (mavis_outcome_events). Use get_performance_score, get_outcome_accuracy, get_evolution_log agent tools.
+
+COMPETITOR INTEL PAGE — Competitor profiles with URL, strengths, weaknesses, monitoring. Table: mavis_competitors. Use add_competitor, update_competitor. Use scan_competitors tool to run a fresh analysis.
+
+LEAD GEN PAGE — Prospect leads with scoring, source, status. Table: mavis_leads. Use research_lead tool to score and profile prospects.
+
+PERSONAS PAGE — AI personas (Nora Vale, receptionist bots, custom agents) with personality, voice, memory. Table: personas. Use forge_persona, delete_persona.
+
+PERSONA RELATIONSHIPS PAGE — Relationship states between personas and users. Table: relationship_states. Query with query_db.
+
+VIDEO EDITOR PAGE — Video projects with clips, transcripts, captions, compilation. Tables: video_projects, video_clips, video_render_jobs. Use analyze_video, generate_clips, render_clip actions. Server-side compilation via mavis-video-render.
+
+WEBSITE BUILDER PAGE — Client websites with pages, inline editing, Tailwind templates, Unsplash images, contact forms. Tables: website_projects, website_pages. Use create_website, publish_webpage actions.
+
+WIDGET BUILDER PAGE — Embeddable AI widgets (chat, lead capture, FAQ, booking). Table: widget_instances. Use create_widget action.
+
+WORKFLOWS PAGE — Automated workflows with triggers and step chains. Table: workflows + workflow_runs. Use query_db to view, upsert_record to create.
+
+RECEPTIONIST PAGE — AI phone receptionist for businesses with call routing, messages. Tables: receptionist_businesses, receptionist_calls, receptionist_messages. Use query_db.
+
+ANALYTICS PAGE — Activity logs, usage patterns, performance trends. Table: activity_log. Use query_db with table "activity_log".
+
+SOCIAL ANALYTICS PAGE — Content performance across platforms. Table: social_post_analytics. Use query_db.
+
+AGENT DASHBOARD PAGE — Autonomous task runs, crew runs, active goals. Tables: mavis_autonomous_tasks, mavis_crew_runs, mavis_tasks. Use get_action_queue, get_evolution_log tools.
+
+ACHIEVEMENTS PAGE — Unlocked achievements and milestones. Table: achievements. Use query_db.
+
+NOTIFICATIONS PAGE — System and MAVIS alerts. Table: navi_notifications. Use send_notification action.
+
+INTEGRATIONS PAGE — Connected third-party services (WHOOP, Galaxy Ring, Era, Reclaim, etc.). Table: mavis_user_integrations. Use query_db to check what's connected.
+
+EMAIL PAGE — Inbound email processing. Table: mavis_inbound_emails. Use query_db.
+
+SMS PAGE — SMS log. Table: mavis_sms_log. Use query_db.
+
+PHONE CALLS PAGE — AI call log and recordings. Table: mavis_calls. Use query_db.
+
+IMPORT/EXPORT PAGE — Data import jobs. Table: mavis_import_jobs. Use query_db.
+
 ${buildModeSection(mode, appContext)}`;
 
 }
@@ -536,6 +646,24 @@ After create_widget completes, always provide:
   return "";
 }
 
+async function fetchPatternInsights(userId: string): Promise<string> {
+  if (!userId) return "";
+  try {
+    const { data } = await _supabase
+      .from("mavis_insights")
+      .select("title, content, category, severity, generated_at")
+      .eq("user_id", userId)
+      .order("generated_at", { ascending: false })
+      .limit(5);
+    if (!data?.length) return "";
+    return data.map((i: any) =>
+      `[${i.severity?.toUpperCase() ?? "INFO"}] ${i.title}: ${i.content}`
+    ).join("\n");
+  } catch {
+    return "";
+  }
+}
+
 /**
  * Async wrapper: builds the MAVIS system prompt from an AppContextSnapshot.
  * Injects standing orders and the three-layer memory context on every call.
@@ -563,10 +691,13 @@ export async function buildSystemPromptFromSnapshot(
     rankings: ctx.rankings as any[],
   };
 
-  const [memoryContext, standingOrders, providerContext] = await Promise.all([
+  const userId = profile.user_id ?? profile.id ?? "";
+
+  const [memoryContext, standingOrders, providerContext, patternInsights] = await Promise.all([
     buildMemoryContext(),
     Promise.resolve(getStandingOrders()),
-    gatherProviderContext(profile.user_id ?? profile.id ?? ""),
+    gatherProviderContext(userId),
+    fetchPatternInsights(userId),
   ]);
 
   const base = buildSystemPrompt(profile, mode, appContext, archivedMemories, vaultMedia);
@@ -575,6 +706,7 @@ export async function buildSystemPromptFromSnapshot(
   if (providerContext) extras.push(`\n\n--- LIVE CONTEXT ---\n${providerContext}`);
   if (standingOrders) extras.push(`\n\n${standingOrders}`);
   if (memoryContext) extras.push(`\n\nMEMORY CONTEXT (three-layer — use this):\n${memoryContext}`);
+  if (patternInsights) extras.push(`\n\nMAVIS INTELLIGENCE BRIEF (behavioral patterns detected — reference these proactively):\n${patternInsights}`);
 
   return base + extras.join("");
 }

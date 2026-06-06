@@ -1,10 +1,8 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { motion } from "framer-motion";
 import { Activity, Minus, Plus, Save, TrendingUp } from "lucide-react";
 import { useAppData } from "@/contexts/AppDataContext";
 import { PageHeader, HudCard, ProgressBar } from "@/components/SharedUI";
-import { supabase } from "@/integrations/supabase/client";
-import { useAuth } from "@/contexts/AuthContext";
 
 // Suggest a form based on BPM + transformation data
 function suggestForm(bpm: number, forms: any[]): string | null {
@@ -31,22 +29,14 @@ function bpmZone(bpm: number): { label: string; color: string } {
 }
 
 export default function BpmPage() {
-  const { user } = useAuth();
-  const { profile, updateProfile, bpmSessions, logBpmSession, logActivity, awardXP } = useAppData();
+  const { profile, updateProfile, bpmSessions, logBpmSession, logActivity, awardXP, transformations } = useAppData();
 
   const [manualBpm, setManualBpm] = useState(profile.current_bpm);
   const [mood, setMood] = useState("");
   const [notes, setNotes] = useState("");
-  const [forms, setForms] = useState<any[]>([]);
   const [saved, setSaved] = useState(false);
 
-  // Load forms for suggestion
-  useEffect(() => {
-    if (!user) return;
-    supabase.from("transformations").select("name, bpm_range").eq("user_id", user.id).then(({ data }) => {
-      if (data) setForms(data);
-    });
-  }, [user]);
+  const forms = transformations;
 
   const adjust = (delta: number) =>
     setManualBpm((v) => Math.max(40, Math.min(400, v + delta)));

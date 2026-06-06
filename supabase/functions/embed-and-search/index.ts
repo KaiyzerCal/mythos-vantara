@@ -5,7 +5,7 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-const GEMINI_KEY = Deno.env.get("GEMINI_API_KEY") ?? "";
+const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY") ?? "";
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
@@ -22,20 +22,23 @@ function isRateLimited(userId: string): boolean {
 }
 
 async function generateEmbedding(text: string): Promise<number[]> {
-  const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/text-embedding-004:embedContent?key=${GEMINI_KEY}`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: "models/text-embedding-004",
-        content: { parts: [{ text: text.slice(0, 2000) }] },
-      }),
-    }
-  );
-  if (!res.ok) throw new Error(`Gemini embedding failed: ${res.status}`);
+  const res = await fetch("https://ai.gateway.lovable.dev/v1/embeddings", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${LOVABLE_API_KEY}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: "google/gemini-embedding-001",
+      input: text.slice(0, 2000),
+    }),
+  });
+  if (!res.ok) {
+    const t = await res.text();
+    throw new Error(`Embedding failed: ${res.status} ${t}`);
+  }
   const data = await res.json();
-  return data?.embedding?.values ?? [];
+  return data?.data?.[0]?.embedding ?? [];
 }
 
 Deno.serve(async (req) => {
@@ -50,7 +53,7 @@ Deno.serve(async (req) => {
       });
     }
 
-    if (!GEMINI_KEY) {
+    if (!LOVABLE_API_KEY) {
       return new Response(JSON.stringify({ results: [] }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });

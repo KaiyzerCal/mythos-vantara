@@ -9,13 +9,14 @@ import { useAuth } from "@/contexts/AuthContext";
 // ─── helpers ───────────────────────────────────────────────
 function makeHook<T extends { id: string }>(
   tableName: string,
-  options?: { orderColumn?: string }
+  options?: { orderColumn?: string; ascending?: boolean }
 ) {
   return function useTableData() {
     const { user } = useAuth();
     const [data, setData] = useState<T[]>([]);
     const [loading, setLoading] = useState(true);
     const orderColumn = options?.orderColumn ?? "created_at";
+    const ascending = options?.ascending ?? false;
 
     const fetch = useCallback(async () => {
       if (!user) return;
@@ -23,7 +24,7 @@ function makeHook<T extends { id: string }>(
         .from(tableName)
         .select("*")
         .eq("user_id", user.id)
-        .order(orderColumn, { ascending: false });
+        .order(orderColumn, { ascending });
       if (error) {
         console.error(`[useDataHooks] Error fetching ${tableName}:`, error);
       }
@@ -325,7 +326,7 @@ export interface Transformation {
   abilities: any;
   created_at: string;
 }
-export const useTransformations = makeHook<Transformation>("transformations");
+export const useTransformations = makeHook<Transformation>("transformations", { orderColumn: "form_order", ascending: true });
 
 // ─── RANKINGS PROFILES ────────────────────────────────────
 export interface RankingProfile {

@@ -2,13 +2,14 @@ import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Flame, Zap, ChevronDown, ChevronRight, Plus, Edit2, Trash2,
-  Check, X, Copy, Shield, Star,
+  Check, X, Copy, Shield, Star, GripVertical,
 } from "lucide-react";
 import { useAppData } from "@/contexts/AppDataContext";
 import { PageHeader, HudCard, RarityBadge } from "@/components/SharedUI";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { useEffect } from "react";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 
 // ── Tier filter options
 const TIERS = ["All", "Spartan", "Saiyan", "Thorn", "Karma", "Regalia", "Ouroboros", "BlackHeart", "FinalAscent"] as const;
@@ -59,30 +60,19 @@ const EMPTY_FORM: Omit<Transformation, "id" | "user_id"> = {
 
 export default function FormsPage() {
   const { user } = useAuth();
-  const { profile, updateProfile } = useAppData();
+  const { profile, updateProfile, transformations, transformationsLoading, createTransformation, updateTransformation, deleteTransformation, refetchTransformations } = useAppData();
 
-  const [forms, setForms] = useState<Transformation[]>([]);
-  const [loading, setLoading] = useState(true);
+  const forms = (transformations as unknown as Transformation[]) ?? [];
+  const loading = transformationsLoading;
   const [tierFilter, setTierFilter] = useState("All");
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draftForm, setDraftForm] = useState<Omit<Transformation, "id" | "user_id">>(EMPTY_FORM);
   const [copied, setCopied] = useState(false);
-
-  // ── Fetch transformations
-  useEffect(() => {
-    if (!user) return;
-    supabase
-      .from("transformations")
-      .select("*")
-      .eq("user_id", user.id)
-      .order("form_order")
-      .then(({ data }) => {
-        if (data) setForms(data as unknown as Transformation[]);
-        setLoading(false);
-      });
-  }, [user]);
+  const [confirmDelete, setConfirmDelete] = useState<{ id: string; label: string } | null>(null);
+  const [draggingId, setDraggingId] = useState<string | null>(null);
+  const [dragOverId, setDragOverId] = useState<string | null>(null);
 
   const seedDefaultForms = async () => {
     if (!user || forms.length > 0) return;
@@ -133,8 +123,7 @@ export default function FormsPage() {
       { tier: "FinalAscent", name: "Emerald Sovereign", form_order: 100, bpm_range: "Any", energy: "Emerald Flames + Black Heart", jjk_grade: "Transcendent", op_tier: "Imu Tier", description: "The final ascent. Abraxas + Azaroth fusion. Full sovereignty over all domains.", active_buffs: [{ label: "All Stats", value: 50, unit: "%" }, { label: "Reality Override", value: 30, unit: "%" }], passive_buffs: [{ label: "Omnipresence", value: 40, unit: "%" }], abilities: [{ title: "Sovereign Will", irl: "Absolute authority over personal domain." }, { title: "Emerald Throne", irl: "Command from a place of complete ownership." }, { title: "Final Ascent", irl: "There is no ceiling. Continuous transcendence." }], unlocked: false },
     ].map((f) => ({ ...f, user_id: user.id }));
     await supabase.from("transformations").insert(defaults);
-    const { data: refreshed } = await supabase.from("transformations").select("*").eq("user_id", user.id).order("form_order");
-    if (refreshed) setForms(refreshed as unknown as Transformation[]);
+    await refetchTransformations();
   };
 
   useEffect(() => {
@@ -144,16 +133,10 @@ export default function FormsPage() {
   const handleSave = async () => {
     if (!user || !draftForm.name.trim()) return;
     if (editingId) {
-      await supabase.from("transformations").update(draftForm).eq("id", editingId);
-      setForms((prev) => prev.map((f) => f.id === editingId ? { ...f, ...draftForm } as Transformation : f).sort((a, b) => a.form_order - b.form_order));
+      await updateTransformation(editingId, draftForm);
       setEditingId(null);
     } else {
-      const { data } = await supabase
-        .from("transformations")
-        .insert({ ...draftForm, user_id: user.id })
-        .select()
-        .single();
-      if (data) setForms((prev) => [...prev, data as unknown as Transformation].sort((a, b) => a.form_order - b.form_order));
+      await createTransformation(draftForm as any);
     }
     setDraftForm(EMPTY_FORM);
     setShowCreate(false);
@@ -170,12 +153,43 @@ export default function FormsPage() {
   };
 
   const handleDelete = async (id: string) => {
-    setForms((prev) => prev.filter((f) => f.id !== id));
-    await supabase.from("transformations").delete().eq("id", id);
+    await deleteTransformation(id);
   };
+
+  // handleDelete is now only called from ConfirmDialog onConfirm
 
   const handleActivate = async (form: Transformation) => {
     await updateProfile({ current_form: form.name });
+  };
+
+  // Always work from form_order-sorted list so subsequent drags stay consistent
+  const sortedForms = [...forms].sort((a, b) => a.form_order - b.form_order);
+
+  const handleDrop = async (targetId: string) => {
+    if (!draggingId || draggingId === targetId) {
+      setDraggingId(null);
+      setDragOverId(null);
+      return;
+    }
+    // Use sorted list so positions match what the user sees
+    const list = [...sortedForms];
+    const fromIdx = list.findIndex((f) => f.id === draggingId);
+    const toIdx = list.findIndex((f) => f.id === targetId);
+    if (fromIdx === -1 || toIdx === -1) { setDraggingId(null); setDragOverId(null); return; }
+
+    const [moved] = list.splice(fromIdx, 1);
+    list.splice(toIdx, 0, moved);
+
+    setDraggingId(null);
+    setDragOverId(null);
+
+    // Assign new sequential form_order values and batch-persist only changed rows
+    const updates = list.map((f, i) => ({ id: f.id, form_order: (i + 1) * 10 }));
+    const changed = updates.filter((u) => {
+      const orig = forms.find((f) => f.id === u.id);
+      return orig && orig.form_order !== u.form_order;
+    });
+    await Promise.all(changed.map(({ id, form_order }) => updateTransformation(id, { form_order })));
   };
 
   const copyForm = (form: Transformation) => {
@@ -194,11 +208,84 @@ export default function FormsPage() {
   };
 
   const filtered = tierFilter === "All"
-    ? forms
-    : forms.filter((f) => f.tier === tierFilter);
+    ? sortedForms
+    : sortedForms.filter((f) => f.tier === tierFilter);
 
   const isActive = (form: Transformation) =>
     profile.current_form === form.name;
+
+  const renderFormPanel = (title: string) => (
+    <HudCard className="border-primary/20">
+      <p className="text-xs font-mono text-primary uppercase tracking-widest mb-3">{title}</p>
+      <div className="space-y-2">
+        <div className="grid grid-cols-2 gap-2">
+          <input value={draftForm.name} onChange={(e) => setDraftForm((f) => ({ ...f, name: e.target.value }))} placeholder="Form name" className="bg-muted/30 border border-border rounded px-3 py-1.5 text-sm focus:outline-none focus:border-primary/40" />
+          <select value={draftForm.tier} onChange={(e) => setDraftForm((f) => ({ ...f, tier: e.target.value }))} className="bg-muted/30 border border-border rounded px-2 py-1.5 text-xs font-mono focus:outline-none">
+            {TIERS.filter((t) => t !== "All").map((t) => <option key={t}>{t}</option>)}
+          </select>
+        </div>
+        <div className="grid grid-cols-3 gap-2">
+          <input value={draftForm.bpm_range} onChange={(e) => setDraftForm((f) => ({ ...f, bpm_range: e.target.value }))} placeholder="BPM range" className="bg-muted/30 border border-border rounded px-3 py-1.5 text-xs font-mono focus:outline-none" />
+          <input value={draftForm.energy} onChange={(e) => setDraftForm((f) => ({ ...f, energy: e.target.value }))} placeholder="Energy type" className="bg-muted/30 border border-border rounded px-3 py-1.5 text-xs font-mono focus:outline-none" />
+          <input type="number" value={draftForm.form_order} onChange={(e) => setDraftForm((f) => ({ ...f, form_order: Number(e.target.value) }))} placeholder="Order" className="bg-muted/30 border border-border rounded px-3 py-1.5 text-xs font-mono focus:outline-none" />
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          <input value={draftForm.jjk_grade} onChange={(e) => setDraftForm((f) => ({ ...f, jjk_grade: e.target.value }))} placeholder="JJK Grade" className="bg-muted/30 border border-border rounded px-3 py-1.5 text-xs font-mono focus:outline-none" />
+          <input value={draftForm.op_tier} onChange={(e) => setDraftForm((f) => ({ ...f, op_tier: e.target.value }))} placeholder="OP Tier" className="bg-muted/30 border border-border rounded px-3 py-1.5 text-xs font-mono focus:outline-none" />
+        </div>
+        <textarea value={draftForm.description ?? ""} onChange={(e) => setDraftForm((f) => ({ ...f, description: e.target.value }))} placeholder="Description..." rows={2} className="w-full bg-muted/30 border border-border rounded px-3 py-1.5 text-sm resize-none focus:outline-none" />
+        <div>
+          <div className="flex items-center justify-between mb-1">
+            <p className="text-[9px] font-mono text-amber-400 uppercase">Active Buffs</p>
+            <button type="button" onClick={() => setDraftForm(f => ({ ...f, active_buffs: [...f.active_buffs, { label: "", value: 0, unit: "%" }] }))} className="text-[9px] font-mono text-amber-400 hover:text-amber-300">+ Add</button>
+          </div>
+          {draftForm.active_buffs.map((b, i) => (
+            <div key={i} className="flex gap-1.5 mb-1">
+              <input value={b.label} onChange={e => setDraftForm(f => { const a = [...f.active_buffs]; a[i] = { ...a[i], label: e.target.value }; return { ...f, active_buffs: a }; })} placeholder="Label" className="flex-1 bg-muted/30 border border-border rounded px-2 py-1 text-xs font-mono focus:outline-none" />
+              <input type="number" value={b.value} onChange={e => setDraftForm(f => { const a = [...f.active_buffs]; a[i] = { ...a[i], value: Number(e.target.value) }; return { ...f, active_buffs: a }; })} placeholder="Val" className="w-16 bg-muted/30 border border-border rounded px-2 py-1 text-xs font-mono focus:outline-none" />
+              <input value={b.unit} onChange={e => setDraftForm(f => { const a = [...f.active_buffs]; a[i] = { ...a[i], unit: e.target.value }; return { ...f, active_buffs: a }; })} placeholder="Unit" className="w-12 bg-muted/30 border border-border rounded px-2 py-1 text-xs font-mono focus:outline-none" />
+              <button type="button" onClick={() => setDraftForm(f => ({ ...f, active_buffs: f.active_buffs.filter((_, j) => j !== i) }))} className="text-muted-foreground hover:text-destructive"><X size={12} /></button>
+            </div>
+          ))}
+        </div>
+        <div>
+          <div className="flex items-center justify-between mb-1">
+            <p className="text-[9px] font-mono text-blue-400 uppercase">Passive Buffs</p>
+            <button type="button" onClick={() => setDraftForm(f => ({ ...f, passive_buffs: [...f.passive_buffs, { label: "", value: 0, unit: "%" }] }))} className="text-[9px] font-mono text-blue-400 hover:text-blue-300">+ Add</button>
+          </div>
+          {draftForm.passive_buffs.map((b, i) => (
+            <div key={i} className="flex gap-1.5 mb-1">
+              <input value={b.label} onChange={e => setDraftForm(f => { const a = [...f.passive_buffs]; a[i] = { ...a[i], label: e.target.value }; return { ...f, passive_buffs: a }; })} placeholder="Label" className="flex-1 bg-muted/30 border border-border rounded px-2 py-1 text-xs font-mono focus:outline-none" />
+              <input type="number" value={b.value} onChange={e => setDraftForm(f => { const a = [...f.passive_buffs]; a[i] = { ...a[i], value: Number(e.target.value) }; return { ...f, passive_buffs: a }; })} placeholder="Val" className="w-16 bg-muted/30 border border-border rounded px-2 py-1 text-xs font-mono focus:outline-none" />
+              <input value={b.unit} onChange={e => setDraftForm(f => { const a = [...f.passive_buffs]; a[i] = { ...a[i], unit: e.target.value }; return { ...f, passive_buffs: a }; })} placeholder="Unit" className="w-12 bg-muted/30 border border-border rounded px-2 py-1 text-xs font-mono focus:outline-none" />
+              <button type="button" onClick={() => setDraftForm(f => ({ ...f, passive_buffs: f.passive_buffs.filter((_, j) => j !== i) }))} className="text-muted-foreground hover:text-destructive"><X size={12} /></button>
+            </div>
+          ))}
+        </div>
+        <div>
+          <div className="flex items-center justify-between mb-1">
+            <p className="text-[9px] font-mono text-green-400 uppercase">Abilities</p>
+            <button type="button" onClick={() => setDraftForm(f => ({ ...f, abilities: [...f.abilities, { title: "", irl: "" }] }))} className="text-[9px] font-mono text-green-400 hover:text-green-300">+ Add</button>
+          </div>
+          {draftForm.abilities.map((a, i) => (
+            <div key={i} className="flex gap-1.5 mb-1">
+              <input value={a.title} onChange={e => setDraftForm(f => { const arr = [...f.abilities]; arr[i] = { ...arr[i], title: e.target.value }; return { ...f, abilities: arr }; })} placeholder="Skill title" className="w-36 bg-muted/30 border border-border rounded px-2 py-1 text-xs font-mono focus:outline-none" />
+              <input value={a.irl} onChange={e => setDraftForm(f => { const arr = [...f.abilities]; arr[i] = { ...arr[i], irl: e.target.value }; return { ...f, abilities: arr }; })} placeholder="Real-world application" className="flex-1 bg-muted/30 border border-border rounded px-2 py-1 text-xs font-mono focus:outline-none" />
+              <button type="button" onClick={() => setDraftForm(f => ({ ...f, abilities: f.abilities.filter((_, j) => j !== i) }))} className="text-muted-foreground hover:text-destructive"><X size={12} /></button>
+            </div>
+          ))}
+        </div>
+        <div className="flex items-center gap-2">
+          <input type="checkbox" id="unlocked" checked={draftForm.unlocked} onChange={(e) => setDraftForm((f) => ({ ...f, unlocked: e.target.checked }))} className="accent-primary" />
+          <label htmlFor="unlocked" className="text-xs font-mono text-muted-foreground">Unlocked</label>
+        </div>
+        <div className="flex gap-2 justify-end">
+          <button onClick={() => { setShowCreate(false); setEditingId(null); }} className="px-3 py-1.5 text-xs font-mono text-muted-foreground border border-border rounded">Cancel</button>
+          <button onClick={handleSave} className="px-3 py-1.5 text-xs font-mono bg-primary/10 border border-primary/30 text-primary rounded">{editingId ? "Save Changes" : "Create Form"}</button>
+        </div>
+      </div>
+    </HudCard>
+  );
 
   return (
     <div className="space-y-5">
@@ -232,52 +319,9 @@ export default function FormsPage() {
 
       {/* Create panel */}
       <AnimatePresence>
-        {showCreate && (
+        {showCreate && !editingId && (
           <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }}>
-            <HudCard className="border-primary/20">
-              <p className="text-xs font-mono text-primary uppercase tracking-widest mb-3">{editingId ? "Edit Form" : "New Form"}</p>
-              <div className="space-y-2">
-                <div className="grid grid-cols-2 gap-2">
-                  <input
-                    value={draftForm.name}
-                    onChange={(e) => setDraftForm((f) => ({ ...f, name: e.target.value }))}
-                    placeholder="Form name"
-                    className="bg-muted/30 border border-border rounded px-3 py-1.5 text-sm focus:outline-none focus:border-primary/40"
-                  />
-                  <select
-                    value={draftForm.tier}
-                    onChange={(e) => setDraftForm((f) => ({ ...f, tier: e.target.value }))}
-                    className="bg-muted/30 border border-border rounded px-2 py-1.5 text-xs font-mono focus:outline-none"
-                  >
-                    {TIERS.filter((t) => t !== "All").map((t) => <option key={t}>{t}</option>)}
-                  </select>
-                </div>
-                <div className="grid grid-cols-3 gap-2">
-                  <input value={draftForm.bpm_range} onChange={(e) => setDraftForm((f) => ({ ...f, bpm_range: e.target.value }))} placeholder="BPM range" className="bg-muted/30 border border-border rounded px-3 py-1.5 text-xs font-mono focus:outline-none" />
-                  <input value={draftForm.energy} onChange={(e) => setDraftForm((f) => ({ ...f, energy: e.target.value }))} placeholder="Energy type" className="bg-muted/30 border border-border rounded px-3 py-1.5 text-xs font-mono focus:outline-none" />
-                  <input type="number" value={draftForm.form_order} onChange={(e) => setDraftForm((f) => ({ ...f, form_order: Number(e.target.value) }))} placeholder="Order" className="bg-muted/30 border border-border rounded px-3 py-1.5 text-xs font-mono focus:outline-none" />
-                </div>
-                <div className="grid grid-cols-2 gap-2">
-                  <input value={draftForm.jjk_grade} onChange={(e) => setDraftForm((f) => ({ ...f, jjk_grade: e.target.value }))} placeholder="JJK Grade" className="bg-muted/30 border border-border rounded px-3 py-1.5 text-xs font-mono focus:outline-none" />
-                  <input value={draftForm.op_tier} onChange={(e) => setDraftForm((f) => ({ ...f, op_tier: e.target.value }))} placeholder="OP Tier" className="bg-muted/30 border border-border rounded px-3 py-1.5 text-xs font-mono focus:outline-none" />
-                </div>
-                <textarea value={draftForm.description ?? ""} onChange={(e) => setDraftForm((f) => ({ ...f, description: e.target.value }))} placeholder="Description..." rows={2} className="w-full bg-muted/30 border border-border rounded px-3 py-1.5 text-sm resize-none focus:outline-none" />
-                <div className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    id="unlocked"
-                    checked={draftForm.unlocked}
-                    onChange={(e) => setDraftForm((f) => ({ ...f, unlocked: e.target.checked }))}
-                    className="accent-primary"
-                  />
-                  <label htmlFor="unlocked" className="text-xs font-mono text-muted-foreground">Unlocked</label>
-                </div>
-                <div className="flex gap-2 justify-end">
-                  <button onClick={() => { setShowCreate(false); setEditingId(null); }} className="px-3 py-1.5 text-xs font-mono text-muted-foreground border border-border rounded">Cancel</button>
-                  <button onClick={handleSave} className="px-3 py-1.5 text-xs font-mono bg-primary/10 border border-primary/30 text-primary rounded">{editingId ? "Save Changes" : "Create Form"}</button>
-                </div>
-              </div>
-            </HudCard>
+            {renderFormPanel("New Form")}
           </motion.div>
         )}
       </AnimatePresence>
@@ -306,10 +350,28 @@ export default function FormsPage() {
           const active = isActive(form);
           const tierColor = TIER_COLORS[form.tier] ?? "#666";
           const isOpen = expandedId === form.id;
+          const isDragging = draggingId === form.id;
+          const isDragOver = dragOverId === form.id && !isDragging;
+
+          if (editingId === form.id) {
+            return (
+              <motion.div key={form.id} initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }}>
+                {renderFormPanel(`Edit: ${form.name}`)}
+              </motion.div>
+            );
+          }
 
           return (
-            <motion.div
+            <div
               key={form.id}
+              draggable
+              onDragStart={(e) => { e.dataTransfer.effectAllowed = "move"; setDraggingId(form.id); }}
+              onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; setDragOverId(form.id); }}
+              onDrop={(e) => { e.preventDefault(); handleDrop(form.id); }}
+              onDragEnd={() => { setDraggingId(null); setDragOverId(null); }}
+              className={`transition-all ${isDragging ? "opacity-30 scale-[0.98]" : ""} ${isDragOver ? "ring-2 ring-primary/50 rounded-lg" : ""}`}
+            >
+            <motion.div
               initial={{ opacity: 0, y: 6 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: i * 0.02 }}
@@ -326,6 +388,8 @@ export default function FormsPage() {
                 className="flex items-center gap-3 p-3 cursor-pointer"
                 onClick={() => setExpandedId(isOpen ? null : form.id)}
               >
+                {/* Drag handle */}
+                <GripVertical size={12} className="shrink-0 text-muted-foreground/30 hover:text-muted-foreground/70 cursor-grab transition-colors" onMouseDown={(e) => e.stopPropagation()} />
                 {/* Tier color strip */}
                 <div className="w-1 self-stretch rounded-full shrink-0" style={{ background: tierColor }} />
 
@@ -368,7 +432,7 @@ export default function FormsPage() {
                   <button onClick={() => handleEdit(form)} className="p-1.5 text-muted-foreground hover:text-primary transition-colors" title="Edit">
                     <Edit2 size={12} />
                   </button>
-                  <button onClick={() => handleDelete(form.id)} className="p-1.5 text-muted-foreground hover:text-destructive transition-colors">
+                  <button onClick={() => setConfirmDelete({ id: form.id, label: form.name })} className="p-1.5 text-muted-foreground hover:text-destructive transition-colors">
                     <Trash2 size={12} />
                   </button>
                   {isOpen ? <ChevronDown size={14} className="text-muted-foreground" /> : <ChevronRight size={14} className="text-muted-foreground" />}
@@ -442,6 +506,7 @@ export default function FormsPage() {
                 )}
               </AnimatePresence>
             </motion.div>
+            </div>
           );
         })}
 
@@ -451,6 +516,18 @@ export default function FormsPage() {
           </p>
         )}
       </div>
+
+      <ConfirmDialog
+        open={confirmDelete !== null}
+        title={`Delete "${confirmDelete?.label}"?`}
+        description="This action cannot be undone."
+        onConfirm={async () => {
+          if (!confirmDelete) return;
+          await handleDelete(confirmDelete.id);
+          setConfirmDelete(null);
+        }}
+        onCancel={() => setConfirmDelete(null)}
+      />
     </div>
   );
 }

@@ -7,6 +7,43 @@ const corsHeaders = {
 
 const GEMINI_KEY = Deno.env.get("GEMINI_API_KEY") ?? "";
 const OPENAI_KEY = Deno.env.get("OPENAI_API") ?? Deno.env.get("OPENAI_API_KEY") ?? "";
+// Self-hosted Stable Diffusion (AUTOMATIC1111 WebUI or Forge).
+// Deploy: docker run -d -p 7860:7860 --gpus all abhinavsingh/stable-diffusion-webui
+// Set: STABLE_DIFFUSION_URL=http://your-server:7860
+const SD_URL = Deno.env.get("STABLE_DIFFUSION_URL") ?? "";
+
+async function generateWithStableDiffusion(prompt: string, width = 512, height = 512): Promise<string | null> {
+  if (!SD_URL) return null;
+  try {
+    const res = await fetch(`${SD_URL}/sdapi/v1/txt2img`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        prompt: prompt.slice(0, 1000),
+        negative_prompt: "blurry, low quality, watermark, text, deformed, distorted",
+        steps: 20,
+        width,
+        height,
+        cfg_scale: 7,
+        sampler_name: "DPM++ 2M",
+        n_iter: 1,
+        batch_size: 1,
+      }),
+      signal: AbortSignal.timeout(120000),
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    const b64 = data.images?.[0];
+    return b64 ? `data:image/png;base64,${b64}` : null;
+  } catch {
+    return null;
+  }
+}
+
+function parseDimensions(size = "1024x1024"): [number, number] {
+  const [w, h] = size.split("x").map(Number);
+  return [w || 512, h || 512];
+}
 
 async function generateWithImagen4(prompt: string, aspectRatio = "1:1"): Promise<string> {
   const res = await fetch(
@@ -68,8 +105,15 @@ serve(async (req) => {
     let provider = "unknown";
     let revised_prompt = prompt;
 
-    // Try Imagen 4 first
-    if (GEMINI_KEY) {
+    // Tier 0 — Self-hosted Stable Diffusion (free, unlimited)
+    if (SD_URL) {
+      const [w, h] = parseDimensions(size ?? "512x512");
+      imageData = await generateWithStableDiffusion(prompt, w, h);
+      if (imageData) provider = "stable-diffusion";
+    }
+
+    // Tier 1 — Imagen 4 (Google, free tier)
+    if (!imageData && GEMINI_KEY) {
       try {
         imageData = await generateWithImagen4(prompt, aspect_ratio ?? "1:1");
         provider = "imagen-4";
@@ -78,7 +122,7 @@ serve(async (req) => {
       }
     }
 
-    // Fall back to DALL-E 3
+    // Tier 2 — DALL-E 3
     if (!imageData && OPENAI_KEY) {
       const url = await generateWithDallE3(prompt, size ?? "1024x1024", quality ?? "standard");
       imageData = url;

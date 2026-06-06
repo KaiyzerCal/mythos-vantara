@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from "react";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { Send, ArrowLeft, Users, Database, Square, Mic, MicOff, Zap, ChevronDown, ChevronUp, PhoneCall } from "lucide-react";
@@ -73,6 +74,7 @@ export default function CouncilBoard() {
   const [showBackToTop,    setShowBackToTop]    = useState(false);
   const [isListening,      setIsListening]      = useState(false);
   const [voiceTarget,      setVoiceTarget]      = useState<VoicePersona | null>(null);
+  const [confirmClear,     setConfirmClear]     = useState(false);
 
   // ── Realtime streaming state ──────────────────────────────────────
   // Keyed by speakerId; populated as council member responses arrive via broadcast.
@@ -131,7 +133,7 @@ export default function CouncilBoard() {
         setConversationId(cid);
         const { data: msgs } = await supabase
           .from("chat_messages")
-          .select("*").eq("conversation_id", cid).eq("user_id", uid)
+          .select("*").eq("conversation_id", cid)
           .order("created_at", { ascending: true }).limit(400);
         if (msgs?.length) {
           const restored: CouncilBoardMessage[] = msgs.map((m: any) => {
@@ -191,6 +193,37 @@ export default function CouncilBoard() {
   }, []);
 
   useEffect(() => { scrollToBottom(); }, [messages, memberResponses, scrollToBottom]);
+
+  // ── Postgres changes subscription — picks up Telegram-originated messages ──
+  // Whenever the Telegram /council command writes to this conversation's
+  // chat_messages, this subscription surfaces them live in the board UI.
+  useEffect(() => {
+    if (!conversationId) return;
+    const channel = (supabase as any)
+      .channel(`council-pg-${conversationId}`)
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "chat_messages", filter: `conversation_id=eq.${conversationId}` }, (payload: any) => {
+        const row = payload.new;
+        if (!row) return;
+        setMessages((prev) => {
+          if (prev.some((m) => m.id === row.id)) return prev;
+          const parts = (row.mode ?? "").split("|");
+          const isUser = row.role === "user";
+          const msg: CouncilBoardMessage = {
+            id:          row.id,
+            speakerId:   isUser ? "user" : (parts[0] || "mavis"),
+            speakerName: isUser ? "Sovereign" : (parts[1] || "MAVIS"),
+            speakerRole: isUser ? "You" : (parts[2] || "Council"),
+            speakerType: isUser ? "user" as any : (parts[3] || "council") as any,
+            content:     row.content,
+            timestamp:   new Date(row.created_at).getTime(),
+            isUser,
+          };
+          return [...prev, msg];
+        });
+      })
+      .subscribe();
+    return () => { (supabase as any).removeChannel(channel); };
+  }, [conversationId]);
 
   // ── Realtime channel subscription ────────────────────────────────────
   // Subscribes to `council:{sessionId}` so member responses stream in as they
@@ -520,7 +553,7 @@ export default function CouncilBoard() {
           <Database size={10} /> OmniSync
         </button>
         <button
-          onClick={handleClear}
+          onClick={() => setConfirmClear(true)}
           className="text-[10px] font-mono text-muted-foreground hover:text-destructive border border-border hover:border-destructive/40 rounded px-2 py-1 transition-colors"
         >
           Clear
@@ -815,6 +848,17 @@ export default function CouncilBoard() {
           />
         )}
       </AnimatePresence>
+
+      <ConfirmDialog
+        open={confirmClear}
+        title='Delete "this conversation"?'
+        description="This action cannot be undone."
+        onConfirm={async () => {
+          setConfirmClear(false);
+          await handleClear();
+        }}
+        onCancel={() => setConfirmClear(false)}
+      />
     </div>
   );
 }

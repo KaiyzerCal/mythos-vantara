@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Medal, Plus, Trash2, Edit2, Copy, Loader2 } from "lucide-react";
 import { PageHeader, HudCard, RankBadge } from "@/components/SharedUI";
 import { useAppData } from "@/contexts/AppDataContext";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 
 const ROLE_COLORS: Record<string, string> = { self: "text-primary", ally: "text-green-400", enemy: "text-red-400", npc: "text-muted-foreground" };
 
@@ -15,6 +16,7 @@ export default function RankingsPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState({ ...EMPTY_FORM });
   const [detailId, setDetailId] = useState<string | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<{ id: string; label: string } | null>(null);
 
   const resetForm = () => { setForm({ ...EMPTY_FORM }); setEditingId(null); setShowCreate(false); };
 
@@ -34,6 +36,42 @@ export default function RankingsPage() {
     }
     resetForm();
   };
+
+  const renderFormPanel = (title: string) => (
+    <HudCard className="border-primary/20">
+      <p className="text-[9px] font-mono text-primary uppercase tracking-widest mb-3">{title}</p>
+      <div className="space-y-2">
+        <div className="grid grid-cols-2 gap-2">
+          <input value={form.display_name} onChange={(e) => setForm((f) => ({ ...f, display_name: e.target.value }))} placeholder="Display name" className="bg-muted/30 border border-border rounded px-3 py-1.5 text-sm focus:outline-none focus:border-primary/40" />
+          <select value={form.role} onChange={(e) => setForm((f) => ({ ...f, role: e.target.value }))} className="bg-muted/30 border border-border rounded px-2 py-1.5 text-xs font-mono focus:outline-none">
+            {["ally", "enemy", "npc", "self"].map((r) => <option key={r}>{r}</option>)}
+          </select>
+        </div>
+        <div className="grid grid-cols-4 gap-2">
+          <input value={form.rank} onChange={(e) => setForm((f) => ({ ...f, rank: e.target.value }))} placeholder="Rank" className="bg-muted/30 border border-border rounded px-2 py-1.5 text-xs font-mono focus:outline-none" />
+          <input type="number" value={form.level} onChange={(e) => setForm((f) => ({ ...f, level: Number(e.target.value) }))} placeholder="Level" className="bg-muted/30 border border-border rounded px-2 py-1.5 text-xs font-mono focus:outline-none" />
+          <input type="number" value={form.gpr} onChange={(e) => setForm((f) => ({ ...f, gpr: Number(e.target.value) }))} placeholder="GPR" className="bg-muted/30 border border-border rounded px-2 py-1.5 text-xs font-mono focus:outline-none" />
+          <input type="number" value={form.pvp} onChange={(e) => setForm((f) => ({ ...f, pvp: Number(e.target.value) }))} placeholder="PVP" className="bg-muted/30 border border-border rounded px-2 py-1.5 text-xs font-mono focus:outline-none" />
+        </div>
+        <div className="grid grid-cols-3 gap-2">
+          <input value={form.jjk_grade} onChange={(e) => setForm((f) => ({ ...f, jjk_grade: e.target.value }))} placeholder="JJK Grade" className="bg-muted/30 border border-border rounded px-2 py-1.5 text-xs font-mono focus:outline-none" />
+          <input value={form.op_tier} onChange={(e) => setForm((f) => ({ ...f, op_tier: e.target.value }))} placeholder="OP Tier" className="bg-muted/30 border border-border rounded px-2 py-1.5 text-xs font-mono focus:outline-none" />
+          <input value={form.influence} onChange={(e) => setForm((f) => ({ ...f, influence: e.target.value }))} placeholder="Influence" className="bg-muted/30 border border-border rounded px-2 py-1.5 text-xs font-mono focus:outline-none" />
+        </div>
+        <div className="flex items-center gap-2">
+          <label className="flex items-center gap-1.5 text-[10px] font-mono text-muted-foreground cursor-pointer">
+            <input type="checkbox" checked={form.is_self} onChange={(e) => setForm((f) => ({ ...f, is_self: e.target.checked }))} className="accent-primary" />
+            This is me (Self)
+          </label>
+        </div>
+        <input value={form.notes} onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))} placeholder="Notes" className="w-full bg-muted/30 border border-border rounded px-3 py-1.5 text-xs font-mono focus:outline-none" />
+        <div className="flex gap-2 justify-end">
+          <button onClick={resetForm} className="px-3 py-1.5 text-xs font-mono text-muted-foreground border border-border rounded">Cancel</button>
+          <button onClick={handleSave} className="px-3 py-1.5 text-xs font-mono bg-primary/10 border border-primary/30 text-primary rounded">{editingId ? "Save" : "Add"}</button>
+        </div>
+      </div>
+    </HudCard>
+  );
 
   const copyAll = () => {
     const text = sorted.map((r, i) => `#${i + 1} ${r.display_name} [${r.rank}] LV${r.level} | GPR:${r.gpr.toLocaleString()} PVP:${r.pvp.toLocaleString()} | ${r.influence} | ${r.notes}`).join("\n");
@@ -84,7 +122,7 @@ export default function RankingsPage() {
                 {detailEntry.notes && <p className="text-xs font-body text-muted-foreground mt-2">{detailEntry.notes}</p>}
                 <div className="flex gap-2 mt-2">
                   <button onClick={() => { handleEdit(detailEntry); setDetailId(null); }} className="px-3 py-1 text-[10px] font-mono bg-primary/10 border border-primary/30 text-primary rounded">Edit</button>
-                  <button onClick={() => { deleteRanking(detailEntry.id); setDetailId(null); }} className="px-3 py-1 text-[10px] font-mono border border-destructive/30 text-destructive rounded">Delete</button>
+                  <button onClick={() => setConfirmDelete({ id: detailEntry.id, label: detailEntry.display_name })} className="px-3 py-1 text-[10px] font-mono border border-destructive/30 text-destructive rounded">Delete</button>
                 </div>
               </div>
             </HudCard>
@@ -92,7 +130,13 @@ export default function RankingsPage() {
         )}
       </AnimatePresence>
 
-      {selfEntry && (
+      {selfEntry && editingId === selfEntry.id && (
+        <motion.div initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }}>
+          {renderFormPanel(`Edit: ${selfEntry.display_name}`)}
+        </motion.div>
+      )}
+
+      {selfEntry && editingId !== selfEntry.id && (
         <HudCard className="border-primary/30 bg-primary/5 cursor-pointer" onClick={() => setDetailId(selfEntry.id)}>
           <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-3">
@@ -122,41 +166,9 @@ export default function RankingsPage() {
       )}
 
       <AnimatePresence>
-        {showCreate && (
+        {showCreate && !editingId && (
           <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }}>
-            <HudCard className="border-primary/20">
-              <p className="text-[9px] font-mono text-primary uppercase tracking-widest mb-3">{editingId ? "Edit Entry" : "New Entry"}</p>
-              <div className="space-y-2">
-                <div className="grid grid-cols-2 gap-2">
-                  <input value={form.display_name} onChange={(e) => setForm((f) => ({ ...f, display_name: e.target.value }))} placeholder="Display name" className="bg-muted/30 border border-border rounded px-3 py-1.5 text-sm focus:outline-none focus:border-primary/40" />
-                  <select value={form.role} onChange={(e) => setForm((f) => ({ ...f, role: e.target.value }))} className="bg-muted/30 border border-border rounded px-2 py-1.5 text-xs font-mono focus:outline-none">
-                    {["ally", "enemy", "npc", "self"].map((r) => <option key={r}>{r}</option>)}
-                  </select>
-                </div>
-                <div className="grid grid-cols-4 gap-2">
-                  <input value={form.rank} onChange={(e) => setForm((f) => ({ ...f, rank: e.target.value }))} placeholder="Rank" className="bg-muted/30 border border-border rounded px-2 py-1.5 text-xs font-mono focus:outline-none" />
-                  <input type="number" value={form.level} onChange={(e) => setForm((f) => ({ ...f, level: Number(e.target.value) }))} placeholder="Level" className="bg-muted/30 border border-border rounded px-2 py-1.5 text-xs font-mono focus:outline-none" />
-                  <input type="number" value={form.gpr} onChange={(e) => setForm((f) => ({ ...f, gpr: Number(e.target.value) }))} placeholder="GPR" className="bg-muted/30 border border-border rounded px-2 py-1.5 text-xs font-mono focus:outline-none" />
-                  <input type="number" value={form.pvp} onChange={(e) => setForm((f) => ({ ...f, pvp: Number(e.target.value) }))} placeholder="PVP" className="bg-muted/30 border border-border rounded px-2 py-1.5 text-xs font-mono focus:outline-none" />
-                </div>
-                <div className="grid grid-cols-3 gap-2">
-                  <input value={form.jjk_grade} onChange={(e) => setForm((f) => ({ ...f, jjk_grade: e.target.value }))} placeholder="JJK Grade" className="bg-muted/30 border border-border rounded px-2 py-1.5 text-xs font-mono focus:outline-none" />
-                  <input value={form.op_tier} onChange={(e) => setForm((f) => ({ ...f, op_tier: e.target.value }))} placeholder="OP Tier" className="bg-muted/30 border border-border rounded px-2 py-1.5 text-xs font-mono focus:outline-none" />
-                  <input value={form.influence} onChange={(e) => setForm((f) => ({ ...f, influence: e.target.value }))} placeholder="Influence" className="bg-muted/30 border border-border rounded px-2 py-1.5 text-xs font-mono focus:outline-none" />
-                </div>
-                <div className="flex items-center gap-2">
-                  <label className="flex items-center gap-1.5 text-[10px] font-mono text-muted-foreground cursor-pointer">
-                    <input type="checkbox" checked={form.is_self} onChange={(e) => setForm((f) => ({ ...f, is_self: e.target.checked }))} className="accent-primary" />
-                    This is me (Self)
-                  </label>
-                </div>
-                <input value={form.notes} onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))} placeholder="Notes" className="w-full bg-muted/30 border border-border rounded px-3 py-1.5 text-xs font-mono focus:outline-none" />
-                <div className="flex gap-2 justify-end">
-                  <button onClick={resetForm} className="px-3 py-1.5 text-xs font-mono text-muted-foreground border border-border rounded">Cancel</button>
-                  <button onClick={handleSave} className="px-3 py-1.5 text-xs font-mono bg-primary/10 border border-primary/30 text-primary rounded">{editingId ? "Save" : "Add"}</button>
-                </div>
-              </div>
-            </HudCard>
+            {renderFormPanel("New Entry")}
           </motion.div>
         )}
       </AnimatePresence>
@@ -169,7 +181,15 @@ export default function RankingsPage() {
       </div>
 
       <div className="space-y-2">
-        {others.map((entry, i) => (
+        {others.map((entry, i) => {
+          if (editingId === entry.id) {
+            return (
+              <motion.div key={entry.id} initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }}>
+                {renderFormPanel(`Edit: ${entry.display_name}`)}
+              </motion.div>
+            );
+          }
+          return (
           <motion.div key={entry.id} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.03 }}>
             <HudCard className="cursor-pointer hover:border-primary/20 transition-colors" onClick={() => setDetailId(entry.id)}>
               <div className="flex items-center gap-3">
@@ -198,14 +218,28 @@ export default function RankingsPage() {
                 </div>
                 <div className="flex flex-col gap-1 shrink-0 ml-1">
                   <button onClick={(e) => { e.stopPropagation(); handleEdit(entry); }} className="p-1 text-muted-foreground hover:text-primary transition-colors"><Edit2 size={12} /></button>
-                  <button onClick={(e) => { e.stopPropagation(); deleteRanking(entry.id); }} className="p-1 text-muted-foreground hover:text-destructive transition-colors"><Trash2 size={12} /></button>
+                  <button onClick={(e) => { e.stopPropagation(); setConfirmDelete({ id: entry.id, label: entry.display_name }); }} className="p-1 text-muted-foreground hover:text-destructive transition-colors"><Trash2 size={12} /></button>
                 </div>
               </div>
             </HudCard>
           </motion.div>
-        ))}
+          );
+        })}
         {rankings.length === 0 && <p className="text-xs font-mono text-muted-foreground text-center py-8">No rankings yet. Add your first entry or ask MAVIS.</p>}
       </div>
+
+      <ConfirmDialog
+        open={confirmDelete !== null}
+        title={`Delete "${confirmDelete?.label}"?`}
+        description="This action cannot be undone."
+        onConfirm={() => {
+          if (!confirmDelete) return;
+          deleteRanking(confirmDelete.id);
+          if (detailId === confirmDelete.id) setDetailId(null);
+          setConfirmDelete(null);
+        }}
+        onCancel={() => setConfirmDelete(null)}
+      />
     </div>
   );
 }

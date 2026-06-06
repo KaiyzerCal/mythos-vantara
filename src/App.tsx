@@ -17,11 +17,21 @@ function ThemeColorSync() {
   const { resolvedTheme } = useTheme();
   useEffect(() => {
     const color = resolvedTheme === "light" ? "#ffffff" : "#0a0d1f";
+    const colorScheme = resolvedTheme === "light" ? "light" : "dark";
     document.querySelectorAll('meta[name="theme-color"]').forEach((el) => el.remove());
     const meta = document.createElement("meta");
     meta.name = "theme-color";
     meta.content = color;
     document.head.appendChild(meta);
+
+    document.documentElement.style.backgroundColor = color;
+    document.documentElement.style.colorScheme = colorScheme;
+    document.body.style.backgroundColor = color;
+    document.body.style.colorScheme = colorScheme;
+    const root = document.getElementById("root");
+    if (root) {
+      root.style.backgroundColor = color;
+    }
   }, [resolvedTheme]);
   return null;
 }
@@ -78,11 +88,23 @@ const ForecastPage = lazy(() => import("@/pages/ForecastPage").then(m => ({ defa
 const NotificationsPage = lazy(() => import("@/pages/NotificationsPage").then(m => ({ default: m.NotificationsPage })));
 const StripeManagementPage = lazy(() => import("@/pages/StripeManagementPage").then(m => ({ default: m.StripeManagementPage })));
 const WorkflowsPage = lazy(() => import("@/pages/WorkflowsPage").then(m => ({ default: m.WorkflowsPage })));
+const AvatarStudioPage = lazy(() => import("@/pages/AvatarStudioPage").then(m => ({ default: m.AvatarStudioPage })));
 const ImportPage = lazy(() => import("@/pages/ImportPage").then(m => ({ default: m.ImportPage })));
 const SystemSettingsPage = lazy(() => import("@/pages/SystemSettingsPage").then(m => ({ default: m.SystemSettingsPage })));
 const AgentDashboardPage = lazy(() => import("@/pages/AgentDashboardPage").then(m => ({ default: m.AgentDashboardPage })));
+const WpcomCallbackPage = lazy(() => import("@/pages/WpcomCallbackPage"));
+const PhoneCallsPage = lazy(() => import("@/pages/PhoneCallsPage"));
+const SMSPage = lazy(() => import("@/pages/SMSPage"));
+const ApiKeysPage = lazy(() => import("@/pages/ApiKeysPage"));
+const LeadGenPage = lazy(() => import("@/pages/LeadGenPage"));
+const CompetitorIntelPage = lazy(() => import("@/pages/CompetitorIntelPage"));
+const ReceptionistPage = lazy(() => import("@/pages/ReceptionistPage"));
+const PlaybooksPage = lazy(() => import("@/pages/PlaybooksPage").then(m => ({ default: m.PlaybooksPage })));
+const StandingOrderTemplatesPage = lazy(() => import("@/pages/StandingOrderTemplatesPage").then(m => ({ default: m.StandingOrderTemplatesPage })));
 // Public demo — no auth required
 const MavisDemo = lazy(() => import("@/pages/MavisDemo"));
+const IntelligencePage = lazy(() => import("@/pages/IntelligencePage"));
+const DesignStudio = lazy(() => import("@/pages/DesignStudio"));
 
 const queryClient = new QueryClient();
 
@@ -176,8 +198,20 @@ function AppContent() {
               <Route path="/workflows" element={<WorkflowsPage />} />
               <Route path="/import" element={<ImportPage />} />
               <Route path="/creator" element={<VideoEditorPage />} />
+              <Route path="/avatar-studio" element={<AvatarStudioPage />} />
               <Route path="/system-settings" element={<SystemSettingsPage />} />
               <Route path="/agents" element={<AgentDashboardPage />} />
+              <Route path="/intelligence" element={<IntelligencePage />} />
+              <Route path="/design-studio" element={<DesignStudio />} />
+              <Route path="/wpcom-callback" element={<WpcomCallbackPage />} />
+              <Route path="/phone" element={<PhoneCallsPage />} />
+              <Route path="/receptionist" element={<ReceptionistPage />} />
+              <Route path="/sms" element={<SMSPage />} />
+              <Route path="/api-keys" element={<ApiKeysPage />} />
+              <Route path="/leads" element={<LeadGenPage />} />
+              <Route path="/competitors" element={<CompetitorIntelPage />} />
+              <Route path="/playbooks" element={<PlaybooksPage />} />
+              <Route path="/so-templates" element={<StandingOrderTemplatesPage />} />
               <Route path="*" element={<NotFound />} />
             </Routes>
           </Suspense>

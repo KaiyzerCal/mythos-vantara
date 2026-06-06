@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { Send, Square, Cpu, Copy, Check, ChevronDown, Zap, Brain, Target, Crown, Flame, Database, Mic, MicOff, Users, Search, FileCode, X, Download, Gamepad2, Layers, Globe, ThumbsUp, ThumbsDown } from "lucide-react";
+import { Send, Square, Cpu, Copy, Check, ChevronDown, Zap, Brain, Target, Crown, Flame, Database, Mic, MicOff, Users, Search, FileCode, X, Download, Gamepad2, Layers, Globe, ThumbsUp, ThumbsDown, AlertTriangle } from "lucide-react";
 import { useAppData } from "@/contexts/AppDataContext";
 import { supabase as _supabase } from "@/integrations/supabase/client";
 const supabase = _supabase as any;
@@ -16,6 +16,7 @@ import { DEFAULT_VOICE_BY_GENDER, findVoice } from "@/lib/voiceCatalog";
 import { ScrollProgressBar, BackToTopButton, ScrollToBottomButton, EndOfFeed } from "@/components/chat/ScrollKit";
 import { SessionBlock, groupMessagesIntoSessions } from "@/components/chat/SessionBlock";
 import { VoiceChatOverlay } from "@/components/VoiceChatOverlay";
+import { MavisRealtimeVoice } from "@/components/MavisRealtimeVoice";
 
 // ── MAVIS modules ───────────────────────────────────────────
 import { buildSystemPromptFromSnapshot } from "@/mavis/buildSystemPrompt";
@@ -29,7 +30,8 @@ import { buildRecallContext } from "@/mavis/proactiveRecall";
 import { captureProceduralMemory } from "@/mavis/proceduralMemory";
 import { autoCrewDispatch } from "@/mavis/crewCoordinator";
 import { getCustomOrders, addStandingOrder, removeStandingOrder } from "@/mavis/standingOrders";
-import type { ExecutionResult } from "@/mavis/types";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
+import type { ExecutionResult, ParsedAction } from "@/mavis/types";
 // Trigger skill self-registration
 import "@/mavis/skills/_loader";
 
@@ -82,6 +84,7 @@ export default function MavisChat() {
   const [showBackToTop, setShowBackToTop] = useState(false);
   const [isComposing, setIsComposing] = useState(false);
   const [voiceOverlayOpen, setVoiceOverlayOpen] = useState(false);
+  const [realtimeVoiceOpen, setRealtimeVoiceOpen] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const [agentThinking, setAgentThinking] = useState<string | null>(null);
   const [artifactContent, setArtifactContent] = useState<string | null>(null);
@@ -93,6 +96,9 @@ export default function MavisChat() {
   const abortRef = useRef<AbortController | null>(null);
   const cancelledRef = useRef(false);
   const recognitionRef = useRef<any>(null);
+  // Tracks content written by the web chat so Realtime events for those
+  // messages can be skipped — prevents duplicates when we receive our own writes.
+  const recentWebWrites = useRef<Map<string, number>>(new Map());
 
   // ── Crew coordinator state ──
   const [agentPanelTab, setAgentPanelTab] = useState<"specialist" | "crew">("specialist");
@@ -104,6 +110,7 @@ export default function MavisChat() {
   const [showOrdersPanel, setShowOrdersPanel] = useState(false);
   const [customOrders, setCustomOrders] = useState<string[]>([]);
   const [newOrder, setNewOrder] = useState("");
+  const [confirmRemoveOrder, setConfirmRemoveOrder] = useState<string | null>(null);
 
   // ── Persona injection ──
   const [selectedPersonaPrompt, setSelectedPersonaPrompt] = useState<string | null>(null);
@@ -279,44 +286,49 @@ export default function MavisChat() {
   }, []);
 
   // ── Load persisted chat from DB on mount ─────────────────
+  // Wait for an authenticated session before loading; retry on auth state changes
+  // to avoid a race where getSession() returns null on cold mount.
   useEffect(() => {
     if (dbLoaded) return;
-    (async () => {
-      try {
-        const { data: { session } } = await supabase.auth.getSession();
-        if (!session?.user) { setDbLoaded(true); return; }
+    let cancelled = false;
 
+    const runLoad = async (userId: string) => {
+      if (cancelled) return;
+      try {
         // Init three-layer memory engine + load DB-backed runtime skills
-        initSession(session.user.id);
-        loadRuntimeSkills(session.user.id).catch(err => console.warn("[Skills] Runtime load failed:", err));
+        initSession(userId);
+        loadRuntimeSkills(userId).catch(err => console.warn("[Skills] Runtime load failed:", err));
 
         // Load standing orders custom directives
         setCustomOrders(getCustomOrders());
 
         // Pre-load personas for picker
-        supabase.from("personas").select("id, name, system_prompt").eq("is_active", true).eq("user_id", session.user.id)
-          .then(({ data }) => { if (data) setPickerPersonas(data as any); })
+        supabase.from("personas").select("id, name, system_prompt").eq("is_active", true).eq("user_id", userId)
+          .then(({ data }: any) => { if (!cancelled && data) setPickerPersonas(data as any); })
           .catch(() => {});
 
         const { data: convos } = await supabase
           .from("chat_conversations")
           .select("id, title")
-          .eq("user_id", session.user.id)
+          .eq("user_id", userId)
+          .not("title", "ilike", "Council Board%")
           .order("updated_at", { ascending: false })
           .limit(1);
 
+        if (cancelled) return;
         if (!convos?.length) { setDbLoaded(true); return; }
 
         const convoId = convos[0].id;
+        setConversationId(convoId);
 
         const { data: msgs } = await supabase
           .from("chat_messages")
           .select("*")
           .eq("conversation_id", convoId)
-          .eq("user_id", session.user.id)
           .order("created_at", { ascending: true })
           .limit(200);
 
+        if (cancelled) return;
         if (msgs?.length) {
           const restored = msgs.map((m: any) => ({
             id: m.id,
@@ -326,21 +338,43 @@ export default function MavisChat() {
             timestamp: new Date(m.created_at),
           }));
           setChatMessages(restored);
-          setConversationId(convoId);
         }
       } catch (err) {
         console.error("Failed to restore chat:", err);
       } finally {
-        setDbLoaded(true);
+        if (!cancelled) setDbLoaded(true);
       }
+    };
+
+    (async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.user) {
+        await runLoad(session.user.id);
+      }
+      // Don't mark dbLoaded yet — wait for onAuthStateChange to fire with a session.
     })();
-  }, []);
+
+    const { data: sub } = supabase.auth.onAuthStateChange((_event: any, session: any) => {
+      if (session?.user && !dbLoaded && !cancelled) {
+        runLoad(session.user.id);
+      }
+    });
+
+    return () => {
+      cancelled = true;
+      sub?.subscription?.unsubscribe?.();
+    };
+  }, [dbLoaded]);
 
   // ── Persist a single message to DB ───────────────────────
   const persistMessage = useCallback(async (msg: { role: string; content: string; mode?: string }, convoId: string) => {
     try {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session?.user) return;
+      // Register this write so the Realtime handler can skip it (avoids duplicates)
+      const writeKey = `${msg.role}:${msg.content}`;
+      recentWebWrites.current.set(writeKey, Date.now());
+      setTimeout(() => recentWebWrites.current.delete(writeKey), 30_000);
       await supabase.from("chat_messages").insert({
         conversation_id: convoId,
         user_id: session.user.id,
@@ -348,6 +382,10 @@ export default function MavisChat() {
         content: msg.content,
         mode: msg.mode ?? "PRIME",
       });
+      // Keep updated_at current so the mount-time query always finds this conversation first
+      await supabase.from("chat_conversations")
+        .update({ updated_at: new Date().toISOString() })
+        .eq("id", convoId);
     } catch (err) {
       console.error("Failed to persist message:", err);
     }
@@ -358,8 +396,26 @@ export default function MavisChat() {
     try {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session?.user) return null;
+
+      // Fast path: ID already in context
       if (conversationId) return conversationId;
 
+      // Race condition safety: DB load may still be in flight — check DB before creating
+      const { data: existing } = await supabase
+        .from("chat_conversations")
+        .select("id")
+        .eq("user_id", session.user.id)
+        .not("title", "ilike", "Council Board%")
+        .order("updated_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (existing?.id) {
+        setConversationId(existing.id);
+        return existing.id;
+      }
+
+      // No existing conversation — create one
       const { data, error } = await supabase.from("chat_conversations").insert({
         user_id: session.user.id,
         title: `MAVIS Thread — ${new Date().toLocaleDateString()}`,
@@ -377,6 +433,55 @@ export default function MavisChat() {
   useEffect(() => {
     scrollToBottom();
   }, [chatMessages, scrollToBottom]);
+
+  // ── Realtime: pick up messages written by Telegram (or any external source) ──
+  // The web chat writes messages optimistically to state with temp IDs.
+  // recentWebWrites tracks those to avoid duplicates when Realtime fires.
+  useEffect(() => {
+    if (!conversationId) return;
+
+    const channel = (supabase as any)
+      .channel(`chat-rt-${conversationId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "chat_messages",
+          filter: `conversation_id=eq.${conversationId}`,
+        },
+        (payload: any) => {
+          const row = payload.new;
+          if (!row) return;
+
+          // If we wrote this from the web chat ourselves, skip it
+          const key = `${row.role}:${row.content}`;
+          const writtenAt = recentWebWrites.current.get(key);
+          if (writtenAt && Date.now() - writtenAt < 30_000) {
+            recentWebWrites.current.delete(key);
+            return;
+          }
+
+          // External message (from Telegram, etc.) — append to thread
+          setChatMessages((prev) => {
+            if (prev.some((m) => m.id === row.id)) return prev; // already present
+            return [
+              ...prev,
+              {
+                id: row.id,
+                role: row.role as "user" | "assistant",
+                content: row.content,
+                mode: row.mode ?? "PRIME",
+                timestamp: new Date(row.created_at),
+              },
+            ];
+          });
+        },
+      )
+      .subscribe();
+
+    return () => { (supabase as any).removeChannel(channel); };
+  }, [conversationId, setChatMessages]);
 
   const currentMode = MAVIS_MODES.find((m) => m.id === chatMode) ?? MAVIS_MODES[0];
 
@@ -403,28 +508,28 @@ export default function MavisChat() {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session?.user) throw new Error("Not authenticated");
 
-      const condensedComms = chatMessages
+      const condensedComms = (chatMessages ?? [])
         .filter(m => m.id !== "init")
         .map(m => `[${m.role === "user" ? "OP" : "MAVIS"}${m.mode ? `/${m.mode}` : ""}] ${m.content.slice(0, 200)}${m.content.length > 200 ? "…" : ""}`)
         .join("\n");
 
       const snapshotData = {
-        profile: { ...profile },
-        quests: quests.map(q => ({ id: q.id, title: q.title, status: q.status, type: q.type, xp_reward: q.xp_reward })),
-        skills: skills.map(s => ({ id: s.id, name: s.name, category: s.category, tier: s.tier, proficiency: s.proficiency })),
-        energySystems: energySystems.map(e => ({ id: e.id, type: e.type, current_value: e.current_value, max_value: e.max_value })),
-        councils: councils.map(c => ({ id: c.id, name: c.name, role: c.role, class: c.class })),
-        allies: allies.map(a => ({ id: a.id, name: a.name, relationship: a.relationship, affinity: a.affinity })),
-        inventory: inventory.map(i => ({ id: i.id, name: i.name, type: i.type, rarity: i.rarity, quantity: i.quantity })),
-        rituals: rituals.map(r => ({ id: r.id, name: r.name, streak: r.streak, completed: r.completed })),
-        journalCount: journalEntries.length,
-        vaultCount: vaultEntries.length,
-        storeItemCount: storeItems.length,
-        bpmSessionCount: bpmSessions.length,
+        profile: { ...(profile ?? {}) },
+        quests: (quests ?? []).map(q => ({ id: q.id, title: q.title, status: q.status, type: q.type, xp_reward: q.xp_reward })),
+        skills: (skills ?? []).map(s => ({ id: s.id, name: s.name, category: s.category, tier: s.tier, proficiency: s.proficiency })),
+        energySystems: (energySystems ?? []).map(e => ({ id: e.id, type: e.type, current_value: e.current_value, max_value: e.max_value })),
+        councils: (councils ?? []).map(c => ({ id: c.id, name: c.name, role: c.role, class: c.class })),
+        allies: (allies ?? []).map(a => ({ id: a.id, name: a.name, relationship: a.relationship, affinity: a.affinity })),
+        inventory: (inventory ?? []).map(i => ({ id: i.id, name: i.name, type: i.type, rarity: i.rarity, quantity: i.quantity })),
+        rituals: (rituals ?? []).map(r => ({ id: r.id, name: r.name, streak: r.streak, completed: r.completed })),
+        journalCount: (journalEntries ?? []).length,
+        vaultCount: (vaultEntries ?? []).length,
+        storeItemCount: (storeItems ?? []).length,
+        bpmSessionCount: (bpmSessions ?? []).length,
         timestamp: new Date().toISOString(),
       };
 
-      const summary = `OmniSync @ Lv${profile.level} [${profile.rank}] | ${quests.filter(q => q.status === "active").length} active quests | ${skills.length} skills | ${chatMessages.length - 1} msgs in thread`;
+      const summary = `OmniSync @ Lv${profile?.level ?? "-"} [${profile?.rank ?? "-"}] | ${(quests ?? []).filter(q => q.status === "active").length} active quests | ${(skills ?? []).length} skills | ${(chatMessages ?? []).length - 1} msgs in thread`;
 
       const { error } = await supabase.from("omnisync_snapshots").insert({
         user_id: session.user.id,
@@ -738,6 +843,35 @@ export default function MavisChat() {
     setTimeout(() => setCopiedId(null), 2000);
   };
 
+  // ── Pending action helpers ──────────────────────────────────
+  function getActionLabel(action: ParsedAction): string {
+    const p = action.payload as any;
+    const name = p?.title || p?.name || p?.display_name || p?.quest_id || p?.skill_id || p?.entry_id || p?.id || "";
+    const typeLabel = action.type.replace(/_/g, " ");
+    return name ? `${typeLabel}: "${String(name).slice(0, 50)}"` : typeLabel;
+  }
+
+  async function approvePendingAction(index: number) {
+    const result = pendingActions[index];
+    if (!result) return;
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) return;
+      await supabase.functions.invoke("mavis-actions", {
+        body: { actions: [result.action.payload] },
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      });
+      setPendingActions(prev => prev.filter((_, i) => i !== index));
+      refetchAll?.();
+    } catch (err) {
+      console.error("Failed to execute approved action:", err);
+    }
+  }
+
+  function rejectPendingAction(index: number) {
+    setPendingActions(prev => prev.filter((_, i) => i !== index));
+  }
+
   const clearChat = useCallback(async () => {
     await handleOmniSync();
 
@@ -844,24 +978,38 @@ export default function MavisChat() {
       </AnimatePresence>
 
       {/* Pending confirmations banner */}
-      <AnimatePresence>
-        {pendingActions.length > 0 && (
-          <motion.div
-            initial={{ opacity: 0, y: -4 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -4 }}
-            className="flex items-center justify-between gap-2 px-3 py-1.5 rounded border border-amber-500/30 bg-amber-500/5 text-xs font-mono text-amber-400"
-          >
-            <span>⚠ {pendingActions.length} action{pendingActions.length > 1 ? "s" : ""} require confirmation</span>
-            <button
-              onClick={() => setPendingActions([])}
-              className="text-[10px] text-muted-foreground hover:text-destructive transition-colors"
-            >
-              dismiss
-            </button>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      {pendingActions.length > 0 && (
+        <div className="space-y-1.5 mb-1">
+          {pendingActions.map((result, i) => {
+            const action = result.action;
+            const label = getActionLabel(action);
+            return (
+              <motion.div
+                key={i}
+                initial={{ opacity: 0, y: -4 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -4 }}
+                className="flex items-center gap-2 px-3 py-2 rounded border border-amber-500/30 bg-amber-500/5 text-xs font-mono"
+              >
+                <AlertTriangle size={12} className="text-amber-400 shrink-0" />
+                <span className="flex-1 text-amber-300 truncate">Confirm: {label}</span>
+                <button
+                  onClick={() => approvePendingAction(i)}
+                  className="px-2 py-0.5 rounded bg-primary/10 border border-primary/30 text-primary hover:bg-primary/20 text-[10px]"
+                >
+                  Approve
+                </button>
+                <button
+                  onClick={() => rejectPendingAction(i)}
+                  className="px-2 py-0.5 rounded text-muted-foreground hover:text-destructive text-[10px]"
+                >
+                  Reject
+                </button>
+              </motion.div>
+            );
+          })}
+        </div>
+      )}
 
       {/* Standing Orders Panel */}
       <AnimatePresence>
@@ -880,7 +1028,7 @@ export default function MavisChat() {
                 {customOrders.map((o) => (
                   <div key={o} className="flex items-center gap-2">
                     <span className="text-[9px] font-mono flex-1 text-foreground/80">• {o}</span>
-                    <button onClick={() => { removeStandingOrder(o); setCustomOrders(getCustomOrders()); }} className="text-muted-foreground hover:text-destructive"><X size={10} /></button>
+                    <button onClick={() => setConfirmRemoveOrder(o)} className="text-muted-foreground hover:text-destructive"><X size={10} /></button>
                   </div>
                 ))}
               </div>
@@ -981,6 +1129,11 @@ export default function MavisChat() {
         <button onClick={() => setVoiceOverlayOpen(true)}
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-primary/30 text-primary/70 hover:text-primary hover:bg-primary/10 text-xs font-mono transition-all">
           <Mic size={12} /> VOICE
+        </button>
+        <button onClick={() => setRealtimeVoiceOpen(true)}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-cyan-400/40 text-cyan-400/70 hover:text-cyan-400 hover:bg-cyan-400/10 text-xs font-mono transition-all"
+          title="Realtime voice — OpenAI WebRTC, ultra-low latency">
+          <Zap size={12} /> REALTIME
         </button>
       </div>
       </div>
@@ -1433,6 +1586,25 @@ export default function MavisChat() {
         />
       )}
     </AnimatePresence>
+    <AnimatePresence>
+      {realtimeVoiceOpen && (
+        <MavisRealtimeVoice
+          onClose={() => setRealtimeVoiceOpen(false)}
+        />
+      )}
+    </AnimatePresence>
+    <ConfirmDialog
+      open={confirmRemoveOrder !== null}
+      title="Remove standing order?"
+      description={`"${confirmRemoveOrder}" will be removed from your custom directives.`}
+      onConfirm={() => {
+        if (!confirmRemoveOrder) return;
+        removeStandingOrder(confirmRemoveOrder);
+        setCustomOrders(getCustomOrders());
+        setConfirmRemoveOrder(null);
+      }}
+      onCancel={() => setConfirmRemoveOrder(null)}
+    />
     </>
   );
 }

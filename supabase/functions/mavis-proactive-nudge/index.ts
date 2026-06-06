@@ -257,9 +257,44 @@ serve(async (req: Request) => {
       nudgeText = urgencies.map((u) => `• ${u}`).join("\n");
     }
 
+    // ── Staged notification deduplication (OpenHuman Heartbeat pattern) ──────
+    // Compute a stable dedupe key from urgency content + 1-hour bucket
+    // so the same nudge can't fire more than once per stage per hour.
+    const hourBucket = Math.floor(now.getTime() / 3600000);
+    const dedupeContent = urgencies.slice().sort().join("|");
+    const dedupeKey = `nudge|${dedupeContent.slice(0, 80)}|${hourBucket}`;
+    const stage = "general";
+    const expiresAt = new Date(now.getTime() + 25 * 3600000).toISOString(); // 25h TTL
+
+    let alreadySent = false;
+    try {
+      const { error: stageErr } = await supabase
+        .from("notification_stages")
+        .insert({ user_id: uid, dedupe_key: dedupeKey, stage, event_ref: urgencies[0], expires_at: expiresAt });
+      // unique constraint violation = already sent this hour
+      if (stageErr?.code === "23505") alreadySent = true;
+    } catch { /* non-critical — proceed with send */ }
+
+    if (alreadySent) {
+      return new Response(
+        JSON.stringify({ nudged: false, reason: "dedupe: already sent this hour" }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+
     // ── Send via Telegram ─────────────────────────────────────────────────────
     const prefix = "MAVIS MID-DAY ⚡\n─────\n";
     await sendTelegram(TELEGRAM_BOT_TOKEN, TELEGRAM_OPERATOR_CHAT_ID, prefix + nudgeText);
+
+    // ── Also push to in-app mavis_insights for Notifications page ────────────
+    supabase.from("mavis_insights").insert({
+      user_id: uid,
+      title: `Mid-day nudge: ${urgencies.length} item${urgencies.length !== 1 ? "s" : ""} need attention`,
+      content: nudgeText,
+      category: "nudge",
+      severity: urgencies.length > 2 ? "warning" : "info",
+      source: "proactive_nudge",
+    }).catch(() => {});
 
     return new Response(
       JSON.stringify({ nudged: true, urgencies }),

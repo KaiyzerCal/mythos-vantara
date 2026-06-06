@@ -8,8 +8,10 @@ import { Users, Plus, X, Edit2, Trash2, MessageCircle, Phone, Mail, Calendar, Ta
 import { supabase as _supabase } from "@/integrations/supabase/client";
 const supabase = _supabase as any;
 import { useAuth } from "@/contexts/AuthContext";
+import { useAppData } from "@/contexts/AppDataContext";
 import { PageHeader, HudCard } from "@/components/SharedUI";
 import { toast } from "sonner";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 
 // ─── Types ──────────────────────────────────────────────────
 interface Contact {
@@ -78,6 +80,7 @@ function formatDate(iso: string | null) {
 // ─── ContactsPage ───────────────────────────────────────────
 export function ContactsPage() {
   const { session } = useAuth();
+  const { lastActionTs } = useAppData();
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [interactions, setInteractions] = useState<Record<string, ContactInteraction[]>>({});
   const [loading, setLoading] = useState(true);
@@ -89,6 +92,7 @@ export function ContactsPage() {
   const [savingContact, setSavingContact] = useState(false);
   const [logContactId, setLogContactId] = useState<string | null>(null);
   const [savingInteraction, setSavingInteraction] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState<{ id: string; label: string } | null>(null);
 
   const [form, setForm] = useState({
     name: "",
@@ -108,7 +112,7 @@ export function ContactsPage() {
   useEffect(() => {
     if (!session) return;
     loadContacts();
-  }, [session]);
+  }, [session, lastActionTs]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function loadContacts() {
     setLoading(true);
@@ -202,7 +206,7 @@ export function ContactsPage() {
       interaction_count: (contacts.find((c) => c.id === contactId)?.interaction_count || 0) + 1,
       last_contact_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
-    }).eq("id", contactId);
+    }).eq("id", contactId).eq("user_id", session!.user.id);
 
     toast.success("Interaction logged");
     setInteractionForm({ interaction_type: "note", notes: "", sentiment: "neutral" });
@@ -451,7 +455,7 @@ export function ContactsPage() {
                               <MessageCircle size={9} /> Log Interaction
                             </button>
                             <button
-                              onClick={() => handleDelete(c.id)}
+                              onClick={() => setConfirmDelete({ id: c.id, label: c.name })}
                               className="flex items-center gap-1 px-2 py-1 text-[10px] font-mono text-red-400/70 border border-red-900/30 rounded hover:text-red-400 hover:border-red-700/40 transition-colors ml-auto"
                             >
                               <Trash2 size={9} /> Delete
@@ -536,6 +540,18 @@ export function ContactsPage() {
           })}
         </div>
       )}
+
+      <ConfirmDialog
+        open={confirmDelete !== null}
+        title={`Delete "${confirmDelete?.label}"?`}
+        description="This action cannot be undone."
+        onConfirm={async () => {
+          if (!confirmDelete) return;
+          await handleDelete(confirmDelete.id);
+          setConfirmDelete(null);
+        }}
+        onCancel={() => setConfirmDelete(null)}
+      />
     </div>
   );
 }

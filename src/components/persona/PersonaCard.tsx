@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { MessageCircle, Trash2, Clock, Bell, ChevronDown, ChevronUp, Cpu } from "lucide-react";
 import { HudCard, ProgressBar } from "@/components/SharedUI";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { AvatarUploader } from "@/components/AvatarUploader";
 import { cn } from "@/lib/utils";
 import { usePersona } from "@/hooks/usePersona";
@@ -44,6 +45,7 @@ export function PersonaCard({ persona, userId, onChat, onDelete, notification, o
   const [reasonExpanded, setReasonExpanded] = useState(false);
   const [cardExpanded, setCardExpanded] = useState(false);
   const [msgCount, setMsgCount] = useState<number>(0);
+  const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const { loadRelationshipState, loadConversationCount } = usePersona(persona.id, userId);
 
   // Initial fetch
@@ -253,13 +255,22 @@ export function PersonaCard({ persona, userId, onChat, onDelete, notification, o
           )}
         </button>
         {onDelete && (
-          <button
-            onClick={() => onDelete(persona.id)}
-            className="p-1.5 rounded border border-border text-muted-foreground hover:text-neon-red hover:border-neon-red/30 transition-colors"
-            title="Deactivate persona"
-          >
-            <Trash2 size={12} />
-          </button>
+          <>
+            <button
+              onClick={() => setConfirmDeleteOpen(true)}
+              className="p-1.5 rounded border border-border text-muted-foreground hover:text-neon-red hover:border-neon-red/30 transition-colors"
+              title="Deactivate persona"
+            >
+              <Trash2 size={12} />
+            </button>
+            <ConfirmDialog
+              open={confirmDeleteOpen}
+              title={`Deactivate "${persona.name}"?`}
+              description="This will permanently remove the persona and all associated memories."
+              onConfirm={() => { setConfirmDeleteOpen(false); onDelete(persona.id); }}
+              onCancel={() => setConfirmDeleteOpen(false)}
+            />
+          </>
         )}
       </div>
     </HudCard>
