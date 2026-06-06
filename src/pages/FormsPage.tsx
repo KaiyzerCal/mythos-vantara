@@ -162,14 +162,17 @@ export default function FormsPage() {
     await updateProfile({ current_form: form.name });
   };
 
+  // Always work from form_order-sorted list so subsequent drags stay consistent
+  const sortedForms = [...forms].sort((a, b) => a.form_order - b.form_order);
+
   const handleDrop = async (targetId: string) => {
     if (!draggingId || draggingId === targetId) {
       setDraggingId(null);
       setDragOverId(null);
       return;
     }
-    // Work on the full forms list (form_order is the global sort key)
-    const list = [...forms];
+    // Use sorted list so positions match what the user sees
+    const list = [...sortedForms];
     const fromIdx = list.findIndex((f) => f.id === draggingId);
     const toIdx = list.findIndex((f) => f.id === targetId);
     if (fromIdx === -1 || toIdx === -1) { setDraggingId(null); setDragOverId(null); return; }
@@ -205,8 +208,8 @@ export default function FormsPage() {
   };
 
   const filtered = tierFilter === "All"
-    ? forms
-    : forms.filter((f) => f.tier === tierFilter);
+    ? sortedForms
+    : sortedForms.filter((f) => f.tier === tierFilter);
 
   const isActive = (form: Transformation) =>
     profile.current_form === form.name;
