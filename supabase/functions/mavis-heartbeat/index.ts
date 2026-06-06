@@ -131,8 +131,20 @@ Deno.serve(async (req) => {
       }
     }
 
+    // Poll all RSS feeds (runs across all users in one call)
+    let rssNewArticles = 0;
+    try {
+      const rssResp = await fetch(`${SB_URL}/functions/v1/mavis-rss-monitor`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${SB_KEY}` },
+        body: JSON.stringify({ action: "fetch_all" }),
+      });
+      const rssData = await rssResp.json().catch(() => ({}));
+      rssNewArticles = rssData?.total_new_articles ?? 0;
+    } catch { /* non-fatal */ }
+
     return new Response(
-      JSON.stringify({ ok: true, users_processed: userIds.length, syncs_succeeded: totalSynced, syncs_errored: totalErrors }),
+      JSON.stringify({ ok: true, users_processed: userIds.length, syncs_succeeded: totalSynced, syncs_errored: totalErrors, rss_new_articles: rssNewArticles }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (err: any) {
