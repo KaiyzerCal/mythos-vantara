@@ -1741,6 +1741,48 @@ export type Database = {
         }
         Relationships: []
       }
+      mavis_goal_judge_log: {
+        Row: {
+          ai_response: string | null
+          continuation_prompt: string | null
+          created_at: string | null
+          goal_id: string | null
+          goal_objective: string | null
+          id: string
+          judge_reason: string | null
+          judge_verdict: boolean | null
+          max_turns: number | null
+          turn_number: number | null
+          user_id: string
+        }
+        Insert: {
+          ai_response?: string | null
+          continuation_prompt?: string | null
+          created_at?: string | null
+          goal_id?: string | null
+          goal_objective?: string | null
+          id?: string
+          judge_reason?: string | null
+          judge_verdict?: boolean | null
+          max_turns?: number | null
+          turn_number?: number | null
+          user_id: string
+        }
+        Update: {
+          ai_response?: string | null
+          continuation_prompt?: string | null
+          created_at?: string | null
+          goal_id?: string | null
+          goal_objective?: string | null
+          id?: string
+          judge_reason?: string | null
+          judge_verdict?: boolean | null
+          max_turns?: number | null
+          turn_number?: number | null
+          user_id?: string
+        }
+        Relationships: []
+      }
       mavis_knowledge: {
         Row: {
           category: string
@@ -2339,6 +2381,57 @@ export type Database = {
         }
         Relationships: []
       }
+      mavis_playbooks: {
+        Row: {
+          created_at: string | null
+          description: string | null
+          domain: string
+          id: string
+          is_active: boolean | null
+          is_system: boolean | null
+          name: string
+          procedures: Json | null
+          slug: string
+          tags: string[] | null
+          updated_at: string | null
+          usage_count: number | null
+          user_id: string | null
+          version: number | null
+        }
+        Insert: {
+          created_at?: string | null
+          description?: string | null
+          domain: string
+          id?: string
+          is_active?: boolean | null
+          is_system?: boolean | null
+          name: string
+          procedures?: Json | null
+          slug: string
+          tags?: string[] | null
+          updated_at?: string | null
+          usage_count?: number | null
+          user_id?: string | null
+          version?: number | null
+        }
+        Update: {
+          created_at?: string | null
+          description?: string | null
+          domain?: string
+          id?: string
+          is_active?: boolean | null
+          is_system?: boolean | null
+          name?: string
+          procedures?: Json | null
+          slug?: string
+          tags?: string[] | null
+          updated_at?: string | null
+          usage_count?: number | null
+          user_id?: string | null
+          version?: number | null
+        }
+        Relationships: []
+      }
       mavis_products: {
         Row: {
           audience: string | null
@@ -2530,6 +2623,59 @@ export type Database = {
         }
         Relationships: []
       }
+      mavis_so_executions: {
+        Row: {
+          completed_at: string | null
+          error_message: string | null
+          id: string
+          metadata: Json | null
+          result: string | null
+          started_at: string | null
+          status: string | null
+          template_id: string | null
+          template_slug: string | null
+          triggered_by: string | null
+          turns_used: number | null
+          user_id: string
+        }
+        Insert: {
+          completed_at?: string | null
+          error_message?: string | null
+          id?: string
+          metadata?: Json | null
+          result?: string | null
+          started_at?: string | null
+          status?: string | null
+          template_id?: string | null
+          template_slug?: string | null
+          triggered_by?: string | null
+          turns_used?: number | null
+          user_id: string
+        }
+        Update: {
+          completed_at?: string | null
+          error_message?: string | null
+          id?: string
+          metadata?: Json | null
+          result?: string | null
+          started_at?: string | null
+          status?: string | null
+          template_id?: string | null
+          template_slug?: string | null
+          triggered_by?: string | null
+          turns_used?: number | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "mavis_so_executions_template_id_fkey"
+            columns: ["template_id"]
+            isOneToOne: false
+            referencedRelation: "standing_order_templates"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       mavis_social_posts: {
         Row: {
           content: string
@@ -2701,6 +2847,66 @@ export type Database = {
           updated_at?: string | null
           usage_count?: number | null
           user_id?: string
+        }
+        Relationships: []
+      }
+      mavis_user_model: {
+        Row: {
+          communication_style: Json | null
+          confidence_score: number | null
+          core_values: string[] | null
+          created_at: string | null
+          decision_patterns: Json | null
+          facets: Json | null
+          id: string
+          last_synthesized_at: string | null
+          personality_summary: string | null
+          primary_goals: string[] | null
+          raw_synthesis: string | null
+          session_count: number | null
+          synthesis_version: number | null
+          triggers: Json | null
+          updated_at: string | null
+          user_id: string
+          working_style: Json | null
+        }
+        Insert: {
+          communication_style?: Json | null
+          confidence_score?: number | null
+          core_values?: string[] | null
+          created_at?: string | null
+          decision_patterns?: Json | null
+          facets?: Json | null
+          id?: string
+          last_synthesized_at?: string | null
+          personality_summary?: string | null
+          primary_goals?: string[] | null
+          raw_synthesis?: string | null
+          session_count?: number | null
+          synthesis_version?: number | null
+          triggers?: Json | null
+          updated_at?: string | null
+          user_id: string
+          working_style?: Json | null
+        }
+        Update: {
+          communication_style?: Json | null
+          confidence_score?: number | null
+          core_values?: string[] | null
+          created_at?: string | null
+          decision_patterns?: Json | null
+          facets?: Json | null
+          id?: string
+          last_synthesized_at?: string | null
+          personality_summary?: string | null
+          primary_goals?: string[] | null
+          raw_synthesis?: string | null
+          session_count?: number | null
+          synthesis_version?: number | null
+          triggers?: Json | null
+          updated_at?: string | null
+          user_id?: string
+          working_style?: Json | null
         }
         Relationships: []
       }
@@ -2898,6 +3104,36 @@ export type Database = {
           sent_at?: string | null
           title?: string
           type?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      notification_stages: {
+        Row: {
+          dedupe_key: string
+          event_ref: string | null
+          expires_at: string
+          id: string
+          sent_at: string | null
+          stage: string
+          user_id: string
+        }
+        Insert: {
+          dedupe_key: string
+          event_ref?: string | null
+          expires_at: string
+          id?: string
+          sent_at?: string | null
+          stage: string
+          user_id: string
+        }
+        Update: {
+          dedupe_key?: string
+          event_ref?: string | null
+          expires_at?: string
+          id?: string
+          sent_at?: string | null
+          stage?: string
           user_id?: string
         }
         Relationships: []
@@ -3668,6 +3904,69 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      standing_order_templates: {
+        Row: {
+          category: string | null
+          created_at: string | null
+          created_by_agent: boolean | null
+          cron_expression: string | null
+          description: string | null
+          id: string
+          instructions: string
+          last_used_at: string | null
+          name: string
+          next_run_at: string | null
+          slug: string
+          status: string | null
+          success_count: number | null
+          tags: string[] | null
+          updated_at: string | null
+          usage_count: number | null
+          user_id: string
+          version: number | null
+        }
+        Insert: {
+          category?: string | null
+          created_at?: string | null
+          created_by_agent?: boolean | null
+          cron_expression?: string | null
+          description?: string | null
+          id?: string
+          instructions: string
+          last_used_at?: string | null
+          name: string
+          next_run_at?: string | null
+          slug: string
+          status?: string | null
+          success_count?: number | null
+          tags?: string[] | null
+          updated_at?: string | null
+          usage_count?: number | null
+          user_id: string
+          version?: number | null
+        }
+        Update: {
+          category?: string | null
+          created_at?: string | null
+          created_by_agent?: boolean | null
+          cron_expression?: string | null
+          description?: string | null
+          id?: string
+          instructions?: string
+          last_used_at?: string | null
+          name?: string
+          next_run_at?: string | null
+          slug?: string
+          status?: string | null
+          success_count?: number | null
+          tags?: string[] | null
+          updated_at?: string | null
+          usage_count?: number | null
+          user_id?: string
+          version?: number | null
+        }
+        Relationships: []
       }
       store_items: {
         Row: {
