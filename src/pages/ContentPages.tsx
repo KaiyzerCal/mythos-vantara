@@ -166,9 +166,9 @@ export function JournalPage() {
         )}
       </AnimatePresence>
 
-      {showCreate && (
+      {showCreate && !editingId && (
         <HudCard className="border-primary/20">
-          <p className="text-[9px] font-mono text-primary uppercase tracking-widest mb-3">{editingId ? "Edit Entry" : "New Entry"}</p>
+          <p className="text-[9px] font-mono text-primary uppercase tracking-widest mb-3">New Entry</p>
           <div className="space-y-2">
             <input value={form.title} onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))} placeholder="Title..." className="w-full bg-muted/30 border border-border rounded px-3 py-1.5 text-sm focus:outline-none focus:border-primary/40" />
             <textarea value={form.content} onChange={(e) => setForm((f) => ({ ...f, content: e.target.value }))} placeholder="Entry content..." rows={4} className="w-full bg-muted/30 border border-border rounded px-3 py-2 text-sm font-body resize-none focus:outline-none focus:border-primary/40" />
@@ -184,7 +184,7 @@ export function JournalPage() {
             <input value={form.tags} onChange={(e) => setForm((f) => ({ ...f, tags: e.target.value }))} placeholder="Tags (comma-separated)" className="w-full bg-muted/30 border border-border rounded px-3 py-1.5 text-xs font-mono focus:outline-none" />
             <div className="flex gap-2 justify-end">
               <button onClick={resetForm} className="px-3 py-1.5 text-xs font-mono text-muted-foreground border border-border rounded">Cancel</button>
-              <button onClick={handleSave} className="px-3 py-1.5 text-xs font-mono bg-primary/10 border border-primary/30 text-primary rounded">{editingId ? "Save" : "Log Entry (+10 XP)"}</button>
+              <button onClick={handleSave} className="px-3 py-1.5 text-xs font-mono bg-primary/10 border border-primary/30 text-primary rounded">Log Entry (+10 XP)</button>
             </div>
           </div>
         </HudCard>
@@ -192,6 +192,35 @@ export function JournalPage() {
       <div className="space-y-2">
         {journalEntries.map((e, i) => {
           const isExpanded = expandedId === e.id;
+
+          if (editingId === e.id) {
+            return (
+              <motion.div key={e.id} initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }}>
+                <HudCard className="border-primary/20">
+                  <p className="text-[9px] font-mono text-primary uppercase tracking-widest mb-3">Edit Entry</p>
+                  <div className="space-y-2">
+                    <input value={form.title} onChange={(ev) => setForm((f) => ({ ...f, title: ev.target.value }))} placeholder="Title..." className="w-full bg-muted/30 border border-border rounded px-3 py-1.5 text-sm focus:outline-none focus:border-primary/40" />
+                    <textarea value={form.content} onChange={(ev) => setForm((f) => ({ ...f, content: ev.target.value }))} placeholder="Entry content..." rows={4} className="w-full bg-muted/30 border border-border rounded px-3 py-2 text-sm font-body resize-none focus:outline-none focus:border-primary/40" />
+                    <div className="grid grid-cols-3 gap-2">
+                      <select value={form.category} onChange={(ev) => setForm((f) => ({ ...f, category: ev.target.value }))} className="bg-muted/30 border border-border rounded px-2 py-1.5 text-xs font-mono focus:outline-none">
+                        {["personal", "business", "fitness", "legal", "reflection"].map((c) => <option key={c}>{c}</option>)}
+                      </select>
+                      <select value={form.importance} onChange={(ev) => setForm((f) => ({ ...f, importance: ev.target.value }))} className="bg-muted/30 border border-border rounded px-2 py-1.5 text-xs font-mono focus:outline-none">
+                        {["low", "medium", "high", "critical"].map((imp) => <option key={imp}>{imp}</option>)}
+                      </select>
+                      <input value={form.mood} onChange={(ev) => setForm((f) => ({ ...f, mood: ev.target.value }))} placeholder="Mood" className="bg-muted/30 border border-border rounded px-3 py-1.5 text-xs font-mono focus:outline-none" />
+                    </div>
+                    <input value={form.tags} onChange={(ev) => setForm((f) => ({ ...f, tags: ev.target.value }))} placeholder="Tags (comma-separated)" className="w-full bg-muted/30 border border-border rounded px-3 py-1.5 text-xs font-mono focus:outline-none" />
+                    <div className="flex gap-2 justify-end">
+                      <button onClick={resetForm} className="px-3 py-1.5 text-xs font-mono text-muted-foreground border border-border rounded">Cancel</button>
+                      <button onClick={handleSave} className="px-3 py-1.5 text-xs font-mono bg-primary/10 border border-primary/30 text-primary rounded">Save</button>
+                    </div>
+                  </div>
+                </HudCard>
+              </motion.div>
+            );
+          }
+
           return (
           <motion.div key={e.id} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.03 }}>
             <HudCard className={`cursor-pointer transition-all ${isExpanded ? "border-primary/30" : ""}`}>
@@ -553,9 +582,9 @@ export function VaultCodexPage() {
         </HudCard>
       )}
 
-      {showCreate && (
+      {showCreate && !editingId && (
         <HudCard className="border-primary/20">
-          <p className="text-[9px] font-mono text-primary uppercase tracking-widest mb-3">{editingId ? "Edit Entry" : "New Entry"}</p>
+          <p className="text-[9px] font-mono text-primary uppercase tracking-widest mb-3">New Entry</p>
           <div className="space-y-2">
             <input value={form.title} onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))} placeholder="Entry title..." className="w-full bg-muted/30 border border-border rounded px-3 py-1.5 text-sm focus:outline-none focus:border-primary/40" />
             <textarea value={form.content} onChange={(e) => setForm((f) => ({ ...f, content: e.target.value }))} placeholder="Vault content (evidence, notes, data)..." rows={4} className="w-full bg-muted/30 border border-border rounded px-3 py-2 text-sm resize-none focus:outline-none" />
@@ -569,7 +598,7 @@ export function VaultCodexPage() {
             </div>
             <div className="flex gap-2 justify-end">
               <button onClick={resetForm} className="px-3 py-1.5 text-xs font-mono text-muted-foreground border border-border rounded">Cancel</button>
-              <button onClick={handleSave} className="px-3 py-1.5 text-xs font-mono bg-primary/10 border border-primary/30 text-primary rounded">{editingId ? "Save" : "Store"}</button>
+              <button onClick={handleSave} className="px-3 py-1.5 text-xs font-mono bg-primary/10 border border-primary/30 text-primary rounded">Store</button>
             </div>
           </div>
         </HudCard>
@@ -781,6 +810,33 @@ export function VaultCodexPage() {
         {filtered.map((e) => {
           const isExpanded = expandedId === e.id;
           const media = entryMedia[e.id] || [];
+
+          if (editingId === e.id) {
+            return (
+              <motion.div key={e.id} initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }}>
+                <HudCard className="border-primary/20">
+                  <p className="text-[9px] font-mono text-primary uppercase tracking-widest mb-3">Edit Entry</p>
+                  <div className="space-y-2">
+                    <input value={form.title} onChange={(ev) => setForm((f) => ({ ...f, title: ev.target.value }))} placeholder="Entry title..." className="w-full bg-muted/30 border border-border rounded px-3 py-1.5 text-sm focus:outline-none focus:border-primary/40" />
+                    <textarea value={form.content} onChange={(ev) => setForm((f) => ({ ...f, content: ev.target.value }))} placeholder="Vault content (evidence, notes, data)..." rows={4} className="w-full bg-muted/30 border border-border rounded px-3 py-2 text-sm resize-none focus:outline-none" />
+                    <div className="grid grid-cols-2 gap-2">
+                      <select value={form.category} onChange={(ev) => setForm((f) => ({ ...f, category: ev.target.value }))} className="bg-muted/30 border border-border rounded px-2 py-1.5 text-xs font-mono focus:outline-none">
+                        {["legal", "business", "personal", "evidence", "achievement"].map((c) => <option key={c}>{c}</option>)}
+                      </select>
+                      <select value={form.importance} onChange={(ev) => setForm((f) => ({ ...f, importance: ev.target.value }))} className="bg-muted/30 border border-border rounded px-2 py-1.5 text-xs font-mono focus:outline-none">
+                        {["low", "medium", "high", "critical"].map((imp) => <option key={imp}>{imp}</option>)}
+                      </select>
+                    </div>
+                    <div className="flex gap-2 justify-end">
+                      <button onClick={resetForm} className="px-3 py-1.5 text-xs font-mono text-muted-foreground border border-border rounded">Cancel</button>
+                      <button onClick={handleSave} className="px-3 py-1.5 text-xs font-mono bg-primary/10 border border-primary/30 text-primary rounded">Save</button>
+                    </div>
+                  </div>
+                </HudCard>
+              </motion.div>
+            );
+          }
+
           return (
           <HudCard key={e.id} className={`cursor-pointer transition-all ${importanceBorder[e.importance]} ${isExpanded ? "border-primary/30" : ""}`}>
             <div onClick={() => { const next = isExpanded ? null : e.id; setExpandedId(next); if (next) { loadBacklinks(next); syncWikilinks(next, e.content ?? ""); } }}>
@@ -1041,9 +1097,9 @@ export function SkillsPage() {
       <PageHeader title="Skill Trees" subtitle={`${skills.filter((s) => s.unlocked).length} / ${skills.length} skills unlocked`} icon={<Sparkles size={18} />}
         actions={<button onClick={() => { resetForm(); setShowCreate(true); }} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono bg-primary/10 border border-primary/30 text-primary rounded"><Plus size={12} /> Add Skill</button>}
       />
-      {showCreate && (
+      {showCreate && !editingId && (
         <HudCard className="border-primary/20">
-          <p className="text-[9px] font-mono text-primary uppercase tracking-widest mb-3">{editingId ? "Edit Skill" : form.parent_skill_id ? "New Subskill" : "New Skill"}</p>
+          <p className="text-[9px] font-mono text-primary uppercase tracking-widest mb-3">{form.parent_skill_id ? "New Subskill" : "New Skill"}</p>
           <div className="space-y-2">
             <div className="grid grid-cols-2 gap-2">
               <input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} placeholder="Skill name" className="bg-muted/30 border border-border rounded px-3 py-1.5 text-sm focus:outline-none focus:border-primary/40" />
@@ -1055,7 +1111,6 @@ export function SkillsPage() {
               <input type="number" value={form.tier} onChange={(e) => setForm((f) => ({ ...f, tier: Number(e.target.value) }))} placeholder="Tier" className="bg-muted/30 border border-border rounded px-3 py-1.5 text-xs font-mono focus:outline-none" min={1} max={10} />
               <input type="number" value={form.proficiency} onChange={(e) => setForm((f) => ({ ...f, proficiency: Number(e.target.value) }))} placeholder="Proficiency %" className="bg-muted/30 border border-border rounded px-3 py-1.5 text-xs font-mono focus:outline-none" min={0} max={100} />
             </div>
-            {/* Parent skill selector */}
             <div>
               <p className="text-[9px] font-mono text-muted-foreground uppercase mb-1">Parent Skill (leave empty for top-level)</p>
               <select value={form.parent_skill_id} onChange={(e) => setForm((f) => ({ ...f, parent_skill_id: e.target.value }))} className="w-full bg-muted/30 border border-border rounded px-2 py-1.5 text-xs font-mono focus:outline-none">
@@ -1065,7 +1120,7 @@ export function SkillsPage() {
             </div>
             <div className="flex gap-2 justify-end">
               <button onClick={resetForm} className="px-3 py-1.5 text-xs font-mono text-muted-foreground border border-border rounded">Cancel</button>
-              <button onClick={handleSave} className="px-3 py-1.5 text-xs font-mono bg-primary/10 border border-primary/30 text-primary rounded">{editingId ? "Save" : "Unlock"}</button>
+              <button onClick={handleSave} className="px-3 py-1.5 text-xs font-mono bg-primary/10 border border-primary/30 text-primary rounded">Unlock</button>
             </div>
           </div>
         </HudCard>
@@ -1079,6 +1134,33 @@ export function SkillsPage() {
         {filtered.map((s) => {
           const subs = getSubskills(s.id);
           const isExpanded = expandedSkills.has(s.id);
+
+          if (editingId === s.id) {
+            return (
+              <div key={s.id} className="sm:col-span-2">
+                <HudCard className="border-primary/20">
+                  <p className="text-[9px] font-mono text-primary uppercase tracking-widest mb-3">Edit Skill: {s.name}</p>
+                  <div className="space-y-2">
+                    <div className="grid grid-cols-2 gap-2">
+                      <input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} placeholder="Skill name" className="bg-muted/30 border border-border rounded px-3 py-1.5 text-sm focus:outline-none focus:border-primary/40" />
+                      <input value={form.category} onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))} placeholder="Category" className="bg-muted/30 border border-border rounded px-3 py-1.5 text-sm focus:outline-none" />
+                    </div>
+                    <textarea value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))} placeholder="Description..." rows={2} className="w-full bg-muted/30 border border-border rounded px-3 py-1.5 text-sm resize-none focus:outline-none" />
+                    <div className="grid grid-cols-3 gap-2">
+                      <input value={form.energy_type} onChange={(e) => setForm((f) => ({ ...f, energy_type: e.target.value }))} placeholder="Energy type" className="bg-muted/30 border border-border rounded px-3 py-1.5 text-xs font-mono focus:outline-none" />
+                      <input type="number" value={form.tier} onChange={(e) => setForm((f) => ({ ...f, tier: Number(e.target.value) }))} placeholder="Tier" className="bg-muted/30 border border-border rounded px-3 py-1.5 text-xs font-mono focus:outline-none" min={1} max={10} />
+                      <input type="number" value={form.proficiency} onChange={(e) => setForm((f) => ({ ...f, proficiency: Number(e.target.value) }))} placeholder="Proficiency %" className="bg-muted/30 border border-border rounded px-3 py-1.5 text-xs font-mono focus:outline-none" min={0} max={100} />
+                    </div>
+                    <div className="flex gap-2 justify-end">
+                      <button onClick={resetForm} className="px-3 py-1.5 text-xs font-mono text-muted-foreground border border-border rounded">Cancel</button>
+                      <button onClick={handleSave} className="px-3 py-1.5 text-xs font-mono bg-primary/10 border border-primary/30 text-primary rounded">Save</button>
+                    </div>
+                  </div>
+                </HudCard>
+              </div>
+            );
+          }
+
           return (
              <div key={s.id} className="space-y-1">
               <HudCard className={`cursor-pointer transition-all ${s.unlocked ? "" : "opacity-50"} ${expandedDetail === s.id ? "ring-1 ring-primary/30" : ""}`} onClick={() => setExpandedDetail(expandedDetail === s.id ? null : s.id)}>
@@ -1123,6 +1205,27 @@ export function SkillsPage() {
               {/* Subskills */}
               {isExpanded && subs.map((sub) => (
                 <div key={sub.id} className="ml-6">
+                  {editingId === sub.id ? (
+                    <HudCard className="border-primary/20">
+                      <p className="text-[9px] font-mono text-primary uppercase tracking-widest mb-3">Edit Subskill: {sub.name}</p>
+                      <div className="space-y-2">
+                        <div className="grid grid-cols-2 gap-2">
+                          <input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} placeholder="Skill name" className="bg-muted/30 border border-border rounded px-3 py-1.5 text-sm focus:outline-none focus:border-primary/40" />
+                          <input value={form.category} onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))} placeholder="Category" className="bg-muted/30 border border-border rounded px-3 py-1.5 text-sm focus:outline-none" />
+                        </div>
+                        <textarea value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))} placeholder="Description..." rows={2} className="w-full bg-muted/30 border border-border rounded px-3 py-1.5 text-sm resize-none focus:outline-none" />
+                        <div className="grid grid-cols-3 gap-2">
+                          <input value={form.energy_type} onChange={(e) => setForm((f) => ({ ...f, energy_type: e.target.value }))} placeholder="Energy type" className="bg-muted/30 border border-border rounded px-3 py-1.5 text-xs font-mono focus:outline-none" />
+                          <input type="number" value={form.tier} onChange={(e) => setForm((f) => ({ ...f, tier: Number(e.target.value) }))} placeholder="Tier" className="bg-muted/30 border border-border rounded px-3 py-1.5 text-xs font-mono focus:outline-none" min={1} max={10} />
+                          <input type="number" value={form.proficiency} onChange={(e) => setForm((f) => ({ ...f, proficiency: Number(e.target.value) }))} placeholder="Proficiency %" className="bg-muted/30 border border-border rounded px-3 py-1.5 text-xs font-mono focus:outline-none" min={0} max={100} />
+                        </div>
+                        <div className="flex gap-2 justify-end">
+                          <button onClick={resetForm} className="px-3 py-1.5 text-xs font-mono text-muted-foreground border border-border rounded">Cancel</button>
+                          <button onClick={handleSave} className="px-3 py-1.5 text-xs font-mono bg-primary/10 border border-primary/30 text-primary rounded">Save</button>
+                        </div>
+                      </div>
+                    </HudCard>
+                  ) : (
                   <HudCard className={`border-l-2 border-primary/20 cursor-pointer transition-all ${expandedDetail === sub.id ? "ring-1 ring-primary/30" : ""}`} onClick={() => setExpandedDetail(expandedDetail === sub.id ? null : sub.id)}>
                     <div className="flex items-start gap-2">
                       <div className="flex-1 min-w-0">
@@ -1148,6 +1251,7 @@ export function SkillsPage() {
                       </div>
                     </div>
                   </HudCard>
+                  )}
                 </div>
               ))}
             </div>
@@ -1212,9 +1316,9 @@ export function InventoryPage() {
       <PageHeader title="Inventory" subtitle={`${inventory.length} items — ${inventory.filter((i) => i.is_equipped).length} equipped`} icon={<Package size={18} />}
         actions={<button onClick={() => { resetForm(); setShowCreate(true); }} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono bg-primary/10 border border-primary/30 text-primary rounded"><Plus size={12} /> Add Item</button>}
       />
-      {showCreate && (
+      {showCreate && !editingId && (
         <HudCard className="border-primary/20">
-          <p className="text-[9px] font-mono text-primary uppercase tracking-widest mb-3">{editingId ? "Edit Item" : "New Item"}</p>
+          <p className="text-[9px] font-mono text-primary uppercase tracking-widest mb-3">New Item</p>
           <div className="space-y-2">
             <div className="grid grid-cols-2 gap-2">
               <input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} placeholder="Item name" className="bg-muted/30 border border-border rounded px-3 py-1.5 text-sm focus:outline-none focus:border-primary/40" />
@@ -1230,7 +1334,7 @@ export function InventoryPage() {
             <input value={form.effect} onChange={(e) => setForm((f) => ({ ...f, effect: e.target.value }))} placeholder="Effect" className="w-full bg-muted/30 border border-border rounded px-3 py-1.5 text-xs font-mono focus:outline-none" />
             <div className="flex gap-2 justify-end">
               <button onClick={resetForm} className="px-3 py-1.5 text-xs font-mono text-muted-foreground border border-border rounded">Cancel</button>
-              <button onClick={handleSave} className="px-3 py-1.5 text-xs font-mono bg-primary/10 border border-primary/30 text-primary rounded">{editingId ? "Save" : "Add"}</button>
+              <button onClick={handleSave} className="px-3 py-1.5 text-xs font-mono bg-primary/10 border border-primary/30 text-primary rounded">Add</button>
             </div>
           </div>
         </HudCard>
@@ -1243,6 +1347,33 @@ export function InventoryPage() {
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
         {filtered.map((item) => {
           const isExpanded = expandedId === item.id;
+
+          if (editingId === item.id) {
+            return (
+              <HudCard key={item.id} className="border-primary/20 sm:col-span-2 lg:col-span-3">
+                <p className="text-[9px] font-mono text-primary uppercase tracking-widest mb-3">Edit Item</p>
+                <div className="space-y-2">
+                  <div className="grid grid-cols-2 gap-2">
+                    <input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} placeholder="Item name" className="bg-muted/30 border border-border rounded px-3 py-1.5 text-sm focus:outline-none focus:border-primary/40" />
+                    <input type="number" value={form.quantity} onChange={(e) => setForm((f) => ({ ...f, quantity: Number(e.target.value) }))} placeholder="Qty" className="bg-muted/30 border border-border rounded px-3 py-1.5 text-sm focus:outline-none" min={1} />
+                    <select value={form.type} onChange={(e) => setForm((f) => ({ ...f, type: e.target.value }))} className="bg-muted/30 border border-border rounded px-2 py-1.5 text-xs font-mono focus:outline-none">
+                      {["equipment", "consumable", "material", "artifact"].map((t) => <option key={t}>{t}</option>)}
+                    </select>
+                    <select value={form.rarity} onChange={(e) => setForm((f) => ({ ...f, rarity: e.target.value }))} className="bg-muted/30 border border-border rounded px-2 py-1.5 text-xs font-mono focus:outline-none">
+                      {["common", "rare", "epic", "legendary", "mythic"].map((r) => <option key={r}>{r}</option>)}
+                    </select>
+                  </div>
+                  <input value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))} placeholder="Description" className="w-full bg-muted/30 border border-border rounded px-3 py-1.5 text-sm focus:outline-none" />
+                  <input value={form.effect} onChange={(e) => setForm((f) => ({ ...f, effect: e.target.value }))} placeholder="Effect" className="w-full bg-muted/30 border border-border rounded px-3 py-1.5 text-xs font-mono focus:outline-none" />
+                  <div className="flex gap-2 justify-end">
+                    <button onClick={resetForm} className="px-3 py-1.5 text-xs font-mono text-muted-foreground border border-border rounded">Cancel</button>
+                    <button onClick={handleSave} className="px-3 py-1.5 text-xs font-mono bg-primary/10 border border-primary/30 text-primary rounded">Save</button>
+                  </div>
+                </div>
+              </HudCard>
+            );
+          }
+
           return (
           <HudCard key={item.id} className={`cursor-pointer transition-all ${item.is_equipped ? "border-primary/30" : ""} ${isExpanded ? "border-primary/30" : ""}`}>
             <div onClick={() => setExpandedId(isExpanded ? null : item.id)}>

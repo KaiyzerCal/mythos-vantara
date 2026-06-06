@@ -214,6 +214,79 @@ export default function FormsPage() {
   const isActive = (form: Transformation) =>
     profile.current_form === form.name;
 
+  const renderFormPanel = (title: string) => (
+    <HudCard className="border-primary/20">
+      <p className="text-xs font-mono text-primary uppercase tracking-widest mb-3">{title}</p>
+      <div className="space-y-2">
+        <div className="grid grid-cols-2 gap-2">
+          <input value={draftForm.name} onChange={(e) => setDraftForm((f) => ({ ...f, name: e.target.value }))} placeholder="Form name" className="bg-muted/30 border border-border rounded px-3 py-1.5 text-sm focus:outline-none focus:border-primary/40" />
+          <select value={draftForm.tier} onChange={(e) => setDraftForm((f) => ({ ...f, tier: e.target.value }))} className="bg-muted/30 border border-border rounded px-2 py-1.5 text-xs font-mono focus:outline-none">
+            {TIERS.filter((t) => t !== "All").map((t) => <option key={t}>{t}</option>)}
+          </select>
+        </div>
+        <div className="grid grid-cols-3 gap-2">
+          <input value={draftForm.bpm_range} onChange={(e) => setDraftForm((f) => ({ ...f, bpm_range: e.target.value }))} placeholder="BPM range" className="bg-muted/30 border border-border rounded px-3 py-1.5 text-xs font-mono focus:outline-none" />
+          <input value={draftForm.energy} onChange={(e) => setDraftForm((f) => ({ ...f, energy: e.target.value }))} placeholder="Energy type" className="bg-muted/30 border border-border rounded px-3 py-1.5 text-xs font-mono focus:outline-none" />
+          <input type="number" value={draftForm.form_order} onChange={(e) => setDraftForm((f) => ({ ...f, form_order: Number(e.target.value) }))} placeholder="Order" className="bg-muted/30 border border-border rounded px-3 py-1.5 text-xs font-mono focus:outline-none" />
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          <input value={draftForm.jjk_grade} onChange={(e) => setDraftForm((f) => ({ ...f, jjk_grade: e.target.value }))} placeholder="JJK Grade" className="bg-muted/30 border border-border rounded px-3 py-1.5 text-xs font-mono focus:outline-none" />
+          <input value={draftForm.op_tier} onChange={(e) => setDraftForm((f) => ({ ...f, op_tier: e.target.value }))} placeholder="OP Tier" className="bg-muted/30 border border-border rounded px-3 py-1.5 text-xs font-mono focus:outline-none" />
+        </div>
+        <textarea value={draftForm.description ?? ""} onChange={(e) => setDraftForm((f) => ({ ...f, description: e.target.value }))} placeholder="Description..." rows={2} className="w-full bg-muted/30 border border-border rounded px-3 py-1.5 text-sm resize-none focus:outline-none" />
+        <div>
+          <div className="flex items-center justify-between mb-1">
+            <p className="text-[9px] font-mono text-amber-400 uppercase">Active Buffs</p>
+            <button type="button" onClick={() => setDraftForm(f => ({ ...f, active_buffs: [...f.active_buffs, { label: "", value: 0, unit: "%" }] }))} className="text-[9px] font-mono text-amber-400 hover:text-amber-300">+ Add</button>
+          </div>
+          {draftForm.active_buffs.map((b, i) => (
+            <div key={i} className="flex gap-1.5 mb-1">
+              <input value={b.label} onChange={e => setDraftForm(f => { const a = [...f.active_buffs]; a[i] = { ...a[i], label: e.target.value }; return { ...f, active_buffs: a }; })} placeholder="Label" className="flex-1 bg-muted/30 border border-border rounded px-2 py-1 text-xs font-mono focus:outline-none" />
+              <input type="number" value={b.value} onChange={e => setDraftForm(f => { const a = [...f.active_buffs]; a[i] = { ...a[i], value: Number(e.target.value) }; return { ...f, active_buffs: a }; })} placeholder="Val" className="w-16 bg-muted/30 border border-border rounded px-2 py-1 text-xs font-mono focus:outline-none" />
+              <input value={b.unit} onChange={e => setDraftForm(f => { const a = [...f.active_buffs]; a[i] = { ...a[i], unit: e.target.value }; return { ...f, active_buffs: a }; })} placeholder="Unit" className="w-12 bg-muted/30 border border-border rounded px-2 py-1 text-xs font-mono focus:outline-none" />
+              <button type="button" onClick={() => setDraftForm(f => ({ ...f, active_buffs: f.active_buffs.filter((_, j) => j !== i) }))} className="text-muted-foreground hover:text-destructive"><X size={12} /></button>
+            </div>
+          ))}
+        </div>
+        <div>
+          <div className="flex items-center justify-between mb-1">
+            <p className="text-[9px] font-mono text-blue-400 uppercase">Passive Buffs</p>
+            <button type="button" onClick={() => setDraftForm(f => ({ ...f, passive_buffs: [...f.passive_buffs, { label: "", value: 0, unit: "%" }] }))} className="text-[9px] font-mono text-blue-400 hover:text-blue-300">+ Add</button>
+          </div>
+          {draftForm.passive_buffs.map((b, i) => (
+            <div key={i} className="flex gap-1.5 mb-1">
+              <input value={b.label} onChange={e => setDraftForm(f => { const a = [...f.passive_buffs]; a[i] = { ...a[i], label: e.target.value }; return { ...f, passive_buffs: a }; })} placeholder="Label" className="flex-1 bg-muted/30 border border-border rounded px-2 py-1 text-xs font-mono focus:outline-none" />
+              <input type="number" value={b.value} onChange={e => setDraftForm(f => { const a = [...f.passive_buffs]; a[i] = { ...a[i], value: Number(e.target.value) }; return { ...f, passive_buffs: a }; })} placeholder="Val" className="w-16 bg-muted/30 border border-border rounded px-2 py-1 text-xs font-mono focus:outline-none" />
+              <input value={b.unit} onChange={e => setDraftForm(f => { const a = [...f.passive_buffs]; a[i] = { ...a[i], unit: e.target.value }; return { ...f, passive_buffs: a }; })} placeholder="Unit" className="w-12 bg-muted/30 border border-border rounded px-2 py-1 text-xs font-mono focus:outline-none" />
+              <button type="button" onClick={() => setDraftForm(f => ({ ...f, passive_buffs: f.passive_buffs.filter((_, j) => j !== i) }))} className="text-muted-foreground hover:text-destructive"><X size={12} /></button>
+            </div>
+          ))}
+        </div>
+        <div>
+          <div className="flex items-center justify-between mb-1">
+            <p className="text-[9px] font-mono text-green-400 uppercase">Abilities</p>
+            <button type="button" onClick={() => setDraftForm(f => ({ ...f, abilities: [...f.abilities, { title: "", irl: "" }] }))} className="text-[9px] font-mono text-green-400 hover:text-green-300">+ Add</button>
+          </div>
+          {draftForm.abilities.map((a, i) => (
+            <div key={i} className="flex gap-1.5 mb-1">
+              <input value={a.title} onChange={e => setDraftForm(f => { const arr = [...f.abilities]; arr[i] = { ...arr[i], title: e.target.value }; return { ...f, abilities: arr }; })} placeholder="Skill title" className="w-36 bg-muted/30 border border-border rounded px-2 py-1 text-xs font-mono focus:outline-none" />
+              <input value={a.irl} onChange={e => setDraftForm(f => { const arr = [...f.abilities]; arr[i] = { ...arr[i], irl: e.target.value }; return { ...f, abilities: arr }; })} placeholder="Real-world application" className="flex-1 bg-muted/30 border border-border rounded px-2 py-1 text-xs font-mono focus:outline-none" />
+              <button type="button" onClick={() => setDraftForm(f => ({ ...f, abilities: f.abilities.filter((_, j) => j !== i) }))} className="text-muted-foreground hover:text-destructive"><X size={12} /></button>
+            </div>
+          ))}
+        </div>
+        <div className="flex items-center gap-2">
+          <input type="checkbox" id="unlocked" checked={draftForm.unlocked} onChange={(e) => setDraftForm((f) => ({ ...f, unlocked: e.target.checked }))} className="accent-primary" />
+          <label htmlFor="unlocked" className="text-xs font-mono text-muted-foreground">Unlocked</label>
+        </div>
+        <div className="flex gap-2 justify-end">
+          <button onClick={() => { setShowCreate(false); setEditingId(null); }} className="px-3 py-1.5 text-xs font-mono text-muted-foreground border border-border rounded">Cancel</button>
+          <button onClick={handleSave} className="px-3 py-1.5 text-xs font-mono bg-primary/10 border border-primary/30 text-primary rounded">{editingId ? "Save Changes" : "Create Form"}</button>
+        </div>
+      </div>
+    </HudCard>
+  );
+
   return (
     <div className="space-y-5">
       <PageHeader
@@ -246,100 +319,9 @@ export default function FormsPage() {
 
       {/* Create panel */}
       <AnimatePresence>
-        {showCreate && (
+        {showCreate && !editingId && (
           <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }}>
-            <HudCard className="border-primary/20">
-              <p className="text-xs font-mono text-primary uppercase tracking-widest mb-3">{editingId ? "Edit Form" : "New Form"}</p>
-              <div className="space-y-2">
-                <div className="grid grid-cols-2 gap-2">
-                  <input
-                    value={draftForm.name}
-                    onChange={(e) => setDraftForm((f) => ({ ...f, name: e.target.value }))}
-                    placeholder="Form name"
-                    className="bg-muted/30 border border-border rounded px-3 py-1.5 text-sm focus:outline-none focus:border-primary/40"
-                  />
-                  <select
-                    value={draftForm.tier}
-                    onChange={(e) => setDraftForm((f) => ({ ...f, tier: e.target.value }))}
-                    className="bg-muted/30 border border-border rounded px-2 py-1.5 text-xs font-mono focus:outline-none"
-                  >
-                    {TIERS.filter((t) => t !== "All").map((t) => <option key={t}>{t}</option>)}
-                  </select>
-                </div>
-                <div className="grid grid-cols-3 gap-2">
-                  <input value={draftForm.bpm_range} onChange={(e) => setDraftForm((f) => ({ ...f, bpm_range: e.target.value }))} placeholder="BPM range" className="bg-muted/30 border border-border rounded px-3 py-1.5 text-xs font-mono focus:outline-none" />
-                  <input value={draftForm.energy} onChange={(e) => setDraftForm((f) => ({ ...f, energy: e.target.value }))} placeholder="Energy type" className="bg-muted/30 border border-border rounded px-3 py-1.5 text-xs font-mono focus:outline-none" />
-                  <input type="number" value={draftForm.form_order} onChange={(e) => setDraftForm((f) => ({ ...f, form_order: Number(e.target.value) }))} placeholder="Order" className="bg-muted/30 border border-border rounded px-3 py-1.5 text-xs font-mono focus:outline-none" />
-                </div>
-                <div className="grid grid-cols-2 gap-2">
-                  <input value={draftForm.jjk_grade} onChange={(e) => setDraftForm((f) => ({ ...f, jjk_grade: e.target.value }))} placeholder="JJK Grade" className="bg-muted/30 border border-border rounded px-3 py-1.5 text-xs font-mono focus:outline-none" />
-                  <input value={draftForm.op_tier} onChange={(e) => setDraftForm((f) => ({ ...f, op_tier: e.target.value }))} placeholder="OP Tier" className="bg-muted/30 border border-border rounded px-3 py-1.5 text-xs font-mono focus:outline-none" />
-                </div>
-                <textarea value={draftForm.description ?? ""} onChange={(e) => setDraftForm((f) => ({ ...f, description: e.target.value }))} placeholder="Description..." rows={2} className="w-full bg-muted/30 border border-border rounded px-3 py-1.5 text-sm resize-none focus:outline-none" />
-
-                {/* Active Buffs */}
-                <div>
-                  <div className="flex items-center justify-between mb-1">
-                    <p className="text-[9px] font-mono text-amber-400 uppercase">Active Buffs</p>
-                    <button type="button" onClick={() => setDraftForm(f => ({ ...f, active_buffs: [...f.active_buffs, { label: "", value: 0, unit: "%" }] }))} className="text-[9px] font-mono text-amber-400 hover:text-amber-300">+ Add</button>
-                  </div>
-                  {draftForm.active_buffs.map((b, i) => (
-                    <div key={i} className="flex gap-1.5 mb-1">
-                      <input value={b.label} onChange={e => setDraftForm(f => { const a = [...f.active_buffs]; a[i] = { ...a[i], label: e.target.value }; return { ...f, active_buffs: a }; })} placeholder="Label" className="flex-1 bg-muted/30 border border-border rounded px-2 py-1 text-xs font-mono focus:outline-none" />
-                      <input type="number" value={b.value} onChange={e => setDraftForm(f => { const a = [...f.active_buffs]; a[i] = { ...a[i], value: Number(e.target.value) }; return { ...f, active_buffs: a }; })} placeholder="Val" className="w-16 bg-muted/30 border border-border rounded px-2 py-1 text-xs font-mono focus:outline-none" />
-                      <input value={b.unit} onChange={e => setDraftForm(f => { const a = [...f.active_buffs]; a[i] = { ...a[i], unit: e.target.value }; return { ...f, active_buffs: a }; })} placeholder="Unit" className="w-12 bg-muted/30 border border-border rounded px-2 py-1 text-xs font-mono focus:outline-none" />
-                      <button type="button" onClick={() => setDraftForm(f => ({ ...f, active_buffs: f.active_buffs.filter((_, j) => j !== i) }))} className="text-muted-foreground hover:text-destructive"><X size={12} /></button>
-                    </div>
-                  ))}
-                </div>
-
-                {/* Passive Buffs */}
-                <div>
-                  <div className="flex items-center justify-between mb-1">
-                    <p className="text-[9px] font-mono text-blue-400 uppercase">Passive Buffs</p>
-                    <button type="button" onClick={() => setDraftForm(f => ({ ...f, passive_buffs: [...f.passive_buffs, { label: "", value: 0, unit: "%" }] }))} className="text-[9px] font-mono text-blue-400 hover:text-blue-300">+ Add</button>
-                  </div>
-                  {draftForm.passive_buffs.map((b, i) => (
-                    <div key={i} className="flex gap-1.5 mb-1">
-                      <input value={b.label} onChange={e => setDraftForm(f => { const a = [...f.passive_buffs]; a[i] = { ...a[i], label: e.target.value }; return { ...f, passive_buffs: a }; })} placeholder="Label" className="flex-1 bg-muted/30 border border-border rounded px-2 py-1 text-xs font-mono focus:outline-none" />
-                      <input type="number" value={b.value} onChange={e => setDraftForm(f => { const a = [...f.passive_buffs]; a[i] = { ...a[i], value: Number(e.target.value) }; return { ...f, passive_buffs: a }; })} placeholder="Val" className="w-16 bg-muted/30 border border-border rounded px-2 py-1 text-xs font-mono focus:outline-none" />
-                      <input value={b.unit} onChange={e => setDraftForm(f => { const a = [...f.passive_buffs]; a[i] = { ...a[i], unit: e.target.value }; return { ...f, passive_buffs: a }; })} placeholder="Unit" className="w-12 bg-muted/30 border border-border rounded px-2 py-1 text-xs font-mono focus:outline-none" />
-                      <button type="button" onClick={() => setDraftForm(f => ({ ...f, passive_buffs: f.passive_buffs.filter((_, j) => j !== i) }))} className="text-muted-foreground hover:text-destructive"><X size={12} /></button>
-                    </div>
-                  ))}
-                </div>
-
-                {/* Abilities */}
-                <div>
-                  <div className="flex items-center justify-between mb-1">
-                    <p className="text-[9px] font-mono text-green-400 uppercase">Abilities</p>
-                    <button type="button" onClick={() => setDraftForm(f => ({ ...f, abilities: [...f.abilities, { title: "", irl: "" }] }))} className="text-[9px] font-mono text-green-400 hover:text-green-300">+ Add</button>
-                  </div>
-                  {draftForm.abilities.map((a, i) => (
-                    <div key={i} className="flex gap-1.5 mb-1">
-                      <input value={a.title} onChange={e => setDraftForm(f => { const arr = [...f.abilities]; arr[i] = { ...arr[i], title: e.target.value }; return { ...f, abilities: arr }; })} placeholder="Skill title" className="w-36 bg-muted/30 border border-border rounded px-2 py-1 text-xs font-mono focus:outline-none" />
-                      <input value={a.irl} onChange={e => setDraftForm(f => { const arr = [...f.abilities]; arr[i] = { ...arr[i], irl: e.target.value }; return { ...f, abilities: arr }; })} placeholder="Real-world application" className="flex-1 bg-muted/30 border border-border rounded px-2 py-1 text-xs font-mono focus:outline-none" />
-                      <button type="button" onClick={() => setDraftForm(f => ({ ...f, abilities: f.abilities.filter((_, j) => j !== i) }))} className="text-muted-foreground hover:text-destructive"><X size={12} /></button>
-                    </div>
-                  ))}
-                </div>
-
-                <div className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    id="unlocked"
-                    checked={draftForm.unlocked}
-                    onChange={(e) => setDraftForm((f) => ({ ...f, unlocked: e.target.checked }))}
-                    className="accent-primary"
-                  />
-                  <label htmlFor="unlocked" className="text-xs font-mono text-muted-foreground">Unlocked</label>
-                </div>
-                <div className="flex gap-2 justify-end">
-                  <button onClick={() => { setShowCreate(false); setEditingId(null); }} className="px-3 py-1.5 text-xs font-mono text-muted-foreground border border-border rounded">Cancel</button>
-                  <button onClick={handleSave} className="px-3 py-1.5 text-xs font-mono bg-primary/10 border border-primary/30 text-primary rounded">{editingId ? "Save Changes" : "Create Form"}</button>
-                </div>
-              </div>
-            </HudCard>
+            {renderFormPanel("New Form")}
           </motion.div>
         )}
       </AnimatePresence>
@@ -370,6 +352,14 @@ export default function FormsPage() {
           const isOpen = expandedId === form.id;
           const isDragging = draggingId === form.id;
           const isDragOver = dragOverId === form.id && !isDragging;
+
+          if (editingId === form.id) {
+            return (
+              <motion.div key={form.id} initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }}>
+                {renderFormPanel(`Edit: ${form.name}`)}
+              </motion.div>
+            );
+          }
 
           return (
             <div
