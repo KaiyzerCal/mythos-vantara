@@ -130,6 +130,7 @@ export type Database = {
           notes: string
           relationship: string
           specialty: string
+          updated_at: string
           user_id: string
         }
         Insert: {
@@ -142,6 +143,7 @@ export type Database = {
           notes?: string
           relationship?: string
           specialty?: string
+          updated_at?: string
           user_id: string
         }
         Update: {
@@ -154,6 +156,7 @@ export type Database = {
           notes?: string
           relationship?: string
           specialty?: string
+          updated_at?: string
           user_id?: string
         }
         Relationships: []
@@ -264,6 +267,7 @@ export type Database = {
           id: string
           mood: string | null
           notes: string | null
+          updated_at: string
           user_id: string
         }
         Insert: {
@@ -274,6 +278,7 @@ export type Database = {
           id?: string
           mood?: string | null
           notes?: string | null
+          updated_at?: string
           user_id: string
         }
         Update: {
@@ -284,6 +289,7 @@ export type Database = {
           id?: string
           mood?: string | null
           notes?: string | null
+          updated_at?: string
           user_id?: string
         }
         Relationships: []
@@ -837,6 +843,7 @@ export type Database = {
           stat_effects: Json
           tier: string | null
           type: string
+          updated_at: string
           user_id: string
         }
         Insert: {
@@ -852,6 +859,7 @@ export type Database = {
           stat_effects?: Json
           tier?: string | null
           type?: string
+          updated_at?: string
           user_id: string
         }
         Update: {
@@ -867,6 +875,7 @@ export type Database = {
           stat_effects?: Json
           tier?: string | null
           type?: string
+          updated_at?: string
           user_id?: string
         }
         Relationships: []
@@ -3540,6 +3549,7 @@ export type Database = {
           name: string
           streak: number
           type: string
+          updated_at: string
           user_id: string
           xp_reward: number
         }
@@ -3553,6 +3563,7 @@ export type Database = {
           name: string
           streak?: number
           type?: string
+          updated_at?: string
           user_id: string
           xp_reward?: number
         }
@@ -3566,6 +3577,7 @@ export type Database = {
           name?: string
           streak?: number
           type?: string
+          updated_at?: string
           user_id?: string
           xp_reward?: number
         }
