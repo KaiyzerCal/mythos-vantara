@@ -1,6 +1,6 @@
-// Lead Generation — AI researches prospects, drafts outreach for SkyforgeAI
+// Lead Generation — AI researches prospects and drafts personalized outreach
 import { useState, useEffect, useCallback } from "react";
-import { Users, Search, Mail, Star, Loader2, Plus, ChevronDown, ChevronUp, TrendingUp } from "lucide-react";
+import { Users, Search, Mail, Star, Loader2, ChevronDown, ChevronUp } from "lucide-react";
 import { supabase as _supabase } from "@/integrations/supabase/client";
 const supabase = _supabase as any;
 import { useAuth } from "@/contexts/AuthContext";
@@ -42,6 +42,16 @@ export default function LeadGenPage() {
   const [company, setCompany] = useState("");
   const [targetRole, setTargetRole] = useState("");
   const [filter, setFilter] = useState("all");
+  const [productContext, setProductContext] = useState("");
+
+  // Pull company from profile as default product context
+  useEffect(() => {
+    if (!user?.id) return;
+    supabase.from("profiles").select("company, display_name").eq("id", user.id).single()
+      .then(({ data }: any) => {
+        if (data?.company) setProductContext(data.company);
+      });
+  }, [user?.id]);
 
   const fetchLeads = useCallback(async () => {
     if (!user?.id) return;
@@ -70,7 +80,7 @@ export default function LeadGenPage() {
     setDraftingId(leadId);
     try {
       const { data, error } = await supabase.functions.invoke("mavis-lead-gen", {
-        body: { action: "draft_outreach", lead_id: leadId, product_context: "SkyforgeAI — AI revenue automation for SMBs" },
+        body: { action: "draft_outreach", lead_id: leadId, product_context: productContext.trim() || undefined },
       });
       if (error || data?.error) throw new Error(data?.error ?? error?.message);
       toast.success("Outreach drafted");
@@ -87,7 +97,7 @@ export default function LeadGenPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader title="Lead Generation" subtitle="MAVIS researches prospects and drafts personalized outreach for SkyforgeAI." icon={<Users size={20} />} />
+      <PageHeader title="Lead Generation" subtitle="MAVIS researches prospects and drafts personalized outreach." icon={<Users size={20} />} />
 
       <HudCard className="p-5 space-y-4">
         <h3 className="text-sm font-semibold text-primary uppercase tracking-widest">Research New Lead</h3>
@@ -103,6 +113,11 @@ export default function LeadGenPage() {
             <input className="w-full bg-background border border-border rounded px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:border-primary/50"
               placeholder="CEO, Founder, Head of Marketing…" value={targetRole} onChange={e => setTargetRole(e.target.value)} />
           </div>
+        </div>
+        <div>
+          <label className="block text-xs text-muted-foreground mb-1">Your Product / Context <span className="text-muted-foreground/50">(used in outreach drafts)</span></label>
+          <input className="w-full bg-background border border-border rounded px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:border-primary/50"
+            placeholder="e.g. AI revenue automation for SMBs" value={productContext} onChange={e => setProductContext(e.target.value)} />
         </div>
         <button onClick={research} disabled={researching}
           className="flex items-center gap-2 bg-primary text-primary-foreground px-4 py-2 rounded text-sm font-medium hover:bg-primary/90 disabled:opacity-50 transition-colors">
