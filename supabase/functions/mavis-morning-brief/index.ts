@@ -349,6 +349,22 @@ Deno.serve(async (req) => {
       }, { onConflict: "user_id,brief_date" });
     } catch { /* non-critical — Telegram already sent */ }
 
+    // ── Push summary to mavis_insights for in-app Notifications page ─────────
+    // OpenHuman morning briefing pattern: brief is delivered both to external
+    // channel (Telegram) and persisted as an in-app notification/insight.
+    try {
+      const alertCount = patternAlerts.length + overdue.length + approvals.length;
+      const severity = alertCount > 3 ? "warning" : alertCount > 0 ? "info" : "info";
+      await supabase.from("mavis_insights").insert({
+        user_id: uid,
+        title: `Morning Brief — ${new Date().toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" })}`,
+        content: briefText.slice(0, 2000),
+        category: "morning_brief",
+        severity,
+        source: "morning_brief",
+      });
+    } catch { /* non-critical */ }
+
     return new Response(
       JSON.stringify({ ok: true, sections: sections.length - 2 }),
       { headers: { "Content-Type": "application/json" } },
