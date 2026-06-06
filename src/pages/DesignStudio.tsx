@@ -83,6 +83,59 @@ function CopyButton({ text }: { text: string }) {
   );
 }
 
+// Known package → pinned version map for common generated deps
+const KNOWN_VERSIONS: Record<string, string> = {
+  "react-hook-form": "^7.51.0",
+  "@hookform/resolvers": "^3.3.4",
+  "zod": "^3.22.4",
+  "framer-motion": "^11.0.0",
+  "lucide-react": "^0.400.0",
+  "tailwind-merge": "^2.0.0",
+  "class-variance-authority": "^0.7.0",
+  "clsx": "^2.0.0",
+  "@radix-ui/react-dialog": "^1.0.5",
+  "@radix-ui/react-dropdown-menu": "^2.0.6",
+  "@radix-ui/react-label": "^2.0.2",
+  "@radix-ui/react-select": "^2.0.0",
+  "@radix-ui/react-slot": "^1.0.2",
+  "@radix-ui/react-tabs": "^1.0.4",
+  "@radix-ui/react-toast": "^1.1.5",
+  "@radix-ui/react-accordion": "^1.1.2",
+  "@radix-ui/react-popover": "^1.0.7",
+  "react-router-dom": "^6.22.0",
+  "sonner": "^1.4.3",
+  "date-fns": "^3.6.0",
+  "recharts": "^2.12.0",
+  "axios": "^1.6.8",
+  "gsap": "^3.12.5",
+};
+
+function extractDependencies(files: GeneratedFile[]): Record<string, string> {
+  const deps: Record<string, string> = {};
+  const importRe = /from\s+['"]([^'"./][^'"]*)['"]/g;
+  const requireRe = /require\s*\(\s*['"]([^'"./][^'"]*)['"]\s*\)/g;
+
+  for (const file of files) {
+    for (const re of [importRe, requireRe]) {
+      re.lastIndex = 0;
+      let match: RegExpExecArray | null;
+      while ((match = re.exec(file.content)) !== null) {
+        const pkg = match[1];
+        // Get the root package name (e.g. "@hookform/resolvers/zod" → "@hookform/resolvers")
+        const root = pkg.startsWith("@")
+          ? pkg.split("/").slice(0, 2).join("/")
+          : pkg.split("/")[0];
+        if (!deps[root]) {
+          deps[root] = KNOWN_VERSIONS[root] ?? "latest";
+        }
+      }
+    }
+  }
+
+  // Always include base React deps (sandpack template provides them but be explicit)
+  return deps;
+}
+
 function buildSandpackFiles(files: GeneratedFile[]): Record<string, string> {
   const sandpackFiles: Record<string, string> = {};
 
@@ -127,6 +180,7 @@ function FileViewer({ files }: { files: GeneratedFile[] }) {
   const file = files.find((f) => f.path === activeFile);
 
   const sandpackFiles = buildSandpackFiles(files);
+  const detectedDeps = extractDependencies(files);
 
   const handleDownload = () => {
     const lines: string[] = ["# Generated Project Files\n"];
@@ -180,18 +234,8 @@ function FileViewer({ files }: { files: GeneratedFile[] }) {
           <SandpackProvider
             template="react-ts"
             files={sandpackFiles}
-            customSetup={{
-              dependencies: {
-                "framer-motion": "^11.0.0",
-                "lucide-react": "^0.400.0",
-                "tailwind-merge": "^2.0.0",
-                "class-variance-authority": "^0.7.0",
-                "clsx": "^2.0.0",
-              },
-            }}
-            options={{
-              externalResources: ["https://cdn.tailwindcss.com"],
-            }}
+            customSetup={{ dependencies: detectedDeps }}
+            options={{ externalResources: ["https://cdn.tailwindcss.com"] }}
             theme="dark"
           >
             <SandpackLayout>
@@ -231,6 +275,7 @@ function FileViewer({ files }: { files: GeneratedFile[] }) {
               <SandpackProvider
                 template="react-ts"
                 files={sandpackFiles}
+                customSetup={{ dependencies: detectedDeps }}
                 options={{ activeFile: file.path.startsWith("/") ? file.path : `/${file.path}` }}
                 theme="dark"
               >
