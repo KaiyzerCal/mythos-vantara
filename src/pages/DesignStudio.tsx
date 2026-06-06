@@ -5,6 +5,7 @@ import {
   Palette, Plus, Loader2, CheckCircle2, XCircle,
   Package, FileCode2, RefreshCw, ChevronDown, ChevronRight,
   Zap, Clock, DollarSign, Copy, Check, Eye, Code2, Download,
+  Wand2, Layers,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
@@ -565,6 +566,270 @@ function NewProjectForm({ onComplete, onCancel, userId }: NewProjectFormProps) {
   );
 }
 
+// ─── DESIGN SYSTEM GENERATOR ─────────────────────────────────
+
+type DSColorPalette = {
+  product: string; primary: string; secondary: string; accent: string;
+  background: string; foreground: string; card: string; muted: string;
+  border: string; muted_fg: string; notes: string;
+};
+
+type DSResult = {
+  ok: boolean; product_type: string; project_name: string | null; query: string;
+  pattern: string; style: string; color_mood: string;
+  colors: DSColorPalette | null;
+  typography: { name: string; heading: string; body: string; mood: string; css_import: string; tailwind_config: string } | null;
+  effects: string; anti_patterns: string[]; checklist: string[];
+  severity: string; stack_notes: string;
+};
+
+const STACKS = [
+  { id: "shadcn",        label: "shadcn/ui" },
+  { id: "react",         label: "React + Tailwind" },
+  { id: "nextjs",        label: "Next.js" },
+  { id: "html-tailwind", label: "HTML + Tailwind" },
+] as const;
+
+const DS_SEVERITY_COLORS: Record<string, string> = {
+  HIGH:   "text-red-400 border-red-800 bg-red-950/30",
+  MEDIUM: "text-amber-400 border-amber-800 bg-amber-950/30",
+  LOW:    "text-green-400 border-green-800 bg-green-950/30",
+};
+
+function ColorSwatch({ color, label }: { color: string; label: string }) {
+  const [copied, setCopied] = useState(false);
+  const isHex = /^#[0-9a-fA-F]{3,8}$/.test(color);
+  return (
+    <button
+      onClick={async () => { await navigator.clipboard.writeText(color); setCopied(true); setTimeout(() => setCopied(false), 1500); }}
+      title={`${label}: ${color}`}
+      className="flex flex-col items-center gap-1 group cursor-pointer"
+    >
+      <div
+        className="w-8 h-8 rounded border border-white/10 transition-transform group-hover:scale-110 shadow-sm"
+        style={{ backgroundColor: isHex ? color : undefined, background: !isHex ? color : undefined }}
+      />
+      <span className="text-[8px] font-mono text-muted-foreground group-hover:text-foreground transition-colors">
+        {copied ? "copied" : label}
+      </span>
+    </button>
+  );
+}
+
+function DesignSystemGenerator() {
+  const [query, setQuery] = useState("");
+  const [projectName, setProjectName] = useState("");
+  const [stack, setStack] = useState<string>("shadcn");
+  const [generating, setGenerating] = useState(false);
+  const [result, setResult] = useState<DSResult | null>(null);
+  const [specCopied, setSpecCopied] = useState(false);
+
+  async function handleGenerate() {
+    if (!query.trim()) { toast.error("Describe your product first"); return; }
+    setGenerating(true);
+    setResult(null);
+    try {
+      const { data, error } = await (supabase as any).functions.invoke("mavis-design-system-gen", {
+        body: { query: query.trim(), project_name: projectName.trim() || undefined, stack },
+      });
+      if (error) throw new Error(error.message ?? String(error));
+      if (!data?.ok) throw new Error(data?.error ?? "Unknown error");
+      setResult(data as DSResult);
+      toast.success("Design system generated");
+    } catch (err) {
+      toast.error(`Failed: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setGenerating(false);
+    }
+  }
+
+  async function copySpec() {
+    if (!result) return;
+    await navigator.clipboard.writeText(JSON.stringify(result, null, 2));
+    setSpecCopied(true);
+    setTimeout(() => setSpecCopied(false), 2000);
+    toast.success("Design spec copied as JSON");
+  }
+
+  const COLOR_KEYS: (keyof DSColorPalette)[] = [
+    "primary", "secondary", "accent", "background", "foreground", "card", "muted", "border",
+  ];
+
+  return (
+    <div className="space-y-5">
+      <HudCard className="space-y-4">
+        <div>
+          <label className="block text-[10px] font-mono text-muted-foreground mb-1.5 uppercase tracking-wider">
+            Product Description <span className="text-primary">*</span>
+          </label>
+          <textarea
+            rows={3}
+            placeholder="E.g. SaaS dashboard for indie hackers tracking MRR, churn, and LTV — dark, data-dense, professional"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            className="w-full bg-muted/20 border border-border rounded-lg px-3 py-2.5 text-sm text-foreground placeholder-muted-foreground/50 focus:outline-none focus:border-primary/50 transition-colors resize-none"
+          />
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <label className="block text-[10px] font-mono text-muted-foreground mb-1.5 uppercase tracking-wider">
+              Project Name <span className="text-muted-foreground/50">(optional)</span>
+            </label>
+            <input
+              type="text"
+              placeholder="MetricsOS"
+              value={projectName}
+              onChange={(e) => setProjectName(e.target.value)}
+              className="w-full bg-muted/20 border border-border rounded-lg px-3 py-2.5 text-sm text-foreground placeholder-muted-foreground/50 focus:outline-none focus:border-primary/50 transition-colors"
+            />
+          </div>
+          <div>
+            <label className="block text-[10px] font-mono text-muted-foreground mb-2 uppercase tracking-wider">Stack</label>
+            <div className="flex gap-2 flex-wrap">
+              {STACKS.map((s) => (
+                <button
+                  key={s.id}
+                  onClick={() => setStack(s.id)}
+                  className={`px-2.5 py-1 text-[10px] font-mono rounded border transition-colors ${
+                    stack === s.id
+                      ? "bg-primary/10 border-primary/30 text-primary"
+                      : "border-border/50 text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  {s.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        <button
+          onClick={handleGenerate}
+          disabled={generating || !query.trim()}
+          className="w-full py-3 bg-primary text-primary-foreground rounded-lg font-mono text-sm font-bold disabled:opacity-40 hover:bg-primary/90 transition-colors flex items-center justify-center gap-2"
+        >
+          {generating ? (
+            <><Loader2 size={14} className="animate-spin" /> Analyzing design context...</>
+          ) : (
+            <><Wand2 size={14} /> Generate Design System</>
+          )}
+        </button>
+      </HudCard>
+
+      {result && (
+        <motion.div
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="space-y-4"
+        >
+          {/* Header */}
+          <HudCard className="space-y-3">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <div className="flex items-center gap-2 mb-1">
+                  <span className={`text-[9px] font-mono px-1.5 py-0.5 rounded border ${DS_SEVERITY_COLORS[result.severity] ?? DS_SEVERITY_COLORS.MEDIUM}`}>
+                    {result.severity} COMPLEXITY
+                  </span>
+                  <span className="text-[9px] font-mono text-muted-foreground">{result.product_type}</span>
+                </div>
+                <p className="text-sm font-display font-bold">{result.project_name ?? result.product_type}</p>
+                <p className="text-xs text-muted-foreground mt-0.5">{result.pattern}</p>
+              </div>
+              <button
+                onClick={copySpec}
+                className="shrink-0 flex items-center gap-1 px-2.5 py-1.5 text-[9px] font-mono border border-border/50 rounded hover:border-primary/30 hover:text-primary text-muted-foreground transition-colors"
+              >
+                {specCopied ? <Check size={10} /> : <Copy size={10} />}
+                {specCopied ? "Copied" : "Copy JSON"}
+              </button>
+            </div>
+            <div className="grid grid-cols-3 gap-3">
+              {[["Style", result.style], ["Color Mood", result.color_mood], ["Effects", result.effects]].map(([label, val]) => (
+                <div key={label} className="p-2.5 rounded border border-border/50 bg-muted/10">
+                  <p className="text-[9px] font-mono text-muted-foreground uppercase tracking-wider mb-1">{label}</p>
+                  <p className="text-xs font-mono text-foreground">{val}</p>
+                </div>
+              ))}
+            </div>
+          </HudCard>
+
+          {/* Color palette */}
+          {result.colors && (
+            <HudCard className="space-y-3">
+              <p className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider">Color Palette — click to copy</p>
+              <div className="flex gap-5 flex-wrap">
+                {COLOR_KEYS.map((key) => (
+                  <ColorSwatch key={key} color={(result.colors as DSColorPalette)[key]} label={key} />
+                ))}
+              </div>
+              {result.colors.notes && (
+                <p className="text-[10px] font-mono text-muted-foreground italic">{result.colors.notes}</p>
+              )}
+            </HudCard>
+          )}
+
+          {/* Typography */}
+          {result.typography && (
+            <HudCard className="space-y-3">
+              <p className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider">Typography — {result.typography.name}</p>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="p-2.5 rounded border border-border/50 bg-muted/10">
+                  <p className="text-[9px] font-mono text-muted-foreground mb-1">Heading</p>
+                  <p className="text-sm font-mono font-bold">{result.typography.heading}</p>
+                </div>
+                <div className="p-2.5 rounded border border-border/50 bg-muted/10">
+                  <p className="text-[9px] font-mono text-muted-foreground mb-1">Body</p>
+                  <p className="text-sm font-mono">{result.typography.body}</p>
+                </div>
+              </div>
+              <p className="text-[10px] font-mono text-muted-foreground">{result.typography.mood}</p>
+              <div className="relative">
+                <div className="absolute top-2 right-2"><CopyButton text={result.typography.css_import} /></div>
+                <pre className="text-[10px] font-mono text-muted-foreground bg-muted/20 rounded p-3 overflow-x-auto pr-8 whitespace-pre-wrap">{result.typography.css_import}</pre>
+              </div>
+              <div className="relative">
+                <div className="absolute top-2 right-2"><CopyButton text={result.typography.tailwind_config} /></div>
+                <pre className="text-[10px] font-mono text-muted-foreground bg-muted/20 rounded p-3 overflow-x-auto pr-8 whitespace-pre-wrap">{result.typography.tailwind_config}</pre>
+              </div>
+            </HudCard>
+          )}
+
+          {/* Stack notes */}
+          <HudCard className="space-y-2">
+            <p className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider">Stack Integration — {stack}</p>
+            <p className="text-xs font-mono text-muted-foreground leading-relaxed">{result.stack_notes}</p>
+          </HudCard>
+
+          {/* Anti-patterns + Checklist */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <HudCard className="space-y-2">
+              <p className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider">Anti-Patterns — Avoid</p>
+              <ul className="space-y-1.5">
+                {result.anti_patterns.map((ap, i) => (
+                  <li key={i} className="flex items-start gap-2 text-[10px] font-mono text-red-400/80">
+                    <XCircle size={10} className="shrink-0 mt-0.5" />{ap}
+                  </li>
+                ))}
+              </ul>
+            </HudCard>
+            <HudCard className="space-y-2">
+              <p className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider">Quality Checklist</p>
+              <ul className="space-y-1.5">
+                {result.checklist.map((item, i) => (
+                  <li key={i} className="flex items-start gap-2 text-[10px] font-mono text-green-400/80">
+                    <CheckCircle2 size={10} className="shrink-0 mt-0.5" />{item}
+                  </li>
+                ))}
+              </ul>
+            </HudCard>
+          </div>
+        </motion.div>
+      )}
+    </div>
+  );
+}
+
 // ─── MAIN PAGE ────────────────────────────────────────────────
 
 export default function DesignStudio() {
@@ -573,7 +838,7 @@ export default function DesignStudio() {
 
   const [projects, setProjects] = useState<Project[]>([]);
   const [components, setComponents] = useState<Component[]>([]);
-  const [activeTab, setActiveTab] = useState<"projects" | "components" | "new">("projects");
+  const [activeTab, setActiveTab] = useState<"projects" | "components" | "new" | "design-system">("projects");
   const [loading, setLoading] = useState(true);
 
   const userId = session?.user?.id ?? "";
@@ -605,9 +870,10 @@ export default function DesignStudio() {
   useEffect(() => { if (lastActionTs) load(); }, [lastActionTs]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const TABS = [
-    { id: "projects" as const,    label: `Projects (${projects.length})`,     icon: <Palette size={10} /> },
-    { id: "components" as const,  label: `Components (${components.length})`, icon: <Package size={10} /> },
-    { id: "new" as const,         label: "New Project",                        icon: <Plus size={10} /> },
+    { id: "projects" as const,       label: `Projects (${projects.length})`,     icon: <Palette size={10} /> },
+    { id: "components" as const,     label: `Components (${components.length})`, icon: <Package size={10} /> },
+    { id: "new" as const,            label: "New Project",                        icon: <Plus size={10} /> },
+    { id: "design-system" as const,  label: "Design System",                      icon: <Layers size={10} /> },
   ];
 
   return (
@@ -751,6 +1017,9 @@ export default function DesignStudio() {
           />
         </HudCard>
       )}
+
+      {/* Design System Tab */}
+      {activeTab === "design-system" && <DesignSystemGenerator />}
     </div>
   );
 }
