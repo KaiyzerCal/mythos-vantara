@@ -2,7 +2,8 @@
 // VANTARA.EXE — WidgetBuilderPage
 // MAVIS widget service — embeddable AI micro-apps
 // ============================================================
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -77,6 +78,7 @@ export default function WidgetBuilderPage() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [detailTab, setDetailTab] = useState<DetailTab>("embed");
+  const [usageStats, setUsageStats] = useState<{ date: string; chats: number; leads: number }[]>([]);
 
   // Builder form
   const [selectedType, setSelectedType] = useState("chat");
@@ -146,6 +148,46 @@ export default function WidgetBuilderPage() {
       .limit(20);
     setLeads(data ?? []);
   };
+
+  const loadUsageStats = useCallback(async (widgetId: string) => {
+    const sevenDaysAgo = new Date();
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 6);
+    const fromDate = sevenDaysAgo.toISOString().split("T")[0];
+
+    const { data } = await (supabase as any)
+      .from("widget_usage_stats")
+      .select("date, action_type, request_count")
+      .eq("widget_id", widgetId)
+      .gte("date", fromDate)
+      .order("date", { ascending: true });
+
+    // Build a 7-day map with zeroes for missing days
+    const dayMap: Record<string, { chats: number; leads: number }> = {};
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date();
+      d.setDate(d.getDate() - i);
+      const key = d.toISOString().split("T")[0];
+      dayMap[key] = { chats: 0, leads: 0 };
+    }
+    for (const row of (data ?? [])) {
+      if (!dayMap[row.date]) continue;
+      if (row.action_type === "chat") dayMap[row.date].chats += row.request_count;
+      else if (row.action_type === "lead") dayMap[row.date].leads += row.request_count;
+      else dayMap[row.date].chats += row.request_count; // fallback: count as chat
+    }
+    setUsageStats(
+      Object.entries(dayMap).map(([date, vals]) => ({
+        date: date.slice(5), // "MM-DD"
+        ...vals,
+      }))
+    );
+  }, []);
+
+  useEffect(() => {
+    if (selectedWidget?.id && detailTab === "analytics") {
+      loadUsageStats(selectedWidget.id);
+    }
+  }, [selectedWidget, detailTab, loadUsageStats]);
 
   // ─── Generate Widget ──────────────────────────────────────────
   const generateWidget = async () => {
@@ -981,21 +1023,36 @@ export default function WidgetBuilderPage() {
           })}
         </div>
 
-        {/* Bar chart placeholder */}
         <Card className="border border-border/50">
           <CardHeader className="pb-2">
             <CardTitle className="text-sm flex items-center gap-2">
               <BarChart3 size={14} />
-              Activity Over Time
+              Activity — Last 7 Days
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="h-32 flex items-center justify-center bg-muted/20 rounded-lg border border-border/30">
-              <div className="text-center text-muted-foreground">
-                <BarChart3 size={28} className="mx-auto mb-2 opacity-40" />
-                <p className="text-xs">Analytics coming soon — real-time data available via API</p>
+            {usageStats.every(d => d.chats === 0 && d.leads === 0) ? (
+              <div className="h-32 flex items-center justify-center bg-muted/20 rounded-lg border border-border/30">
+                <div className="text-center text-muted-foreground">
+                  <BarChart3 size={24} className="mx-auto mb-2 opacity-30" />
+                  <p className="text-xs">No activity yet — share the embed code to start tracking</p>
+                </div>
               </div>
-            </div>
+            ) : (
+              <ResponsiveContainer width="100%" height={140}>
+                <BarChart data={usageStats} margin={{ top: 4, right: 4, left: -24, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
+                  <XAxis dataKey="date" tick={{ fontSize: 10, fill: "#6b7280" }} />
+                  <YAxis tick={{ fontSize: 10, fill: "#6b7280" }} allowDecimals={false} />
+                  <Tooltip
+                    contentStyle={{ background: "#0f0f0f", border: "1px solid rgba(255,255,255,0.1)", fontSize: 11 }}
+                    labelStyle={{ color: "#9ca3af" }}
+                  />
+                  <Bar dataKey="chats" name="Chats" fill="#3b82f6" radius={[2, 2, 0, 0]} />
+                  <Bar dataKey="leads" name="Leads" fill="#10b981" radius={[2, 2, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            )}
           </CardContent>
         </Card>
       </div>
