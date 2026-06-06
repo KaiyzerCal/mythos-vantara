@@ -1011,6 +1011,39 @@ serve(async (req) => {
       }
     } catch { /* non-critical */ }
 
+    // ── User model injection (Hermes USER.md pattern) ─────────────────────────
+    // AI-synthesized behavioral model, refreshed daily by mavis-user-model-refresh.
+    // Injected as <memory-context> block — stripped from visible output via client.
+    let userModelBlock = "";
+    try {
+      const { data: userModel } = await sb
+        .from("mavis_user_model")
+        .select("personality_summary,communication_style,core_values,primary_goals,working_style,triggers,raw_synthesis,confidence_score")
+        .eq("user_id", user.id)
+        .maybeSingle();
+
+      if (userModel?.personality_summary) {
+        const um = userModel as any;
+        const parts: string[] = [];
+        if (um.personality_summary) parts.push(`BEHAVIORAL SYNTHESIS (confidence: ${Math.round((um.confidence_score ?? 0.1) * 100)}%):\n${um.personality_summary}`);
+        const style = um.communication_style ?? {};
+        if (Object.keys(style).length > 0) {
+          const styleStr = Object.entries(style).map(([k, v]) => `${k}: ${v}`).join(", ");
+          parts.push(`COMMUNICATION STYLE: ${styleStr}`);
+        }
+        if (Array.isArray(um.core_values) && um.core_values.length > 0) parts.push(`CORE VALUES: ${um.core_values.join(", ")}`);
+        if (Array.isArray(um.primary_goals) && um.primary_goals.length > 0) parts.push(`PRIMARY GOALS:\n${(um.primary_goals as string[]).map((g: string) => `• ${g}`).join("\n")}`);
+        const triggers = um.triggers ?? {};
+        if (Array.isArray(triggers.energizers) && triggers.energizers.length > 0) parts.push(`ENERGIZERS: ${triggers.energizers.join(", ")}`);
+        if (Array.isArray(triggers.warnings) && triggers.warnings.length > 0) parts.push(`WATCH FOR: ${triggers.warnings.join(", ")}`);
+        if (um.raw_synthesis) parts.push(`BEHAVIORAL CONTEXT:\n${String(um.raw_synthesis).slice(0, 800)}`);
+
+        if (parts.length > 0) {
+          userModelBlock = `\n<memory-context>\n${parts.join("\n\n")}\n</memory-context>`;
+        }
+      }
+    } catch { /* non-critical */ }
+
     // ── NAVI Ecosystem Context ──────────────────────────────────────────────────
     // Load the user's active NAVIs and their relationship states so MAVIS is aware
     // of the user's companion network — bonds formed, moods, milestones reached.
@@ -1428,6 +1461,7 @@ You always know the current date and time without being told. Reference it natur
       baseSystem,
       timeBlock,
       authoritativeContext,
+      userModelBlock,
       tacitBlock,
       naviBlock,
       knowledgeBlock,
@@ -1602,6 +1636,27 @@ You always know the current date and time without being told. Reference it natur
                   } catch { /* non-critical */ }
                 })();
               }
+
+              // ── Achievement check (non-blocking) ─────────────────
+              fetch(`${supabaseUrl}/functions/v1/mavis-achievement-check`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json", Authorization: `Bearer ${serviceKey}` },
+                body: JSON.stringify({ user_id: user.id, trigger: "chat" }),
+              }).catch(() => {});
+
+              // ── User model refresh (every 5th interaction, non-blocking) ──
+              (async () => {
+                try {
+                  const { data: bndCheck } = await sb.from("mavis_bond").select("interaction_count").eq("user_id", user.id).single();
+                  if (bndCheck && ((bndCheck.interaction_count ?? 0) % 5 === 0)) {
+                    fetch(`${supabaseUrl}/functions/v1/mavis-user-model-refresh`, {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json", Authorization: `Bearer ${serviceKey}` },
+                      body: JSON.stringify({ user_id: user.id }),
+                    }).catch(() => {});
+                  }
+                } catch { /* non-critical */ }
+              })();
             }
           }
         }
@@ -1793,6 +1848,35 @@ Respond with ONLY a JSON array (may be empty []):
             consolidated:     false,
           },
         ]);
+      } catch { /* non-critical */ }
+    })();
+
+    // ── Achievement check (non-blocking) ───────────────────────
+    (async () => {
+      try {
+        const supabaseUrl2 = Deno.env.get("SUPABASE_URL")!;
+        const serviceKey2  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+        await fetch(`${supabaseUrl2}/functions/v1/mavis-achievement-check`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${serviceKey2}` },
+          body: JSON.stringify({ user_id: user.id, trigger: "chat" }),
+        });
+      } catch { /* non-critical */ }
+    })();
+
+    // ── User model refresh (every 5th interaction, non-blocking) ──
+    (async () => {
+      try {
+        const { data: bndCheck2 } = await sb.from("mavis_bond").select("interaction_count").eq("user_id", user.id).single();
+        if (bndCheck2 && ((bndCheck2.interaction_count ?? 0) % 5 === 0)) {
+          const supabaseUrl2 = Deno.env.get("SUPABASE_URL")!;
+          const serviceKey2  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+          fetch(`${supabaseUrl2}/functions/v1/mavis-user-model-refresh`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${serviceKey2}` },
+            body: JSON.stringify({ user_id: user.id }),
+          }).catch(() => {});
+        }
       } catch { /* non-critical */ }
     })();
 

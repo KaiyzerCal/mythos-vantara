@@ -51,6 +51,8 @@ const INTEL_NAV = [
   { to: "/finance", icon: DollarSign, label: "Finance" },
   { to: "/scheduler", icon: CalendarClock, label: "Scheduler" },
   { to: "/goals", icon: Crosshair, label: "Goals" },
+  { to: "/playbooks", icon: BookOpen, label: "Playbooks" },
+  { to: "/so-templates", icon: BookMarked, label: "SO Templates" },
   { to: "/study", icon: GraduationCap, label: "Study" },
   { to: "/time", icon: Clock, label: "Time Tracker" },
   { to: "/meetings", icon: Video, label: "Meetings" },

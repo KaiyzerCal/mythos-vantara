@@ -99,6 +99,8 @@ const ApiKeysPage = lazy(() => import("@/pages/ApiKeysPage"));
 const LeadGenPage = lazy(() => import("@/pages/LeadGenPage"));
 const CompetitorIntelPage = lazy(() => import("@/pages/CompetitorIntelPage"));
 const ReceptionistPage = lazy(() => import("@/pages/ReceptionistPage"));
+const PlaybooksPage = lazy(() => import("@/pages/PlaybooksPage").then(m => ({ default: m.PlaybooksPage })));
+const StandingOrderTemplatesPage = lazy(() => import("@/pages/StandingOrderTemplatesPage").then(m => ({ default: m.StandingOrderTemplatesPage })));
 // Public demo — no auth required
 const MavisDemo = lazy(() => import("@/pages/MavisDemo"));
 const IntelligencePage = lazy(() => import("@/pages/IntelligencePage"));
@@ -208,6 +210,8 @@ function AppContent() {
               <Route path="/api-keys" element={<ApiKeysPage />} />
               <Route path="/leads" element={<LeadGenPage />} />
               <Route path="/competitors" element={<CompetitorIntelPage />} />
+              <Route path="/playbooks" element={<PlaybooksPage />} />
+              <Route path="/so-templates" element={<StandingOrderTemplatesPage />} />
               <Route path="*" element={<NotFound />} />
             </Routes>
           </Suspense>
