@@ -284,38 +284,39 @@ export default function MavisChat() {
   }, []);
 
   // ── Load persisted chat from DB on mount ─────────────────
+  // Wait for an authenticated session before loading; retry on auth state changes
+  // to avoid a race where getSession() returns null on cold mount.
   useEffect(() => {
     if (dbLoaded) return;
-    (async () => {
-      try {
-        const { data: { session } } = await supabase.auth.getSession();
-        if (!session?.user) { setDbLoaded(true); return; }
+    let cancelled = false;
 
+    const runLoad = async (userId: string) => {
+      if (cancelled) return;
+      try {
         // Init three-layer memory engine + load DB-backed runtime skills
-        initSession(session.user.id);
-        loadRuntimeSkills(session.user.id).catch(err => console.warn("[Skills] Runtime load failed:", err));
+        initSession(userId);
+        loadRuntimeSkills(userId).catch(err => console.warn("[Skills] Runtime load failed:", err));
 
         // Load standing orders custom directives
         setCustomOrders(getCustomOrders());
 
         // Pre-load personas for picker
-        supabase.from("personas").select("id, name, system_prompt").eq("is_active", true).eq("user_id", session.user.id)
-          .then(({ data }) => { if (data) setPickerPersonas(data as any); })
+        supabase.from("personas").select("id, name, system_prompt").eq("is_active", true).eq("user_id", userId)
+          .then(({ data }: any) => { if (!cancelled && data) setPickerPersonas(data as any); })
           .catch(() => {});
 
         const { data: convos } = await supabase
           .from("chat_conversations")
           .select("id, title")
-          .eq("user_id", session.user.id)
+          .eq("user_id", userId)
           .not("title", "ilike", "Council Board%")
           .order("updated_at", { ascending: false })
           .limit(1);
 
+        if (cancelled) return;
         if (!convos?.length) { setDbLoaded(true); return; }
 
         const convoId = convos[0].id;
-        // Always restore the conversation ID — even if it has no messages yet.
-        // Without this, ensureConversation() creates a new thread on every fast load.
         setConversationId(convoId);
 
         const { data: msgs } = await supabase
@@ -325,6 +326,7 @@ export default function MavisChat() {
           .order("created_at", { ascending: true })
           .limit(200);
 
+        if (cancelled) return;
         if (msgs?.length) {
           const restored = msgs.map((m: any) => ({
             id: m.id,
@@ -338,10 +340,29 @@ export default function MavisChat() {
       } catch (err) {
         console.error("Failed to restore chat:", err);
       } finally {
-        setDbLoaded(true);
+        if (!cancelled) setDbLoaded(true);
       }
+    };
+
+    (async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.user) {
+        await runLoad(session.user.id);
+      }
+      // Don't mark dbLoaded yet — wait for onAuthStateChange to fire with a session.
     })();
-  }, []);
+
+    const { data: sub } = supabase.auth.onAuthStateChange((_event: any, session: any) => {
+      if (session?.user && !dbLoaded && !cancelled) {
+        runLoad(session.user.id);
+      }
+    });
+
+    return () => {
+      cancelled = true;
+      sub?.subscription?.unsubscribe?.();
+    };
+  }, [dbLoaded]);
 
   // ── Persist a single message to DB ───────────────────────
   const persistMessage = useCallback(async (msg: { role: string; content: string; mode?: string }, convoId: string) => {
