@@ -1263,6 +1263,125 @@ async function callPersona(personaId: string, message: string, chatId: string): 
 }
 
 // ─────────────────────────────────────────────────────────────
+// COUNCIL SESSION STATE + TURN HANDLER
+// Stored in mavis_memory with session_id "telegram-council-<chatId>" so the
+// sustained council mode survives function restarts. When active, every
+// inbound message is routed through mavis-strategy-council and persisted to
+// the user's Council Board chat thread (chat_conversations title
+// "Council Board …" + chat_messages).
+// ─────────────────────────────────────────────────────────────
+
+const COUNCIL_STATE_PREFIX = "telegram-council-";
+
+async function getCouncilMode(chatId: string): Promise<boolean> {
+  try {
+    const { data } = await supabase
+      .from("mavis_memory")
+      .select("content")
+      .eq("user_id", OPERATOR_USER_ID)
+      .eq("session_id", `${COUNCIL_STATE_PREFIX}${chatId}`)
+      .eq("role", "system")
+      .limit(1)
+      .maybeSingle();
+    return data?.content === "on";
+  } catch { return false; }
+}
+
+async function setCouncilMode(chatId: string, on: boolean): Promise<void> {
+  try {
+    await supabase
+      .from("mavis_memory")
+      .delete()
+      .eq("user_id", OPERATOR_USER_ID)
+      .eq("session_id", `${COUNCIL_STATE_PREFIX}${chatId}`)
+      .eq("role", "system");
+    if (on) {
+      await supabase.from("mavis_memory").insert({
+        user_id: OPERATOR_USER_ID,
+        session_id: `${COUNCIL_STATE_PREFIX}${chatId}`,
+        role: "system",
+        content: "on",
+        timestamp: Date.now(),
+      });
+    }
+  } catch { /* non-fatal */ }
+}
+
+async function getOrCreateCouncilConversation(): Promise<string | null> {
+  const { data: convos } = await supabase
+    .from("chat_conversations")
+    .select("id")
+    .eq("user_id", OPERATOR_USER_ID)
+    .ilike("title", "Council Board%")
+    .order("updated_at", { ascending: false })
+    .limit(1);
+  if (convos?.length) return convos[0].id;
+  const { data: created } = await supabase
+    .from("chat_conversations")
+    .insert({ user_id: OPERATOR_USER_ID, title: `Council Board — ${new Date().toLocaleDateString()}` })
+    .select("id").single();
+  return created?.id ?? null;
+}
+
+async function runCouncilTurn(_chatId: string, question: string): Promise<string> {
+  const cid = await getOrCreateCouncilConversation();
+  if (!cid) return "Failed to open council session.";
+
+  // Persist the user's question to the Council Board thread (with source marker)
+  await supabase.from("chat_messages").insert({
+    conversation_id: cid, user_id: OPERATOR_USER_ID,
+    role: "user", content: `[Telegram] ${question}`, mode: "USER",
+  });
+
+  const supabaseUrl2 = Deno.env.get("SUPABASE_URL")!;
+  const serviceKey2  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+  const councilRes = await fetch(`${supabaseUrl2}/functions/v1/mavis-strategy-council`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${serviceKey2}` },
+    body: JSON.stringify({ question, user_id: OPERATOR_USER_ID }),
+  });
+
+  if (!councilRes.ok) {
+    const errText = await councilRes.text().catch(() => "");
+    console.error("[Telegram/council] strategy-council error:", errText);
+    return "The Strategy Council failed to respond.";
+  }
+
+  const councilData = await councilRes.json();
+  const advisorOutputs: Array<{ role: string; output: string }> = councilData.advisor_outputs ?? [];
+  const synthesis: string = councilData.synthesis ?? "";
+  const recommendation: string = councilData.recommendation ?? "";
+
+  for (const a of advisorOutputs) {
+    const role = String(a.role ?? "Advisor").toLowerCase().replace(/[^a-z]/g, "-");
+    const label = String(a.role ?? "Advisor");
+    await supabase.from("chat_messages").insert({
+      conversation_id: cid, user_id: OPERATOR_USER_ID,
+      role: "assistant", content: String(a.output ?? ""),
+      mode: `council-${role}|${label}|Strategic Advisor|council`,
+    });
+  }
+  if (synthesis) {
+    await supabase.from("chat_messages").insert({
+      conversation_id: cid, user_id: OPERATOR_USER_ID,
+      role: "assistant", content: synthesis,
+      mode: `mavis|MAVIS Synthesis|Sovereign Intelligence|mavis`,
+    });
+  }
+  await supabase.from("chat_conversations")
+    .update({ updated_at: new Date().toISOString() })
+    .eq("id", cid);
+
+  const summaryParts = [
+    recommendation ? `RECOMMENDATION: ${recommendation.slice(0, 300)}` : null,
+    synthesis ? `\n\nSYNTHESIS:\n${synthesis.slice(0, 600)}` : null,
+    `\n\n(Full council analysis in the Council Board)`,
+  ].filter(Boolean).join("");
+  return summaryParts || "Council deliberated. Full analysis in the Council Board.";
+}
+
+
+// ─────────────────────────────────────────────────────────────
 // COMMAND HANDLERS
 // ─────────────────────────────────────────────────────────────
 
