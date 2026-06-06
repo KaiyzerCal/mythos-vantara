@@ -163,6 +163,9 @@ verify_jwt = true
 verify_jwt = true
 
 # ── Website / widget builders ──
+[functions.mavis-design-system-gen]
+verify_jwt = true
+
 [functions.mavis-web-builder]
 verify_jwt = true
 

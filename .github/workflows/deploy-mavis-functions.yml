@@ -32,3 +32,5 @@ jobs:
         run: supabase functions deploy mavis-user-model-refresh --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
       - name: Deploy mavis-goal-judge
         run: supabase functions deploy mavis-goal-judge --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
+      - name: Deploy mavis-design-system-gen
+        run: supabase functions deploy mavis-design-system-gen --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
