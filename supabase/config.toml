@@ -587,3 +587,17 @@ verify_jwt = false
 
 [functions.mavis-goal-judge]
 verify_jwt = false
+
+# ── New capabilities (Polymarket, Maps, arXiv, RSS Monitor) ──
+[functions.mavis-polymarket]
+verify_jwt = true
+
+[functions.mavis-maps]
+verify_jwt = true
+
+[functions.mavis-arxiv]
+verify_jwt = true
+
+# fetch_all triggered by heartbeat with service-role key; user actions use JWT
+[functions.mavis-rss-monitor]
+verify_jwt = false
