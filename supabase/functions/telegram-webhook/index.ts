@@ -1816,6 +1816,91 @@ async function handleCommand(command: string, chatId: string, fullText: string):
       return "MAVIS online. What do you need?";
     }
 
+    case "/council": {
+      const question = fullText.replace(/^\/council\s*/i, "").trim();
+      if (!question) return "Usage: /council [strategic question]\n\nExample: /council Should I launch the product now or wait?";
+
+      // Find or create the council board conversation
+      const { data: convos } = await supabase
+        .from("chat_conversations")
+        .select("id")
+        .eq("user_id", OPERATOR_USER_ID)
+        .ilike("title", "Council Board%")
+        .order("updated_at", { ascending: false })
+        .limit(1);
+
+      let cid: string;
+      if (convos?.length) {
+        cid = convos[0].id;
+      } else {
+        const { data: newConvo } = await supabase
+          .from("chat_conversations")
+          .insert({ user_id: OPERATOR_USER_ID, title: `Council Board — ${new Date().toLocaleDateString()}` })
+          .select("id").single();
+        if (!newConvo?.id) return "Failed to open council session.";
+        cid = newConvo.id;
+      }
+
+      // Write the user's question to the council thread
+      await supabase.from("chat_messages").insert({
+        conversation_id: cid, user_id: OPERATOR_USER_ID,
+        role: "user", content: `[Telegram] ${question}`, mode: "USER",
+      });
+
+      // Convene the strategy council
+      const supabaseUrl2 = Deno.env.get("SUPABASE_URL")!;
+      const serviceKey2  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+      const councilRes = await fetch(`${supabaseUrl2}/functions/v1/mavis-strategy-council`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${serviceKey2}` },
+        body: JSON.stringify({ question, user_id: OPERATOR_USER_ID }),
+      });
+
+      if (!councilRes.ok) {
+        const errText = await councilRes.text().catch(() => "");
+        console.error("[Telegram/council] strategy-council error:", errText);
+        return "The Strategy Council failed to respond. Check your ANTHROPIC_API_KEY and try again.";
+      }
+
+      const councilData = await councilRes.json();
+      const advisorOutputs: Array<{ role: string; output: string }> = councilData.advisor_outputs ?? [];
+      const synthesis: string = councilData.synthesis ?? "";
+      const recommendation: string = councilData.recommendation ?? "";
+
+      // Write each advisor's response to the council board thread
+      for (const a of advisorOutputs) {
+        const role = String(a.role ?? "Advisor").toLowerCase().replace(/[^a-z]/g, "-");
+        const label = String(a.role ?? "Advisor");
+        await supabase.from("chat_messages").insert({
+          conversation_id: cid, user_id: OPERATOR_USER_ID,
+          role: "assistant", content: String(a.output ?? ""),
+          mode: `council-${role}|${label}|Strategic Advisor|council`,
+        });
+      }
+
+      // Write the MAVIS synthesis
+      if (synthesis) {
+        await supabase.from("chat_messages").insert({
+          conversation_id: cid, user_id: OPERATOR_USER_ID,
+          role: "assistant", content: synthesis,
+          mode: `mavis|MAVIS Synthesis|Sovereign Intelligence|mavis`,
+        });
+      }
+
+      // Touch the conversation so it sorts to top
+      await supabase.from("chat_conversations")
+        .update({ updated_at: new Date().toISOString() })
+        .eq("id", cid);
+
+      // Return a summary to Telegram (truncated for readability)
+      const summaryParts = [
+        recommendation ? `RECOMMENDATION: ${recommendation.slice(0, 300)}` : null,
+        synthesis ? `\n\nSYNTHESIS:\n${synthesis.slice(0, 600)}` : null,
+        `\n\n(Full council analysis in the Council Board)`,
+      ].filter(Boolean).join("");
+      return summaryParts || "Council deliberated. Full analysis in the Council Board.";
+    }
+
     case "/switch": {
       const nameQuery = fullText.replace(/^\/switch\s*/i, "").trim();
       if (!nameQuery) return "Usage: /switch [persona name]";

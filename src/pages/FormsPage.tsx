@@ -2,7 +2,7 @@ import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Flame, Zap, ChevronDown, ChevronRight, Plus, Edit2, Trash2,
-  Check, X, Copy, Shield, Star,
+  Check, X, Copy, Shield, Star, GripVertical,
 } from "lucide-react";
 import { useAppData } from "@/contexts/AppDataContext";
 import { PageHeader, HudCard, RarityBadge } from "@/components/SharedUI";
@@ -71,6 +71,8 @@ export default function FormsPage() {
   const [draftForm, setDraftForm] = useState<Omit<Transformation, "id" | "user_id">>(EMPTY_FORM);
   const [copied, setCopied] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState<{ id: string; label: string } | null>(null);
+  const [draggingId, setDraggingId] = useState<string | null>(null);
+  const [dragOverId, setDragOverId] = useState<string | null>(null);
 
   const seedDefaultForms = async () => {
     if (!user || forms.length > 0) return;
@@ -158,6 +160,33 @@ export default function FormsPage() {
 
   const handleActivate = async (form: Transformation) => {
     await updateProfile({ current_form: form.name });
+  };
+
+  const handleDrop = async (targetId: string) => {
+    if (!draggingId || draggingId === targetId) {
+      setDraggingId(null);
+      setDragOverId(null);
+      return;
+    }
+    // Work on the full forms list (form_order is the global sort key)
+    const list = [...forms];
+    const fromIdx = list.findIndex((f) => f.id === draggingId);
+    const toIdx = list.findIndex((f) => f.id === targetId);
+    if (fromIdx === -1 || toIdx === -1) { setDraggingId(null); setDragOverId(null); return; }
+
+    const [moved] = list.splice(fromIdx, 1);
+    list.splice(toIdx, 0, moved);
+
+    setDraggingId(null);
+    setDragOverId(null);
+
+    // Assign new sequential form_order values and batch-persist only changed rows
+    const updates = list.map((f, i) => ({ id: f.id, form_order: (i + 1) * 10 }));
+    const changed = updates.filter((u) => {
+      const orig = forms.find((f) => f.id === u.id);
+      return orig && orig.form_order !== u.form_order;
+    });
+    await Promise.all(changed.map(({ id, form_order }) => updateTransformation(id, { form_order })));
   };
 
   const copyForm = (form: Transformation) => {
@@ -336,10 +365,20 @@ export default function FormsPage() {
           const active = isActive(form);
           const tierColor = TIER_COLORS[form.tier] ?? "#666";
           const isOpen = expandedId === form.id;
+          const isDragging = draggingId === form.id;
+          const isDragOver = dragOverId === form.id && !isDragging;
 
           return (
-            <motion.div
+            <div
               key={form.id}
+              draggable
+              onDragStart={(e) => { e.dataTransfer.effectAllowed = "move"; setDraggingId(form.id); }}
+              onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; setDragOverId(form.id); }}
+              onDrop={(e) => { e.preventDefault(); handleDrop(form.id); }}
+              onDragEnd={() => { setDraggingId(null); setDragOverId(null); }}
+              className={`transition-all ${isDragging ? "opacity-30 scale-[0.98]" : ""} ${isDragOver ? "ring-2 ring-primary/50 rounded-lg" : ""}`}
+            >
+            <motion.div
               initial={{ opacity: 0, y: 6 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: i * 0.02 }}
@@ -356,6 +395,8 @@ export default function FormsPage() {
                 className="flex items-center gap-3 p-3 cursor-pointer"
                 onClick={() => setExpandedId(isOpen ? null : form.id)}
               >
+                {/* Drag handle */}
+                <GripVertical size={12} className="shrink-0 text-muted-foreground/30 hover:text-muted-foreground/70 cursor-grab transition-colors" onMouseDown={(e) => e.stopPropagation()} />
                 {/* Tier color strip */}
                 <div className="w-1 self-stretch rounded-full shrink-0" style={{ background: tierColor }} />
 
@@ -472,6 +513,7 @@ export default function FormsPage() {
                 )}
               </AnimatePresence>
             </motion.div>
+            </div>
           );
         })}
 
