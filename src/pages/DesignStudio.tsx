@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   Palette, Plus, Loader2, CheckCircle2, XCircle,
   Package, FileCode2, RefreshCw, ChevronDown, ChevronRight,
-  Zap, Clock, DollarSign, Copy, Check,
+  Zap, Clock, DollarSign, Copy, Check, Eye, Code2, Download,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
@@ -13,6 +13,12 @@ import { PageHeader, HudCard } from "@/components/SharedUI";
 import { toast } from "sonner";
 import { runDesignEngine } from "@/mavis/design/designEngine";
 import type { DesignBrief, GeneratedFile } from "@/mavis/design/types";
+import {
+  SandpackProvider,
+  SandpackCodeEditor,
+  SandpackPreview,
+  SandpackLayout,
+} from "@codesandbox/sandpack-react";
 
 const BRANDS = ["codexos", "vantara", "skyforgeai", "bioneer", "navi", "custom"] as const;
 const DEADLINE_TIERS = ["rapid", "standard", "premium"] as const;
@@ -77,35 +83,163 @@ function CopyButton({ text }: { text: string }) {
   );
 }
 
+function buildSandpackFiles(files: GeneratedFile[]): Record<string, string> {
+  const sandpackFiles: Record<string, string> = {};
+
+  // Map generated files to sandpack paths
+  files.forEach((f) => {
+    const path = f.path.startsWith("/") ? f.path : `/${f.path}`;
+    sandpackFiles[path] = f.content;
+  });
+
+  // Determine entry point — prefer App.tsx, index.tsx, or first tsx file
+  const entryFile =
+    files.find((f) => f.path.endsWith("App.tsx") || f.path === "App.tsx")?.path ??
+    files.find((f) => f.path.endsWith("index.tsx"))?.path ??
+    files.find((f) => f.type === "tsx")?.path;
+
+  // Always provide a working index.tsx that imports from the entry component
+  if (entryFile && !files.some((f) => f.path === "index.tsx" || f.path === "/index.tsx")) {
+    const importPath = `./${entryFile.replace(/^\//, "").replace(/\.tsx$/, "")}`;
+    sandpackFiles["/index.tsx"] = `import React from "react";
+import { createRoot } from "react-dom/client";
+import App from "${importPath}";
+import "./styles.css";
+
+const root = createRoot(document.getElementById("root")!);
+root.render(<App />);`;
+  }
+
+  // Merge any CSS into styles.css or provide a blank one with Tailwind directives
+  const cssFiles = files.filter((f) => f.type === "css");
+  if (cssFiles.length > 0 && !sandpackFiles["/styles.css"]) {
+    sandpackFiles["/styles.css"] = cssFiles.map((f) => f.content).join("\n\n");
+  } else if (!sandpackFiles["/styles.css"]) {
+    sandpackFiles["/styles.css"] = "/* generated styles */";
+  }
+
+  return sandpackFiles;
+}
+
 function FileViewer({ files }: { files: GeneratedFile[] }) {
+  const [activeTab, setActiveTab] = useState<"code" | "preview">("preview");
   const [activeFile, setActiveFile] = useState(files[0]?.path ?? "");
   const file = files.find((f) => f.path === activeFile);
 
+  const sandpackFiles = buildSandpackFiles(files);
+
+  const handleDownload = () => {
+    const lines: string[] = ["# Generated Project Files\n"];
+    files.forEach((f) => {
+      lines.push(`\n## ${f.path}\n\`\`\`${f.type}\n${f.content}\n\`\`\``);
+    });
+    const blob = new Blob([lines.join("\n")], { type: "text/markdown" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "generated_project.md";
+    a.click();
+    URL.revokeObjectURL(url);
+    toast.success("Project files downloaded as Markdown");
+  };
+
   return (
-    <div className="mt-4 rounded-lg border border-border overflow-hidden">
-      <div className="flex overflow-x-auto border-b border-border bg-muted/20">
-        {files.map((f) => (
-          <button
-            key={f.path}
-            onClick={() => setActiveFile(f.path)}
-            className={`shrink-0 px-3 py-2 text-[10px] font-mono transition-colors border-r border-border last:border-r-0 ${
-              activeFile === f.path
-                ? "text-primary bg-primary/10"
-                : "text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            {f.path.split("/").pop()}
-          </button>
-        ))}
+    <div className="mt-4 space-y-3">
+      {/* Tab bar */}
+      <div className="flex items-center gap-1">
+        <button
+          onClick={() => setActiveTab("preview")}
+          className={`flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-mono rounded border transition-colors ${
+            activeTab === "preview"
+              ? "bg-primary/10 border-primary/30 text-primary"
+              : "border-border/50 text-muted-foreground hover:text-foreground"
+          }`}
+        >
+          <Eye size={10} /> Live Preview
+        </button>
+        <button
+          onClick={() => setActiveTab("code")}
+          className={`flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-mono rounded border transition-colors ${
+            activeTab === "code"
+              ? "bg-primary/10 border-primary/30 text-primary"
+              : "border-border/50 text-muted-foreground hover:text-foreground"
+          }`}
+        >
+          <Code2 size={10} /> Code
+        </button>
+        <button
+          onClick={handleDownload}
+          className="flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-mono rounded border border-border/50 text-muted-foreground hover:text-foreground transition-colors ml-auto"
+        >
+          <Download size={10} /> Download
+        </button>
       </div>
-      {file && (
-        <div className="relative">
-          <div className="absolute top-2 right-2 z-10">
-            <CopyButton text={file.content} />
+
+      {activeTab === "preview" && (
+        <div className="rounded-lg overflow-hidden border border-border">
+          <SandpackProvider
+            template="react-ts"
+            files={sandpackFiles}
+            customSetup={{
+              dependencies: {
+                "framer-motion": "^11.0.0",
+                "lucide-react": "^0.400.0",
+                "tailwind-merge": "^2.0.0",
+                "class-variance-authority": "^0.7.0",
+                "clsx": "^2.0.0",
+              },
+            }}
+            options={{
+              externalResources: ["https://cdn.tailwindcss.com"],
+            }}
+            theme="dark"
+          >
+            <SandpackLayout>
+              <SandpackPreview
+                style={{ height: 520 }}
+                showOpenInCodeSandbox
+                showRefreshButton
+              />
+            </SandpackLayout>
+          </SandpackProvider>
+        </div>
+      )}
+
+      {activeTab === "code" && (
+        <div className="rounded-lg overflow-hidden border border-border">
+          {/* File tabs */}
+          <div className="flex overflow-x-auto border-b border-border bg-muted/20">
+            {files.map((f) => (
+              <button
+                key={f.path}
+                onClick={() => setActiveFile(f.path)}
+                className={`shrink-0 px-3 py-2 text-[10px] font-mono transition-colors border-r border-border last:border-r-0 ${
+                  activeFile === f.path
+                    ? "text-primary bg-primary/10"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                {f.path.split("/").pop()}
+              </button>
+            ))}
           </div>
-          <pre className="p-4 text-[10px] font-mono text-foreground/80 overflow-auto max-h-96 bg-muted/10 leading-relaxed">
-            {file.content}
-          </pre>
+          {file && (
+            <div className="relative">
+              <div className="absolute top-2 right-2 z-10">
+                <CopyButton text={file.content} />
+              </div>
+              <SandpackProvider
+                template="react-ts"
+                files={sandpackFiles}
+                options={{ activeFile: file.path.startsWith("/") ? file.path : `/${file.path}` }}
+                theme="dark"
+              >
+                <SandpackLayout>
+                  <SandpackCodeEditor style={{ height: 400 }} showLineNumbers showTabs={false} />
+                </SandpackLayout>
+              </SandpackProvider>
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -138,12 +272,17 @@ function ProjectCard({ project }: { project: Project }) {
               {project.project_value.toLocaleString()}
             </span>
           )}
-          {project.status === "complete" && (
+          {project.status === "complete" && files.length > 0 && (
             <button
               onClick={() => setExpanded(!expanded)}
-              className="p-1 rounded text-muted-foreground hover:text-primary transition-colors"
+              className={`flex items-center gap-1 px-2 py-1 text-[9px] font-mono rounded border transition-colors ${
+                expanded
+                  ? "bg-primary/10 border-primary/30 text-primary"
+                  : "border-border/50 text-muted-foreground hover:text-primary hover:border-primary/30"
+              }`}
             >
-              {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+              <Eye size={10} />
+              {expanded ? "Close" : "Preview"}
             </button>
           )}
         </div>
