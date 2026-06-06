@@ -34,3 +34,11 @@ jobs:
         run: supabase functions deploy mavis-goal-judge --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
       - name: Deploy mavis-design-system-gen
         run: supabase functions deploy mavis-design-system-gen --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
+      - name: Deploy mavis-heartbeat
+        run: supabase functions deploy mavis-heartbeat --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
+      - name: Deploy mavis-skill-catalog
+        run: supabase functions deploy mavis-skill-catalog --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
+      - name: Deploy mavis-run-doctor
+        run: supabase functions deploy mavis-run-doctor --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
+      - name: Deploy mavis-obsidian-export
+        run: supabase functions deploy mavis-obsidian-export --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}

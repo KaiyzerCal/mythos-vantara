@@ -1,8 +1,9 @@
 // MAVIS Fine-Tune Export — export your MAVIS conversations for Ollama fine-tuning.
 // Returns JSONL in OpenAI ChatML format (compatible with Ollama, LM Studio, Axolotl).
+// OpenJarvis pattern: trajectory compression — groups turns into goal→steps→result
 //
 // Usage: POST /functions/v1/mavis-fine-tune-export
-// Body: { format?: "openai" | "alpaca", min_quality?: 1-10, limit?: number }
+// Body: { format?: "openai" | "alpaca" | "trajectory", min_quality?: 1-10, limit?: number }
 // Returns: JSONL file download with training pairs
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
@@ -33,7 +34,7 @@ serve(async (req) => {
     }
 
     const body = await req.json().catch(() => ({}));
-    const format      = String(body.format ?? "openai");    // openai | alpaca
+    const format      = String(body.format ?? "openai");    // openai | alpaca | trajectory
     const minQuality  = Number(body.min_quality ?? 5);      // filter low-quality turns
     const limitRows   = Math.min(Number(body.limit ?? 5000), 10000);
     const systemMsg   = String(body.system ?? MAVIS_SYSTEM);
@@ -55,38 +56,92 @@ serve(async (req) => {
     // Pair consecutive user → assistant turns into training examples
     const examples: string[] = [];
 
-    for (let i = 0; i < memories.length - 1; i++) {
-      const curr = memories[i];
-      const next = memories[i + 1];
+    // ── Trajectory Compression (OpenJarvis pattern) ──────────
+    // Groups semantically-related turn sequences into goal→steps→result
+    // Deduplicates near-identical turns using jaccard similarity
 
-      if (curr.role !== "user" || next.role !== "assistant") continue;
-      if (!curr.content?.trim() || !next.content?.trim()) continue;
+    function tokenize(text: string): Set<string> {
+      return new Set(text.toLowerCase().replace(/[^a-z0-9\s]/g, "").split(/\s+/).filter(w => w.length > 2));
+    }
 
-      // Skip very short exchanges (likely noise)
-      if (curr.content.trim().length < 10 || next.content.trim().length < 20) continue;
+    function jaccard(a: Set<string>, b: Set<string>): number {
+      const intersection = new Set([...a].filter(x => b.has(x)));
+      const union = new Set([...a, ...b]);
+      return union.size === 0 ? 0 : intersection.size / union.size;
+    }
 
-      if (format === "alpaca") {
-        // Alpaca format: instruction / output pairs
-        const record = {
-          instruction: curr.content.trim(),
-          input: "",
-          output: next.content.trim(),
-        };
-        examples.push(JSON.stringify(record));
-      } else {
-        // OpenAI ChatML format (default) — compatible with Ollama modelfile training
-        const record = {
-          messages: [
-            { role: "system",    content: systemMsg },
-            { role: "user",      content: curr.content.trim() },
-            { role: "assistant", content: next.content.trim() },
-          ],
-        };
-        examples.push(JSON.stringify(record));
+    // Deduplicate: remove turns that are >80% similar to a prior turn
+    const deduped: typeof memories = [];
+    const seenTokens: Set<string>[] = [];
+    for (const mem of memories) {
+      const tokens = tokenize(mem.content ?? "");
+      const isDupe = seenTokens.some(prior => jaccard(prior, tokens) > 0.80);
+      if (!isDupe) {
+        deduped.push(mem);
+        seenTokens.push(tokens);
       }
+    }
 
-      i++; // skip the assistant turn we already consumed
-      if (examples.length >= limitRows) break;
+    // For trajectory format: group turn pairs into multi-turn trajectories
+    if (format === "trajectory") {
+      // Group into sessions of up to 5 consecutive turn-pairs (goal→steps→result)
+      const sessionSize = 5;
+      let i = 0;
+      while (i < deduped.length - 1 && examples.length < limitRows) {
+        const turns: { role: string; content: string }[] = [
+          { role: "system", content: systemMsg },
+        ];
+        let pairs = 0;
+        while (pairs < sessionSize && i < deduped.length - 1) {
+          const curr = deduped[i];
+          const next = deduped[i + 1];
+          if (curr.role === "user" && next.role === "assistant" &&
+              curr.content?.trim().length >= 10 && next.content?.trim().length >= 20) {
+            turns.push({ role: "user", content: curr.content.trim() });
+            turns.push({ role: "assistant", content: next.content.trim() });
+            pairs++;
+            i += 2;
+          } else {
+            i++;
+          }
+        }
+        if (pairs >= 2) {
+          examples.push(JSON.stringify({ messages: turns, trajectory_length: pairs }));
+        }
+      }
+    } else {
+      for (let i = 0; i < deduped.length - 1; i++) {
+        const curr = deduped[i];
+        const next = deduped[i + 1];
+
+        if (curr.role !== "user" || next.role !== "assistant") continue;
+        if (!curr.content?.trim() || !next.content?.trim()) continue;
+
+        // Skip very short exchanges (likely noise)
+        if (curr.content.trim().length < 10 || next.content.trim().length < 20) continue;
+
+        if (format === "alpaca") {
+          const record = {
+            instruction: curr.content.trim(),
+            input: "",
+            output: next.content.trim(),
+          };
+          examples.push(JSON.stringify(record));
+        } else {
+          // OpenAI ChatML format (default) — compatible with Ollama modelfile training
+          const record = {
+            messages: [
+              { role: "system",    content: systemMsg },
+              { role: "user",      content: curr.content.trim() },
+              { role: "assistant", content: next.content.trim() },
+            ],
+          };
+          examples.push(JSON.stringify(record));
+        }
+
+        i++; // skip the assistant turn we already consumed
+        if (examples.length >= limitRows) break;
+      }
     }
 
     if (examples.length === 0) {
@@ -97,7 +152,7 @@ serve(async (req) => {
     }
 
     const jsonl     = examples.join("\n") + "\n";
-    const filename  = `mavis-finetune-${user.id.slice(0, 8)}-${Date.now()}.jsonl`;
+    const filename  = `mavis-finetune-${format}-${user.id.slice(0, 8)}-${Date.now()}.jsonl`;
 
     // Optionally save to storage for later download
     const enc = new TextEncoder();
@@ -113,6 +168,7 @@ serve(async (req) => {
         "Content-Disposition": `attachment; filename="${filename}"`,
         "X-Example-Count": String(examples.length),
         "X-Format": format,
+        "X-Deduplicated": "true",
       },
     });
   } catch (e: any) {

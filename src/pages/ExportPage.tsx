@@ -6,7 +6,7 @@ import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import {
   BookLock, BookOpen, Target, CheckSquare, Crosshair, UserCheck, Cpu, DollarSign,
-  Download, Loader2, ShieldAlert,
+  Download, Loader2, ShieldAlert, FileArchive,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
@@ -152,6 +152,42 @@ export function ExportPage() {
     }
   }
 
+  // ─── Obsidian vault export ────────────────────────────────
+  async function exportObsidian(includeVault: boolean) {
+    if (!user) return;
+    const key = includeVault ? "obsidian_vault" : "obsidian";
+    setExporting((prev) => ({ ...prev, [key]: true }));
+    try {
+      const { data, error } = await (supabase as any).functions.invoke("mavis-obsidian-export", {
+        body: { include_knowledge: true, include_journal: true, include_vault: includeVault },
+      });
+      if (error || data?.error) throw new Error(data?.error ?? error?.message);
+
+      const files: { folder: string; filename: string; content: string }[] = data.files ?? [];
+      if (files.length === 0) { toast.error("No files to export"); return; }
+
+      // Download as a zip-like concatenated markdown archive
+      // Each file is separated by a header comment
+      const archive = files.map(f => {
+        const path = f.folder ? `${f.folder}/${f.filename}` : f.filename;
+        return `\n\n<!-- FILE: ${path} -->\n\n${f.content}`;
+      }).join("\n");
+
+      const blob = new Blob([archive], { type: "text/markdown" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `mavis-obsidian-vault-${today()}.md`;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast.success(`Exported ${files.length} Obsidian files`);
+    } catch (e: any) {
+      toast.error(e.message ?? "Obsidian export failed");
+    } finally {
+      setExporting((prev) => ({ ...prev, [key]: false }));
+    }
+  }
+
   // ─── Derived state ────────────────────────────────────────
   const anyExporting = Object.values(exporting).some(Boolean);
   const totalRecords = Object.values(exportStats).reduce((sum, n) => sum + n, 0);
@@ -258,6 +294,47 @@ export function ExportPage() {
           );
         })}
       </div>
+
+      {/* ── Obsidian Export ──────────────────────────────────── */}
+      <motion.div
+        initial={{ opacity: 0, y: 8 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.3, delay: 0.40 }}
+      >
+        <HudCard className="flex flex-col gap-4">
+          <div className="flex items-start gap-3">
+            <div className="w-8 h-8 rounded bg-violet-500/10 border border-violet-500/20 flex items-center justify-center text-violet-400 shrink-0">
+              <FileArchive size={15} />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-display font-bold text-foreground leading-tight">
+                Obsidian Vault Export
+              </p>
+              <p className="text-[10px] font-mono text-muted-foreground mt-0.5 leading-snug">
+                Export MAVIS notes, journal, and vault as Obsidian-compatible markdown with YAML frontmatter and [[wikilinks]].
+              </p>
+            </div>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button
+              onClick={() => exportObsidian(false)}
+              disabled={anyExporting}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono bg-violet-500/10 border border-violet-500/30 text-violet-300 rounded hover:bg-violet-500/20 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+            >
+              {exporting.obsidian ? <Loader2 size={11} className="animate-spin" /> : <Download size={11} />}
+              Export Notes + Journal
+            </button>
+            <button
+              onClick={() => exportObsidian(true)}
+              disabled={anyExporting}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono bg-violet-500/10 border border-violet-500/30 text-violet-300 rounded hover:bg-violet-500/20 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+            >
+              {exporting.obsidian_vault ? <Loader2 size={11} className="animate-spin" /> : <FileArchive size={11} />}
+              Export Full Vault
+            </button>
+          </div>
+        </HudCard>
+      </motion.div>
 
       {/* ── Privacy Note ─────────────────────────────────────── */}
       <motion.div

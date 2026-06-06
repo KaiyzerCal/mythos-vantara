@@ -50,6 +50,24 @@ function isHighStakesQuery(msg: string): boolean {
   return TRIGGERS.some(t => lower.includes(t)) && msg.length > 80;
 }
 
+// ── LLM cost estimator (OpenJarvis cost telemetry pattern) ──────────────
+// Rough USD cost from character counts. Rates per 1M tokens (4 chars ≈ 1 token).
+function estimateLlmCost(provider: string, inputChars: number, outputChars: number): number {
+  const inTok  = inputChars  / 4;
+  const outTok = outputChars / 4;
+  const RATES: Record<string, [number, number]> = {
+    "gemini-2.5-flash":   [0.075,  0.30],
+    "gemini-2.5-thinking":[3.5,   10.50],
+    "openai-mini":        [0.15,   0.60],
+    "claude-haiku":       [0.25,   1.25],
+    "claude-sonnet":      [3.0,   15.0],
+    "claude-sonnet-thinking": [3.0, 15.0],
+    "grok":               [0.30,   0.50],
+  };
+  const [inRate, outRate] = RATES[provider] ?? [0.15, 0.60];
+  return Math.round(((inTok * inRate + outTok * outRate) / 1_000_000) * 1_000_000) / 1_000_000;
+}
+
 // ── Real-time facet class detection (OpenHuman self-learning pattern) ──
 // Keyword-pattern scan over the user's message to detect preference signals.
 // Returns a partial facets object — only populated classes.
@@ -1455,6 +1473,28 @@ ${fmtGoals}
       } catch { /* non-fatal — proceed without KG context */ }
     }
 
+    // ── Custom skill trigger detection (Hermes catalog pattern) ──────────
+    // If the user's message matches an installed skill's trigger_phrase,
+    // inject the skill's system_prompt into the context so MAVIS uses it.
+    let skillInjection = "";
+    try {
+      const { data: activeSkills } = await sb
+        .from("mavis_custom_skills")
+        .select("name, trigger_phrase, system_prompt")
+        .eq("user_id", user.id)
+        .eq("enabled", true)
+        .not("trigger_phrase", "is", null);
+      if (activeSkills?.length) {
+        const lowerMsg = lastUserText.toLowerCase();
+        const matched = (activeSkills as any[]).find((s: any) =>
+          s.trigger_phrase && lowerMsg.includes(s.trigger_phrase.toLowerCase())
+        );
+        if (matched) {
+          skillInjection = `\n\n═══ ACTIVE SKILL: ${matched.name} ═══\n${matched.system_prompt ?? ""}\n═══ END SKILL — apply this skill's instructions to your response ═══`;
+        }
+      }
+    } catch { /* non-critical */ }
+
     // ── Build system prompt ─────────────────────────────────
     // For COUNCIL mode: use the client's persona-rich system prompt as the base,
     // then append the authoritative DB context so the council member has full app awareness.
@@ -1545,6 +1585,7 @@ You always know the current date and time without being told. Reference it natur
     // Compress verbose blocks before assembling to cut token burn 30-50%.
     const fullPrompt = [
       baseSystem,
+      skillInjection,
       timeBlock,
       authoritativeContext,
       compressBlock(userModelBlock),
@@ -1755,6 +1796,16 @@ You always know the current date and time without being told. Reference it natur
                   }
                 } catch { /* non-critical */ }
               })();
+
+              // ── LLM cost telemetry (OpenJarvis pattern) ─────────────────
+              sb.from("mavis_llm_calls").insert({
+                user_id:            user.id,
+                provider:           streamProv ?? provider,
+                mode:               modeUpper,
+                latency_ms:         Date.now() - ts,
+                estimated_cost_usd: estimateLlmCost(streamProv ?? provider, fullPrompt.length + lastUserText.length, accumulated.length),
+                success:            true,
+              }).catch(() => {});
             }
           }
         }
@@ -2071,6 +2122,16 @@ Respond with ONLY a JSON array (may be empty []):
         }
       } catch { /* non-critical — still return text response */ }
     }
+
+    // ── LLM cost telemetry (OpenJarvis pattern) ────────────────────────
+    sb.from("mavis_llm_calls").insert({
+      user_id:            user.id,
+      provider:           usedProvider,
+      mode:               modeUpper,
+      latency_ms:         null,
+      estimated_cost_usd: estimateLlmCost(usedProvider, fullPrompt.length + lastUserContent.length, content.length),
+      success:            true,
+    }).catch(() => {});
 
     return new Response(
       JSON.stringify({ content, mode, conversationId, searched: !!webSearchResults, provider: usedProvider, imageUrl }),
