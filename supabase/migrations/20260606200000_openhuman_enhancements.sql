@@ -35,6 +35,6 @@ CREATE INDEX IF NOT EXISTS idx_notification_stages_user_expires
 
 -- 3. Register mavis-archivist cron (weekly Sunday 4am UTC)
 --    Prunes and deduplicates mavis_memory (conversation log)
-INSERT INTO mavis_cron_config (job_name, function_name, schedule, payload)
+INSERT INTO mavis_cron_config (job_name, edge_function, schedule, payload)
 VALUES ('mavis-archivist', 'mavis-archivist', '0 4 * * 0', '{"scheduled":true}')
 ON CONFLICT (job_name) DO NOTHING;
