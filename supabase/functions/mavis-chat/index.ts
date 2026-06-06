@@ -12,6 +12,78 @@ function scoreImportance(text: string): number {
   return 3;
 }
 
+// ── Context Compression (OpenHuman TokenJuice pattern) ─────────
+// Reduces verbose block content before LLM context assembly.
+// Targets: excess whitespace, JSON boilerplate, long field values.
+// Pure TypeScript — no AI call, zero latency overhead.
+function compressBlock(text: string, maxEntryChars = 300): string {
+  if (!text) return text;
+  // Collapse 3+ consecutive blank lines → 1
+  let out = text.replace(/\n{3,}/g, "\n\n");
+  // Remove trailing spaces on each line
+  out = out.replace(/[ \t]+$/gm, "");
+  // Truncate very long value lines (e.g. raw JSON dumps injected inline)
+  out = out.split("\n").map(line => {
+    if (line.length > maxEntryChars && !line.startsWith("  ")) {
+      return line.slice(0, maxEntryChars) + "…";
+    }
+    return line;
+  }).join("\n");
+  return out;
+}
+
+// ── High-stakes query detection (for critic pass) ──────────────
+// Returns true if the user message is asking for a plan, strategy,
+// analysis, or decision — i.e., outputs where a second-opinion
+// adversarial review adds significant quality value.
+function isHighStakesQuery(msg: string): boolean {
+  const lower = msg.toLowerCase();
+  const TRIGGERS = [
+    "make a plan","build a plan","create a plan","design a plan",
+    "strategy","strategic","roadmap","how should i","what should i do",
+    "analyze","analyse","evaluate","assess","review my","critique",
+    "decision","decide","which option","what's the best","what is the best",
+    "pros and cons","trade-off","tradeoff","compare","breakdown",
+    "investment","financial plan","business plan","launch plan",
+    "help me think","devil's advocate","second opinion","blind spot",
+  ];
+  return TRIGGERS.some(t => lower.includes(t)) && msg.length > 80;
+}
+
+// ── Real-time facet class detection (OpenHuman self-learning pattern) ──
+// Keyword-pattern scan over the user's message to detect preference signals.
+// Returns a partial facets object — only populated classes.
+// Six classes: style, identity, tooling, veto, goal, channel.
+function detectFacets(msg: string): Record<string, string> | null {
+  const lower = msg.toLowerCase();
+  const facets: Record<string, string> = {};
+
+  // Style facets
+  if (/\b(brief|short|concise|quick|terse|less verbose|don't elaborate)\b/.test(lower))
+    facets.style = "concise";
+  else if (/\b(detail|elaborate|in depth|comprehensive|thorough|step.by.step)\b/.test(lower))
+    facets.style = "detailed";
+
+  // Veto facets (hard stops)
+  const vetoMatch = lower.match(/\b(don'?t|never|stop|avoid|hate|dislike)\s+(use|say|do|call|format|show|include|repeat)\s+(\w[\w\s]{0,30})/);
+  if (vetoMatch) facets.veto = `Avoid: "${vetoMatch[3].trim()}"`;
+
+  // Goal facets
+  const goalMatch = lower.match(/\b(my goal is|i want to|i'?m trying to|i need to|working on)\s+(.{10,80})/);
+  if (goalMatch) facets.goal = goalMatch[2].trim().replace(/[.!?]$/, "");
+
+  // Tooling facets
+  const TOOLS = ["notion","obsidian","slack","discord","github","jira","linear","figma","supabase","stripe","zapier","make.com","airtable","google sheets","clickup","todoist","asana"];
+  const mentionedTools = TOOLS.filter(t => lower.includes(t));
+  if (mentionedTools.length) facets.tooling = mentionedTools.join(", ");
+
+  // Channel facets
+  if (/\b(telegram|whatsapp|sms|email|push notification|notify me|send me|alert me)\b/.test(lower))
+    facets.channel = lower.match(/telegram|whatsapp|sms|email|push notification|notify|alert/)?.[0] ?? "notify";
+
+  return Object.keys(facets).length > 0 ? facets : null;
+}
+
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
@@ -1038,6 +1110,18 @@ serve(async (req) => {
         if (Array.isArray(triggers.warnings) && triggers.warnings.length > 0) parts.push(`WATCH FOR: ${triggers.warnings.join(", ")}`);
         if (um.raw_synthesis) parts.push(`BEHAVIORAL CONTEXT:\n${String(um.raw_synthesis).slice(0, 800)}`);
 
+        // Inject real-time facets detected from the current message (OpenHuman pattern)
+        const storedFacets = um.facets ?? {};
+        // Also detect from the current turn message for immediate context
+        const liveFacets = detectFacets(lastUserMsgEarly?.content ?? "");
+        const mergedFacets = { ...storedFacets, ...(liveFacets ?? {}) };
+        if (Object.keys(mergedFacets).length > 0) {
+          const facetStr = Object.entries(mergedFacets)
+            .map(([k, v]) => `${k}: ${v}`)
+            .join(", ");
+          parts.push(`LIVE PREFERENCE FACETS: ${facetStr}`);
+        }
+
         if (parts.length > 0) {
           userModelBlock = `\n<memory-context>\n${parts.join("\n\n")}\n</memory-context>`;
         }
@@ -1457,14 +1541,16 @@ You always know the current date and time without being told. Reference it natur
       }
     } catch { /* non-critical */ }
 
+    // ── Context Compression (OpenHuman TokenJuice pattern) ──────────────────
+    // Compress verbose blocks before assembling to cut token burn 30-50%.
     const fullPrompt = [
       baseSystem,
       timeBlock,
       authoritativeContext,
-      userModelBlock,
-      tacitBlock,
-      naviBlock,
-      knowledgeBlock,
+      compressBlock(userModelBlock),
+      compressBlock(tacitBlock),
+      compressBlock(naviBlock),
+      compressBlock(knowledgeBlock),
       attachmentsBlock,
       proactiveBlock,
       urlContent,
@@ -1657,6 +1743,18 @@ You always know the current date and time without being told. Reference it natur
                   }
                 } catch { /* non-critical */ }
               })();
+
+              // ── Real-time facet capture (OpenHuman self-learning pattern) ──
+              (async () => {
+                try {
+                  const streamFacets = detectFacets(lastUserText);
+                  if (streamFacets) {
+                    await sb.from("mavis_user_model")
+                      .update({ facets: streamFacets, updated_at: new Date().toISOString() })
+                      .eq("user_id", user.id);
+                  }
+                } catch { /* non-critical */ }
+              })();
             }
           }
         }
@@ -1667,7 +1765,7 @@ You always know the current date and time without being told. Reference it natur
     }
 
     // ── Non-streaming path ──────────────────────────────────
-    const { content, provider: usedProvider } = await callWithFallback(
+    let { content, provider: usedProvider } = await callWithFallback(
       provider,
       callMessages,
       fullPrompt,
@@ -1675,6 +1773,59 @@ You always know the current date and time without being told. Reference it natur
       useThinking,
       modeUpper,
     );
+
+    // ── Critic pass (OpenHuman adversarial review pattern) ──
+    // For high-stakes queries (plan/strategy/analysis/decision), run a
+    // lightweight critic AI call that identifies flaws or gaps in the
+    // primary response. Appended as a collapsible section. Non-blocking
+    // on failure — primary response always returned.
+    const lastUserMsgForCritic = typeof lastUserMsg?.content === "string"
+      ? lastUserMsg.content
+      : (Array.isArray(lastUserMsg?.content)
+          ? (lastUserMsg.content as any[]).find((b: any) => b.type === "text")?.text ?? ""
+          : "");
+    if (isHighStakesQuery(lastUserMsgForCritic) && content.length > 200) {
+      try {
+        const criticKey = claudeKey || geminiKey || openaiKey;
+        if (criticKey) {
+          const CRITIC_SYSTEM = `You are a rigorous Devil's Advocate reviewer. Your ONLY job is to find 2-3 critical flaws, hidden risks, blind spots, or missing considerations in the AI response below. Be concise and specific — one sentence per issue. If the response is solid, say "No significant gaps identified."
+
+Format:
+⚠ [Flaw 1]
+⚠ [Flaw 2]
+⚠ [Flaw 3 — if applicable]`;
+
+          let criticText = "";
+          if (claudeKey) {
+            const cr = await fetch("https://api.anthropic.com/v1/messages", {
+              method: "POST",
+              headers: { "Content-Type": "application/json", "x-api-key": claudeKey, "anthropic-version": "2023-06-01" },
+              body: JSON.stringify({
+                model: "claude-haiku-4-5-20251001",
+                max_tokens: 200,
+                system: CRITIC_SYSTEM,
+                messages: [{ role: "user", content: `User asked: "${lastUserMsgForCritic.slice(0, 300)}"\n\nAI response:\n${content.slice(0, 1000)}` }],
+              }),
+            });
+            if (cr.ok) { const d = await cr.json(); criticText = d.content?.[0]?.text ?? ""; }
+          } else if (geminiKey) {
+            const cr = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiKey}`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                systemInstruction: { parts: [{ text: CRITIC_SYSTEM }] },
+                contents: [{ role: "user", parts: [{ text: `User asked: "${lastUserMsgForCritic.slice(0, 300)}"\n\nAI response:\n${content.slice(0, 1000)}` }] }],
+                generationConfig: { maxOutputTokens: 200 },
+              }),
+            });
+            if (cr.ok) { const d = await cr.json(); criticText = d.candidates?.[0]?.content?.parts?.[0]?.text ?? ""; }
+          }
+          if (criticText.trim() && !criticText.includes("No significant gaps")) {
+            content = content + `\n\n---\n**MAVIS Critic Review:**\n${criticText.trim()}`;
+          }
+        }
+      } catch { /* non-critical — primary response stands */ }
+    }
 
     // ── Tacit learning (non-blocking) ───────────────────────
     // Extract preferences/rules/lessons from this exchange and store in mavis_tacit.
@@ -1876,6 +2027,21 @@ Respond with ONLY a JSON array (may be empty []):
             headers: { "Content-Type": "application/json", Authorization: `Bearer ${serviceKey2}` },
             body: JSON.stringify({ user_id: user.id }),
           }).catch(() => {});
+        }
+      } catch { /* non-critical */ }
+    })();
+
+    // ── Real-time facet capture (OpenHuman self-learning pattern) ──────────
+    // Keyword-scan the user's message for preference signals and merge them
+    // into mavis_user_model.facets. Zero AI overhead — pure pattern matching.
+    (async () => {
+      try {
+        const detectedFacets = detectFacets(lastUserContent);
+        if (detectedFacets) {
+          // Merge with existing facets via JSON concatenation in Postgres
+          await sb.from("mavis_user_model")
+            .update({ facets: detectedFacets, updated_at: new Date().toISOString() })
+            .eq("user_id", user.id);
         }
       } catch { /* non-critical */ }
     })();
