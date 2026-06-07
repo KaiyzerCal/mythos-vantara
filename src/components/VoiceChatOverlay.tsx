@@ -79,14 +79,37 @@ export function VoiceChatOverlay({
   const audioUnlockedRef = useRef(false);
 
   const unlockAudio = useCallback(() => {
-    if (audioUnlockedRef.current || !window.speechSynthesis) return;
+    if (audioUnlockedRef.current) return;
     audioUnlockedRef.current = true;
-    // Speaking a zero-width space (volume 0) during the tap activates the iOS
-    // audio session, allowing subsequent async speak() calls to play sound.
-    const u = new SpeechSynthesisUtterance('​');
-    u.volume = 0;
-    window.speechSynthesis.speak(u);
+
+    // Unlock speechSynthesis for iOS — silent utterance during the user gesture.
+    if (window.speechSynthesis) {
+      const u = new SpeechSynthesisUtterance('​');
+      u.volume = 0;
+      window.speechSynthesis.speak(u);
+    }
+
+    // Unlock the Web Audio API context during this same user gesture so ElevenLabs
+    // TTS audio can play after the async TTS fetch completes.  Browsers treat
+    // AudioContext as autoplay-blocked until a user gesture resumes it; by the time
+    // the TTS network call finishes we're no longer inside a gesture, so the context
+    // must be pre-activated here.  Playing a 1-sample silent buffer is the most
+    // reliable cross-browser way to keep the context in "running" state.
+    try {
+      const ctx = elevenLabsAudioCtxRef.current ?? new AudioContext();
+      elevenLabsAudioCtxRef.current = ctx;
+      ctx.resume().then(() => {
+        try {
+          const silent = ctx.createBuffer(1, 1, 22050);
+          const src    = ctx.createBufferSource();
+          src.buffer   = silent;
+          src.connect(ctx.destination);
+          src.start(0);
+        } catch { /* ignore — resume alone may be enough */ }
+      }).catch(() => {});
+    } catch { /* AudioContext not supported on this browser */ }
   }, []);
+
 
   const effectiveLoading = persona ? personaLoading : isLoading;
   const effectiveReply   = persona ? personaReply   : lastBotMessage;
@@ -208,19 +231,32 @@ export function VoiceChatOverlay({
       });
       if (error || !data?.audioContent) throw new Error("TTS unavailable");
 
-      const bytes  = Uint8Array.from(atob(data.audioContent), (c) => c.charCodeAt(0));
+      const bytes = Uint8Array.from(atob(data.audioContent), (c) => c.charCodeAt(0));
+
+      // Re-use the pre-activated context from unlockAudio — do NOT create a new
+      // one here, since we're no longer inside a user gesture and a freshly created
+      // context would be immediately suspended by the browser's autoplay policy.
       const audioCtx = elevenLabsAudioCtxRef.current ?? new AudioContext();
       elevenLabsAudioCtxRef.current = audioCtx;
-      if (audioCtx.state === "suspended") await audioCtx.resume();
 
-      const buffer = await audioCtx.decodeAudioData(bytes.buffer);
+      // Resume in case the browser auto-suspended it (tab hidden, etc.)
+      if (audioCtx.state !== "running") {
+        await audioCtx.resume();
+      }
+
+      // decodeAudioData uses a callback-based API internally; wrap it to get
+      // a proper rejection instead of a silent failure on bad data.
+      const buffer = await new Promise<AudioBuffer>((resolve, reject) => {
+        audioCtx.decodeAudioData(bytes.buffer.slice(0), resolve, reject);
+      });
+
       const source = audioCtx.createBufferSource();
       source.buffer = buffer;
       source.connect(audioCtx.destination);
 
       // Simulate karaoke using actual audio duration for accurate timing
-      const words      = text.split(/\s+/);
-      const msPerWord  = (buffer.duration * 1000) / Math.max(words.length, 1);
+      const words     = text.split(/\s+/);
+      const msPerWord = (buffer.duration * 1000) / Math.max(words.length, 1);
       let charPos = 0;
       let wordIdx = 0;
       const tick = () => {
@@ -238,7 +274,9 @@ export function VoiceChatOverlay({
       };
       source.start();
     } catch {
-      speakReply(text); // graceful fallback
+      // Any failure — ElevenLabs quota, no API key, decode error, suspended context —
+      // falls back to browser speech synthesis which has no key requirement.
+      speakReply(text);
     }
   }, [speakReply]);
 
