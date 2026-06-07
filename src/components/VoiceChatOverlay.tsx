@@ -79,25 +79,33 @@ export function VoiceChatOverlay({
   const audioUnlockedRef = useRef(false);
 
   const unlockAudio = useCallback(() => {
-    if (audioUnlockedRef.current) return;
-    audioUnlockedRef.current = true;
-
-    // Unlock speechSynthesis for iOS — silent utterance during the user gesture.
-    if (window.speechSynthesis) {
-      const u = new SpeechSynthesisUtterance('​');
-      u.volume = 0;
-      window.speechSynthesis.speak(u);
+    // One-time: unlock speechSynthesis for iOS — a silent utterance played
+    // during the user gesture activates the iOS audio session.
+    if (!audioUnlockedRef.current) {
+      audioUnlockedRef.current = true;
+      if (window.speechSynthesis) {
+        const u = new SpeechSynthesisUtterance('​');
+        u.volume = 0;
+        window.speechSynthesis.speak(u);
+      }
     }
 
-    // Unlock the Web Audio API context during this same user gesture so ElevenLabs
-    // TTS audio can play after the async TTS fetch completes.  Browsers treat
-    // AudioContext as autoplay-blocked until a user gesture resumes it; by the time
-    // the TTS network call finishes we're no longer inside a gesture, so the context
-    // must be pre-activated here.  Playing a 1-sample silent buffer is the most
-    // reliable cross-browser way to keep the context in "running" state.
+    // Every tap: re-activate the Web Audio API context. Chrome re-suspends it
+    // after each playback ends (autoplay policy), so a one-time unlock is not
+    // enough — we must resume on every user gesture.  We also wire up
+    // onstatechange so the context auto-heals during the no-tap auto-restart
+    // flow (where the overlay resumes listening without requiring a new tap).
     try {
       const ctx = elevenLabsAudioCtxRef.current ?? new AudioContext();
       elevenLabsAudioCtxRef.current = ctx;
+      // Auto-resume whenever Chrome re-suspends the context mid-session.
+      // After the first user gesture the page has "user activation", so
+      // resume() succeeds even from non-gesture callbacks like onstatechange.
+      ctx.onstatechange = () => {
+        if (ctx.state === "suspended" && !closingRef.current) {
+          ctx.resume().catch(() => {});
+        }
+      };
       ctx.resume().then(() => {
         try {
           const silent = ctx.createBuffer(1, 1, 22050);
@@ -105,7 +113,7 @@ export function VoiceChatOverlay({
           src.buffer   = silent;
           src.connect(ctx.destination);
           src.start(0);
-        } catch { /* ignore — resume alone may be enough */ }
+        } catch { /* ignore */ }
       }).catch(() => {});
     } catch { /* AudioContext not supported on this browser */ }
   }, []);
@@ -233,13 +241,18 @@ export function VoiceChatOverlay({
 
       const bytes = Uint8Array.from(atob(data.audioContent), (c) => c.charCodeAt(0));
 
-      // Re-use the pre-activated context from unlockAudio — do NOT create a new
-      // one here, since we're no longer inside a user gesture and a freshly created
-      // context would be immediately suspended by the browser's autoplay policy.
+      // Re-use the pre-activated context from unlockAudio.  Wire up
+      // onstatechange here too so it's set even if this is the first call.
       const audioCtx = elevenLabsAudioCtxRef.current ?? new AudioContext();
       elevenLabsAudioCtxRef.current = audioCtx;
+      audioCtx.onstatechange = () => {
+        if (audioCtx.state === "suspended" && !closingRef.current) {
+          audioCtx.resume().catch(() => {});
+        }
+      };
 
-      // Resume in case the browser auto-suspended it (tab hidden, etc.)
+      // Resume if suspended — after the page's first user gesture, Chrome
+      // permits resume() from non-gesture contexts (useEffect, Promise chain).
       if (audioCtx.state !== "running") {
         await audioCtx.resume();
       }
