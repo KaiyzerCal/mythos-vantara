@@ -1,14 +1,18 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/contexts/AuthContext";
 import { PageHeader } from "@/components/SharedUI";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import {
   Network, Plus, Search, Link2, Trash2, Save,
   X, Edit3, Clock, Hash, ArrowRight, ArrowLeft, List, GitGraph,
+  BookOpen, ExternalLink, Loader2, Download,
 } from "lucide-react";
 import { toast } from "sonner";
 import { motion, AnimatePresence } from "framer-motion";
 import KnowledgeGraphCanvas from "@/components/KnowledgeGraphCanvas";
+
+const SB_URL = import.meta.env.VITE_SUPABASE_URL ?? "";
 
 interface Note {
   id: string;
@@ -70,6 +74,9 @@ async function kgCall(action: string, params: Record<string, unknown> = {}) {
 }
 
 export default function KnowledgeGraph() {
+  const { session } = useAuth();
+  const token = session?.access_token ?? "";
+
   const [notes, setNotes]           = useState<Note[]>([]);
   const [selected, setSelected]     = useState<Note | null>(null);
   const [links, setLinks]           = useState<NoteLink[]>([]);
@@ -94,6 +101,11 @@ export default function KnowledgeGraph() {
   const [filterTag, setFilterTag]   = useState<string>("");
   const [confirmDeleteNote, setConfirmDeleteNote] = useState<{ id: string; title: string } | null>(null);
   const [confirmDeleteLink, setConfirmDeleteLink] = useState<{ id: string } | null>(null);
+  const [showArxiv, setShowArxiv]   = useState(false);
+  const [arxivQuery, setArxivQuery] = useState("");
+  const [arxivResults, setArxivResults] = useState<any[]>([]);
+  const [arxivLoading, setArxivLoading] = useState(false);
+  const [savingArxiv, setSavingArxiv] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const loadNotes = useCallback(async () => {
@@ -243,6 +255,46 @@ export default function KnowledgeGraph() {
     }
   };
 
+  const searchArxiv = async () => {
+    if (!arxivQuery.trim()) return;
+    setArxivLoading(true);
+    try {
+      const res = await fetch(`${SB_URL}/functions/v1/mavis-arxiv`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ action: "search", query: arxivQuery.trim(), max_results: 10 }),
+      });
+      const data = await res.json().catch(() => ({}));
+      setArxivResults(data.papers ?? []);
+    } catch (e: any) {
+      toast.error(`arXiv search failed: ${e.message}`);
+    } finally {
+      setArxivLoading(false);
+    }
+  };
+
+  const saveArxivToVault = async (paper: any) => {
+    setSavingArxiv(paper.id);
+    try {
+      const res = await fetch(`${SB_URL}/functions/v1/mavis-arxiv`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ action: "save_to_vault", paper_id: paper.id }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.ok) {
+        toast.success(data.skipped ? "Already in vault" : `Saved "${paper.title}" to Vault`);
+        if (!data.skipped) loadNotes();
+      } else {
+        toast.error(data.error ?? "Failed to save");
+      }
+    } catch (e: any) {
+      toast.error(e.message);
+    } finally {
+      setSavingArxiv(null);
+    }
+  };
+
   const removeLink = async (linkId: string) => {
     try {
       await kgCall("delete_link", { link_id: linkId });
@@ -299,6 +351,9 @@ export default function KnowledgeGraph() {
                   <GitGraph size={11} /> Graph
                 </button>
               </div>
+              <button onClick={() => setShowArxiv(true)} className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-mono bg-muted/20 border border-border text-muted-foreground hover:text-primary hover:border-primary/30 transition-colors">
+                <BookOpen size={12} /> arXiv
+              </button>
               <button onClick={syncEmbeddings} disabled={syncing} title="Generate semantic embeddings so MAVIS searches by meaning"
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-mono bg-muted/20 border border-border text-muted-foreground hover:text-primary hover:border-primary/30 transition-colors disabled:opacity-50">
                 {syncing ? <span className="w-3 h-3 rounded-full border border-primary border-t-transparent animate-spin" /> : <Network size={12} />}
@@ -601,6 +656,77 @@ export default function KnowledgeGraph() {
           )}
         </div>
       </div>}
+
+      {/* ── arXiv Search Modal ── */}
+      <AnimatePresence>
+        {showArxiv && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4"
+            onClick={e => { if (e.target === e.currentTarget) setShowArxiv(false); }}>
+            <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-background border border-border rounded-lg p-5 w-full max-w-2xl shadow-2xl max-h-[80vh] flex flex-col">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-sm font-mono font-bold flex items-center gap-2">
+                  <BookOpen size={14} className="text-primary" /> arXiv Paper Search
+                </h3>
+                <button onClick={() => setShowArxiv(false)}><X size={14} className="text-muted-foreground" /></button>
+              </div>
+              <form onSubmit={e => { e.preventDefault(); searchArxiv(); }} className="flex gap-2 mb-4">
+                <input
+                  value={arxivQuery}
+                  onChange={e => setArxivQuery(e.target.value)}
+                  placeholder="Search papers… e.g. 'transformer attention mechanism'"
+                  autoFocus
+                  className="flex-1 bg-muted/10 border border-border rounded px-3 py-2 text-xs font-mono outline-none focus:border-primary/50"
+                />
+                <button type="submit" disabled={arxivLoading || !arxivQuery.trim()}
+                  className="flex items-center gap-1.5 px-3 py-2 rounded text-xs font-mono bg-primary/10 border border-primary/30 text-primary hover:bg-primary/20 disabled:opacity-50">
+                  {arxivLoading ? <Loader2 size={12} className="animate-spin" /> : <Search size={12} />}
+                  Search
+                </button>
+              </form>
+              <div className="flex-1 overflow-y-auto space-y-3">
+                {arxivLoading && (
+                  <div className="flex justify-center py-8"><Loader2 size={20} className="animate-spin text-muted-foreground" /></div>
+                )}
+                {!arxivLoading && arxivResults.length === 0 && arxivQuery && (
+                  <p className="text-xs font-mono text-muted-foreground text-center py-8">No results — try different keywords</p>
+                )}
+                {!arxivLoading && arxivResults.length === 0 && !arxivQuery && (
+                  <p className="text-xs font-mono text-muted-foreground text-center py-8">Search arXiv and save papers directly to your Vault</p>
+                )}
+                {arxivResults.map((p: any) => (
+                  <div key={p.id} className="border border-border rounded-lg p-3 space-y-1.5">
+                    <div className="flex items-start justify-between gap-2">
+                      <p className="text-xs font-mono font-semibold text-foreground leading-snug">{p.title}</p>
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        <a href={p.arxiv_url} target="_blank" rel="noopener noreferrer" className="text-muted-foreground hover:text-primary">
+                          <ExternalLink size={12} />
+                        </a>
+                        <button
+                          onClick={() => saveArxivToVault(p)}
+                          disabled={savingArxiv === p.id}
+                          className="flex items-center gap-1 px-2 py-1 text-[10px] font-mono bg-primary/10 border border-primary/30 text-primary rounded hover:bg-primary/20 disabled:opacity-50"
+                        >
+                          {savingArxiv === p.id ? <Loader2 size={10} className="animate-spin" /> : <Download size={10} />}
+                          Save
+                        </button>
+                      </div>
+                    </div>
+                    <p className="text-[10px] font-mono text-muted-foreground">
+                      {p.authors?.slice(0, 3).join(", ")}{p.authors?.length > 3 ? " et al." : ""} · {p.published ? new Date(p.published).getFullYear() : ""}
+                    </p>
+                    {p.primary_category && (
+                      <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-primary/10 text-primary/80">{p.primary_category}</span>
+                    )}
+                    <p className="text-[10px] font-mono text-muted-foreground/80 line-clamp-3 leading-relaxed">{p.abstract}</p>
+                  </div>
+                ))}
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* ── Link Modal ── */}
       <AnimatePresence>
