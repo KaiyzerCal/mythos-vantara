@@ -184,16 +184,31 @@ CONTEXT:
 ${summary}`;
   }
 
-  // Load recent conversation history (last 6 turns)
-  const { data: history } = await supabase
-    .from("mavis_memory" as any)
-    .select("role, content")
-    .eq("user_id", userId)
-    .eq("session_id", `telegram_agent_${agent_id}`)
-    .order("timestamp", { ascending: false })
-    .limit(12);
+  // Load recent conversation history.
+  // Personas: use persona_conversations (shared with the app's persona chat tab).
+  // Council:  use mavis_memory (council tab uses a different store).
+  let recentHistory: { role: string; content: string }[] = [];
 
-  const recentHistory = ((history ?? []) as any[]).reverse();
+  if (agent_type === "persona") {
+    const { data: history } = await supabase
+      .from("persona_conversations" as any)
+      .select("role, content, created_at")
+      .eq("persona_id", agent_id)
+      .eq("user_id", userId)
+      .order("created_at", { ascending: false })
+      .limit(12);
+    recentHistory = ((history ?? []) as any[]).reverse();
+  } else {
+    const { data: history } = await supabase
+      .from("mavis_memory" as any)
+      .select("role, content")
+      .eq("user_id", userId)
+      .eq("session_id", `telegram_agent_${agent_id}`)
+      .order("timestamp", { ascending: false })
+      .limit(12);
+    recentHistory = ((history ?? []) as any[]).reverse();
+  }
+
   const conversationContext = recentHistory.length > 0
     ? "\n\nRecent conversation:\n" + recentHistory.map((h: any) => `${h.role === "user" ? "User" : (agent as any).name}: ${h.content}`).join("\n")
     : "";
@@ -202,13 +217,48 @@ ${summary}`;
 
   await sendTelegram(botToken, chatId, response);
 
-  // Log interaction to mavis_memory
   const sessionId = `telegram_agent_${agent_id}`;
-  const ts = Date.now();
-  await supabase.from("mavis_memory" as any).insert([
-    { user_id: userId, session_id: sessionId, role: "user",      content: userText,  timestamp: ts,     consolidated: false },
-    { user_id: userId, session_id: sessionId, role: "assistant", content: response,  timestamp: ts + 1, consolidated: false },
-  ]).catch(() => {});
+  const now = new Date().toISOString();
+  const ts  = Date.now();
+
+  if (agent_type === "persona") {
+    // Write to persona_conversations — this is the shared table the app's persona
+    // chat tab reads in real-time, so Telegram messages appear instantly in the app.
+    await supabase.from("persona_conversations" as any).insert([
+      { persona_id: agent_id, user_id: userId, role: "user",      content: userText, created_at: now },
+      { persona_id: agent_id, user_id: userId, role: "assistant", content: response, created_at: new Date(Date.now() + 1).toISOString() },
+    ]).catch(() => {});
+
+    // Keep relationship_states in sync (bond/trust/mood) so the app header reflects Telegram activity.
+    const { data: relState } = await supabase
+      .from("relationship_states" as any)
+      .select("total_interactions, bond_level, trust_level")
+      .eq("persona_id", agent_id)
+      .eq("user_id", userId)
+      .maybeSingle();
+    const interactions = ((relState as any)?.total_interactions ?? 0) + 1;
+    await supabase.from("relationship_states" as any).upsert({
+      persona_id:         agent_id,
+      user_id:            userId,
+      total_interactions: interactions,
+      last_interaction_at: now,
+      bond_level:  Math.min(100, Math.floor(interactions / 10)),
+      trust_level: Math.min(100, Math.floor(interactions / 20)),
+      updated_at:  now,
+    }, { onConflict: "persona_id,user_id" }).catch(() => {});
+
+    // Also archive in mavis_memory for consolidation / recall pipelines.
+    await supabase.from("mavis_memory" as any).insert([
+      { user_id: userId, session_id: sessionId, role: "user",      content: userText,  timestamp: ts,     consolidated: false },
+      { user_id: userId, session_id: sessionId, role: "assistant", content: response,  timestamp: ts + 1, consolidated: false },
+    ]).catch(() => {});
+  } else {
+    // Council: keep existing mavis_memory-only approach.
+    await supabase.from("mavis_memory" as any).insert([
+      { user_id: userId, session_id: sessionId, role: "user",      content: userText,  timestamp: ts,     consolidated: false },
+      { user_id: userId, session_id: sessionId, role: "assistant", content: response,  timestamp: ts + 1, consolidated: false },
+    ]).catch(() => {});
+  }
 
   return new Response(JSON.stringify({ ok: true }), {
     headers: { "Content-Type": "application/json" },
