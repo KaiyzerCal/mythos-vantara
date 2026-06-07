@@ -5,7 +5,7 @@ import {
   Palette, Plus, Loader2, CheckCircle2, XCircle,
   Package, FileCode2, RefreshCw, ChevronDown, ChevronRight,
   Zap, Clock, DollarSign, Copy, Check, Eye, Code2, Download,
-  Wand2, Layers,
+  Wand2, Layers, Upload, X, Globe,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
@@ -616,7 +616,139 @@ function ColorSwatch({ color, label }: { color: string; label: string }) {
   );
 }
 
-function DesignSystemGenerator() {
+interface HtmlMeta {
+  title: string;
+  description: string;
+  h1: string;
+  headings: string[];
+  fonts: string[];
+  colorHints: string[];
+}
+
+function extractHtmlMeta(html: string): HtmlMeta {
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(html, "text/html");
+
+  const title = doc.querySelector("title")?.textContent?.trim() ?? "";
+  const description =
+    doc.querySelector('meta[name="description"]')?.getAttribute("content")?.trim() ??
+    doc.querySelector('meta[property="og:description"]')?.getAttribute("content")?.trim() ?? "";
+  const h1 = doc.querySelector("h1")?.textContent?.trim() ?? "";
+  const headings = Array.from(doc.querySelectorAll("h2, h3"))
+    .map((el) => el.textContent?.trim() ?? "")
+    .filter(Boolean)
+    .slice(0, 6);
+
+  // Google Fonts from <link> tags
+  const fonts = Array.from(doc.querySelectorAll('link[href*="fonts.google"]'))
+    .map((el) => {
+      const href = (el as HTMLLinkElement).href;
+      const m = href.match(/family=([^&:]+)/);
+      return m ? decodeURIComponent(m[1]).replace(/\+/g, " ") : null;
+    })
+    .filter(Boolean) as string[];
+
+  // Crude color extraction from inline styles and style tags
+  const styleContent = Array.from(doc.querySelectorAll("style"))
+    .map((s) => s.textContent ?? "")
+    .join(" ");
+  const inlineStyles = Array.from(doc.querySelectorAll("[style]"))
+    .map((el) => el.getAttribute("style") ?? "")
+    .join(" ");
+  const hexPattern = /#([0-9a-fA-F]{3,8})\b/g;
+  const rawColors = new Set<string>();
+  for (const src of [styleContent, inlineStyles]) {
+    let m: RegExpExecArray | null;
+    hexPattern.lastIndex = 0;
+    while ((m = hexPattern.exec(src)) !== null) rawColors.add(m[0]);
+  }
+  const colorHints = [...rawColors].slice(0, 8);
+
+  return { title, description, h1, headings, fonts, colorHints };
+}
+
+interface DesignSystemGeneratorProps {
+  userId: string;
+  onProjectComplete?: () => void;
+}
+
+function DesignSystemGenerator({ userId, onProjectComplete }: DesignSystemGeneratorProps) {
+  const [mode, setMode] = useState<"describe" | "clone">("describe");
+
+  // ── Clone from HTML state ──────────────────────────────────
+  const [htmlFile, setHtmlFile] = useState<File | null>(null);
+  const [htmlContent, setHtmlContent] = useState<string>("");
+  const [htmlMeta, setHtmlMeta] = useState<HtmlMeta | null>(null);
+  const [dragging, setDragging] = useState(false);
+  const [rebuilding, setRebuilding] = useState(false);
+  const [cloneBrand, setCloneBrand] = useState<string>("custom");
+  const [cloneTier, setCloneTier] = useState<string>("standard");
+
+  function handleHtmlFile(file: File) {
+    if (!file.name.endsWith(".html") && !file.name.endsWith(".htm")) {
+      toast.error("Please upload an .html or .htm file");
+      return;
+    }
+    setHtmlFile(file);
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const content = e.target?.result as string;
+      setHtmlContent(content);
+      const meta = extractHtmlMeta(content);
+      setHtmlMeta(meta);
+      // Pre-fill design system query from extracted data
+      const autoQuery = [
+        meta.title && `Website: "${meta.title}"`,
+        meta.description && `Description: ${meta.description}`,
+        meta.h1 && `Hero: "${meta.h1}"`,
+        meta.headings.length > 0 && `Sections: ${meta.headings.join(", ")}`,
+        meta.fonts.length > 0 && `Fonts: ${meta.fonts.join(", ")}`,
+      ].filter(Boolean).join(". ");
+      setQuery(autoQuery || "Cloned website — extract and rebuild the design system");
+      setProjectName(meta.title || file.name.replace(/\.html?$/, ""));
+    };
+    reader.readAsText(file);
+  }
+
+  function handleDrop(e: React.DragEvent) {
+    e.preventDefault();
+    setDragging(false);
+    const file = e.dataTransfer.files[0];
+    if (file) handleHtmlFile(file);
+  }
+
+  async function handleRebuild() {
+    if (!htmlContent || !userId) { toast.error("Upload an HTML file first"); return; }
+    if (!projectName.trim()) { toast.error("Project name required"); return; }
+    setRebuilding(true);
+    try {
+      const meta = htmlMeta;
+      const brief: import("@/mavis/design/types").DesignBrief = {
+        projectName: projectName.trim(),
+        brand: cloneBrand as any,
+        deadlineTier: cloneTier as any,
+        projectGoal: `Rebuild and modernize this website maintaining the same design language, content hierarchy, and sections. Original title: "${meta?.title ?? projectName}". ${meta?.description ?? ""}`.trim(),
+        targetAudience: "Same audience as the original website",
+        keyFeatures: meta?.headings.slice(0, 5) ?? [],
+        aestheticDirectives: [
+          meta?.fonts.length ? `Fonts: ${meta.fonts.join(", ")}` : "",
+          meta?.colorHints.length ? `Color palette hints: ${meta.colorHints.join(", ")}` : "",
+          "Maintain the layout structure and section order from the original HTML",
+        ].filter(Boolean).join(". "),
+        // Pass truncated HTML as competitor reference in userJourney field
+        userJourney: `SOURCE HTML (first 3000 chars for context):\n${htmlContent.slice(0, 3000)}`,
+      };
+      await runDesignEngine(userId, brief);
+      toast.success("Website rebuilt — check the Projects tab");
+      onProjectComplete?.();
+    } catch (err) {
+      toast.error(`Rebuild failed: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setRebuilding(false);
+    }
+  }
+
+  // ── Design System state ────────────────────────────────────
   const [query, setQuery] = useState("");
   const [projectName, setProjectName] = useState("");
   const [stack, setStack] = useState<string>("shadcn");
@@ -657,6 +789,219 @@ function DesignSystemGenerator() {
 
   return (
     <div className="space-y-5">
+      {/* ── Mode toggle ─────────────────────────────────────── */}
+      <div className="flex items-center gap-1">
+        <button
+          onClick={() => setMode("describe")}
+          className={`flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-mono rounded border transition-colors ${
+            mode === "describe"
+              ? "bg-primary/10 border-primary/30 text-primary"
+              : "border-border/50 text-muted-foreground hover:text-foreground"
+          }`}
+        >
+          <Wand2 size={10} /> Describe Product
+        </button>
+        <button
+          onClick={() => setMode("clone")}
+          className={`flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-mono rounded border transition-colors ${
+            mode === "clone"
+              ? "bg-primary/10 border-primary/30 text-primary"
+              : "border-border/50 text-muted-foreground hover:text-foreground"
+          }`}
+        >
+          <Upload size={10} /> Clone from HTML
+        </button>
+      </div>
+
+      {/* ── Clone from HTML ──────────────────────────────────── */}
+      {mode === "clone" && (
+        <HudCard className="space-y-5">
+          <div>
+            <p className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider mb-1">Clone from HTML</p>
+            <p className="text-[10px] font-mono text-muted-foreground/70">
+              Upload any .html file — MAVIS will analyze the structure, extract design tokens, and rebuild it as a production React site.
+            </p>
+          </div>
+
+          {/* Drop zone */}
+          <div
+            onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
+            onDragLeave={() => setDragging(false)}
+            onDrop={handleDrop}
+            onClick={() => document.getElementById("html-file-input")?.click()}
+            className={`relative flex flex-col items-center justify-center gap-3 rounded-lg border-2 border-dashed py-10 cursor-pointer transition-colors ${
+              dragging
+                ? "border-primary bg-primary/5"
+                : htmlFile
+                ? "border-green-500/50 bg-green-500/5"
+                : "border-border/50 hover:border-primary/40 hover:bg-muted/10"
+            }`}
+          >
+            <input
+              id="html-file-input"
+              type="file"
+              accept=".html,.htm"
+              className="hidden"
+              onChange={(e) => { const f = e.target.files?.[0]; if (f) handleHtmlFile(f); }}
+            />
+            {htmlFile ? (
+              <>
+                <div className="w-10 h-10 rounded-xl bg-green-500/10 border border-green-500/30 flex items-center justify-center">
+                  <FileCode2 size={18} className="text-green-400" />
+                </div>
+                <div className="text-center">
+                  <p className="text-sm font-mono font-semibold text-green-400">{htmlFile.name}</p>
+                  <p className="text-[10px] font-mono text-muted-foreground mt-0.5">
+                    {(htmlFile.size / 1024).toFixed(1)} KB · click to replace
+                  </p>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="w-10 h-10 rounded-xl bg-muted/30 border border-border flex items-center justify-center">
+                  <Upload size={18} className="text-muted-foreground" />
+                </div>
+                <div className="text-center">
+                  <p className="text-sm font-mono text-foreground">Drop your HTML file here</p>
+                  <p className="text-[10px] font-mono text-muted-foreground mt-0.5">or click to browse · .html / .htm</p>
+                </div>
+              </>
+            )}
+          </div>
+
+          {/* Extracted metadata */}
+          {htmlMeta && (
+            <div className="space-y-3 border border-border/50 rounded-lg p-4 bg-muted/10">
+              <p className="text-[9px] font-mono text-muted-foreground uppercase tracking-wider">Extracted from HTML</p>
+              <div className="space-y-2">
+                {htmlMeta.title && (
+                  <div className="flex items-center gap-2">
+                    <span className="text-[9px] font-mono text-muted-foreground w-20 shrink-0">Title</span>
+                    <span className="text-[10px] font-mono text-foreground">{htmlMeta.title}</span>
+                  </div>
+                )}
+                {htmlMeta.h1 && (
+                  <div className="flex items-center gap-2">
+                    <span className="text-[9px] font-mono text-muted-foreground w-20 shrink-0">Hero H1</span>
+                    <span className="text-[10px] font-mono text-foreground truncate">{htmlMeta.h1}</span>
+                  </div>
+                )}
+                {htmlMeta.headings.length > 0 && (
+                  <div className="flex items-start gap-2">
+                    <span className="text-[9px] font-mono text-muted-foreground w-20 shrink-0 mt-0.5">Sections</span>
+                    <div className="flex flex-wrap gap-1">
+                      {htmlMeta.headings.map((h, i) => (
+                        <span key={i} className="text-[9px] font-mono px-1.5 py-0.5 rounded border border-border/50 text-muted-foreground">{h}</span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {htmlMeta.fonts.length > 0 && (
+                  <div className="flex items-start gap-2">
+                    <span className="text-[9px] font-mono text-muted-foreground w-20 shrink-0 mt-0.5">Fonts</span>
+                    <div className="flex flex-wrap gap-1">
+                      {htmlMeta.fonts.map((f, i) => (
+                        <span key={i} className="text-[9px] font-mono px-1.5 py-0.5 rounded border border-primary/30 text-primary/80 bg-primary/5">{f}</span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {htmlMeta.colorHints.length > 0 && (
+                  <div className="flex items-center gap-2">
+                    <span className="text-[9px] font-mono text-muted-foreground w-20 shrink-0">Colors</span>
+                    <div className="flex gap-1.5">
+                      {htmlMeta.colorHints.map((c, i) => (
+                        <div
+                          key={i}
+                          className="w-5 h-5 rounded border border-white/10"
+                          style={{ backgroundColor: c }}
+                          title={c}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Project name + brand/tier for rebuild */}
+          {htmlFile && (
+            <div className="space-y-4">
+              <div>
+                <label className="block text-[10px] font-mono text-muted-foreground mb-1.5 uppercase tracking-wider">
+                  Project Name <span className="text-primary">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={projectName}
+                  onChange={(e) => setProjectName(e.target.value)}
+                  placeholder="MyClonedSite"
+                  className="w-full bg-muted/20 border border-border rounded-lg px-3 py-2.5 text-sm text-foreground placeholder-muted-foreground/50 focus:outline-none focus:border-primary/50 transition-colors"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-[10px] font-mono text-muted-foreground mb-2 uppercase tracking-wider">Brand</label>
+                  <div className="flex gap-1.5 flex-wrap">
+                    {BRANDS.map((b) => (
+                      <button
+                        key={b}
+                        onClick={() => setCloneBrand(b)}
+                        className={`px-2.5 py-1 text-[10px] font-mono rounded border transition-colors ${
+                          cloneBrand === b
+                            ? "bg-primary/10 border-primary/30 text-primary"
+                            : "border-border/50 text-muted-foreground hover:text-foreground"
+                        }`}
+                      >
+                        {b}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-[10px] font-mono text-muted-foreground mb-2 uppercase tracking-wider">Tier</label>
+                  <div className="flex gap-1.5 flex-wrap">
+                    {DEADLINE_TIERS.map((t) => (
+                      <button
+                        key={t}
+                        onClick={() => setCloneTier(t)}
+                        className={`px-2.5 py-1 text-[10px] font-mono rounded border transition-colors ${
+                          cloneTier === t
+                            ? "bg-primary/10 border-primary/30 text-primary"
+                            : "border-border/50 text-muted-foreground hover:text-foreground"
+                        }`}
+                      >
+                        {t}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              <button
+                onClick={handleRebuild}
+                disabled={rebuilding || !projectName.trim()}
+                className="w-full py-3.5 bg-primary text-primary-foreground rounded-lg font-mono text-sm font-bold disabled:opacity-40 hover:bg-primary/90 transition-colors flex items-center justify-center gap-2"
+              >
+                {rebuilding ? (
+                  <><Loader2 size={14} className="animate-spin" /> MAVIS is rebuilding...</>
+                ) : (
+                  <><Globe size={14} /> Rebuild this Website</>
+                )}
+              </button>
+              {rebuilding && (
+                <p className="text-[10px] font-mono text-muted-foreground text-center">
+                  MAVIS is analyzing the HTML structure and generating a full production site. Takes 30-90 seconds.
+                </p>
+              )}
+            </div>
+          )}
+        </HudCard>
+      )}
+
+      {/* ── Describe Product (original form) ─────────────────── */}
+      {mode === "describe" && (
       <HudCard className="space-y-4">
         <div>
           <label className="block text-[10px] font-mono text-muted-foreground mb-1.5 uppercase tracking-wider">
@@ -717,7 +1062,9 @@ function DesignSystemGenerator() {
         </button>
       </HudCard>
 
-      {result && (
+      )} {/* end mode === "describe" */}
+
+      {result && mode === "describe" && (
         <motion.div
           initial={{ opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }}
@@ -1019,7 +1366,12 @@ export default function DesignStudio() {
       )}
 
       {/* Design System Tab */}
-      {activeTab === "design-system" && <DesignSystemGenerator />}
+      {activeTab === "design-system" && (
+        <DesignSystemGenerator
+          userId={userId}
+          onProjectComplete={() => { load(); setActiveTab("projects"); }}
+        />
+      )}
     </div>
   );
 }

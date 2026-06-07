@@ -1528,14 +1528,21 @@ ${fmtGoals}
             visionImages.push({ url: a.file_url, mime: a.mime_type });
           }
         }
-        attachmentsBlock = "\n═══ FILES UPLOADED TO THIS CHAT (read & reference) ═══\n" +
+        attachmentsBlock = "\n═══ FILES UPLOADED TO THIS CHAT (read & analyze) ═══\n" +
           (atts as any[]).map((a: any) => {
             const status = a.processing_status === "done" ? "" : ` [${a.processing_status}]`;
             const isImage = a.mime_type?.startsWith("image/");
             const txt = (a.extracted_text || "").slice(0, 6000);
-            const body = isImage && visionImages.length > 0
-              ? "(image passed directly to vision model)"
-              : txt || "(no extracted content yet)";
+            // Always include extracted text — for images this is the AI-generated description.
+            // Vision URL is also injected into the message separately (additive, not a replacement).
+            const visionNote = isImage && visionImages.length > 0
+              ? "\n[Also injected as direct vision input to the model — you can both read the description and visually analyze the image]"
+              : "";
+            const body = txt
+              ? txt + visionNote
+              : (a.processing_status === "pending" || a.processing_status === "processing"
+                  ? "(file is still being processed — the operator should wait a moment and retry)"
+                  : "(no content extracted)" + visionNote);
             return `\n📎 ${a.file_name} (${a.mime_type})${status}\n${body}\n---`;
           }).join("");
       }
