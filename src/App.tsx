@@ -101,6 +101,9 @@ const CompetitorIntelPage = lazy(() => import("@/pages/CompetitorIntelPage"));
 const ReceptionistPage = lazy(() => import("@/pages/ReceptionistPage"));
 const PlaybooksPage = lazy(() => import("@/pages/PlaybooksPage").then(m => ({ default: m.PlaybooksPage })));
 const StandingOrderTemplatesPage = lazy(() => import("@/pages/StandingOrderTemplatesPage").then(m => ({ default: m.StandingOrderTemplatesPage })));
+const SystemHealthPage = lazy(() => import("@/pages/SystemHealthPage").then(m => ({ default: m.SystemHealthPage })));
+const BehavioralModelPage = lazy(() => import("@/pages/BehavioralModelPage").then(m => ({ default: m.BehavioralModelPage })));
+const RSSReaderPage = lazy(() => import("@/pages/RSSReaderPage").then(m => ({ default: m.RSSReaderPage })));
 // Public demo — no auth required
 const MavisDemo = lazy(() => import("@/pages/MavisDemo"));
 const IntelligencePage = lazy(() => import("@/pages/IntelligencePage"));
@@ -212,6 +215,9 @@ function AppContent() {
               <Route path="/competitors" element={<CompetitorIntelPage />} />
               <Route path="/playbooks" element={<PlaybooksPage />} />
               <Route path="/so-templates" element={<StandingOrderTemplatesPage />} />
+              <Route path="/system-health" element={<SystemHealthPage />} />
+              <Route path="/behavioral-model" element={<BehavioralModelPage />} />
+              <Route path="/rss-feeds" element={<RSSReaderPage />} />
               <Route path="*" element={<NotFound />} />
             </Routes>
           </Suspense>

@@ -4,7 +4,7 @@
 // ============================================================
 import { useState, useEffect, useCallback } from "react";
 import { motion } from "framer-motion";
-import { DollarSign, TrendingDown, Plus, Trash2, Loader2, X } from "lucide-react";
+import { DollarSign, TrendingDown, Plus, Trash2, Loader2, X, TrendingUp, Activity, RefreshCw, Sparkles } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { useAppData } from "@/contexts/AppDataContext";
@@ -84,9 +84,12 @@ function last6Months(): string[] {
   return months;
 }
 
+const SB_URL = import.meta.env.VITE_SUPABASE_URL ?? "";
+
 // ─── FinancePage ────────────────────────────────────────────
 export function FinancePage() {
-  const { user } = useAuth();
+  const { user, session } = useAuth();
+  const token = session?.access_token ?? "";
   const { lastActionTs } = useAppData();
 
   const [expenses, setExpenses] = useState<Expense[]>([]);
@@ -94,6 +97,10 @@ export function FinancePage() {
   const [showAddForm, setShowAddForm] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState<{ id: string; label: string } | null>(null);
+  const [marketInsights, setMarketInsights] = useState<any>(null);
+  const [perfInsights, setPerfInsights] = useState<any>(null);
+  const [loadingMarket, setLoadingMarket] = useState(false);
+  const [loadingPerf, setLoadingPerf] = useState(false);
   const [addForm, setAddForm] = useState<AddForm>({
     description: "",
     amount: "",
@@ -156,6 +163,39 @@ export function FinancePage() {
   const sortedCategories = Object.entries(categoryMap)
     .sort((a, b) => b[1] - a[1])
     .slice(0, 8);
+
+  // ─── Market Radar ──────────────────────────────────────────
+  async function fetchMarketRadar() {
+    if (!token) return;
+    setLoadingMarket(true);
+    try {
+      const res = await fetch(`${SB_URL}/functions/v1/mavis-market-radar`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ trigger: "manual" }),
+      });
+      const data = await res.json().catch(() => ({}));
+      setMarketInsights(data);
+    } catch { /* non-fatal */ } finally {
+      setLoadingMarket(false);
+    }
+  }
+
+  async function fetchPerfScience() {
+    if (!token) return;
+    setLoadingPerf(true);
+    try {
+      const res = await fetch(`${SB_URL}/functions/v1/mavis-performance-science`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ trigger: "manual" }),
+      });
+      const data = await res.json().catch(() => ({}));
+      setPerfInsights(data);
+    } catch { /* non-fatal */ } finally {
+      setLoadingPerf(false);
+    }
+  }
 
   // ─── Add expense ───────────────────────────────────────────
   async function handleAddExpense() {
@@ -435,6 +475,100 @@ export function FinancePage() {
         }}
         onCancel={() => setConfirmDelete(null)}
       />
+
+      {/* ── Market Intelligence ──────────────────────────────── */}
+      <motion.div
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.3, delay: 0.15 }}
+        className="grid grid-cols-1 lg:grid-cols-2 gap-4"
+      >
+        {/* Market Radar */}
+        <div>
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-xs font-mono text-primary uppercase tracking-widest">Market Radar</h2>
+            <button
+              onClick={fetchMarketRadar}
+              disabled={loadingMarket}
+              className="flex items-center gap-1 text-xs text-primary/70 hover:text-primary font-mono"
+            >
+              {loadingMarket ? <Loader2 size={11} className="animate-spin" /> : <RefreshCw size={11} />}
+              Run
+            </button>
+          </div>
+          <HudCard>
+            {!marketInsights && !loadingMarket && (
+              <div className="text-center py-6">
+                <TrendingUp size={28} className="text-muted-foreground mx-auto mb-2" />
+                <p className="text-xs font-mono text-muted-foreground">Click Run to scan market signals</p>
+              </div>
+            )}
+            {loadingMarket && <div className="flex justify-center py-6"><Loader2 size={18} className="animate-spin text-primary" /></div>}
+            {marketInsights && !loadingMarket && (
+              <div className="space-y-3">
+                {marketInsights.summary && (
+                  <p className="text-xs text-muted-foreground leading-relaxed">{marketInsights.summary}</p>
+                )}
+                {Array.isArray(marketInsights.signals) && marketInsights.signals.slice(0, 5).map((s: any, i: number) => (
+                  <div key={i} className="flex items-start gap-2 text-xs">
+                    <Sparkles size={11} className="text-amber-400 mt-0.5 shrink-0" />
+                    <span className="text-foreground">{typeof s === "string" ? s : s.signal ?? s.title ?? JSON.stringify(s)}</span>
+                  </div>
+                ))}
+                {marketInsights.opportunities?.slice(0, 3).map((o: any, i: number) => (
+                  <div key={i} className="flex items-start gap-2 text-xs">
+                    <TrendingUp size={11} className="text-emerald-400 mt-0.5 shrink-0" />
+                    <span className="text-foreground">{typeof o === "string" ? o : o.title ?? JSON.stringify(o)}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </HudCard>
+        </div>
+
+        {/* Performance Science */}
+        <div>
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-xs font-mono text-primary uppercase tracking-widest">Performance Science</h2>
+            <button
+              onClick={fetchPerfScience}
+              disabled={loadingPerf}
+              className="flex items-center gap-1 text-xs text-primary/70 hover:text-primary font-mono"
+            >
+              {loadingPerf ? <Loader2 size={11} className="animate-spin" /> : <RefreshCw size={11} />}
+              Run
+            </button>
+          </div>
+          <HudCard>
+            {!perfInsights && !loadingPerf && (
+              <div className="text-center py-6">
+                <Activity size={28} className="text-muted-foreground mx-auto mb-2" />
+                <p className="text-xs font-mono text-muted-foreground">Click Run to analyze performance patterns</p>
+              </div>
+            )}
+            {loadingPerf && <div className="flex justify-center py-6"><Loader2 size={18} className="animate-spin text-primary" /></div>}
+            {perfInsights && !loadingPerf && (
+              <div className="space-y-3">
+                {perfInsights.summary && (
+                  <p className="text-xs text-muted-foreground leading-relaxed">{perfInsights.summary}</p>
+                )}
+                {Array.isArray(perfInsights.insights) && perfInsights.insights.slice(0, 5).map((ins: any, i: number) => (
+                  <div key={i} className="flex items-start gap-2 text-xs">
+                    <Sparkles size={11} className="text-cyan-400 mt-0.5 shrink-0" />
+                    <span className="text-foreground">{typeof ins === "string" ? ins : ins.insight ?? ins.title ?? JSON.stringify(ins)}</span>
+                  </div>
+                ))}
+                {perfInsights.recommendations?.slice(0, 3).map((r: any, i: number) => (
+                  <div key={i} className="flex items-start gap-2 text-xs">
+                    <Activity size={11} className="text-blue-400 mt-0.5 shrink-0" />
+                    <span className="text-foreground">{typeof r === "string" ? r : r.recommendation ?? r.title ?? JSON.stringify(r)}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </HudCard>
+        </div>
+      </motion.div>
 
       {/* ── Empty state fallback ──────────────────────────────── */}
       {!loading && expenses.length === 0 && (

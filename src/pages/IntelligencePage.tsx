@@ -4,7 +4,8 @@ import {
   Brain, Globe, TrendingUp, Lightbulb, Users, Shield,
   ChevronDown, ChevronUp, Loader2, RefreshCw, Sparkles,
   AlertTriangle, CheckCircle2, Target, Network, BarChart3,
-  Send, BookOpen, Zap, Clock, ArrowRight,
+  Send, BookOpen, Zap, Clock, ArrowRight, DollarSign, Search,
+  ExternalLink,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase as supabaseTyped } from "@/integrations/supabase/client";
@@ -12,7 +13,7 @@ const supabase: any = supabaseTyped;
 
 const SB_URL = import.meta.env.VITE_SUPABASE_URL ?? "";
 
-const TABS = ["World Model", "Predictions", "Opportunities", "Entity Graph", "Relationships", "Strategy Council"] as const;
+const TABS = ["World Model", "Predictions", "Opportunities", "Prediction Markets", "Entity Graph", "Relationships", "Strategy Council"] as const;
 type Tab = typeof TABS[number];
 
 function ConfidenceBar({ confidence }: { confidence: number }) {
@@ -552,6 +553,103 @@ function StrategyCouncilPanel({ token }: { token: string }) {
   );
 }
 
+function PolymarketPanel({ token }: { token: string }) {
+  const [query, setQuery] = useState("");
+  const [markets, setMarkets] = useState<any[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [loaded, setLoaded] = useState(false);
+
+  async function search(q?: string) {
+    setLoading(true);
+    try {
+      const res = await fetch(`${SB_URL}/functions/v1/mavis-polymarket`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify(q ? { action: "search", query: q } : { action: "trending" }),
+      });
+      const data = await res.json();
+      setMarkets(data.markets ?? []);
+      setLoaded(true);
+    } catch { /* */ } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => { search(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  function handleSearch(e: React.FormEvent) {
+    e.preventDefault();
+    search(query.trim() || undefined);
+  }
+
+  function probColor(p: number) {
+    if (p >= 0.7) return "text-emerald-400";
+    if (p >= 0.4) return "text-amber-400";
+    return "text-red-400";
+  }
+
+  return (
+    <div className="space-y-4">
+      <form onSubmit={handleSearch} className="flex gap-2">
+        <input
+          value={query}
+          onChange={e => setQuery(e.target.value)}
+          placeholder="Search prediction markets…"
+          className="flex-1 bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500/50"
+        />
+        <button type="submit" disabled={loading} className="flex items-center gap-1.5 px-3 py-2 bg-indigo-500/20 border border-indigo-500/40 text-indigo-300 rounded-lg text-sm hover:bg-indigo-500/30 disabled:opacity-50">
+          {loading ? <Loader2 size={14} className="animate-spin" /> : <Search size={14} />}
+          {query ? "Search" : "Trending"}
+        </button>
+      </form>
+
+      {loading && !loaded && (
+        <div className="flex justify-center py-12"><Loader2 size={24} className="animate-spin text-zinc-500" /></div>
+      )}
+
+      {!loading && markets.length === 0 && loaded && (
+        <div className="text-center py-12 text-zinc-500">
+          <DollarSign size={40} className="mx-auto mb-3 opacity-30" />
+          <p className="text-sm">No markets found.</p>
+        </div>
+      )}
+
+      <div className="space-y-3">
+        {markets.map((m: any) => (
+          <div key={m.id} className="bg-zinc-900/60 border border-zinc-700/50 rounded-xl p-4">
+            <div className="flex items-start justify-between gap-3 mb-3">
+              <p className="text-sm font-medium text-white leading-snug">{m.question}</p>
+              <a href={m.url} target="_blank" rel="noopener noreferrer" className="shrink-0 text-zinc-500 hover:text-zinc-300">
+                <ExternalLink size={13} />
+              </a>
+            </div>
+            {m.outcomes?.length > 0 && (
+              <div className="flex flex-wrap gap-2 mb-2">
+                {m.outcomes.map((o: any) => (
+                  <div key={o.name} className="flex items-center gap-1.5 bg-zinc-800/60 rounded-lg px-2.5 py-1">
+                    <span className="text-xs text-zinc-400">{o.name}</span>
+                    {o.probability !== null && (
+                      <span className={`text-xs font-bold font-mono ${probColor(o.probability)}`}>
+                        {Math.round(o.probability * 100)}%
+                      </span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+            <div className="flex items-center gap-4 text-xs text-zinc-500">
+              {m.volume_usd > 0 && <span>Vol: ${(m.volume_usd / 1000).toFixed(0)}K</span>}
+              {m.category && <span className="capitalize">{m.category}</span>}
+              {m.end_date && <span>Ends {new Date(m.end_date).toLocaleDateString()}</span>}
+              {m.resolved && <span className="text-zinc-600">Resolved</span>}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export default function IntelligencePage() {
   const { session } = useAuth();
   const token = session?.access_token ?? "";
@@ -561,6 +659,7 @@ export default function IntelligencePage() {
     "World Model": Globe,
     "Predictions": Brain,
     "Opportunities": Lightbulb,
+    "Prediction Markets": DollarSign,
     "Entity Graph": Network,
     "Relationships": Users,
     "Strategy Council": Shield,
@@ -602,6 +701,7 @@ export default function IntelligencePage() {
             {tab === "World Model" && <WorldModelPanel token={token} />}
             {tab === "Predictions" && <PredictionsPanel />}
             {tab === "Opportunities" && <OpportunitiesPanel token={token} />}
+            {tab === "Prediction Markets" && <PolymarketPanel token={token} />}
             {tab === "Entity Graph" && <EntityGraphPanel />}
             {tab === "Relationships" && <RelationshipsPanel />}
             {tab === "Strategy Council" && <StrategyCouncilPanel token={token} />}
