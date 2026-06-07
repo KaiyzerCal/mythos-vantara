@@ -386,10 +386,12 @@ export function VoiceChatOverlay({
         );
         if (isStale()) return;
         if (p.entityType === "council" && p.entityId && p.userId) {
-          supabase.from("council_chat_messages").insert([
-            { user_id: p.userId, council_member_id: p.entityId, role: "user",      content: text  },
-            { user_id: p.userId, council_member_id: p.entityId, role: "assistant", content: reply },
-          ]).catch(() => {});
+          Promise.resolve(
+            supabase.from("council_chat_messages").insert([
+              { user_id: p.userId, council_member_id: p.entityId, role: "user",      content: text  },
+              { user_id: p.userId, council_member_id: p.entityId, role: "assistant", content: reply },
+            ])
+          ).catch(() => {});
         }
       }
 
