@@ -60,6 +60,9 @@ export function VoiceChatOverlay({
   const closingRef = useRef(false);
   const replyScrollRef = useRef<HTMLDivElement>(null);
   const spokenWordRef = useRef<HTMLSpanElement>(null);
+  // Monotonic request ID — bumped on every send and on user-tap cancel.
+  // Lets stale async completions detect they've been superseded and skip state updates.
+  const requestIdRef = useRef(0);
 
   // Live Voice state
   const [liveMode, setLiveMode] = useState(false);
@@ -296,17 +299,29 @@ export function VoiceChatOverlay({
 
   const sendPersonaMessage = useCallback(async (text: string) => {
     const p = personaRef.current;
-    if (!p) return;
+    if (!p) { setPhase("idle"); return; }
+
+    const reqId = ++requestIdRef.current;
+    const isStale = () => requestIdRef.current !== reqId || closingRef.current;
+
     setPersonaLoading(true);
     setPersonaReply("");
     let reply = "";
+
     try {
       if (p.entityType === "persona" && p.entityId && p.userId) {
-        const { data, error } = await supabase.functions.invoke("mavis-persona-router", {
+        // Race the edge function call against a 30-second client-side timeout so the
+        // overlay never gets permanently stuck in "thinking" on a slow/hung function.
+        const invokePromise = supabase.functions.invoke("mavis-persona-router", {
           body: { persona_id: p.entityId, user_id: p.userId, message: text },
         });
-        if (error) throw error;
-        reply = (data as any)?.response ?? "";
+        const timeoutPromise = new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error("Persona router timed out (30s)")), 30000),
+        );
+        const result = await Promise.race([invokePromise, timeoutPromise]);
+        if (isStale()) return;
+        if (result.error) throw result.error;
+        reply = (result.data as any)?.response ?? "";
         setPersonaReply(reply);
       } else {
         await streamChatMessage(
@@ -314,27 +329,33 @@ export function VoiceChatOverlay({
           p.systemPrompt,
           personaHistoryRef.current,
           { mode: "COUNCIL" },
-          (_, acc) => { reply = acc; setPersonaReply(acc); },
+          (_, acc) => {
+            if (!isStale()) { reply = acc; setPersonaReply(acc); }
+          },
         );
+        if (isStale()) return;
         if (p.entityType === "council" && p.entityId && p.userId) {
-          try {
-            await supabase.from("council_chat_messages").insert([
-              { user_id: p.userId, council_member_id: p.entityId, role: "user",      content: text  },
-              { user_id: p.userId, council_member_id: p.entityId, role: "assistant", content: reply },
-            ]);
-          } catch { /* non-fatal */ }
+          supabase.from("council_chat_messages").insert([
+            { user_id: p.userId, council_member_id: p.entityId, role: "user",      content: text  },
+            { user_id: p.userId, council_member_id: p.entityId, role: "assistant", content: reply },
+          ]).catch(() => {});
         }
       }
-      personaHistoryRef.current = [
-        ...personaHistoryRef.current,
-        { role: "user", content: text },
-        { role: "assistant", content: reply },
-      ];
-      if (reply) onExchange?.(text, reply);
+
+      if (!isStale()) {
+        personaHistoryRef.current = [
+          ...personaHistoryRef.current,
+          { role: "user", content: text },
+          { role: "assistant", content: reply },
+        ];
+        if (reply) onExchange?.(text, reply);
+      }
     } catch {
-      // phase falls back to idle via loading transition
+      // Explicitly reset phase on any error so the UI never stays stuck in "thinking".
+      if (!isStale()) setPhase("idle");
     } finally {
-      setPersonaLoading(false);
+      // Only update loading state if this request hasn't been superseded (e.g. by user tap-cancel).
+      if (!isStale()) setPersonaLoading(false);
     }
   }, [onExchange]);
 
@@ -697,6 +718,12 @@ export function VoiceChatOverlay({
     if (phase === "idle") startListening();
     else if (phase === "listening") {
       if (recognitionRef.current) recognitionRef.current.stop();
+    } else if (phase === "thinking") {
+      // Cancel the in-flight request by bumping the request ID, then return to idle
+      // so the user isn't permanently stuck waiting for a slow/hung edge function.
+      requestIdRef.current++;
+      setPersonaLoading(false);
+      setPhase("idle");
     } else if (phase === "speaking") {
       if (window.speechSynthesis) window.speechSynthesis.cancel();
       setPhase("idle");
@@ -706,7 +733,7 @@ export function VoiceChatOverlay({
   const phaseLabel: Record<Phase, string> = {
     idle: "TAP TO SPEAK",
     listening: "LISTENING — pause ~10s to send",
-    thinking: "THINKING...",
+    thinking: "THINKING... — TAP TO CANCEL",
     speaking: "TAP ORB TO INTERRUPT",
   };
 
