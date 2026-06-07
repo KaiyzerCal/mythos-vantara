@@ -26,10 +26,13 @@ function categorize(mime: string): "image" | "audio" | "video" | "pdf" | "text" 
     m.startsWith("text/") ||
     m === "application/json" ||
     m === "application/xml" ||
-    m === "application/javascript"
+    m === "application/javascript" ||
+    m === "application/x-yaml" ||
+    m === "application/yaml"
   ) {
     return "text";
   }
+  // Common code/text extensions that may arrive as octet-stream
   return "other";
 }
 
@@ -56,39 +59,119 @@ async function transcribeWithScribe(file: Blob, fileName: string): Promise<strin
   return String(json.text ?? "").slice(0, 60000);
 }
 
-async function describeWithGemini(
-  base64: string,
-  mime: string,
-  prompt: string,
-): Promise<string> {
-  const key = Deno.env.get("LOVABLE_API_KEY");
-  if (!key) throw new Error("LOVABLE_API_KEY not configured");
+// Cascading multimodal description:
+//   1. Gemini (inline base64 — handles images + PDFs natively)
+//   2. Claude Haiku (images only — vision)
+//   3. GPT-4o-mini (images only — vision)
+async function describeWithAI(buf: ArrayBuffer, mime: string, fileName: string, prompt: string): Promise<string> {
+  const b64 = base64Encode(buf);
+  const isImage = mime.startsWith("image/");
 
-  const res = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${key}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model: "google/gemini-2.5-flash",
-      messages: [
+  // ── Tier 1: Gemini direct (best for PDFs, good for images) ──
+  const geminiKey = Deno.env.get("GEMINI_API_KEY");
+  if (geminiKey) {
+    try {
+      const res = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${geminiKey}`,
         {
-          role: "user",
-          content: [
-            { type: "text", text: prompt },
-            { type: "image_url", image_url: { url: `data:${mime};base64,${base64}` } },
-          ],
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            contents: [{
+              role: "user",
+              parts: [
+                { text: prompt },
+                { inline_data: { mime_type: mime, data: b64 } },
+              ],
+            }],
+            generationConfig: { maxOutputTokens: 8192 },
+          }),
+          signal: AbortSignal.timeout(30000),
         },
-      ],
-    }),
-  });
-  if (!res.ok) {
-    const err = await res.text();
-    throw new Error(`Gemini ${res.status}: ${err.slice(0, 300)}`);
+      );
+      if (res.ok) {
+        const j = await res.json();
+        const parts: any[] = j.candidates?.[0]?.content?.parts ?? [];
+        const text = parts.filter((p: any) => p.text && !p.thought).map((p: any) => p.text).join("").trim();
+        if (text.length > 10) return text.slice(0, 60000);
+      } else {
+        console.warn(`[gemini] ${res.status}: ${(await res.text()).slice(0, 200)}`);
+      }
+    } catch (e: any) {
+      console.warn("[gemini] describe failed:", e.message);
+    }
   }
-  const j = await res.json();
-  return String(j?.choices?.[0]?.message?.content ?? "").slice(0, 60000);
+
+  // ── Tier 2: Claude Haiku vision (images only) ───────────────
+  const claudeKey = Deno.env.get("ANTHROPIC_API_KEY");
+  if (claudeKey && isImage) {
+    try {
+      const claudeMime = mime === "image/jpg" ? "image/jpeg" : mime;
+      const res = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-api-key": claudeKey,
+          "anthropic-version": "2023-06-01",
+        },
+        body: JSON.stringify({
+          model: "claude-haiku-4-5-20251001",
+          max_tokens: 2048,
+          messages: [{
+            role: "user",
+            content: [
+              { type: "image", source: { type: "base64", media_type: claudeMime, data: b64 } },
+              { type: "text", text: prompt },
+            ],
+          }],
+        }),
+        signal: AbortSignal.timeout(30000),
+      });
+      if (res.ok) {
+        const j = await res.json();
+        const text = (j.content ?? []).filter((b: any) => b.type === "text").map((b: any) => b.text).join("").trim();
+        if (text.length > 10) return text.slice(0, 60000);
+      } else {
+        console.warn(`[claude] ${res.status}: ${(await res.text()).slice(0, 200)}`);
+      }
+    } catch (e: any) {
+      console.warn("[claude] describe failed:", e.message);
+    }
+  }
+
+  // ── Tier 3: GPT-4o-mini vision (images only) ────────────────
+  const openaiKey = Deno.env.get("OPENAI_API") ?? Deno.env.get("OPENAI_API_KEY");
+  if (openaiKey && isImage) {
+    try {
+      const res = await fetch("https://api.openai.com/v1/chat/completions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${openaiKey}` },
+        body: JSON.stringify({
+          model: "gpt-4o-mini",
+          messages: [{
+            role: "user",
+            content: [
+              { type: "text", text: prompt },
+              { type: "image_url", image_url: { url: `data:${mime};base64,${b64}` } },
+            ],
+          }],
+          max_tokens: 2048,
+        }),
+        signal: AbortSignal.timeout(30000),
+      });
+      if (res.ok) {
+        const j = await res.json();
+        const text = String(j.choices?.[0]?.message?.content ?? "").trim();
+        if (text.length > 10) return text.slice(0, 60000);
+      } else {
+        console.warn(`[openai] ${res.status}: ${(await res.text()).slice(0, 200)}`);
+      }
+    } catch (e: any) {
+      console.warn("[openai] describe failed:", e.message);
+    }
+  }
+
+  throw new Error(`No AI provider succeeded for ${fileName} (${mime})`);
 }
 
 Deno.serve(async (req) => {
@@ -152,9 +235,9 @@ Deno.serve(async (req) => {
     let extracted = "";
 
     if (kind === "text") {
+      // Plain text, CSV, JSON, code — read directly, no AI needed
       extracted = (await blob.text()).slice(0, 60000);
     } else if (kind === "audio" || kind === "video") {
-      // Use ElevenLabs Scribe
       if (size > 100 * 1024 * 1024) {
         extracted = `[File too large for transcription — ${(size / 1024 / 1024).toFixed(1)} MB]`;
       } else {
@@ -165,11 +248,11 @@ Deno.serve(async (req) => {
         extracted = `[Image too large — ${(size / 1024 / 1024).toFixed(1)} MB]`;
       } else {
         const buf = await blob.arrayBuffer();
-        const b64 = base64Encode(buf);
-        extracted = await describeWithGemini(
-          b64,
+        extracted = await describeWithAI(
+          buf,
           attachment.mime_type,
-          `Describe this image in detail. Note any text, people, objects, scene, mood, colors, style. Be thorough — this description will be the AI's only way to "see" the image. File: ${attachment.file_name}`,
+          attachment.file_name,
+          `Describe this image in detail. Note any text, people, objects, scene, mood, colors, style. Be thorough — this description will be the AI's only way to "see" the image. If you can read any text in the image, transcribe it exactly. File: ${attachment.file_name}`,
         );
       }
     } else if (kind === "pdf") {
@@ -177,15 +260,28 @@ Deno.serve(async (req) => {
         extracted = `[PDF too large — ${(size / 1024 / 1024).toFixed(1)} MB]`;
       } else {
         const buf = await blob.arrayBuffer();
-        const b64 = base64Encode(buf);
-        extracted = await describeWithGemini(
-          b64,
+        extracted = await describeWithAI(
+          buf,
           "application/pdf",
+          attachment.file_name,
           `Extract all readable text and key visual information from this PDF. Include headings, body text, captions, table contents, and a brief description of any diagrams or images. Preserve the logical flow. File: ${attachment.file_name}`,
         );
       }
     } else {
-      extracted = `[Binary file — type ${attachment.mime_type}, size ${size} bytes. Cannot extract content.]`;
+      // Try reading as UTF-8 text for unknown types (handles .csv, .md, .ts, etc. served as octet-stream)
+      try {
+        const text = await blob.text();
+        // Heuristic: if >70% of chars are printable, treat as text
+        const sample = text.slice(0, 500);
+        const printable = [...sample].filter(c => c.charCodeAt(0) >= 32 || c === "\n" || c === "\t").length;
+        if (sample.length > 0 && printable / sample.length > 0.7) {
+          extracted = text.slice(0, 60000);
+        } else {
+          extracted = `[Binary file — type ${attachment.mime_type}, size ${size} bytes. Cannot extract content.]`;
+        }
+      } catch {
+        extracted = `[Binary file — type ${attachment.mime_type}, size ${size} bytes. Cannot extract content.]`;
+      }
     }
 
     await sb
@@ -197,8 +293,7 @@ Deno.serve(async (req) => {
       .eq("id", attachmentId);
 
     // Auto-create Knowledge Graph note(s) for non-trivial extracted content.
-    // Large documents are chunked so semantic search can recall specific sections,
-    // not just the first 8K characters.
+    // Large documents are chunked so semantic search can recall specific sections.
     if (extracted.length > 100 && kind !== "other") {
       (async () => {
         try {
@@ -214,8 +309,6 @@ Deno.serve(async (req) => {
           };
           const tags = tagMap[kind] ?? ["attachment"];
 
-          // Chunk large text documents for better RAG recall.
-          // Images/audio get one note (the description IS the content).
           const CHUNK_SIZE    = 3500;
           const CHUNK_OVERLAP = 300;
           const sourceHeader  = `*Source: ${attachment.file_name} (${kind})*\n\n---\n\n`;
