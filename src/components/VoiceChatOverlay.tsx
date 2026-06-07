@@ -737,6 +737,15 @@ export function VoiceChatOverlay({
     if (window.speechSynthesis) window.speechSynthesis.cancel();
     elevenLabsAudioCtxRef.current?.close().catch(() => {});
     elevenLabsAudioCtxRef.current = null;
+    if (elevenAudioElRef.current) {
+      try { elevenAudioElRef.current.pause(); } catch { /* ignore */ }
+      elevenAudioElRef.current.src = "";
+      elevenAudioElRef.current = null;
+    }
+    if (elevenAudioUrlRef.current) {
+      URL.revokeObjectURL(elevenAudioUrlRef.current);
+      elevenAudioUrlRef.current = null;
+    }
     onClose();
   }, [onClose, stopListening, disconnectLiveVoice]);
 
