@@ -77,6 +77,9 @@ export function VoiceChatOverlay({
   // iOS Safari requires speechSynthesis.speak() to be called within a user gesture.
   // We unlock the audio session on the first tap so async speakReply() works.
   const audioUnlockedRef = useRef(false);
+  // Set to true after any ElevenLabs failure so subsequent turns skip the
+  // service entirely and go straight to browser TTS (avoids repeated 402/quota hangs).
+  const ttsUnavailableRef = useRef(false);
 
   const unlockAudio = useCallback(() => {
     // One-time: unlock speechSynthesis for iOS — a silent utterance played
@@ -233,14 +236,20 @@ export function VoiceChatOverlay({
   const elevenAudioUrlRef = useRef<string | null>(null);
 
   // ── ElevenLabs TTS — used for persona voices (voiceId set) ────────────────
-  // Uses HTMLAudioElement + blob URL so playback works reliably across turns
-  // (AudioContext can get stuck in "suspended" after the first utterance on
-  // Chrome, which silently dropped audio on subsequent persona replies).
-  // Falls back to browser speech synthesis on any error.
+  // Uses HTMLAudioElement + blob URL so playback works reliably across turns.
+  // Falls back to browser speech synthesis on any error (quota, network, decode).
+  // After the first failure ttsUnavailableRef is set so subsequent turns skip
+  // the service entirely without waiting on a provider we know is down.
   const speakWithElevenLabs = useCallback(async (text: string, voiceId: string) => {
     setDisplayedReply(text);
     setSpokenUpTo(0);
     setPhase("speaking");
+
+    // Short-circuit: ElevenLabs already failed this session — skip it entirely.
+    if (ttsUnavailableRef.current) {
+      speakReply(text);
+      return;
+    }
 
     // Tear down any previous audio element + blob URL so we never leak or
     // double-play. Important when the user fires multiple turns in a row.
@@ -256,10 +265,18 @@ export function VoiceChatOverlay({
     if (karaokeTickRef.current) { clearTimeout(karaokeTickRef.current); karaokeTickRef.current = null; }
 
     try {
-      const { data, error } = await supabase.functions.invoke("mavis-tts", {
-        body: { text, voice_id: voiceId },
-      });
-      if (error || !data?.audioContent) throw new Error("TTS unavailable");
+      // Race the invoke against a 12-second timeout so a hanging ElevenLabs
+      // response (e.g. during quota exhaustion) doesn't leave the overlay
+      // stuck in "speaking" with no audio. The timeout resolves (not rejects)
+      // so it doesn't create an unhandled rejection when invoke wins the race.
+      const ttsResult = await Promise.race([
+        supabase.functions.invoke("mavis-tts", { body: { text, voice_id: voiceId } }),
+        new Promise<{ data: null; error: Error }>((resolve) =>
+          setTimeout(() => resolve({ data: null, error: new Error("TTS timeout (12s)") }), 12000)
+        ),
+      ]);
+      const { data, error } = ttsResult;
+      if (error || !data?.audioContent) throw new Error((data as any)?.error ?? "TTS unavailable");
       if (closingRef.current) return;
 
       const bytes = Uint8Array.from(atob(data.audioContent), (c) => c.charCodeAt(0));
@@ -312,8 +329,9 @@ export function VoiceChatOverlay({
 
       await audio.play();
     } catch {
-      // Any failure — ElevenLabs quota, no API key, decode error —
-      // falls back to browser speech synthesis which has no key requirement.
+      // Mark ElevenLabs as unavailable for the rest of this session so
+      // subsequent turns skip the failed service immediately.
+      ttsUnavailableRef.current = true;
       if (!closingRef.current) speakReply(text);
     }
   }, [speakReply]);
@@ -789,6 +807,9 @@ export function VoiceChatOverlay({
     // Reset unlock flag so the audio session is re-activated on every overlay open.
     // iOS can re-lock audio if the page is backgrounded between sessions.
     audioUnlockedRef.current = false;
+    // Give ElevenLabs a fresh chance on each new overlay session — credits may
+    // have been replenished since the last time the overlay was open.
+    ttsUnavailableRef.current = false;
   }, []);
 
   const handleOrbOrMicTap = useCallback(() => {
