@@ -227,69 +227,94 @@ export function VoiceChatOverlay({
     }
   }, [pickVoice]);
 
+  // Track the currently-playing ElevenLabs <audio> element so we can clean up
+  // before starting a new one (prevents stuck/overlapping playback on turn 2+).
+  const elevenAudioElRef = useRef<HTMLAudioElement | null>(null);
+  const elevenAudioUrlRef = useRef<string | null>(null);
+
   // ── ElevenLabs TTS — used for persona voices (voiceId set) ────────────────
+  // Uses HTMLAudioElement + blob URL so playback works reliably across turns
+  // (AudioContext can get stuck in "suspended" after the first utterance on
+  // Chrome, which silently dropped audio on subsequent persona replies).
   // Falls back to browser speech synthesis on any error.
   const speakWithElevenLabs = useCallback(async (text: string, voiceId: string) => {
     setDisplayedReply(text);
     setSpokenUpTo(0);
     setPhase("speaking");
+
+    // Tear down any previous audio element + blob URL so we never leak or
+    // double-play. Important when the user fires multiple turns in a row.
+    if (elevenAudioElRef.current) {
+      try { elevenAudioElRef.current.pause(); } catch { /* ignore */ }
+      elevenAudioElRef.current.src = "";
+      elevenAudioElRef.current = null;
+    }
+    if (elevenAudioUrlRef.current) {
+      URL.revokeObjectURL(elevenAudioUrlRef.current);
+      elevenAudioUrlRef.current = null;
+    }
+    if (karaokeTickRef.current) { clearTimeout(karaokeTickRef.current); karaokeTickRef.current = null; }
+
     try {
       const { data, error } = await supabase.functions.invoke("mavis-tts", {
         body: { text, voice_id: voiceId },
       });
       if (error || !data?.audioContent) throw new Error("TTS unavailable");
+      if (closingRef.current) return;
 
       const bytes = Uint8Array.from(atob(data.audioContent), (c) => c.charCodeAt(0));
+      const blob = new Blob([bytes], { type: "audio/mpeg" });
+      const url = URL.createObjectURL(blob);
+      elevenAudioUrlRef.current = url;
 
-      // Re-use the pre-activated context from unlockAudio.  Wire up
-      // onstatechange here too so it's set even if this is the first call.
-      const audioCtx = elevenLabsAudioCtxRef.current ?? new AudioContext();
-      elevenLabsAudioCtxRef.current = audioCtx;
-      audioCtx.onstatechange = () => {
-        if (audioCtx.state === "suspended" && !closingRef.current) {
-          audioCtx.resume().catch(() => {});
-        }
-      };
+      const audio = new Audio(url);
+      audio.preload = "auto";
+      elevenAudioElRef.current = audio;
 
-      // Resume if suspended — after the page's first user gesture, Chrome
-      // permits resume() from non-gesture contexts (useEffect, Promise chain).
-      if (audioCtx.state !== "running") {
-        await audioCtx.resume();
-      }
-
-      // decodeAudioData uses a callback-based API internally; wrap it to get
-      // a proper rejection instead of a silent failure on bad data.
-      const buffer = await new Promise<AudioBuffer>((resolve, reject) => {
-        audioCtx.decodeAudioData(bytes.buffer.slice(0), resolve, reject);
-      });
-
-      const source = audioCtx.createBufferSource();
-      source.buffer = buffer;
-      source.connect(audioCtx.destination);
-
-      // Simulate karaoke using actual audio duration for accurate timing
-      const words     = text.split(/\s+/);
-      const msPerWord = (buffer.duration * 1000) / Math.max(words.length, 1);
-      let charPos = 0;
-      let wordIdx = 0;
-      const tick = () => {
-        if (wordIdx >= words.length || closingRef.current) { setSpokenUpTo(text.length); return; }
-        charPos += words[wordIdx].length + 1;
-        setSpokenUpTo(Math.min(charPos, text.length));
-        wordIdx++;
+      const startKaraoke = (durationMs: number) => {
+        const words = text.split(/\s+/);
+        const msPerWord = durationMs / Math.max(words.length, 1);
+        let charPos = 0;
+        let wordIdx = 0;
+        const tick = () => {
+          if (wordIdx >= words.length || closingRef.current) { setSpokenUpTo(text.length); return; }
+          charPos += words[wordIdx].length + 1;
+          setSpokenUpTo(Math.min(charPos, text.length));
+          wordIdx++;
+          karaokeTickRef.current = setTimeout(tick, msPerWord);
+        };
         karaokeTickRef.current = setTimeout(tick, msPerWord);
       };
-      karaokeTickRef.current = setTimeout(tick, msPerWord);
 
-      source.onended = () => {
+      const cleanup = () => {
         if (karaokeTickRef.current) { clearTimeout(karaokeTickRef.current); karaokeTickRef.current = null; }
+        if (elevenAudioUrlRef.current === url) {
+          URL.revokeObjectURL(url);
+          elevenAudioUrlRef.current = null;
+        }
+        if (elevenAudioElRef.current === audio) elevenAudioElRef.current = null;
+      };
+
+      audio.onloadedmetadata = () => {
+        const durMs = isFinite(audio.duration) && audio.duration > 0
+          ? audio.duration * 1000
+          : text.split(/\s+/).length * 280;
+        startKaraoke(durMs);
+      };
+      audio.onended = () => {
+        cleanup();
         if (!closingRef.current) { setSpokenUpTo(text.length); setPhase("idle"); }
       };
-      source.start();
+      audio.onerror = () => {
+        cleanup();
+        if (!closingRef.current) speakReply(text);
+      };
+
+      await audio.play();
     } catch {
-      // Any failure — ElevenLabs quota, no API key, decode error, suspended context —
+      // Any failure — ElevenLabs quota, no API key, decode error —
       // falls back to browser speech synthesis which has no key requirement.
-      speakReply(text);
+      if (!closingRef.current) speakReply(text);
     }
   }, [speakReply]);
 
