@@ -2153,6 +2153,7 @@ export type Database = {
           id: string
           last_accessed_at: string | null
           properties: Json
+          source_url: string | null
           tags: string[]
           title: string
           updated_at: string
@@ -2168,6 +2169,7 @@ export type Database = {
           id?: string
           last_accessed_at?: string | null
           properties?: Json
+          source_url?: string | null
           tags?: string[]
           title?: string
           updated_at?: string
@@ -2183,6 +2185,7 @@ export type Database = {
           id?: string
           last_accessed_at?: string | null
           properties?: Json
+          source_url?: string | null
           tags?: string[]
           title?: string
           updated_at?: string
@@ -2583,6 +2586,39 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      mavis_rss_feeds: {
+        Row: {
+          created_at: string | null
+          enabled: boolean
+          feed_url: string
+          id: string
+          last_error: string | null
+          last_fetched_at: string | null
+          name: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string | null
+          enabled?: boolean
+          feed_url: string
+          id?: string
+          last_error?: string | null
+          last_fetched_at?: string | null
+          name?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string | null
+          enabled?: boolean
+          feed_url?: string
+          id?: string
+          last_error?: string | null
+          last_fetched_at?: string | null
+          name?: string
+          user_id?: string
+        }
+        Relationships: []
       }
       mavis_skill_definitions: {
         Row: {
@@ -4139,6 +4175,122 @@ export type Database = {
           xp_reward?: number
         }
         Relationships: []
+      }
+      tower_floors: {
+        Row: {
+          created_at: string | null
+          dangers: string
+          ecology: string
+          energy: string
+          essence: string
+          floor_max: number
+          floor_min: number
+          function: string
+          id: string
+          inhabitants: string
+          law: string
+          name: string
+          rewards: string
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          created_at?: string | null
+          dangers?: string
+          ecology?: string
+          energy?: string
+          essence?: string
+          floor_max: number
+          floor_min: number
+          function?: string
+          id?: string
+          inhabitants?: string
+          law?: string
+          name?: string
+          rewards?: string
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          created_at?: string | null
+          dangers?: string
+          ecology?: string
+          energy?: string
+          essence?: string
+          floor_max?: number
+          floor_min?: number
+          function?: string
+          id?: string
+          inhabitants?: string
+          law?: string
+          name?: string
+          rewards?: string
+          updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "tower_floors_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      tower_subareas: {
+        Row: {
+          area_type: string
+          created_at: string | null
+          description: string
+          floor_end: number | null
+          floor_id: string
+          floor_start: number | null
+          id: string
+          name: string
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          area_type?: string
+          created_at?: string | null
+          description?: string
+          floor_end?: number | null
+          floor_id: string
+          floor_start?: number | null
+          id?: string
+          name?: string
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          area_type?: string
+          created_at?: string | null
+          description?: string
+          floor_end?: number | null
+          floor_id?: string
+          floor_start?: number | null
+          id?: string
+          name?: string
+          updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "tower_subareas_floor_id_fkey"
+            columns: ["floor_id"]
+            isOneToOne: false
+            referencedRelation: "tower_floors"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tower_subareas_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       transformations: {
         Row: {
