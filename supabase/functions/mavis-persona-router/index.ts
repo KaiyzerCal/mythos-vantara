@@ -482,16 +482,35 @@ You always know the current date and time without being told. Reference it natur
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const serviceKey  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
-    // Execute direct actions via mavis-actions (fire-and-forget).
+    // Execute direct actions via mavis-actions — await so failures surface instead of
+    // silently dropping. Count only actions that actually succeeded in the DB.
+    let actionsExecuted = 0;
     if (parsedActions.length > 0) {
-      fetch(`${supabaseUrl}/functions/v1/mavis-actions`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${serviceKey}` },
-        body: JSON.stringify({ actions: parsedActions, userId: user_id }),
-      }).catch((err: unknown) => console.warn("[persona-router] mavis-actions call failed:", err));
+      try {
+        const actRes = await fetch(`${supabaseUrl}/functions/v1/mavis-actions`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${serviceKey}` },
+          body: JSON.stringify({ actions: parsedActions, userId: user_id }),
+        });
+        if (actRes.ok) {
+          const actData = await actRes.json();
+          const results: Array<{ success: boolean; type: string; error?: string }> = actData.results ?? [];
+          actionsExecuted = results.filter(r => r.success).length;
+          const failed    = results.filter(r => !r.success);
+          if (failed.length > 0) {
+            console.warn("[persona-router] action failures:", failed.map(r => `${r.type}: ${r.error}`).join("; "));
+          }
+        } else {
+          const errText = await actRes.text().catch(() => String(actRes.status));
+          console.warn("[persona-router] mavis-actions returned", actRes.status, errText.slice(0, 200));
+        }
+      } catch (err: unknown) {
+        console.warn("[persona-router] mavis-actions call threw:", err);
+      }
     }
 
-    // Queue MAVIS proposals into the approvals table + Telegram ping (fire-and-forget).
+    // Queue MAVIS proposals — await the insert so we know it actually landed.
+    let proposalsQueued = 0;
     if (parsedProposals.length > 0) {
       const proposalRows = parsedProposals.map((prop) => ({
         user_id,
@@ -502,25 +521,26 @@ You always know the current date and time without being told. Reference it natur
         proposed_by: persona.name,
       }));
 
-      supabase.from("approvals").insert(proposalRows)
-        .then(({ error }: { error: any }) => {
-          if (error) console.warn("[persona-router] proposal insert failed:", error);
-        });
-
-      // Ping MAVIS on Telegram so proposals surface immediately.
-      const botToken = Deno.env.get("TELEGRAM_BOT_TOKEN");
-      const chatId   = Deno.env.get("TELEGRAM_OPERATOR_CHAT_ID");
-      if (botToken && chatId) {
-        const lines = parsedProposals.map((p) => `• [${p.type}] ${p.summary || p.details.slice(0, 80)}`).join("\n");
-        fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            chat_id: chatId,
-            text: `🔮 *${persona.name}* flagged ${parsedProposals.length} idea${parsedProposals.length > 1 ? "s" : ""} for MAVIS:\n${lines}\n\nReply /inbox to review.`,
-            parse_mode: "Markdown",
-          }),
-        }).catch(() => {});
+      const { error: propErr } = await supabase.from("approvals").insert(proposalRows);
+      if (propErr) {
+        console.warn("[persona-router] proposal insert failed:", propErr.message);
+      } else {
+        proposalsQueued = parsedProposals.length;
+        // Ping MAVIS on Telegram — fire-and-forget is fine here (notification only).
+        const botToken = Deno.env.get("TELEGRAM_BOT_TOKEN");
+        const chatId   = Deno.env.get("TELEGRAM_OPERATOR_CHAT_ID");
+        if (botToken && chatId) {
+          const lines = parsedProposals.map((p) => `• [${p.type}] ${p.summary || p.details.slice(0, 80)}`).join("\n");
+          fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              chat_id: chatId,
+              text: `🔮 *${persona.name}* flagged ${proposalsQueued} idea${proposalsQueued > 1 ? "s" : ""} for MAVIS:\n${lines}\n\nReply /inbox to review.`,
+              parse_mode: "Markdown",
+            }),
+          }).catch(() => {});
+        }
       }
     }
 
@@ -550,7 +570,7 @@ You always know the current date and time without being told. Reference it natur
       }).catch(() => {});
     }
 
-    return new Response(JSON.stringify({ response, persona_name: persona.name, actions_executed: parsedActions.length, proposals_queued: parsedProposals.length }), {
+    return new Response(JSON.stringify({ response, persona_name: persona.name, actions_executed: actionsExecuted, proposals_queued: proposalsQueued }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (err: any) {
