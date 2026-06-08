@@ -24,6 +24,42 @@ import {
 const BRANDS = ["codexos", "vantara", "skyforgeai", "bioneer", "navi", "prymal", "custom"] as const;
 const DEADLINE_TIERS = ["rapid", "standard", "premium"] as const;
 
+const QUALITY_TIERS = [
+  {
+    tier: 1 as const,
+    label: "Tier 1",
+    name: "Clean Pro",
+    range: "$1K – $2K",
+    color: "text-blue-400",
+    borderActive: "border-blue-500/50 bg-blue-500/10",
+    desc: "Clean dark layout, hover effects, scroll reveal, mobile responsive. Perfect for service businesses and simple landing pages.",
+    sections: "Nav · Hero · Features · Stats · Footer",
+    effects: "None",
+  },
+  {
+    tier: 2 as const,
+    label: "Tier 2",
+    name: "Dynamic",
+    range: "$3K – $5K",
+    color: "text-purple-400",
+    borderActive: "border-purple-500/50 bg-purple-500/10",
+    desc: "Canvas particle hero, mouse-tracking spotlight cards, terminal animation, animated counters. For tech-forward brands.",
+    sections: "Nav · Hero · Features · Stats · Terminal · Footer",
+    effects: "Hero canvas · Spotlight cards · Typed terminal",
+  },
+  {
+    tier: 3 as const,
+    label: "Tier 3",
+    name: "Sovereign",
+    range: "$8K+",
+    color: "text-cyan-400",
+    borderActive: "border-cyan-500/50 bg-cyan-500/10",
+    desc: "Full PrymalAI system — 3-layer canvas, custom cursor, HUD overlay, ticker, spotlight cards, glitch text, live clock. Elite positioning.",
+    sections: "Nav · Hero · Features · Stats · Terminal · Social · CTA · Footer",
+    effects: "Matrix rain · Ambient orbs · Lightning · Custom cursor · Tracer · HUD · Ticker",
+  },
+] as const;
+
 interface Project {
   id: string;
   project_name: string;
@@ -383,6 +419,7 @@ function NewProjectForm({ onComplete, onCancel, userId }: NewProjectFormProps) {
   const [brief, setBrief] = useState<Partial<DesignBrief>>({
     brand: "codexos",
     deadlineTier: "standard",
+    qualityTier: 3,
     keyFeatures: [],
   });
   const [featuresInput, setFeaturesInput] = useState("");
@@ -405,6 +442,7 @@ function NewProjectForm({ onComplete, onCancel, userId }: NewProjectFormProps) {
         competitorUrls: competitorsInput ? competitorsInput.split(",").map((u) => u.trim()).filter(Boolean) : [],
         userJourney:    brief.userJourney,
         deadlineTier:   brief.deadlineTier ?? "standard",
+        qualityTier:    brief.qualityTier ?? 3,
         clientName:     brief.clientName,
         projectValue:   brief.projectValue,
       };
@@ -483,6 +521,41 @@ function NewProjectForm({ onComplete, onCancel, userId }: NewProjectFormProps) {
           onChange={(e) => setCompetitorsInput(e.target.value)}
           className="w-full bg-muted/20 border border-border rounded-lg px-3 py-2.5 text-sm text-foreground placeholder-muted-foreground/50 focus:outline-none focus:border-primary/50 transition-colors"
         />
+      </div>
+
+      {/* Quality Tier selector */}
+      <div>
+        <label className="block text-[10px] font-mono text-muted-foreground mb-2 uppercase tracking-wider">
+          Quality Tier <span className="text-primary">*</span>
+        </label>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          {QUALITY_TIERS.map((qt) => (
+            <button
+              key={qt.tier}
+              type="button"
+              onClick={() => setBrief((prev) => ({ ...prev, qualityTier: qt.tier }))}
+              className={`text-left p-3 rounded-lg border transition-all ${
+                brief.qualityTier === qt.tier
+                  ? qt.borderActive
+                  : "border-border/50 hover:border-border bg-muted/10"
+              }`}
+            >
+              <div className="flex items-center justify-between mb-1">
+                <span className={`text-[10px] font-mono font-bold ${qt.color}`}>{qt.label} — {qt.name}</span>
+                <span className={`text-[9px] font-mono ${qt.color} opacity-80`}>{qt.range}</span>
+              </div>
+              <p className="text-[10px] font-mono text-muted-foreground leading-relaxed mb-2">{qt.desc}</p>
+              <div className="space-y-0.5">
+                <p className="text-[9px] font-mono text-muted-foreground/60">
+                  <span className="text-muted-foreground/80">Sections:</span> {qt.sections}
+                </p>
+                <p className="text-[9px] font-mono text-muted-foreground/60">
+                  <span className="text-muted-foreground/80">Effects:</span> {qt.effects}
+                </p>
+              </div>
+            </button>
+          ))}
+        </div>
       </div>
 
       <div>

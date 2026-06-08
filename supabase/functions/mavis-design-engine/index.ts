@@ -373,196 +373,110 @@ const SUB_BRANDS: Record<string, {
 
 // ─── PROMPT BUILDERS ─────────────────────────────────────────
 
+function getTier(brief: Record<string, unknown>): 1 | 2 | 3 {
+  const t = Number(brief.quality_tier ?? 3);
+  return (t === 1 ? 1 : t === 2 ? 2 : 3) as 1 | 2 | 3;
+}
+
 function buildSystemPrompt(brief: Record<string, unknown>): string {
   const brand = String(brief.brand ?? "custom");
   const sb = SUB_BRANDS[brand] ?? SUB_BRANDS.custom;
   const fonts = PREMIUM_FONT_STACKS[sb.fontStack as keyof typeof PREMIUM_FONT_STACKS] ?? PREMIUM_FONT_STACKS.cyberpunk;
   const card = brand === "prymal" || brand === "codexos" ? "#111827" : "#16161F";
+  const tier = getTier(brief);
+  const textColor = brand === "prymal" ? "#eef2f7" : "#F1F0ED";
 
-  return `You are MAVIS — Machine Autonomous Vantara Intelligence System.
-Quality benchmark: PrymalAI — cinematic dark website with canvas particle networks,
-mouse-tracking spotlight cards, glassmorphic nav, glitch headlines, terminal animations,
-animated stat counters, and a Bebas Neue + DM Sans typography system that commands attention.
-You do NOT produce generic websites. You produce sovereign digital infrastructure.
-
-BRAND: ${brand.toUpperCase()}
-BG: ${sb.bg}  |  Surface: ${sb.surface}  |  Card: ${card}
-Accent: ${sb.accent}  |  Accent2: ${sb.secondary}
-Display Font: ${fonts.display}
-Body Font:    ${fonts.body}
-Mono Font:    ${fonts.mono}
-Google URL:   ${fonts.googleUrl}
-Tone: ${sb.tone}
-
-CSS CUSTOM PROPERTIES — always in styles.css :root:
+  const cssVarsBlock = `CSS CUSTOM PROPERTIES — always in styles.css :root:
   --bg:      ${sb.bg};
   --surface: ${sb.surface};
   --card:    ${card};
   --accent:  ${sb.accent};
   --accent2: ${sb.secondary};
-  --text:    ${brand === "prymal" ? "#eef2f7" : "#F1F0ED"};
+  --text:    ${textColor};
   --muted:   #6b7280;
   --border:  ${sb.accent}1a;
   --border2: ${sb.accent}33;
   --glow:    0 0 24px ${sb.accent}30;
   --fd: ${fonts.display};
   --fb: ${fonts.body};
-  --fm: ${fonts.mono};
+  --fm: ${fonts.mono};`;
 
-GRID OVERLAY — always in body::before:
-  content:''; position:fixed; inset:0; pointer-events:none; z-index:0;
-  background-image: linear-gradient(${sb.accent}05 1px,transparent 1px),
-                    linear-gradient(90deg,${sb.accent}05 1px,transparent 1px);
-  background-size:56px 56px; animation: grid-breathe 14s ease-in-out infinite;
+  const brandBlock = `BRAND: ${brand.toUpperCase()}
+BG: ${sb.bg}  |  Surface: ${sb.surface}  |  Card: ${card}
+Accent: ${sb.accent}  |  Accent2: ${sb.secondary}
+Display Font: ${fonts.display}
+Body Font:    ${fonts.body}
+Mono Font:    ${fonts.mono}
+Google URL:   ${fonts.googleUrl}
+Tone: ${sb.tone}`;
 
-PRE-BUILT EFFECT COMPONENTS (injected automatically — you MUST import and use them):
-  import CanvasBackground from './components/effects/CanvasBackground';
-  import CursorFX         from './components/effects/CursorFX';
-  import HudOverlay       from './components/effects/HudOverlay';
-  import Ticker           from './components/effects/Ticker';
-These are already in the final file list. Your App.tsx MUST render all 4.
-
-PERFORMANCE: Lighthouse 95+, LCP < 2.5s, CLS < 0.1, JS < 150kb gz
-REDUCED MOTION: @media(prefers-reduced-motion:reduce) { *{animation-duration:.001ms!important} }
-
-DESIGN LAWS:
-${DESIGN_LAWS}
-
-TAILWIND CONFIG (extend): theme: { extend: { ${fonts.tailwind} } }
-
-MOUSE-TRACKING SPOTLIGHT ON CARDS — every feature/service card MUST use:
-  onMouseMove={(e)=>{ const r=e.currentTarget.getBoundingClientRect();
-    e.currentTarget.style.setProperty('--mx',((e.clientX-r.left)/r.width*100)+'%');
-    e.currentTarget.style.setProperty('--my',((e.clientY-r.top)/r.height*100)+'%'); }}
-  className="relative group before:absolute before:inset-0 before:rounded-[inherit]
-    before:bg-[radial-gradient(ellipse_at_var(--mx,50%)_var(--my,50%),rgba(0,200,255,0.07),transparent_65%)]
-    before:opacity-0 before:transition-opacity before:duration-300 hover:before:opacity-100"
-
-GLITCH TEXT — primary hero headline must use this pattern:
-  <span className="relative inline-block group cursor-default select-none">
-    <span className="relative z-10">{text}</span>
-    <span className="absolute inset-0 text-cyan-400 opacity-0 group-hover:opacity-60
-      translate-x-[1px] -translate-y-[1px] blur-[0.4px] transition-opacity duration-75
-      select-none pointer-events-none" aria-hidden>{text}</span>
-    <span className="absolute inset-0 text-purple-400 opacity-0 group-hover:opacity-40
-      -translate-x-[1px] translate-y-[1px] blur-[0.4px] transition-opacity duration-100
-      select-none pointer-events-none" aria-hidden>{text}</span>
-  </span>
-
-ANIMATED COUNTER — Stats section:
-  function AnimCounter({ to, suffix='' }: { to:number; suffix?:string }) {
-    const [n,setN]=useState(0); const ref=useRef<HTMLSpanElement>(null);
-    useEffect(()=>{
-      const obs=new IntersectionObserver(([e])=>{
-        if(!e.isIntersecting) return; obs.disconnect();
-        const s=performance.now();
-        const tick=(now:number)=>{ const p=Math.min((now-s)/1800,1); setN(Math.floor(p*to)); if(p<1) requestAnimationFrame(tick); else setN(to); };
-        requestAnimationFrame(tick);
-      },{threshold:0.3});
-      if(ref.current) obs.observe(ref.current); return ()=>obs.disconnect();
-    },[to]);
-    return <span ref={ref}>{n.toLocaleString()}{suffix}</span>;
-  }
-
-SCROLL-REVEAL HOOK:
-  function useReveal(threshold=0.12) {
-    const ref=useRef<HTMLDivElement>(null); const [vis,setVis]=useState(false);
-    useEffect(()=>{
-      const obs=new IntersectionObserver(([e])=>{ if(e.isIntersecting){setVis(true);obs.disconnect();} },{threshold});
-      if(ref.current) obs.observe(ref.current); return ()=>obs.disconnect();
-    },[threshold]);
-    return {ref,vis};
-  }
-
-TERMINAL TYPING — include a terminal window with multi-line typing:
-  const LINES = ['$ system.init --mode=autonomous','> Loading intelligence modules...','> Neural pathways established.','✓ All systems operational.'];
-
-SVG GEO ACCENT — inside each feature card (group-hover:rotate, low opacity):
-  <svg className="absolute right-4 bottom-4 w-24 h-24 text-current opacity-[0.06]
-    transition-transform duration-500 group-hover:rotate-12 group-hover:opacity-[0.1]"
-    viewBox="0 0 160 160" fill="none" stroke="currentColor" strokeWidth="1">
-    <polygon points="80,8 148,44 148,116 80,152 12,116 12,44"/>
-    <polygon points="80,30 124,55 124,105 80,130 36,105 36,55"/>
-    <circle cx="80" cy="80" r="16"/>
-  </svg>
-
-GLASSMORPHISM:
-  Nav:  fixed top-0 inset-x-0 bg-black/50 backdrop-blur-[40px] saturate-200 border-b border-white/5
-  Card: bg-white/[0.03] backdrop-blur-xl border border-white/[0.06] rounded-xl
-  Form: bg-[#0d1117]/80 backdrop-blur-[20px] border border-[rgba(0,200,255,0.2)] rounded-xl
-
-CODE REQUIREMENTS:
+  const codeReqs = `CODE REQUIREMENTS:
 - TypeScript, no any[] where avoidable
 - Tailwind + CSS var arbitrary values e.g. bg-[var(--accent)] text-[var(--text)]
 - Framer Motion for section reveals: whileInView / initial / viewport={{ once:true }}
 - Complete production code — no TODOs, no placeholders, no "// ...rest of code"
-- Google Fonts @import must be the FIRST line of styles.css`;
-}
+- Google Fonts @import must be the FIRST line of styles.css
+- REDUCED MOTION: @media(prefers-reduced-motion:reduce){*{animation-duration:.001ms!important}}`;
 
-function buildUserPrompt(brief: Record<string, unknown>): string {
-  const features = Array.isArray(brief.key_features) ? (brief.key_features as string[]).join(", ") : "";
-  const competitors = Array.isArray(brief.competitor_urls) ? (brief.competitor_urls as string[]).join(", ") : "";
-  const brand = String(brief.brand ?? "custom");
-  const sb = SUB_BRANDS[brand] ?? SUB_BRANDS.custom;
-  const fonts = PREMIUM_FONT_STACKS[sb.fontStack as keyof typeof PREMIUM_FONT_STACKS] ?? PREMIUM_FONT_STACKS.cyberpunk;
+  // ── Tier 1: Clean Professional ──────────────────────────────
+  if (tier === 1) {
+    return `You are MAVIS — a sovereign design system generating clean, professional dark websites.
 
-  return `Build a cinematic, PrymalAI-quality website. Quality bar: every interaction feels alive.
+QUALITY TIER: 1 — Clean Professional ($1,000–$2,000)
+Deliver a clean, polished dark website. Excellent typography. No canvas. No custom cursor.
+Focus: great layout, readable hierarchy, smooth hover transitions, mobile-first responsive.
 
-PROJECT:
-  Name:     ${brief.project_name}
-  Brand:    ${brand}  |  Accent: ${sb.accent}  |  Font: ${fonts.name}
-  Goal:     ${brief.project_goal}
-  Audience: ${brief.target_audience}
-  Features: ${features}
-${brief.aesthetic_directives ? "  Aesthetic: " + brief.aesthetic_directives : ""}
-${competitors ? "  Competitors: " + competitors : ""}
-${brief.user_journey ? "  Journey: " + brief.user_journey : ""}
-  Tier:     ${brief.deadline_tier}
+${brandBlock}
 
-THE FOLLOWING 4 FILES ARE PRE-BUILT AND WILL BE INJECTED AUTOMATICALLY.
-DO NOT generate them — they already exist:
-  components/effects/CanvasBackground.tsx  (3-layer canvas: matrix rain + orbs + lightning)
-  components/effects/CursorFX.tsx          (custom cursor dot + canvas tracer + page spotlight)
-  components/effects/HudOverlay.tsx        (HUD corner brackets + rotating arc + live clock + scanline)
-  components/effects/Ticker.tsx            (seamless scrolling ticker strip)
+${cssVarsBlock}
 
-YOU MUST GENERATE EXACTLY THESE 9 FILES (complete production code, no TODOs):
-  1. styles.css            — @import fonts (FIRST LINE), :root vars, keyframes, grid overlay
-  2. App.tsx               — imports + renders ALL 4 effect components + all 8 sections
-  3. components/Nav.tsx    — fixed glassmorphic nav, logo, links, CTA, mobile hamburger
-  4. components/Hero.tsx   — canvas particle network (useRef+useEffect), GlitchText headline, dual CTA
-  5. components/Features.tsx — 3-4 mouse-tracking spotlight cards, SVG geo accents, scroll-reveal
-  6. components/Stats.tsx  — 4 AnimCounter stats, glassmorphism band, IntersectionObserver
-  7. components/Terminal.tsx — terminal window, multi-line typing animation, blinking cursor
-  8. components/Social.tsx — testimonials or social proof, scroll-reveal
-  9. components/Footer.tsx — 3-column: brand tagline + nav links + socials/legal
+GRID OVERLAY — include in body::before:
+  content:''; position:fixed; inset:0; pointer-events:none; z-index:0;
+  background-image: linear-gradient(${sb.accent}04 1px,transparent 1px), linear-gradient(90deg,${sb.accent}04 1px,transparent 1px);
+  background-size:56px 56px;
 
-MANDATORY ITEMS IN App.tsx:
-  import CanvasBackground from './components/effects/CanvasBackground';
-  import CursorFX         from './components/effects/CursorFX';
-  import HudOverlay       from './components/effects/HudOverlay';
-  import Ticker           from './components/effects/Ticker';
+PERFORMANCE: Lighthouse 95+, LCP < 2.5s, CLS < 0.1
+DESIGN LAWS: ${DESIGN_LAWS}
+TAILWIND CONFIG: theme: { extend: { ${fonts.tailwind} } }
 
-  return (
-    <>
-      <CanvasBackground />
-      <CursorFX />
-      <HudOverlay />
-      <Nav />
-      <main>
-        <section id="hero"><Hero /></section>
-        <Ticker items={[/* 6-8 brand/service keywords */]} />
-        <Features />
-        <Stats />
-        <Terminal />
-        <Social />
-        <section id="cta">{/* conversion CTA section with animated border glow */}</section>
-      </main>
-      <Footer />
-    </>
-  );
+SCROLL-REVEAL (CSS transitions + IntersectionObserver, no canvas):
+  function useReveal(threshold=0.12) {
+    const ref=useRef<HTMLDivElement>(null); const [vis,setVis]=useState(false);
+    useEffect(()=>{ const obs=new IntersectionObserver(([e])=>{ if(e.isIntersecting){setVis(true);obs.disconnect();} },{threshold}); if(ref.current) obs.observe(ref.current); return ()=>obs.disconnect(); },[threshold]);
+    return {ref,vis};
+  }
 
-MANDATORY IN Hero.tsx — full canvas particle network (copy this pattern exactly):
+GLASSMORPHISM:
+  Nav: fixed top-0 inset-x-0 bg-black/50 backdrop-blur-[30px] border-b border-white/5
+  Card: bg-white/[0.03] backdrop-blur-md border border-white/[0.06] rounded-xl
+
+ANIMATIONS ALLOWED: hover transitions (translateY, box-shadow, opacity), scroll reveal, animated CTA button gradient.
+NO canvas, NO requestAnimationFrame, NO custom cursor.
+
+${codeReqs}`;
+  }
+
+  // ── Tier 2: Dynamic ─────────────────────────────────────────
+  if (tier === 2) {
+    return `You are MAVIS — a sovereign design system generating dynamic interactive dark websites.
+
+QUALITY TIER: 2 — Dynamic ($3,000–$5,000)
+Deliver a JavaScript-powered interactive website with canvas hero, spotlight cards, terminal, animated counters.
+
+${brandBlock}
+
+${cssVarsBlock}
+
+GRID OVERLAY — include in body::before:
+  content:''; position:fixed; inset:0; pointer-events:none; z-index:0;
+  background-image: linear-gradient(${sb.accent}05 1px,transparent 1px), linear-gradient(90deg,${sb.accent}05 1px,transparent 1px);
+  background-size:56px 56px; animation: grid-breathe 14s ease-in-out infinite;
+
+PERFORMANCE: Lighthouse 95+, LCP < 2.5s, CLS < 0.1
+DESIGN LAWS: ${DESIGN_LAWS}
+TAILWIND CONFIG: theme: { extend: { ${fonts.tailwind} } }
+
+CANVAS PARTICLE NETWORK — Hero.tsx (REQUIRED, exact pattern):
   const canvasRef = useRef<HTMLCanvasElement>(null);
   useEffect(() => {
     const canvas = canvasRef.current; if (!canvas) return;
@@ -584,12 +498,151 @@ MANDATORY IN Hero.tsx — full canvas particle network (copy this pattern exactl
     draw();
     return ()=>{ cancelAnimationFrame(id); window.removeEventListener('resize',resize); };
   },[]);
-  // JSX: <canvas ref={canvasRef} className="absolute inset-0 w-full h-full" />
 
-RESPOND WITH VALID JSON ONLY — no markdown fences, no text before or after.
-All 9 files must have COMPLETE deployable code.
+MOUSE-TRACKING SPOTLIGHT ON CARDS:
+  onMouseMove={(e)=>{ const r=e.currentTarget.getBoundingClientRect();
+    e.currentTarget.style.setProperty('--mx',((e.clientX-r.left)/r.width*100)+'%');
+    e.currentTarget.style.setProperty('--my',((e.clientY-r.top)/r.height*100)+'%'); }}
+  className="relative group before:absolute before:inset-0 before:rounded-[inherit]
+    before:bg-[radial-gradient(ellipse_at_var(--mx,50%)_var(--my,50%),rgba(0,200,255,0.07),transparent_65%)]
+    before:opacity-0 before:transition-opacity before:duration-300 hover:before:opacity-100"
 
-Return this JSON structure:
+ANIMATED COUNTER:
+  function AnimCounter({ to, suffix='' }: { to:number; suffix?:string }) {
+    const [n,setN]=useState(0); const ref=useRef<HTMLSpanElement>(null);
+    useEffect(()=>{ const obs=new IntersectionObserver(([e])=>{ if(!e.isIntersecting) return; obs.disconnect(); const s=performance.now(); const tick=(now:number)=>{ const p=Math.min((now-s)/1800,1); setN(Math.floor(p*to)); if(p<1) requestAnimationFrame(tick); else setN(to); }; requestAnimationFrame(tick); },{threshold:0.3}); if(ref.current) obs.observe(ref.current); return ()=>obs.disconnect(); },[to]);
+    return <span ref={ref}>{n.toLocaleString()}{suffix}</span>;
+  }
+
+SVG GEO ACCENT on cards:
+  <svg className="absolute right-4 bottom-4 w-24 h-24 text-current opacity-[0.06] transition-transform duration-500 group-hover:rotate-12 group-hover:opacity-[0.1]" viewBox="0 0 160 160" fill="none" stroke="currentColor" strokeWidth="1">
+    <polygon points="80,8 148,44 148,116 80,152 12,116 12,44"/><polygon points="80,30 124,55 124,105 80,130 36,105 36,55"/><circle cx="80" cy="80" r="16"/>
+  </svg>
+
+GLASSMORPHISM:
+  Nav: fixed top-0 inset-x-0 bg-black/50 backdrop-blur-[40px] saturate-200 border-b border-white/5
+  Card: bg-white/[0.03] backdrop-blur-xl border border-white/[0.06] rounded-xl
+
+NO ambient canvas background. NO custom cursor. NO HUD overlay. NO ticker.
+${codeReqs}`;
+  }
+
+  // ── Tier 3: Sovereign (full PrymalAI system) ─────────────────
+  return `You are MAVIS — Machine Autonomous Vantara Intelligence System.
+Quality benchmark: PrymalAI — cinematic dark website with 3-layer canvas background,
+custom cursor + tracer + spotlight, HUD overlay, scrolling ticker, mouse-tracking spotlight cards,
+glassmorphic nav, glitch headlines, terminal animations, animated stat counters.
+You produce sovereign digital infrastructure that makes every competitor look like a demo.
+
+QUALITY TIER: 3 — Sovereign ($8,000+) — Full PrymalAI system
+
+${brandBlock}
+
+${cssVarsBlock}
+
+GRID OVERLAY — always in body::before:
+  content:''; position:fixed; inset:0; pointer-events:none; z-index:0;
+  background-image: linear-gradient(${sb.accent}05 1px,transparent 1px), linear-gradient(90deg,${sb.accent}05 1px,transparent 1px);
+  background-size:56px 56px; animation: grid-breathe 14s ease-in-out infinite;
+
+PRE-BUILT EFFECT COMPONENTS (injected automatically — DO NOT generate these, they already exist):
+  import CanvasBackground from './components/effects/CanvasBackground';  // matrix rain + orbs + lightning
+  import CursorFX         from './components/effects/CursorFX';          // dot + tracer + spotlight
+  import HudOverlay       from './components/effects/HudOverlay';        // brackets + arc + clock + scan
+  import Ticker           from './components/effects/Ticker';            // scrolling strip
+Your App.tsx MUST import and render all 4. They are already in the file list.
+
+PERFORMANCE: Lighthouse 95+, LCP < 2.5s, CLS < 0.1, JS < 150kb gz
+DESIGN LAWS: ${DESIGN_LAWS}
+TAILWIND CONFIG: theme: { extend: { ${fonts.tailwind} } }
+
+CANVAS PARTICLE NETWORK — Hero.tsx (required, exact pattern):
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  useEffect(() => {
+    const canvas = canvasRef.current; if (!canvas) return;
+    const ctx = canvas.getContext('2d')!; let id: number;
+    const resize = () => { canvas.width=canvas.offsetWidth; canvas.height=canvas.offsetHeight; };
+    resize(); window.addEventListener('resize', resize);
+    type Node = { x:number;y:number;vx:number;vy:number;r:number };
+    const nodes: Node[] = Array.from({length:55},()=>({ x:Math.random()*canvas.width, y:Math.random()*canvas.height, vx:(Math.random()-0.5)*0.45, vy:(Math.random()-0.5)*0.45, r:Math.random()*2+0.8 }));
+    const draw = () => {
+      ctx.clearRect(0,0,canvas.width,canvas.height);
+      nodes.forEach(n=>{ n.x+=n.vx; n.y+=n.vy; if(n.x<0||n.x>canvas.width)n.vx*=-1; if(n.y<0||n.y>canvas.height)n.vy*=-1;
+        ctx.beginPath(); ctx.arc(n.x,n.y,n.r,0,Math.PI*2); ctx.fillStyle='rgba(0,200,255,0.7)'; ctx.fill(); });
+      for(let i=0;i<nodes.length;i++) for(let j=i+1;j<nodes.length;j++){
+        const d=Math.hypot(nodes[i].x-nodes[j].x,nodes[i].y-nodes[j].y);
+        if(d<130){ ctx.beginPath(); ctx.moveTo(nodes[i].x,nodes[i].y); ctx.lineTo(nodes[j].x,nodes[j].y);
+          ctx.strokeStyle='rgba(0,200,255,'+(0.18*(1-d/130))+')'; ctx.lineWidth=0.6; ctx.stroke(); }}
+      id=requestAnimationFrame(draw);
+    };
+    draw();
+    return ()=>{ cancelAnimationFrame(id); window.removeEventListener('resize',resize); };
+  },[]);
+
+MOUSE-TRACKING SPOTLIGHT ON CARDS — every card MUST use:
+  onMouseMove={(e)=>{ const r=e.currentTarget.getBoundingClientRect();
+    e.currentTarget.style.setProperty('--mx',((e.clientX-r.left)/r.width*100)+'%');
+    e.currentTarget.style.setProperty('--my',((e.clientY-r.top)/r.height*100)+'%'); }}
+  className="relative group before:absolute before:inset-0 before:rounded-[inherit]
+    before:bg-[radial-gradient(ellipse_at_var(--mx,50%)_var(--my,50%),rgba(0,200,255,0.07),transparent_65%)]
+    before:opacity-0 before:transition-opacity before:duration-300 hover:before:opacity-100"
+
+GLITCH TEXT — primary hero headline:
+  <span className="relative inline-block group cursor-default select-none">
+    <span className="relative z-10">{text}</span>
+    <span className="absolute inset-0 text-cyan-400 opacity-0 group-hover:opacity-60 translate-x-[1px] -translate-y-[1px] blur-[0.4px] transition-opacity duration-75 select-none pointer-events-none" aria-hidden>{text}</span>
+    <span className="absolute inset-0 text-purple-400 opacity-0 group-hover:opacity-40 -translate-x-[1px] translate-y-[1px] blur-[0.4px] transition-opacity duration-100 select-none pointer-events-none" aria-hidden>{text}</span>
+  </span>
+
+ANIMATED COUNTER:
+  function AnimCounter({ to, suffix='' }: { to:number; suffix?:string }) {
+    const [n,setN]=useState(0); const ref=useRef<HTMLSpanElement>(null);
+    useEffect(()=>{ const obs=new IntersectionObserver(([e])=>{ if(!e.isIntersecting) return; obs.disconnect(); const s=performance.now(); const tick=(now:number)=>{ const p=Math.min((now-s)/1800,1); setN(Math.floor(p*to)); if(p<1) requestAnimationFrame(tick); else setN(to); }; requestAnimationFrame(tick); },{threshold:0.3}); if(ref.current) obs.observe(ref.current); return ()=>obs.disconnect(); },[to]);
+    return <span ref={ref}>{n.toLocaleString()}{suffix}</span>;
+  }
+
+SCROLL-REVEAL HOOK:
+  function useReveal(threshold=0.12) {
+    const ref=useRef<HTMLDivElement>(null); const [vis,setVis]=useState(false);
+    useEffect(()=>{ const obs=new IntersectionObserver(([e])=>{ if(e.isIntersecting){setVis(true);obs.disconnect();} },{threshold}); if(ref.current) obs.observe(ref.current); return ()=>obs.disconnect(); },[threshold]);
+    return {ref,vis};
+  }
+
+SVG GEO ACCENT on cards:
+  <svg className="absolute right-4 bottom-4 w-24 h-24 text-current opacity-[0.06] transition-transform duration-500 group-hover:rotate-12 group-hover:opacity-[0.1]" viewBox="0 0 160 160" fill="none" stroke="currentColor" strokeWidth="1">
+    <polygon points="80,8 148,44 148,116 80,152 12,116 12,44"/><polygon points="80,30 124,55 124,105 80,130 36,105 36,55"/><circle cx="80" cy="80" r="16"/>
+  </svg>
+
+GLASSMORPHISM:
+  Nav:  fixed top-0 inset-x-0 bg-black/50 backdrop-blur-[40px] saturate-200 border-b border-white/5
+  Card: bg-white/[0.03] backdrop-blur-xl border border-white/[0.06] rounded-xl
+  Form: bg-[#0d1117]/80 backdrop-blur-[20px] border border-[rgba(0,200,255,0.2)] rounded-xl
+
+${codeReqs}`;
+}
+
+function buildUserPrompt(brief: Record<string, unknown>): string {
+  const features = Array.isArray(brief.key_features) ? (brief.key_features as string[]).join(", ") : "";
+  const competitors = Array.isArray(brief.competitor_urls) ? (brief.competitor_urls as string[]).join(", ") : "";
+  const brand = String(brief.brand ?? "custom");
+  const sb = SUB_BRANDS[brand] ?? SUB_BRANDS.custom;
+  const fonts = PREMIUM_FONT_STACKS[sb.fontStack as keyof typeof PREMIUM_FONT_STACKS] ?? PREMIUM_FONT_STACKS.cyberpunk;
+  const tier = getTier(brief);
+
+  const projectBlock = `PROJECT:
+  Name:     ${brief.project_name}
+  Brand:    ${brand}  |  Accent: ${sb.accent}  |  Font: ${fonts.name}
+  Goal:     ${brief.project_goal}
+  Audience: ${brief.target_audience}
+  Features: ${features}
+${brief.aesthetic_directives ? "  Aesthetic: " + brief.aesthetic_directives : ""}
+${competitors ? "  Competitors: " + competitors : ""}
+${brief.user_journey ? "  Journey: " + brief.user_journey : ""}
+  Deadline: ${brief.deadline_tier}`;
+
+  const jsonSkeleton = (filePaths: string[]) => `RESPOND WITH VALID JSON ONLY — no markdown fences, no text before or after.
+All files must have COMPLETE deployable code. No TODOs. No placeholders.
+
 {
   "blueprint": {
     "targetOperatorAnalysis": { "portrait":"", "wants":"", "bounceReasons":"", "conversionTriggers":"", "comparingAgainst":"" },
@@ -605,16 +658,8 @@ Return this JSON structure:
     "microInteractions":[{ "trigger":"hover", "element":"", "animation":"", "duration":"300ms", "easing":"cubic-bezier(0.4,0,0.2,1)", "purpose":"delight", "implementation":"css" }],
     "responsiveStrategy":{ "breakpoints":{"sm":"640px","md":"768px","lg":"1024px","xl":"1280px"}, "mobileFirst":"", "tabletAdaptations":"", "desktopExpansion":"", "widescreen":"" }
   },
-  "files":[
-    { "path":"styles.css",            "content":"FULL CSS", "type":"css", "description":"Global styles" },
-    { "path":"App.tsx",               "content":"FULL TSX — imports all 4 effect components", "type":"tsx", "description":"Root" },
-    { "path":"components/Nav.tsx",    "content":"FULL TSX", "type":"tsx", "description":"Nav" },
-    { "path":"components/Hero.tsx",   "content":"FULL TSX — canvas network + glitch text", "type":"tsx", "description":"Hero" },
-    { "path":"components/Features.tsx","content":"FULL TSX — spotlight cards + SVG accents", "type":"tsx", "description":"Features" },
-    { "path":"components/Stats.tsx",  "content":"FULL TSX — AnimCounter x4", "type":"tsx", "description":"Stats" },
-    { "path":"components/Terminal.tsx","content":"FULL TSX — typing animation", "type":"tsx", "description":"Terminal" },
-    { "path":"components/Social.tsx", "content":"FULL TSX — testimonials", "type":"tsx", "description":"Social" },
-    { "path":"components/Footer.tsx", "content":"FULL TSX — 3-col footer", "type":"tsx", "description":"Footer" }
+  "files": [
+${filePaths.map(p => `    { "path":"${p}", "content":"FULL PRODUCTION CODE", "type":"${p.endsWith('.css')?'css':'tsx'}", "description":"" }`).join(",\n")}
   ],
   "qualityGate":{
     "conversion":{ "cta_above_fold":true, "uvp_clear_in_3s":true, "trust_signals_above_fold":true, "minimal_form_fields":true, "success_state_designed":true },
@@ -623,6 +668,105 @@ Return this JSON structure:
     "brand":{ "sovereign_tone":true, "every_element_earns_its_place":true, "premium_quality":true, "unmistakably_codexos":true }
   }
 }`;
+
+  // ── Tier 1: Clean Professional ──────────────────────────────
+  if (tier === 1) {
+    const files = ["styles.css","App.tsx","components/Nav.tsx","components/Hero.tsx","components/Features.tsx","components/Footer.tsx"];
+    return `Build a clean, professional dark website — Tier 1 quality ($1,000–$2,000 value).
+Polished layout, great typography, smooth hover transitions, scroll reveal. No canvas. No cursor effects.
+
+${projectBlock}
+
+GENERATE EXACTLY THESE 6 FILES:
+  1. styles.css         — @import fonts (FIRST LINE), :root vars, @keyframes fadeUp, hover transitions
+  2. App.tsx            — assembles Nav + Hero + Features + simple stats band + Footer
+  3. components/Nav.tsx — fixed glassmorphic nav, logo, 4 links, CTA button, mobile hamburger
+  4. components/Hero.tsx — bold headline, subtext, 2 CTA buttons, right-side visual (SVG or Lucide icon grid)
+  5. components/Features.tsx — 3 cards with Lucide icon, title, description; hover lift + subtle glow; scroll reveal
+  6. components/Footer.tsx  — 2-column: brand tagline + links; bottom bar with copyright
+
+REQUIRED IN FEATURES.tsx — hover lift cards:
+  className="group bg-white/[0.03] border border-white/[0.06] rounded-xl p-6
+    hover:border-[var(--accent)]/30 hover:-translate-y-1 hover:shadow-[var(--glow)]
+    transition-all duration-300 cursor-pointer"
+
+REQUIRED IN HERO.tsx — animated CTA button:
+  className="px-8 py-3 rounded-lg font-semibold text-sm bg-[var(--accent)] text-black
+    hover:opacity-90 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_0_20px_var(--accent)]/40"
+
+${jsonSkeleton(files)}`;
+  }
+
+  // ── Tier 2: Dynamic ─────────────────────────────────────────
+  if (tier === 2) {
+    const files = ["styles.css","App.tsx","components/Nav.tsx","components/Hero.tsx","components/Features.tsx","components/Stats.tsx","components/Terminal.tsx","components/Footer.tsx"];
+    return `Build a dynamic interactive dark website — Tier 2 quality ($3,000–$5,000 value).
+Canvas hero, spotlight cards, animated counters, terminal animation. Professional and alive.
+
+${projectBlock}
+
+GENERATE EXACTLY THESE 8 FILES:
+  1. styles.css             — @import fonts, :root vars, keyframes (fadeUp, grid-breathe, ticker-scroll)
+  2. App.tsx                — assembles all 6 sections (no effect component imports needed)
+  3. components/Nav.tsx     — fixed glassmorphic nav, mobile hamburger, scroll-aware opacity
+  4. components/Hero.tsx    — canvas particle network (required pattern in system prompt), dual CTA
+  5. components/Features.tsx — 3-4 mouse-tracking spotlight cards, SVG geo accents, scroll-reveal
+  6. components/Stats.tsx   — 4 AnimCounter stats with IntersectionObserver, glassmorphism band
+  7. components/Terminal.tsx — terminal window with multi-line typing, blinking cursor
+  8. components/Footer.tsx  — 3-column footer
+
+REQUIRED IN Hero.tsx — the canvas particle network pattern from system prompt MUST be used.
+REQUIRED IN Features.tsx — every card must have the mouse-tracking spotlight (--mx/--my pattern from system prompt).
+REQUIRED IN Stats.tsx — AnimCounter component with IntersectionObserver pattern from system prompt.
+
+${jsonSkeleton(files)}`;
+  }
+
+  // ── Tier 3: Sovereign ────────────────────────────────────────
+  const files = ["styles.css","App.tsx","components/Nav.tsx","components/Hero.tsx","components/Features.tsx","components/Stats.tsx","components/Terminal.tsx","components/Social.tsx","components/Footer.tsx"];
+  return `Build a cinematic, PrymalAI-quality website — Tier 3 Sovereign ($8,000+ value).
+Every interaction must feel alive. Full visual effects system. Elite positioning.
+
+${projectBlock}
+
+THE FOLLOWING 4 FILES ARE PRE-BUILT AND INJECTED AUTOMATICALLY — DO NOT generate them:
+  components/effects/CanvasBackground.tsx  (matrix rain + ambient orbs + lightning)
+  components/effects/CursorFX.tsx          (cursor dot + tracer trail + page spotlight)
+  components/effects/HudOverlay.tsx        (corner brackets + rotating arc + live clock + scanline)
+  components/effects/Ticker.tsx            (seamless scrolling ticker)
+
+GENERATE EXACTLY THESE 9 FILES (complete production code — zero TODOs):
+  1. styles.css             — @import fonts (FIRST LINE), :root vars, all keyframes, grid overlay
+  2. App.tsx                — MUST import and render all 4 effect components + 8 sections
+  3. components/Nav.tsx     — fixed glassmorphic nav, logo, links, CTA, mobile hamburger
+  4. components/Hero.tsx    — canvas particle network (exact pattern from system prompt), GlitchText, dual CTA
+  5. components/Features.tsx — 3-4 mouse-tracking spotlight cards, SVG geo accents, scroll-reveal
+  6. components/Stats.tsx   — 4 AnimCounter stats, glassmorphism, IntersectionObserver
+  7. components/Terminal.tsx — multi-line typing terminal, blinking cursor
+  8. components/Social.tsx  — testimonials or network cards, scroll-reveal
+  9. components/Footer.tsx  — 3-column footer
+
+MANDATORY App.tsx structure:
+  import CanvasBackground from './components/effects/CanvasBackground';
+  import CursorFX from './components/effects/CursorFX';
+  import HudOverlay from './components/effects/HudOverlay';
+  import Ticker from './components/effects/Ticker';
+  // ... other imports
+  return (
+    <>
+      <CanvasBackground /><CursorFX /><HudOverlay />
+      <Nav />
+      <main>
+        <section id="hero"><Hero /></section>
+        <Ticker items={[/* 6-8 brand/service keywords */]} />
+        <Features /><Stats /><Terminal /><Social />
+        <section id="cta">{/* CTA with animated border glow */}</section>
+      </main>
+      <Footer />
+    </>
+  );
+
+${jsonSkeleton(files)}`;
 }
 
 function inferComponentType(name: string): string {
@@ -711,7 +855,9 @@ serve(async (req) => {
       .update({ status: "designing", updated_at: new Date().toISOString() })
       .eq("id", projectId);
 
-    // 2. Call Claude Opus — 32k tokens for 9 complete production files
+    // 2. Call Claude Opus — token budget scales with quality tier
+    const tier      = getTier(brief);
+    const maxTokens = tier === 1 ? 8000 : tier === 2 ? 16000 : 32000;
     const claudeRes = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: {
@@ -721,7 +867,7 @@ serve(async (req) => {
       },
       body: JSON.stringify({
         model:      "claude-opus-4-8",
-        max_tokens: 32000,
+        max_tokens: maxTokens,
         system:     buildSystemPrompt(brief),
         messages:   [{ role: "user", content: buildUserPrompt(brief) }],
       }),
@@ -748,26 +894,36 @@ serve(async (req) => {
       qualityGate: Record<string, Record<string, boolean>>;
     };
 
-    // 4. Inject pre-built effect components (guaranteed-working — not LLM-generated)
-    //    These always appear in the final file list regardless of what Claude returned.
-    const effectFiles = [
+    // 4. Inject pre-built effect components based on quality tier
+    //    Tier 3: all 4 components + CSS keyframes
+    //    Tier 2: CSS keyframes only (hero canvas is LLM-generated inside Hero.tsx)
+    //    Tier 1: no injection — clean CSS-only build
+    const allEffectPaths = new Set([
+      "components/effects/CanvasBackground.tsx",
+      "components/effects/CursorFX.tsx",
+      "components/effects/HudOverlay.tsx",
+      "components/effects/Ticker.tsx",
+    ]);
+    // Always strip any effect files Claude tried to generate — ours are authoritative for Tier 3
+    const cleanedFiles = parsed.files.filter(f => !allEffectPaths.has(f.path));
+
+    // Append CSS keyframes to styles.css for Tier 2 and Tier 3
+    if (tier >= 2) {
+      const styleFile = cleanedFiles.find(f => f.path === "styles.css" || f.path === "/styles.css");
+      if (styleFile) {
+        styleFile.content = styleFile.content.trimEnd() + "\n" + TEMPLATE_CSS_ADDENDUM;
+      }
+    }
+
+    // Inject all 4 effect components only for Tier 3
+    const injectedEffects = tier === 3 ? [
       { path: "components/effects/CanvasBackground.tsx", content: TEMPLATE_CANVAS_BACKGROUND, type: "tsx", description: "3-layer canvas ambient: matrix rain, orbs, lightning" },
       { path: "components/effects/CursorFX.tsx",         content: TEMPLATE_CURSOR_FX,         type: "tsx", description: "Custom cursor dot + canvas tracer trail + page spotlight" },
       { path: "components/effects/HudOverlay.tsx",       content: TEMPLATE_HUD_OVERLAY,       type: "tsx", description: "HUD corner brackets, rotating arc, live clock, scanline" },
       { path: "components/effects/Ticker.tsx",           content: TEMPLATE_TICKER,            type: "tsx", description: "Seamless horizontal scrolling ticker" },
-    ];
+    ] : [];
 
-    // Remove any effect files Claude may have attempted to generate (ours are authoritative)
-    const effectPaths = new Set(effectFiles.map(f => f.path));
-    const cleanedFiles = parsed.files.filter(f => !effectPaths.has(f.path));
-
-    // Append CSS keyframes to styles.css
-    const styleFile = cleanedFiles.find(f => f.path === "styles.css" || f.path === "/styles.css");
-    if (styleFile) {
-      styleFile.content = styleFile.content.trimEnd() + "\n" + TEMPLATE_CSS_ADDENDUM;
-    }
-
-    const allFiles = [...cleanedFiles, ...effectFiles];
+    const allFiles = [...cleanedFiles, ...injectedEffects];
 
     // 5. Store components individually (non-blocking)
     await sb.from("mavis_design_projects")
