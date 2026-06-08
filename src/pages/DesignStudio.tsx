@@ -21,7 +21,7 @@ import {
   SandpackLayout,
 } from "@codesandbox/sandpack-react";
 
-const BRANDS = ["codexos", "vantara", "skyforgeai", "bioneer", "navi", "custom"] as const;
+const BRANDS = ["codexos", "vantara", "skyforgeai", "bioneer", "navi", "prymal", "custom"] as const;
 const DEADLINE_TIERS = ["rapid", "standard", "premium"] as const;
 
 interface Project {
