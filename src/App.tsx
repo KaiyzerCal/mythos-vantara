@@ -92,6 +92,7 @@ const AvatarStudioPage = lazy(() => import("@/pages/AvatarStudioPage").then(m =>
 const ImportPage = lazy(() => import("@/pages/ImportPage").then(m => ({ default: m.ImportPage })));
 const SystemSettingsPage = lazy(() => import("@/pages/SystemSettingsPage").then(m => ({ default: m.SystemSettingsPage })));
 const AgentDashboardPage = lazy(() => import("@/pages/AgentDashboardPage").then(m => ({ default: m.AgentDashboardPage })));
+const MyAgents = lazy(() => import("@/pages/MyAgents"));
 const WpcomCallbackPage = lazy(() => import("@/pages/WpcomCallbackPage"));
 const PhoneCallsPage = lazy(() => import("@/pages/PhoneCallsPage"));
 const SMSPage = lazy(() => import("@/pages/SMSPage"));
@@ -204,6 +205,7 @@ function AppContent() {
               <Route path="/avatar-studio" element={<AvatarStudioPage />} />
               <Route path="/system-settings" element={<SystemSettingsPage />} />
               <Route path="/agents" element={<AgentDashboardPage />} />
+              <Route path="/my-agents" element={<MyAgents />} />
               <Route path="/intelligence" element={<IntelligencePage />} />
               <Route path="/design-studio" element={<DesignStudio />} />
               <Route path="/wpcom-callback" element={<WpcomCallbackPage />} />

@@ -19,6 +19,8 @@ import {
   Sparkles, Package, PlayCircle,
 } from "lucide-react";
 import { toast } from "sonner";
+import { Bot } from "lucide-react";
+import AgentBuilderSection from "@/components/AgentBuilderSection";
 
 // ─── Widget Type Definitions ──────────────────────────────────
 const WIDGET_TYPES = [
@@ -71,6 +73,7 @@ interface WidgetLead {
 export default function WidgetBuilderPage() {
   const { user } = useAuth();
 
+  const [topTab, setTopTab] = useState<"widgets" | "agents">("widgets");
   const [view, setView] = useState<View>("gallery");
   const [widgets, setWidgets] = useState<WidgetInstance[]>([]);
   const [selectedWidget, setSelectedWidget] = useState<WidgetInstance | null>(null);
@@ -1155,22 +1158,42 @@ export default function WidgetBuilderPage() {
             Generate embeddable AI micro-apps for any website — chat, leads, quotes, bookings
           </p>
         </div>
-        <div className="flex gap-2">
-          {view !== "gallery" && (
-            <Button variant="outline" onClick={() => setView("gallery")}>
-              ← All Widgets
+        {topTab === "widgets" && (
+          <div className="flex gap-2">
+            {view !== "gallery" && (
+              <Button variant="outline" onClick={() => setView("gallery")}>
+                ← All Widgets
+              </Button>
+            )}
+            <Button onClick={() => setView("builder")} className="gap-2">
+              <Plus size={16} />
+              New Widget
             </Button>
-          )}
-          <Button onClick={() => setView("builder")} className="gap-2">
-            <Plus size={16} />
-            New Widget
-          </Button>
-        </div>
+          </div>
+        )}
       </div>
 
-      {view === "gallery" && renderGallery()}
-      {view === "builder" && renderBuilder()}
-      {view === "detail" && renderDetail()}
+      {/* Top tab strip */}
+      <div className="flex items-center gap-1 mb-6 border-b border-border/50 pb-0">
+        <button
+          onClick={() => setTopTab("widgets")}
+          className={`flex items-center gap-2 px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${topTab === "widgets" ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"}`}
+        >
+          <Package size={14} /> Widgets
+        </button>
+        <button
+          onClick={() => setTopTab("agents")}
+          className={`flex items-center gap-2 px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${topTab === "agents" ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"}`}
+        >
+          <Bot size={14} /> AI Agents
+          <span className="text-[9px] font-mono text-emerald-400 border border-emerald-400/30 rounded px-1 py-0.5">Claude</span>
+        </button>
+      </div>
+
+      {topTab === "widgets" && view === "gallery" && renderGallery()}
+      {topTab === "widgets" && view === "builder" && renderBuilder()}
+      {topTab === "widgets" && view === "detail" && renderDetail()}
+      {topTab === "agents" && <AgentBuilderSection />}
     </div>
   );
 }
