@@ -802,8 +802,10 @@ TASKS:
 :::ACTION{"type":"create_task","params":{"title":"...","description":"...","type":"task|habit","recurrence":"once|daily|weekly|monthly","xp_reward":25}}:::
 :::ACTION{"type":"complete_task","params":{"task_id":"..."}}:::
 :::ACTION{"type":"delete_task","params":{"task_id":"..."}}:::
-SKILLS:
+SKILLS — actions execute in order, so create the parent skill FIRST, then sub-skills using parent_skill_name to link them:
 :::ACTION{"type":"create_skill","params":{"name":"...","description":"...","category":"...","energy_type":"...","tier":1}}:::
+:::ACTION{"type":"create_skill","params":{"name":"...","description":"...","category":"...","energy_type":"...","tier":2,"parent_skill_name":"<exact name of the parent skill created above>"}}:::
+When the operator asks to create a skill with sub-skills: (1) emit create_skill for the parent, (2) emit create_skill for EACH sub-skill with parent_skill_name set to the parent's name. Never create sub-skills as standalone root skills.
 :::ACTION{"type":"update_skill","params":{"skill_id":"...","proficiency":50,"tier":1,"unlocked":true}}:::
 :::ACTION{"type":"delete_skill","params":{"skill_id":"..."}}:::
 JOURNAL:
@@ -1203,8 +1205,10 @@ When relevant, acknowledge the user's companion network — the bonds they've bu
     const fmtTasks = dbState.tasks.map((t: any) =>
       `  • [${t.id}] "${t.title}" [${t.status}/${t.recurrence}] xp:${t.xp_reward} streak:${t.streak}`
     ).join("\n") || "  None";
+    const skillNameById: Record<string, string> = {};
+    for (const s of dbState.skills) skillNameById[s.id] = s.name;
     const fmtSkills = dbState.skills.map((s: any) =>
-      `  • [${s.id}] ${s.name} (${s.category}, T${s.tier}, ${s.proficiency}%, ${s.energy_type}${s.unlocked ? "" : ", locked"})${s.parent_skill_id ? ` ↳p:${s.parent_skill_id}` : ""}${wants.skill && s.description ? ` — ${s.description.slice(0, 100)}` : ""}`
+      `  • [${s.id}] ${s.name} (${s.category}, T${s.tier}, ${s.proficiency}%, ${s.energy_type}${s.unlocked ? "" : ", locked"})${s.parent_skill_id ? ` [sub-skill of: "${skillNameById[s.parent_skill_id] ?? s.parent_skill_id}"]` : " [root skill]"}${wants.skill && s.description ? ` — ${s.description.slice(0, 100)}` : ""}`
     ).join("\n") || "  None";
     const fmtCouncils = dbState.councils.map((c: any) =>
       `  • [${c.id}] ${c.name} — ${c.role} (${c.class}${c.specialty ? `, ${c.specialty}` : ""})${wants.council && c.notes ? ` — ${c.notes.slice(0, 150)}` : ""}`
