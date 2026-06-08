@@ -16,7 +16,7 @@ import {
   MessageSquare, FileText, Calculator, HelpCircle, TrendingUp,
   Calendar, Plus, Copy, Check, ExternalLink, Loader2,
   Zap, Globe, Code2, BarChart3, Users, DollarSign, ChevronRight,
-  Sparkles, Package,
+  Sparkles, Package, PlayCircle,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -28,6 +28,7 @@ const WIDGET_TYPES = [
   { id: "faq",                icon: HelpCircle,    label: "FAQ + AI Fallback",   desc: "Searchable FAQ with AI Q&A",                  color: "text-violet-400",  monthly: 49  },
   { id: "roi_calculator",     icon: TrendingUp,    label: "ROI Calculator",      desc: "Business value calculator with AI analysis",  color: "text-emerald-400", monthly: 79  },
   { id: "appointment_booker", icon: Calendar,      label: "Appointment Booker",  desc: "Service booking with AI confirmation",        color: "text-rose-400",    monthly: 97  },
+  { id: "youtube_player",    icon: PlayCircle,    label: "YouTube Player",      desc: "Responsive video or playlist embed",          color: "text-red-400",     monthly: 29  },
 ];
 
 // ─── Status helpers ───────────────────────────────────────────
@@ -105,7 +106,24 @@ export default function WidgetBuilderPage() {
     // Appointment booker
     service_options: "",
     calendly_url: "",
+    // YouTube player
+    youtube_url: "",
+    video_title: "",
+    video_description: "",
+    autoplay: false,
+    loop: false,
+    show_youtube_button: true,
   });
+
+  // Sync default price when widget type changes
+  useEffect(() => {
+    const defaultPrices: Record<string, number> = {
+      chat: 9700, lead_capture: 4900, quote_calculator: 7900,
+      faq: 4900, roi_calculator: 7900, appointment_booker: 9700,
+      youtube_player: 2900,
+    };
+    setForm((f) => ({ ...f, monthly_price_cents: defaultPrices[selectedType] ?? 4900 }));
+  }, [selectedType]);
 
   useEffect(() => { loadWidgets(); }, [user]);
   useEffect(() => {
@@ -193,6 +211,10 @@ export default function WidgetBuilderPage() {
   const generateWidget = async () => {
     if (!user || !form.business_name) {
       toast.error("Business name is required");
+      return;
+    }
+    if (selectedType === "youtube_player" && !form.youtube_url) {
+      toast.error("YouTube URL or video ID is required");
       return;
     }
     setIsGenerating(true);
@@ -688,6 +710,66 @@ export default function WidgetBuilderPage() {
                       placeholder="https://calendly.com/yourname"
                     />
                   </div>
+                </>
+              )}
+
+              {selectedType === "youtube_player" && (
+                <>
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-medium text-muted-foreground">YouTube URL or Video ID *</label>
+                    <Input
+                      value={form.youtube_url}
+                      onChange={(e) => setForm({ ...form, youtube_url: e.target.value })}
+                      placeholder="https://www.youtube.com/watch?v=... or youtu.be/... or playlist URL"
+                    />
+                    <p className="text-[10px] text-muted-foreground">
+                      Paste a video URL, playlist URL, or bare 11-character video ID. The widget embeds directly — the video stays on YouTube, no hosting needed.
+                    </p>
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-medium text-muted-foreground">Title (optional)</label>
+                    <Input
+                      value={form.video_title}
+                      onChange={(e) => setForm({ ...form, video_title: e.target.value })}
+                      placeholder="Portfolio Reel — Jane Smith Photography"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-medium text-muted-foreground">Description (optional)</label>
+                    <Textarea
+                      value={form.video_description}
+                      onChange={(e) => setForm({ ...form, video_description: e.target.value })}
+                      placeholder="A brief caption shown beneath the title above the player..."
+                      rows={2}
+                    />
+                  </div>
+                  <div className="grid grid-cols-3 gap-3 pt-1">
+                    {[
+                      { key: "autoplay", label: "Autoplay (muted)" },
+                      { key: "loop",     label: "Loop video" },
+                      { key: "show_youtube_button", label: "Show YT link" },
+                    ].map(({ key, label }) => (
+                      <div key={key} className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setForm({ ...form, [key]: !(form as any)[key] })}
+                          className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors ${
+                            (form as any)[key] ? "bg-primary" : "bg-muted"
+                          }`}
+                        >
+                          <span
+                            className={`pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow transition-transform ${
+                              (form as any)[key] ? "translate-x-4" : "translate-x-0"
+                            }`}
+                          />
+                        </button>
+                        <label className="text-xs font-medium text-muted-foreground">{label}</label>
+                      </div>
+                    ))}
+                  </div>
+                  <p className="text-[10px] text-muted-foreground">
+                    Autoplay requires muted audio (browser policy) — viewers can unmute manually.
+                  </p>
                 </>
               )}
 
