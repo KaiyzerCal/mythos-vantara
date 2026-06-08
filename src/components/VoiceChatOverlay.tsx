@@ -79,7 +79,7 @@ export function VoiceChatOverlay({
   const audioUnlockedRef = useRef(false);
   // Set to true after any ElevenLabs failure so subsequent turns skip the
   // service entirely and go straight to browser TTS (avoids repeated 402/quota hangs).
-  const ttsUnavailableRef = useRef(false);
+  const ttsConsecFailuresRef = useRef(0);
 
   const unlockAudio = useCallback(() => {
     // One-time: unlock speechSynthesis for iOS — a silent utterance played
@@ -238,15 +238,15 @@ export function VoiceChatOverlay({
   // ── ElevenLabs TTS — used for persona voices (voiceId set) ────────────────
   // Uses HTMLAudioElement + blob URL so playback works reliably across turns.
   // Falls back to browser speech synthesis on any error (quota, network, decode).
-  // After the first failure ttsUnavailableRef is set so subsequent turns skip
-  // the service entirely without waiting on a provider we know is down.
+  // Gives up on ElevenLabs only after 3 consecutive real failures so that a
+  // transient autoplay-policy rejection doesn't permanently silence a persona.
   const speakWithElevenLabs = useCallback(async (text: string, voiceId: string) => {
     setDisplayedReply(text);
     setSpokenUpTo(0);
     setPhase("speaking");
 
-    // Short-circuit: ElevenLabs already failed this session — skip it entirely.
-    if (ttsUnavailableRef.current) {
+    // Give up after 3 consecutive real ElevenLabs failures this session.
+    if (ttsConsecFailuresRef.current >= 3) {
       speakReply(text);
       return;
     }
@@ -327,11 +327,22 @@ export function VoiceChatOverlay({
         if (!closingRef.current) speakReply(text);
       };
 
-      await audio.play();
+      try {
+        await audio.play();
+        // Successful play — reset consecutive-failure counter.
+        ttsConsecFailuresRef.current = 0;
+      } catch (playErr: any) {
+        // NotAllowedError = browser autoplay policy blocked us; this is transient
+        // (user just needs to interact) — don't count it as an ElevenLabs failure.
+        if (playErr?.name === "NotAllowedError") {
+          cleanup();
+          if (!closingRef.current) speakReply(text);
+          return;
+        }
+        throw playErr;
+      }
     } catch {
-      // Mark ElevenLabs as unavailable for the rest of this session so
-      // subsequent turns skip the failed service immediately.
-      ttsUnavailableRef.current = true;
+      ttsConsecFailuresRef.current += 1;
       if (!closingRef.current) speakReply(text);
     }
   }, [speakReply]);
@@ -809,7 +820,7 @@ export function VoiceChatOverlay({
     audioUnlockedRef.current = false;
     // Give ElevenLabs a fresh chance on each new overlay session — credits may
     // have been replenished since the last time the overlay was open.
-    ttsUnavailableRef.current = false;
+    ttsConsecFailuresRef.current = 0;
   }, []);
 
   const handleOrbOrMicTap = useCallback(() => {
