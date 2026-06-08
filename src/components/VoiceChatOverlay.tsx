@@ -67,7 +67,13 @@ export function VoiceChatOverlay({
   // Live Voice state
   const [liveMode, setLiveMode] = useState(false);
   const liveWsRef = useRef<WebSocket | null>(null);
-  const liveAudioContextRef = useRef<AudioContext | null>(null);
+  // Two separate AudioContexts: output (24kHz TTS playback) and input (16kHz mic capture).
+  // Output is pre-created synchronously during the user gesture so Chrome/Opera never
+  // suspend it — their autoplay policy only blocks contexts created outside a gesture.
+  const liveOutputCtxRef = useRef<AudioContext | null>(null);
+  const liveInputCtxRef  = useRef<AudioContext | null>(null);
+  // Keep liveAudioContextRef as an alias for playNextAudioChunk (uses output ctx)
+  const liveAudioContextRef = liveOutputCtxRef;
   const liveAudioQueueRef = useRef<AudioBuffer[]>([]);
   const livePlayingRef = useRef(false);
   const liveMicStreamRef = useRef<MediaStream | null>(null);
@@ -481,6 +487,24 @@ export function VoiceChatOverlay({
   }, []);
 
   const connectLiveVoice = useCallback(async () => {
+    // Pre-create the output AudioContext HERE — synchronously, before any await —
+    // so Chrome/Opera see it created during the user gesture (button click).
+    // After the first await the browser no longer considers this a gesture context,
+    // and Chrome will suspend any newly-created AudioContext automatically.
+    if (!liveOutputCtxRef.current) {
+      const AC = window.AudioContext || (window as any).webkitAudioContext;
+      liveOutputCtxRef.current = new AC({ sampleRate: 24000 });
+      // Kick off resume() synchronously while activation is still live.
+      // Don't await — it will complete in the background; we just need to start it.
+      liveOutputCtxRef.current.resume().catch(() => {});
+      // Auto-heal if Chrome re-suspends (e.g. tab goes to background then returns)
+      liveOutputCtxRef.current.onstatechange = () => {
+        if (liveOutputCtxRef.current?.state === "suspended") {
+          liveOutputCtxRef.current.resume().catch(() => {});
+        }
+      };
+    }
+
     const { data: { session } } = await supabase.auth.getSession();
     if (!session?.access_token) return;
 
@@ -505,9 +529,13 @@ export function VoiceChatOverlay({
       try {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
         liveMicStreamRef.current = stream;
-        const audioCtx = liveAudioContextRef.current ??= new AudioContext({ sampleRate: 16000 });
-        // iOS suspends AudioContext by default; resume must happen close to a user gesture
-        if (audioCtx.state === "suspended") await audioCtx.resume();
+        // Input context: separate from output — 16kHz for PCM streaming to server.
+        // By this point the page has sticky activation (user clicked LIVE), so
+        // resume() is permitted even from this async WebSocket callback.
+        const AC = window.AudioContext || (window as any).webkitAudioContext;
+        const audioCtx = liveInputCtxRef.current ?? new AC({ sampleRate: 16000 });
+        liveInputCtxRef.current = audioCtx;
+        if (audioCtx.state === "suspended") await audioCtx.resume().catch(() => {});
         const source = audioCtx.createMediaStreamSource(stream);
         // ScriptProcessor is deprecated but has the widest support without extra deps
         const processor = audioCtx.createScriptProcessor(4096, 1, 1);
@@ -537,8 +565,11 @@ export function VoiceChatOverlay({
         const msg = JSON.parse(event.data);
         if (msg.type === "audio" && msg.data) {
           const audioData = Uint8Array.from(atob(msg.data), (c) => c.charCodeAt(0));
-          const audioCtx = liveAudioContextRef.current ??= new AudioContext({ sampleRate: 24000 });
-          if (audioCtx.state === "suspended") await audioCtx.resume();
+          // Use the pre-created output context (24kHz) — never create a new one here
+          // because onmessage is not a user-gesture context in Chrome/Opera.
+          const audioCtx = liveOutputCtxRef.current;
+          if (!audioCtx) return;
+          if (audioCtx.state === "suspended") await audioCtx.resume().catch(() => {});
           try {
             const buffer = await audioCtx.decodeAudioData(audioData.buffer);
             liveAudioQueueRef.current.push(buffer);
@@ -576,8 +607,10 @@ export function VoiceChatOverlay({
     }
     liveWsRef.current?.close();
     liveWsRef.current = null;
-    liveAudioContextRef.current?.close().catch(() => {});
-    liveAudioContextRef.current = null;
+    liveOutputCtxRef.current?.close().catch(() => {});
+    liveOutputCtxRef.current = null;
+    liveInputCtxRef.current?.close().catch(() => {});
+    liveInputCtxRef.current = null;
     livePlayingRef.current = false;
     liveAudioQueueRef.current = [];
   }, []);
