@@ -3,7 +3,7 @@ import { ActionSchema } from "./actionSchemas";
 
 const ALWAYS_CONFIRM = new Set([
   "delete_quest", "delete_task", "delete_skill", "delete_journal",
-  "delete_vault", "delete_council_member", "delete_inventory",
+  "delete_vault", "delete_council_member", "delete_inventory_item",
   "delete_ally", "delete_transformation",
   "delete_ranking", "delete_store_item",
 ]);

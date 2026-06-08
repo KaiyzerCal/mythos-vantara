@@ -83,8 +83,11 @@ const PROFILE_ALLOWED = [
 const ACTION_ALIASES: Record<string, string> = {
   "create_item": "create_inventory_item", "add_item": "create_inventory_item", "add_inventory": "create_inventory_item",
   "add_inventory_item": "create_inventory_item", "new_item": "create_inventory_item",
+  "create_inventory": "create_inventory_item",
   "update_item": "update_inventory_item", "edit_item": "update_inventory_item",
+  "update_inventory": "update_inventory_item",
   "delete_item": "delete_inventory_item", "remove_item": "delete_inventory_item",
+  "delete_inventory": "delete_inventory_item",
   "add_quest": "create_quest", "new_quest": "create_quest", "edit_quest": "update_quest", "remove_quest": "delete_quest", "finish_quest": "complete_quest",
   "create_task": "create_quest", "add_task": "create_quest", "new_task": "create_quest",
   "create_habit": "create_quest", "add_habit": "create_quest",
