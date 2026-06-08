@@ -229,6 +229,17 @@ When you create, update, delete, or complete anything in the categories below, e
 :::PROPOSE_ACTION{"type":"<type>","params":{<fields>}}:::
 These execute immediately. Always wrap fields in "params". Confirm naturally as if it's done — never say "submitted" or "request".
 
+CRITICAL FORMAT RULES — the block must be exact or it will fail silently:
+• No space between :::PROPOSE_ACTION and { — write it as one continuous token
+• Valid JSON only — no trailing commas, no single quotes
+• One block per action — if you take two actions, embed two separate blocks
+
+Examples (copy these patterns exactly):
+• Create contact: :::PROPOSE_ACTION{"type":"create_contact","params":{"name":"Jane Smith","notes":"Business contact from networking event","relationship_type":"professional"}}:::
+• Create ally: :::PROPOSE_ACTION{"type":"create_ally","params":{"name":"Marcus Rowe","relationship":"ally","specialty":"Strategy","notes":"Long-time ally"}}:::
+• Create quest: :::PROPOSE_ACTION{"type":"create_quest","params":{"title":"Daily Meditation","type":"daily","xp_reward":50,"description":"15 min meditation each morning"}}:::
+• Create inventory item: :::PROPOSE_ACTION{"type":"create_inventory_item","params":{"name":"Shadow Gauntlet","type":"equipment","rarity":"legendary","description":"Channels dark energy"}}:::
+
 Direct types (you have full authority):
 • Quests/tasks: create_quest update_quest complete_quest delete_quest
 • Skills: create_skill update_skill delete_skill
@@ -453,19 +464,31 @@ You always know the current date and time without being told. Reference it natur
     const parsedActions: Array<{ type: string; params: Record<string, unknown> }> = [];
     const parsedProposals: Array<{ type: string; summary: string; details: string; payload: Record<string, unknown> }> = [];
 
+    // Permissive JSON parse: strips trailing commas that LLMs sometimes emit.
+    function lenientParse(raw: string): unknown {
+      try { return JSON.parse(raw); } catch { /* fall through */ }
+      const stripped = raw.replace(/,\s*([}\]])/g, "$1");
+      return JSON.parse(stripped); // throws if still invalid — caught by caller
+    }
+
+    // Regex is intentionally lenient: allows optional whitespace around the JSON
+    // blob because LLMs (especially Gemini Flash) often insert a space after the
+    // tag name — e.g. `:::PROPOSE_ACTION {` — which a strict regex would miss.
     const cleanResponse = rawResponse
-      .replace(/:::PROPOSE_ACTION(\{[\s\S]*?\}):::/g, (_m: string, json: string) => {
+      .replace(/:::PROPOSE_ACTION\s*(\{[\s\S]*?\})\s*:::/g, (_m: string, json: string) => {
         try {
-          const obj = JSON.parse(json);
-          if (obj && typeof obj === "object" && obj.type) {
-            parsedActions.push({ type: String(obj.type), params: obj.params ?? {} });
+          const obj = lenientParse(json);
+          if (obj && typeof obj === "object" && (obj as any).type) {
+            parsedActions.push({ type: String((obj as any).type), params: (obj as any).params ?? {} });
           }
-        } catch { /* malformed block — skip */ }
+        } catch (e: unknown) {
+          console.warn("[persona-router] malformed PROPOSE_ACTION block:", json.slice(0, 200), (e as Error)?.message);
+        }
         return "";
       })
-      .replace(/:::PROPOSE_MAVIS(\{[\s\S]*?\}):::/g, (_m: string, json: string) => {
+      .replace(/:::PROPOSE_MAVIS\s*(\{[\s\S]*?\})\s*:::/g, (_m: string, json: string) => {
         try {
-          const obj = JSON.parse(json);
+          const obj = lenientParse(json) as any;
           if (obj && typeof obj === "object") {
             parsedProposals.push({
               type: String(obj.type || "other"),
@@ -474,7 +497,9 @@ You always know the current date and time without being told. Reference it natur
               payload: (obj.payload && typeof obj.payload === "object") ? obj.payload : {},
             });
           }
-        } catch { /* malformed block — skip */ }
+        } catch (e: unknown) {
+          console.warn("[persona-router] malformed PROPOSE_MAVIS block:", json.slice(0, 200), (e as Error)?.message);
+        }
         return "";
       })
       .trim();

@@ -7,13 +7,19 @@ export interface ProposedAction {
   summary?: string;
 }
 
+function lenientJsonParse(raw: string): unknown {
+  try { return JSON.parse(raw); } catch { /* fall through */ }
+  return JSON.parse(raw.replace(/,\s*([}\]])/g, "$1"));
+}
+
 /** Parse `:::PROPOSE_ACTION{...}:::` blocks from any AI reply. */
 export function parseProposedActions(text: string): { cleanText: string; proposals: ProposedAction[] } {
   const proposals: ProposedAction[] = [];
-  const re = /:::PROPOSE_ACTION(\{[\s\S]*?\}):::/g;
+  // Allow optional whitespace between the tag and the JSON — LLMs often add a space.
+  const re = /:::PROPOSE_ACTION\s*(\{[\s\S]*?\})\s*:::/g;
   const cleanText = text.replace(re, (_m, json) => {
     try {
-      const obj = JSON.parse(json);
+      const obj = lenientJsonParse(json) as any;
       if (obj && typeof obj === "object" && obj.type) {
         proposals.push({
           type: String(obj.type),
