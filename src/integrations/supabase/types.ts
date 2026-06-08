@@ -646,6 +646,119 @@ export type Database = {
         }
         Relationships: []
       }
+      customer_agent_messages: {
+        Row: {
+          agent_id: string
+          content: string
+          id: string
+          role: string
+          session_id: string
+          ts: string | null
+        }
+        Insert: {
+          agent_id: string
+          content: string
+          id?: string
+          role: string
+          session_id: string
+          ts?: string | null
+        }
+        Update: {
+          agent_id?: string
+          content?: string
+          id?: string
+          role?: string
+          session_id?: string
+          ts?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "customer_agent_messages_agent_id_fkey"
+            columns: ["agent_id"]
+            isOneToOne: false
+            referencedRelation: "customer_agents"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      customer_agents: {
+        Row: {
+          agent_name: string
+          agent_persona: string
+          brand_color: string | null
+          brand_name: string | null
+          business_name: string
+          business_type: string | null
+          capabilities: string[] | null
+          created_at: string | null
+          customer_email: string | null
+          customer_name: string
+          deploy_slug: string | null
+          embed_token: string | null
+          id: string
+          knowledge_base: string | null
+          logo_url: string | null
+          monthly_price_cents: number | null
+          plan_tier: string
+          status: string
+          tone: string | null
+          total_conversations: number | null
+          total_messages: number | null
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          agent_name?: string
+          agent_persona: string
+          brand_color?: string | null
+          brand_name?: string | null
+          business_name: string
+          business_type?: string | null
+          capabilities?: string[] | null
+          created_at?: string | null
+          customer_email?: string | null
+          customer_name: string
+          deploy_slug?: string | null
+          embed_token?: string | null
+          id?: string
+          knowledge_base?: string | null
+          logo_url?: string | null
+          monthly_price_cents?: number | null
+          plan_tier?: string
+          status?: string
+          tone?: string | null
+          total_conversations?: number | null
+          total_messages?: number | null
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          agent_name?: string
+          agent_persona?: string
+          brand_color?: string | null
+          brand_name?: string | null
+          business_name?: string
+          business_type?: string | null
+          capabilities?: string[] | null
+          created_at?: string | null
+          customer_email?: string | null
+          customer_name?: string
+          deploy_slug?: string | null
+          embed_token?: string | null
+          id?: string
+          knowledge_base?: string | null
+          logo_url?: string | null
+          monthly_price_cents?: number | null
+          plan_tier?: string
+          status?: string
+          tone?: string | null
+          total_conversations?: number | null
+          total_messages?: number | null
+          updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
       energy_systems: {
         Row: {
           color: string
