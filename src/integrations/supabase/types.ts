@@ -491,6 +491,89 @@ export type Database = {
         }
         Relationships: []
       }
+      contact_interactions: {
+        Row: {
+          contact_id: string
+          created_at: string
+          id: string
+          interaction_type: string | null
+          notes: string
+          sentiment: string | null
+          user_id: string
+        }
+        Insert: {
+          contact_id: string
+          created_at?: string
+          id?: string
+          interaction_type?: string | null
+          notes?: string
+          sentiment?: string | null
+          user_id: string
+        }
+        Update: {
+          contact_id?: string
+          created_at?: string
+          id?: string
+          interaction_type?: string | null
+          notes?: string
+          sentiment?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "contact_interactions_contact_id_fkey"
+            columns: ["contact_id"]
+            isOneToOne: false
+            referencedRelation: "contacts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      contacts: {
+        Row: {
+          created_at: string
+          follow_up_date: string | null
+          id: string
+          interaction_count: number | null
+          last_contact_at: string | null
+          name: string
+          notes: string | null
+          profile: Json | null
+          relationship_type: string | null
+          tags: string[] | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          follow_up_date?: string | null
+          id?: string
+          interaction_count?: number | null
+          last_contact_at?: string | null
+          name: string
+          notes?: string | null
+          profile?: Json | null
+          relationship_type?: string | null
+          tags?: string[] | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          follow_up_date?: string | null
+          id?: string
+          interaction_count?: number | null
+          last_contact_at?: string | null
+          name?: string
+          notes?: string | null
+          profile?: Json | null
+          relationship_type?: string | null
+          tags?: string[] | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       council_chat_messages: {
         Row: {
           content: string
