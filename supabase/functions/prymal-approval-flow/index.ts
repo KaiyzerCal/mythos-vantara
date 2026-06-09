@@ -151,11 +151,13 @@ async function executeAction(item: any, overrideDraft?: string): Promise<{ ok: b
 
   // Route to the appropriate PrymalAI execution function
   const routeMap: Record<string, string> = {
-    send_email:    "prymal-service-agent",
-    send_sms:      "prymal-service-agent",
-    publish_post:  "prymal-brand-agent",
-    send_dm:       "prymal-service-agent",
-    send_outreach: "prymal-outreach-agent",
+    send_email:      "prymal-service-agent",
+    send_sms:        "prymal-service-agent",
+    publish_post:    "prymal-brand-agent",
+    send_dm:         "prymal-service-agent",
+    send_outreach:   "prymal-outreach-agent",
+    reply_review:    "prymal-google-agent",
+    post_gbp_update: "prymal-google-agent",
   };
   const targetFn = routeMap[item.action_type] ?? "prymal-service-agent";
   const fnUrl = `${SB_URL}/functions/v1/${targetFn}`;
@@ -344,50 +346,3 @@ async function notifyOwner(item: any, client: any, isRenotify: boolean): Promise
   }
 }
 
-// ── Build SMS message (exported for re-use) ────────────────────────────────
-function buildSMSMessage(item: any, client: any, isRenotify: boolean): string {
-  const prefix = isRenotify
-    ? `⏰ REMINDER (4hr): Action still awaiting approval.`
-    : `📋 ${client.business_name} — Review needed:`;
-
-  return `${prefix}
-
-[${item.agent.toUpperCase()} → ${item.action_type}]
-${item.draft_content.slice(0, 400)}${item.draft_content.length > 400 ? "…" : ""}
-
-Reply:
-APPROVE — send it
-EDIT <revised text> — use your version
-REJECT — discard
-
-ID: ${item.id.slice(0, 8)}`;
-}
-
-// ── Build email HTML (exported for re-use) ─────────────────────────────────
-function buildEmailHTML(item: any, client: any, isRenotify: boolean): { subject: string; html: string } {
-  const approveUrl = `${FUNCTION_URL}/approve/${item.delivery_token}`;
-  const rejectUrl  = `${FUNCTION_URL}/reject/${item.delivery_token}`;
-  const subject = isRenotify
-    ? `⏰ Reminder: Action awaiting approval — ${client.business_name}`
-    : `Review needed: ${item.action_summary} — ${client.business_name}`;
-
-  const html = `<!DOCTYPE html><html><head><meta charset="utf-8"></head>
-<body style="font-family:Georgia,serif;background:#0d1117;color:#eef2f7;padding:32px;max-width:600px;margin:0 auto;">
-  ${isRenotify ? `<div style="background:#7c3aed22;border:1px solid #7c3aed44;border-radius:8px;padding:12px 16px;margin-bottom:24px;font-size:13px;color:#a78bfa;">⏰ This has been waiting 4 hours for your approval.</div>` : ""}
-  <p style="font-size:11px;letter-spacing:2px;color:#666;text-transform:uppercase;margin-bottom:8px;">PRYMAL AI · APPROVAL REQUEST</p>
-  <h2 style="color:#fff;margin:0 0 4px;">${client.business_name}</h2>
-  <p style="color:#666;font-size:13px;margin:0 0 24px;">${item.agent.toUpperCase()} → ${item.action_type}</p>
-  <div style="font-size:11px;color:#666;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px;">Summary</div>
-  <p style="color:#ccc;font-size:14px;margin:0 0 24px;">${item.action_summary}</p>
-  <div style="font-size:11px;color:#666;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px;">Draft</div>
-  <div style="background:#111827;border:1px solid #1f2937;border-radius:8px;padding:16px;font-size:14px;color:#e5e7eb;line-height:1.7;white-space:pre-wrap;margin-bottom:32px;">${item.draft_content}</div>
-  <table style="width:100%;border-collapse:separate;border-spacing:8px;"><tr>
-    <td><a href="${approveUrl}" style="display:block;background:#059669;color:#fff;text-align:center;padding:14px;border-radius:8px;text-decoration:none;font-weight:700;font-size:15px;">✓ APPROVE & SEND</a></td>
-    <td><a href="${rejectUrl}" style="display:block;background:#7f1d1d;color:#fff;text-align:center;padding:14px;border-radius:8px;text-decoration:none;font-weight:700;font-size:15px;">✗ REJECT</a></td>
-  </tr></table>
-  <p style="color:#4b5563;font-size:12px;margin-top:24px;text-align:center;">To edit: reply with EDIT followed by your revised text.<br>Item ID: <code style="color:#9ca3af;">${item.id}</code></p>
-  <div style="margin-top:40px;padding-top:20px;border-top:1px solid #1f2937;font-size:11px;color:#4b5563;">PrymalAI · <a href="https://prymalai.com" style="color:#00c8ff;text-decoration:none;">prymalai.com</a></div>
-</body></html>`;
-
-  return { subject, html };
-}
