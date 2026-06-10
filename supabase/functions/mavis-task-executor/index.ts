@@ -9,6 +9,11 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+};
+
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
   Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
@@ -677,8 +682,11 @@ const HANDLERS: Record<string, TaskHandler> = {
 // ─────────────────────────────────────────────────────────────
 
 Deno.serve(async (req) => {
+  if (req.method === "OPTIONS") {
+    return new Response(null, { headers: corsHeaders });
+  }
   if (req.method !== "POST" && req.method !== "GET") {
-    return new Response("Method not allowed", { status: 405 });
+    return new Response("Method not allowed", { status: 405, headers: corsHeaders });
   }
 
   const now = new Date().toISOString();
@@ -698,7 +706,7 @@ Deno.serve(async (req) => {
     if (fetchErr) throw fetchErr;
     if (!pendingTasks || pendingTasks.length === 0) {
       return new Response(JSON.stringify({ status: "idle", message: "No pending tasks" }), {
-        headers: { "Content-Type": "application/json" },
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
@@ -739,8 +747,8 @@ Deno.serve(async (req) => {
       executed: executed.length,
       errors: errors.length,
       details: { executed, errors },
-    }), { headers: { "Content-Type": "application/json" } });
+    }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
   } catch (err) {
-    return new Response(JSON.stringify({ error: String(err) }), { status: 500 });
+    return new Response(JSON.stringify({ error: String(err) }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
   }
 });
