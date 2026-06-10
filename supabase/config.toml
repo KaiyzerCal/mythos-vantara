@@ -508,6 +508,10 @@ verify_jwt = true
 [functions.mavis-wpcom-oauth]
 verify_jwt = false
 
+# Google OAuth — Google redirects without Supabase JWT; auth via state param + user_id in body
+[functions.mavis-google-oauth]
+verify_jwt = false
+
 [functions.mavis-youtube-ingest]
 verify_jwt = true
 

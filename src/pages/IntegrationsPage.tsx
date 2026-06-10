@@ -2,7 +2,7 @@
 // VANTARA.EXE — IntegrationsPage
 // Manage API keys and third-party credentials for MAVIS
 // ============================================================
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import {
   Cpu,
   Share2,
@@ -17,6 +17,8 @@ import {
   CheckCircle2,
   XCircle,
   AlertTriangle,
+  Link2,
+  Link2Off,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
@@ -31,6 +33,10 @@ interface ProviderDef {
   description: string;
   keys: string[];
   docsUrl?: string | null;
+  /** Provider uses OAuth — show Connect button after saving credentials */
+  oauthEnabled?: boolean;
+  /** Short labels shown as service badges when OAuth is connected */
+  oauthServices?: string[];
 }
 
 interface GroupDef {
@@ -39,8 +45,33 @@ interface GroupDef {
   providers: ProviderDef[];
 }
 
+// Google service provider IDs that are activated after OAuth
+const GOOGLE_OAUTH_PROVIDERS = ["gmail", "gdrive", "gcontacts", "google_tasks", "google_calendar"] as const;
+const GOOGLE_SERVICE_LABELS: Record<string, string> = {
+  gmail: "Gmail",
+  gdrive: "Drive",
+  gcontacts: "Contacts",
+  google_tasks: "Tasks",
+  google_calendar: "Calendar",
+};
+
 // ─── Constants ──────────────────────────────────────────────
 const INTEGRATION_GROUPS: GroupDef[] = [
+  {
+    label: "Google Workspace",
+    icon: "Share2",
+    providers: [
+      {
+        id: "google_workspace",
+        name: "Google Workspace",
+        description: "Gmail · Drive · Contacts · Tasks · Calendar — one OAuth connection",
+        keys: ["Client ID", "Client Secret"],
+        oauthEnabled: true,
+        oauthServices: ["gmail", "gdrive", "gcontacts", "google_tasks", "google_calendar"],
+        docsUrl: "https://console.cloud.google.com/apis/credentials",
+      },
+    ],
+  },
   {
     label: "AI Providers",
     icon: "Cpu",
@@ -164,6 +195,112 @@ export function IntegrationsPage() {
   const [expandedProvider, setExpandedProvider] = useState<string | null>(null);
   const [testResults, setTestResults] = useState<Record<string, "ok" | "fail" | "testing">>({});
 
+  // ── Google OAuth state ────────────────────────────────────
+  const [googleStatus, setGoogleStatus] = useState<{
+    connected: boolean;
+    email: string;
+    statuses: Record<string, boolean>;
+  }>({ connected: false, email: "", statuses: {} });
+  const [googleConnecting, setGoogleConnecting] = useState(false);
+  const [googleDisconnecting, setGoogleDisconnecting] = useState(false);
+  const [googleExchanging, setGoogleExchanging] = useState(false);
+
+  const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string;
+
+  const loadGoogleStatus = useCallback(async () => {
+    if (!user) return;
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const res = await fetch(`${SUPABASE_URL}/functions/v1/mavis-google-oauth`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session?.access_token}` },
+        body: JSON.stringify({ action: "get_status", user_id: user.id }),
+      });
+      if (res.ok) setGoogleStatus(await res.json());
+    } catch { /* non-fatal */ }
+  }, [user, SUPABASE_URL]);
+
+  // ── Handle Google OAuth callback ──────────────────────────
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const code  = params.get("code");
+    const state = params.get("state");
+    if (!code || !state || !user) return;
+
+    // Only handle Google OAuth callbacks (state is base64 JSON with user_id)
+    let stateData: { user_id?: string } = {};
+    try { stateData = JSON.parse(atob(state)); } catch { return; }
+    if (!stateData.user_id) return;
+
+    // Clean URL immediately
+    window.history.replaceState({}, "", window.location.pathname);
+
+    setGoogleExchanging(true);
+    (async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        const res = await fetch(`${SUPABASE_URL}/functions/v1/mavis-google-oauth`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${session?.access_token}` },
+          body: JSON.stringify({ action: "exchange_code", code, state, user_id: user.id }),
+        });
+        const data = await res.json();
+        if (!res.ok || !data.success) throw new Error(data.error ?? "Token exchange failed");
+        toast.success(`Google connected — ${data.email}`);
+        await loadGoogleStatus();
+      } catch (err: any) {
+        toast.error(err.message ?? "Google connection failed");
+      } finally {
+        setGoogleExchanging(false);
+      }
+    })();
+  }, [user, SUPABASE_URL, loadGoogleStatus]);
+
+  async function connectGoogle(providerId: string) {
+    if (!user) return;
+    const clientId = editingValues[providerId]?.["Client ID"] ?? savedKeys[providerId]?.["Client ID"] ?? "";
+    if (!clientId) {
+      toast.error("Save your Google Client ID first, then click Connect");
+      return;
+    }
+    setGoogleConnecting(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const redirectOrigin = window.location.origin;
+      const res = await fetch(`${SUPABASE_URL}/functions/v1/mavis-google-oauth`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session?.access_token}` },
+        body: JSON.stringify({ action: "get_auth_url", user_id: user.id, redirect_origin: redirectOrigin }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.url) throw new Error(data.error ?? "Failed to get auth URL");
+      window.location.href = data.url;
+    } catch (err: any) {
+      toast.error(err.message ?? "Failed to start Google OAuth");
+      setGoogleConnecting(false);
+    }
+  }
+
+  async function disconnectGoogle() {
+    if (!user) return;
+    setGoogleDisconnecting(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const res = await fetch(`${SUPABASE_URL}/functions/v1/mavis-google-oauth`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session?.access_token}` },
+        body: JSON.stringify({ action: "disconnect", user_id: user.id }),
+      });
+      if (!res.ok) throw new Error("Disconnect failed");
+      setGoogleStatus({ connected: false, email: "", statuses: {} });
+      toast.success("Google disconnected");
+    } catch (err: any) {
+      toast.error(err.message ?? "Disconnect failed");
+    } finally {
+      setGoogleDisconnecting(false);
+    }
+  }
+
   // ── Load saved keys on mount ──────────────────────────────
   useEffect(() => {
     if (!user) return;
@@ -204,7 +341,8 @@ export function IntegrationsPage() {
     }
 
     loadKeys();
-  }, [user]);
+    loadGoogleStatus();
+  }, [user, loadGoogleStatus]);
 
   // ── Save all keys for a provider ─────────────────────────
   async function saveProvider(providerId: string, keys: string[]) {
@@ -325,7 +463,8 @@ export function IntegrationsPage() {
                     const isExpanded = expandedProvider === provider.id;
                     const isSaving = !!saving[provider.id];
                     const testResult = testResults[provider.id];
-                    const hasKey = hasSavedKey(provider.id);
+                    const isOAuthConnected = provider.oauthEnabled && googleStatus.connected;
+                    const hasKey = isOAuthConnected || hasSavedKey(provider.id);
 
                     return (
                       <HudCard key={provider.id} glowColor={hasKey ? "green" : "none"}>
@@ -421,34 +560,106 @@ export function IntegrationsPage() {
                                 {isSaving ? (
                                   <Loader2 size={11} className="animate-spin" />
                                 ) : null}
-                                {isSaving ? "Saving…" : "Save"}
+                                {isSaving ? "Saving…" : "Save Credentials"}
                               </button>
 
-                              <button
-                                onClick={() => testConnection(provider.id)}
-                                disabled={testResult === "testing"}
-                                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono border border-border text-muted-foreground rounded hover:border-border/60 hover:text-foreground disabled:opacity-40 disabled:cursor-not-allowed transition-all"
-                              >
-                                {testResult === "testing" ? (
-                                  <Loader2 size={11} className="animate-spin" />
-                                ) : null}
-                                {testResult === "testing" ? "Testing…" : "Test Connection"}
-                              </button>
+                              {!provider.oauthEnabled && (
+                                <button
+                                  onClick={() => testConnection(provider.id)}
+                                  disabled={testResult === "testing"}
+                                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono border border-border text-muted-foreground rounded hover:border-border/60 hover:text-foreground disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+                                >
+                                  {testResult === "testing" ? (
+                                    <Loader2 size={11} className="animate-spin" />
+                                  ) : null}
+                                  {testResult === "testing" ? "Testing…" : "Test Connection"}
+                                </button>
+                              )}
 
-                              {/* Test result badge */}
-                              {testResult === "ok" && (
+                              {/* Test result badge (non-OAuth providers) */}
+                              {!provider.oauthEnabled && testResult === "ok" && (
                                 <span className="flex items-center gap-1 text-[10px] font-mono text-green-400">
                                   <CheckCircle2 size={11} />
                                   Connected
                                 </span>
                               )}
-                              {testResult === "fail" && (
+                              {!provider.oauthEnabled && testResult === "fail" && (
                                 <span className="flex items-center gap-1 text-[10px] font-mono text-red-400">
                                   <XCircle size={11} />
                                   Failed
                                 </span>
                               )}
                             </div>
+
+                            {/* ── OAuth Connect section (Google Workspace) ── */}
+                            {provider.oauthEnabled && (
+                              <div className="border border-border/40 rounded-lg p-3 space-y-3 bg-muted/10">
+                                {googleExchanging ? (
+                                  <div className="flex items-center gap-2 text-xs font-mono text-primary">
+                                    <Loader2 size={12} className="animate-spin" />
+                                    Connecting to Google…
+                                  </div>
+                                ) : googleStatus.connected ? (
+                                  <>
+                                    <div className="flex items-center justify-between gap-3">
+                                      <div className="flex items-center gap-2">
+                                        <CheckCircle2 size={13} className="text-green-400 shrink-0" />
+                                        <span className="text-xs font-mono text-green-400">
+                                          Connected — {googleStatus.email}
+                                        </span>
+                                      </div>
+                                      <button
+                                        onClick={disconnectGoogle}
+                                        disabled={googleDisconnecting}
+                                        className="flex items-center gap-1 px-2.5 py-1 text-[10px] font-mono border border-red-500/30 text-red-400 rounded hover:bg-red-500/10 disabled:opacity-40 transition-all"
+                                      >
+                                        {googleDisconnecting
+                                          ? <Loader2 size={10} className="animate-spin" />
+                                          : <Link2Off size={10} />}
+                                        {googleDisconnecting ? "Disconnecting…" : "Disconnect"}
+                                      </button>
+                                    </div>
+                                    {/* Active service badges */}
+                                    <div className="flex gap-1.5 flex-wrap">
+                                      {GOOGLE_OAUTH_PROVIDERS.map(p => (
+                                        <span
+                                          key={p}
+                                          className={`px-2 py-0.5 rounded text-[10px] font-mono border ${
+                                            googleStatus.statuses[p]
+                                              ? "border-green-500/40 text-green-400 bg-green-500/5"
+                                              : "border-border/30 text-muted-foreground/50"
+                                          }`}
+                                        >
+                                          {GOOGLE_SERVICE_LABELS[p]}
+                                        </span>
+                                      ))}
+                                    </div>
+                                    <p className="text-[10px] text-muted-foreground">
+                                      Syncs run automatically every 20 min via the MAVIS heartbeat.
+                                    </p>
+                                  </>
+                                ) : (
+                                  <>
+                                    <button
+                                      onClick={() => connectGoogle(provider.id)}
+                                      disabled={googleConnecting}
+                                      className="flex items-center gap-2 px-3 py-2 text-xs font-mono bg-blue-600/15 border border-blue-500/40 text-blue-300 rounded hover:bg-blue-600/25 disabled:opacity-40 transition-all w-full justify-center"
+                                    >
+                                      {googleConnecting
+                                        ? <Loader2 size={12} className="animate-spin" />
+                                        : <Link2 size={12} />}
+                                      {googleConnecting ? "Opening Google…" : "Connect Google Account"}
+                                    </button>
+                                    <p className="text-[10px] text-muted-foreground leading-relaxed">
+                                      Save your Client ID + Secret above first, then click Connect. You'll be redirected to Google to grant permissions for Gmail, Drive, Contacts, Tasks, and Calendar.
+                                    </p>
+                                    <p className="text-[10px] text-amber-400">
+                                      Set <span className="font-mono">{window.location.origin}/integrations</span> as an Authorized Redirect URI in your Google Cloud Console OAuth credentials.
+                                    </p>
+                                  </>
+                                )}
+                              </div>
+                            )}
                           </div>
                         )}
                       </HudCard>
