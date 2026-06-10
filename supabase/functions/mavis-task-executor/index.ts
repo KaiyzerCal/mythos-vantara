@@ -569,6 +569,10 @@ const handleCreateProduct: TaskHandler = async (task) => {
     ? raw.params as Record<string, unknown>
     : raw;
 
+  if (!flat.title) {
+    return { success: false, error: `create_product payload is missing required field "title". Goal plan generated wrong params: ${JSON.stringify(flat).slice(0, 200)}` };
+  }
+
   const res = await fetch(`${supabaseUrl}/functions/v1/mavis-product-creator`, {
     method: "POST",
     headers: {
