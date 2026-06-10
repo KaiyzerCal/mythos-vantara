@@ -868,6 +868,43 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
       return;
     }
 
+    // ── PROPOSE ACTION — generic proposal gate for ANY persona/council suggestion ──
+    // Queues any action for operator review before execution.
+    // On approval the executor re-dispatches via mavis-actions with the stored params.
+    case "propose_action": {
+      const actionType  = String(p.action_type  ?? (action as any).action_type  ?? "");
+      const proposedBy  = String(p.proposed_by  ?? (action as any).proposed_by  ?? "Persona");
+      const rationale   = String(p.rationale    ?? (action as any).rationale    ?? "");
+      const priority    = String(p.priority     ?? (action as any).priority     ?? "normal");
+      const actionParams = (p.params ?? (action as any).params ?? p) as Record<string, unknown>;
+      // Build a human-readable label
+      const label = String(
+        actionParams.title ?? actionParams.name ?? actionParams.objective ??
+        actionParams.text  ?? actionParams.goal  ?? actionType
+      ).slice(0, 80);
+
+      if (!actionType) throw new Error("propose_action requires action_type");
+
+      const payload = {
+        action_type: actionType,
+        params: actionParams,
+        proposed_by: proposedBy,
+        rationale,
+        priority,
+      };
+
+      const { error } = await sb.from("mavis_tasks").insert({
+        user_id: userId,
+        type: "execute_action",
+        description: `[${proposedBy}] ${actionType}: ${label}`,
+        payload,
+        status: "requires_confirmation",
+      });
+      if (error) throw error;
+      await logActivity(sb, userId, "action_proposed", `${proposedBy} proposed: ${actionType} — ${label}`, 0);
+      return;
+    }
+
     // ── KNOWLEDGE GRAPH ──────────────────────────────────
     case "create_note":
     case "new_note":

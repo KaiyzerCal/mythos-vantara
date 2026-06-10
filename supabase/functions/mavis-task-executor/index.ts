@@ -677,6 +677,48 @@ const handleSessionUpdate: TaskHandler = async (task) => {
   };
 };
 
+// execute_action — operator approved a generic persona/council proposal
+// Re-dispatches through mavis-actions so every CODEXOS action type is supported.
+const handleExecuteAction: TaskHandler = async (task) => {
+  const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+  const serviceKey  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+
+  const raw  = task.payload as Record<string, unknown>;
+  const flat = (raw.params && typeof raw.params === "object") ? raw.params as Record<string, unknown> : raw;
+
+  const actionType  = String(flat.action_type ?? "");
+  const actionParams = (flat.params ?? {}) as Record<string, unknown>;
+  const proposedBy  = String(flat.proposed_by ?? "Persona");
+
+  if (!actionType) return { success: false, error: "execute_action: missing action_type" };
+
+  const res = await fetch(`${supabaseUrl}/functions/v1/mavis-actions`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${serviceKey}`,
+    },
+    body: JSON.stringify({
+      userId: task.user_id,
+      actions: [{ type: actionType, params: actionParams }],
+    }),
+  });
+
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    return { success: false, error: `mavis-actions returned ${res.status}: ${JSON.stringify(data).slice(0, 200)}` };
+  }
+
+  await supabase.from("mavis_activities").insert({
+    user_id: task.user_id,
+    type: "action_executed",
+    description: `${proposedBy}'s proposal executed: ${actionType}`,
+    xp_earned: 0,
+  });
+
+  return { success: true, output: { action_type: actionType, proposed_by: proposedBy, result: data } };
+};
+
 // system_change — operator approved a persona/council-proposed change
 // Records an authoritative vault decision entry so the approval is never lost.
 const handleSystemChange: TaskHandler = async (task) => {
@@ -852,6 +894,7 @@ const HANDLERS: Record<string, TaskHandler> = {
   nora_tweet: handleNoraTweet,
   demand_scan: handleDemandScan,
   goal: handleGoal,
+  execute_action: handleExecuteAction,
   system_change: handleSystemChange,
   session_update: handleSessionUpdate,
 };
