@@ -383,7 +383,7 @@ verify_jwt = true
 verify_jwt = true
 
 [functions.mavis-demand-scan]
-verify_jwt = true
+verify_jwt = false
 
 [functions.mavis-hn-digest]
 verify_jwt = false
@@ -508,7 +508,7 @@ verify_jwt = false
 verify_jwt = true
 
 [functions.mavis-product-creator]
-verify_jwt = true
+verify_jwt = false
 
 [functions.mavis-gumroad]
 verify_jwt = true
