@@ -890,6 +890,11 @@ COMPETITORS:
 GOALS:
 :::ACTION{"type":"create_mavis_goal","params":{"objective":"...","context":"...","status":"active"}}:::
 :::ACTION{"type":"update_mavis_goal","params":{"goal_id":"...","objective":"...","status":"active|completed|abandoned"}}:::
+PRODUCTS (propose for operator approval — MAVIS generates the PDF, publishes, and announces after approval):
+:::ACTION{"type":"propose_product","params":{"title":"...","description":"...","audience":"...","price_cents":2900,"category":"guide|prompt_pack|template|framework|mini_course","platform":"gumroad|stripe"}}:::
+Use propose_product when the operator asks to create a product, build something to sell, or launch a digital product. Fills all fields with specific real content — never placeholder text. The proposal lands in Inbox → Task Log as requires_confirmation. After the operator approves, MAVIS generates the full PDF, publishes to the platform, and auto-announces via email and Nora tweet.
+NORA — post as Nora Vale on Twitter/X:
+:::ACTION{"type":"nora_tweet","params":{"content":"Tweet text here — max 280 chars. No hashtag spam."}}:::
 NOTIFICATIONS:
 :::ACTION{"type":"send_notification","params":{"title":"...","body":"...","type":"info|warning|success|alert","category":"general|health|goal|mission","priority":"low|normal|high"}}:::
 IMAGES / VIDEO GENERATION:

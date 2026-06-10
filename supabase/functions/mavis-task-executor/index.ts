@@ -587,20 +587,31 @@ const handleCreateProduct: TaskHandler = async (task) => {
     return { success: false, error: data.error ?? `product-creator returned ${res.status}` };
   }
 
-  // Auto-queue an announcement for any successfully created product
+  // Auto-queue an announcement — only if no announcement already pending/completed for this title
   if ((data.gumroadProductId || data.stripeProductId) && data.paymentLink && flat.title) {
-    await supabase.from("mavis_tasks").insert({
-      user_id: task.user_id,
-      type: "send_announcement",
-      description: `Announce product: "${flat.title}"`,
-      payload: {
-        title: flat.title,
-        description: flat.description ?? "",
-        paymentLink: data.paymentLink,
-        priceCents: flat.price_cents ?? 2900,
-      },
-      status: "pending",
-    });
+    const { data: existing } = await supabase
+      .from("mavis_tasks")
+      .select("id")
+      .eq("user_id", task.user_id)
+      .eq("type", "send_announcement")
+      .in("status", ["pending", "running", "completed"])
+      .ilike("description", `%${String(flat.title).slice(0, 60)}%`)
+      .limit(1);
+
+    if (!existing || existing.length === 0) {
+      await supabase.from("mavis_tasks").insert({
+        user_id: task.user_id,
+        type: "send_announcement",
+        description: `Announce product: "${flat.title}"`,
+        payload: {
+          title: flat.title,
+          description: flat.description ?? "",
+          paymentLink: data.paymentLink,
+          priceCents: flat.price_cents ?? 2900,
+        },
+        status: "pending",
+      });
+    }
   }
 
   return { success: true, output: data };
@@ -705,7 +716,7 @@ Deno.serve(async (req) => {
       .in("status", ["pending", "approved"])
       .or(`scheduled_at.is.null,scheduled_at.lte.${now}`)
       .order("created_at", { ascending: true })
-      .limit(20);
+      .limit(50);
 
     if (fetchErr) throw fetchErr;
     if (!pendingTasks || pendingTasks.length === 0) {
