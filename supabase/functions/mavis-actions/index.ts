@@ -805,6 +805,27 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
       return;
     }
 
+    // ── PROPOSE SYSTEM CHANGE — queue for operator approval ──────────────
+    case "propose_system_change": {
+      const title       = String(p.title ?? (action as any).title ?? "System Change");
+      const description = String(p.description ?? (action as any).description ?? "");
+      const proposedBy  = String(p.proposed_by ?? (action as any).proposed_by ?? "Council");
+      const changeType  = String(p.change_type ?? (action as any).change_type ?? "feature|fix|config|process|other");
+      const rationale   = String(p.rationale ?? (action as any).rationale ?? "");
+      const priority    = String(p.priority ?? (action as any).priority ?? "normal");
+      const payload = { title, description, proposed_by: proposedBy, change_type: changeType, rationale, priority };
+      const { error } = await sb.from("mavis_tasks").insert({
+        user_id: userId,
+        type: "system_change",
+        description: `[${proposedBy}] ${title}`,
+        payload,
+        status: "requires_confirmation",
+      });
+      if (error) throw error;
+      await logActivity(sb, userId, "system_change_proposed", `Change proposed by ${proposedBy}: ${title}`, 0);
+      return;
+    }
+
     // ── KNOWLEDGE GRAPH ──────────────────────────────────
     case "create_note":
     case "new_note":

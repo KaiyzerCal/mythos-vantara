@@ -46,7 +46,7 @@ type TaskHandler = (task: Task) => Promise<TaskResult>;
 // ─────────────────────────────────────────────────────────────
 
 interface GoalStep {
-  type: string;           // demand_scan | revenue_snapshot | nora_tweet | direct_action | create_product | web_search | daily_brief
+  type: string;           // demand_scan | revenue_snapshot | nora_tweet | direct_action | create_product | web_search | daily_brief | system_change
   description: string;   // human-readable intent
   params: Record<string, unknown>;
   result?: unknown;
@@ -557,6 +557,48 @@ const handleIdleQuestAlert: TaskHandler = async (_task) => {
   return { success: true, output: { acknowledged: true } };
 };
 
+// system_change — operator approved a persona/council-proposed change
+// Records an authoritative vault decision entry so the approval is never lost.
+const handleSystemChange: TaskHandler = async (task) => {
+  const raw = task.payload as Record<string, unknown>;
+  const flat = (raw.params && typeof raw.params === "object")
+    ? raw.params as Record<string, unknown>
+    : raw;
+
+  const title      = String(flat.title ?? "System Change");
+  const proposedBy = String(flat.proposed_by ?? "Council");
+  const changeType = String(flat.change_type ?? "general");
+  const description = String(flat.description ?? "");
+  const rationale   = String(flat.rationale ?? "");
+  const priority    = String(flat.priority ?? "normal");
+
+  const vaultContent = [
+    `**Proposed by:** ${proposedBy}`,
+    `**Type:** ${changeType}`,
+    `**Priority:** ${priority}`,
+    description ? `\n**Description:**\n${description}` : "",
+    rationale   ? `\n**Rationale:**\n${rationale}` : "",
+    `\n**Status:** APPROVED — ${new Date().toISOString()}`,
+  ].filter(Boolean).join("\n");
+
+  await supabase.from("mavis_vault").insert({
+    user_id: task.user_id,
+    title: `[APPROVED] ${title}`,
+    content: vaultContent,
+    category: "business",
+    importance: priority === "high" ? "high" : "medium",
+  });
+
+  await supabase.from("mavis_activities").insert({
+    user_id: task.user_id,
+    type: "system_change_approved",
+    description: `Change approved: "${title}" (proposed by ${proposedBy})`,
+    xp_earned: 0,
+  });
+
+  return { success: true, output: { title, approved_by: "operator", recorded_to_vault: true } };
+};
+
 // create_product — calls mavis-product-creator edge function
 // Requires STRIPE_SECRET_KEY to publish live; stores as draft otherwise
 const handleCreateProduct: TaskHandler = async (task) => {
@@ -690,6 +732,7 @@ const HANDLERS: Record<string, TaskHandler> = {
   nora_tweet: handleNoraTweet,
   demand_scan: handleDemandScan,
   goal: handleGoal,
+  system_change: handleSystemChange,
 };
 
 // ─────────────────────────────────────────────────────────────
