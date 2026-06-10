@@ -498,6 +498,10 @@ verify_jwt = false
 [functions.mavis-netlify]
 verify_jwt = false
 
+# Multi-provider static site deployment (Netlify, Vercel, Cloudflare Pages, Railway, Hostinger)
+[functions.mavis-deploy]
+verify_jwt = false
+
 [functions.mavis-wordpress]
 verify_jwt = true
 
