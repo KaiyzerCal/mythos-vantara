@@ -826,6 +826,48 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
       return;
     }
 
+    // ── PROPOSE SESSION UPDATE — The System bundles post-session gains for approval ──
+    case "propose_session_update": {
+      const sessionTitle   = String(p.session_title ?? (action as any).session_title ?? "Session");
+      const proposedBy     = String(p.proposed_by   ?? (action as any).proposed_by   ?? "The System");
+      const sessionSummary = String(p.session_summary ?? (action as any).session_summary ?? "");
+      const xpAward        = Number(p.xp_award        ?? (action as any).xp_award        ?? 0);
+      const questUpdates   = (p.quest_updates   ?? (action as any).quest_updates   ?? []) as unknown[];
+      const skillUpdates   = (p.skill_updates   ?? (action as any).skill_updates   ?? []) as unknown[];
+      const statUpdates    = (p.stat_updates    ?? (action as any).stat_updates    ?? {}) as Record<string, number>;
+      const invConsumed    = (p.inventory_consumed ?? (action as any).inventory_consumed ?? []) as unknown[];
+
+      const payload = {
+        session_title: sessionTitle,
+        proposed_by: proposedBy,
+        session_summary: sessionSummary,
+        xp_award: xpAward,
+        quest_updates: questUpdates,
+        skill_updates: skillUpdates,
+        stat_updates: statUpdates,
+        inventory_consumed: invConsumed,
+      };
+
+      // Build a readable summary for the task description
+      const lines: string[] = [];
+      if (xpAward > 0) lines.push(`+${xpAward} XP`);
+      if ((questUpdates as any[]).length) lines.push(`${(questUpdates as any[]).length} quest(s)`);
+      if ((skillUpdates as any[]).length) lines.push(`${(skillUpdates as any[]).length} skill(s)`);
+      if (Object.keys(statUpdates).length) lines.push(`stat boost`);
+      if ((invConsumed as any[]).length) lines.push(`${(invConsumed as any[]).length} item(s) consumed`);
+
+      const { error } = await sb.from("mavis_tasks").insert({
+        user_id: userId,
+        type: "session_update",
+        description: `[${proposedBy}] ${sessionTitle}${lines.length ? ` — ${lines.join(", ")}` : ""}`,
+        payload,
+        status: "requires_confirmation",
+      });
+      if (error) throw error;
+      await logActivity(sb, userId, "session_update_proposed", `Session report queued: ${sessionTitle}`, 0);
+      return;
+    }
+
     // ── KNOWLEDGE GRAPH ──────────────────────────────────
     case "create_note":
     case "new_note":

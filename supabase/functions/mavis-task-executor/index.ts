@@ -557,6 +557,126 @@ const handleIdleQuestAlert: TaskHandler = async (_task) => {
   return { success: true, output: { acknowledged: true } };
 };
 
+// session_update — operator approved a post-session progression bundle from The System
+const handleSessionUpdate: TaskHandler = async (task) => {
+  const raw = task.payload as Record<string, unknown>;
+  const flat = (raw.params && typeof raw.params === "object") ? raw.params as Record<string, unknown> : raw;
+
+  const sessionTitle  = String(flat.session_title ?? "Session");
+  const proposedBy    = String(flat.proposed_by   ?? "The System");
+  const xpAward       = Number(flat.xp_award      ?? 0);
+  const questUpdates  = (flat.quest_updates        ?? []) as Array<{ quest_title?: string; progress_delta_pct?: number; complete?: boolean }>;
+  const skillUpdates  = (flat.skill_updates        ?? []) as Array<{ skill_name?: string; proficiency_delta?: number; new_proficiency?: number }>;
+  const statUpdates   = (flat.stat_updates         ?? {}) as Record<string, number>;
+  const invConsumed   = (flat.inventory_consumed   ?? []) as Array<{ name?: string; quantity?: number }>;
+
+  const applied: string[] = [];
+  const skipped: string[] = [];
+
+  // ── XP ──
+  if (xpAward > 0) {
+    const { data: prof } = await supabase.from("profiles").select("xp, level").eq("id", task.user_id).single();
+    if (prof) {
+      const newXp = (Number(prof.xp) || 0) + xpAward;
+      await supabase.from("profiles").update({ xp: newXp }).eq("id", task.user_id);
+      applied.push(`+${xpAward} XP`);
+    }
+  }
+
+  // ── Quest progress ──
+  for (const qu of questUpdates) {
+    const title = qu.quest_title ?? "";
+    if (!title) continue;
+    const { data: rows } = await supabase
+      .from("quests")
+      .select("id, progress_current, progress_target")
+      .eq("user_id", task.user_id)
+      .ilike("title", `%${title.slice(0, 40)}%`)
+      .limit(1);
+    const q = rows?.[0];
+    if (!q) { skipped.push(`quest:${title}`); continue; }
+
+    if (qu.complete) {
+      await supabase.from("quests").update({ status: "completed", updated_at: new Date().toISOString() }).eq("id", q.id);
+      applied.push(`quest completed: ${title}`);
+    } else if (qu.progress_delta_pct) {
+      const target = Number(q.progress_target) || 100;
+      const delta  = Math.round((qu.progress_delta_pct / 100) * target);
+      const newProg = Math.min(target, Number(q.progress_current) + delta);
+      await supabase.from("quests").update({ progress_current: newProg, updated_at: new Date().toISOString() }).eq("id", q.id);
+      applied.push(`quest +${qu.progress_delta_pct}%: ${title}`);
+    }
+  }
+
+  // ── Skill proficiency ──
+  for (const su of skillUpdates) {
+    const name = su.skill_name ?? "";
+    if (!name) continue;
+    const { data: rows } = await supabase
+      .from("skills")
+      .select("id, proficiency")
+      .eq("user_id", task.user_id)
+      .ilike("name", `%${name.slice(0, 40)}%`)
+      .limit(1);
+    const sk = rows?.[0];
+    if (!sk) { skipped.push(`skill:${name}`); continue; }
+
+    let newProf: number;
+    if (su.new_proficiency !== undefined) {
+      newProf = Math.min(100, Math.max(0, Number(su.new_proficiency)));
+    } else {
+      newProf = Math.min(100, (Number(sk.proficiency) || 0) + Number(su.proficiency_delta ?? 0));
+    }
+    await supabase.from("skills").update({ proficiency: newProf }).eq("id", sk.id);
+    applied.push(`skill ${name}: ${Number(sk.proficiency)}→${newProf}%`);
+  }
+
+  // ── Stat updates (additive deltas) ──
+  const statKeys = Object.keys(statUpdates);
+  if (statKeys.length > 0) {
+    const { data: prof } = await supabase.from("profiles").select(statKeys.join(", ")).eq("id", task.user_id).single();
+    if (prof) {
+      const updates: Record<string, number> = {};
+      for (const key of statKeys) {
+        updates[key] = (Number((prof as any)[key]) || 0) + Number(statUpdates[key]);
+      }
+      await supabase.from("profiles").update(updates).eq("id", task.user_id);
+      applied.push(`stats: ${statKeys.map(k => `${k.replace("stat_", "").toUpperCase()}+${statUpdates[k]}`).join(", ")}`);
+    }
+  }
+
+  // ── Inventory consumption ──
+  for (const item of invConsumed) {
+    const name = item.name ?? "";
+    if (!name) continue;
+    const qty  = Number(item.quantity ?? 1);
+    const { data: rows } = await supabase
+      .from("inventory")
+      .select("id, quantity")
+      .eq("user_id", task.user_id)
+      .ilike("name", `%${name.slice(0, 40)}%`)
+      .limit(1);
+    const inv = rows?.[0];
+    if (!inv) { skipped.push(`item:${name}`); continue; }
+    const newQty = Math.max(0, Number(inv.quantity) - qty);
+    await supabase.from("inventory").update({ quantity: newQty }).eq("id", inv.id);
+    applied.push(`consumed ${qty}x ${name}`);
+  }
+
+  // ── Activity log ──
+  await supabase.from("mavis_activities").insert({
+    user_id: task.user_id,
+    type: "session_update_applied",
+    description: `${proposedBy} session applied: ${sessionTitle} — ${applied.join(" | ")}`,
+    xp_earned: xpAward,
+  });
+
+  return {
+    success: true,
+    output: { session_title: sessionTitle, applied, skipped },
+  };
+};
+
 // system_change — operator approved a persona/council-proposed change
 // Records an authoritative vault decision entry so the approval is never lost.
 const handleSystemChange: TaskHandler = async (task) => {
@@ -733,6 +853,7 @@ const HANDLERS: Record<string, TaskHandler> = {
   demand_scan: handleDemandScan,
   goal: handleGoal,
   system_change: handleSystemChange,
+  session_update: handleSessionUpdate,
 };
 
 // ─────────────────────────────────────────────────────────────
