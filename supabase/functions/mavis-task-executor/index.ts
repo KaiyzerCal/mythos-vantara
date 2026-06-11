@@ -761,7 +761,74 @@ const handleSystemChange: TaskHandler = async (task) => {
   return { success: true, output: { title, approved_by: "operator", recorded_to_vault: true } };
 };
 
-// create_product — calls mavis-product-creator edge function
+// send_outreach — operator approved a Telegram reconnect nudge from ambient-monitor
+// Sends the drafted message via email (or Telegram to operator if no email on file).
+const handleSendOutreach: TaskHandler = async (task) => {
+  const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+  const serviceKey  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+  const raw  = task.payload as Record<string, unknown>;
+  const flat = (raw.params && typeof raw.params === "object") ? raw.params as Record<string, unknown> : raw;
+
+  const contactName  = String(flat.contact_name  ?? "Contact");
+  const message      = String(flat.message       ?? "");
+  const contactEmail = String(flat.contact_email ?? "");
+  const draftId      = String(flat.draft_id      ?? "");
+
+  if (!message) return { success: false, error: "send_outreach: no message in payload" };
+
+  let sent = false;
+  let channel = "";
+
+  if (contactEmail) {
+    // Send email via mavis-email-send
+    const emailRes = await fetch(`${supabaseUrl}/functions/v1/mavis-email-send`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${serviceKey}` },
+      body: JSON.stringify({
+        userId: task.user_id,
+        to: contactEmail,
+        subject: `Reaching out`,
+        body: message,
+        source: "outreach",
+      }),
+    });
+    sent = emailRes.ok;
+    channel = "email";
+  }
+
+  if (!sent) {
+    // No email address — notify operator via Telegram so they can send manually
+    const botToken = Deno.env.get("TELEGRAM_BOT_TOKEN") ?? "";
+    const chatId   = Deno.env.get("TELEGRAM_OPERATOR_CHAT_ID") ?? "";
+    if (botToken && chatId) {
+      const tgText = `✅ *Outreach Approved*\n\nSend this to *${contactName}*:\n\n_"${message}"_\n\n(No email on file — copy and send manually)`;
+      await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ chat_id: chatId, text: tgText, parse_mode: "Markdown" }),
+      }).catch(() => {});
+      sent = true;
+      channel = "telegram_reminder";
+    }
+  }
+
+  // Mark draft as sent
+  if (draftId) {
+    await supabase.from("mavis_outreach_drafts" as any)
+      .update({ status: "sent", sent_at: new Date().toISOString() })
+      .eq("id", draftId)
+      .catch(() => {});
+  }
+
+  await supabase.from("mavis_activities").insert({
+    user_id: task.user_id,
+    type: "outreach_sent",
+    description: `Outreach sent to ${contactName} via ${channel}`,
+    xp_earned: 0,
+  }).catch(() => {});
+
+  return { success: sent, output: { contact_name: contactName, channel, draft_id: draftId } };
+};
 // Requires STRIPE_SECRET_KEY to publish live; stores as draft otherwise
 const handleCreateProduct: TaskHandler = async (task) => {
   const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
@@ -897,6 +964,7 @@ const HANDLERS: Record<string, TaskHandler> = {
   execute_action: handleExecuteAction,
   system_change: handleSystemChange,
   session_update: handleSessionUpdate,
+  send_outreach: handleSendOutreach,
 };
 
 // ─────────────────────────────────────────────────────────────
