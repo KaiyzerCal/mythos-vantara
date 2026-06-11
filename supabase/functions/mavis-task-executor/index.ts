@@ -20,6 +20,11 @@ const supabase = createClient(
 );
 
 const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY")!;
+// Module-level constants — read once, reuse in all handlers
+const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
+const SERVICE_KEY  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+const BOT_TOKEN    = Deno.env.get("TELEGRAM_BOT_TOKEN") ?? "";
+const OPERATOR_CHAT_ID = Deno.env.get("TELEGRAM_OPERATOR_CHAT_ID") ?? "";
 
 // ─────────────────────────────────────────────────────────────
 // TYPES
@@ -67,6 +72,28 @@ interface GoalPayload {
 // HELPERS
 // ─────────────────────────────────────────────────────────────
 
+/** Extract the flat params object from a task payload, handling both
+ *  { ...fields } and { params: { ...fields } } shapes. */
+function extractPayload(raw: Record<string, unknown>): Record<string, unknown> {
+  return (raw.params && typeof raw.params === "object")
+    ? raw.params as Record<string, unknown>
+    : raw;
+}
+
+/** Fire-and-forget Telegram message to the operator. Always awaited so we
+ *  know if it succeeded, but failures are swallowed (non-fatal). */
+async function sendTelegram(text: string): Promise<void> {
+  if (!BOT_TOKEN || !OPERATOR_CHAT_ID) return;
+  try {
+    await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ chat_id: OPERATOR_CHAT_ID, text, parse_mode: "Markdown" }),
+      signal: AbortSignal.timeout(8000),
+    });
+  } catch { /* non-fatal */ }
+}
+
 async function callClaude(systemPrompt: string, userContent: string): Promise<string> {
   const res = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
@@ -81,7 +108,9 @@ async function callClaude(systemPrompt: string, userContent: string): Promise<st
       system: systemPrompt,
       messages: [{ role: "user", content: userContent }],
     }),
+    signal: AbortSignal.timeout(30000), // prevent indefinite hang
   });
+  if (!res.ok) return "";
   const data = await res.json();
   return data?.content?.[0]?.text ?? "";
 }
@@ -236,8 +265,8 @@ Respond with ONLY valid JSON in one of these formats:
 
 // STEP EXECUTOR: runs a single goal step and returns its result
 async function executeGoalStep(step: GoalStep, task: Task): Promise<unknown> {
-  const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-  const serviceKey  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+  const supabaseUrl = SUPABASE_URL;
+  const serviceKey  = SERVICE_KEY;
   const uid = task.user_id;
 
   switch (step.type) {
@@ -520,14 +549,7 @@ const handleCheckIdleQuests: TaskHandler = async (task) => {
 
 // memory_consolidation — invokes the mavis-consolidate edge function
 const handleMemoryConsolidation: TaskHandler = async (_task) => {
-  const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-  const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-
-  const res = await fetch(`${supabaseUrl}/functions/v1/mavis-consolidate`, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${serviceKey}`, "Content-Type": "application/json" },
-    body: "{}",
-  });
+  const res = await callFunction("mavis-consolidate", {});
 
   if (!res.ok) return { success: false, error: `consolidate returned ${res.status}` };
   const data = await res.json();
@@ -559,8 +581,7 @@ const handleIdleQuestAlert: TaskHandler = async (_task) => {
 
 // session_update — operator approved a post-session progression bundle from The System
 const handleSessionUpdate: TaskHandler = async (task) => {
-  const raw = task.payload as Record<string, unknown>;
-  const flat = (raw.params && typeof raw.params === "object") ? raw.params as Record<string, unknown> : raw;
+  const flat = extractPayload(task.payload as Record<string, unknown>);
 
   const sessionTitle  = String(flat.session_title ?? "Session");
   const proposedBy    = String(flat.proposed_by   ?? "The System");
@@ -680,28 +701,18 @@ const handleSessionUpdate: TaskHandler = async (task) => {
 // execute_action — operator approved a generic persona/council proposal
 // Re-dispatches through mavis-actions so every CODEXOS action type is supported.
 const handleExecuteAction: TaskHandler = async (task) => {
-  const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-  const serviceKey  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-
-  const raw  = task.payload as Record<string, unknown>;
-  const flat = (raw.params && typeof raw.params === "object") ? raw.params as Record<string, unknown> : raw;
-
+  const flat        = extractPayload(task.payload as Record<string, unknown>);
   const actionType  = String(flat.action_type ?? "");
   const actionParams = (flat.params ?? {}) as Record<string, unknown>;
   const proposedBy  = String(flat.proposed_by ?? "Persona");
 
   if (!actionType) return { success: false, error: "execute_action: missing action_type" };
 
-  const res = await fetch(`${supabaseUrl}/functions/v1/mavis-actions`, {
+  const res = await fetch(`${SUPABASE_URL}/functions/v1/mavis-actions`, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "Authorization": `Bearer ${serviceKey}`,
-    },
-    body: JSON.stringify({
-      userId: task.user_id,
-      actions: [{ type: actionType, params: actionParams }],
-    }),
+    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${SERVICE_KEY}` },
+    body: JSON.stringify({ userId: task.user_id, actions: [{ type: actionType, params: actionParams }] }),
+    signal: AbortSignal.timeout(55000),
   });
 
   const data = await res.json().catch(() => ({}));
@@ -722,10 +733,7 @@ const handleExecuteAction: TaskHandler = async (task) => {
 // system_change — operator approved a persona/council-proposed change
 // Records an authoritative vault decision entry so the approval is never lost.
 const handleSystemChange: TaskHandler = async (task) => {
-  const raw = task.payload as Record<string, unknown>;
-  const flat = (raw.params && typeof raw.params === "object")
-    ? raw.params as Record<string, unknown>
-    : raw;
+  const flat = extractPayload(task.payload as Record<string, unknown>);
 
   const title      = String(flat.title ?? "System Change");
   const proposedBy = String(flat.proposed_by ?? "Council");
@@ -764,11 +772,7 @@ const handleSystemChange: TaskHandler = async (task) => {
 // send_outreach — operator approved a Telegram reconnect nudge from ambient-monitor
 // Sends the drafted message via email (or Telegram to operator if no email on file).
 const handleSendOutreach: TaskHandler = async (task) => {
-  const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-  const serviceKey  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-  const raw  = task.payload as Record<string, unknown>;
-  const flat = (raw.params && typeof raw.params === "object") ? raw.params as Record<string, unknown> : raw;
-
+  const flat        = extractPayload(task.payload as Record<string, unknown>);
   const contactName  = String(flat.contact_name  ?? "Contact");
   const message      = String(flat.message       ?? "");
   const contactEmail = String(flat.contact_email ?? "");
@@ -780,36 +784,20 @@ const handleSendOutreach: TaskHandler = async (task) => {
   let channel = "";
 
   if (contactEmail) {
-    // Send email via mavis-email-send
-    const emailRes = await fetch(`${supabaseUrl}/functions/v1/mavis-email-send`, {
+    const emailRes = await fetch(`${SUPABASE_URL}/functions/v1/mavis-email-send`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${serviceKey}` },
-      body: JSON.stringify({
-        userId: task.user_id,
-        to: contactEmail,
-        subject: `Reaching out`,
-        body: message,
-        source: "outreach",
-      }),
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${SERVICE_KEY}` },
+      body: JSON.stringify({ userId: task.user_id, to: contactEmail, subject: "Reaching out", body: message, source: "outreach" }),
+      signal: AbortSignal.timeout(15000),
     });
     sent = emailRes.ok;
     channel = "email";
   }
 
   if (!sent) {
-    // No email address — notify operator via Telegram so they can send manually
-    const botToken = Deno.env.get("TELEGRAM_BOT_TOKEN") ?? "";
-    const chatId   = Deno.env.get("TELEGRAM_OPERATOR_CHAT_ID") ?? "";
-    if (botToken && chatId) {
-      const tgText = `✅ *Outreach Approved*\n\nSend this to *${contactName}*:\n\n_"${message}"_\n\n(No email on file — copy and send manually)`;
-      await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ chat_id: chatId, text: tgText, parse_mode: "Markdown" }),
-      }).catch(() => {});
-      sent = true;
-      channel = "telegram_reminder";
-    }
+    await sendTelegram(`✅ *Outreach Approved*\n\nSend this to *${contactName}*:\n\n_"${message}"_\n\n(No email on file — copy and send manually)`);
+    sent = true;
+    channel = "telegram_reminder";
   }
 
   // Mark draft as sent
@@ -831,26 +819,17 @@ const handleSendOutreach: TaskHandler = async (task) => {
 };
 // Requires STRIPE_SECRET_KEY to publish live; stores as draft otherwise
 const handleCreateProduct: TaskHandler = async (task) => {
-  const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-  const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-
-  // Flatten payload — accept both { title, ... } and { type, params: { title, ... } }
-  const raw = task.payload as Record<string, unknown>;
-  const flat = (raw.params && typeof raw.params === "object")
-    ? raw.params as Record<string, unknown>
-    : raw;
+  const flat = extractPayload(task.payload as Record<string, unknown>);
 
   if (!flat.title) {
     return { success: false, error: `create_product payload is missing required field "title". Goal plan generated wrong params: ${JSON.stringify(flat).slice(0, 200)}` };
   }
 
-  const res = await fetch(`${supabaseUrl}/functions/v1/mavis-product-creator`, {
+  const res = await fetch(`${SUPABASE_URL}/functions/v1/mavis-product-creator`, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "Authorization": `Bearer ${serviceKey}`,
-    },
+    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${SERVICE_KEY}` },
     body: JSON.stringify({ ...flat, userId: task.user_id }),
+    signal: AbortSignal.timeout(30000),
   });
 
   const data = await res.json();
@@ -888,31 +867,30 @@ const handleCreateProduct: TaskHandler = async (task) => {
   return { success: true, output: data };
 };
 
+/** Shared helper: call an internal edge function with service-role auth. */
+async function callFunction(name: string, body: Record<string, unknown>): Promise<Response> {
+  return fetch(`${SUPABASE_URL}/functions/v1/${name}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${SERVICE_KEY}` },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(30000),
+  });
+}
+
 // send_announcement — email via Resend + Nora tweet via mavis-nora-post
 const handleSendAnnouncement: TaskHandler = async (task) => {
-  const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-  const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
   const results: unknown[] = [];
+  const emailRes = await callFunction("mavis-announce", { userId: task.user_id, ...task.payload });
+  results.push({ channel: "email", ...(await emailRes.json().catch(() => ({}))) });
 
-  // Email announcement
-  const emailRes = await fetch(`${supabaseUrl}/functions/v1/mavis-announce`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${serviceKey}` },
-    body: JSON.stringify({ userId: task.user_id, ...task.payload }),
-  });
-  results.push({ channel: "email", ...(await emailRes.json()) });
-
-  // Nora Vale tweet
   const p = task.payload as { title?: string; paymentLink?: string; priceCents?: number };
   if (p.title && p.paymentLink) {
     const price = `$${((p.priceCents ?? 2900) / 100).toFixed(0)}`;
-    const tweetContent = `Just dropped: "${p.title}" — ${price}\n\nBuilt this for anyone who's been asking about this. Grab it here: ${p.paymentLink}`;
-    const tweetRes = await fetch(`${supabaseUrl}/functions/v1/mavis-nora-post`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${serviceKey}` },
-      body: JSON.stringify({ userId: task.user_id, content: tweetContent }),
+    const tweetRes = await callFunction("mavis-nora-post", {
+      userId: task.user_id,
+      content: `Just dropped: "${p.title}" — ${price}\n\nBuilt this for anyone who's been asking about this. Grab it here: ${p.paymentLink}`,
     });
-    results.push({ channel: "twitter_nora", ...(await tweetRes.json()) });
+    results.push({ channel: "twitter_nora", ...(await tweetRes.json().catch(() => ({}))) });
   }
 
   return { success: true, output: results };
@@ -920,29 +898,17 @@ const handleSendAnnouncement: TaskHandler = async (task) => {
 
 // nora_tweet — Nora posts arbitrary content on Twitter/X
 const handleNoraTweet: TaskHandler = async (task) => {
-  const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-  const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-  const res = await fetch(`${supabaseUrl}/functions/v1/mavis-nora-post`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${serviceKey}` },
-    body: JSON.stringify({ userId: task.user_id, ...task.payload }),
-  });
-  const data = await res.json();
-  if (!res.ok) return { success: false, error: data.error ?? `nora-post returned ${res.status}` };
+  const res = await callFunction("mavis-nora-post", { userId: task.user_id, ...task.payload });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) return { success: false, error: (data as any).error ?? `nora-post returned ${res.status}` };
   return { success: true, output: data };
 };
 
 // demand_scan — fires the demand detection scan
 const handleDemandScan: TaskHandler = async (task) => {
-  const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-  const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-  const res = await fetch(`${supabaseUrl}/functions/v1/mavis-demand-scan`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${serviceKey}` },
-    body: JSON.stringify({ userId: task.user_id }),
-  });
-  const data = await res.json();
-  if (!res.ok) return { success: false, error: data.error ?? `demand-scan returned ${res.status}` };
+  const res = await callFunction("mavis-demand-scan", { userId: task.user_id });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) return { success: false, error: (data as any).error ?? `demand-scan returned ${res.status}` };
   return { success: true, output: data };
 };
 
@@ -952,11 +918,7 @@ const handleDemandScan: TaskHandler = async (task) => {
 
 // email_reply — operator approved replying to an inbound priority email
 const handleEmailReply: TaskHandler = async (task) => {
-  const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-  const serviceKey  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-  const raw  = task.payload as Record<string, unknown>;
-  const flat = (raw.params && typeof raw.params === "object") ? raw.params as Record<string, unknown> : raw;
-
+  const flat        = extractPayload(task.payload as Record<string, unknown>);
   const fromEmail   = String(flat.from_email  ?? "");
   const subject     = String(flat.subject     ?? "");
   const bodyPreview = String(flat.body_preview ?? "");
@@ -964,7 +926,6 @@ const handleEmailReply: TaskHandler = async (task) => {
 
   if (!fromEmail) return { success: false, error: "email_reply: no from_email in payload" };
 
-  // Generate a reply via Claude
   const replyText = await callClaude(
     "You are MAVIS, a sovereign AI assistant. Draft a concise, professional reply to this email on behalf of the operator. Be warm but direct. 2-4 sentences max. Output ONLY the reply body text.",
     `From: ${fromEmail}\nSubject: ${subject}\n\nBody preview: ${bodyPreview}`,
@@ -972,38 +933,24 @@ const handleEmailReply: TaskHandler = async (task) => {
 
   if (!replyText) return { success: false, error: "email_reply: Claude failed to generate reply" };
 
-  // Send the reply via mavis-email-send
-  const emailRes = await fetch(`${supabaseUrl}/functions/v1/mavis-email-send`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${serviceKey}` },
-    body: JSON.stringify({
-      userId: task.user_id,
-      to: fromEmail,
-      subject: subject.startsWith("Re:") ? subject : `Re: ${subject}`,
-      body: replyText,
-      source: "email_reply",
-    }),
+  const replySubject = subject.startsWith("Re:") ? subject : `Re: ${subject}`;
+  const emailRes = await callFunction("mavis-email-send", {
+    userId: task.user_id, to: fromEmail, subject: replySubject, body: replyText, source: "email_reply",
   });
 
-  if (!emailRes.ok) {
-    // Fallback: send via Telegram so operator can copy-paste
-    const botToken = Deno.env.get("TELEGRAM_BOT_TOKEN") ?? "";
-    const chatId   = Deno.env.get("TELEGRAM_OPERATOR_CHAT_ID") ?? "";
-    if (botToken && chatId) {
-      const tgText = `📧 *Email Reply Ready*\nTo: ${fromEmail}\nSubject: Re: ${subject}\n\n_${replyText}_\n\n(Email send failed — copy and send manually)`;
-      await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ chat_id: chatId, text: tgText, parse_mode: "Markdown" }),
-      }).catch(() => {});
-    }
+  let sent = emailRes.ok;
+  if (!sent) {
+    // Fallback: push reply draft to Telegram so operator can copy-paste
+    await sendTelegram(`📧 *Email Reply Ready*\nTo: ${fromEmail}\nSubject: ${replySubject}\n\n_${replyText}_\n\n(Email send failed — copy and send manually)`);
+    sent = true; // Telegram fallback counts as delivered
   }
 
-  // Mark the inbound email as processed
-  if (emailId) {
+  // Only mark processed when we have confirmation it was handled
+  if (emailId && sent) {
     await supabase.from("mavis_inbound_emails").update({ processed: true }).eq("id", emailId).catch(() => {});
   }
 
-  return { success: true, output: { to: fromEmail, subject, reply_preview: replyText.slice(0, 100) } };
+  return { success: sent, output: { to: fromEmail, subject: replySubject, reply_preview: replyText.slice(0, 100) } };
 };
 
 const HANDLERS: Record<string, TaskHandler> = {
