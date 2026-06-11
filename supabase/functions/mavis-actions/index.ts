@@ -1547,6 +1547,28 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
       return;
     }
 
+    // ── SMART HOME — Home Assistant / Philips Hue control ──────────────────
+    case "smart_home":
+    case "home_control":
+    case "iot_control": {
+      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+      const serviceKey  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+      const homeAction  = String(p.action ?? "status");
+      const res = await fetch(`${supabaseUrl}/functions/v1/mavis-home`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${serviceKey}` },
+        body: JSON.stringify({ user_id: userId, action: homeAction, ...p }),
+        signal: AbortSignal.timeout(15000),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        if (!data.configured) throw new Error(`Smart home not configured: ${data.hint ?? ""}`);
+        throw new Error(data.error ?? `smart_home returned ${res.status}`);
+      }
+      await logActivity(sb, userId, "smart_home", `Home: ${homeAction} ${p.entity_id ?? ""}`, 0);
+      return;
+    }
+
     default:
       throw new Error(`Unknown MAVIS action: ${action.type}`);
   }

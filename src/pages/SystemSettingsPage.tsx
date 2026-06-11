@@ -1784,6 +1784,116 @@ function DevicesTab() {
 }
 
 // ============================================================
+// AutonomyTab — configure which task types auto-execute without approval
+// ============================================================
+
+const ALL_TASK_TYPES = [
+  { type: "daily_brief",           label: "Daily Brief",           desc: "Morning context summary" },
+  { type: "memory_consolidation",  label: "Memory Consolidation",  desc: "Compress and distill memories" },
+  { type: "revenue_snapshot",      label: "Revenue Snapshot",      desc: "Check income metrics" },
+  { type: "check_idle_quests",     label: "Quest Check",           desc: "Nudge on idle quests" },
+  { type: "nora_tweet",            label: "Nora Tweet",            desc: "Auto-post scheduled tweets" },
+  { type: "demand_scan",           label: "Demand Scan",           desc: "Market demand intelligence" },
+  { type: "send_outreach",         label: "Reconnect Outreach",    desc: "Send approved reconnect messages" },
+  { type: "email_reply",           label: "Email Reply",           desc: "Reply to priority inbound emails" },
+  { type: "goal",                  label: "Goal Execution",        desc: "Advance active goals autonomously" },
+];
+
+function AutonomyTab() {
+  const { user } = useAuth() as any;
+  const [enabled, setEnabled] = useState<string[]>(["daily_brief", "memory_consolidation", "revenue_snapshot"]);
+  const [saving, setSaving] = useState(false);
+  const [loaded, setLoaded] = useState(false);
+
+  useEffect(() => {
+    if (!user?.id) return;
+    (supabase as any)
+      .from("mavis_tacit")
+      .select("value")
+      .eq("user_id", user.id)
+      .eq("key", "auto_execute_types")
+      .maybeSingle()
+      .then(({ data }: any) => {
+        if (data?.value) {
+          try { setEnabled(JSON.parse(data.value)); } catch { /* keep default */ }
+        }
+        setLoaded(true);
+      });
+  }, [user?.id]);
+
+  async function toggle(type: string) {
+    setEnabled((prev) =>
+      prev.includes(type) ? prev.filter((t) => t !== type) : [...prev, type],
+    );
+  }
+
+  async function save() {
+    if (!user?.id) return;
+    setSaving(true);
+    try {
+      await (supabase as any)
+        .from("mavis_tacit")
+        .upsert({
+          user_id: user.id,
+          category: "standing_order",
+          key: "auto_execute_types",
+          value: JSON.stringify(enabled),
+          source: "system_settings",
+        }, { onConflict: "user_id,key" });
+      toast.success("Auto-execute settings saved");
+    } catch (e: any) {
+      toast.error(e.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (!loaded) return <div className="text-xs font-mono text-muted-foreground py-6 text-center">Loading…</div>;
+
+  return (
+    <div className="space-y-4">
+      <div className="text-xs font-mono text-muted-foreground leading-relaxed">
+        Tasks with these types bypass Telegram approval and execute automatically.
+        All other task types still require <code className="text-primary">/approve [id]</code> via Telegram.
+      </div>
+
+      <div className="space-y-2">
+        {ALL_TASK_TYPES.map(({ type, label, desc }) => {
+          const on = enabled.includes(type);
+          return (
+            <button
+              key={type}
+              onClick={() => toggle(type)}
+              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded border text-left transition-colors ${
+                on
+                  ? "border-primary/40 bg-primary/10 text-foreground"
+                  : "border-border bg-muted/5 text-muted-foreground hover:border-border/80"
+              }`}
+            >
+              <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${on ? "bg-primary" : "bg-muted-foreground/30"}`} />
+              <span className="flex-1 min-w-0">
+                <span className="text-xs font-mono block">{label}</span>
+                <span className="text-[10px] font-mono text-muted-foreground/70">{desc}</span>
+              </span>
+              <span className={`text-[9px] font-mono border rounded px-1.5 py-0.5 shrink-0 ${
+                on ? "border-primary/30 text-primary" : "border-border text-muted-foreground"
+              }`}>
+                {on ? "AUTO" : "MANUAL"}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+
+      <Button onClick={save} disabled={saving} size="sm" className="h-8 text-xs font-mono">
+        {saving ? <Loader2 size={12} className="animate-spin mr-1.5" /> : null}
+        Save Autonomy Settings
+      </Button>
+    </div>
+  );
+}
+
+// ============================================================
 // SystemSettingsPage — root export
 // ============================================================
 
@@ -1810,6 +1920,10 @@ export function SystemSettingsPage() {
             <ShoppingBag size={12} />
             Skill Catalog
           </TabsTrigger>
+          <TabsTrigger value="autonomy" className="gap-1.5 text-xs font-mono">
+            <RefreshCw size={12} />
+            Autonomy
+          </TabsTrigger>
           <TabsTrigger value="run-doctor" className="gap-1.5 text-xs font-mono">
             <Stethoscope size={12} />
             Run Doctor
@@ -1834,6 +1948,10 @@ export function SystemSettingsPage() {
 
         <TabsContent value="skill-catalog">
           <SkillCatalogTab />
+        </TabsContent>
+
+        <TabsContent value="autonomy">
+          <AutonomyTab />
         </TabsContent>
 
         <TabsContent value="run-doctor">

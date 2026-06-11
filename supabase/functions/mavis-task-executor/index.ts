@@ -950,6 +950,62 @@ const handleDemandScan: TaskHandler = async (task) => {
 // HANDLER REGISTRY
 // ─────────────────────────────────────────────────────────────
 
+// email_reply — operator approved replying to an inbound priority email
+const handleEmailReply: TaskHandler = async (task) => {
+  const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+  const serviceKey  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+  const raw  = task.payload as Record<string, unknown>;
+  const flat = (raw.params && typeof raw.params === "object") ? raw.params as Record<string, unknown> : raw;
+
+  const fromEmail   = String(flat.from_email  ?? "");
+  const subject     = String(flat.subject     ?? "");
+  const bodyPreview = String(flat.body_preview ?? "");
+  const emailId     = String(flat.email_id    ?? "");
+
+  if (!fromEmail) return { success: false, error: "email_reply: no from_email in payload" };
+
+  // Generate a reply via Claude
+  const replyText = await callClaude(
+    "You are MAVIS, a sovereign AI assistant. Draft a concise, professional reply to this email on behalf of the operator. Be warm but direct. 2-4 sentences max. Output ONLY the reply body text.",
+    `From: ${fromEmail}\nSubject: ${subject}\n\nBody preview: ${bodyPreview}`,
+  );
+
+  if (!replyText) return { success: false, error: "email_reply: Claude failed to generate reply" };
+
+  // Send the reply via mavis-email-send
+  const emailRes = await fetch(`${supabaseUrl}/functions/v1/mavis-email-send`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${serviceKey}` },
+    body: JSON.stringify({
+      userId: task.user_id,
+      to: fromEmail,
+      subject: subject.startsWith("Re:") ? subject : `Re: ${subject}`,
+      body: replyText,
+      source: "email_reply",
+    }),
+  });
+
+  if (!emailRes.ok) {
+    // Fallback: send via Telegram so operator can copy-paste
+    const botToken = Deno.env.get("TELEGRAM_BOT_TOKEN") ?? "";
+    const chatId   = Deno.env.get("TELEGRAM_OPERATOR_CHAT_ID") ?? "";
+    if (botToken && chatId) {
+      const tgText = `📧 *Email Reply Ready*\nTo: ${fromEmail}\nSubject: Re: ${subject}\n\n_${replyText}_\n\n(Email send failed — copy and send manually)`;
+      await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ chat_id: chatId, text: tgText, parse_mode: "Markdown" }),
+      }).catch(() => {});
+    }
+  }
+
+  // Mark the inbound email as processed
+  if (emailId) {
+    await supabase.from("mavis_inbound_emails").update({ processed: true }).eq("id", emailId).catch(() => {});
+  }
+
+  return { success: true, output: { to: fromEmail, subject, reply_preview: replyText.slice(0, 100) } };
+};
+
 const HANDLERS: Record<string, TaskHandler> = {
   daily_brief: handleDailyBrief,
   check_idle_quests: handleCheckIdleQuests,
@@ -965,6 +1021,7 @@ const HANDLERS: Record<string, TaskHandler> = {
   system_change: handleSystemChange,
   session_update: handleSessionUpdate,
   send_outreach: handleSendOutreach,
+  email_reply: handleEmailReply,
 };
 
 // ─────────────────────────────────────────────────────────────
@@ -984,6 +1041,47 @@ Deno.serve(async (req) => {
   const errors: unknown[] = [];
 
   try {
+    // Load auto-execute type lists from mavis_tacit (key="auto_execute_types", value=JSON array).
+    // Any requires_confirmation task whose type is in the user's auto_execute_types list
+    // gets promoted to "approved" so it runs without Telegram approval.
+    // Default: daily_brief, memory_consolidation, revenue_snapshot always auto-execute.
+    const DEFAULT_AUTO_EXECUTE: string[] = ["daily_brief", "memory_consolidation", "revenue_snapshot"];
+    try {
+      const { data: tacitRows } = await supabase
+        .from("mavis_tacit")
+        .select("user_id, value")
+        .eq("key", "auto_execute_types");
+
+      if (tacitRows && tacitRows.length > 0) {
+        for (const row of tacitRows as any[]) {
+          let types: string[] = DEFAULT_AUTO_EXECUTE;
+          try { types = JSON.parse(row.value); } catch { /* use default */ }
+          if (!Array.isArray(types) || types.length === 0) continue;
+          await supabase
+            .from("mavis_tasks")
+            .update({ status: "approved" })
+            .eq("user_id", row.user_id)
+            .eq("status", "requires_confirmation")
+            .in("type", types);
+        }
+      } else {
+        // No custom config — apply defaults to all users with pending confirmation tasks
+        const { data: pendingConfirm } = await supabase
+          .from("mavis_tasks")
+          .select("id, user_id")
+          .eq("status", "requires_confirmation")
+          .in("type", DEFAULT_AUTO_EXECUTE);
+        if (pendingConfirm && pendingConfirm.length > 0) {
+          await supabase
+            .from("mavis_tasks")
+            .update({ status: "approved" })
+            .in("id", (pendingConfirm as any[]).map((r: any) => r.id));
+        }
+      }
+    } catch {
+      // non-fatal — mavis_tacit table may not exist yet
+    }
+
     // Fetch pending AND approved tasks (approved = operator confirmed a requires_confirmation item)
     const { data: pendingTasks, error: fetchErr } = await supabase
       .from("mavis_tasks")

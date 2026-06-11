@@ -162,6 +162,26 @@ const INTEGRATION_GROUPS: GroupDef[] = [
       { id: "era_finance", name: "Era Finance", description: "AI financial context and forecasting — MCP bridge", keys: ["API Key", "User ID"], docsUrl: null },
     ],
   },
+  {
+    label: "Smart Home & IoT",
+    icon: "Cpu",
+    providers: [
+      {
+        id: "home_assistant",
+        name: "Home Assistant",
+        description: "Control lights, switches, sensors, climate, and scenes via your local HA instance",
+        keys: ["URL", "Long-Lived Access Token"],
+        docsUrl: null,
+      },
+      {
+        id: "philips_hue",
+        name: "Philips Hue",
+        description: "Direct control of Hue lights via local bridge (no cloud required)",
+        keys: ["Bridge IP", "API Token"],
+        docsUrl: null,
+      },
+    ],
+  },
 ];
 
 // ─── Icon map ───────────────────────────────────────────────
