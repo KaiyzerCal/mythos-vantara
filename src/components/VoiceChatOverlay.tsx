@@ -12,6 +12,7 @@ export interface VoicePersona {
   entityId?: string;
   entityType?: string;
   userId?: string;
+  avatarUrl?: string;
 }
 
 interface VoiceChatOverlayProps {
@@ -914,7 +915,17 @@ export function VoiceChatOverlay({
       </button>
 
       {/* Speaker label + Live toggle */}
-      <div className="absolute top-5 left-6 flex items-center gap-2">
+      <div className="absolute top-5 left-6 flex items-center gap-2.5">
+        {/* Avatar */}
+        <div className="shrink-0 w-10 h-10 rounded-full overflow-hidden border-2 border-primary/40 bg-primary/10 flex items-center justify-center">
+          {persona?.avatarUrl ? (
+            <img src={persona.avatarUrl} alt={speakerName} className="w-full h-full object-cover" />
+          ) : (
+            <span className="text-sm font-bold text-primary/80 font-display">
+              {speakerName[0]?.toUpperCase() ?? "?"}
+            </span>
+          )}
+        </div>
         <div>
           <p className="text-xs font-mono font-bold text-primary tracking-widest">{speakerName}</p>
           {speakerRole && <p className="text-[10px] font-mono text-muted-foreground">{speakerRole}</p>}
@@ -938,17 +949,28 @@ export function VoiceChatOverlay({
       <button
         onClick={handleOrbOrMicTap}
         className={[
-          "relative w-20 h-20 rounded-full flex items-center justify-center transition-all duration-300 shrink-0",
+          "relative w-20 h-20 rounded-full flex items-center justify-center transition-all duration-300 shrink-0 overflow-hidden",
           "bg-primary/20 border-2 border-primary/40",
           phase === "listening" ? "animate-pulse scale-110" : "",
           phase === "speaking"  ? "shadow-[0_0_40px_rgba(139,92,246,0.5)] scale-105" : "",
         ].filter(Boolean).join(" ")}
       >
         <span className={[
-          "absolute inset-1 rounded-full border-2 border-transparent border-t-primary/70",
+          "absolute inset-1 rounded-full border-2 border-transparent border-t-primary/70 z-10",
           phase === "thinking" ? "animate-spin" : "opacity-0",
         ].join(" ")} />
-        <Mic size={28} className={phase === "listening" ? "text-primary" : "text-primary/60"} />
+        {persona?.avatarUrl ? (
+          <>
+            <img src={persona.avatarUrl} alt={speakerName} className="absolute inset-0 w-full h-full object-cover" />
+            {phase === "listening" && (
+              <div className="absolute inset-0 flex items-center justify-center bg-black/40 z-10">
+                <Mic size={28} className="text-primary" />
+              </div>
+            )}
+          </>
+        ) : (
+          <Mic size={28} className={phase === "listening" ? "text-primary" : "text-primary/60"} />
+        )}
       </button>
 
       {/* Phase label */}
