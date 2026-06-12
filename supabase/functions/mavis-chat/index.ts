@@ -862,6 +862,12 @@ CODE EXECUTION (use when precision matters — revenue calc, data analysis, math
 :::ACTION{"type":"run_code","params":{"code":"// any valid JavaScript — Math, JSON, Date, Array available\n// Use console.log() for output. Return a value for the result.\nreturn 2 + 2;"}}:::
 Use this instead of estimating when the operator asks for exact numbers, totals, or computed analysis.
 
+TERMINAL / PERSISTENT SHELL (cloud Linux container — state persists across commands in the same session):
+:::ACTION{"type":"terminal_exec","params":{"command":"ls -la","session_id":"auto"}}:::
+:::ACTION{"type":"terminal_exec","params":{"command":"python3 script.py","session_id":"auto"}}:::
+:::ACTION{"type":"terminal_exec","params":{"command":"npm install && npm run build","session_id":"auto"}}:::
+Use terminal_exec when the operator asks to: run shell commands, install packages (pip/npm/apt), run scripts, check system info, compile code, navigate directories, manage files, or chain multiple commands. session_id "auto" reuses the most recent live session or creates a new one. Commands run in Ubuntu — cwd persists between calls. For multi-step workflows, chain commands with && or use ; to continue on error.
+
 KNOWLEDGE GRAPH / NOTES:
 :::ACTION{"type":"create_note","params":{"title":"...","content":"...","tags":["tag1"],"source":"mavis","note_type":"insight|decision|memory|plan|observation"}}:::
 :::ACTION{"type":"update_note","params":{"note_id":"...","title":"...","content":"..."}}:::

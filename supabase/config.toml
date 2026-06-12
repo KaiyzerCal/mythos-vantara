@@ -279,6 +279,9 @@ verify_jwt = false
 [functions.mavis-spotify-control]
 verify_jwt = false
 
+[functions.mavis-terminal]
+verify_jwt = false
+
 [functions.mavis-strava-sync]
 verify_jwt = false
 

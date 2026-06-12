@@ -424,6 +424,23 @@ export default function MavisDemo() {
     registerActionHandler("spotify_shuffle", (p) => callSpotify("shuffle", { enabled: p.enabled !== false }));
     registerActionHandler("spotify_now_playing", () => callSpotify("now_playing"));
 
+    // ── Terminal / persistent shell ────────────────────────────────────────
+    registerActionHandler("terminal_exec", async (payload) => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) throw new Error("Not authenticated");
+      const res = await supabase.functions.invoke("mavis-terminal", {
+        body: {
+          action: "exec",
+          command: payload.command,
+          session_id: payload.session_id === "auto" ? undefined : payload.session_id,
+          timeout: payload.timeout ?? 30,
+        },
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      });
+      if (res.error) throw new Error(res.error.message ?? "Terminal exec failed");
+      return res.data;
+    });
+
     registerActionHandler("create_skill_definition", async (payload) => {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session?.user) throw new Error("Not authenticated");
