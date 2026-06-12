@@ -933,6 +933,17 @@ SMART HOME / IoT (requires HOME_ASSISTANT_URL or PHILIPS_HUE_BRIDGE secrets):
 :::ACTION{"type":"smart_home","params":{"action":"set_scene","entity_id":"scene.movie_mode"}}:::
 :::ACTION{"type":"smart_home","params":{"action":"toggle","entity_id":"climate.thermostat","data":{"temperature":72}}}:::
 :::ACTION{"type":"smart_home","params":{"action":"get_states"}}:::
+SPOTIFY MUSIC CONTROL (only if operator has Spotify connected — check integrations):
+:::ACTION{"type":"spotify_play","params":{"query":"lo-fi hip hop","type":"playlist"}}:::
+:::ACTION{"type":"spotify_play","params":{"query":"Drake","type":"artist"}}:::
+:::ACTION{"type":"spotify_play","params":{"query":"God's Plan","type":"track"}}:::
+:::ACTION{"type":"spotify_pause","params":{}}:::
+:::ACTION{"type":"spotify_skip","params":{}}:::
+:::ACTION{"type":"spotify_previous","params":{}}:::
+:::ACTION{"type":"spotify_volume","params":{"percent":70}}:::
+:::ACTION{"type":"spotify_shuffle","params":{"enabled":true}}:::
+:::ACTION{"type":"spotify_now_playing","params":{}}:::
+Use these when the operator says: "play music", "put on some [genre/artist/song/playlist]", "pause", "stop the music", "skip", "next song", "turn it up/down to X", "volume X", "what's playing", "shuffle on/off". type param: track | artist | album | playlist (default: track).
 
 RULES: Use exact IDs from the LIVE BACKEND STATE block above. Never claim an action without emitting the tag. Chain as many tags as needed in one response. complete_quest handles XP automatically. You have write access to every page and section of the app — quests, tasks, skills, journal, vault, council, inventory, energy, allies, rituals, forms/transformations, scouter/rankings, store, BPM, personas, notes, contacts, calendar, time logs, meetings, health, finance, competitors, goals, notifications, and the operator profile itself. When creating calendar events use ISO 8601 timestamps. When the operator describes something that maps to any page of the app — DO IT, emit the action tag, do not describe what you would do.
 
