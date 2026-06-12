@@ -69,7 +69,8 @@ export default function Dashboard() {
       .select("brief_date, brief_text")
       .eq("brief_date", today)
       .maybeSingle()
-      .then(({ data }: any) => setMorningBrief(data ?? null));
+      .then(({ data }: any) => setMorningBrief(data ?? null))
+      .catch(() => {});
   }, []);
 
   // ── Market Intel ──
@@ -90,7 +91,8 @@ export default function Dashboard() {
       .gte("created_at", yesterday)
       .order("relevance_score", { ascending: false })
       .limit(3)
-      .then(({ data }) => setMarketIntel(data ?? []));
+      .then(({ data }) => setMarketIntel(data ?? []))
+      .catch(() => {});
   }, []);
 
   // ── Action Queue ──
@@ -110,7 +112,8 @@ export default function Dashboard() {
       .eq("status", "pending")
       .order("priority", { ascending: true })
       .limit(5)
-      .then(({ data }) => setActionQueue((data as any) ?? []));
+      .then(({ data }) => setActionQueue((data as any) ?? []))
+      .catch(() => {});
   }, []);
 
   // ── Outcome Accuracy ──
@@ -126,7 +129,8 @@ export default function Dashboard() {
         if (!data || data.length === 0) return;
         const confirmed = data.filter(e => e.outcome_status === "confirmed").length;
         setOutcomeAccuracy(Math.round((confirmed / data.length) * 100));
-      });
+      })
+      .catch(() => {});
   }, []);
 
   // ── Evolution Log ──
@@ -143,7 +147,8 @@ export default function Dashboard() {
       .order("created_at", { ascending: false })
       .limit(1)
       .maybeSingle()
-      .then(({ data }) => setLastEvolution(data ?? null));
+      .then(({ data }) => setLastEvolution(data ?? null))
+      .catch(() => {});
   }, []);
 
   // ── Performance Score ──
@@ -161,7 +166,8 @@ export default function Dashboard() {
       .select("score, trend, optimal_window, recommendation")
       .eq("score_date", today)
       .maybeSingle()
-      .then(({ data }: any) => setPerfScore(data ?? null));
+      .then(({ data }: any) => setPerfScore(data ?? null))
+      .catch(() => {});
   }, []);
 
   const scoreColor =

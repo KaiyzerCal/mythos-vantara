@@ -567,20 +567,16 @@ ${actionLines}`;
 
         await sendTelegram(tgMessage);
 
-        // Insert recovery actions as new tasks linked to the quest via metadata
-        for (const action of actions) {
-          await sb.from("mavis_tasks").insert({
+        // Batch-insert all recovery actions in one round-trip
+        await sb.from("mavis_tasks").insert(
+          actions.map((action) => ({
             user_id: userId,
             type: "goal",
             description: action,
-            payload: {
-              quest_id: quest.id,
-              quest_title: quest.title,
-              trigger: "stalled_quest_recovery",
-            },
+            payload: { quest_id: quest.id, quest_title: quest.title, trigger: "stalled_quest_recovery" },
             status: "pending",
-          });
-        }
+          }))
+        ).catch((e: any) => console.error("[ambient-monitor] batch task insert error:", e));
 
         result.issues++;
         result.actions += actions.length;

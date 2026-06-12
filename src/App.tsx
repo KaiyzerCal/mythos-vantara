@@ -6,6 +6,7 @@ import { Toaster as SonnerToaster } from "sonner";
 import { ThemeProvider, useTheme } from "next-themes";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import { AppDataProvider } from "@/contexts/AppDataContext";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 import AppSidebar from "@/components/AppSidebar";
 import { Loader2 } from "lucide-react";
 import { useMavisNotifications } from "@/hooks/useMavisNotifications";
@@ -148,11 +149,11 @@ function AppContent() {
         
         <main className={`flex-1 min-w-0 ${["/mavis-ui", "/demo"].includes(location.pathname) ? "overflow-hidden" : "p-5 overflow-y-auto"}`}>
           <Suspense fallback={Spinner}>
+            <ErrorBoundary>
             <Routes>
               <Route path="/" element={<Dashboard />} />
               <Route path="/character" element={<CharacterPage />} />
               <Route path="/mavis-ui" element={<MavisDemo />} />
-              <Route path="/demo" element={<MavisDemo />} />
               <Route path="/mavis" element={<MavisChat />} />
               <Route path="/quests" element={<QuestsPage />} />
 
@@ -222,6 +223,7 @@ function AppContent() {
               <Route path="/rss-feeds" element={<RSSReaderPage />} />
               <Route path="*" element={<NotFound />} />
             </Routes>
+            </ErrorBoundary>
           </Suspense>
         </main>
       </div>

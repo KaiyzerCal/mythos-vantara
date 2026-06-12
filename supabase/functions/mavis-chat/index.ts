@@ -1536,6 +1536,33 @@ ${fmtGoals}
       ? clientSystemPrompt
       : buildMavisPrompt(profile, mode ?? "PRIME", appState ?? {}, callerName, isCaliyah);
 
+    // ── Persona memory injection (COUNCIL mode) ───────────────────────────────
+    // Each persona accumulates persistent memory across conversations. When a
+    // council/persona chat activates, we load the last 12 turns and inject them
+    // so the persona remembers previous interactions.
+    let personaMemoryBlock = "";
+    const personaId = threadRef ? String(threadRef) : null;
+    if (isCouncilMode && personaId) {
+      try {
+        const { data: pmRows } = await sb
+          .from("mavis_persona_memory")
+          .select("role, content, created_at")
+          .eq("user_id", user.id)
+          .eq("persona_id", personaId)
+          .order("created_at", { ascending: false })
+          .limit(12);
+        if (pmRows && pmRows.length > 0) {
+          const memLines = (pmRows as any[]).reverse().map((m: any) =>
+            `${m.role === "user" ? "Operator" : "You"}: ${String(m.content).slice(0, 300)}`
+          );
+          personaMemoryBlock = `\n\n═══ YOUR MEMORY OF PAST CONVERSATIONS ═══\n${memLines.join("\n")}\n═══ END MEMORY ═══\nUse this context to maintain continuity with the operator.`;
+        }
+      } catch { /* non-critical */ }
+    }
+    const systemWithPersonaMemory = personaMemoryBlock
+      ? baseSystem + personaMemoryBlock
+      : baseSystem;
+
     // ── Attachments uploaded to this thread ────────────────
     let attachmentsBlock = "";
     const visionImages: { url: string; mime: string }[] = [];
@@ -1623,7 +1650,7 @@ You always know the current date and time without being told. Reference it natur
     // ── Context Compression (OpenHuman TokenJuice pattern) ──────────────────
     // Compress verbose blocks before assembling to cut token burn 30-50%.
     const fullPrompt = [
-      baseSystem,
+      systemWithPersonaMemory,
       skillInjection,
       timeBlock,
       authoritativeContext,
@@ -1845,6 +1872,22 @@ You always know the current date and time without being told. Reference it natur
                 estimated_cost_usd: estimateLlmCost(streamProv ?? provider, fullPrompt.length + lastUserText.length, accumulated.length),
                 success:            true,
               }).catch(() => {});
+
+              // ── Persona memory persistence (COUNCIL mode) ────────────────
+              if (isCouncilMode && personaId && accumulated.length > 10) {
+                (async () => {
+                  try {
+                    const personaName = typeof clientSystemPrompt === "string"
+                      ? (clientSystemPrompt.match(/^(?:You are|I am|My name is)\s+([A-Z][a-z]+)/m)?.[1] ?? "Persona")
+                      : "Persona";
+                    const sid2 = (conversationId as string | undefined) ?? "council";
+                    await sb.from("mavis_persona_memory").insert([
+                      { user_id: user.id, persona_id: personaId, persona_name: personaName, role: "user", content: lastUserText.slice(0, 1000), session_id: sid2, importance: scoreImportance(lastUserText) },
+                      { user_id: user.id, persona_id: personaId, persona_name: personaName, role: "assistant", content: accumulated.slice(0, 1000), session_id: sid2, importance: scoreImportance(accumulated) },
+                    ]);
+                  } catch { /* non-critical */ }
+                })();
+              }
 
               // ── Goal judge evaluation (non-blocking) ──────────────────────
               // Drive autonomous goal pursuit: evaluate whether the AI response
@@ -2135,6 +2178,22 @@ Respond with ONLY a JSON array (may be empty []):
         });
       } catch { /* non-critical */ }
     })();
+
+    // ── Persona memory persistence (COUNCIL mode, non-streaming) ─────────────
+    if (isCouncilMode && personaId && content.length > 10) {
+      (async () => {
+        try {
+          const personaName2 = typeof clientSystemPrompt === "string"
+            ? (clientSystemPrompt.match(/^(?:You are|I am|My name is)\s+([A-Z][a-z]+)/m)?.[1] ?? "Persona")
+            : "Persona";
+          const sid3 = (conversationId as string | undefined) ?? "council";
+          await sb.from("mavis_persona_memory").insert([
+            { user_id: user.id, persona_id: personaId, persona_name: personaName2, role: "user", content: lastUserContent.slice(0, 1000), session_id: sid3, importance: scoreImportance(lastUserContent) },
+            { user_id: user.id, persona_id: personaId, persona_name: personaName2, role: "assistant", content: content.slice(0, 1000), session_id: sid3, importance: scoreImportance(content) },
+          ]);
+        } catch { /* non-critical */ }
+      })();
+    }
 
     // ── Goal judge evaluation (non-blocking) ─────────────────────────────────
     if (content.length > 50 && dbState.goals.length > 0) {
