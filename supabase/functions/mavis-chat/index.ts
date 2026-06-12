@@ -1845,6 +1845,37 @@ You always know the current date and time without being told. Reference it natur
                 estimated_cost_usd: estimateLlmCost(streamProv ?? provider, fullPrompt.length + lastUserText.length, accumulated.length),
                 success:            true,
               }).catch(() => {});
+
+              // ── Goal judge evaluation (non-blocking) ──────────────────────
+              // Drive autonomous goal pursuit: evaluate whether the AI response
+              // advanced a goal, and queue a continuation if work remains.
+              if (accumulated.length > 50 && dbState.goals.length > 0) {
+                (async () => {
+                  try {
+                    const lowerAccum = accumulated.toLowerCase();
+                    const lowerUser  = lastUserText.toLowerCase();
+                    const targetGoal = (dbState.goals as any[]).find((g: any) =>
+                      (g.id && accumulated.includes(g.id)) ||
+                      (g.objective && lowerAccum.includes(g.objective.toLowerCase().slice(0, 30))) ||
+                      (g.objective && lowerUser.includes(g.objective.toLowerCase().slice(0, 30))) ||
+                      (lowerUser.includes("goal") && g.status === "active")
+                    );
+                    if (targetGoal) {
+                      await fetch(`${supabaseUrl}/functions/v1/mavis-goal-judge`, {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json", Authorization: `Bearer ${serviceKey}` },
+                        body: JSON.stringify({
+                          goal_id:    targetGoal.id,
+                          ai_response: accumulated.slice(0, 3000),
+                          user_id:    user.id,
+                          objective:  targetGoal.objective,
+                        }),
+                        signal: AbortSignal.timeout(15000),
+                      });
+                    }
+                  } catch { /* non-critical */ }
+                })();
+              }
             }
           }
         }
@@ -2104,6 +2135,35 @@ Respond with ONLY a JSON array (may be empty []):
         });
       } catch { /* non-critical */ }
     })();
+
+    // ── Goal judge evaluation (non-blocking) ─────────────────────────────────
+    if (content.length > 50 && dbState.goals.length > 0) {
+      (async () => {
+        try {
+          const lowerContent = content.toLowerCase();
+          const lowerUser2   = lastUserContent.toLowerCase();
+          const targetGoal2  = (dbState.goals as any[]).find((g: any) =>
+            (g.id && content.includes(g.id)) ||
+            (g.objective && lowerContent.includes(g.objective.toLowerCase().slice(0, 30))) ||
+            (g.objective && lowerUser2.includes(g.objective.toLowerCase().slice(0, 30))) ||
+            (lowerUser2.includes("goal") && g.status === "active")
+          );
+          if (targetGoal2) {
+            await fetch(`${supabaseUrl}/functions/v1/mavis-goal-judge`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json", Authorization: `Bearer ${serviceKey}` },
+              body: JSON.stringify({
+                goal_id:    targetGoal2.id,
+                ai_response: content.slice(0, 3000),
+                user_id:    user.id,
+                objective:  targetGoal2.objective,
+              }),
+              signal: AbortSignal.timeout(15000),
+            });
+          }
+        } catch { /* non-critical */ }
+      })();
+    }
 
     // ── User model refresh (every 5th interaction, non-blocking) ──
     (async () => {

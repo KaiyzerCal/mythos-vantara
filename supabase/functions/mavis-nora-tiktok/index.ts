@@ -83,6 +83,32 @@ async function generateTikTokCaption(): Promise<string> {
 
 // ── TikTok Content Posting API helpers ───────────────────────────────────────
 
+// Poll TikTok publish status until PUBLISH_COMPLETE, FAILED, or timeout (60s).
+async function waitForPublish(publishId: string): Promise<"published" | "failed" | "timeout"> {
+  const deadline = Date.now() + 60_000;
+  while (Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, 5_000));
+    try {
+      const res = await fetch("https://open.tiktokapis.com/v2/post/publish/status/fetch/", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${TIKTOK_ACCESS_TOKEN}`,
+          "Content-Type": "application/json; charset=UTF-8",
+        },
+        body: JSON.stringify({ publish_id: publishId }),
+        signal: AbortSignal.timeout(10_000),
+      });
+      if (!res.ok) continue;
+      const d = await res.json();
+      const status: string = d.data?.status ?? "";
+      if (status === "PUBLISH_COMPLETE") return "published";
+      if (status === "FAILED" || status === "SPAM") return "failed";
+      // PROCESSING_UPLOAD / PROCESSING_DOWNLOAD / SENDING_TO_USER — keep polling
+    } catch { /* retry */ }
+  }
+  return "timeout";
+}
+
 async function initVideoPost(
   caption: string,
   videoUrl: string,
@@ -239,10 +265,19 @@ serve(async (req) => {
     let status: "posted" | "draft" = "posted";
 
     if (videoUrl) {
-      // Video post via PULL_FROM_URL
+      // Video post via PULL_FROM_URL — init, then poll until TikTok confirms publish.
       try {
         const result = await initVideoPost(caption, videoUrl);
         publishId = result.publish_id;
+        // Poll TikTok until the video is published, failed, or 60s timeout.
+        const publishOutcome = await waitForPublish(publishId);
+        if (publishOutcome === "failed") {
+          return json({ success: false, error: "TikTok rejected the video during processing", publish_id: publishId, caption });
+        }
+        if (publishOutcome === "timeout") {
+          // TikTok is still processing — record as "processing" and return partial success.
+          status = "processing" as any;
+        }
       } catch (err) {
         const errMsg = err instanceof Error ? err.message : String(err);
         console.error("[mavis-nora-tiktok] Video post failed:", errMsg);
@@ -286,6 +321,7 @@ serve(async (req) => {
       caption,
       publish_id: publishId,
       status,
+      note: status === ("processing" as any) ? "TikTok is still processing the video. Check back shortly." : undefined,
     });
   } catch (err) {
     console.error("[mavis-nora-tiktok]", err);
