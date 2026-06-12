@@ -1569,6 +1569,93 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
       return;
     }
 
+    // ── CREATE WORKFLOW — save a workflow definition ───────────────────────
+    case "create_workflow": {
+      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+      const serviceKey  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+
+      const name        = String(p.name ?? "Untitled Workflow").slice(0, 255);
+      const description = String(p.description ?? "").slice(0, 1000);
+      const triggerType = ["manual", "schedule", "webhook"].includes(String(p.trigger_type))
+        ? String(p.trigger_type) : "manual";
+      const triggerConfig = (p.trigger_config && typeof p.trigger_config === "object") ? p.trigger_config : {};
+      const steps         = Array.isArray(p.steps) ? p.steps : [];
+      const isActive      = p.is_active !== false;
+
+      if (steps.length === 0) throw new Error("create_workflow requires at least one step");
+
+      const { data: wf, error: wfErr } = await sb
+        .from("workflows")
+        .insert({ user_id: userId, name, description, trigger_type: triggerType, trigger_config: triggerConfig, steps, is_active: isActive })
+        .select("id")
+        .single();
+
+      if (wfErr) throw new Error(wfErr.message);
+      await logActivity(sb, userId, "workflow_created", `Created workflow: ${name}`, 10);
+
+      // run_immediately: true — execute the workflow right after creating it
+      if (p.run_immediately) {
+        const runRes = await fetch(`${supabaseUrl}/functions/v1/mavis-workflow-run`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${serviceKey}` },
+          body: JSON.stringify({ workflow_id: wf.id, userId }),
+          signal: AbortSignal.timeout(90_000),
+        });
+        const runData = await runRes.json().catch(() => ({}));
+        return { workflow_id: wf.id, name, run_id: runData.run_id, success: runData.success, steps_log: runData.steps_log };
+      }
+
+      return { workflow_id: wf.id, name };
+    }
+
+    // ── RUN WORKFLOW — execute a saved workflow or ad-hoc steps ───────────
+    case "run_workflow": {
+      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+      const serviceKey  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+
+      const workflowId = p.workflow_id ? String(p.workflow_id) : undefined;
+      const adHocSteps = Array.isArray(p.steps) ? p.steps : undefined;
+      const name       = String(p.name ?? "Ad-hoc run");
+
+      if (!workflowId && !adHocSteps) throw new Error("run_workflow requires workflow_id or steps");
+
+      const body: Record<string, unknown> = { userId, name };
+      if (workflowId)  body.workflow_id = workflowId;
+      if (adHocSteps)  body.steps       = adHocSteps;
+
+      const res = await fetch(`${supabaseUrl}/functions/v1/mavis-workflow-run`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${serviceKey}` },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(90_000),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error ?? `Workflow run failed: ${res.status}`);
+
+      await logActivity(sb, userId, "workflow_run", `Ran workflow: ${workflowId ?? name}`, 5);
+      return { run_id: data.run_id, success: data.success, steps_log: data.steps_log };
+    }
+
+    // ── CREATE WEBHOOK — register an outbound webhook endpoint ────────────
+    case "create_webhook": {
+      const name         = String(p.name ?? "MAVIS Webhook").slice(0, 255);
+      const endpointUrl  = String(p.endpoint_url ?? p.url ?? "");
+      const eventTypes   = asStringArray(p.event_types ?? p.events ?? ["*"]);
+      const active       = p.active !== false;
+
+      if (!endpointUrl) throw new Error("create_webhook requires endpoint_url");
+
+      const { data: wh, error: whErr } = await sb
+        .from("webhook_dispatch_config")
+        .insert({ user_id: userId, name, endpoint_url: endpointUrl, event_types: eventTypes, active })
+        .select("id")
+        .single();
+
+      if (whErr) throw new Error(whErr.message);
+      await logActivity(sb, userId, "webhook_created", `Webhook: ${name} → ${endpointUrl.slice(0, 60)}`, 0);
+      return { webhook_id: wh.id, name, endpoint_url: endpointUrl };
+    }
+
     default:
       throw new Error(`Unknown MAVIS action: ${action.type}`);
   }

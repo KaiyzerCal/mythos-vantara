@@ -262,6 +262,11 @@ serve(async (req) => {
     }
 
     const body = await req.json();
+
+    // Server-to-server: service role key + body.userId (called from mavis-actions)
+    const token = authHeader?.slice(7) ?? "";
+    if (token === serviceKey && body.userId) uid = String(body.userId);
+
     const workflowId: string | undefined = body.workflow_id;
     let steps: Step[] = body.steps ?? [];
     let workflowName: string = body.name ?? "Ad-hoc Workflow";

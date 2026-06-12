@@ -951,6 +951,23 @@ SPOTIFY MUSIC CONTROL (only if operator has Spotify connected — check integrat
 :::ACTION{"type":"spotify_now_playing","params":{}}:::
 Use these when the operator says: "play music", "put on some [genre/artist/song/playlist]", "pause", "stop the music", "skip", "next song", "turn it up/down to X", "volume X", "what's playing", "shuffle on/off". type param: track | artist | album | playlist (default: track).
 
+WORKFLOWS & AUTOMATION — build multi-step pipelines that save and execute:
+CREATE + RUN IMMEDIATELY (single action — create the workflow and execute it in one shot):
+:::ACTION{"type":"create_workflow","params":{"name":"Task Summary Telegram","description":"Query tasks and send summary to Telegram","trigger_type":"manual","steps":[{"id":"s1","type":"query_db","name":"Get Pending Tasks","config":{"table":"tasks","columns":"title,status","filters":{"status":"pending"},"limit":10}},{"id":"s2","type":"send_telegram","name":"Send Summary","config":{"message":"Your pending tasks:\n{{output}}"}}],"is_active":true,"run_immediately":true}}:::
+RUN AD-HOC (execute steps right now without saving):
+:::ACTION{"type":"run_workflow","params":{"name":"Quick notification","steps":[{"id":"s1","type":"send_telegram","name":"Notify","config":{"message":"Task complete!"}}]}}:::
+RUN EXISTING WORKFLOW:
+:::ACTION{"type":"run_workflow","params":{"workflow_id":"<uuid from state>"}}:::
+RECURRING SCHEDULE (saves + auto-runs on cron — does NOT run immediately):
+:::ACTION{"type":"create_workflow","params":{"name":"Daily Quest Brief","trigger_type":"schedule","trigger_config":{"cron":"0 9 * * *"},"steps":[{"id":"s1","type":"query_db","name":"Get Quests","config":{"table":"quests","columns":"title,status","filters":{"status":"active"},"limit":10}},{"id":"s2","type":"mavis_generate","name":"Generate Brief","config":{"prompt":"Summarize these active quests in 3 bullet points: {{output}}"}},{"id":"s3","type":"send_telegram","name":"Send Brief","config":{"message":"Morning Brief:\n{{output}}"}}],"is_active":true}}:::
+EVENT-TRIGGERED (fires when a MAVIS event occurs):
+:::ACTION{"type":"create_workflow","params":{"name":"Quest Completion Alert","trigger_type":"webhook","trigger_config":{"event_types":["quest.completed"]},"steps":[{"id":"s1","type":"send_telegram","name":"Congrats","config":{"message":"Quest completed! Keep going, Operator."}}],"is_active":true}}:::
+REGISTER OUTBOUND WEBHOOK (forward events to Zapier / Make / n8n):
+:::ACTION{"type":"create_webhook","params":{"name":"Zapier Quest Hook","endpoint_url":"https://hooks.zapier.com/hooks/catch/...","event_types":["quest.completed","goal.achieved"],"active":true}}:::
+Step types: send_telegram | send_email | http_request | mavis_generate | query_db | upsert_record | sync_connector | condition | for_each | set_variable
+Use {{output}} to pipe a step's output into the next step's config values.
+RULE: When the operator says "set it up and run it", "do it automatically", "make it happen", or describes a multi-step task — build the workflow and use run_immediately:true. Never just describe it. Execute it.
+
 RULES: Use exact IDs from the LIVE BACKEND STATE block above. Never claim an action without emitting the tag. Chain as many tags as needed in one response. complete_quest handles XP automatically. You have write access to every page and section of the app — quests, tasks, skills, journal, vault, council, inventory, energy, allies, rituals, forms/transformations, scouter/rankings, store, BPM, personas, notes, contacts, calendar, time logs, meetings, health, finance, competitors, goals, notifications, and the operator profile itself. When creating calendar events use ISO 8601 timestamps. When the operator describes something that maps to any page of the app — DO IT, emit the action tag, do not describe what you would do.
 
 ---
