@@ -1094,6 +1094,13 @@ When real-time data is needed (news, prices, events, current info), web search r
 
 NEVER say: "I can't browse the web", "I don't have internet access", "I can't access URLs", "my knowledge has a cutoff", or any variant of this. You have access. Use it. If no URL content block appears in context for a shared URL, acknowledge the page and ask the operator to confirm the link — do not claim inability.
 
+YOUTUBE VIDEOS: When the operator shares a YouTube URL, the full transcript and AI summary are automatically extracted and injected into your context under ═══ YOUTUBE VIDEO ═══. You already have the content — do not say you can't watch videos or access YouTube. When this block appears:
+- If the operator hasn't given specific instructions, proactively offer 3 options: (1) full summary, (2) deep teaching session with key lessons, (3) save to Vault Codex for later
+- If asked to "summarize" — deliver the bullet-point summary and 2-paragraph overview
+- If asked to "teach me" or "explain" — break down the content into digestible lessons, use examples, ask comprehension questions
+- If asked to "save it" — emit :::ACTION{"type":"create_note","params":{"title":"[video title]","content":"[summary + key points]","tags":["video","learning"]}}::: or vault variant
+- Always reference the actual content from the transcript block, not generic knowledge about the topic
+
 ---
 
 THE THING UNDERNEATH EVERYTHING
@@ -1572,32 +1579,62 @@ ${fmtGoals}
       webSearchResults = await tavilySearch(lastUserText, tavilyKey);
     }
 
-    // ── URL full-content extraction (Jina Reader) ───────────
-    // Runs whenever the operator shares a URL, independent of Tavily.
-    // Jina Reader converts any public web page to clean markdown text.
+    // ── URL full-content extraction ─────────────────────────
+    // YouTube URLs → real transcript via mavis-youtube-ingest (captions + Claude summary).
+    // All other URLs → Jina Reader markdown extraction.
     let urlContent = "";
     {
       const URL_RE = /https?:\/\/[^\s<>"',;)]+/g;
       const foundUrls = lastUserText.match(URL_RE);
       if (foundUrls?.length) {
+        const target = foundUrls[0].replace(/[.,;!?)]+$/, "");
+        const isYouTube = /(?:youtube\.com\/watch|youtu\.be\/)/.test(target);
         try {
-          const target = foundUrls[0].replace(/[.,;!?)]+$/, ""); // strip trailing punctuation
-          const jinaKey = Deno.env.get("JINA_API_KEY") ?? "";
-          const jinaHeaders: Record<string, string> = {
-            Accept: "text/plain",
-            "X-No-Cache": "true",
-            "X-Timeout": "15",
-          };
-          if (jinaKey) jinaHeaders["Authorization"] = `Bearer ${jinaKey}`;
-          // Jina Reader expects the raw URL appended — do NOT encodeURIComponent
-          const jinaRes = await fetch(`https://r.jina.ai/${target}`, {
-            headers: jinaHeaders,
-            signal: AbortSignal.timeout(18000),
-          });
-          if (jinaRes.ok) {
-            const text = await jinaRes.text();
-            if (text.length > 100) {
-              urlContent = `\n═══ URL CONTENT: ${target} ═══\n${text.slice(0, 14000)}\n═══ END URL CONTENT ═══`;
+          if (isYouTube) {
+            // Call the real YouTube ingest — extracts captions, summarises with Claude
+            const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+            const ytRes = await fetch(`${supabaseUrl}/functions/v1/mavis-youtube-ingest`, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: req.headers.get("Authorization") ?? "",
+              },
+              body: JSON.stringify({ url: target, save_as: "note", _preview: true }),
+              signal: AbortSignal.timeout(25000),
+            });
+            if (ytRes.ok) {
+              const ytData = await ytRes.json();
+              const title   = ytData.title   ?? "YouTube Video";
+              const summary = ytData.summary  ?? "";
+              const excerpt = ytData.transcript ? String(ytData.transcript).slice(0, 8000) : "";
+              urlContent = `\n═══ YOUTUBE VIDEO: ${title} ═══\nURL: ${target}\n\nSUMMARY:\n${summary}\n\nTRANSCRIPT EXCERPT:\n${excerpt}\n═══ END YOUTUBE CONTENT ═══`;
+            } else {
+              // Fallback to Jina if ingest fails
+              const jinaRes = await fetch(`https://r.jina.ai/${target}`, {
+                headers: { Accept: "text/plain", "X-No-Cache": "true", "X-Timeout": "15" },
+                signal: AbortSignal.timeout(18000),
+              });
+              if (jinaRes.ok) {
+                const text = await jinaRes.text();
+                if (text.length > 100) urlContent = `\n═══ URL CONTENT: ${target} ═══\n${text.slice(0, 14000)}\n═══ END URL CONTENT ═══`;
+              }
+            }
+          } else {
+            // Non-YouTube URL — use Jina Reader
+            const jinaKey = Deno.env.get("JINA_API_KEY") ?? "";
+            const jinaHeaders: Record<string, string> = {
+              Accept: "text/plain",
+              "X-No-Cache": "true",
+              "X-Timeout": "15",
+            };
+            if (jinaKey) jinaHeaders["Authorization"] = `Bearer ${jinaKey}`;
+            const jinaRes = await fetch(`https://r.jina.ai/${target}`, {
+              headers: jinaHeaders,
+              signal: AbortSignal.timeout(18000),
+            });
+            if (jinaRes.ok) {
+              const text = await jinaRes.text();
+              if (text.length > 100) urlContent = `\n═══ URL CONTENT: ${target} ═══\n${text.slice(0, 14000)}\n═══ END URL CONTENT ═══`;
             }
           }
         } catch { /* non-critical — continue without URL content */ }
