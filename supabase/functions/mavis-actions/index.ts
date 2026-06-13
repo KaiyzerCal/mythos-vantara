@@ -1703,6 +1703,125 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
       return { deleted: effectId };
     }
 
+    case "deep_research": {
+      const query = String(p.query ?? "");
+      if (!query) throw new Error("deep_research requires query");
+      const depth = Number(p.depth ?? 2);
+      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+      const res = await fetch(`${supabaseUrl}/functions/v1/mavis-deep-research`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: req.headers.get("Authorization")! },
+        body: JSON.stringify({ query, depth }),
+      });
+      if (!res.ok) throw new Error(`deep_research failed: ${await res.text()}`);
+      return await res.json();
+    }
+
+    case "translate": {
+      const text = String(p.text ?? "");
+      const target = String(p.target ?? "en");
+      const source = p.source ? String(p.source) : undefined;
+      if (!text) throw new Error("translate requires text");
+      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+      const res = await fetch(`${supabaseUrl}/functions/v1/mavis-translate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: req.headers.get("Authorization")! },
+        body: JSON.stringify({ text, target, ...(source ? { source } : {}) }),
+      });
+      if (!res.ok) throw new Error(`translate failed: ${await res.text()}`);
+      return await res.json();
+    }
+
+    case "get_market_data": {
+      const symbols = asStringArray(p.symbols);
+      const type = String(p.type ?? "auto") as "stock" | "crypto" | "auto";
+      if (!symbols.length) throw new Error("get_market_data requires symbols array");
+      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+      const res = await fetch(`${supabaseUrl}/functions/v1/mavis-market-data`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: req.headers.get("Authorization")! },
+        body: JSON.stringify({ type, symbols }),
+      });
+      if (!res.ok) throw new Error(`get_market_data failed: ${await res.text()}`);
+      return await res.json();
+    }
+
+    case "send_email": {
+      const to = String(p.to ?? "");
+      const subject = String(p.subject ?? "");
+      const body = p.body ? String(p.body) : undefined;
+      const generate = p.generate ? String(p.generate) : undefined;
+      const contact_id = p.contact_id ? String(p.contact_id) : undefined;
+      if (!to) throw new Error("send_email requires to");
+      if (!subject) throw new Error("send_email requires subject");
+      if (!body && !generate) throw new Error("send_email requires either body or generate");
+      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+      const res = await fetch(`${supabaseUrl}/functions/v1/mavis-email-send`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: req.headers.get("Authorization")! },
+        body: JSON.stringify({ to, subject, ...(body ? { body } : {}), ...(generate ? { generate } : {}), ...(contact_id ? { contact_id } : {}) }),
+      });
+      if (!res.ok) throw new Error(`send_email failed: ${await res.text()}`);
+      return await res.json();
+    }
+
+    case "send_sms":
+    case "send_whatsapp": {
+      const to = String(p.to ?? "");
+      const message = String(p.message ?? "");
+      const channel = action.type === "send_whatsapp" ? "whatsapp" : String(p.channel ?? "sms");
+      if (!to) throw new Error(`${action.type} requires to (E.164 phone number)`);
+      if (!message) throw new Error(`${action.type} requires message`);
+      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+      const res = await fetch(`${supabaseUrl}/functions/v1/mavis-sms`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: req.headers.get("Authorization")! },
+        body: JSON.stringify({ to, message, channel }),
+      });
+      if (!res.ok) throw new Error(`${action.type} failed: ${await res.text()}`);
+      return await res.json();
+    }
+
+    case "get_weather": {
+      const location = String(p.location ?? p.city ?? "");
+      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+      const res = await fetch(`${supabaseUrl}/functions/v1/mavis-weather`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: req.headers.get("Authorization")! },
+        body: JSON.stringify({ location }),
+      });
+      if (!res.ok) throw new Error(`get_weather failed: ${await res.text()}`);
+      return await res.json();
+    }
+
+    case "repurpose_content": {
+      const content = String(p.content ?? "");
+      const platforms = p.platforms ?? ["twitter", "linkedin", "instagram"];
+      if (!content) throw new Error("repurpose_content requires content");
+      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+      const res = await fetch(`${supabaseUrl}/functions/v1/mavis-repurpose`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: req.headers.get("Authorization")! },
+        body: JSON.stringify({ content, platforms }),
+      });
+      if (!res.ok) throw new Error(`repurpose_content failed: ${await res.text()}`);
+      return await res.json();
+    }
+
+    case "generate_pdf": {
+      const title = String(p.title ?? "Document");
+      const contentHtml = String(p.content_html ?? p.content ?? "");
+      if (!contentHtml) throw new Error("generate_pdf requires content_html");
+      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+      const res = await fetch(`${supabaseUrl}/functions/v1/mavis-pdf-gen`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: req.headers.get("Authorization")! },
+        body: JSON.stringify({ title, content_html: contentHtml, user_id: userId }),
+      });
+      if (!res.ok) throw new Error(`generate_pdf failed: ${await res.text()}`);
+      return await res.json();
+    }
+
     default:
       throw new Error(`Unknown MAVIS action: ${action.type}`);
   }
