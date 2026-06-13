@@ -1281,8 +1281,19 @@ export function InventoryPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [typeFilter, setTypeFilter] = useState("all");
-  const [form, setForm] = useState({ name: "", description: "", type: "equipment", rarity: "common", quantity: 1, effect: "" });
+  const [form, setForm] = useState({ name: "", description: "", type: "equipment", rarity: "common", quantity: 1, effect: "", stat_effects: "" });
   const [confirmDeleteItem, setConfirmDeleteItem] = useState<{ id: string; label: string } | null>(null);
+
+  const parseStatEffects = (str: string): { label: string; value: number; unit: string }[] => {
+    if (!str.trim()) return [];
+    return str.split(",").flatMap((token) => {
+      const m = token.trim().match(/^([A-Z]+)\s*([+-]?\d+)(%?)$/i);
+      if (!m) return [];
+      return [{ label: m[1].toUpperCase(), value: Number(m[2]), unit: m[3] || "" }];
+    });
+  };
+  const serializeStatEffects = (effects: { label: string; value: number; unit: string }[]): string =>
+    effects.map((e) => `${e.label} ${e.value >= 0 ? "+" : ""}${e.value}${e.unit}`).join(", ");
 
   useEffect(() => {
     void refetchInventory();
@@ -1299,20 +1310,21 @@ export function InventoryPage() {
     toast.success(next ? `${item.name} equipped` : `${item.name} unequipped`);
   };
 
-  const resetForm = () => { setForm({ name: "", description: "", type: "equipment", rarity: "common", quantity: 1, effect: "" }); setEditingId(null); setShowCreate(false); };
+  const resetForm = () => { setForm({ name: "", description: "", type: "equipment", rarity: "common", quantity: 1, effect: "", stat_effects: "" }); setEditingId(null); setShowCreate(false); };
 
   const handleEdit = (item: any) => {
-    setForm({ name: item.name, description: item.description, type: item.type, rarity: item.rarity, quantity: item.quantity, effect: item.effect || "" });
+    setForm({ name: item.name, description: item.description, type: item.type, rarity: item.rarity, quantity: item.quantity, effect: item.effect || "", stat_effects: serializeStatEffects(Array.isArray(item.stat_effects) ? item.stat_effects : []) });
     setEditingId(item.id);
     setShowCreate(true);
   };
 
   const handleSave = async () => {
     if (!form.name.trim()) return;
+    const statEffects = parseStatEffects(form.stat_effects);
     if (editingId) {
-      await updateInventoryItem(editingId, { ...form, quantity: Number(form.quantity), effect: form.effect || null });
+      await updateInventoryItem(editingId, { ...form, quantity: Number(form.quantity), effect: form.effect || null, stat_effects: statEffects });
     } else {
-      await createInventoryItem({ ...form, quantity: Number(form.quantity), effect: form.effect || null, slot: null, tier: null, stat_effects: [], is_equipped: false });
+      await createInventoryItem({ ...form, quantity: Number(form.quantity), effect: form.effect || null, slot: null, tier: null, stat_effects: statEffects, is_equipped: false });
     }
     resetForm();
   };
@@ -1339,7 +1351,8 @@ export function InventoryPage() {
               </select>
             </div>
             <input value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))} placeholder="Description" className="w-full bg-muted/30 border border-border rounded px-3 py-1.5 text-sm focus:outline-none" />
-            <input value={form.effect} onChange={(e) => setForm((f) => ({ ...f, effect: e.target.value }))} placeholder="Effect" className="w-full bg-muted/30 border border-border rounded px-3 py-1.5 text-xs font-mono focus:outline-none" />
+            <input value={form.effect} onChange={(e) => setForm((f) => ({ ...f, effect: e.target.value }))} placeholder="Effect description" className="w-full bg-muted/30 border border-border rounded px-3 py-1.5 text-xs font-mono focus:outline-none" />
+            <input value={form.stat_effects} onChange={(e) => setForm((f) => ({ ...f, stat_effects: e.target.value }))} placeholder="Stat bonuses: STR +5, VIT +3, INT -2" className="w-full bg-muted/30 border border-border rounded px-3 py-1.5 text-xs font-mono focus:outline-none focus:border-primary/40" />
             <div className="flex gap-2 justify-end">
               <button onClick={resetForm} className="px-3 py-1.5 text-xs font-mono text-muted-foreground border border-border rounded">Cancel</button>
               <button onClick={handleSave} className="px-3 py-1.5 text-xs font-mono bg-primary/10 border border-primary/30 text-primary rounded">Add</button>
@@ -1355,19 +1368,31 @@ export function InventoryPage() {
             <Shield size={10} /> Equipped Loadout ({equipped.length})
           </p>
           <div className="flex flex-wrap gap-2">
-            {equipped.map((item) => (
-              <div key={item.id} className="flex items-center gap-1.5 px-2 py-1 rounded border border-primary/30 bg-primary/5">
-                <span className="text-xs font-display font-semibold text-primary">{item.name}</span>
-                <span className="text-[9px] font-mono text-muted-foreground">{item.type}</span>
-                <button
-                  onClick={() => handleEquip(item)}
-                  className="ml-1 text-muted-foreground hover:text-destructive transition-colors"
-                  title="Unequip"
-                >
-                  <X size={10} />
-                </button>
-              </div>
-            ))}
+            {equipped.map((item) => {
+              const effects = Array.isArray(item.stat_effects) ? (item.stat_effects as { label: string; value: number; unit: string }[]) : [];
+              return (
+                <div key={item.id} className="flex items-start gap-1.5 px-2 py-1.5 rounded border border-primary/30 bg-primary/5">
+                  <div className="flex-1">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-xs font-display font-semibold text-primary">{item.name}</span>
+                      <span className="text-[9px] font-mono text-muted-foreground">{item.type}</span>
+                    </div>
+                    {effects.length > 0 && (
+                      <div className="flex gap-1 flex-wrap mt-0.5">
+                        {effects.map((eff, i) => (
+                          <span key={i} className={`text-[8px] font-mono ${eff.value >= 0 ? "text-green-400" : "text-red-400"}`}>
+                            {eff.label}{eff.value >= 0 ? "+" : ""}{eff.value}{eff.unit}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  <button onClick={() => handleEquip(item)} className="text-muted-foreground hover:text-destructive transition-colors mt-0.5" title="Unequip">
+                    <X size={10} />
+                  </button>
+                </div>
+              );
+            })}
           </div>
         </HudCard>
       )}
@@ -1397,7 +1422,8 @@ export function InventoryPage() {
                     </select>
                   </div>
                   <input value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))} placeholder="Description" className="w-full bg-muted/30 border border-border rounded px-3 py-1.5 text-sm focus:outline-none" />
-                  <input value={form.effect} onChange={(e) => setForm((f) => ({ ...f, effect: e.target.value }))} placeholder="Effect" className="w-full bg-muted/30 border border-border rounded px-3 py-1.5 text-xs font-mono focus:outline-none" />
+                  <input value={form.effect} onChange={(e) => setForm((f) => ({ ...f, effect: e.target.value }))} placeholder="Effect description" className="w-full bg-muted/30 border border-border rounded px-3 py-1.5 text-xs font-mono focus:outline-none" />
+                  <input value={form.stat_effects} onChange={(e) => setForm((f) => ({ ...f, stat_effects: e.target.value }))} placeholder="Stat bonuses: STR +5, VIT +3, INT -2" className="w-full bg-muted/30 border border-border rounded px-3 py-1.5 text-xs font-mono focus:outline-none focus:border-primary/40" />
                   <div className="flex gap-2 justify-end">
                     <button onClick={resetForm} className="px-3 py-1.5 text-xs font-mono text-muted-foreground border border-border rounded">Cancel</button>
                     <button onClick={handleSave} className="px-3 py-1.5 text-xs font-mono bg-primary/10 border border-primary/30 text-primary rounded">Save</button>
@@ -1427,6 +1453,18 @@ export function InventoryPage() {
                       {item.slot && <div><span className="text-muted-foreground">Slot:</span> <span className="text-foreground">{item.slot}</span></div>}
                       {item.tier && <div><span className="text-muted-foreground">Tier:</span> <span className="text-foreground">{item.tier}</span></div>}
                       <div><span className="text-muted-foreground">Obtained:</span> <span className="text-foreground">{new Date(item.obtained_at).toLocaleString()}</span></div>
+                      {Array.isArray(item.stat_effects) && item.stat_effects.length > 0 && (
+                        <div className="pt-1">
+                          <span className="text-muted-foreground block mb-1">Stat Effects:</span>
+                          <div className="flex gap-1.5 flex-wrap">
+                            {(item.stat_effects as { label: string; value: number; unit: string }[]).map((eff, idx) => (
+                              <span key={idx} className={`px-1.5 py-0.5 rounded border text-[9px] font-mono ${eff.value >= 0 ? "text-green-400 border-green-500/30 bg-green-500/5" : "text-red-400 border-red-500/30 bg-red-500/5"}`}>
+                                {eff.label} {eff.value >= 0 ? "+" : ""}{eff.value}{eff.unit}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   )}
                   {!isExpanded && (

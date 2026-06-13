@@ -249,7 +249,7 @@ export interface InventoryItem {
   user_id: string;
   name: string;
   description: string;
-  type: "consumable" | "equipment" | "material" | "artifact";
+  type: "consumable" | "equipment" | "material" | "artifact" | "weapon";
   rarity: "common" | "rare" | "epic" | "legendary" | "mythic";
   quantity: number;
   effect: string | null;
