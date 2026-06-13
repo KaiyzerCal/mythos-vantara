@@ -670,9 +670,14 @@ async function tavilySearch(query: string, key: string): Promise<string> {
 
 function needsWebSearch(msg: string): boolean {
   const lower = msg.toLowerCase();
-  return ["search for","look up","what is happening","current events","latest news",
+  return [
+    "search for","look up","what is happening","current events","latest news",
     "today's","right now","real-time","search the web","find out about","what's new",
-    "recent news","breaking news","weather","stock price","trending"].some((t) => lower.includes(t));
+    "recent news","breaking news","weather","stock price","trending",
+    "google","find me","search the internet","look this up","pull up",
+    "what's happening","who is","what is the latest","current price",
+    "news about","tell me about the latest","up to date","most recent",
+  ].some((t) => lower.includes(t));
 }
 
 // ============================================================
@@ -969,6 +974,18 @@ Use {{output}} to pipe a step's output into the next step's config values.
 RULE: When the operator says "set it up and run it", "do it automatically", "make it happen", or describes a multi-step task — build the workflow and use run_immediately:true. Never just describe it. Execute it.
 
 RULES: Use exact IDs from the LIVE BACKEND STATE block above. Never claim an action without emitting the tag. Chain as many tags as needed in one response. complete_quest handles XP automatically. You have write access to every page and section of the app — quests, tasks, skills, journal, vault, council, inventory, energy, allies, rituals, forms/transformations, scouter/rankings, store, BPM, personas, notes, contacts, calendar, time logs, meetings, health, finance, competitors, goals, notifications, and the operator profile itself. When creating calendar events use ISO 8601 timestamps. When the operator describes something that maps to any page of the app — DO IT, emit the action tag, do not describe what you would do.
+
+---
+
+WEB & URL INTELLIGENCE
+
+You have live web access. This is not a limitation — it is a capability.
+
+When the operator shares a URL, the full page content is automatically fetched and injected into your context under a block marked ═══ URL CONTENT ═══. Read it, analyze it, and answer based on what it contains. Never say you cannot access a URL — you receive the content directly.
+
+When real-time data is needed (news, prices, events, current info), web search results are automatically injected under [WEB SEARCH RESULTS]. Use them as your source.
+
+NEVER say: "I can't browse the web", "I don't have internet access", "I can't access URLs", "my knowledge has a cutoff", or any variant of this. You have access. Use it. If no URL content block appears in context for a shared URL, acknowledge the page and ask the operator to confirm the link — do not claim inability.
 
 ---
 
@@ -1449,23 +1466,31 @@ ${fmtGoals}
     }
 
     // ── URL full-content extraction (Jina Reader) ───────────
-    // When user shares a URL, fetch the full page text and inject it.
-    // Complements Tavily (broad search) — Jina reads the specific page.
+    // Runs whenever the operator shares a URL, independent of Tavily.
+    // Jina Reader converts any public web page to clean markdown text.
     let urlContent = "";
-    if (!webSearchResults) {
+    {
       const URL_RE = /https?:\/\/[^\s<>"',;)]+/g;
       const foundUrls = lastUserText.match(URL_RE);
       if (foundUrls?.length) {
         try {
-          const target = foundUrls[0];
-          const jinaRes = await fetch(`https://r.jina.ai/${encodeURIComponent(target)}`, {
-            headers: { Accept: "text/plain", "X-No-Cache": "true", "X-Timeout": "10" },
-            signal: AbortSignal.timeout(12000),
+          const target = foundUrls[0].replace(/[.,;!?)]+$/, ""); // strip trailing punctuation
+          const jinaKey = Deno.env.get("JINA_API_KEY") ?? "";
+          const jinaHeaders: Record<string, string> = {
+            Accept: "text/plain",
+            "X-No-Cache": "true",
+            "X-Timeout": "15",
+          };
+          if (jinaKey) jinaHeaders["Authorization"] = `Bearer ${jinaKey}`;
+          // Jina Reader expects the raw URL appended — do NOT encodeURIComponent
+          const jinaRes = await fetch(`https://r.jina.ai/${target}`, {
+            headers: jinaHeaders,
+            signal: AbortSignal.timeout(18000),
           });
           if (jinaRes.ok) {
             const text = await jinaRes.text();
             if (text.length > 100) {
-              urlContent = `\n═══ URL CONTENT: ${target} ═══\n${text.slice(0, 12000)}\n═══ END URL CONTENT ═══`;
+              urlContent = `\n═══ URL CONTENT: ${target} ═══\n${text.slice(0, 14000)}\n═══ END URL CONTENT ═══`;
             }
           }
         } catch { /* non-critical — continue without URL content */ }
