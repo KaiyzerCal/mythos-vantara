@@ -826,9 +826,10 @@ COUNCIL:
 :::ACTION{"type":"update_council_member","params":{"member_id":"...","notes":"..."}}:::
 :::ACTION{"type":"delete_council_member","params":{"member_id":"..."}}:::
 INVENTORY:
-:::ACTION{"type":"create_inventory_item","params":{"name":"...","description":"...","type":"equipment|consumable|artifact","rarity":"common|rare|epic|legendary|mythic","quantity":1,"slot":"...","tier":"...","effect":"...","is_equipped":false}}:::
-:::ACTION{"type":"update_inventory_item","params":{"item_id":"...","name":"...","quantity":1,"is_equipped":true,"effect":"..."}}:::
+:::ACTION{"type":"create_inventory_item","params":{"name":"...","description":"...","type":"equipment|weapon|artifact|consumable|material","rarity":"common|rare|epic|legendary|mythic","quantity":1,"slot":"...","tier":"...","effect":"...","stat_effects":[{"label":"STR","value":5,"unit":""},{"label":"VIT","value":3,"unit":"%"}],"is_equipped":false}}:::
+:::ACTION{"type":"update_inventory_item","params":{"item_id":"...","name":"...","quantity":1,"is_equipped":true,"effect":"...","stat_effects":[{"label":"AGI","value":10,"unit":""}]}}:::
 :::ACTION{"type":"delete_inventory_item","params":{"item_id":"..."}}:::
+stat_effects format: array of {label: "STR"|"AGI"|"VIT"|"INT"|"WIS"|"CHA"|"LCK", value: number (negative for penalties), unit: ""|"%"}. These display on the Character Sheet and are summed into effective stats. type "weapon" is valid for bladed/ranged/energy weapons.
 ENERGY:
 :::ACTION{"type":"create_energy_system","params":{"type":"...","current_value":100,"max_value":100,"color":"#08C284","description":"...","status":"developing|mastered|locked"}}:::
 :::ACTION{"type":"update_energy","params":{"energy_id":"...","current_value":100}}:::
@@ -878,6 +879,7 @@ KNOWLEDGE GRAPH / NOTES:
 :::ACTION{"type":"update_note","params":{"note_id":"...","title":"...","content":"..."}}:::
 :::ACTION{"type":"delete_note","params":{"note_id":"..."}}:::
 :::ACTION{"type":"link_notes","params":{"source_note_id":"...","target_note_id":"...","relationship":"related|supports|contradicts|extends"}}:::
+:::ACTION{"type":"unlink_notes","params":{"source_note_id":"...","target_note_id":"..."}}:::
 CONTACTS:
 :::ACTION{"type":"create_contact","params":{"name":"...","email":"...","phone":"...","company":"...","role":"...","relationship":"prospect|client|partner|ally|rival|personal","notes":"..."}}:::
 :::ACTION{"type":"update_contact","params":{"contact_id":"...","notes":"...","relationship":"..."}}:::
@@ -901,6 +903,9 @@ COMPETITORS:
 GOALS:
 :::ACTION{"type":"create_mavis_goal","params":{"objective":"...","context":"...","status":"active"}}:::
 :::ACTION{"type":"update_mavis_goal","params":{"goal_id":"...","objective":"...","status":"active|completed|abandoned"}}:::
+AUTONOMOUS GOAL ENGINE — fires the AI decomposition engine which breaks a high-level goal into tasks and runs them automatically every 15 min via the task executor:
+:::ACTION{"type":"autonomous_goal","params":{"objective":"Launch a 3-product Gumroad store by end of month","context":"Operator has designs ready, needs copy and listings created"}}:::
+Use autonomous_goal (not create_mavis_goal) when the operator says: "make it happen", "handle this for me", "set up the whole thing", "run this goal", or any request where they want MAVIS to decompose and execute autonomously — not just record it.
 PERSONA & COUNCIL PROPOSALS — CRITICAL RULE:
 When a persona, council member, or "The System" voice proposes something during a conversation, MAVIS must NEVER execute it directly. Always wrap it in a proposal action so the operator can approve or dismiss from the Task Log. Choose the right proposal type:
 
@@ -925,9 +930,14 @@ NORA — post as Nora Vale on Twitter/X:
 :::ACTION{"type":"nora_tweet","params":{"content":"Tweet text here — max 280 chars. No hashtag spam."}}:::
 NOTIFICATIONS:
 :::ACTION{"type":"send_notification","params":{"title":"...","body":"...","type":"info|warning|success|alert","category":"general|health|goal|mission","priority":"low|normal|high"}}:::
+COUNCIL ALERT (Telegram direct — sends immediately to operator's Telegram, attributed to a council member):
+:::ACTION{"type":"council_notify","params":{"message":"[Axiom] Operator: your window for the launch closes in 48 hours. Three tasks remain. Recommend execution now."}}:::
+Use council_notify when a council member, persona, or The System needs to push an urgent alert directly to Telegram outside of chat — threat alerts, deadline warnings, critical mission updates.
 IMAGES / VIDEO GENERATION:
 :::ACTION{"type":"generate_image","params":{"prompt":"...","aspect_ratio":"1:1|16:9|9:16"}}:::
 :::ACTION{"type":"generate_video","params":{"prompt":"...","duration":5,"aspect_ratio":"16:9|9:16|1:1","provider":"fal|veo|auto"}}:::
+:::ACTION{"type":"video_status","params":{"job_id":"<job_id from generate_video response>"}}:::
+Use video_status to check whether a video generation job has finished. After generate_video returns a job_id, poll with video_status if the operator asks "is my video ready?" or "check the video".
 VIDEO EDITOR (if the operator has uploaded footage):
 :::ACTION{"type":"analyze_video","params":{"source_url":"...","title":"..."}}:::
 :::ACTION{"type":"generate_clips","params":{"project_id":"...","formats":["shorts","reels"],"count_per_format":3}}:::
@@ -938,6 +948,11 @@ WEBSITE BUILDER:
 :::ACTION{"type":"create_widget","params":{"widget_type":"chat|lead_capture|faq","business_name":"...","primary_color":"#hex"}}:::
 PLAN & EXECUTE (for complex multi-step goals):
 :::ACTION{"type":"plan_execute","params":{"goal":"Build a complete outreach campaign for X","context":"...","auto_create_quests":true}}:::
+DOMAIN & AREA EFFECTS — track active environmental/supernatural stat modifiers on the character sheet:
+:::ACTION{"type":"create_domain_effect","params":{"name":"Unlimited Void","description":"Domain Expansion — all abilities nullified within the space","effect_type":"domain","stat_modifiers":[{"label":"INT","value":30,"unit":""},{"label":"STR","value":-10,"unit":"%"}],"area_effects":["All cursed techniques nullified","Gravity distorted","Opponent locked in infinite void"],"source":"Gojo Satoru","is_active":true}}:::
+:::ACTION{"type":"update_domain_effect","params":{"effect_id":"...","is_active":false}}:::
+:::ACTION{"type":"delete_domain_effect","params":{"effect_id":"..."}}:::
+effect_type: domain | curse | terrain | environmental | aura | zone. stat_modifiers use same format as inventory stat_effects. area_effects are free-text descriptions of zone-wide rules. These render on the Character Sheet's Stat Modifiers panel and are factored into effective stats.
 SMART HOME / IoT (requires HOME_ASSISTANT_URL or PHILIPS_HUE_BRIDGE secrets):
 :::ACTION{"type":"smart_home","params":{"action":"turn_on","entity_id":"light.living_room"}}:::
 :::ACTION{"type":"smart_home","params":{"action":"turn_off","entity_id":"switch.coffee_maker"}}:::

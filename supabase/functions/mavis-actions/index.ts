@@ -1656,6 +1656,53 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
       return { webhook_id: wh.id, name, endpoint_url: endpointUrl };
     }
 
+    // ── DOMAIN EFFECTS — environmental/supernatural stat modifiers ─────────
+    case "create_domain_effect": {
+      const mods = Array.isArray(p.stat_modifiers) ? p.stat_modifiers : [];
+      const areaFx = Array.isArray(p.area_effects) ? p.area_effects : [];
+      const effectType = ["domain","curse","terrain","environmental","aura","zone"].includes(String(p.effect_type))
+        ? String(p.effect_type) : "domain";
+      const { data: ef, error: efErr } = await sb.from("mavis_domain_effects").insert({
+        user_id: userId,
+        name: String(p.name ?? "Unknown Effect").slice(0, 255),
+        description: p.description ? String(p.description).slice(0, 1000) : null,
+        effect_type: effectType,
+        stat_modifiers: mods,
+        area_effects: areaFx,
+        is_active: p.is_active !== false,
+        expires_at: p.expires_at ? new Date(String(p.expires_at)).toISOString() : null,
+        source: p.source ? String(p.source).slice(0, 255) : null,
+      }).select("id").single();
+      if (efErr) throw efErr;
+      await logActivity(sb, userId, "domain_effect_created", `Domain effect: ${p.name}`, 5);
+      return { effect_id: ef.id };
+    }
+
+    case "update_domain_effect": {
+      const effectId = String(p.effect_id ?? p.id ?? "");
+      if (!effectId) throw new Error("update_domain_effect requires effect_id");
+      const updates: Record<string, unknown> = {};
+      if (p.name !== undefined) updates.name = String(p.name).slice(0, 255);
+      if (p.description !== undefined) updates.description = p.description ? String(p.description) : null;
+      if (p.effect_type !== undefined) updates.effect_type = String(p.effect_type);
+      if (p.stat_modifiers !== undefined) updates.stat_modifiers = p.stat_modifiers;
+      if (p.area_effects !== undefined) updates.area_effects = p.area_effects;
+      if (p.is_active !== undefined) updates.is_active = Boolean(p.is_active);
+      if (p.expires_at !== undefined) updates.expires_at = p.expires_at ? new Date(String(p.expires_at)).toISOString() : null;
+      if (p.source !== undefined) updates.source = p.source ? String(p.source) : null;
+      const { error: upErr } = await sb.from("mavis_domain_effects").update(updates).eq("id", effectId).eq("user_id", userId);
+      if (upErr) throw upErr;
+      return { effect_id: effectId, updated: Object.keys(updates) };
+    }
+
+    case "delete_domain_effect": {
+      const effectId = String(p.effect_id ?? p.id ?? "");
+      if (!effectId) throw new Error("delete_domain_effect requires effect_id");
+      const { error: delErr } = await sb.from("mavis_domain_effects").delete().eq("id", effectId).eq("user_id", userId);
+      if (delErr) throw delErr;
+      return { deleted: effectId };
+    }
+
     default:
       throw new Error(`Unknown MAVIS action: ${action.type}`);
   }
