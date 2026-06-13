@@ -4,7 +4,7 @@
 // ============================================================
 import { useState, useEffect, useRef, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { BookOpen, BookLock, Sparkles, Package, Plus, Trash2, Loader2, Star, Edit2, Upload, FileText, Image, Film, Music, File, X, Eye, LayoutGrid, ChevronLeft, ChevronRight, Wand2, Mic, MicOff, Download, FileDown, LayoutTemplate, Link2 } from "lucide-react";
+import { BookOpen, BookLock, Sparkles, Package, Plus, Trash2, Loader2, Star, Edit2, Upload, FileText, Image, Film, Music, File, X, Eye, LayoutGrid, ChevronLeft, ChevronRight, Wand2, Mic, MicOff, Download, FileDown, LayoutTemplate, Link2, Shield, ShieldOff } from "lucide-react";
 import { useAppData } from "@/contexts/AppDataContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
@@ -1288,8 +1288,16 @@ export function InventoryPage() {
     void refetchInventory();
   }, [refetchInventory]);
 
-  const types = ["all", "equipment", "consumable", "material", "artifact"];
+  const EQUIPPABLE = new Set(["equipment", "weapon", "artifact"]);
+  const types = ["all", "equipment", "weapon", "artifact", "consumable", "material"];
   const filtered = inventory.filter((i) => typeFilter === "all" || i.type === typeFilter);
+  const equipped = inventory.filter((i) => i.is_equipped);
+
+  const handleEquip = async (item: any) => {
+    const next = !item.is_equipped;
+    await updateInventoryItem(item.id, { is_equipped: next });
+    toast.success(next ? `${item.name} equipped` : `${item.name} unequipped`);
+  };
 
   const resetForm = () => { setForm({ name: "", description: "", type: "equipment", rarity: "common", quantity: 1, effect: "" }); setEditingId(null); setShowCreate(false); };
 
@@ -1324,7 +1332,7 @@ export function InventoryPage() {
               <input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} placeholder="Item name" className="bg-muted/30 border border-border rounded px-3 py-1.5 text-sm focus:outline-none focus:border-primary/40" />
               <input type="number" value={form.quantity} onChange={(e) => setForm((f) => ({ ...f, quantity: Number(e.target.value) }))} placeholder="Qty" className="bg-muted/30 border border-border rounded px-3 py-1.5 text-sm focus:outline-none" min={1} />
               <select value={form.type} onChange={(e) => setForm((f) => ({ ...f, type: e.target.value }))} className="bg-muted/30 border border-border rounded px-2 py-1.5 text-xs font-mono focus:outline-none">
-                {["equipment", "consumable", "material", "artifact"].map((t) => <option key={t}>{t}</option>)}
+                {["equipment", "weapon", "artifact", "consumable", "material"].map((t) => <option key={t}>{t}</option>)}
               </select>
               <select value={form.rarity} onChange={(e) => setForm((f) => ({ ...f, rarity: e.target.value }))} className="bg-muted/30 border border-border rounded px-2 py-1.5 text-xs font-mono focus:outline-none">
                 {["common", "rare", "epic", "legendary", "mythic"].map((r) => <option key={r}>{r}</option>)}
@@ -1339,6 +1347,31 @@ export function InventoryPage() {
           </div>
         </HudCard>
       )}
+
+      {/* Equipped loadout */}
+      {equipped.length > 0 && (
+        <HudCard className="border-primary/20">
+          <p className="text-[9px] font-mono text-primary uppercase tracking-widest mb-2 flex items-center gap-1.5">
+            <Shield size={10} /> Equipped Loadout ({equipped.length})
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {equipped.map((item) => (
+              <div key={item.id} className="flex items-center gap-1.5 px-2 py-1 rounded border border-primary/30 bg-primary/5">
+                <span className="text-xs font-display font-semibold text-primary">{item.name}</span>
+                <span className="text-[9px] font-mono text-muted-foreground">{item.type}</span>
+                <button
+                  onClick={() => handleEquip(item)}
+                  className="ml-1 text-muted-foreground hover:text-destructive transition-colors"
+                  title="Unequip"
+                >
+                  <X size={10} />
+                </button>
+              </div>
+            ))}
+          </div>
+        </HudCard>
+      )}
+
       <div className="flex gap-1.5 flex-wrap">
         {types.map((t) => (
           <button key={t} onClick={() => setTypeFilter(t)} className={`px-2 py-1 text-[10px] font-mono uppercase rounded border transition-all ${typeFilter === t ? "bg-primary/10 border-primary/30 text-primary" : "border-border/50 text-muted-foreground"}`}>{t}</button>
@@ -1403,6 +1436,15 @@ export function InventoryPage() {
                   )}
                 </div>
                 <div className="flex flex-col gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
+                  {EQUIPPABLE.has(item.type) && (
+                    <button
+                      onClick={() => handleEquip(item)}
+                      className={`p-1 transition-colors ${item.is_equipped ? "text-primary hover:text-primary/60" : "text-muted-foreground hover:text-primary"}`}
+                      title={item.is_equipped ? "Unequip" : "Equip"}
+                    >
+                      {item.is_equipped ? <ShieldOff size={12} /> : <Shield size={12} />}
+                    </button>
+                  )}
                   <button onClick={() => handleEdit(item)} className="p-1 text-muted-foreground hover:text-primary transition-colors"><Edit2 size={12} /></button>
                   <button onClick={() => setConfirmDeleteItem({ id: item.id, label: item.name })} className="p-1 text-muted-foreground hover:text-destructive transition-colors"><Trash2 size={12} /></button>
                 </div>
