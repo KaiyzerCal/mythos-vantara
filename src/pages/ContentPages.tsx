@@ -4,7 +4,7 @@
 // ============================================================
 import { useState, useEffect, useRef, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { BookOpen, BookLock, Sparkles, Package, Plus, Trash2, Loader2, Star, Edit2, Upload, FileText, Image, Film, Music, File, X, Eye, LayoutGrid, ChevronLeft, ChevronRight, Wand2, Mic, MicOff, Download, FileDown, LayoutTemplate, Link2, Shield, ShieldOff } from "lucide-react";
+import { BookOpen, BookLock, Sparkles, Package, Plus, Trash2, Loader2, Star, Edit2, Upload, FileText, Image, Film, Music, File, X, Eye, LayoutGrid, ChevronLeft, ChevronRight, Wand2, Mic, MicOff, Download, FileDown, LayoutTemplate, Link2, Shield, ShieldOff, Swords, AlertTriangle, CheckCircle2, Waves } from "lucide-react";
 import { useAppData } from "@/contexts/AppDataContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
@@ -1503,6 +1503,213 @@ export function InventoryPage() {
           setConfirmDeleteItem(null);
         }}
         onCancel={() => setConfirmDeleteItem(null)}
+      />
+    </div>
+  );
+}
+
+// ─── DomainPage ────────────────────────────────────────────
+const EFFECT_TYPE_COLORS: Record<string, string> = {
+  domain:        "text-violet-400 border-violet-500/30 bg-violet-500/5",
+  curse:         "text-red-400 border-red-500/30 bg-red-500/5",
+  terrain:       "text-amber-400 border-amber-500/30 bg-amber-500/5",
+  environmental: "text-blue-400 border-blue-500/30 bg-blue-500/5",
+  aura:          "text-green-400 border-green-500/30 bg-green-500/5",
+  zone:          "text-cyan-400 border-cyan-500/30 bg-cyan-500/5",
+};
+const EFFECT_TYPES = ["domain", "curse", "terrain", "environmental", "aura", "zone"] as const;
+
+export function DomainPage() {
+  const { domainEffects, domainEffectsLoading, createDomainEffect, updateDomainEffect, deleteDomainEffect, refetchDomainEffects } = useAppData();
+  const [showCreate, setShowCreate] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [form, setForm] = useState({ name: "", description: "", effect_type: "domain", stat_modifiers: "", area_effects: "", source: "", expires_at: "", is_active: true });
+  const [confirmDelete, setConfirmDelete] = useState<{ id: string; label: string } | null>(null);
+
+  useEffect(() => { void refetchDomainEffects(); }, [refetchDomainEffects]);
+
+  const parseModifiers = (str: string): { label: string; value: number; unit: string }[] => {
+    if (!str.trim()) return [];
+    return str.split(",").flatMap((token) => {
+      const m = token.trim().match(/^([A-Z]+)\s*([+-]?\d+)(%?)$/i);
+      if (!m) return [];
+      return [{ label: m[1].toUpperCase(), value: Number(m[2]), unit: m[3] || "" }];
+    });
+  };
+  const serializeModifiers = (mods: { label: string; value: number; unit: string }[]): string =>
+    mods.map((m) => `${m.label} ${m.value >= 0 ? "+" : ""}${m.value}${m.unit}`).join(", ");
+
+  const resetForm = () => {
+    setForm({ name: "", description: "", effect_type: "domain", stat_modifiers: "", area_effects: "", source: "", expires_at: "", is_active: true });
+    setEditingId(null);
+    setShowCreate(false);
+  };
+
+  const handleEdit = (ef: any) => {
+    setForm({
+      name: ef.name,
+      description: ef.description || "",
+      effect_type: ef.effect_type,
+      stat_modifiers: serializeModifiers(Array.isArray(ef.stat_modifiers) ? ef.stat_modifiers : []),
+      area_effects: Array.isArray(ef.area_effects) ? ef.area_effects.join(", ") : "",
+      source: ef.source || "",
+      expires_at: ef.expires_at ? ef.expires_at.slice(0, 16) : "",
+      is_active: ef.is_active,
+    });
+    setEditingId(ef.id);
+    setShowCreate(true);
+  };
+
+  const handleSave = async () => {
+    if (!form.name.trim()) return;
+    const stat_modifiers = parseModifiers(form.stat_modifiers);
+    const area_effects = form.area_effects.split(",").map((s) => s.trim()).filter(Boolean);
+    const payload = {
+      name: form.name,
+      description: form.description || null,
+      effect_type: form.effect_type,
+      stat_modifiers,
+      area_effects,
+      source: form.source || null,
+      expires_at: form.expires_at ? new Date(form.expires_at).toISOString() : null,
+      is_active: form.is_active,
+    };
+    if (editingId) {
+      await updateDomainEffect(editingId, payload);
+    } else {
+      await createDomainEffect(payload);
+    }
+    resetForm();
+  };
+
+  const handleToggle = async (ef: any) => {
+    await updateDomainEffect(ef.id, { is_active: !ef.is_active });
+  };
+
+  const active = domainEffects.filter((e) => e.is_active);
+  const inactive = domainEffects.filter((e) => !e.is_active);
+
+  if (domainEffectsLoading) return <div className="flex items-center justify-center h-40"><Loader2 className="animate-spin text-primary" size={24} /></div>;
+
+  const EffectForm = () => (
+    <HudCard className="border-primary/20">
+      <p className="text-[9px] font-mono text-primary uppercase tracking-widest mb-3">{editingId ? "Edit Effect" : "New Effect"}</p>
+      <div className="space-y-2">
+        <div className="grid grid-cols-2 gap-2">
+          <input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} placeholder="Effect name" className="bg-muted/30 border border-border rounded px-3 py-1.5 text-sm focus:outline-none focus:border-primary/40" />
+          <select value={form.effect_type} onChange={(e) => setForm((f) => ({ ...f, effect_type: e.target.value }))} className="bg-muted/30 border border-border rounded px-2 py-1.5 text-xs font-mono focus:outline-none">
+            {EFFECT_TYPES.map((t) => <option key={t}>{t}</option>)}
+          </select>
+        </div>
+        <textarea value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))} placeholder="Description..." rows={2} className="w-full bg-muted/30 border border-border rounded px-3 py-1.5 text-sm resize-none focus:outline-none" />
+        <input value={form.stat_modifiers} onChange={(e) => setForm((f) => ({ ...f, stat_modifiers: e.target.value }))} placeholder="Stat modifiers: STR -10, AGI +5, VIT -20%" className="w-full bg-muted/30 border border-border rounded px-3 py-1.5 text-xs font-mono focus:outline-none focus:border-primary/40" />
+        <input value={form.area_effects} onChange={(e) => setForm((f) => ({ ...f, area_effects: e.target.value }))} placeholder="Area effects (comma-separated): gravity doubled, invisibility nullified" className="w-full bg-muted/30 border border-border rounded px-3 py-1.5 text-xs font-mono focus:outline-none" />
+        <div className="grid grid-cols-2 gap-2">
+          <input value={form.source} onChange={(e) => setForm((f) => ({ ...f, source: e.target.value }))} placeholder="Source (who applied it)" className="bg-muted/30 border border-border rounded px-3 py-1.5 text-xs font-mono focus:outline-none" />
+          <input type="datetime-local" value={form.expires_at} onChange={(e) => setForm((f) => ({ ...f, expires_at: e.target.value }))} className="bg-muted/30 border border-border rounded px-3 py-1.5 text-xs font-mono focus:outline-none" />
+        </div>
+        <label className="flex items-center gap-2 text-xs font-mono text-muted-foreground cursor-pointer">
+          <input type="checkbox" checked={form.is_active} onChange={(e) => setForm((f) => ({ ...f, is_active: e.target.checked }))} className="rounded" />
+          Currently active
+        </label>
+        <div className="flex gap-2 justify-end">
+          <button onClick={resetForm} className="px-3 py-1.5 text-xs font-mono text-muted-foreground border border-border rounded">Cancel</button>
+          <button onClick={handleSave} className="px-3 py-1.5 text-xs font-mono bg-primary/10 border border-primary/30 text-primary rounded">{editingId ? "Save" : "Add"}</button>
+        </div>
+      </div>
+    </HudCard>
+  );
+
+  const EffectCard = ({ ef }: { ef: any }) => {
+    const mods = Array.isArray(ef.stat_modifiers) ? (ef.stat_modifiers as { label: string; value: number; unit: string }[]) : [];
+    const areaFx = Array.isArray(ef.area_effects) ? ef.area_effects as string[] : [];
+    const colorClass = EFFECT_TYPE_COLORS[ef.effect_type] ?? EFFECT_TYPE_COLORS.domain;
+    return (
+      <HudCard className={ef.is_active ? "border-primary/20" : "opacity-50"}>
+        <div className="flex items-start justify-between gap-2">
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 flex-wrap mb-1">
+              <p className="text-sm font-display font-bold">{ef.name}</p>
+              <span className={`text-[8px] font-mono px-1.5 py-0.5 rounded border ${colorClass}`}>{ef.effect_type.toUpperCase()}</span>
+              {ef.is_active
+                ? <span className="text-[8px] font-mono text-green-400 border border-green-500/30 rounded px-1">ACTIVE</span>
+                : <span className="text-[8px] font-mono text-muted-foreground border border-border rounded px-1">INACTIVE</span>}
+            </div>
+            {ef.source && <p className="text-[10px] font-mono text-muted-foreground mb-1">Source: {ef.source}</p>}
+            {ef.description && <p className="text-xs font-body text-muted-foreground mb-2">{ef.description}</p>}
+            {mods.length > 0 && (
+              <div className="flex gap-1.5 flex-wrap mb-1.5">
+                {mods.map((mod, i) => (
+                  <span key={i} className={`text-[9px] font-mono px-1.5 py-0.5 rounded border ${mod.value >= 0 ? "text-green-400 border-green-500/30 bg-green-500/5" : "text-red-400 border-red-500/30 bg-red-500/5"}`}>
+                    {mod.label} {mod.value >= 0 ? "+" : ""}{mod.value}{mod.unit}
+                  </span>
+                ))}
+              </div>
+            )}
+            {areaFx.length > 0 && (
+              <div className="space-y-0.5">
+                {areaFx.map((fx, i) => (
+                  <p key={i} className="text-[10px] font-mono text-cyan-400 pl-2 border-l border-cyan-500/30">{fx}</p>
+                ))}
+              </div>
+            )}
+            {ef.expires_at && (
+              <p className="text-[9px] font-mono text-muted-foreground mt-1.5">
+                Expires: {new Date(ef.expires_at).toLocaleString()}
+              </p>
+            )}
+          </div>
+          <div className="flex flex-col gap-1 shrink-0">
+            <button onClick={() => handleToggle(ef)} className={`p-1 transition-colors ${ef.is_active ? "text-green-400 hover:text-muted-foreground" : "text-muted-foreground hover:text-green-400"}`} title={ef.is_active ? "Deactivate" : "Activate"}>
+              {ef.is_active ? <CheckCircle2 size={12} /> : <AlertTriangle size={12} />}
+            </button>
+            <button onClick={() => handleEdit(ef)} className="p-1 text-muted-foreground hover:text-primary transition-colors"><Edit2 size={12} /></button>
+            <button onClick={() => setConfirmDelete({ id: ef.id, label: ef.name })} className="p-1 text-muted-foreground hover:text-destructive transition-colors"><Trash2 size={12} /></button>
+          </div>
+        </div>
+      </HudCard>
+    );
+  };
+
+  return (
+    <div className="space-y-5">
+      <PageHeader
+        title="Domain Effects"
+        subtitle={`${active.length} active · ${domainEffects.length} total`}
+        icon={<Waves size={18} />}
+        actions={<button onClick={() => { resetForm(); setShowCreate(true); }} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono bg-primary/10 border border-primary/30 text-primary rounded"><Plus size={12} /> Add Effect</button>}
+      />
+
+      {showCreate && !editingId && <EffectForm />}
+
+      {active.length > 0 && (
+        <div className="space-y-3">
+          <h3 className="text-xs font-mono text-muted-foreground uppercase tracking-widest flex items-center gap-2">
+            <CheckCircle2 size={10} className="text-green-400" /> Active Effects ({active.length})
+          </h3>
+          {active.map((ef) => editingId === ef.id ? <EffectForm key={ef.id} /> : <EffectCard key={ef.id} ef={ef} />)}
+        </div>
+      )}
+
+      {inactive.length > 0 && (
+        <div className="space-y-3">
+          <h3 className="text-xs font-mono text-muted-foreground uppercase tracking-widest flex items-center gap-2">
+            <AlertTriangle size={10} className="text-muted-foreground" /> Inactive ({inactive.length})
+          </h3>
+          {inactive.map((ef) => editingId === ef.id ? <EffectForm key={ef.id} /> : <EffectCard key={ef.id} ef={ef} />)}
+        </div>
+      )}
+
+      {domainEffects.length === 0 && !showCreate && (
+        <p className="text-xs font-mono text-muted-foreground text-center py-12">No domain effects. Add one to track active domains, curses, terrain modifiers, or aura zones.</p>
+      )}
+
+      <ConfirmDialog
+        open={confirmDelete !== null}
+        title={`Remove "${confirmDelete?.label}"?`}
+        description="This will permanently delete this domain effect."
+        onConfirm={async () => { if (confirmDelete) { await deleteDomainEffect(confirmDelete.id); setConfirmDelete(null); } }}
+        onCancel={() => setConfirmDelete(null)}
       />
     </div>
   );

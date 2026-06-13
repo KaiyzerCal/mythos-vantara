@@ -261,6 +261,22 @@ export interface InventoryItem {
 }
 export const useInventory = makeHook<InventoryItem>("inventory", { orderColumn: "obtained_at" });
 
+// ─── DOMAIN EFFECTS ────────────────────────────────────────
+export interface DomainEffect {
+  id: string;
+  user_id: string;
+  name: string;
+  description: string | null;
+  effect_type: "domain" | "curse" | "terrain" | "environmental" | "aura" | "zone";
+  stat_modifiers: { label: string; value: number; unit: string }[];
+  area_effects: string[];
+  is_active: boolean;
+  expires_at: string | null;
+  source: string | null;
+  created_at: string;
+}
+export const useDomainEffects = makeHook<DomainEffect>("mavis_domain_effects", { orderColumn: "created_at" });
+
 // ─── ALLIES ────────────────────────────────────────────────
 export interface Ally {
   id: string;

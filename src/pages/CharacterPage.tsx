@@ -1,5 +1,5 @@
 import { motion } from "framer-motion";
-import { Crown, Copy, User, Zap, Star, Shield, Activity, Package, Swords, BookOpen } from "lucide-react";
+import { Crown, Copy, User, Zap, Star, Shield, Activity, Package, Swords, BookOpen, Waves } from "lucide-react";
 import { useAppData } from "@/contexts/AppDataContext";
 import { PageHeader, HudCard, ProgressBar, StatBadge, RankBadge, EnergyBar } from "@/components/SharedUI";
 import { AvatarUploader } from "@/components/AvatarUploader";
@@ -43,7 +43,7 @@ function renderBuffList(buffs: unknown): string[] {
 }
 
 export default function CharacterPage() {
-  const { profile, quests, skills, energySystems, updateProfile, inventory, transformations } = useAppData();
+  const { profile, quests, skills, energySystems, updateProfile, inventory, transformations, domainEffects } = useAppData();
   const [copied, setCopied] = useState(false);
 
   const rankColor = RANK_COLORS[profile.rank as keyof typeof RANK_COLORS] ?? "#FFD700";
@@ -55,6 +55,7 @@ export default function CharacterPage() {
   const equippedItems = inventory.filter((i) => i.is_equipped);
   const activeTransform = transformations.find((t) => t.name === profile.current_form);
   const activeQuests = quests.filter((q) => q.status === "active");
+  const activeDomains = domainEffects.filter((d) => d.is_active);
 
   // Sum stat_effects from all equipped gear keyed by profile stat column
   const gearBonuses = equippedItems.reduce((acc, item) => {
@@ -68,8 +69,23 @@ export default function CharacterPage() {
     return acc;
   }, {} as Record<string, number>);
 
+  // Sum stat_modifiers from all active domain effects
+  const domainBonuses = activeDomains.reduce((acc, ef) => {
+    const mods = Array.isArray(ef.stat_modifiers)
+      ? (ef.stat_modifiers as { label: string; value: number; unit: string }[])
+      : [];
+    mods.forEach(({ label, value }) => {
+      const key = STAT_LABEL_MAP[label.toUpperCase()];
+      if (key) acc[key] = (acc[key] ?? 0) + value;
+    });
+    return acc;
+  }, {} as Record<string, number>);
+
   const hasGearStats = equippedItems.some(
     (i) => Array.isArray(i.stat_effects) && (i.stat_effects as unknown[]).length > 0,
+  );
+  const hasDomainStats = activeDomains.some(
+    (d) => Array.isArray(d.stat_modifiers) && (d.stat_modifiers as unknown[]).length > 0,
   );
 
   const activeBuffs = renderBuffList(activeTransform?.active_buffs);
@@ -84,7 +100,7 @@ export default function CharacterPage() {
     }))
     .filter((qm) => qm.buffs.length > 0 || qm.debuffs.length > 0);
 
-  const hasModifiers = hasGearStats || hasFormBuffs || questModifiers.length > 0;
+  const hasModifiers = hasGearStats || hasFormBuffs || questModifiers.length > 0 || activeDomains.length > 0;
 
   // ── Copy sheet ──────────────────────────────────────────────────────────────
   const copySheet = () => {
@@ -226,23 +242,26 @@ export default function CharacterPage() {
           {Object.keys(gearBonuses).length > 0 && (
             <span className="text-[9px] text-green-400 ml-1">(gear active)</span>
           )}
+          {activeDomains.length > 0 && (
+            <span className="text-[9px] text-violet-400 ml-1">({activeDomains.length} domain{activeDomains.length > 1 ? "s" : ""})</span>
+          )}
         </h3>
         <HudCard>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
-            <StatBadge label="STR" value={profile.stat_str + (gearBonuses["stat_str"] ?? 0)} />
-            <StatBadge label="INT" value={profile.stat_int + (gearBonuses["stat_int"] ?? 0)} />
-            <StatBadge label="VIT" value={profile.stat_vit + (gearBonuses["stat_vit"] ?? 0)} />
-            <StatBadge label="AGI" value={profile.stat_agi + (gearBonuses["stat_agi"] ?? 0)} />
-            <StatBadge label="WIS" value={profile.stat_wis + (gearBonuses["stat_wis"] ?? 0)} />
-            <StatBadge label="CHA" value={profile.stat_cha + (gearBonuses["stat_cha"] ?? 0)} />
-            <StatBadge label="LCK" value={profile.stat_lck + (gearBonuses["stat_lck"] ?? 0)} />
+            <StatBadge label="STR" value={profile.stat_str + (gearBonuses["stat_str"] ?? 0) + (domainBonuses["stat_str"] ?? 0)} />
+            <StatBadge label="INT" value={profile.stat_int + (gearBonuses["stat_int"] ?? 0) + (domainBonuses["stat_int"] ?? 0)} />
+            <StatBadge label="VIT" value={profile.stat_vit + (gearBonuses["stat_vit"] ?? 0) + (domainBonuses["stat_vit"] ?? 0)} />
+            <StatBadge label="AGI" value={profile.stat_agi + (gearBonuses["stat_agi"] ?? 0) + (domainBonuses["stat_agi"] ?? 0)} />
+            <StatBadge label="WIS" value={profile.stat_wis + (gearBonuses["stat_wis"] ?? 0) + (domainBonuses["stat_wis"] ?? 0)} />
+            <StatBadge label="CHA" value={profile.stat_cha + (gearBonuses["stat_cha"] ?? 0) + (domainBonuses["stat_cha"] ?? 0)} />
+            <StatBadge label="LCK" value={profile.stat_lck + (gearBonuses["stat_lck"] ?? 0) + (domainBonuses["stat_lck"] ?? 0)} />
             <StatBadge label="SYNC" value={`${profile.full_cowl_sync}%`} color="#FFD700" />
           </div>
-          {/* Stat bars with gear bonus overlay */}
+          {/* Stat bars with gear + domain overlay */}
           <div className="space-y-2.5">
             {CORE_STATS.map(({ key, label }) => {
               const base = (profile as any)[key] as number;
-              const bonus = gearBonuses[key] ?? 0;
+              const bonus = (gearBonuses[key] ?? 0) + (domainBonuses[key] ?? 0);
               const effective = Math.min(Math.max(base + bonus, 0), STAT_MAX);
               return (
                 <div key={key} className="flex items-center gap-3">
@@ -350,6 +369,44 @@ export default function CharacterPage() {
                     </div>
                   </div>
                 )}
+              </HudCard>
+            )}
+
+            {/* Domain / Area Effects */}
+            {activeDomains.length > 0 && (
+              <HudCard>
+                <p className="text-[9px] font-mono text-muted-foreground uppercase tracking-widest mb-2 flex items-center gap-1.5">
+                  <Waves size={9} /> Domain & Area Effects
+                </p>
+                <div className="space-y-3">
+                  {activeDomains.map((ef) => {
+                    const mods = Array.isArray(ef.stat_modifiers)
+                      ? (ef.stat_modifiers as { label: string; value: number; unit: string }[])
+                      : [];
+                    const areaFx = Array.isArray(ef.area_effects) ? ef.area_effects as string[] : [];
+                    return (
+                      <div key={ef.id} className="border-b border-border/20 last:border-0 pb-2 last:pb-0">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="text-xs font-display font-semibold text-foreground">{ef.name}</span>
+                          <span className="text-[8px] font-mono text-violet-400 border border-violet-500/30 bg-violet-500/5 px-1 rounded">{ef.effect_type}</span>
+                        </div>
+                        {ef.source && <p className="text-[9px] font-mono text-muted-foreground mb-1">from {ef.source}</p>}
+                        {mods.length > 0 && (
+                          <div className="flex gap-1.5 flex-wrap mb-1">
+                            {mods.map((mod, i) => (
+                              <span key={i} className={`text-[9px] font-mono px-1.5 py-0.5 rounded border ${mod.value >= 0 ? "text-green-400 border-green-500/30 bg-green-500/5" : "text-red-400 border-red-500/30 bg-red-500/5"}`}>
+                                {mod.label} {mod.value >= 0 ? "+" : ""}{mod.value}{mod.unit}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                        {areaFx.map((fx, i) => (
+                          <p key={i} className="text-[9px] font-mono text-cyan-400 pl-2 border-l border-cyan-500/30">{fx}</p>
+                        ))}
+                      </div>
+                    );
+                  })}
+                </div>
               </HudCard>
             )}
 
