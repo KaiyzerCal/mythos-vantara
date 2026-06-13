@@ -1,0 +1,1089 @@
+// MAVIS Task Executor — the autonomous worker.
+// Polls mavis_tasks for pending work and executes each by type.
+// Scheduled via cron-job.org every 15 minutes. Can also be triggered manually.
+//
+// Goal tasks implement a true agentic loop:
+//   plan → act → observe → re-plan → repeat until objective achieved
+//
+// Each cron run advances one step. Claude observes results and replans if needed.
+
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+};
+
+const supabase = createClient(
+  Deno.env.get("SUPABASE_URL")!,
+  Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+);
+
+const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY")!;
+// Module-level constants — read once, reuse in all handlers
+const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
+const SERVICE_KEY  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+const BOT_TOKEN    = Deno.env.get("TELEGRAM_BOT_TOKEN") ?? "";
+const OPERATOR_CHAT_ID = Deno.env.get("TELEGRAM_OPERATOR_CHAT_ID") ?? "";
+
+// ─────────────────────────────────────────────────────────────
+// TYPES
+// ─────────────────────────────────────────────────────────────
+
+interface Task {
+  id: string;
+  user_id: string;
+  type: string;
+  description: string | null;
+  payload: Record<string, unknown>;
+  status: string;
+  scheduled_at: string | null;
+}
+
+// continuing=true means the handler re-queued itself — do NOT call markComplete
+type TaskResult = { success: boolean; continuing?: boolean; output?: unknown; error?: string };
+type TaskHandler = (task: Task) => Promise<TaskResult>;
+
+// ─────────────────────────────────────────────────────────────
+// GOAL STEP TYPES
+// A goal plan is an ordered array of GoalStep objects.
+// Each step runs in one cron tick. Results feed Claude's next decision.
+// ─────────────────────────────────────────────────────────────
+
+interface GoalStep {
+  type: string;           // demand_scan | revenue_snapshot | nora_tweet | direct_action | create_product | web_search | daily_brief | system_change
+  description: string;   // human-readable intent
+  params: Record<string, unknown>;
+  result?: unknown;
+  status?: "pending" | "completed" | "failed" | "skipped";
+}
+
+interface GoalPayload {
+  objective: string;
+  context?: string;
+  plan?: GoalStep[];
+  completed_steps?: GoalStep[];
+  current_step?: number;
+  iteration?: number;
+  started_at?: string;
+}
+
+// ─────────────────────────────────────────────────────────────
+// HELPERS
+// ─────────────────────────────────────────────────────────────
+
+/** Extract the flat params object from a task payload, handling both
+ *  { ...fields } and { params: { ...fields } } shapes. */
+function extractPayload(raw: Record<string, unknown>): Record<string, unknown> {
+  return (raw.params && typeof raw.params === "object")
+    ? raw.params as Record<string, unknown>
+    : raw;
+}
+
+/** Fire-and-forget Telegram message to the operator. Always awaited so we
+ *  know if it succeeded, but failures are swallowed (non-fatal). */
+async function sendTelegram(text: string): Promise<void> {
+  if (!BOT_TOKEN || !OPERATOR_CHAT_ID) return;
+  try {
+    await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ chat_id: OPERATOR_CHAT_ID, text, parse_mode: "Markdown" }),
+      signal: AbortSignal.timeout(8000),
+    });
+  } catch { /* non-fatal */ }
+}
+
+async function callClaude(systemPrompt: string, userContent: string): Promise<string> {
+  const res = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-api-key": ANTHROPIC_API_KEY,
+      "anthropic-version": "2023-06-01",
+    },
+    body: JSON.stringify({
+      model: "claude-haiku-4-5-20251001",
+      max_tokens: 1500,
+      system: systemPrompt,
+      messages: [{ role: "user", content: userContent }],
+    }),
+    signal: AbortSignal.timeout(30000), // prevent indefinite hang
+  });
+  if (!res.ok) return "";
+  const data = await res.json();
+  return data?.content?.[0]?.text ?? "";
+}
+
+async function markRunning(taskId: string) {
+  await supabase.from("mavis_tasks").update({
+    status: "running",
+    started_at: new Date().toISOString(),
+  }).eq("id", taskId);
+}
+
+async function markComplete(taskId: string, result: unknown, revenueGenerated = 0) {
+  await supabase.from("mavis_tasks").update({
+    status: "completed",
+    completed_at: new Date().toISOString(),
+    result,
+    revenue_generated: revenueGenerated,
+  }).eq("id", taskId);
+}
+
+async function markFailed(taskId: string, error: string) {
+  await supabase.from("mavis_tasks").update({
+    status: "failed",
+    completed_at: new Date().toISOString(),
+    result: { error },
+  }).eq("id", taskId);
+}
+
+// Re-queue a goal task for the next cron run with updated payload
+async function markContinue(taskId: string, updatedPayload: unknown) {
+  await supabase.from("mavis_tasks").update({
+    status: "pending",
+    payload: updatedPayload,
+  }).eq("id", taskId);
+}
+
+// ─────────────────────────────────────────────────────────────
+// GOAL AGENTIC LOOP — HELPERS
+// ─────────────────────────────────────────────────────────────
+
+async function loadGoalContext(uid: string): Promise<string> {
+  const [profileRes, questsRes, skillsRes, revenueRes, productsRes] = await Promise.all([
+    supabase.from("profiles").select("display_name,level,rank,xp,current_form").eq("id", uid).single(),
+    supabase.from("quests").select("title,status,type").eq("user_id", uid).eq("status", "active").limit(5),
+    supabase.from("skills").select("name,category,tier,proficiency").eq("user_id", uid).order("proficiency", { ascending: false }).limit(8),
+    supabase.from("mavis_revenue").select("amount,source").eq("user_id", uid).order("created_at", { ascending: false }).limit(10),
+    supabase.from("mavis_products").select("title,status,platform,revenue_total").eq("user_id", uid).order("created_at", { ascending: false }).limit(5),
+  ]);
+
+  const profile  = profileRes.data as any;
+  const quests   = (questsRes.data ?? []) as any[];
+  const skills   = (skillsRes.data ?? []) as any[];
+  const revenue  = (revenueRes.data ?? []) as any[];
+  const products = (productsRes.data ?? []) as any[];
+
+  const totalRevenue = revenue.reduce((s: number, r: any) => s + Number(r.amount), 0);
+
+  const lines = [
+    `OPERATOR: ${profile?.display_name ?? "Calvin"} | Level ${profile?.level} | Rank ${profile?.rank}`,
+    `ACTIVE QUESTS: ${quests.map((q: any) => q.title).join(", ") || "none"}`,
+    `TOP SKILLS: ${skills.map((s: any) => `${s.name}(T${s.tier},${s.proficiency}%)`).join(", ")}`,
+    `TOTAL REVENUE: $${totalRevenue.toFixed(2)}`,
+    `EXISTING PRODUCTS: ${products.map((p: any) => `${p.title}[${p.status},$${Number(p.revenue_total ?? 0).toFixed(0)}]`).join(", ") || "none"}`,
+    `TODAY: ${new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" })}`,
+  ];
+  return lines.join("\n");
+}
+
+// PLANNER: Claude generates an initial step-by-step plan for the goal
+async function planGoal(objective: string, context: string): Promise<GoalStep[]> {
+  const system = `You are MAVIS — autonomous strategic AI. You plan goal execution step by step.
+
+Available step types (use ONLY these):
+- demand_scan: scan for monetizable product opportunities (params: {})
+- revenue_snapshot: check current total revenue (params: {})
+- nora_tweet: post content as Nora Vale on Twitter (params: {content: "..."})
+- direct_action: execute any CODEXOS app action (params: {type: "create_quest|create_task|award_xp|...", ...action_params})
+- create_product: propose a product for approval — queued to Inbox (params: {title, description, audience, price_cents, category, platform})
+- web_search: search the web for info (params: {query: "..."})
+- daily_brief: generate a status brief (params: {})
+
+Rules:
+- Maximum 6 steps per plan
+- Be specific — don't create vague steps
+- For revenue goals: always start with demand_scan to find opportunities
+- For revenue goals: include revenue_snapshot as final step to verify
+- create_product steps will pause for operator approval before executing — plan around this
+- Return ONLY valid JSON, no other text
+
+Return this exact format:
+{"steps": [{"type": "...", "description": "human-readable intent", "params": {...}}, ...]}`
+
+  const raw = await callClaude(system, `GOAL: ${objective}\n\nCONTEXT:\n${context}`);
+  try {
+    const parsed = JSON.parse(raw.trim());
+    return (parsed.steps ?? parsed.plan ?? []) as GoalStep[];
+  } catch {
+    // Try extracting JSON from response if Claude added text around it
+    const match = raw.match(/\{[\s\S]*\}/);
+    if (match) {
+      try {
+        const parsed = JSON.parse(match[0]);
+        return (parsed.steps ?? parsed.plan ?? []) as GoalStep[];
+      } catch { /* ignore */ }
+    }
+    return [];
+  }
+}
+
+// OBSERVER: Claude evaluates step results and decides what to do next
+async function observeAndDecide(
+  objective: string,
+  completedSteps: GoalStep[],
+  remainingSteps: GoalStep[],
+): Promise<{ action: "continue" | "replan" | "complete"; summary?: string; new_steps?: GoalStep[] }> {
+  const system = `You are MAVIS — autonomous strategic AI evaluating goal progress.
+
+Available step types for replanning: demand_scan, revenue_snapshot, nora_tweet, direct_action, create_product, web_search, daily_brief
+
+Respond with ONLY valid JSON in one of these formats:
+- {"action": "continue"} — proceed with the existing plan
+- {"action": "complete", "summary": "..."} — goal achieved or cannot be progressed further
+- {"action": "replan", "new_steps": [...]} — replace remaining steps with better ones (max 4 new steps)`;
+
+  const completedSummary = completedSteps.map((s, i) =>
+    `Step ${i + 1} [${s.type}]: ${s.description}\nResult: ${JSON.stringify(s.result).slice(0, 300)}`
+  ).join("\n\n");
+
+  const remainingSummary = remainingSteps.map((s, i) =>
+    `Step ${completedSteps.length + i + 1} [${s.type}]: ${s.description}`
+  ).join("\n");
+
+  const userMsg = [
+    `GOAL: ${objective}`,
+    `\nCOMPLETED STEPS:\n${completedSummary || "None yet"}`,
+    `\nREMAINING PLAN:\n${remainingSummary || "None — plan is complete"}`,
+    `\nDecide: is the goal achieved? Should we continue, replan, or mark complete?`,
+  ].join("\n");
+
+  const raw = await callClaude(system, userMsg);
+  try {
+    const parsed = JSON.parse(raw.trim());
+    return parsed;
+  } catch {
+    const match = raw.match(/\{[\s\S]*\}/);
+    if (match) {
+      try { return JSON.parse(match[0]); } catch { /* ignore */ }
+    }
+    return { action: "continue" };
+  }
+}
+
+// STEP EXECUTOR: runs a single goal step and returns its result
+async function executeGoalStep(step: GoalStep, task: Task): Promise<unknown> {
+  const supabaseUrl = SUPABASE_URL;
+  const serviceKey  = SERVICE_KEY;
+  const uid = task.user_id;
+
+  switch (step.type) {
+    case "demand_scan": {
+      const res = await fetch(`${supabaseUrl}/functions/v1/mavis-demand-scan`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${serviceKey}` },
+        body: JSON.stringify({ user_id: uid }),
+      });
+      return await res.json();
+    }
+
+    case "revenue_snapshot": {
+      const { data } = await supabase.from("mavis_revenue").select("source,amount").eq("user_id", uid);
+      const total = (data ?? []).reduce((s: number, r: any) => s + Number(r.amount), 0);
+      const bySource: Record<string, number> = {};
+      for (const r of data ?? []) bySource[r.source] = (bySource[r.source] ?? 0) + Number(r.amount);
+      return { total, bySource };
+    }
+
+    case "nora_tweet": {
+      const content = String(step.params.content ?? "").slice(0, 280);
+      if (!content) return { error: "No content provided for nora_tweet" };
+      const res = await fetch(`${supabaseUrl}/functions/v1/mavis-nora-post`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${serviceKey}` },
+        body: JSON.stringify({ userId: uid, content }),
+      });
+      return await res.json();
+    }
+
+    case "create_product": {
+      // Queue for operator approval — agentic goals pause here for safety
+      const { error } = await supabase.from("mavis_tasks").insert({
+        user_id: uid,
+        type: "create_product",
+        description: `[GOAL] Product: "${step.params.title ?? "New Product"}"`,
+        payload: { ...step.params, goal_task_id: task.id },
+        status: "requires_confirmation",
+      });
+      return { queued: true, error: error?.message };
+    }
+
+    case "direct_action": {
+      // Call mavis-actions with the step params as a single action
+      const { type: actionType, ...actionParams } = step.params as any;
+      const res = await fetch(`${supabaseUrl}/functions/v1/mavis-actions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${serviceKey}` },
+        body: JSON.stringify({
+          userId: uid,
+          actions: [{ type: actionType, params: actionParams }],
+        }),
+      });
+      return await res.json();
+    }
+
+    case "web_search": {
+      const tavilyKey = Deno.env.get("TAVILY_API_KEY");
+      if (!tavilyKey) return { error: "TAVILY_API_KEY not set" };
+      const res = await fetch("https://api.tavily.com/search", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          api_key: tavilyKey,
+          query: String(step.params.query ?? ""),
+          search_depth: "basic",
+          max_results: 5,
+          include_answer: true,
+        }),
+      });
+      const data = await res.json();
+      return { answer: data.answer, results: (data.results ?? []).slice(0, 3).map((r: any) => ({ title: r.title, url: r.url, content: (r.content ?? "").slice(0, 300) })) };
+    }
+
+    case "daily_brief": {
+      const ctx = await loadGoalContext(uid);
+      const brief = await callClaude(
+        "You are MAVIS. Generate a concise status brief. 3–5 bullets. Direct, sovereign tone.",
+        ctx,
+      );
+      return { brief };
+    }
+
+    default:
+      return { error: `Unknown step type: ${step.type}` };
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+// GOAL HANDLER — the agentic loop
+// One cron tick = one step executed. Loop persists across ticks.
+// ─────────────────────────────────────────────────────────────
+
+const MAX_ITERATIONS = 12; // safety cap — goal auto-completes after this many steps
+
+const handleGoal: TaskHandler = async (task) => {
+  const payload = task.payload as GoalPayload;
+
+  // ── Phase 1: First run — generate plan ───────────────────
+  if (!payload.plan) {
+    const context = await loadGoalContext(task.user_id);
+    const plan = await planGoal(payload.objective, context);
+
+    if (!plan.length) {
+      return { success: false, error: "MAVIS could not generate a plan for this goal." };
+    }
+
+    const updatedPayload: GoalPayload = {
+      ...payload,
+      plan,
+      completed_steps: [],
+      current_step: 0,
+      iteration: 1,
+      started_at: new Date().toISOString(),
+    };
+
+    await markContinue(task.id, updatedPayload);
+    return {
+      success: true,
+      continuing: true,
+      output: { planned: true, steps: plan.length, plan: plan.map(s => `[${s.type}] ${s.description}`) },
+    };
+  }
+
+  // ── Phase 2: Subsequent runs — execute next step ─────────
+  const plan           = payload.plan!;
+  const completedSteps = (payload.completed_steps ?? []) as GoalStep[];
+  const currentStep    = payload.current_step ?? 0;
+  const iteration      = payload.iteration ?? 1;
+
+  // Safety cap
+  if (iteration > MAX_ITERATIONS) {
+    return { success: true, output: { completed: true, reason: "max_iterations_reached", steps_taken: completedSteps.length } };
+  }
+
+  // Plan exhausted — do a final observe
+  if (currentStep >= plan.length) {
+    const decision = await observeAndDecide(payload.objective, completedSteps, []);
+    return {
+      success: true,
+      output: {
+        completed: true,
+        verdict: decision.action,
+        summary: decision.summary ?? "All planned steps completed.",
+        steps_taken: completedSteps.length,
+      },
+    };
+  }
+
+  const step = plan[currentStep];
+
+  // Execute the current step
+  let stepResult: unknown;
+  let stepSuccess = true;
+  try {
+    stepResult = await executeGoalStep(step, task);
+  } catch (err) {
+    stepResult = { error: String(err) };
+    stepSuccess = false;
+  }
+
+  const completedStep: GoalStep = { ...step, result: stepResult, status: stepSuccess ? "completed" : "failed" };
+  const newCompletedSteps = [...completedSteps, completedStep];
+  const remainingSteps    = plan.slice(currentStep + 1);
+
+  // Observe and decide: continue / replan / complete
+  const decision = await observeAndDecide(payload.objective, newCompletedSteps, remainingSteps);
+
+  if (decision.action === "complete") {
+    // Store final state then let markComplete be called by the main loop
+    await supabase.from("mavis_tasks").update({
+      payload: { ...payload, plan, completed_steps: newCompletedSteps, current_step: currentStep + 1 },
+    }).eq("id", task.id);
+    return {
+      success: true,
+      output: {
+        completed: true,
+        summary: decision.summary,
+        objective: payload.objective,
+        steps_taken: newCompletedSteps.length,
+        last_step: step.description,
+      },
+    };
+  }
+
+  // Build updated plan for next tick
+  let nextPlan = plan;
+  if (decision.action === "replan" && decision.new_steps?.length) {
+    // Replace remaining steps with Claude's updated plan
+    nextPlan = [
+      ...plan.slice(0, currentStep + 1),
+      ...(decision.new_steps as GoalStep[]),
+    ];
+  }
+
+  const updatedPayload: GoalPayload = {
+    ...payload,
+    plan: nextPlan,
+    completed_steps: newCompletedSteps,
+    current_step: currentStep + 1,
+    iteration: iteration + 1,
+  };
+
+  await markContinue(task.id, updatedPayload);
+  return {
+    success: true,
+    continuing: true,
+    output: {
+      step_completed: step.description,
+      step_result: stepResult,
+      next_step: nextPlan[currentStep + 1]?.description ?? "plan complete",
+      replanned: decision.action === "replan",
+    },
+  };
+};
+
+// ─────────────────────────────────────────────────────────────
+// HANDLERS
+// ─────────────────────────────────────────────────────────────
+
+// daily_brief — generates a status brief and stores it as a completed result
+const handleDailyBrief: TaskHandler = async (task) => {
+  const uid = task.user_id;
+
+  const [questsRes, tasksRes, energyRes] = await Promise.all([
+    supabase.from("quests").select("id,title,status,type,deadline").eq("user_id", uid).eq("status", "active").order("deadline", { ascending: true }),
+    supabase.from("tasks").select("id,title,status,recurrence,streak").eq("user_id", uid).eq("status", "active"),
+    supabase.from("energy_systems").select("type,current_value,max_value,status").eq("user_id", uid),
+  ]);
+
+  const quests = questsRes.data ?? [];
+  const habits = (tasksRes.data ?? []).filter((t: any) => t.recurrence === "daily");
+  const energy = energyRes.data ?? [];
+
+  const context = [
+    `Active quests (${quests.length}): ${quests.slice(0, 5).map((q: any) => q.title).join(", ")}`,
+    `Daily habits (${habits.length}): ${habits.slice(0, 5).map((t: any) => `${t.title} streak:${t.streak ?? 0}`).join(", ")}`,
+    `Energy: ${energy.map((e: any) => `${e.type} ${e.current_value}/${e.max_value}`).join(", ")}`,
+  ].join("\n");
+
+  const brief = await callClaude(
+    `You are MAVIS. Generate a concise daily brief for the operator. 3–5 bullets. Direct, sovereign tone. Reference specific data. Flag anything urgent.`,
+    context,
+  );
+
+  return { success: true, output: { brief, generatedAt: new Date().toISOString() } };
+};
+
+// check_idle_quests — scans for quests with no task activity for 7+ days
+const handleCheckIdleQuests: TaskHandler = async (task) => {
+  const uid = task.user_id;
+  const cutoff = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+
+  const { data: idleQuests } = await supabase
+    .from("quests")
+    .select("id, title, updated_at")
+    .eq("user_id", uid)
+    .eq("status", "active")
+    .lt("updated_at", cutoff);
+
+  if (!idleQuests || idleQuests.length === 0) {
+    return { success: true, output: { idleCount: 0 } };
+  }
+
+  // Create a requires_confirmation task for each idle quest so operator sees them in Inbox
+  for (const q of idleQuests) {
+    const daysSince = Math.floor((Date.now() - new Date(q.updated_at).getTime()) / (24 * 60 * 60 * 1000));
+    await supabase.from("mavis_tasks").insert({
+      user_id: uid,
+      type: "idle_quest_alert",
+      description: `Quest "${q.title}" has been idle for ${daysSince} days — review or abandon?`,
+      payload: { quest_id: q.id, quest_title: q.title, days_idle: daysSince },
+      status: "requires_confirmation",
+    });
+  }
+
+  return { success: true, output: { idleCount: idleQuests.length, quests: idleQuests.map((q: any) => q.title) } };
+};
+
+// memory_consolidation — invokes the mavis-consolidate edge function
+const handleMemoryConsolidation: TaskHandler = async (_task) => {
+  const res = await callFunction("mavis-consolidate", {});
+
+  if (!res.ok) return { success: false, error: `consolidate returned ${res.status}` };
+  const data = await res.json();
+  return { success: true, output: data };
+};
+
+// revenue_snapshot — logs a point-in-time revenue summary
+const handleRevenueSnapshot: TaskHandler = async (task) => {
+  const uid = task.user_id;
+
+  const { data } = await supabase
+    .from("mavis_revenue")
+    .select("source, amount")
+    .eq("user_id", uid);
+
+  const total = (data ?? []).reduce((s: number, r: any) => s + Number(r.amount), 0);
+  const bySource: Record<string, number> = {};
+  for (const r of data ?? []) {
+    bySource[r.source] = (bySource[r.source] ?? 0) + Number(r.amount);
+  }
+
+  return { success: true, output: { total, bySource, snapshotAt: new Date().toISOString() } };
+};
+
+// idle_quest_alert — already surfaces in Inbox via requires_confirmation, just ack it
+const handleIdleQuestAlert: TaskHandler = async (_task) => {
+  return { success: true, output: { acknowledged: true } };
+};
+
+// session_update — operator approved a post-session progression bundle from The System
+const handleSessionUpdate: TaskHandler = async (task) => {
+  const flat = extractPayload(task.payload as Record<string, unknown>);
+
+  const sessionTitle  = String(flat.session_title ?? "Session");
+  const proposedBy    = String(flat.proposed_by   ?? "The System");
+  const xpAward       = Number(flat.xp_award      ?? 0);
+  const questUpdates  = (flat.quest_updates        ?? []) as Array<{ quest_title?: string; progress_delta_pct?: number; complete?: boolean }>;
+  const skillUpdates  = (flat.skill_updates        ?? []) as Array<{ skill_name?: string; proficiency_delta?: number; new_proficiency?: number }>;
+  const statUpdates   = (flat.stat_updates         ?? {}) as Record<string, number>;
+  const invConsumed   = (flat.inventory_consumed   ?? []) as Array<{ name?: string; quantity?: number }>;
+
+  const applied: string[] = [];
+  const skipped: string[] = [];
+
+  // ── XP ──
+  if (xpAward > 0) {
+    const { data: prof } = await supabase.from("profiles").select("xp, level").eq("id", task.user_id).single();
+    if (prof) {
+      const newXp = (Number(prof.xp) || 0) + xpAward;
+      await supabase.from("profiles").update({ xp: newXp }).eq("id", task.user_id);
+      applied.push(`+${xpAward} XP`);
+    }
+  }
+
+  // ── Quest progress ──
+  for (const qu of questUpdates) {
+    const title = qu.quest_title ?? "";
+    if (!title) continue;
+    const { data: rows } = await supabase
+      .from("quests")
+      .select("id, progress_current, progress_target")
+      .eq("user_id", task.user_id)
+      .ilike("title", `%${title.slice(0, 40)}%`)
+      .limit(1);
+    const q = rows?.[0];
+    if (!q) { skipped.push(`quest:${title}`); continue; }
+
+    if (qu.complete) {
+      await supabase.from("quests").update({ status: "completed", updated_at: new Date().toISOString() }).eq("id", q.id);
+      applied.push(`quest completed: ${title}`);
+    } else if (qu.progress_delta_pct) {
+      const target = Number(q.progress_target) || 100;
+      const delta  = Math.round((qu.progress_delta_pct / 100) * target);
+      const newProg = Math.min(target, Number(q.progress_current) + delta);
+      await supabase.from("quests").update({ progress_current: newProg, updated_at: new Date().toISOString() }).eq("id", q.id);
+      applied.push(`quest +${qu.progress_delta_pct}%: ${title}`);
+    }
+  }
+
+  // ── Skill proficiency ──
+  for (const su of skillUpdates) {
+    const name = su.skill_name ?? "";
+    if (!name) continue;
+    const { data: rows } = await supabase
+      .from("skills")
+      .select("id, proficiency")
+      .eq("user_id", task.user_id)
+      .ilike("name", `%${name.slice(0, 40)}%`)
+      .limit(1);
+    const sk = rows?.[0];
+    if (!sk) { skipped.push(`skill:${name}`); continue; }
+
+    let newProf: number;
+    if (su.new_proficiency !== undefined) {
+      newProf = Math.min(100, Math.max(0, Number(su.new_proficiency)));
+    } else {
+      newProf = Math.min(100, (Number(sk.proficiency) || 0) + Number(su.proficiency_delta ?? 0));
+    }
+    await supabase.from("skills").update({ proficiency: newProf }).eq("id", sk.id);
+    applied.push(`skill ${name}: ${Number(sk.proficiency)}→${newProf}%`);
+  }
+
+  // ── Stat updates (additive deltas) ──
+  const statKeys = Object.keys(statUpdates);
+  if (statKeys.length > 0) {
+    const { data: prof } = await supabase.from("profiles").select(statKeys.join(", ")).eq("id", task.user_id).single();
+    if (prof) {
+      const updates: Record<string, number> = {};
+      for (const key of statKeys) {
+        updates[key] = (Number((prof as any)[key]) || 0) + Number(statUpdates[key]);
+      }
+      await supabase.from("profiles").update(updates).eq("id", task.user_id);
+      applied.push(`stats: ${statKeys.map(k => `${k.replace("stat_", "").toUpperCase()}+${statUpdates[k]}`).join(", ")}`);
+    }
+  }
+
+  // ── Inventory consumption ──
+  for (const item of invConsumed) {
+    const name = item.name ?? "";
+    if (!name) continue;
+    const qty  = Number(item.quantity ?? 1);
+    const { data: rows } = await supabase
+      .from("inventory")
+      .select("id, quantity")
+      .eq("user_id", task.user_id)
+      .ilike("name", `%${name.slice(0, 40)}%`)
+      .limit(1);
+    const inv = rows?.[0];
+    if (!inv) { skipped.push(`item:${name}`); continue; }
+    const newQty = Math.max(0, Number(inv.quantity) - qty);
+    await supabase.from("inventory").update({ quantity: newQty }).eq("id", inv.id);
+    applied.push(`consumed ${qty}x ${name}`);
+  }
+
+  // ── Activity log ──
+  await supabase.from("mavis_activities").insert({
+    user_id: task.user_id,
+    type: "session_update_applied",
+    description: `${proposedBy} session applied: ${sessionTitle} — ${applied.join(" | ")}`,
+    xp_earned: xpAward,
+  });
+
+  return {
+    success: true,
+    output: { session_title: sessionTitle, applied, skipped },
+  };
+};
+
+// execute_action — operator approved a generic persona/council proposal
+// Re-dispatches through mavis-actions so every CODEXOS action type is supported.
+const handleExecuteAction: TaskHandler = async (task) => {
+  const flat        = extractPayload(task.payload as Record<string, unknown>);
+  const actionType  = String(flat.action_type ?? "");
+  const actionParams = (flat.params ?? {}) as Record<string, unknown>;
+  const proposedBy  = String(flat.proposed_by ?? "Persona");
+
+  if (!actionType) return { success: false, error: "execute_action: missing action_type" };
+
+  const res = await fetch(`${SUPABASE_URL}/functions/v1/mavis-actions`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${SERVICE_KEY}` },
+    body: JSON.stringify({ userId: task.user_id, actions: [{ type: actionType, params: actionParams }] }),
+    signal: AbortSignal.timeout(55000),
+  });
+
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    return { success: false, error: `mavis-actions returned ${res.status}: ${JSON.stringify(data).slice(0, 200)}` };
+  }
+
+  await supabase.from("mavis_activities").insert({
+    user_id: task.user_id,
+    type: "action_executed",
+    description: `${proposedBy}'s proposal executed: ${actionType}`,
+    xp_earned: 0,
+  });
+
+  return { success: true, output: { action_type: actionType, proposed_by: proposedBy, result: data } };
+};
+
+// system_change — operator approved a persona/council-proposed change
+// Records an authoritative vault decision entry so the approval is never lost.
+const handleSystemChange: TaskHandler = async (task) => {
+  const flat = extractPayload(task.payload as Record<string, unknown>);
+
+  const title      = String(flat.title ?? "System Change");
+  const proposedBy = String(flat.proposed_by ?? "Council");
+  const changeType = String(flat.change_type ?? "general");
+  const description = String(flat.description ?? "");
+  const rationale   = String(flat.rationale ?? "");
+  const priority    = String(flat.priority ?? "normal");
+
+  const vaultContent = [
+    `**Proposed by:** ${proposedBy}`,
+    `**Type:** ${changeType}`,
+    `**Priority:** ${priority}`,
+    description ? `\n**Description:**\n${description}` : "",
+    rationale   ? `\n**Rationale:**\n${rationale}` : "",
+    `\n**Status:** APPROVED — ${new Date().toISOString()}`,
+  ].filter(Boolean).join("\n");
+
+  await supabase.from("mavis_vault").insert({
+    user_id: task.user_id,
+    title: `[APPROVED] ${title}`,
+    content: vaultContent,
+    category: "business",
+    importance: priority === "high" ? "high" : "medium",
+  });
+
+  await supabase.from("mavis_activities").insert({
+    user_id: task.user_id,
+    type: "system_change_approved",
+    description: `Change approved: "${title}" (proposed by ${proposedBy})`,
+    xp_earned: 0,
+  });
+
+  return { success: true, output: { title, approved_by: "operator", recorded_to_vault: true } };
+};
+
+// send_outreach — operator approved a Telegram reconnect nudge from ambient-monitor
+// Sends the drafted message via email (or Telegram to operator if no email on file).
+const handleSendOutreach: TaskHandler = async (task) => {
+  const flat        = extractPayload(task.payload as Record<string, unknown>);
+  const contactName  = String(flat.contact_name  ?? "Contact");
+  const message      = String(flat.message       ?? "");
+  const contactEmail = String(flat.contact_email ?? "");
+  const draftId      = String(flat.draft_id      ?? "");
+
+  if (!message) return { success: false, error: "send_outreach: no message in payload" };
+
+  let sent = false;
+  let channel = "";
+
+  if (contactEmail) {
+    const emailRes = await fetch(`${SUPABASE_URL}/functions/v1/mavis-email-send`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${SERVICE_KEY}` },
+      body: JSON.stringify({ userId: task.user_id, to: contactEmail, subject: "Reaching out", body: message, source: "outreach" }),
+      signal: AbortSignal.timeout(15000),
+    });
+    sent = emailRes.ok;
+    channel = "email";
+  }
+
+  if (!sent) {
+    await sendTelegram(`✅ *Outreach Approved*\n\nSend this to *${contactName}*:\n\n_"${message}"_\n\n(No email on file — copy and send manually)`);
+    sent = true;
+    channel = "telegram_reminder";
+  }
+
+  // Mark draft as sent
+  if (draftId) {
+    await supabase.from("mavis_outreach_drafts" as any)
+      .update({ status: "sent", sent_at: new Date().toISOString() })
+      .eq("id", draftId)
+      .catch(() => {});
+  }
+
+  await supabase.from("mavis_activities").insert({
+    user_id: task.user_id,
+    type: "outreach_sent",
+    description: `Outreach sent to ${contactName} via ${channel}`,
+    xp_earned: 0,
+  }).catch(() => {});
+
+  return { success: sent, output: { contact_name: contactName, channel, draft_id: draftId } };
+};
+// Requires STRIPE_SECRET_KEY to publish live; stores as draft otherwise
+const handleCreateProduct: TaskHandler = async (task) => {
+  const flat = extractPayload(task.payload as Record<string, unknown>);
+
+  if (!flat.title) {
+    return { success: false, error: `create_product payload is missing required field "title". Goal plan generated wrong params: ${JSON.stringify(flat).slice(0, 200)}` };
+  }
+
+  const res = await fetch(`${SUPABASE_URL}/functions/v1/mavis-product-creator`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${SERVICE_KEY}` },
+    body: JSON.stringify({ ...flat, userId: task.user_id }),
+    signal: AbortSignal.timeout(30000),
+  });
+
+  const data = await res.json();
+  if (!res.ok || !data.success) {
+    return { success: false, error: data.error ?? `product-creator returned ${res.status}` };
+  }
+
+  // Auto-queue an announcement — only if no announcement already pending/completed for this title
+  if ((data.gumroadProductId || data.stripeProductId) && data.paymentLink && flat.title) {
+    const { data: existing } = await supabase
+      .from("mavis_tasks")
+      .select("id")
+      .eq("user_id", task.user_id)
+      .eq("type", "send_announcement")
+      .in("status", ["pending", "running", "completed"])
+      .ilike("description", `%${String(flat.title).slice(0, 60)}%`)
+      .limit(1);
+
+    if (!existing || existing.length === 0) {
+      await supabase.from("mavis_tasks").insert({
+        user_id: task.user_id,
+        type: "send_announcement",
+        description: `Announce product: "${flat.title}"`,
+        payload: {
+          title: flat.title,
+          description: flat.description ?? "",
+          paymentLink: data.paymentLink,
+          priceCents: flat.price_cents ?? 2900,
+        },
+        status: "pending",
+      });
+    }
+  }
+
+  return { success: true, output: data };
+};
+
+/** Shared helper: call an internal edge function with service-role auth. */
+async function callFunction(name: string, body: Record<string, unknown>): Promise<Response> {
+  return fetch(`${SUPABASE_URL}/functions/v1/${name}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${SERVICE_KEY}` },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(30000),
+  });
+}
+
+// send_announcement — email via Resend + Nora tweet via mavis-nora-post
+const handleSendAnnouncement: TaskHandler = async (task) => {
+  const results: unknown[] = [];
+  const emailRes = await callFunction("mavis-announce", { userId: task.user_id, ...task.payload });
+  results.push({ channel: "email", ...(await emailRes.json().catch(() => ({}))) });
+
+  const p = task.payload as { title?: string; paymentLink?: string; priceCents?: number };
+  if (p.title && p.paymentLink) {
+    const price = `$${((p.priceCents ?? 2900) / 100).toFixed(0)}`;
+    const tweetRes = await callFunction("mavis-nora-post", {
+      userId: task.user_id,
+      content: `Just dropped: "${p.title}" — ${price}\n\nBuilt this for anyone who's been asking about this. Grab it here: ${p.paymentLink}`,
+    });
+    results.push({ channel: "twitter_nora", ...(await tweetRes.json().catch(() => ({}))) });
+  }
+
+  return { success: true, output: results };
+};
+
+// nora_tweet — Nora posts arbitrary content on Twitter/X
+const handleNoraTweet: TaskHandler = async (task) => {
+  const res = await callFunction("mavis-nora-post", { userId: task.user_id, ...task.payload });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) return { success: false, error: (data as any).error ?? `nora-post returned ${res.status}` };
+  return { success: true, output: data };
+};
+
+// demand_scan — fires the demand detection scan
+const handleDemandScan: TaskHandler = async (task) => {
+  const res = await callFunction("mavis-demand-scan", { userId: task.user_id });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) return { success: false, error: (data as any).error ?? `demand-scan returned ${res.status}` };
+  return { success: true, output: data };
+};
+
+// ─────────────────────────────────────────────────────────────
+// HANDLER REGISTRY
+// ─────────────────────────────────────────────────────────────
+
+// email_reply — operator approved replying to an inbound priority email
+const handleEmailReply: TaskHandler = async (task) => {
+  const flat        = extractPayload(task.payload as Record<string, unknown>);
+  const fromEmail   = String(flat.from_email  ?? "");
+  const subject     = String(flat.subject     ?? "");
+  const bodyPreview = String(flat.body_preview ?? "");
+  const emailId     = String(flat.email_id    ?? "");
+
+  if (!fromEmail) return { success: false, error: "email_reply: no from_email in payload" };
+
+  const replyText = await callClaude(
+    "You are MAVIS, a sovereign AI assistant. Draft a concise, professional reply to this email on behalf of the operator. Be warm but direct. 2-4 sentences max. Output ONLY the reply body text.",
+    `From: ${fromEmail}\nSubject: ${subject}\n\nBody preview: ${bodyPreview}`,
+  );
+
+  if (!replyText) return { success: false, error: "email_reply: Claude failed to generate reply" };
+
+  const replySubject = subject.startsWith("Re:") ? subject : `Re: ${subject}`;
+  const emailRes = await callFunction("mavis-email-send", {
+    userId: task.user_id, to: fromEmail, subject: replySubject, body: replyText, source: "email_reply",
+  });
+
+  let sent = emailRes.ok;
+  if (!sent) {
+    // Fallback: push reply draft to Telegram so operator can copy-paste
+    await sendTelegram(`📧 *Email Reply Ready*\nTo: ${fromEmail}\nSubject: ${replySubject}\n\n_${replyText}_\n\n(Email send failed — copy and send manually)`);
+    sent = true; // Telegram fallback counts as delivered
+  }
+
+  // Only mark processed when we have confirmation it was handled
+  if (emailId && sent) {
+    await supabase.from("mavis_inbound_emails").update({ processed: true }).eq("id", emailId).catch(() => {});
+  }
+
+  return { success: sent, output: { to: fromEmail, subject: replySubject, reply_preview: replyText.slice(0, 100) } };
+};
+
+const HANDLERS: Record<string, TaskHandler> = {
+  daily_brief: handleDailyBrief,
+  check_idle_quests: handleCheckIdleQuests,
+  memory_consolidation: handleMemoryConsolidation,
+  revenue_snapshot: handleRevenueSnapshot,
+  idle_quest_alert: handleIdleQuestAlert,
+  create_product: handleCreateProduct,
+  send_announcement: handleSendAnnouncement,
+  nora_tweet: handleNoraTweet,
+  demand_scan: handleDemandScan,
+  goal: handleGoal,
+  execute_action: handleExecuteAction,
+  system_change: handleSystemChange,
+  session_update: handleSessionUpdate,
+  send_outreach: handleSendOutreach,
+  email_reply: handleEmailReply,
+};
+
+// ─────────────────────────────────────────────────────────────
+// MAIN
+// ─────────────────────────────────────────────────────────────
+
+Deno.serve(async (req) => {
+  if (req.method === "OPTIONS") {
+    return new Response(null, { headers: corsHeaders });
+  }
+  if (req.method !== "POST" && req.method !== "GET") {
+    return new Response("Method not allowed", { status: 405, headers: corsHeaders });
+  }
+
+  const now = new Date().toISOString();
+  const executed: unknown[] = [];
+  const errors: unknown[] = [];
+
+  try {
+    // Load auto-execute type lists from mavis_tacit (key="auto_execute_types", value=JSON array).
+    // Any requires_confirmation task whose type is in the user's auto_execute_types list
+    // gets promoted to "approved" so it runs without Telegram approval.
+    // Default: daily_brief, memory_consolidation, revenue_snapshot always auto-execute.
+    const DEFAULT_AUTO_EXECUTE: string[] = ["daily_brief", "memory_consolidation", "revenue_snapshot"];
+    try {
+      const { data: tacitRows } = await supabase
+        .from("mavis_tacit")
+        .select("user_id, value")
+        .eq("key", "auto_execute_types");
+
+      if (tacitRows && tacitRows.length > 0) {
+        for (const row of tacitRows as any[]) {
+          let types: string[] = DEFAULT_AUTO_EXECUTE;
+          try { types = JSON.parse(row.value); } catch { /* use default */ }
+          if (!Array.isArray(types) || types.length === 0) continue;
+          await supabase
+            .from("mavis_tasks")
+            .update({ status: "approved" })
+            .eq("user_id", row.user_id)
+            .eq("status", "requires_confirmation")
+            .in("type", types);
+        }
+      } else {
+        // No custom config — apply defaults to all users with pending confirmation tasks
+        const { data: pendingConfirm } = await supabase
+          .from("mavis_tasks")
+          .select("id, user_id")
+          .eq("status", "requires_confirmation")
+          .in("type", DEFAULT_AUTO_EXECUTE);
+        if (pendingConfirm && pendingConfirm.length > 0) {
+          await supabase
+            .from("mavis_tasks")
+            .update({ status: "approved" })
+            .in("id", (pendingConfirm as any[]).map((r: any) => r.id));
+        }
+      }
+    } catch {
+      // non-fatal — mavis_tacit table may not exist yet
+    }
+
+    // Fetch pending AND approved tasks (approved = operator confirmed a requires_confirmation item)
+    const { data: pendingTasks, error: fetchErr } = await supabase
+      .from("mavis_tasks")
+      .select("*")
+      .in("status", ["pending", "approved"])
+      .or(`scheduled_at.is.null,scheduled_at.lte.${now}`)
+      .order("created_at", { ascending: true })
+      .limit(50);
+
+    if (fetchErr) throw fetchErr;
+    if (!pendingTasks || pendingTasks.length === 0) {
+      return new Response(JSON.stringify({ status: "idle", message: "No pending tasks" }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    for (const task of pendingTasks as Task[]) {
+      await markRunning(task.id);
+
+      const handler = HANDLERS[task.type];
+      if (!handler) {
+        const errMsg = `No handler registered for task type "${task.type}"`;
+        await markFailed(task.id, errMsg);
+        errors.push({ taskId: task.id, type: task.type, error: errMsg });
+        continue;
+      }
+
+      try {
+        const result = await handler(task);
+        if (result.success) {
+          if (result.continuing) {
+            // Goal task re-queued itself for the next cron tick — don't mark complete
+            executed.push({ taskId: task.id, type: task.type, status: "continuing", output: result.output });
+          } else {
+            await markComplete(task.id, result.output ?? {});
+            executed.push({ taskId: task.id, type: task.type, status: "completed", output: result.output });
+          }
+        } else {
+          await markFailed(task.id, result.error ?? "handler returned success=false");
+          errors.push({ taskId: task.id, type: task.type, error: result.error });
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        await markFailed(task.id, msg);
+        errors.push({ taskId: task.id, type: task.type, error: msg });
+      }
+    }
+
+    return new Response(JSON.stringify({
+      status: "done",
+      executed: executed.length,
+      errors: errors.length,
+      details: { executed, errors },
+    }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+  } catch (err) {
+    return new Response(JSON.stringify({ error: String(err) }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+  }
+});

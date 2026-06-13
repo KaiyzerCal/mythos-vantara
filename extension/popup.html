@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MAVIS Capture</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      width: 340px;
+      min-height: 200px;
+      background: #0a0d1f;
+      color: #e2e8f0;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      font-size: 13px;
+    }
+    .header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 12px 16px;
+      border-bottom: 1px solid #1e293b;
+      background: #0d1020;
+    }
+    .logo {
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.15em;
+      color: #6c63ff;
+      font-family: 'Courier New', monospace;
+    }
+    .status-dot {
+      width: 6px; height: 6px;
+      border-radius: 50%;
+      background: #ef4444;
+      margin-left: auto;
+    }
+    .status-dot.connected { background: #22c55e; }
+    .body { padding: 12px 16px; }
+    .section { margin-bottom: 12px; }
+    .label {
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: #64748b;
+      margin-bottom: 6px;
+    }
+    textarea {
+      width: 100%;
+      background: #111827;
+      border: 1px solid #1e293b;
+      border-radius: 6px;
+      color: #e2e8f0;
+      font-size: 12px;
+      padding: 8px 10px;
+      resize: none;
+      outline: none;
+      font-family: inherit;
+    }
+    textarea:focus { border-color: #6c63ff55; }
+    select {
+      width: 100%;
+      background: #111827;
+      border: 1px solid #1e293b;
+      border-radius: 6px;
+      color: #e2e8f0;
+      font-size: 12px;
+      padding: 6px 10px;
+      outline: none;
+      cursor: pointer;
+    }
+    .row { display: flex; gap: 8px; }
+    button {
+      flex: 1;
+      padding: 8px 12px;
+      border-radius: 6px;
+      border: 1px solid #1e293b;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .btn-primary { background: #6c63ff; color: white; border-color: #6c63ff; }
+    .btn-primary:hover { background: #5b54e8; }
+    .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+    .btn-secondary { background: transparent; color: #94a3b8; }
+    .btn-secondary:hover { background: #1e293b; color: #e2e8f0; }
+    .toast {
+      padding: 8px 12px;
+      border-radius: 6px;
+      font-size: 11px;
+      margin-top: 8px;
+      display: none;
+    }
+    .toast.success { background: #14532d22; border: 1px solid #22c55e44; color: #22c55e; display: block; }
+    .toast.error { background: #7f1d1d22; border: 1px solid #ef444444; color: #ef4444; display: block; }
+    .auth-section {
+      padding: 16px;
+      text-align: center;
+    }
+    .auth-section p { color: #64748b; font-size: 12px; margin-bottom: 12px; }
+    input[type="text"], input[type="password"] {
+      width: 100%;
+      background: #111827;
+      border: 1px solid #1e293b;
+      border-radius: 6px;
+      color: #e2e8f0;
+      font-size: 12px;
+      padding: 7px 10px;
+      outline: none;
+      margin-bottom: 8px;
+    }
+    input:focus { border-color: #6c63ff55; }
+    .page-info {
+      font-size: 10px;
+      color: #475569;
+      text-overflow: ellipsis;
+      overflow: hidden;
+      white-space: nowrap;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div class="logo">MAVIS</div>
+    <span style="color:#475569;font-size:10px;letter-spacing:0.05em;">CAPTURE</span>
+    <div class="status-dot" id="statusDot"></div>
+  </div>
+
+  <div id="authView" class="auth-section" style="display:none">
+    <p>Enter your Supabase URL and anon key to connect MAVIS.</p>
+    <input type="text" id="sbUrl" placeholder="https://xxx.supabase.co" />
+    <input type="password" id="sbKey" placeholder="Anon key" />
+    <button class="btn-primary" style="width:100%" id="saveAuthBtn">Connect</button>
+  </div>
+
+  <div id="mainView" style="display:none">
+    <div class="body">
+      <div class="section">
+        <div class="label">Page</div>
+        <div class="page-info" id="pageUrl">—</div>
+      </div>
+      <div class="section">
+        <div class="label">Content to capture</div>
+        <textarea id="captureText" rows="4" placeholder="Selected text will appear here, or type anything…"></textarea>
+      </div>
+      <div class="section">
+        <div class="label">Save as</div>
+        <select id="captureType">
+          <option value="memory">MAVIS Memory</option>
+          <option value="research">Research Note</option>
+          <option value="vault">Vault Entry</option>
+          <option value="ask">Ask MAVIS about this</option>
+        </select>
+      </div>
+      <div class="row">
+        <button class="btn-secondary" id="capturePageBtn">Capture Page</button>
+        <button class="btn-primary" id="saveBtn">Save to MAVIS</button>
+      </div>
+      <div class="toast" id="toast"></div>
+    </div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

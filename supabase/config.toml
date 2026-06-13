@@ -1,0 +1,639 @@
+project_id = "wlygujlvsfimhtqsdxrx"
+
+# External webhook receivers — Telegram, Gumroad, and Stripe send requests
+# without Supabase JWTs, so JWT verification must be disabled for these.
+[functions.telegram-webhook]
+verify_jwt = false
+
+[functions.telegram-setup]
+verify_jwt = false
+
+[functions.mavis-gumroad-webhook]
+verify_jwt = false
+
+[functions.mavis-stripe-webhook]
+verify_jwt = false
+
+# Widget AI runtime — called directly from customer websites (no Supabase auth)
+[functions.mavis-widget-api]
+verify_jwt = false
+
+# Stripe widget subscription webhook — Stripe sends no Supabase JWT
+[functions.stripe-widget-webhook]
+verify_jwt = false
+
+# A2A Protocol gateway — external agents call without Supabase JWT
+[functions.mavis-a2a-gateway]
+verify_jwt = false
+
+# Resend inbound email webhook — Resend sends no Supabase JWT
+[functions.mavis-email-inbound]
+verify_jwt = false
+
+# Live voice WebSocket — browsers cannot send Authorization headers on WS upgrade.
+# Auth is done via the first WebSocket message instead.
+[functions.mavis-live-voice]
+verify_jwt = false
+
+# VAPI phone call webhook — VAPI sends no Supabase JWT. Secured by x-vapi-secret header.
+[functions.mavis-vapi-webhook]
+verify_jwt = false
+
+# External API gateway — validated by x-mavis-api-key header instead of Supabase JWT.
+[functions.mavis-api-gateway]
+verify_jwt = false
+
+# Autonomous task runner — triggered by pg_cron with service-role key (no user JWT).
+[functions.mavis-autonomous-runner]
+verify_jwt = false
+
+# Ambient monitor — triggered by pg_cron with service-role key (no user JWT).
+[functions.mavis-ambient-monitor]
+verify_jwt = false
+# Browser agent — called with service-role key from mavis-agent tool executor.
+# verify_jwt = true (default) since mavis-agent passes service role key as Bearer token.
+# No entry needed — listed for documentation only.
+
+# MCP Server — external MCP clients authenticate via x-mavis-api-key, no Supabase JWT.
+[functions.mavis-mcp-server]
+verify_jwt = false
+
+# AI Receptionist inbound webhook — VAPI sends no Supabase JWT. Auth by phoneNumberId lookup.
+[functions.mavis-receptionist-inbound]
+verify_jwt = false
+
+# Predictive Intelligence Engine — triggered by pg_cron with service-role key (no user JWT).
+[functions.mavis-predictive-engine]
+verify_jwt = false
+
+# Entity Knowledge Graph — triggered by pg_cron and mavis-agent with service-role key.
+[functions.mavis-entity-graph]
+verify_jwt = false
+
+# OpenAI Fine-tuning Pipeline — triggered from mavis-self-improve with service-role key.
+[functions.mavis-openai-finetune]
+verify_jwt = false
+
+# World Model — triggered by pg_cron weekly (Sunday 5am) and on-demand with service-role key.
+[functions.mavis-world-model]
+verify_jwt = false
+
+# Narrative Engine — triggered by pg_cron weekly (Sunday 4am) and on-demand with service-role key.
+[functions.mavis-narrative-engine]
+verify_jwt = false
+
+# Relationship Intel — triggered by pg_cron Monday 8am and on-demand with service-role key.
+[functions.mavis-relationship-intel]
+verify_jwt = false
+
+# Compound Learning — records interaction signals and consolidates operator preferences.
+[functions.mavis-compound-learning]
+verify_jwt = false
+
+# Daily morning brief — triggered by pg_cron at 6am with service-role key.
+[functions.mavis-morning-brief]
+verify_jwt = false
+
+# Strategy council — called from mavis-agent with service-role key.
+[functions.mavis-strategy-council]
+verify_jwt = false
+
+# Opportunity scanner — triggered by pg_cron with service-role key.
+[functions.mavis-opportunity-scanner]
+verify_jwt = false
+
+# Performance Science Engine — triggered by pg_cron with service-role key.
+[functions.mavis-performance-science]
+verify_jwt = false
+
+# Causal Intelligence Engine — weekly Sunday 2am cron with service-role key.
+[functions.mavis-causal-engine]
+verify_jwt = false
+
+# Market Radar — daily 6:30am cron with service-role key.
+[functions.mavis-market-radar]
+verify_jwt = false
+
+# Meeting Prep — triggered by pg_cron every 30 min and on-demand with service-role key.
+[functions.mavis-meeting-prep]
+verify_jwt = false
+
+[functions.mavis-outcome-tracker]
+verify_jwt = false
+
+# Self-Evolve — triggered by pg_cron weekly (Sunday 3am) and on-demand with service-role key.
+[functions.mavis-self-evolve]
+verify_jwt = false
+
+[functions.mavis-autonomous-actions]
+verify_jwt = false
+
+# Contact form backend — called from public client websites (no Supabase JWT).
+[functions.mavis-form-submit]
+verify_jwt = false
+
+# Video download / YouTube import — called from the frontend with anon key.
+[functions.mavis-video-download]
+verify_jwt = false
+
+# ── Core AI functions — called from authenticated frontend ──
+[functions.mavis-chat]
+verify_jwt = true
+
+[functions.mavis-actions]
+verify_jwt = true
+
+[functions.mavis-agent]
+verify_jwt = true
+
+[functions.mavis-planner]
+verify_jwt = true
+
+# ── Media generation ──
+[functions.mavis-image-gen]
+verify_jwt = true
+
+[functions.mavis-video-gen]
+verify_jwt = true
+
+[functions.mavis-video-editor]
+verify_jwt = true
+
+[functions.mavis-video-render]
+verify_jwt = true
+
+# ── Website / widget builders ──
+[functions.mavis-design-system-gen]
+verify_jwt = true
+
+[functions.mavis-web-builder]
+verify_jwt = true
+
+[functions.mavis-widget-gen]
+verify_jwt = true
+
+[functions.mavis-widget-plugin]
+verify_jwt = false
+
+# ── Knowledge / memory ──
+[functions.mavis-knowledge]
+verify_jwt = true
+
+# ── Persona system ──
+[functions.mavis-persona-forge]
+verify_jwt = true
+
+[functions.mavis-persona-router]
+verify_jwt = true
+
+[functions.mavis-personaplex]
+verify_jwt = true
+
+# ── Web scraping / search ──
+[functions.mavis-web-scraper]
+verify_jwt = true
+
+# ── Webhook dispatch — internal service calls ──
+[functions.mavis-webhook]
+verify_jwt = false
+
+[functions.mavis-webhook-dispatch]
+verify_jwt = false
+
+# ── Content & social ──
+[functions.mavis-nora-post]
+verify_jwt = false
+
+[functions.mavis-nora-engage]
+verify_jwt = false
+
+[functions.mavis-nora-discord]
+verify_jwt = false
+
+[functions.mavis-nora-instagram]
+verify_jwt = false
+
+[functions.mavis-nora-linkedin]
+verify_jwt = false
+
+[functions.mavis-nora-tiktok]
+verify_jwt = false
+
+[functions.mavis-repurpose]
+verify_jwt = true
+
+[functions.mavis-content-pipeline]
+verify_jwt = true
+
+# ── Comms ──
+[functions.mavis-email-send]
+verify_jwt = true
+
+[functions.mavis-sms]
+verify_jwt = false
+
+[functions.mavis-push-notify]
+verify_jwt = true
+
+[functions.mavis-tts]
+verify_jwt = true
+
+[functions.mavis-phone-call]
+verify_jwt = false
+
+# ── Data / export ──
+[functions.mavis-pdf-gen]
+verify_jwt = true
+
+[functions.mavis-data-export]
+verify_jwt = true
+
+[functions.mavis-import]
+verify_jwt = true
+
+[functions.mavis-ingest]
+verify_jwt = true
+
+[functions.mavis-ingest-url]
+verify_jwt = true
+
+# ── Sync integrations ──
+[functions.mavis-gmail-sync]
+verify_jwt = false
+
+[functions.mavis-gdrive-sync]
+verify_jwt = false
+
+[functions.mavis-gcontacts-sync]
+verify_jwt = false
+
+[functions.mavis-calendar-sync]
+verify_jwt = false
+
+[functions.mavis-calendar-manage]
+verify_jwt = true
+
+[functions.mavis-spotify-sync]
+verify_jwt = false
+
+[functions.mavis-spotify-control]
+verify_jwt = false
+
+[functions.mavis-terminal]
+verify_jwt = false
+
+[functions.mavis-strava-sync]
+verify_jwt = false
+
+[functions.mavis-oura-sync]
+verify_jwt = false
+
+[functions.mavis-whoop-sync]
+verify_jwt = false
+
+[functions.mavis-readwise-import]
+verify_jwt = true
+
+[functions.mavis-google-tasks-sync]
+verify_jwt = false
+
+# ── Health & biology ──
+[functions.mavis-health-protocol]
+verify_jwt = true
+
+[functions.mavis-sleep-coach]
+verify_jwt = true
+
+# ── Finance ──
+[functions.mavis-finance]
+verify_jwt = true
+
+# ── CRM / lead gen ──
+[functions.mavis-lead-gen]
+verify_jwt = true
+
+[functions.mavis-crm-nudge]
+verify_jwt = false
+
+# ── Quest & goal support ──
+[functions.mavis-goal-engine]
+verify_jwt = true
+
+[functions.mavis-goal-review]
+verify_jwt = true
+
+[functions.mavis-quest-calendar]
+verify_jwt = false
+
+[functions.mavis-quest-nudge]
+verify_jwt = false
+
+[functions.mavis-streak-alerts]
+verify_jwt = false
+
+[functions.mavis-achievement-check]
+verify_jwt = false
+
+# ── Learning / analytics ──
+[functions.mavis-spaced-repetition]
+verify_jwt = true
+
+[functions.mavis-pattern-insights]
+verify_jwt = true
+
+[functions.mavis-deep-research]
+verify_jwt = true
+
+[functions.mavis-quality-eval]
+verify_jwt = true
+
+[functions.mavis-emotion-engine]
+verify_jwt = true
+
+[functions.mavis-emotion-tag]
+verify_jwt = true
+
+# ── Exec / code agents ──
+[functions.mavis-code-agent]
+verify_jwt = true
+
+[functions.mavis-code-delegate]
+verify_jwt = true
+
+[functions.mavis-code-deploy]
+verify_jwt = true
+
+[functions.mavis-code-exec]
+verify_jwt = true
+
+[functions.mavis-task-executor]
+verify_jwt = true
+
+[functions.mavis-workflow-run]
+verify_jwt = true
+
+[functions.mavis-crew-orchestrator]
+verify_jwt = true
+
+[functions.mavis-autonomous-engine]
+verify_jwt = false
+
+[functions.mavis-browser]
+verify_jwt = true
+
+[functions.mavis-browser-agent]
+verify_jwt = true
+
+# ── Research / competitive intel ──
+[functions.mavis-competitor-monitor]
+verify_jwt = true
+
+[functions.mavis-demand-scan]
+verify_jwt = false
+
+[functions.mavis-hn-digest]
+verify_jwt = false
+
+[functions.mavis-weather]
+verify_jwt = true
+
+# ── Voice ──
+[functions.mavis-voice-session]
+verify_jwt = true
+
+[functions.mavis-transcribe]
+verify_jwt = true
+
+[functions.mavis-transcribe-memo]
+verify_jwt = true
+
+[functions.mavis-meeting-transcribe]
+verify_jwt = true
+
+[functions.mavis-meeting-notes]
+verify_jwt = true
+
+[functions.mavis-translate]
+verify_jwt = true
+
+# ── Infra / system ──
+[functions.mavis-cron-setup]
+verify_jwt = false
+
+[functions.mavis-announce]
+verify_jwt = false
+
+[functions.mavis-team]
+verify_jwt = true
+
+[functions.mavis-consolidate]
+verify_jwt = false
+
+[functions.mavis-tacit-prune]
+verify_jwt = false
+
+[functions.mavis-weekly-retro]
+verify_jwt = false
+
+[functions.mavis-periodic-review]
+verify_jwt = false
+
+[functions.mavis-daily-notes]
+verify_jwt = false
+
+[functions.mavis-morning-digest]
+verify_jwt = false
+
+[functions.mavis-self-reflect]
+verify_jwt = false
+
+[functions.mavis-self-improve]
+verify_jwt = false
+
+[functions.mavis-auto-journal]
+verify_jwt = false
+
+[functions.mavis-attachment-process]
+verify_jwt = false
+
+[functions.mavis-proactive-nudge]
+verify_jwt = false
+
+[functions.mavis-council-heartbeat]
+verify_jwt = false
+
+[functions.mavis-wearable-overlay]
+verify_jwt = false
+
+[functions.mavis-galaxy-ring]
+verify_jwt = false
+
+[functions.mavis-avatar-video]
+verify_jwt = true
+
+[functions.mavis-realtime-v2]
+verify_jwt = false
+
+[functions.mavis-memory-embed]
+verify_jwt = false
+
+[functions.mavis-mem0]
+verify_jwt = true
+
+[functions.mavis-letta]
+verify_jwt = true
+
+[functions.mavis-computer-use]
+verify_jwt = true
+
+[functions.mavis-e2b-sandbox]
+verify_jwt = true
+
+[functions.mavis-python-exec]
+verify_jwt = true
+
+[functions.mavis-brand-voice]
+verify_jwt = true
+
+[functions.mavis-seo-engine]
+verify_jwt = true
+
+[functions.mavis-demo]
+verify_jwt = false
+
+[functions.mavis-netlify]
+verify_jwt = false
+
+# Multi-provider static site deployment (Netlify, Vercel, Cloudflare Pages, Railway, Hostinger)
+[functions.mavis-deploy]
+verify_jwt = false
+
+[functions.mavis-wordpress]
+verify_jwt = true
+
+[functions.mavis-wpcom-oauth]
+verify_jwt = false
+
+# Google OAuth — Google redirects without Supabase JWT; auth via state param + user_id in body
+[functions.mavis-google-oauth]
+verify_jwt = false
+
+[functions.mavis-youtube-ingest]
+verify_jwt = true
+
+[functions.mavis-product-creator]
+verify_jwt = false
+
+[functions.mavis-gumroad]
+verify_jwt = true
+
+[functions.mavis-screenpipe]
+verify_jwt = true
+
+[functions.mavis-slack-bot]
+verify_jwt = false
+
+[functions.mavis-fine-tune-export]
+verify_jwt = true
+
+[functions.mavis-khanmigo]
+verify_jwt = true
+
+[functions.mavis-receptionist-config]
+verify_jwt = true
+
+[functions.mavis-receptionist-provision]
+verify_jwt = true
+
+[functions.mavis-reclaim]
+verify_jwt = false
+
+[functions.mavis-social-scheduler]
+verify_jwt = true
+
+[functions.mavis-doc-extract]
+verify_jwt = true
+
+[functions.mavis-market-data]
+verify_jwt = true
+
+[functions.mavis-local-mesh-proxy]
+verify_jwt = false
+
+[functions.embed-and-search]
+verify_jwt = true
+
+[functions.agent-telegram-gateway]
+verify_jwt = false
+
+[functions.navi-finetune-check]
+verify_jwt = false
+
+[functions.navi-finetune-pipeline]
+verify_jwt = false
+
+[functions.navi-heartbeat]
+verify_jwt = false
+
+[functions.navi-memory-consolidator]
+verify_jwt = false
+
+[functions.mavis-archivist]
+verify_jwt = false
+
+[functions.mavis-heartbeat]
+verify_jwt = false
+
+[functions.mavis-skill-catalog]
+verify_jwt = true
+
+[functions.mavis-run-doctor]
+verify_jwt = true
+
+[functions.mavis-obsidian-export]
+verify_jwt = true
+
+[functions.mavis-so-curator]
+verify_jwt = false
+
+[functions.mavis-user-model-refresh]
+verify_jwt = false
+
+[functions.mavis-goal-judge]
+verify_jwt = false
+
+# ── New capabilities (Polymarket, Maps, arXiv, RSS Monitor) ──
+[functions.mavis-polymarket]
+verify_jwt = true
+
+[functions.mavis-maps]
+verify_jwt = true
+
+[functions.mavis-arxiv]
+verify_jwt = true
+
+# fetch_all triggered by heartbeat with service-role key; user actions use JWT
+[functions.mavis-rss-monitor]
+verify_jwt = false
+
+# ── UI-invoked functions (called directly from frontend) ──────────────────────
+[functions.mavis-site-editor]
+verify_jwt = true
+
+[functions.mavis-design-engine]
+verify_jwt = true
+
+[functions.mavis-mini-agent]
+verify_jwt = false
+
+[functions.mavis-agent-builder]
+verify_jwt = true
+
+[functions.mavis-agent-serve]
+verify_jwt = false
+
+[functions.mavis-mem0]
+verify_jwt = true
+
+[functions.mavis-home]
+verify_jwt = true
