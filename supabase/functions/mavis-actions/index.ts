@@ -1822,6 +1822,181 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
       return await res.json();
     }
 
+    case "nora_linkedin": {
+      const content = p.content ? String(p.content) : undefined;
+      const generate = p.generate !== false;
+      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+      const res = await fetch(`${supabaseUrl}/functions/v1/mavis-nora-linkedin`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: req.headers.get("Authorization")! },
+        body: JSON.stringify({ content, generate: !content || generate }),
+      });
+      if (!res.ok) throw new Error(`nora_linkedin failed: ${await res.text()}`);
+      return await res.json();
+    }
+
+    case "nora_instagram": {
+      const content = p.content ? String(p.content) : undefined;
+      const image_url = p.image_url ? String(p.image_url) : undefined;
+      const generate = p.generate !== false;
+      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+      const res = await fetch(`${supabaseUrl}/functions/v1/mavis-nora-instagram`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: req.headers.get("Authorization")! },
+        body: JSON.stringify({ content, image_url, generate: !content || generate }),
+      });
+      if (!res.ok) throw new Error(`nora_instagram failed: ${await res.text()}`);
+      return await res.json();
+    }
+
+    case "speak":
+    case "tts": {
+      const text = String(p.text ?? "");
+      if (!text) throw new Error("speak requires text");
+      const gender = String(p.gender ?? "female");
+      const voice_id = p.voice_id ? String(p.voice_id) : undefined;
+      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+      const res = await fetch(`${supabaseUrl}/functions/v1/mavis-tts`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: req.headers.get("Authorization")! },
+        body: JSON.stringify({ text, gender, ...(voice_id ? { voice_id } : {}) }),
+      });
+      if (!res.ok) throw new Error(`speak failed: ${await res.text()}`);
+      return await res.json();
+    }
+
+    case "phone_call": {
+      const to = String(p.to ?? "");
+      const purpose = String(p.purpose ?? "");
+      if (!to) throw new Error("phone_call requires to (E.164 phone number)");
+      if (!purpose) throw new Error("phone_call requires purpose");
+      const caller_name = String(p.caller_name ?? "MAVIS");
+      const first_message = p.first_message ? String(p.first_message) : undefined;
+      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+      const res = await fetch(`${supabaseUrl}/functions/v1/mavis-phone-call`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: req.headers.get("Authorization")! },
+        body: JSON.stringify({ to, purpose, caller_name, ...(first_message ? { first_message } : {}) }),
+      });
+      if (!res.ok) throw new Error(`phone_call failed: ${await res.text()}`);
+      return await res.json();
+    }
+
+    case "maps": {
+      const mapAction = String(p.action ?? "geocode");
+      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+      const res = await fetch(`${supabaseUrl}/functions/v1/mavis-maps`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: req.headers.get("Authorization")! },
+        body: JSON.stringify({ action: mapAction, ...p }),
+      });
+      if (!res.ok) throw new Error(`maps failed: ${await res.text()}`);
+      return await res.json();
+    }
+
+    case "arxiv_search": {
+      const query = String(p.query ?? "");
+      if (!query) throw new Error("arxiv_search requires query");
+      const category = p.category ? String(p.category) : "";
+      const max_results = Number(p.max_results ?? 10);
+      const sort_by = String(p.sort_by ?? "relevance");
+      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+      const res = await fetch(`${supabaseUrl}/functions/v1/mavis-arxiv`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: req.headers.get("Authorization")! },
+        body: JSON.stringify({ action: "search", query, category, max_results, sort_by }),
+      });
+      if (!res.ok) throw new Error(`arxiv_search failed: ${await res.text()}`);
+      return await res.json();
+    }
+
+    case "youtube_ingest": {
+      const url = String(p.url ?? "");
+      if (!url) throw new Error("youtube_ingest requires url");
+      const save_as = String(p.save_as ?? "note") as "note" | "vault";
+      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+      const res = await fetch(`${supabaseUrl}/functions/v1/mavis-youtube-ingest`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: req.headers.get("Authorization")! },
+        body: JSON.stringify({ url, save_as }),
+      });
+      if (!res.ok) throw new Error(`youtube_ingest failed: ${await res.text()}`);
+      return await res.json();
+    }
+
+    case "gumroad_action": {
+      const gumroadAction = String(p.action ?? "create");
+      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+      const url = `${supabaseUrl}/functions/v1/mavis-gumroad${gumroadAction === "list" ? "?action=list" : ""}`;
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: req.headers.get("Authorization")! },
+        body: JSON.stringify({ ...p, action: gumroadAction }),
+      });
+      if (!res.ok) throw new Error(`gumroad_action failed: ${await res.text()}`);
+      return await res.json();
+    }
+
+    case "slack_message": {
+      const channel = String(p.channel ?? "");
+      const text = String(p.text ?? p.message ?? "");
+      if (!channel) throw new Error("slack_message requires channel");
+      if (!text) throw new Error("slack_message requires text");
+      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+      const res = await fetch(`${supabaseUrl}/functions/v1/mavis-slack-bot`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: req.headers.get("Authorization")! },
+        body: JSON.stringify({ channel, text }),
+      });
+      if (!res.ok) throw new Error(`slack_message failed: ${await res.text()}`);
+      return await res.json();
+    }
+
+    case "self_reflect": {
+      const question = p.question ? String(p.question) : "";
+      const context = p.context ? String(p.context) : "";
+      const tags = asStringArray(p.tags);
+      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+      const res = await fetch(`${supabaseUrl}/functions/v1/mavis-self-reflect`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: req.headers.get("Authorization")! },
+        body: JSON.stringify({ question, context, tags }),
+      });
+      if (!res.ok) throw new Error(`self_reflect failed: ${await res.text()}`);
+      return await res.json();
+    }
+
+    case "list_capabilities": {
+      const category = p.category ? String(p.category) : null;
+      let query = sb.from("mavis_capabilities")
+        .select("action_type, category, description, requires_secrets, edge_function")
+        .eq("is_active", true)
+        .order("category")
+        .order("action_type");
+      if (category) query = query.eq("category", category);
+      const { data, error: listErr } = await query;
+      if (listErr) throw listErr;
+      const grouped: Record<string, { action: string; description: string; requires_secrets: string[] }[]> = {};
+      for (const row of (data ?? [])) {
+        if (!grouped[row.category]) grouped[row.category] = [];
+        grouped[row.category].push({ action: row.action_type, description: row.description, requires_secrets: row.requires_secrets ?? [] });
+      }
+      return { capabilities: grouped, total: data?.length ?? 0 };
+    }
+
+    case "search_capabilities": {
+      const searchQuery = String(p.query ?? "");
+      if (!searchQuery) throw new Error("search_capabilities requires query");
+      const { data, error: searchErr } = await sb.from("mavis_capabilities")
+        .select("action_type, category, description, example_params, requires_secrets")
+        .eq("is_active", true)
+        .or(`action_type.ilike.%${searchQuery}%,description.ilike.%${searchQuery}%,category.ilike.%${searchQuery}%`)
+        .order("category")
+        .limit(20);
+      if (searchErr) throw searchErr;
+      return { results: data ?? [], count: data?.length ?? 0 };
+    }
+
     default:
       throw new Error(`Unknown MAVIS action: ${action.type}`);
   }
