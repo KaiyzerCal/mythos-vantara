@@ -1980,6 +1980,325 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
       return await res.json();
     }
 
+    case "extract_document": {
+      const file_url = String(p.file_url ?? "");
+      if (!file_url) throw new Error("extract_document requires file_url");
+      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+      const res = await fetch(`${supabaseUrl}/functions/v1/mavis-doc-extract`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: req.headers.get("Authorization")! },
+        body: JSON.stringify({ file_url, file_name: p.file_name, file_type: p.file_type, vault_entry_id: p.vault_entry_id }),
+      });
+      if (!res.ok) throw new Error(`extract_document failed: ${await res.text()}`);
+      return await res.json();
+    }
+
+    case "process_attachment": {
+      const attachment_id = String(p.attachment_id ?? "");
+      if (!attachment_id) throw new Error("process_attachment requires attachment_id");
+      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+      const res = await fetch(`${supabaseUrl}/functions/v1/mavis-attachment-process`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: req.headers.get("Authorization")! },
+        body: JSON.stringify({ attachment_id }),
+      });
+      if (!res.ok) throw new Error(`process_attachment failed: ${await res.text()}`);
+      return await res.json();
+    }
+
+    case "prepare_meeting": {
+      const event_title = String(p.event_title ?? "");
+      if (!event_title) throw new Error("prepare_meeting requires event_title");
+      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+      const res = await fetch(`${supabaseUrl}/functions/v1/mavis-meeting-prep`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: req.headers.get("Authorization")! },
+        body: JSON.stringify({ event_id: p.event_id, event_title, event_start: p.event_start, attendees: p.attendees ?? [] }),
+      });
+      if (!res.ok) throw new Error(`prepare_meeting failed: ${await res.text()}`);
+      return await res.json();
+    }
+
+    case "transcribe_meeting": {
+      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+      const res = await fetch(`${supabaseUrl}/functions/v1/mavis-meeting-transcribe`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: req.headers.get("Authorization")! },
+        body: JSON.stringify({
+          audio_url: p.audio_url, audio_base64: p.audio_base64, mime_type: p.mime_type,
+          meeting_title: p.meeting_title, participants: p.participants ?? [],
+          create_quests: p.create_quests ?? false,
+        }),
+      });
+      if (!res.ok) throw new Error(`transcribe_meeting failed: ${await res.text()}`);
+      return await res.json();
+    }
+
+    case "health_protocol": {
+      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+      const res = await fetch(`${supabaseUrl}/functions/v1/mavis-health-protocol`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: req.headers.get("Authorization")! },
+        body: JSON.stringify({ date: p.date }),
+      });
+      if (!res.ok) throw new Error(`health_protocol failed: ${await res.text()}`);
+      return await res.json();
+    }
+
+    case "performance_score": {
+      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+      const res = await fetch(`${supabaseUrl}/functions/v1/mavis-performance-science`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: req.headers.get("Authorization")! },
+        body: JSON.stringify({ date: p.date }),
+      });
+      if (!res.ok) throw new Error(`performance_score failed: ${await res.text()}`);
+      return await res.json();
+    }
+
+    case "strategy_council": {
+      const question = String(p.question ?? "");
+      if (!question) throw new Error("strategy_council requires question");
+      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+      const res = await fetch(`${supabaseUrl}/functions/v1/mavis-strategy-council`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: req.headers.get("Authorization")! },
+        body: JSON.stringify({ question, context: p.context, tags: p.tags }),
+      });
+      if (!res.ok) throw new Error(`strategy_council failed: ${await res.text()}`);
+      return await res.json();
+    }
+
+    case "create_product": {
+      const title = String(p.title ?? "");
+      const description = String(p.description ?? "");
+      const audience = String(p.audience ?? "");
+      if (!title || !description || !audience) throw new Error("create_product requires title, description, audience");
+      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+      const res = await fetch(`${supabaseUrl}/functions/v1/mavis-product-creator`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: req.headers.get("Authorization")! },
+        body: JSON.stringify({ title, description, audience, category: p.category, price_cents: p.price_cents }),
+      });
+      if (!res.ok) throw new Error(`create_product failed: ${await res.text()}`);
+      return await res.json();
+    }
+
+    case "scan_demand": {
+      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+      const res = await fetch(`${supabaseUrl}/functions/v1/mavis-demand-scan`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: req.headers.get("Authorization")! },
+        body: JSON.stringify({}),
+      });
+      if (!res.ok) throw new Error(`scan_demand failed: ${await res.text()}`);
+      return await res.json();
+    }
+
+    case "polymarket_search":
+    case "polymarket_trending":
+    case "polymarket_get": {
+      const polyAction = action.type === "polymarket_search" ? "search"
+        : action.type === "polymarket_trending" ? "trending" : "get";
+      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+      const res = await fetch(`${supabaseUrl}/functions/v1/mavis-polymarket`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: req.headers.get("Authorization")! },
+        body: JSON.stringify({ action: polyAction, query: p.query, market_id: p.market_id, limit: p.limit }),
+      });
+      if (!res.ok) throw new Error(`${action.type} failed: ${await res.text()}`);
+      return await res.json();
+    }
+
+    case "hn_digest": {
+      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+      const res = await fetch(`${supabaseUrl}/functions/v1/mavis-hn-digest`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: req.headers.get("Authorization")! },
+        body: JSON.stringify({ max_stories: p.max_stories ?? 10 }),
+      });
+      if (!res.ok) throw new Error(`hn_digest failed: ${await res.text()}`);
+      return await res.json();
+    }
+
+    case "create_agent": {
+      const business_name = String(p.business_name ?? "");
+      if (!business_name) throw new Error("create_agent requires business_name");
+      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+      const res = await fetch(`${supabaseUrl}/functions/v1/mavis-agent-builder`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: req.headers.get("Authorization")! },
+        body: JSON.stringify({
+          action: "create", business_name,
+          agent_name: p.agent_name, capabilities: p.capabilities,
+          knowledge_base: p.knowledge_base, tone: p.tone,
+          brand_color: p.brand_color, business_type: p.business_type,
+          plan_tier: p.plan_tier, monthly_price_cents: p.monthly_price_cents,
+        }),
+      });
+      if (!res.ok) throw new Error(`create_agent failed: ${await res.text()}`);
+      return await res.json();
+    }
+
+    case "crew_execute": {
+      const goal = String(p.goal ?? "");
+      if (!goal) throw new Error("crew_execute requires goal");
+      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+      const res = await fetch(`${supabaseUrl}/functions/v1/mavis-crew-orchestrator`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: req.headers.get("Authorization")! },
+        body: JSON.stringify({ goal, context: p.context }),
+      });
+      if (!res.ok) throw new Error(`crew_execute failed: ${await res.text()}`);
+      return await res.json();
+    }
+
+    case "computer_use": {
+      const task = String(p.task ?? "");
+      if (!task) throw new Error("computer_use requires task");
+      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+      const res = await fetch(`${supabaseUrl}/functions/v1/mavis-computer-use`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: req.headers.get("Authorization")! },
+        body: JSON.stringify({ task, url: p.url, screenshot_base64: p.screenshot_base64, user_id: userId }),
+      });
+      if (!res.ok) throw new Error(`computer_use failed: ${await res.text()}`);
+      return await res.json();
+    }
+
+    case "terminal_exec": {
+      const cmd = String(p.cmd ?? "");
+      const termAction = String(p.action ?? (cmd ? "exec" : "create_session"));
+      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+      const res = await fetch(`${supabaseUrl}/functions/v1/mavis-terminal`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: req.headers.get("Authorization")! },
+        body: JSON.stringify({ action: termAction, session_id: p.session_id, cmd, label: p.label }),
+      });
+      if (!res.ok) throw new Error(`terminal_exec failed: ${await res.text()}`);
+      return await res.json();
+    }
+
+    case "generate_seo": {
+      const business_name = String(p.business_name ?? "");
+      if (!business_name) throw new Error("generate_seo requires business_name");
+      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+      const res = await fetch(`${supabaseUrl}/functions/v1/mavis-seo-engine`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: req.headers.get("Authorization")! },
+        body: JSON.stringify({
+          business_name, business_type: p.business_type, site_url: p.site_url,
+          location: p.location, description: p.description, keywords: p.keywords,
+        }),
+      });
+      if (!res.ok) throw new Error(`generate_seo failed: ${await res.text()}`);
+      return await res.json();
+    }
+
+    case "design_website": {
+      const brief = p.brief ?? p;
+      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+      const res = await fetch(`${supabaseUrl}/functions/v1/mavis-design-engine`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: req.headers.get("Authorization")! },
+        body: JSON.stringify({ brief }),
+      });
+      if (!res.ok) throw new Error(`design_website failed: ${await res.text()}`);
+      return await res.json();
+    }
+
+    case "create_avatar_video": {
+      const source_image_url = String(p.source_image_url ?? "");
+      if (!source_image_url) throw new Error("create_avatar_video requires source_image_url");
+      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+      const res = await fetch(`${supabaseUrl}/functions/v1/mavis-avatar-video`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: req.headers.get("Authorization")! },
+        body: JSON.stringify({ source_image_url, text: p.text, audio_url: p.audio_url, voice_id: p.voice_id, still_mode: p.still_mode }),
+      });
+      if (!res.ok) throw new Error(`create_avatar_video failed: ${await res.text()}`);
+      return await res.json();
+    }
+
+    case "build_world_model": {
+      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+      const res = await fetch(`${supabaseUrl}/functions/v1/mavis-world-model`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: req.headers.get("Authorization")! },
+        body: JSON.stringify({ action: p.action ?? "generate" }),
+      });
+      if (!res.ok) throw new Error(`build_world_model failed: ${await res.text()}`);
+      return await res.json();
+    }
+
+    case "record_outcome": {
+      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+      const res = await fetch(`${supabaseUrl}/functions/v1/mavis-outcome-tracker`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: req.headers.get("Authorization")! },
+        body: JSON.stringify({
+          action: "record", source_type: p.source_type,
+          source_id: p.source_id, prediction_text: p.prediction_text,
+          predicted_outcome: p.predicted_outcome, due_days: p.due_days ?? 30,
+        }),
+      });
+      if (!res.ok) throw new Error(`record_outcome failed: ${await res.text()}`);
+      return await res.json();
+    }
+
+    case "socratic_tutor": {
+      const message = String(p.message ?? "");
+      if (!message) throw new Error("socratic_tutor requires message");
+      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+      const res = await fetch(`${supabaseUrl}/functions/v1/mavis-khanmigo`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: req.headers.get("Authorization")! },
+        body: JSON.stringify({ message, topic_id: p.topic_id, history: p.history }),
+      });
+      if (!res.ok) throw new Error(`socratic_tutor failed: ${await res.text()}`);
+      return await res.json();
+    }
+
+    case "screenpipe_search":
+    case "screenpipe_context":
+    case "screenpipe_recent": {
+      const spAction = action.type === "screenpipe_search" ? "search"
+        : action.type === "screenpipe_context" ? "context" : "recent";
+      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+      const res = await fetch(`${supabaseUrl}/functions/v1/mavis-screenpipe`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: req.headers.get("Authorization")! },
+        body: JSON.stringify({ action: spAction, query: p.query, limit: p.limit ?? 20 }),
+      });
+      if (!res.ok) throw new Error(`${action.type} failed: ${await res.text()}`);
+      return await res.json();
+    }
+
+    case "export_fine_tune_data": {
+      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+      const res = await fetch(`${supabaseUrl}/functions/v1/mavis-fine-tune-export`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: req.headers.get("Authorization")! },
+        body: JSON.stringify({ format: p.format ?? "openai", min_quality: p.min_quality, limit: p.limit }),
+      });
+      if (!res.ok) throw new Error(`export_fine_tune_data failed: ${await res.text()}`);
+      return await res.json();
+    }
+
+    case "schedule_post": {
+      const platform = String(p.platform ?? "twitter");
+      const content = String(p.content ?? "");
+      const scheduled_at = String(p.scheduled_at ?? "");
+      if (!content) throw new Error("schedule_post requires content");
+      if (!scheduled_at) throw new Error("schedule_post requires scheduled_at (ISO 8601)");
+      const { data: postData, error: postErr } = await sb.from("mavis_social_posts").insert({
+        user_id: userId, platform, persona: p.persona ?? "nora_vale",
+        content, status: "scheduled", scheduled_at,
+      }).select().single();
+      if (postErr) throw postErr;
+      return { scheduled: true, post_id: postData.id, scheduled_at, platform };
+    }
+
     case "list_capabilities": {
       const category = p.category ? String(p.category) : null;
       let query = sb.from("mavis_capabilities")
