@@ -124,11 +124,13 @@ export default function Dashboard() {
   const [outcomeAccuracy, setOutcomeAccuracy] = useState<number | null>(null);
 
   useEffect(() => {
-    supabase
-      .from("mavis_outcome_events")
-      .select("outcome_status")
-      .not("outcome_status", "eq", "pending")
-      .limit(50)
+    Promise.resolve(
+      supabase
+        .from("mavis_outcome_events")
+        .select("outcome_status")
+        .not("outcome_status", "eq", "pending")
+        .limit(50)
+    )
       .then(({ data }) => {
         if (!data || data.length === 0) return;
         const confirmed = data.filter(e => e.outcome_status === "confirmed").length;
