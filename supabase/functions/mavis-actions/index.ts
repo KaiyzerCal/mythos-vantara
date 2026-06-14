@@ -1849,6 +1849,20 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
       return await res.json();
     }
 
+    case "nora_tiktok": {
+      const content = p.content ? String(p.content) : undefined;
+      const video_url = p.video_url ? String(p.video_url) : undefined;
+      const generate = p.generate !== false;
+      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+      const res = await fetch(`${supabaseUrl}/functions/v1/mavis-nora-tiktok`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: req.headers.get("Authorization")! },
+        body: JSON.stringify({ content, video_url, generate: !content || generate }),
+      });
+      if (!res.ok) throw new Error(`nora_tiktok failed: ${await res.text()}`);
+      return await res.json();
+    }
+
     case "speak":
     case "tts": {
       const text = String(p.text ?? "");
