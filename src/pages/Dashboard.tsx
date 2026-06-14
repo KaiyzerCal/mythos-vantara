@@ -108,12 +108,14 @@ export default function Dashboard() {
   }>>([]);
 
   useEffect(() => {
-    supabase
-      .from("mavis_action_queue")
-      .select("id, action_type, autonomy_tier, source_context, priority, action_payload")
-      .eq("status", "pending")
-      .order("priority", { ascending: true })
-      .limit(5)
+    Promise.resolve(
+      supabase
+        .from("mavis_action_queue")
+        .select("id, action_type, autonomy_tier, source_context, priority, action_payload")
+        .eq("status", "pending")
+        .order("priority", { ascending: true })
+        .limit(5)
+    )
       .then(({ data }) => setActionQueue((data as any) ?? []))
       .catch(() => {});
   }, []);
