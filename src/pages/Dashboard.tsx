@@ -84,13 +84,15 @@ export default function Dashboard() {
 
   useEffect(() => {
     const yesterday = new Date(Date.now() - 86400000).toISOString();
-    supabase
-      .from("mavis_market_intel")
-      .select("topic, headline, summary, relevance_score, signal_type")
-      .gte("relevance_score", 0.6)
-      .gte("created_at", yesterday)
-      .order("relevance_score", { ascending: false })
-      .limit(3)
+    Promise.resolve(
+      supabase
+        .from("mavis_market_intel")
+        .select("topic, headline, summary, relevance_score, signal_type")
+        .gte("relevance_score", 0.6)
+        .gte("created_at", yesterday)
+        .order("relevance_score", { ascending: false })
+        .limit(3)
+    )
       .then(({ data }) => setMarketIntel(data ?? []))
       .catch(() => {});
   }, []);
@@ -106,12 +108,14 @@ export default function Dashboard() {
   }>>([]);
 
   useEffect(() => {
-    supabase
-      .from("mavis_action_queue")
-      .select("id, action_type, autonomy_tier, source_context, priority, action_payload")
-      .eq("status", "pending")
-      .order("priority", { ascending: true })
-      .limit(5)
+    Promise.resolve(
+      supabase
+        .from("mavis_action_queue")
+        .select("id, action_type, autonomy_tier, source_context, priority, action_payload")
+        .eq("status", "pending")
+        .order("priority", { ascending: true })
+        .limit(5)
+    )
       .then(({ data }) => setActionQueue((data as any) ?? []))
       .catch(() => {});
   }, []);
@@ -120,11 +124,13 @@ export default function Dashboard() {
   const [outcomeAccuracy, setOutcomeAccuracy] = useState<number | null>(null);
 
   useEffect(() => {
-    supabase
-      .from("mavis_outcome_events")
-      .select("outcome_status")
-      .not("outcome_status", "eq", "pending")
-      .limit(50)
+    Promise.resolve(
+      supabase
+        .from("mavis_outcome_events")
+        .select("outcome_status")
+        .not("outcome_status", "eq", "pending")
+        .limit(50)
+    )
       .then(({ data }) => {
         if (!data || data.length === 0) return;
         const confirmed = data.filter(e => e.outcome_status === "confirmed").length;
@@ -141,12 +147,14 @@ export default function Dashboard() {
   } | null>(null);
 
   useEffect(() => {
-    supabase
-      .from("mavis_evolution_log")
-      .select("evolution_type, affected_key, reason")
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .maybeSingle()
+    Promise.resolve(
+      supabase
+        .from("mavis_evolution_log")
+        .select("evolution_type, affected_key, reason")
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle()
+    )
       .then(({ data }) => setLastEvolution(data ?? null))
       .catch(() => {});
   }, []);
