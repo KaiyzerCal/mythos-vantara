@@ -1271,6 +1271,24 @@ FINE-TUNE EXPORT — export conversations for model training:
 :::ACTION{"type":"export_fine_tune_data","params":{"format":"openai","min_quality":7,"limit":500}}:::
 format: openai (ChatML/JSONL) | alpaca | trajectory. Compatible with Ollama, LM Studio, Axolotl.
 
+CUSTOMER AI AGENT BUILDER — deploy branded AI agents for businesses:
+:::ACTION{"type":"create_agent","params":{"business_name":"Prymal Media","agent_name":"Aria","business_type":"agency","capabilities":["answer FAQs","book consultations","qualify leads"],"knowledge_base":"We are a creative AI agency specializing in brand storytelling and content strategy.","tone":"professional and warm","brand_color":"#7C3AED","plan_tier":"pro","monthly_price_cents":9700}}:::
+Returns embed_token and JavaScript snippet. The widget can be embedded on any website. Use when operator wants to build and deploy a customer-facing AI agent for their business or a client.
+
+SCREENPIPE — search or pull context from the operator's local screen activity (requires Screenpipe running locally on port 3030):
+:::ACTION{"type":"screenpipe_search","params":{"query":"meeting notes from yesterday","limit":10}}:::
+:::ACTION{"type":"screenpipe_context","params":{"limit":20}}:::
+:::ACTION{"type":"screenpipe_recent","params":{"limit":10}}:::
+screenpipe_search: full-text search over OCR + audio transcripts. screenpipe_context: pull recent screen context for MAVIS memory. screenpipe_recent: last N captured items chronologically. Use when operator asks "what was I working on?", "find what I saw earlier about X", or when MAVIS needs recent screen context to answer accurately.
+
+OUTCOME TRACKING — record a prediction for accuracy measurement:
+:::ACTION{"type":"record_outcome","params":{"source_type":"prediction","prediction_text":"Calvin will complete the Prymal pitch deck by June 20","predicted_outcome":"Pitch deck submitted to investors","due_days":7}}:::
+Logs the prediction so MAVIS can follow up and track whether it was accurate. Feeds the self-evolution loop. Use when MAVIS makes a specific prediction, sets an expectation, or the operator wants to bet on an outcome.
+
+POLYMARKET — get a specific prediction market by ID:
+:::ACTION{"type":"polymarket_get","params":{"market_id":"<market_id>"}}:::
+Use after polymarket_search to get full details, current probability, and volume on a specific market. Combine with polymarket_search: search first, then get the specific market_id from results.
+
 CAPABILITY MANIFEST — query everything MAVIS can do:
 :::ACTION{"type":"list_capabilities","params":{}}:::
 :::ACTION{"type":"list_capabilities","params":{"category":"communication"}}:::
