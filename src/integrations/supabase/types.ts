@@ -1181,6 +1181,39 @@ export type Database = {
         }
         Relationships: []
       }
+      mavis_activities: {
+        Row: {
+          created_at: string
+          description: string | null
+          id: string
+          payload: Json | null
+          task_id: string | null
+          type: string
+          user_id: string
+          xp_earned: number
+        }
+        Insert: {
+          created_at?: string
+          description?: string | null
+          id?: string
+          payload?: Json | null
+          task_id?: string | null
+          type: string
+          user_id: string
+          xp_earned?: number
+        }
+        Update: {
+          created_at?: string
+          description?: string | null
+          id?: string
+          payload?: Json | null
+          task_id?: string | null
+          type?: string
+          user_id?: string
+          xp_earned?: number
+        }
+        Relationships: []
+      }
       mavis_agent_karma: {
         Row: {
           agent_id: string
@@ -1450,6 +1483,42 @@ export type Database = {
           updated_at?: string | null
           user_id?: string
           vapi_call_id?: string | null
+        }
+        Relationships: []
+      }
+      mavis_capabilities: {
+        Row: {
+          action_type: string
+          category: string
+          created_at: string | null
+          description: string
+          edge_function: string | null
+          example_params: Json | null
+          id: string
+          is_active: boolean | null
+          requires_secrets: string[] | null
+        }
+        Insert: {
+          action_type: string
+          category: string
+          created_at?: string | null
+          description: string
+          edge_function?: string | null
+          example_params?: Json | null
+          id?: string
+          is_active?: boolean | null
+          requires_secrets?: string[] | null
+        }
+        Update: {
+          action_type?: string
+          category?: string
+          created_at?: string | null
+          description?: string
+          edge_function?: string | null
+          example_params?: Json | null
+          id?: string
+          is_active?: boolean | null
+          requires_secrets?: string[] | null
         }
         Relationships: []
       }
@@ -1855,6 +1924,48 @@ export type Database = {
           id?: string
           is_default?: boolean | null
           token_set?: Json
+          user_id?: string
+        }
+        Relationships: []
+      }
+      mavis_domain_effects: {
+        Row: {
+          area_effects: string[]
+          created_at: string
+          description: string | null
+          effect_type: string
+          expires_at: string | null
+          id: string
+          is_active: boolean
+          name: string
+          source: string | null
+          stat_modifiers: Json
+          user_id: string
+        }
+        Insert: {
+          area_effects?: string[]
+          created_at?: string
+          description?: string | null
+          effect_type?: string
+          expires_at?: string | null
+          id?: string
+          is_active?: boolean
+          name: string
+          source?: string | null
+          stat_modifiers?: Json
+          user_id: string
+        }
+        Update: {
+          area_effects?: string[]
+          created_at?: string
+          description?: string | null
+          effect_type?: string
+          expires_at?: string | null
+          id?: string
+          is_active?: boolean
+          name?: string
+          source?: string | null
+          stat_modifiers?: Json
           user_id?: string
         }
         Relationships: []
@@ -2464,6 +2575,45 @@ export type Database = {
         }
         Relationships: []
       }
+      mavis_persona_memory: {
+        Row: {
+          consolidated: boolean
+          content: string
+          created_at: string
+          id: string
+          importance: number
+          persona_id: string
+          persona_name: string
+          role: string
+          session_id: string | null
+          user_id: string
+        }
+        Insert: {
+          consolidated?: boolean
+          content: string
+          created_at?: string
+          id?: string
+          importance?: number
+          persona_id: string
+          persona_name: string
+          role: string
+          session_id?: string | null
+          user_id: string
+        }
+        Update: {
+          consolidated?: boolean
+          content?: string
+          created_at?: string
+          id?: string
+          importance?: number
+          persona_id?: string
+          persona_name?: string
+          role?: string
+          session_id?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
       mavis_plan_steps: {
         Row: {
           actions: Json | null
@@ -3031,6 +3181,39 @@ export type Database = {
         }
         Relationships: []
       }
+      mavis_terminal_sessions: {
+        Row: {
+          created_at: string
+          cwd: string
+          id: string
+          label: string
+          last_used_at: string
+          sandbox_id: string
+          status: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          cwd?: string
+          id?: string
+          label?: string
+          last_used_at?: string
+          sandbox_id: string
+          status?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          cwd?: string
+          id?: string
+          label?: string
+          last_used_at?: string
+          sandbox_id?: string
+          status?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       mavis_tool_registry: {
         Row: {
           category: string
@@ -3139,6 +3322,42 @@ export type Database = {
           updated_at?: string | null
           user_id?: string
           working_style?: Json | null
+        }
+        Relationships: []
+      }
+      mavis_vault: {
+        Row: {
+          attachments: string[]
+          category: string
+          content: string
+          created_at: string
+          id: string
+          importance: string
+          title: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          attachments?: string[]
+          category?: string
+          content?: string
+          created_at?: string
+          id?: string
+          importance?: string
+          title: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          attachments?: string[]
+          category?: string
+          content?: string
+          created_at?: string
+          id?: string
+          importance?: string
+          title?: string
+          updated_at?: string
+          user_id?: string
         }
         Relationships: []
       }
