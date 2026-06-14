@@ -84,13 +84,15 @@ export default function Dashboard() {
 
   useEffect(() => {
     const yesterday = new Date(Date.now() - 86400000).toISOString();
-    supabase
-      .from("mavis_market_intel")
-      .select("topic, headline, summary, relevance_score, signal_type")
-      .gte("relevance_score", 0.6)
-      .gte("created_at", yesterday)
-      .order("relevance_score", { ascending: false })
-      .limit(3)
+    Promise.resolve(
+      supabase
+        .from("mavis_market_intel")
+        .select("topic, headline, summary, relevance_score, signal_type")
+        .gte("relevance_score", 0.6)
+        .gte("created_at", yesterday)
+        .order("relevance_score", { ascending: false })
+        .limit(3)
+    )
       .then(({ data }) => setMarketIntel(data ?? []))
       .catch(() => {});
   }, []);
