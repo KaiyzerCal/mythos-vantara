@@ -147,12 +147,14 @@ export default function Dashboard() {
   } | null>(null);
 
   useEffect(() => {
-    supabase
-      .from("mavis_evolution_log")
-      .select("evolution_type, affected_key, reason")
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .maybeSingle()
+    Promise.resolve(
+      supabase
+        .from("mavis_evolution_log")
+        .select("evolution_type, affected_key, reason")
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle()
+    )
       .then(({ data }) => setLastEvolution(data ?? null))
       .catch(() => {});
   }, []);
