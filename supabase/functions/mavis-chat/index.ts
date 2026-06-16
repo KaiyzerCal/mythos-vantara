@@ -1948,11 +1948,34 @@ ${fmtGoals}
       }
     } catch { /* non-critical */ }
 
+    // ── Dynamic standing orders from operator's template library ─────────
+    // Query active/pinned templates and inject them as live directives.
+    // This makes standing orders created in the UI immediately effective in chat.
+    let dynamicSOBlock = "";
+    const isCouncilMode = (mode ?? "").toUpperCase() === "COUNCIL";
+    if (!isCouncilMode) {
+      try {
+        const { data: soTemplates } = await sb
+          .from("standing_order_templates")
+          .select("name, instructions")
+          .eq("user_id", user.id)
+          .in("status", ["active", "pinned"])
+          .order("status", { ascending: false }) // pinned first
+          .limit(12);
+        if (soTemplates && (soTemplates as any[]).length > 0) {
+          const soLines = (soTemplates as any[]).map((t: any) => {
+            const instr = String(t.instructions ?? "").slice(0, 400);
+            return `[${t.name}] ${instr}${instr.length >= 400 ? "…" : ""}`;
+          });
+          dynamicSOBlock = `\n\n═══ OPERATOR STANDING ORDERS (active directives — follow always) ═══\n${soLines.join("\n\n")}\n═══ END STANDING ORDERS ═══`;
+        }
+      } catch { /* non-critical — proceed without custom orders */ }
+    }
+
     // ── Build system prompt ─────────────────────────────────
     // For COUNCIL mode: use the client's persona-rich system prompt as the base,
     // then append the authoritative DB context so the council member has full app awareness.
     // For MAVIS modes: use the server-built MAVIS Prime prompt + authoritative context.
-    const isCouncilMode = (mode ?? "").toUpperCase() === "COUNCIL";
     const baseSystem = isCouncilMode && typeof clientSystemPrompt === "string" && clientSystemPrompt.length > 0
       ? clientSystemPrompt
       : buildMavisPrompt(profile, mode ?? "PRIME", appState ?? {}, callerName, isCaliyah);
@@ -1981,8 +2004,8 @@ ${fmtGoals}
       } catch { /* non-critical */ }
     }
     const systemWithPersonaMemory = personaMemoryBlock
-      ? baseSystem + personaMemoryBlock
-      : baseSystem;
+      ? baseSystem + personaMemoryBlock + dynamicSOBlock
+      : baseSystem + dynamicSOBlock;
 
     // ── Attachments uploaded to this thread ────────────────
     let attachmentsBlock = "";
