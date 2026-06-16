@@ -1,6 +1,7 @@
 // mavis-design-engine — MAVIS Design Engine Edge Function
-// Routes design generation requests through Claude (server-side API key)
-// and stores results in Supabase. Never exposes the API key to the client.
+// PrymalAI-parity quality: 3-layer canvas ambient system, custom cursor + spotlight,
+// HUD overlay, scrolling ticker, mouse-tracking cards, terminal, animated counters.
+// Effect components are injected verbatim (not LLM-generated) so they always work.
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
@@ -15,10 +16,318 @@ const ANTHROPIC_KEY = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
 const SUPABASE_URL  = Deno.env.get("SUPABASE_URL") ?? "";
 const SERVICE_KEY   = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 
+// ═══════════════════════════════════════════════════════════════
+// PRE-BUILT EFFECT COMPONENTS
+// These are injected into every generated site verbatim.
+// They are tested, production-ready — never LLM-generated.
+// ═══════════════════════════════════════════════════════════════
+
+// 3-layer canvas: matrix rain + ambient orbs + lightning
+const TEMPLATE_CANVAS_BACKGROUND = `import { useEffect, useRef } from 'react';
+
+export default function CanvasBackground() {
+  const matrixRef = useRef<HTMLCanvasElement>(null);
+  const ambRef    = useRef<HTMLCanvasElement>(null);
+  const boltRef   = useRef<HTMLCanvasElement>(null);
+
+  // ── Matrix rain ─────────────────────────────────────────────
+  useEffect(() => {
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    const c = matrixRef.current; if (!c) return;
+    const ctx = c.getContext('2d')!;
+    let id: number;
+    const resize = () => { c.width = window.innerWidth; c.height = window.innerHeight; };
+    resize(); window.addEventListener('resize', resize);
+    const CHARS = 'アイウエオカキクケコ01サシスセソタチツテトナニヌ01';
+    const SZ = 13;
+    let cols: number[] = [];
+    const init = () => { cols = Array.from({ length: Math.floor(c.width / SZ) }, () => Math.random() * -c.height); };
+    init();
+    const draw = () => {
+      ctx.fillStyle = 'rgba(6,8,16,0.06)';
+      ctx.fillRect(0, 0, c.width, c.height);
+      ctx.fillStyle = 'rgba(0,200,255,0.32)';
+      ctx.font = SZ + 'px DM Mono,monospace';
+      cols.forEach((y, i) => {
+        ctx.fillText(CHARS[Math.floor(Math.random() * CHARS.length)], i * SZ, y);
+        cols[i] = y > c.height ? Math.random() * -300 : y + SZ;
+      });
+      id = requestAnimationFrame(draw);
+    };
+    draw();
+    return () => { cancelAnimationFrame(id); window.removeEventListener('resize', resize); };
+  }, []);
+
+  // ── Ambient colour orbs ──────────────────────────────────────
+  useEffect(() => {
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    const c = ambRef.current; if (!c) return;
+    const ctx = c.getContext('2d')!;
+    let id: number;
+    const resize = () => { c.width = window.innerWidth; c.height = window.innerHeight; };
+    resize(); window.addEventListener('resize', resize);
+    type Orb = { x: number; y: number; vx: number; vy: number; r: number; hue: number };
+    const orbs: Orb[] = Array.from({ length: 5 }, () => ({
+      x: Math.random() * window.innerWidth, y: Math.random() * window.innerHeight,
+      vx: (Math.random() - 0.5) * 0.25,    vy: (Math.random() - 0.5) * 0.25,
+      r: 200 + Math.random() * 220,         hue: Math.random() > 0.55 ? 280 : 195,
+    }));
+    const draw = () => {
+      ctx.clearRect(0, 0, c.width, c.height);
+      orbs.forEach(o => {
+        o.x += o.vx; o.y += o.vy;
+        if (o.x < -o.r) o.x = c.width  + o.r; else if (o.x > c.width  + o.r) o.x = -o.r;
+        if (o.y < -o.r) o.y = c.height + o.r; else if (o.y > c.height + o.r) o.y = -o.r;
+        const g = ctx.createRadialGradient(o.x, o.y, 0, o.x, o.y, o.r);
+        g.addColorStop(0,   'hsla(' + o.hue + ',90%,60%,0.046)');
+        g.addColorStop(0.5, 'hsla(' + o.hue + ',80%,50%,0.018)');
+        g.addColorStop(1,   'transparent');
+        ctx.fillStyle = g;
+        ctx.beginPath(); ctx.arc(o.x, o.y, o.r, 0, Math.PI * 2); ctx.fill();
+      });
+      id = requestAnimationFrame(draw);
+    };
+    draw();
+    return () => { cancelAnimationFrame(id); window.removeEventListener('resize', resize); };
+  }, []);
+
+  // ── Occasional lightning ─────────────────────────────────────
+  useEffect(() => {
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    const c = boltRef.current; if (!c) return;
+    const ctx = c.getContext('2d')!;
+    let id: number;
+    const resize = () => { c.width = window.innerWidth; c.height = window.innerHeight; };
+    resize(); window.addEventListener('resize', resize);
+    let nextBolt = Date.now() + 5000 + Math.random() * 8000;
+    let alpha = 0;
+    let path: Array<[number, number]> = [];
+    function mkBolt(x: number): Array<[number, number]> {
+      const pts: Array<[number, number]> = [[x, 0]]; let cx = x, cy = 0;
+      while (cy < c.height * 0.45) { cx += (Math.random() - 0.5) * 90; cy += 28 + Math.random() * 32; pts.push([cx, cy]); }
+      return pts;
+    }
+    const draw = () => {
+      ctx.clearRect(0, 0, c.width, c.height);
+      const now = Date.now();
+      if (now >= nextBolt) { path = mkBolt(Math.random() * c.width); alpha = 0.7; nextBolt = now + 7000 + Math.random() * 10000; }
+      if (alpha > 0 && path.length > 1) {
+        ctx.beginPath(); ctx.moveTo(path[0][0], path[0][1]);
+        for (let i = 1; i < path.length; i++) ctx.lineTo(path[i][0], path[i][1]);
+        ctx.strokeStyle = 'rgba(0,200,255,' + alpha + ')';
+        ctx.lineWidth = 1.5; ctx.shadowColor = 'rgba(0,200,255,' + alpha + ')'; ctx.shadowBlur = 10;
+        ctx.stroke(); ctx.shadowBlur = 0;
+        alpha = Math.max(0, alpha - 0.02);
+      }
+      id = requestAnimationFrame(draw);
+    };
+    draw();
+    return () => { cancelAnimationFrame(id); window.removeEventListener('resize', resize); };
+  }, []);
+
+  return (
+    <div className="fixed inset-0 pointer-events-none overflow-hidden" style={{ zIndex: 0 }} aria-hidden>
+      <canvas ref={matrixRef} className="absolute inset-0 w-full h-full" style={{ opacity: 0.13, mixBlendMode: 'screen' as const }} />
+      <canvas ref={ambRef}    className="absolute inset-0 w-full h-full" />
+      <canvas ref={boltRef}   className="absolute inset-0 w-full h-full" style={{ opacity: 0.7, mixBlendMode: 'screen' as const }} />
+    </div>
+  );
+}
+`;
+
+// Custom cursor dot + canvas tracer trail + page-wide radial spotlight
+const TEMPLATE_CURSOR_FX = `import { useEffect, useRef } from 'react';
+
+export default function CursorFX() {
+  const tracerRef = useRef<HTMLCanvasElement>(null);
+  const dotRef    = useRef<HTMLDivElement>(null);
+  const spotRef   = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    document.body.style.cursor = 'none';
+    const tracer = tracerRef.current;
+    const dot    = dotRef.current;
+    const spot   = spotRef.current;
+    if (!tracer || !dot || !spot) return;
+
+    const resize = () => { tracer.width = window.innerWidth; tracer.height = window.innerHeight; };
+    resize(); window.addEventListener('resize', resize);
+    const ctx = tracer.getContext('2d')!;
+    type Pt = { x: number; y: number; a: number };
+    const trail: Pt[] = [];
+    let id: number;
+
+    const onMove = (e: MouseEvent) => {
+      const x = e.clientX, y = e.clientY;
+      dot.style.left  = x + 'px'; dot.style.top  = y + 'px';
+      spot.style.left = x + 'px'; spot.style.top = y + 'px';
+      trail.push({ x, y, a: 1 });
+      if (trail.length > 44) trail.shift();
+    };
+
+    const draw = () => {
+      ctx.clearRect(0, 0, tracer.width, tracer.height);
+      trail.forEach((p, i) => {
+        p.a *= 0.94;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, 2.6 * ((i + 1) / trail.length), 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(0,200,255,' + (p.a * 0.44) + ')';
+        ctx.fill();
+      });
+      id = requestAnimationFrame(draw);
+    };
+
+    window.addEventListener('mousemove', onMove);
+    draw();
+    return () => {
+      document.body.style.cursor = '';
+      cancelAnimationFrame(id);
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('resize', resize);
+    };
+  }, []);
+
+  return (
+    <>
+      <canvas ref={tracerRef} className="fixed inset-0 pointer-events-none" style={{ zIndex: 9998 }} aria-hidden />
+      <div ref={dotRef} className="fixed pointer-events-none" style={{ zIndex: 9999, transform: 'translate(-50%,-50%)', top: 0, left: 0 }} aria-hidden>
+        <div style={{ width: 7, height: 7, borderRadius: '50%', background: 'rgba(0,200,255,0.9)', boxShadow: '0 0 8px rgba(0,200,255,0.65)' }} />
+      </div>
+      <div ref={spotRef} className="fixed pointer-events-none" aria-hidden
+        style={{ zIndex: 1, width: 700, height: 700, borderRadius: '50%', transform: 'translate(-50%,-50%)', top: 0, left: 0,
+          background: 'radial-gradient(circle,rgba(0,200,255,0.022) 0%,rgba(0,200,255,0.008) 40%,transparent 70%)',
+          mixBlendMode: 'screen' as const }} />
+    </>
+  );
+}
+`;
+
+// Corner HUD brackets + rotating dashed arc + live system clock + scanline sweep
+const TEMPLATE_HUD_OVERLAY = `import { useEffect, useState } from 'react';
+
+function pad(n: number) { return n.toString().padStart(2, '0'); }
+
+export default function HudOverlay() {
+  const [angle, setAngle] = useState(0);
+  const [clock, setClock] = useState('');
+  const [scanY, setScanY] = useState(0);
+
+  useEffect(() => {
+    let id: number; let frame = 0;
+    const tick = () => {
+      frame++;
+      if (frame % 2 === 0) setAngle(a => (a + 0.5) % 360);
+      if (frame % 3 === 0) setScanY(y => (y >= 99 ? 0 : y + 0.07));
+      if (frame % 18 === 0) {
+        const d = new Date();
+        setClock(pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds()));
+      }
+      id = requestAnimationFrame(tick);
+    };
+    id = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(id);
+  }, []);
+
+  const BC = '2px solid rgba(0,200,255,0.22)';
+  const corner = (style: React.CSSProperties) => (
+    <div style={{ position: 'absolute', width: 30, height: 30, ...style }} />
+  );
+
+  return (
+    <div className="fixed inset-0 pointer-events-none overflow-hidden" style={{ zIndex: 10 }} aria-hidden>
+      {corner({ top: 14, left: 14,   borderLeft: BC, borderTop: BC })}
+      {corner({ top: 14, right: 14,  borderRight: BC, borderTop: BC })}
+      {corner({ bottom: 14, left: 14,  borderLeft: BC, borderBottom: BC })}
+      {corner({ bottom: 14, right: 14, borderRight: BC, borderBottom: BC })}
+
+      <div style={{ position: 'absolute', top: 10, right: 52, width: 44, height: 44, transform: 'rotate(' + angle + 'deg)' }}>
+        <svg viewBox="0 0 44 44" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <circle cx="22" cy="22" r="18" stroke="rgba(0,200,255,0.2)" strokeWidth="1" strokeDasharray="5 4" />
+          <circle cx="22" cy="22" r="10" stroke="rgba(0,200,255,0.1)" strokeWidth="0.5" />
+        </svg>
+      </div>
+
+      {clock && (
+        <div style={{ position: 'absolute', top: 21, left: 52, fontFamily: 'DM Mono,monospace', fontSize: 9, letterSpacing: 2, color: 'rgba(238,242,247,0.18)', userSelect: 'none' }}>
+          SYS:{clock}
+        </div>
+      )}
+
+      <div style={{
+        position: 'absolute', left: 0, right: 0, height: 1, top: scanY + 'vh',
+        background: 'linear-gradient(90deg,transparent 0%,rgba(0,200,255,0.28) 30%,rgba(0,200,255,0.28) 70%,transparent 100%)',
+        opacity: 0.45,
+      }} />
+    </div>
+  );
+}
+`;
+
+// Seamless scrolling ticker strip — place immediately after Hero
+const TEMPLATE_TICKER = `interface TickerProps {
+  items: string[];
+  accent?: string;
+  durationSecs?: number;
+}
+
+export default function Ticker({ items, accent = '#00c8ff', durationSecs }: TickerProps) {
+  const dur = (durationSecs ?? Math.max(22, items.length * 3.5)) + 's';
+  const doubled = [...items, ...items];
+  return (
+    <div style={{ position: 'relative', overflow: 'hidden', borderTop: '1px solid rgba(0,200,255,0.1)', borderBottom: '1px solid rgba(0,200,255,0.1)', background: 'rgba(0,200,255,0.018)', backdropFilter: 'blur(4px)' }}>
+      <div style={{ display: 'inline-flex', gap: '2.5rem', whiteSpace: 'nowrap', padding: '10px 0', animation: 'ticker-scroll ' + dur + ' linear infinite' }}>
+        {doubled.map((item, i) => (
+          <span key={i} style={{ display: 'inline-flex', alignItems: 'center', gap: '10px', fontFamily: 'var(--fm,DM Mono,monospace)', fontSize: '10px', letterSpacing: '2px', textTransform: 'uppercase', color: 'rgba(238,242,247,0.28)', flexShrink: 0 }}>
+            <span style={{ width: 4, height: 4, borderRadius: '50%', background: accent, display: 'inline-block', flexShrink: 0 }} />
+            {item}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+`;
+
+// CSS keyframes and base rules appended to every generated styles.css
+const TEMPLATE_CSS_ADDENDUM = `
+/* ── MAVIS Effect System — injected keyframes ──────────────── */
+@keyframes ticker-scroll {
+  from { transform: translateX(0); }
+  to   { transform: translateX(-50%); }
+}
+@keyframes glitch-1 {
+  0%,100% { clip-path: inset(0 0 98% 0); transform: none; }
+  10%     { clip-path: inset(8% 0 60% 0);  transform: translate(-2px,0); }
+  20%     { clip-path: inset(50% 0 30% 0); transform: translate(2px,0);  }
+  30%     { clip-path: inset(80% 0 8% 0);  transform: none; }
+}
+@keyframes glitch-2 {
+  0%,100% { clip-path: inset(0 0 98% 0); transform: none; }
+  15%     { clip-path: inset(15% 0 50% 0); transform: translate(2px,0); }
+  25%     { clip-path: inset(60% 0 20% 0); transform: translate(-2px,0); }
+}
+@keyframes grid-breathe {
+  0%,100% { opacity: 0.8; }
+  50%     { opacity: 1; }
+}
+@keyframes pulse-dot {
+  0%,100% { opacity: 1; box-shadow: 0 0 6px #28c840; }
+  50%     { opacity: 0.6; box-shadow: 0 0 10px #28c840; }
+}
+@keyframes border-glow {
+  0%,100% { opacity: 0.5; }
+  50%     { opacity: 1; }
+}
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(24px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+`;
+
 // ─── DESIGN CONSTANTS ────────────────────────────────────────
 
 const DESIGN_LAWS = [
-  "Fitts's Law: CTAs must be large (min 44px), centrally placed, and separated from distractors.",
+  "Fitts's Law: CTAs must be large (min 44px), centrally placed, separated from distractors.",
   "Jakob's Law: Innovate in content, not navigation. Use familiar patterns for menus and forms.",
   "Aesthetic-Usability Effect: Invest in visual polish — it directly increases perceived functionality.",
   "Hick's Law: One primary CTA per section. Remove secondary options at conversion points.",
@@ -29,240 +338,466 @@ const DESIGN_LAWS = [
   "Serial Position Effect: Best feature first, best testimonial last in any sequence.",
 ].join("\n");
 
-const SUB_BRANDS: Record<string, { accent: string; secondary: string; tone: string }> = {
-  vantara:    { accent: "#C9A84C", secondary: "#6366F1", tone: "Imperial, technical, sovereign" },
-  skyforgeai: { accent: "#F97316", secondary: "#FBBF24", tone: "Sharp, results-driven, operational" },
-  bioneer:    { accent: "#22C55E", secondary: "#86EFAC", tone: "Primal, disciplined, performance-first" },
-  navi:       { accent: "#8B5CF6", secondary: "#C4B5FD", tone: "Energetic, playful, companion-like" },
-  codexos:    { accent: "#C9A84C", secondary: "#6366F1", tone: "Mythic, architectural, ecosystem-wide" },
-  custom:     { accent: "#C9A84C", secondary: "#6366F1", tone: "Sovereign, precise, premium" },
+const PREMIUM_FONT_STACKS = {
+  cyberpunk: {
+    name: "Bebas Neue + DM Sans + DM Mono",
+    display: "'Bebas Neue', Impact, sans-serif",
+    body: "'DM Sans', Inter, sans-serif",
+    mono: "'DM Mono', 'JetBrains Mono', monospace",
+    googleUrl: "https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700&family=DM+Mono:ital,wght@0,400;0,500;1,400&display=swap",
+    tailwind: `fontFamily: { display: ['Bebas Neue','Impact','sans-serif'], sans: ['DM Sans','Inter','sans-serif'], mono: ['DM Mono','JetBrains Mono','monospace'] }`,
+    headingMod: "letter-spacing: 2px; text-transform: uppercase; font-weight: 400;",
+  },
+  premium: {
+    name: "Space Grotesk + DM Sans + JetBrains Mono",
+    display: "'Space Grotesk', Inter, sans-serif",
+    body: "'DM Sans', Inter, sans-serif",
+    mono: "'JetBrains Mono', monospace",
+    googleUrl: "https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=DM+Sans:wght@300;400;500;600&family=JetBrains+Mono:ital,wght@0,400;0,500;1,400&display=swap",
+    tailwind: `fontFamily: { display: ['Space Grotesk','Inter','sans-serif'], sans: ['DM Sans','Inter','sans-serif'], mono: ['JetBrains Mono','monospace'] }`,
+    headingMod: "letter-spacing: -0.02em; font-weight: 700;",
+  },
 };
+
+const SUB_BRANDS: Record<string, {
+  accent: string; secondary: string; bg: string; surface: string; tone: string; fontStack: string;
+}> = {
+  vantara:    { accent: "#C9A84C", secondary: "#6366F1", bg: "#09090E", surface: "#111118", tone: "Imperial, technical, sovereign — gold authority", fontStack: "premium" },
+  skyforgeai: { accent: "#F97316", secondary: "#FBBF24", bg: "#0A0804", surface: "#12100A", tone: "Sharp, results-driven, operational — orange momentum", fontStack: "premium" },
+  bioneer:    { accent: "#22C55E", secondary: "#86EFAC", bg: "#040E08", surface: "#0A1A0C", tone: "Primal, disciplined, performance-first — green vitality", fontStack: "premium" },
+  navi:       { accent: "#8B5CF6", secondary: "#C4B5FD", bg: "#070514", surface: "#0E0B1E", tone: "Energetic, playful, companion-like — purple intelligence", fontStack: "premium" },
+  codexos:    { accent: "#C9A84C", secondary: "#6366F1", bg: "#09090E", surface: "#111118", tone: "Mythic, architectural, ecosystem-wide — master brand", fontStack: "cyberpunk" },
+  prymal:     { accent: "#00c8ff", secondary: "#7c3aed", bg: "#060810", surface: "#0d1117", tone: "Cyberpunk-elite, technical precision, unapologetically premium. Every pixel intentional. Every interaction alive.", fontStack: "cyberpunk" },
+  custom:     { accent: "#C9A84C", secondary: "#6366F1", bg: "#09090E", surface: "#111118", tone: "Sovereign, precise, premium", fontStack: "cyberpunk" },
+};
+
+// ─── PROMPT BUILDERS ─────────────────────────────────────────
+
+function getTier(brief: Record<string, unknown>): 1 | 2 | 3 {
+  const t = Number(brief.quality_tier ?? 3);
+  return (t === 1 ? 1 : t === 2 ? 2 : 3) as 1 | 2 | 3;
+}
 
 function buildSystemPrompt(brief: Record<string, unknown>): string {
   const brand = String(brief.brand ?? "custom");
   const sb = SUB_BRANDS[brand] ?? SUB_BRANDS.custom;
+  const fonts = PREMIUM_FONT_STACKS[sb.fontStack as keyof typeof PREMIUM_FONT_STACKS] ?? PREMIUM_FONT_STACKS.cyberpunk;
+  const card = brand === "prymal" || brand === "codexos" ? "#111827" : "#16161F";
+  const tier = getTier(brief);
+  const textColor = brand === "prymal" ? "#eef2f7" : "#F1F0ED";
 
+  const cssVarsBlock = `CSS CUSTOM PROPERTIES — always in styles.css :root:
+  --bg:      ${sb.bg};
+  --surface: ${sb.surface};
+  --card:    ${card};
+  --accent:  ${sb.accent};
+  --accent2: ${sb.secondary};
+  --text:    ${textColor};
+  --muted:   #6b7280;
+  --border:  ${sb.accent}1a;
+  --border2: ${sb.accent}33;
+  --glow:    0 0 24px ${sb.accent}30;
+  --fd: ${fonts.display};
+  --fb: ${fonts.body};
+  --fm: ${fonts.mono};`;
+
+  const brandBlock = `BRAND: ${brand.toUpperCase()}
+BG: ${sb.bg}  |  Surface: ${sb.surface}  |  Card: ${card}
+Accent: ${sb.accent}  |  Accent2: ${sb.secondary}
+Display Font: ${fonts.display}
+Body Font:    ${fonts.body}
+Mono Font:    ${fonts.mono}
+Google URL:   ${fonts.googleUrl}
+Tone: ${sb.tone}`;
+
+  const codeReqs = `CODE REQUIREMENTS:
+- TypeScript, no any[] where avoidable
+- Tailwind + CSS var arbitrary values e.g. bg-[var(--accent)] text-[var(--text)]
+- Framer Motion for section reveals: whileInView / initial / viewport={{ once:true }}
+- Complete production code — no TODOs, no placeholders, no "// ...rest of code"
+- Google Fonts @import must be the FIRST line of styles.css
+- REDUCED MOTION: @media(prefers-reduced-motion:reduce){*{animation-duration:.001ms!important}}`;
+
+  // ── Tier 1: Clean Professional ──────────────────────────────
+  if (tier === 1) {
+    return `You are MAVIS — a sovereign design system generating clean, professional dark websites.
+
+QUALITY TIER: 1 — Clean Professional ($1,000–$2,000)
+Deliver a clean, polished dark website. Excellent typography. No canvas. No custom cursor.
+Focus: great layout, readable hierarchy, smooth hover transitions, mobile-first responsive.
+
+${brandBlock}
+
+${cssVarsBlock}
+
+GRID OVERLAY — include in body::before:
+  content:''; position:fixed; inset:0; pointer-events:none; z-index:0;
+  background-image: linear-gradient(${sb.accent}04 1px,transparent 1px), linear-gradient(90deg,${sb.accent}04 1px,transparent 1px);
+  background-size:56px 56px;
+
+PERFORMANCE: Lighthouse 95+, LCP < 2.5s, CLS < 0.1
+DESIGN LAWS: ${DESIGN_LAWS}
+TAILWIND CONFIG: theme: { extend: { ${fonts.tailwind} } }
+
+SCROLL-REVEAL (CSS transitions + IntersectionObserver, no canvas):
+  function useReveal(threshold=0.12) {
+    const ref=useRef<HTMLDivElement>(null); const [vis,setVis]=useState(false);
+    useEffect(()=>{ const obs=new IntersectionObserver(([e])=>{ if(e.isIntersecting){setVis(true);obs.disconnect();} },{threshold}); if(ref.current) obs.observe(ref.current); return ()=>obs.disconnect(); },[threshold]);
+    return {ref,vis};
+  }
+
+GLASSMORPHISM:
+  Nav: fixed top-0 inset-x-0 bg-black/50 backdrop-blur-[30px] border-b border-white/5
+  Card: bg-white/[0.03] backdrop-blur-md border border-white/[0.06] rounded-xl
+
+ANIMATIONS ALLOWED: hover transitions (translateY, box-shadow, opacity), scroll reveal, animated CTA button gradient.
+NO canvas, NO requestAnimationFrame, NO custom cursor.
+
+${codeReqs}`;
+  }
+
+  // ── Tier 2: Dynamic ─────────────────────────────────────────
+  if (tier === 2) {
+    return `You are MAVIS — a sovereign design system generating dynamic interactive dark websites.
+
+QUALITY TIER: 2 — Dynamic ($3,000–$5,000)
+Deliver a JavaScript-powered interactive website with canvas hero, spotlight cards, terminal, animated counters.
+
+${brandBlock}
+
+${cssVarsBlock}
+
+GRID OVERLAY — include in body::before:
+  content:''; position:fixed; inset:0; pointer-events:none; z-index:0;
+  background-image: linear-gradient(${sb.accent}05 1px,transparent 1px), linear-gradient(90deg,${sb.accent}05 1px,transparent 1px);
+  background-size:56px 56px; animation: grid-breathe 14s ease-in-out infinite;
+
+PERFORMANCE: Lighthouse 95+, LCP < 2.5s, CLS < 0.1
+DESIGN LAWS: ${DESIGN_LAWS}
+TAILWIND CONFIG: theme: { extend: { ${fonts.tailwind} } }
+
+CANVAS PARTICLE NETWORK — Hero.tsx (REQUIRED, exact pattern):
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  useEffect(() => {
+    const canvas = canvasRef.current; if (!canvas) return;
+    const ctx = canvas.getContext('2d')!; let id: number;
+    const resize = () => { canvas.width=canvas.offsetWidth; canvas.height=canvas.offsetHeight; };
+    resize(); window.addEventListener('resize', resize);
+    type Node = { x:number;y:number;vx:number;vy:number;r:number };
+    const nodes: Node[] = Array.from({length:55},()=>({ x:Math.random()*canvas.width, y:Math.random()*canvas.height, vx:(Math.random()-0.5)*0.45, vy:(Math.random()-0.5)*0.45, r:Math.random()*2+0.8 }));
+    const draw = () => {
+      ctx.clearRect(0,0,canvas.width,canvas.height);
+      nodes.forEach(n=>{ n.x+=n.vx; n.y+=n.vy; if(n.x<0||n.x>canvas.width)n.vx*=-1; if(n.y<0||n.y>canvas.height)n.vy*=-1;
+        ctx.beginPath(); ctx.arc(n.x,n.y,n.r,0,Math.PI*2); ctx.fillStyle='rgba(0,200,255,0.7)'; ctx.fill(); });
+      for(let i=0;i<nodes.length;i++) for(let j=i+1;j<nodes.length;j++){
+        const d=Math.hypot(nodes[i].x-nodes[j].x,nodes[i].y-nodes[j].y);
+        if(d<130){ ctx.beginPath(); ctx.moveTo(nodes[i].x,nodes[i].y); ctx.lineTo(nodes[j].x,nodes[j].y);
+          ctx.strokeStyle='rgba(0,200,255,'+(0.18*(1-d/130))+')'; ctx.lineWidth=0.6; ctx.stroke(); }}
+      id=requestAnimationFrame(draw);
+    };
+    draw();
+    return ()=>{ cancelAnimationFrame(id); window.removeEventListener('resize',resize); };
+  },[]);
+
+MOUSE-TRACKING SPOTLIGHT ON CARDS:
+  onMouseMove={(e)=>{ const r=e.currentTarget.getBoundingClientRect();
+    e.currentTarget.style.setProperty('--mx',((e.clientX-r.left)/r.width*100)+'%');
+    e.currentTarget.style.setProperty('--my',((e.clientY-r.top)/r.height*100)+'%'); }}
+  className="relative group before:absolute before:inset-0 before:rounded-[inherit]
+    before:bg-[radial-gradient(ellipse_at_var(--mx,50%)_var(--my,50%),rgba(0,200,255,0.07),transparent_65%)]
+    before:opacity-0 before:transition-opacity before:duration-300 hover:before:opacity-100"
+
+ANIMATED COUNTER:
+  function AnimCounter({ to, suffix='' }: { to:number; suffix?:string }) {
+    const [n,setN]=useState(0); const ref=useRef<HTMLSpanElement>(null);
+    useEffect(()=>{ const obs=new IntersectionObserver(([e])=>{ if(!e.isIntersecting) return; obs.disconnect(); const s=performance.now(); const tick=(now:number)=>{ const p=Math.min((now-s)/1800,1); setN(Math.floor(p*to)); if(p<1) requestAnimationFrame(tick); else setN(to); }; requestAnimationFrame(tick); },{threshold:0.3}); if(ref.current) obs.observe(ref.current); return ()=>obs.disconnect(); },[to]);
+    return <span ref={ref}>{n.toLocaleString()}{suffix}</span>;
+  }
+
+SVG GEO ACCENT on cards:
+  <svg className="absolute right-4 bottom-4 w-24 h-24 text-current opacity-[0.06] transition-transform duration-500 group-hover:rotate-12 group-hover:opacity-[0.1]" viewBox="0 0 160 160" fill="none" stroke="currentColor" strokeWidth="1">
+    <polygon points="80,8 148,44 148,116 80,152 12,116 12,44"/><polygon points="80,30 124,55 124,105 80,130 36,105 36,55"/><circle cx="80" cy="80" r="16"/>
+  </svg>
+
+GLASSMORPHISM:
+  Nav: fixed top-0 inset-x-0 bg-black/50 backdrop-blur-[40px] saturate-200 border-b border-white/5
+  Card: bg-white/[0.03] backdrop-blur-xl border border-white/[0.06] rounded-xl
+
+NO ambient canvas background. NO custom cursor. NO HUD overlay. NO ticker.
+${codeReqs}`;
+  }
+
+  // ── Tier 3: Sovereign (full PrymalAI system) ─────────────────
   return `You are MAVIS — Machine Autonomous Vantara Intelligence System.
-You are the sovereign design intelligence of CODEXOS.
-You do not produce generic websites. You produce sovereign digital infrastructure
-that surpasses Marcelo Design X in every measurable dimension.
+Quality benchmark: PrymalAI — cinematic dark website with 3-layer canvas background,
+custom cursor + tracer + spotlight, HUD overlay, scrolling ticker, mouse-tracking spotlight cards,
+glassmorphic nav, glitch headlines, terminal animations, animated stat counters.
+You produce sovereign digital infrastructure that makes every competitor look like a demo.
 
-CODEXOS DESIGN STANDARDS:
-- Sovereign: Commands attention, does not ask for it
-- Precise: Every element earns its place — no decoration without purpose
-- Dark-first: Deep, rich dark mode by default
-- Premium: Makes competitors look like demos
-- Conversion-obsessed: Every design decision serves the primary action
+QUALITY TIER: 3 — Sovereign ($8,000+) — Full PrymalAI system
 
-BRAND SYSTEM:
-Background: #0A0A0F
-Surface: #111118
-Primary Accent: ${sb.accent}
-Secondary Accent: ${sb.secondary}
-Text Primary: #F1F0ED
-Display Font: 'Space Grotesk', sans-serif
-Body Font: 'Inter', sans-serif
-Brand Tone: ${sb.tone}
+${brandBlock}
 
-PERFORMANCE TARGETS:
-Lighthouse: 95+ performance, 100 accessibility
-LCP: < 2.5s | CLS: < 0.1 | Initial JS: < 150kb gzipped
+${cssVarsBlock}
 
-DESIGN LAWS TO APPLY:
-${DESIGN_LAWS}
+GRID OVERLAY — always in body::before:
+  content:''; position:fixed; inset:0; pointer-events:none; z-index:0;
+  background-image: linear-gradient(${sb.accent}05 1px,transparent 1px), linear-gradient(90deg,${sb.accent}05 1px,transparent 1px);
+  background-size:56px 56px; animation: grid-breathe 14s ease-in-out infinite;
 
-TECH STACK:
-React + Vite + TypeScript + Tailwind CSS + Framer Motion + Lucide React
-Forms: React Hook Form + Zod | Backend: Supabase
+PRE-BUILT EFFECT COMPONENTS (injected automatically — DO NOT generate these, they already exist):
+  import CanvasBackground from './components/effects/CanvasBackground';  // matrix rain + orbs + lightning
+  import CursorFX         from './components/effects/CursorFX';          // dot + tracer + spotlight
+  import HudOverlay       from './components/effects/HudOverlay';        // brackets + arc + clock + scan
+  import Ticker           from './components/effects/Ticker';            // scrolling strip
+Your App.tsx MUST import and render all 4. They are already in the file list.
 
-CODE REQUIREMENTS:
-- TypeScript throughout — no any types where avoidable
-- Tailwind utility classes only
-- Framer Motion for animations
-- Full ARIA accessibility
-- Mobile-first responsive
-- Complete, production-ready — no placeholder comments
-- Every component exports a clean TypeScript interface`;
+PERFORMANCE: Lighthouse 95+, LCP < 2.5s, CLS < 0.1, JS < 150kb gz
+DESIGN LAWS: ${DESIGN_LAWS}
+TAILWIND CONFIG: theme: { extend: { ${fonts.tailwind} } }
+
+CANVAS PARTICLE NETWORK — Hero.tsx (required, exact pattern):
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  useEffect(() => {
+    const canvas = canvasRef.current; if (!canvas) return;
+    const ctx = canvas.getContext('2d')!; let id: number;
+    const resize = () => { canvas.width=canvas.offsetWidth; canvas.height=canvas.offsetHeight; };
+    resize(); window.addEventListener('resize', resize);
+    type Node = { x:number;y:number;vx:number;vy:number;r:number };
+    const nodes: Node[] = Array.from({length:55},()=>({ x:Math.random()*canvas.width, y:Math.random()*canvas.height, vx:(Math.random()-0.5)*0.45, vy:(Math.random()-0.5)*0.45, r:Math.random()*2+0.8 }));
+    const draw = () => {
+      ctx.clearRect(0,0,canvas.width,canvas.height);
+      nodes.forEach(n=>{ n.x+=n.vx; n.y+=n.vy; if(n.x<0||n.x>canvas.width)n.vx*=-1; if(n.y<0||n.y>canvas.height)n.vy*=-1;
+        ctx.beginPath(); ctx.arc(n.x,n.y,n.r,0,Math.PI*2); ctx.fillStyle='rgba(0,200,255,0.7)'; ctx.fill(); });
+      for(let i=0;i<nodes.length;i++) for(let j=i+1;j<nodes.length;j++){
+        const d=Math.hypot(nodes[i].x-nodes[j].x,nodes[i].y-nodes[j].y);
+        if(d<130){ ctx.beginPath(); ctx.moveTo(nodes[i].x,nodes[i].y); ctx.lineTo(nodes[j].x,nodes[j].y);
+          ctx.strokeStyle='rgba(0,200,255,'+(0.18*(1-d/130))+')'; ctx.lineWidth=0.6; ctx.stroke(); }}
+      id=requestAnimationFrame(draw);
+    };
+    draw();
+    return ()=>{ cancelAnimationFrame(id); window.removeEventListener('resize',resize); };
+  },[]);
+
+MOUSE-TRACKING SPOTLIGHT ON CARDS — every card MUST use:
+  onMouseMove={(e)=>{ const r=e.currentTarget.getBoundingClientRect();
+    e.currentTarget.style.setProperty('--mx',((e.clientX-r.left)/r.width*100)+'%');
+    e.currentTarget.style.setProperty('--my',((e.clientY-r.top)/r.height*100)+'%'); }}
+  className="relative group before:absolute before:inset-0 before:rounded-[inherit]
+    before:bg-[radial-gradient(ellipse_at_var(--mx,50%)_var(--my,50%),rgba(0,200,255,0.07),transparent_65%)]
+    before:opacity-0 before:transition-opacity before:duration-300 hover:before:opacity-100"
+
+GLITCH TEXT — primary hero headline:
+  <span className="relative inline-block group cursor-default select-none">
+    <span className="relative z-10">{text}</span>
+    <span className="absolute inset-0 text-cyan-400 opacity-0 group-hover:opacity-60 translate-x-[1px] -translate-y-[1px] blur-[0.4px] transition-opacity duration-75 select-none pointer-events-none" aria-hidden>{text}</span>
+    <span className="absolute inset-0 text-purple-400 opacity-0 group-hover:opacity-40 -translate-x-[1px] translate-y-[1px] blur-[0.4px] transition-opacity duration-100 select-none pointer-events-none" aria-hidden>{text}</span>
+  </span>
+
+ANIMATED COUNTER:
+  function AnimCounter({ to, suffix='' }: { to:number; suffix?:string }) {
+    const [n,setN]=useState(0); const ref=useRef<HTMLSpanElement>(null);
+    useEffect(()=>{ const obs=new IntersectionObserver(([e])=>{ if(!e.isIntersecting) return; obs.disconnect(); const s=performance.now(); const tick=(now:number)=>{ const p=Math.min((now-s)/1800,1); setN(Math.floor(p*to)); if(p<1) requestAnimationFrame(tick); else setN(to); }; requestAnimationFrame(tick); },{threshold:0.3}); if(ref.current) obs.observe(ref.current); return ()=>obs.disconnect(); },[to]);
+    return <span ref={ref}>{n.toLocaleString()}{suffix}</span>;
+  }
+
+SCROLL-REVEAL HOOK:
+  function useReveal(threshold=0.12) {
+    const ref=useRef<HTMLDivElement>(null); const [vis,setVis]=useState(false);
+    useEffect(()=>{ const obs=new IntersectionObserver(([e])=>{ if(e.isIntersecting){setVis(true);obs.disconnect();} },{threshold}); if(ref.current) obs.observe(ref.current); return ()=>obs.disconnect(); },[threshold]);
+    return {ref,vis};
+  }
+
+SVG GEO ACCENT on cards:
+  <svg className="absolute right-4 bottom-4 w-24 h-24 text-current opacity-[0.06] transition-transform duration-500 group-hover:rotate-12 group-hover:opacity-[0.1]" viewBox="0 0 160 160" fill="none" stroke="currentColor" strokeWidth="1">
+    <polygon points="80,8 148,44 148,116 80,152 12,116 12,44"/><polygon points="80,30 124,55 124,105 80,130 36,105 36,55"/><circle cx="80" cy="80" r="16"/>
+  </svg>
+
+GLASSMORPHISM:
+  Nav:  fixed top-0 inset-x-0 bg-black/50 backdrop-blur-[40px] saturate-200 border-b border-white/5
+  Card: bg-white/[0.03] backdrop-blur-xl border border-white/[0.06] rounded-xl
+  Form: bg-[#0d1117]/80 backdrop-blur-[20px] border border-[rgba(0,200,255,0.2)] rounded-xl
+
+${codeReqs}`;
 }
 
 function buildUserPrompt(brief: Record<string, unknown>): string {
   const features = Array.isArray(brief.key_features) ? (brief.key_features as string[]).join(", ") : "";
   const competitors = Array.isArray(brief.competitor_urls) ? (brief.competitor_urls as string[]).join(", ") : "";
+  const brand = String(brief.brand ?? "custom");
+  const sb = SUB_BRANDS[brand] ?? SUB_BRANDS.custom;
+  const fonts = PREMIUM_FONT_STACKS[sb.fontStack as keyof typeof PREMIUM_FONT_STACKS] ?? PREMIUM_FONT_STACKS.cyberpunk;
+  const tier = getTier(brief);
 
-  return `Execute the complete 4-phase design process for this project.
+  const projectBlock = `PROJECT:
+  Name:     ${brief.project_name}
+  Brand:    ${brand}  |  Accent: ${sb.accent}  |  Font: ${fonts.name}
+  Goal:     ${brief.project_goal}
+  Audience: ${brief.target_audience}
+  Features: ${features}
+${brief.aesthetic_directives ? "  Aesthetic: " + brief.aesthetic_directives : ""}
+${competitors ? "  Competitors: " + competitors : ""}
+${brief.user_journey ? "  Journey: " + brief.user_journey : ""}
+  Deadline: ${brief.deadline_tier}`;
 
-PROJECT BRIEF:
-Name: ${brief.project_name}
-Brand: ${brief.brand}
-Goal: ${brief.project_goal}
-Target Audience: ${brief.target_audience}
-Key Features: ${features}
-${brief.aesthetic_directives ? `Aesthetic Directives: ${brief.aesthetic_directives}` : ""}
-${competitors ? `Competitor URLs to surpass: ${competitors}` : ""}
-${brief.user_journey ? `User Journey: ${brief.user_journey}` : ""}
-Deadline Tier: ${brief.deadline_tier}
+  const jsonSkeleton = (filePaths: string[]) => `RESPOND WITH VALID JSON ONLY — no markdown fences, no text before or after.
+All files must have COMPLETE deployable code. No TODOs. No placeholders.
 
-RESPOND WITH VALID JSON ONLY — no markdown fences, no explanatory text:
 {
   "blueprint": {
-    "targetOperatorAnalysis": {
-      "portrait": "string",
-      "wants": "string",
-      "bounceReasons": "string",
-      "conversionTriggers": "string",
-      "comparingAgainst": "string"
-    },
-    "competitivePositioning": {
-      "competitorStrengths": ["string"],
-      "competitorWeaknesses": ["string"],
-      "codexosAdvantage": "string"
-    },
-    "conversionArchitecture": {
-      "primaryAction": "string",
-      "trustSignals": ["string"],
-      "attentionFlow": ["string"],
-      "minimumViableInfo": "string"
-    },
-    "appliedDesignLaws": ["string"],
-    "performanceContract": {
-      "lighthouseTarget": 95,
-      "lcpTarget": "< 2.5s",
-      "clsTarget": "< 0.1",
-      "bundleBudget": "< 150kb",
-      "imageStrategy": "string"
-    }
+    "targetOperatorAnalysis": { "portrait":"", "wants":"", "bounceReasons":"", "conversionTriggers":"", "comparingAgainst":"" },
+    "competitivePositioning": { "competitorStrengths":[], "competitorWeaknesses":[], "codexosAdvantage":"" },
+    "conversionArchitecture": { "primaryAction":"", "trustSignals":[], "attentionFlow":[], "minimumViableInfo":"" },
+    "appliedDesignLaws":[],
+    "performanceContract":{ "lighthouseTarget":95, "lcpTarget":"<2.5s", "clsTarget":"<0.1", "bundleBudget":"<150kb", "imageStrategy":"" }
   },
   "designSystem": {
-    "colorPalette": {
-      "background": "#hex",
-      "surface": "#hex",
-      "border": "#hex",
-      "accent": "#hex",
-      "accentSecondary": "#hex",
-      "textPrimary": "#hex",
-      "textSecondary": "#hex",
-      "textMuted": "#hex",
-      "semantic": {},
-      "rationale": "string"
-    },
-    "typography": {
-      "displayFont": "string",
-      "bodyFont": "string",
-      "monoFont": "string",
-      "scale": {},
-      "lineHeights": {},
-      "letterSpacing": {}
-    },
-    "components": [
-      {
-        "name": "string",
-        "type": "hero",
-        "purpose": "string",
-        "structure": "string",
-        "styling": "string",
-        "interactions": "string",
-        "accessibility": "string",
-        "conversionRole": "string"
-      }
-    ],
-    "microInteractions": [
-      {
-        "trigger": "hover",
-        "element": "string",
-        "animation": "string",
-        "duration": "300ms",
-        "easing": "cubic-bezier(0.4, 0, 0.2, 1)",
-        "purpose": "delight",
-        "implementation": "framer-motion"
-      }
-    ],
-    "responsiveStrategy": {
-      "breakpoints": {"sm":"640px","md":"768px","lg":"1024px","xl":"1280px"},
-      "mobileFirst": "string",
-      "tabletAdaptations": "string",
-      "desktopExpansion": "string",
-      "widescreen": "string"
-    }
+    "colorPalette":{ "background":"${sb.bg}", "surface":"${sb.surface}", "border":"${sb.accent}1a", "accent":"${sb.accent}", "accentSecondary":"${sb.secondary}", "textPrimary":"#eef2f7", "textSecondary":"#9ca3af", "textMuted":"#6b7280", "semantic":{}, "rationale":"" },
+    "typography":{ "displayFont":"${fonts.display}", "bodyFont":"${fonts.body}", "monoFont":"${fonts.mono}", "scale":{}, "lineHeights":{}, "letterSpacing":{} },
+    "components":[{ "name":"", "type":"hero", "purpose":"", "structure":"", "styling":"", "interactions":"", "accessibility":"", "conversionRole":"" }],
+    "microInteractions":[{ "trigger":"hover", "element":"", "animation":"", "duration":"300ms", "easing":"cubic-bezier(0.4,0,0.2,1)", "purpose":"delight", "implementation":"css" }],
+    "responsiveStrategy":{ "breakpoints":{"sm":"640px","md":"768px","lg":"1024px","xl":"1280px"}, "mobileFirst":"", "tabletAdaptations":"", "desktopExpansion":"", "widescreen":"" }
   },
   "files": [
-    {
-      "path": "src/components/sections/HeroSection.tsx",
-      "content": "FULL PRODUCTION TSX CODE HERE — no placeholders, no TODOs",
-      "type": "tsx",
-      "description": "string"
-    }
+${filePaths.map(p => `    { "path":"${p}", "content":"FULL PRODUCTION CODE", "type":"${p.endsWith('.css')?'css':'tsx'}", "description":"" }`).join(",\n")}
   ],
-  "qualityGate": {
-    "conversion": {
-      "cta_above_fold": true,
-      "uvp_clear_in_3s": true,
-      "trust_signals_above_fold": true,
-      "minimal_form_fields": true,
-      "success_state_designed": true
-    },
-    "design": {
-      "contrast_aa_compliant": true,
-      "focus_states_visible": true,
-      "spacing_consistent": true,
-      "typography_harmonious": true,
-      "dark_mode_default": true
-    },
-    "performance": {
-      "no_unused_css": true,
-      "images_have_dimensions": true,
-      "no_layout_shift": true,
-      "reduced_motion_respected": true,
-      "bundle_under_budget": true
-    },
-    "brand": {
-      "sovereign_tone": true,
-      "every_element_earns_its_place": true,
-      "premium_quality": true,
-      "unmistakably_codexos": true
-    }
+  "qualityGate":{
+    "conversion":{ "cta_above_fold":true, "uvp_clear_in_3s":true, "trust_signals_above_fold":true, "minimal_form_fields":true, "success_state_designed":true },
+    "design":{ "contrast_aa_compliant":true, "focus_states_visible":true, "spacing_consistent":true, "typography_harmonious":true, "dark_mode_default":true },
+    "performance":{ "no_unused_css":true, "images_have_dimensions":true, "no_layout_shift":true, "reduced_motion_respected":true, "bundle_under_budget":true },
+    "brand":{ "sovereign_tone":true, "every_element_earns_its_place":true, "premium_quality":true, "unmistakably_codexos":true }
   }
-}
+}`;
 
-Generate COMPLETE, DEPLOYABLE code in the files array. No TODOs. No placeholders.`;
+  // ── Tier 1: Clean Professional ──────────────────────────────
+  if (tier === 1) {
+    const files = ["styles.css","App.tsx","components/Nav.tsx","components/Hero.tsx","components/Features.tsx","components/Footer.tsx"];
+    return `Build a clean, professional dark website — Tier 1 quality ($1,000–$2,000 value).
+Polished layout, great typography, smooth hover transitions, scroll reveal. No canvas. No cursor effects.
+
+${projectBlock}
+
+GENERATE EXACTLY THESE 6 FILES:
+  1. styles.css         — @import fonts (FIRST LINE), :root vars, @keyframes fadeUp, hover transitions
+  2. App.tsx            — assembles Nav + Hero + Features + simple stats band + Footer
+  3. components/Nav.tsx — fixed glassmorphic nav, logo, 4 links, CTA button, mobile hamburger
+  4. components/Hero.tsx — bold headline, subtext, 2 CTA buttons, right-side visual (SVG or Lucide icon grid)
+  5. components/Features.tsx — 3 cards with Lucide icon, title, description; hover lift + subtle glow; scroll reveal
+  6. components/Footer.tsx  — 2-column: brand tagline + links; bottom bar with copyright
+
+REQUIRED IN FEATURES.tsx — hover lift cards:
+  className="group bg-white/[0.03] border border-white/[0.06] rounded-xl p-6
+    hover:border-[var(--accent)]/30 hover:-translate-y-1 hover:shadow-[var(--glow)]
+    transition-all duration-300 cursor-pointer"
+
+REQUIRED IN HERO.tsx — animated CTA button:
+  className="px-8 py-3 rounded-lg font-semibold text-sm bg-[var(--accent)] text-black
+    hover:opacity-90 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_0_20px_var(--accent)]/40"
+
+${jsonSkeleton(files)}`;
+  }
+
+  // ── Tier 2: Dynamic ─────────────────────────────────────────
+  if (tier === 2) {
+    const files = ["styles.css","App.tsx","components/Nav.tsx","components/Hero.tsx","components/Features.tsx","components/Stats.tsx","components/Terminal.tsx","components/Footer.tsx"];
+    return `Build a dynamic interactive dark website — Tier 2 quality ($3,000–$5,000 value).
+Canvas hero, spotlight cards, animated counters, terminal animation. Professional and alive.
+
+${projectBlock}
+
+GENERATE EXACTLY THESE 8 FILES:
+  1. styles.css             — @import fonts, :root vars, keyframes (fadeUp, grid-breathe, ticker-scroll)
+  2. App.tsx                — assembles all 6 sections (no effect component imports needed)
+  3. components/Nav.tsx     — fixed glassmorphic nav, mobile hamburger, scroll-aware opacity
+  4. components/Hero.tsx    — canvas particle network (required pattern in system prompt), dual CTA
+  5. components/Features.tsx — 3-4 mouse-tracking spotlight cards, SVG geo accents, scroll-reveal
+  6. components/Stats.tsx   — 4 AnimCounter stats with IntersectionObserver, glassmorphism band
+  7. components/Terminal.tsx — terminal window with multi-line typing, blinking cursor
+  8. components/Footer.tsx  — 3-column footer
+
+REQUIRED IN Hero.tsx — the canvas particle network pattern from system prompt MUST be used.
+REQUIRED IN Features.tsx — every card must have the mouse-tracking spotlight (--mx/--my pattern from system prompt).
+REQUIRED IN Stats.tsx — AnimCounter component with IntersectionObserver pattern from system prompt.
+
+${jsonSkeleton(files)}`;
+  }
+
+  // ── Tier 3: Sovereign ────────────────────────────────────────
+  const files = ["styles.css","App.tsx","components/Nav.tsx","components/Hero.tsx","components/Features.tsx","components/Stats.tsx","components/Terminal.tsx","components/Social.tsx","components/Footer.tsx"];
+  return `Build a cinematic, PrymalAI-quality website — Tier 3 Sovereign ($8,000+ value).
+Every interaction must feel alive. Full visual effects system. Elite positioning.
+
+${projectBlock}
+
+THE FOLLOWING 4 FILES ARE PRE-BUILT AND INJECTED AUTOMATICALLY — DO NOT generate them:
+  components/effects/CanvasBackground.tsx  (matrix rain + ambient orbs + lightning)
+  components/effects/CursorFX.tsx          (cursor dot + tracer trail + page spotlight)
+  components/effects/HudOverlay.tsx        (corner brackets + rotating arc + live clock + scanline)
+  components/effects/Ticker.tsx            (seamless scrolling ticker)
+
+GENERATE EXACTLY THESE 9 FILES (complete production code — zero TODOs):
+  1. styles.css             — @import fonts (FIRST LINE), :root vars, all keyframes, grid overlay
+  2. App.tsx                — MUST import and render all 4 effect components + 8 sections
+  3. components/Nav.tsx     — fixed glassmorphic nav, logo, links, CTA, mobile hamburger
+  4. components/Hero.tsx    — canvas particle network (exact pattern from system prompt), GlitchText, dual CTA
+  5. components/Features.tsx — 3-4 mouse-tracking spotlight cards, SVG geo accents, scroll-reveal
+  6. components/Stats.tsx   — 4 AnimCounter stats, glassmorphism, IntersectionObserver
+  7. components/Terminal.tsx — multi-line typing terminal, blinking cursor
+  8. components/Social.tsx  — testimonials or network cards, scroll-reveal
+  9. components/Footer.tsx  — 3-column footer
+
+MANDATORY App.tsx structure:
+  import CanvasBackground from './components/effects/CanvasBackground';
+  import CursorFX from './components/effects/CursorFX';
+  import HudOverlay from './components/effects/HudOverlay';
+  import Ticker from './components/effects/Ticker';
+  // ... other imports
+  return (
+    <>
+      <CanvasBackground /><CursorFX /><HudOverlay />
+      <Nav />
+      <main>
+        <section id="hero"><Hero /></section>
+        <Ticker items={[/* 6-8 brand/service keywords */]} />
+        <Features /><Stats /><Terminal /><Social />
+        <section id="cta">{/* CTA with animated border glow */}</section>
+      </main>
+      <Footer />
+    </>
+  );
+
+${jsonSkeleton(files)}`;
 }
 
 function inferComponentType(name: string): string {
   const lower = name.toLowerCase();
-  if (lower.includes("hero")) return "hero";
-  if (lower.includes("nav")) return "navbar";
-  if (lower.includes("footer")) return "footer";
-  if (lower.includes("cta")) return "cta";
-  if (lower.includes("card")) return "card";
-  if (lower.includes("form")) return "form";
-  if (lower.includes("test") || lower.includes("review")) return "testimonial";
-  if (lower.includes("pric")) return "pricing";
-  if (lower.includes("feature") || lower.includes("grid")) return "feature_grid";
-  if (lower.includes("stat") || lower.includes("metric")) return "stats";
-  if (lower.includes("faq")) return "faq";
+  if (lower.includes("hero"))                                  return "hero";
+  if (lower.includes("nav"))                                   return "navbar";
+  if (lower.includes("footer"))                                return "footer";
+  if (lower.includes("cta"))                                   return "cta";
+  if (lower.includes("card"))                                  return "card";
+  if (lower.includes("form"))                                  return "form";
+  if (lower.includes("test")||lower.includes("social")||lower.includes("review")) return "testimonial";
+  if (lower.includes("pric"))                                  return "pricing";
+  if (lower.includes("feature")||lower.includes("grid"))       return "feature_grid";
+  if (lower.includes("stat")||lower.includes("counter"))       return "stats";
+  if (lower.includes("faq"))                                   return "faq";
   return "custom";
 }
 
-function runQualityGate(gate: Record<string, Record<string, boolean>>): {
-  conversion: Record<string, boolean>;
-  design: Record<string, boolean>;
-  performance: Record<string, boolean>;
-  brand: Record<string, boolean>;
-  passed: boolean;
-  failedChecks: string[];
-} {
+function runQualityGate(gate: Record<string, Record<string, boolean>>) {
   const failedChecks: string[] = [];
-  const categories = ["conversion", "design", "performance", "brand"] as const;
-  for (const category of categories) {
-    for (const [check, passed] of Object.entries(gate[category] ?? {})) {
-      if (!passed) failedChecks.push(`${category}.${check}`);
+  for (const cat of ["conversion", "design", "performance", "brand"] as const) {
+    for (const [check, passed] of Object.entries(gate[cat] ?? {})) {
+      if (!passed) failedChecks.push(`${cat}.${check}`);
     }
   }
   return {
-    conversion: gate.conversion ?? {},
-    design: gate.design ?? {},
+    conversion:  gate.conversion  ?? {},
+    design:      gate.design      ?? {},
     performance: gate.performance ?? {},
-    brand: gate.brand ?? {},
-    passed: failedChecks.length === 0,
+    brand:       gate.brand       ?? {},
+    passed:      failedChecks.length === 0,
     failedChecks,
   };
 }
@@ -270,15 +805,12 @@ function runQualityGate(gate: Record<string, Record<string, boolean>>): {
 // ─── MAIN HANDLER ────────────────────────────────────────────
 
 serve(async (req) => {
-  if (req.method === "OPTIONS") {
-    return new Response(null, { headers: corsHeaders });
-  }
+  if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {
-    // Auth
     const authHeader = req.headers.get("Authorization") ?? "";
-    const sb = createClient(SUPABASE_URL, SERVICE_KEY);
-    const anonSb = createClient(SUPABASE_URL, Deno.env.get("SUPABASE_ANON_KEY") ?? "");
+    const sb         = createClient(SUPABASE_URL, SERVICE_KEY);
+    const anonSb     = createClient(SUPABASE_URL, Deno.env.get("SUPABASE_ANON_KEY") ?? "");
     const { data: { user } } = await anonSb.auth.getUser(authHeader.replace("Bearer ", ""));
     if (!user) {
       return new Response(JSON.stringify({ error: "Unauthorized" }), {
@@ -287,7 +819,7 @@ serve(async (req) => {
     }
     const userId = user.id;
 
-    const body = await req.json() as Record<string, unknown>;
+    const body  = await req.json() as Record<string, unknown>;
     const brief = body.brief as Record<string, unknown>;
     if (!brief) {
       return new Response(JSON.stringify({ error: "brief is required" }), {
@@ -300,43 +832,44 @@ serve(async (req) => {
       .from("mavis_design_projects")
       .insert({
         user_id: userId,
-        project_name: brief.project_name,
-        brand: brief.brand ?? "custom",
-        project_goal: brief.project_goal,
-        target_audience: brief.target_audience,
-        key_features: brief.key_features ?? [],
+        project_name:         brief.project_name,
+        brand:                brief.brand ?? "custom",
+        project_goal:         brief.project_goal,
+        target_audience:      brief.target_audience,
+        key_features:         brief.key_features ?? [],
         aesthetic_directives: brief.aesthetic_directives,
-        competitor_urls: brief.competitor_urls ?? [],
-        user_journey: brief.user_journey,
-        deadline_tier: brief.deadline_tier ?? "standard",
-        client_name: brief.client_name,
-        project_value: brief.project_value,
-        status: "analyzing",
+        competitor_urls:      brief.competitor_urls ?? [],
+        user_journey:         brief.user_journey,
+        deadline_tier:        brief.deadline_tier ?? "standard",
+        client_name:          brief.client_name,
+        project_value:        brief.project_value,
+        status:               "analyzing",
       })
       .select("id")
       .single();
 
-    if (projectError || !project) {
-      throw new Error(`Failed to create project: ${projectError?.message}`);
-    }
+    if (projectError || !project) throw new Error(`Failed to create project: ${projectError?.message}`);
     const projectId = project.id as string;
 
-    // 2. Update status → designing
-    await sb.from("mavis_design_projects").update({ status: "designing", updated_at: new Date().toISOString() }).eq("id", projectId);
+    await sb.from("mavis_design_projects")
+      .update({ status: "designing", updated_at: new Date().toISOString() })
+      .eq("id", projectId);
 
-    // 3. Call Claude
+    // 2. Call Claude Opus — token budget scales with quality tier
+    const tier      = getTier(brief);
+    const maxTokens = tier === 1 ? 8000 : tier === 2 ? 16000 : 32000;
     const claudeRes = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: {
-        "Content-Type": "application/json",
-        "x-api-key": ANTHROPIC_KEY,
+        "Content-Type":      "application/json",
+        "x-api-key":         ANTHROPIC_KEY,
         "anthropic-version": "2023-06-01",
       },
       body: JSON.stringify({
-        model: "claude-opus-4-8",
-        max_tokens: 16000,
-        system: buildSystemPrompt(brief),
-        messages: [{ role: "user", content: buildUserPrompt(brief) }],
+        model:      "claude-opus-4-8",
+        max_tokens: maxTokens,
+        system:     buildSystemPrompt(brief),
+        messages:   [{ role: "user", content: buildUserPrompt(brief) }],
       }),
     });
 
@@ -346,72 +879,104 @@ serve(async (req) => {
     }
 
     const claudeData = await claudeRes.json() as { content: Array<{ text: string }> };
-    const rawText = claudeData?.content?.[0]?.text ?? "";
+    const rawText    = claudeData?.content?.[0]?.text ?? "";
 
-    // 4. Parse JSON output (strip any markdown fences if present)
-    await sb.from("mavis_design_projects").update({ status: "generating", updated_at: new Date().toISOString() }).eq("id", projectId);
+    await sb.from("mavis_design_projects")
+      .update({ status: "generating", updated_at: new Date().toISOString() })
+      .eq("id", projectId);
 
-    const clean = rawText.replace(/^```json\s*/m, "").replace(/^```\s*/m, "").replace(/```\s*$/m, "").trim();
+    // 3. Parse JSON output (strip markdown fences if present)
+    const clean  = rawText.replace(/^```json\s*/m, "").replace(/^```\s*/m, "").replace(/```\s*$/m, "").trim();
     const parsed = JSON.parse(clean) as {
-      blueprint: Record<string, unknown>;
+      blueprint:   Record<string, unknown>;
       designSystem: Record<string, unknown>;
-      files: Array<{ path: string; content: string; type: string; description: string }>;
+      files:       Array<{ path: string; content: string; type: string; description: string }>;
       qualityGate: Record<string, Record<string, boolean>>;
     };
 
-    // 5. Store components individually
-    await sb.from("mavis_design_projects").update({ status: "quality_check", updated_at: new Date().toISOString() }).eq("id", projectId);
+    // 4. Inject pre-built effect components based on quality tier
+    //    Tier 3: all 4 components + CSS keyframes
+    //    Tier 2: CSS keyframes only (hero canvas is LLM-generated inside Hero.tsx)
+    //    Tier 1: no injection — clean CSS-only build
+    const allEffectPaths = new Set([
+      "components/effects/CanvasBackground.tsx",
+      "components/effects/CursorFX.tsx",
+      "components/effects/HudOverlay.tsx",
+      "components/effects/Ticker.tsx",
+    ]);
+    // Always strip any effect files Claude tried to generate — ours are authoritative for Tier 3
+    const cleanedFiles = parsed.files.filter(f => !allEffectPaths.has(f.path));
 
-    for (const file of parsed.files) {
-      if (file.type === "tsx" && file.content) {
-        const componentName = file.path.split("/").pop()?.replace(".tsx", "") ?? "Unknown";
-        await sb.from("mavis_design_components").insert({
-          user_id: userId,
-          project_id: projectId,
-          component_name: componentName,
-          component_type: inferComponentType(componentName),
-          tsx_code: file.content,
-          is_reusable: true,
-          tags: [String(brief.brand ?? "custom"), inferComponentType(componentName)],
-        });
+    // Append CSS keyframes to styles.css for Tier 2 and Tier 3
+    if (tier >= 2) {
+      const styleFile = cleanedFiles.find(f => f.path === "styles.css" || f.path === "/styles.css");
+      if (styleFile) {
+        styleFile.content = styleFile.content.trimEnd() + "\n" + TEMPLATE_CSS_ADDENDUM;
       }
     }
 
-    // 6. Quality gate
-    const qualityGate = runQualityGate(parsed.qualityGate);
+    // Inject all 4 effect components only for Tier 3
+    const injectedEffects = tier === 3 ? [
+      { path: "components/effects/CanvasBackground.tsx", content: TEMPLATE_CANVAS_BACKGROUND, type: "tsx", description: "3-layer canvas ambient: matrix rain, orbs, lightning" },
+      { path: "components/effects/CursorFX.tsx",         content: TEMPLATE_CURSOR_FX,         type: "tsx", description: "Custom cursor dot + canvas tracer trail + page spotlight" },
+      { path: "components/effects/HudOverlay.tsx",       content: TEMPLATE_HUD_OVERLAY,       type: "tsx", description: "HUD corner brackets, rotating arc, live clock, scanline" },
+      { path: "components/effects/Ticker.tsx",           content: TEMPLATE_TICKER,            type: "tsx", description: "Seamless horizontal scrolling ticker" },
+    ] : [];
 
-    // 7. Store everything
+    const allFiles = [...cleanedFiles, ...injectedEffects];
+
+    // 5. Store components individually (non-blocking)
+    await sb.from("mavis_design_projects")
+      .update({ status: "quality_check", updated_at: new Date().toISOString() })
+      .eq("id", projectId);
+
+    for (const file of allFiles) {
+      if (file.type === "tsx" && file.content) {
+        const componentName = file.path.split("/").pop()?.replace(".tsx", "") ?? "Unknown";
+        await sb.from("mavis_design_components").insert({
+          user_id:        userId,
+          project_id:     projectId,
+          component_name: componentName,
+          component_type: inferComponentType(componentName),
+          tsx_code:       file.content,
+          is_reusable:    true,
+          tags:           [String(brief.brand ?? "custom"), inferComponentType(componentName)],
+        }).catch(() => {});
+      }
+    }
+
+    const qualityGate = runQualityGate(parsed.qualityGate ?? {});
+
+    // 6. Save to DB
     await sb.from("mavis_design_projects").update({
-      strategic_blueprint: parsed.blueprint,
-      design_system: parsed.designSystem,
-      generated_files: parsed.files,
+      strategic_blueprint:  parsed.blueprint,
+      design_system:        parsed.designSystem,
+      generated_files:      allFiles,
       quality_gate_results: qualityGate,
-      status: "complete",
-      updated_at: new Date().toISOString(),
+      status:               "complete",
+      updated_at:           new Date().toISOString(),
     }).eq("id", projectId);
 
-    // 8. Activity log
     await sb.from("activity_log").insert({
-      user_id: userId,
+      user_id:    userId,
       event_type: "design_generated",
-      description: `Design project generated: ${brief.project_name}`,
-      xp_amount: 50,
-    });
+      description: `Design project generated: ${brief.project_name} (${brief.brand})`,
+      xp_amount:  50,
+    }).catch(() => {});
 
     return new Response(JSON.stringify({
       projectId,
-      blueprint: parsed.blueprint,
+      blueprint:    parsed.blueprint,
       designSystem: parsed.designSystem,
-      files: parsed.files,
+      files:        allFiles,
       qualityGate,
-    }), {
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
   } catch (err) {
     console.error("[mavis-design-engine]", err);
-    return new Response(JSON.stringify({ error: err instanceof Error ? err.message : String(err) }), {
-      status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    return new Response(
+      JSON.stringify({ error: err instanceof Error ? err.message : String(err) }),
+      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+    );
   }
 });

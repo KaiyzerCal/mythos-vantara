@@ -147,16 +147,88 @@ serve(async (req) => {
     );
   }
 
-  const { ical_url, days_ahead = 7 } = body;
+  const { ical_url, days_ahead = 14 } = body;
+  const safeDays = Math.min(Math.max(1, days_ahead), 365);
 
+  // ── Google Calendar API path (OAuth) ──────────────────────────────────────
+  // If the user has connected Google via OAuth, prefer the Calendar API over iCal.
+  const { data: gcalRow } = await supabase
+    .from("mavis_user_integrations")
+    .select("config")
+    .eq("user_id", user.id)
+    .eq("provider", "google_calendar")
+    .single();
+
+  if (gcalRow?.config?.refresh_token) {
+    let token: string = gcalRow.config.access_token;
+    const expiresAt: number = gcalRow.config.expires_at ?? 0;
+    if (expiresAt < Date.now() / 1000 + 300) {
+      const refreshRes = await fetch("https://oauth2.googleapis.com/token", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+          client_id:     gcalRow.config.client_id,
+          client_secret: gcalRow.config.client_secret,
+          refresh_token: gcalRow.config.refresh_token,
+          grant_type:    "refresh_token",
+        }),
+      });
+      const refreshData = await refreshRes.json();
+      if (refreshData.access_token) {
+        token = refreshData.access_token;
+        await supabase.from("mavis_user_integrations").update({
+          config: { ...gcalRow.config, access_token: token, expires_at: Math.floor(Date.now() / 1000) + (refreshData.expires_in ?? 3600) },
+        }).eq("user_id", user.id).eq("provider", "google_calendar");
+      }
+    }
+
+    const now     = new Date();
+    const horizon = new Date(now.getTime() + safeDays * 86400_000);
+    const calRes  = await fetch(
+      `https://www.googleapis.com/calendar/v3/calendars/primary/events?` +
+      new URLSearchParams({
+        timeMin:      now.toISOString(),
+        timeMax:      horizon.toISOString(),
+        singleEvents: "true",
+        orderBy:      "startTime",
+        maxResults:   "100",
+      }),
+      { headers: { Authorization: `Bearer ${token}` } },
+    );
+
+    if (calRes.ok) {
+      const calData = await calRes.json();
+      const items: any[] = calData.items ?? [];
+      const rows = items.map((e: any) => ({
+        user_id:     user.id,
+        event_uid:   e.id,
+        title:       e.summary ?? "Untitled",
+        start_at:    e.start?.dateTime ?? e.start?.date ?? now.toISOString(),
+        end_at:      e.end?.dateTime   ?? e.end?.date   ?? null,
+        description: e.description    ?? null,
+        location:    e.location       ?? null,
+        ical_url:    "google_calendar_api",
+        synced_at:   now.toISOString(),
+      }));
+
+      if (rows.length > 0) {
+        await supabase.from("calendar_events").upsert(rows, { onConflict: "user_id,event_uid" });
+      }
+
+      return new Response(
+        JSON.stringify({ events: rows.map(r => ({ title: r.title, start_at: r.start_at, end_at: r.end_at, location: r.location })), count: rows.length, source: "google_calendar_api" }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+  }
+
+  // ── iCal fallback ─────────────────────────────────────────────────────────
   if (!ical_url?.trim()) {
     return new Response(
-      JSON.stringify({ error: "ical_url is required" }),
+      JSON.stringify({ error: "ical_url is required (or connect Google Calendar via Integrations)" }),
       { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );
   }
-
-  const safeDays = Math.min(Math.max(1, days_ahead), 365);
 
   // Fetch the iCal file
   let icalText: string;

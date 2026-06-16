@@ -9,12 +9,22 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+};
+
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
   Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
 );
 
 const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY")!;
+// Module-level constants — read once, reuse in all handlers
+const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
+const SERVICE_KEY  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+const BOT_TOKEN    = Deno.env.get("TELEGRAM_BOT_TOKEN") ?? "";
+const OPERATOR_CHAT_ID = Deno.env.get("TELEGRAM_OPERATOR_CHAT_ID") ?? "";
 
 // ─────────────────────────────────────────────────────────────
 // TYPES
@@ -41,7 +51,7 @@ type TaskHandler = (task: Task) => Promise<TaskResult>;
 // ─────────────────────────────────────────────────────────────
 
 interface GoalStep {
-  type: string;           // demand_scan | revenue_snapshot | nora_tweet | direct_action | create_product | web_search | daily_brief
+  type: string;           // demand_scan | revenue_snapshot | nora_tweet | direct_action | create_product | web_search | daily_brief | system_change
   description: string;   // human-readable intent
   params: Record<string, unknown>;
   result?: unknown;
@@ -62,6 +72,28 @@ interface GoalPayload {
 // HELPERS
 // ─────────────────────────────────────────────────────────────
 
+/** Extract the flat params object from a task payload, handling both
+ *  { ...fields } and { params: { ...fields } } shapes. */
+function extractPayload(raw: Record<string, unknown>): Record<string, unknown> {
+  return (raw.params && typeof raw.params === "object")
+    ? raw.params as Record<string, unknown>
+    : raw;
+}
+
+/** Fire-and-forget Telegram message to the operator. Always awaited so we
+ *  know if it succeeded, but failures are swallowed (non-fatal). */
+async function sendTelegram(text: string): Promise<void> {
+  if (!BOT_TOKEN || !OPERATOR_CHAT_ID) return;
+  try {
+    await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ chat_id: OPERATOR_CHAT_ID, text, parse_mode: "Markdown" }),
+      signal: AbortSignal.timeout(8000),
+    });
+  } catch { /* non-fatal */ }
+}
+
 async function callClaude(systemPrompt: string, userContent: string): Promise<string> {
   const res = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
@@ -76,7 +108,9 @@ async function callClaude(systemPrompt: string, userContent: string): Promise<st
       system: systemPrompt,
       messages: [{ role: "user", content: userContent }],
     }),
+    signal: AbortSignal.timeout(30000), // prevent indefinite hang
   });
+  if (!res.ok) return "";
   const data = await res.json();
   return data?.content?.[0]?.text ?? "";
 }
@@ -231,8 +265,8 @@ Respond with ONLY valid JSON in one of these formats:
 
 // STEP EXECUTOR: runs a single goal step and returns its result
 async function executeGoalStep(step: GoalStep, task: Task): Promise<unknown> {
-  const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-  const serviceKey  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+  const supabaseUrl = SUPABASE_URL;
+  const serviceKey  = SERVICE_KEY;
   const uid = task.user_id;
 
   switch (step.type) {
@@ -515,14 +549,7 @@ const handleCheckIdleQuests: TaskHandler = async (task) => {
 
 // memory_consolidation — invokes the mavis-consolidate edge function
 const handleMemoryConsolidation: TaskHandler = async (_task) => {
-  const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-  const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-
-  const res = await fetch(`${supabaseUrl}/functions/v1/mavis-consolidate`, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${serviceKey}`, "Content-Type": "application/json" },
-    body: "{}",
-  });
+  const res = await callFunction("mavis-consolidate", {});
 
   if (!res.ok) return { success: false, error: `consolidate returned ${res.status}` };
   const data = await res.json();
@@ -552,25 +579,257 @@ const handleIdleQuestAlert: TaskHandler = async (_task) => {
   return { success: true, output: { acknowledged: true } };
 };
 
-// create_product — calls mavis-product-creator edge function
+// session_update — operator approved a post-session progression bundle from The System
+const handleSessionUpdate: TaskHandler = async (task) => {
+  const flat = extractPayload(task.payload as Record<string, unknown>);
+
+  const sessionTitle  = String(flat.session_title ?? "Session");
+  const proposedBy    = String(flat.proposed_by   ?? "The System");
+  const xpAward       = Number(flat.xp_award      ?? 0);
+  const questUpdates  = (flat.quest_updates        ?? []) as Array<{ quest_title?: string; progress_delta_pct?: number; complete?: boolean }>;
+  const skillUpdates  = (flat.skill_updates        ?? []) as Array<{ skill_name?: string; proficiency_delta?: number; new_proficiency?: number }>;
+  const statUpdates   = (flat.stat_updates         ?? {}) as Record<string, number>;
+  const invConsumed   = (flat.inventory_consumed   ?? []) as Array<{ name?: string; quantity?: number }>;
+
+  const applied: string[] = [];
+  const skipped: string[] = [];
+
+  // ── XP ──
+  if (xpAward > 0) {
+    const { data: prof } = await supabase.from("profiles").select("xp, level").eq("id", task.user_id).single();
+    if (prof) {
+      const newXp = (Number(prof.xp) || 0) + xpAward;
+      await supabase.from("profiles").update({ xp: newXp }).eq("id", task.user_id);
+      applied.push(`+${xpAward} XP`);
+    }
+  }
+
+  // ── Quest progress ──
+  for (const qu of questUpdates) {
+    const title = qu.quest_title ?? "";
+    if (!title) continue;
+    const { data: rows } = await supabase
+      .from("quests")
+      .select("id, progress_current, progress_target")
+      .eq("user_id", task.user_id)
+      .ilike("title", `%${title.slice(0, 40)}%`)
+      .limit(1);
+    const q = rows?.[0];
+    if (!q) { skipped.push(`quest:${title}`); continue; }
+
+    if (qu.complete) {
+      await supabase.from("quests").update({ status: "completed", updated_at: new Date().toISOString() }).eq("id", q.id);
+      applied.push(`quest completed: ${title}`);
+    } else if (qu.progress_delta_pct) {
+      const target = Number(q.progress_target) || 100;
+      const delta  = Math.round((qu.progress_delta_pct / 100) * target);
+      const newProg = Math.min(target, Number(q.progress_current) + delta);
+      await supabase.from("quests").update({ progress_current: newProg, updated_at: new Date().toISOString() }).eq("id", q.id);
+      applied.push(`quest +${qu.progress_delta_pct}%: ${title}`);
+    }
+  }
+
+  // ── Skill proficiency ──
+  for (const su of skillUpdates) {
+    const name = su.skill_name ?? "";
+    if (!name) continue;
+    const { data: rows } = await supabase
+      .from("skills")
+      .select("id, proficiency")
+      .eq("user_id", task.user_id)
+      .ilike("name", `%${name.slice(0, 40)}%`)
+      .limit(1);
+    const sk = rows?.[0];
+    if (!sk) { skipped.push(`skill:${name}`); continue; }
+
+    let newProf: number;
+    if (su.new_proficiency !== undefined) {
+      newProf = Math.min(100, Math.max(0, Number(su.new_proficiency)));
+    } else {
+      newProf = Math.min(100, (Number(sk.proficiency) || 0) + Number(su.proficiency_delta ?? 0));
+    }
+    await supabase.from("skills").update({ proficiency: newProf }).eq("id", sk.id);
+    applied.push(`skill ${name}: ${Number(sk.proficiency)}→${newProf}%`);
+  }
+
+  // ── Stat updates (additive deltas) ──
+  const statKeys = Object.keys(statUpdates);
+  if (statKeys.length > 0) {
+    const { data: prof } = await supabase.from("profiles").select(statKeys.join(", ")).eq("id", task.user_id).single();
+    if (prof) {
+      const updates: Record<string, number> = {};
+      for (const key of statKeys) {
+        updates[key] = (Number((prof as any)[key]) || 0) + Number(statUpdates[key]);
+      }
+      await supabase.from("profiles").update(updates).eq("id", task.user_id);
+      applied.push(`stats: ${statKeys.map(k => `${k.replace("stat_", "").toUpperCase()}+${statUpdates[k]}`).join(", ")}`);
+    }
+  }
+
+  // ── Inventory consumption ──
+  for (const item of invConsumed) {
+    const name = item.name ?? "";
+    if (!name) continue;
+    const qty  = Number(item.quantity ?? 1);
+    const { data: rows } = await supabase
+      .from("inventory")
+      .select("id, quantity")
+      .eq("user_id", task.user_id)
+      .ilike("name", `%${name.slice(0, 40)}%`)
+      .limit(1);
+    const inv = rows?.[0];
+    if (!inv) { skipped.push(`item:${name}`); continue; }
+    const newQty = Math.max(0, Number(inv.quantity) - qty);
+    await supabase.from("inventory").update({ quantity: newQty }).eq("id", inv.id);
+    applied.push(`consumed ${qty}x ${name}`);
+  }
+
+  // ── Activity log ──
+  await supabase.from("mavis_activities").insert({
+    user_id: task.user_id,
+    type: "session_update_applied",
+    description: `${proposedBy} session applied: ${sessionTitle} — ${applied.join(" | ")}`,
+    xp_earned: xpAward,
+  });
+
+  return {
+    success: true,
+    output: { session_title: sessionTitle, applied, skipped },
+  };
+};
+
+// execute_action — operator approved a generic persona/council proposal
+// Re-dispatches through mavis-actions so every CODEXOS action type is supported.
+const handleExecuteAction: TaskHandler = async (task) => {
+  const flat        = extractPayload(task.payload as Record<string, unknown>);
+  const actionType  = String(flat.action_type ?? "");
+  const actionParams = (flat.params ?? {}) as Record<string, unknown>;
+  const proposedBy  = String(flat.proposed_by ?? "Persona");
+
+  if (!actionType) return { success: false, error: "execute_action: missing action_type" };
+
+  const res = await fetch(`${SUPABASE_URL}/functions/v1/mavis-actions`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${SERVICE_KEY}` },
+    body: JSON.stringify({ userId: task.user_id, actions: [{ type: actionType, params: actionParams }] }),
+    signal: AbortSignal.timeout(55000),
+  });
+
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    return { success: false, error: `mavis-actions returned ${res.status}: ${JSON.stringify(data).slice(0, 200)}` };
+  }
+
+  await supabase.from("mavis_activities").insert({
+    user_id: task.user_id,
+    type: "action_executed",
+    description: `${proposedBy}'s proposal executed: ${actionType}`,
+    xp_earned: 0,
+  });
+
+  return { success: true, output: { action_type: actionType, proposed_by: proposedBy, result: data } };
+};
+
+// system_change — operator approved a persona/council-proposed change
+// Records an authoritative vault decision entry so the approval is never lost.
+const handleSystemChange: TaskHandler = async (task) => {
+  const flat = extractPayload(task.payload as Record<string, unknown>);
+
+  const title      = String(flat.title ?? "System Change");
+  const proposedBy = String(flat.proposed_by ?? "Council");
+  const changeType = String(flat.change_type ?? "general");
+  const description = String(flat.description ?? "");
+  const rationale   = String(flat.rationale ?? "");
+  const priority    = String(flat.priority ?? "normal");
+
+  const vaultContent = [
+    `**Proposed by:** ${proposedBy}`,
+    `**Type:** ${changeType}`,
+    `**Priority:** ${priority}`,
+    description ? `\n**Description:**\n${description}` : "",
+    rationale   ? `\n**Rationale:**\n${rationale}` : "",
+    `\n**Status:** APPROVED — ${new Date().toISOString()}`,
+  ].filter(Boolean).join("\n");
+
+  await supabase.from("mavis_vault").insert({
+    user_id: task.user_id,
+    title: `[APPROVED] ${title}`,
+    content: vaultContent,
+    category: "business",
+    importance: priority === "high" ? "high" : "medium",
+  });
+
+  await supabase.from("mavis_activities").insert({
+    user_id: task.user_id,
+    type: "system_change_approved",
+    description: `Change approved: "${title}" (proposed by ${proposedBy})`,
+    xp_earned: 0,
+  });
+
+  return { success: true, output: { title, approved_by: "operator", recorded_to_vault: true } };
+};
+
+// send_outreach — operator approved a Telegram reconnect nudge from ambient-monitor
+// Sends the drafted message via email (or Telegram to operator if no email on file).
+const handleSendOutreach: TaskHandler = async (task) => {
+  const flat        = extractPayload(task.payload as Record<string, unknown>);
+  const contactName  = String(flat.contact_name  ?? "Contact");
+  const message      = String(flat.message       ?? "");
+  const contactEmail = String(flat.contact_email ?? "");
+  const draftId      = String(flat.draft_id      ?? "");
+
+  if (!message) return { success: false, error: "send_outreach: no message in payload" };
+
+  let sent = false;
+  let channel = "";
+
+  if (contactEmail) {
+    const emailRes = await fetch(`${SUPABASE_URL}/functions/v1/mavis-email-send`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${SERVICE_KEY}` },
+      body: JSON.stringify({ userId: task.user_id, to: contactEmail, subject: "Reaching out", body: message, source: "outreach" }),
+      signal: AbortSignal.timeout(15000),
+    });
+    sent = emailRes.ok;
+    channel = "email";
+  }
+
+  if (!sent) {
+    await sendTelegram(`✅ *Outreach Approved*\n\nSend this to *${contactName}*:\n\n_"${message}"_\n\n(No email on file — copy and send manually)`);
+    sent = true;
+    channel = "telegram_reminder";
+  }
+
+  // Mark draft as sent
+  if (draftId) {
+    await supabase.from("mavis_outreach_drafts" as any)
+      .update({ status: "sent", sent_at: new Date().toISOString() })
+      .eq("id", draftId)
+      .catch(() => {});
+  }
+
+  await supabase.from("mavis_activities").insert({
+    user_id: task.user_id,
+    type: "outreach_sent",
+    description: `Outreach sent to ${contactName} via ${channel}`,
+    xp_earned: 0,
+  }).catch(() => {});
+
+  return { success: sent, output: { contact_name: contactName, channel, draft_id: draftId } };
+};
 // Requires STRIPE_SECRET_KEY to publish live; stores as draft otherwise
 const handleCreateProduct: TaskHandler = async (task) => {
-  const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-  const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+  const flat = extractPayload(task.payload as Record<string, unknown>);
 
-  // Flatten payload — accept both { title, ... } and { type, params: { title, ... } }
-  const raw = task.payload as Record<string, unknown>;
-  const flat = (raw.params && typeof raw.params === "object")
-    ? raw.params as Record<string, unknown>
-    : raw;
+  if (!flat.title) {
+    return { success: false, error: `create_product payload is missing required field "title". Goal plan generated wrong params: ${JSON.stringify(flat).slice(0, 200)}` };
+  }
 
-  const res = await fetch(`${supabaseUrl}/functions/v1/mavis-product-creator`, {
+  const res = await fetch(`${SUPABASE_URL}/functions/v1/mavis-product-creator`, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "Authorization": `Bearer ${serviceKey}`,
-    },
+    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${SERVICE_KEY}` },
     body: JSON.stringify({ ...flat, userId: task.user_id }),
+    signal: AbortSignal.timeout(30000),
   });
 
   const data = await res.json();
@@ -578,50 +837,60 @@ const handleCreateProduct: TaskHandler = async (task) => {
     return { success: false, error: data.error ?? `product-creator returned ${res.status}` };
   }
 
-  // Auto-queue an announcement for any successfully created product
+  // Auto-queue an announcement — only if no announcement already pending/completed for this title
   if ((data.gumroadProductId || data.stripeProductId) && data.paymentLink && flat.title) {
-    await supabase.from("mavis_tasks").insert({
-      user_id: task.user_id,
-      type: "send_announcement",
-      description: `Announce product: "${flat.title}"`,
-      payload: {
-        title: flat.title,
-        description: flat.description ?? "",
-        paymentLink: data.paymentLink,
-        priceCents: flat.price_cents ?? 2900,
-      },
-      status: "pending",
-    });
+    const { data: existing } = await supabase
+      .from("mavis_tasks")
+      .select("id")
+      .eq("user_id", task.user_id)
+      .eq("type", "send_announcement")
+      .in("status", ["pending", "running", "completed"])
+      .ilike("description", `%${String(flat.title).slice(0, 60)}%`)
+      .limit(1);
+
+    if (!existing || existing.length === 0) {
+      await supabase.from("mavis_tasks").insert({
+        user_id: task.user_id,
+        type: "send_announcement",
+        description: `Announce product: "${flat.title}"`,
+        payload: {
+          title: flat.title,
+          description: flat.description ?? "",
+          paymentLink: data.paymentLink,
+          priceCents: flat.price_cents ?? 2900,
+        },
+        status: "pending",
+      });
+    }
   }
 
   return { success: true, output: data };
 };
 
+/** Shared helper: call an internal edge function with service-role auth. */
+async function callFunction(name: string, body: Record<string, unknown>): Promise<Response> {
+  return fetch(`${SUPABASE_URL}/functions/v1/${name}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${SERVICE_KEY}` },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(30000),
+  });
+}
+
 // send_announcement — email via Resend + Nora tweet via mavis-nora-post
 const handleSendAnnouncement: TaskHandler = async (task) => {
-  const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-  const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
   const results: unknown[] = [];
+  const emailRes = await callFunction("mavis-announce", { userId: task.user_id, ...task.payload });
+  results.push({ channel: "email", ...(await emailRes.json().catch(() => ({}))) });
 
-  // Email announcement
-  const emailRes = await fetch(`${supabaseUrl}/functions/v1/mavis-announce`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${serviceKey}` },
-    body: JSON.stringify({ userId: task.user_id, ...task.payload }),
-  });
-  results.push({ channel: "email", ...(await emailRes.json()) });
-
-  // Nora Vale tweet
   const p = task.payload as { title?: string; paymentLink?: string; priceCents?: number };
   if (p.title && p.paymentLink) {
     const price = `$${((p.priceCents ?? 2900) / 100).toFixed(0)}`;
-    const tweetContent = `Just dropped: "${p.title}" — ${price}\n\nBuilt this for anyone who's been asking about this. Grab it here: ${p.paymentLink}`;
-    const tweetRes = await fetch(`${supabaseUrl}/functions/v1/mavis-nora-post`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${serviceKey}` },
-      body: JSON.stringify({ userId: task.user_id, content: tweetContent }),
+    const tweetRes = await callFunction("mavis-nora-post", {
+      userId: task.user_id,
+      content: `Just dropped: "${p.title}" — ${price}\n\nBuilt this for anyone who's been asking about this. Grab it here: ${p.paymentLink}`,
     });
-    results.push({ channel: "twitter_nora", ...(await tweetRes.json()) });
+    results.push({ channel: "twitter_nora", ...(await tweetRes.json().catch(() => ({}))) });
   }
 
   return { success: true, output: results };
@@ -629,35 +898,60 @@ const handleSendAnnouncement: TaskHandler = async (task) => {
 
 // nora_tweet — Nora posts arbitrary content on Twitter/X
 const handleNoraTweet: TaskHandler = async (task) => {
-  const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-  const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-  const res = await fetch(`${supabaseUrl}/functions/v1/mavis-nora-post`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${serviceKey}` },
-    body: JSON.stringify({ userId: task.user_id, ...task.payload }),
-  });
-  const data = await res.json();
-  if (!res.ok) return { success: false, error: data.error ?? `nora-post returned ${res.status}` };
+  const res = await callFunction("mavis-nora-post", { userId: task.user_id, ...task.payload });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) return { success: false, error: (data as any).error ?? `nora-post returned ${res.status}` };
   return { success: true, output: data };
 };
 
 // demand_scan — fires the demand detection scan
 const handleDemandScan: TaskHandler = async (task) => {
-  const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-  const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-  const res = await fetch(`${supabaseUrl}/functions/v1/mavis-demand-scan`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${serviceKey}` },
-    body: JSON.stringify({ userId: task.user_id }),
-  });
-  const data = await res.json();
-  if (!res.ok) return { success: false, error: data.error ?? `demand-scan returned ${res.status}` };
+  const res = await callFunction("mavis-demand-scan", { userId: task.user_id });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) return { success: false, error: (data as any).error ?? `demand-scan returned ${res.status}` };
   return { success: true, output: data };
 };
 
 // ─────────────────────────────────────────────────────────────
 // HANDLER REGISTRY
 // ─────────────────────────────────────────────────────────────
+
+// email_reply — operator approved replying to an inbound priority email
+const handleEmailReply: TaskHandler = async (task) => {
+  const flat        = extractPayload(task.payload as Record<string, unknown>);
+  const fromEmail   = String(flat.from_email  ?? "");
+  const subject     = String(flat.subject     ?? "");
+  const bodyPreview = String(flat.body_preview ?? "");
+  const emailId     = String(flat.email_id    ?? "");
+
+  if (!fromEmail) return { success: false, error: "email_reply: no from_email in payload" };
+
+  const replyText = await callClaude(
+    "You are MAVIS, a sovereign AI assistant. Draft a concise, professional reply to this email on behalf of the operator. Be warm but direct. 2-4 sentences max. Output ONLY the reply body text.",
+    `From: ${fromEmail}\nSubject: ${subject}\n\nBody preview: ${bodyPreview}`,
+  );
+
+  if (!replyText) return { success: false, error: "email_reply: Claude failed to generate reply" };
+
+  const replySubject = subject.startsWith("Re:") ? subject : `Re: ${subject}`;
+  const emailRes = await callFunction("mavis-email-send", {
+    userId: task.user_id, to: fromEmail, subject: replySubject, body: replyText, source: "email_reply",
+  });
+
+  let sent = emailRes.ok;
+  if (!sent) {
+    // Fallback: push reply draft to Telegram so operator can copy-paste
+    await sendTelegram(`📧 *Email Reply Ready*\nTo: ${fromEmail}\nSubject: ${replySubject}\n\n_${replyText}_\n\n(Email send failed — copy and send manually)`);
+    sent = true; // Telegram fallback counts as delivered
+  }
+
+  // Only mark processed when we have confirmation it was handled
+  if (emailId && sent) {
+    await supabase.from("mavis_inbound_emails").update({ processed: true }).eq("id", emailId).catch(() => {});
+  }
+
+  return { success: sent, output: { to: fromEmail, subject: replySubject, reply_preview: replyText.slice(0, 100) } };
+};
 
 const HANDLERS: Record<string, TaskHandler> = {
   daily_brief: handleDailyBrief,
@@ -670,6 +964,11 @@ const HANDLERS: Record<string, TaskHandler> = {
   nora_tweet: handleNoraTweet,
   demand_scan: handleDemandScan,
   goal: handleGoal,
+  execute_action: handleExecuteAction,
+  system_change: handleSystemChange,
+  session_update: handleSessionUpdate,
+  send_outreach: handleSendOutreach,
+  email_reply: handleEmailReply,
 };
 
 // ─────────────────────────────────────────────────────────────
@@ -677,8 +976,11 @@ const HANDLERS: Record<string, TaskHandler> = {
 // ─────────────────────────────────────────────────────────────
 
 Deno.serve(async (req) => {
+  if (req.method === "OPTIONS") {
+    return new Response(null, { headers: corsHeaders });
+  }
   if (req.method !== "POST" && req.method !== "GET") {
-    return new Response("Method not allowed", { status: 405 });
+    return new Response("Method not allowed", { status: 405, headers: corsHeaders });
   }
 
   const now = new Date().toISOString();
@@ -686,6 +988,47 @@ Deno.serve(async (req) => {
   const errors: unknown[] = [];
 
   try {
+    // Load auto-execute type lists from mavis_tacit (key="auto_execute_types", value=JSON array).
+    // Any requires_confirmation task whose type is in the user's auto_execute_types list
+    // gets promoted to "approved" so it runs without Telegram approval.
+    // Default: daily_brief, memory_consolidation, revenue_snapshot always auto-execute.
+    const DEFAULT_AUTO_EXECUTE: string[] = ["daily_brief", "memory_consolidation", "revenue_snapshot"];
+    try {
+      const { data: tacitRows } = await supabase
+        .from("mavis_tacit")
+        .select("user_id, value")
+        .eq("key", "auto_execute_types");
+
+      if (tacitRows && tacitRows.length > 0) {
+        for (const row of tacitRows as any[]) {
+          let types: string[] = DEFAULT_AUTO_EXECUTE;
+          try { types = JSON.parse(row.value); } catch { /* use default */ }
+          if (!Array.isArray(types) || types.length === 0) continue;
+          await supabase
+            .from("mavis_tasks")
+            .update({ status: "approved" })
+            .eq("user_id", row.user_id)
+            .eq("status", "requires_confirmation")
+            .in("type", types);
+        }
+      } else {
+        // No custom config — apply defaults to all users with pending confirmation tasks
+        const { data: pendingConfirm } = await supabase
+          .from("mavis_tasks")
+          .select("id, user_id")
+          .eq("status", "requires_confirmation")
+          .in("type", DEFAULT_AUTO_EXECUTE);
+        if (pendingConfirm && pendingConfirm.length > 0) {
+          await supabase
+            .from("mavis_tasks")
+            .update({ status: "approved" })
+            .in("id", (pendingConfirm as any[]).map((r: any) => r.id));
+        }
+      }
+    } catch {
+      // non-fatal — mavis_tacit table may not exist yet
+    }
+
     // Fetch pending AND approved tasks (approved = operator confirmed a requires_confirmation item)
     const { data: pendingTasks, error: fetchErr } = await supabase
       .from("mavis_tasks")
@@ -693,12 +1036,12 @@ Deno.serve(async (req) => {
       .in("status", ["pending", "approved"])
       .or(`scheduled_at.is.null,scheduled_at.lte.${now}`)
       .order("created_at", { ascending: true })
-      .limit(20);
+      .limit(50);
 
     if (fetchErr) throw fetchErr;
     if (!pendingTasks || pendingTasks.length === 0) {
       return new Response(JSON.stringify({ status: "idle", message: "No pending tasks" }), {
-        headers: { "Content-Type": "application/json" },
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
@@ -739,8 +1082,8 @@ Deno.serve(async (req) => {
       executed: executed.length,
       errors: errors.length,
       details: { executed, errors },
-    }), { headers: { "Content-Type": "application/json" } });
+    }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
   } catch (err) {
-    return new Response(JSON.stringify({ error: String(err) }), { status: 500 });
+    return new Response(JSON.stringify({ error: String(err) }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
   }
 });

@@ -75,6 +75,17 @@ interface WidgetConfig {
   // Appointment booker
   service_options?: string[];
   calendar_url?: string;
+  // YouTube player
+  youtube_url?: string;
+  youtube_video_id?: string;
+  youtube_playlist_id?: string;
+  video_title?: string;
+  video_description?: string;
+  autoplay?: boolean;
+  muted?: boolean;
+  loop?: boolean;
+  show_controls?: boolean;
+  show_youtube_button?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -767,6 +778,114 @@ render();
 }
 
 // ---------------------------------------------------------------------------
+// YouTube Player Widget
+// ---------------------------------------------------------------------------
+
+function extractYouTubeId(urlOrId: string): { videoId: string; playlistId: string } {
+  const s = (urlOrId || "").trim();
+  if (!s) return { videoId: "", playlistId: "" };
+  // Bare 11-char video ID
+  if (/^[a-zA-Z0-9_-]{11}$/.test(s)) return { videoId: s, playlistId: "" };
+  let videoId = "", playlistId = "";
+  try {
+    const url = new URL(s.startsWith("http") ? s : `https://${s}`);
+    if (url.hostname === "youtu.be") {
+      videoId = url.pathname.slice(1).split("/")[0] || "";
+    } else if (url.pathname.includes("/embed/")) {
+      const part = url.pathname.replace(/.*\/embed\//, "");
+      if (part && part !== "videoseries") videoId = part.split("?")[0];
+    } else {
+      videoId = url.searchParams.get("v") || "";
+    }
+    playlistId = url.searchParams.get("list") || "";
+  } catch { /* ignore non-URL strings */ }
+  return { videoId: videoId.slice(0, 20), playlistId: playlistId.slice(0, 60) };
+}
+
+function generateYouTubePlayerWidget(widgetId: string, config: WidgetConfig): string {
+  const raw = config.youtube_url ?? config.youtube_video_id ?? "";
+  const { videoId, playlistId: parsedPlaylistId } = extractYouTubeId(raw);
+  const playlistId = config.youtube_playlist_id?.trim() || parsedPlaylistId;
+
+  if (!videoId && !playlistId) {
+    return `(function(){console.warn('[MAVIS] YouTube widget ${widgetId}: no valid video URL or ID provided');})();`;
+  }
+
+  const title = esc(config.video_title ?? "");
+  const desc  = esc(config.video_description ?? "");
+  const autoplay     = config.autoplay ? 1 : 0;
+  const muted        = (config.autoplay || config.muted) ? 1 : 0; // autoplay requires mute
+  const loop         = config.loop ? 1 : 0;
+  const controls     = config.show_controls !== false ? 1 : 0;
+  const showYtBtn    = config.show_youtube_button !== false ? "true" : "false";
+  const safeVideoId  = esc(videoId);
+  const safeListId   = esc(playlistId);
+
+  return `(function(){
+var W='${widgetId}';
+var VID='${safeVideoId}';
+var LIST='${safeListId}';
+var TITLE='${title}';
+var DESC='${desc}';
+var AUTOPLAY=${autoplay};
+var MUTED=${muted};
+var LOOP=${loop};
+var CTRL=${controls};
+var SHOW_YT=${showYtBtn};
+// Build the embed URL query string
+var p=[];
+if(AUTOPLAY)p.push('autoplay=1');
+if(MUTED)p.push('mute=1');
+if(LOOP&&VID)p.push('loop=1','playlist='+VID);
+p.push('controls='+CTRL,'rel=0','modestbranding=1');
+var qs=p.join('&');
+var embedUrl=(!VID&&LIST)
+  ?'https://www.youtube.com/embed/videoseries?list='+LIST+'&'+qs
+  :'https://www.youtube.com/embed/'+VID+'?'+qs;
+var watchUrl=(!VID&&LIST)
+  ?'https://www.youtube.com/playlist?list='+LIST
+  :'https://www.youtube.com/watch?v='+VID;
+// Styles
+var s=document.createElement('style');
+s.textContent=
+  '#mw-yt-'+W+'{font-family:system-ui,sans-serif;max-width:100%;margin:0 auto;}'+
+  '#mw-yt-'+W+' .yt-hdr{margin-bottom:10px;}'+
+  '#mw-yt-'+W+' .yt-ttl{font-size:18px;font-weight:700;color:#1e293b;margin:0 0 4px;}'+
+  '#mw-yt-'+W+' .yt-dsc{font-size:14px;color:#64748b;margin:0;line-height:1.55;}'+
+  '#mw-yt-'+W+' .yt-wrap{position:relative;padding-bottom:56.25%;height:0;overflow:hidden;border-radius:12px;background:#000;box-shadow:0 4px 24px rgba(0,0,0,.18);}'+
+  '#mw-yt-'+W+' .yt-wrap iframe{position:absolute;top:0;left:0;width:100%;height:100%;border:none;border-radius:12px;}'+
+  '#mw-yt-'+W+' .yt-ftr{display:flex;align-items:center;justify-content:space-between;margin-top:10px;flex-wrap:wrap;gap:8px;}'+
+  '#mw-yt-'+W+' .yt-btn{display:inline-flex;align-items:center;gap:6px;background:#FF0000;color:#fff;border:none;border-radius:8px;padding:7px 14px;font-size:13px;font-weight:600;cursor:pointer;text-decoration:none;transition:opacity .2s;line-height:1;}'+
+  '#mw-yt-'+W+' .yt-btn:hover{opacity:.85;}'+
+  '#mw-yt-'+W+' .yt-pw{font-size:11px;color:#94a3b8;}';
+document.head.appendChild(s);
+// Root element
+var root=document.getElementById('mavis-widget-'+W)||document.body;
+var wrap=document.createElement('div');
+wrap.id='mw-yt-'+W;
+var html='';
+if(TITLE||DESC){
+  html+='<div class="yt-hdr">';
+  if(TITLE)html+='<p class="yt-ttl">'+TITLE+'</p>';
+  if(DESC)html+='<p class="yt-dsc">'+DESC+'</p>';
+  html+='</div>';
+}
+html+='<div class="yt-wrap"><iframe src="'+embedUrl+'" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen loading="lazy" title="'+(TITLE||'Video player')+'"></iframe></div>';
+html+='<div class="yt-ftr">';
+if(SHOW_YT){
+  html+='<a href="'+watchUrl+'" target="_blank" rel="noopener noreferrer" class="yt-btn">';
+  html+='<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/></svg>';
+  html+=(LIST&&!VID?'View Playlist':'Watch on YouTube');
+  html+='</a>';
+}
+html+='<span class="yt-pw">Powered by <strong>MAVIS</strong></span>';
+html+='</div>';
+wrap.innerHTML=html;
+root.appendChild(wrap);
+})();`;
+}
+
+// ---------------------------------------------------------------------------
 // Helper utilities
 // ---------------------------------------------------------------------------
 
@@ -778,6 +897,7 @@ function getMonthlyPrice(type: string): number {
     faq: 4900,
     roi_calculator: 7900,
     appointment_booker: 9700,
+    youtube_player: 2900,
   };
   return prices[type] ?? 4900;
 }
@@ -807,6 +927,7 @@ serve(async (req) => {
             { id: "faq", name: "FAQ + AI Fallback", description: "Searchable FAQ with AI question answering", icon: "❓", monthly_price: 49 },
             { id: "roi_calculator", name: "ROI Calculator", description: "Business value calculator with AI analysis", icon: "📈", monthly_price: 79 },
             { id: "appointment_booker", name: "Appointment Booker", description: "Service booking with AI confirmation", icon: "📅", monthly_price: 97 },
+            { id: "youtube_player", name: "YouTube Player", description: "Responsive video or playlist embed — no hosting required", icon: "▶️", monthly_price: 29 },
           ],
         }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" } }
@@ -836,6 +957,9 @@ serve(async (req) => {
           break;
         case "appointment_booker":
           widgetJs = generateAppointmentBookerWidget(wId, config, WIDGET_API_URL);
+          break;
+        case "youtube_player":
+          widgetJs = generateYouTubePlayerWidget(wId, config);
           break;
         default:
           throw new Error(`Unknown widget type: ${widget_type}`);

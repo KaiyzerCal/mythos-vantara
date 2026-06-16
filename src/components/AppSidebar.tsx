@@ -39,6 +39,7 @@ const SECONDARY_NAV = [
   { to: "/energy", icon: Zap, label: "Energy" },
   { to: "/skills", icon: Sparkles, label: "Skills" },
   { to: "/inventory", icon: Package, label: "Inventory" },
+  { to: "/domain", icon: Shield, label: "Domain Effects" },
   { to: "/journal", icon: BookOpen, label: "Journal" },
   { to: "/vault", icon: BookLock, label: "Vault Codex" },
 ];

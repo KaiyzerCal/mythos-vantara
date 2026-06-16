@@ -404,6 +404,43 @@ export default function MavisDemo() {
       await supabase.from("mavis_tasks").insert({ user_id: session.user.id, type: "nora_tweet", description: `Nora tweet: "${String(payload.content).slice(0, 60)}…"`, payload: payload as any, status: "requires_confirmation" } as any);
     });
 
+    // ── Spotify playback control ───────────────────────────────
+    const callSpotify = async (action: string, extra?: Record<string, unknown>) => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) throw new Error("Not authenticated");
+      const res = await supabase.functions.invoke("mavis-spotify-control", {
+        body: { action, ...extra },
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      });
+      if (res.error) throw new Error(res.error.message ?? "Spotify control failed");
+      return res.data;
+    };
+
+    registerActionHandler("spotify_play", (p) => callSpotify("play", { query: p.query as string | undefined, type: p.type as string | undefined }));
+    registerActionHandler("spotify_pause", () => callSpotify("pause"));
+    registerActionHandler("spotify_skip", () => callSpotify("skip"));
+    registerActionHandler("spotify_previous", () => callSpotify("previous"));
+    registerActionHandler("spotify_volume", (p) => callSpotify("volume", { percent: p.percent }));
+    registerActionHandler("spotify_shuffle", (p) => callSpotify("shuffle", { enabled: p.enabled !== false }));
+    registerActionHandler("spotify_now_playing", () => callSpotify("now_playing"));
+
+    // ── Terminal / persistent shell ────────────────────────────────────────
+    registerActionHandler("terminal_exec", async (payload) => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) throw new Error("Not authenticated");
+      const res = await supabase.functions.invoke("mavis-terminal", {
+        body: {
+          action: "exec",
+          command: payload.command,
+          session_id: payload.session_id === "auto" ? undefined : payload.session_id,
+          timeout: payload.timeout ?? 30,
+        },
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      });
+      if (res.error) throw new Error(res.error.message ?? "Terminal exec failed");
+      return res.data;
+    });
+
     registerActionHandler("create_skill_definition", async (payload) => {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session?.user) throw new Error("Not authenticated");

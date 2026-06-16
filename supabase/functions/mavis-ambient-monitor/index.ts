@@ -445,14 +445,32 @@ Draft a short, warm reconnect message.`;
 
         const draftId = draftRow?.id ?? contact.id;
 
-        // Send Telegram nudge
+        // Queue as a requires_confirmation task so /approve [id] works from Telegram
+        const contactEmail: string = (contact as any).email ?? (contact as any).contact_email ?? "";
+        const { data: taskRow } = await sb.from("mavis_tasks").insert({
+          user_id: userId,
+          type: "send_outreach",
+          description: `Reconnect with ${contact.contact_name} — ${daysSince} days dormant`,
+          payload: {
+            draft_id: draftId,
+            contact_name: contact.contact_name,
+            message: drafted,
+            contact_email: contactEmail,
+          },
+          status: "requires_confirmation",
+        }).select("id").single();
+
+        const taskId: string = (taskRow as any)?.id ?? draftId;
+        const shortId = String(taskId).slice(0, 8);
+
+        // Send Telegram nudge using the standard /approve [id] format
         const tgMessage = `💬 *Reconnect Nudge*
-You haven't spoken to *${contact.contact_name}* in ${daysSince} days.
+You haven't spoken to *${contact.contact_name}* in ${daysSince} days\\.
 
 Draft message ready:
-"${drafted}"
+_"${drafted.replace(/[_*[\]()~`>#+\-=|{}.!]/g, "\\$&")}"_
 
-Reply /approve\\_outreach\\_${draftId} to send or /skip\\_${draftId} to dismiss.`;
+Reply \`/approve ${shortId}\` to send or \`/reject ${shortId}\` to skip\\.`;
 
         await sendTelegram(tgMessage);
 
@@ -549,20 +567,16 @@ ${actionLines}`;
 
         await sendTelegram(tgMessage);
 
-        // Insert recovery actions as new tasks linked to the quest via metadata
-        for (const action of actions) {
-          await sb.from("mavis_tasks").insert({
+        // Batch-insert all recovery actions in one round-trip
+        await sb.from("mavis_tasks").insert(
+          actions.map((action) => ({
             user_id: userId,
             type: "goal",
             description: action,
-            payload: {
-              quest_id: quest.id,
-              quest_title: quest.title,
-              trigger: "stalled_quest_recovery",
-            },
+            payload: { quest_id: quest.id, quest_title: quest.title, trigger: "stalled_quest_recovery" },
             status: "pending",
-          });
-        }
+          }))
+        ).catch((e: any) => console.error("[ambient-monitor] batch task insert error:", e));
 
         result.issues++;
         result.actions += actions.length;

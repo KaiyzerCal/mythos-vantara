@@ -6,6 +6,7 @@ import { Toaster as SonnerToaster } from "sonner";
 import { ThemeProvider, useTheme } from "next-themes";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import { AppDataProvider } from "@/contexts/AppDataContext";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 import AppSidebar from "@/components/AppSidebar";
 import { Loader2 } from "lucide-react";
 import { useMavisNotifications } from "@/hooks/useMavisNotifications";
@@ -50,6 +51,7 @@ const JournalPage = lazy(() => import("@/pages/ContentPages").then(m => ({ defau
 const VaultCodexPage = lazy(() => import("@/pages/ContentPages").then(m => ({ default: m.VaultCodexPage })));
 const SkillsPage = lazy(() => import("@/pages/ContentPages").then(m => ({ default: m.SkillsPage })));
 const InventoryPage = lazy(() => import("@/pages/ContentPages").then(m => ({ default: m.InventoryPage })));
+const DomainPage = lazy(() => import("@/pages/ContentPages").then(m => ({ default: m.DomainPage })));
 const FormsPage = lazy(() => import("@/pages/FormsPage"));
 const BpmPage = lazy(() => import("@/pages/BpmPage"));
 const RankingsPage = lazy(() => import("@/pages/RankingsPage"));
@@ -92,6 +94,7 @@ const AvatarStudioPage = lazy(() => import("@/pages/AvatarStudioPage").then(m =>
 const ImportPage = lazy(() => import("@/pages/ImportPage").then(m => ({ default: m.ImportPage })));
 const SystemSettingsPage = lazy(() => import("@/pages/SystemSettingsPage").then(m => ({ default: m.SystemSettingsPage })));
 const AgentDashboardPage = lazy(() => import("@/pages/AgentDashboardPage").then(m => ({ default: m.AgentDashboardPage })));
+const MyAgents = lazy(() => import("@/pages/MyAgents"));
 const WpcomCallbackPage = lazy(() => import("@/pages/WpcomCallbackPage"));
 const PhoneCallsPage = lazy(() => import("@/pages/PhoneCallsPage"));
 const SMSPage = lazy(() => import("@/pages/SMSPage"));
@@ -147,11 +150,11 @@ function AppContent() {
         
         <main className={`flex-1 min-w-0 ${["/mavis-ui", "/demo"].includes(location.pathname) ? "overflow-hidden" : "p-5 overflow-y-auto"}`}>
           <Suspense fallback={Spinner}>
+            <ErrorBoundary>
             <Routes>
               <Route path="/" element={<Dashboard />} />
               <Route path="/character" element={<CharacterPage />} />
               <Route path="/mavis-ui" element={<MavisDemo />} />
-              <Route path="/demo" element={<MavisDemo />} />
               <Route path="/mavis" element={<MavisChat />} />
               <Route path="/quests" element={<QuestsPage />} />
 
@@ -160,6 +163,7 @@ function AppContent() {
               <Route path="/energy" element={<EnergyPage />} />
               <Route path="/skills" element={<SkillsPage />} />
               <Route path="/inventory" element={<InventoryPage />} />
+              <Route path="/domain" element={<DomainPage />} />
               <Route path="/journal" element={<JournalPage />} />
               <Route path="/vault" element={<VaultCodexPage />} />
               <Route path="/rankings" element={<RankingsPage />} />
@@ -204,6 +208,7 @@ function AppContent() {
               <Route path="/avatar-studio" element={<AvatarStudioPage />} />
               <Route path="/system-settings" element={<SystemSettingsPage />} />
               <Route path="/agents" element={<AgentDashboardPage />} />
+              <Route path="/my-agents" element={<MyAgents />} />
               <Route path="/intelligence" element={<IntelligencePage />} />
               <Route path="/design-studio" element={<DesignStudio />} />
               <Route path="/wpcom-callback" element={<WpcomCallbackPage />} />
@@ -220,6 +225,7 @@ function AppContent() {
               <Route path="/rss-feeds" element={<RSSReaderPage />} />
               <Route path="*" element={<NotFound />} />
             </Routes>
+            </ErrorBoundary>
           </Suspense>
         </main>
       </div>

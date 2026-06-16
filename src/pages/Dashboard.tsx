@@ -69,7 +69,8 @@ export default function Dashboard() {
       .select("brief_date, brief_text")
       .eq("brief_date", today)
       .maybeSingle()
-      .then(({ data }: any) => setMorningBrief(data ?? null));
+      .then(({ data }: any) => setMorningBrief(data ?? null))
+      .catch(() => {});
   }, []);
 
   // ── Market Intel ──
@@ -83,14 +84,17 @@ export default function Dashboard() {
 
   useEffect(() => {
     const yesterday = new Date(Date.now() - 86400000).toISOString();
-    supabase
-      .from("mavis_market_intel")
-      .select("topic, headline, summary, relevance_score, signal_type")
-      .gte("relevance_score", 0.6)
-      .gte("created_at", yesterday)
-      .order("relevance_score", { ascending: false })
-      .limit(3)
-      .then(({ data }) => setMarketIntel(data ?? []));
+    Promise.resolve(
+      supabase
+        .from("mavis_market_intel")
+        .select("topic, headline, summary, relevance_score, signal_type")
+        .gte("relevance_score", 0.6)
+        .gte("created_at", yesterday)
+        .order("relevance_score", { ascending: false })
+        .limit(3)
+    )
+      .then(({ data }) => setMarketIntel(data ?? []))
+      .catch(() => {});
   }, []);
 
   // ── Action Queue ──
@@ -104,29 +108,35 @@ export default function Dashboard() {
   }>>([]);
 
   useEffect(() => {
-    supabase
-      .from("mavis_action_queue")
-      .select("id, action_type, autonomy_tier, source_context, priority, action_payload")
-      .eq("status", "pending")
-      .order("priority", { ascending: true })
-      .limit(5)
-      .then(({ data }) => setActionQueue((data as any) ?? []));
+    Promise.resolve(
+      supabase
+        .from("mavis_action_queue")
+        .select("id, action_type, autonomy_tier, source_context, priority, action_payload")
+        .eq("status", "pending")
+        .order("priority", { ascending: true })
+        .limit(5)
+    )
+      .then(({ data }) => setActionQueue((data as any) ?? []))
+      .catch(() => {});
   }, []);
 
   // ── Outcome Accuracy ──
   const [outcomeAccuracy, setOutcomeAccuracy] = useState<number | null>(null);
 
   useEffect(() => {
-    supabase
-      .from("mavis_outcome_events")
-      .select("outcome_status")
-      .not("outcome_status", "eq", "pending")
-      .limit(50)
+    Promise.resolve(
+      supabase
+        .from("mavis_outcome_events")
+        .select("outcome_status")
+        .not("outcome_status", "eq", "pending")
+        .limit(50)
+    )
       .then(({ data }) => {
         if (!data || data.length === 0) return;
         const confirmed = data.filter(e => e.outcome_status === "confirmed").length;
         setOutcomeAccuracy(Math.round((confirmed / data.length) * 100));
-      });
+      })
+      .catch(() => {});
   }, []);
 
   // ── Evolution Log ──
@@ -137,13 +147,16 @@ export default function Dashboard() {
   } | null>(null);
 
   useEffect(() => {
-    supabase
-      .from("mavis_evolution_log")
-      .select("evolution_type, affected_key, reason")
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .maybeSingle()
-      .then(({ data }) => setLastEvolution(data ?? null));
+    Promise.resolve(
+      supabase
+        .from("mavis_evolution_log")
+        .select("evolution_type, affected_key, reason")
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle()
+    )
+      .then(({ data }) => setLastEvolution(data ?? null))
+      .catch(() => {});
   }, []);
 
   // ── Performance Score ──
@@ -161,7 +174,8 @@ export default function Dashboard() {
       .select("score, trend, optimal_window, recommendation")
       .eq("score_date", today)
       .maybeSingle()
-      .then(({ data }: any) => setPerfScore(data ?? null));
+      .then(({ data }: any) => setPerfScore(data ?? null))
+      .catch(() => {});
   }, []);
 
   const scoreColor =

@@ -83,8 +83,11 @@ const PROFILE_ALLOWED = [
 const ACTION_ALIASES: Record<string, string> = {
   "create_item": "create_inventory_item", "add_item": "create_inventory_item", "add_inventory": "create_inventory_item",
   "add_inventory_item": "create_inventory_item", "new_item": "create_inventory_item",
+  "create_inventory": "create_inventory_item",
   "update_item": "update_inventory_item", "edit_item": "update_inventory_item",
+  "update_inventory": "update_inventory_item",
   "delete_item": "delete_inventory_item", "remove_item": "delete_inventory_item",
+  "delete_inventory": "delete_inventory_item",
   "add_quest": "create_quest", "new_quest": "create_quest", "edit_quest": "update_quest", "remove_quest": "delete_quest", "finish_quest": "complete_quest",
   "create_task": "create_quest", "add_task": "create_quest", "new_task": "create_quest",
   "create_habit": "create_quest", "add_habit": "create_quest",
@@ -137,7 +140,7 @@ function normalizeActionType(type: string): string {
 }
 
 // ── Action executor ────────────────────────────────────────
-async function executeAction(sb: any, userId: string, action: MavisAction) {
+async function executeAction(sb: any, userId: string, action: MavisAction, req: Request) {
   // Support both nested { type, params: {...} } and flat { type, title, ... } formats.
   // Telegram/Claude may send flat; frontend always sends nested.
   const p: Record<string, unknown> = (action.params && typeof action.params === "object")
@@ -802,6 +805,106 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
       return;
     }
 
+    // ── PROPOSE SYSTEM CHANGE — queue for operator approval ──────────────
+    case "propose_system_change": {
+      const title       = String(p.title ?? (action as any).title ?? "System Change");
+      const description = String(p.description ?? (action as any).description ?? "");
+      const proposedBy  = String(p.proposed_by ?? (action as any).proposed_by ?? "Council");
+      const changeType  = String(p.change_type ?? (action as any).change_type ?? "feature|fix|config|process|other");
+      const rationale   = String(p.rationale ?? (action as any).rationale ?? "");
+      const priority    = String(p.priority ?? (action as any).priority ?? "normal");
+      const payload = { title, description, proposed_by: proposedBy, change_type: changeType, rationale, priority };
+      const { error } = await sb.from("mavis_tasks").insert({
+        user_id: userId,
+        type: "system_change",
+        description: `[${proposedBy}] ${title}`,
+        payload,
+        status: "requires_confirmation",
+      });
+      if (error) throw error;
+      await logActivity(sb, userId, "system_change_proposed", `Change proposed by ${proposedBy}: ${title}`, 0);
+      return;
+    }
+
+    // ── PROPOSE SESSION UPDATE — The System bundles post-session gains for approval ──
+    case "propose_session_update": {
+      const sessionTitle   = String(p.session_title ?? (action as any).session_title ?? "Session");
+      const proposedBy     = String(p.proposed_by   ?? (action as any).proposed_by   ?? "The System");
+      const sessionSummary = String(p.session_summary ?? (action as any).session_summary ?? "");
+      const xpAward        = Number(p.xp_award        ?? (action as any).xp_award        ?? 0);
+      const questUpdates   = (p.quest_updates   ?? (action as any).quest_updates   ?? []) as unknown[];
+      const skillUpdates   = (p.skill_updates   ?? (action as any).skill_updates   ?? []) as unknown[];
+      const statUpdates    = (p.stat_updates    ?? (action as any).stat_updates    ?? {}) as Record<string, number>;
+      const invConsumed    = (p.inventory_consumed ?? (action as any).inventory_consumed ?? []) as unknown[];
+
+      const payload = {
+        session_title: sessionTitle,
+        proposed_by: proposedBy,
+        session_summary: sessionSummary,
+        xp_award: xpAward,
+        quest_updates: questUpdates,
+        skill_updates: skillUpdates,
+        stat_updates: statUpdates,
+        inventory_consumed: invConsumed,
+      };
+
+      // Build a readable summary for the task description
+      const lines: string[] = [];
+      if (xpAward > 0) lines.push(`+${xpAward} XP`);
+      if ((questUpdates as any[]).length) lines.push(`${(questUpdates as any[]).length} quest(s)`);
+      if ((skillUpdates as any[]).length) lines.push(`${(skillUpdates as any[]).length} skill(s)`);
+      if (Object.keys(statUpdates).length) lines.push(`stat boost`);
+      if ((invConsumed as any[]).length) lines.push(`${(invConsumed as any[]).length} item(s) consumed`);
+
+      const { error } = await sb.from("mavis_tasks").insert({
+        user_id: userId,
+        type: "session_update",
+        description: `[${proposedBy}] ${sessionTitle}${lines.length ? ` — ${lines.join(", ")}` : ""}`,
+        payload,
+        status: "requires_confirmation",
+      });
+      if (error) throw error;
+      await logActivity(sb, userId, "session_update_proposed", `Session report queued: ${sessionTitle}`, 0);
+      return;
+    }
+
+    // ── PROPOSE ACTION — generic proposal gate for ANY persona/council suggestion ──
+    // Queues any action for operator review before execution.
+    // On approval the executor re-dispatches via mavis-actions with the stored params.
+    case "propose_action": {
+      const actionType  = String(p.action_type  ?? (action as any).action_type  ?? "");
+      const proposedBy  = String(p.proposed_by  ?? (action as any).proposed_by  ?? "Persona");
+      const rationale   = String(p.rationale    ?? (action as any).rationale    ?? "");
+      const priority    = String(p.priority     ?? (action as any).priority     ?? "normal");
+      const actionParams = (p.params ?? (action as any).params ?? p) as Record<string, unknown>;
+      // Build a human-readable label
+      const label = String(
+        actionParams.title ?? actionParams.name ?? actionParams.objective ??
+        actionParams.text  ?? actionParams.goal  ?? actionType
+      ).slice(0, 80);
+
+      if (!actionType) throw new Error("propose_action requires action_type");
+
+      const payload = {
+        action_type: actionType,
+        params: actionParams,
+        proposed_by: proposedBy,
+        rationale,
+        priority,
+      };
+
+      const { error } = await sb.from("mavis_tasks").insert({
+        user_id: userId,
+        type: "execute_action",
+        description: `[${proposedBy}] ${actionType}: ${label}`,
+        payload,
+        status: "requires_confirmation",
+      });
+      if (error) throw error;
+      await logActivity(sb, userId, "action_proposed", `${proposedBy} proposed: ${actionType} — ${label}`, 0);
+      return;
+    }
+
     // ── KNOWLEDGE GRAPH ──────────────────────────────────
     case "create_note":
     case "new_note":
@@ -1444,6 +1547,789 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
       return;
     }
 
+    // ── SMART HOME — Home Assistant / Philips Hue control ──────────────────
+    case "smart_home":
+    case "home_control":
+    case "iot_control": {
+      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+      const serviceKey  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+      const homeAction  = String(p.action ?? "status");
+      const res = await fetch(`${supabaseUrl}/functions/v1/mavis-home`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${serviceKey}` },
+        body: JSON.stringify({ user_id: userId, action: homeAction, ...p }),
+        signal: AbortSignal.timeout(15000),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        if (!data.configured) throw new Error(`Smart home not configured: ${data.hint ?? ""}`);
+        throw new Error(data.error ?? `smart_home returned ${res.status}`);
+      }
+      await logActivity(sb, userId, "smart_home", `Home: ${homeAction} ${p.entity_id ?? ""}`, 0);
+      return;
+    }
+
+    // ── CREATE WORKFLOW — save a workflow definition ───────────────────────
+    case "create_workflow": {
+      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+      const serviceKey  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+
+      const name        = String(p.name ?? "Untitled Workflow").slice(0, 255);
+      const description = String(p.description ?? "").slice(0, 1000);
+      const triggerType = ["manual", "schedule", "webhook"].includes(String(p.trigger_type))
+        ? String(p.trigger_type) : "manual";
+      const triggerConfig = (p.trigger_config && typeof p.trigger_config === "object") ? p.trigger_config : {};
+      const steps         = Array.isArray(p.steps) ? p.steps : [];
+      const isActive      = p.is_active !== false;
+
+      if (steps.length === 0) throw new Error("create_workflow requires at least one step");
+
+      const { data: wf, error: wfErr } = await sb
+        .from("workflows")
+        .insert({ user_id: userId, name, description, trigger_type: triggerType, trigger_config: triggerConfig, steps, is_active: isActive })
+        .select("id")
+        .single();
+
+      if (wfErr) throw new Error(wfErr.message);
+      await logActivity(sb, userId, "workflow_created", `Created workflow: ${name}`, 10);
+
+      // run_immediately: true — execute the workflow right after creating it
+      if (p.run_immediately) {
+        const runRes = await fetch(`${supabaseUrl}/functions/v1/mavis-workflow-run`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${serviceKey}` },
+          body: JSON.stringify({ workflow_id: wf.id, userId }),
+          signal: AbortSignal.timeout(90_000),
+        });
+        const runData = await runRes.json().catch(() => ({}));
+        return { workflow_id: wf.id, name, run_id: runData.run_id, success: runData.success, steps_log: runData.steps_log };
+      }
+
+      return { workflow_id: wf.id, name };
+    }
+
+    // ── RUN WORKFLOW — execute a saved workflow or ad-hoc steps ───────────
+    case "run_workflow": {
+      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+      const serviceKey  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+
+      const workflowId = p.workflow_id ? String(p.workflow_id) : undefined;
+      const adHocSteps = Array.isArray(p.steps) ? p.steps : undefined;
+      const name       = String(p.name ?? "Ad-hoc run");
+
+      if (!workflowId && !adHocSteps) throw new Error("run_workflow requires workflow_id or steps");
+
+      const body: Record<string, unknown> = { userId, name };
+      if (workflowId)  body.workflow_id = workflowId;
+      if (adHocSteps)  body.steps       = adHocSteps;
+
+      const res = await fetch(`${supabaseUrl}/functions/v1/mavis-workflow-run`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${serviceKey}` },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(90_000),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error ?? `Workflow run failed: ${res.status}`);
+
+      await logActivity(sb, userId, "workflow_run", `Ran workflow: ${workflowId ?? name}`, 5);
+      return { run_id: data.run_id, success: data.success, steps_log: data.steps_log };
+    }
+
+    // ── CREATE WEBHOOK — register an outbound webhook endpoint ────────────
+    case "create_webhook": {
+      const name         = String(p.name ?? "MAVIS Webhook").slice(0, 255);
+      const endpointUrl  = String(p.endpoint_url ?? p.url ?? "");
+      const eventTypes   = asStringArray(p.event_types ?? p.events ?? ["*"]);
+      const active       = p.active !== false;
+
+      if (!endpointUrl) throw new Error("create_webhook requires endpoint_url");
+
+      const { data: wh, error: whErr } = await sb
+        .from("webhook_dispatch_config")
+        .insert({ user_id: userId, name, endpoint_url: endpointUrl, event_types: eventTypes, active })
+        .select("id")
+        .single();
+
+      if (whErr) throw new Error(whErr.message);
+      await logActivity(sb, userId, "webhook_created", `Webhook: ${name} → ${endpointUrl.slice(0, 60)}`, 0);
+      return { webhook_id: wh.id, name, endpoint_url: endpointUrl };
+    }
+
+    // ── DOMAIN EFFECTS — environmental/supernatural stat modifiers ─────────
+    case "create_domain_effect": {
+      const mods = Array.isArray(p.stat_modifiers) ? p.stat_modifiers : [];
+      const areaFx = Array.isArray(p.area_effects) ? p.area_effects : [];
+      const effectType = ["domain","curse","terrain","environmental","aura","zone"].includes(String(p.effect_type))
+        ? String(p.effect_type) : "domain";
+      const { data: ef, error: efErr } = await sb.from("mavis_domain_effects").insert({
+        user_id: userId,
+        name: String(p.name ?? "Unknown Effect").slice(0, 255),
+        description: p.description ? String(p.description).slice(0, 1000) : null,
+        effect_type: effectType,
+        stat_modifiers: mods,
+        area_effects: areaFx,
+        is_active: p.is_active !== false,
+        expires_at: p.expires_at ? new Date(String(p.expires_at)).toISOString() : null,
+        source: p.source ? String(p.source).slice(0, 255) : null,
+      }).select("id").single();
+      if (efErr) throw efErr;
+      await logActivity(sb, userId, "domain_effect_created", `Domain effect: ${p.name}`, 5);
+      return { effect_id: ef.id };
+    }
+
+    case "update_domain_effect": {
+      const effectId = String(p.effect_id ?? p.id ?? "");
+      if (!effectId) throw new Error("update_domain_effect requires effect_id");
+      const updates: Record<string, unknown> = {};
+      if (p.name !== undefined) updates.name = String(p.name).slice(0, 255);
+      if (p.description !== undefined) updates.description = p.description ? String(p.description) : null;
+      if (p.effect_type !== undefined) updates.effect_type = String(p.effect_type);
+      if (p.stat_modifiers !== undefined) updates.stat_modifiers = p.stat_modifiers;
+      if (p.area_effects !== undefined) updates.area_effects = p.area_effects;
+      if (p.is_active !== undefined) updates.is_active = Boolean(p.is_active);
+      if (p.expires_at !== undefined) updates.expires_at = p.expires_at ? new Date(String(p.expires_at)).toISOString() : null;
+      if (p.source !== undefined) updates.source = p.source ? String(p.source) : null;
+      const { error: upErr } = await sb.from("mavis_domain_effects").update(updates).eq("id", effectId).eq("user_id", userId);
+      if (upErr) throw upErr;
+      return { effect_id: effectId, updated: Object.keys(updates) };
+    }
+
+    case "delete_domain_effect": {
+      const effectId = String(p.effect_id ?? p.id ?? "");
+      if (!effectId) throw new Error("delete_domain_effect requires effect_id");
+      const { error: delErr } = await sb.from("mavis_domain_effects").delete().eq("id", effectId).eq("user_id", userId);
+      if (delErr) throw delErr;
+      return { deleted: effectId };
+    }
+
+    case "deep_research": {
+      const query = String(p.query ?? "");
+      if (!query) throw new Error("deep_research requires query");
+      const depth = Number(p.depth ?? 2);
+      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+      const res = await fetch(`${supabaseUrl}/functions/v1/mavis-deep-research`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: req.headers.get("Authorization")! },
+        body: JSON.stringify({ query, depth }),
+      });
+      if (!res.ok) throw new Error(`deep_research failed: ${await res.text()}`);
+      return await res.json();
+    }
+
+    case "translate": {
+      const text = String(p.text ?? "");
+      const target = String(p.target ?? "en");
+      const source = p.source ? String(p.source) : undefined;
+      if (!text) throw new Error("translate requires text");
+      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+      const res = await fetch(`${supabaseUrl}/functions/v1/mavis-translate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: req.headers.get("Authorization")! },
+        body: JSON.stringify({ text, target, ...(source ? { source } : {}) }),
+      });
+      if (!res.ok) throw new Error(`translate failed: ${await res.text()}`);
+      return await res.json();
+    }
+
+    case "get_market_data": {
+      const symbols = asStringArray(p.symbols);
+      const type = String(p.type ?? "auto") as "stock" | "crypto" | "auto";
+      if (!symbols.length) throw new Error("get_market_data requires symbols array");
+      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+      const res = await fetch(`${supabaseUrl}/functions/v1/mavis-market-data`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: req.headers.get("Authorization")! },
+        body: JSON.stringify({ type, symbols }),
+      });
+      if (!res.ok) throw new Error(`get_market_data failed: ${await res.text()}`);
+      return await res.json();
+    }
+
+    case "send_email": {
+      const to = String(p.to ?? "");
+      const subject = String(p.subject ?? "");
+      const body = p.body ? String(p.body) : undefined;
+      const generate = p.generate ? String(p.generate) : undefined;
+      const contact_id = p.contact_id ? String(p.contact_id) : undefined;
+      if (!to) throw new Error("send_email requires to");
+      if (!subject) throw new Error("send_email requires subject");
+      if (!body && !generate) throw new Error("send_email requires either body or generate");
+      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+      const res = await fetch(`${supabaseUrl}/functions/v1/mavis-email-send`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: req.headers.get("Authorization")! },
+        body: JSON.stringify({ to, subject, ...(body ? { body } : {}), ...(generate ? { generate } : {}), ...(contact_id ? { contact_id } : {}) }),
+      });
+      if (!res.ok) throw new Error(`send_email failed: ${await res.text()}`);
+      return await res.json();
+    }
+
+    case "send_sms":
+    case "send_whatsapp": {
+      const to = String(p.to ?? "");
+      const message = String(p.message ?? "");
+      const channel = action.type === "send_whatsapp" ? "whatsapp" : String(p.channel ?? "sms");
+      if (!to) throw new Error(`${action.type} requires to (E.164 phone number)`);
+      if (!message) throw new Error(`${action.type} requires message`);
+      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+      const res = await fetch(`${supabaseUrl}/functions/v1/mavis-sms`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: req.headers.get("Authorization")! },
+        body: JSON.stringify({ to, message, channel }),
+      });
+      if (!res.ok) throw new Error(`${action.type} failed: ${await res.text()}`);
+      return await res.json();
+    }
+
+    case "get_weather": {
+      const location = String(p.location ?? p.city ?? "");
+      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+      const res = await fetch(`${supabaseUrl}/functions/v1/mavis-weather`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: req.headers.get("Authorization")! },
+        body: JSON.stringify({ location }),
+      });
+      if (!res.ok) throw new Error(`get_weather failed: ${await res.text()}`);
+      return await res.json();
+    }
+
+    case "repurpose_content": {
+      const content = String(p.content ?? "");
+      const platforms = p.platforms ?? ["twitter", "linkedin", "instagram"];
+      if (!content) throw new Error("repurpose_content requires content");
+      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+      const res = await fetch(`${supabaseUrl}/functions/v1/mavis-repurpose`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: req.headers.get("Authorization")! },
+        body: JSON.stringify({ content, platforms }),
+      });
+      if (!res.ok) throw new Error(`repurpose_content failed: ${await res.text()}`);
+      return await res.json();
+    }
+
+    case "generate_pdf": {
+      const title = String(p.title ?? "Document");
+      const contentHtml = String(p.content_html ?? p.content ?? "");
+      if (!contentHtml) throw new Error("generate_pdf requires content_html");
+      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+      const res = await fetch(`${supabaseUrl}/functions/v1/mavis-pdf-gen`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: req.headers.get("Authorization")! },
+        body: JSON.stringify({ title, content_html: contentHtml, user_id: userId }),
+      });
+      if (!res.ok) throw new Error(`generate_pdf failed: ${await res.text()}`);
+      return await res.json();
+    }
+
+    case "nora_linkedin": {
+      const content = p.content ? String(p.content) : undefined;
+      const generate = p.generate !== false;
+      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+      const res = await fetch(`${supabaseUrl}/functions/v1/mavis-nora-linkedin`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: req.headers.get("Authorization")! },
+        body: JSON.stringify({ content, generate: !content || generate }),
+      });
+      if (!res.ok) throw new Error(`nora_linkedin failed: ${await res.text()}`);
+      return await res.json();
+    }
+
+    case "nora_instagram": {
+      const content = p.content ? String(p.content) : undefined;
+      const image_url = p.image_url ? String(p.image_url) : undefined;
+      const generate = p.generate !== false;
+      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+      const res = await fetch(`${supabaseUrl}/functions/v1/mavis-nora-instagram`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: req.headers.get("Authorization")! },
+        body: JSON.stringify({ content, image_url, generate: !content || generate }),
+      });
+      if (!res.ok) throw new Error(`nora_instagram failed: ${await res.text()}`);
+      return await res.json();
+    }
+
+    case "nora_tiktok": {
+      const content = p.content ? String(p.content) : undefined;
+      const video_url = p.video_url ? String(p.video_url) : undefined;
+      const generate = p.generate !== false;
+      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+      const res = await fetch(`${supabaseUrl}/functions/v1/mavis-nora-tiktok`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: req.headers.get("Authorization")! },
+        body: JSON.stringify({ content, video_url, generate: !content || generate }),
+      });
+      if (!res.ok) throw new Error(`nora_tiktok failed: ${await res.text()}`);
+      return await res.json();
+    }
+
+    case "speak":
+    case "tts": {
+      const text = String(p.text ?? "");
+      if (!text) throw new Error("speak requires text");
+      const gender = String(p.gender ?? "female");
+      const voice_id = p.voice_id ? String(p.voice_id) : undefined;
+      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+      const res = await fetch(`${supabaseUrl}/functions/v1/mavis-tts`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: req.headers.get("Authorization")! },
+        body: JSON.stringify({ text, gender, ...(voice_id ? { voice_id } : {}) }),
+      });
+      if (!res.ok) throw new Error(`speak failed: ${await res.text()}`);
+      return await res.json();
+    }
+
+    case "phone_call": {
+      const to = String(p.to ?? "");
+      const purpose = String(p.purpose ?? "");
+      if (!to) throw new Error("phone_call requires to (E.164 phone number)");
+      if (!purpose) throw new Error("phone_call requires purpose");
+      const caller_name = String(p.caller_name ?? "MAVIS");
+      const first_message = p.first_message ? String(p.first_message) : undefined;
+      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+      const res = await fetch(`${supabaseUrl}/functions/v1/mavis-phone-call`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: req.headers.get("Authorization")! },
+        body: JSON.stringify({ to, purpose, caller_name, ...(first_message ? { first_message } : {}) }),
+      });
+      if (!res.ok) throw new Error(`phone_call failed: ${await res.text()}`);
+      return await res.json();
+    }
+
+    case "maps": {
+      const mapAction = String(p.action ?? "geocode");
+      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+      const res = await fetch(`${supabaseUrl}/functions/v1/mavis-maps`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: req.headers.get("Authorization")! },
+        body: JSON.stringify({ action: mapAction, ...p }),
+      });
+      if (!res.ok) throw new Error(`maps failed: ${await res.text()}`);
+      return await res.json();
+    }
+
+    case "arxiv_search": {
+      const query = String(p.query ?? "");
+      if (!query) throw new Error("arxiv_search requires query");
+      const category = p.category ? String(p.category) : "";
+      const max_results = Number(p.max_results ?? 10);
+      const sort_by = String(p.sort_by ?? "relevance");
+      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+      const res = await fetch(`${supabaseUrl}/functions/v1/mavis-arxiv`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: req.headers.get("Authorization")! },
+        body: JSON.stringify({ action: "search", query, category, max_results, sort_by }),
+      });
+      if (!res.ok) throw new Error(`arxiv_search failed: ${await res.text()}`);
+      return await res.json();
+    }
+
+    case "youtube_ingest": {
+      const url = String(p.url ?? "");
+      if (!url) throw new Error("youtube_ingest requires url");
+      const save_as = String(p.save_as ?? "note") as "note" | "vault";
+      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+      const res = await fetch(`${supabaseUrl}/functions/v1/mavis-youtube-ingest`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: req.headers.get("Authorization")! },
+        body: JSON.stringify({ url, save_as }),
+      });
+      if (!res.ok) throw new Error(`youtube_ingest failed: ${await res.text()}`);
+      return await res.json();
+    }
+
+    case "gumroad_action": {
+      const gumroadAction = String(p.action ?? "create");
+      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+      const url = `${supabaseUrl}/functions/v1/mavis-gumroad${gumroadAction === "list" ? "?action=list" : ""}`;
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: req.headers.get("Authorization")! },
+        body: JSON.stringify({ ...p, action: gumroadAction }),
+      });
+      if (!res.ok) throw new Error(`gumroad_action failed: ${await res.text()}`);
+      return await res.json();
+    }
+
+    case "slack_message": {
+      const channel = String(p.channel ?? "");
+      const text = String(p.text ?? p.message ?? "");
+      if (!channel) throw new Error("slack_message requires channel");
+      if (!text) throw new Error("slack_message requires text");
+      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+      const res = await fetch(`${supabaseUrl}/functions/v1/mavis-slack-bot`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: req.headers.get("Authorization")! },
+        body: JSON.stringify({ channel, text }),
+      });
+      if (!res.ok) throw new Error(`slack_message failed: ${await res.text()}`);
+      return await res.json();
+    }
+
+    case "self_reflect": {
+      const question = p.question ? String(p.question) : "";
+      const context = p.context ? String(p.context) : "";
+      const tags = asStringArray(p.tags);
+      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+      const res = await fetch(`${supabaseUrl}/functions/v1/mavis-self-reflect`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: req.headers.get("Authorization")! },
+        body: JSON.stringify({ question, context, tags }),
+      });
+      if (!res.ok) throw new Error(`self_reflect failed: ${await res.text()}`);
+      return await res.json();
+    }
+
+    case "extract_document": {
+      const file_url = String(p.file_url ?? "");
+      if (!file_url) throw new Error("extract_document requires file_url");
+      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+      const res = await fetch(`${supabaseUrl}/functions/v1/mavis-doc-extract`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: req.headers.get("Authorization")! },
+        body: JSON.stringify({ file_url, file_name: p.file_name, file_type: p.file_type, vault_entry_id: p.vault_entry_id }),
+      });
+      if (!res.ok) throw new Error(`extract_document failed: ${await res.text()}`);
+      return await res.json();
+    }
+
+    case "process_attachment": {
+      const attachment_id = String(p.attachment_id ?? "");
+      if (!attachment_id) throw new Error("process_attachment requires attachment_id");
+      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+      const res = await fetch(`${supabaseUrl}/functions/v1/mavis-attachment-process`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: req.headers.get("Authorization")! },
+        body: JSON.stringify({ attachment_id }),
+      });
+      if (!res.ok) throw new Error(`process_attachment failed: ${await res.text()}`);
+      return await res.json();
+    }
+
+    case "prepare_meeting": {
+      const event_title = String(p.event_title ?? "");
+      if (!event_title) throw new Error("prepare_meeting requires event_title");
+      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+      const res = await fetch(`${supabaseUrl}/functions/v1/mavis-meeting-prep`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: req.headers.get("Authorization")! },
+        body: JSON.stringify({ event_id: p.event_id, event_title, event_start: p.event_start, attendees: p.attendees ?? [] }),
+      });
+      if (!res.ok) throw new Error(`prepare_meeting failed: ${await res.text()}`);
+      return await res.json();
+    }
+
+    case "transcribe_meeting": {
+      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+      const res = await fetch(`${supabaseUrl}/functions/v1/mavis-meeting-transcribe`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: req.headers.get("Authorization")! },
+        body: JSON.stringify({
+          audio_url: p.audio_url, audio_base64: p.audio_base64, mime_type: p.mime_type,
+          meeting_title: p.meeting_title, participants: p.participants ?? [],
+          create_quests: p.create_quests ?? false,
+        }),
+      });
+      if (!res.ok) throw new Error(`transcribe_meeting failed: ${await res.text()}`);
+      return await res.json();
+    }
+
+    case "health_protocol": {
+      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+      const res = await fetch(`${supabaseUrl}/functions/v1/mavis-health-protocol`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: req.headers.get("Authorization")! },
+        body: JSON.stringify({ date: p.date }),
+      });
+      if (!res.ok) throw new Error(`health_protocol failed: ${await res.text()}`);
+      return await res.json();
+    }
+
+    case "performance_score": {
+      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+      const res = await fetch(`${supabaseUrl}/functions/v1/mavis-performance-science`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: req.headers.get("Authorization")! },
+        body: JSON.stringify({ date: p.date }),
+      });
+      if (!res.ok) throw new Error(`performance_score failed: ${await res.text()}`);
+      return await res.json();
+    }
+
+    case "strategy_council": {
+      const question = String(p.question ?? "");
+      if (!question) throw new Error("strategy_council requires question");
+      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+      const res = await fetch(`${supabaseUrl}/functions/v1/mavis-strategy-council`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: req.headers.get("Authorization")! },
+        body: JSON.stringify({ question, context: p.context, tags: p.tags }),
+      });
+      if (!res.ok) throw new Error(`strategy_council failed: ${await res.text()}`);
+      return await res.json();
+    }
+
+    case "create_product": {
+      const title = String(p.title ?? "");
+      const description = String(p.description ?? "");
+      const audience = String(p.audience ?? "");
+      if (!title || !description || !audience) throw new Error("create_product requires title, description, audience");
+      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+      const res = await fetch(`${supabaseUrl}/functions/v1/mavis-product-creator`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: req.headers.get("Authorization")! },
+        body: JSON.stringify({ title, description, audience, category: p.category, price_cents: p.price_cents }),
+      });
+      if (!res.ok) throw new Error(`create_product failed: ${await res.text()}`);
+      return await res.json();
+    }
+
+    case "scan_demand": {
+      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+      const res = await fetch(`${supabaseUrl}/functions/v1/mavis-demand-scan`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: req.headers.get("Authorization")! },
+        body: JSON.stringify({}),
+      });
+      if (!res.ok) throw new Error(`scan_demand failed: ${await res.text()}`);
+      return await res.json();
+    }
+
+    case "polymarket_search":
+    case "polymarket_trending":
+    case "polymarket_get": {
+      const polyAction = action.type === "polymarket_search" ? "search"
+        : action.type === "polymarket_trending" ? "trending" : "get";
+      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+      const res = await fetch(`${supabaseUrl}/functions/v1/mavis-polymarket`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: req.headers.get("Authorization")! },
+        body: JSON.stringify({ action: polyAction, query: p.query, market_id: p.market_id, limit: p.limit }),
+      });
+      if (!res.ok) throw new Error(`${action.type} failed: ${await res.text()}`);
+      return await res.json();
+    }
+
+    case "hn_digest": {
+      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+      const res = await fetch(`${supabaseUrl}/functions/v1/mavis-hn-digest`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: req.headers.get("Authorization")! },
+        body: JSON.stringify({ max_stories: p.max_stories ?? 10 }),
+      });
+      if (!res.ok) throw new Error(`hn_digest failed: ${await res.text()}`);
+      return await res.json();
+    }
+
+    case "create_agent": {
+      const business_name = String(p.business_name ?? "");
+      if (!business_name) throw new Error("create_agent requires business_name");
+      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+      const res = await fetch(`${supabaseUrl}/functions/v1/mavis-agent-builder`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: req.headers.get("Authorization")! },
+        body: JSON.stringify({
+          action: "create", business_name,
+          agent_name: p.agent_name, capabilities: p.capabilities,
+          knowledge_base: p.knowledge_base, tone: p.tone,
+          brand_color: p.brand_color, business_type: p.business_type,
+          plan_tier: p.plan_tier, monthly_price_cents: p.monthly_price_cents,
+        }),
+      });
+      if (!res.ok) throw new Error(`create_agent failed: ${await res.text()}`);
+      return await res.json();
+    }
+
+    case "crew_execute": {
+      const goal = String(p.goal ?? "");
+      if (!goal) throw new Error("crew_execute requires goal");
+      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+      const res = await fetch(`${supabaseUrl}/functions/v1/mavis-crew-orchestrator`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: req.headers.get("Authorization")! },
+        body: JSON.stringify({ goal, context: p.context }),
+      });
+      if (!res.ok) throw new Error(`crew_execute failed: ${await res.text()}`);
+      return await res.json();
+    }
+
+    case "computer_use": {
+      const task = String(p.task ?? "");
+      if (!task) throw new Error("computer_use requires task");
+      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+      const res = await fetch(`${supabaseUrl}/functions/v1/mavis-computer-use`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: req.headers.get("Authorization")! },
+        body: JSON.stringify({ task, url: p.url, screenshot_base64: p.screenshot_base64, user_id: userId }),
+      });
+      if (!res.ok) throw new Error(`computer_use failed: ${await res.text()}`);
+      return await res.json();
+    }
+
+    case "terminal_exec": {
+      const cmd = String(p.cmd ?? "");
+      const termAction = String(p.action ?? (cmd ? "exec" : "create_session"));
+      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+      const res = await fetch(`${supabaseUrl}/functions/v1/mavis-terminal`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: req.headers.get("Authorization")! },
+        body: JSON.stringify({ action: termAction, session_id: p.session_id, cmd, label: p.label }),
+      });
+      if (!res.ok) throw new Error(`terminal_exec failed: ${await res.text()}`);
+      return await res.json();
+    }
+
+    case "generate_seo": {
+      const business_name = String(p.business_name ?? "");
+      if (!business_name) throw new Error("generate_seo requires business_name");
+      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+      const res = await fetch(`${supabaseUrl}/functions/v1/mavis-seo-engine`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: req.headers.get("Authorization")! },
+        body: JSON.stringify({
+          business_name, business_type: p.business_type, site_url: p.site_url,
+          location: p.location, description: p.description, keywords: p.keywords,
+        }),
+      });
+      if (!res.ok) throw new Error(`generate_seo failed: ${await res.text()}`);
+      return await res.json();
+    }
+
+    case "design_website": {
+      const brief = p.brief ?? p;
+      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+      const res = await fetch(`${supabaseUrl}/functions/v1/mavis-design-engine`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: req.headers.get("Authorization")! },
+        body: JSON.stringify({ brief }),
+      });
+      if (!res.ok) throw new Error(`design_website failed: ${await res.text()}`);
+      return await res.json();
+    }
+
+    case "create_avatar_video": {
+      const source_image_url = String(p.source_image_url ?? "");
+      if (!source_image_url) throw new Error("create_avatar_video requires source_image_url");
+      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+      const res = await fetch(`${supabaseUrl}/functions/v1/mavis-avatar-video`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: req.headers.get("Authorization")! },
+        body: JSON.stringify({ source_image_url, text: p.text, audio_url: p.audio_url, voice_id: p.voice_id, still_mode: p.still_mode }),
+      });
+      if (!res.ok) throw new Error(`create_avatar_video failed: ${await res.text()}`);
+      return await res.json();
+    }
+
+    case "build_world_model": {
+      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+      const res = await fetch(`${supabaseUrl}/functions/v1/mavis-world-model`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: req.headers.get("Authorization")! },
+        body: JSON.stringify({ action: p.action ?? "generate" }),
+      });
+      if (!res.ok) throw new Error(`build_world_model failed: ${await res.text()}`);
+      return await res.json();
+    }
+
+    case "record_outcome": {
+      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+      const res = await fetch(`${supabaseUrl}/functions/v1/mavis-outcome-tracker`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: req.headers.get("Authorization")! },
+        body: JSON.stringify({
+          action: "record", source_type: p.source_type,
+          source_id: p.source_id, prediction_text: p.prediction_text,
+          predicted_outcome: p.predicted_outcome, due_days: p.due_days ?? 30,
+        }),
+      });
+      if (!res.ok) throw new Error(`record_outcome failed: ${await res.text()}`);
+      return await res.json();
+    }
+
+    case "socratic_tutor": {
+      const message = String(p.message ?? "");
+      if (!message) throw new Error("socratic_tutor requires message");
+      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+      const res = await fetch(`${supabaseUrl}/functions/v1/mavis-khanmigo`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: req.headers.get("Authorization")! },
+        body: JSON.stringify({ message, topic_id: p.topic_id, history: p.history }),
+      });
+      if (!res.ok) throw new Error(`socratic_tutor failed: ${await res.text()}`);
+      return await res.json();
+    }
+
+    case "screenpipe_search":
+    case "screenpipe_context":
+    case "screenpipe_recent": {
+      const spAction = action.type === "screenpipe_search" ? "search"
+        : action.type === "screenpipe_context" ? "context" : "recent";
+      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+      const res = await fetch(`${supabaseUrl}/functions/v1/mavis-screenpipe`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: req.headers.get("Authorization")! },
+        body: JSON.stringify({ action: spAction, query: p.query, limit: p.limit ?? 20 }),
+      });
+      if (!res.ok) throw new Error(`${action.type} failed: ${await res.text()}`);
+      return await res.json();
+    }
+
+    case "export_fine_tune_data": {
+      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+      const res = await fetch(`${supabaseUrl}/functions/v1/mavis-fine-tune-export`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: req.headers.get("Authorization")! },
+        body: JSON.stringify({ format: p.format ?? "openai", min_quality: p.min_quality, limit: p.limit }),
+      });
+      if (!res.ok) throw new Error(`export_fine_tune_data failed: ${await res.text()}`);
+      return await res.json();
+    }
+
+    case "schedule_post": {
+      const platform = String(p.platform ?? "twitter");
+      const content = String(p.content ?? "");
+      const scheduled_at = String(p.scheduled_at ?? "");
+      if (!content) throw new Error("schedule_post requires content");
+      if (!scheduled_at) throw new Error("schedule_post requires scheduled_at (ISO 8601)");
+      const { data: postData, error: postErr } = await sb.from("mavis_social_posts").insert({
+        user_id: userId, platform, persona: p.persona ?? "nora_vale",
+        content, status: "scheduled", scheduled_at,
+      }).select().single();
+      if (postErr) throw postErr;
+      return { scheduled: true, post_id: postData.id, scheduled_at, platform };
+    }
+
+    case "list_capabilities": {
+      const category = p.category ? String(p.category) : null;
+      let query = sb.from("mavis_capabilities")
+        .select("action_type, category, description, requires_secrets, edge_function")
+        .eq("is_active", true)
+        .order("category")
+        .order("action_type");
+      if (category) query = query.eq("category", category);
+      const { data, error: listErr } = await query;
+      if (listErr) throw listErr;
+      const grouped: Record<string, { action: string; description: string; requires_secrets: string[] }[]> = {};
+      for (const row of (data ?? [])) {
+        if (!grouped[row.category]) grouped[row.category] = [];
+        grouped[row.category].push({ action: row.action_type, description: row.description, requires_secrets: row.requires_secrets ?? [] });
+      }
+      return { capabilities: grouped, total: data?.length ?? 0 };
+    }
+
+    case "search_capabilities": {
+      const searchQuery = String(p.query ?? "");
+      if (!searchQuery) throw new Error("search_capabilities requires query");
+      const { data, error: searchErr } = await sb.from("mavis_capabilities")
+        .select("action_type, category, description, example_params, requires_secrets")
+        .eq("is_active", true)
+        .or(`action_type.ilike.%${searchQuery}%,description.ilike.%${searchQuery}%,category.ilike.%${searchQuery}%`)
+        .order("category")
+        .limit(20);
+      if (searchErr) throw searchErr;
+      return { results: data ?? [], count: data?.length ?? 0 };
+    }
+
     default:
       throw new Error(`Unknown MAVIS action: ${action.type}`);
   }
@@ -1502,7 +2388,7 @@ serve(async (req) => {
     const results: Array<{ type: string; success: boolean; error?: string; data?: Record<string, unknown> }> = [];
     for (const action of actions) {
       try {
-        const actionData = await executeAction(adminClient, userId, action);
+        const actionData = await executeAction(adminClient, userId, action, req);
         results.push({ type: action.type, success: true, data: (actionData as Record<string, unknown>) ?? undefined });
       } catch (error) {
         console.error("mavis-actions failed:", action.type, serializeError(error));

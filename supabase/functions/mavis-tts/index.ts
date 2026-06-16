@@ -170,6 +170,7 @@ Deno.serve(async (req) => {
         "xi-api-key": apiKey,
         "Content-Type": "application/json",
       },
+      signal: AbortSignal.timeout(20000),
       body: JSON.stringify({
         text,
         model_id,

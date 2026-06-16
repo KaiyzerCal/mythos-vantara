@@ -229,6 +229,17 @@ When you create, update, delete, or complete anything in the categories below, e
 :::PROPOSE_ACTION{"type":"<type>","params":{<fields>}}:::
 These execute immediately. Always wrap fields in "params". Confirm naturally as if it's done — never say "submitted" or "request".
 
+CRITICAL FORMAT RULES — the block must be exact or it will fail silently:
+• No space between :::PROPOSE_ACTION and { — write it as one continuous token
+• Valid JSON only — no trailing commas, no single quotes
+• One block per action — if you take two actions, embed two separate blocks
+
+Examples (copy these patterns exactly):
+• Create contact: :::PROPOSE_ACTION{"type":"create_contact","params":{"name":"Jane Smith","notes":"Business contact from networking event","relationship_type":"professional"}}:::
+• Create ally: :::PROPOSE_ACTION{"type":"create_ally","params":{"name":"Marcus Rowe","relationship":"ally","specialty":"Strategy","notes":"Long-time ally"}}:::
+• Create quest: :::PROPOSE_ACTION{"type":"create_quest","params":{"title":"Daily Meditation","type":"daily","xp_reward":50,"description":"15 min meditation each morning"}}:::
+• Create inventory item: :::PROPOSE_ACTION{"type":"create_inventory_item","params":{"name":"Shadow Gauntlet","type":"equipment","rarity":"legendary","description":"Channels dark energy"}}:::
+
 Direct types (you have full authority):
 • Quests/tasks: create_quest update_quest complete_quest delete_quest
 • Skills: create_skill update_skill delete_skill
@@ -453,19 +464,31 @@ You always know the current date and time without being told. Reference it natur
     const parsedActions: Array<{ type: string; params: Record<string, unknown> }> = [];
     const parsedProposals: Array<{ type: string; summary: string; details: string; payload: Record<string, unknown> }> = [];
 
+    // Permissive JSON parse: strips trailing commas that LLMs sometimes emit.
+    function lenientParse(raw: string): unknown {
+      try { return JSON.parse(raw); } catch { /* fall through */ }
+      const stripped = raw.replace(/,\s*([}\]])/g, "$1");
+      return JSON.parse(stripped); // throws if still invalid — caught by caller
+    }
+
+    // Regex is intentionally lenient: allows optional whitespace around the JSON
+    // blob because LLMs (especially Gemini Flash) often insert a space after the
+    // tag name — e.g. `:::PROPOSE_ACTION {` — which a strict regex would miss.
     const cleanResponse = rawResponse
-      .replace(/:::PROPOSE_ACTION(\{[\s\S]*?\}):::/g, (_m: string, json: string) => {
+      .replace(/:::PROPOSE_ACTION\s*(\{[\s\S]*?\})\s*:::/g, (_m: string, json: string) => {
         try {
-          const obj = JSON.parse(json);
-          if (obj && typeof obj === "object" && obj.type) {
-            parsedActions.push({ type: String(obj.type), params: obj.params ?? {} });
+          const obj = lenientParse(json);
+          if (obj && typeof obj === "object" && (obj as any).type) {
+            parsedActions.push({ type: String((obj as any).type), params: (obj as any).params ?? {} });
           }
-        } catch { /* malformed block — skip */ }
+        } catch (e: unknown) {
+          console.warn("[persona-router] malformed PROPOSE_ACTION block:", json.slice(0, 200), (e as Error)?.message);
+        }
         return "";
       })
-      .replace(/:::PROPOSE_MAVIS(\{[\s\S]*?\}):::/g, (_m: string, json: string) => {
+      .replace(/:::PROPOSE_MAVIS\s*(\{[\s\S]*?\})\s*:::/g, (_m: string, json: string) => {
         try {
-          const obj = JSON.parse(json);
+          const obj = lenientParse(json) as any;
           if (obj && typeof obj === "object") {
             parsedProposals.push({
               type: String(obj.type || "other"),
@@ -474,7 +497,9 @@ You always know the current date and time without being told. Reference it natur
               payload: (obj.payload && typeof obj.payload === "object") ? obj.payload : {},
             });
           }
-        } catch { /* malformed block — skip */ }
+        } catch (e: unknown) {
+          console.warn("[persona-router] malformed PROPOSE_MAVIS block:", json.slice(0, 200), (e as Error)?.message);
+        }
         return "";
       })
       .trim();
@@ -482,16 +507,35 @@ You always know the current date and time without being told. Reference it natur
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const serviceKey  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
-    // Execute direct actions via mavis-actions (fire-and-forget).
+    // Execute direct actions via mavis-actions — await so failures surface instead of
+    // silently dropping. Count only actions that actually succeeded in the DB.
+    let actionsExecuted = 0;
     if (parsedActions.length > 0) {
-      fetch(`${supabaseUrl}/functions/v1/mavis-actions`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${serviceKey}` },
-        body: JSON.stringify({ actions: parsedActions, userId: user_id }),
-      }).catch((err: unknown) => console.warn("[persona-router] mavis-actions call failed:", err));
+      try {
+        const actRes = await fetch(`${supabaseUrl}/functions/v1/mavis-actions`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${serviceKey}` },
+          body: JSON.stringify({ actions: parsedActions, userId: user_id }),
+        });
+        if (actRes.ok) {
+          const actData = await actRes.json();
+          const results: Array<{ success: boolean; type: string; error?: string }> = actData.results ?? [];
+          actionsExecuted = results.filter(r => r.success).length;
+          const failed    = results.filter(r => !r.success);
+          if (failed.length > 0) {
+            console.warn("[persona-router] action failures:", failed.map(r => `${r.type}: ${r.error}`).join("; "));
+          }
+        } else {
+          const errText = await actRes.text().catch(() => String(actRes.status));
+          console.warn("[persona-router] mavis-actions returned", actRes.status, errText.slice(0, 200));
+        }
+      } catch (err: unknown) {
+        console.warn("[persona-router] mavis-actions call threw:", err);
+      }
     }
 
-    // Queue MAVIS proposals into the approvals table + Telegram ping (fire-and-forget).
+    // Queue MAVIS proposals — await the insert so we know it actually landed.
+    let proposalsQueued = 0;
     if (parsedProposals.length > 0) {
       const proposalRows = parsedProposals.map((prop) => ({
         user_id,
@@ -502,25 +546,26 @@ You always know the current date and time without being told. Reference it natur
         proposed_by: persona.name,
       }));
 
-      supabase.from("approvals").insert(proposalRows)
-        .then(({ error }: { error: any }) => {
-          if (error) console.warn("[persona-router] proposal insert failed:", error);
-        });
-
-      // Ping MAVIS on Telegram so proposals surface immediately.
-      const botToken = Deno.env.get("TELEGRAM_BOT_TOKEN");
-      const chatId   = Deno.env.get("TELEGRAM_OPERATOR_CHAT_ID");
-      if (botToken && chatId) {
-        const lines = parsedProposals.map((p) => `• [${p.type}] ${p.summary || p.details.slice(0, 80)}`).join("\n");
-        fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            chat_id: chatId,
-            text: `🔮 *${persona.name}* flagged ${parsedProposals.length} idea${parsedProposals.length > 1 ? "s" : ""} for MAVIS:\n${lines}\n\nReply /inbox to review.`,
-            parse_mode: "Markdown",
-          }),
-        }).catch(() => {});
+      const { error: propErr } = await supabase.from("approvals").insert(proposalRows);
+      if (propErr) {
+        console.warn("[persona-router] proposal insert failed:", propErr.message);
+      } else {
+        proposalsQueued = parsedProposals.length;
+        // Ping MAVIS on Telegram — fire-and-forget is fine here (notification only).
+        const botToken = Deno.env.get("TELEGRAM_BOT_TOKEN");
+        const chatId   = Deno.env.get("TELEGRAM_OPERATOR_CHAT_ID");
+        if (botToken && chatId) {
+          const lines = parsedProposals.map((p) => `• [${p.type}] ${p.summary || p.details.slice(0, 80)}`).join("\n");
+          fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              chat_id: chatId,
+              text: `🔮 *${persona.name}* flagged ${proposalsQueued} idea${proposalsQueued > 1 ? "s" : ""} for MAVIS:\n${lines}\n\nReply /inbox to review.`,
+              parse_mode: "Markdown",
+            }),
+          }).catch(() => {});
+        }
       }
     }
 
@@ -550,7 +595,7 @@ You always know the current date and time without being told. Reference it natur
       }).catch(() => {});
     }
 
-    return new Response(JSON.stringify({ response, persona_name: persona.name, actions_executed: parsedActions.length, proposals_queued: parsedProposals.length }), {
+    return new Response(JSON.stringify({ response, persona_name: persona.name, actions_executed: actionsExecuted, proposals_queued: proposalsQueued }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (err: any) {

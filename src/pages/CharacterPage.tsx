@@ -1,5 +1,5 @@
 import { motion } from "framer-motion";
-import { Crown, Copy, User, Zap, Star, Shield, Flame, Activity, TrendingUp } from "lucide-react";
+import { Crown, Copy, User, Zap, Star, Shield, Activity, Package, Swords, BookOpen, Waves } from "lucide-react";
 import { useAppData } from "@/contexts/AppDataContext";
 import { PageHeader, HudCard, ProgressBar, StatBadge, RankBadge, EnergyBar } from "@/components/SharedUI";
 import { AvatarUploader } from "@/components/AvatarUploader";
@@ -22,10 +22,28 @@ const CORE_STATS = [
   { key: "stat_lck", label: "LCK", desc: "Luck / Synchronicity / Fate" },
 ] as const;
 
+const STAT_LABEL_MAP: Record<string, string> = {
+  STR: "stat_str", AGI: "stat_agi", VIT: "stat_vit",
+  INT: "stat_int", WIS: "stat_wis", CHA: "stat_cha", LCK: "stat_lck",
+};
+
 const STAT_MAX = 100;
 
+function renderBuffList(buffs: unknown): string[] {
+  if (!buffs) return [];
+  if (Array.isArray(buffs)) {
+    return buffs
+      .map((b) => (typeof b === "string" ? b : typeof b === "object" && b !== null ? Object.entries(b).map(([k, v]) => `${k}: ${v}`).join(", ") : String(b)))
+      .filter(Boolean);
+  }
+  if (typeof buffs === "object" && buffs !== null) {
+    return Object.entries(buffs as Record<string, unknown>).map(([k, v]) => `${k}: ${v}`);
+  }
+  return [String(buffs)];
+}
+
 export default function CharacterPage() {
-  const { profile, quests, skills, energySystems, updateProfile } = useAppData();
+  const { profile, quests, skills, energySystems, updateProfile, inventory, transformations, domainEffects } = useAppData();
   const [copied, setCopied] = useState(false);
 
   const rankColor = RANK_COLORS[profile.rank as keyof typeof RANK_COLORS] ?? "#FFD700";
@@ -33,6 +51,58 @@ export default function CharacterPage() {
   const unlockedSkills = skills.filter((s) => s.unlocked).length;
   const totalXPEarned = (profile.level - 1) * calculateXPForLevel(profile.level) + profile.xp;
 
+  // ── Modifier sources ────────────────────────────────────────────────────────
+  const equippedItems = inventory.filter((i) => i.is_equipped);
+  const activeTransform = transformations.find((t) => t.name === profile.current_form);
+  const activeQuests = quests.filter((q) => q.status === "active");
+  const activeDomains = domainEffects.filter((d) => d.is_active);
+
+  // Sum stat_effects from all equipped gear keyed by profile stat column
+  const gearBonuses = equippedItems.reduce((acc, item) => {
+    const effects = Array.isArray(item.stat_effects)
+      ? (item.stat_effects as { label: string; value: number; unit: string }[])
+      : [];
+    effects.forEach(({ label, value }) => {
+      const key = STAT_LABEL_MAP[label.toUpperCase()];
+      if (key) acc[key] = (acc[key] ?? 0) + value;
+    });
+    return acc;
+  }, {} as Record<string, number>);
+
+  // Sum stat_modifiers from all active domain effects
+  const domainBonuses = activeDomains.reduce((acc, ef) => {
+    const mods = Array.isArray(ef.stat_modifiers)
+      ? (ef.stat_modifiers as { label: string; value: number; unit: string }[])
+      : [];
+    mods.forEach(({ label, value }) => {
+      const key = STAT_LABEL_MAP[label.toUpperCase()];
+      if (key) acc[key] = (acc[key] ?? 0) + value;
+    });
+    return acc;
+  }, {} as Record<string, number>);
+
+  const hasGearStats = equippedItems.some(
+    (i) => Array.isArray(i.stat_effects) && (i.stat_effects as unknown[]).length > 0,
+  );
+  const hasDomainStats = activeDomains.some(
+    (d) => Array.isArray(d.stat_modifiers) && (d.stat_modifiers as unknown[]).length > 0,
+  );
+
+  const activeBuffs = renderBuffList(activeTransform?.active_buffs);
+  const passiveBuffs = renderBuffList(activeTransform?.passive_buffs);
+  const hasFormBuffs = activeBuffs.length > 0 || passiveBuffs.length > 0;
+
+  const questModifiers = activeQuests
+    .map((q) => ({
+      title: q.title,
+      buffs: renderBuffList((q as any).buff_effects),
+      debuffs: renderBuffList((q as any).debuff_effects),
+    }))
+    .filter((qm) => qm.buffs.length > 0 || qm.debuffs.length > 0);
+
+  const hasModifiers = hasGearStats || hasFormBuffs || questModifiers.length > 0 || activeDomains.length > 0;
+
+  // ── Copy sheet ──────────────────────────────────────────────────────────────
   const copySheet = () => {
     const lines = [
       `═══ CHARACTER SHEET ═══`,
@@ -165,38 +235,213 @@ export default function CharacterPage() {
         </HudCard>
       </motion.div>
 
-      {/* ── Combat Stats ── */}
+      {/* ── Core Attributes ── */}
       <motion.div {...fadeIn(0.05)}>
         <h3 className="text-xs font-mono text-muted-foreground uppercase tracking-widest mb-2 flex items-center gap-2">
           <Star size={10} className="text-primary" /> Core Attributes
+          {Object.keys(gearBonuses).length > 0 && (
+            <span className="text-[9px] text-green-400 ml-1">(gear active)</span>
+          )}
+          {activeDomains.length > 0 && (
+            <span className="text-[9px] text-violet-400 ml-1">({activeDomains.length} domain{activeDomains.length > 1 ? "s" : ""})</span>
+          )}
         </h3>
         <HudCard>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
-            <StatBadge label="STR" value={profile.stat_str} />
-            <StatBadge label="INT" value={profile.stat_int} />
-            <StatBadge label="VIT" value={profile.stat_vit} />
-            <StatBadge label="AGI" value={profile.stat_agi} />
-            <StatBadge label="WIS" value={profile.stat_wis} />
-            <StatBadge label="CHA" value={profile.stat_cha} />
-            <StatBadge label="LCK" value={profile.stat_lck} />
+            <StatBadge label="STR" value={profile.stat_str + (gearBonuses["stat_str"] ?? 0) + (domainBonuses["stat_str"] ?? 0)} />
+            <StatBadge label="INT" value={profile.stat_int + (gearBonuses["stat_int"] ?? 0) + (domainBonuses["stat_int"] ?? 0)} />
+            <StatBadge label="VIT" value={profile.stat_vit + (gearBonuses["stat_vit"] ?? 0) + (domainBonuses["stat_vit"] ?? 0)} />
+            <StatBadge label="AGI" value={profile.stat_agi + (gearBonuses["stat_agi"] ?? 0) + (domainBonuses["stat_agi"] ?? 0)} />
+            <StatBadge label="WIS" value={profile.stat_wis + (gearBonuses["stat_wis"] ?? 0) + (domainBonuses["stat_wis"] ?? 0)} />
+            <StatBadge label="CHA" value={profile.stat_cha + (gearBonuses["stat_cha"] ?? 0) + (domainBonuses["stat_cha"] ?? 0)} />
+            <StatBadge label="LCK" value={profile.stat_lck + (gearBonuses["stat_lck"] ?? 0) + (domainBonuses["stat_lck"] ?? 0)} />
             <StatBadge label="SYNC" value={`${profile.full_cowl_sync}%`} color="#FFD700" />
           </div>
-          {/* Stat bars */}
+          {/* Stat bars with gear + domain overlay */}
           <div className="space-y-2.5">
-            {CORE_STATS.map(({ key, label, desc }) => (
-              <div key={key} className="flex items-center gap-3">
-                <span className="text-[10px] font-mono text-muted-foreground w-8 shrink-0">{label}</span>
-                <div className="flex-1">
-                  <ProgressBar value={(profile as any)[key]} max={STAT_MAX} height="sm" />
+            {CORE_STATS.map(({ key, label }) => {
+              const base = (profile as any)[key] as number;
+              const bonus = (gearBonuses[key] ?? 0) + (domainBonuses[key] ?? 0);
+              const effective = Math.min(Math.max(base + bonus, 0), STAT_MAX);
+              return (
+                <div key={key} className="flex items-center gap-3">
+                  <span className="text-[10px] font-mono text-muted-foreground w-8 shrink-0">{label}</span>
+                  <div className="flex-1">
+                    <ProgressBar value={effective} max={STAT_MAX} height="sm" />
+                  </div>
+                  <div className="flex items-center gap-1 shrink-0 w-14 justify-end">
+                    <span className="text-[10px] font-mono text-primary">{effective}</span>
+                    {bonus !== 0 && (
+                      <span className={`text-[9px] font-mono ${bonus > 0 ? "text-green-400" : "text-red-400"}`}>
+                        {bonus > 0 ? "+" : ""}{bonus}
+                      </span>
+                    )}
+                  </div>
                 </div>
-                <span className="text-[10px] font-mono text-primary w-6 text-right shrink-0">
-                  {(profile as any)[key]}
-                </span>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </HudCard>
       </motion.div>
+
+      {/* ── Stat Modifiers ── */}
+      {hasModifiers && (
+        <motion.div {...fadeIn(0.075)}>
+          <h3 className="text-xs font-mono text-muted-foreground uppercase tracking-widest mb-2 flex items-center gap-2">
+            <Shield size={10} className="text-primary" /> Stat Modifiers
+          </h3>
+          <div className="space-y-3">
+
+            {/* Gear Effects */}
+            {hasGearStats && (
+              <HudCard>
+                <p className="text-[9px] font-mono text-muted-foreground uppercase tracking-widest mb-2 flex items-center gap-1.5">
+                  <Package size={9} /> Gear Effects
+                </p>
+                <div className="space-y-2">
+                  {equippedItems
+                    .filter((i) => Array.isArray(i.stat_effects) && (i.stat_effects as unknown[]).length > 0)
+                    .map((item) => {
+                      const effects = item.stat_effects as { label: string; value: number; unit: string }[];
+                      return (
+                        <div key={item.id} className="flex items-center justify-between gap-2 py-1 border-b border-border/20 last:border-0">
+                          <span className="text-xs font-display font-semibold text-foreground">{item.name}</span>
+                          <div className="flex gap-1.5 flex-wrap justify-end">
+                            {effects.map((eff, idx) => (
+                              <span
+                                key={idx}
+                                className={`text-[9px] font-mono px-1.5 py-0.5 rounded border ${eff.value >= 0 ? "text-green-400 border-green-500/30 bg-green-500/5" : "text-red-400 border-red-500/30 bg-red-500/5"}`}
+                              >
+                                {eff.label} {eff.value >= 0 ? "+" : ""}{eff.value}{eff.unit}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  {/* Totals row */}
+                  {Object.keys(gearBonuses).length > 0 && (
+                    <div className="flex items-center justify-between pt-1">
+                      <span className="text-[9px] font-mono text-muted-foreground">Total from gear</span>
+                      <div className="flex gap-1.5 flex-wrap justify-end">
+                        {Object.entries(gearBonuses).map(([key, val]) => {
+                          const label = CORE_STATS.find((s) => s.key === key)?.label ?? key;
+                          return (
+                            <span key={key} className={`text-[9px] font-mono px-1.5 py-0.5 rounded border ${val >= 0 ? "text-green-400 border-green-500/40 bg-green-500/10" : "text-red-400 border-red-500/40 bg-red-500/10"}`}>
+                              {label} {val >= 0 ? "+" : ""}{val}
+                            </span>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </HudCard>
+            )}
+
+            {/* Active Form Buffs */}
+            {hasFormBuffs && (
+              <HudCard>
+                <p className="text-[9px] font-mono text-muted-foreground uppercase tracking-widest mb-2 flex items-center gap-1.5">
+                  <Swords size={9} /> Active Form — {profile.current_form}
+                </p>
+                {activeBuffs.length > 0 && (
+                  <div className="mb-2">
+                    <p className="text-[9px] font-mono text-green-400 mb-1">Buffs</p>
+                    <div className="space-y-1">
+                      {activeBuffs.map((b, i) => (
+                        <p key={i} className="text-xs font-mono text-foreground/80 pl-2 border-l border-green-500/30">
+                          {b}
+                        </p>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {passiveBuffs.length > 0 && (
+                  <div>
+                    <p className="text-[9px] font-mono text-amber-400 mb-1">Passives</p>
+                    <div className="space-y-1">
+                      {passiveBuffs.map((b, i) => (
+                        <p key={i} className="text-xs font-mono text-foreground/80 pl-2 border-l border-amber-500/30">
+                          {b}
+                        </p>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </HudCard>
+            )}
+
+            {/* Domain / Area Effects */}
+            {activeDomains.length > 0 && (
+              <HudCard>
+                <p className="text-[9px] font-mono text-muted-foreground uppercase tracking-widest mb-2 flex items-center gap-1.5">
+                  <Waves size={9} /> Domain & Area Effects
+                </p>
+                <div className="space-y-3">
+                  {activeDomains.map((ef) => {
+                    const mods = Array.isArray(ef.stat_modifiers)
+                      ? (ef.stat_modifiers as { label: string; value: number; unit: string }[])
+                      : [];
+                    const areaFx = Array.isArray(ef.area_effects) ? ef.area_effects as string[] : [];
+                    return (
+                      <div key={ef.id} className="border-b border-border/20 last:border-0 pb-2 last:pb-0">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="text-xs font-display font-semibold text-foreground">{ef.name}</span>
+                          <span className="text-[8px] font-mono text-violet-400 border border-violet-500/30 bg-violet-500/5 px-1 rounded">{ef.effect_type}</span>
+                        </div>
+                        {ef.source && <p className="text-[9px] font-mono text-muted-foreground mb-1">from {ef.source}</p>}
+                        {mods.length > 0 && (
+                          <div className="flex gap-1.5 flex-wrap mb-1">
+                            {mods.map((mod, i) => (
+                              <span key={i} className={`text-[9px] font-mono px-1.5 py-0.5 rounded border ${mod.value >= 0 ? "text-green-400 border-green-500/30 bg-green-500/5" : "text-red-400 border-red-500/30 bg-red-500/5"}`}>
+                                {mod.label} {mod.value >= 0 ? "+" : ""}{mod.value}{mod.unit}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                        {areaFx.map((fx, i) => (
+                          <p key={i} className="text-[9px] font-mono text-cyan-400 pl-2 border-l border-cyan-500/30">{fx}</p>
+                        ))}
+                      </div>
+                    );
+                  })}
+                </div>
+              </HudCard>
+            )}
+
+            {/* Quest Modifiers */}
+            {questModifiers.length > 0 && (
+              <HudCard>
+                <p className="text-[9px] font-mono text-muted-foreground uppercase tracking-widest mb-2 flex items-center gap-1.5">
+                  <BookOpen size={9} /> Quest Modifiers
+                </p>
+                <div className="space-y-3">
+                  {questModifiers.map((qm, qi) => (
+                    <div key={qi}>
+                      <p className="text-[10px] font-display font-semibold text-foreground/80 mb-1">{qm.title}</p>
+                      {qm.buffs.length > 0 && (
+                        <div className="flex flex-wrap gap-1 mb-1">
+                          {qm.buffs.map((b, i) => (
+                            <span key={i} className="text-[9px] font-mono text-green-400 border border-green-500/30 bg-green-500/5 px-1.5 py-0.5 rounded">{b}</span>
+                          ))}
+                        </div>
+                      )}
+                      {qm.debuffs.length > 0 && (
+                        <div className="flex flex-wrap gap-1">
+                          {qm.debuffs.map((d, i) => (
+                            <span key={i} className="text-[9px] font-mono text-red-400 border border-red-500/30 bg-red-500/5 px-1.5 py-0.5 rounded">{d}</span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </HudCard>
+            )}
+          </div>
+        </motion.div>
+      )}
 
       {/* ── System State ── */}
       <motion.div {...fadeIn(0.1)}>

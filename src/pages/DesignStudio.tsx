@@ -5,7 +5,7 @@ import {
   Palette, Plus, Loader2, CheckCircle2, XCircle,
   Package, FileCode2, RefreshCw, ChevronDown, ChevronRight,
   Zap, Clock, DollarSign, Copy, Check, Eye, Code2, Download,
-  Wand2, Layers, Upload, X, Globe,
+  Wand2, Layers, Upload, X, Globe, PenLine, History,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
@@ -21,8 +21,44 @@ import {
   SandpackLayout,
 } from "@codesandbox/sandpack-react";
 
-const BRANDS = ["codexos", "vantara", "skyforgeai", "bioneer", "navi", "custom"] as const;
+const BRANDS = ["codexos", "vantara", "skyforgeai", "bioneer", "navi", "prymal", "custom"] as const;
 const DEADLINE_TIERS = ["rapid", "standard", "premium"] as const;
+
+const QUALITY_TIERS = [
+  {
+    tier: 1 as const,
+    label: "Tier 1",
+    name: "Clean Pro",
+    range: "$1K – $2K",
+    color: "text-blue-400",
+    borderActive: "border-blue-500/50 bg-blue-500/10",
+    desc: "Clean dark layout, hover effects, scroll reveal, mobile responsive. Perfect for service businesses and simple landing pages.",
+    sections: "Nav · Hero · Features · Stats · Footer",
+    effects: "None",
+  },
+  {
+    tier: 2 as const,
+    label: "Tier 2",
+    name: "Dynamic",
+    range: "$3K – $5K",
+    color: "text-purple-400",
+    borderActive: "border-purple-500/50 bg-purple-500/10",
+    desc: "Canvas particle hero, mouse-tracking spotlight cards, terminal animation, animated counters. For tech-forward brands.",
+    sections: "Nav · Hero · Features · Stats · Terminal · Footer",
+    effects: "Hero canvas · Spotlight cards · Typed terminal",
+  },
+  {
+    tier: 3 as const,
+    label: "Tier 3",
+    name: "Sovereign",
+    range: "$8K+",
+    color: "text-cyan-400",
+    borderActive: "border-cyan-500/50 bg-cyan-500/10",
+    desc: "Full PrymalAI system — 3-layer canvas, custom cursor, HUD overlay, ticker, spotlight cards, glitch text, live clock. Elite positioning.",
+    sections: "Nav · Hero · Features · Stats · Terminal · Social · CTA · Footer",
+    effects: "Matrix rain · Ambient orbs · Lightning · Custom cursor · Tracer · HUD · Ticker",
+  },
+] as const;
 
 interface Project {
   id: string;
@@ -383,6 +419,7 @@ function NewProjectForm({ onComplete, onCancel, userId }: NewProjectFormProps) {
   const [brief, setBrief] = useState<Partial<DesignBrief>>({
     brand: "codexos",
     deadlineTier: "standard",
+    qualityTier: 3,
     keyFeatures: [],
   });
   const [featuresInput, setFeaturesInput] = useState("");
@@ -405,6 +442,7 @@ function NewProjectForm({ onComplete, onCancel, userId }: NewProjectFormProps) {
         competitorUrls: competitorsInput ? competitorsInput.split(",").map((u) => u.trim()).filter(Boolean) : [],
         userJourney:    brief.userJourney,
         deadlineTier:   brief.deadlineTier ?? "standard",
+        qualityTier:    brief.qualityTier ?? 3,
         clientName:     brief.clientName,
         projectValue:   brief.projectValue,
       };
@@ -485,6 +523,41 @@ function NewProjectForm({ onComplete, onCancel, userId }: NewProjectFormProps) {
         />
       </div>
 
+      {/* Quality Tier selector */}
+      <div>
+        <label className="block text-[10px] font-mono text-muted-foreground mb-2 uppercase tracking-wider">
+          Quality Tier <span className="text-primary">*</span>
+        </label>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          {QUALITY_TIERS.map((qt) => (
+            <button
+              key={qt.tier}
+              type="button"
+              onClick={() => setBrief((prev) => ({ ...prev, qualityTier: qt.tier }))}
+              className={`text-left p-3 rounded-lg border transition-all ${
+                brief.qualityTier === qt.tier
+                  ? qt.borderActive
+                  : "border-border/50 hover:border-border bg-muted/10"
+              }`}
+            >
+              <div className="flex items-center justify-between mb-1">
+                <span className={`text-[10px] font-mono font-bold ${qt.color}`}>{qt.label} — {qt.name}</span>
+                <span className={`text-[9px] font-mono ${qt.color} opacity-80`}>{qt.range}</span>
+              </div>
+              <p className="text-[10px] font-mono text-muted-foreground leading-relaxed mb-2">{qt.desc}</p>
+              <div className="space-y-0.5">
+                <p className="text-[9px] font-mono text-muted-foreground/60">
+                  <span className="text-muted-foreground/80">Sections:</span> {qt.sections}
+                </p>
+                <p className="text-[9px] font-mono text-muted-foreground/60">
+                  <span className="text-muted-foreground/80">Effects:</span> {qt.effects}
+                </p>
+              </div>
+            </button>
+          ))}
+        </div>
+      </div>
+
       <div>
         <label className="block text-[10px] font-mono text-muted-foreground mb-2 uppercase tracking-wider">Brand</label>
         <div className="flex gap-2 flex-wrap">
@@ -561,6 +634,300 @@ function NewProjectForm({ onComplete, onCancel, userId }: NewProjectFormProps) {
         <p className="text-[10px] font-mono text-muted-foreground text-center">
           Design generation takes 30-90 seconds. MAVIS is building your full production site.
         </p>
+      )}
+    </div>
+  );
+}
+
+// ─── SITE EDITOR ─────────────────────────────────────────────
+
+interface EditRecord {
+  instructions: string;
+  summary: string;
+  timestamp: string;
+}
+
+function SiteEditor() {
+  const [html, setHtml]               = useState<string>("");
+  const [fileName, setFileName]       = useState<string>("");
+  const [instructions, setInstructions] = useState<string>("");
+  const [targetTier, setTargetTier]   = useState<number | null>(null);
+  const [editing, setEditing]         = useState<boolean>(false);
+  const [history, setHistory]         = useState<EditRecord[]>([]);
+  const [dragging, setDragging]       = useState<boolean>(false);
+  const [showHistory, setShowHistory] = useState<boolean>(false);
+
+  function handleFile(file: File) {
+    if (!file.name.endsWith(".html") && !file.name.endsWith(".htm")) {
+      toast.error("Please upload an .html or .htm file");
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      setHtml(e.target?.result as string ?? "");
+      setFileName(file.name);
+      setHistory([]);
+    };
+    reader.readAsText(file);
+  }
+
+  function handleDrop(e: React.DragEvent) {
+    e.preventDefault();
+    setDragging(false);
+    const file = e.dataTransfer.files[0];
+    if (file) handleFile(file);
+  }
+
+  async function handleEdit() {
+    if (!html.trim()) { toast.error("Upload an HTML file first"); return; }
+    if (!instructions.trim()) { toast.error("Enter editing instructions"); return; }
+    setEditing(true);
+    try {
+      const { data, error } = await (supabase as any).functions.invoke("mavis-site-editor", {
+        body: {
+          html,
+          instructions: instructions.trim(),
+          quality_tier: targetTier,
+        },
+      });
+      if (error) throw new Error(error.message ?? String(error));
+      if (!data?.html) throw new Error("No HTML returned from editor");
+      setHtml(data.html);
+      setHistory((prev) => [
+        { instructions: instructions.trim(), summary: data.summary ?? instructions.trim(), timestamp: new Date().toISOString() },
+        ...prev,
+      ]);
+      setInstructions("");
+      toast.success("Edit applied");
+    } catch (err) {
+      toast.error(`Edit failed: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setEditing(false);
+    }
+  }
+
+  function handleDownload() {
+    const blob = new Blob([html], { type: "text/html" });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement("a");
+    a.href     = url;
+    a.download = fileName.replace(/\.htm(l)?$/, "_edited.html") || "edited_site.html";
+    a.click();
+    URL.revokeObjectURL(url);
+    toast.success("HTML file downloaded");
+  }
+
+  function triggerUpload(inputId: string) {
+    document.getElementById(inputId)?.click();
+  }
+
+  const fileInput = (id: string) => (
+    <input
+      id={id}
+      type="file"
+      accept=".html,.htm"
+      className="hidden"
+      onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFile(f); (e.target as HTMLInputElement).value = ""; }}
+    />
+  );
+
+  // ── No file loaded ──────────────────────────────────────────
+  if (!html) {
+    return (
+      <HudCard>
+        {fileInput("site-editor-main")}
+        <div
+          onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
+          onDragLeave={() => setDragging(false)}
+          onDrop={handleDrop}
+          onClick={() => triggerUpload("site-editor-main")}
+          className={`flex flex-col items-center justify-center gap-4 rounded-lg border-2 border-dashed py-14 cursor-pointer transition-colors ${
+            dragging ? "border-primary bg-primary/5" : "border-border/50 hover:border-primary/40 hover:bg-muted/10"
+          }`}
+        >
+          <div className="w-12 h-12 rounded-xl bg-muted/30 border border-border flex items-center justify-center">
+            <Upload size={20} className="text-muted-foreground" />
+          </div>
+          <div className="text-center">
+            <p className="text-sm font-mono text-foreground font-semibold">Upload your HTML file to edit</p>
+            <p className="text-[10px] font-mono text-muted-foreground mt-1">Drop .html / .htm here or click to browse</p>
+          </div>
+          <div className="text-center max-w-sm space-y-1">
+            <p className="text-[10px] font-mono text-muted-foreground/70">What MAVIS can do to your uploaded site:</p>
+            <div className="flex flex-wrap gap-1.5 justify-center">
+              {["Upgrade to Tier 3", "Add YouTube widget", "Change color scheme", "Update content", "Add sections", "Fix layout", "Mobile optimize"].map((tag) => (
+                <span key={tag} className="text-[9px] font-mono px-2 py-0.5 rounded border border-border/50 text-muted-foreground/80">{tag}</span>
+              ))}
+            </div>
+          </div>
+        </div>
+      </HudCard>
+    );
+  }
+
+  // ── File loaded ─────────────────────────────────────────────
+  return (
+    <div className="space-y-4">
+      {fileInput("site-editor-replace")}
+
+      {/* File info bar */}
+      <HudCard>
+        <div className="flex items-center gap-3">
+          <FileCode2 size={14} className="text-primary shrink-0" />
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-mono font-bold truncate">{fileName}</p>
+            <p className="text-[10px] font-mono text-muted-foreground">{(html.length / 1024).toFixed(1)} KB · {history.length} edit{history.length !== 1 ? "s" : ""} applied</p>
+          </div>
+          <button
+            onClick={() => triggerUpload("site-editor-replace")}
+            className="flex items-center gap-1.5 px-2.5 py-1.5 text-[10px] font-mono rounded border border-border/50 text-muted-foreground hover:text-foreground transition-colors shrink-0"
+          >
+            <Upload size={10} /> Replace
+          </button>
+          <button
+            onClick={handleDownload}
+            className="flex items-center gap-1.5 px-2.5 py-1.5 text-[10px] font-mono rounded border border-border/50 text-muted-foreground hover:text-foreground transition-colors shrink-0"
+          >
+            <Download size={10} /> Download
+          </button>
+          <button
+            onClick={() => { setHtml(""); setFileName(""); setHistory([]); }}
+            className="text-muted-foreground hover:text-red-400 transition-colors shrink-0 p-1"
+            title="Close file"
+          >
+            <X size={14} />
+          </button>
+        </div>
+      </HudCard>
+
+      {/* Edit form */}
+      <HudCard className="space-y-4">
+        <div>
+          <label className="block text-[10px] font-mono text-muted-foreground mb-1.5 uppercase tracking-wider">
+            Edit Instructions <span className="text-primary">*</span>
+          </label>
+          <textarea
+            rows={3}
+            placeholder={"Tell MAVIS what to change. Examples:\n• Upgrade this to Tier 3 Sovereign\n• Add a YouTube video player for video ID abc123\n• Change the accent color to emerald green\n• Add a pricing section after features\n• Make the hero headline 'Build The Future'"}
+            value={instructions}
+            onChange={(e) => setInstructions(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && !editing) handleEdit(); }}
+            className="w-full bg-muted/20 border border-border rounded-lg px-3 py-2.5 text-sm text-foreground placeholder-muted-foreground/50 focus:outline-none focus:border-primary/50 transition-colors resize-none"
+          />
+        </div>
+
+        {/* Optional tier upgrade selector */}
+        <div>
+          <label className="block text-[10px] font-mono text-muted-foreground mb-2 uppercase tracking-wider">
+            Quality Upgrade <span className="text-muted-foreground/40">(optional)</span>
+          </label>
+          <div className="flex gap-2 flex-wrap">
+            <button
+              onClick={() => setTargetTier(null)}
+              className={`px-3 py-1.5 text-[10px] font-mono rounded border transition-colors ${
+                targetTier === null
+                  ? "bg-primary/10 border-primary/30 text-primary"
+                  : "border-border/50 text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              Standard Edit
+            </button>
+            {QUALITY_TIERS.map((qt) => (
+              <button
+                key={qt.tier}
+                onClick={() => setTargetTier(qt.tier)}
+                className={`px-3 py-1.5 text-[10px] font-mono rounded border transition-colors ${
+                  targetTier === qt.tier
+                    ? qt.borderActive
+                    : "border-border/50 text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                <span className={targetTier === qt.tier ? qt.color : ""}>→ {qt.label} {qt.name}</span>
+              </button>
+            ))}
+          </div>
+          {targetTier != null && (
+            <p className="text-[9px] font-mono text-muted-foreground mt-1.5">
+              {QUALITY_TIERS.find(q => q.tier === targetTier)?.desc}
+            </p>
+          )}
+        </div>
+
+        <button
+          onClick={handleEdit}
+          disabled={editing || !instructions.trim()}
+          className="w-full py-3 bg-primary text-primary-foreground rounded-lg font-mono text-sm font-bold disabled:opacity-40 hover:bg-primary/90 transition-colors flex items-center justify-center gap-2"
+        >
+          {editing ? (
+            <><Loader2 size={14} className="animate-spin" /> MAVIS is editing...</>
+          ) : (
+            <><Wand2 size={14} /> Apply Edit</>
+          )}
+        </button>
+        {editing && (
+          <p className="text-[10px] font-mono text-muted-foreground text-center">
+            {targetTier != null ? "Tier upgrades take 30–90 seconds." : "Targeted edits take 10–30 seconds."} ⌘+Enter to submit.
+          </p>
+        )}
+      </HudCard>
+
+      {/* Live preview */}
+      <HudCard className="p-0 overflow-hidden">
+        <div className="flex items-center gap-2 px-4 py-2.5 border-b border-border bg-muted/10">
+          <Eye size={10} className="text-primary" />
+          <span className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider">Live Preview</span>
+          {history.length > 0 && (
+            <span className="ml-auto text-[9px] font-mono text-green-400/80">
+              ✓ Updated after last edit
+            </span>
+          )}
+        </div>
+        <iframe
+          key={html.slice(0, 32)}
+          srcDoc={html}
+          className="w-full border-0 block"
+          style={{ height: 560 }}
+          sandbox="allow-scripts allow-same-origin"
+          title="Site Preview"
+        />
+      </HudCard>
+
+      {/* Edit history */}
+      {history.length > 0 && (
+        <HudCard className="space-y-3">
+          <button
+            onClick={() => setShowHistory(!showHistory)}
+            className="flex items-center gap-2 w-full text-left"
+          >
+            <History size={10} className="text-primary" />
+            <span className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider flex-1">
+              Edit History ({history.length})
+            </span>
+            <ChevronDown size={10} className={`text-muted-foreground transition-transform ${showHistory ? "rotate-180" : ""}`} />
+          </button>
+          <AnimatePresence>
+            {showHistory && (
+              <motion.div
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: "auto" }}
+                exit={{ opacity: 0, height: 0 }}
+                className="space-y-2 overflow-hidden"
+              >
+                {history.map((h, i) => (
+                  <div key={i} className="flex items-start gap-2.5 py-1.5 border-b border-border/30 last:border-0">
+                    <span className="text-[9px] font-mono text-primary/50 shrink-0 mt-0.5 w-5 text-right">
+                      #{history.length - i}
+                    </span>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-[10px] font-mono text-foreground/80 leading-relaxed">{h.instructions}</p>
+                      <p className="text-[9px] font-mono text-muted-foreground/50 mt-0.5">{timeAgo(h.timestamp)}</p>
+                    </div>
+                  </div>
+                ))}
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </HudCard>
       )}
     </div>
   );
@@ -1185,7 +1552,7 @@ export default function DesignStudio() {
 
   const [projects, setProjects] = useState<Project[]>([]);
   const [components, setComponents] = useState<Component[]>([]);
-  const [activeTab, setActiveTab] = useState<"projects" | "components" | "new" | "design-system">("projects");
+  const [activeTab, setActiveTab] = useState<"projects" | "components" | "new" | "edit-site" | "design-system">("projects");
   const [loading, setLoading] = useState(true);
 
   const userId = session?.user?.id ?? "";
@@ -1220,6 +1587,7 @@ export default function DesignStudio() {
     { id: "projects" as const,       label: `Projects (${projects.length})`,     icon: <Palette size={10} /> },
     { id: "components" as const,     label: `Components (${components.length})`, icon: <Package size={10} /> },
     { id: "new" as const,            label: "New Project",                        icon: <Plus size={10} /> },
+    { id: "edit-site" as const,      label: "Edit Site",                          icon: <PenLine size={10} /> },
     { id: "design-system" as const,  label: "Design System",                      icon: <Layers size={10} /> },
   ];
 
@@ -1363,6 +1731,11 @@ export default function DesignStudio() {
             onCancel={() => setActiveTab("projects")}
           />
         </HudCard>
+      )}
+
+      {/* Edit Site Tab */}
+      {activeTab === "edit-site" && (
+        <SiteEditor />
       )}
 
       {/* Design System Tab */}

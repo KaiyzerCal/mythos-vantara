@@ -34,10 +34,10 @@ export const CreateCouncilMemberSchema = z.object({ type: z.literal("create_coun
 export const UpdateCouncilMemberSchema = z.object({ type: z.literal("update_council_member"), id: z.string().min(1), name: z.string().optional(), role: z.string().optional() });
 export const DeleteCouncilMemberSchema = z.object({ type: z.literal("delete_council_member"), id: z.string().min(1) });
 
-// INVENTORY
-export const CreateInventorySchema = z.object({ type: z.literal("create_inventory"), name: z.string().min(1), quantity: z.number().int().min(0).optional(), category: z.string().optional(), description: DescField });
-export const UpdateInventorySchema = z.object({ type: z.literal("update_inventory"), id: z.string().min(1), quantity: z.number().int().min(0).optional(), name: z.string().optional() });
-export const DeleteInventorySchema = z.object({ type: z.literal("delete_inventory"), id: z.string().min(1) });
+// INVENTORY — type names match mavis-chat system prompt and mavis-actions switch
+export const CreateInventorySchema = z.object({ type: z.literal("create_inventory_item"), name: z.string().min(1), quantity: z.number().int().min(0).optional(), category: z.string().optional(), description: DescField, rarity: z.string().optional(), slot: z.string().optional(), tier: z.string().optional(), effect: z.string().optional(), is_equipped: z.boolean().optional() });
+export const UpdateInventorySchema = z.object({ type: z.literal("update_inventory_item"), id: z.string().min(1).optional(), item_id: z.string().min(1).optional(), quantity: z.number().int().min(0).optional(), name: z.string().optional(), is_equipped: z.boolean().optional(), effect: z.string().optional() });
+export const DeleteInventorySchema = z.object({ type: z.literal("delete_inventory_item"), id: z.string().min(1).optional(), item_id: z.string().min(1).optional() });
 
 // ENERGY
 export const UpdateEnergySchema = z.object({ type: z.literal("update_energy"), level: z.number().int().min(0).max(100), note: z.string().optional() });

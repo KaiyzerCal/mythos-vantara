@@ -98,13 +98,20 @@ export function useProfile() {
 
   useEffect(() => {
     if (!user) return;
-    supabase
-      .from("profiles")
-      .select("*")
-      .eq("id", user.id)
-      .single()
-      .then(({ data }) => {
+    Promise.resolve(
+      supabase
+        .from("profiles")
+        .select("*")
+        .eq("id", user.id)
+        .single()
+    )
+      .then(({ data, error }) => {
+        if (error) console.error("[useProfile] Failed to load profile:", error.message);
         if (data) setProfile(data as any);
+        setLoading(false);
+      })
+      .catch((err) => {
+        console.error("[useProfile] Unexpected error:", err);
         setLoading(false);
       });
   }, [user]);

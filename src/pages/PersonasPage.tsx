@@ -214,7 +214,7 @@ export default function PersonasPage() {
                 onNotificationRead={handleNotificationRead}
               />
               <button
-                onClick={() => setVoicePersona({ name: persona.name, role: persona.role, systemPrompt: persona.system_prompt, entityId: persona.id, entityType: "persona", userId: user.id })}
+                onClick={() => setVoicePersona({ name: persona.name, role: persona.role, systemPrompt: persona.system_prompt, entityId: persona.id, entityType: "persona", userId: user.id, avatarUrl: persona.avatar_key ?? undefined })}
                 className="absolute top-2 right-2 flex items-center gap-1 px-2 py-1 rounded border border-primary/30 bg-primary/10 text-primary/70 hover:text-primary hover:bg-primary/20 text-[9px] font-mono transition-all"
                 title={`Voice call ${persona.name}`}
               >

@@ -276,6 +276,12 @@ verify_jwt = true
 [functions.mavis-spotify-sync]
 verify_jwt = false
 
+[functions.mavis-spotify-control]
+verify_jwt = false
+
+[functions.mavis-terminal]
+verify_jwt = false
+
 [functions.mavis-strava-sync]
 verify_jwt = false
 
@@ -383,7 +389,7 @@ verify_jwt = true
 verify_jwt = true
 
 [functions.mavis-demand-scan]
-verify_jwt = true
+verify_jwt = false
 
 [functions.mavis-hn-digest]
 verify_jwt = false
@@ -498,17 +504,25 @@ verify_jwt = false
 [functions.mavis-netlify]
 verify_jwt = false
 
+# Multi-provider static site deployment (Netlify, Vercel, Cloudflare Pages, Railway, Hostinger)
+[functions.mavis-deploy]
+verify_jwt = false
+
 [functions.mavis-wordpress]
 verify_jwt = true
 
 [functions.mavis-wpcom-oauth]
 verify_jwt = false
 
+# Google OAuth — Google redirects without Supabase JWT; auth via state param + user_id in body
+[functions.mavis-google-oauth]
+verify_jwt = false
+
 [functions.mavis-youtube-ingest]
 verify_jwt = true
 
 [functions.mavis-product-creator]
-verify_jwt = true
+verify_jwt = false
 
 [functions.mavis-gumroad]
 verify_jwt = true
@@ -601,3 +615,25 @@ verify_jwt = true
 # fetch_all triggered by heartbeat with service-role key; user actions use JWT
 [functions.mavis-rss-monitor]
 verify_jwt = false
+
+# ── UI-invoked functions (called directly from frontend) ──────────────────────
+[functions.mavis-site-editor]
+verify_jwt = true
+
+[functions.mavis-design-engine]
+verify_jwt = true
+
+[functions.mavis-mini-agent]
+verify_jwt = false
+
+[functions.mavis-agent-builder]
+verify_jwt = true
+
+[functions.mavis-agent-serve]
+verify_jwt = false
+
+[functions.mavis-mem0]
+verify_jwt = true
+
+[functions.mavis-home]
+verify_jwt = true

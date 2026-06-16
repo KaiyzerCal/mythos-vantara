@@ -115,12 +115,29 @@ export default function WebsiteBuilderPage() {
   const htmlImportRef = useRef<HTMLInputElement>(null);
   const htmlMultiImportRef = useRef<HTMLInputElement>(null);
 
-  // Netlify publishing
-  const [netlifyToken, setNetlifyToken] = useState(() => localStorage.getItem("netlify_token") ?? "");
-  const [isDeployingToNetlify, setIsDeployingToNetlify] = useState(false);
-  const [netlifyUrl, setNetlifyUrl] = useState<string | null>(null);
-  // Pages excluded from the next Netlify deploy (all enabled by default)
+  // Multi-provider deployment
+  type DeployProvider = "netlify" | "vercel" | "cloudflare" | "railway" | "hostinger";
+  const [deployProvider, setDeployProvider] = useState<DeployProvider>(() =>
+    (localStorage.getItem("deploy_provider") as DeployProvider) ?? "netlify"
+  );
+  const [deployTokens, setDeployTokens] = useState<Record<string, string>>(() => {
+    try {
+      const saved = localStorage.getItem("deploy_tokens");
+      const parsed: Record<string, string> = saved ? JSON.parse(saved) : {};
+      // Migrate old netlify token
+      if (!parsed.netlify) parsed.netlify = localStorage.getItem("netlify_token") ?? "";
+      return parsed;
+    } catch { return {}; }
+  });
+  const [isDeploying, setIsDeploying] = useState(false);
+  const [deployedUrl, setDeployedUrl] = useState<string | null>(null);
+  // Pages excluded from deploy (all enabled by default)
   const [disabledPages, setDisabledPages] = useState<Set<string>>(new Set());
+
+  // Backward compat aliases used in legacy code below
+  const netlifyToken = deployTokens.netlify ?? "";
+  const isDeployingToNetlify = isDeploying && deployProvider === "netlify";
+  const netlifyUrl = deployedUrl;
 
   // WordPress.com OAuth — new project form
   const [wpAuthMode, setWpAuthMode] = useState<"app_password" | "wpcom">("app_password");
@@ -199,7 +216,7 @@ export default function WebsiteBuilderPage() {
 
   const handleSelectProject = async (project: any) => {
     setSelectedProject(project);
-    setNetlifyUrl(project.netlify_site_url ?? null);
+    setDeployedUrl((project as any).deploy_url ?? project.netlify_site_url ?? null);
     setDisabledPages(new Set());
     await loadProjectPages(project.id);
   };
@@ -603,14 +620,31 @@ export default function WebsiteBuilderPage() {
     }
   };
 
-  // ── Deploy all pages to Netlify ──────────────────────────
-  const deployToNetlify = async () => {
-    if (isDeployingToNetlify) return;
-    if (!netlifyToken) { toast.error("Enter your Netlify personal access token first"); return; }
+  // ── Save a deploy token ────────────────────────────────────
+  const saveDeployToken = (key: string, value: string) => {
+    const next = { ...deployTokens, [key]: value };
+    setDeployTokens(next);
+    localStorage.setItem("deploy_tokens", JSON.stringify(next));
+  };
+
+  // ── Unified deploy / download ──────────────────────────────
+  const deployToNetlify = async () => deploy(); // backward compat
+
+  const deploy = async () => {
+    if (isDeploying) return;
     if (!selectedProject) return;
-    setIsDeployingToNetlify(true);
+    const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
+
+    // Validate credentials
+    if (deployProvider === "netlify" && !deployTokens.netlify)
+      return toast.error("Enter your Netlify personal access token first");
+    if (deployProvider === "vercel" && !deployTokens.vercel)
+      return toast.error("Enter your Vercel personal access token first");
+    if (deployProvider === "cloudflare" && (!deployTokens.cloudflare_token || !deployTokens.cloudflare_account_id))
+      return toast.error("Enter your Cloudflare API token and Account ID first");
+
+    setIsDeploying(true);
     try {
-      const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
       const { data: { session } } = await supabase.auth.getSession();
       const primaryColor = selectedProject?.site_content?.site?.primary_color ?? "#1a56db";
       const siteTitle = selectedProject?.business_name ?? selectedProject?.project_name ?? "Website";
@@ -687,49 +721,90 @@ export default function WebsiteBuilderPage() {
         files["index.html"] = files[Object.keys(files)[0]];
       }
 
+      const pageCount = Object.keys(files).length;
       const uploadedCount = filteredPageTypes.filter(pt => {
         const p = latestPages.find((pg: any) => pg.page_type === pt);
         return p?.status === "customized" && p.gutenberg_html;
       }).length;
-      toast.info(`Deploying ${Object.keys(files).length} page${Object.keys(files).length !== 1 ? "s" : ""}${uploadedCount > 0 ? ` · ${uploadedCount} from your uploads` : ""}…`);
+      toast.info(`Deploying ${pageCount} page${pageCount !== 1 ? "s" : ""}${uploadedCount > 0 ? ` · ${uploadedCount} from your uploads` : ""}…`);
 
-      // Deploy via mavis-netlify edge function
+      // ── Build provider-specific payload ─────────────────────
       const slug = siteTitle.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
-      const deployRes = await fetch(`${SUPABASE_URL}/functions/v1/mavis-netlify`, {
+      const existingProjectId = (selectedProject as any).deploy_project_id
+        ?? selectedProject.netlify_site_id;
+
+      const providerPayload: Record<string, unknown> = { provider: deployProvider, files };
+      if (deployProvider === "netlify") {
+        providerPayload.token = deployTokens.netlify;
+        providerPayload.site_id = existingProjectId ?? undefined;
+        providerPayload.site_name = `mavis-${slug}-${selectedProject.id?.slice(0, 6)}`;
+      } else if (deployProvider === "vercel") {
+        providerPayload.token = deployTokens.vercel;
+        providerPayload.project_name = `mavis-${slug}`;
+      } else if (deployProvider === "cloudflare") {
+        providerPayload.token = deployTokens.cloudflare_token;
+        providerPayload.account_id = deployTokens.cloudflare_account_id;
+        providerPayload.project_name = existingProjectId ?? `mavis-${slug}`;
+      }
+      // railway / hostinger: no credentials needed — returns base64 ZIP
+
+      const deployRes = await fetch(`${SUPABASE_URL}/functions/v1/mavis-deploy`, {
         method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session?.access_token}` },
-        body: JSON.stringify({
-          action: "deploy",
-          netlify_token: netlifyToken,
-          files,
-          site_id: selectedProject.netlify_site_id ?? undefined,
-          site_name: `mavis-${slug}-${selectedProject.id?.slice(0, 6)}`,
-        }),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(providerPayload),
       });
 
-      if (!deployRes.ok) throw new Error("Netlify deploy failed");
+      if (!deployRes.ok) {
+        const errText = await deployRes.text();
+        throw new Error(`Deploy failed (${deployProvider}): ${errText.slice(0, 200)}`);
+      }
       const deployData = await deployRes.json();
-      const { site_id, site_url, deploy_id } = deployData.data ?? {};
 
-      // Persist Netlify metadata — only overwrite site_url if the API returned one
-      // (on redeploy to an existing site the API may return an empty url).
+      // ── ZIP download for Railway / Hostinger ─────────────────
+      if (deployProvider === "railway" || deployProvider === "hostinger") {
+        const zipBase64: string = deployData.zip;
+        const binary = atob(zipBase64);
+        const bytes = new Uint8Array(binary.length);
+        for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+        const blob = new Blob([bytes], { type: "application/zip" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url; a.download = `${slug || "website"}.zip`; a.click();
+        URL.revokeObjectURL(url);
+        toast.success(`ZIP downloaded — upload it to your ${deployProvider === "railway" ? "Railway" : "Hostinger"} static hosting.`);
+        return;
+      }
+
+      // ── Persist deploy metadata for API-based providers ──────
+      const liveUrl: string = deployData.deploy_url ?? "";
+      const projectId: string = deployData.project_id ?? existingProjectId ?? "";
+
       const updatePayload: Record<string, any> = {
-        netlify_site_id: site_id,
-        netlify_deploy_id: deploy_id,
-        netlify_deploy_status: "ready",
+        deploy_provider: deployProvider,
+        deploy_project_id: projectId,
       };
-      if (site_url) updatePayload.netlify_site_url = site_url;
+      if (liveUrl) updatePayload.deploy_url = liveUrl;
+
+      // Also keep legacy Netlify columns in sync
+      if (deployProvider === "netlify") {
+        updatePayload.netlify_site_id = projectId;
+        if (liveUrl) updatePayload.netlify_site_url = liveUrl;
+        if (deployData.deploy_id) updatePayload.netlify_deploy_id = deployData.deploy_id;
+        updatePayload.netlify_deploy_status = "ready";
+      }
 
       await supabase.from("website_projects").update(updatePayload).eq("id", selectedProject.id);
 
-      const liveUrl = site_url || selectedProject.netlify_site_url;
-      setSelectedProject((p: any) => ({ ...p, netlify_site_id: site_id, netlify_site_url: liveUrl }));
-      if (liveUrl) setNetlifyUrl(liveUrl);
-      toast.success("Site deployed to Netlify!");
+      const finalUrl = liveUrl || (selectedProject as any).deploy_url || selectedProject.netlify_site_url;
+      setSelectedProject((p: any) => ({ ...p, deploy_url: liveUrl, deploy_project_id: projectId, netlify_site_id: projectId, netlify_site_url: finalUrl }));
+      if (finalUrl) setDeployedUrl(finalUrl);
+
+      const providerLabel = { netlify: "Netlify", vercel: "Vercel", cloudflare: "Cloudflare Pages" }[deployProvider] ?? deployProvider;
+      toast.success(`Site deployed to ${providerLabel}!`);
     } catch (err: any) {
       toast.error(err.message ?? "Deployment failed");
     } finally {
-      setIsDeployingToNetlify(false);
+      setIsDeploying(false);
     }
   };
 
@@ -1467,57 +1542,135 @@ function getElementPath(el) {
                   </Card>
                 )}
 
-                {/* Netlify one-click publish */}
+                {/* Multi-provider publish */}
                 {allDeployablePageTypes.length > 0 && (
                   <Card className="border-border/50">
                     <CardHeader className="pb-2 pt-4 px-5">
                       <CardTitle className="text-sm font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-2">
                         <Globe size={13} />
-                        Publish to Web (Netlify)
+                        Publish to Web
                       </CardTitle>
                       <CardDescription className="text-xs">
-                        Deploy all pages as a live website instantly — no WordPress needed.
-                        {selectedProject.netlify_site_url && (
-                          <a href={selectedProject.netlify_site_url} target="_blank" rel="noopener noreferrer" className="ml-1 text-emerald-400 hover:underline font-mono">
-                            {selectedProject.netlify_site_url}
+                        Deploy all pages as a live website instantly.
+                        {((selectedProject as any).deploy_url || selectedProject.netlify_site_url) && (
+                          <a
+                            href={(selectedProject as any).deploy_url ?? selectedProject.netlify_site_url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="ml-1 text-emerald-400 hover:underline font-mono"
+                          >
+                            {(selectedProject as any).deploy_url ?? selectedProject.netlify_site_url}
                           </a>
                         )}
                       </CardDescription>
                     </CardHeader>
                     <CardContent className="px-5 pb-4 space-y-3">
-                      <div className="flex gap-2">
-                        <Input
-                          type="password"
-                          placeholder="Netlify personal access token"
-                          value={netlifyToken}
-                          onChange={(e) => {
-                            setNetlifyToken(e.target.value);
-                            localStorage.setItem("netlify_token", e.target.value);
-                          }}
-                          className="h-8 text-xs font-mono flex-1"
-                        />
+                      {/* Provider tabs */}
+                      <div className="flex gap-1 flex-wrap">
+                        {(["netlify","vercel","cloudflare","railway","hostinger"] as const).map(p => (
+                          <button
+                            key={p}
+                            onClick={() => { setDeployProvider(p); localStorage.setItem("deploy_provider", p); }}
+                            className={`px-2.5 py-1 rounded text-[11px] font-medium border transition-colors ${deployProvider === p ? "bg-primary/20 border-primary/60 text-primary" : "border-border/40 text-muted-foreground hover:border-border"}`}
+                          >
+                            {p === "netlify" ? "Netlify" : p === "vercel" ? "Vercel" : p === "cloudflare" ? "Cloudflare" : p === "railway" ? "Railway" : "Hostinger"}
+                          </button>
+                        ))}
+                      </div>
+
+                      {/* Netlify credentials */}
+                      {deployProvider === "netlify" && (
+                        <div className="space-y-2">
+                          <Input
+                            type="password"
+                            placeholder="Netlify personal access token"
+                            value={deployTokens.netlify ?? ""}
+                            onChange={e => saveDeployToken("netlify", e.target.value)}
+                            className="h-8 text-xs font-mono"
+                          />
+                          <p className="text-[10px] text-muted-foreground">
+                            app.netlify.com → User settings → Applications → Personal access tokens
+                          </p>
+                        </div>
+                      )}
+
+                      {/* Vercel credentials */}
+                      {deployProvider === "vercel" && (
+                        <div className="space-y-2">
+                          <Input
+                            type="password"
+                            placeholder="Vercel personal access token"
+                            value={deployTokens.vercel ?? ""}
+                            onChange={e => saveDeployToken("vercel", e.target.value)}
+                            className="h-8 text-xs font-mono"
+                          />
+                          <p className="text-[10px] text-muted-foreground">
+                            vercel.com → Settings → Tokens → Create
+                          </p>
+                        </div>
+                      )}
+
+                      {/* Cloudflare credentials */}
+                      {deployProvider === "cloudflare" && (
+                        <div className="space-y-2">
+                          <Input
+                            type="password"
+                            placeholder="Cloudflare API token (Pages:Edit)"
+                            value={deployTokens.cloudflare_token ?? ""}
+                            onChange={e => saveDeployToken("cloudflare_token", e.target.value)}
+                            className="h-8 text-xs font-mono"
+                          />
+                          <Input
+                            placeholder="Cloudflare Account ID"
+                            value={deployTokens.cloudflare_account_id ?? ""}
+                            onChange={e => saveDeployToken("cloudflare_account_id", e.target.value)}
+                            className="h-8 text-xs font-mono"
+                          />
+                          <p className="text-[10px] text-muted-foreground">
+                            dash.cloudflare.com → Workers & Pages → your account ID in the sidebar
+                          </p>
+                        </div>
+                      )}
+
+                      {/* Railway / Hostinger — ZIP download */}
+                      {(deployProvider === "railway" || deployProvider === "hostinger") && (
+                        <div className="rounded-md bg-muted/20 border border-border/40 p-3 text-xs text-muted-foreground space-y-1">
+                          <p className="font-medium text-foreground/80">No credentials needed</p>
+                          <p>Click Deploy to download a ZIP of your site files, then upload them to your {deployProvider === "railway" ? "Railway static site" : "Hostinger File Manager"}.</p>
+                        </div>
+                      )}
+
+                      {/* Deploy button */}
+                      <div className="flex items-center gap-2">
                         <Button
                           size="sm"
-                          className="gap-1.5 text-xs h-8 shrink-0 bg-emerald-600 hover:bg-emerald-700 text-white"
-                          disabled={isDeployingToNetlify || !netlifyToken}
-                          onClick={deployToNetlify}
+                          className="gap-1.5 text-xs h-8 bg-emerald-600 hover:bg-emerald-700 text-white"
+                          disabled={isDeploying}
+                          onClick={deploy}
                         >
-                          {isDeployingToNetlify
+                          {isDeploying
                             ? <Loader2 size={11} className="animate-spin" />
                             : <ExternalLink size={11} />}
-                          {isDeployingToNetlify ? "Deploying…" : selectedProject.netlify_site_url ? "Redeploy" : "Deploy"}
+                          {isDeploying
+                            ? "Deploying…"
+                            : (deployProvider === "railway" || deployProvider === "hostinger")
+                              ? "Download ZIP"
+                              : ((selectedProject as any).deploy_url || selectedProject.netlify_site_url) ? "Redeploy" : "Deploy"}
                         </Button>
+                        {deployedUrl && (
+                          <a
+                            href={deployedUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-xs text-emerald-400 font-mono hover:underline truncate max-w-[260px]"
+                          >
+                            ✓ {deployedUrl}
+                          </a>
+                        )}
                       </div>
-                      {netlifyUrl && (
-                        <p className="text-xs text-emerald-400 font-mono break-all">
-                          ✓ Live at: <a href={netlifyUrl} target="_blank" rel="noopener noreferrer" className="underline">{netlifyUrl}</a>
-                        </p>
-                      )}
-                      <p className="text-[10px] text-amber-400 mt-1">
-                        ⚠ Token stored in browser session only. For production deployments, configure the Netlify integration in your account settings.
-                      </p>
-                      <p className="text-[11px] text-muted-foreground">
-                        Get a free token at <span className="font-mono">app.netlify.com → User settings → Applications → Personal access tokens</span>
+
+                      <p className="text-[10px] text-amber-400">
+                        ⚠ Tokens stored in your browser only — never sent to our servers.
                       </p>
                     </CardContent>
                   </Card>
