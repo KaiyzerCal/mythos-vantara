@@ -335,16 +335,34 @@ export function StandingOrderTemplatesPage() {
 
   async function activateTemplate(template: SOTemplate) {
     setActivating(template);
-    // Increment usage count
-    supabase.from("standing_order_templates").update({
-      usage_count: (template.usage_count ?? 0) + 1,
-      last_used_at: new Date().toISOString(),
-    }).eq("id", template.id).then(() => {});
+    try {
+      const { error } = await supabase.from("mavis_tasks").insert({
+        user_id: user!.id,
+        type: "standing_order",
+        description: template.name,
+        payload: {
+          instructions: template.instructions,
+          template_id: template.id,
+          template_slug: template.slug,
+          triggered_by: "manual",
+        },
+        status: "pending",
+      });
+      if (error) throw error;
 
-    // Copy instructions to clipboard
-    await navigator.clipboard.writeText(template.instructions);
-    toast.success(`"${template.name}" instructions copied — paste into MAVIS chat to execute.`, { duration: 4000 });
-    setTimeout(() => window.location.href = "/mavis", 1500);
+      // Update usage stats
+      await supabase.from("standing_order_templates").update({
+        usage_count: (template.usage_count ?? 0) + 1,
+        last_used_at: new Date().toISOString(),
+      }).eq("id", template.id);
+
+      toast.success(`"${template.name}" queued — MAVIS will execute it next cycle.`, { duration: 4000 });
+      await loadTemplates();
+    } catch (e: any) {
+      toast.error("Failed to queue: " + e.message);
+    } finally {
+      setActivating(null);
+    }
   }
 
   const filtered = templates.filter(t => statusFilter === "all" || t.status === statusFilter);

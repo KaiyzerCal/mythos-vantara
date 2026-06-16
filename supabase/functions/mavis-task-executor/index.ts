@@ -953,6 +953,105 @@ const handleEmailReply: TaskHandler = async (task) => {
   return { success: sent, output: { to: fromEmail, subject: replySubject, reply_preview: replyText.slice(0, 100) } };
 };
 
+// standing_order — executes a standing order template's instructions via Claude,
+// parses any :::ACTION{...}::: tags from the response, and dispatches them to
+// mavis-actions. Records execution in mavis_so_executions.
+const handleStandingOrder: TaskHandler = async (task) => {
+  const flat = extractPayload(task.payload as Record<string, unknown>);
+  const instructions = String(flat.instructions ?? task.description ?? "No instructions provided");
+  const templateId   = flat.template_id   ? String(flat.template_id)   : null;
+  const templateSlug = flat.template_slug ? String(flat.template_slug) : null;
+  const triggeredBy  = flat.triggered_by  ? String(flat.triggered_by)  : "scheduler";
+
+  // Open an execution record so the UI can show it
+  const { data: execRow } = await supabase
+    .from("mavis_so_executions")
+    .insert({
+      template_id:   templateId,
+      template_slug: templateSlug,
+      status:        "running",
+      started_at:    new Date().toISOString(),
+      triggered_by:  triggeredBy,
+      turns_used:    0,
+    })
+    .select("id")
+    .single()
+    .catch(() => ({ data: null }));
+
+  const execId: string | null = (execRow as any)?.id ?? null;
+
+  const finalize = async (status: "completed" | "failed", result: string, errorMsg?: string) => {
+    if (execId) {
+      await supabase.from("mavis_so_executions").update({
+        status,
+        result:          result.slice(0, 1000),
+        error_message:   errorMsg ?? null,
+        completed_at:    new Date().toISOString(),
+        turns_used:      1,
+      }).eq("id", execId);
+    }
+    if (templateId) {
+      const updates: Record<string, unknown> = { last_used_at: new Date().toISOString() };
+      if (status === "completed") updates.success_count = supabase.rpc ? undefined : undefined; // incremented below
+      // Use raw SQL increment via RPC-less update — fetch current then +1
+      const { data: tpl } = await supabase
+        .from("standing_order_templates")
+        .select("usage_count, success_count")
+        .eq("id", templateId)
+        .single()
+        .catch(() => ({ data: null }));
+      if (tpl) {
+        updates.usage_count    = ((tpl as any).usage_count   ?? 0) + 1;
+        if (status === "completed") updates.success_count = ((tpl as any).success_count ?? 0) + 1;
+      }
+      await supabase.from("standing_order_templates").update(updates).eq("id", templateId);
+    }
+  };
+
+  try {
+    const context = await loadGoalContext(task.user_id);
+
+    const response = await callClaude(
+      `You are MAVIS executing a standing order for the operator.
+Read the instructions carefully. Execute the procedure by emitting :::ACTION{"type":"...","params":{...}}::: tags for any CODEXOS operations needed.
+After emitting action tags, briefly confirm what you did.
+
+OPERATOR CONTEXT:
+${context}`,
+      `STANDING ORDER — ${templateSlug ?? "procedure"}:\n\n${instructions}`,
+    );
+
+    // Parse :::ACTION{...}::: tags and dispatch each to mavis-actions
+    const ACTION_REGEX = /:::ACTION(\{[\s\S]*?\}):::/g;
+    const actionMatches = [...response.matchAll(ACTION_REGEX)];
+    let actionsDispatched = 0;
+
+    if (actionMatches.length > 0) {
+      const actions = actionMatches
+        .map((m) => { try { return JSON.parse(m[1]); } catch { return null; } })
+        .filter(Boolean);
+
+      if (actions.length > 0) {
+        await fetch(`${SUPABASE_URL}/functions/v1/mavis-actions`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${SERVICE_KEY}` },
+          body: JSON.stringify({ actions, userId: task.user_id }),
+          signal: AbortSignal.timeout(30000),
+        });
+        actionsDispatched = actions.length;
+      }
+    }
+
+    const summary = `${actionsDispatched} action(s) executed. ${response.replace(ACTION_REGEX, "").trim().slice(0, 300)}`;
+    await finalize("completed", summary);
+    return { success: true, output: { summary, actionsDispatched, template_slug: templateSlug } };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    await finalize("failed", "", msg);
+    return { success: false, error: msg };
+  }
+};
+
 const HANDLERS: Record<string, TaskHandler> = {
   daily_brief: handleDailyBrief,
   check_idle_quests: handleCheckIdleQuests,
@@ -969,6 +1068,7 @@ const HANDLERS: Record<string, TaskHandler> = {
   session_update: handleSessionUpdate,
   send_outreach: handleSendOutreach,
   email_reply: handleEmailReply,
+  standing_order: handleStandingOrder,
 };
 
 // ─────────────────────────────────────────────────────────────
