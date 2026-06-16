@@ -140,7 +140,7 @@ function normalizeActionType(type: string): string {
 }
 
 // ── Action executor ────────────────────────────────────────
-async function executeAction(sb: any, userId: string, action: MavisAction) {
+async function executeAction(sb: any, userId: string, action: MavisAction, req: Request) {
   // Support both nested { type, params: {...} } and flat { type, title, ... } formats.
   // Telegram/Claude may send flat; frontend always sends nested.
   const p: Record<string, unknown> = (action.params && typeof action.params === "object")
@@ -2388,7 +2388,7 @@ serve(async (req) => {
     const results: Array<{ type: string; success: boolean; error?: string; data?: Record<string, unknown> }> = [];
     for (const action of actions) {
       try {
-        const actionData = await executeAction(adminClient, userId, action);
+        const actionData = await executeAction(adminClient, userId, action, req);
         results.push({ type: action.type, success: true, data: (actionData as Record<string, unknown>) ?? undefined });
       } catch (error) {
         console.error("mavis-actions failed:", action.type, serializeError(error));
