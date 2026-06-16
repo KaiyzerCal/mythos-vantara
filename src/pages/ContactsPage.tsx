@@ -152,7 +152,8 @@ export function ContactsPage() {
       follow_up_date: c.follow_up_date || "",
     });
     setEditingId(c.id);
-    setShowCreate(true);
+    // ensure the card is expanded so the inline form is visible
+    setExpandedId(c.id);
   }
 
   async function handleSave() {
@@ -168,17 +169,23 @@ export function ContactsPage() {
       updated_at: new Date().toISOString(),
     };
     if (editingId) {
-      const { error } = await supabase.from("contacts").update(payload).eq("id", editingId);
+      const savedId = editingId;
+      const { error } = await supabase.from("contacts").update(payload).eq("id", savedId);
       if (error) { toast.error("Failed to update contact"); setSavingContact(false); return; }
       toast.success("Contact updated");
+      setSavingContact(false);
+      setEditingId(null);
+      setForm({ name: "", relationship_type: "personal", notes: "", tags: "", follow_up_date: "" });
+      setExpandedId(savedId); // keep the card open after saving
+      loadContacts();
     } else {
       const { error } = await supabase.from("contacts").insert({ ...payload, user_id: session!.user.id });
       if (error) { toast.error("Failed to create contact"); setSavingContact(false); return; }
       toast.success("Contact added");
+      setSavingContact(false);
+      resetForm();
+      loadContacts();
     }
-    setSavingContact(false);
-    resetForm();
-    loadContacts();
   }
 
   async function handleDelete(id: string) {
@@ -440,7 +447,56 @@ export function ContactsPage() {
                             </div>
                           )}
 
-                          {/* Actions */}
+                          {/* Inline edit form */}
+                          {editingId === c.id ? (
+                            <div className="bg-muted/10 border border-primary/20 rounded p-3 space-y-2">
+                              <p className="text-[9px] font-mono text-primary uppercase tracking-widest">Edit Contact</p>
+                              <input
+                                value={form.name}
+                                onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+                                placeholder="Full name..."
+                                className="w-full bg-muted/30 border border-border rounded px-3 py-1.5 text-sm focus:outline-none focus:border-primary/40"
+                              />
+                              <div className="grid grid-cols-2 gap-2">
+                                <select
+                                  value={form.relationship_type}
+                                  onChange={(e) => setForm((f) => ({ ...f, relationship_type: e.target.value }))}
+                                  className="bg-muted/30 border border-border rounded px-2 py-1.5 text-xs font-mono focus:outline-none"
+                                >
+                                  {RELATIONSHIP_TYPES.map((r) => <option key={r}>{r}</option>)}
+                                </select>
+                                <input
+                                  type="date"
+                                  value={form.follow_up_date}
+                                  onChange={(e) => setForm((f) => ({ ...f, follow_up_date: e.target.value }))}
+                                  className="bg-muted/30 border border-border rounded px-2 py-1.5 text-xs font-mono focus:outline-none"
+                                />
+                              </div>
+                              <textarea
+                                value={form.notes}
+                                onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))}
+                                placeholder="Notes about this person..."
+                                rows={3}
+                                className="w-full bg-muted/30 border border-border rounded px-3 py-2 text-sm resize-none focus:outline-none focus:border-primary/40"
+                              />
+                              <input
+                                value={form.tags}
+                                onChange={(e) => setForm((f) => ({ ...f, tags: e.target.value }))}
+                                placeholder="Tags (comma-separated)"
+                                className="w-full bg-muted/30 border border-border rounded px-3 py-1.5 text-xs font-mono focus:outline-none"
+                              />
+                              <div className="flex gap-2 justify-end">
+                                <button onClick={resetForm} className="px-3 py-1.5 text-xs font-mono text-muted-foreground border border-border rounded hover:bg-muted/30">
+                                  Cancel
+                                </button>
+                                <button onClick={handleSave} disabled={savingContact} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono bg-primary/10 border border-primary/30 text-primary rounded hover:bg-primary/20 disabled:opacity-50">
+                                  {savingContact && <Loader2 size={10} className="animate-spin" />}
+                                  Save
+                                </button>
+                              </div>
+                            </div>
+                          ) : (
+                          /* Actions */
                           <div className="flex gap-2">
                             <button
                               onClick={() => handleEdit(c)}
@@ -461,6 +517,7 @@ export function ContactsPage() {
                               <Trash2 size={9} /> Delete
                             </button>
                           </div>
+                          )}
 
                           {/* Log Interaction form */}
                           <AnimatePresence>
