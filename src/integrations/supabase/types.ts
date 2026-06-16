@@ -491,6 +491,89 @@ export type Database = {
         }
         Relationships: []
       }
+      contact_interactions: {
+        Row: {
+          contact_id: string
+          created_at: string
+          id: string
+          interaction_type: string | null
+          notes: string
+          sentiment: string | null
+          user_id: string
+        }
+        Insert: {
+          contact_id: string
+          created_at?: string
+          id?: string
+          interaction_type?: string | null
+          notes?: string
+          sentiment?: string | null
+          user_id: string
+        }
+        Update: {
+          contact_id?: string
+          created_at?: string
+          id?: string
+          interaction_type?: string | null
+          notes?: string
+          sentiment?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "contact_interactions_contact_id_fkey"
+            columns: ["contact_id"]
+            isOneToOne: false
+            referencedRelation: "contacts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      contacts: {
+        Row: {
+          created_at: string
+          follow_up_date: string | null
+          id: string
+          interaction_count: number | null
+          last_contact_at: string | null
+          name: string
+          notes: string | null
+          profile: Json | null
+          relationship_type: string | null
+          tags: string[] | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          follow_up_date?: string | null
+          id?: string
+          interaction_count?: number | null
+          last_contact_at?: string | null
+          name: string
+          notes?: string | null
+          profile?: Json | null
+          relationship_type?: string | null
+          tags?: string[] | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          follow_up_date?: string | null
+          id?: string
+          interaction_count?: number | null
+          last_contact_at?: string | null
+          name?: string
+          notes?: string | null
+          profile?: Json | null
+          relationship_type?: string | null
+          tags?: string[] | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       council_chat_messages: {
         Row: {
           content: string
@@ -642,6 +725,119 @@ export type Database = {
           icon?: string
           id?: string
           name?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      customer_agent_messages: {
+        Row: {
+          agent_id: string
+          content: string
+          id: string
+          role: string
+          session_id: string
+          ts: string | null
+        }
+        Insert: {
+          agent_id: string
+          content: string
+          id?: string
+          role: string
+          session_id: string
+          ts?: string | null
+        }
+        Update: {
+          agent_id?: string
+          content?: string
+          id?: string
+          role?: string
+          session_id?: string
+          ts?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "customer_agent_messages_agent_id_fkey"
+            columns: ["agent_id"]
+            isOneToOne: false
+            referencedRelation: "customer_agents"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      customer_agents: {
+        Row: {
+          agent_name: string
+          agent_persona: string
+          brand_color: string | null
+          brand_name: string | null
+          business_name: string
+          business_type: string | null
+          capabilities: string[] | null
+          created_at: string | null
+          customer_email: string | null
+          customer_name: string
+          deploy_slug: string | null
+          embed_token: string | null
+          id: string
+          knowledge_base: string | null
+          logo_url: string | null
+          monthly_price_cents: number | null
+          plan_tier: string
+          status: string
+          tone: string | null
+          total_conversations: number | null
+          total_messages: number | null
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          agent_name?: string
+          agent_persona: string
+          brand_color?: string | null
+          brand_name?: string | null
+          business_name: string
+          business_type?: string | null
+          capabilities?: string[] | null
+          created_at?: string | null
+          customer_email?: string | null
+          customer_name: string
+          deploy_slug?: string | null
+          embed_token?: string | null
+          id?: string
+          knowledge_base?: string | null
+          logo_url?: string | null
+          monthly_price_cents?: number | null
+          plan_tier?: string
+          status?: string
+          tone?: string | null
+          total_conversations?: number | null
+          total_messages?: number | null
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          agent_name?: string
+          agent_persona?: string
+          brand_color?: string | null
+          brand_name?: string | null
+          business_name?: string
+          business_type?: string | null
+          capabilities?: string[] | null
+          created_at?: string | null
+          customer_email?: string | null
+          customer_name?: string
+          deploy_slug?: string | null
+          embed_token?: string | null
+          id?: string
+          knowledge_base?: string | null
+          logo_url?: string | null
+          monthly_price_cents?: number | null
+          plan_tier?: string
+          status?: string
+          tone?: string | null
+          total_conversations?: number | null
+          total_messages?: number | null
+          updated_at?: string | null
           user_id?: string
         }
         Relationships: []
@@ -985,6 +1181,39 @@ export type Database = {
         }
         Relationships: []
       }
+      mavis_activities: {
+        Row: {
+          created_at: string
+          description: string | null
+          id: string
+          payload: Json | null
+          task_id: string | null
+          type: string
+          user_id: string
+          xp_earned: number
+        }
+        Insert: {
+          created_at?: string
+          description?: string | null
+          id?: string
+          payload?: Json | null
+          task_id?: string | null
+          type: string
+          user_id: string
+          xp_earned?: number
+        }
+        Update: {
+          created_at?: string
+          description?: string | null
+          id?: string
+          payload?: Json | null
+          task_id?: string | null
+          type?: string
+          user_id?: string
+          xp_earned?: number
+        }
+        Relationships: []
+      }
       mavis_agent_karma: {
         Row: {
           agent_id: string
@@ -1254,6 +1483,42 @@ export type Database = {
           updated_at?: string | null
           user_id?: string
           vapi_call_id?: string | null
+        }
+        Relationships: []
+      }
+      mavis_capabilities: {
+        Row: {
+          action_type: string
+          category: string
+          created_at: string | null
+          description: string
+          edge_function: string | null
+          example_params: Json | null
+          id: string
+          is_active: boolean | null
+          requires_secrets: string[] | null
+        }
+        Insert: {
+          action_type: string
+          category: string
+          created_at?: string | null
+          description: string
+          edge_function?: string | null
+          example_params?: Json | null
+          id?: string
+          is_active?: boolean | null
+          requires_secrets?: string[] | null
+        }
+        Update: {
+          action_type?: string
+          category?: string
+          created_at?: string | null
+          description?: string
+          edge_function?: string | null
+          example_params?: Json | null
+          id?: string
+          is_active?: boolean | null
+          requires_secrets?: string[] | null
         }
         Relationships: []
       }
@@ -1659,6 +1924,48 @@ export type Database = {
           id?: string
           is_default?: boolean | null
           token_set?: Json
+          user_id?: string
+        }
+        Relationships: []
+      }
+      mavis_domain_effects: {
+        Row: {
+          area_effects: string[]
+          created_at: string
+          description: string | null
+          effect_type: string
+          expires_at: string | null
+          id: string
+          is_active: boolean
+          name: string
+          source: string | null
+          stat_modifiers: Json
+          user_id: string
+        }
+        Insert: {
+          area_effects?: string[]
+          created_at?: string
+          description?: string | null
+          effect_type?: string
+          expires_at?: string | null
+          id?: string
+          is_active?: boolean
+          name: string
+          source?: string | null
+          stat_modifiers?: Json
+          user_id: string
+        }
+        Update: {
+          area_effects?: string[]
+          created_at?: string
+          description?: string | null
+          effect_type?: string
+          expires_at?: string | null
+          id?: string
+          is_active?: boolean
+          name?: string
+          source?: string | null
+          stat_modifiers?: Json
           user_id?: string
         }
         Relationships: []
@@ -2153,6 +2460,7 @@ export type Database = {
           id: string
           last_accessed_at: string | null
           properties: Json
+          source_url: string | null
           tags: string[]
           title: string
           updated_at: string
@@ -2168,6 +2476,7 @@ export type Database = {
           id?: string
           last_accessed_at?: string | null
           properties?: Json
+          source_url?: string | null
           tags?: string[]
           title?: string
           updated_at?: string
@@ -2183,6 +2492,7 @@ export type Database = {
           id?: string
           last_accessed_at?: string | null
           properties?: Json
+          source_url?: string | null
           tags?: string[]
           title?: string
           updated_at?: string
@@ -2261,6 +2571,45 @@ export type Database = {
           drafted_message?: string
           id?: string
           status?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      mavis_persona_memory: {
+        Row: {
+          consolidated: boolean
+          content: string
+          created_at: string
+          id: string
+          importance: number
+          persona_id: string
+          persona_name: string
+          role: string
+          session_id: string | null
+          user_id: string
+        }
+        Insert: {
+          consolidated?: boolean
+          content: string
+          created_at?: string
+          id?: string
+          importance?: number
+          persona_id: string
+          persona_name: string
+          role: string
+          session_id?: string | null
+          user_id: string
+        }
+        Update: {
+          consolidated?: boolean
+          content?: string
+          created_at?: string
+          id?: string
+          importance?: number
+          persona_id?: string
+          persona_name?: string
+          role?: string
+          session_id?: string | null
           user_id?: string
         }
         Relationships: []
@@ -2584,6 +2933,39 @@ export type Database = {
           },
         ]
       }
+      mavis_rss_feeds: {
+        Row: {
+          created_at: string | null
+          enabled: boolean
+          feed_url: string
+          id: string
+          last_error: string | null
+          last_fetched_at: string | null
+          name: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string | null
+          enabled?: boolean
+          feed_url: string
+          id?: string
+          last_error?: string | null
+          last_fetched_at?: string | null
+          name?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string | null
+          enabled?: boolean
+          feed_url?: string
+          id?: string
+          last_error?: string | null
+          last_fetched_at?: string | null
+          name?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       mavis_skill_definitions: {
         Row: {
           created_at: string | null
@@ -2799,6 +3181,39 @@ export type Database = {
         }
         Relationships: []
       }
+      mavis_terminal_sessions: {
+        Row: {
+          created_at: string
+          cwd: string
+          id: string
+          label: string
+          last_used_at: string
+          sandbox_id: string
+          status: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          cwd?: string
+          id?: string
+          label?: string
+          last_used_at?: string
+          sandbox_id: string
+          status?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          cwd?: string
+          id?: string
+          label?: string
+          last_used_at?: string
+          sandbox_id?: string
+          status?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       mavis_tool_registry: {
         Row: {
           category: string
@@ -2907,6 +3322,42 @@ export type Database = {
           updated_at?: string | null
           user_id?: string
           working_style?: Json | null
+        }
+        Relationships: []
+      }
+      mavis_vault: {
+        Row: {
+          attachments: string[]
+          category: string
+          content: string
+          created_at: string
+          id: string
+          importance: string
+          title: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          attachments?: string[]
+          category?: string
+          content?: string
+          created_at?: string
+          id?: string
+          importance?: string
+          title: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          attachments?: string[]
+          category?: string
+          content?: string
+          created_at?: string
+          id?: string
+          importance?: string
+          title?: string
+          updated_at?: string
+          user_id?: string
         }
         Relationships: []
       }
@@ -4139,6 +4590,122 @@ export type Database = {
           xp_reward?: number
         }
         Relationships: []
+      }
+      tower_floors: {
+        Row: {
+          created_at: string | null
+          dangers: string
+          ecology: string
+          energy: string
+          essence: string
+          floor_max: number
+          floor_min: number
+          function: string
+          id: string
+          inhabitants: string
+          law: string
+          name: string
+          rewards: string
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          created_at?: string | null
+          dangers?: string
+          ecology?: string
+          energy?: string
+          essence?: string
+          floor_max: number
+          floor_min: number
+          function?: string
+          id?: string
+          inhabitants?: string
+          law?: string
+          name?: string
+          rewards?: string
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          created_at?: string | null
+          dangers?: string
+          ecology?: string
+          energy?: string
+          essence?: string
+          floor_max?: number
+          floor_min?: number
+          function?: string
+          id?: string
+          inhabitants?: string
+          law?: string
+          name?: string
+          rewards?: string
+          updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "tower_floors_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      tower_subareas: {
+        Row: {
+          area_type: string
+          created_at: string | null
+          description: string
+          floor_end: number | null
+          floor_id: string
+          floor_start: number | null
+          id: string
+          name: string
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          area_type?: string
+          created_at?: string | null
+          description?: string
+          floor_end?: number | null
+          floor_id: string
+          floor_start?: number | null
+          id?: string
+          name?: string
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          area_type?: string
+          created_at?: string | null
+          description?: string
+          floor_end?: number | null
+          floor_id?: string
+          floor_start?: number | null
+          id?: string
+          name?: string
+          updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "tower_subareas_floor_id_fkey"
+            columns: ["floor_id"]
+            isOneToOne: false
+            referencedRelation: "tower_floors"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tower_subareas_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       transformations: {
         Row: {

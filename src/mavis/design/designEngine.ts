@@ -22,6 +22,7 @@ export async function runDesignEngine(
     competitor_urls:      brief.competitorUrls ?? [],
     user_journey:         brief.userJourney,
     deadline_tier:        brief.deadlineTier,
+    quality_tier:         brief.qualityTier ?? 3,
     client_name:          brief.clientName,
     project_value:        brief.projectValue,
   };

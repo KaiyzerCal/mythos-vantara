@@ -16,9 +16,11 @@ import {
   MessageSquare, FileText, Calculator, HelpCircle, TrendingUp,
   Calendar, Plus, Copy, Check, ExternalLink, Loader2,
   Zap, Globe, Code2, BarChart3, Users, DollarSign, ChevronRight,
-  Sparkles, Package,
+  Sparkles, Package, PlayCircle,
 } from "lucide-react";
 import { toast } from "sonner";
+import { Bot } from "lucide-react";
+import AgentBuilderSection from "@/components/AgentBuilderSection";
 
 // ─── Widget Type Definitions ──────────────────────────────────
 const WIDGET_TYPES = [
@@ -28,6 +30,7 @@ const WIDGET_TYPES = [
   { id: "faq",                icon: HelpCircle,    label: "FAQ + AI Fallback",   desc: "Searchable FAQ with AI Q&A",                  color: "text-violet-400",  monthly: 49  },
   { id: "roi_calculator",     icon: TrendingUp,    label: "ROI Calculator",      desc: "Business value calculator with AI analysis",  color: "text-emerald-400", monthly: 79  },
   { id: "appointment_booker", icon: Calendar,      label: "Appointment Booker",  desc: "Service booking with AI confirmation",        color: "text-rose-400",    monthly: 97  },
+  { id: "youtube_player",    icon: PlayCircle,    label: "YouTube Player",      desc: "Responsive video or playlist embed",          color: "text-red-400",     monthly: 29  },
 ];
 
 // ─── Status helpers ───────────────────────────────────────────
@@ -70,6 +73,7 @@ interface WidgetLead {
 export default function WidgetBuilderPage() {
   const { user } = useAuth();
 
+  const [topTab, setTopTab] = useState<"widgets" | "agents">("widgets");
   const [view, setView] = useState<View>("gallery");
   const [widgets, setWidgets] = useState<WidgetInstance[]>([]);
   const [selectedWidget, setSelectedWidget] = useState<WidgetInstance | null>(null);
@@ -105,7 +109,24 @@ export default function WidgetBuilderPage() {
     // Appointment booker
     service_options: "",
     calendly_url: "",
+    // YouTube player
+    youtube_url: "",
+    video_title: "",
+    video_description: "",
+    autoplay: false,
+    loop: false,
+    show_youtube_button: true,
   });
+
+  // Sync default price when widget type changes
+  useEffect(() => {
+    const defaultPrices: Record<string, number> = {
+      chat: 9700, lead_capture: 4900, quote_calculator: 7900,
+      faq: 4900, roi_calculator: 7900, appointment_booker: 9700,
+      youtube_player: 2900,
+    };
+    setForm((f) => ({ ...f, monthly_price_cents: defaultPrices[selectedType] ?? 4900 }));
+  }, [selectedType]);
 
   useEffect(() => { loadWidgets(); }, [user]);
   useEffect(() => {
@@ -193,6 +214,10 @@ export default function WidgetBuilderPage() {
   const generateWidget = async () => {
     if (!user || !form.business_name) {
       toast.error("Business name is required");
+      return;
+    }
+    if (selectedType === "youtube_player" && !form.youtube_url) {
+      toast.error("YouTube URL or video ID is required");
       return;
     }
     setIsGenerating(true);
@@ -691,6 +716,66 @@ export default function WidgetBuilderPage() {
                 </>
               )}
 
+              {selectedType === "youtube_player" && (
+                <>
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-medium text-muted-foreground">YouTube URL or Video ID *</label>
+                    <Input
+                      value={form.youtube_url}
+                      onChange={(e) => setForm({ ...form, youtube_url: e.target.value })}
+                      placeholder="https://www.youtube.com/watch?v=... or youtu.be/... or playlist URL"
+                    />
+                    <p className="text-[10px] text-muted-foreground">
+                      Paste a video URL, playlist URL, or bare 11-character video ID. The widget embeds directly — the video stays on YouTube, no hosting needed.
+                    </p>
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-medium text-muted-foreground">Title (optional)</label>
+                    <Input
+                      value={form.video_title}
+                      onChange={(e) => setForm({ ...form, video_title: e.target.value })}
+                      placeholder="Portfolio Reel — Jane Smith Photography"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-medium text-muted-foreground">Description (optional)</label>
+                    <Textarea
+                      value={form.video_description}
+                      onChange={(e) => setForm({ ...form, video_description: e.target.value })}
+                      placeholder="A brief caption shown beneath the title above the player..."
+                      rows={2}
+                    />
+                  </div>
+                  <div className="grid grid-cols-3 gap-3 pt-1">
+                    {[
+                      { key: "autoplay", label: "Autoplay (muted)" },
+                      { key: "loop",     label: "Loop video" },
+                      { key: "show_youtube_button", label: "Show YT link" },
+                    ].map(({ key, label }) => (
+                      <div key={key} className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setForm({ ...form, [key]: !(form as any)[key] })}
+                          className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors ${
+                            (form as any)[key] ? "bg-primary" : "bg-muted"
+                          }`}
+                        >
+                          <span
+                            className={`pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow transition-transform ${
+                              (form as any)[key] ? "translate-x-4" : "translate-x-0"
+                            }`}
+                          />
+                        </button>
+                        <label className="text-xs font-medium text-muted-foreground">{label}</label>
+                      </div>
+                    ))}
+                  </div>
+                  <p className="text-[10px] text-muted-foreground">
+                    Autoplay requires muted audio (browser policy) — viewers can unmute manually.
+                  </p>
+                </>
+              )}
+
               {/* Generate button */}
               <Button
                 className="w-full gap-2 mt-2"
@@ -1073,22 +1158,42 @@ export default function WidgetBuilderPage() {
             Generate embeddable AI micro-apps for any website — chat, leads, quotes, bookings
           </p>
         </div>
-        <div className="flex gap-2">
-          {view !== "gallery" && (
-            <Button variant="outline" onClick={() => setView("gallery")}>
-              ← All Widgets
+        {topTab === "widgets" && (
+          <div className="flex gap-2">
+            {view !== "gallery" && (
+              <Button variant="outline" onClick={() => setView("gallery")}>
+                ← All Widgets
+              </Button>
+            )}
+            <Button onClick={() => setView("builder")} className="gap-2">
+              <Plus size={16} />
+              New Widget
             </Button>
-          )}
-          <Button onClick={() => setView("builder")} className="gap-2">
-            <Plus size={16} />
-            New Widget
-          </Button>
-        </div>
+          </div>
+        )}
       </div>
 
-      {view === "gallery" && renderGallery()}
-      {view === "builder" && renderBuilder()}
-      {view === "detail" && renderDetail()}
+      {/* Top tab strip */}
+      <div className="flex items-center gap-1 mb-6 border-b border-border/50 pb-0">
+        <button
+          onClick={() => setTopTab("widgets")}
+          className={`flex items-center gap-2 px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${topTab === "widgets" ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"}`}
+        >
+          <Package size={14} /> Widgets
+        </button>
+        <button
+          onClick={() => setTopTab("agents")}
+          className={`flex items-center gap-2 px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${topTab === "agents" ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"}`}
+        >
+          <Bot size={14} /> AI Agents
+          <span className="text-[9px] font-mono text-emerald-400 border border-emerald-400/30 rounded px-1 py-0.5">Claude</span>
+        </button>
+      </div>
+
+      {topTab === "widgets" && view === "gallery" && renderGallery()}
+      {topTab === "widgets" && view === "builder" && renderBuilder()}
+      {topTab === "widgets" && view === "detail" && renderDetail()}
+      {topTab === "agents" && <AgentBuilderSection />}
     </div>
   );
 }

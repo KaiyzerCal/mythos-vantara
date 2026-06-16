@@ -98,6 +98,28 @@ serve(async (req) => {
         importance_score: 6,
         created_at: new Date().toISOString(),
       }).catch(() => {});
+
+      // Auto-create a task for priority emails so MAVIS proactively handles them
+      const PRIORITY_KEYWORDS = ["invoice", "contract", "deadline", "urgent", "asap", "legal", "payment", "refund", "complaint", "lawsuit", "offer", "opportunity"];
+      const subjectLower = subject.toLowerCase();
+      const bodyLower = bodyText.slice(0, 500).toLowerCase();
+      const isPriority = PRIORITY_KEYWORDS.some((kw) => subjectLower.includes(kw) || bodyLower.includes(kw));
+
+      if (isPriority) {
+        await sb.from("mavis_tasks").insert({
+          user_id: userId,
+          type: "email_reply",
+          description: `Priority email received from ${fromEmail}: "${subject}"`,
+          payload: {
+            email_id: inserted.id,
+            from_email: fromEmail,
+            from_name: fromName || null,
+            subject,
+            body_preview: bodyText.slice(0, 500),
+          },
+          status: "requires_confirmation",
+        }).catch(() => {});
+      }
     }
 
     return new Response(JSON.stringify({ received: true, id: inserted?.id }), {

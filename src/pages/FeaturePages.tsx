@@ -1309,7 +1309,7 @@ export function CouncilsPage() {
                         <Trash2 size={12} />
                       </button>
                       <button
-                        onClick={(e) => { e.stopPropagation(); setVoiceTarget({ name: m.name, role: m.role, systemPrompt: buildCouncilMemberPrompt(m, appCtx ? buildContextSummary(appCtx) : ""), voiceId: m.voice_id ?? undefined }); }}
+                        onClick={(e) => { e.stopPropagation(); setVoiceTarget({ name: m.name, role: m.role, systemPrompt: buildCouncilMemberPrompt(m, appCtx ? buildContextSummary(appCtx) : ""), voiceId: m.voice_id ?? undefined, avatarUrl: m.avatar ?? undefined }); }}
                         className="p-1 text-muted-foreground hover:text-primary hover:bg-primary/10 rounded transition-all opacity-0 group-hover:opacity-100"
                         title={`Voice call ${m.name}`}
                       >

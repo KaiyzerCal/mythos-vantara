@@ -4,9 +4,9 @@ import { useProfile, type ProfileData } from "@/hooks/useProfile";
 import { useQuests, type Quest } from "@/hooks/useQuests";
 import {
   useTasks, useJournal, useVault, useCouncils,
-  useSkills, useEnergySystems, useInventory, useAllies, useBpmSessions, useActivityLog, useStoreItems, useTransformations, useRankings, useRituals,
+  useSkills, useEnergySystems, useInventory, useAllies, useBpmSessions, useActivityLog, useStoreItems, useTransformations, useRankings, useRituals, useDomainEffects,
   type Task, type JournalEntry, type VaultEntry,
-  type CouncilMember, type Skill, type EnergySystem, type InventoryItem, type Ally, type BpmSession, type StoreItem, type Transformation, type RankingProfile, type Ritual,
+  type CouncilMember, type Skill, type EnergySystem, type InventoryItem, type Ally, type BpmSession, type StoreItem, type Transformation, type RankingProfile, type Ritual, type DomainEffect,
 } from "@/hooks/useDataHooks";
 
 export interface ChatMessage {
@@ -125,6 +125,14 @@ interface AppDataContextType {
   updateRanking: (id: string, input: any) => Promise<void>;
   deleteRanking: (id: string) => Promise<void>;
 
+  // Domain Effects
+  domainEffects: DomainEffect[];
+  domainEffectsLoading: boolean;
+  createDomainEffect: (input: any) => Promise<DomainEffect | null>;
+  updateDomainEffect: (id: string, input: any) => Promise<void>;
+  deleteDomainEffect: (id: string) => Promise<void>;
+  refetchDomainEffects: () => Promise<void>;
+
   // Activity log
   logActivity: (event_type: string, description: string, xp?: number) => Promise<void>;
 
@@ -175,16 +183,17 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
   const { data: storeItems, loading: storeLoading, create: createStoreItem, update: updateStoreItem, remove: deleteStoreItem, refetch: refetchStore } = useStoreItems();
   const { data: transformations, loading: transformationsLoading, create: createTransformation, update: updateTransformation, remove: deleteTransformation, refetch: refetchTransformations } = useTransformations();
   const { data: rankings, loading: rankingsLoading, create: createRanking, update: updateRanking, remove: deleteRanking, refetch: refetchRankings } = useRankings();
+  const { data: domainEffects, loading: domainEffectsLoading, create: createDomainEffect, update: updateDomainEffect, remove: deleteDomainEffect, refetch: refetchDomainEffects } = useDomainEffects();
   const { log: logActivity } = useActivityLog();
 
   const refetchAll = useCallback(async () => {
     await Promise.all([
       refetchProfile(), refetchQuests(), refetchTasks(),
       refetchJournal(), refetchVault(), refetchCouncils(), refetchSkills(),
-      refetchEnergy(), refetchInventory(), refetchAllies(), refetchBpm(), refetchStore(), refetchTransformations(), refetchRankings(), refetchRituals(),
+      refetchEnergy(), refetchInventory(), refetchAllies(), refetchBpm(), refetchStore(), refetchTransformations(), refetchRankings(), refetchRituals(), refetchDomainEffects(),
     ]);
     setLastActionTs(Date.now());
-  }, [refetchProfile, refetchQuests, refetchTasks, refetchJournal, refetchVault, refetchCouncils, refetchSkills, refetchEnergy, refetchInventory, refetchAllies, refetchBpm, refetchStore, refetchTransformations, refetchRankings, refetchRituals]);
+  }, [refetchProfile, refetchQuests, refetchTasks, refetchJournal, refetchVault, refetchCouncils, refetchSkills, refetchEnergy, refetchInventory, refetchAllies, refetchBpm, refetchStore, refetchTransformations, refetchRankings, refetchRituals, refetchDomainEffects]);
 
   // Supabase Realtime — live sync for core tables
   const realtimeRef = useRef<any>(null);
@@ -201,10 +210,11 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
       .on("postgres_changes", { event: "*", schema: "public", table: "council_members" }, () => { refetchCouncils().catch(() => {}); })
       .on("postgres_changes", { event: "*", schema: "public", table: "transformations" }, () => { refetchTransformations().catch(() => {}); })
       .on("postgres_changes", { event: "*", schema: "public", table: "rituals" }, () => { refetchRituals().catch(() => {}); })
+      .on("postgres_changes", { event: "*", schema: "public", table: "mavis_domain_effects" }, () => { refetchDomainEffects().catch(() => {}); })
       .subscribe();
     realtimeRef.current = channel;
     return () => { (supabase as any).removeChannel(channel); };
-  }, [refetchQuests, refetchTasks, refetchEnergy, refetchJournal, refetchSkills, refetchAllies, refetchInventory, refetchCouncils, refetchTransformations, refetchRituals]);
+  }, [refetchQuests, refetchTasks, refetchEnergy, refetchJournal, refetchSkills, refetchAllies, refetchInventory, refetchCouncils, refetchTransformations, refetchRituals, refetchDomainEffects]);
 
   const [lastActionTs, setLastActionTs] = useState(0);
 
@@ -231,6 +241,7 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
         storeItems, storeLoading, createStoreItem, updateStoreItem, deleteStoreItem,
         transformations, transformationsLoading, createTransformation, updateTransformation, deleteTransformation, refetchTransformations,
         rankings, rankingsLoading, createRanking, updateRanking, deleteRanking,
+        domainEffects, domainEffectsLoading, createDomainEffect, updateDomainEffect, deleteDomainEffect, refetchDomainEffects,
         logActivity,
         refetchAll,
         lastActionTs,

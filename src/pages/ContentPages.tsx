@@ -4,7 +4,7 @@
 // ============================================================
 import { useState, useEffect, useRef, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { BookOpen, BookLock, Sparkles, Package, Plus, Trash2, Loader2, Star, Edit2, Upload, FileText, Image, Film, Music, File, X, Eye, LayoutGrid, ChevronLeft, ChevronRight, Wand2, Mic, MicOff, Download, FileDown, LayoutTemplate, Link2 } from "lucide-react";
+import { BookOpen, BookLock, Sparkles, Package, Plus, Trash2, Loader2, Star, Edit2, Upload, FileText, Image, Film, Music, File, X, Eye, LayoutGrid, ChevronLeft, ChevronRight, Wand2, Mic, MicOff, Download, FileDown, LayoutTemplate, Link2, Shield, ShieldOff, Swords, AlertTriangle, CheckCircle2, Waves } from "lucide-react";
 import { useAppData } from "@/contexts/AppDataContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
@@ -1281,30 +1281,50 @@ export function InventoryPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [typeFilter, setTypeFilter] = useState("all");
-  const [form, setForm] = useState({ name: "", description: "", type: "equipment", rarity: "common", quantity: 1, effect: "" });
+  const [form, setForm] = useState({ name: "", description: "", type: "equipment", rarity: "common", quantity: 1, effect: "", stat_effects: "" });
   const [confirmDeleteItem, setConfirmDeleteItem] = useState<{ id: string; label: string } | null>(null);
+
+  const parseStatEffects = (str: string): { label: string; value: number; unit: string }[] => {
+    if (!str.trim()) return [];
+    return str.split(",").flatMap((token) => {
+      const m = token.trim().match(/^([A-Z]+)\s*([+-]?\d+)(%?)$/i);
+      if (!m) return [];
+      return [{ label: m[1].toUpperCase(), value: Number(m[2]), unit: m[3] || "" }];
+    });
+  };
+  const serializeStatEffects = (effects: { label: string; value: number; unit: string }[]): string =>
+    effects.map((e) => `${e.label} ${e.value >= 0 ? "+" : ""}${e.value}${e.unit}`).join(", ");
 
   useEffect(() => {
     void refetchInventory();
   }, [refetchInventory]);
 
-  const types = ["all", "equipment", "consumable", "material", "artifact"];
+  const EQUIPPABLE = new Set(["equipment", "weapon", "artifact"]);
+  const types = ["all", "equipment", "weapon", "artifact", "consumable", "material"];
   const filtered = inventory.filter((i) => typeFilter === "all" || i.type === typeFilter);
+  const equipped = inventory.filter((i) => i.is_equipped);
 
-  const resetForm = () => { setForm({ name: "", description: "", type: "equipment", rarity: "common", quantity: 1, effect: "" }); setEditingId(null); setShowCreate(false); };
+  const handleEquip = async (item: any) => {
+    const next = !item.is_equipped;
+    await updateInventoryItem(item.id, { is_equipped: next });
+    toast.success(next ? `${item.name} equipped` : `${item.name} unequipped`);
+  };
+
+  const resetForm = () => { setForm({ name: "", description: "", type: "equipment", rarity: "common", quantity: 1, effect: "", stat_effects: "" }); setEditingId(null); setShowCreate(false); };
 
   const handleEdit = (item: any) => {
-    setForm({ name: item.name, description: item.description, type: item.type, rarity: item.rarity, quantity: item.quantity, effect: item.effect || "" });
+    setForm({ name: item.name, description: item.description, type: item.type, rarity: item.rarity, quantity: item.quantity, effect: item.effect || "", stat_effects: serializeStatEffects(Array.isArray(item.stat_effects) ? item.stat_effects : []) });
     setEditingId(item.id);
     setShowCreate(true);
   };
 
   const handleSave = async () => {
     if (!form.name.trim()) return;
+    const statEffects = parseStatEffects(form.stat_effects);
     if (editingId) {
-      await updateInventoryItem(editingId, { ...form, quantity: Number(form.quantity), effect: form.effect || null });
+      await updateInventoryItem(editingId, { ...form, quantity: Number(form.quantity), effect: form.effect || null, stat_effects: statEffects });
     } else {
-      await createInventoryItem({ ...form, quantity: Number(form.quantity), effect: form.effect || null, slot: null, tier: null, stat_effects: [], is_equipped: false });
+      await createInventoryItem({ ...form, quantity: Number(form.quantity), effect: form.effect || null, slot: null, tier: null, stat_effects: statEffects, is_equipped: false });
     }
     resetForm();
   };
@@ -1324,14 +1344,15 @@ export function InventoryPage() {
               <input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} placeholder="Item name" className="bg-muted/30 border border-border rounded px-3 py-1.5 text-sm focus:outline-none focus:border-primary/40" />
               <input type="number" value={form.quantity} onChange={(e) => setForm((f) => ({ ...f, quantity: Number(e.target.value) }))} placeholder="Qty" className="bg-muted/30 border border-border rounded px-3 py-1.5 text-sm focus:outline-none" min={1} />
               <select value={form.type} onChange={(e) => setForm((f) => ({ ...f, type: e.target.value }))} className="bg-muted/30 border border-border rounded px-2 py-1.5 text-xs font-mono focus:outline-none">
-                {["equipment", "consumable", "material", "artifact"].map((t) => <option key={t}>{t}</option>)}
+                {["equipment", "weapon", "artifact", "consumable", "material"].map((t) => <option key={t}>{t}</option>)}
               </select>
               <select value={form.rarity} onChange={(e) => setForm((f) => ({ ...f, rarity: e.target.value }))} className="bg-muted/30 border border-border rounded px-2 py-1.5 text-xs font-mono focus:outline-none">
                 {["common", "rare", "epic", "legendary", "mythic"].map((r) => <option key={r}>{r}</option>)}
               </select>
             </div>
             <input value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))} placeholder="Description" className="w-full bg-muted/30 border border-border rounded px-3 py-1.5 text-sm focus:outline-none" />
-            <input value={form.effect} onChange={(e) => setForm((f) => ({ ...f, effect: e.target.value }))} placeholder="Effect" className="w-full bg-muted/30 border border-border rounded px-3 py-1.5 text-xs font-mono focus:outline-none" />
+            <input value={form.effect} onChange={(e) => setForm((f) => ({ ...f, effect: e.target.value }))} placeholder="Effect description" className="w-full bg-muted/30 border border-border rounded px-3 py-1.5 text-xs font-mono focus:outline-none" />
+            <input value={form.stat_effects} onChange={(e) => setForm((f) => ({ ...f, stat_effects: e.target.value }))} placeholder="Stat bonuses: STR +5, VIT +3, INT -2" className="w-full bg-muted/30 border border-border rounded px-3 py-1.5 text-xs font-mono focus:outline-none focus:border-primary/40" />
             <div className="flex gap-2 justify-end">
               <button onClick={resetForm} className="px-3 py-1.5 text-xs font-mono text-muted-foreground border border-border rounded">Cancel</button>
               <button onClick={handleSave} className="px-3 py-1.5 text-xs font-mono bg-primary/10 border border-primary/30 text-primary rounded">Add</button>
@@ -1339,6 +1360,43 @@ export function InventoryPage() {
           </div>
         </HudCard>
       )}
+
+      {/* Equipped loadout */}
+      {equipped.length > 0 && (
+        <HudCard className="border-primary/20">
+          <p className="text-[9px] font-mono text-primary uppercase tracking-widest mb-2 flex items-center gap-1.5">
+            <Shield size={10} /> Equipped Loadout ({equipped.length})
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {equipped.map((item) => {
+              const effects = Array.isArray(item.stat_effects) ? (item.stat_effects as { label: string; value: number; unit: string }[]) : [];
+              return (
+                <div key={item.id} className="flex items-start gap-1.5 px-2 py-1.5 rounded border border-primary/30 bg-primary/5">
+                  <div className="flex-1">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-xs font-display font-semibold text-primary">{item.name}</span>
+                      <span className="text-[9px] font-mono text-muted-foreground">{item.type}</span>
+                    </div>
+                    {effects.length > 0 && (
+                      <div className="flex gap-1 flex-wrap mt-0.5">
+                        {effects.map((eff, i) => (
+                          <span key={i} className={`text-[8px] font-mono ${eff.value >= 0 ? "text-green-400" : "text-red-400"}`}>
+                            {eff.label}{eff.value >= 0 ? "+" : ""}{eff.value}{eff.unit}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  <button onClick={() => handleEquip(item)} className="text-muted-foreground hover:text-destructive transition-colors mt-0.5" title="Unequip">
+                    <X size={10} />
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        </HudCard>
+      )}
+
       <div className="flex gap-1.5 flex-wrap">
         {types.map((t) => (
           <button key={t} onClick={() => setTypeFilter(t)} className={`px-2 py-1 text-[10px] font-mono uppercase rounded border transition-all ${typeFilter === t ? "bg-primary/10 border-primary/30 text-primary" : "border-border/50 text-muted-foreground"}`}>{t}</button>
@@ -1364,7 +1422,8 @@ export function InventoryPage() {
                     </select>
                   </div>
                   <input value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))} placeholder="Description" className="w-full bg-muted/30 border border-border rounded px-3 py-1.5 text-sm focus:outline-none" />
-                  <input value={form.effect} onChange={(e) => setForm((f) => ({ ...f, effect: e.target.value }))} placeholder="Effect" className="w-full bg-muted/30 border border-border rounded px-3 py-1.5 text-xs font-mono focus:outline-none" />
+                  <input value={form.effect} onChange={(e) => setForm((f) => ({ ...f, effect: e.target.value }))} placeholder="Effect description" className="w-full bg-muted/30 border border-border rounded px-3 py-1.5 text-xs font-mono focus:outline-none" />
+                  <input value={form.stat_effects} onChange={(e) => setForm((f) => ({ ...f, stat_effects: e.target.value }))} placeholder="Stat bonuses: STR +5, VIT +3, INT -2" className="w-full bg-muted/30 border border-border rounded px-3 py-1.5 text-xs font-mono focus:outline-none focus:border-primary/40" />
                   <div className="flex gap-2 justify-end">
                     <button onClick={resetForm} className="px-3 py-1.5 text-xs font-mono text-muted-foreground border border-border rounded">Cancel</button>
                     <button onClick={handleSave} className="px-3 py-1.5 text-xs font-mono bg-primary/10 border border-primary/30 text-primary rounded">Save</button>
@@ -1394,6 +1453,18 @@ export function InventoryPage() {
                       {item.slot && <div><span className="text-muted-foreground">Slot:</span> <span className="text-foreground">{item.slot}</span></div>}
                       {item.tier && <div><span className="text-muted-foreground">Tier:</span> <span className="text-foreground">{item.tier}</span></div>}
                       <div><span className="text-muted-foreground">Obtained:</span> <span className="text-foreground">{new Date(item.obtained_at).toLocaleString()}</span></div>
+                      {Array.isArray(item.stat_effects) && item.stat_effects.length > 0 && (
+                        <div className="pt-1">
+                          <span className="text-muted-foreground block mb-1">Stat Effects:</span>
+                          <div className="flex gap-1.5 flex-wrap">
+                            {(item.stat_effects as { label: string; value: number; unit: string }[]).map((eff, idx) => (
+                              <span key={idx} className={`px-1.5 py-0.5 rounded border text-[9px] font-mono ${eff.value >= 0 ? "text-green-400 border-green-500/30 bg-green-500/5" : "text-red-400 border-red-500/30 bg-red-500/5"}`}>
+                                {eff.label} {eff.value >= 0 ? "+" : ""}{eff.value}{eff.unit}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   )}
                   {!isExpanded && (
@@ -1403,6 +1474,15 @@ export function InventoryPage() {
                   )}
                 </div>
                 <div className="flex flex-col gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
+                  {EQUIPPABLE.has(item.type) && (
+                    <button
+                      onClick={() => handleEquip(item)}
+                      className={`p-1 transition-colors ${item.is_equipped ? "text-primary hover:text-primary/60" : "text-muted-foreground hover:text-primary"}`}
+                      title={item.is_equipped ? "Unequip" : "Equip"}
+                    >
+                      {item.is_equipped ? <ShieldOff size={12} /> : <Shield size={12} />}
+                    </button>
+                  )}
                   <button onClick={() => handleEdit(item)} className="p-1 text-muted-foreground hover:text-primary transition-colors"><Edit2 size={12} /></button>
                   <button onClick={() => setConfirmDeleteItem({ id: item.id, label: item.name })} className="p-1 text-muted-foreground hover:text-destructive transition-colors"><Trash2 size={12} /></button>
                 </div>
@@ -1423,6 +1503,213 @@ export function InventoryPage() {
           setConfirmDeleteItem(null);
         }}
         onCancel={() => setConfirmDeleteItem(null)}
+      />
+    </div>
+  );
+}
+
+// ─── DomainPage ────────────────────────────────────────────
+const EFFECT_TYPE_COLORS: Record<string, string> = {
+  domain:        "text-violet-400 border-violet-500/30 bg-violet-500/5",
+  curse:         "text-red-400 border-red-500/30 bg-red-500/5",
+  terrain:       "text-amber-400 border-amber-500/30 bg-amber-500/5",
+  environmental: "text-blue-400 border-blue-500/30 bg-blue-500/5",
+  aura:          "text-green-400 border-green-500/30 bg-green-500/5",
+  zone:          "text-cyan-400 border-cyan-500/30 bg-cyan-500/5",
+};
+const EFFECT_TYPES = ["domain", "curse", "terrain", "environmental", "aura", "zone"] as const;
+
+export function DomainPage() {
+  const { domainEffects, domainEffectsLoading, createDomainEffect, updateDomainEffect, deleteDomainEffect, refetchDomainEffects } = useAppData();
+  const [showCreate, setShowCreate] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [form, setForm] = useState({ name: "", description: "", effect_type: "domain", stat_modifiers: "", area_effects: "", source: "", expires_at: "", is_active: true });
+  const [confirmDelete, setConfirmDelete] = useState<{ id: string; label: string } | null>(null);
+
+  useEffect(() => { void refetchDomainEffects(); }, [refetchDomainEffects]);
+
+  const parseModifiers = (str: string): { label: string; value: number; unit: string }[] => {
+    if (!str.trim()) return [];
+    return str.split(",").flatMap((token) => {
+      const m = token.trim().match(/^([A-Z]+)\s*([+-]?\d+)(%?)$/i);
+      if (!m) return [];
+      return [{ label: m[1].toUpperCase(), value: Number(m[2]), unit: m[3] || "" }];
+    });
+  };
+  const serializeModifiers = (mods: { label: string; value: number; unit: string }[]): string =>
+    mods.map((m) => `${m.label} ${m.value >= 0 ? "+" : ""}${m.value}${m.unit}`).join(", ");
+
+  const resetForm = () => {
+    setForm({ name: "", description: "", effect_type: "domain", stat_modifiers: "", area_effects: "", source: "", expires_at: "", is_active: true });
+    setEditingId(null);
+    setShowCreate(false);
+  };
+
+  const handleEdit = (ef: any) => {
+    setForm({
+      name: ef.name,
+      description: ef.description || "",
+      effect_type: ef.effect_type,
+      stat_modifiers: serializeModifiers(Array.isArray(ef.stat_modifiers) ? ef.stat_modifiers : []),
+      area_effects: Array.isArray(ef.area_effects) ? ef.area_effects.join(", ") : "",
+      source: ef.source || "",
+      expires_at: ef.expires_at ? ef.expires_at.slice(0, 16) : "",
+      is_active: ef.is_active,
+    });
+    setEditingId(ef.id);
+    setShowCreate(true);
+  };
+
+  const handleSave = async () => {
+    if (!form.name.trim()) return;
+    const stat_modifiers = parseModifiers(form.stat_modifiers);
+    const area_effects = form.area_effects.split(",").map((s) => s.trim()).filter(Boolean);
+    const payload = {
+      name: form.name,
+      description: form.description || null,
+      effect_type: form.effect_type,
+      stat_modifiers,
+      area_effects,
+      source: form.source || null,
+      expires_at: form.expires_at ? new Date(form.expires_at).toISOString() : null,
+      is_active: form.is_active,
+    };
+    if (editingId) {
+      await updateDomainEffect(editingId, payload);
+    } else {
+      await createDomainEffect(payload);
+    }
+    resetForm();
+  };
+
+  const handleToggle = async (ef: any) => {
+    await updateDomainEffect(ef.id, { is_active: !ef.is_active });
+  };
+
+  const active = domainEffects.filter((e) => e.is_active);
+  const inactive = domainEffects.filter((e) => !e.is_active);
+
+  if (domainEffectsLoading) return <div className="flex items-center justify-center h-40"><Loader2 className="animate-spin text-primary" size={24} /></div>;
+
+  const EffectForm = () => (
+    <HudCard className="border-primary/20">
+      <p className="text-[9px] font-mono text-primary uppercase tracking-widest mb-3">{editingId ? "Edit Effect" : "New Effect"}</p>
+      <div className="space-y-2">
+        <div className="grid grid-cols-2 gap-2">
+          <input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} placeholder="Effect name" className="bg-muted/30 border border-border rounded px-3 py-1.5 text-sm focus:outline-none focus:border-primary/40" />
+          <select value={form.effect_type} onChange={(e) => setForm((f) => ({ ...f, effect_type: e.target.value }))} className="bg-muted/30 border border-border rounded px-2 py-1.5 text-xs font-mono focus:outline-none">
+            {EFFECT_TYPES.map((t) => <option key={t}>{t}</option>)}
+          </select>
+        </div>
+        <textarea value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))} placeholder="Description..." rows={2} className="w-full bg-muted/30 border border-border rounded px-3 py-1.5 text-sm resize-none focus:outline-none" />
+        <input value={form.stat_modifiers} onChange={(e) => setForm((f) => ({ ...f, stat_modifiers: e.target.value }))} placeholder="Stat modifiers: STR -10, AGI +5, VIT -20%" className="w-full bg-muted/30 border border-border rounded px-3 py-1.5 text-xs font-mono focus:outline-none focus:border-primary/40" />
+        <input value={form.area_effects} onChange={(e) => setForm((f) => ({ ...f, area_effects: e.target.value }))} placeholder="Area effects (comma-separated): gravity doubled, invisibility nullified" className="w-full bg-muted/30 border border-border rounded px-3 py-1.5 text-xs font-mono focus:outline-none" />
+        <div className="grid grid-cols-2 gap-2">
+          <input value={form.source} onChange={(e) => setForm((f) => ({ ...f, source: e.target.value }))} placeholder="Source (who applied it)" className="bg-muted/30 border border-border rounded px-3 py-1.5 text-xs font-mono focus:outline-none" />
+          <input type="datetime-local" value={form.expires_at} onChange={(e) => setForm((f) => ({ ...f, expires_at: e.target.value }))} className="bg-muted/30 border border-border rounded px-3 py-1.5 text-xs font-mono focus:outline-none" />
+        </div>
+        <label className="flex items-center gap-2 text-xs font-mono text-muted-foreground cursor-pointer">
+          <input type="checkbox" checked={form.is_active} onChange={(e) => setForm((f) => ({ ...f, is_active: e.target.checked }))} className="rounded" />
+          Currently active
+        </label>
+        <div className="flex gap-2 justify-end">
+          <button onClick={resetForm} className="px-3 py-1.5 text-xs font-mono text-muted-foreground border border-border rounded">Cancel</button>
+          <button onClick={handleSave} className="px-3 py-1.5 text-xs font-mono bg-primary/10 border border-primary/30 text-primary rounded">{editingId ? "Save" : "Add"}</button>
+        </div>
+      </div>
+    </HudCard>
+  );
+
+  const EffectCard = ({ ef }: { ef: any }) => {
+    const mods = Array.isArray(ef.stat_modifiers) ? (ef.stat_modifiers as { label: string; value: number; unit: string }[]) : [];
+    const areaFx = Array.isArray(ef.area_effects) ? ef.area_effects as string[] : [];
+    const colorClass = EFFECT_TYPE_COLORS[ef.effect_type] ?? EFFECT_TYPE_COLORS.domain;
+    return (
+      <HudCard className={ef.is_active ? "border-primary/20" : "opacity-50"}>
+        <div className="flex items-start justify-between gap-2">
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 flex-wrap mb-1">
+              <p className="text-sm font-display font-bold">{ef.name}</p>
+              <span className={`text-[8px] font-mono px-1.5 py-0.5 rounded border ${colorClass}`}>{ef.effect_type.toUpperCase()}</span>
+              {ef.is_active
+                ? <span className="text-[8px] font-mono text-green-400 border border-green-500/30 rounded px-1">ACTIVE</span>
+                : <span className="text-[8px] font-mono text-muted-foreground border border-border rounded px-1">INACTIVE</span>}
+            </div>
+            {ef.source && <p className="text-[10px] font-mono text-muted-foreground mb-1">Source: {ef.source}</p>}
+            {ef.description && <p className="text-xs font-body text-muted-foreground mb-2">{ef.description}</p>}
+            {mods.length > 0 && (
+              <div className="flex gap-1.5 flex-wrap mb-1.5">
+                {mods.map((mod, i) => (
+                  <span key={i} className={`text-[9px] font-mono px-1.5 py-0.5 rounded border ${mod.value >= 0 ? "text-green-400 border-green-500/30 bg-green-500/5" : "text-red-400 border-red-500/30 bg-red-500/5"}`}>
+                    {mod.label} {mod.value >= 0 ? "+" : ""}{mod.value}{mod.unit}
+                  </span>
+                ))}
+              </div>
+            )}
+            {areaFx.length > 0 && (
+              <div className="space-y-0.5">
+                {areaFx.map((fx, i) => (
+                  <p key={i} className="text-[10px] font-mono text-cyan-400 pl-2 border-l border-cyan-500/30">{fx}</p>
+                ))}
+              </div>
+            )}
+            {ef.expires_at && (
+              <p className="text-[9px] font-mono text-muted-foreground mt-1.5">
+                Expires: {new Date(ef.expires_at).toLocaleString()}
+              </p>
+            )}
+          </div>
+          <div className="flex flex-col gap-1 shrink-0">
+            <button onClick={() => handleToggle(ef)} className={`p-1 transition-colors ${ef.is_active ? "text-green-400 hover:text-muted-foreground" : "text-muted-foreground hover:text-green-400"}`} title={ef.is_active ? "Deactivate" : "Activate"}>
+              {ef.is_active ? <CheckCircle2 size={12} /> : <AlertTriangle size={12} />}
+            </button>
+            <button onClick={() => handleEdit(ef)} className="p-1 text-muted-foreground hover:text-primary transition-colors"><Edit2 size={12} /></button>
+            <button onClick={() => setConfirmDelete({ id: ef.id, label: ef.name })} className="p-1 text-muted-foreground hover:text-destructive transition-colors"><Trash2 size={12} /></button>
+          </div>
+        </div>
+      </HudCard>
+    );
+  };
+
+  return (
+    <div className="space-y-5">
+      <PageHeader
+        title="Domain Effects"
+        subtitle={`${active.length} active · ${domainEffects.length} total`}
+        icon={<Waves size={18} />}
+        actions={<button onClick={() => { resetForm(); setShowCreate(true); }} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono bg-primary/10 border border-primary/30 text-primary rounded"><Plus size={12} /> Add Effect</button>}
+      />
+
+      {showCreate && !editingId && <EffectForm />}
+
+      {active.length > 0 && (
+        <div className="space-y-3">
+          <h3 className="text-xs font-mono text-muted-foreground uppercase tracking-widest flex items-center gap-2">
+            <CheckCircle2 size={10} className="text-green-400" /> Active Effects ({active.length})
+          </h3>
+          {active.map((ef) => editingId === ef.id ? <EffectForm key={ef.id} /> : <EffectCard key={ef.id} ef={ef} />)}
+        </div>
+      )}
+
+      {inactive.length > 0 && (
+        <div className="space-y-3">
+          <h3 className="text-xs font-mono text-muted-foreground uppercase tracking-widest flex items-center gap-2">
+            <AlertTriangle size={10} className="text-muted-foreground" /> Inactive ({inactive.length})
+          </h3>
+          {inactive.map((ef) => editingId === ef.id ? <EffectForm key={ef.id} /> : <EffectCard key={ef.id} ef={ef} />)}
+        </div>
+      )}
+
+      {domainEffects.length === 0 && !showCreate && (
+        <p className="text-xs font-mono text-muted-foreground text-center py-12">No domain effects. Add one to track active domains, curses, terrain modifiers, or aura zones.</p>
+      )}
+
+      <ConfirmDialog
+        open={confirmDelete !== null}
+        title={`Remove "${confirmDelete?.label}"?`}
+        description="This will permanently delete this domain effect."
+        onConfirm={async () => { if (confirmDelete) { await deleteDomainEffect(confirmDelete.id); setConfirmDelete(null); } }}
+        onCancel={() => setConfirmDelete(null)}
       />
     </div>
   );

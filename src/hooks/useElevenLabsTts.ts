@@ -266,13 +266,20 @@ export function useElevenLabsTts() {
             });
             if (res.ok) {
               const arrayBuf = await res.arrayBuffer();
-              const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+              const AC = window.AudioContext || (window as any).webkitAudioContext;
+              const audioCtx = new AC();
+              // Resume before decoding — Chrome/Opera create AudioContext suspended
+              // when called from an async callback without a fresh user gesture.
+              if (audioCtx.state === "suspended") await audioCtx.resume().catch(() => {});
+              audioCtx.onstatechange = () => {
+                if (audioCtx.state === "suspended") audioCtx.resume().catch(() => {});
+              };
               const decoded = await audioCtx.decodeAudioData(arrayBuf);
               const source = audioCtx.createBufferSource();
               source.buffer = decoded;
               source.connect(audioCtx.destination);
               source.start(0);
-              source.onended = () => { setIsSpeaking(false); };
+              source.onended = () => { setIsSpeaking(false); audioCtx.close().catch(() => {}); };
               return;
             }
           }
@@ -295,13 +302,18 @@ export function useElevenLabsTts() {
           });
           if (res.ok) {
             const arrayBuf = await res.arrayBuffer();
-            const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+            const AC = window.AudioContext || (window as any).webkitAudioContext;
+            const audioCtx = new AC();
+            if (audioCtx.state === "suspended") await audioCtx.resume().catch(() => {});
+            audioCtx.onstatechange = () => {
+              if (audioCtx.state === "suspended") audioCtx.resume().catch(() => {});
+            };
             const decoded = await audioCtx.decodeAudioData(arrayBuf);
             const source = audioCtx.createBufferSource();
             source.buffer = decoded;
             source.connect(audioCtx.destination);
             source.start(0);
-            source.onended = () => { setIsSpeaking(false); };
+            source.onended = () => { setIsSpeaking(false); audioCtx.close().catch(() => {}); };
             return;
           }
         } catch { /* Kyutai not running, fall through */ }

@@ -518,6 +518,7 @@ export default function CouncilBoard() {
                     entityId: member.id,
                     entityType: "council",
                     userId: userId ?? undefined,
+                    avatarUrl: member.avatar ?? undefined,
                   });
                 }}
                 className="appearance-none text-[10px] font-mono font-medium text-emerald-400 bg-emerald-950/30 hover:bg-emerald-950/50 border border-emerald-800/40 hover:border-emerald-500/50 rounded-md pl-2 pr-6 py-1 transition-all cursor-pointer focus:outline-none focus:border-emerald-500/60"
@@ -599,7 +600,7 @@ export default function CouncilBoard() {
                         {p.name} ×
                       </button>
                       <button
-                        onClick={() => setVoiceTarget({ name: p.name, role: p.role, systemPrompt: buildPersonaVoiceSystemPrompt({ name: p.name, role: p.role, archetype: p.archetype, system_prompt: p.systemPrompt }), entityId: p.id, entityType: "persona", userId: userId ?? undefined })}
+                        onClick={() => setVoiceTarget({ name: p.name, role: p.role, systemPrompt: buildPersonaVoiceSystemPrompt({ name: p.name, role: p.role, archetype: p.archetype, system_prompt: p.systemPrompt }), entityId: p.id, entityType: "persona", userId: userId ?? undefined, avatarUrl: (p as any).avatar_key ?? undefined })}
                         className="flex items-center px-1.5 py-1 text-amber-400 border border-amber-500/40 bg-amber-800/30 hover:bg-amber-700/40 hover:text-amber-200 rounded-r border-l-0 transition-all"
                         title={`Voice call ${p.name}`}
                       >

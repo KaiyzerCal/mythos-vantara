@@ -1,5 +1,6 @@
-export type BrandKey = "vantara" | "skyforgeai" | "bioneer" | "navi" | "codexos" | "custom";
+export type BrandKey = "vantara" | "skyforgeai" | "bioneer" | "navi" | "codexos" | "prymal" | "custom";
 export type DeadlineTier = "rapid" | "standard" | "premium";
+export type QualityTier = 1 | 2 | 3;
 export type ComponentType =
   | "hero" | "navbar" | "footer" | "cta" | "card" | "form"
   | "testimonial" | "pricing" | "feature_grid" | "modal"
@@ -19,6 +20,7 @@ export interface DesignBrief {
   competitorUrls?: string[];
   userJourney?: string;
   deadlineTier: DeadlineTier;
+  qualityTier?: QualityTier;
   clientName?: string;
   projectValue?: number;
 }

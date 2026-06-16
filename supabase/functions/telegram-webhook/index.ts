@@ -1389,7 +1389,7 @@ async function handleCommand(command: string, chatId: string, fullText: string):
   switch (command.toLowerCase()) {
     case "/start":
     case "/help":
-      return `MAVIS Online — Telegram Interface\n\nCommands:\n/brief — morning brief (overdue, approvals, SR, revenue, goals)\n/quests — active quests\n/energy — energy status\n/revenue — revenue report\n/expense [amount] [desc] — log an expense\n/tasks — run pending tasks now\n/scan — demand scan for product opportunities\n/orders — view Inbox (pending tasks & approvals)\n/approve [id] — approve a pending item\n/reject [id] — reject a pending item\n/preview [id] — preview full content before approving\n/council [question] — one-shot strategic council convene\n/council-mode — sustained council session (every message convenes the board)\n/council-off — exit council mode\n/daily — save today's activity log to Knowledge Graph\n/review — surface notes due for spaced repetition\n/weekly — generate weekly review summary\n/monthly — generate monthly review summary\n/goals — view active goals and quest progress\n/search [query] — search your Knowledge Graph\n/note [title] — fetch a specific note\n/addnote [title] | [content] — quick note to Knowledge Graph\n/personas — list your NAVI roster\n/switch [name] — talk to a persona (chats land in their app thread)\n/mavis — return to MAVIS\n/ingest [url or text] — save a URL or text to your Knowledge Graph\n/imagine [description] — generate an image with DALL-E 3\n\nVoice messages, photos, and files also work.\nOr just talk to me.`;
+      return `MAVIS Online — Telegram Interface\n\nAPPROVALS (MAVIS sends nudges — reply to act on them):\n/orders — view all pending approvals\n/approve [id] — approve (outreach send, product launch, tweet, etc.)\n/reject [id] — dismiss/reject\n/preview [id] — preview full content before deciding\n\nINTEL & STATUS:\n/brief — morning brief (overdue, approvals, SR, revenue, goals)\n/quests — active quests\n/energy — energy status\n/revenue — revenue report\n/goals — active goals and quest progress\n\nACTIONS:\n/expense [amount] [desc] — log an expense\n/tasks — run pending tasks now\n/scan — demand scan for product opportunities\n/daily — save today's activity log to Knowledge Graph\n/weekly — generate weekly review summary\n/monthly — generate monthly review summary\n\nKNOWLEDGE:\n/search [query] — search your Knowledge Graph\n/note [title] — fetch a specific note\n/addnote [title] | [content] — quick note\n/review — surface notes due for spaced repetition\n/ingest [url or text] — save to Knowledge Graph\n\nPERSONAS & COUNCIL:\n/personas — list your roster\n/switch [name] — talk to a persona\n/council [question] — one-shot council convene\n/council-mode — sustained council session\n/council-off — exit council mode\n/mavis — return to MAVIS\n\nCREATIVE:\n/imagine [description] — generate an image\n\nVoice messages, photos, and files also work.\nOr just talk to me.`;
 
     case "/brief": {
       const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
@@ -2079,8 +2079,19 @@ Deno.serve(async (req) => {
 
   // ── Commands ───────────────────────────────────────────────
   if (message.text?.startsWith("/")) {
-    const command = message.text.split(" ")[0].split("@")[0];
-    const cmdResponse = await handleCommand(command, chatId, message.text);
+    let rawText = message.text;
+
+    // ── Backward-compat aliases from ambient-monitor nudges ───
+    // /approve_outreach_<id>  →  /approve <id>
+    // /skip_<id>              →  /reject <id>
+    const approveOutreachMatch = rawText.match(/^\/approve_outreach_(\S+)/i);
+    if (approveOutreachMatch) rawText = `/approve ${approveOutreachMatch[1]}`;
+
+    const skipMatch = rawText.match(/^\/skip_(\S+)/i);
+    if (skipMatch) rawText = `/reject ${skipMatch[1]}`;
+
+    const command = rawText.split(" ")[0].split("@")[0];
+    const cmdResponse = await handleCommand(command, chatId, rawText);
     if (cmdResponse) {
       await sendPlain(chatId, cmdResponse);
       return new Response("OK");
