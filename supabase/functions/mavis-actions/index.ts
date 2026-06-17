@@ -3194,6 +3194,20 @@ async function executeAction(sb: any, userId: string, action: MavisAction, req: 
       return data;
     }
 
+    case "calendar_agent": {
+      // Google Calendar CRUD: get_event, get_all_events, check_availability, delete_event, update_event, create_event.
+      // Mirrors n8n MCP_CALENDAR. calendar_id defaults to "primary"; pass group calendar IDs for shared calendars.
+      const res = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-calendar-agent`, {
+        method:  "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
+        body:    JSON.stringify({ userId, ...p }),
+        signal:  AbortSignal.timeout(30000),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((data as any).error ?? `mavis-calendar-agent returned ${res.status}`);
+      return data;
+    }
+
     case "security_scanner": {
       // Website security audit: header analysis + vuln scan → A+-F grade → HTML report + optional email.
       // Mirrors n8n: scrape URL → parallel [header audit + content audit] → grade → HTML email.
