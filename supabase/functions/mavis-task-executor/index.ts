@@ -1662,6 +1662,45 @@ const handleEmailTriage: TaskHandler = async (task) => {
   return { success: true, output: { triaged: result.triaged, drafts_created: result.drafts_created } };
 };
 
+// email_watch — poll for new emails since last check and create dual AI drafts for each
+const handleEmailWatch: TaskHandler = async (task) => {
+  const p = extractPayload(task.payload as Record<string, unknown>);
+  const res = await callFunction("mavis-google-agent", {
+    userId:      task.user_id,
+    action:      "watch_new_emails",
+    max_results: p.max_results ?? 5,
+    model_a:     p.model_a ?? "claude-haiku-4-5-20251001",
+    model_b:     p.model_b ?? "claude-sonnet-4-6",
+    prompt_a:    p.prompt_a ?? "",
+    prompt_b:    p.prompt_b ?? "",
+    signature:   p.signature ?? "",
+    state_key:   p.state_key ?? "email_watch_state",
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) return { success: false, error: (data as any).error ?? `google-agent returned ${res.status}` };
+
+  const result = data as any;
+  if (result.drafts_created > 0 && BOT_TOKEN && OPERATOR_CHAT_ID) {
+    const lines = (result.results ?? [])
+      .filter((r: any) => r.draft_id)
+      .map((r: any) => `• ${r.from?.split("<")[0].trim() || r.from} — ${r.subject}`)
+      .slice(0, 5);
+    const msg = [
+      `📬 *Inbox Watch*`,
+      `${result.processed} new email${result.processed !== 1 ? "s" : ""} · ${result.drafts_created} dual draft${result.drafts_created !== 1 ? "s" : ""} created`,
+      ``,
+      lines.join("\n"),
+    ].join("\n");
+    await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+      method:  "POST",
+      headers: { "Content-Type": "application/json" },
+      body:    JSON.stringify({ chat_id: OPERATOR_CHAT_ID, text: msg, parse_mode: "Markdown" }),
+    }).catch(() => {});
+  }
+
+  return { success: true, output: { processed: result.processed, drafts_created: result.drafts_created } };
+};
+
 // reddit_opportunities — scan a subreddit for business opportunities, output to Sheets + Gmail drafts, deliver Telegram summary
 const handleRedditOpportunities: TaskHandler = async (task) => {
   const p = extractPayload(task.payload as Record<string, unknown>);
@@ -1743,6 +1782,7 @@ const HANDLERS: Record<string, TaskHandler> = {
   youtube_summary:     handleYoutubeSummary,
   content_digest:      handleContentDigest,
   email_triage:        handleEmailTriage,
+  email_watch:         handleEmailWatch,
   discord_agent:       makeAgentHandler("mavis-discord-agent"),
   flashcard_agent:     makeAgentHandler("mavis-flashcard-agent"),
   reddit_agent:        makeAgentHandler("mavis-reddit-agent"),

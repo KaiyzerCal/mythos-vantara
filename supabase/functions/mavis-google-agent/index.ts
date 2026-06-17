@@ -7,7 +7,7 @@
 //   Calendar: create_calendar_event | update_calendar_event | delete_calendar_event
 //             list_calendar_events | find_free_time | create_meet_link
 //   Gmail:    send_email | list_emails | search_emails | get_email
-//             create_draft | dual_draft | mark_read | triage_inbox
+//             create_draft | dual_draft | watch_new_emails | mark_read | triage_inbox
 //   Drive:    list_files | upload_text | create_folder
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
@@ -595,6 +595,117 @@ Plain text only. Use [PLACEHOLDER] for unknown specifics (dates, prices, etc.).
       return { emails, query };
     }
 
+    case "watch_new_emails": {
+      // Poll for new unread emails since last check, create dual AI drafts for each.
+      // Mirrors Make.com "new email → dual AI draft" trigger scenario.
+      if (!sb) throw new Error("watch_new_emails requires internal Supabase client");
+
+      const max       = Math.min(Number(p.max_results ?? 5), 20);
+      const modelA    = String(p.model_a ?? "claude-haiku-4-5-20251001");
+      const modelB    = String(p.model_b ?? "claude-sonnet-4-6");
+      const signature = p.signature ? String(p.signature) : "";
+      const stateKey  = String(p.state_key ?? "email_watch_state");
+
+      // Load last_check timestamp from mavis_memory
+      const { data: stateRow } = await sb
+        .from("mavis_memory")
+        .select("id, content")
+        .eq("user_id", uid)
+        .contains("tags", [stateKey])
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      const lastCheckEpoch: number = stateRow
+        ? (JSON.parse(stateRow.content)?.last_check_epoch ?? 0)
+        : 0;
+
+      const afterFilter = lastCheckEpoch > 0 ? ` after:${lastCheckEpoch}` : "";
+      const q = encodeURIComponent(
+        `is:unread -from:me -category:promotions -category:social${afterFilter}`
+      );
+      const listRes = await gReq(token, `${GMAIL_API}/users/me/messages?maxResults=${max}&q=${q}`);
+      const msgIds: string[] = (listRes.messages ?? []).map((m: any) => m.id);
+
+      const nowEpoch  = Math.floor(Date.now() / 1000);
+      const results: any[] = [];
+      let draftsCreated = 0;
+
+      for (const msgId of msgIds) {
+        try {
+          const msg     = await gReq(token, `${GMAIL_API}/users/me/messages/${msgId}?format=full`);
+          const headers: { name: string; value: string }[] = msg.payload?.headers ?? [];
+          const h = (name: string) => headers.find((hh: any) => hh.name === name)?.value ?? "";
+          const from      = h("From");
+          const subject   = h("Subject");
+          const messageId = h("Message-ID");
+          const body      = decodeMessageBody(msg.payload) || msg.snippet;
+          const toAddr    = from.match(/<([^>]+)>/) ? from.match(/<([^>]+)>/)![1] : from;
+          const ctx       = `From: ${from}\nSubject: ${subject}\n\n${body.slice(0, 3000)}`;
+
+          const sysA = p.prompt_a ? String(p.prompt_a) :
+            `Draft a concise, direct email reply in 2-3 sentences. Be professional and to the point.
+Start with "Hello," and end with "Best,${signature ? `\n${signature}` : ""}".
+Plain text only. Address the core request immediately.`;
+
+          const sysB = p.prompt_b ? String(p.prompt_b) :
+            `Draft a thorough, warm email reply that addresses every point raised.
+Start with "Hello," and end with "Best,${signature ? `\n${signature}` : ""}".
+Plain text only. Use [PLACEHOLDER] for unknown specifics.
+3–6 sentences, comprehensive but not verbose.`;
+
+          const [draftA, draftB] = await Promise.all([
+            callClaude(sysA, ctx, modelA as any, 512),
+            callClaude(sysB, ctx, modelB as any, 1024),
+          ]);
+
+          const combined = `--- DRAFT A (Concise) ---\n${draftA}\n\n--- DRAFT B (Detailed) ---\n${draftB}`;
+
+          const draft = await gReq(token, `${GMAIL_API}/users/me/drafts`, "POST", {
+            message: {
+              raw: encodeMime(toAddr, `Re: ${subject}`, combined, {
+                threadId:   msg.threadId,
+                inReplyTo:  messageId ? `<${messageId}>` : undefined,
+                references: messageId ? `<${messageId}>` : undefined,
+              }),
+              threadId: msg.threadId,
+            },
+          });
+
+          results.push({
+            message_id:    msgId,
+            from,
+            subject,
+            draft_id:      draft.id,
+            draft_preview_a: draftA.slice(0, 150),
+            draft_preview_b: draftB.slice(0, 150),
+          });
+          draftsCreated++;
+        } catch (e: unknown) {
+          results.push({ message_id: msgId, error: e instanceof Error ? e.message : String(e) });
+        }
+      }
+
+      // Persist updated check timestamp
+      const newState = JSON.stringify({
+        last_check_epoch: nowEpoch,
+        last_run: new Date().toISOString(),
+      });
+      if (stateRow) {
+        await sb.from("mavis_memory").update({ content: newState }).eq("id", stateRow.id);
+      } else {
+        await sb.from("mavis_memory").insert({
+          user_id:    uid,
+          role:       "assistant",
+          content:    newState,
+          tags:       [stateKey, "email_watch", "system_state"],
+          importance: 3,
+        });
+      }
+
+      return { processed: msgIds.length, drafts_created: draftsCreated, results };
+    }
+
     default:
       throw new Error(`Unknown Gmail action: ${action}`);
   }
@@ -708,7 +819,7 @@ serve(async (req) => {
     }
 
     const GMAIL_ACTIONS = ["send_email", "create_draft", "dual_draft", "get_email", "mark_read",
-                           "triage_inbox", "list_emails", "search_emails"];
+                           "triage_inbox", "list_emails", "search_emails", "watch_new_emails"];
     if (GMAIL_ACTIONS.includes(action) || action.includes("email") || action.includes("gmail")) {
       const token = await getToken(adminSb, uid, "gmail");
       const result = await handleGmail(action, body, token, uid, adminSb);

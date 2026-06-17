@@ -2678,6 +2678,19 @@ async function executeAction(sb: any, userId: string, action: MavisAction, req: 
       return data;
     }
 
+    case "email_watch": {
+      // Queue an ambient inbox watcher — polls for new emails and auto-creates dual AI drafts.
+      const { data: task } = await adminClient.from("mavis_tasks").insert({
+        user_id:      userId,
+        type:         "email_watch",
+        description:  "Inbox watcher: new emails → dual AI drafts",
+        payload:      p,
+        status:       "pending",
+        scheduled_at: new Date().toISOString(),
+      }).select().single();
+      return { queued: true, task_id: (task as any)?.id };
+    }
+
     case "vision_agent": {
       const res = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-vision-agent`, {
         method: "POST",
