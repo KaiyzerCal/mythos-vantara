@@ -2111,6 +2111,7 @@ const HANDLERS: Record<string, TaskHandler> = {
   sentry_agent:        makeAgentHandler("mavis-sentry-agent"),
   sheets_agent:        makeAgentHandler("mavis-sheets-agent"),
   vision_agent:        makeAgentHandler("mavis-vision-agent"),
+  video_narrator:      makeAgentHandler("mavis-video-narrator"),
   social_content_pipeline: handleSocialContentPipeline,
   youtube_summary:     handleYoutubeSummary,
   content_digest:      handleContentDigest,

@@ -3180,6 +3180,20 @@ async function executeAction(sb: any, userId: string, action: MavisAction, req: 
       return data;
     }
 
+    case "video_narrator": {
+      // Batched Claude vision narration: frame_urls[] or frames_base64[] OR video_url (ffmpeg) → script → TTS → Telegram/GDrive.
+      // Mirrors n8n: Download video → OpenCV 90 frames → Loop 15-frame batches + "Continue from script" → TTS → Drive.
+      const res = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-video-narrator`, {
+        method:  "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
+        body:    JSON.stringify({ userId, ...p }),
+        signal:  AbortSignal.timeout(300000), // 5 min: multi-batch vision + TTS can be slow
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((data as any).error ?? `mavis-video-narrator returned ${res.status}`);
+      return data;
+    }
+
     case "twitter_agent": {
       const res = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-twitter-agent`, {
         method: "POST",
