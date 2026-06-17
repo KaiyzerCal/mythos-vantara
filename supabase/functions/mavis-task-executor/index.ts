@@ -1380,6 +1380,60 @@ const handleWeeklyReflection: TaskHandler = async (task) => {
   return { success: true, output: { summary: (data as any).report?.slice(0, 500) } };
 };
 
+// content_digest — scrape one or more source sites and send a summary via Telegram
+const handleContentDigest: TaskHandler = async (task) => {
+  const p = extractPayload(task.payload as Record<string, unknown>);
+
+  // Accept single source or array of sources
+  const sources: Array<{ url: string; link_pattern?: string; name?: string }> =
+    Array.isArray(p.sources)
+      ? (p.sources as any[]).map(s => typeof s === "string" ? { url: s } : s)
+      : [{ url: String(p.url ?? ""), link_pattern: p.link_pattern as string | undefined, name: p.name as string | undefined }];
+
+  const limit        = Math.min(Number(p.limit ?? 5), 10);
+  const allItems: any[] = [];
+
+  for (const source of sources) {
+    if (!source.url) continue;
+    const res = await callFunction("mavis-firecrawl-agent", {
+      userId:         task.user_id,
+      action:         "digest",
+      url:            source.url,
+      link_pattern:   source.link_pattern ?? "",
+      limit,
+      summary_prompt: p.summary_prompt,
+    });
+    const data = await res.json().catch(() => ({}));
+    if ((data as any).items) {
+      ((data as any).items as any[]).forEach(item =>
+        allItems.push({ ...item, source_name: source.name ?? source.url }),
+      );
+    }
+  }
+
+  // Telegram digest
+  if (allItems.length > 0 && BOT_TOKEN && OPERATOR_CHAT_ID) {
+    const label = String(p.label ?? "Content Digest");
+    const header = `📰 *${label}* — ${new Date().toLocaleDateString("en-US", { month: "short", day: "numeric" })}\n${allItems.length} article${allItems.length !== 1 ? "s" : ""} summarized\n\n`;
+    const body   = allItems.slice(0, 6).map((item: any, i: number) =>
+      `*${i + 1}. ${(item.title ?? "Untitled").slice(0, 80)}*\n${(item.summary ?? "").slice(0, 220)}...\n[Read →](${item.url})`,
+    ).join("\n\n");
+
+    await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        chat_id:                 OPERATOR_CHAT_ID,
+        text:                    (header + body).slice(0, 4000),
+        parse_mode:              "Markdown",
+        disable_web_page_preview: true,
+      }),
+    }).catch(() => {});
+  }
+
+  return { success: true, output: { items: allItems, count: allItems.length } };
+};
+
 // email_triage — runs Gmail auto-responder pipeline (assess + draft replies)
 const handleEmailTriage: TaskHandler = async (task) => {
   const p = extractPayload(task.payload as Record<string, unknown>);
@@ -1455,6 +1509,7 @@ const HANDLERS: Record<string, TaskHandler> = {
   sentry_agent:        makeAgentHandler("mavis-sentry-agent"),
   sheets_agent:        makeAgentHandler("mavis-sheets-agent"),
   vision_agent:        makeAgentHandler("mavis-vision-agent"),
+  content_digest:      handleContentDigest,
   email_triage:        handleEmailTriage,
   discord_agent:       makeAgentHandler("mavis-discord-agent"),
 };

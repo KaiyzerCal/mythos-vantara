@@ -1080,6 +1080,9 @@ INTELLIGENCE — semantic search, deep scraping, video transcripts, SEC filings:
 :::ACTION{"type":"firecrawl_agent","params":{"action":"crawl","url":"https://competitor.com","max_pages":15}}:::
 :::ACTION{"type":"firecrawl_agent","params":{"action":"map","url":"https://example.com","limit":100}}:::
 :::ACTION{"type":"firecrawl_agent","params":{"action":"extract","url":"https://example.com","prompt":"Extract pricing tiers, features, and target audience"}}:::
+:::ACTION{"type":"firecrawl_agent","params":{"action":"digest","url":"http://www.paulgraham.com/articles.html","link_pattern":".html","limit":5,"summary_prompt":"Summarize in 3-5 sentences: main argument, key insight, why it matters."}}:::
+:::ACTION{"type":"content_digest","params":{"label":"Weekly Reading","sources":[{"url":"http://www.paulgraham.com/articles.html","link_pattern":".html","name":"Paul Graham"},{"url":"https://news.ycombinator.com","link_pattern":"item?id=","name":"Hacker News"}],"limit":5}}:::
+Use digest for any "monitor this site, summarize new posts" request. Works without Firecrawl on static HTML sites (paulgraham.com, plain blogs). content_digest runs async and delivers results via Telegram. For single immediate reads use scrape.
 :::ACTION{"type":"youtube_agent","params":{"action":"search","query":"AI agents tutorial","max_results":5}}:::
 :::ACTION{"type":"youtube_agent","params":{"action":"get_transcript","video_id":"dQw4w9WgXcQ","language":"en"}}:::
 :::ACTION{"type":"youtube_agent","params":{"action":"get_video","video_id":"dQw4w9WgXcQ"}}:::

@@ -195,8 +195,146 @@ serve(async (req) => {
         return json({ data: data.data, status: data.status });
       }
 
+      case "digest": {
+        // Scrape an index/list page, extract article links, AI-summarize each.
+        // Uses Firecrawl when configured, falls back to native fetch for simple HTML sites.
+        const indexUrl      = String(body.url ?? "");
+        const limitN        = Math.min(Number(body.limit ?? 5), 10);
+        const linkPattern   = body.link_pattern ? String(body.link_pattern) : "";
+        const summaryPrompt = body.summary_prompt
+          ? String(body.summary_prompt)
+          : "Summarize this article in 3-5 sentences. Cover: main argument, key insights, and why it matters. Be concrete.";
+
+        if (!indexUrl) return json({ error: "url required" }, 400);
+
+        const ANTHROPIC_KEY = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
+        let baseUrl: URL;
+        try { baseUrl = new URL(indexUrl); } catch { return json({ error: "Invalid url" }, 400); }
+
+        // ── Step 1: Get links from index page ────────────────────────────────
+
+        let rawLinks: string[] = [];
+
+        if (FC_KEY) {
+          const idxData = await fcReq("/scrape", {
+            url:            indexUrl,
+            formats:        ["links"],
+            onlyMainContent: false,
+          });
+          rawLinks = idxData.data?.links ?? [];
+        } else {
+          // Native fetch fallback — works for static HTML (e.g. paulgraham.com)
+          const idxRes = await fetch(indexUrl, {
+            headers: { "User-Agent": "MAVIS/1.0" },
+            signal: AbortSignal.timeout(15000),
+          });
+          const html = await idxRes.text();
+          const hrefRe = /href=["']([^"'#?][^"']*?)["']/g;
+          let m: RegExpExecArray | null;
+          while ((m = hrefRe.exec(html)) !== null) rawLinks.push(m[1]);
+        }
+
+        // ── Step 2: Resolve, filter, deduplicate ─────────────────────────────
+
+        const links = rawLinks
+          .map(l => { try { return new URL(l, baseUrl).href; } catch { return ""; } })
+          .filter(l => {
+            if (!l || !l.startsWith("http")) return false;
+            try {
+              const u = new URL(l);
+              if (u.host !== baseUrl.host) return false;
+              if (u.pathname === baseUrl.pathname || u.pathname === "/") return false;
+              if (linkPattern && !l.includes(linkPattern)) return false;
+              return true;
+            } catch { return false; }
+          })
+          .filter((l, i, arr) => arr.indexOf(l) === i)
+          .slice(0, limitN);
+
+        if (links.length === 0) {
+          return json({
+            error:        "No matching links found. Try removing link_pattern or check the index URL.",
+            source_url:   indexUrl,
+            raw_link_count: rawLinks.length,
+          }, 400);
+        }
+
+        // ── Step 3: Scrape + summarize each article ───────────────────────────
+
+        const summarize = async (articleUrl: string): Promise<Record<string, unknown>> => {
+          let title   = "";
+          let content = "";
+
+          if (FC_KEY) {
+            const d = await fcReq("/scrape", {
+              url:             articleUrl,
+              formats:         ["markdown"],
+              onlyMainContent: true,
+              excludeTags:     ["nav", "footer", "header", "aside", "script", "style"],
+            });
+            title   = d.data?.metadata?.title ?? "";
+            content = d.data?.markdown ?? "";
+          } else {
+            const artRes = await fetch(articleUrl, {
+              headers: { "User-Agent": "MAVIS/1.0" },
+              signal: AbortSignal.timeout(15000),
+            });
+            const html    = await artRes.text();
+            const titleM  = html.match(/<title[^>]*>([^<]+)<\/title>/i);
+            title   = titleM ? titleM[1].trim() : "";
+            content = html.replace(/<script[\s\S]*?<\/script>/gi, "")
+                          .replace(/<style[\s\S]*?<\/style>/gi, "")
+                          .replace(/<[^>]+>/g, " ")
+                          .replace(/\s+/g, " ")
+                          .trim();
+          }
+
+          const wordCount   = content.split(/\s+/).filter(Boolean).length;
+          const readingTime = Math.max(1, Math.ceil(wordCount / 200));
+          const truncated   = content.slice(0, 8000);
+
+          let summary = "(no summary — ANTHROPIC_API_KEY not set)";
+          if (ANTHROPIC_KEY) {
+            const claudeRes = await fetch("https://api.anthropic.com/v1/messages", {
+              method: "POST",
+              headers: {
+                "x-api-key":         ANTHROPIC_KEY,
+                "anthropic-version": "2023-06-01",
+                "content-type":      "application/json",
+              },
+              body: JSON.stringify({
+                model:      "claude-haiku-4-5-20251001",
+                max_tokens: 512,
+                messages: [{
+                  role:    "user",
+                  content: `Title: ${title}\nURL: ${articleUrl}\n\n${truncated}\n\n---\n${summaryPrompt}`,
+                }],
+              }),
+              signal: AbortSignal.timeout(20000),
+            });
+            const cd = await claudeRes.json();
+            summary = cd.content?.[0]?.text ?? "";
+          }
+
+          return { url: articleUrl, title, summary, reading_time_minutes: readingTime, word_count: wordCount };
+        };
+
+        // Run in batches of 3 to avoid hammering servers
+        const results: unknown[] = [];
+        for (let i = 0; i < links.length; i += 3) {
+          const batch   = links.slice(i, i + 3);
+          const settled = await Promise.allSettled(batch.map(l => summarize(l)));
+          settled.forEach((r, bi) => {
+            if (r.status === "fulfilled") results.push(r.value);
+            else results.push({ url: batch[bi], error: (r.reason as Error)?.message ?? "failed" });
+          });
+        }
+
+        return json({ source_url: indexUrl, items: results, count: results.length, link_pattern: linkPattern || null });
+      }
+
       default:
-        return json({ error: `Unknown action: ${action}. Use: scrape | crawl | poll_crawl | map | search | extract` }, 400);
+        return json({ error: `Unknown action: ${action}. Use: scrape | crawl | poll_crawl | map | search | extract | digest` }, 400);
     }
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);

@@ -2677,6 +2677,19 @@ async function executeAction(sb: any, userId: string, action: MavisAction, req: 
       return data;
     }
 
+    case "content_digest": {
+      // Queues async digest — scrapes index pages, summarizes articles, sends via Telegram
+      const { data: task } = await adminClient.from("mavis_tasks").insert({
+        user_id:      userId,
+        type:         "content_digest",
+        description:  `Content digest: ${p.label ?? p.url ?? "multiple sources"}`,
+        payload:      p,
+        status:       "pending",
+        scheduled_at: new Date().toISOString(),
+      }).select().single();
+      return { queued: true, task_id: (task as any)?.id };
+    }
+
     case "discord_agent": {
       const res = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-discord-agent`, {
         method: "POST",
