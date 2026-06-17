@@ -2770,6 +2770,33 @@ async function executeAction(sb: any, userId: string, action: MavisAction, req: 
       return { queued: true, task_id: (task as any)?.id };
     }
 
+    case "comic_agent": {
+      // Direct pass-through to mavis-comic-agent (get_comic | translate_comic | daily_comic_post).
+      const res = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-comic-agent`, {
+        method:  "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
+        body:    JSON.stringify({ userId, ...p }),
+        signal:  AbortSignal.timeout(45000),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((data as any).error ?? `mavis-comic-agent returned ${res.status}`);
+      return data;
+    }
+
+    case "daily_comic": {
+      // Queue a daily comic task: scrape GoComics → Claude vision translate → Discord/Telegram post.
+      // Mirrors n8n: Schedule → param (date) → HTTP scrape → LLM extract URL → vision translate → Discord.
+      const { data: task } = await adminClient.from("mavis_tasks").insert({
+        user_id:      userId,
+        type:         "daily_comic",
+        description:  `Daily comic: ${String(p.strip ?? "calvinandhobbes")} → ${String(p.target_language ?? "Korean")} → Discord/Telegram`,
+        payload:      p,
+        status:       "pending",
+        scheduled_at: new Date().toISOString(),
+      }).select().single();
+      return { queued: true, task_id: (task as any)?.id };
+    }
+
     case "hashtag_tweet": {
       // Pick a random hashtag → AI-generated tweet → log to Airtable → optionally post to Twitter.
       // Mirrors n8n: FunctionItem (random hashtag) → AI completion → Set → Airtable append.

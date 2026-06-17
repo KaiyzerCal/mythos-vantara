@@ -1734,6 +1734,40 @@ const handleEmailWatch: TaskHandler = async (task) => {
   return { success: true, output: { processed: result.processed, drafts_created: result.drafts_created } };
 };
 
+// daily_comic — scrape today's GoComics strip → Claude vision translate dialogue → post to Discord/Telegram
+const handleDailyComic: TaskHandler = async (task) => {
+  const p = extractPayload(task.payload as Record<string, unknown>);
+  const res = await callFunction("mavis-comic-agent", {
+    userId:          task.user_id,
+    action:          "daily_comic_post",
+    strip:           p.strip           ?? "calvinandhobbes",
+    target_language: p.target_language ?? "Korean",
+    discord_webhook: p.discord_webhook ?? "",
+    telegram:        p.telegram        ?? true,
+    telegram_chat_id: p.telegram_chat_id ?? "",
+    model:           p.model           ?? "claude-haiku-4-5-20251001",
+  });
+  const data = await res.json().catch(() => ({})) as any;
+  if (!res.ok) return { success: false, error: data.error ?? `comic-agent returned ${res.status}` };
+
+  if (BOT_TOKEN && OPERATOR_CHAT && !data.telegram_posted) {
+    // Telegram wasn't configured in the agent or failed — send a fallback notification
+    const msg = [
+      `🗞️ *Daily Comic posted* — ${data.strip === "calvinandhobbes" ? "Calvin & Hobbes" : data.strip}`,
+      `📅 ${data.date}`,
+      data.discord_posted ? `✅ Discord posted` : `⚠️ Discord skipped (no webhook)`,
+      data.image_url ? `🖼 ${data.image_url}` : "",
+    ].filter(Boolean).join("\n");
+    await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+      method:  "POST",
+      headers: { "Content-Type": "application/json" },
+      body:    JSON.stringify({ chat_id: OPERATOR_CHAT, text: msg, parse_mode: "Markdown" }),
+    }).catch(() => {});
+  }
+
+  return { success: true, output: { date: data.date, strip: data.strip, discord_posted: data.discord_posted, telegram_posted: data.telegram_posted } };
+};
+
 // hashtag_tweet — pick random hashtag → AI-generated tweet → log to Airtable → optionally post → Telegram notification
 const handleHashtagTweet: TaskHandler = async (task) => {
   const p = extractPayload(task.payload as Record<string, unknown>);
@@ -1960,6 +1994,7 @@ const HANDLERS: Record<string, TaskHandler> = {
   review_monitor:      handleReviewMonitor,
   instagram_monitor:   handleInstagramMonitor,
   hashtag_tweet:       handleHashtagTweet,
+  daily_comic:         handleDailyComic,
   discord_agent:       makeAgentHandler("mavis-discord-agent"),
   flashcard_agent:     makeAgentHandler("mavis-flashcard-agent"),
   reddit_agent:        makeAgentHandler("mavis-reddit-agent"),
