@@ -1294,6 +1294,13 @@ SPOTIFY MUSIC CONTROL (only if operator has Spotify connected — check integrat
 :::ACTION{"type":"spotify_shuffle","params":{"enabled":true}}:::
 :::ACTION{"type":"spotify_now_playing","params":{}}:::
 Use these when the operator says: "play music", "put on some [genre/artist/song/playlist]", "pause", "stop the music", "skip", "next song", "turn it up/down to X", "volume X", "what's playing", "shuffle on/off". type param: track | artist | album | playlist (default: track).
+SPOTIFY NATURAL LANGUAGE PLAY (Telegram → Claude extract → Spotify search → queue → play → confirm):
+:::ACTION{"type":"spotify_agent","params":{"action":"play_from_text","text":"that song that goes like hey I just met you"}}:::
+:::ACTION{"type":"spotify_agent","params":{"action":"search","query":"lo-fi hip hop","type":"playlist","limit":5}}:::
+:::ACTION{"type":"spotify_agent","params":{"action":"get_devices"}}:::
+:::ACTION{"type":"spotify_agent","params":{"action":"transfer_playback","device_id":"<device_id>","play":true}}:::
+:::ACTION{"type":"spotify_agent","params":{"action":"get_playlists","limit":20}}:::
+Use spotify_agent play_from_text when the operator describes a song vaguely or can't remember the name. Claude Haiku extracts the artist and track name, searches Spotify, adds to queue, skips to it, resumes playback, and returns "Now playing …". Mirrors n8n: Telegram trigger → OpenAI extract → Spotify search → If found → Add to queue → Next song → Resume play → Currently playing → Reply. Requires Spotify credentials in mavis_user_integrations (provider='spotify': access_token, refresh_token, expires_at) and SPOTIFY_CLIENT_ID + SPOTIFY_CLIENT_SECRET env vars for auto-refresh.
 
 WORKFLOWS & AUTOMATION — build multi-step pipelines that save and execute:
 CREATE + RUN IMMEDIATELY (single action — create the workflow and execute it in one shot):

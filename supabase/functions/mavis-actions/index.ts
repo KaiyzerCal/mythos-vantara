@@ -2579,6 +2579,136 @@ async function executeAction(sb: any, userId: string, action: MavisAction, req: 
       return data;
     }
 
+    case "spotify_agent": {
+      // Direct pass-through to mavis-spotify-agent (all actions including play_from_text).
+      const res = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-spotify-agent`, {
+        method:  "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
+        body:    JSON.stringify({ userId, ...p }),
+        signal:  AbortSignal.timeout(30000),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((data as any).error ?? `mavis-spotify-agent returned ${res.status}`);
+      return data;
+    }
+
+    // ── Spotify convenience aliases (matched by mavis-chat action type names) ──
+
+    case "spotify_play": {
+      // query + type (track|playlist|artist|album) → search → start context or play_from_text
+      const query = String(p.query ?? "");
+      const type  = String(p.type ?? "track");
+      const SB    = Deno.env.get("SUPABASE_URL")!;
+      const SK    = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+      if (!query) throw new Error("spotify_play requires query");
+
+      if (type === "track") {
+        // Use full play_from_text pipeline
+        const res = await fetch(`${SB}/functions/v1/mavis-spotify-agent`, {
+          method:  "POST",
+          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${SK}` },
+          body:    JSON.stringify({ userId, action: "play_from_text", text: query }),
+          signal:  AbortSignal.timeout(30000),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error((data as any).error ?? `spotify-agent returned ${res.status}`);
+        return data;
+      }
+
+      // For playlist/artist/album: search → start context
+      const searchRes = await fetch(`${SB}/functions/v1/mavis-spotify-agent`, {
+        method:  "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${SK}` },
+        body:    JSON.stringify({ userId, action: "search", query, type, limit: 1 }),
+        signal:  AbortSignal.timeout(15000),
+      });
+      const searchData = await searchRes.json().catch(() => ({})) as any;
+      const items = searchData.playlists ?? searchData.artists ?? searchData.albums ?? [];
+      if (!items.length) return { found: false, message: `${type} not found: "${query}"` };
+
+      const contextUri = items[0].uri;
+      const playRes = await fetch(`${SB}/functions/v1/mavis-spotify-agent`, {
+        method:  "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${SK}` },
+        body:    JSON.stringify({ userId, action: "start_context", context_uri: contextUri }),
+        signal:  AbortSignal.timeout(15000),
+      });
+      const playData = await playRes.json().catch(() => ({})) as any;
+      return { ...playData, name: items[0].name, uri: contextUri };
+    }
+
+    case "spotify_pause": {
+      const res = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-spotify-agent`, {
+        method:  "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
+        body:    JSON.stringify({ userId, action: "pause" }),
+        signal:  AbortSignal.timeout(10000),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((data as any).error ?? `spotify-agent returned ${res.status}`);
+      return data;
+    }
+
+    case "spotify_skip": {
+      const res = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-spotify-agent`, {
+        method:  "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
+        body:    JSON.stringify({ userId, action: "next_song" }),
+        signal:  AbortSignal.timeout(10000),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((data as any).error ?? `spotify-agent returned ${res.status}`);
+      return data;
+    }
+
+    case "spotify_previous": {
+      const res = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-spotify-agent`, {
+        method:  "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
+        body:    JSON.stringify({ userId, action: "previous_song" }),
+        signal:  AbortSignal.timeout(10000),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((data as any).error ?? `spotify-agent returned ${res.status}`);
+      return data;
+    }
+
+    case "spotify_volume": {
+      const res = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-spotify-agent`, {
+        method:  "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
+        body:    JSON.stringify({ userId, action: "set_volume", percent: p.percent ?? p.volume ?? 50 }),
+        signal:  AbortSignal.timeout(10000),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((data as any).error ?? `spotify-agent returned ${res.status}`);
+      return data;
+    }
+
+    case "spotify_shuffle": {
+      const res = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-spotify-agent`, {
+        method:  "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
+        body:    JSON.stringify({ userId, action: "set_shuffle", enabled: p.enabled ?? true }),
+        signal:  AbortSignal.timeout(10000),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((data as any).error ?? `spotify-agent returned ${res.status}`);
+      return data;
+    }
+
+    case "spotify_now_playing": {
+      const res = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-spotify-agent`, {
+        method:  "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
+        body:    JSON.stringify({ userId, action: "currently_playing" }),
+        signal:  AbortSignal.timeout(10000),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((data as any).error ?? `spotify-agent returned ${res.status}`);
+      return data;
+    }
+
     case "sec_agent": {
       const res = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-sec-agent`, {
         method: "POST",

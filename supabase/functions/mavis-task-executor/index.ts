@@ -2100,6 +2100,7 @@ const HANDLERS: Record<string, TaskHandler> = {
   exa_agent:           makeAgentHandler("mavis-exa-agent"),
   firecrawl_agent:     makeAgentHandler("mavis-firecrawl-agent"),
   youtube_agent:       makeAgentHandler("mavis-youtube-agent"),
+  spotify_agent:       makeAgentHandler("mavis-spotify-agent"),
   sec_agent:           makeAgentHandler("mavis-sec-agent"),
   crm_agent:           makeAgentHandler("mavis-crm-agent"),
   beehiiv_agent:       makeAgentHandler("mavis-beehiiv-agent"),
