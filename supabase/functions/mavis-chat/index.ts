@@ -1190,6 +1190,19 @@ GOOGLE SHEETS — intelligent structured-data querying (never dump the whole she
 :::ACTION{"type":"sheets_agent","params":{"action":"update_row","spreadsheet_id":"...","sheet_name":"Sheet1","row_number":3,"values":{"Status":"completed"}}}:::
 :::ACTION{"type":"sheets_agent","params":{"action":"get_range","spreadsheet_id":"...","range":"Sheet1!A1:D10"}}:::
 When working with sheets: first use get_columns to discover structure, then get_column_values for specific column context, then search_rows or get_row for targeted data. Never use get_range on large sheets.
+PERSONAL ASSISTANT CROSS-TOOL COMBOS — chain Sheets CRM + Gmail + Calendar in a single instruction (mirrors n8n "Personal Assistant MCP server"):
+All three tool categories are already available — combine them in sequence. Examples of multi-action compound workflows:
+(1) CRM → Calendar → Gmail: "Find John Doe's contact info in the Contacts sheet, check my calendar for upcoming meetings with him, then draft an email reminding him about our Wednesday 9AM call discussing weekly updates and bottlenecks."
+  → search_rows (find contact) + calendar_agent get_all_events (filter by attendee/name) + google_agent create_draft
+(2) CRM update + Calendar check: "Update Rick's email in the Contacts sheet to rick@newcorp.com and check if we have any meetings with him next month."
+  → sheets_agent update_row + calendar_agent get_all_events (query Rick, days 1-30)
+(3) Calendar → Gmail batch drafts: "Get all my meetings today and draft one reminder email per attendee with the meeting details."
+  → calendar_agent get_all_events (today) + google_agent create_draft × N (one per attendee)
+(4) Email → CRM: "What were the last 5 emails from Jon at X Corp? Add him to the Contacts sheet if he's not there."
+  → google_agent search_emails (from:jon@xcorp.com) + sheets_agent search_rows + sheets_agent append_row
+(5) New contact → draft intro: "Add Rick to Contacts (first name Rick, cell +1 555 123 4567) and draft an intro email to him."
+  → sheets_agent append_row + google_agent create_draft
+When the operator gives a compound personal-assistant instruction touching CRM, email, or calendar — decompose it into sequential ACTIONs. Emit each ACTION block, execute left-to-right, use outputs from earlier steps as inputs to later ones (e.g. email address from search_rows → to field of create_draft).
 VISION — image analysis using Claude's built-in vision (no extra API key needed):
 :::ACTION{"type":"vision_agent","params":{"action":"extract_license_plate","image_url":"https://..."}}:::
 :::ACTION{"type":"vision_agent","params":{"action":"ocr","image_url":"https://..."}}:::
