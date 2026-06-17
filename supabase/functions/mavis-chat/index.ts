@@ -1086,6 +1086,9 @@ Use digest for any "monitor this site, summarize new posts" request. Works witho
 :::ACTION{"type":"youtube_agent","params":{"action":"search","query":"AI agents tutorial","max_results":5}}:::
 :::ACTION{"type":"youtube_agent","params":{"action":"get_transcript","video_id":"dQw4w9WgXcQ","language":"en"}}:::
 :::ACTION{"type":"youtube_agent","params":{"action":"get_video","video_id":"dQw4w9WgXcQ"}}:::
+:::ACTION{"type":"youtube_agent","params":{"action":"summarize_video","url":"https://www.youtube.com/watch?v=dQw4w9WgXcQ"}}:::
+:::ACTION{"type":"youtube_summary","params":{"url":"https://www.youtube.com/watch?v=..."}}:::
+When the operator shares a YouTube URL or asks to summarize a video: use youtube_summary (async, delivers via Telegram + stores transcript in memory for Q&A). Use summarize_video directly if you need the result inline. After summarizing, the full transcript is searchable in memory — operator can ask questions about the video in follow-up messages.
 :::ACTION{"type":"sec_agent","params":{"action":"search_company","query":"OpenAI"}}:::
 :::ACTION{"type":"sec_agent","params":{"action":"get_filings","cik":"0001841710","form_type":"10-K","limit":5}}:::
 :::ACTION{"type":"sec_agent","params":{"action":"get_facts","cik":"0001841710","fact":"Revenue"}}:::

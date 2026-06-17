@@ -1380,6 +1380,41 @@ const handleWeeklyReflection: TaskHandler = async (task) => {
   return { success: true, output: { summary: (data as any).report?.slice(0, 500) } };
 };
 
+// youtube_summary — summarize a YouTube video and deliver via Telegram
+const handleYoutubeSummary: TaskHandler = async (task) => {
+  const p = extractPayload(task.payload as Record<string, unknown>);
+  const url = String(p.url ?? p.video_id ?? "");
+  if (!url) return { success: false, error: "url or video_id required" };
+
+  const res = await callFunction("mavis-youtube-agent", {
+    userId:   task.user_id,
+    action:   "summarize_video",
+    url,
+    language: p.language ?? "en",
+    model:    p.model,
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) return { success: false, error: (data as any).error ?? `youtube-agent returned ${res.status}` };
+
+  const d = data as any;
+  if (BOT_TOKEN && OPERATOR_CHAT_ID) {
+    const header = `🎬 *${(d.title ?? "Video").slice(0, 100)}*\n${d.channel ? `📺 ${d.channel} · ` : ""}⏱ ~${d.reading_time_minutes ?? "?"}m read\n[Watch on YouTube](${d.url})\n\n`;
+    const msg    = (header + (d.summary ?? "")).slice(0, 4000);
+    await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        chat_id:                  OPERATOR_CHAT_ID,
+        text:                     msg,
+        parse_mode:               "Markdown",
+        disable_web_page_preview: false,
+      }),
+    }).catch(() => {});
+  }
+
+  return { success: true, output: { title: d.title, stored_in_memory: d.stored_in_memory } };
+};
+
 // content_digest — scrape one or more source sites and send a summary via Telegram
 const handleContentDigest: TaskHandler = async (task) => {
   const p = extractPayload(task.payload as Record<string, unknown>);
@@ -1509,6 +1544,7 @@ const HANDLERS: Record<string, TaskHandler> = {
   sentry_agent:        makeAgentHandler("mavis-sentry-agent"),
   sheets_agent:        makeAgentHandler("mavis-sheets-agent"),
   vision_agent:        makeAgentHandler("mavis-vision-agent"),
+  youtube_summary:     handleYoutubeSummary,
   content_digest:      handleContentDigest,
   email_triage:        handleEmailTriage,
   discord_agent:       makeAgentHandler("mavis-discord-agent"),

@@ -1,19 +1,23 @@
 // mavis-youtube-agent
-// Search YouTube, fetch video metadata, and extract transcripts.
+// Search YouTube, fetch video metadata, extract transcripts, and
+// summarize videos with structured AI output.
 // Transcripts require no auth for public videos. Search requires YOUTUBE_API_KEY.
 //
-// Actions: search | get_video | get_transcript | list_channel_videos | get_captions
+// Actions: search | get_video | get_transcript | list_channel_videos | summarize_video
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-const SB_SRK  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-const YT_KEY  = Deno.env.get("YOUTUBE_API_KEY") ?? "";
-const YT_API  = "https://www.googleapis.com/youtube/v3";
+const SB_URL        = Deno.env.get("SUPABASE_URL")!;
+const SB_SRK        = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+const YT_KEY        = Deno.env.get("YOUTUBE_API_KEY") ?? "";
+const ANTHROPIC_KEY = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
+const YT_API        = "https://www.googleapis.com/youtube/v3";
 
 function videoId(input: string): string {
   if (input.length === 11 && !input.includes("/")) return input;
@@ -187,8 +191,129 @@ serve(async (req) => {
         });
       }
 
+      case "summarize_video": {
+        // Full pipeline: transcript → structured AI summary → store in memory → return
+        const vid  = videoId(String(body.video_id ?? body.url ?? ""));
+        const lang = String(body.language ?? "en");
+        const uid  = body.userId ? String(body.userId) : null;
+
+        if (!vid) return json({ error: "video_id or url required" }, 400);
+        if (!ANTHROPIC_KEY) return json({ error: "ANTHROPIC_API_KEY not configured" }, 503);
+
+        const ytUrl = `https://www.youtube.com/watch?v=${vid}`;
+
+        // Step 1: Get title/channel (best-effort — only needs YT_KEY)
+        let title   = `YouTube Video ${vid}`;
+        let channel = "";
+        if (YT_KEY) {
+          try {
+            const meta = await ytReq("/videos", { part: "snippet,contentDetails", id: vid });
+            const v = meta.items?.[0];
+            if (v) {
+              title   = v.snippet.title ?? title;
+              channel = v.snippet.channelTitle ?? "";
+            }
+          } catch { /* no YT key or API error — title stays as placeholder */ }
+        } else {
+          // Extract title from YouTube page HTML
+          try {
+            const pageRes = await fetch(`https://www.youtube.com/watch?v=${vid}`, {
+              headers: { "User-Agent": "Mozilla/5.0 (compatible; MAVIS/1.0)" },
+            });
+            const html  = await pageRes.text();
+            const titleM = html.match(/"title":\s*"([^"]+)"/);
+            if (titleM) title = titleM[1].replace(/\\u[\da-f]{4}/gi, c =>
+              String.fromCharCode(parseInt(c.slice(2), 16)));
+          } catch { /* ignore */ }
+        }
+
+        // Step 2: Fetch transcript
+        const transcript = await fetchTranscript(vid, lang);
+        if (!transcript) {
+          return json({ error: "No transcript available for this video. It may be disabled or private.", video_id: vid, url: ytUrl }, 404);
+        }
+
+        const wordCount   = transcript.split(/\s+/).filter(Boolean).length;
+        const readingTime = Math.max(1, Math.ceil(wordCount / 200));
+
+        // Step 3: Structured summary with Claude
+        // Format mirrors n8n template but uses Telegram Markdown (** vs <b>)
+        const summaryPrompt = body.summary_prompt ?? `Analyze this YouTube video transcript and produce a structured summary in exactly this format:
+
+## General Summary
+One concise paragraph describing the main topic and purpose.
+
+## Key Moments
+• **Key Term** — what was said or demonstrated
+• **Key Term** — insight or takeaway
+(5-10 bullet points covering the most important content)
+
+## Instructions
+If this video contains a tutorial or step-by-step guide, list the steps numbered. If not, write: "This video does not contain step-by-step instructions."
+
+Rules:
+- Use **bold** for important terms in Key Moments
+- Be concrete — include specific names, numbers, techniques mentioned
+- Keep the total response under 800 words
+- Write as if briefing someone who hasn't seen the video`;
+
+        const claudeRes = await fetch("https://api.anthropic.com/v1/messages", {
+          method: "POST",
+          headers: {
+            "x-api-key":         ANTHROPIC_KEY,
+            "anthropic-version": "2023-06-01",
+            "content-type":      "application/json",
+          },
+          body: JSON.stringify({
+            model:      body.model ?? "claude-haiku-4-5-20251001",
+            max_tokens: 1200,
+            system:     `You are summarizing a YouTube video titled: "${title}"${channel ? ` by ${channel}` : ""}. URL: ${ytUrl}`,
+            messages: [{
+              role:    "user",
+              content: `${summaryPrompt}\n\nTranscript:\n${transcript.slice(0, 12000)}`,
+            }],
+          }),
+          signal: AbortSignal.timeout(30000),
+        });
+        const claudeData = await claudeRes.json();
+        if (!claudeRes.ok) {
+          throw new Error(`Claude: ${claudeData.error?.message ?? JSON.stringify(claudeData).slice(0, 200)}`);
+        }
+        const summary = claudeData.content?.[0]?.text ?? "";
+
+        // Step 4: Store full transcript in mavis_memory so operator can Q&A later
+        let storedInMemory = false;
+        if (uid) {
+          const sb = createClient(SB_URL, SB_SRK, { auth: { persistSession: false } });
+          const memContent = `[VIDEO TRANSCRIPT] "${title}" (${ytUrl})\nChannel: ${channel}\n\n${transcript}`;
+          await sb.from("mavis_memory").upsert({
+            user_id:          uid,
+            role:             "system",
+            content:          memContent.slice(0, 50000),
+            importance_score: 6,
+            tags:             ["youtube_transcript", vid, "video_context"],
+          }, { onConflict: "user_id,tags" }).catch(() => {});
+          storedInMemory = true;
+        }
+
+        return json({
+          video_id:          vid,
+          url:               ytUrl,
+          title,
+          channel,
+          summary,
+          word_count:        wordCount,
+          reading_time_minutes: readingTime,
+          transcript_length: transcript.length,
+          stored_in_memory:  storedInMemory,
+          memory_note:       storedInMemory
+            ? "Transcript stored in MAVIS memory. You can now ask questions about this video in chat."
+            : "Pass userId to store transcript for Q&A.",
+        });
+      }
+
       default:
-        return json({ error: `Unknown action: ${action}. Use: search | get_video | get_transcript | list_channel_videos` }, 400);
+        return json({ error: `Unknown action: ${action}. Use: search | get_video | get_transcript | list_channel_videos | summarize_video` }, 400);
     }
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);

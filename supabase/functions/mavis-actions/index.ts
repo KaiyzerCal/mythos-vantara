@@ -2677,6 +2677,19 @@ async function executeAction(sb: any, userId: string, action: MavisAction, req: 
       return data;
     }
 
+    case "youtube_summary": {
+      // Queue async — summarizes video, delivers via Telegram, stores transcript in memory
+      const { data: task } = await adminClient.from("mavis_tasks").insert({
+        user_id:      userId,
+        type:         "youtube_summary",
+        description:  `YouTube summary: ${p.url ?? p.video_id}`,
+        payload:      p,
+        status:       "pending",
+        scheduled_at: new Date().toISOString(),
+      }).select().single();
+      return { queued: true, task_id: (task as any)?.id };
+    }
+
     case "content_digest": {
       // Queues async digest — scrapes index pages, summarizes articles, sends via Telegram
       const { data: task } = await adminClient.from("mavis_tasks").insert({
