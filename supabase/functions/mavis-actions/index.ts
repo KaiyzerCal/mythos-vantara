@@ -2704,6 +2704,74 @@ async function executeAction(sb: any, userId: string, action: MavisAction, req: 
       return { queued: true, task_id: (task as any)?.id };
     }
 
+    case "translate_speak": {
+      // Translate text via Claude Haiku → synthesize speech via OpenAI TTS → send audio to Telegram.
+      // Mirrors Make.com: Telegram text → Google Translate → Google TTS → sendAudio.
+      const text       = String(p.text ?? "");
+      const targetLang = String(p.target_language ?? p.lang ?? "en");
+      const voice      = String(p.voice ?? "nova");
+      const chatId     = String(p.chat_id ?? "");
+      if (!text) throw new Error("translate_speak requires 'text'");
+
+      const ANTHROPIC_KEY_LOCAL = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
+      const OPENAI_KEY_LOCAL    = Deno.env.get("OPENAI_API") ?? Deno.env.get("OPENAI_API_KEY") ?? "";
+      const BOT_TOKEN_LOCAL     = Deno.env.get("TELEGRAM_BOT_TOKEN") ?? "";
+
+      const LANG_NAMES: Record<string, string> = {
+        en: "English", es: "Spanish", fr: "French", de: "German", ja: "Japanese",
+        ko: "Korean", zh: "Mandarin Chinese", pt: "Portuguese", it: "Italian",
+        ar: "Arabic", ru: "Russian", hi: "Hindi", nl: "Dutch", sv: "Swedish",
+      };
+
+      // 1. Translate via Claude Haiku
+      let translated = text;
+      if (ANTHROPIC_KEY_LOCAL) {
+        const langName = LANG_NAMES[targetLang] ?? targetLang;
+        const tRes = await fetch("https://api.anthropic.com/v1/messages", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "x-api-key": ANTHROPIC_KEY_LOCAL, "anthropic-version": "2023-06-01" },
+          body: JSON.stringify({
+            model: "claude-haiku-4-5-20251001",
+            max_tokens: 512,
+            system: `Translate the user's text into ${langName}. Return ONLY the translated text, nothing else.`,
+            messages: [{ role: "user", content: text }],
+          }),
+          signal: AbortSignal.timeout(15000),
+        });
+        const tData = await tRes.json().catch(() => ({}));
+        translated = (tData as any).content?.[0]?.text?.trim() ?? text;
+      }
+
+      if (!OPENAI_KEY_LOCAL) {
+        return { original: text, translated, target_language: targetLang, audio_sent: false, note: "Set OPENAI_API_KEY for TTS" };
+      }
+
+      // 2. TTS via OpenAI
+      const ttsRes = await fetch("https://api.openai.com/v1/audio/speech", {
+        method: "POST",
+        headers: { "Authorization": `Bearer ${OPENAI_KEY_LOCAL}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ model: "tts-1", input: translated, voice, response_format: "mp3" }),
+        signal: AbortSignal.timeout(30000),
+      });
+      if (!ttsRes.ok) throw new Error(`OpenAI TTS failed: ${ttsRes.status}`);
+      const audioBytes = await ttsRes.arrayBuffer();
+
+      // 3. Send audio to Telegram if chat_id provided
+      let audioSent = false;
+      if (chatId && BOT_TOKEN_LOCAL) {
+        const form = new FormData();
+        form.append("chat_id", chatId);
+        form.append("audio", new Blob([audioBytes], { type: "audio/mpeg" }), `mavis_${targetLang}.mp3`);
+        form.append("caption", `🌐 ${targetLang.toUpperCase()}: ${translated.slice(0, 900)}`);
+        const sendRes = await fetch(`https://api.telegram.org/bot${BOT_TOKEN_LOCAL}/sendAudio`, {
+          method: "POST", body: form, signal: AbortSignal.timeout(30000),
+        }).catch(() => null);
+        audioSent = sendRes?.ok ?? false;
+      }
+
+      return { original: text, translated, target_language: targetLang, voice, audio_sent: audioSent };
+    }
+
     case "vision_agent": {
       const res = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-vision-agent`, {
         method: "POST",

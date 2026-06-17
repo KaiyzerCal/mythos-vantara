@@ -273,7 +273,7 @@ async function queueTask(
 // INTENT CLASSIFICATION
 // ─────────────────────────────────────────────────────────────
 
-type Intent = "help" | "quests" | "revenue" | "tasks" | "content_machine" | "chat";
+type Intent = "help" | "quests" | "revenue" | "tasks" | "content_machine" | "speak" | "chat";
 interface Classified { intent: Intent; params: Record<string, string>; }
 
 function classify(text: string): Classified {
@@ -286,6 +286,8 @@ function classify(text: string): Classified {
     const topic = text.replace(/^\/?(content|nora content|video content|post content)\s+/i, "").trim();
     return { intent: "content_machine", params: { topic } };
   }
+  const speakMatch = text.match(/^\/?(speak|tts|say)\s*(.*)?$/i);
+  if (speakMatch) return { intent: "speak", params: { args: (speakMatch[2] ?? "").trim() } };
   return { intent: "chat", params: {} };
 }
 
@@ -332,6 +334,99 @@ async function handleContentMachine(chatId: string | number, uid: string, topic:
     );
   } else {
     await send(chatId, `⚠️ Failed to queue content pipeline.`);
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+// TRANSLATE + SPEAK  (translate via Claude → TTS via OpenAI → send audio)
+// Usage: /speak [lang] text   e.g. /speak es Hello world
+// ─────────────────────────────────────────────────────────────
+
+const LANG_NAMES: Record<string, string> = {
+  en: "English", es: "Spanish", fr: "French", de: "German", ja: "Japanese",
+  ko: "Korean", zh: "Mandarin Chinese", pt: "Portuguese", it: "Italian",
+  ar: "Arabic", ru: "Russian", hi: "Hindi", nl: "Dutch", sv: "Swedish",
+  pl: "Polish", tr: "Turkish", vi: "Vietnamese", th: "Thai",
+};
+
+async function handleSpeak(chatId: string | number, uid: string, args: string) {
+  if (!args) {
+    await send(chatId,
+      `🔊 *Translate & Speak*\n\nUsage: \`/speak [lang] text\`\n\n` +
+      `Examples:\n• \`/speak es Hello world\` → Spanish audio\n` +
+      `• \`/speak ja Good morning\` → Japanese audio\n` +
+      `• \`/speak de How are you?\` → German audio\n\n` +
+      `Omit the language code to hear it in English.`
+    );
+    return;
+  }
+
+  const parts = args.split(/\s+/);
+  let targetLang = "en";
+  let textToSpeak = args;
+
+  // If first word is a 2-5 char language code, use it
+  if (parts.length > 1 && /^[a-z]{2,5}(-[A-Z]{2})?$/.test(parts[0])) {
+    targetLang = parts[0].toLowerCase();
+    textToSpeak = parts.slice(1).join(" ");
+  }
+
+  await typing(chatId);
+
+  // 1. Translate via Claude Haiku
+  let translated = textToSpeak;
+  if (ANTHROPIC_KEY) {
+    const langName = LANG_NAMES[targetLang] ?? targetLang;
+    const tRes = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-api-key": ANTHROPIC_KEY, "anthropic-version": "2023-06-01" },
+      body: JSON.stringify({
+        model: "claude-haiku-4-5-20251001",
+        max_tokens: 512,
+        system: `Translate the user's text into ${langName}. Return ONLY the translated text, nothing else — no quotes, no explanation.`,
+        messages: [{ role: "user", content: textToSpeak }],
+      }),
+      signal: AbortSignal.timeout(15000),
+    });
+    const tData = await tRes.json().catch(() => ({}));
+    translated = (tData as any).content?.[0]?.text?.trim() ?? textToSpeak;
+  }
+
+  if (!OPENAI_KEY) {
+    // Fallback: text-only translation
+    await send(chatId, `🌐 *${targetLang.toUpperCase()} translation:*\n\n${translated}\n\n_Set OPENAI\\_API\\_KEY to enable audio._`);
+    return;
+  }
+
+  // 2. TTS via OpenAI (tts-1, nova voice)
+  const ttsRes = await fetch("https://api.openai.com/v1/audio/speech", {
+    method: "POST",
+    headers: { "Authorization": `Bearer ${OPENAI_KEY}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ model: "tts-1", input: translated, voice: "nova", response_format: "mp3" }),
+    signal: AbortSignal.timeout(30000),
+  });
+
+  if (!ttsRes.ok) {
+    await send(chatId, `🌐 *${targetLang.toUpperCase()} translation:*\n\n${translated}`);
+    return;
+  }
+
+  // 3. Send audio via Telegram sendAudio
+  const audioBytes = await ttsRes.arrayBuffer();
+  const form = new FormData();
+  form.append("chat_id", String(chatId));
+  form.append("audio", new Blob([audioBytes], { type: "audio/mpeg" }), `mavis_${targetLang}.mp3`);
+  form.append("caption", `🌐 *${targetLang.toUpperCase()}:* ${translated.slice(0, 900)}`);
+  form.append("parse_mode", "Markdown");
+
+  const sendRes = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendAudio`, {
+    method: "POST",
+    body: form,
+    signal: AbortSignal.timeout(30000),
+  });
+
+  if (!sendRes.ok) {
+    await send(chatId, `🌐 *${targetLang.toUpperCase()} translation:*\n\n${translated}`);
   }
 }
 
@@ -584,6 +679,7 @@ serve(async (req) => {
         case "quests":          await handleQuests(chatId, uid); break;
         case "revenue":         await handleRevenue(chatId, uid); break;
         case "tasks":           await handleTasks(chatId, uid); break;
+        case "speak":           await handleSpeak(chatId, uid, params.args ?? ""); break;
         case "content_machine": await handleContentMachine(chatId, uid, params.topic ?? text); break;
         default:                await handleChat(chatId, uid, text, history, sessionId); break;
       }
