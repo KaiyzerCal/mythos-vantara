@@ -1031,6 +1031,16 @@ SLACK (requires SLACK_BOT_TOKEN — send messages, read channels, upload files):
 :::ACTION{"type":"slack_agent","params":{"action":"read_channel","channel":"C012AB3CD","limit":10}}:::
 :::ACTION{"type":"slack_agent","params":{"action":"list_channels"}}:::
 :::ACTION{"type":"slack_agent","params":{"action":"upload_text","channel":"#reports","content":"...","filename":"report.txt","title":"Weekly Report"}}:::
+DISCORD (requires DISCORD_BOT_TOKEN — manage servers, channels, messages):
+:::ACTION{"type":"discord_agent","params":{"action":"list_guilds"}}:::
+:::ACTION{"type":"discord_agent","params":{"action":"list_channels","guild_id":"..."}}:::
+:::ACTION{"type":"discord_agent","params":{"action":"send_message","channel_id":"...","content":"**Announcement** — *details here*"}}:::
+:::ACTION{"type":"discord_agent","params":{"action":"send_embed","channel_id":"...","title":"...","description":"...","color":5814783,"fields":[{"name":"Field","value":"Value","inline":true}],"footer":"MAVIS"}}:::
+:::ACTION{"type":"discord_agent","params":{"action":"send_dm","user_id":"...","content":"..."}}:::
+:::ACTION{"type":"discord_agent","params":{"action":"get_messages","channel_id":"...","limit":10}}:::
+:::ACTION{"type":"discord_agent","params":{"action":"create_thread","channel_id":"...","message_id":"...","name":"Discussion Thread","starter_message":"Starting the conversation..."}}:::
+:::ACTION{"type":"discord_agent","params":{"action":"add_reaction","channel_id":"...","message_id":"...","emoji":"👍"}}:::
+Discord format guide: **bold**, *italic*, __underline__, ~~strikethrough~~, `code`, ```code block```, > quote, >>> block quote. Max 1900 chars — use send_chunked for longer content. Always use channel_id (not channel name) to target channels.
 NOTION (requires NOTION_API_KEY — create pages, query databases, search):
 :::ACTION{"type":"notion_agent","params":{"action":"create_page","database_id":"...","title":"...","content":"Full page body text here","properties":{}}}:::
 :::ACTION{"type":"notion_agent","params":{"action":"query_database","database_id":"...","filter":{"property":"Status","select":{"equals":"In Progress"}}}}:::

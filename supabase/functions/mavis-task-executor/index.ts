@@ -1456,6 +1456,7 @@ const HANDLERS: Record<string, TaskHandler> = {
   sheets_agent:        makeAgentHandler("mavis-sheets-agent"),
   vision_agent:        makeAgentHandler("mavis-vision-agent"),
   email_triage:        handleEmailTriage,
+  discord_agent:       makeAgentHandler("mavis-discord-agent"),
 };
 
 // ─────────────────────────────────────────────────────────────
