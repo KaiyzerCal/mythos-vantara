@@ -1052,6 +1052,73 @@ ${context}`,
   }
 };
 
+// client_welcome_sequence — fires when a client pays a Stripe invoice.
+// Two separate tasks are queued by mavis-stripe-webhook with staggered scheduled_at:
+//   phase="thankyou"   → T+4 min: warm thank-you email
+//   phase="onboarding" → T+7 min: next-steps email with Calendly booking link
+const handleClientWelcomeSequence: TaskHandler = async (task) => {
+  const p = extractPayload(task.payload as Record<string, unknown>);
+  const phase         = String(p.phase ?? "thankyou");
+  const email         = String(p.customer_email ?? "");
+  const fullName      = String(p.customer_name  ?? "there");
+  const firstName     = fullName.split(/\s+/)[0] || fullName;
+  const amountPaid    = Number(p.amount_paid ?? 0);
+  const calendlyUrl   = Deno.env.get("OPERATOR_CALENDLY_URL") ?? "";
+
+  if (!email) return { success: false, error: "client_welcome_sequence: no customer_email in payload" };
+
+  const amountStr = amountPaid > 0 ? `$${amountPaid.toFixed(2)}` : "your invoice";
+
+  let subject: string;
+  let body: string;
+
+  if (phase === "thankyou") {
+    subject = "Thank you & welcome aboard";
+    body = `Hi ${firstName},
+<br><br>
+Thanks for taking care of ${amountStr} — I really appreciate it.
+<br><br>
+I'm looking forward to working together. I'll be sending over onboarding details in just a moment so we can hit the ground running.
+<br><br>
+Talk soon!`;
+  } else {
+    const calendlyLine = calendlyUrl
+      ? `<a href="${calendlyUrl}">Do you mind booking a slot here?</a><br><br>Ideally in the next 72 hours, but I'm flexible — let me know what works for you.`
+      : `Reply to this email and we'll find a time that works for you.`;
+
+    subject = "Next steps — let's book your onboarding call";
+    body = `Hi ${firstName},
+<br><br>
+Just following up on my last email. Our next step is a quick onboarding call.
+<br><br>
+These usually take about 20 minutes via screenshare — it lets us go over timelines, expectations, any 2FA or access logistics, and answer any last-minute questions before we kick off.
+<br><br>
+${calendlyLine}
+<br><br>
+Thank you,<br>
+Calvin`;
+  }
+
+  const res = await callFunction("mavis-email-send", {
+    userId:  task.user_id,
+    to:      email,
+    subject,
+    body,
+    source:  `client_welcome_${phase}`,
+  });
+
+  if (!res.ok) {
+    const d = await res.json().catch(() => ({})) as Record<string, unknown>;
+    return { success: false, error: String((d as any).error ?? `email-send returned ${res.status}`) };
+  }
+
+  await sendTelegram(
+    `📧 *Client Welcome — ${phase}*\nTo: ${email} (${fullName})\nSubject: ${subject}`
+  );
+
+  return { success: true, output: { phase, to: email, subject } };
+};
+
 // nora_content_machine — end-to-end Nora Vale content pipeline.
 // Phase 1 (no fal_request_id): research topic → write script + captions → submit to fal.ai SadTalker → markContinue
 // Phase 2 (fal_request_id set): poll fal.ai → when video ready, post to Twitter / LinkedIn / TikTok → markComplete
@@ -1287,6 +1354,7 @@ const HANDLERS: Record<string, TaskHandler> = {
   email_reply: handleEmailReply,
   standing_order: handleStandingOrder,
   nora_content_machine: handleNoraContentMachine,
+  client_welcome_sequence: handleClientWelcomeSequence,
 };
 
 // ─────────────────────────────────────────────────────────────
