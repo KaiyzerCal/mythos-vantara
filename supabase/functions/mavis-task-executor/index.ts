@@ -1336,6 +1336,28 @@ Output ONLY a JSON object (no markdown, no preamble):
   };
 };
 
+// google_agent — delegates any Google API operation to mavis-google-agent.
+// Useful for async operations like bulk calendar sync, Drive uploads, Gmail sends.
+// Payload: { action: "...", ...params }
+const handleGoogleAgent: TaskHandler = async (task) => {
+  const p = extractPayload(task.payload as Record<string, unknown>);
+  const action = String(p.action ?? "");
+  if (!action) return { success: false, error: "google_agent task missing 'action' in payload" };
+
+  const res = await callFunction("mavis-google-agent", {
+    userId: task.user_id,
+    ...p,
+  });
+
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const errMsg = (data as any).error ?? `mavis-google-agent returned ${res.status}`;
+    // 503 means Google not connected — not a fatal task failure, mark as failed with clear message
+    return { success: false, error: errMsg };
+  }
+  return { success: true, output: data };
+};
+
 const HANDLERS: Record<string, TaskHandler> = {
   daily_brief: handleDailyBrief,
   check_idle_quests: handleCheckIdleQuests,
@@ -1355,6 +1377,7 @@ const HANDLERS: Record<string, TaskHandler> = {
   standing_order: handleStandingOrder,
   nora_content_machine: handleNoraContentMachine,
   client_welcome_sequence: handleClientWelcomeSequence,
+  google_agent: handleGoogleAgent,
 };
 
 // ─────────────────────────────────────────────────────────────

@@ -1413,6 +1413,27 @@ async function executeAction(sb: any, userId: string, action: MavisAction, req: 
       });
       if (error) throw error;
       await logActivity(sb, userId, "calendar_event_created", `Event: ${String(p.title ?? "Untitled")}`, 0);
+
+      // Mirror to Google Calendar (fire-and-forget — silently skipped if not connected)
+      fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-google-agent`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+        },
+        body: JSON.stringify({
+          action:      "create_calendar_event",
+          userId,
+          title:       p.title,
+          start_at:    p.start_at ?? p.start_time,
+          end_at:      p.end_at ?? p.end_time,
+          description: p.description,
+          location:    p.location,
+          timezone:    p.timezone,
+          attendees:   p.attendees,
+          create_meet: p.create_meet,
+        }),
+      }).catch(() => {});
       return;
     }
 
@@ -1424,6 +1445,18 @@ async function executeAction(sb: any, userId: string, action: MavisAction, req: 
         if (p[k] !== undefined) upd[k] = p[k];
       }
       await sb.from("calendar_events").update(upd).eq("id", eventId).eq("user_id", userId);
+
+      // Mirror update to Google Calendar if google_event_id provided (fire-and-forget)
+      if (p.google_event_id) {
+        fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-google-agent`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+          },
+          body: JSON.stringify({ action: "update_calendar_event", userId, ...p }),
+        }).catch(() => {});
+      }
       return;
     }
 
@@ -1431,6 +1464,18 @@ async function executeAction(sb: any, userId: string, action: MavisAction, req: 
       const eventId = String(p.event_id ?? p.id ?? "");
       if (!eventId) return;
       await sb.from("calendar_events").delete().eq("id", eventId).eq("user_id", userId);
+
+      // Mirror delete to Google Calendar if google_event_id provided (fire-and-forget)
+      if (p.google_event_id) {
+        fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-google-agent`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+          },
+          body: JSON.stringify({ action: "delete_calendar_event", userId, event_id: p.google_event_id }),
+        }).catch(() => {});
+      }
       return;
     }
 
@@ -2328,6 +2373,23 @@ async function executeAction(sb: any, userId: string, action: MavisAction, req: 
         .limit(20);
       if (searchErr) throw searchErr;
       return { results: data ?? [], count: data?.length ?? 0 };
+    }
+
+    // ── GOOGLE AGENT ────────────────────────────────────
+    case "google_agent": {
+      // Delegate to mavis-google-agent with service-role auth + userId
+      const res = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-google-agent`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+        },
+        body: JSON.stringify({ userId, ...p }),
+        signal: AbortSignal.timeout(30000),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((data as any).error ?? `mavis-google-agent returned ${res.status}`);
+      return data;
     }
 
     default:

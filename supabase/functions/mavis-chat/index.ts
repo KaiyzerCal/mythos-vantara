@@ -1009,10 +1009,17 @@ CONTACTS:
 :::ACTION{"type":"create_contact","params":{"name":"...","email":"...","phone":"...","company":"...","role":"...","relationship":"prospect|client|partner|ally|rival|personal","notes":"..."}}:::
 :::ACTION{"type":"update_contact","params":{"contact_id":"...","notes":"...","relationship":"..."}}:::
 :::ACTION{"type":"log_contact","params":{"contact_id":"...","interaction_type":"call|email|meeting|message","notes":"...","outcome":"..."}}:::
-CALENDAR / SCHEDULER:
-:::ACTION{"type":"create_calendar_event","params":{"title":"...","start_at":"2026-06-05T10:00:00Z","end_at":"2026-06-05T11:00:00Z","description":"...","location":"..."}}:::
-:::ACTION{"type":"update_calendar_event","params":{"event_id":"...","title":"...","start_at":"...","end_at":"..."}}:::
-:::ACTION{"type":"delete_calendar_event","params":{"event_id":"..."}}:::
+CALENDAR / SCHEDULER (syncs to Google Calendar automatically if connected):
+:::ACTION{"type":"create_calendar_event","params":{"title":"...","start_at":"2026-06-05T10:00:00Z","end_at":"2026-06-05T11:00:00Z","description":"...","location":"...","timezone":"America/New_York","attendees":["email@example.com"],"create_meet":false}}:::
+:::ACTION{"type":"update_calendar_event","params":{"event_id":"...","google_event_id":"...","title":"...","start_at":"...","end_at":"..."}}:::
+:::ACTION{"type":"delete_calendar_event","params":{"event_id":"...","google_event_id":"..."}}:::
+GOOGLE (requires Google connected in Integrations — use for direct Google operations):
+:::ACTION{"type":"google_agent","params":{"action":"find_free_time","duration_minutes":60,"start_date":"2026-06-18","end_date":"2026-06-21","work_start":9,"work_end":18}}:::
+:::ACTION{"type":"google_agent","params":{"action":"create_meet_link","title":"...","start_date":"2026-06-18","start_time":"10:00:00","end_time":"11:00:00","attendees":["email@example.com"]}}:::
+:::ACTION{"type":"google_agent","params":{"action":"send_email","to":"...","subject":"...","body":"..."}}:::
+:::ACTION{"type":"google_agent","params":{"action":"search_emails","query":"from:client@example.com","max_results":5}}:::
+:::ACTION{"type":"google_agent","params":{"action":"list_files","query":"name contains 'proposal'","max_results":10}}:::
+:::ACTION{"type":"google_agent","params":{"action":"upload_text","name":"report.md","content":"...","mime_type":"text/markdown"}}:::
 TIME TRACKING:
 :::ACTION{"type":"log_time","params":{"description":"...","project":"...","started_at":"2026-06-05T09:00:00Z","ended_at":"2026-06-05T10:00:00Z","duration_seconds":3600,"tags":["focus","deep-work"]}}:::
 MEETING NOTES:
