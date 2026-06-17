@@ -5,7 +5,7 @@
 //
 // Actions:
 //   Calendar: create_calendar_event | update_calendar_event | delete_calendar_event
-//             list_calendar_events | find_free_time | create_meet_link
+//             list_calendar_events | find_free_time | create_meet_link | schedule_from_text
 //   Gmail:    send_email | list_emails | search_emails | get_email
 //             create_draft | dual_draft | watch_new_emails | mark_read | triage_inbox | smart_triage
 //   Drive:    list_files | upload_text | create_folder
@@ -240,6 +240,87 @@ async function handleCalendar(action: string, p: any, token: string, sb: any, ui
         summary:     result.summary,
         start:       result.start,
         end:         result.end,
+      };
+    }
+
+    case "schedule_from_text": {
+      // Parse natural language text → structured event → create on Google Calendar.
+      // Mirrors Make.com: CustomWebhook → AI parse → createAnEvent.
+      const text = String(p.text ?? p.input ?? p.content ?? p.message ?? "");
+      if (!text) throw new Error("schedule_from_text requires 'text'");
+
+      const today    = new Date().toISOString().split("T")[0];
+      const dayOfWeek = new Date().toLocaleDateString("en-US", { weekday: "long" });
+
+      const parseSystem =
+        `Today is ${today} (${dayOfWeek}). Timezone: ${tz}.\n` +
+        `Parse the following text and extract a calendar event. Return ONLY valid JSON in this exact format — no markdown, no explanation:\n` +
+        `{\n` +
+        `  "title": "...",\n` +
+        `  "start_date": "YYYY-MM-DD",\n` +
+        `  "start_time": "HH:MM:SS",\n` +
+        `  "end_date": "YYYY-MM-DD",\n` +
+        `  "end_time": "HH:MM:SS",\n` +
+        `  "all_day": false,\n` +
+        `  "description": "...",\n` +
+        `  "location": "...",\n` +
+        `  "attendees": []\n` +
+        `}\n` +
+        `Rules:\n` +
+        `- No start time found → use 09:00:00; no end time → add 1 hour to start\n` +
+        `- Relative dates ("tomorrow", "next Monday", "in 3 days") → resolve against today\n` +
+        `- attendees: include only actual email addresses; use [] if none\n` +
+        `- all_day: true only if explicitly all-day or no time at all\n` +
+        `- description: brief summary of the event purpose\n` +
+        `- location: empty string if not specified`;
+
+      const raw = await callClaude(parseSystem, text, "claude-sonnet-4-6", 512);
+      const match = raw.match(/\{[\s\S]*\}/);
+      if (!match) throw new Error("Claude could not parse event from text: " + raw.slice(0, 200));
+      const ev = JSON.parse(match[0]);
+
+      // Build and create the event using the same logic as create_calendar_event
+      const startDate = String(ev.start_date ?? today);
+      const startTime = String(ev.start_time ?? "09:00:00");
+      const endDate   = String(ev.end_date   ?? startDate);
+      const endTime   = String(ev.end_time   ?? "10:00:00");
+
+      const event: Record<string, any> = {
+        summary:     String(ev.title ?? p.default_title ?? "MAVIS Event"),
+        description: ev.description || undefined,
+        location:    ev.location    || undefined,
+        start:       ev.all_day ? toDate(startDate) : toDateTime(startDate, startTime, tz),
+        end:         ev.all_day ? toDate(endDate)   : toDateTime(endDate,   endTime,   tz),
+        attendees:   Array.isArray(ev.attendees) && ev.attendees.length
+          ? ev.attendees.map((e: string) => ({ email: e }))
+          : undefined,
+      };
+
+      if (p.create_meet) {
+        event.conferenceData = { createRequest: { requestId: `mavis-${Date.now()}`, conferenceSolutionKey: { type: "hangoutsMeet" } } };
+      }
+
+      const params = p.create_meet ? `?conferenceDataVersion=1` : "";
+      const result = await gReq(token, `${GC_API}/calendars/${calId}/events${params}`, "POST", event);
+
+      await sb.from("mavis_memory").insert({
+        user_id:          uid,
+        role:             "assistant",
+        content:          `[GOOGLE CALENDAR] Scheduled "${event.summary}" on ${startDate} at ${startTime}${event.location ? ` at ${event.location}` : ""}`,
+        importance_score: 6,
+        tags:             ["calendar", "google_calendar", "event_created", "scheduled_from_text"],
+      }).catch(() => {});
+
+      return {
+        event_id:    result.id,
+        title:       result.summary,
+        start:       result.start,
+        end:         result.end,
+        location:    result.location ?? null,
+        description: result.description ?? null,
+        link:        result.htmlLink ?? null,
+        meet_link:   result.hangoutLink ?? null,
+        parsed:      ev,
       };
     }
 
@@ -993,7 +1074,7 @@ serve(async (req) => {
 
     // ── Route to the right Google service ────────────────────────────────────
 
-    if (action.includes("calendar") || action === "find_free_time" || action === "create_meet_link") {
+    if (action.includes("calendar") || action === "find_free_time" || action === "create_meet_link" || action === "schedule_from_text") {
       const token = await getToken(adminSb, uid, "google_calendar");
       const result = await handleCalendar(action, body, token, adminSb, uid);
       return json(result);

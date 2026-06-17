@@ -2770,6 +2770,20 @@ async function executeAction(sb: any, userId: string, action: MavisAction, req: 
       return { queued: true, task_id: (task as any)?.id };
     }
 
+    case "schedule_from_text": {
+      // Parse natural language text → structured Google Calendar event.
+      // Mirrors Make.com: CustomWebhook → AI parse → createAnEvent.
+      const res = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-google-agent`, {
+        method:  "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
+        body:    JSON.stringify({ userId, action: "schedule_from_text", ...p }),
+        signal:  AbortSignal.timeout(45000),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((data as any).error ?? `mavis-google-agent returned ${res.status}`);
+      return data;
+    }
+
     case "translate_speak": {
       // Translate text via Claude Haiku → synthesize speech via OpenAI TTS → send audio to Telegram.
       // Mirrors Make.com: Telegram text → Google Translate → Google TTS → sendAudio.
