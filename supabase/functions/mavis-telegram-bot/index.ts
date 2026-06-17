@@ -196,11 +196,6 @@ async function callClaude(
   return d?.content?.[0]?.text ?? "";
 }
 
-// Single-turn shorthand (no history needed — used for classification + task confirmations)
-async function callClaudeOnce(system: string, user: string, maxTokens = 600): Promise<string> {
-  return callClaude(system, [{ role: "user", content: user }], maxTokens);
-}
-
 // ─────────────────────────────────────────────────────────────
 // INTERNAL HELPERS
 // ─────────────────────────────────────────────────────────────
@@ -232,82 +227,29 @@ async function queueTask(
 // INTENT CLASSIFICATION
 // ─────────────────────────────────────────────────────────────
 
-type Intent =
-  | "help"
-  | "image"
-  | "tweet"
-  | "content_machine"
-  | "daily_brief"
-  | "goal"
-  | "quests"
-  | "revenue"
-  | "tasks"
-  | "chat";
+// Intents handled with direct fast-path handlers (DB queries or specific pipelines).
+// Everything else — including image generation, tweets, goals, briefs, scheduling,
+// emails, and any multi-step task — routes through mavis-chat's full agentic loop.
+type Intent = "help" | "quests" | "revenue" | "tasks" | "content_machine" | "chat";
 
 interface Classified {
   intent: Intent;
   params: Record<string, string>;
 }
 
-async function classify(text: string, history: ChatMessage[]): Promise<Classified> {
+function classify(text: string): Classified {
   const lower = text.toLowerCase().trim();
 
-  // Hard-coded shortcuts for speed (no LLM needed)
   if (/^\/?(help|commands?)$/i.test(lower)) return { intent: "help", params: {} };
-  if (/^\/?(brief|status|morning|daily)$/i.test(lower)) return { intent: "daily_brief", params: {} };
   if (/^\/?(quests?|missions?)$/i.test(lower)) return { intent: "quests", params: {} };
   if (/^\/?(revenue|money|earnings?|income)$/i.test(lower)) return { intent: "revenue", params: {} };
   if (/^\/?(tasks?|queue|pending)$/i.test(lower)) return { intent: "tasks", params: {} };
-
-  if (/^\/?(image|img|generate|gen|draw|create image)\s+(.+)$/i.test(lower)) {
-    const topic = text.replace(/^\/?(image|img|generate|gen|draw|create image)\s+/i, "").trim();
-    return { intent: "image", params: { topic } };
-  }
-  if (/^\/?(tweet|post to twitter|twitter)\s+(.+)$/i.test(lower)) {
-    const content = text.replace(/^\/?(tweet|post to twitter|twitter)\s+/i, "").trim();
-    return { intent: "tweet", params: { content } };
-  }
   if (/^\/?(content|nora content|video content|post content)\s+(.+)$/i.test(lower)) {
     const topic = text.replace(/^\/?(content|nora content|video content|post content)\s+/i, "").trim();
     return { intent: "content_machine", params: { topic } };
   }
-  if (/^\/?(goal|achieve|accomplish|work on)\s+(.+)$/i.test(lower)) {
-    const objective = text.replace(/^\/?(goal|achieve|accomplish|work on)\s+/i, "").trim();
-    return { intent: "goal", params: { objective } };
-  }
 
-  // Build recent context snippet to help classify follow-ups ("do that for twitter too")
-  const contextSnippet = history.slice(-4)
-    .map((m) => `${m.role === "user" ? "You" : "MAVIS"}: ${m.content.slice(0, 120)}`)
-    .join("\n");
-
-  const raw = await callClaudeOnce(
-    `You classify messages sent to an AI operating system (MAVIS) via Telegram.
-Return ONLY a JSON object.
-
-Intents:
-- "image"           → generate an image. Extract "topic".
-- "tweet"           → post as Nora Vale on Twitter. Extract "content".
-- "content_machine" → full avatar video + multi-platform post. Extract "topic".
-- "daily_brief"     → daily status briefing.
-- "goal"            → pursue a goal autonomously. Extract "objective".
-- "quests"          → show active quests.
-- "revenue"         → earnings overview.
-- "tasks"           → show pending task queue.
-- "help"            → list what MAVIS can do.
-- "chat"            → conversation, question, or follow-up.
-
-${contextSnippet ? `Recent conversation:\n${contextSnippet}\n` : ""}
-Example: {"intent":"image","params":{"topic":"cyberpunk city at dusk"}}`,
-    `Message: "${text}"`,
-    300,
-  );
-
-  try {
-    const m = raw.match(/\{[\s\S]*\}/);
-    if (m) return JSON.parse(m[0]) as Classified;
-  } catch { /* fall through */ }
-
+  // Everything else → mavis-chat (image gen, tweets, goals, scheduling, email, chat, etc.)
   return { intent: "chat", params: {} };
 }
 
@@ -321,48 +263,21 @@ async function handleHelp(chatId: string | number) {
     : `🎤 _Voice: set OPENAI_API_KEY to enable_`;
 
   await send(chatId,
-    `*MAVIS — Mobile Commands*\n\n` +
-    `🖼 \`image <topic>\` — generate an image\n` +
-    `🐦 \`tweet <text>\` — post as Nora Vale on Twitter\n` +
-    `🎬 \`content <topic>\` — avatar video + multi-platform post\n` +
-    `🎯 \`goal <objective>\` — start an autonomous goal\n` +
-    `📋 \`brief\` — daily status briefing\n` +
+    `*MAVIS — Mobile Interface*\n\n` +
+    `Just talk to MAVIS naturally. Examples:\n` +
+    `• _"Generate an image of a dark forest at dawn"_\n` +
+    `• _"Tweet about AI automation for founders"_\n` +
+    `• _"Schedule a call with Jordan tomorrow at 2pm and email her"_\n` +
+    `• _"Create a quest called Master the morning routine"_\n` +
+    `• _"What should I focus on this week?"_\n` +
+    `• _"Give me my daily brief"_\n\n` +
+    `*Fast commands:*\n` +
     `⚔️ \`quests\` — active quests\n` +
     `💰 \`revenue\` — earnings overview\n` +
     `📌 \`tasks\` — pending task queue\n` +
-    `💬 anything else — chat with MAVIS (remembers context)\n\n` +
+    `🎬 \`content <topic>\` — full Nora avatar video pipeline\n\n` +
     voiceLine
   );
-}
-
-async function handleImage(chatId: string | number, topic: string) {
-  await send(chatId, `🖼 Generating: _${topic}_…`);
-  await typing(chatId);
-
-  const res = await callFunction("mavis-actions", {
-    actions: [{ type: "generate_image", params: { prompt: topic, aspect_ratio: "1:1", save_to_vault: true } }],
-    userId: OPERATOR_UID,
-  });
-  const data = await res.json().catch(() => ({})) as Record<string, unknown>;
-  const results = (data as any)?.results ?? [];
-  const imageUrl = (results[0] as any)?.imageUrl ?? (results[0] as any)?.result?.imageUrl ?? "";
-
-  if (imageUrl && imageUrl.startsWith("http")) {
-    await sendPhoto(chatId, imageUrl, `📸 ${topic}`);
-  } else if (imageUrl.startsWith("data:image")) {
-    await send(chatId, `✅ Image generated and saved to Vault.`);
-  } else {
-    await send(chatId, `⚠️ Image generation failed. Check GEMINI_API_KEY in Supabase secrets.`);
-  }
-}
-
-async function handleTweet(chatId: string | number, content: string) {
-  const id = await queueTask("nora_tweet", content, { content });
-  if (id) {
-    await send(chatId, `🐦 Tweet queued — posts within 15 min.\n\n_"${content.slice(0, 100)}${content.length > 100 ? "…" : ""}"_`);
-  } else {
-    await send(chatId, `⚠️ Failed to queue tweet.`);
-  }
 }
 
 async function handleContentMachine(chatId: string | number, topic: string) {
@@ -380,27 +295,6 @@ async function handleContentMachine(chatId: string | number, topic: string) {
     );
   } else {
     await send(chatId, `⚠️ Failed to queue content pipeline.`);
-  }
-}
-
-async function handleDailyBrief(chatId: string | number) {
-  const id = await queueTask("daily_brief", "Daily brief (Telegram)", {});
-  if (id) {
-    await send(chatId, `📋 Daily brief queued — check MAVIS or wait for the next executor cycle.`);
-  } else {
-    await send(chatId, `⚠️ Failed to queue brief.`);
-  }
-}
-
-async function handleGoal(chatId: string | number, objective: string) {
-  const id = await queueTask("goal", objective, { objective, context: "triggered via Telegram" });
-  if (id) {
-    await send(chatId,
-      `🎯 Goal queued: _${objective}_\n\n` +
-      `MAVIS will plan and execute autonomously. Open the Task Dashboard to track progress.`
-    );
-  } else {
-    await send(chatId, `⚠️ Failed to queue goal.`);
   }
 }
 
@@ -625,18 +519,14 @@ serve(async (req) => {
     // ── Classify + dispatch ───────────────────────────────────────────────────
 
     try {
-      const { intent, params } = await classify(text, history);
+      const { intent, params } = classify(text);
 
       switch (intent) {
         case "help":            await handleHelp(chatId); break;
-        case "image":           await handleImage(chatId, params.topic ?? text); break;
-        case "tweet":           await handleTweet(chatId, params.content ?? text); break;
-        case "content_machine": await handleContentMachine(chatId, params.topic ?? text); break;
-        case "daily_brief":     await handleDailyBrief(chatId); break;
-        case "goal":            await handleGoal(chatId, params.objective ?? text); break;
         case "quests":          await handleQuests(chatId); break;
         case "revenue":         await handleRevenue(chatId); break;
         case "tasks":           await handleTasks(chatId); break;
+        case "content_machine": await handleContentMachine(chatId, params.topic ?? text); break;
         default:                await handleChat(chatId, text, history, sessionId); break;
       }
     } catch (err) {
