@@ -1,4 +1,5 @@
 // mavis-telegram-bot — Telegram webhook receiver for mobile MAVIS access.
+// Supports text messages, voice memos (Whisper STT), and multi-turn conversation memory.
 //
 // Setup (one-time, paste in terminal after deploying):
 //   curl -s "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/setWebhook" \
@@ -14,17 +15,23 @@
 //   SUPABASE_URL
 //   SUPABASE_SERVICE_ROLE_KEY
 //   ANTHROPIC_API_KEY
+// Optional:
+//   OPENAI_API / OPENAI_API_KEY — enables voice message transcription via Whisper
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 
-const BOT_TOKEN       = Deno.env.get("TELEGRAM_BOT_TOKEN") ?? "";
-const OPERATOR_CHAT   = Deno.env.get("TELEGRAM_OPERATOR_CHAT_ID") ?? "";
-const WEBHOOK_SECRET  = Deno.env.get("TELEGRAM_WEBHOOK_SECRET") ?? "";
-const OPERATOR_UID    = Deno.env.get("MAVIS_OPERATOR_MAIN_ID") ?? "";
-const SUPABASE_URL    = Deno.env.get("SUPABASE_URL") ?? "";
-const SERVICE_KEY     = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
-const ANTHROPIC_KEY   = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
+const BOT_TOKEN      = Deno.env.get("TELEGRAM_BOT_TOKEN") ?? "";
+const OPERATOR_CHAT  = Deno.env.get("TELEGRAM_OPERATOR_CHAT_ID") ?? "";
+const WEBHOOK_SECRET = Deno.env.get("TELEGRAM_WEBHOOK_SECRET") ?? "";
+const OPERATOR_UID   = Deno.env.get("MAVIS_OPERATOR_MAIN_ID") ?? "";
+const SUPABASE_URL   = Deno.env.get("SUPABASE_URL") ?? "";
+const SERVICE_KEY    = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+const ANTHROPIC_KEY  = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
+const OPENAI_KEY     = Deno.env.get("OPENAI_API") ?? Deno.env.get("OPENAI_API_KEY") ?? "";
+
+const HISTORY_LIMIT = 10; // message pairs to retain per session
+const TELEGRAM_SESSION_TITLE = "[Telegram] MAVIS Session";
 
 const sb = createClient(SUPABASE_URL, SERVICE_KEY);
 
@@ -55,6 +62,146 @@ async function typing(chatId: string | number) {
 }
 
 // ─────────────────────────────────────────────────────────────
+// VOICE TRANSCRIPTION (OpenAI Whisper)
+// ─────────────────────────────────────────────────────────────
+
+async function transcribeVoice(fileId: string): Promise<string | null> {
+  if (!OPENAI_KEY || !BOT_TOKEN) return null;
+
+  try {
+    // Step 1: get the file path from Telegram
+    const fileRes = await fetch(
+      `https://api.telegram.org/bot${BOT_TOKEN}/getFile?file_id=${fileId}`,
+      { signal: AbortSignal.timeout(8000) }
+    );
+    const fileData = await fileRes.json() as Record<string, unknown>;
+    const filePath = (fileData.result as any)?.file_path as string | undefined;
+    if (!filePath) return null;
+
+    // Step 2: download the audio binary
+    const audioRes = await fetch(
+      `https://api.telegram.org/file/bot${BOT_TOKEN}/${filePath}`,
+      { signal: AbortSignal.timeout(15000) }
+    );
+    if (!audioRes.ok) return null;
+    const audioBuffer = await audioRes.arrayBuffer();
+
+    // Step 3: transcribe via OpenAI Whisper
+    const form = new FormData();
+    const ext = filePath.split(".").pop() ?? "ogg";
+    const mimeType = ext === "mp3" ? "audio/mpeg" : ext === "m4a" ? "audio/mp4" : "audio/ogg";
+    form.append("file", new Blob([audioBuffer], { type: mimeType }), `voice.${ext}`);
+    form.append("model", "whisper-1");
+
+    const whisperRes = await fetch("https://api.openai.com/v1/audio/transcriptions", {
+      method: "POST",
+      headers: { "Authorization": `Bearer ${OPENAI_KEY}` },
+      body: form,
+      signal: AbortSignal.timeout(30000),
+    });
+    if (!whisperRes.ok) return null;
+
+    const whisperData = await whisperRes.json() as Record<string, unknown>;
+    return String(whisperData.text ?? "").trim() || null;
+  } catch {
+    return null;
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+// CONVERSATION MEMORY (chat_conversations + chat_messages)
+// ─────────────────────────────────────────────────────────────
+
+type ChatMessage = { role: "user" | "assistant"; content: string };
+
+async function getOrCreateSession(): Promise<string | null> {
+  if (!OPERATOR_UID) return null;
+
+  // Look for an existing telegram session conversation
+  const { data: existing } = await sb
+    .from("chat_conversations")
+    .select("id")
+    .eq("user_id", OPERATOR_UID)
+    .eq("title", TELEGRAM_SESSION_TITLE)
+    .order("updated_at", { ascending: false })
+    .limit(1)
+    .single()
+    .catch(() => ({ data: null }));
+
+  if ((existing as any)?.id) return (existing as any).id;
+
+  // Create one
+  const { data: created } = await sb
+    .from("chat_conversations")
+    .insert({ user_id: OPERATOR_UID, title: TELEGRAM_SESSION_TITLE })
+    .select("id")
+    .single()
+    .catch(() => ({ data: null }));
+
+  return (created as any)?.id ?? null;
+}
+
+async function loadHistory(conversationId: string): Promise<ChatMessage[]> {
+  const { data } = await sb
+    .from("chat_messages")
+    .select("role, content")
+    .eq("conversation_id", conversationId)
+    .order("created_at", { ascending: false })
+    .limit(HISTORY_LIMIT * 2) // fetch more then reverse
+    .catch(() => ({ data: null }));
+
+  if (!data) return [];
+  return ((data as any[]).reverse() as ChatMessage[]);
+}
+
+async function saveExchange(
+  conversationId: string,
+  userContent: string,
+  assistantContent: string,
+): Promise<void> {
+  if (!OPERATOR_UID) return;
+  await sb.from("chat_messages").insert([
+    { conversation_id: conversationId, user_id: OPERATOR_UID, role: "user",      content: userContent,      mode: "TELEGRAM" },
+    { conversation_id: conversationId, user_id: OPERATOR_UID, role: "assistant", content: assistantContent, mode: "TELEGRAM" },
+  ]).catch(() => null);
+}
+
+// ─────────────────────────────────────────────────────────────
+// CLAUDE
+// ─────────────────────────────────────────────────────────────
+
+async function callClaude(
+  system: string,
+  messages: ChatMessage[],
+  maxTokens = 800,
+): Promise<string> {
+  if (!ANTHROPIC_KEY) return "(ANTHROPIC_API_KEY not set)";
+  const res = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-api-key": ANTHROPIC_KEY,
+      "anthropic-version": "2023-06-01",
+    },
+    body: JSON.stringify({
+      model: "claude-haiku-4-5-20251001",
+      max_tokens: maxTokens,
+      system,
+      messages,
+    }),
+    signal: AbortSignal.timeout(30000),
+  });
+  if (!res.ok) return "";
+  const d = await res.json();
+  return d?.content?.[0]?.text ?? "";
+}
+
+// Single-turn shorthand (no history needed — used for classification + task confirmations)
+async function callClaudeOnce(system: string, user: string, maxTokens = 600): Promise<string> {
+  return callClaude(system, [{ role: "user", content: user }], maxTokens);
+}
+
+// ─────────────────────────────────────────────────────────────
 // INTERNAL HELPERS
 // ─────────────────────────────────────────────────────────────
 
@@ -81,28 +228,6 @@ async function queueTask(
   return (data as any)?.id ?? null;
 }
 
-async function callClaude(system: string, user: string, maxTokens = 800): Promise<string> {
-  if (!ANTHROPIC_KEY) return "(ANTHROPIC_API_KEY not set)";
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-api-key": ANTHROPIC_KEY,
-      "anthropic-version": "2023-06-01",
-    },
-    body: JSON.stringify({
-      model: "claude-haiku-4-5-20251001",
-      max_tokens: maxTokens,
-      system,
-      messages: [{ role: "user", content: user }],
-    }),
-    signal: AbortSignal.timeout(30000),
-  });
-  if (!res.ok) return "";
-  const d = await res.json();
-  return d?.content?.[0]?.text ?? "";
-}
-
 // ─────────────────────────────────────────────────────────────
 // INTENT CLASSIFICATION
 // ─────────────────────────────────────────────────────────────
@@ -122,10 +247,9 @@ type Intent =
 interface Classified {
   intent: Intent;
   params: Record<string, string>;
-  subject?: string;
 }
 
-async function classify(text: string): Promise<Classified> {
+async function classify(text: string, history: ChatMessage[]): Promise<Classified> {
   const lower = text.toLowerCase().trim();
 
   // Hard-coded shortcuts for speed (no LLM needed)
@@ -137,41 +261,46 @@ async function classify(text: string): Promise<Classified> {
 
   if (/^\/?(image|img|generate|gen|draw|create image)\s+(.+)$/i.test(lower)) {
     const topic = text.replace(/^\/?(image|img|generate|gen|draw|create image)\s+/i, "").trim();
-    return { intent: "image", params: { topic }, subject: topic };
+    return { intent: "image", params: { topic } };
   }
   if (/^\/?(tweet|post to twitter|twitter)\s+(.+)$/i.test(lower)) {
     const content = text.replace(/^\/?(tweet|post to twitter|twitter)\s+/i, "").trim();
-    return { intent: "tweet", params: { content }, subject: content };
+    return { intent: "tweet", params: { content } };
   }
   if (/^\/?(content|nora content|video content|post content)\s+(.+)$/i.test(lower)) {
     const topic = text.replace(/^\/?(content|nora content|video content|post content)\s+/i, "").trim();
-    return { intent: "content_machine", params: { topic }, subject: topic };
+    return { intent: "content_machine", params: { topic } };
   }
   if (/^\/?(goal|achieve|accomplish|work on)\s+(.+)$/i.test(lower)) {
     const objective = text.replace(/^\/?(goal|achieve|accomplish|work on)\s+/i, "").trim();
-    return { intent: "goal", params: { objective }, subject: objective };
+    return { intent: "goal", params: { objective } };
   }
 
-  // Claude classifies ambiguous messages
-  const raw = await callClaude(
-    `You classify a message from a user commanding their AI operating system (MAVIS).
-Return ONLY a JSON object — no markdown, no explanation.
+  // Build recent context snippet to help classify follow-ups ("do that for twitter too")
+  const contextSnippet = history.slice(-4)
+    .map((m) => `${m.role === "user" ? "You" : "MAVIS"}: ${m.content.slice(0, 120)}`)
+    .join("\n");
+
+  const raw = await callClaudeOnce(
+    `You classify messages sent to an AI operating system (MAVIS) via Telegram.
+Return ONLY a JSON object.
 
 Intents:
-- "image"           → wants an image generated. Extract "topic".
-- "tweet"           → wants to post a tweet as Nora Vale. Extract "content".
-- "content_machine" → wants a full content video posted to social media. Extract "topic".
-- "daily_brief"     → wants a daily status/briefing.
-- "goal"            → wants to pursue a specific goal/objective. Extract "objective".
-- "quests"          → wants to see active quests.
-- "revenue"         → wants revenue/earnings overview.
-- "tasks"           → wants to see pending tasks.
-- "help"            → wants to know what MAVIS can do.
-- "chat"            → general conversation, question, or anything else.
+- "image"           → generate an image. Extract "topic".
+- "tweet"           → post as Nora Vale on Twitter. Extract "content".
+- "content_machine" → full avatar video + multi-platform post. Extract "topic".
+- "daily_brief"     → daily status briefing.
+- "goal"            → pursue a goal autonomously. Extract "objective".
+- "quests"          → show active quests.
+- "revenue"         → earnings overview.
+- "tasks"           → show pending task queue.
+- "help"            → list what MAVIS can do.
+- "chat"            → conversation, question, or follow-up.
 
-Example: {"intent":"image","params":{"topic":"a cyberpunk cityscape at dusk"}}`,
+${contextSnippet ? `Recent conversation:\n${contextSnippet}\n` : ""}
+Example: {"intent":"image","params":{"topic":"cyberpunk city at dusk"}}`,
     `Message: "${text}"`,
-    400,
+    300,
   );
 
   try {
@@ -179,7 +308,7 @@ Example: {"intent":"image","params":{"topic":"a cyberpunk cityscape at dusk"}}`,
     if (m) return JSON.parse(m[0]) as Classified;
   } catch { /* fall through */ }
 
-  return { intent: "chat", params: { message: text } };
+  return { intent: "chat", params: {} };
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -187,23 +316,27 @@ Example: {"intent":"image","params":{"topic":"a cyberpunk cityscape at dusk"}}`,
 // ─────────────────────────────────────────────────────────────
 
 async function handleHelp(chatId: string | number) {
+  const voiceLine = OPENAI_KEY
+    ? `🎤 _Voice memos supported — just send a voice message_`
+    : `🎤 _Voice: set OPENAI_API_KEY to enable_`;
+
   await send(chatId,
     `*MAVIS — Mobile Commands*\n\n` +
     `🖼 \`image <topic>\` — generate an image\n` +
     `🐦 \`tweet <text>\` — post as Nora Vale on Twitter\n` +
-    `🎬 \`content <topic>\` — create avatar video + multi-platform post\n` +
+    `🎬 \`content <topic>\` — avatar video + multi-platform post\n` +
     `🎯 \`goal <objective>\` — start an autonomous goal\n` +
     `📋 \`brief\` — daily status briefing\n` +
     `⚔️ \`quests\` — active quests\n` +
     `💰 \`revenue\` — earnings overview\n` +
     `📌 \`tasks\` — pending task queue\n` +
-    `💬 anything else — chat with MAVIS\n\n` +
-    `_All commands also work in natural language._`
+    `💬 anything else — chat with MAVIS (remembers context)\n\n` +
+    voiceLine
   );
 }
 
 async function handleImage(chatId: string | number, topic: string) {
-  await send(chatId, `🖼 Generating image: _${topic}_…`);
+  await send(chatId, `🖼 Generating: _${topic}_…`);
   await typing(chatId);
 
   const res = await callFunction("mavis-actions", {
@@ -217,18 +350,18 @@ async function handleImage(chatId: string | number, topic: string) {
   if (imageUrl && imageUrl.startsWith("http")) {
     await sendPhoto(chatId, imageUrl, `📸 ${topic}`);
   } else if (imageUrl.startsWith("data:image")) {
-    await send(chatId, `✅ Image generated and saved to Vault. Open MAVIS to view it.`);
+    await send(chatId, `✅ Image generated and saved to Vault.`);
   } else {
-    await send(chatId, `⚠️ Image generation failed or GEMINI_API_KEY not set. Check Supabase secrets.`);
+    await send(chatId, `⚠️ Image generation failed. Check GEMINI_API_KEY in Supabase secrets.`);
   }
 }
 
 async function handleTweet(chatId: string | number, content: string) {
   const id = await queueTask("nora_tweet", content, { content });
   if (id) {
-    await send(chatId, `🐦 Tweet queued — Nora will post it on the next executor cycle (≤15 min).\n\n_"${content.slice(0, 100)}${content.length > 100 ? "…" : ""}"_`);
+    await send(chatId, `🐦 Tweet queued — posts within 15 min.\n\n_"${content.slice(0, 100)}${content.length > 100 ? "…" : ""}"_`);
   } else {
-    await send(chatId, `⚠️ Failed to queue tweet. Check Supabase connection.`);
+    await send(chatId, `⚠️ Failed to queue tweet.`);
   }
 }
 
@@ -240,10 +373,10 @@ async function handleContentMachine(chatId: string | number, topic: string) {
   });
   if (id) {
     await send(chatId,
-      `🎬 Content pipeline queued for: _${topic}_\n\n` +
-      `Phase 1 (next cycle): research → write script → submit avatar video\n` +
-      `Phase 2 (after video renders): post to Twitter, LinkedIn, TikTok\n\n` +
-      `_Requires: FAL_API_KEY, ELEVENLABS_API_KEY, NORA_AVATAR_IMAGE_URL, social tokens_`
+      `🎬 Content pipeline queued: _${topic}_\n\n` +
+      `Phase 1: research → script → avatar video\n` +
+      `Phase 2: post to Twitter, LinkedIn, TikTok\n\n` +
+      `_Needs: FAL_API_KEY, ELEVENLABS_API_KEY, NORA_AVATAR_IMAGE_URL_`
     );
   } else {
     await send(chatId, `⚠️ Failed to queue content pipeline.`);
@@ -253,7 +386,7 @@ async function handleContentMachine(chatId: string | number, topic: string) {
 async function handleDailyBrief(chatId: string | number) {
   const id = await queueTask("daily_brief", "Daily brief (Telegram)", {});
   if (id) {
-    await send(chatId, `📋 Daily brief queued — check back in a few minutes or open MAVIS to view it.`);
+    await send(chatId, `📋 Daily brief queued — check MAVIS or wait for the next executor cycle.`);
   } else {
     await send(chatId, `⚠️ Failed to queue brief.`);
   }
@@ -264,8 +397,7 @@ async function handleGoal(chatId: string | number, objective: string) {
   if (id) {
     await send(chatId,
       `🎯 Goal queued: _${objective}_\n\n` +
-      `MAVIS will plan and execute this autonomously over the next cron cycles. ` +
-      `Open the Task Dashboard in MAVIS to track progress.`
+      `MAVIS will plan and execute autonomously. Open the Task Dashboard to track progress.`
     );
   } else {
     await send(chatId, `⚠️ Failed to queue goal.`);
@@ -282,13 +414,11 @@ async function handleQuests(chatId: string | number) {
     .limit(10);
 
   if (!quests || (quests as any[]).length === 0) {
-    await send(chatId, `⚔️ No active quests. Open MAVIS to create one.`);
+    await send(chatId, `⚔️ No active quests.`);
     return;
   }
 
-  const lines = (quests as any[]).map((q) =>
-    `• *${q.title}* [${q.type}] +${q.xp_reward ?? 0}XP`
-  );
+  const lines = (quests as any[]).map((q) => `• *${q.title}* [${q.type}] +${q.xp_reward ?? 0}XP`);
   await send(chatId, `⚔️ *Active Quests (${lines.length})*\n\n${lines.join("\n")}`);
 }
 
@@ -312,11 +442,11 @@ async function handleRevenue(chatId: string | number) {
   }, {});
 
   const breakdown = Object.entries(bySource)
-    .sort(([, a], [, b]) => b - a)
+    .sort(([, a], [, b]) => (b as number) - (a as number))
     .map(([src, amt]) => `• ${src}: $${(amt as number).toFixed(2)}`)
     .join("\n");
 
-  await send(chatId, `💰 *Revenue Overview*\n\nTotal: *$${total.toFixed(2)}*\n\n${breakdown}`);
+  await send(chatId, `💰 *Revenue*\n\nTotal: *$${total.toFixed(2)}*\n\n${breakdown}`);
 }
 
 async function handleTasks(chatId: string | number) {
@@ -329,20 +459,25 @@ async function handleTasks(chatId: string | number) {
     .limit(10);
 
   if (!tasks || (tasks as any[]).length === 0) {
-    await send(chatId, `📌 No pending tasks in the queue.`);
+    await send(chatId, `📌 No pending tasks.`);
     return;
   }
 
   const lines = (tasks as any[]).map((t) =>
     `• [${t.status}] *${t.type}* — ${(t.description ?? "").slice(0, 60)}`
   );
-  await send(chatId, `📌 *Task Queue (${lines.length})*\n\n${lines.join("\n")}`);
+  await send(chatId, `📌 *Queue (${lines.length})*\n\n${lines.join("\n")}`);
 }
 
-async function handleChat(chatId: string | number, message: string) {
+async function handleChat(
+  chatId: string | number,
+  text: string,
+  history: ChatMessage[],
+  sessionId: string | null,
+) {
   await typing(chatId);
 
-  // Load minimal context
+  // Load minimal operator context
   const { data: profile } = await sb
     .from("profiles")
     .select("display_name, level, rank, xp")
@@ -351,20 +486,28 @@ async function handleChat(chatId: string | number, message: string) {
     .catch(() => ({ data: null }));
 
   const p = profile as any;
-  const context = p
+  const ctx = p
     ? `Operator: ${p.display_name} | Level ${p.level} | Rank ${p.rank} | ${p.xp} XP`
     : "";
 
-  const reply = await callClaude(
-    `You are MAVIS — Calvin's personal AI operating system. Sharp, direct, strategic. You're responding via Telegram mobile.
-Keep responses concise (≤3 paragraphs). No markdown headers. Bullet points ok.
+  const system = `You are MAVIS — Calvin's personal AI operating system. Sharp, direct, strategic. Responding via Telegram mobile.
+Keep responses concise (≤3 paragraphs). No markdown headers. Bullet points ok.${ctx ? `\n\n${ctx}` : ""}`;
 
-${context}`,
-    message,
-    600,
-  );
+  // Build messages: history + current user turn
+  const messages: ChatMessage[] = [
+    ...history,
+    { role: "user", content: text },
+  ];
 
-  await send(chatId, reply || "⚠️ No response — check ANTHROPIC_API_KEY.");
+  const reply = await callClaude(system, messages, 700);
+  const finalReply = reply || "⚠️ No response — check ANTHROPIC_API_KEY.";
+
+  await send(chatId, finalReply);
+
+  // Persist exchange to DB
+  if (sessionId) {
+    await saveExchange(sessionId, text, finalReply);
+  }
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -389,44 +532,72 @@ serve(async (req) => {
     return new Response("Bad Request", { status: 400 });
   }
 
-  // Respond to Telegram immediately — do work after
   const process = async () => {
     const message = (update.message ?? update.edited_message) as Record<string, unknown> | undefined;
     if (!message) return;
 
     const chatId = (message.chat as any)?.id;
-    const text = String((message.text ?? message.caption) ?? "").trim();
+    if (!chatId) return;
 
-    if (!chatId || !text) return;
-
-    // Security gate — only respond to the operator
+    // Security gate — only the operator
     if (String(chatId) !== String(OPERATOR_CHAT)) {
-      await tg("sendMessage", {
-        chat_id: chatId,
-        text: "⛔ Unauthorized. This MAVIS instance is operator-locked.",
-      });
+      await tg("sendMessage", { chat_id: chatId, text: "⛔ Unauthorized. This MAVIS instance is operator-locked." });
       return;
     }
 
     if (!OPERATOR_UID) {
-      await send(chatId, "⚠️ MAVIS_OPERATOR_MAIN_ID not configured. Add it to Supabase secrets.");
+      await send(chatId, "⚠️ MAVIS_OPERATOR_MAIN_ID not configured.");
       return;
     }
 
+    // ── Resolve input text ─────────────────────────────────────────────────────
+
+    let text = String((message.text ?? message.caption) ?? "").trim();
+    let wasVoice = false;
+
+    const voice = (message.voice ?? message.audio) as Record<string, unknown> | undefined;
+    if (!text && voice?.file_id) {
+      await typing(chatId);
+      const transcription = await transcribeVoice(String(voice.file_id));
+      if (transcription) {
+        text = transcription;
+        wasVoice = true;
+      } else {
+        await send(chatId, OPENAI_KEY
+          ? "⚠️ Couldn't transcribe audio. Try again or type your message."
+          : "⚠️ Voice not supported — set OPENAI_API_KEY in Supabase secrets to enable transcription."
+        );
+        return;
+      }
+    }
+
+    if (!text) return;
+
+    // ── Load conversation history ──────────────────────────────────────────────
+
+    const sessionId = await getOrCreateSession();
+    const history = sessionId ? await loadHistory(sessionId) : [];
+
+    if (wasVoice) {
+      await send(chatId, `🎤 _"${text.slice(0, 120)}${text.length > 120 ? "…" : ""}"_`);
+    }
+
+    // ── Classify + dispatch ───────────────────────────────────────────────────
+
     try {
-      const { intent, params } = await classify(text);
+      const { intent, params } = await classify(text, history);
 
       switch (intent) {
-        case "help":           await handleHelp(chatId); break;
-        case "image":          await handleImage(chatId, params.topic ?? text); break;
-        case "tweet":          await handleTweet(chatId, params.content ?? text); break;
+        case "help":            await handleHelp(chatId); break;
+        case "image":           await handleImage(chatId, params.topic ?? text); break;
+        case "tweet":           await handleTweet(chatId, params.content ?? text); break;
         case "content_machine": await handleContentMachine(chatId, params.topic ?? text); break;
-        case "daily_brief":    await handleDailyBrief(chatId); break;
-        case "goal":           await handleGoal(chatId, params.objective ?? text); break;
-        case "quests":         await handleQuests(chatId); break;
-        case "revenue":        await handleRevenue(chatId); break;
-        case "tasks":          await handleTasks(chatId); break;
-        default:               await handleChat(chatId, text); break;
+        case "daily_brief":     await handleDailyBrief(chatId); break;
+        case "goal":            await handleGoal(chatId, params.objective ?? text); break;
+        case "quests":          await handleQuests(chatId); break;
+        case "revenue":         await handleRevenue(chatId); break;
+        case "tasks":           await handleTasks(chatId); break;
+        default:                await handleChat(chatId, text, history, sessionId); break;
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -434,11 +605,11 @@ serve(async (req) => {
     }
   };
 
-  // Fire processing in background, return 200 to Telegram immediately
+  // Return 200 to Telegram immediately, process async
   if (typeof (globalThis as any).EdgeRuntime?.waitUntil === "function") {
     (globalThis as any).EdgeRuntime.waitUntil(process());
   } else {
-    process(); // non-blocking fire-and-forget
+    process();
   }
 
   return new Response("ok", { status: 200 });
