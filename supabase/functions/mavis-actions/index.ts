@@ -2730,6 +2730,20 @@ async function executeAction(sb: any, userId: string, action: MavisAction, req: 
       return { queued: true, task_id: (task as any)?.id };
     }
 
+    case "email_smart_triage": {
+      // Queue smart triage: classify emails → Sheets prompt lookup → category-specific HTML reply draft.
+      // Mirrors Make.com: new email → AI classify → Sheets filterRows → AI reply → Gmail draft.
+      const { data: task } = await adminClient.from("mavis_tasks").insert({
+        user_id:      userId,
+        type:         "email_smart_triage",
+        description:  "Smart email triage: classify → Sheets prompt → HTML draft",
+        payload:      p,
+        status:       "pending",
+        scheduled_at: new Date().toISOString(),
+      }).select().single();
+      return { queued: true, task_id: (task as any)?.id };
+    }
+
     case "translate_speak": {
       // Translate text via Claude Haiku → synthesize speech via OpenAI TTS → send audio to Telegram.
       // Mirrors Make.com: Telegram text → Google Translate → Google TTS → sendAudio.

@@ -7,7 +7,7 @@
 //   Calendar: create_calendar_event | update_calendar_event | delete_calendar_event
 //             list_calendar_events | find_free_time | create_meet_link
 //   Gmail:    send_email | list_emails | search_emails | get_email
-//             create_draft | dual_draft | watch_new_emails | mark_read | triage_inbox
+//             create_draft | dual_draft | watch_new_emails | mark_read | triage_inbox | smart_triage
 //   Drive:    list_files | upload_text | create_folder
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
@@ -254,7 +254,7 @@ function encodeMime(
   to: string,
   subject: string,
   body: string,
-  opts: { from?: string; threadId?: string; inReplyTo?: string; references?: string } = {},
+  opts: { from?: string; threadId?: string; inReplyTo?: string; references?: string; htmlBody?: string } = {},
 ): string {
   const boundary = `boundary_${Date.now()}`;
   const lines = [
@@ -273,8 +273,17 @@ function encodeMime(
     "Content-Transfer-Encoding: base64",
     "",
     btoa(unescape(encodeURIComponent(body))),
-    `--${boundary}--`,
   );
+  if (opts.htmlBody) {
+    lines.push(
+      `--${boundary}`,
+      "Content-Type: text/html; charset=utf-8",
+      "Content-Transfer-Encoding: base64",
+      "",
+      btoa(unescape(encodeURIComponent(opts.htmlBody))),
+    );
+  }
+  lines.push(`--${boundary}--`);
   const mime = lines.join("\r\n");
   return btoa(unescape(encodeURIComponent(mime))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
@@ -706,6 +715,178 @@ Plain text only. Use [PLACEHOLDER] for unknown specifics.
       return { processed: msgIds.length, drafts_created: draftsCreated, results };
     }
 
+    case "smart_triage": {
+      // Classify email → lookup category-specific prompt from Sheets → HTML reply draft.
+      // Mirrors Make.com: new email → AI classify → Sheets filterRows → AI reply → Gmail draft.
+      if (!sb) throw new Error("smart_triage requires internal Supabase client");
+
+      const limit           = Math.min(Number(p.limit ?? 10), 25);
+      const spreadsheetId   = String(p.spreadsheet_id ?? "");
+      const sheetName       = String(p.sheet_name ?? "Prompts");
+      const signature       = p.signature ? String(p.signature) : "";
+      const stateKey        = String(p.state_key ?? "smart_triage_state");
+      const markReadAfter   = Boolean(p.mark_read ?? false);
+      const categories: string[] = Array.isArray(p.categories)
+        ? p.categories.map(String)
+        : ["Inquiry/Requests", "Complaints/Issues", "Job Applications/Resumes"];
+
+      if (!spreadsheetId) return { error: "spreadsheet_id required for smart_triage" };
+
+      // Load watermark
+      const { data: stateRow } = await sb
+        .from("mavis_memory")
+        .select("id, content")
+        .eq("user_id", uid)
+        .contains("tags", [stateKey])
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      const lastCheckEpoch: number = stateRow
+        ? (JSON.parse(stateRow.content ?? "{}").last_check_epoch ?? 0)
+        : 0;
+
+      // Fetch new unread emails
+      const afterFilter = lastCheckEpoch > 0 ? ` after:${lastCheckEpoch}` : "";
+      const q = encodeURIComponent(`is:unread -from:me -category:promotions -category:social${afterFilter}`);
+      const listRes = await gReq(token, `${GMAIL_API}/users/me/messages?maxResults=${limit}&q=${q}`);
+      const msgIds: string[] = (listRes.messages ?? []).map((m: any) => m.id);
+
+      const nowEpoch = Math.floor(Date.now() / 1000);
+      const results: any[] = [];
+      let draftsCreated = 0;
+
+      // Pre-load prompt table from Sheets (one call; columns A=Category, B=Prompt)
+      const promptMap: Record<string, string> = {};
+      try {
+        const sheetsRes = await fetch(`${SB_URL}/functions/v1/mavis-sheets-agent`, {
+          method:  "POST",
+          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${SB_SRK}` },
+          body: JSON.stringify({
+            userId:         uid,
+            action:         "get_range",
+            spreadsheet_id: spreadsheetId,
+            sheet_name:     sheetName,
+            range:          `${sheetName}!A:B`,
+          }),
+          signal: AbortSignal.timeout(10000),
+        });
+        const sheetsData = await sheetsRes.json().catch(() => ({})) as any;
+        const rows: string[][] = sheetsData.values ?? [];
+        rows.slice(1).forEach(row => {
+          if (row[0] && row[1]) promptMap[row[0].trim()] = row[1];
+        });
+      } catch (_) { /* Sheets unavailable — use default prompt */ }
+
+      const defaultPromptSys =
+        `You are a professional email responder. Write a helpful, friendly reply in HTML format.\n` +
+        `Address the sender by their first name.\n` +
+        `Sign off with "Best,${signature ? `\n${signature}` : ""}".\n` +
+        `Use proper HTML: <p> tags for paragraphs, no markdown.`;
+
+      const classifySystem =
+        `Categorize the following email into exactly one of these categories:\n` +
+        categories.map(c => `- ${c}`).join("\n") +
+        `\nReturn ONLY the category name, nothing else.`;
+
+      for (const msgId of msgIds) {
+        try {
+          const msg = await gReq(token, `${GMAIL_API}/users/me/messages/${msgId}?format=full`);
+          const hdrs: { name: string; value: string }[] = msg.payload?.headers ?? [];
+          const h = (name: string) => hdrs.find((hh: any) => hh.name === name)?.value ?? "";
+          const from      = h("From");
+          const subject   = h("Subject");
+          const messageId = h("Message-ID");
+          const body      = decodeMessageBody(msg.payload) || msg.snippet;
+          const toAddr    = from.match(/<([^>]+)>/) ? from.match(/<([^>]+)>/)![1] : from;
+          const senderName = (from.split(/[<@]/)[0] ?? "").trim().split(" ")[0] || "there";
+
+          const emailCtx = `From: ${from}\nSubject: ${subject}\n\n${body.slice(0, 2000)}`;
+
+          // Classify the email
+          const category = (await callClaude(classifySystem, emailCtx, "claude-haiku-4-5-20251001", 64)).trim();
+
+          // Lookup category-specific prompt (exact → partial → default)
+          let categoryPrompt = promptMap[category] ?? "";
+          if (!categoryPrompt) {
+            const key = Object.keys(promptMap).find(k =>
+              k.toLowerCase().includes(category.toLowerCase()) ||
+              category.toLowerCase().includes(k.toLowerCase())
+            );
+            if (key) categoryPrompt = promptMap[key];
+          }
+
+          const replySystem = categoryPrompt
+            ? `${categoryPrompt}\n\nAddress the sender by their first name: ${senderName}.\nEnsure the email body is in HTML format with proper <p> tags.\nSign off with "Best,${signature ? `\n${signature}` : ""}".`
+            : defaultPromptSys;
+
+          // Generate HTML reply
+          const replyInput =
+            `${emailCtx}\n\nAddress it to the sender's first name: ${senderName}\nEnsure that the email body is in HTML format.`;
+          const htmlReply = await callClaude(replySystem, replyInput, "claude-sonnet-4-6", 1024);
+
+          // Wrap in <p> tags if model returned plain text
+          const htmlBody = htmlReply.trimStart().startsWith("<")
+            ? htmlReply
+            : `<p>${htmlReply.replace(/\n\n+/g, "</p><p>").replace(/\n/g, "<br>")}</p>`;
+
+          const plainText = htmlBody.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+
+          const draft = await gReq(token, `${GMAIL_API}/users/me/drafts`, "POST", {
+            message: {
+              raw: encodeMime(toAddr, `Re: ${subject}`, plainText, {
+                threadId:   msg.threadId,
+                inReplyTo:  messageId ? `<${messageId}>` : undefined,
+                references: messageId ? `<${messageId}>` : undefined,
+                htmlBody,
+              }),
+              threadId: msg.threadId,
+            },
+          });
+
+          if (markReadAfter) {
+            await gReq(token, `${GMAIL_API}/users/me/messages/${msgId}/modify`, "POST", {
+              removeLabelIds: ["UNREAD"],
+            }).catch(() => {});
+          }
+
+          results.push({
+            message_id:    msgId,
+            from,
+            subject,
+            category,
+            prompt_found:  !!categoryPrompt,
+            draft_id:      draft.id,
+            reply_preview: plainText.slice(0, 200),
+          });
+          draftsCreated++;
+        } catch (e: unknown) {
+          results.push({ message_id: msgId, error: e instanceof Error ? e.message : String(e) });
+        }
+      }
+
+      // Persist watermark
+      const newState = JSON.stringify({ last_check_epoch: nowEpoch, last_run: new Date().toISOString() });
+      if (stateRow) {
+        await sb.from("mavis_memory").update({ content: newState }).eq("id", (stateRow as any).id);
+      } else {
+        await sb.from("mavis_memory").insert({
+          user_id:    uid,
+          role:       "assistant",
+          content:    newState,
+          tags:       [stateKey, "email_smart_triage", "system_state"],
+          importance: 3,
+        });
+      }
+
+      return {
+        processed:       msgIds.length,
+        drafts_created:  draftsCreated,
+        categories_seen: [...new Set(results.map((r: any) => r.category).filter(Boolean))],
+        results,
+      };
+    }
+
     default:
       throw new Error(`Unknown Gmail action: ${action}`);
   }
@@ -819,7 +1000,7 @@ serve(async (req) => {
     }
 
     const GMAIL_ACTIONS = ["send_email", "create_draft", "dual_draft", "get_email", "mark_read",
-                           "triage_inbox", "list_emails", "search_emails", "watch_new_emails"];
+                           "triage_inbox", "list_emails", "search_emails", "watch_new_emails", "smart_triage"];
     if (GMAIL_ACTIONS.includes(action) || action.includes("email") || action.includes("gmail")) {
       const token = await getToken(adminSb, uid, "gmail");
       const result = await handleGmail(action, body, token, uid, adminSb);

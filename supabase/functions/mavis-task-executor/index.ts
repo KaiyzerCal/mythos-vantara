@@ -1734,6 +1734,47 @@ const handleEmailWatch: TaskHandler = async (task) => {
   return { success: true, output: { processed: result.processed, drafts_created: result.drafts_created } };
 };
 
+// email_smart_triage — classify emails via AI → lookup category-specific prompt from Sheets → generate HTML reply draft
+const handleEmailSmartTriage: TaskHandler = async (task) => {
+  const p = extractPayload(task.payload as Record<string, unknown>);
+  const res = await callFunction("mavis-google-agent", {
+    userId:         task.user_id,
+    action:         "smart_triage",
+    limit:          p.limit ?? 10,
+    spreadsheet_id: p.spreadsheet_id ?? "",
+    sheet_name:     p.sheet_name ?? "Prompts",
+    categories:     p.categories ?? ["Inquiry/Requests", "Complaints/Issues", "Job Applications/Resumes"],
+    signature:      p.signature ?? "",
+    mark_read:      p.mark_read ?? false,
+    state_key:      p.state_key ?? "smart_triage_state",
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) return { success: false, error: (data as any).error ?? `google-agent returned ${res.status}` };
+
+  const result = data as any;
+  if (result.drafts_created > 0 && BOT_TOKEN && OPERATOR_CHAT_ID) {
+    const catList = (result.categories_seen ?? []).join(", ") || "various";
+    const lines = (result.results ?? [])
+      .filter((r: any) => r.draft_id)
+      .map((r: any) => `• [${r.category}] ${r.from?.split("<")[0].trim() || r.from} — ${r.subject}`)
+      .slice(0, 5);
+    const msg = [
+      `📧 *Smart Email Triage*`,
+      `${result.processed} email${result.processed !== 1 ? "s" : ""} · ${result.drafts_created} HTML draft${result.drafts_created !== 1 ? "s" : ""} created`,
+      `Categories: ${catList}`,
+      ``,
+      lines.join("\n"),
+    ].join("\n");
+    await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+      method:  "POST",
+      headers: { "Content-Type": "application/json" },
+      body:    JSON.stringify({ chat_id: OPERATOR_CHAT_ID, text: msg, parse_mode: "Markdown" }),
+    }).catch(() => {});
+  }
+
+  return { success: true, output: { processed: result.processed, drafts_created: result.drafts_created, categories_seen: result.categories_seen } };
+};
+
 // reddit_opportunities — scan a subreddit for business opportunities, output to Sheets + Gmail drafts, deliver Telegram summary
 const handleRedditOpportunities: TaskHandler = async (task) => {
   const p = extractPayload(task.payload as Record<string, unknown>);
@@ -1816,6 +1857,7 @@ const HANDLERS: Record<string, TaskHandler> = {
   content_digest:      handleContentDigest,
   email_triage:        handleEmailTriage,
   email_watch:         handleEmailWatch,
+  email_smart_triage:  handleEmailSmartTriage,
   review_monitor:      handleReviewMonitor,
   discord_agent:       makeAgentHandler("mavis-discord-agent"),
   flashcard_agent:     makeAgentHandler("mavis-flashcard-agent"),
