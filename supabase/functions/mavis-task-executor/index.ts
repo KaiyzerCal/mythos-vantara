@@ -1052,6 +1052,223 @@ ${context}`,
   }
 };
 
+// nora_content_machine — end-to-end Nora Vale content pipeline.
+// Phase 1 (no fal_request_id): research topic → write script + captions → submit to fal.ai SadTalker → markContinue
+// Phase 2 (fal_request_id set): poll fal.ai → when video ready, post to Twitter / LinkedIn / TikTok → markComplete
+// Falls back to text-only posting when NORA_AVATAR_IMAGE_URL is not configured.
+const handleNoraContentMachine: TaskHandler = async (task) => {
+  const p = task.payload as Record<string, unknown>;
+  const topic = String(p.topic ?? "AI automation for founders");
+  const platforms = Array.isArray(p.platforms)
+    ? (p.platforms as string[])
+    : ["twitter", "linkedin", "tiktok"];
+  const avatarImageUrl = String(
+    p.avatar_image_url ?? Deno.env.get("NORA_AVATAR_IMAGE_URL") ?? ""
+  );
+  const voiceId = String(
+    p.voice_id ?? Deno.env.get("NORA_VOICE_ID") ?? "JBFqnCBsd6RMkjVDRZzb"
+  );
+
+  // ── PHASE 2: poll fal.ai for video completion ────────────────
+  if (p.fal_request_id) {
+    const pollAttempts = Number(p.poll_attempts ?? 0) + 1;
+    if (pollAttempts > 8) {
+      return { success: false, error: "fal.ai video generation timed out after 8 poll attempts (~2 hours)" };
+    }
+
+    const pollRes = await callFunction("mavis-avatar-video", {
+      action: "poll",
+      request_id: String(p.fal_request_id),
+    });
+    const pollData = await pollRes.json().catch(() => ({})) as Record<string, unknown>;
+
+    if (!pollRes.ok || pollData.error) {
+      return { success: false, error: String(pollData.error ?? `avatar-video poll returned ${pollRes.status}`) };
+    }
+
+    if (pollData.status !== "complete") {
+      await markContinue(task.id, { ...p, poll_attempts: pollAttempts });
+      return { success: true, continuing: true, output: { phase: "polling", attempt: pollAttempts } };
+    }
+
+    // Video ready — dispatch to all requested platforms
+    const videoUrl = String(pollData.url);
+    const captions = (p.captions ?? {}) as Record<string, string>;
+    const results: Record<string, unknown> = { video_url: videoUrl };
+
+    if (platforms.includes("twitter")) {
+      const r = await callFunction("mavis-nora-post", {
+        userId: task.user_id,
+        content: captions.twitter ?? topic,
+      });
+      results.twitter = r.ok ? "posted" : `failed:${r.status}`;
+    }
+
+    if (platforms.includes("linkedin")) {
+      const r = await callFunction("mavis-nora-linkedin", {
+        user_id: task.user_id,
+        content: captions.linkedin ?? captions.twitter ?? topic,
+      });
+      results.linkedin = r.ok ? "posted" : `failed:${r.status}`;
+    }
+
+    if (platforms.includes("tiktok")) {
+      const r = await callFunction("mavis-nora-tiktok", {
+        user_id: task.user_id,
+        content: captions.tiktok ?? topic,
+        video_url: videoUrl,
+      });
+      results.tiktok = r.ok ? "posted" : `failed:${r.status}`;
+    }
+
+    if (platforms.includes("instagram")) {
+      const r = await callFunction("mavis-nora-instagram", {
+        user_id: task.user_id,
+        image_url: videoUrl,
+        caption: captions.instagram,
+      });
+      results.instagram = r.ok ? "posted" : `failed:${r.status}`;
+    }
+
+    await sendTelegram(
+      `🎬 *Nora Content Machine complete*\nTopic: ${topic}\n` +
+      Object.entries(results)
+        .filter(([k]) => k !== "video_url")
+        .map(([k, v]) => `• ${k}: ${v}`)
+        .join("\n")
+    );
+
+    return { success: true, output: results };
+  }
+
+  // ── PHASE 1: research → write → submit ──────────────────────
+
+  // Optional web research via Tavily
+  let researchContext = "";
+  const tavilyKey = Deno.env.get("TAVILY_API_KEY");
+  if (tavilyKey) {
+    try {
+      const sr = await fetch("https://api.tavily.com/search", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ api_key: tavilyKey, query: topic, max_results: 4, search_depth: "basic" }),
+        signal: AbortSignal.timeout(10000),
+      });
+      if (sr.ok) {
+        const sd = await sr.json() as Record<string, unknown>;
+        researchContext = ((sd.results ?? []) as Array<{ title: string; content: string }>)
+          .slice(0, 4)
+          .map((r) => `• ${r.title}: ${String(r.content).slice(0, 200)}`)
+          .join("\n");
+      }
+    } catch { /* research is non-critical */ }
+  }
+
+  // Write script + platform captions
+  const rawContent = await callClaude(
+    `You are Nora Vale — tech-forward business strategist and AI automation expert. Direct, insight-dense, no fluff. First person. No stage directions.
+
+Output ONLY a JSON object (no markdown, no preamble):
+{
+  "script": "...",      // 60-90 second spoken script — pure speech
+  "twitter": "...",    // 240 chars max. Strong hook + insight. 2-3 hashtags.
+  "linkedin": "...",   // 300-500 chars. Story opener, insight, CTA.
+  "tiktok": "...",     // 130 chars max. High energy. 3-5 hashtags.
+  "instagram": "..."   // 200 chars. Visual-forward. 5-7 hashtags.
+}`,
+    `Topic: ${topic}${researchContext ? `\n\nResearch:\n${researchContext}` : ""}\n\nOutput only the JSON object.`,
+  );
+
+  let script = "";
+  let captions: Record<string, string> = {};
+  try {
+    const m = rawContent.match(/\{[\s\S]*\}/);
+    if (m) {
+      const parsed = JSON.parse(m[0]);
+      script = String(parsed.script ?? "");
+      captions = {
+        twitter:   String(parsed.twitter   ?? ""),
+        linkedin:  String(parsed.linkedin  ?? ""),
+        tiktok:    String(parsed.tiktok    ?? ""),
+        instagram: String(parsed.instagram ?? ""),
+      };
+    }
+  } catch { /* fall back */ }
+
+  if (!script) {
+    script = rawContent.slice(0, 800);
+    captions = {
+      twitter:   `${topic} — ${script.slice(0, 180)} #AI #automation`,
+      linkedin:  script.slice(0, 450),
+      tiktok:    `${topic} #AI #automation #founder`,
+      instagram: `${topic} #AI #business #founder`,
+    };
+  }
+
+  // If no avatar image configured — post text-only and finish
+  if (!avatarImageUrl) {
+    const results: Record<string, unknown> = { mode: "text-only" };
+
+    if (platforms.includes("twitter")) {
+      const r = await callFunction("mavis-nora-post", { userId: task.user_id, content: captions.twitter });
+      results.twitter = r.ok ? "posted" : `failed:${r.status}`;
+    }
+    if (platforms.includes("linkedin")) {
+      const r = await callFunction("mavis-nora-linkedin", { user_id: task.user_id, content: captions.linkedin });
+      results.linkedin = r.ok ? "posted" : `failed:${r.status}`;
+    }
+    if (platforms.includes("tiktok")) {
+      results.tiktok = "skipped — no video (set NORA_AVATAR_IMAGE_URL to enable)";
+    }
+
+    await sendTelegram(
+      `📝 *Nora Content (text-only)*\nTopic: ${topic}\n` +
+      Object.entries(results).map(([k, v]) => `• ${k}: ${v}`).join("\n") +
+      `\n\n_Set NORA_AVATAR_IMAGE_URL to enable avatar video._`
+    );
+    return { success: true, output: results };
+  }
+
+  // Submit avatar video job to fal.ai via mavis-avatar-video
+  const submitRes = await callFunction("mavis-avatar-video", {
+    source_image_url: avatarImageUrl,
+    text: script,
+    voice_id: voiceId,
+    still_mode: false,
+    use_enhancer: true,
+  });
+  const submitData = await submitRes.json().catch(() => ({})) as Record<string, unknown>;
+
+  if (!submitRes.ok || submitData.error) {
+    // fal.ai failed — fall back to text-only immediately
+    const results: Record<string, unknown> = { mode: "text-only-fallback", reason: String(submitData.error ?? `avatar-video returned ${submitRes.status}`) };
+    if (platforms.includes("twitter")) {
+      const r = await callFunction("mavis-nora-post", { userId: task.user_id, content: captions.twitter });
+      results.twitter = r.ok ? "posted" : `failed:${r.status}`;
+    }
+    if (platforms.includes("linkedin")) {
+      const r = await callFunction("mavis-nora-linkedin", { user_id: task.user_id, content: captions.linkedin });
+      results.linkedin = r.ok ? "posted" : `failed:${r.status}`;
+    }
+    return { success: true, output: results };
+  }
+
+  // Video submitted — queue Phase 2 for next cron cycle
+  await markContinue(task.id, {
+    ...p,
+    fal_request_id: String(submitData.request_id),
+    script,
+    captions,
+    poll_attempts: 0,
+  });
+
+  return {
+    success: true,
+    continuing: true,
+    output: { phase: "video_submitted", request_id: submitData.request_id, topic },
+  };
+};
+
 const HANDLERS: Record<string, TaskHandler> = {
   daily_brief: handleDailyBrief,
   check_idle_quests: handleCheckIdleQuests,
@@ -1069,6 +1286,7 @@ const HANDLERS: Record<string, TaskHandler> = {
   send_outreach: handleSendOutreach,
   email_reply: handleEmailReply,
   standing_order: handleStandingOrder,
+  nora_content_machine: handleNoraContentMachine,
 };
 
 // ─────────────────────────────────────────────────────────────
