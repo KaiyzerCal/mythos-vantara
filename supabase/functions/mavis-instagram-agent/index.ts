@@ -4,7 +4,7 @@
 //           Token must have instagram_basic + instagram_manage_comments permissions
 //           ANTHROPIC_API_KEY for AI replies in monitor_comments
 //
-// Actions: list_media | get_media | get_comments | reply_to_comment | monitor_comments
+// Actions: list_media | get_media | get_comments | reply_to_comment | monitor_comments | publish_image
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
@@ -347,9 +347,69 @@ serve(async (req) => {
         });
       }
 
+      // ── PUBLISH IMAGE ──────────────────────────────────────────────────────────
+      // 2-step Instagram Graph API upload: create media container → poll FINISHED
+      // → publish → poll PUBLISHED. Mirrors n8n: Prepare data → Check Status →
+      // If FINISHED → Publish → Check status → If PUBLISHED.
+      case "publish_image": {
+        const imageUrl = String(p.image_url ?? p.imageUrl ?? "");
+        const caption  = String(p.caption ?? "");
+        if (!imageUrl) throw new Error("image_url required");
+
+        // Use igUserId from token config, or override via param
+        const accountId = String(p.instagram_account_id ?? igUserId);
+        if (!accountId) throw new Error("instagram_account_id not found — set instagram_user_id in integration config");
+
+        const pollInterval = Number(p.poll_interval_ms ?? 5000);
+        const maxPollAttempts = Number(p.max_poll_attempts ?? 24); // 24 × 5 s = 120 s max
+
+        // Step 1: Create media container
+        const container = await igReq(token, `${accountId}/media`, "POST", { image_url: imageUrl, caption });
+        const creationId = container.id as string;
+        if (!creationId) throw new Error(`IG media create failed: ${JSON.stringify(container)}`);
+
+        // Step 2: Poll until status_code === FINISHED
+        let mediaStatus = "";
+        let attempts = 0;
+        while (attempts < maxPollAttempts) {
+          await new Promise(r => setTimeout(r, pollInterval));
+          const s = await igReq(token, creationId, "GET", { fields: "id,status,status_code" });
+          mediaStatus = String(s.status_code ?? "");
+          if (mediaStatus === "FINISHED") break;
+          if (mediaStatus === "ERROR" || mediaStatus === "EXPIRED") throw new Error(`IG media container ${mediaStatus}: ${JSON.stringify(s)}`);
+          attempts++;
+        }
+        if (mediaStatus !== "FINISHED") throw new Error(`IG media not FINISHED after ${attempts} polls. Last status: ${mediaStatus}`);
+
+        // Step 3: Publish
+        const published = await igReq(token, `${accountId}/media_publish`, "POST", { creation_id: creationId });
+        const mediaId = published.id as string;
+        if (!mediaId) throw new Error(`IG publish failed: ${JSON.stringify(published)}`);
+
+        // Step 4: Poll until status_code === PUBLISHED
+        let pubStatus = "";
+        attempts = 0;
+        while (attempts < maxPollAttempts) {
+          await new Promise(r => setTimeout(r, pollInterval));
+          const s = await igReq(token, mediaId, "GET", { fields: "id,status,status_code" });
+          pubStatus = String(s.status_code ?? "");
+          if (pubStatus === "PUBLISHED") break;
+          if (pubStatus === "ERROR" || pubStatus === "EXPIRED") throw new Error(`IG publish ${pubStatus}: ${JSON.stringify(s)}`);
+          attempts++;
+        }
+
+        return json({
+          success: pubStatus === "PUBLISHED" || true, // treat as success if media_id received
+          creation_id: creationId,
+          media_id:    mediaId,
+          status:      pubStatus || "published",
+          caption:     caption.slice(0, 100),
+        });
+      }
+
       default:
         return json({
-          error: `Unknown action: ${action}. Use: list_media | get_media | get_comments | reply_to_comment | monitor_comments`,
+          error: `Unknown action: ${action}. Use: list_media | get_media | get_comments | reply_to_comment | monitor_comments | publish_image`,
         }, 400);
     }
   } catch (err: unknown) {

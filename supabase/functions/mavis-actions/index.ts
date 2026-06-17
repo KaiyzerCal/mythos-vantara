@@ -3194,6 +3194,20 @@ async function executeAction(sb: any, userId: string, action: MavisAction, req: 
       return data;
     }
 
+    case "instagram_trends": {
+      // Scrape top hashtag posts → deduplicate → Claude vision + caption → fal.ai image → IG publish.
+      // Mirrors n8n: RapidAPI scrape → DB dedup → GPT vision → caption → Flux → IG 2-step upload.
+      const res = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-instagram-trends`, {
+        method:  "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
+        body:    JSON.stringify({ userId, ...p }),
+        signal:  AbortSignal.timeout(300000), // 5 min: vision + image gen + IG upload polling
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((data as any).error ?? `mavis-instagram-trends returned ${res.status}`);
+      return data;
+    }
+
     case "memory_agent": {
       // Long-term memory toolkit: save_memory | retrieve_memories | send_to_telegram | send_to_email.
       // Mirrors n8n "Long Term Memory Tools Router": route-switched Google Docs + LLM formatting + delivery.

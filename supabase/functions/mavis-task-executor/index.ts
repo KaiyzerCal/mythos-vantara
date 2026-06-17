@@ -2112,6 +2112,7 @@ const HANDLERS: Record<string, TaskHandler> = {
   sheets_agent:        makeAgentHandler("mavis-sheets-agent"),
   vision_agent:        makeAgentHandler("mavis-vision-agent"),
   video_narrator:      makeAgentHandler("mavis-video-narrator"),
+  instagram_trends:    makeAgentHandler("mavis-instagram-trends"),
   memory_agent:        makeAgentHandler("mavis-memory-agent"),
   heygen_agent:        makeAgentHandler("mavis-heygen-agent"),
   calendar_agent:      makeAgentHandler("mavis-calendar-agent"),
