@@ -1,5 +1,6 @@
 // mavis-telegram-bot — Telegram webhook receiver for mobile MAVIS access.
-// Supports text messages, voice memos (Whisper STT), and multi-turn conversation memory.
+// Supports text, voice (Whisper STT), photos (vision analysis), and multi-turn memory.
+// Serves both Calvin (MAVIS_OPERATOR_MAIN_ID) and Caliyah (MAVIS_OPERATOR_CALIYAH_ID).
 //
 // Setup (one-time, paste in terminal after deploying):
 //   curl -s "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/setWebhook" \
@@ -8,30 +9,33 @@
 //     -d "allowed_updates=[\"message\"]"
 //
 // Required env vars:
-//   TELEGRAM_BOT_TOKEN          — from @BotFather
-//   TELEGRAM_OPERATOR_CHAT_ID   — your Telegram chat ID (security gate)
-//   TELEGRAM_WEBHOOK_SECRET     — any random string, set in setWebhook + Supabase secrets
-//   MAVIS_OPERATOR_MAIN_ID      — Supabase user UUID for Calvin (task ownership)
+//   TELEGRAM_BOT_TOKEN                — from @BotFather
+//   TELEGRAM_OPERATOR_CHAT_ID         — Calvin's Telegram chat ID (security gate)
+//   TELEGRAM_WEBHOOK_SECRET           — random string, set in setWebhook + Supabase secrets
+//   MAVIS_OPERATOR_MAIN_ID            — Supabase user UUID for Calvin
 //   SUPABASE_URL
 //   SUPABASE_SERVICE_ROLE_KEY
 //   ANTHROPIC_API_KEY
 // Optional:
-//   OPENAI_API / OPENAI_API_KEY — enables voice message transcription via Whisper
+//   TELEGRAM_OPERATOR_CALIYAH_CHAT_ID — Caliyah's Telegram chat ID
+//   MAVIS_OPERATOR_CALIYAH_ID         — Supabase user UUID for Caliyah
+//   OPENAI_API / OPENAI_API_KEY       — enables voice transcription via Whisper
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 
 const BOT_TOKEN      = Deno.env.get("TELEGRAM_BOT_TOKEN") ?? "";
 const OPERATOR_CHAT  = Deno.env.get("TELEGRAM_OPERATOR_CHAT_ID") ?? "";
+const CALIYAH_CHAT   = Deno.env.get("TELEGRAM_OPERATOR_CALIYAH_CHAT_ID") ?? "";
 const WEBHOOK_SECRET = Deno.env.get("TELEGRAM_WEBHOOK_SECRET") ?? "";
 const OPERATOR_UID   = Deno.env.get("MAVIS_OPERATOR_MAIN_ID") ?? "";
+const CALIYAH_UID    = Deno.env.get("MAVIS_OPERATOR_CALIYAH_ID") ?? "";
 const SUPABASE_URL   = Deno.env.get("SUPABASE_URL") ?? "";
 const SERVICE_KEY    = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 const ANTHROPIC_KEY  = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
 const OPENAI_KEY     = Deno.env.get("OPENAI_API") ?? Deno.env.get("OPENAI_API_KEY") ?? "";
 
-const HISTORY_LIMIT = 10; // message pairs to retain per session
-const TELEGRAM_SESSION_TITLE = "[Telegram] MAVIS Session";
+const HISTORY_LIMIT = 10;
 
 const sb = createClient(SUPABASE_URL, SERVICE_KEY);
 
@@ -67,26 +71,22 @@ async function typing(chatId: string | number) {
 
 async function transcribeVoice(fileId: string): Promise<string | null> {
   if (!OPENAI_KEY || !BOT_TOKEN) return null;
-
   try {
-    // Step 1: get the file path from Telegram
     const fileRes = await fetch(
       `https://api.telegram.org/bot${BOT_TOKEN}/getFile?file_id=${fileId}`,
-      { signal: AbortSignal.timeout(8000) }
+      { signal: AbortSignal.timeout(8000) },
     );
     const fileData = await fileRes.json() as Record<string, unknown>;
     const filePath = (fileData.result as any)?.file_path as string | undefined;
     if (!filePath) return null;
 
-    // Step 2: download the audio binary
     const audioRes = await fetch(
       `https://api.telegram.org/file/bot${BOT_TOKEN}/${filePath}`,
-      { signal: AbortSignal.timeout(15000) }
+      { signal: AbortSignal.timeout(15000) },
     );
     if (!audioRes.ok) return null;
     const audioBuffer = await audioRes.arrayBuffer();
 
-    // Step 3: transcribe via OpenAI Whisper
     const form = new FormData();
     const ext = filePath.split(".").pop() ?? "ogg";
     const mimeType = ext === "mp3" ? "audio/mpeg" : ext === "m4a" ? "audio/mp4" : "audio/ogg";
@@ -100,9 +100,55 @@ async function transcribeVoice(fileId: string): Promise<string | null> {
       signal: AbortSignal.timeout(30000),
     });
     if (!whisperRes.ok) return null;
-
     const whisperData = await whisperRes.json() as Record<string, unknown>;
     return String(whisperData.text ?? "").trim() || null;
+  } catch {
+    return null;
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+// PHOTO / IMAGE ANALYSIS
+// ─────────────────────────────────────────────────────────────
+
+async function analyzePhoto(
+  fileId: string,
+  prompt: string,
+  uid: string,
+): Promise<string | null> {
+  if (!BOT_TOKEN) return null;
+  try {
+    // Resolve file path
+    const fileRes = await fetch(
+      `https://api.telegram.org/bot${BOT_TOKEN}/getFile?file_id=${fileId}`,
+      { signal: AbortSignal.timeout(8000) },
+    );
+    const fileData = await fileRes.json() as Record<string, unknown>;
+    const filePath = (fileData.result as any)?.file_path as string | undefined;
+    if (!filePath) return null;
+
+    // Download image bytes
+    const imgRes = await fetch(
+      `https://api.telegram.org/file/bot${BOT_TOKEN}/${filePath}`,
+      { signal: AbortSignal.timeout(15000) },
+    );
+    if (!imgRes.ok) return null;
+    const imgBytes = new Uint8Array(await imgRes.arrayBuffer());
+    const base64   = btoa(String.fromCharCode(...imgBytes));
+    const ext      = filePath.split(".").pop()?.toLowerCase() ?? "jpg";
+    const mimeMap: Record<string, string> = { jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", webp: "image/webp", gif: "image/gif" };
+    const mediaType = mimeMap[ext] ?? "image/jpeg";
+
+    // Call mavis-vision-agent
+    const visionRes = await fetch(`${SUPABASE_URL}/functions/v1/mavis-vision-agent`, {
+      method:  "POST",
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${SERVICE_KEY}` },
+      body:    JSON.stringify({ userId: uid, action: "analyze", image: base64, media_type: mediaType, prompt }),
+      signal:  AbortSignal.timeout(30000),
+    });
+    if (!visionRes.ok) return null;
+    const visionData = await visionRes.json() as Record<string, unknown>;
+    return String(visionData.result ?? visionData.text ?? "").trim() || null;
   } catch {
     return null;
   }
@@ -114,15 +160,19 @@ async function transcribeVoice(fileId: string): Promise<string | null> {
 
 type ChatMessage = { role: "user" | "assistant"; content: string };
 
-async function getOrCreateSession(): Promise<string | null> {
-  if (!OPERATOR_UID) return null;
+function sessionTitle(uid: string): string {
+  return uid === CALIYAH_UID ? "[Telegram Caliyah] MAVIS Session" : "[Telegram] MAVIS Session";
+}
 
-  // Look for an existing telegram session conversation
+async function getOrCreateSession(uid: string): Promise<string | null> {
+  if (!uid) return null;
+  const title = sessionTitle(uid);
+
   const { data: existing } = await sb
     .from("chat_conversations")
     .select("id")
-    .eq("user_id", OPERATOR_UID)
-    .eq("title", TELEGRAM_SESSION_TITLE)
+    .eq("user_id", uid)
+    .eq("title", title)
     .order("updated_at", { ascending: false })
     .limit(1)
     .single()
@@ -130,10 +180,9 @@ async function getOrCreateSession(): Promise<string | null> {
 
   if ((existing as any)?.id) return (existing as any).id;
 
-  // Create one
   const { data: created } = await sb
     .from("chat_conversations")
-    .insert({ user_id: OPERATOR_UID, title: TELEGRAM_SESSION_TITLE })
+    .insert({ user_id: uid, title })
     .select("id")
     .single()
     .catch(() => ({ data: null }));
@@ -147,7 +196,7 @@ async function loadHistory(conversationId: string): Promise<ChatMessage[]> {
     .select("role, content")
     .eq("conversation_id", conversationId)
     .order("created_at", { ascending: false })
-    .limit(HISTORY_LIMIT * 2) // fetch more then reverse
+    .limit(HISTORY_LIMIT * 2)
     .catch(() => ({ data: null }));
 
   if (!data) return [];
@@ -156,18 +205,19 @@ async function loadHistory(conversationId: string): Promise<ChatMessage[]> {
 
 async function saveExchange(
   conversationId: string,
+  uid: string,
   userContent: string,
   assistantContent: string,
 ): Promise<void> {
-  if (!OPERATOR_UID) return;
+  if (!uid) return;
   await sb.from("chat_messages").insert([
-    { conversation_id: conversationId, user_id: OPERATOR_UID, role: "user",      content: userContent,      mode: "TELEGRAM" },
-    { conversation_id: conversationId, user_id: OPERATOR_UID, role: "assistant", content: assistantContent, mode: "TELEGRAM" },
+    { conversation_id: conversationId, user_id: uid, role: "user",      content: userContent,      mode: "TELEGRAM" },
+    { conversation_id: conversationId, user_id: uid, role: "assistant", content: assistantContent, mode: "TELEGRAM" },
   ]).catch(() => null);
 }
 
 // ─────────────────────────────────────────────────────────────
-// CLAUDE
+// CLAUDE (fallback direct)
 // ─────────────────────────────────────────────────────────────
 
 async function callClaude(
@@ -183,12 +233,7 @@ async function callClaude(
       "x-api-key": ANTHROPIC_KEY,
       "anthropic-version": "2023-06-01",
     },
-    body: JSON.stringify({
-      model: "claude-haiku-4-5-20251001",
-      max_tokens: maxTokens,
-      system,
-      messages,
-    }),
+    body: JSON.stringify({ model: "claude-haiku-4-5-20251001", max_tokens: maxTokens, system, messages }),
     signal: AbortSignal.timeout(30000),
   });
   if (!res.ok) return "";
@@ -202,21 +247,22 @@ async function callClaude(
 
 async function callFunction(name: string, body: Record<string, unknown>): Promise<Response> {
   return fetch(`${SUPABASE_URL}/functions/v1/${name}`, {
-    method: "POST",
+    method:  "POST",
     headers: { "Content-Type": "application/json", "Authorization": `Bearer ${SERVICE_KEY}` },
-    body: JSON.stringify(body),
-    signal: AbortSignal.timeout(45000),
+    body:    JSON.stringify(body),
+    signal:  AbortSignal.timeout(45000),
   });
 }
 
 async function queueTask(
+  uid: string,
   type: string,
   description: string,
   payload: Record<string, unknown>,
 ): Promise<string | null> {
   const { data } = await sb
     .from("mavis_tasks")
-    .insert({ user_id: OPERATOR_UID, type, description, payload, status: "pending" })
+    .insert({ user_id: uid, type, description, payload, status: "pending" })
     .select("id")
     .single()
     .catch(() => ({ data: null }));
@@ -227,29 +273,19 @@ async function queueTask(
 // INTENT CLASSIFICATION
 // ─────────────────────────────────────────────────────────────
 
-// Intents handled with direct fast-path handlers (DB queries or specific pipelines).
-// Everything else — including image generation, tweets, goals, briefs, scheduling,
-// emails, and any multi-step task — routes through mavis-chat's full agentic loop.
 type Intent = "help" | "quests" | "revenue" | "tasks" | "content_machine" | "chat";
-
-interface Classified {
-  intent: Intent;
-  params: Record<string, string>;
-}
+interface Classified { intent: Intent; params: Record<string, string>; }
 
 function classify(text: string): Classified {
   const lower = text.toLowerCase().trim();
-
-  if (/^\/?(help|commands?)$/i.test(lower)) return { intent: "help", params: {} };
-  if (/^\/?(quests?|missions?)$/i.test(lower)) return { intent: "quests", params: {} };
+  if (/^\/?(help|commands?)$/i.test(lower))    return { intent: "help",    params: {} };
+  if (/^\/?(quests?|missions?)$/i.test(lower)) return { intent: "quests",  params: {} };
   if (/^\/?(revenue|money|earnings?|income)$/i.test(lower)) return { intent: "revenue", params: {} };
   if (/^\/?(tasks?|queue|pending)$/i.test(lower)) return { intent: "tasks", params: {} };
   if (/^\/?(content|nora content|video content|post content)\s+(.+)$/i.test(lower)) {
     const topic = text.replace(/^\/?(content|nora content|video content|post content)\s+/i, "").trim();
     return { intent: "content_machine", params: { topic } };
   }
-
-  // Everything else → mavis-chat (image gen, tweets, goals, scheduling, email, chat, etc.)
   return { intent: "chat", params: {} };
 }
 
@@ -275,13 +311,14 @@ async function handleHelp(chatId: string | number) {
     `⚔️ \`quests\` — active quests\n` +
     `💰 \`revenue\` — earnings overview\n` +
     `📌 \`tasks\` — pending task queue\n` +
-    `🎬 \`content <topic>\` — full Nora avatar video pipeline\n\n` +
-    voiceLine
+    `🎬 \`content <topic>\` — Nora content pipeline\n\n` +
+    `📸 _Send a photo to analyze it_\n` +
+    voiceLine,
   );
 }
 
-async function handleContentMachine(chatId: string | number, topic: string) {
-  const id = await queueTask("nora_content_machine", `Nora content: ${topic}`, {
+async function handleContentMachine(chatId: string | number, uid: string, topic: string) {
+  const id = await queueTask(uid, "nora_content_machine", `Nora content: ${topic}`, {
     topic,
     platforms: ["twitter", "linkedin", "tiktok"],
     triggered_by: "telegram",
@@ -291,18 +328,18 @@ async function handleContentMachine(chatId: string | number, topic: string) {
       `🎬 Content pipeline queued: _${topic}_\n\n` +
       `Phase 1: research → script → avatar video\n` +
       `Phase 2: post to Twitter, LinkedIn, TikTok\n\n` +
-      `_Needs: FAL_API_KEY, ELEVENLABS_API_KEY, NORA_AVATAR_IMAGE_URL_`
+      `_Needs: FAL_API_KEY, ELEVENLABS_API_KEY, NORA_AVATAR_IMAGE_URL_`,
     );
   } else {
     await send(chatId, `⚠️ Failed to queue content pipeline.`);
   }
 }
 
-async function handleQuests(chatId: string | number) {
+async function handleQuests(chatId: string | number, uid: string) {
   const { data: quests } = await sb
     .from("quests")
     .select("title, status, type, xp_reward")
-    .eq("user_id", OPERATOR_UID)
+    .eq("user_id", uid)
     .eq("status", "active")
     .order("created_at", { ascending: false })
     .limit(10);
@@ -316,11 +353,11 @@ async function handleQuests(chatId: string | number) {
   await send(chatId, `⚔️ *Active Quests (${lines.length})*\n\n${lines.join("\n")}`);
 }
 
-async function handleRevenue(chatId: string | number) {
+async function handleRevenue(chatId: string | number, uid: string) {
   const { data: rows } = await sb
     .from("mavis_revenue")
     .select("amount, source, created_at")
-    .eq("user_id", OPERATOR_UID)
+    .eq("user_id", uid)
     .order("created_at", { ascending: false })
     .limit(20);
 
@@ -343,11 +380,11 @@ async function handleRevenue(chatId: string | number) {
   await send(chatId, `💰 *Revenue*\n\nTotal: *$${total.toFixed(2)}*\n\n${breakdown}`);
 }
 
-async function handleTasks(chatId: string | number) {
+async function handleTasks(chatId: string | number, uid: string) {
   const { data: tasks } = await sb
     .from("mavis_tasks")
     .select("type, description, status, created_at")
-    .eq("user_id", OPERATOR_UID)
+    .eq("user_id", uid)
     .in("status", ["pending", "running"])
     .order("created_at", { ascending: false })
     .limit(10);
@@ -358,23 +395,20 @@ async function handleTasks(chatId: string | number) {
   }
 
   const lines = (tasks as any[]).map((t) =>
-    `• [${t.status}] *${t.type}* — ${(t.description ?? "").slice(0, 60)}`
+    `• [${t.status}] *${t.type}* — ${(t.description ?? "").slice(0, 60)}`,
   );
   await send(chatId, `📌 *Queue (${lines.length})*\n\n${lines.join("\n")}`);
 }
 
 async function handleChat(
   chatId: string | number,
+  uid: string,
   text: string,
   history: ChatMessage[],
   sessionId: string | null,
 ) {
   await typing(chatId);
 
-  // Route through mavis-chat for the full agentic loop (action dispatch,
-  // standing orders, all app context). History is passed so it has full
-  // conversation continuity. sessionId is passed so mavis-chat's own
-  // memory persistence uses the same conversation record.
   try {
     const messages: ChatMessage[] = [
       ...history,
@@ -384,15 +418,15 @@ async function handleChat(
     const res = await fetch(`${SUPABASE_URL}/functions/v1/mavis-chat`, {
       method: "POST",
       headers: {
-        "Content-Type": "application/json",
+        "Content-Type":  "application/json",
         "Authorization": `Bearer ${SERVICE_KEY}`,
-        "X-Mavis-User-Id": OPERATOR_UID,
+        "X-Mavis-User-Id": uid,
       },
       body: JSON.stringify({
         messages,
-        mode: "PRIME",
+        mode:           "PRIME",
         conversationId: sessionId ?? undefined,
-        stream: false,
+        stream:         false,
       }),
       signal: AbortSignal.timeout(55000),
     });
@@ -403,10 +437,8 @@ async function handleChat(
       return;
     }
 
-    const data = await res.json() as Record<string, unknown>;
+    const data    = await res.json() as Record<string, unknown>;
     const content = String(data.content ?? "").trim();
-
-    // Strip :::ACTION{...}::: tags — mavis-chat already dispatched them
     const visible = content.replace(/:::ACTION\{[\s\S]*?\}:::/g, "").trim();
 
     if (!visible) {
@@ -416,19 +448,12 @@ async function handleChat(
 
     await send(chatId, visible);
 
-    // Save to Telegram session history (mavis-chat also saves to mavis_memory,
-    // but we persist to chat_messages for the Telegram session window)
-    if (sessionId) {
-      await saveExchange(sessionId, text, visible);
-    }
+    if (sessionId) await saveExchange(sessionId, uid, text, visible);
 
-    // If mavis-chat generated an image, send it
     const imageUrl = String(data.imageUrl ?? "");
-    if (imageUrl.startsWith("http")) {
-      await sendPhoto(chatId, imageUrl);
-    }
+    if (imageUrl.startsWith("http")) await sendPhoto(chatId, imageUrl);
+
   } catch (err) {
-    // Fall back to direct Claude if mavis-chat is unreachable
     const msg = err instanceof Error ? err.message : String(err);
     if (msg.includes("timeout") || msg.includes("network")) {
       const reply = await callClaude(
@@ -437,7 +462,7 @@ async function handleChat(
         600,
       );
       await send(chatId, reply || "⚠️ MAVIS is unreachable right now.");
-      if (reply && sessionId) await saveExchange(sessionId, text, reply);
+      if (reply && sessionId) await saveExchange(sessionId, uid, text, reply);
     } else {
       await send(chatId, `⚠️ Error: ${msg.slice(0, 200)}`);
     }
@@ -453,7 +478,6 @@ serve(async (req) => {
     return new Response("ok", { headers: { "Access-Control-Allow-Origin": "*" } });
   }
 
-  // Verify Telegram webhook secret
   const secret = req.headers.get("X-Telegram-Bot-Api-Secret-Token") ?? "";
   if (WEBHOOK_SECRET && secret !== WEBHOOK_SECRET) {
     return new Response("Unauthorized", { status: 401 });
@@ -470,31 +494,42 @@ serve(async (req) => {
     const message = (update.message ?? update.edited_message) as Record<string, unknown> | undefined;
     if (!message) return;
 
-    const chatId = (message.chat as any)?.id;
+    const chatId = String((message.chat as any)?.id ?? "");
     if (!chatId) return;
 
-    // Security gate — only the operator
-    if (String(chatId) !== String(OPERATOR_CHAT)) {
+    // Security gate — only Calvin and Caliyah
+    const isCalvin  = OPERATOR_CHAT  && chatId === String(OPERATOR_CHAT);
+    const isCaliyah = CALIYAH_CHAT   && chatId === String(CALIYAH_CHAT);
+
+    if (!isCalvin && !isCaliyah) {
       await tg("sendMessage", { chat_id: chatId, text: "⛔ Unauthorized. This MAVIS instance is operator-locked." });
       return;
     }
 
-    if (!OPERATOR_UID) {
-      await send(chatId, "⚠️ MAVIS_OPERATOR_MAIN_ID not configured.");
+    const uid = isCaliyah ? CALIYAH_UID : OPERATOR_UID;
+
+    if (!uid) {
+      await send(chatId, isCaliyah
+        ? "⚠️ MAVIS_OPERATOR_CALIYAH_ID not configured."
+        : "⚠️ MAVIS_OPERATOR_MAIN_ID not configured."
+      );
       return;
     }
 
-    // ── Resolve input text ─────────────────────────────────────────────────────
+    // ── Resolve input ─────────────────────────────────────────
 
-    let text = String((message.text ?? message.caption) ?? "").trim();
-    let wasVoice = false;
+    let text    = String((message.text ?? message.caption) ?? "").trim();
+    let wasVoice  = false;
+    let wasPhoto  = false;
+    let photoFileId: string | null = null;
 
+    // Voice / audio
     const voice = (message.voice ?? message.audio) as Record<string, unknown> | undefined;
     if (!text && voice?.file_id) {
       await typing(chatId);
       const transcription = await transcribeVoice(String(voice.file_id));
       if (transcription) {
-        text = transcription;
+        text     = transcription;
         wasVoice = true;
       } else {
         await send(chatId, OPENAI_KEY
@@ -505,29 +540,52 @@ serve(async (req) => {
       }
     }
 
-    if (!text) return;
+    // Photo / image — handled after voice so caption takes precedence as prompt
+    const photos = (message.photo as any[]) ?? null;
+    if (photos?.length) {
+      photoFileId = String(photos[photos.length - 1].file_id ?? "");
+      wasPhoto    = true;
+    }
 
-    // ── Load conversation history ──────────────────────────────────────────────
+    // If photo with no text prompt, reply with vision analysis directly
+    if (wasPhoto && photoFileId) {
+      await typing(chatId);
+      const prompt   = text || "Describe what you see in this image in detail.";
+      const analysis = await analyzePhoto(photoFileId, prompt, uid);
+      if (analysis) {
+        await send(chatId, `📸 ${analysis}`);
+      } else {
+        await send(chatId, "⚠️ Could not analyze image. Ensure ANTHROPIC_API_KEY is set.");
+      }
+      return;
+    }
 
-    const sessionId = await getOrCreateSession();
-    const history = sessionId ? await loadHistory(sessionId) : [];
+    if (!text) {
+      // Unsupported message type (sticker, location, etc.)
+      await send(chatId, "⚠️ Unable to process your message. Send text, voice, or a photo.");
+      return;
+    }
+
+    // ── Session + history ──────────────────────────────────────
+
+    const sessionId = await getOrCreateSession(uid);
+    const history   = sessionId ? await loadHistory(sessionId) : [];
 
     if (wasVoice) {
       await send(chatId, `🎤 _"${text.slice(0, 120)}${text.length > 120 ? "…" : ""}"_`);
     }
 
-    // ── Classify + dispatch ───────────────────────────────────────────────────
+    // ── Classify + dispatch ────────────────────────────────────
 
     try {
       const { intent, params } = classify(text);
-
       switch (intent) {
         case "help":            await handleHelp(chatId); break;
-        case "quests":          await handleQuests(chatId); break;
-        case "revenue":         await handleRevenue(chatId); break;
-        case "tasks":           await handleTasks(chatId); break;
-        case "content_machine": await handleContentMachine(chatId, params.topic ?? text); break;
-        default:                await handleChat(chatId, text, history, sessionId); break;
+        case "quests":          await handleQuests(chatId, uid); break;
+        case "revenue":         await handleRevenue(chatId, uid); break;
+        case "tasks":           await handleTasks(chatId, uid); break;
+        case "content_machine": await handleContentMachine(chatId, uid, params.topic ?? text); break;
+        default:                await handleChat(chatId, uid, text, history, sessionId); break;
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
