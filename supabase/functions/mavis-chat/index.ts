@@ -1102,6 +1102,16 @@ INFRASTRUCTURE — webhooks, Linear, Vercel, Sentry:
 :::ACTION{"type":"sentry_agent","params":{"action":"get_issue","issue_id":"..."}}:::
 :::ACTION{"type":"sentry_agent","params":{"action":"resolve_issue","issue_id":"..."}}:::
 :::ACTION{"type":"sentry_agent","params":{"action":"create_linear_issue","issue_id":"...","linear_team_id":"..."}}:::
+GOOGLE SHEETS — intelligent structured-data querying (never dump the whole sheet; query what you need):
+:::ACTION{"type":"sheets_agent","params":{"action":"list_sheets","spreadsheet_id":"..."}}:::
+:::ACTION{"type":"sheets_agent","params":{"action":"get_columns","spreadsheet_id":"...","sheet_name":"Sheet1"}}:::
+:::ACTION{"type":"sheets_agent","params":{"action":"get_column_values","spreadsheet_id":"...","sheet_name":"Sheet1","column":"Email","limit":100}}:::
+:::ACTION{"type":"sheets_agent","params":{"action":"get_row","spreadsheet_id":"...","sheet_name":"Sheet1","row_number":5}}:::
+:::ACTION{"type":"sheets_agent","params":{"action":"search_rows","spreadsheet_id":"...","sheet_name":"Sheet1","column":"Status","value":"active","limit":50}}:::
+:::ACTION{"type":"sheets_agent","params":{"action":"append_row","spreadsheet_id":"...","sheet_name":"Sheet1","values":{"Name":"John","Email":"john@example.com","Status":"active"}}}:::
+:::ACTION{"type":"sheets_agent","params":{"action":"update_row","spreadsheet_id":"...","sheet_name":"Sheet1","row_number":3,"values":{"Status":"completed"}}}:::
+:::ACTION{"type":"sheets_agent","params":{"action":"get_range","spreadsheet_id":"...","range":"Sheet1!A1:D10"}}:::
+When working with sheets: first use get_columns to discover structure, then get_column_values for specific column context, then search_rows or get_row for targeted data. Never use get_range on large sheets.
 TIME TRACKING:
 :::ACTION{"type":"log_time","params":{"description":"...","project":"...","started_at":"2026-06-05T09:00:00Z","ended_at":"2026-06-05T10:00:00Z","duration_seconds":3600,"tags":["focus","deep-work"]}}:::
 MEETING NOTES:
