@@ -1052,7 +1052,7 @@ DISCORD (requires DISCORD_BOT_TOKEN — manage servers, channels, messages):
 :::ACTION{"type":"discord_agent","params":{"action":"get_messages","channel_id":"...","limit":10}}:::
 :::ACTION{"type":"discord_agent","params":{"action":"create_thread","channel_id":"...","message_id":"...","name":"Discussion Thread","starter_message":"Starting the conversation..."}}:::
 :::ACTION{"type":"discord_agent","params":{"action":"add_reaction","channel_id":"...","message_id":"...","emoji":"👍"}}:::
-Discord format guide: **bold**, *italic*, __underline__, ~~strikethrough~~, `code`, ```code block```, > quote, >>> block quote. Max 1900 chars — use send_chunked for longer content. Always use channel_id (not channel name) to target channels.
+Discord format guide: **bold**, *italic*, __underline__, ~~strikethrough~~, \`code\`, \`\`\`code block\`\`\`, > quote, >>> block quote. Max 1900 chars — use send_chunked for longer content. Always use channel_id (not channel name) to target channels.
 FLASHCARD / LANGUAGE LEARNING (MCQ sessions — vocabulary from inline list, Google Sheets, or saved deck):
 :::ACTION{"type":"flashcard_agent","params":{"action":"start_session","language":"Chinese","deck_name":"hsk1","vocabulary":[{"native":"Hello","target":"你好","pinyin":"nǐ hǎo"},{"native":"Thank you","target":"谢谢","pinyin":"xièxiè"},{"native":"Goodbye","target":"再见","pinyin":"zàijiàn"},{"native":"Yes","target":"是","pinyin":"shì"}]}}:::
 :::ACTION{"type":"flashcard_agent","params":{"action":"start_session","language":"Chinese","spreadsheet_id":"...","sheet_name":"Vocabulary","native_column":"English","target_column":"Chinese","pinyin_column":"Pinyin"}}:::
