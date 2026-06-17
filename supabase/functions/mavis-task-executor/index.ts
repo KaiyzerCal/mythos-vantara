@@ -1768,6 +1768,48 @@ const handleDailyComic: TaskHandler = async (task) => {
   return { success: true, output: { date: data.date, strip: data.strip, discord_posted: data.discord_posted, telegram_posted: data.telegram_posted } };
 };
 
+// daily_story — generate children's story → OpenAI TTS audio → fal.ai illustration → post all three to Telegram
+const handleDailyStory: TaskHandler = async (task) => {
+  const p = extractPayload(task.payload as Record<string, unknown>);
+  const res = await callFunction("mavis-story-agent", {
+    userId:           task.user_id,
+    action:           "daily_story_post",
+    topic:            p.topic            ?? "",
+    language:         p.language         ?? "English",
+    voice:            p.voice            ?? "alloy",
+    telegram_chat_id: p.telegram_chat_id ?? "",
+    model:            p.model            ?? "claude-haiku-4-5-20251001",
+  });
+  const data = await res.json().catch(() => ({})) as any;
+  if (!res.ok) return { success: false, error: data.error ?? `story-agent returned ${res.status}` };
+
+  if (BOT_TOKEN && OPERATOR_CHAT_ID) {
+    const parts = [
+      `📖 *Daily Children's Story*`,
+      data.text_sent  ? "✅ Text sent"    : "❌ Text failed",
+      data.audio_sent ? "🔊 Audio sent"   : "⚠️ Audio skipped",
+      data.image_sent ? "🖼️ Image sent"  : "⚠️ Image skipped",
+      ``,
+      `"${String(data.story ?? "").slice(0, 200)}…"`,
+    ];
+    await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+      method:  "POST",
+      headers: { "Content-Type": "application/json" },
+      body:    JSON.stringify({ chat_id: OPERATOR_CHAT_ID, text: parts.join("\n"), parse_mode: "Markdown" }),
+    }).catch(() => {});
+  }
+
+  return {
+    success: true,
+    output: {
+      text_sent:  data.text_sent,
+      audio_sent: data.audio_sent,
+      image_sent: data.image_sent,
+      story:      String(data.story ?? "").slice(0, 200),
+    },
+  };
+};
+
 // hashtag_tweet — pick random hashtag → AI-generated tweet → log to Airtable → optionally post → Telegram notification
 const handleHashtagTweet: TaskHandler = async (task) => {
   const p = extractPayload(task.payload as Record<string, unknown>);
@@ -2079,6 +2121,7 @@ const HANDLERS: Record<string, TaskHandler> = {
   hashtag_tweet:       handleHashtagTweet,
   influencer_tweet:    handleInfluencerTweet,
   daily_comic:         handleDailyComic,
+  daily_story:         handleDailyStory,
   discord_agent:       makeAgentHandler("mavis-discord-agent"),
   flashcard_agent:     makeAgentHandler("mavis-flashcard-agent"),
   reddit_agent:        makeAgentHandler("mavis-reddit-agent"),

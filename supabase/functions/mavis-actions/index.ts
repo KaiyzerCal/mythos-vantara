@@ -2797,6 +2797,33 @@ async function executeAction(sb: any, userId: string, action: MavisAction, req: 
       return { queued: true, task_id: (task as any)?.id };
     }
 
+    case "story_agent": {
+      // Direct pass-through to mavis-story-agent (generate_story | daily_story_post).
+      const res = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-story-agent`, {
+        method:  "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
+        body:    JSON.stringify({ userId, ...p }),
+        signal:  AbortSignal.timeout(90000),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((data as any).error ?? `mavis-story-agent returned ${res.status}`);
+      return data;
+    }
+
+    case "daily_story": {
+      // Queue a daily children's story task: Claude story → OpenAI TTS → fal.ai image → Telegram post.
+      // Mirrors n8n: Schedule (12h) → Create story (LLM) → [Send text | TTS audio | DALL-E image] → Telegram.
+      const { data: task } = await adminClient.from("mavis_tasks").insert({
+        user_id:      userId,
+        type:         "daily_story",
+        description:  `Daily story → Telegram (${String(p.language ?? "English")})`,
+        payload:      p,
+        status:       "pending",
+        scheduled_at: new Date().toISOString(),
+      }).select().single();
+      return { queued: true, task_id: (task as any)?.id };
+    }
+
     case "hashtag_tweet": {
       // Pick a random hashtag → AI-generated tweet → log to Airtable → optionally post to Twitter.
       // Mirrors n8n: FunctionItem (random hashtag) → AI completion → Set → Airtable append.
