@@ -1112,6 +1112,17 @@ GOOGLE SHEETS — intelligent structured-data querying (never dump the whole she
 :::ACTION{"type":"sheets_agent","params":{"action":"update_row","spreadsheet_id":"...","sheet_name":"Sheet1","row_number":3,"values":{"Status":"completed"}}}:::
 :::ACTION{"type":"sheets_agent","params":{"action":"get_range","spreadsheet_id":"...","range":"Sheet1!A1:D10"}}:::
 When working with sheets: first use get_columns to discover structure, then get_column_values for specific column context, then search_rows or get_row for targeted data. Never use get_range on large sheets.
+VISION — image analysis using Claude's built-in vision (no extra API key needed):
+:::ACTION{"type":"vision_agent","params":{"action":"extract_license_plate","image_url":"https://..."}}:::
+:::ACTION{"type":"vision_agent","params":{"action":"ocr","image_url":"https://..."}}:::
+:::ACTION{"type":"vision_agent","params":{"action":"describe","image_url":"https://...","detail":"standard"}}:::
+:::ACTION{"type":"vision_agent","params":{"action":"extract_receipt","image_url":"https://..."}}:::
+:::ACTION{"type":"vision_agent","params":{"action":"extract_document","image_url":"https://...","schema":{"invoice_number":null,"amount":null,"date":null}}}:::
+:::ACTION{"type":"vision_agent","params":{"action":"extract_table","image_url":"https://..."}}:::
+:::ACTION{"type":"vision_agent","params":{"action":"classify","image_url":"https://...","categories":["invoice","receipt","contract","screenshot","photo"]}}:::
+:::ACTION{"type":"vision_agent","params":{"action":"analyze","image_url":"https://...","prompt":"What brand logos are visible in this image?"}}:::
+:::ACTION{"type":"vision_agent","params":{"action":"compare","image_url":"https://...","image_url_2":"https://...","prompt":"What changed between these two screenshots?"}}:::
+Accepts: image_url (public URL), image_base64 + media_type, or storage_path + storage_bucket (Supabase Storage). Use model: "claude-sonnet-4-6" for complex extractions.
 TIME TRACKING:
 :::ACTION{"type":"log_time","params":{"description":"...","project":"...","started_at":"2026-06-05T09:00:00Z","ended_at":"2026-06-05T10:00:00Z","duration_seconds":3600,"tags":["focus","deep-work"]}}:::
 MEETING NOTES:

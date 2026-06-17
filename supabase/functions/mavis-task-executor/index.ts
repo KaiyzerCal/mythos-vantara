@@ -1420,6 +1420,7 @@ const HANDLERS: Record<string, TaskHandler> = {
   vercel_agent:        makeAgentHandler("mavis-vercel-agent"),
   sentry_agent:        makeAgentHandler("mavis-sentry-agent"),
   sheets_agent:        makeAgentHandler("mavis-sheets-agent"),
+  vision_agent:        makeAgentHandler("mavis-vision-agent"),
 };
 
 // ─────────────────────────────────────────────────────────────
