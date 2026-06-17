@@ -1063,6 +1063,12 @@ FLASHCARD / LANGUAGE LEARNING (MCQ sessions — vocabulary from inline list, Goo
 :::ACTION{"type":"flashcard_agent","params":{"action":"save_vocabulary","deck_name":"hsk1","vocabulary":[{"native":"one","target":"一","pinyin":"yī"}]}}:::
 :::ACTION{"type":"flashcard_agent","params":{"action":"get_vocabulary","deck_name":"hsk1"}}:::
 Rules: Always call start_session before evaluate. Pass the user's letter choice (A/B/C/D) verbatim to evaluate. The full_message field in evaluate response already contains feedback + stats + next question — relay it as-is. Sessions persist in memory; one active session per user. Requires ≥4 vocabulary items. Works with any language pair (not just Chinese). Vocabulary can be loaded from Google Sheets (needs mavis-sheets-agent + gsheets OAuth).
+REDDIT INTELLIGENCE (public Reddit API — no credentials needed, requires ANTHROPIC_API_KEY for analysis):
+:::ACTION{"type":"reddit_agent","params":{"action":"search_posts","subreddit":"smallbusiness","keyword":"looking for a solution","sort":"hot","limit":20,"days_back":180,"min_upvotes":2}}:::
+:::ACTION{"type":"reddit_agent","params":{"action":"get_post","url":"https://www.reddit.com/r/smallbusiness/comments/abc123/post_title/"}}:::
+:::ACTION{"type":"reddit_agent","params":{"action":"get_subreddit_info","subreddit":"startups"}}:::
+:::ACTION{"type":"reddit_opportunities","params":{"subreddit":"smallbusiness","keyword":"looking for a solution","sort":"hot","limit":20,"days_back":180,"min_upvotes":2,"spreadsheet_id":"...","sheet_name":"Opportunities","gmail_drafts":true}}:::
+reddit_opportunities pipeline (async, delivers via Telegram): search posts → AI classify (is this a business problem?) → summarize + generate business idea + sentiment → append to Google Sheets → create Gmail drafts (Positive Post / Neutral Post / Negative Post subjects) → Telegram summary. Requires ANTHROPIC_API_KEY. Sheets output columns: Upvotes, Post_url, Post_date, Post_summary, Post_solution, Subreddit_size, Sentiment. Set gmail_drafts:true only if Gmail OAuth is connected. Omit spreadsheet_id to skip Sheets. Works on any public subreddit.
 NOTION (requires NOTION_API_KEY — create pages, query databases, search):
 :::ACTION{"type":"notion_agent","params":{"action":"create_page","database_id":"...","title":"...","content":"Full page body text here","properties":{}}}:::
 :::ACTION{"type":"notion_agent","params":{"action":"query_database","database_id":"...","filter":{"property":"Status","select":{"equals":"In Progress"}}}}:::

@@ -1662,6 +1662,42 @@ const handleEmailTriage: TaskHandler = async (task) => {
   return { success: true, output: { triaged: result.triaged, drafts_created: result.drafts_created } };
 };
 
+// reddit_opportunities — scan a subreddit for business opportunities, output to Sheets + Gmail drafts, deliver Telegram summary
+const handleRedditOpportunities: TaskHandler = async (task) => {
+  const p = extractPayload(task.payload as Record<string, unknown>);
+
+  const res = await callFunction("mavis-reddit-agent", {
+    userId: task.user_id,
+    action: "analyze_opportunities",
+    ...p,
+  });
+  const result = await res.json().catch(() => ({})) as any;
+
+  if (BOT_TOKEN && OPERATOR_CHAT_ID) {
+    const topItems: string = (result.results ?? []).slice(0, 3).map((r: any, i: number) =>
+      `*${i + 1}.* ${r.summary}\n💡 ${String(r.solution ?? "").slice(0, 180)}${r.solution?.length > 180 ? "…" : ""}`
+    ).join("\n\n");
+
+    const msg = [
+      `📊 *Reddit Opportunity Scan*`,
+      `r/${result.subreddit} · keyword: \`${result.keyword}\``,
+      ``,
+      `📥 Fetched: ${result.fetched} → ✅ Qualified: ${result.qualified} → 📝 Analyzed: ${result.analyzed}`,
+      result.sheets_appended ? `📊 Sheets: ${result.sheets_appended} rows added` : "",
+      result.drafts_created ? `✉️ Gmail: ${result.drafts_created} drafts created` : "",
+      topItems ? `\n${topItems}` : "",
+    ].filter(Boolean).join("\n");
+
+    await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+      method:  "POST",
+      headers: { "Content-Type": "application/json" },
+      body:    JSON.stringify({ chat_id: OPERATOR_CHAT_ID, text: msg, parse_mode: "Markdown" }),
+    }).catch(() => {});
+  }
+
+  return { success: true, output: { analyzed: result.analyzed, qualified: result.qualified, results: result.results } };
+};
+
 const HANDLERS: Record<string, TaskHandler> = {
   daily_brief: handleDailyBrief,
   check_idle_quests: handleCheckIdleQuests,
@@ -1709,6 +1745,8 @@ const HANDLERS: Record<string, TaskHandler> = {
   email_triage:        handleEmailTriage,
   discord_agent:       makeAgentHandler("mavis-discord-agent"),
   flashcard_agent:     makeAgentHandler("mavis-flashcard-agent"),
+  reddit_agent:        makeAgentHandler("mavis-reddit-agent"),
+  reddit_opportunities: handleRedditOpportunities,
 };
 
 // ─────────────────────────────────────────────────────────────
