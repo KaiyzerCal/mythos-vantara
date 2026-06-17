@@ -2652,6 +2652,19 @@ async function executeAction(sb: any, userId: string, action: MavisAction, req: 
       return data;
     }
 
+    case "email_triage": {
+      // Fire email triage as a task so it runs async and reports via Telegram
+      const { data: task } = await adminClient.from("mavis_tasks").insert({
+        user_id:      userId,
+        type:         "email_triage",
+        description:  "Gmail inbox triage — assess and draft replies",
+        payload:      p,
+        status:       "pending",
+        scheduled_at: new Date().toISOString(),
+      }).select().single();
+      return { queued: true, task_id: (task as any)?.id };
+    }
+
     case "vision_agent": {
       const res = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-vision-agent`, {
         method: "POST",

@@ -6,7 +6,8 @@
 // Actions:
 //   Calendar: create_calendar_event | update_calendar_event | delete_calendar_event
 //             list_calendar_events | find_free_time | create_meet_link
-//   Gmail:    send_email | list_emails | search_emails
+//   Gmail:    send_email | list_emails | search_emails | get_email
+//             create_draft | mark_read | triage_inbox
 //   Drive:    list_files | upload_text | create_folder
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
@@ -17,11 +18,12 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-const SB_URL     = Deno.env.get("SUPABASE_URL")!;
-const SB_SRK     = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-const GC_API     = "https://www.googleapis.com/calendar/v3";
-const GMAIL_API  = "https://www.googleapis.com/gmail/v1";
-const DRIVE_API  = "https://www.googleapis.com/drive/v3";
+const SB_URL       = Deno.env.get("SUPABASE_URL")!;
+const SB_SRK       = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+const GC_API       = "https://www.googleapis.com/calendar/v3";
+const GMAIL_API    = "https://www.googleapis.com/gmail/v1";
+const DRIVE_API    = "https://www.googleapis.com/drive/v3";
+const ANTHROPIC_KEY = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
 
 // ── Token management ─────────────────────────────────────────────────────────
 
@@ -248,12 +250,21 @@ async function handleCalendar(action: string, p: any, token: string, sb: any, ui
 
 // ── GMAIL actions ─────────────────────────────────────────────────────────────
 
-function encodeMime(to: string, subject: string, body: string, from?: string): string {
+function encodeMime(
+  to: string,
+  subject: string,
+  body: string,
+  opts: { from?: string; threadId?: string; inReplyTo?: string; references?: string } = {},
+): string {
   const boundary = `boundary_${Date.now()}`;
-  const mime = [
-    `From: ${from ?? "me"}`,
+  const lines = [
+    `From: ${opts.from ?? "me"}`,
     `To: ${to}`,
     `Subject: =?utf-8?B?${btoa(unescape(encodeURIComponent(subject)))}?=`,
+  ];
+  if (opts.inReplyTo)  lines.push(`In-Reply-To: ${opts.inReplyTo}`);
+  if (opts.references) lines.push(`References: ${opts.references}`);
+  lines.push(
     "MIME-Version: 1.0",
     `Content-Type: multipart/alternative; boundary="${boundary}"`,
     "",
@@ -263,11 +274,61 @@ function encodeMime(to: string, subject: string, body: string, from?: string): s
     "",
     btoa(unescape(encodeURIComponent(body))),
     `--${boundary}--`,
-  ].join("\r\n");
+  );
+  const mime = lines.join("\r\n");
   return btoa(unescape(encodeURIComponent(mime))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
-async function handleGmail(action: string, p: any, token: string): Promise<any> {
+/** Decode a Gmail message payload into plain text, walking multipart trees */
+function decodeMessageBody(payload: any): string {
+  if (!payload) return "";
+
+  const decode = (data: string) => {
+    try {
+      return decodeURIComponent(escape(atob(data.replace(/-/g, "+").replace(/_/g, "/"))));
+    } catch { return ""; }
+  };
+
+  if (payload.body?.data) return decode(payload.body.data);
+
+  const parts: any[] = payload.parts ?? [];
+  // Prefer text/plain, fall back to text/html
+  const plain = parts.find((p: any) => p.mimeType === "text/plain");
+  if (plain?.body?.data) return decode(plain.body.data);
+  const html = parts.find((p: any) => p.mimeType === "text/html");
+  if (html?.body?.data) return decode(html.body.data).replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+
+  // Recurse into nested multipart
+  for (const part of parts) {
+    const sub = decodeMessageBody(part);
+    if (sub) return sub;
+  }
+  return "";
+}
+
+/** Call Claude to assess or generate text (uses project's ANTHROPIC_API_KEY) */
+async function callClaude(systemPrompt: string, userMessage: string, model = "claude-haiku-4-5-20251001", maxTokens = 512): Promise<string> {
+  if (!ANTHROPIC_KEY) throw new Error("ANTHROPIC_API_KEY not set");
+  const res = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "x-api-key":         ANTHROPIC_KEY,
+      "anthropic-version": "2023-06-01",
+      "content-type":      "application/json",
+    },
+    body: JSON.stringify({
+      model,
+      max_tokens: maxTokens,
+      system: systemPrompt,
+      messages: [{ role: "user", content: userMessage }],
+    }),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(`Claude: ${data.error?.message ?? JSON.stringify(data).slice(0, 200)}`);
+  return data.content?.[0]?.text ?? "";
+}
+
+async function handleGmail(action: string, p: any, token: string, uid?: string, sb?: any): Promise<any> {
   switch (action) {
     case "send_email": {
       const to      = String(p.to ?? "");
@@ -275,12 +336,165 @@ async function handleGmail(action: string, p: any, token: string): Promise<any> 
       const body    = String(p.body ?? p.content ?? "");
       if (!to || !subject) throw new Error("send_email requires 'to' and 'subject'");
 
-      const raw = encodeMime(to, subject, body);
+      const raw = encodeMime(to, subject, body, { threadId: p.thread_id });
       const res = await gReq(token, `${GMAIL_API}/users/me/messages/send`, "POST", {
         raw,
         ...(p.thread_id ? { threadId: p.thread_id } : {}),
       });
       return { message_id: res.id, thread_id: res.threadId, label_ids: res.labelIds };
+    }
+
+    case "create_draft": {
+      const to        = String(p.to ?? "");
+      const subject   = String(p.subject ?? "");
+      const body      = String(p.body ?? p.content ?? "");
+      const threadId  = p.thread_id  ? String(p.thread_id)  : undefined;
+      const inReplyTo = p.message_id ? `<${String(p.message_id)}>` : undefined;
+      if (!to) throw new Error("create_draft requires 'to'");
+
+      const raw = encodeMime(to, subject, body, { threadId, inReplyTo, references: inReplyTo });
+      const res = await gReq(token, `${GMAIL_API}/users/me/drafts`, "POST", {
+        message: { raw, ...(threadId ? { threadId } : {}) },
+      });
+      return { draft_id: res.id, thread_id: res.message?.threadId, message_id: res.message?.id };
+    }
+
+    case "get_email": {
+      const msgId = String(p.message_id ?? p.id ?? "");
+      if (!msgId) throw new Error("get_email requires 'message_id'");
+      const msg     = await gReq(token, `${GMAIL_API}/users/me/messages/${msgId}?format=full`);
+      const headers: { name: string; value: string }[] = msg.payload?.headers ?? [];
+      const h = (name: string) => headers.find((hh: any) => hh.name === name)?.value ?? "";
+      return {
+        id:         msg.id,
+        thread_id:  msg.threadId,
+        from:       h("From"),
+        to:         h("To"),
+        subject:    h("Subject"),
+        date:       h("Date"),
+        message_id: h("Message-ID"),
+        references: h("References"),
+        body:       decodeMessageBody(msg.payload),
+        snippet:    msg.snippet,
+        labels:     msg.labelIds ?? [],
+      };
+    }
+
+    case "mark_read": {
+      const msgId = String(p.message_id ?? p.id ?? "");
+      if (!msgId) throw new Error("mark_read requires 'message_id'");
+      await gReq(token, `${GMAIL_API}/users/me/messages/${msgId}/modify`, "POST", {
+        removeLabelIds: ["UNREAD"],
+      });
+      return { marked_read: true, message_id: msgId };
+    }
+
+    case "triage_inbox": {
+      // Full auto-responder pipeline: list unread → assess → draft replies
+      const limit         = Math.min(Number(p.limit ?? 10), 25);
+      const draftReplies  = p.draft_replies !== false;  // default true
+      const markRead      = Boolean(p.mark_read ?? false);
+      const tone          = String(p.tone ?? "professional");
+      const signature     = p.signature ? String(p.signature) : "";
+      const customPrompt  = p.system_prompt ? String(p.system_prompt) : "";
+
+      // 1. Fetch unread emails not from self
+      const listRes = await gReq(token, `${GMAIL_API}/users/me/messages?maxResults=${limit}&q=is:unread+-from:me+-category:promotions+-category:social`);
+      const msgIds: string[] = (listRes.messages ?? []).map((m: any) => m.id);
+
+      if (msgIds.length === 0) return { triaged: 0, drafts_created: 0, results: [] };
+
+      const assessSystem = `You are an email triage assistant. Assess whether an email requires a personal reply.
+Return ONLY valid JSON: {"needsReply": true|false, "reason": "...", "urgency": "high|medium|low"}
+Marketing emails, newsletters, automated notifications, and no-reply senders → needsReply: false.
+Direct questions, requests, meeting invites, client messages → needsReply: true.`;
+
+      const replySystem = customPrompt || `You are MAVIS, a sharp personal AI assistant drafting email replies on behalf of the operator.
+Draft a clear, ${tone} reply. Rules:
+- Start with "Hello," and end with "Best,"${signature ? `\n${signature}` : ""}
+- Address the email's specific question or request directly
+- For yes/no questions: provide two options separated by "- - - OR - - -"
+- Use [PLACEHOLDER] for anything you cannot know (dates, prices, specific details)
+- Plain text only, no markdown formatting
+- Match the language of the incoming email
+- Be concise — 3-5 sentences unless the topic demands more`;
+
+      const results: any[] = [];
+      let draftsCreated = 0;
+
+      for (const msgId of msgIds) {
+        try {
+          // Get full message
+          const msg     = await gReq(token, `${GMAIL_API}/users/me/messages/${msgId}?format=full`);
+          const headers: { name: string; value: string }[] = msg.payload?.headers ?? [];
+          const h = (name: string) => headers.find((hh: any) => hh.name === name)?.value ?? "";
+          const from      = h("From");
+          const subject   = h("Subject");
+          const messageId = h("Message-ID");
+          const body      = decodeMessageBody(msg.payload) || msg.snippet;
+
+          // 2. Assess
+          const assessInput = `From: ${from}\nSubject: ${subject}\n\nBody:\n${body.slice(0, 2000)}`;
+          const assessRaw   = await callClaude(assessSystem, assessInput, "claude-haiku-4-5-20251001", 256);
+          const match       = assessRaw.match(/\{[\s\S]*\}/);
+          const assessment  = match ? JSON.parse(match[0]) : { needsReply: false, reason: "parse error" };
+
+          const result: any = {
+            message_id: msgId,
+            thread_id:  msg.threadId,
+            from,
+            subject,
+            needs_reply:  assessment.needsReply,
+            reason:       assessment.reason,
+            urgency:      assessment.urgency ?? "medium",
+            draft_id:     null,
+          };
+
+          // 3. Draft reply if needed
+          if (assessment.needsReply && draftReplies) {
+            const replyText = await callClaude(
+              replySystem,
+              `From: ${from}\nSubject: ${subject}\n\n${body.slice(0, 3000)}`,
+              "claude-sonnet-4-6",
+              1024,
+            );
+
+            // Extract "To" address — strip display name
+            const toAddr = from.match(/<([^>]+)>/) ? from.match(/<([^>]+)>/)![1] : from;
+            const draft = await gReq(token, `${GMAIL_API}/users/me/drafts`, "POST", {
+              message: {
+                raw: encodeMime(toAddr, `Re: ${subject}`, replyText, {
+                  threadId:   msg.threadId,
+                  inReplyTo:  messageId ? `<${messageId}>` : undefined,
+                  references: messageId ? `<${messageId}>` : undefined,
+                }),
+                threadId: msg.threadId,
+              },
+            });
+            result.draft_id     = draft.id;
+            result.draft_preview = replyText.slice(0, 200);
+            draftsCreated++;
+          }
+
+          // 4. Optionally mark as read
+          if (markRead) {
+            await gReq(token, `${GMAIL_API}/users/me/messages/${msgId}/modify`, "POST", {
+              removeLabelIds: ["UNREAD"],
+            }).catch(() => {});
+          }
+
+          results.push(result);
+        } catch (e: unknown) {
+          results.push({ message_id: msgId, error: e instanceof Error ? e.message : String(e) });
+        }
+      }
+
+      return {
+        triaged:        results.length,
+        drafts_created: draftsCreated,
+        skipped:        results.filter(r => !r.needs_reply).length,
+        results,
+      };
     }
 
     case "list_emails": {
@@ -289,7 +503,6 @@ async function handleGmail(action: string, p: any, token: string): Promise<any> 
       const list  = await gReq(token, `${GMAIL_API}/users/me/messages?maxResults=${max}${query}`);
       const ids   = (list.messages ?? []) as { id: string }[];
 
-      // Fetch snippet for each
       const emails = await Promise.all(
         ids.slice(0, 10).map(async ({ id }) => {
           const msg = await gReq(token, `${GMAIL_API}/users/me/messages/${id}?format=metadata&metadataHeaders=From,Subject,Date`);
@@ -431,9 +644,11 @@ serve(async (req) => {
       return json(result);
     }
 
-    if (action.includes("email") || action === "send_email" || action.includes("gmail")) {
+    const GMAIL_ACTIONS = ["send_email", "create_draft", "get_email", "mark_read", "triage_inbox",
+                           "list_emails", "search_emails"];
+    if (GMAIL_ACTIONS.includes(action) || action.includes("email") || action.includes("gmail")) {
       const token = await getToken(adminSb, uid, "gmail");
-      const result = await handleGmail(action, body, token);
+      const result = await handleGmail(action, body, token, uid, adminSb);
       return json(result);
     }
 

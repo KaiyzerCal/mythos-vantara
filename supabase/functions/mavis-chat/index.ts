@@ -1017,9 +1017,14 @@ GOOGLE (requires Google connected in Integrations — use for direct Google oper
 :::ACTION{"type":"google_agent","params":{"action":"find_free_time","duration_minutes":60,"start_date":"2026-06-18","end_date":"2026-06-21","work_start":9,"work_end":18}}:::
 :::ACTION{"type":"google_agent","params":{"action":"create_meet_link","title":"...","start_date":"2026-06-18","start_time":"10:00:00","end_time":"11:00:00","attendees":["email@example.com"]}}:::
 :::ACTION{"type":"google_agent","params":{"action":"send_email","to":"...","subject":"...","body":"..."}}:::
+:::ACTION{"type":"google_agent","params":{"action":"create_draft","to":"...","subject":"Re: ...","body":"...","thread_id":"...","message_id":"<original-message-id>"}}:::
+:::ACTION{"type":"google_agent","params":{"action":"get_email","message_id":"..."}}:::
 :::ACTION{"type":"google_agent","params":{"action":"search_emails","query":"from:client@example.com","max_results":5}}:::
+:::ACTION{"type":"google_agent","params":{"action":"mark_read","message_id":"..."}}:::
+:::ACTION{"type":"email_triage","params":{"limit":10,"draft_replies":true,"mark_read":false,"tone":"professional","signature":"Calvin Watkins"}}:::
 :::ACTION{"type":"google_agent","params":{"action":"list_files","query":"name contains 'proposal'","max_results":10}}:::
 :::ACTION{"type":"google_agent","params":{"action":"upload_text","name":"report.md","content":"...","mime_type":"text/markdown"}}:::
+Use email_triage to auto-draft replies to all unread inbox messages (runs async, reports via Telegram). Use create_draft when the operator wants to review before sending. Never send emails without operator confirmation unless explicitly instructed.
 SLACK (requires SLACK_BOT_TOKEN — send messages, read channels, upload files):
 :::ACTION{"type":"slack_agent","params":{"action":"send_message","channel":"#general","text":"..."}}:::
 :::ACTION{"type":"slack_agent","params":{"action":"send_dm","user_id":"U012AB3CD","text":"..."}}:::

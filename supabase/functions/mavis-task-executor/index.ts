@@ -1380,6 +1380,40 @@ const handleWeeklyReflection: TaskHandler = async (task) => {
   return { success: true, output: { summary: (data as any).report?.slice(0, 500) } };
 };
 
+// email_triage — runs Gmail auto-responder pipeline (assess + draft replies)
+const handleEmailTriage: TaskHandler = async (task) => {
+  const p = extractPayload(task.payload as Record<string, unknown>);
+  const res = await callFunction("mavis-google-agent", {
+    userId:        task.user_id,
+    action:        "triage_inbox",
+    limit:         p.limit ?? 10,
+    draft_replies: p.draft_replies !== false,
+    mark_read:     p.mark_read ?? false,
+    tone:          p.tone ?? "professional",
+    signature:     p.signature ?? "",
+    system_prompt: p.system_prompt ?? "",
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) return { success: false, error: (data as any).error ?? `google-agent returned ${res.status}` };
+
+  const result = data as any;
+  // Send Telegram summary if drafts were created
+  if (result.drafts_created > 0 && BOT_TOKEN && OPERATOR_CHAT_ID) {
+    const lines = (result.results ?? [])
+      .filter((r: any) => r.draft_id)
+      .map((r: any) => `• ${r.from?.split("<")[0].trim() || r.from} — ${r.subject}`)
+      .slice(0, 5);
+    const msg = `📬 *Email Triage*\n${result.triaged} checked · ${result.drafts_created} draft${result.drafts_created !== 1 ? "s" : ""} created\n\n${lines.join("\n")}`;
+    await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ chat_id: OPERATOR_CHAT_ID, text: msg, parse_mode: "Markdown" }),
+    }).catch(() => {});
+  }
+
+  return { success: true, output: { triaged: result.triaged, drafts_created: result.drafts_created } };
+};
+
 const HANDLERS: Record<string, TaskHandler> = {
   daily_brief: handleDailyBrief,
   check_idle_quests: handleCheckIdleQuests,
@@ -1421,6 +1455,7 @@ const HANDLERS: Record<string, TaskHandler> = {
   sentry_agent:        makeAgentHandler("mavis-sentry-agent"),
   sheets_agent:        makeAgentHandler("mavis-sheets-agent"),
   vision_agent:        makeAgentHandler("mavis-vision-agent"),
+  email_triage:        handleEmailTriage,
 };
 
 // ─────────────────────────────────────────────────────────────
