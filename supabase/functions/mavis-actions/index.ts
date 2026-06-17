@@ -2855,6 +2855,80 @@ async function executeAction(sb: any, userId: string, action: MavisAction, req: 
       return { hashtag, tweet, tweet_length: tweet.length, airtable_record_id: airtableRecordId, tweet_id: tweetId, posted: !!tweetId };
     }
 
+    case "influencer_tweet": {
+      // Persona-driven viral tweet generator with optional Airtable logging and auto-post.
+      // Mirrors n8n: Schedule → Configure profile → Generate tweet (retry loop) → Verify constraints → Post tweet.
+      const SB_URL_INF = Deno.env.get("SUPABASE_URL")!;
+      const SB_SRK_INF = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+
+      // 1. Generate tweet in persona/influencer mode
+      const genRes = await fetch(`${SB_URL_INF}/functions/v1/mavis-twitter-agent`, {
+        method:  "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${SB_SRK_INF}` },
+        body:    JSON.stringify({
+          action:      "generate_tweet",
+          niche:       p.niche       ?? "personal development and modern philosophy",
+          style:       p.style       ?? "All of your tweets are very personal and relatable",
+          inspiration: p.inspiration ?? "",
+          max_chars:   p.max_chars   ?? 280,
+          max_retries: p.max_retries ?? 3,
+        }),
+        signal: AbortSignal.timeout(40000),
+      });
+      const genData = await genRes.json().catch(() => ({})) as any;
+      if (!genRes.ok) throw new Error(genData.error ?? `twitter-agent generate_tweet returned ${genRes.status}`);
+
+      const { tweet } = genData;
+
+      // 2. Log to Airtable if base_id provided
+      let airtableRecordId: string | null = null;
+      if (p.airtable_base_id) {
+        const atRes = await fetch(`${SB_URL_INF}/functions/v1/mavis-airtable-agent`, {
+          method:  "POST",
+          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${SB_SRK_INF}` },
+          body:    JSON.stringify({
+            userId:  userId,
+            action:  "create_record",
+            base_id: p.airtable_base_id,
+            table:   p.airtable_table ?? "Influencer Tweets",
+            fields: {
+              Niche:     p.niche ?? "personal development",
+              Content:   tweet,
+              Generated: new Date().toISOString().split("T")[0],
+              Status:    p.auto_post ? "Posted" : "Draft",
+              Attempts:  genData.attempts ?? 1,
+            },
+          }),
+          signal: AbortSignal.timeout(10000),
+        });
+        const atData = await atRes.json().catch(() => ({})) as any;
+        airtableRecordId = atData.id ?? atData.record?.id ?? null;
+      }
+
+      // 3. Optionally post to Twitter
+      let tweetId: string | null = null;
+      if (p.auto_post) {
+        const postRes = await fetch(`${SB_URL_INF}/functions/v1/mavis-twitter-agent`, {
+          method:  "POST",
+          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${SB_SRK_INF}` },
+          body:    JSON.stringify({ action: "post_tweet", text: tweet }),
+          signal:  AbortSignal.timeout(15000),
+        });
+        const postData = await postRes.json().catch(() => ({})) as any;
+        tweetId = postData.tweet_id ?? null;
+      }
+
+      return {
+        tweet,
+        tweet_length:      tweet.length,
+        valid:             tweet.length <= 280,
+        attempts:          genData.attempts ?? 1,
+        tweet_id:          tweetId,
+        airtable_record_id: airtableRecordId,
+        posted:            !!tweetId,
+      };
+    }
+
     case "schedule_from_text": {
       // Parse natural language text → structured Google Calendar event.
       // Mirrors Make.com: CustomWebhook → AI parse → createAnEvent.

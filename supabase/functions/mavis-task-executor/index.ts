@@ -1908,6 +1908,89 @@ const handleEmailSmartTriage: TaskHandler = async (task) => {
   return { success: true, output: { processed: result.processed, drafts_created: result.drafts_created, categories_seen: result.categories_seen } };
 };
 
+// influencer_tweet — persona-driven viral tweet generator; self-re-queues after each run for continuous cadence
+const handleInfluencerTweet: TaskHandler = async (task) => {
+  const p = extractPayload(task.payload as Record<string, unknown>);
+
+  // 1. Generate tweet in persona/influencer mode with retry loop
+  const genRes = await callFunction("mavis-twitter-agent", {
+    action:      "generate_tweet",
+    niche:       p.niche       ?? "personal development and modern philosophy",
+    style:       p.style       ?? "All of your tweets are very personal and relatable",
+    inspiration: p.inspiration ?? "",
+    max_chars:   p.max_chars   ?? 280,
+    max_retries: p.max_retries ?? 3,
+  });
+  const genData = await genRes.json().catch(() => ({})) as any;
+  if (!genRes.ok) return { success: false, error: genData.error ?? `twitter-agent returned ${genRes.status}` };
+
+  const { tweet } = genData;
+
+  // 2. Log to Airtable if configured
+  let airtableRecordId: string | null = null;
+  if (p.airtable_base_id) {
+    const atRes = await callFunction("mavis-airtable-agent", {
+      userId:  task.user_id,
+      action:  "create_record",
+      base_id: p.airtable_base_id,
+      table:   p.airtable_table ?? "Influencer Tweets",
+      fields: {
+        Niche:     p.niche ?? "personal development",
+        Content:   tweet,
+        Generated: new Date().toISOString().split("T")[0],
+        Status:    p.auto_post ? "Posted" : "Draft",
+        Attempts:  genData.attempts ?? 1,
+      },
+    });
+    const atData = await atRes.json().catch(() => ({})) as any;
+    airtableRecordId = atData.id ?? atData.record?.id ?? null;
+  }
+
+  // 3. Optionally post to Twitter
+  let tweetId: string | null = null;
+  if (p.auto_post) {
+    const postRes = await callFunction("mavis-twitter-agent", { action: "post_tweet", text: tweet });
+    const postData = await postRes.json().catch(() => ({})) as any;
+    tweetId = postData.tweet_id ?? null;
+  }
+
+  // 4. Telegram notification
+  if (BOT_TOKEN && OPERATOR_CHAT_ID) {
+    const status = tweetId ? "✅ Posted" : "📝 Draft";
+    const msg = [
+      `🐦 *Influencer Tweet*`,
+      `${status} · ${(p.niche as string ?? "").slice(0, 40)}`,
+      ``,
+      `"${tweet}"`,
+      airtableRecordId ? `📊 Logged to Airtable (${airtableRecordId})` : "",
+    ].filter(Boolean).join("\n");
+    await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+      method:  "POST",
+      headers: { "Content-Type": "application/json" },
+      body:    JSON.stringify({ chat_id: OPERATOR_CHAT_ID, text: msg, parse_mode: "Markdown" }),
+    }).catch(() => {});
+  }
+
+  // 5. Self-re-queue: schedule next run at intervalHours + random(0–55) minutes from now
+  const intervalHours  = Math.max(1, Number(p.interval_hours ?? 6));
+  const randomMinutes  = Math.floor(Math.random() * 56); // 0–55 min, mirrors n8n random minute
+  const nextRunAt      = new Date(Date.now() + intervalHours * 3_600_000 + randomMinutes * 60_000);
+  await supabase.from("mavis_tasks").insert({
+    user_id:      task.user_id,
+    type:         "influencer_tweet",
+    description:  `Auto influencer tweet — ${p.niche ?? "personal development"}`,
+    payload:      task.payload,
+    status:       "pending",
+    scheduled_at: nextRunAt.toISOString(),
+  });
+
+  return {
+    success:    true,
+    continuing: true,
+    output:     { tweet, tweet_id: tweetId, airtable_record_id: airtableRecordId, next_run: nextRunAt.toISOString() },
+  };
+};
+
 // reddit_opportunities — scan a subreddit for business opportunities, output to Sheets + Gmail drafts, deliver Telegram summary
 const handleRedditOpportunities: TaskHandler = async (task) => {
   const p = extractPayload(task.payload as Record<string, unknown>);
@@ -1994,6 +2077,7 @@ const HANDLERS: Record<string, TaskHandler> = {
   review_monitor:      handleReviewMonitor,
   instagram_monitor:   handleInstagramMonitor,
   hashtag_tweet:       handleHashtagTweet,
+  influencer_tweet:    handleInfluencerTweet,
   daily_comic:         handleDailyComic,
   discord_agent:       makeAgentHandler("mavis-discord-agent"),
   flashcard_agent:     makeAgentHandler("mavis-flashcard-agent"),

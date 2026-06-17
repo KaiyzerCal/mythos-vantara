@@ -313,41 +313,102 @@ serve(async (req) => {
       }
 
       case "generate_tweet": {
-        // Pick a random hashtag from the provided list, generate a tweet via Claude Haiku.
-        // Mirrors n8n: FunctionItem (random hashtag) → HTTP Request (AI completion).
+        // Two modes:
+        //   Persona mode (niche+style+inspiration) — influencer viral tweet; mirrors n8n influencer auto-poster
+        //   Hashtag mode (hashtags+topic)           — hashtag-seeded content; mirrors n8n hashtag generator
+        // Both modes retry up to max_retries times if the tweet exceeds 280 chars.
         if (!ANTHROPIC_KEY) return json({ error: "ANTHROPIC_API_KEY not configured" }, 503);
 
-        const hashtagList: string[] = Array.isArray(body.hashtags)
-          ? body.hashtags.map(String)
-          : [String(body.hashtag ?? body.tag ?? "#ai")];
+        const maxChars   = Math.min(Number(body.max_chars ?? 280), 280);
+        const maxRetries = Math.min(Number(body.max_retries ?? 3), 5);
+        const now        = new Date().toLocaleString("en-US", { timeZone: "America/New_York" });
 
-        if (hashtagList.length === 0) return json({ error: "hashtags array required" }, 400);
+        let systemBase: string;
+        let userMsg:    string;
+        let hashtag:    string | null = null;
+        let hashtagList: string[]     = [];
 
-        const hashtag  = hashtagList[Math.floor(Math.random() * hashtagList.length)];
-        const topic    = body.topic ? String(body.topic) : hashtag.replace(/^#/, "");
-        const maxChars = Math.min(Number(body.max_chars ?? 280), 280);
+        if (body.niche || body.style || body.inspiration) {
+          // ── Persona / influencer mode ──────────────────────────────────────
+          const niche       = String(body.niche       ?? "AI and technology");
+          const style       = String(body.style       ?? "Personal and relatable");
+          const inspiration = String(body.inspiration ?? "");
 
-        const system =
-          `You are a professional social media copywriter. Generate a tweet that:\n` +
-          `- Is under ${maxChars} characters (hard limit — count carefully)\n` +
-          `- Includes the hashtag ${hashtag}\n` +
-          `- Focuses on the topic: ${topic}\n` +
-          `- Sounds authentic, engaging, and valuable — not corporate\n` +
-          `- May include 1-2 relevant emojis\n` +
-          `- Does NOT add extra hashtags beyond ${hashtag}\n` +
-          `Return ONLY the tweet text. No quotes, no explanation.`;
+          systemBase =
+            `You are a successful modern Twitter influencer. Your tweets always go viral.\n\n` +
+            `Your niche: ${niche}\n` +
+            `Your writing style: ${style}\n` +
+            (inspiration ? `Your inspiration: ${inspiration}\n` : "") +
+            `\nCurrent date and time: ${now}.\n` +
+            `Write a tweet that is certain to go viral. Keep it within ${maxChars} characters.\n` +
+            `Add hashtags and emojis where relevant.\n` +
+            `Return ONLY the tweet text. No quotes, no preamble.`;
 
-        const res = await fetch("https://api.anthropic.com/v1/messages", {
-          method:  "POST",
-          headers: { "Content-Type": "application/json", "x-api-key": ANTHROPIC_KEY, "anthropic-version": "2023-06-01" },
-          body:    JSON.stringify({ model: "claude-haiku-4-5-20251001", max_tokens: 256, system, messages: [{ role: "user", content: `Generate the tweet now.` }] }),
-          signal:  AbortSignal.timeout(20000),
+          userMsg = "Write a tweet that is certain to go viral. Take your time. Think. Use the vast knowledge you have.";
+        } else {
+          // ── Hashtag / topic mode ───────────────────────────────────────────
+          hashtagList = Array.isArray(body.hashtags)
+            ? body.hashtags.map(String)
+            : [String(body.hashtag ?? body.tag ?? "#ai")];
+
+          hashtag  = hashtagList[Math.floor(Math.random() * hashtagList.length)];
+          const topic = body.topic ? String(body.topic) : hashtag.replace(/^#/, "");
+
+          systemBase =
+            `You are a professional social media copywriter. Generate a tweet that:\n` +
+            `- Is under ${maxChars} characters (hard limit — count carefully)\n` +
+            `- Includes the hashtag ${hashtag}\n` +
+            `- Focuses on the topic: ${topic}\n` +
+            `- Sounds authentic, engaging, and valuable — not corporate\n` +
+            `- May include 1-2 relevant emojis\n` +
+            `- Does NOT add extra hashtags beyond ${hashtag}\n` +
+            `Return ONLY the tweet text. No quotes, no explanation.`;
+
+          userMsg = "Generate the tweet now.";
+        }
+
+        // Retry loop: regenerate if tweet exceeds length constraint
+        let tweet         = "";
+        let lastCandidate = "";
+        let attempts      = 0;
+
+        while (attempts < maxRetries) {
+          attempts++;
+          const retryHint = attempts > 1
+            ? ` IMPORTANT: The previous attempt was too long (>${maxChars} chars). Write a shorter version.`
+            : "";
+
+          const res = await fetch("https://api.anthropic.com/v1/messages", {
+            method:  "POST",
+            headers: { "Content-Type": "application/json", "x-api-key": ANTHROPIC_KEY, "anthropic-version": "2023-06-01" },
+            body:    JSON.stringify({
+              model:      "claude-haiku-4-5-20251001",
+              max_tokens: 300,
+              system:     systemBase + retryHint,
+              messages:   [{ role: "user", content: userMsg }],
+            }),
+            signal: AbortSignal.timeout(20000),
+          });
+          const data = await res.json();
+          if (!res.ok) throw new Error(`Claude error: ${JSON.stringify(data?.error).slice(0, 200)}`);
+
+          lastCandidate = validateTweet((data.content?.[0]?.text ?? "").trim());
+          if (lastCandidate.length <= maxChars) {
+            tweet = lastCandidate;
+            break;
+          }
+        }
+
+        // If all retries were too long, use truncated last candidate
+        if (!tweet) tweet = lastCandidate;
+
+        return json({
+          tweet,
+          tweet_length:  tweet.length,
+          valid:         tweet.length <= maxChars,
+          attempts,
+          ...(hashtag ? { hashtag, hashtags_pool: hashtagList } : {}),
         });
-        const data = await res.json();
-        if (!res.ok) throw new Error(`Claude error: ${JSON.stringify(data?.error).slice(0, 200)}`);
-        const tweet = validateTweet((data.content?.[0]?.text ?? "").trim());
-
-        return json({ hashtag, tweet, tweet_length: tweet.length, hashtags_pool: hashtagList });
       }
 
       default:
