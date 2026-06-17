@@ -1077,12 +1077,15 @@ NOTION (requires NOTION_API_KEY — create pages, query databases, search):
 :::ACTION{"type":"notion_agent","params":{"action":"append_blocks","page_id":"...","content":"Additional content to append"}}:::
 :::ACTION{"type":"notion_agent","params":{"action":"search","query":"project proposal","filter_type":"page"}}:::
 :::ACTION{"type":"notion_agent","params":{"action":"update_page","page_id":"...","title":"Updated Title","archived":false}}:::
-AIRTABLE (requires AIRTABLE_API_KEY — read/write any base and table):
+AIRTABLE (requires AIRTABLE_API_KEY — read/write any base and table; enrich_record also requires ANTHROPIC_API_KEY):
 :::ACTION{"type":"airtable_agent","params":{"action":"list_records","base_id":"appXXXXXXXXXXXXXX","table":"Leads","max_records":25}}:::
+:::ACTION{"type":"airtable_agent","params":{"action":"get_record","base_id":"appXXXXXXXXXXXXXX","table":"Leads","record_id":"recXXXXXXXXXXXXXX"}}:::
 :::ACTION{"type":"airtable_agent","params":{"action":"create_record","base_id":"appXXXXXXXXXXXXXX","table":"Leads","fields":{"Name":"...","Email":"...","Status":"New"}}}:::
 :::ACTION{"type":"airtable_agent","params":{"action":"search_records","base_id":"appXXXXXXXXXXXXXX","table":"Contacts","term":"John","field":"Name"}}:::
 :::ACTION{"type":"airtable_agent","params":{"action":"update_record","base_id":"appXXXXXXXXXXXXXX","table":"Leads","record_id":"recXXXXXXXXXXXXXX","fields":{"Status":"Qualified"}}}:::
 :::ACTION{"type":"airtable_agent","params":{"action":"list_bases"}}:::
+:::ACTION{"type":"airtable_enrich","params":{"base_id":"appXXXXXXXXXXXXXX","table":"Leads","record_id":"recXXXXXXXXXXXXXX","prompt":"Analyze this lead and write a personalized one-sentence outreach opener.","output_field":"AI_Summary","model":"claude-haiku-4-5-20251001"}}:::
+Use airtable_enrich when the operator wants to run AI on an existing record and write the result back — e.g. score a lead, generate a summary, draft a personalized message, classify a record. The AI output is written to output_field on the same record. Triggered from a webhook, task, or on demand.
 SMS / WHATSAPP (requires TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_FROM_NUMBER):
 :::ACTION{"type":"twilio_agent","params":{"action":"send_sms","to":"+15551234567","body":"Your message here"}}:::
 :::ACTION{"type":"twilio_agent","params":{"action":"send_whatsapp","to":"+15551234567","body":"Your message here"}}:::

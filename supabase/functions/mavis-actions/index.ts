@@ -2431,6 +2431,19 @@ async function executeAction(sb: any, userId: string, action: MavisAction, req: 
       return data;
     }
 
+    case "airtable_enrich": {
+      // Fetch an Airtable record → AI enrichment → write result back to a specified field.
+      const res = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-airtable-agent`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
+        body: JSON.stringify({ action: "enrich_record", ...p }),
+        signal: AbortSignal.timeout(40000),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((data as any).error ?? `mavis-airtable-agent enrich_record returned ${res.status}`);
+      return data;
+    }
+
     // ── TWILIO AGENT ─────────────────────────────────────
     case "twilio_agent":
     case "send_sms":
