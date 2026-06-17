@@ -1049,6 +1049,59 @@ CALENDLY (requires CALENDLY_API_KEY — read bookings and event types):
 :::ACTION{"type":"calendly_agent","params":{"action":"get_event","uuid":"..."}}:::
 :::ACTION{"type":"calendly_agent","params":{"action":"cancel_event","uuid":"...","reason":"Rescheduling"}}:::
 :::ACTION{"type":"calendly_agent","params":{"action":"get_user"}}:::
+META — MAVIS self-improvement and multi-agent coordination:
+:::ACTION{"type":"reflection_agent","params":{"action":"run_reflection"}}:::
+:::ACTION{"type":"reflection_agent","params":{"action":"get_last_report"}}:::
+:::ACTION{"type":"critic_agent","params":{"action":"review","content":"...","type":"email|tweet|linkedin|proposal|sms|announcement","context":"..."}}:::
+:::ACTION{"type":"critic_agent","params":{"action":"batch_review","items":[{"content":"...","type":"tweet","id":"tweet1"},{"content":"...","type":"email","id":"email1"}]}}:::
+:::ACTION{"type":"orchestrator","params":{"action":"run","goal":"Research competitor X, find their pricing, and draft a comparison post","context":"..."}}:::
+:::ACTION{"type":"orchestrator","params":{"action":"plan_only","goal":"..."}}:::
+INTELLIGENCE — semantic search, deep scraping, video transcripts, SEC filings:
+:::ACTION{"type":"exa_agent","params":{"action":"search","query":"AI automation tools for founders","num_results":8,"type":"neural"}}:::
+:::ACTION{"type":"exa_agent","params":{"action":"find_similar","url":"https://competitor.com"}}:::
+:::ACTION{"type":"exa_agent","params":{"action":"search_news","query":"...","start_date":"2026-06-01"}}:::
+:::ACTION{"type":"exa_agent","params":{"action":"get_contents","urls":["https://example.com/article"],"summary_query":"key insights"}}:::
+:::ACTION{"type":"firecrawl_agent","params":{"action":"scrape","url":"https://example.com/pricing"}}:::
+:::ACTION{"type":"firecrawl_agent","params":{"action":"crawl","url":"https://competitor.com","max_pages":15}}:::
+:::ACTION{"type":"firecrawl_agent","params":{"action":"map","url":"https://example.com","limit":100}}:::
+:::ACTION{"type":"firecrawl_agent","params":{"action":"extract","url":"https://example.com","prompt":"Extract pricing tiers, features, and target audience"}}:::
+:::ACTION{"type":"youtube_agent","params":{"action":"search","query":"AI agents tutorial","max_results":5}}:::
+:::ACTION{"type":"youtube_agent","params":{"action":"get_transcript","video_id":"dQw4w9WgXcQ","language":"en"}}:::
+:::ACTION{"type":"youtube_agent","params":{"action":"get_video","video_id":"dQw4w9WgXcQ"}}:::
+:::ACTION{"type":"sec_agent","params":{"action":"search_company","query":"OpenAI"}}:::
+:::ACTION{"type":"sec_agent","params":{"action":"get_filings","cik":"0001841710","form_type":"10-K","limit":5}}:::
+:::ACTION{"type":"sec_agent","params":{"action":"get_facts","cik":"0001841710","fact":"Revenue"}}:::
+:::ACTION{"type":"sec_agent","params":{"action":"get_insider_trades","cik":"0001841710","limit":10}}:::
+CRM — HubSpot contacts, deals, pipeline (requires HUBSPOT_API_KEY):
+:::ACTION{"type":"crm_agent","params":{"action":"create_contact","email":"...","first_name":"...","last_name":"...","company":"...","lifecycle":"lead"}}:::
+:::ACTION{"type":"crm_agent","params":{"action":"search_contacts","query":"..."}}:::
+:::ACTION{"type":"crm_agent","params":{"action":"create_deal","name":"...","stage":"appointmentscheduled","amount":5000,"contact_id":"..."}}:::
+:::ACTION{"type":"crm_agent","params":{"action":"update_deal","deal_id":"...","stage":"closedwon"}}:::
+:::ACTION{"type":"crm_agent","params":{"action":"add_note","contact_id":"...","note":"Called today, interested in..."}}:::
+NEWSLETTER — Beehiiv posts and subscribers (requires BEEHIIV_API_KEY + BEEHIIV_PUBLICATION_ID):
+:::ACTION{"type":"beehiiv_agent","params":{"action":"create_post","title":"...","content":"Full markdown content here...","status":"draft"}}:::
+:::ACTION{"type":"beehiiv_agent","params":{"action":"publish_post","post_id":"..."}}:::
+:::ACTION{"type":"beehiiv_agent","params":{"action":"list_posts","status":"confirmed","limit":5}}:::
+:::ACTION{"type":"beehiiv_agent","params":{"action":"add_subscriber","email":"...","welcome_email":true}}:::
+:::ACTION{"type":"beehiiv_agent","params":{"action":"get_stats"}}:::
+SHOPIFY — orders, products, customers (requires SHOPIFY_STORE_URL + SHOPIFY_ACCESS_TOKEN):
+:::ACTION{"type":"shopify_agent","params":{"action":"list_orders","status":"open","limit":10}}:::
+:::ACTION{"type":"shopify_agent","params":{"action":"list_products","limit":20}}:::
+:::ACTION{"type":"shopify_agent","params":{"action":"create_product","title":"...","description":"...","price":29.00,"status":"draft"}}:::
+:::ACTION{"type":"shopify_agent","params":{"action":"list_customers","limit":10}}:::
+INFRASTRUCTURE — webhooks, Linear, Vercel, Sentry:
+:::ACTION{"type":"webhook_dispatch","params":{"action":"dispatch","url":"https://hooks.zapier.com/...","payload":{"event":"mavis.goal_completed","data":{}},"secret":"optional_hmac_secret"}}:::
+:::ACTION{"type":"webhook_dispatch","params":{"action":"test","url":"https://your-webhook-endpoint.com"}}:::
+:::ACTION{"type":"linear_agent","params":{"action":"create_issue","team_id":"...","title":"...","description":"...","priority":"high"}}:::
+:::ACTION{"type":"linear_agent","params":{"action":"list_issues","team_id":"...","limit":10}}:::
+:::ACTION{"type":"linear_agent","params":{"action":"update_issue","issue_id":"...","state_id":"...","priority":"urgent"}}:::
+:::ACTION{"type":"vercel_agent","params":{"action":"list_deployments","project_id":"...","limit":5}}:::
+:::ACTION{"type":"vercel_agent","params":{"action":"trigger_deploy","project_id":"...","target":"production"}}:::
+:::ACTION{"type":"vercel_agent","params":{"action":"get_logs","deployment_id":"..."}}:::
+:::ACTION{"type":"sentry_agent","params":{"action":"list_issues","query":"is:unresolved level:error","limit":10}}:::
+:::ACTION{"type":"sentry_agent","params":{"action":"get_issue","issue_id":"..."}}:::
+:::ACTION{"type":"sentry_agent","params":{"action":"resolve_issue","issue_id":"..."}}:::
+:::ACTION{"type":"sentry_agent","params":{"action":"create_linear_issue","issue_id":"...","linear_team_id":"..."}}:::
 TIME TRACKING:
 :::ACTION{"type":"log_time","params":{"description":"...","project":"...","started_at":"2026-06-05T09:00:00Z","ended_at":"2026-06-05T10:00:00Z","duration_seconds":3600,"tags":["focus","deep-work"]}}:::
 MEETING NOTES:

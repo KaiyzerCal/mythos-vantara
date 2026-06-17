@@ -1372,6 +1372,14 @@ function makeAgentHandler(fnName: string): TaskHandler {
   };
 }
 
+// weekly_reflection — MAVIS self-improvement loop
+const handleWeeklyReflection: TaskHandler = async (task) => {
+  const res  = await callFunction("mavis-reflection-agent", { userId: task.user_id, action: "run_reflection" });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) return { success: false, error: (data as any).error ?? `reflection-agent returned ${res.status}` };
+  return { success: true, output: { summary: (data as any).report?.slice(0, 500) } };
+};
+
 const HANDLERS: Record<string, TaskHandler> = {
   daily_brief: handleDailyBrief,
   check_idle_quests: handleCheckIdleQuests,
@@ -1391,12 +1399,26 @@ const HANDLERS: Record<string, TaskHandler> = {
   standing_order: handleStandingOrder,
   nora_content_machine: handleNoraContentMachine,
   client_welcome_sequence: handleClientWelcomeSequence,
-  google_agent:    handleGoogleAgent,
-  slack_agent:     makeAgentHandler("mavis-slack-agent"),
-  notion_agent:    makeAgentHandler("mavis-notion-agent"),
-  airtable_agent:  makeAgentHandler("mavis-airtable-agent"),
-  twilio_agent:    makeAgentHandler("mavis-twilio-agent"),
-  calendly_agent:  makeAgentHandler("mavis-calendly-agent"),
+  google_agent:        handleGoogleAgent,
+  slack_agent:         makeAgentHandler("mavis-slack-agent"),
+  notion_agent:        makeAgentHandler("mavis-notion-agent"),
+  airtable_agent:      makeAgentHandler("mavis-airtable-agent"),
+  twilio_agent:        makeAgentHandler("mavis-twilio-agent"),
+  calendly_agent:      makeAgentHandler("mavis-calendly-agent"),
+  weekly_reflection:   handleWeeklyReflection,
+  critic_agent:        makeAgentHandler("mavis-critic-agent"),
+  orchestrator:        makeAgentHandler("mavis-orchestrator"),
+  exa_agent:           makeAgentHandler("mavis-exa-agent"),
+  firecrawl_agent:     makeAgentHandler("mavis-firecrawl-agent"),
+  youtube_agent:       makeAgentHandler("mavis-youtube-agent"),
+  sec_agent:           makeAgentHandler("mavis-sec-agent"),
+  crm_agent:           makeAgentHandler("mavis-crm-agent"),
+  beehiiv_agent:       makeAgentHandler("mavis-beehiiv-agent"),
+  shopify_agent:       makeAgentHandler("mavis-shopify-agent"),
+  webhook_dispatch:    makeAgentHandler("mavis-webhook-dispatcher"),
+  linear_agent:        makeAgentHandler("mavis-linear-agent"),
+  vercel_agent:        makeAgentHandler("mavis-vercel-agent"),
+  sentry_agent:        makeAgentHandler("mavis-sentry-agent"),
 };
 
 // ─────────────────────────────────────────────────────────────
