@@ -1734,6 +1734,45 @@ const handleEmailWatch: TaskHandler = async (task) => {
   return { success: true, output: { processed: result.processed, drafts_created: result.drafts_created } };
 };
 
+// instagram_monitor — poll recent media for new comments → AI reply → post as @mention reply → Telegram summary
+const handleInstagramMonitor: TaskHandler = async (task) => {
+  const p = extractPayload(task.payload as Record<string, unknown>);
+  const res = await callFunction("mavis-instagram-agent", {
+    userId:             task.user_id,
+    action:             "monitor_comments",
+    business_name:      p.business_name ?? "our brand",
+    reply_signature:    p.reply_signature ?? "",
+    media_limit:        p.media_limit ?? 5,
+    comments_per_media: p.comments_per_media ?? 50,
+    auto_reply:         p.auto_reply ?? true,
+    skip_replies:       p.skip_replies ?? true,
+    state_key:          p.state_key ?? "ig_comment_watch_state",
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) return { success: false, error: (data as any).error ?? `instagram-agent returned ${res.status}` };
+
+  const result = data as any;
+  if (result.replied > 0 && BOT_TOKEN && OPERATOR_CHAT_ID) {
+    const lines = (result.results ?? [])
+      .filter((r: any) => r.reply_id)
+      .map((r: any) => `• @${r.commenter}: "${(r.comment_text ?? "").slice(0, 60)}…"`)
+      .slice(0, 5);
+    const msg = [
+      `📸 *Instagram Comment Monitor*`,
+      `${result.media_checked} post${result.media_checked !== 1 ? "s" : ""} checked · ${result.new_comments} new comment${result.new_comments !== 1 ? "s" : ""} · ${result.replied} repl${result.replied !== 1 ? "ies" : "y"} posted`,
+      ``,
+      lines.join("\n"),
+    ].filter(Boolean).join("\n");
+    await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+      method:  "POST",
+      headers: { "Content-Type": "application/json" },
+      body:    JSON.stringify({ chat_id: OPERATOR_CHAT_ID, text: msg, parse_mode: "Markdown" }),
+    }).catch(() => {});
+  }
+
+  return { success: true, output: { media_checked: result.media_checked, new_comments: result.new_comments, replied: result.replied } };
+};
+
 // email_smart_triage — classify emails via AI → lookup category-specific prompt from Sheets → generate HTML reply draft
 const handleEmailSmartTriage: TaskHandler = async (task) => {
   const p = extractPayload(task.payload as Record<string, unknown>);
@@ -1859,6 +1898,7 @@ const HANDLERS: Record<string, TaskHandler> = {
   email_watch:         handleEmailWatch,
   email_smart_triage:  handleEmailSmartTriage,
   review_monitor:      handleReviewMonitor,
+  instagram_monitor:   handleInstagramMonitor,
   discord_agent:       makeAgentHandler("mavis-discord-agent"),
   flashcard_agent:     makeAgentHandler("mavis-flashcard-agent"),
   reddit_agent:        makeAgentHandler("mavis-reddit-agent"),

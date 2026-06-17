@@ -2744,6 +2744,32 @@ async function executeAction(sb: any, userId: string, action: MavisAction, req: 
       return { queued: true, task_id: (task as any)?.id };
     }
 
+    case "instagram_agent": {
+      // Pass-through to mavis-instagram-agent for direct actions (list_media, get_comments, reply_to_comment, etc.)
+      const res = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-instagram-agent`, {
+        method:  "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
+        body:    JSON.stringify({ userId, ...p }),
+        signal:  AbortSignal.timeout(20000),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((data as any).error ?? `mavis-instagram-agent returned ${res.status}`);
+      return data;
+    }
+
+    case "instagram_monitor": {
+      // Queue Instagram comment monitor: check recent posts for new comments → AI reply → post.
+      const { data: task } = await adminClient.from("mavis_tasks").insert({
+        user_id:      userId,
+        type:         "instagram_monitor",
+        description:  "Instagram comment monitor: new comments → AI reply → post",
+        payload:      p,
+        status:       "pending",
+        scheduled_at: new Date().toISOString(),
+      }).select().single();
+      return { queued: true, task_id: (task as any)?.id };
+    }
+
     case "translate_speak": {
       // Translate text via Claude Haiku → synthesize speech via OpenAI TTS → send audio to Telegram.
       // Mirrors Make.com: Telegram text → Google Translate → Google TTS → sendAudio.

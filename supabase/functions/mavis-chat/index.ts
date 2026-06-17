@@ -1080,6 +1080,13 @@ GOOGLE MY BUSINESS (requires GMB OAuth connection with scope business.manage —
 :::ACTION{"type":"gmb_agent","params":{"action":"reply_to_review","review_name":"accounts/<a>/locations/<l>/reviews/<r>","comment":"Thank you for your kind words! We look forward to seeing you again."}}:::
 :::ACTION{"type":"review_monitor","params":{"account_id":"<accountId>","location_id":"<locationId>","business_name":"Calvin's Studio","reply_signature":"Calvin — MAVIS","auto_reply":true,"spreadsheet_id":"<sheetId>","sheet_name":"Reviews"}}:::
 Use review_monitor to run the full pipeline: checks for new GMB reviews since the last run, generates an AI reply per review (Haiku), logs each review + reply to Google Sheets, and posts the reply to GMB. Runs async via task queue, Telegrams a summary when done. Schedule as a recurring task for ambient monitoring. Set auto_reply:false to draft-only (log to Sheets but don't post). Requires ANTHROPIC_API_KEY.
+INSTAGRAM (requires Instagram Business connected in Integrations with instagram_basic + instagram_manage_comments permissions):
+:::ACTION{"type":"instagram_agent","params":{"action":"list_media","limit":10}}:::
+:::ACTION{"type":"instagram_agent","params":{"action":"get_media","media_id":"<media-id>"}}:::
+:::ACTION{"type":"instagram_agent","params":{"action":"get_comments","media_id":"<media-id>","limit":50}}:::
+:::ACTION{"type":"instagram_agent","params":{"action":"reply_to_comment","comment_id":"<comment-id>","message":"@username Thanks so much! 🙏"}}:::
+:::ACTION{"type":"instagram_monitor","params":{"business_name":"Calvin's Brand","reply_signature":"","media_limit":5,"comments_per_media":50,"auto_reply":true}}:::
+Use instagram_monitor to engage with comments automatically: scans recent media posts for new comments since the last run, generates a contextual AI reply per comment (Haiku, using the post caption as context), and posts each reply as @username {reply}. Runs async via task queue, Telegrams a summary when replies are posted. Schedule as a recurring task for ambient engagement. Set auto_reply:false to preview replies without posting. skip_replies:true (default) avoids replying to reply threads. Mirrors the Make.com "NewComment → GetMedia → AI completion → CreateComment" pipeline. Requires instagram_basic + instagram_manage_comments scopes and ANTHROPIC_API_KEY.
 NOTION (requires NOTION_API_KEY — create pages, query databases, search):
 :::ACTION{"type":"notion_agent","params":{"action":"create_page","database_id":"...","title":"...","content":"Full page body text here","properties":{}}}:::
 :::ACTION{"type":"notion_agent","params":{"action":"query_database","database_id":"...","filter":{"property":"Status","select":{"equals":"In Progress"}}}}:::
