@@ -3194,6 +3194,21 @@ async function executeAction(sb: any, userId: string, action: MavisAction, req: 
       return data;
     }
 
+    case "heygen_agent": {
+      // AI avatar video generation: text script + avatar_id + voice_id → MP4 video URL.
+      // Mirrors n8n: POST /v2/video/generate → poll /v1/video_status.get until completed.
+      // generate_video polls up to 120 s inline; use get_video_status for async follow-up.
+      const res = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-heygen-agent`, {
+        method:  "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
+        body:    JSON.stringify({ userId, ...p }),
+        signal:  AbortSignal.timeout(180000), // 3 min: generate_video polls up to 120 s + overhead
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((data as any).error ?? `mavis-heygen-agent returned ${res.status}`);
+      return data;
+    }
+
     case "calendar_agent": {
       // Google Calendar CRUD: get_event, get_all_events, check_availability, delete_event, update_event, create_event.
       // Mirrors n8n MCP_CALENDAR. calendar_id defaults to "primary"; pass group calendar IDs for shared calendars.
