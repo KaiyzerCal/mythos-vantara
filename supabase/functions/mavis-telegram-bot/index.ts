@@ -477,36 +477,76 @@ async function handleChat(
 ) {
   await typing(chatId);
 
-  // Load minimal operator context
-  const { data: profile } = await sb
-    .from("profiles")
-    .select("display_name, level, rank, xp")
-    .eq("id", OPERATOR_UID)
-    .single()
-    .catch(() => ({ data: null }));
+  // Route through mavis-chat for the full agentic loop (action dispatch,
+  // standing orders, all app context). History is passed so it has full
+  // conversation continuity. sessionId is passed so mavis-chat's own
+  // memory persistence uses the same conversation record.
+  try {
+    const messages: ChatMessage[] = [
+      ...history,
+      { role: "user", content: text },
+    ];
 
-  const p = profile as any;
-  const ctx = p
-    ? `Operator: ${p.display_name} | Level ${p.level} | Rank ${p.rank} | ${p.xp} XP`
-    : "";
+    const res = await fetch(`${SUPABASE_URL}/functions/v1/mavis-chat`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${SERVICE_KEY}`,
+        "X-Mavis-User-Id": OPERATOR_UID,
+      },
+      body: JSON.stringify({
+        messages,
+        mode: "PRIME",
+        conversationId: sessionId ?? undefined,
+        stream: false,
+      }),
+      signal: AbortSignal.timeout(55000),
+    });
 
-  const system = `You are MAVIS — Calvin's personal AI operating system. Sharp, direct, strategic. Responding via Telegram mobile.
-Keep responses concise (≤3 paragraphs). No markdown headers. Bullet points ok.${ctx ? `\n\n${ctx}` : ""}`;
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({})) as Record<string, unknown>;
+      await send(chatId, `⚠️ MAVIS error: ${String((err as any).error ?? res.status)}`);
+      return;
+    }
 
-  // Build messages: history + current user turn
-  const messages: ChatMessage[] = [
-    ...history,
-    { role: "user", content: text },
-  ];
+    const data = await res.json() as Record<string, unknown>;
+    const content = String(data.content ?? "").trim();
 
-  const reply = await callClaude(system, messages, 700);
-  const finalReply = reply || "⚠️ No response — check ANTHROPIC_API_KEY.";
+    // Strip :::ACTION{...}::: tags — mavis-chat already dispatched them
+    const visible = content.replace(/:::ACTION\{[\s\S]*?\}:::/g, "").trim();
 
-  await send(chatId, finalReply);
+    if (!visible) {
+      await send(chatId, "⚠️ No response from MAVIS.");
+      return;
+    }
 
-  // Persist exchange to DB
-  if (sessionId) {
-    await saveExchange(sessionId, text, finalReply);
+    await send(chatId, visible);
+
+    // Save to Telegram session history (mavis-chat also saves to mavis_memory,
+    // but we persist to chat_messages for the Telegram session window)
+    if (sessionId) {
+      await saveExchange(sessionId, text, visible);
+    }
+
+    // If mavis-chat generated an image, send it
+    const imageUrl = String(data.imageUrl ?? "");
+    if (imageUrl.startsWith("http")) {
+      await sendPhoto(chatId, imageUrl);
+    }
+  } catch (err) {
+    // Fall back to direct Claude if mavis-chat is unreachable
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.includes("timeout") || msg.includes("network")) {
+      const reply = await callClaude(
+        "You are MAVIS — Calvin's personal AI operating system. Sharp, direct, strategic. Via Telegram.",
+        [...history, { role: "user", content: text }],
+        600,
+      );
+      await send(chatId, reply || "⚠️ MAVIS is unreachable right now.");
+      if (reply && sessionId) await saveExchange(sessionId, text, reply);
+    } else {
+      await send(chatId, `⚠️ Error: ${msg.slice(0, 200)}`);
+    }
   }
 }
 

@@ -1350,14 +1350,36 @@ serve(async (req) => {
     const anonKey    = Deno.env.get("SUPABASE_PUBLISHABLE_KEY") ?? Deno.env.get("SUPABASE_ANON_KEY") ?? "";
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
-    // Verify identity
-    const userClient = createClient(supabaseUrl, anonKey, {
-      global: { headers: { Authorization: authHeader } },
-      auth: { persistSession: false },
-    });
-    const { data: { user }, error: authError } = await userClient.auth.getUser();
-    if (authError || !user) {
-      return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers: corsHeaders });
+    // ── Internal service-call bypass ────────────────────────
+    // Other MAVIS edge functions (Telegram bot, task executor, etc.) may call
+    // mavis-chat using the service role key + X-Mavis-User-Id header to avoid
+    // needing a user JWT. BOUND_OPERATORS gate still applies — any unrecognised
+    // user ID is rejected exactly as it would be through the normal JWT path.
+    const internalUserId = authHeader === `Bearer ${serviceKey}`
+      ? (req.headers.get("X-Mavis-User-Id") ?? "").trim()
+      : "";
+
+    let user: { id: string };
+
+    if (internalUserId) {
+      if (!DEV_MODE && !BOUND_OPERATORS[internalUserId]) {
+        return new Response(
+          JSON.stringify({ error: "MAVIS Prime is not available to this user." }),
+          { status: 403, headers: corsHeaders }
+        );
+      }
+      user = { id: internalUserId };
+    } else {
+      // Normal JWT auth
+      const userClient = createClient(supabaseUrl, anonKey, {
+        global: { headers: { Authorization: authHeader } },
+        auth: { persistSession: false },
+      });
+      const { data: { user: jwtUser }, error: authError } = await userClient.auth.getUser();
+      if (authError || !jwtUser) {
+        return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers: corsHeaders });
+      }
+      user = jwtUser as { id: string };
     }
 
     // ── IDENTITY LOCK ───────────────────────────────────────
