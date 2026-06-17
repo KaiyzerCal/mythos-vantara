@@ -2770,6 +2770,64 @@ async function executeAction(sb: any, userId: string, action: MavisAction, req: 
       return { queued: true, task_id: (task as any)?.id };
     }
 
+    case "hashtag_tweet": {
+      // Pick a random hashtag → AI-generated tweet → log to Airtable → optionally post to Twitter.
+      // Mirrors n8n: FunctionItem (random hashtag) → AI completion → Set → Airtable append.
+      const SB_URL_LOCAL = Deno.env.get("SUPABASE_URL")!;
+      const SB_SRK_LOCAL = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+
+      // 1. Generate tweet via twitter-agent
+      const genRes = await fetch(`${SB_URL_LOCAL}/functions/v1/mavis-twitter-agent`, {
+        method:  "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${SB_SRK_LOCAL}` },
+        body:    JSON.stringify({ action: "generate_tweet", hashtags: p.hashtags ?? ["#ai"], topic: p.topic ?? "", max_chars: p.max_chars ?? 280 }),
+        signal:  AbortSignal.timeout(25000),
+      });
+      const genData = await genRes.json().catch(() => ({})) as any;
+      if (!genRes.ok) throw new Error(genData.error ?? `twitter-agent generate_tweet returned ${genRes.status}`);
+
+      const { hashtag, tweet } = genData;
+
+      // 2. Log to Airtable if base_id provided
+      let airtableRecordId: string | null = null;
+      if (p.airtable_base_id) {
+        const atRes = await fetch(`${SB_URL_LOCAL}/functions/v1/mavis-airtable-agent`, {
+          method:  "POST",
+          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${SB_SRK_LOCAL}` },
+          body:    JSON.stringify({
+            userId:  userId,
+            action:  "create_record",
+            base_id: p.airtable_base_id,
+            table:   p.airtable_table ?? "Tweets",
+            fields: {
+              Hashtag:    hashtag,
+              Content:    tweet,
+              Generated:  new Date().toISOString().split("T")[0],
+              Status:     p.auto_post ? "Posted" : "Draft",
+            },
+          }),
+          signal: AbortSignal.timeout(10000),
+        });
+        const atData = await atRes.json().catch(() => ({})) as any;
+        airtableRecordId = atData.id ?? atData.record?.id ?? null;
+      }
+
+      // 3. Optionally post to Twitter
+      let tweetId: string | null = null;
+      if (p.auto_post) {
+        const postRes = await fetch(`${SB_URL_LOCAL}/functions/v1/mavis-twitter-agent`, {
+          method:  "POST",
+          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${SB_SRK_LOCAL}` },
+          body:    JSON.stringify({ action: "post_tweet", text: tweet }),
+          signal:  AbortSignal.timeout(15000),
+        });
+        const postData = await postRes.json().catch(() => ({})) as any;
+        tweetId = postData.tweet_id ?? null;
+      }
+
+      return { hashtag, tweet, tweet_length: tweet.length, airtable_record_id: airtableRecordId, tweet_id: tweetId, posted: !!tweetId };
+    }
+
     case "schedule_from_text": {
       // Parse natural language text → structured Google Calendar event.
       // Mirrors Make.com: CustomWebhook → AI parse → createAnEvent.

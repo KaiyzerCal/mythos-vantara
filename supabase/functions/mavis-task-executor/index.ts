@@ -1734,6 +1734,66 @@ const handleEmailWatch: TaskHandler = async (task) => {
   return { success: true, output: { processed: result.processed, drafts_created: result.drafts_created } };
 };
 
+// hashtag_tweet — pick random hashtag → AI-generated tweet → log to Airtable → optionally post → Telegram notification
+const handleHashtagTweet: TaskHandler = async (task) => {
+  const p = extractPayload(task.payload as Record<string, unknown>);
+  const res = await callFunction("mavis-twitter-agent", {
+    action:    "generate_tweet",
+    hashtags:  p.hashtags ?? ["#ai"],
+    topic:     p.topic ?? "",
+    max_chars: p.max_chars ?? 280,
+  });
+  const genData = await res.json().catch(() => ({})) as any;
+  if (!res.ok) return { success: false, error: genData.error ?? `twitter-agent returned ${res.status}` };
+
+  const { hashtag, tweet } = genData;
+
+  // Log to Airtable
+  let airtableRecordId: string | null = null;
+  if (p.airtable_base_id) {
+    const atRes = await callFunction("mavis-airtable-agent", {
+      userId:  task.user_id,
+      action:  "create_record",
+      base_id: p.airtable_base_id,
+      table:   p.airtable_table ?? "Tweets",
+      fields: {
+        Hashtag:   hashtag,
+        Content:   tweet,
+        Generated: new Date().toISOString().split("T")[0],
+        Status:    p.auto_post ? "Posted" : "Draft",
+      },
+    });
+    const atData = await atRes.json().catch(() => ({})) as any;
+    airtableRecordId = atData.id ?? atData.record?.id ?? null;
+  }
+
+  // Optionally post to Twitter
+  let tweetId: string | null = null;
+  if (p.auto_post) {
+    const postRes = await callFunction("mavis-twitter-agent", { action: "post_tweet", text: tweet });
+    const postData = await postRes.json().catch(() => ({})) as any;
+    tweetId = postData.tweet_id ?? null;
+  }
+
+  if (BOT_TOKEN && OPERATOR_CHAT_ID) {
+    const status = tweetId ? "✅ Posted" : "📝 Draft saved";
+    const msg = [
+      `🐦 *Hashtag Tweet*`,
+      `${status} · ${hashtag}`,
+      ``,
+      `"${tweet}"`,
+      airtableRecordId ? `📊 Logged to Airtable (${airtableRecordId})` : "",
+    ].filter(Boolean).join("\n");
+    await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+      method:  "POST",
+      headers: { "Content-Type": "application/json" },
+      body:    JSON.stringify({ chat_id: OPERATOR_CHAT_ID, text: msg, parse_mode: "Markdown" }),
+    }).catch(() => {});
+  }
+
+  return { success: true, output: { hashtag, tweet, tweet_id: tweetId, airtable_record_id: airtableRecordId } };
+};
+
 // instagram_monitor — poll recent media for new comments → AI reply → post as @mention reply → Telegram summary
 const handleInstagramMonitor: TaskHandler = async (task) => {
   const p = extractPayload(task.payload as Record<string, unknown>);
@@ -1899,6 +1959,7 @@ const HANDLERS: Record<string, TaskHandler> = {
   email_smart_triage:  handleEmailSmartTriage,
   review_monitor:      handleReviewMonitor,
   instagram_monitor:   handleInstagramMonitor,
+  hashtag_tweet:       handleHashtagTweet,
   discord_agent:       makeAgentHandler("mavis-discord-agent"),
   flashcard_agent:     makeAgentHandler("mavis-flashcard-agent"),
   reddit_agent:        makeAgentHandler("mavis-reddit-agent"),

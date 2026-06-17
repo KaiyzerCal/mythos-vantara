@@ -1235,6 +1235,9 @@ After approval: executor re-dispatches the action through MAVIS's full action pi
 RULE: Any time a persona or council member says "we should…", "I suggest…", "propose…", "recommend…", or implies the operator should do or build something — emit the appropriate proposal action. Never execute it silently. The operator decides.
 NORA — post as Nora Vale on Twitter/X:
 :::ACTION{"type":"nora_tweet","params":{"content":"Tweet text here — max 280 chars. No hashtag spam."}}:::
+:::ACTION{"type":"twitter_agent","params":{"action":"generate_tweet","hashtags":["#ai","#automation","#buildinpublic"],"topic":"AI automation and productivity","max_chars":280}}:::
+:::ACTION{"type":"hashtag_tweet","params":{"hashtags":["#techtwitter","#ai","#n8n"],"topic":"AI automation tools","airtable_base_id":"appXXX","airtable_table":"Tweets","auto_post":false}}:::
+Use hashtag_tweet when the operator wants to: (1) randomly pick a hashtag from a pool, (2) generate a tweet with Claude Haiku focused on that hashtag's topic, (3) log the result to Airtable (Hashtag + Content + Generated date + Status columns), and (4) optionally auto-post to Twitter. Set auto_post:false to review drafts in Airtable before posting. Mirrors the n8n flow: FunctionItem (random hashtag) → AI completion → Set → Airtable append. Schedule as a recurring task for daily/weekly content generation. Use twitter_agent generate_tweet for one-off tweet generation without Airtable logging.
 NOTIFICATIONS:
 :::ACTION{"type":"send_notification","params":{"title":"...","body":"...","type":"info|warning|success|alert","category":"general|health|goal|mission","priority":"low|normal|high"}}:::
 COUNCIL ALERT (Telegram direct — sends immediately to operator's Telegram, attributed to a council member):

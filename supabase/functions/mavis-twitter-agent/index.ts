@@ -7,7 +7,7 @@
 //
 // Actions: post_tweet | reply_tweet | delete_tweet | get_tweet
 //          get_timeline | search_tweets | like_tweet | retweet
-//          get_me | upload_media
+//          get_me | upload_media | generate_tweet
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 
@@ -17,6 +17,8 @@ const corsHeaders = {
 };
 
 const SB_SRK        = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+const SB_URL        = Deno.env.get("SUPABASE_URL")!;
+const ANTHROPIC_KEY = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
 const API_KEY       = Deno.env.get("TWITTER_API_KEY") ?? "";
 const API_SECRET    = Deno.env.get("TWITTER_API_SECRET") ?? "";
 const ACCESS_TOKEN  = Deno.env.get("TWITTER_ACCESS_TOKEN") ?? "";
@@ -310,9 +312,47 @@ serve(async (req) => {
         });
       }
 
+      case "generate_tweet": {
+        // Pick a random hashtag from the provided list, generate a tweet via Claude Haiku.
+        // Mirrors n8n: FunctionItem (random hashtag) → HTTP Request (AI completion).
+        if (!ANTHROPIC_KEY) return json({ error: "ANTHROPIC_API_KEY not configured" }, 503);
+
+        const hashtagList: string[] = Array.isArray(body.hashtags)
+          ? body.hashtags.map(String)
+          : [String(body.hashtag ?? body.tag ?? "#ai")];
+
+        if (hashtagList.length === 0) return json({ error: "hashtags array required" }, 400);
+
+        const hashtag  = hashtagList[Math.floor(Math.random() * hashtagList.length)];
+        const topic    = body.topic ? String(body.topic) : hashtag.replace(/^#/, "");
+        const maxChars = Math.min(Number(body.max_chars ?? 280), 280);
+
+        const system =
+          `You are a professional social media copywriter. Generate a tweet that:\n` +
+          `- Is under ${maxChars} characters (hard limit — count carefully)\n` +
+          `- Includes the hashtag ${hashtag}\n` +
+          `- Focuses on the topic: ${topic}\n` +
+          `- Sounds authentic, engaging, and valuable — not corporate\n` +
+          `- May include 1-2 relevant emojis\n` +
+          `- Does NOT add extra hashtags beyond ${hashtag}\n` +
+          `Return ONLY the tweet text. No quotes, no explanation.`;
+
+        const res = await fetch("https://api.anthropic.com/v1/messages", {
+          method:  "POST",
+          headers: { "Content-Type": "application/json", "x-api-key": ANTHROPIC_KEY, "anthropic-version": "2023-06-01" },
+          body:    JSON.stringify({ model: "claude-haiku-4-5-20251001", max_tokens: 256, system, messages: [{ role: "user", content: `Generate the tweet now.` }] }),
+          signal:  AbortSignal.timeout(20000),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(`Claude error: ${JSON.stringify(data?.error).slice(0, 200)}`);
+        const tweet = validateTweet((data.content?.[0]?.text ?? "").trim());
+
+        return json({ hashtag, tweet, tweet_length: tweet.length, hashtags_pool: hashtagList });
+      }
+
       default:
         return json({
-          error: `Unknown action: ${action}. Use: post_tweet | reply_tweet | delete_tweet | like_tweet | retweet | get_me | get_tweet | get_timeline | search_tweets`,
+          error: `Unknown action: ${action}. Use: post_tweet | reply_tweet | delete_tweet | like_tweet | retweet | get_me | get_tweet | get_timeline | search_tweets | generate_tweet`,
         }, 400);
     }
   } catch (err: unknown) {
