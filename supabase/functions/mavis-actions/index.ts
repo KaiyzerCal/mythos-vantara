@@ -3194,6 +3194,21 @@ async function executeAction(sb: any, userId: string, action: MavisAction, req: 
       return data;
     }
 
+    case "memory_agent": {
+      // Long-term memory toolkit: save_memory | retrieve_memories | send_to_telegram | send_to_email.
+      // Mirrors n8n "Long Term Memory Tools Router": route-switched Google Docs + LLM formatting + delivery.
+      // MAVIS uses mavis_memory (Supabase) instead of Google Docs for persistence.
+      const res = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-memory-agent`, {
+        method:  "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
+        body:    JSON.stringify({ userId, ...p }),
+        signal:  AbortSignal.timeout(60000),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((data as any).error ?? `mavis-memory-agent returned ${res.status}`);
+      return data;
+    }
+
     case "heygen_agent": {
       // AI avatar video generation: text script + avatar_id + voice_id → MP4 video URL.
       // Mirrors n8n: POST /v2/video/generate → poll /v1/video_status.get until completed.
