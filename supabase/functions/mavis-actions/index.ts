@@ -2677,6 +2677,30 @@ async function executeAction(sb: any, userId: string, action: MavisAction, req: 
       return data;
     }
 
+    case "twitter_agent": {
+      const res = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-twitter-agent`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
+        body: JSON.stringify({ userId, ...p }),
+        signal: AbortSignal.timeout(15000),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((data as any).error ?? `mavis-twitter-agent returned ${res.status}`);
+      return data;
+    }
+
+    case "social_content_pipeline": {
+      const { data: task } = await adminClient.from("mavis_tasks").insert({
+        user_id:      userId,
+        type:         "social_content_pipeline",
+        description:  `Social content pipeline from ${p.spreadsheet_id}`,
+        payload:      p,
+        status:       "pending",
+        scheduled_at: new Date().toISOString(),
+      }).select().single();
+      return { queued: true, task_id: (task as any)?.id };
+    }
+
     case "youtube_summary": {
       // Queue async — summarizes video, delivers via Telegram, stores transcript in memory
       const { data: task } = await adminClient.from("mavis_tasks").insert({

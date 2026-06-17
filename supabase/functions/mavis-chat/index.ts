@@ -1031,6 +1031,17 @@ SLACK (requires SLACK_BOT_TOKEN — send messages, read channels, upload files):
 :::ACTION{"type":"slack_agent","params":{"action":"read_channel","channel":"C012AB3CD","limit":10}}:::
 :::ACTION{"type":"slack_agent","params":{"action":"list_channels"}}:::
 :::ACTION{"type":"slack_agent","params":{"action":"upload_text","channel":"#reports","content":"...","filename":"report.txt","title":"Weekly Report"}}:::
+TWITTER / X (requires TWITTER_API_KEY, TWITTER_API_SECRET, TWITTER_ACCESS_TOKEN, TWITTER_ACCESS_SECRET):
+:::ACTION{"type":"twitter_agent","params":{"action":"post_tweet","text":"..."}}:::
+:::ACTION{"type":"twitter_agent","params":{"action":"reply_tweet","text":"...","reply_to_id":"..."}}:::
+:::ACTION{"type":"twitter_agent","params":{"action":"search_tweets","query":"AI agents","limit":10}}:::
+:::ACTION{"type":"twitter_agent","params":{"action":"get_timeline","limit":10}}:::
+:::ACTION{"type":"twitter_agent","params":{"action":"get_me"}}:::
+:::ACTION{"type":"twitter_agent","params":{"action":"like_tweet","tweet_id":"..."}}:::
+Max 280 characters per tweet. Never post tweets without explicit operator approval unless a standing order authorizes it.
+SOCIAL CONTENT PIPELINE — read ideas from Google Sheets, generate platform posts, publish, update sheet:
+:::ACTION{"type":"social_content_pipeline","params":{"spreadsheet_id":"...","sheet_name":"Sheet1","idea_column":"Idea","platform_column":"Platform","status_column":"Status","limit":10,"channel_map":{"Discord":"channel_id_here","Slack":"#content"}}}:::
+Supported platforms in the pipeline: twitter, x, discord, slack, beehiiv/newsletter. Runs async, sends Telegram summary. Sheet must have Platform, Idea, and Status columns. Posted rows get Status="Posted", Generated_Post, and Posted_At columns filled.
 DISCORD (requires DISCORD_BOT_TOKEN — manage servers, channels, messages):
 :::ACTION{"type":"discord_agent","params":{"action":"list_guilds"}}:::
 :::ACTION{"type":"discord_agent","params":{"action":"list_channels","guild_id":"..."}}:::

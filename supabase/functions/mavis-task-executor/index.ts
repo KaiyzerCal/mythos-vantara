@@ -1380,6 +1380,165 @@ const handleWeeklyReflection: TaskHandler = async (task) => {
   return { success: true, output: { summary: (data as any).report?.slice(0, 500) } };
 };
 
+// social_content_pipeline — read ideas from Google Sheets, generate posts,
+// route to the right platform, update sheet with status
+const handleSocialContentPipeline: TaskHandler = async (task) => {
+  const p             = extractPayload(task.payload as Record<string, unknown>);
+  const spreadsheetId = String(p.spreadsheet_id ?? "");
+  const sheetName     = String(p.sheet_name ?? "Sheet1");
+  const ideaCol       = String(p.idea_column ?? "Idea");
+  const platformCol   = String(p.platform_column ?? "Platform");
+  const statusCol     = String(p.status_column ?? "Status");
+  const limitN        = Math.min(Number(p.limit ?? 10), 25);
+  const channelMap    = (p.channel_map ?? {}) as Record<string, string>; // { "Discord": "123456789" }
+
+  if (!spreadsheetId) return { success: false, error: "spreadsheet_id required" };
+
+  // Step 1: Read all rows from the sheet
+  const sheetsRes = await callFunction("mavis-sheets-agent", {
+    userId:         task.user_id,
+    action:         "search_rows",
+    spreadsheet_id: spreadsheetId,
+    sheet_name:     sheetName,
+    column:         statusCol,
+    value:          "",            // empty status = not yet posted
+    limit:          limitN,
+  });
+  const sheetsData = await sheetsRes.json().catch(() => ({}));
+
+  let rows: any[] = (sheetsData as any).rows ?? [];
+  // Also include rows that literally don't have a Status column filled
+  if (!rows.length) {
+    // Fall back: get all rows, filter client-side
+    const allRes = await callFunction("mavis-sheets-agent", {
+      userId:         task.user_id,
+      action:         "get_range",
+      spreadsheet_id: spreadsheetId,
+      range:          `${sheetName}!A1:Z`,
+    });
+    const allData = await allRes.json().catch(() => ({}));
+    const values: string[][] = (allData as any).values ?? [];
+    if (values.length > 1) {
+      const headers = values[0];
+      const statusIdx  = headers.findIndex((h: string) => h.toLowerCase() === statusCol.toLowerCase());
+      const platformIdx = headers.findIndex((h: string) => h.toLowerCase() === platformCol.toLowerCase());
+      const ideaIdx    = headers.findIndex((h: string) => h.toLowerCase() === ideaCol.toLowerCase());
+      rows = values.slice(1)
+        .map((row, i) => {
+          const obj: Record<string, string> = { _row_number: String(i + 2) };
+          headers.forEach((h: string, hi: number) => { if (h) obj[h] = row[hi] ?? ""; });
+          return obj;
+        })
+        .filter(row => !row[statusCol] || row[statusCol].trim() === "")
+        .filter(row => row[platformCol] && row[ideaCol])
+        .slice(0, limitN);
+    }
+  }
+
+  if (!rows.length) return { success: true, output: { message: "No unposted rows found", processed: 0 } };
+
+  // Platform → agent routing
+  const PLATFORM_ROUTES: Record<string, { fn: string; actionKey: string; textKey: string; extraParams?: (row: any) => Record<string, unknown> }> = {
+    twitter:   { fn: "mavis-twitter-agent",  actionKey: "post_tweet",    textKey: "text" },
+    x:         { fn: "mavis-twitter-agent",  actionKey: "post_tweet",    textKey: "text" },
+    discord:   { fn: "mavis-discord-agent",  actionKey: "send_message",  textKey: "content",
+                 extraParams: (row) => ({ channel_id: channelMap[row[platformCol]] ?? channelMap.discord ?? "" }) },
+    slack:     { fn: "mavis-slack-agent",    actionKey: "send_message",  textKey: "text",
+                 extraParams: (row) => ({ channel: channelMap[row[platformCol]] ?? channelMap.slack ?? "#general" }) },
+    beehiiv:   { fn: "mavis-beehiiv-agent",  actionKey: "create_post",   textKey: "content",
+                 extraParams: (row) => ({ title: row[ideaCol]?.slice(0, 80) }) },
+    newsletter:{ fn: "mavis-beehiiv-agent",  actionKey: "create_post",   textKey: "content",
+                 extraParams: (row) => ({ title: row[ideaCol]?.slice(0, 80) }) },
+    telegram:  { fn: "mavis-telegram-agent", actionKey: "send_message",  textKey: "text" },
+  };
+
+  const results: any[] = [];
+  let posted = 0;
+
+  for (const row of rows) {
+    const platform = String(row[platformCol] ?? "").toLowerCase().trim();
+    const idea     = String(row[ideaCol] ?? "").trim();
+    const rowNum   = Number(row._row_number ?? 2);
+
+    if (!platform || !idea) continue;
+
+    // Step 2: Generate platform-specific post with Claude
+    let generatedText = "";
+    const claudeRes = await callFunction("mavis-chat", {
+      userId:   task.user_id,
+      messages: [{
+        role:    "user",
+        content: `Write a ${platform} post based on this idea: "${idea}". Platform: ${platform}. Keep it engaging and concise. Return ONLY the post text, nothing else.${platform === "twitter" || platform === "x" ? " Max 280 characters." : ""}`,
+      }],
+    }).catch(() => null);
+
+    if (claudeRes) {
+      const chatData = await claudeRes.json().catch(() => ({}));
+      generatedText = (chatData as any).reply ?? (chatData as any).message ?? (chatData as any).text ?? "";
+    }
+
+    if (!generatedText) {
+      // Fallback: use idea directly
+      generatedText = idea;
+    }
+
+    // Step 3: Route to platform
+    const route = PLATFORM_ROUTES[platform];
+    let postResult: any = null;
+    let postError: string | null = null;
+
+    if (route) {
+      const extraP = route.extraParams ? route.extraParams(row) : {};
+      const postRes = await callFunction(route.fn, {
+        userId: task.user_id,
+        action: route.actionKey,
+        [route.textKey]: generatedText,
+        ...extraP,
+      });
+      const postData = await postRes.json().catch(() => ({}));
+      if (!postRes.ok) {
+        postError = (postData as any).error ?? `${route.fn} returned ${postRes.status}`;
+      } else {
+        postResult = postData;
+        posted++;
+      }
+    } else {
+      postError = `Unknown platform: ${platform}. Add to channel_map or extend PLATFORM_ROUTES.`;
+    }
+
+    // Step 4: Update sheet row with status
+    const status    = postError ? `Error: ${postError.slice(0, 50)}` : "Posted";
+    const timestamp = new Date().toISOString();
+
+    await callFunction("mavis-sheets-agent", {
+      userId:         task.user_id,
+      action:         "update_row",
+      spreadsheet_id: spreadsheetId,
+      sheet_name:     sheetName,
+      row_number:     rowNum,
+      values:         { ...row, [statusCol]: status, Generated_Post: generatedText, Posted_At: timestamp },
+    }).catch(() => {});
+
+    results.push({ row: rowNum, platform, idea: idea.slice(0, 60), status, post_id: postResult?.tweet_id ?? postResult?.id ?? null, error: postError });
+  }
+
+  // Telegram summary
+  if (BOT_TOKEN && OPERATOR_CHAT_ID) {
+    const lines = results.map(r => `• ${r.platform} (row ${r.row}): ${r.status}`).join("\n");
+    await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        chat_id:    OPERATOR_CHAT_ID,
+        text:       `📣 *Social Content Pipeline*\n${posted}/${results.length} posted\n\n${lines}`,
+        parse_mode: "Markdown",
+      }),
+    }).catch(() => {});
+  }
+
+  return { success: true, output: { processed: results.length, posted, results } };
+};
+
 // youtube_summary — summarize a YouTube video and deliver via Telegram
 const handleYoutubeSummary: TaskHandler = async (task) => {
   const p = extractPayload(task.payload as Record<string, unknown>);
@@ -1544,6 +1703,7 @@ const HANDLERS: Record<string, TaskHandler> = {
   sentry_agent:        makeAgentHandler("mavis-sentry-agent"),
   sheets_agent:        makeAgentHandler("mavis-sheets-agent"),
   vision_agent:        makeAgentHandler("mavis-vision-agent"),
+  social_content_pipeline: handleSocialContentPipeline,
   youtube_summary:     handleYoutubeSummary,
   content_digest:      handleContentDigest,
   email_triage:        handleEmailTriage,
