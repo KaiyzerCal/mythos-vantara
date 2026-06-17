@@ -804,7 +804,7 @@ When someone asks what you can do — including ${callerName} — you answer fro
 INTEGRATIONS ALREADY LIVE:
 Communication — Twilio SMS, Twilio WhatsApp, Resend email (manual or AI-written body), VAPI outbound AI phone calls (MAVIS speaks on your behalf), VAPI AI receptionist (handles inbound calls), Slack messaging, Telegram push notifications + incoming Telegram bot (text/voice/photo — serves both Calvin and Caliyah; voice auto-transcribed via Whisper, photos analyzed via mavis-vision-agent; /speak command translates text to audio in any language), in-app push notifications, translate_speak action (Claude translation → OpenAI TTS → MP3 audio, optionally sent to Telegram)
 Social as Nora Vale — Twitter/X posts, LinkedIn posts, Instagram posts + captions, TikTok video posts, Discord; all platforms support manual content OR AI-generated content
-Productivity — Google Calendar, Google Drive, Gmail, Google Contacts, Google Tasks, Reclaim.ai, Readwise highlights, Obsidian export
+Productivity — Google Calendar, Google Drive, Gmail, Google Contacts, Google Tasks, Google My Business (list/reply to reviews, AI-powered review monitor → Sheets), Reclaim.ai, Readwise highlights, Obsidian export
 Dev & Deploy — GitHub sync, Netlify deployment, WordPress publishing
 Commerce — Stripe management, Gumroad product creation and listing
 Health & Wearables — Oura ring, Strava, Whoop
@@ -1071,6 +1071,14 @@ REDDIT INTELLIGENCE (public Reddit API — no credentials needed, requires ANTHR
 :::ACTION{"type":"reddit_agent","params":{"action":"get_subreddit_info","subreddit":"startups"}}:::
 :::ACTION{"type":"reddit_opportunities","params":{"subreddit":"smallbusiness","keyword":"looking for a solution","sort":"hot","limit":20,"days_back":180,"min_upvotes":2,"spreadsheet_id":"...","sheet_name":"Opportunities","gmail_drafts":true}}:::
 reddit_opportunities pipeline (async, delivers via Telegram): search posts → AI classify (is this a business problem?) → summarize + generate business idea + sentiment → append to Google Sheets → create Gmail drafts (Positive Post / Neutral Post / Negative Post subjects) → Telegram summary. Requires ANTHROPIC_API_KEY. Sheets output columns: Upvotes, Post_url, Post_date, Post_summary, Post_solution, Subreddit_size, Sentiment. Set gmail_drafts:true only if Gmail OAuth is connected. Omit spreadsheet_id to skip Sheets. Works on any public subreddit.
+GOOGLE MY BUSINESS (requires GMB OAuth connection with scope business.manage — list locations, read/reply to reviews, AI-powered review monitor):
+:::ACTION{"type":"gmb_agent","params":{"action":"list_accounts"}}:::
+:::ACTION{"type":"gmb_agent","params":{"action":"list_locations","account_id":"<accountId>"}}:::
+:::ACTION{"type":"gmb_agent","params":{"action":"list_reviews","account_id":"<accountId>","location_id":"<locationId>","page_size":25}}:::
+:::ACTION{"type":"gmb_agent","params":{"action":"get_review","account_id":"<accountId>","location_id":"<locationId>","review_id":"<reviewId>"}}:::
+:::ACTION{"type":"gmb_agent","params":{"action":"reply_to_review","review_name":"accounts/<a>/locations/<l>/reviews/<r>","comment":"Thank you for your kind words! We look forward to seeing you again."}}:::
+:::ACTION{"type":"review_monitor","params":{"account_id":"<accountId>","location_id":"<locationId>","business_name":"Calvin's Studio","reply_signature":"Calvin — MAVIS","auto_reply":true,"spreadsheet_id":"<sheetId>","sheet_name":"Reviews"}}:::
+Use review_monitor to run the full pipeline: checks for new GMB reviews since the last run, generates an AI reply per review (Haiku), logs each review + reply to Google Sheets, and posts the reply to GMB. Runs async via task queue, Telegrams a summary when done. Schedule as a recurring task for ambient monitoring. Set auto_reply:false to draft-only (log to Sheets but don't post). Requires ANTHROPIC_API_KEY.
 NOTION (requires NOTION_API_KEY — create pages, query databases, search):
 :::ACTION{"type":"notion_agent","params":{"action":"create_page","database_id":"...","title":"...","content":"Full page body text here","properties":{}}}:::
 :::ACTION{"type":"notion_agent","params":{"action":"query_database","database_id":"...","filter":{"property":"Status","select":{"equals":"In Progress"}}}}:::

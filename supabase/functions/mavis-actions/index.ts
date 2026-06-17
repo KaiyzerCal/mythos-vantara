@@ -2418,6 +2418,32 @@ async function executeAction(sb: any, userId: string, action: MavisAction, req: 
       return data;
     }
 
+    // ── GOOGLE MY BUSINESS AGENT ──────────────────────────
+    case "gmb_agent": {
+      const res = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-gmb-agent`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
+        body: JSON.stringify({ userId, ...p }),
+        signal: AbortSignal.timeout(30000),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((data as any).error ?? `mavis-gmb-agent returned ${res.status}`);
+      return data;
+    }
+
+    case "review_monitor": {
+      // Queue a GMB review monitor run: fetch new reviews → AI reply → Sheets log → post reply.
+      const { data: task } = await adminClient.from("mavis_tasks").insert({
+        user_id:      userId,
+        type:         "review_monitor",
+        description:  "GMB review monitor: new reviews → AI reply → Sheets → post",
+        payload:      p,
+        status:       "pending",
+        scheduled_at: new Date().toISOString(),
+      }).select().single();
+      return { queued: true, task_id: (task as any)?.id };
+    }
+
     // ── AIRTABLE AGENT ────────────────────────────────────
     case "airtable_agent": {
       const res = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-airtable-agent`, {

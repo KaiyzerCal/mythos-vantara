@@ -1662,6 +1662,39 @@ const handleEmailTriage: TaskHandler = async (task) => {
   return { success: true, output: { triaged: result.triaged, drafts_created: result.drafts_created } };
 };
 
+// review_monitor — poll GMB for new reviews → AI reply → log to Sheets → post reply → Telegram summary
+const handleReviewMonitor: TaskHandler = async (task) => {
+  const p = extractPayload(task.payload as Record<string, unknown>);
+  const res = await callFunction("mavis-gmb-agent", {
+    userId: task.user_id,
+    action: "monitor_reviews",
+    ...p,
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) return { success: false, error: (data as any).error ?? `mavis-gmb-agent returned ${res.status}` };
+
+  const result = data as any;
+  if (BOT_TOKEN && OPERATOR_CHAT_ID) {
+    const lines = (result.results ?? [])
+      .filter((r: any) => !r.error)
+      .map((r: any) => `• *${r.reviewer}* (${r.stars ?? r.star_rating}) — ${String(r.comment ?? "").slice(0, 80)}`)
+      .slice(0, 5);
+    const msg = [
+      `⭐ *GMB Review Monitor*`,
+      `${result.new_since_last_check ?? 0} new · ${result.replied ?? 0} replied · avg ${result.average_rating ?? "?"}★`,
+      result.sheets_logged > 0 ? `📊 ${result.sheets_logged} row${result.sheets_logged !== 1 ? "s" : ""} logged to Sheets` : "",
+      lines.length ? `\n${lines.join("\n")}` : "",
+    ].filter(Boolean).join("\n");
+    await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+      method:  "POST",
+      headers: { "Content-Type": "application/json" },
+      body:    JSON.stringify({ chat_id: OPERATOR_CHAT_ID, text: msg, parse_mode: "Markdown" }),
+    }).catch(() => {});
+  }
+
+  return { success: true, output: { processed: result.processed, new_reviews: result.new_since_last_check, replied: result.replied } };
+};
+
 // email_watch — poll for new emails since last check and create dual AI drafts for each
 const handleEmailWatch: TaskHandler = async (task) => {
   const p = extractPayload(task.payload as Record<string, unknown>);
@@ -1783,6 +1816,7 @@ const HANDLERS: Record<string, TaskHandler> = {
   content_digest:      handleContentDigest,
   email_triage:        handleEmailTriage,
   email_watch:         handleEmailWatch,
+  review_monitor:      handleReviewMonitor,
   discord_agent:       makeAgentHandler("mavis-discord-agent"),
   flashcard_agent:     makeAgentHandler("mavis-flashcard-agent"),
   reddit_agent:        makeAgentHandler("mavis-reddit-agent"),
