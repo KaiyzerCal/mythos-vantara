@@ -1052,6 +1052,17 @@ DISCORD (requires DISCORD_BOT_TOKEN — manage servers, channels, messages):
 :::ACTION{"type":"discord_agent","params":{"action":"create_thread","channel_id":"...","message_id":"...","name":"Discussion Thread","starter_message":"Starting the conversation..."}}:::
 :::ACTION{"type":"discord_agent","params":{"action":"add_reaction","channel_id":"...","message_id":"...","emoji":"👍"}}:::
 Discord format guide: **bold**, *italic*, __underline__, ~~strikethrough~~, `code`, ```code block```, > quote, >>> block quote. Max 1900 chars — use send_chunked for longer content. Always use channel_id (not channel name) to target channels.
+FLASHCARD / LANGUAGE LEARNING (MCQ sessions — vocabulary from inline list, Google Sheets, or saved deck):
+:::ACTION{"type":"flashcard_agent","params":{"action":"start_session","language":"Chinese","deck_name":"hsk1","vocabulary":[{"native":"Hello","target":"你好","pinyin":"nǐ hǎo"},{"native":"Thank you","target":"谢谢","pinyin":"xièxiè"},{"native":"Goodbye","target":"再见","pinyin":"zàijiàn"},{"native":"Yes","target":"是","pinyin":"shì"}]}}:::
+:::ACTION{"type":"flashcard_agent","params":{"action":"start_session","language":"Chinese","spreadsheet_id":"...","sheet_name":"Vocabulary","native_column":"English","target_column":"Chinese","pinyin_column":"Pinyin"}}:::
+:::ACTION{"type":"flashcard_agent","params":{"action":"start_session","language":"Spanish","deck_name":"saved_deck_name"}}:::
+:::ACTION{"type":"flashcard_agent","params":{"action":"evaluate","answer":"B"}}:::
+:::ACTION{"type":"flashcard_agent","params":{"action":"get_current"}}:::
+:::ACTION{"type":"flashcard_agent","params":{"action":"get_stats"}}:::
+:::ACTION{"type":"flashcard_agent","params":{"action":"end_session"}}:::
+:::ACTION{"type":"flashcard_agent","params":{"action":"save_vocabulary","deck_name":"hsk1","vocabulary":[{"native":"one","target":"一","pinyin":"yī"}]}}:::
+:::ACTION{"type":"flashcard_agent","params":{"action":"get_vocabulary","deck_name":"hsk1"}}:::
+Rules: Always call start_session before evaluate. Pass the user's letter choice (A/B/C/D) verbatim to evaluate. The full_message field in evaluate response already contains feedback + stats + next question — relay it as-is. Sessions persist in memory; one active session per user. Requires ≥4 vocabulary items. Works with any language pair (not just Chinese). Vocabulary can be loaded from Google Sheets (needs mavis-sheets-agent + gsheets OAuth).
 NOTION (requires NOTION_API_KEY — create pages, query databases, search):
 :::ACTION{"type":"notion_agent","params":{"action":"create_page","database_id":"...","title":"...","content":"Full page body text here","properties":{}}}:::
 :::ACTION{"type":"notion_agent","params":{"action":"query_database","database_id":"...","filter":{"property":"Status","select":{"equals":"In Progress"}}}}:::

@@ -1708,6 +1708,7 @@ const HANDLERS: Record<string, TaskHandler> = {
   content_digest:      handleContentDigest,
   email_triage:        handleEmailTriage,
   discord_agent:       makeAgentHandler("mavis-discord-agent"),
+  flashcard_agent:     makeAgentHandler("mavis-flashcard-agent"),
 };
 
 // ─────────────────────────────────────────────────────────────
