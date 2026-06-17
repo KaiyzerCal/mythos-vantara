@@ -1020,6 +1020,35 @@ GOOGLE (requires Google connected in Integrations — use for direct Google oper
 :::ACTION{"type":"google_agent","params":{"action":"search_emails","query":"from:client@example.com","max_results":5}}:::
 :::ACTION{"type":"google_agent","params":{"action":"list_files","query":"name contains 'proposal'","max_results":10}}:::
 :::ACTION{"type":"google_agent","params":{"action":"upload_text","name":"report.md","content":"...","mime_type":"text/markdown"}}:::
+SLACK (requires SLACK_BOT_TOKEN — send messages, read channels, upload files):
+:::ACTION{"type":"slack_agent","params":{"action":"send_message","channel":"#general","text":"..."}}:::
+:::ACTION{"type":"slack_agent","params":{"action":"send_dm","user_id":"U012AB3CD","text":"..."}}:::
+:::ACTION{"type":"slack_agent","params":{"action":"read_channel","channel":"C012AB3CD","limit":10}}:::
+:::ACTION{"type":"slack_agent","params":{"action":"list_channels"}}:::
+:::ACTION{"type":"slack_agent","params":{"action":"upload_text","channel":"#reports","content":"...","filename":"report.txt","title":"Weekly Report"}}:::
+NOTION (requires NOTION_API_KEY — create pages, query databases, search):
+:::ACTION{"type":"notion_agent","params":{"action":"create_page","database_id":"...","title":"...","content":"Full page body text here","properties":{}}}:::
+:::ACTION{"type":"notion_agent","params":{"action":"query_database","database_id":"...","filter":{"property":"Status","select":{"equals":"In Progress"}}}}:::
+:::ACTION{"type":"notion_agent","params":{"action":"append_blocks","page_id":"...","content":"Additional content to append"}}:::
+:::ACTION{"type":"notion_agent","params":{"action":"search","query":"project proposal","filter_type":"page"}}:::
+:::ACTION{"type":"notion_agent","params":{"action":"update_page","page_id":"...","title":"Updated Title","archived":false}}:::
+AIRTABLE (requires AIRTABLE_API_KEY — read/write any base and table):
+:::ACTION{"type":"airtable_agent","params":{"action":"list_records","base_id":"appXXXXXXXXXXXXXX","table":"Leads","max_records":25}}:::
+:::ACTION{"type":"airtable_agent","params":{"action":"create_record","base_id":"appXXXXXXXXXXXXXX","table":"Leads","fields":{"Name":"...","Email":"...","Status":"New"}}}:::
+:::ACTION{"type":"airtable_agent","params":{"action":"search_records","base_id":"appXXXXXXXXXXXXXX","table":"Contacts","term":"John","field":"Name"}}:::
+:::ACTION{"type":"airtable_agent","params":{"action":"update_record","base_id":"appXXXXXXXXXXXXXX","table":"Leads","record_id":"recXXXXXXXXXXXXXX","fields":{"Status":"Qualified"}}}:::
+:::ACTION{"type":"airtable_agent","params":{"action":"list_bases"}}:::
+SMS / WHATSAPP (requires TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_FROM_NUMBER):
+:::ACTION{"type":"twilio_agent","params":{"action":"send_sms","to":"+15551234567","body":"Your message here"}}:::
+:::ACTION{"type":"twilio_agent","params":{"action":"send_whatsapp","to":"+15551234567","body":"Your message here"}}:::
+:::ACTION{"type":"twilio_agent","params":{"action":"send_bulk","recipients":["+15551234567","+15559876543"],"body":"Broadcast message","channel":"sms"}}:::
+:::ACTION{"type":"twilio_agent","params":{"action":"list_messages","limit":10,"to":"+15551234567"}}:::
+CALENDLY (requires CALENDLY_API_KEY — read bookings and event types):
+:::ACTION{"type":"calendly_agent","params":{"action":"list_events","status":"active","count":10,"min_start_time":"2026-06-17T00:00:00Z"}}:::
+:::ACTION{"type":"calendly_agent","params":{"action":"list_event_types"}}:::
+:::ACTION{"type":"calendly_agent","params":{"action":"get_event","uuid":"..."}}:::
+:::ACTION{"type":"calendly_agent","params":{"action":"cancel_event","uuid":"...","reason":"Rescheduling"}}:::
+:::ACTION{"type":"calendly_agent","params":{"action":"get_user"}}:::
 TIME TRACKING:
 :::ACTION{"type":"log_time","params":{"description":"...","project":"...","started_at":"2026-06-05T09:00:00Z","ended_at":"2026-06-05T10:00:00Z","duration_seconds":3600,"tags":["focus","deep-work"]}}:::
 MEETING NOTES:

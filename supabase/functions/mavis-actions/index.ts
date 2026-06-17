@@ -2392,6 +2392,75 @@ async function executeAction(sb: any, userId: string, action: MavisAction, req: 
       return data;
     }
 
+    // ── SLACK AGENT ──────────────────────────────────────
+    case "slack_agent": {
+      const res = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-slack-agent`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
+        body: JSON.stringify({ userId, ...p }),
+        signal: AbortSignal.timeout(20000),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((data as any).error ?? `mavis-slack-agent returned ${res.status}`);
+      return data;
+    }
+
+    // ── NOTION AGENT ─────────────────────────────────────
+    case "notion_agent": {
+      const res = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-notion-agent`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
+        body: JSON.stringify({ userId, ...p }),
+        signal: AbortSignal.timeout(20000),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((data as any).error ?? `mavis-notion-agent returned ${res.status}`);
+      return data;
+    }
+
+    // ── AIRTABLE AGENT ────────────────────────────────────
+    case "airtable_agent": {
+      const res = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-airtable-agent`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
+        body: JSON.stringify({ userId, ...p }),
+        signal: AbortSignal.timeout(20000),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((data as any).error ?? `mavis-airtable-agent returned ${res.status}`);
+      return data;
+    }
+
+    // ── TWILIO AGENT ─────────────────────────────────────
+    case "twilio_agent":
+    case "send_sms":
+    case "send_whatsapp": {
+      // Normalize: send_sms/send_whatsapp shorthands set the action
+      const agentAction = actionType === "twilio_agent" ? String(p.action ?? "send_sms") : actionType;
+      const res = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-twilio-agent`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
+        body: JSON.stringify({ userId, action: agentAction, ...p }),
+        signal: AbortSignal.timeout(20000),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((data as any).error ?? `mavis-twilio-agent returned ${res.status}`);
+      return data;
+    }
+
+    // ── CALENDLY AGENT ────────────────────────────────────
+    case "calendly_agent": {
+      const res = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-calendly-agent`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
+        body: JSON.stringify({ userId, ...p }),
+        signal: AbortSignal.timeout(20000),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((data as any).error ?? `mavis-calendly-agent returned ${res.status}`);
+      return data;
+    }
+
     default:
       throw new Error(`Unknown MAVIS action: ${action.type}`);
   }

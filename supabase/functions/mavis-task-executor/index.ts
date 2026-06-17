@@ -1358,6 +1358,20 @@ const handleGoogleAgent: TaskHandler = async (task) => {
   return { success: true, output: data };
 };
 
+// Generic agent task handler factory — for slack, notion, airtable, twilio, calendly
+function makeAgentHandler(fnName: string): TaskHandler {
+  return async (task) => {
+    const p = extractPayload(task.payload as Record<string, unknown>);
+    const action = String(p.action ?? "");
+    if (!action) return { success: false, error: `${fnName} task missing 'action' in payload` };
+
+    const res  = await callFunction(fnName, { userId: task.user_id, ...p });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) return { success: false, error: (data as any).error ?? `${fnName} returned ${res.status}` };
+    return { success: true, output: data };
+  };
+}
+
 const HANDLERS: Record<string, TaskHandler> = {
   daily_brief: handleDailyBrief,
   check_idle_quests: handleCheckIdleQuests,
@@ -1377,7 +1391,12 @@ const HANDLERS: Record<string, TaskHandler> = {
   standing_order: handleStandingOrder,
   nora_content_machine: handleNoraContentMachine,
   client_welcome_sequence: handleClientWelcomeSequence,
-  google_agent: handleGoogleAgent,
+  google_agent:    handleGoogleAgent,
+  slack_agent:     makeAgentHandler("mavis-slack-agent"),
+  notion_agent:    makeAgentHandler("mavis-notion-agent"),
+  airtable_agent:  makeAgentHandler("mavis-airtable-agent"),
+  twilio_agent:    makeAgentHandler("mavis-twilio-agent"),
+  calendly_agent:  makeAgentHandler("mavis-calendly-agent"),
 };
 
 // ─────────────────────────────────────────────────────────────
