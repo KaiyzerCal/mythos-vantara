@@ -1022,9 +1022,10 @@ GOOGLE (requires Google connected in Integrations — use for direct Google oper
 :::ACTION{"type":"google_agent","params":{"action":"search_emails","query":"from:client@example.com","max_results":5}}:::
 :::ACTION{"type":"google_agent","params":{"action":"mark_read","message_id":"..."}}:::
 :::ACTION{"type":"email_triage","params":{"limit":10,"draft_replies":true,"mark_read":false,"tone":"professional","signature":"Calvin Watkins"}}:::
+:::ACTION{"type":"email_dual_draft","params":{"message_id":"<gmail-message-id>","prompt_a":"Draft a concise 2-3 sentence reply.","prompt_b":"Draft a thorough reply addressing all points raised.","model_a":"claude-haiku-4-5-20251001","model_b":"claude-sonnet-4-6","signature":"Calvin"}}:::
 :::ACTION{"type":"google_agent","params":{"action":"list_files","query":"name contains 'proposal'","max_results":10}}:::
 :::ACTION{"type":"google_agent","params":{"action":"upload_text","name":"report.md","content":"...","mime_type":"text/markdown"}}:::
-Use email_triage to auto-draft replies to all unread inbox messages (runs async, reports via Telegram). Use create_draft when the operator wants to review before sending. Never send emails without operator confirmation unless explicitly instructed.
+Use email_triage to auto-draft replies to all unread inbox messages (runs async, reports via Telegram). Use email_dual_draft when the operator wants two competing AI drafts (concise vs. detailed) for a single email — both drafts are merged into one Gmail draft for review. Use create_draft when the operator wants to write or dictate the reply themselves. Never send emails without operator confirmation unless explicitly instructed.
 SLACK (requires SLACK_BOT_TOKEN — send messages, read channels, upload files):
 :::ACTION{"type":"slack_agent","params":{"action":"send_message","channel":"#general","text":"..."}}:::
 :::ACTION{"type":"slack_agent","params":{"action":"send_dm","user_id":"U012AB3CD","text":"..."}}:::

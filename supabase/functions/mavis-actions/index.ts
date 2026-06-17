@@ -2665,6 +2665,19 @@ async function executeAction(sb: any, userId: string, action: MavisAction, req: 
       return { queued: true, task_id: (task as any)?.id };
     }
 
+    case "email_dual_draft": {
+      // Generate two AI drafts (concise + detailed) in parallel for a specific email, create combined Gmail draft.
+      const res = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-google-agent`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
+        body: JSON.stringify({ userId, action: "dual_draft", ...p }),
+        signal: AbortSignal.timeout(30000),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((data as any).error ?? `mavis-google-agent dual_draft returned ${res.status}`);
+      return data;
+    }
+
     case "vision_agent": {
       const res = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-vision-agent`, {
         method: "POST",

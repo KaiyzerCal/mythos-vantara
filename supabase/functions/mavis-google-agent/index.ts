@@ -7,7 +7,7 @@
 //   Calendar: create_calendar_event | update_calendar_event | delete_calendar_event
 //             list_calendar_events | find_free_time | create_meet_link
 //   Gmail:    send_email | list_emails | search_emails | get_email
-//             create_draft | mark_read | triage_inbox
+//             create_draft | dual_draft | mark_read | triage_inbox
 //   Drive:    list_files | upload_text | create_folder
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
@@ -497,6 +497,69 @@ Draft a clear, ${tone} reply. Rules:
       };
     }
 
+    case "dual_draft": {
+      // Run two Claude drafts in parallel (concise + detailed) and combine into one Gmail draft.
+      // Mirrors the Make.com dual-model pattern: two AI passes → single combined draft.
+      const msgId = String(p.message_id ?? p.id ?? "");
+      if (!msgId) throw new Error("dual_draft requires 'message_id'");
+
+      const msg     = await gReq(token, `${GMAIL_API}/users/me/messages/${msgId}?format=full`);
+      const headers: { name: string; value: string }[] = msg.payload?.headers ?? [];
+      const h = (name: string) => headers.find((hh: any) => hh.name === name)?.value ?? "";
+      const from      = h("From");
+      const subject   = h("Subject");
+      const messageId = h("Message-ID");
+      const body      = decodeMessageBody(msg.payload) || msg.snippet;
+      const toAddr    = from.match(/<([^>]+)>/) ? from.match(/<([^>]+)>/)![1] : from;
+      const signature = p.signature ? String(p.signature) : "";
+
+      const systemA = p.prompt_a ? String(p.prompt_a) :
+        `Draft a concise, direct email reply in 2-3 sentences. Be professional and to the point.
+Start with "Hello," and end with "Best,${signature ? `\n${signature}` : ""}".
+Plain text only. Address the core request immediately.`;
+
+      const systemB = p.prompt_b ? String(p.prompt_b) :
+        `Draft a thorough, warm email reply that addresses every point raised.
+Start with "Hello," and end with "Best,${signature ? `\n${signature}` : ""}".
+Plain text only. Use [PLACEHOLDER] for unknown specifics (dates, prices, etc.).
+3–6 sentences, comprehensive but not verbose.`;
+
+      const modelA = String(p.model_a ?? "claude-haiku-4-5-20251001");
+      const modelB = String(p.model_b ?? "claude-sonnet-4-6");
+      const ctx    = `From: ${from}\nSubject: ${subject}\n\n${body.slice(0, 3000)}`;
+
+      const [draftA, draftB] = await Promise.all([
+        callClaude(systemA, ctx, modelA as any, 512),
+        callClaude(systemB, ctx, modelB as any, 1024),
+      ]);
+
+      const combined = `--- DRAFT A (Concise) ---\n${draftA}\n\n--- DRAFT B (Detailed) ---\n${draftB}`;
+
+      const draft = await gReq(token, `${GMAIL_API}/users/me/drafts`, "POST", {
+        message: {
+          raw: encodeMime(toAddr, `Re: ${subject}`, combined, {
+            threadId:   msg.threadId,
+            inReplyTo:  messageId ? `<${messageId}>` : undefined,
+            references: messageId ? `<${messageId}>` : undefined,
+          }),
+          threadId: msg.threadId,
+        },
+      });
+
+      return {
+        draft_id:       draft.id,
+        from,
+        subject,
+        thread_id:      msg.threadId,
+        draft_a_model:  modelA,
+        draft_b_model:  modelB,
+        draft_a:        draftA,
+        draft_b:        draftB,
+        draft_preview_a: draftA.slice(0, 150),
+        draft_preview_b: draftB.slice(0, 150),
+      };
+    }
+
     case "list_emails": {
       const max   = Math.min(Number(p.max_results ?? 10), 50);
       const query = p.query ? `&q=${encodeURIComponent(String(p.query))}` : "";
@@ -644,8 +707,8 @@ serve(async (req) => {
       return json(result);
     }
 
-    const GMAIL_ACTIONS = ["send_email", "create_draft", "get_email", "mark_read", "triage_inbox",
-                           "list_emails", "search_emails"];
+    const GMAIL_ACTIONS = ["send_email", "create_draft", "dual_draft", "get_email", "mark_read",
+                           "triage_inbox", "list_emails", "search_emails"];
     if (GMAIL_ACTIONS.includes(action) || action.includes("email") || action.includes("gmail")) {
       const token = await getToken(adminSb, uid, "gmail");
       const result = await handleGmail(action, body, token, uid, adminSb);
