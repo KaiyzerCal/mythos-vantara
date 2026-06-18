@@ -103,6 +103,15 @@ async function runHeartbeatForUser(sb: any, userId: string): Promise<Record<stri
   }
 
   // ── 4. Active plans — autonomous step execution ───────────────────────────
+  // Check autonomy permission for advance_plan before proceeding
+  const { data: planPermRow } = await sb
+    .from("mavis_autonomy_settings")
+    .select("permission_level")
+    .eq("user_id", userId)
+    .eq("action_category", "advance_plan")
+    .maybeSingle();
+  const planPermission = (planPermRow as any)?.permission_level ?? "always"; // default: always allowed
+
   const { data: activePlans } = await sb
     .from("mavis_plans")
     .select("id, title, current_step, steps")
@@ -110,7 +119,7 @@ async function runHeartbeatForUser(sb: any, userId: string): Promise<Record<stri
     .eq("status", "active")
     .limit(3);
 
-  if (activePlans?.length) {
+  if (activePlans?.length && planPermission !== "never") {
     (log.checks as any).active_plans = activePlans.length;
     let autoExecuted = 0;
 

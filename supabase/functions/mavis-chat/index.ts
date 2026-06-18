@@ -1327,6 +1327,13 @@ PERSISTENT PLANS — multi-session goal tracking. MAVIS creates and maintains st
 :::ACTION{"type":"delete_plan","params":{"plan_id":"<uuid>"}}:::
 Use generate_plan when the operator states a multi-step goal — Claude decomposes it into 3-12 concrete steps. Active plans are automatically injected at the start of every session so MAVIS always knows what's in progress. Use advance_step after completing a step to move to the next. Use update_session at end of productive conversations to record what was accomplished. get_plans lists all active/paused plans. Plans are the backbone of MAVIS's long-horizon agency — always check active plans before planning any major initiative so you don't duplicate effort.
 
+AUTONOMY CONTROLS — view and set per-category permission levels for MAVIS autonomous actions:
+:::ACTION{"type":"get_autonomy_settings","params":{}}:::
+:::ACTION{"type":"set_autonomy","params":{"action_category":"advance_plan","permission_level":"always"}}:::
+:::ACTION{"type":"set_autonomy","params":{"action_category":"create_task","permission_level":"ask"}}:::
+:::ACTION{"type":"set_autonomy","params":{"action_category":"send_message","permission_level":"never"}}:::
+Permission levels: "always" (MAVIS acts without asking), "ask" (MAVIS asks first), "never" (MAVIS never acts autonomously). Action categories: advance_plan, create_task, send_message, log_revenue, send_email, create_note, modify_calendar, execute_code, search. Use get_autonomy_settings to show the operator their current settings. Use set_autonomy when the operator says "don't auto-execute X", "always do Y without asking", or "ask me before Z". These settings gate what the heartbeat and event router can do autonomously.
+
 EVENT ROUTING — route any real-world event to MAVIS for immediate analysis and action:
 :::ACTION{"type":"route_event","params":{"event_type":"payment_received","source":"stripe","payload":{"amount":99,"currency":"USD"},"notify":true}}:::
 :::ACTION{"type":"route_event","params":{"event_type":"important_email","source":"gmail","payload":{"from":"contact@example.com","subject":"..."}}}:::
@@ -2808,6 +2815,55 @@ You always know the current date and time without being told. Reference it natur
                     for (const f of facts.slice(0, 2)) {
                       if (!f.title || !f.content) continue;
                       await fetch(`${supabaseUrl}/functions/v1/mavis-knowledge`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${serviceKey}` }, body: JSON.stringify({ action: "create_note", userId: user.id, title: String(f.title).slice(0, 120), content: String(f.content).slice(0, 1000), tags: Array.isArray(f.tags) ? [...f.tags, "auto-extracted"] : ["auto-extracted"] }) }).catch(() => {});
+                    }
+                  } catch { /* non-critical */ }
+                })();
+              }
+
+              // ── Goal-conversation linkage ──────────────────────────
+              // Detect plan-relevant content and auto-update active plan session summaries.
+              if ((claudeKey || geminiKey) && lastUserText.length > 20) {
+                (async () => {
+                  try {
+                    const { data: activePlans } = await sb.from("mavis_plans")
+                      .select("id,title,goal,current_step,steps")
+                      .eq("user_id", user.id).eq("status", "active")
+                      .order("updated_at", { ascending: false }).limit(5);
+                    if (!activePlans?.length) return;
+
+                    const planList = (activePlans as any[]).map((p: any) => {
+                      const steps = Array.isArray(p.steps) ? p.steps : [];
+                      const cur = steps[p.current_step];
+                      return `ID:${p.id} | "${p.title}" (current step: ${cur ? String(cur.step ?? "").slice(0, 60) : "n/a"})`;
+                    }).join("\n");
+
+                    const linkPrompt = `You are analyzing a conversation to detect if it's relevant to any of the user's active plans. Reply ONLY with valid JSON: {"relevant_plan_id":"<uuid or null>","relevance":"<none|mentioned|progressed|completed>","summary":"<1-2 sentence summary of what happened re: this plan, or empty string>"}`;
+                    const linkInput = `ACTIVE PLANS:\n${planList}\n\nCONVERSATION:\nUser: ${lastUserText.slice(0, 600)}\nMAVIS: ${accumulated.slice(0, 600)}`;
+
+                    let linkRaw = "";
+                    if (claudeKey) {
+                      const r = await fetch("https://api.anthropic.com/v1/messages", { method: "POST", headers: { "Content-Type": "application/json", "x-api-key": claudeKey, "anthropic-version": "2023-06-01" }, body: JSON.stringify({ model: "claude-haiku-4-5-20251001", max_tokens: 200, system: linkPrompt, messages: [{ role: "user", content: linkInput }] }), signal: AbortSignal.timeout(10_000) });
+                      if (r.ok) { const d = await r.json(); linkRaw = d.content?.[0]?.text ?? ""; }
+                    }
+
+                    const jsonMatch = linkRaw.match(/\{[\s\S]*\}/);
+                    if (!jsonMatch) return;
+                    const link = JSON.parse(jsonMatch[0]) as { relevant_plan_id?: string; relevance?: string; summary?: string };
+
+                    if (link.relevant_plan_id && link.relevance !== "none" && link.summary) {
+                      await sb.from("mavis_plans").update({
+                        last_session_summary: link.summary.slice(0, 500),
+                        updated_at: new Date().toISOString(),
+                      }).eq("id", link.relevant_plan_id).eq("user_id", user.id);
+
+                      if (link.relevance === "completed") {
+                        await fetch(`${supabaseUrl}/functions/v1/mavis-plans`, {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json", Authorization: `Bearer ${serviceKey}` },
+                          body: JSON.stringify({ userId: user.id, action: "advance_step", plan_id: link.relevant_plan_id, notes: link.summary }),
+                          signal: AbortSignal.timeout(10_000),
+                        }).catch(() => {});
+                      }
                     }
                   } catch { /* non-critical */ }
                 })();

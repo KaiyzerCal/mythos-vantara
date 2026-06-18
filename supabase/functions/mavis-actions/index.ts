@@ -3429,6 +3429,38 @@ async function executeAction(sb: any, userId: string, action: MavisAction, req: 
       return data;
     }
 
+    // ── AUTONOMY SETTINGS ─────────────────────────────────────────────────────
+    // Get or set per-category permission levels for MAVIS autonomous actions.
+    case "get_autonomy_settings": {
+      const SB_URL2 = Deno.env.get("SUPABASE_URL")!;
+      const SB_SRK2 = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+      const { createClient: cc2 } = await import("https://esm.sh/@supabase/supabase-js@2.49.4");
+      const sb2 = cc2(SB_URL2, SB_SRK2, { auth: { persistSession: false } });
+      const { data: rows } = await sb2.from("mavis_autonomy_settings")
+        .select("action_category, permission_level, updated_at")
+        .eq("user_id", userId)
+        .order("action_category");
+      return { settings: rows ?? [], user_id: userId };
+    }
+
+    case "set_autonomy": {
+      const { action_category, permission_level } = p as Record<string, unknown>;
+      if (!action_category || !["always","ask","never"].includes(String(permission_level))) {
+        throw new Error("action_category and permission_level (always|ask|never) required");
+      }
+      const SB_URL2 = Deno.env.get("SUPABASE_URL")!;
+      const SB_SRK2 = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+      const { createClient: cc3 } = await import("https://esm.sh/@supabase/supabase-js@2.49.4");
+      const sb3 = cc3(SB_URL2, SB_SRK2, { auth: { persistSession: false } });
+      await sb3.from("mavis_autonomy_settings").upsert({
+        user_id: userId,
+        action_category: String(action_category),
+        permission_level: String(permission_level),
+        updated_at: new Date().toISOString(),
+      }, { onConflict: "user_id,action_category" });
+      return { updated: true, action_category, permission_level };
+    }
+
     case "route_event": {
       const res = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-event-router`, {
         method:  "POST",
