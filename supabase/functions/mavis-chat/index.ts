@@ -649,6 +649,56 @@ async function callWithFallbackStream(
 }
 
 // ============================================================
+// REACT AGENTIC LOOP — ACTION block parsing and execution
+// ============================================================
+
+function parseActionBlocks(text: string): Array<{ type: string; params: Record<string, unknown> }> {
+  const blocks: Array<{ type: string; params: Record<string, unknown> }> = [];
+  const re = /:::ACTION(\{[\s\S]*?\}):::/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text)) !== null) {
+    try {
+      const parsed = JSON.parse(m[1]) as Record<string, unknown>;
+      const type = String(parsed.type ?? parsed.action ?? "");
+      if (!type) continue;
+      const { type: _t, action: _a, ...params } = parsed;
+      blocks.push({ type, params });
+    } catch { /* malformed block — skip */ }
+  }
+  return blocks;
+}
+
+async function executeAgentAction(
+  supabaseUrl: string,
+  serviceKey: string,
+  userId: string,
+  type: string,
+  params: Record<string, unknown>,
+): Promise<{ ok: boolean; result: unknown }> {
+  try {
+    const res = await fetch(`${supabaseUrl}/functions/v1/mavis-actions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${serviceKey}` },
+      body: JSON.stringify({ userId, action: { type, params } }),
+      signal: AbortSignal.timeout(120_000),
+    });
+    const data = await res.json().catch(() => ({})) as Record<string, unknown>;
+    if (!res.ok) return { ok: false, result: { error: data.error ?? `HTTP ${res.status}` } };
+    return { ok: true, result: data };
+  } catch (e: any) {
+    return { ok: false, result: { error: e.message ?? "Action execution failed" } };
+  }
+}
+
+function formatToolResults(results: Array<{ type: string; ok: boolean; result: unknown }>): string {
+  return results
+    .map((r, i) =>
+      `[ACTION ${i + 1}: ${r.type}]\nStatus: ${r.ok ? "success" : "error"}\n${JSON.stringify(r.result, null, 2).slice(0, 2000)}`
+    )
+    .join("\n\n");
+}
+
+// ============================================================
 // TAVILY WEB SEARCH
 // ============================================================
 async function tavilySearch(query: string, key: string): Promise<string> {
@@ -2444,6 +2494,51 @@ You always know the current date and time without being told. Reference it natur
               accumulated += value;
               controller.enqueue(enc.encode(`data: ${JSON.stringify({ t: value })}\n\n`));
             }
+            // ── ReAct loop: execute ACTION blocks, observe results, synthesize ──
+            {
+              const REACT_MAX_ITER    = 5;
+              const REACT_MAX_ACTIONS = 15;
+              let reactIter        = 0;
+              let totalActions     = 0;
+              let reactMessages    = [...callMessages];
+
+              while (reactIter < REACT_MAX_ITER && totalActions < REACT_MAX_ACTIONS) {
+                const blocks = parseActionBlocks(accumulated);
+                if (blocks.length === 0) break;
+
+                controller.enqueue(enc.encode(`data: ${JSON.stringify({ step: "actions_start", count: blocks.length, iteration: reactIter + 1 })}\n\n`));
+
+                const toolResults: Array<{ type: string; ok: boolean; result: unknown }> = [];
+                for (const block of blocks) {
+                  if (totalActions >= REACT_MAX_ACTIONS) break;
+                  controller.enqueue(enc.encode(`data: ${JSON.stringify({ step: "action", type: block.type, status: "running" })}\n\n`));
+                  const { ok, result } = await executeAgentAction(supabaseUrl, serviceKey, user.id, block.type, block.params);
+                  toolResults.push({ type: block.type, ok, result });
+                  totalActions++;
+                  controller.enqueue(enc.encode(`data: ${JSON.stringify({ step: "result", type: block.type, ok, preview: JSON.stringify(result).slice(0, 300) })}\n\n`));
+                }
+
+                reactMessages = [
+                  ...reactMessages,
+                  { role: "assistant", content: accumulated },
+                  { role: "user", content: `[TOOL RESULTS — iteration ${reactIter + 1}]\n\n${formatToolResults(toolResults)}\n\nUsing these results, give your complete response. If you still need more data, emit more ACTION blocks; otherwise respond without them.` },
+                ];
+
+                const { stream: synthStream } = await callWithFallbackStream(
+                  provider, reactMessages, fullPrompt, aiKeys, useThinking, modeUpper,
+                );
+                const synthReader = synthStream.getReader();
+                accumulated = "";
+                while (true) {
+                  const { done: sd, value: sv } = await synthReader.read();
+                  if (sd) break;
+                  accumulated += sv;
+                  controller.enqueue(enc.encode(`data: ${JSON.stringify({ t: sv })}\n\n`));
+                }
+
+                reactIter++;
+              }
+            }
             let imgUrl: string | null = null;
             let imageMediaId: string | null = null;
             if (IMAGE_KWS.some(kw => lastUserText.toLowerCase().includes(kw))) {
@@ -2672,6 +2767,40 @@ You always know the current date and time without being told. Reference it natur
       useThinking,
       modeUpper,
     );
+
+    // ── ReAct loop (non-streaming): execute ACTION blocks and re-synthesize ──
+    {
+      const REACT_MAX_ITER    = 5;
+      const REACT_MAX_ACTIONS = 15;
+      let reactIter     = 0;
+      let totalActions  = 0;
+      let reactMessages = [...callMessages];
+
+      while (reactIter < REACT_MAX_ITER && totalActions < REACT_MAX_ACTIONS) {
+        const blocks = parseActionBlocks(content);
+        if (blocks.length === 0) break;
+
+        const toolResults: Array<{ type: string; ok: boolean; result: unknown }> = [];
+        for (const block of blocks) {
+          if (totalActions >= REACT_MAX_ACTIONS) break;
+          const { ok, result } = await executeAgentAction(supabaseUrl, serviceKey, user.id, block.type, block.params);
+          toolResults.push({ type: block.type, ok, result });
+          totalActions++;
+        }
+
+        reactMessages = [
+          ...reactMessages,
+          { role: "assistant", content },
+          { role: "user", content: `[TOOL RESULTS — iteration ${reactIter + 1}]\n\n${formatToolResults(toolResults)}\n\nUsing these results, give your complete response. If you still need more data, emit more ACTION blocks; otherwise respond without them.` },
+        ];
+
+        const { content: nextContent } = await callWithFallback(
+          provider, reactMessages, fullPrompt, aiKeys, useThinking, modeUpper,
+        );
+        content = nextContent;
+        reactIter++;
+      }
+    }
 
     // ── Critic pass (OpenHuman adversarial review pattern) ──
     // For high-stakes queries (plan/strategy/analysis/decision), run a
