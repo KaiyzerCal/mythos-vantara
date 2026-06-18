@@ -15,7 +15,7 @@
 //   delete_skill_chain      — delete chain
 //   add_quest_to_chain      — add a quest to an existing chain
 //   add_skill_to_chain      — add a skill to an existing chain
-//   remove_from_chain       — remove a quest or skill from its chain
+//   remove_from_chain       — remove an item by id (quest or skill chain item)
 //
 // Requires: ANTHROPIC_API_KEY
 
@@ -334,6 +334,27 @@ serve(async (req) => {
           ((await sb.from("skill_chain_items").select("position").eq("chain_id", chain_id).order("position", { ascending: false }).limit(1)).data?.[0]?.position ?? -1) + 1;
         await sb.from("skill_chain_items").upsert({ chain_id, skill_id, position: pos }, { onConflict: "chain_id,skill_id" });
         result = { added: true, position: pos };
+        break;
+      }
+
+      // ── REMOVE FROM CHAIN ────────────────────────────────────────────────────
+      case "remove_from_chain": {
+        const { item_id, chain_type } = p as any;
+        if (!item_id) throw new Error("item_id required");
+
+        // chain_type hint lets callers be explicit; otherwise try quest first then skill
+        let deleted = false;
+        if (!chain_type || chain_type === "quest") {
+          const { error, count } = await sb.from("quest_chain_items").delete({ count: "exact" }).eq("id", item_id);
+          if (!error && (count ?? 0) > 0) deleted = true;
+        }
+        if (!deleted && (!chain_type || chain_type === "skill")) {
+          const { error, count } = await sb.from("skill_chain_items").delete({ count: "exact" }).eq("id", item_id);
+          if (!error && (count ?? 0) > 0) deleted = true;
+        }
+
+        if (!deleted) throw new Error(`No chain item found with id ${item_id}`);
+        result = { removed: true, item_id };
         break;
       }
 
