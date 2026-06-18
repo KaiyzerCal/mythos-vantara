@@ -4,7 +4,7 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { motion, AnimatePresence } from "framer-motion";
-import { Target, Plus, Trash2, CheckCircle2, Filter, Loader2, Users, MessageCircle, Send, Square, X, Edit2, ArrowDown, ArrowUp, Database, PhoneCall, Check } from "lucide-react";
+import { Target, Plus, Trash2, CheckCircle2, Filter, Loader2, Users, MessageCircle, Send, Square, X, Edit2, ArrowDown, ArrowUp, Database, PhoneCall, Check, ChevronDown, ChevronRight, Wand2, ArrowRight } from "lucide-react";
 import { useAppData } from "@/contexts/AppDataContext";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
@@ -103,6 +103,58 @@ export function QuestsPage() {
   const [newBuff, setNewBuff] = useState({ label: "", value: 0, unit: "%", duration: "" });
   const [newDebuff, setNewDebuff] = useState({ label: "", value: 0, unit: "%", duration: "" });
   const [newLoot, setNewLoot] = useState({ itemName: "", quantity: 1, rarity: "common" });
+
+  // ── Quest Chains ─────────────────────────────────────────
+  const [questChains, setQuestChains] = useState<any[]>([]);
+  const [chainsPanelOpen, setChainsPanelOpen] = useState(true);
+  const [chainsLoading, setChainsLoading] = useState(false);
+
+  const loadQuestChains = useCallback(async () => {
+    const { data: { user } } = await (supabase as any).auth.getUser();
+    if (!user) return;
+    const { data: chains } = await (supabase as any)
+      .from("quest_chains")
+      .select("*")
+      .eq("user_id", user.id)
+      .order("created_at", { ascending: false });
+    if (!chains?.length) { setQuestChains([]); return; }
+    const chainIds = chains.map((c: any) => c.id);
+    const { data: items } = await (supabase as any)
+      .from("quest_chain_items")
+      .select("chain_id, quest_id, position")
+      .in("chain_id", chainIds)
+      .order("position", { ascending: true });
+    const itemsByChain: Record<string, any[]> = {};
+    for (const item of items ?? []) {
+      if (!itemsByChain[item.chain_id]) itemsByChain[item.chain_id] = [];
+      itemsByChain[item.chain_id].push(item);
+    }
+    setQuestChains(chains.map((c: any) => ({ ...c, items: (itemsByChain[c.id] ?? []).sort((a: any, b: any) => a.position - b.position) })));
+  }, []);
+
+  useEffect(() => { loadQuestChains(); }, [loadQuestChains]);
+
+  const autoLinkQuestChains = async () => {
+    const { data: { user } } = await (supabase as any).auth.getUser();
+    if (!user) return;
+    setChainsLoading(true);
+    try {
+      const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/mavis-chain-builder`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}` },
+        body: JSON.stringify({ userId: user.id, action: "auto_link_quest_chains" }),
+      });
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      await loadQuestChains();
+      toast.success(`Created ${data.chains_created} quest chain${data.chains_created !== 1 ? "s" : ""}`);
+      setChainsPanelOpen(true);
+    } catch (e: any) {
+      toast.error(e.message ?? "Chain linking failed");
+    } finally {
+      setChainsLoading(false);
+    }
+  };
 
   const parentQuests = useMemo(
     () => quests.filter((q: any) => !q.parent_quest_id),
@@ -279,6 +331,81 @@ export function QuestsPage() {
           </button>
         }
       />
+
+      {/* Quest Chains */}
+      <HudCard className="border-purple-500/20 bg-purple-500/5">
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center gap-2">
+            <ArrowRight size={12} className="text-purple-400" />
+            <span className="text-[10px] font-mono text-purple-400 uppercase tracking-widest">Quest Chains</span>
+            {questChains.length > 0 && (
+              <span className="text-[9px] font-mono text-muted-foreground">({questChains.length})</span>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={autoLinkQuestChains}
+              disabled={chainsLoading}
+              className="flex items-center gap-1 px-2 py-1 text-[9px] font-mono text-purple-400 border border-purple-500/30 rounded hover:bg-purple-500/10 transition-all disabled:opacity-50"
+            >
+              {chainsLoading ? <Loader2 size={9} className="animate-spin" /> : <Wand2 size={9} />}
+              {chainsLoading ? "Linking..." : "AI Generate"}
+            </button>
+            <button onClick={() => setChainsPanelOpen((v) => !v)} className="text-muted-foreground hover:text-foreground transition-colors">
+              <ChevronDown size={12} className={`transition-transform ${chainsPanelOpen ? "" : "-rotate-90"}`} />
+            </button>
+          </div>
+        </div>
+        {chainsPanelOpen && (
+          questChains.length === 0 ? (
+            <p className="text-[10px] font-mono text-muted-foreground/60 text-center py-2">
+              No chains yet — click "AI Generate" to let MAVIS detect quest progressions
+            </p>
+          ) : (
+            <div className="space-y-3">
+              {questChains.map((chain: any) => (
+                <div key={chain.id} className="space-y-1.5">
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] font-display font-bold text-foreground">{chain.title}</span>
+                    {chain.category && (
+                      <span className="text-[8px] font-mono text-purple-400/70 border border-purple-500/20 rounded px-1.5 py-0.5">{chain.category}</span>
+                    )}
+                    {chain.status === "completed" && (
+                      <span className="text-[8px] font-mono text-green-400 border border-green-500/20 rounded px-1 py-0.5">COMPLETE</span>
+                    )}
+                  </div>
+                  {chain.description && (
+                    <p className="text-[9px] font-body text-muted-foreground/70 leading-relaxed">{chain.description}</p>
+                  )}
+                  <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
+                    {(chain.items ?? []).map((item: any, idx: number) => {
+                      const q = quests.find((qx: any) => qx.id === item.quest_id);
+                      if (!q) return null;
+                      const isCompleted = q.status === "completed";
+                      const isActive = q.status === "active";
+                      return (
+                        <div key={item.quest_id} className="flex items-center gap-1.5 shrink-0">
+                          {idx > 0 && <ChevronRight size={10} className="text-purple-500/40 shrink-0" />}
+                          <div className={`rounded px-2 py-1.5 border text-[9px] font-mono shrink-0 min-w-[80px] max-w-[130px] ${
+                            isCompleted ? "bg-green-500/10 border-green-500/30 text-green-400" :
+                            isActive ? "bg-primary/10 border-primary/30 text-primary" :
+                            "bg-muted/10 border-border/30 text-muted-foreground/60"
+                          }`}>
+                            <div className="truncate font-bold">{q.title}</div>
+                            <div className="text-[8px] opacity-70 mt-0.5">
+                              {isCompleted ? "✓ Done" : isActive ? "● Active" : "○ Next"} · +{q.xp_reward}XP
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )
+        )}
+      </HudCard>
 
       {showCreate && (
         <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }}>

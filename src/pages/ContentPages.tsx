@@ -1038,6 +1038,56 @@ export function SkillsPage() {
   const [expandedDetail, setExpandedDetail] = useState<string | null>(null);
   const [confirmDeleteSkill, setConfirmDeleteSkill] = useState<{ id: string; label: string } | null>(null);
 
+  // ── Skill Chains ─────────────────────────────────────────
+  const [skillChains, setSkillChains] = useState<any[]>([]);
+  const [skillChainsPanelOpen, setSkillChainsPanelOpen] = useState(true);
+  const [skillChainsLoading, setSkillChainsLoading] = useState(false);
+
+  const loadSkillChains = useCallback(async () => {
+    if (!user) return;
+    const { data: chains } = await (supabase as any)
+      .from("skill_chains")
+      .select("*")
+      .eq("user_id", user.id)
+      .order("created_at", { ascending: false });
+    if (!chains?.length) { setSkillChains([]); return; }
+    const chainIds = chains.map((c: any) => c.id);
+    const { data: items } = await (supabase as any)
+      .from("skill_chain_items")
+      .select("chain_id, skill_id, position")
+      .in("chain_id", chainIds)
+      .order("position", { ascending: true });
+    const itemsByChain: Record<string, any[]> = {};
+    for (const item of items ?? []) {
+      if (!itemsByChain[item.chain_id]) itemsByChain[item.chain_id] = [];
+      itemsByChain[item.chain_id].push(item);
+    }
+    setSkillChains(chains.map((c: any) => ({ ...c, items: (itemsByChain[c.id] ?? []).sort((a: any, b: any) => a.position - b.position) })));
+  }, [user]);
+
+  useEffect(() => { loadSkillChains(); }, [loadSkillChains]);
+
+  const autoLinkSkillChains = async () => {
+    if (!user) return;
+    setSkillChainsLoading(true);
+    try {
+      const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/mavis-chain-builder`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}` },
+        body: JSON.stringify({ userId: user.id, action: "auto_link_skill_chains" }),
+      });
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      await loadSkillChains();
+      toast.success(`Created ${data.chains_created} skill chain${data.chains_created !== 1 ? "s" : ""}`);
+      setSkillChainsPanelOpen(true);
+    } catch (e: any) {
+      toast.error(e.message ?? "Skill chain linking failed");
+    } finally {
+      setSkillChainsLoading(false);
+    }
+  };
+
   // Auto-seed skills on first load
   useEffect(() => {
     if (!skillsLoading && skills.length === 0 && user && !seeding) {
