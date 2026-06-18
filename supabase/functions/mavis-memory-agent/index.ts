@@ -277,8 +277,54 @@ serve(async (req) => {
         break;
       }
 
+      // ── COMPARE PERIODS ──────────────────────────────────────────────────────
+      // Episodic temporal reasoning: what changed between two time windows?
+      case "compare_periods": {
+        const { period_a_start_days = 60, period_a_end_days = 30, period_b_days = 7, topic, limit = 25 } = p as Record<string, unknown>;
+        const now = Date.now();
+        const msPerDay = 86_400_000;
+
+        const periodAStart = now - (period_a_start_days as number) * msPerDay;
+        const periodAEnd   = now - (period_a_end_days as number)   * msPerDay;
+        const periodBStart = now - (period_b_days as number)        * msPerDay;
+
+        const [{ data: memA }, { data: memB }] = await Promise.all([
+          adminSb.from("mavis_memory")
+            .select("content, timestamp, tags, importance_score")
+            .eq("user_id", userId)
+            .gte("timestamp", periodAStart)
+            .lte("timestamp", periodAEnd)
+            .gte("importance_score", 2)
+            .order("timestamp", { ascending: false })
+            .limit(limit as number),
+          adminSb.from("mavis_memory")
+            .select("content, timestamp, tags, importance_score")
+            .eq("user_id", userId)
+            .gte("timestamp", periodBStart)
+            .gte("importance_score", 2)
+            .order("timestamp", { ascending: false })
+            .limit(limit as number),
+        ]);
+
+        const aText = formatMemoriesForContext((memA ?? []) as Record<string, unknown>[]);
+        const bText = formatMemoriesForContext((memB ?? []) as Record<string, unknown>[]);
+
+        const analysis = await callClaude(
+          `You are analyzing memory snapshots from two different time periods for the same person. Produce a concise but insightful temporal analysis covering: (1) what challenges/stresses existed in Period A that appear resolved in Period B, (2) what new challenges or opportunities emerged, (3) measurable progress toward goals, (4) the most significant arc or shift and what it means for the person's trajectory.${topic ? ` Focus on: ${topic}.` : ""} Be specific, reference actual content from the memories, and draw non-obvious insights.`,
+          `PERIOD A (${period_a_start_days}–${period_a_end_days} days ago):\n${aText || "No memories found for this window"}\n\n---\n\nPERIOD B (last ${period_b_days} days):\n${bText || "No memories found for this window"}`,
+          "claude-haiku-4-5-20251001",
+        );
+
+        result = {
+          analysis,
+          period_a: { start_days_ago: period_a_start_days, end_days_ago: period_a_end_days, memory_count: (memA ?? []).length },
+          period_b: { start_days_ago: period_b_days, memory_count: (memB ?? []).length },
+        };
+        break;
+      }
+
       default:
-        throw new Error(`Unknown memory action: ${action}. Supported: save_memory, retrieve_memories, send_to_telegram, send_to_email`);
+        throw new Error(`Unknown memory action: ${action}. Supported: save_memory, retrieve_memories, send_to_telegram, send_to_email, compare_periods`);
     }
 
     return new Response(JSON.stringify(result), {
