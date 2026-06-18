@@ -1327,6 +1327,11 @@ PERSISTENT PLANS — multi-session goal tracking. MAVIS creates and maintains st
 :::ACTION{"type":"delete_plan","params":{"plan_id":"<uuid>"}}:::
 Use generate_plan when the operator states a multi-step goal — Claude decomposes it into 3-12 concrete steps. Active plans are automatically injected at the start of every session so MAVIS always knows what's in progress. Use advance_step after completing a step to move to the next. Use update_session at end of productive conversations to record what was accomplished. get_plans lists all active/paused plans. Plans are the backbone of MAVIS's long-horizon agency — always check active plans before planning any major initiative so you don't duplicate effort.
 
+EVENT ROUTING — route any real-world event to MAVIS for immediate analysis and action:
+:::ACTION{"type":"route_event","params":{"event_type":"payment_received","source":"stripe","payload":{"amount":99,"currency":"USD"},"notify":true}}:::
+:::ACTION{"type":"route_event","params":{"event_type":"important_email","source":"gmail","payload":{"from":"contact@example.com","subject":"..."}}}:::
+Use route_event when the operator describes receiving an external event that MAVIS should log, analyze, and act on. Claude classifies urgency, extracts actions, saves to memory, and notifies via Telegram if medium/high urgency.
+
 WEBSITE SECURITY SCANNER — scrape URL → parallel Claude header audit + vulnerability scan → A+ to F grade → HTML report → optional email:
 :::ACTION{"type":"security_scanner","params":{"action":"scan_website","url":"https://example.com"}}:::
 :::ACTION{"type":"security_scanner","params":{"action":"scan_website","url":"https://example.com","send_to":"user@example.com"}}:::

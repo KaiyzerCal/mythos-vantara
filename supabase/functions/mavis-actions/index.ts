@@ -3429,6 +3429,18 @@ async function executeAction(sb: any, userId: string, action: MavisAction, req: 
       return data;
     }
 
+    case "route_event": {
+      const res = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-event-router`, {
+        method:  "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
+        body:    JSON.stringify({ userId, event_type: p.event_type ?? "manual", source: p.source ?? "mavis", payload: p.payload ?? p, notify: p.notify ?? true }),
+        signal:  AbortSignal.timeout(45_000),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((data as any).error ?? `event-router returned ${res.status}`);
+      return data;
+    }
+
     default:
       throw new Error(`Unknown MAVIS action: ${action.type}`);
   }
