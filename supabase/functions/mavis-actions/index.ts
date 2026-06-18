@@ -3473,6 +3473,104 @@ async function executeAction(sb: any, userId: string, action: MavisAction, req: 
       return data;
     }
 
+    // ── A2A: Agent-to-Agent protocol ────────────────────────
+    case "call_a2a_agent":
+    case "agent_card": {
+      const SB_URL = Deno.env.get("SUPABASE_URL")!;
+      const SRK    = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+      const res = await fetch(`${SB_URL}/functions/v1/mavis-a2a`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${SRK}`, "X-Mavis-User-Id": userId },
+        body: JSON.stringify({ action: action.type, userId, ...p }),
+        signal: AbortSignal.timeout(45_000),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((data as any).error ?? `mavis-a2a returned ${res.status}`);
+      return data;
+    }
+
+    // ── Agent Evaluation ────────────────────────────────────
+    case "evaluate_conversations":
+    case "get_eval_history": {
+      const SB_URL = Deno.env.get("SUPABASE_URL")!;
+      const SRK    = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+      const res = await fetch(`${SB_URL}/functions/v1/mavis-eval`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${SRK}` },
+        body: JSON.stringify({ userId, action: action.type, ...p }),
+        signal: AbortSignal.timeout(60_000),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((data as any).error ?? `mavis-eval returned ${res.status}`);
+      return data;
+    }
+
+    // ── MCP: expose MAVIS as an MCP tool source ─────────────
+    case "mcp_call": {
+      const SB_URL = Deno.env.get("SUPABASE_URL")!;
+      const SRK    = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+      const res = await fetch(`${SB_URL}/functions/v1/mavis-mcp`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${SRK}`, "X-Mavis-User-Id": userId },
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: p.method ?? "tools/list", params: p.params ?? {} }),
+        signal: AbortSignal.timeout(45_000),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((data as any).error ?? `mavis-mcp returned ${res.status}`);
+      return data;
+    }
+
+    // ── Agent Identity: sign and verify autonomous actions ───
+    case "generate_keypair":
+    case "sign_action":
+    case "verify_action":
+    case "get_identity": {
+      const SB_URL = Deno.env.get("SUPABASE_URL")!;
+      const SRK    = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+      const res = await fetch(`${SB_URL}/functions/v1/mavis-agent-identity`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${SRK}` },
+        body: JSON.stringify({ userId, action: action.type, ...p }),
+        signal: AbortSignal.timeout(20_000),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((data as any).error ?? `mavis-agent-identity returned ${res.status}`);
+      return data;
+    }
+
+    // ── Vision Loop: screenshot → Claude vision → action ────
+    case "vision_loop":
+    case "vision_analyze": {
+      const SB_URL = Deno.env.get("SUPABASE_URL")!;
+      const SRK    = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+      const res = await fetch(`${SB_URL}/functions/v1/mavis-vision-agent`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${SRK}` },
+        body: JSON.stringify({ userId, action: action.type, ...p }),
+        signal: AbortSignal.timeout(120_000),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((data as any).error ?? `mavis-vision-agent returned ${res.status}`);
+      return data;
+    }
+
+    // ── Signal Watcher: proactive signal management ──────────
+    case "get_signal_configs":
+    case "upsert_signal_config":
+    case "delete_signal_config": {
+      const SB_URL = Deno.env.get("SUPABASE_URL")!;
+      const SRK    = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+      const res = await fetch(`${SB_URL}/functions/v1/mavis-signal-watcher`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${SRK}` },
+        body: JSON.stringify({ userId, action: action.type, ...p }),
+        signal: AbortSignal.timeout(20_000),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((data as any).error ?? `mavis-signal-watcher returned ${res.status}`);
+      return data;
+    }
+
     default:
       throw new Error(`Unknown MAVIS action: ${action.type}`);
   }
