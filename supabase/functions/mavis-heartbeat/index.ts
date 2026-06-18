@@ -102,22 +102,87 @@ async function runHeartbeatForUser(sb: any, userId: string): Promise<Record<stri
     }
   }
 
-  // ── 4. Active plans check ─────────────────────────────────────────────────
+  // ── 4. Active plans — autonomous step execution ───────────────────────────
   const { data: activePlans } = await sb
     .from("mavis_plans")
-    .select("title, current_step, steps")
+    .select("id, title, current_step, steps")
     .eq("user_id", userId)
     .eq("status", "active")
     .limit(3);
 
   if (activePlans?.length) {
-    const planSummary = (activePlans as any[]).map((p: any) => {
-      const steps = Array.isArray(p.steps) ? p.steps : [];
-      const current = steps[p.current_step];
-      return `${p.title} — Step ${p.current_step + 1}/${steps.length}${current ? `: ${String(current.step ?? "").slice(0, 60)}` : ""}`;
-    }).join("\n");
-    alerts.push(`🎯 <b>Active Plans</b>:\n${planSummary}`);
     (log.checks as any).active_plans = activePlans.length;
+    let autoExecuted = 0;
+
+    // Keywords that indicate a step can be executed autonomously
+    const AUTO_KEYWORDS   = /search|research|look up|find info|draft|write|summarize|review|analyze|check/i;
+    // Keywords that require human involvement — skip auto-execution
+    const HUMAN_KEYWORDS  = /\bcall\b|\bmeet\b|\btalk\b|\bdecide\b|\bchoose\b|\bbuy\b|\bapprove\b/i;
+
+    for (const plan of activePlans as any[]) {
+      const steps = Array.isArray(plan.steps) ? plan.steps : [];
+      const current = steps[plan.current_step];
+      const stepDesc = String(current?.step ?? current?.description ?? "").trim();
+      const stepNum  = plan.current_step + 1;
+      const stepTotal = steps.length;
+
+      if (!stepDesc) {
+        alerts.push(`🎯 <b>Active Plan</b>: "${plan.title}" — Step ${stepNum}/${stepTotal} (no description)`);
+        continue;
+      }
+
+      const canAuto  = AUTO_KEYWORDS.test(stepDesc) && !HUMAN_KEYWORDS.test(stepDesc);
+      const needsHuman = HUMAN_KEYWORDS.test(stepDesc);
+
+      if (canAuto) {
+        // Determine action type from step text for mavis-actions
+        let actionType = "create_note";
+        if (/search|look up|find info/i.test(stepDesc))   actionType = "web_search";
+        else if (/research/i.test(stepDesc))               actionType = "web_search";
+        else if (/draft|write/i.test(stepDesc))            actionType = "create_note";
+        else if (/summarize|review|analyze|check/i.test(stepDesc)) actionType = "create_note";
+
+        // Fire action (fire-and-forget)
+        fetch(`${SB_URL}/functions/v1/mavis-actions`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${SB_SRK}` },
+          body: JSON.stringify({
+            userId,
+            actions: [{
+              type: actionType,
+              params: {
+                query:   stepDesc.slice(0, 120),
+                content: `Auto-executed plan step: ${stepDesc}`,
+                title:   `Plan step: ${plan.title} — Step ${stepNum}`,
+              },
+            }],
+          }),
+          signal: AbortSignal.timeout(20_000),
+        }).catch(() => {});
+
+        // Advance the plan step
+        fetch(`${SB_URL}/functions/v1/mavis-plans`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${SB_SRK}` },
+          body: JSON.stringify({
+            userId,
+            action:  "advance_step",
+            plan_id: plan.id,
+            notes:   "Auto-executed by MAVIS heartbeat",
+          }),
+          signal: AbortSignal.timeout(20_000),
+        }).catch(() => {});
+
+        autoExecuted++;
+        alerts.push(`✅ <b>Plan Auto-step</b>: "${plan.title}" — executed Step ${stepNum}/${stepTotal}: ${stepDesc.slice(0, 80)}`);
+      } else if (needsHuman) {
+        alerts.push(`🎯 <b>Active Plan</b>: "${plan.title}" — Step ${stepNum}/${stepTotal} needs you: ${stepDesc.slice(0, 80)}`);
+      } else {
+        alerts.push(`🎯 <b>Active Plan</b>: "${plan.title}" — Step ${stepNum}/${stepTotal}: ${stepDesc.slice(0, 80)}`);
+      }
+    }
+
+    (log.checks as any).auto_executed_steps = autoExecuted;
   }
 
   // ── 5. Pending tasks in mavis_tasks ───────────────────────────────────────
