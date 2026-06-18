@@ -1,0 +1,19 @@
+{
+  "name": "MAVIS — VANTARA OS",
+  "short_name": "VANTARA",
+  "description": "MAVIS Personal AI OS — your sovereign intelligence system",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0a0a0f",
+  "theme_color": "#8b5cf6",
+  "orientation": "portrait-primary",
+  "icons": [
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ],
+  "categories": ["productivity", "utilities"],
+  "shortcuts": [
+    { "name": "MAVIS Chat", "url": "/mavis", "description": "Open MAVIS AI chat" },
+    { "name": "Journal", "url": "/journal", "description": "Open Journal" },
+    { "name": "Quests", "url": "/quests", "description": "Open Quests" }
+  ]
+}

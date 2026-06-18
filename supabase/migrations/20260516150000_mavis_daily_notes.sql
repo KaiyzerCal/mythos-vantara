@@ -1,0 +1,24 @@
+-- MAVIS Daily Notes — pg_cron schedule
+-- Fires mavis-daily-notes edge function at 23:55 UTC every day.
+-- Requires pg_cron + pg_net extensions (both available on Supabase hosted).
+-- Run this block AFTER setting your project URL and service role key,
+-- OR set up the schedule via Supabase Dashboard → Database → Cron Jobs.
+--
+-- SELECT cron.schedule(
+--   'mavis-daily-notes',
+--   '55 23 * * *',
+--   $$
+--     SELECT net.http_post(
+--       url     := 'https://YOUR_PROJECT_REF.supabase.co/functions/v1/mavis-daily-notes',
+--       headers := jsonb_build_object(
+--         'Content-Type',  'application/json',
+--         'Authorization', 'Bearer YOUR_SERVICE_ROLE_KEY'
+--       ),
+--       body    := '{}'::jsonb
+--     );
+--   $$
+-- );
+--
+-- Note: The function is idempotent — calling it twice on the same day
+-- will skip creation if the note already exists.
+-- You can also trigger it manually via: /daily in Telegram.
