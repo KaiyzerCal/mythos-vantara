@@ -1147,6 +1147,81 @@ export function SkillsPage() {
       <PageHeader title="Skill Trees" subtitle={`${skills.filter((s) => s.unlocked).length} / ${skills.length} skills unlocked`} icon={<Sparkles size={18} />}
         actions={<button onClick={() => { resetForm(); setShowCreate(true); }} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono bg-primary/10 border border-primary/30 text-primary rounded"><Plus size={12} /> Add Skill</button>}
       />
+
+      {/* Skill Chains */}
+      <HudCard className="border-cyan-500/20 bg-cyan-500/5">
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center gap-2">
+            <Link2 size={12} className="text-cyan-400" />
+            <span className="text-[10px] font-mono text-cyan-400 uppercase tracking-widest">Skill Chains</span>
+            {skillChains.length > 0 && (
+              <span className="text-[9px] font-mono text-muted-foreground">({skillChains.length})</span>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={autoLinkSkillChains}
+              disabled={skillChainsLoading}
+              className="flex items-center gap-1 px-2 py-1 text-[9px] font-mono text-cyan-400 border border-cyan-500/30 rounded hover:bg-cyan-500/10 transition-all disabled:opacity-50"
+            >
+              {skillChainsLoading ? <Loader2 size={9} className="animate-spin" /> : <Wand2 size={9} />}
+              {skillChainsLoading ? "Linking..." : "AI Generate"}
+            </button>
+            <button onClick={() => setSkillChainsPanelOpen((v) => !v)} className="text-muted-foreground hover:text-foreground transition-colors">
+              <ChevronRight size={12} className={`transition-transform ${skillChainsPanelOpen ? "rotate-90" : ""}`} />
+            </button>
+          </div>
+        </div>
+        {skillChainsPanelOpen && (
+          skillChains.length === 0 ? (
+            <p className="text-[10px] font-mono text-muted-foreground/60 text-center py-2">
+              No chains yet — click "AI Generate" to let MAVIS detect skill progression paths
+            </p>
+          ) : (
+            <div className="space-y-3">
+              {skillChains.map((chain: any) => (
+                <div key={chain.id} className="space-y-1.5">
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] font-display font-bold text-foreground">{chain.title}</span>
+                    {chain.category && (
+                      <span className="text-[8px] font-mono text-cyan-400/70 border border-cyan-500/20 rounded px-1.5 py-0.5">{chain.category}</span>
+                    )}
+                  </div>
+                  {chain.description && (
+                    <p className="text-[9px] font-body text-muted-foreground/70 leading-relaxed">{chain.description}</p>
+                  )}
+                  <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
+                    {(chain.items ?? []).map((item: any, idx: number) => {
+                      const s = skills.find((sx: any) => sx.id === item.skill_id);
+                      if (!s) return null;
+                      const prof = Number(s.proficiency ?? 0);
+                      const isMastered = prof >= 80;
+                      const isLearning = prof > 0 && prof < 80;
+                      return (
+                        <div key={item.skill_id} className="flex items-center gap-1.5 shrink-0">
+                          {idx > 0 && <ChevronRight size={10} className="text-cyan-500/40 shrink-0" />}
+                          <div className={`rounded px-2 py-1.5 border text-[9px] font-mono shrink-0 min-w-[80px] max-w-[130px] ${
+                            isMastered ? "bg-green-500/10 border-green-500/30 text-green-400" :
+                            isLearning ? "bg-cyan-500/10 border-cyan-500/30 text-cyan-400" :
+                            "bg-muted/10 border-border/30 text-muted-foreground/60"
+                          }`}>
+                            <div className="truncate font-bold">{s.name}</div>
+                            <div className="text-[8px] opacity-70 mt-0.5">
+                              {isMastered ? "✓ Mastered" : isLearning ? `${prof}%` : "○ Locked"} · T{s.tier}
+                            </div>
+                            <div className={`h-0.5 rounded mt-1 ${isMastered ? "bg-green-400" : "bg-cyan-500/30"}`} style={{ width: `${prof}%` }} />
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )
+        )}
+      </HudCard>
+
       {showCreate && !editingId && (
         <HudCard className="border-primary/20">
           <p className="text-[9px] font-mono text-primary uppercase tracking-widest mb-3">{form.parent_skill_id ? "New Subskill" : "New Skill"}</p>
