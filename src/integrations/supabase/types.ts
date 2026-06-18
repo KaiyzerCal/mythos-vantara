@@ -2688,6 +2688,45 @@ export type Database = {
           },
         ]
       }
+      mavis_agent_traces: {
+        Row: {
+          action_type: string
+          created_at: string | null
+          duration_ms: number | null
+          id: string
+          iteration: number
+          ok: boolean
+          params: Json | null
+          result: Json | null
+          session_id: string | null
+          user_id: string
+        }
+        Insert: {
+          action_type: string
+          created_at?: string | null
+          duration_ms?: number | null
+          id?: string
+          iteration?: number
+          ok?: boolean
+          params?: Json | null
+          result?: Json | null
+          session_id?: string | null
+          user_id: string
+        }
+        Update: {
+          action_type?: string
+          created_at?: string | null
+          duration_ms?: number | null
+          id?: string
+          iteration?: number
+          ok?: boolean
+          params?: Json | null
+          result?: Json | null
+          session_id?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
       mavis_plans: {
         Row: {
           context: Json | null
@@ -3962,6 +4001,75 @@ export type Database = {
         }
         Relationships: []
       }
+      quest_chain_items: {
+        Row: {
+          chain_id: string
+          id: string
+          position: number
+          quest_id: string
+        }
+        Insert: {
+          chain_id: string
+          id?: string
+          position?: number
+          quest_id: string
+        }
+        Update: {
+          chain_id?: string
+          id?: string
+          position?: number
+          quest_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "quest_chain_items_chain_id_fkey"
+            columns: ["chain_id"]
+            isOneToOne: false
+            referencedRelation: "quest_chains"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "quest_chain_items_quest_id_fkey"
+            columns: ["quest_id"]
+            isOneToOne: false
+            referencedRelation: "quests"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      quest_chains: {
+        Row: {
+          category: string | null
+          created_at: string | null
+          description: string | null
+          id: string
+          status: string
+          title: string
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          category?: string | null
+          created_at?: string | null
+          description?: string | null
+          id?: string
+          status?: string
+          title: string
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          category?: string | null
+          created_at?: string | null
+          description?: string | null
+          id?: string
+          status?: string
+          title?: string
+          updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
       quests: {
         Row: {
           buff_effects: Json
@@ -4293,6 +4401,72 @@ export type Database = {
           items_synced?: number | null
           memories_created?: number | null
           synced_at?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
+      skill_chain_items: {
+        Row: {
+          chain_id: string
+          id: string
+          position: number
+          skill_id: string
+        }
+        Insert: {
+          chain_id: string
+          id?: string
+          position?: number
+          skill_id: string
+        }
+        Update: {
+          chain_id?: string
+          id?: string
+          position?: number
+          skill_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "skill_chain_items_chain_id_fkey"
+            columns: ["chain_id"]
+            isOneToOne: false
+            referencedRelation: "skill_chains"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "skill_chain_items_skill_id_fkey"
+            columns: ["skill_id"]
+            isOneToOne: false
+            referencedRelation: "skills"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      skill_chains: {
+        Row: {
+          category: string | null
+          created_at: string | null
+          description: string | null
+          id: string
+          title: string
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          category?: string | null
+          created_at?: string | null
+          description?: string | null
+          id?: string
+          title: string
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          category?: string | null
+          created_at?: string | null
+          description?: string | null
+          id?: string
+          title?: string
+          updated_at?: string | null
           user_id?: string
         }
         Relationships: []
