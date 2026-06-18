@@ -2472,6 +2472,59 @@ You always know the current date and time without being told. Reference it natur
       }
     } catch { /* non-critical */ }
 
+    // ── Semantic memory context (pgvector) ─────────────────────────────────
+    // Embed the current user message, find the most relevant memories, inject them.
+    let semanticMemoryBlock = "";
+    try {
+      if (openaiKey && lastUserText.length > 10) {
+        const embedRes = await fetch("https://api.openai.com/v1/embeddings", {
+          method: "POST",
+          headers: { "Authorization": `Bearer ${openaiKey}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ model: "text-embedding-3-small", input: lastUserText.slice(0, 8000) }),
+          signal: AbortSignal.timeout(8_000),
+        });
+        if (embedRes.ok) {
+          const embedData = await embedRes.json();
+          const embedding = embedData.data?.[0]?.embedding;
+          if (embedding) {
+            const { data: semMems } = await sb.rpc("match_mavis_memories", {
+              query_embedding: embedding,
+              match_user_id:   user.id,
+              match_threshold: 0.72,
+              match_count:     8,
+            });
+            if (semMems?.length) {
+              const lines = (semMems as any[]).map((m: any, i: number) => {
+                const ts = m.timestamp ? new Date(m.timestamp as number).toISOString().slice(0, 10) : "";
+                const tags = Array.isArray(m.tags) && m.tags.length ? ` [${(m.tags as string[]).join(", ")}]` : "";
+                return `${i + 1}. [${ts}${tags}] ${String(m.content).slice(0, 400)}`;
+              });
+              semanticMemoryBlock = `\n═══ RELEVANT MEMORIES (semantic match to this query) ═══\n${lines.join("\n\n")}\n═══ END MEMORIES ═══`;
+            }
+          }
+        }
+      }
+    } catch { /* non-critical */ }
+
+    // ── World model injection ───────────────────────────────────────────────
+    // AI-synthesized snapshot of operator's current life state — built by mavis-world-model.
+    let worldModelBlock = "";
+    try {
+      const { data: wm } = await sb
+        .from("mavis_world_model")
+        .select("summary, trajectory, key_insights, opportunities, risks")
+        .eq("user_id", user.id)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (wm) {
+        const insights   = Array.isArray(wm.key_insights)   ? (wm.key_insights as string[]).slice(0, 3).join(" | ")   : "";
+        const opps       = Array.isArray(wm.opportunities)   ? (wm.opportunities as string[]).slice(0, 2).join(" | ")  : "";
+        const risks      = Array.isArray(wm.risks)           ? (wm.risks as string[]).slice(0, 2).join(" | ")          : "";
+        worldModelBlock  = `\n═══ WORLD MODEL (operator current state) ═══\n${wm.summary ?? ""}${wm.trajectory ? `\nTrajectory: ${wm.trajectory}` : ""}${insights ? `\nInsights: ${insights}` : ""}${opps ? `\nOpportunities: ${opps}` : ""}${risks ? `\nRisks: ${risks}` : ""}\n═══ END WORLD MODEL ═══`;
+      }
+    } catch { /* non-critical */ }
+
     // ── Active plans injection ──────────────────────────────────────────────
     let plansBlock = "";
     try {
@@ -2499,8 +2552,10 @@ You always know the current date and time without being told. Reference it natur
       authoritativeContext,
       compressBlock(userModelBlock),
       compressBlock(tacitBlock),
+      worldModelBlock,
       compressBlock(naviBlock),
       compressBlock(knowledgeBlock),
+      semanticMemoryBlock,
       attachmentsBlock,
       proactiveBlock,
       plansBlock,
@@ -2572,7 +2627,16 @@ You always know the current date and time without being told. Reference it natur
                   if (totalActions >= REACT_MAX_ACTIONS) break;
                   controller.enqueue(enc.encode(`data: ${JSON.stringify({ step: "action", type: block.type, status: "running" })}\n\n`));
                   const _traceStartStream = Date.now();
-                  const { ok, result } = await executeAgentAction(supabaseUrl, serviceKey, user.id, block.type, block.params);
+                  let { ok, result } = await executeAgentAction(supabaseUrl, serviceKey, user.id, block.type, block.params);
+                  // ── Failure recovery: retry once with 1.5s backoff ──────────
+                  if (!ok) {
+                    await new Promise(r => setTimeout(r, 1500));
+                    const retry = await executeAgentAction(supabaseUrl, serviceKey, user.id, block.type, block.params);
+                    if (retry.ok) {
+                      ok = true; result = retry.result;
+                      controller.enqueue(enc.encode(`data: ${JSON.stringify({ step: "retry", type: block.type, ok: true, attempt: 2 })}\n\n`));
+                    }
+                  }
                   toolResults.push({ type: block.type, ok, result });
                   totalActions++;
                   sb.from("mavis_agent_traces").insert({ user_id: user.id, session_id: conversationId ?? "streaming", iteration: reactIter + 1, action_type: block.type, params: block.params as any, result: result as any, ok, duration_ms: Date.now() - _traceStartStream }).catch(() => {});
@@ -2845,7 +2909,12 @@ You always know the current date and time without being told. Reference it natur
         for (const block of blocks) {
           if (totalActions >= REACT_MAX_ACTIONS) break;
           const _traceStartNS = Date.now();
-          const { ok, result } = await executeAgentAction(supabaseUrl, serviceKey, user.id, block.type, block.params);
+          let { ok, result } = await executeAgentAction(supabaseUrl, serviceKey, user.id, block.type, block.params);
+          if (!ok) {
+            await new Promise(r => setTimeout(r, 1500));
+            const retry = await executeAgentAction(supabaseUrl, serviceKey, user.id, block.type, block.params);
+            if (retry.ok) { ok = true; result = retry.result; }
+          }
           toolResults.push({ type: block.type, ok, result });
           totalActions++;
           sb.from("mavis_agent_traces").insert({ user_id: user.id, session_id: conversationId ?? "non-stream", iteration: reactIter + 1, action_type: block.type, params: block.params as any, result: result as any, ok, duration_ms: Date.now() - _traceStartNS }).catch(() => {});
