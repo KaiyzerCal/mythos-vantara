@@ -3194,6 +3194,21 @@ async function executeAction(sb: any, userId: string, action: MavisAction, req: 
       return data;
     }
 
+    case "website_qa": {
+      // Live website Q&A: list_links → pick best → get_page → Claude answer.
+      // Mirrors n8n "AI Customer-Support Assistant" — no external scraping API needed.
+      // answer_from_website runs up to 2 link rounds + 8 page fetches (exact n8n limits).
+      const res = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-website-qa`, {
+        method:  "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
+        body:    JSON.stringify({ userId, ...p }),
+        signal:  AbortSignal.timeout(120000), // 2 min: multiple page fetches + 2 Claude calls
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((data as any).error ?? `mavis-website-qa returned ${res.status}`);
+      return data;
+    }
+
     case "instagram_trends": {
       // Scrape top hashtag posts → deduplicate → Claude vision + caption → fal.ai image → IG publish.
       // Mirrors n8n: RapidAPI scrape → DB dedup → GPT vision → caption → Flux → IG 2-step upload.
