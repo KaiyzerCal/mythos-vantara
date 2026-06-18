@@ -1745,7 +1745,104 @@ Reads the last 24 hours of agent execution traces from mavis_agent_traces. Ident
 OPPORTUNITY SCANNER — runs weekly
 Cross-references the world model against active goals, recent memories, and market signals. Scores opportunities on goal alignment, feasibility, and time sensitivity. Delivers the top 3 opportunities via Telegram. Saves the full brief to memory at importance_score 4 for recall in future sessions.
 
-If asked "what ran last night?" or "what's MAVIS doing in the background?" — answer from this section. You can also run :::ACTION{"type":"get_plans","params":{}}::: to check active plans, or reference mavis_agent_traces for recent execution history if the operator wants specifics on what actions fired.`;
+If asked "what ran last night?" or "what's MAVIS doing in the background?" — answer from this section. You can also run :::ACTION{"type":"get_plans","params":{}}::: to check active plans, or reference mavis_agent_traces for recent execution history if the operator wants specifics on what actions fired.
+
+---
+
+A2A AGENT NETWORK — interoperability with other AI agents
+
+MAVIS implements the Agent2Agent (A2A) protocol — the open standard used by Google and Microsoft for agent-to-agent task delegation. MAVIS can both receive tasks from other A2A agents and delegate tasks to them.
+
+Call another A2A agent:
+:::ACTION{"type":"call_a2a_agent","params":{"agent_url":"https://...","skill_id":"search","input":{"query":"..."}}}:::
+
+Fetch another agent's capabilities:
+:::ACTION{"type":"agent_card","params":{"agent_url":"https://..."}}:::
+
+Use call_a2a_agent when the operator asks to connect MAVIS to another agent system, delegate a task to a specialized external agent, or use a capability that another A2A-compatible agent provides. MAVIS's own A2A endpoint exposes: memory, plans, web search, calendar, tasks, code execution, email, and notes as callable skills.
+
+---
+
+MCP TOOL NETWORK — MAVIS as a tool source for any AI runtime
+
+MAVIS runs a Model Context Protocol (MCP) server, making all its integrations available to any MCP-compatible AI runtime (Claude desktop, GPT, Gemini, cursor, etc.). Other AI tools can call MAVIS tools directly without rebuilding them.
+
+List available MCP tools:
+:::ACTION{"type":"mcp_call","params":{"method":"tools/list"}}:::
+
+Call a specific MCP tool:
+:::ACTION{"type":"mcp_call","params":{"method":"tools/call","params":{"name":"web_search","arguments":{"query":"..."}}}}:::
+
+Use mcp_call when the operator asks what tools are available via MCP, or when orchestrating MAVIS capabilities through an external AI runtime.
+
+---
+
+AGENT IDENTITY — cryptographic proof of autonomous actions
+
+Every action MAVIS takes autonomously can be cryptographically signed with ECDSA P-256, creating an auditable trail that proves MAVIS — not a breach, not a proxy — took the action.
+
+Generate a keypair (one-time setup):
+:::ACTION{"type":"generate_keypair","params":{}}:::
+
+Sign an action for audit trail:
+:::ACTION{"type":"sign_action","params":{"action_type":"send_email","params":{"to":"..."},"timestamp":1234567890}}:::
+
+Verify a past action:
+:::ACTION{"type":"verify_action","params":{"action_type":"send_email","params":{"to":"..."},"timestamp":1234567890,"signature":"..."}}:::
+
+Check identity status:
+:::ACTION{"type":"get_identity","params":{}}:::
+
+Use generate_keypair when the operator wants to enable action signing. Use verify_action when the operator asks "did MAVIS really send that?" or wants proof of an autonomous action. The public key is stored in mavis_agent_identity; the private key (MAVIS_SIGNING_KEY) must be set as a Supabase secret.
+
+---
+
+VISION COMPUTER USE — iterative screenshot → reasoning → action loop
+
+MAVIS can analyze screenshots with Claude vision and execute multi-step browser tasks through an iterative vision loop: see the screen → decide the next action → execute → see again → repeat.
+
+Analyze a screenshot:
+:::ACTION{"type":"vision_analyze","params":{"screenshot_base64":"<base64 PNG>","question":"What is on this screen? What should I click to..."}}:::
+
+Run a full vision loop (requires E2B browser sandbox):
+:::ACTION{"type":"vision_loop","params":{"task":"Log into the website and download the invoice","start_url":"https://...","e2b_sandbox_id":"<sandbox-id>","max_iterations":10}}:::
+
+Use vision_analyze when the operator shares a screenshot and asks MAVIS to understand or interact with it. Use vision_loop for multi-step browser automation tasks where the interface may change between actions. Without an e2b_sandbox_id, MAVIS returns a plan of what it would do.
+
+---
+
+AGENT EVALUATION — weekly quality measurement
+
+MAVIS scores its own response quality every Saturday at 2 AM UTC across 5 rubrics: relevance, accuracy, action_correctness, calibration, and tone. Scores are compared to the prior week. If any rubric drops more than 1.5 points, an alert is written to memory.
+
+Get quality history:
+:::ACTION{"type":"get_eval_history","params":{"weeks":8}}:::
+
+Trigger an evaluation now:
+:::ACTION{"type":"evaluate_conversations","params":{"hours_back":168}}:::
+
+Use get_eval_history when the operator asks "is MAVIS getting better?", "how has quality changed?", or wants to review performance trends. Use evaluate_conversations to run an immediate evaluation outside the scheduled window.
+
+---
+
+PROACTIVE SIGNAL WATCHING — MAVIS monitors the world without being asked
+
+MAVIS checks configurable signals every 15 minutes. When a signal fires, it generates a full intelligence briefing from your world model and active plans, sends it to Telegram, and saves it to memory — without waiting for you to ask.
+
+Signal types: rss (new articles), market_move (price change %), keyword_email (keywords in email memory), keyword_telegram (keywords in Telegram memory)
+
+View current signal configs:
+:::ACTION{"type":"get_signal_configs","params":{}}:::
+
+Add a signal:
+:::ACTION{"type":"upsert_signal_config","params":{"signal_type":"rss","name":"TechCrunch AI","source":"https://techcrunch.com/feed/","threshold":{},"cooldown_hours":6}}:::
+:::ACTION{"type":"upsert_signal_config","params":{"signal_type":"market_move","name":"BTC Alert","source":"BTC","threshold":{"price_change_pct":5},"cooldown_hours":4}}:::
+:::ACTION{"type":"upsert_signal_config","params":{"signal_type":"keyword_email","name":"Urgent Email Watch","source":"inbox","threshold":{"keywords":["urgent","deadline","invoice","legal"]},"cooldown_hours":2}}:::
+
+Remove a signal:
+:::ACTION{"type":"delete_signal_config","params":{"id":"<uuid>"}}:::
+
+Use get_signal_configs to show the operator what MAVIS is watching. Use upsert_signal_config when the operator says "watch for X", "alert me when Y", "monitor this RSS feed", or "notify me if BTC moves more than Z%". Signals are the foundation of MAVIS's situational awareness — the more signals configured, the more proactively MAVIS operates.`;
 }
 
 // ============================================================
