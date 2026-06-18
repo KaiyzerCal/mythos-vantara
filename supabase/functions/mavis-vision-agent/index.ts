@@ -5,6 +5,7 @@
 //
 // Actions: analyze | ocr | describe | extract_license_plate | extract_receipt
 //          extract_document | extract_table | classify | compare
+//          vision_loop | vision_analyze
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
@@ -302,9 +303,233 @@ If multiple tables are present, return the largest/most prominent one. Preserve 
         return json({ comparison: apiData.content?.[0]?.text ?? "" });
       }
 
+      // ── vision_analyze ─────────────────────────────────────────────────────────
+      // Standalone screenshot / image analysis — no browser required.
+      // Input: { screenshot_base64: string, question: string }
+      case "vision_analyze": {
+        const screenshotB64 = String(body.screenshot_base64 ?? body.image_base64 ?? "");
+        const question      = String(body.question ?? body.prompt ?? "Describe what you see in this screenshot.");
+
+        if (!screenshotB64) return json({ error: "screenshot_base64 is required for vision_analyze" }, 400);
+
+        const imgSrc: ImageSource = {
+          type:       "base64",
+          media_type: String(body.media_type ?? "image/png"),
+          data:       screenshotB64.replace(/^data:[^;]+;base64,/, ""),
+        };
+
+        const analysis = await callVision(imgSrc, question, model);
+        return json({ analysis, question });
+      }
+
+      // ── vision_loop ────────────────────────────────────────────────────────────
+      // Iterative screenshot → Claude vision → action → screenshot cycle.
+      // Requires a running browser environment (E2B sandbox) to execute actions.
+      // If no e2b_sandbox_id is given, performs analysis only if screenshot_base64
+      // is provided; otherwise returns a requires_browser response.
+      //
+      // Input: { userId, task, start_url?, max_iterations?, e2b_sandbox_id?,
+      //          screenshot_base64? }
+      case "vision_loop": {
+        const E2B_API_KEY   = Deno.env.get("E2B_API_KEY") ?? "";
+        const task          = String(body.task ?? "");
+        const startUrl      = body.start_url ? String(body.start_url) : null;
+        const maxIterations = Math.min(Number(body.max_iterations ?? 10), 20);
+        const sandboxId     = body.e2b_sandbox_id ? String(body.e2b_sandbox_id) : null;
+        const sessionId     = `vision_loop_${Date.now()}_${uid}`;
+
+        if (!task) return json({ error: "task is required for vision_loop" }, 400);
+
+        // If no browser sandbox and no direct screenshot, inform caller
+        if (!sandboxId && !body.screenshot_base64) {
+          return json({
+            status:             "requires_browser",
+            task,
+            message:            "Provide e2b_sandbox_id with a running browser session to execute the vision loop. Alternatively, supply screenshot_base64 to analyse a single screenshot without browser control.",
+            iterations_planned: maxIterations,
+            start_url:          startUrl,
+          });
+        }
+
+        const VISION_SYSTEM_PROMPT = `You are a browser automation agent. You see a screenshot of a browser and must decide the next single action to complete the task.
+Reply ONLY with JSON: {"action": "click|type|navigate|scroll|done|error", "selector": "CSS selector or null", "text": "text to type or null", "url": "URL to navigate to or null", "scroll_y": number or null, "reason": "why this action", "done": boolean, "result": "final result if done"}
+- Use "done": true when the task is complete
+- Use "error" action if you cannot proceed`;
+
+        async function callClaudeVision(imageBase64: string, userMessage: string): Promise<string> {
+          const res = await fetch("https://api.anthropic.com/v1/messages", {
+            method:  "POST",
+            headers: {
+              "x-api-key":         ANTHROPIC_KEY,
+              "anthropic-version": "2023-06-01",
+              "Content-Type":      "application/json",
+            },
+            body: JSON.stringify({
+              model:      "claude-haiku-4-5-20251001",
+              max_tokens: 1024,
+              system:     VISION_SYSTEM_PROMPT,
+              messages:   [{
+                role:    "user",
+                content: [
+                  { type: "image", source: { type: "base64", media_type: "image/png", data: imageBase64 } },
+                  { type: "text",  text: userMessage },
+                ],
+              }],
+            }),
+            signal: AbortSignal.timeout(30_000),
+          });
+          if (!res.ok) throw new Error(`Claude vision error ${res.status}: ${await res.text().then(t => t.slice(0, 200))}`);
+          const d = await res.json();
+          return d.content?.[0]?.text ?? "";
+        }
+
+        // Helper: get screenshot from E2B sandbox
+        async function getE2BScreenshot(sid: string): Promise<string | null> {
+          if (!E2B_API_KEY || !sid) return null;
+          try {
+            const res = await fetch(`https://api.e2b.dev/sandboxes/${sid}/screenshot`, {
+              method:  "GET",
+              headers: { "X-API-Key": E2B_API_KEY },
+              signal:  AbortSignal.timeout(15_000),
+            });
+            if (!res.ok) return null;
+            const buf = await res.arrayBuffer();
+            return btoa(String.fromCharCode(...new Uint8Array(buf)));
+          } catch {
+            return null;
+          }
+        }
+
+        // Helper: execute browser action in E2B sandbox
+        async function executeE2BAction(sid: string, decision: Record<string, unknown>): Promise<boolean> {
+          if (!E2B_API_KEY || !sid) return false;
+          try {
+            const res = await fetch(`https://api.e2b.dev/sandboxes/${sid}/browser/action`, {
+              method:  "POST",
+              headers: { "X-API-Key": E2B_API_KEY, "Content-Type": "application/json" },
+              body:    JSON.stringify(decision),
+              signal:  AbortSignal.timeout(20_000),
+            });
+            return res.ok;
+          } catch {
+            return false;
+          }
+        }
+
+        // Helper: log iteration to mavis_agent_traces
+        async function logTrace(iteration: number, actionDecision: unknown, actionTaken: unknown, ok: boolean): Promise<void> {
+          await sb.from("mavis_agent_traces").insert({
+            user_id:     uid,
+            session_id:  sessionId,
+            iteration,
+            action_type: "vision_step",
+            params:      { iteration, action_decision: actionDecision, task: task.slice(0, 200) },
+            result:      { action_taken: actionTaken },
+            ok,
+          }).catch(() => {});
+        }
+
+        // ── Main loop ──────────────────────────────────────────────────────────
+
+        // If no sandbox, use the provided screenshot_base64 for a single-shot analysis
+        if (!sandboxId) {
+          const screenshotB64 = String(body.screenshot_base64).replace(/^data:[^;]+;base64,/, "");
+          const raw = await callClaudeVision(screenshotB64, `Task: ${task}\n\nWhat is the current state of the screen and what single action should be taken next?`);
+
+          let decision: Record<string, unknown> = {};
+          try {
+            const match = raw.match(/\{[\s\S]*\}/);
+            decision = match ? JSON.parse(match[0]) : { action: "error", reason: "Could not parse Claude response" };
+          } catch {
+            decision = { action: "error", reason: "JSON parse failure", raw: raw.slice(0, 200) };
+          }
+
+          await logTrace(0, decision, { mode: "single_screenshot_analysis" }, true);
+
+          return json({
+            status:     "analysis_only",
+            task,
+            iterations: 1,
+            decision,
+            message:    "Single-screenshot analysis complete. Provide e2b_sandbox_id to execute actions in a live browser.",
+          });
+        }
+
+        // Full loop with E2B sandbox
+        const iterations: Array<Record<string, unknown>> = [];
+        let finalResult: string | null = null;
+        let loopStatus = "running";
+
+        // Navigate to start URL if provided
+        if (startUrl) {
+          await executeE2BAction(sandboxId, { action: "navigate", url: startUrl });
+          await new Promise((r) => setTimeout(r, 1500)); // brief pause for page load
+        }
+
+        for (let i = 0; i < maxIterations; i++) {
+          // 1. Screenshot
+          const screenshotB64 = await getE2BScreenshot(sandboxId);
+          if (!screenshotB64) {
+            loopStatus = "error";
+            await logTrace(i, { error: "screenshot_failed" }, null, false);
+            iterations.push({ iteration: i, error: "Failed to capture screenshot from E2B sandbox" });
+            break;
+          }
+
+          // 2. Ask Claude what to do
+          const raw = await callClaudeVision(
+            screenshotB64,
+            `Task: ${task}\nIteration: ${i + 1}/${maxIterations}\n\nWhat is the current state and what single action should be taken next?`,
+          );
+
+          let decision: Record<string, unknown> = {};
+          try {
+            const match = raw.match(/\{[\s\S]*\}/);
+            decision = match ? JSON.parse(match[0]) : { action: "error", reason: "Could not parse Claude response" };
+          } catch {
+            decision = { action: "error", reason: "JSON parse failure", raw: raw.slice(0, 200) };
+          }
+
+          // 3. Check termination
+          if (decision.done === true || decision.action === "done") {
+            finalResult = String(decision.result ?? "Task completed");
+            loopStatus  = "done";
+            await logTrace(i, decision, { action_taken: "done" }, true);
+            iterations.push({ iteration: i, decision, action_taken: "done" });
+            break;
+          }
+
+          if (decision.action === "error") {
+            loopStatus = "error";
+            await logTrace(i, decision, { action_taken: "error" }, false);
+            iterations.push({ iteration: i, decision, action_taken: "error" });
+            break;
+          }
+
+          // 4. Execute action in E2B
+          const executed = await executeE2BAction(sandboxId, decision);
+          await logTrace(i, decision, { action_taken: decision.action, executed }, executed);
+          iterations.push({ iteration: i, decision, action_taken: decision.action, executed });
+
+          // 5. Brief pause for UI to settle
+          await new Promise((r) => setTimeout(r, 1000));
+        }
+
+        if (loopStatus === "running") loopStatus = "max_iterations_reached";
+
+        return json({
+          status:      loopStatus,
+          task,
+          iterations:  iterations.length,
+          final_result: finalResult,
+          session_id:  sessionId,
+          log:         iterations,
+        });
+      }
+
       default:
         return json({
-          error: `Unknown action: ${action}. Use: analyze | ocr | describe | classify | extract_license_plate | extract_receipt | extract_document | extract_table | compare`,
+          error: `Unknown action: ${action}. Use: analyze | ocr | describe | classify | extract_license_plate | extract_receipt | extract_document | extract_table | compare | vision_loop | vision_analyze`,
         }, 400);
     }
   } catch (err: unknown) {
