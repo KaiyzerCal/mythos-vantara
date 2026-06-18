@@ -87,6 +87,7 @@ export default function MavisChat() {
   const [realtimeVoiceOpen, setRealtimeVoiceOpen] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const [agentThinking, setAgentThinking] = useState<string | null>(null);
+  const [agentSteps, setAgentSteps] = useState<Array<{step: string; type?: string; ok?: boolean; count?: number; iteration?: number; preview?: string; label?: string}>>([]);
   const [artifactContent, setArtifactContent] = useState<string | null>(null);
   const [artifactLang, setArtifactLang] = useState<string>("text");
   const [ttsEnabled, setTtsEnabled] = useState(false);
@@ -577,6 +578,7 @@ export default function MavisChat() {
     cancelledRef.current = false;
     setInput("");
     setActionStatus(null);
+    setAgentSteps([]);
 
     const abortController = new AbortController();
     abortRef.current = abortController;
@@ -720,12 +722,24 @@ export default function MavisChat() {
               history,
               { mode: chatMode, conversationId, appState: compactState, chatKind: "mavis", threadRef: "main", attachmentIds },
               onToken,
+              (stepEvent) => {
+                if (!cancelledRef.current) {
+                  setAgentSteps(prev => {
+                    const label = stepEvent.type ? `${stepEvent.type}` : "";
+                    if (stepEvent.step === "result" && prev.length > 0 && prev[prev.length - 1].type === stepEvent.type) {
+                      return [...prev.slice(0, -1), { ...stepEvent, label }];
+                    }
+                    return [...prev, { ...stepEvent, label }];
+                  });
+                }
+              },
               abortController.signal,
             );
 
       if (cancelledRef.current) {
         setChatMessages((prev) => prev.filter((m) => m.id !== streamingId));
         setAgentThinking(null);
+        setAgentSteps([]);
         return;
       }
 
@@ -817,6 +831,7 @@ export default function MavisChat() {
     } finally {
       setIsLoading(false);
       setAgentThinking(null);
+      setAgentSteps([]);
       abortRef.current = null;
     }
   }, [input, chatMessages, isLoading, chatMode, agentThinking, profile, quests, tasks, skills, journalEntries, vaultEntries, conversationId, setChatMessages, setConversationId, refetchAll, ensureConversation, persistMessage, saveMemoriesFromResponse, speakText, attachments]);
@@ -1137,6 +1152,19 @@ export default function MavisChat() {
         </button>
       </div>
       </div>
+
+      {/* MAVIS Agent Loop — live ReAct step display */}
+      {isLoading && agentSteps.length > 0 && (
+        <div className="mx-0 mb-1 rounded-lg border border-purple-500/20 bg-purple-950/20 p-3 text-xs font-mono">
+          <div className="mb-1 text-purple-400 font-semibold">⚡ MAVIS Agent Loop</div>
+          {agentSteps.map((s, i) => (
+            <div key={i} className={`flex items-center gap-2 py-0.5 ${s.step === "result" ? (s.ok ? "text-green-400" : "text-red-400") : s.step === "retry" ? "text-yellow-400" : "text-purple-300"}`}>
+              <span>{s.step === "actions_start" ? `🔄 iter ${s.iteration}` : s.step === "action" ? "⏳" : s.step === "result" ? (s.ok ? "✓" : "✗") : s.step === "retry" ? "↻" : "·"}</span>
+              <span>{s.type ?? s.step}{s.count ? ` (${s.count} actions)` : ""}{s.step === "result" && s.preview ? `: ${s.preview.slice(0, 80)}` : ""}</span>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Messages */}
       <div className="relative flex-1 min-h-0">
