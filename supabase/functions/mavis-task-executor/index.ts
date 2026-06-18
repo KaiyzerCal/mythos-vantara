@@ -2118,6 +2118,7 @@ const HANDLERS: Record<string, TaskHandler> = {
   heygen_agent:        makeAgentHandler("mavis-heygen-agent"),
   calendar_agent:      makeAgentHandler("mavis-calendar-agent"),
   security_scanner:    makeAgentHandler("mavis-security-scanner"),
+  chain_builder:       makeAgentHandler("mavis-chain-builder"),
   social_content_pipeline: handleSocialContentPipeline,
   youtube_summary:     handleYoutubeSummary,
   content_digest:      handleContentDigest,

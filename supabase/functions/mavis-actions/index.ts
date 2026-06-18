@@ -3379,6 +3379,33 @@ async function executeAction(sb: any, userId: string, action: MavisAction, req: 
       return { queued: true, task_id: (task as any)?.id };
     }
 
+    // ── CHAIN BUILDER ─────────────────────────────────────────────────────────
+    // Quest chains and skill chains: AI-powered correlation + manual CRUD.
+    // Delegates to mavis-chain-builder edge function.
+    case "auto_link_quest_chains":
+    case "auto_link_skill_chains":
+    case "get_quest_chains":
+    case "get_skill_chains":
+    case "create_quest_chain":
+    case "create_skill_chain":
+    case "update_quest_chain":
+    case "update_skill_chain":
+    case "delete_quest_chain":
+    case "delete_skill_chain":
+    case "add_quest_to_chain":
+    case "add_skill_to_chain":
+    case "chain_builder": {
+      const res = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-chain-builder`, {
+        method:  "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
+        body:    JSON.stringify({ userId, action: action.type === "chain_builder" ? (p.action ?? action.type) : action.type, ...p }),
+        signal:  AbortSignal.timeout(60_000),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((data as any).error ?? `mavis-chain-builder returned ${res.status}`);
+      return data;
+    }
+
     default:
       throw new Error(`Unknown MAVIS action: ${action.type}`);
   }
