@@ -15,6 +15,7 @@ const SB_URL        = Deno.env.get("SUPABASE_URL")!;
 const SB_SRK        = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const ANTHROPIC_KEY = Deno.env.get("ANTHROPIC_API_KEY")!;
 const BOT_TOKEN     = Deno.env.get("TELEGRAM_BOT_TOKEN")!;
+const OPENAI_KEY    = Deno.env.get("OPENAI_API_KEY") ?? "";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -36,6 +37,21 @@ async function callClaude(systemPrompt: string, userPrompt: string, model = "cla
   if (!res.ok) throw new Error(`Claude error ${res.status}`);
   const data = await res.json();
   return (data.content?.[0]?.text ?? "").trim();
+}
+
+async function embedText(text: string): Promise<number[] | null> {
+  if (!OPENAI_KEY) return null;
+  try {
+    const res = await fetch("https://api.openai.com/v1/embeddings", {
+      method: "POST",
+      headers: { "Authorization": `Bearer ${OPENAI_KEY}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ model: "text-embedding-3-small", input: text.slice(0, 8000) }),
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (!res.ok) return null;
+    const d = await res.json();
+    return (d.data?.[0]?.embedding as number[]) ?? null;
+  } catch { return null; }
 }
 
 async function tgSend(chatId: string, text: string): Promise<boolean> {
@@ -88,16 +104,20 @@ serve(async (req) => {
           try { finalTags = JSON.parse(extracted); } catch { finalTags = []; }
         }
 
-        const { error } = await adminSb.from("mavis_memory").insert({
-          user_id:         userId,
+        const embedding = await embedText(memContent);
+        const insertRow: Record<string, unknown> = {
+          user_id:          userId,
           session_id,
           role,
-          content:         memContent.slice(0, 4000),
-          timestamp:       Date.now(),
+          content:          memContent.slice(0, 4000),
+          timestamp:        Date.now(),
           importance_score: importance,
-          consolidated:    false,
-          tags:            finalTags,
-        });
+          consolidated:     false,
+          tags:             finalTags,
+        };
+        if (embedding) insertRow.embedding = JSON.stringify(embedding);
+
+        const { error } = await adminSb.from("mavis_memory").insert(insertRow);
         if (error) throw new Error(`DB insert failed: ${error.message}`);
 
         result = { saved: true, memory: memContent.slice(0, 200), tags: finalTags, importance };
@@ -108,7 +128,25 @@ serve(async (req) => {
       // n8n: GET entire Google Doc content.
       // MAVIS: query mavis_memory with optional filters.
       case "retrieve_memories": {
-        const { tags: filterTags, min_importance = 1, limit = 50, query, days_back } = p as Record<string, unknown>;
+        const { tags: filterTags, min_importance = 1, limit = 50, query, days_back, semantic = false } = p as Record<string, unknown>;
+
+        // Semantic search via pgvector if requested and OpenAI key available
+        if (semantic && query && typeof query === "string" && OPENAI_KEY) {
+          const queryEmbedding = await embedText(query);
+          if (queryEmbedding) {
+            const { data: semRows, error: semErr } = await adminSb.rpc("match_mavis_memories", {
+              query_embedding: queryEmbedding,
+              match_user_id:   userId,
+              match_threshold: 0.7,
+              match_count:     limit as number,
+            });
+            if (!semErr && semRows) {
+              const memories = semRows as Record<string, unknown>[];
+              result = { memories, count: memories.length, formatted: formatMemoriesForContext(memories), method: "semantic" };
+              break;
+            }
+          }
+        }
 
         let q = adminSb.from("mavis_memory")
           .select("content, timestamp, created_at, tags, importance_score, role")
@@ -130,13 +168,12 @@ serve(async (req) => {
 
         const memories = (rows ?? []) as Record<string, unknown>[];
         let filtered = memories;
-        // Simple keyword search on content if query provided
         if (query && typeof query === "string") {
           const lq = query.toLowerCase();
           filtered = memories.filter((r) => (r.content as string).toLowerCase().includes(lq));
         }
 
-        result = { memories: filtered, count: filtered.length, formatted: formatMemoriesForContext(filtered) };
+        result = { memories: filtered, count: filtered.length, formatted: formatMemoriesForContext(filtered), method: "keyword" };
         break;
       }
 

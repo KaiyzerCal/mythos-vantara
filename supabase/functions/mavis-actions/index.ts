@@ -3406,6 +3406,29 @@ async function executeAction(sb: any, userId: string, action: MavisAction, req: 
       return data;
     }
 
+    // ── PERSISTENT PLANS ─────────────────────────────────────────────────────
+    // Long-horizon goal plans that survive across sessions.
+    case "generate_plan":
+    case "create_plan":
+    case "get_plans":
+    case "get_plan":
+    case "update_plan":
+    case "advance_step":
+    case "update_session":
+    case "complete_plan":
+    case "delete_plan": {
+      const planAction = action.type === "mavis_plans" ? (p.action ?? action.type) : action.type;
+      const res = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-plans`, {
+        method:  "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
+        body:    JSON.stringify({ userId, action: planAction, ...p }),
+        signal:  AbortSignal.timeout(60_000),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((data as any).error ?? `mavis-plans returned ${res.status}`);
+      return data;
+    }
+
     default:
       throw new Error(`Unknown MAVIS action: ${action.type}`);
   }

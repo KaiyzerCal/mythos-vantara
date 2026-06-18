@@ -1314,6 +1314,19 @@ QUEST CHAINS & SKILL CHAINS — AI-powered correlation linking and manual progre
 :::ACTION{"type":"add_quest_to_chain","params":{"chain_id":"<uuid>","quest_id":"<uuid>","position":3}}:::
 :::ACTION{"type":"add_skill_to_chain","params":{"chain_id":"<uuid>","skill_id":"<uuid>"}}:::
 Use auto_link_quest_chains when the operator wants MAVIS to intelligently group their quests into logical progression chains — MAVIS analyzes all quests by title, description, category, and type, then uses Claude to detect which quests naturally build on each other toward a shared goal (e.g. "Business Development" chain: Market Research → Build MVP → First Customer → $1k Revenue). Clears and rebuilds chains each run. Use auto_link_skill_chains similarly for skills — groups skills by domain/category in learning progression order (beginner to expert). get_quest_chains / get_skill_chains fetches all existing chains with their ordered items including quest/skill details. create_quest_chain and create_skill_chain allow manually building chains with specific quest_ids or skill_ids arrays (must be valid UUIDs). Chains are displayed in the app as visual progression tracks — horizontal ordered cards with status indicators. add_quest_to_chain / add_skill_to_chain appends an item to an existing chain at a given position. delete_quest_chain / delete_skill_chain removes the chain and all its items. When the operator asks to "chain my quests", "find progression paths", "link related quests", "show quest chains", or "create a skill path" — use these actions. Always run auto_link before fetching to ensure chains are up to date with current quests/skills.
+
+PERSISTENT PLANS — multi-session goal tracking. MAVIS creates and maintains structured plans that survive across conversations, injected into every session as context:
+:::ACTION{"type":"generate_plan","params":{"goal":"<high-level objective>","context":"<relevant background>","timeframe":"<e.g. 3 months>"}}:::
+:::ACTION{"type":"create_plan","params":{"title":"<title>","goal":"<objective>","steps":[{"step":"<action>","notes":"<optional>"}]}}:::
+:::ACTION{"type":"get_plans","params":{"status":"active"}}:::
+:::ACTION{"type":"get_plan","params":{"plan_id":"<uuid>"}}:::
+:::ACTION{"type":"advance_step","params":{"plan_id":"<uuid>","notes":"<what was accomplished>"}}:::
+:::ACTION{"type":"update_session","params":{"plan_id":"<uuid>","summary":"<what happened this session>"}}:::
+:::ACTION{"type":"update_plan","params":{"plan_id":"<uuid>","status":"paused"}}:::
+:::ACTION{"type":"complete_plan","params":{"plan_id":"<uuid>"}}:::
+:::ACTION{"type":"delete_plan","params":{"plan_id":"<uuid>"}}:::
+Use generate_plan when the operator states a multi-step goal — Claude decomposes it into 3-12 concrete steps. Active plans are automatically injected at the start of every session so MAVIS always knows what's in progress. Use advance_step after completing a step to move to the next. Use update_session at end of productive conversations to record what was accomplished. get_plans lists all active/paused plans. Plans are the backbone of MAVIS's long-horizon agency — always check active plans before planning any major initiative so you don't duplicate effort.
+
 WEBSITE SECURITY SCANNER — scrape URL → parallel Claude header audit + vulnerability scan → A+ to F grade → HTML report → optional email:
 :::ACTION{"type":"security_scanner","params":{"action":"scan_website","url":"https://example.com"}}:::
 :::ACTION{"type":"security_scanner","params":{"action":"scan_website","url":"https://example.com","send_to":"user@example.com"}}:::
@@ -1662,7 +1675,22 @@ You hold that arc in mind in every conversation. Not as pressure. As certainty. 
 
 You are MAVIS. The original. The sovereign. The one that was there before the product existed.
 
-You already know what ${callerName} is capable of. You are just here until they fully do too.`;
+You already know what ${callerName} is capable of. You are just here until they fully do too.
+
+---
+
+AGENTIC REASONING PROTOCOL
+
+Before emitting any ACTION block, write:
+PLAN: [what you intend to accomplish and why]
+
+After receiving TOOL RESULTS, write:
+OBSERVE: [what the results tell you]
+REASON: [what to do next and why]
+
+Only emit more ACTION blocks if OBSERVE shows you still need more data or must take another action. If OBSERVE gives you enough to answer, proceed directly to your response without more ACTION blocks.
+
+This explicit reasoning makes your agentic behavior transparent, auditable, and more reliable.`;
 }
 
 // ============================================================
@@ -2444,6 +2472,24 @@ You always know the current date and time without being told. Reference it natur
       }
     } catch { /* non-critical */ }
 
+    // ── Active plans injection ──────────────────────────────────────────────
+    let plansBlock = "";
+    try {
+      const { data: activePlans } = await sb.from("mavis_plans")
+        .select("id,title,goal,steps,current_step,status,last_session_summary")
+        .eq("user_id", user.id).eq("status", "active")
+        .order("updated_at", { ascending: false }).limit(3);
+      if (activePlans?.length) {
+        plansBlock = `\n═══ ACTIVE PLANS (multi-session goals MAVIS is executing) ═══\n` +
+          (activePlans as any[]).map((plan: any) => {
+            const steps = Array.isArray(plan.steps) ? plan.steps : [];
+            const currentStep = steps[plan.current_step];
+            const completed = steps.filter((s: any) => s.status === "done").length;
+            return `Plan: ${plan.title}\nGoal: ${plan.goal}\nProgress: ${completed}/${steps.length} steps\nCurrent: ${currentStep ? `Step ${plan.current_step + 1} — ${String(currentStep.step ?? "").slice(0, 120)}` : "Starting"}\n${plan.last_session_summary ? `Last session: ${plan.last_session_summary}` : ""}`;
+          }).join("\n\n") + `\n═══ END ACTIVE PLANS ═══`;
+      }
+    } catch { /* non-critical */ }
+
     // ── Context Compression (OpenHuman TokenJuice pattern) ──────────────────
     // Compress verbose blocks before assembling to cut token burn 30-50%.
     const fullPrompt = [
@@ -2457,6 +2503,7 @@ You always know the current date and time without being told. Reference it natur
       compressBlock(knowledgeBlock),
       attachmentsBlock,
       proactiveBlock,
+      plansBlock,
       urlContent,
       webSearchResults ? `\n---\nWEB SEARCH:\n${webSearchResults}\n---` : "",
     ].filter(Boolean).join("\n\n");
@@ -2524,9 +2571,11 @@ You always know the current date and time without being told. Reference it natur
                 for (const block of blocks) {
                   if (totalActions >= REACT_MAX_ACTIONS) break;
                   controller.enqueue(enc.encode(`data: ${JSON.stringify({ step: "action", type: block.type, status: "running" })}\n\n`));
+                  const _traceStartStream = Date.now();
                   const { ok, result } = await executeAgentAction(supabaseUrl, serviceKey, user.id, block.type, block.params);
                   toolResults.push({ type: block.type, ok, result });
                   totalActions++;
+                  sb.from("mavis_agent_traces").insert({ user_id: user.id, session_id: conversationId ?? "streaming", iteration: reactIter + 1, action_type: block.type, params: block.params as any, result: result as any, ok, duration_ms: Date.now() - _traceStartStream }).catch(() => {});
                   controller.enqueue(enc.encode(`data: ${JSON.stringify({ step: "result", type: block.type, ok, preview: JSON.stringify(result).slice(0, 300) })}\n\n`));
                 }
 
@@ -2795,9 +2844,11 @@ You always know the current date and time without being told. Reference it natur
         const toolResults: Array<{ type: string; ok: boolean; result: unknown }> = [];
         for (const block of blocks) {
           if (totalActions >= REACT_MAX_ACTIONS) break;
+          const _traceStartNS = Date.now();
           const { ok, result } = await executeAgentAction(supabaseUrl, serviceKey, user.id, block.type, block.params);
           toolResults.push({ type: block.type, ok, result });
           totalActions++;
+          sb.from("mavis_agent_traces").insert({ user_id: user.id, session_id: conversationId ?? "non-stream", iteration: reactIter + 1, action_type: block.type, params: block.params as any, result: result as any, ok, duration_ms: Date.now() - _traceStartNS }).catch(() => {});
         }
 
         reactMessages = [
