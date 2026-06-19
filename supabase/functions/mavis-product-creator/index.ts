@@ -38,6 +38,7 @@ async function generateProductContent(
       "x-api-key": ANTHROPIC_KEY,
       "anthropic-version": "2023-06-01",
     },
+    signal: AbortSignal.timeout(90_000),
     body: JSON.stringify({
       model: "claude-haiku-4-5-20251001",
       max_tokens: 8000,
