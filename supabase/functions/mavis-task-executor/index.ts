@@ -829,7 +829,7 @@ const handleCreateProduct: TaskHandler = async (task) => {
     method: "POST",
     headers: { "Content-Type": "application/json", "Authorization": `Bearer ${SERVICE_KEY}` },
     body: JSON.stringify({ ...flat, userId: task.user_id }),
-    signal: AbortSignal.timeout(30000),
+    signal: AbortSignal.timeout(140_000), // product creator: Claude generation + PDF + upload + Gumroad can take 60-120s
   });
 
   const data = await res.json();
