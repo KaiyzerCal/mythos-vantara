@@ -53,6 +53,7 @@ const INTEL_NAV = [
   { to: "/finance", icon: DollarSign, label: "Finance" },
   { to: "/scheduler", icon: CalendarClock, label: "Scheduler" },
   { to: "/goals", icon: Crosshair, label: "Goals" },
+  { to: "/memory", icon: Brain, label: "MAVIS Memory" },
   { to: "/playbooks", icon: BookOpen, label: "Playbooks" },
   { to: "/so-templates", icon: BookMarked, label: "SO Templates" },
   { to: "/study", icon: GraduationCap, label: "Study" },

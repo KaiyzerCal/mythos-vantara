@@ -138,26 +138,34 @@ export function GoalsPage() {
     setGoals((prev) => [newGoal as MavisGoal, ...prev]);
     toast.success("Goal created — ask MAVIS to decompose it");
 
-    // Trigger MAVIS decomposition (non-blocking, best effort)
+    // Trigger MAVIS decomposition + chain building (non-blocking, best effort)
     try {
       const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string;
-      const ANON_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string;
       const session = await supabase.auth.getSession();
       if (session.data.session) {
+        const jwt = session.data.session.access_token;
+        // Decompose goal into quests/tasks
         fetch(`${SUPABASE_URL}/functions/v1/mavis-actions`, {
           method: "POST",
-          headers: {
-            Authorization: `Bearer ${session.data.session.access_token}`,
-            apikey: ANON_KEY,
-            "Content-Type": "application/json",
-          },
+          headers: { Authorization: `Bearer ${jwt}`, "Content-Type": "application/json" },
           body: JSON.stringify({
             action: { type: "goal", params: { objective: createForm.objective, context: createForm.context } },
           }),
         }).catch(() => undefined);
+        // Auto-link quest and skill chains for this user
+        fetch(`${SUPABASE_URL}/functions/v1/mavis-chain-builder`, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${jwt}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "auto_link_quest_chains", user_id: user.id }),
+        }).catch(() => undefined);
+        fetch(`${SUPABASE_URL}/functions/v1/mavis-chain-builder`, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${jwt}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "auto_link_skill_chains", user_id: user.id }),
+        }).catch(() => undefined);
       }
     } catch {
-      // Silently ignore — MAVIS decomposition is best-effort
+      // Silently ignore — agentic triggers are best-effort
     }
 
     setCreateForm({ objective: "", context: "" });
