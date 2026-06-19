@@ -5,6 +5,7 @@ import {
   Target, Flame, Zap, Sparkles, Package, BookLock, ShoppingBag,
   Medal, TowerControl, Activity, Users, CheckSquare, BookOpen,
   Shield, Cpu, Crown, Copy, TrendingUp, CalendarDays, Radio,
+  BookMarked, Brain,
 } from "lucide-react";
 import { useAppData } from "@/contexts/AppDataContext";
 import { useAuth } from "@/contexts/AuthContext";
@@ -14,6 +15,10 @@ import { StreakHeatmap } from "@/components/StreakHeatmap";
 import { OnboardingWidget } from "@/components/OnboardingWidget";
 import { Skeleton } from "@/components/ui/skeleton";
 import { supabase } from "@/integrations/supabase/client";
+import { MavisActivityFeed } from "@/components/MavisActivityFeed";
+import { ApprovalQueue } from "@/components/ApprovalQueue";
+import { CausalInsights } from "@/components/CausalInsights";
+import { StandingOrdersWidget } from "@/components/StandingOrdersWidget";
 
 const fadeIn = (delay = 0) => ({
   initial: { opacity: 0, y: 12 },
@@ -102,27 +107,7 @@ export default function Dashboard() {
   }, []);
 
   // ── Action Queue ──
-  const [actionQueue, setActionQueue] = useState<Array<{
-    id: string;
-    action_type: string;
-    autonomy_tier: string;
-    source_context: string;
-    priority: number;
-    action_payload: Record<string, any>;
-  }>>([]);
-
-  useEffect(() => {
-    Promise.resolve(
-      supabase
-        .from("mavis_action_queue")
-        .select("id, action_type, autonomy_tier, source_context, priority, action_payload")
-        .eq("status", "pending")
-        .order("priority", { ascending: true })
-        .limit(5)
-    )
-      .then(({ data }) => setActionQueue((data as any) ?? []))
-      .catch(() => {});
-  }, []);
+  const [approvalCount, setApprovalCount] = useState(0);
 
   // ── Outcome Accuracy ──
   const [outcomeAccuracy, setOutcomeAccuracy] = useState<number | null>(null);
@@ -413,36 +398,62 @@ export default function Dashboard() {
         </motion.div>
       )}
 
-      {/* ── Autonomous Actions + Intelligence Feedback ── */}
-      <motion.div {...fadeIn(0.06)} className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-
-        {/* Autonomy Queue */}
-        <HudCard>
-          <div className="flex items-center gap-2 mb-3">
-            <Zap size={14} className="text-amber-400 shrink-0" />
-            <h3 className="text-sm font-display text-foreground">Action Queue</h3>
-            {actionQueue.length > 0 && (
-              <span className="ml-auto text-xs font-mono text-amber-400 border border-amber-400/40 rounded px-1">{actionQueue.length} pending</span>
-            )}
-          </div>
-          {actionQueue.length > 0 ? (
-            <div className="space-y-2">
-              {actionQueue.map((item) => (
-                <div key={item.id} className="flex items-start gap-2">
-                  <span className={`text-xs font-mono px-1 py-0.5 rounded mt-0.5 ${item.autonomy_tier === "auto" ? "bg-green-400/20 text-green-400" : item.autonomy_tier === "queue" ? "bg-amber-400/20 text-amber-400" : "bg-red-400/20 text-red-400"}`}>
-                    {item.autonomy_tier}
+      {/* ── MAVIS Live Operations ── */}
+      {user && (
+        <motion.div {...fadeIn(0.07)}>
+          <h3 className="text-xs font-mono text-muted-foreground uppercase tracking-widest mb-2">
+            MAVIS Live
+          </h3>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            {/* Approval Queue */}
+            <HudCard>
+              <div className="flex items-center gap-2 mb-3">
+                <Zap size={14} className="text-amber-400 shrink-0" />
+                <h3 className="text-sm font-display text-foreground">Pending Approvals</h3>
+                {approvalCount > 0 && (
+                  <span className="ml-auto text-xs font-mono text-amber-400 border border-amber-400/40 rounded px-1.5 py-0.5">
+                    {approvalCount}
                   </span>
-                  <div className="min-w-0">
-                    <p className="text-xs font-mono text-foreground truncate">{item.action_payload?.title ?? item.action_type}</p>
-                    <p className="text-xs font-body text-muted-foreground truncate">{item.source_context}</p>
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <p className="text-xs font-mono text-muted-foreground text-center py-3">No pending actions</p>
-          )}
-        </HudCard>
+                )}
+              </div>
+              <ApprovalQueue userId={user.id} onCountChange={setApprovalCount} />
+            </HudCard>
+
+            {/* Standing Orders */}
+            <HudCard>
+              <div className="flex items-center gap-2 mb-3">
+                <BookMarked size={14} className="text-primary shrink-0" />
+                <h3 className="text-sm font-display text-foreground">Standing Orders</h3>
+              </div>
+              <StandingOrdersWidget userId={user.id} />
+            </HudCard>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-4">
+            {/* Activity Feed */}
+            <HudCard>
+              <div className="flex items-center gap-2 mb-3">
+                <Cpu size={14} className="text-primary shrink-0" />
+                <h3 className="text-sm font-display text-foreground">Recent Activity</h3>
+                <span className="ml-auto text-xs font-mono text-muted-foreground">48h</span>
+              </div>
+              <MavisActivityFeed userId={user.id} />
+            </HudCard>
+
+            {/* Causal Insights */}
+            <HudCard>
+              <div className="flex items-center gap-2 mb-3">
+                <Brain size={14} className="text-primary shrink-0" />
+                <h3 className="text-sm font-display text-foreground">Intelligence</h3>
+              </div>
+              <CausalInsights userId={user.id} />
+            </HudCard>
+          </div>
+        </motion.div>
+      )}
+
+      {/* ── Prediction Accuracy + Self-Evolution ── */}
+      <motion.div {...fadeIn(0.06)} className="grid grid-cols-1 lg:grid-cols-2 gap-4">
 
         {/* Outcome Accuracy */}
         <HudCard>
