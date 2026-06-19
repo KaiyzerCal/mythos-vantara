@@ -67,22 +67,25 @@ serve(async (req) => {
         const { data: quests } = await sb.from("quests").select("id,title,description,type,category,status").eq("user_id", userId);
         if (!quests?.length) { result = { chains_created: 0, message: "No quests found" }; break; }
 
-        // Use 1-based indices instead of UUIDs — Haiku reliably copies small numbers,
-        // not 36-char UUIDs. We remap after parsing.
-        const indexToId: Record<number, string> = {};
-        const questList = (quests as any[]).map((q: any, i: number) => {
-          indexToId[i + 1] = q.id;
-          return `#${i + 1} | ${q.title} | type:${q.type} | cat:${q.category || "none"} | ${q.status} | ${(q.description || "").slice(0, 100)}`;
+        // Build title→id map (lowercase for matching)
+        const titleToId: Record<string, string> = {};
+        const questList = (quests as any[]).map((q: any) => {
+          titleToId[q.title.toLowerCase().trim()] = q.id;
+          return `- ${q.title} [${q.type}/${q.category || "misc"}/${q.status}]`;
         }).join("\n");
 
         const raw = await callClaude(
-          `You are a life-optimization AI. Analyze quests and identify logical progression chains — groups that naturally build toward a shared goal. Chains must have 2–6 quests ordered foundational→advanced. Only group genuinely related quests. Reply ONLY with a valid JSON array, no prose.`,
-          `Quests (reference by # number only):\n${questList}\n\nReturn JSON array:\n[{"title":"string","description":"string","category":"string","indices":[1,4,7],"rationale":"string"}]\n\nRules:\n- indices = the # numbers from the list above (integers, NOT UUIDs)\n- Order indices foundational→advanced\n- Minimum 2 per chain, maximum 6\n- Only group genuinely correlated quests`
+          `You are a life-optimization AI. Group quests into logical progression chains where quests build on each other. Use EXACT quest titles from the list. Reply ONLY with valid JSON, no markdown, no prose.`,
+          `Quests:\n${questList}\n\nReturn a JSON array of chains. Use EXACT titles from the list above:\n[\n  {\n    "title": "Chain Name",\n    "description": "What this chain achieves",\n    "category": "category",\n    "quest_titles": ["Exact Title 1", "Exact Title 2"]\n  }\n]\n\nRules: minimum 2 quests per chain, maximum 6. Only group genuinely related quests. Order foundational to advanced.`
         );
 
-        const arrMatch = raw.match(/\[[\s\S]*\]/);
-        if (!arrMatch) { result = { chains_created: 0, message: "Claude returned no chains" }; break; }
-        const suggested = JSON.parse(arrMatch[0]) as any[];
+        // Extract JSON array — handle markdown code fences and leading text
+        let suggested: any[] = [];
+        try {
+          const cleaned = raw.replace(/```(?:json)?/gi, "").replace(/```/g, "").trim();
+          const arrMatch = cleaned.match(/\[[\s\S]*\]/);
+          if (arrMatch) suggested = JSON.parse(arrMatch[0]);
+        } catch { /* falls through with empty array */ }
 
         // Clear existing chains
         const existingChainIds = (await sb.from("quest_chains").select("id").eq("user_id", userId)).data?.map((r: any) => r.id) ?? [];
@@ -93,10 +96,25 @@ serve(async (req) => {
 
         let chainsCreated = 0;
         for (const chain of suggested) {
-          const rawIndices: number[] = (chain.indices ?? chain.quest_indices ?? []).map(Number);
-          const questIds: string[] = rawIndices
-            .map((idx: number) => indexToId[idx])
+          // Accept titles array OR indices array as fallback
+          const rawTitles: string[] = Array.isArray(chain.quest_titles) ? chain.quest_titles : [];
+          const rawIndices: number[] = Array.isArray(chain.indices ?? chain.quest_indices)
+            ? (chain.indices ?? chain.quest_indices).map(Number) : [];
+
+          // Resolve quest IDs by title match (case-insensitive, trimmed)
+          const questIds: string[] = rawTitles
+            .map((t: string) => titleToId[t.toLowerCase().trim()])
             .filter(Boolean);
+
+          // Fallback: if titles produced < 2 hits, try indices against the ordered array
+          if (questIds.length < 2 && rawIndices.length >= 2) {
+            const ordered = quests as any[];
+            for (const idx of rawIndices) {
+              const q = ordered[idx - 1]; // 1-based
+              if (q) questIds.push(q.id);
+            }
+          }
+
           if (questIds.length < 2) continue;
 
           const { data: chainRow, error: chainErr } = await sb.from("quest_chains").insert({
@@ -109,12 +127,12 @@ serve(async (req) => {
 
           if (chainErr || !chainRow) continue;
           await sb.from("quest_chain_items").insert(
-            questIds.map((qid: string, pos: number) => ({ chain_id: chainRow.id, quest_id: qid, position: pos }))
+            [...new Set(questIds)].map((qid: string, pos: number) => ({ chain_id: chainRow.id, quest_id: qid, position: pos }))
           );
           chainsCreated++;
         }
 
-        result = { chains_created: chainsCreated, quests_analyzed: quests.length };
+        result = { chains_created: chainsCreated, quests_analyzed: quests.length, chains_suggested: suggested.length };
         break;
       }
 
@@ -123,22 +141,27 @@ serve(async (req) => {
         const { data: skills } = await sb.from("skills").select("id,name,description,category,tier,proficiency").eq("user_id", userId);
         if (!skills?.length) { result = { chains_created: 0, message: "No skills found" }; break; }
 
-        const indexToSkillId: Record<number, string> = {};
-        const skillList = (skills as any[]).map((s: any, i: number) => {
-          indexToSkillId[i + 1] = s.id;
-          return `#${i + 1} | ${s.name} | cat:${s.category} | T${s.tier} | ${s.proficiency}% | ${(s.description || "").slice(0, 80)}`;
+        // Build name→id map (lowercase for matching)
+        const titleToSkillId: Record<string, string> = {};
+        const skillList = (skills as any[]).map((s: any) => {
+          titleToSkillId[s.name.toLowerCase().trim()] = s.id;
+          return `- ${s.name} [${s.category || "misc"}/Tier${s.tier}/${s.proficiency}%]`;
         }).join("\n");
 
         const raw = await callClaude(
-          `You are a skill development AI. Analyze skills and identify mastery chains — groups that build from foundational to advanced. Chains must have 2–8 skills ordered beginner→expert. Group by domain. Reply ONLY with a valid JSON array, no prose.`,
-          `Skills (reference by # number only):\n${skillList}\n\nReturn JSON array:\n[{"title":"string","description":"string","category":"string","indices":[2,5,9],"rationale":"string"}]\n\nRules:\n- indices = the # numbers from the list above (integers, NOT UUIDs)\n- Order indices beginner→expert\n- Group by domain/category\n- Minimum 2 per chain, maximum 8`
+          `You are a skill development AI. Analyze skills and identify mastery chains — groups that build from foundational to advanced. Use EXACT skill names from the list. Reply ONLY with valid JSON, no markdown, no prose.`,
+          `Skills:\n${skillList}\n\nReturn a JSON array of chains. Use EXACT names from the list above:\n[\n  {\n    "title": "Chain Name",\n    "description": "What this chain develops",\n    "category": "category",\n    "skill_titles": ["Exact Name 1", "Exact Name 2"]\n  }\n]\n\nRules: minimum 2 skills per chain, maximum 8. Only group genuinely related skills. Order foundational to advanced.`
         );
 
-        const arrMatch = raw.match(/\[[\s\S]*\]/);
-        if (!arrMatch) { result = { chains_created: 0, message: "Claude returned no chains" }; break; }
-        const suggested = JSON.parse(arrMatch[0]) as any[];
+        // Extract JSON array — handle markdown code fences and leading text
+        let suggested: any[] = [];
+        try {
+          const cleaned = raw.replace(/```(?:json)?/gi, "").replace(/```/g, "").trim();
+          const arrMatch = cleaned.match(/\[[\s\S]*\]/);
+          if (arrMatch) suggested = JSON.parse(arrMatch[0]);
+        } catch { /* falls through with empty array */ }
 
-        // Clear existing
+        // Clear existing chains
         const existingChainIds = (await sb.from("skill_chains").select("id").eq("user_id", userId)).data?.map((r: any) => r.id) ?? [];
         if (existingChainIds.length) {
           await sb.from("skill_chain_items").delete().in("chain_id", existingChainIds);
@@ -147,10 +170,25 @@ serve(async (req) => {
 
         let chainsCreated = 0;
         for (const chain of suggested) {
-          const rawIndices: number[] = (chain.indices ?? chain.skill_indices ?? []).map(Number);
-          const skillIds: string[] = rawIndices
-            .map((idx: number) => indexToSkillId[idx])
+          // Accept titles array OR indices array as fallback
+          const rawTitles: string[] = Array.isArray(chain.skill_titles) ? chain.skill_titles : [];
+          const rawIndices: number[] = Array.isArray(chain.indices ?? chain.skill_indices)
+            ? (chain.indices ?? chain.skill_indices).map(Number) : [];
+
+          // Resolve skill IDs by name match (case-insensitive, trimmed)
+          const skillIds: string[] = rawTitles
+            .map((t: string) => titleToSkillId[t.toLowerCase().trim()])
             .filter(Boolean);
+
+          // Fallback: if names produced < 2 hits, try indices against the ordered array
+          if (skillIds.length < 2 && rawIndices.length >= 2) {
+            const ordered = skills as any[];
+            for (const idx of rawIndices) {
+              const s = ordered[idx - 1]; // 1-based
+              if (s) skillIds.push(s.id);
+            }
+          }
+
           if (skillIds.length < 2) continue;
 
           const { data: chainRow, error: chainErr } = await sb.from("skill_chains").insert({
@@ -162,12 +200,12 @@ serve(async (req) => {
 
           if (chainErr || !chainRow) continue;
           await sb.from("skill_chain_items").insert(
-            skillIds.map((sid: string, pos: number) => ({ chain_id: chainRow.id, skill_id: sid, position: pos }))
+            [...new Set(skillIds)].map((sid: string, pos: number) => ({ chain_id: chainRow.id, skill_id: sid, position: pos }))
           );
           chainsCreated++;
         }
 
-        result = { chains_created: chainsCreated, skills_analyzed: skills.length };
+        result = { chains_created: chainsCreated, skills_analyzed: skills.length, chains_suggested: suggested.length };
         break;
       }
 
