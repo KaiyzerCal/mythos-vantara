@@ -1091,20 +1091,20 @@ export default function WebsiteBuilderPage() {
                       <span className={`text-sm font-semibold leading-snug truncate ${isSelected ? "text-primary" : "text-foreground"}`}>
                         {project.business_name || project.project_name}
                       </span>
-                      <span className={`inline-flex items-center gap-1 text-[10px] font-mono px-1.5 py-0.5 rounded-full shrink-0 ${STATUS_TEXT[project.status] ?? "text-muted-foreground"} bg-muted/40 border border-border/50`}>
+                      <span className={`inline-flex items-center gap-1 text-xs font-mono px-1.5 py-0.5 rounded-full shrink-0 ${STATUS_TEXT[project.status] ?? "text-muted-foreground"} bg-muted/40 border border-border/50`}>
                         <span className={`w-1.5 h-1.5 rounded-full ${STATUS_COLOR[project.status] ?? "bg-gray-500"}`} />
                         {project.status}
                       </span>
                     </div>
                     {project.client_name && (
-                      <p className="text-[11px] text-muted-foreground mb-1">Client: {project.client_name}</p>
+                      <p className="text-xs text-muted-foreground mb-1">Client: {project.client_name}</p>
                     )}
-                    <div className="flex items-center justify-between text-[10px] text-muted-foreground font-mono">
+                    <div className="flex items-center justify-between text-xs text-muted-foreground font-mono">
                       <span>{project.website_pages?.[0]?.count ?? project.pages_count ?? 0} pages</span>
                       <span>{fmtDate(project.created_at)}</span>
                     </div>
                     {project.price_cents > 0 && (
-                      <div className="mt-1.5 flex items-center gap-1 text-[10px] text-emerald-400 font-mono">
+                      <div className="mt-1.5 flex items-center gap-1 text-xs text-emerald-400 font-mono">
                         <DollarSign size={9} />
                         {fmtDollars(project.price_cents)}
                       </div>
@@ -1315,12 +1315,12 @@ export default function WebsiteBuilderPage() {
                         <div className="flex items-center gap-1.5 shrink-0">
                           <button
                             onClick={() => setDisabledPages(new Set())}
-                            className="text-[10px] font-mono px-2 py-1 rounded border border-border/40 text-muted-foreground hover:text-emerald-400 hover:border-emerald-400/30 transition-colors"
+                            className="text-xs font-mono px-2 py-1 rounded border border-border/40 text-muted-foreground hover:text-emerald-400 hover:border-emerald-400/30 transition-colors"
                             title="Enable all pages"
                           >all</button>
                           <button
                             onClick={() => setDisabledPages(new Set(allDeployablePageTypes))}
-                            className="text-[10px] font-mono px-2 py-1 rounded border border-border/40 text-muted-foreground hover:text-rose-400 hover:border-rose-400/30 transition-colors"
+                            className="text-xs font-mono px-2 py-1 rounded border border-border/40 text-muted-foreground hover:text-rose-400 hover:border-rose-400/30 transition-colors"
                             title="Disable all pages"
                           >none</button>
                           <Button
@@ -1367,7 +1367,7 @@ export default function WebsiteBuilderPage() {
                               <p className="text-sm font-medium capitalize flex items-center gap-1.5">
                                 {pageType}
                                 {isCustom && (
-                                  <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-400 border border-blue-500/20">custom</span>
+                                  <span className="text-xs font-mono px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-400 border border-blue-500/20">custom</span>
                                 )}
                               </p>
                               {dbPage?.wp_url && (
@@ -1375,7 +1375,7 @@ export default function WebsiteBuilderPage() {
                                   href={dbPage.wp_url}
                                   target="_blank"
                                   rel="noopener noreferrer"
-                                  className="text-[11px] font-mono text-primary/70 hover:text-primary truncate block max-w-xs"
+                                  className="text-xs font-mono text-primary/70 hover:text-primary truncate block max-w-xs"
                                 >
                                   {dbPage.wp_url}
                                 </a>
@@ -1571,7 +1571,7 @@ function getElementPath(el) {
                           <button
                             key={p}
                             onClick={() => { setDeployProvider(p); localStorage.setItem("deploy_provider", p); }}
-                            className={`px-2.5 py-1 rounded text-[11px] font-medium border transition-colors ${deployProvider === p ? "bg-primary/20 border-primary/60 text-primary" : "border-border/40 text-muted-foreground hover:border-border"}`}
+                            className={`px-2.5 py-1 rounded text-xs font-medium border transition-colors ${deployProvider === p ? "bg-primary/20 border-primary/60 text-primary" : "border-border/40 text-muted-foreground hover:border-border"}`}
                           >
                             {p === "netlify" ? "Netlify" : p === "vercel" ? "Vercel" : p === "cloudflare" ? "Cloudflare" : p === "railway" ? "Railway" : "Hostinger"}
                           </button>
@@ -1588,7 +1588,7 @@ function getElementPath(el) {
                             onChange={e => saveDeployToken("netlify", e.target.value)}
                             className="h-8 text-xs font-mono"
                           />
-                          <p className="text-[10px] text-muted-foreground">
+                          <p className="text-xs text-muted-foreground">
                             app.netlify.com → User settings → Applications → Personal access tokens
                           </p>
                         </div>
@@ -1604,7 +1604,7 @@ function getElementPath(el) {
                             onChange={e => saveDeployToken("vercel", e.target.value)}
                             className="h-8 text-xs font-mono"
                           />
-                          <p className="text-[10px] text-muted-foreground">
+                          <p className="text-xs text-muted-foreground">
                             vercel.com → Settings → Tokens → Create
                           </p>
                         </div>
@@ -1626,7 +1626,7 @@ function getElementPath(el) {
                             onChange={e => saveDeployToken("cloudflare_account_id", e.target.value)}
                             className="h-8 text-xs font-mono"
                           />
-                          <p className="text-[10px] text-muted-foreground">
+                          <p className="text-xs text-muted-foreground">
                             dash.cloudflare.com → Workers & Pages → your account ID in the sidebar
                           </p>
                         </div>
@@ -1635,7 +1635,7 @@ function getElementPath(el) {
                       {/* Railway / Hostinger — ZIP download */}
                       {(deployProvider === "railway" || deployProvider === "hostinger") && (
                         <div className="rounded-md bg-muted/20 border border-border/40 p-3 text-xs text-muted-foreground space-y-1">
-                          <p className="font-medium text-foreground/80">No credentials needed</p>
+                          <p className="font-medium text-foreground">No credentials needed</p>
                           <p>Click Deploy to download a ZIP of your site files, then upload them to your {deployProvider === "railway" ? "Railway static site" : "Hostinger File Manager"}.</p>
                         </div>
                       )}
@@ -1669,7 +1669,7 @@ function getElementPath(el) {
                         )}
                       </div>
 
-                      <p className="text-[10px] text-amber-400">
+                      <p className="text-xs text-amber-400">
                         ⚠ Tokens stored in your browser only — never sent to our servers.
                       </p>
                     </CardContent>
@@ -1691,7 +1691,7 @@ function getElementPath(el) {
                     </button>
                     {showSiteContent && (
                       <CardContent className="px-5 pb-4">
-                        <pre className="text-xs font-mono text-foreground/70 whitespace-pre-wrap bg-muted/20 rounded p-3 max-h-60 overflow-y-auto leading-relaxed">
+                        <pre className="text-xs font-mono text-muted-foreground whitespace-pre-wrap bg-muted/20 rounded p-3 max-h-60 overflow-y-auto leading-relaxed">
                           {typeof selectedProject.site_content === "string"
                             ? selectedProject.site_content
                             : JSON.stringify(selectedProject.site_content, null, 2)}
@@ -1726,7 +1726,7 @@ function getElementPath(el) {
                   </div>
                 </div>
                 <Progress value={generationProgress} className="h-2" />
-                <p className="text-[11px] font-mono text-muted-foreground">{generationProgress}% complete</p>
+                <p className="text-xs font-mono text-muted-foreground">{generationProgress}% complete</p>
               </CardContent>
             </Card>
           )}
@@ -1964,7 +1964,7 @@ function getElementPath(el) {
                         <CheckCircle2 size={14} className="text-emerald-400 shrink-0" />
                         <div className="flex-1 min-w-0">
                           <p className="text-xs font-semibold text-emerald-400">Connected</p>
-                          <p className="text-[11px] font-mono text-muted-foreground truncate">{wpcomCred.wpcom_site_domain}</p>
+                          <p className="text-xs font-mono text-muted-foreground truncate">{wpcomCred.wpcom_site_domain}</p>
                         </div>
                         <button
                           onClick={() => setWpcomCred(null)}
@@ -2022,7 +2022,7 @@ function getElementPath(el) {
                     className="bg-background/60 border-border/60 text-sm pl-7"
                   />
                 </div>
-                <p className="text-[11px] font-mono text-muted-foreground">{fmtDollars(form.price_cents)} — stored on project record</p>
+                <p className="text-xs font-mono text-muted-foreground">{fmtDollars(form.price_cents)} — stored on project record</p>
               </div>
             </CardContent>
           </Card>

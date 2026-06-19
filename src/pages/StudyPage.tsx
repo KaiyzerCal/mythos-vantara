@@ -241,15 +241,15 @@ export function StudyPage() {
               <div className="grid grid-cols-3 gap-3 mb-6">
                 <div className="p-2 rounded bg-muted/30 border border-border">
                   <p className="text-lg font-display font-bold text-foreground">{sessionStats.reviewed}</p>
-                  <p className="text-[9px] font-mono text-muted-foreground uppercase">Reviewed</p>
+                  <p className="text-xs font-mono text-muted-foreground uppercase">Reviewed</p>
                 </div>
                 <div className="p-2 rounded bg-muted/30 border border-border">
                   <p className="text-lg font-display font-bold text-green-400">{easyPct}%</p>
-                  <p className="text-[9px] font-mono text-muted-foreground uppercase">Easy</p>
+                  <p className="text-xs font-mono text-muted-foreground uppercase">Easy</p>
                 </div>
                 <div className="p-2 rounded bg-muted/30 border border-border">
                   <p className="text-lg font-display font-bold text-red-400">{hardPct}%</p>
-                  <p className="text-[9px] font-mono text-muted-foreground uppercase">Hard</p>
+                  <p className="text-xs font-mono text-muted-foreground uppercase">Hard</p>
                 </div>
               </div>
             )}
@@ -332,7 +332,7 @@ export function StudyPage() {
                 {note.tags.map((tag) => (
                   <span
                     key={tag}
-                    className="text-[9px] font-mono px-1.5 py-0.5 rounded border bg-muted/30 border-border text-muted-foreground"
+                    className="text-xs font-mono px-1.5 py-0.5 rounded border bg-muted/30 border-border text-muted-foreground"
                   >
                     {tag}
                   </span>
@@ -369,7 +369,7 @@ export function StudyPage() {
                   {note?.content && note.content.length > 300 && (
                     <button
                       onClick={() => setExpandContent((v) => !v)}
-                      className="mt-1 flex items-center gap-1 text-[10px] font-mono text-primary hover:underline"
+                      className="mt-1 flex items-center gap-1 text-xs font-mono text-primary hover:underline"
                     >
                       {expandContent ? "show less" : "...read more"}
                       <ChevronRight size={10} className={expandContent ? "rotate-90" : ""} />
@@ -383,7 +383,7 @@ export function StudyPage() {
                     {visibleProps.map(([k, v]) => (
                       <span
                         key={k}
-                        className="text-[9px] font-mono px-1.5 py-0.5 rounded border bg-muted/30 border-border text-muted-foreground"
+                        className="text-xs font-mono px-1.5 py-0.5 rounded border bg-muted/30 border-border text-muted-foreground"
                       >
                         {k}: {String(v)}
                       </span>
@@ -393,7 +393,7 @@ export function StudyPage() {
 
                 {/* Rating Buttons */}
                 <div>
-                  <p className="text-[9px] font-mono text-muted-foreground uppercase tracking-widest mb-2">Rate your recall</p>
+                  <p className="text-xs font-mono text-muted-foreground uppercase tracking-widest mb-2">Rate your recall</p>
                   <div className="flex gap-1.5 flex-wrap">
                     {RATINGS.map((r) => (
                       <button
@@ -425,15 +425,15 @@ export function StudyPage() {
           className="grid grid-cols-3 gap-3"
         >
           <HudCard>
-            <p className="text-[9px] font-mono text-muted-foreground uppercase tracking-widest mb-0.5">Reviewed</p>
+            <p className="text-xs font-mono text-muted-foreground uppercase tracking-widest mb-0.5">Reviewed</p>
             <p className="text-xl font-display font-bold text-foreground">{sessionStats.reviewed}</p>
           </HudCard>
           <HudCard>
-            <p className="text-[9px] font-mono text-muted-foreground uppercase tracking-widest mb-0.5">Easy</p>
+            <p className="text-xs font-mono text-muted-foreground uppercase tracking-widest mb-0.5">Easy</p>
             <p className="text-xl font-display font-bold text-green-400">{easyPct}%</p>
           </HudCard>
           <HudCard>
-            <p className="text-[9px] font-mono text-muted-foreground uppercase tracking-widest mb-0.5">Hard</p>
+            <p className="text-xs font-mono text-muted-foreground uppercase tracking-widest mb-0.5">Hard</p>
             <p className="text-xl font-display font-bold text-red-400">{hardPct}%</p>
           </HudCard>
         </motion.div>

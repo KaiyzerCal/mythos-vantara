@@ -270,7 +270,7 @@ export function ContactsPage() {
         {showCreate && (
           <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }}>
             <HudCard className="border-primary/20">
-              <p className="text-[9px] font-mono text-primary uppercase tracking-widest mb-3">
+              <p className="text-xs font-mono text-primary uppercase tracking-widest mb-3">
                 {editingId ? "Edit Contact" : "New Contact"}
               </p>
               <div className="space-y-2">
@@ -336,7 +336,7 @@ export function ContactsPage() {
             <button
               key={tab}
               onClick={() => setTabFilter(tab)}
-              className={`px-2.5 py-1 text-[10px] font-mono uppercase tracking-widest rounded border transition-colors ${
+              className={`px-2.5 py-1 text-xs font-mono uppercase tracking-widest rounded border transition-colors ${
                 tabFilter === tab
                   ? "bg-primary/10 border-primary/40 text-primary"
                   : "border-border text-muted-foreground hover:border-border/60 hover:text-foreground"
@@ -349,7 +349,7 @@ export function ContactsPage() {
       </div>
 
       {/* Stats row */}
-      <div className="flex gap-3 text-[10px] font-mono text-muted-foreground">
+      <div className="flex gap-3 text-xs font-mono text-muted-foreground">
         <span>{filtered.length} contacts</span>
         <span className="text-amber-400">
           {filtered.filter((c) => getFollowUpStatus(c.follow_up_date) !== null).length} need follow-up
@@ -388,14 +388,14 @@ export function ContactsPage() {
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 flex-wrap">
                           <h3 className="text-sm font-display font-bold truncate">{c.name}</h3>
-                          <span className={`text-[9px] font-mono uppercase tracking-widest px-1.5 py-0.5 rounded border ${relColor}`}>
+                          <span className={`text-xs font-mono uppercase tracking-widest px-1.5 py-0.5 rounded border ${relColor}`}>
                             {c.relationship_type}
                           </span>
                         </div>
                       </div>
                       <div className="flex items-center gap-1 ml-2 shrink-0">
                         {c.interaction_count > 0 && (
-                          <span className="text-[9px] font-mono text-muted-foreground bg-muted/40 px-1.5 py-0.5 rounded">
+                          <span className="text-xs font-mono text-muted-foreground bg-muted/40 px-1.5 py-0.5 rounded">
                             {c.interaction_count}x
                           </span>
                         )}
@@ -405,14 +405,14 @@ export function ContactsPage() {
 
                     {/* Follow-up warning */}
                     {followUpStatus && (
-                      <div className={`flex items-center gap-1 mb-2 text-[9px] font-mono ${followUpStatus === "overdue" ? "text-amber-400" : "text-amber-300"}`}>
+                      <div className={`flex items-center gap-1 mb-2 text-xs font-mono ${followUpStatus === "overdue" ? "text-amber-400" : "text-amber-300"}`}>
                         <AlertTriangle size={10} />
                         {followUpStatus === "overdue" ? "Overdue follow-up" : "Follow-up due soon"}: {formatDate(c.follow_up_date)}
                       </div>
                     )}
 
                     {/* Last contact */}
-                    <div className="flex items-center gap-1 text-[10px] font-mono text-muted-foreground">
+                    <div className="flex items-center gap-1 text-xs font-mono text-muted-foreground">
                       <Calendar size={9} />
                       Last contact: {formatDate(c.last_contact_at)}
                     </div>
@@ -421,7 +421,7 @@ export function ContactsPage() {
                     {c.tags && c.tags.length > 0 && (
                       <div className="flex gap-1 flex-wrap mt-1.5">
                         {c.tags.map((t) => (
-                          <span key={t} className="text-[8px] font-mono text-muted-foreground bg-muted/30 px-1 py-0.5 rounded">
+                          <span key={t} className="text-xs font-mono text-muted-foreground bg-muted/30 px-1 py-0.5 rounded">
                             #{t}
                           </span>
                         ))}
@@ -442,15 +442,15 @@ export function ContactsPage() {
                           {/* Notes */}
                           {c.notes && (
                             <div>
-                              <p className="text-[9px] font-mono text-muted-foreground uppercase tracking-widest mb-1">Notes</p>
-                              <p className="text-xs text-foreground/80 whitespace-pre-wrap">{c.notes}</p>
+                              <p className="text-xs font-mono text-muted-foreground uppercase tracking-widest mb-1">Notes</p>
+                              <p className="text-xs text-foreground whitespace-pre-wrap">{c.notes}</p>
                             </div>
                           )}
 
                           {/* Inline edit form */}
                           {editingId === c.id ? (
                             <div className="bg-muted/10 border border-primary/20 rounded p-3 space-y-2">
-                              <p className="text-[9px] font-mono text-primary uppercase tracking-widest">Edit Contact</p>
+                              <p className="text-xs font-mono text-primary uppercase tracking-widest">Edit Contact</p>
                               <input
                                 value={form.name}
                                 onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
@@ -500,19 +500,19 @@ export function ContactsPage() {
                           <div className="flex gap-2">
                             <button
                               onClick={() => handleEdit(c)}
-                              className="flex items-center gap-1 px-2 py-1 text-[10px] font-mono text-muted-foreground border border-border rounded hover:text-foreground hover:border-border/60 transition-colors"
+                              className="flex items-center gap-1 px-2 py-1 text-xs font-mono text-muted-foreground border border-border rounded hover:text-foreground hover:border-border/60 transition-colors"
                             >
                               <Edit2 size={9} /> Edit
                             </button>
                             <button
                               onClick={() => setLogContactId(logContactId === c.id ? null : c.id)}
-                              className="flex items-center gap-1 px-2 py-1 text-[10px] font-mono text-muted-foreground border border-border rounded hover:text-foreground hover:border-border/60 transition-colors"
+                              className="flex items-center gap-1 px-2 py-1 text-xs font-mono text-muted-foreground border border-border rounded hover:text-foreground hover:border-border/60 transition-colors"
                             >
                               <MessageCircle size={9} /> Log Interaction
                             </button>
                             <button
                               onClick={() => setConfirmDelete({ id: c.id, label: c.name })}
-                              className="flex items-center gap-1 px-2 py-1 text-[10px] font-mono text-red-400/70 border border-red-900/30 rounded hover:text-red-400 hover:border-red-700/40 transition-colors ml-auto"
+                              className="flex items-center gap-1 px-2 py-1 text-xs font-mono text-red-400/70 border border-red-900/30 rounded hover:text-red-400 hover:border-red-700/40 transition-colors ml-auto"
                             >
                               <Trash2 size={9} /> Delete
                             </button>
@@ -524,7 +524,7 @@ export function ContactsPage() {
                             {logContactId === c.id && (
                               <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
                                 <div className="bg-muted/10 border border-border/30 rounded p-3 space-y-2">
-                                  <p className="text-[9px] font-mono text-primary uppercase tracking-widest">Log Interaction</p>
+                                  <p className="text-xs font-mono text-primary uppercase tracking-widest">Log Interaction</p>
                                   <div className="grid grid-cols-2 gap-2">
                                     <select
                                       value={interactionForm.interaction_type}
@@ -549,13 +549,13 @@ export function ContactsPage() {
                                     className="w-full bg-muted/30 border border-border rounded px-2 py-1.5 text-xs resize-none focus:outline-none focus:border-primary/40"
                                   />
                                   <div className="flex gap-2 justify-end">
-                                    <button onClick={() => setLogContactId(null)} className="px-2 py-1 text-[10px] font-mono text-muted-foreground border border-border rounded">
+                                    <button onClick={() => setLogContactId(null)} className="px-2 py-1 text-xs font-mono text-muted-foreground border border-border rounded">
                                       Cancel
                                     </button>
                                     <button
                                       onClick={() => handleLogInteraction(c.id)}
                                       disabled={savingInteraction}
-                                      className="flex items-center gap-1 px-2 py-1 text-[10px] font-mono bg-primary/10 border border-primary/30 text-primary rounded hover:bg-primary/20 disabled:opacity-50"
+                                      className="flex items-center gap-1 px-2 py-1 text-xs font-mono bg-primary/10 border border-primary/30 text-primary rounded hover:bg-primary/20 disabled:opacity-50"
                                     >
                                       {savingInteraction && <Loader2 size={9} className="animate-spin" />}
                                       Log
@@ -569,18 +569,18 @@ export function ContactsPage() {
                           {/* Interaction history */}
                           {interactions[c.id] && interactions[c.id].length > 0 && (
                             <div>
-                              <p className="text-[9px] font-mono text-muted-foreground uppercase tracking-widest mb-2">History</p>
+                              <p className="text-xs font-mono text-muted-foreground uppercase tracking-widest mb-2">History</p>
                               <div className="space-y-1.5 max-h-40 overflow-y-auto">
                                 {interactions[c.id].map((ix) => {
                                   const Icon = INTERACTION_ICONS[ix.interaction_type] ?? Tag;
                                   return (
-                                    <div key={ix.id} className="flex gap-2 text-[10px] font-mono">
+                                    <div key={ix.id} className="flex gap-2 text-xs font-mono">
                                       <Icon size={9} className="text-muted-foreground mt-0.5 shrink-0" />
                                       <div className="flex-1 min-w-0">
                                         <span className={`${SENTIMENT_COLORS[ix.sentiment]} mr-1`}>[{ix.interaction_type}]</span>
-                                        <span className="text-foreground/70">{ix.notes}</span>
+                                        <span className="text-muted-foreground">{ix.notes}</span>
                                       </div>
-                                      <span className="text-muted-foreground/50 shrink-0">{formatDate(ix.created_at)}</span>
+                                      <span className="text-muted-foreground shrink-0">{formatDate(ix.created_at)}</span>
                                     </div>
                                   );
                                 })}

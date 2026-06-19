@@ -229,7 +229,7 @@ export function HealthPage() {
       <section>
         <h2 className="text-xs font-mono text-primary uppercase tracking-widest mb-3">Connect Oura Ring</h2>
         <HudCard>
-          <p className="text-[10px] font-mono text-muted-foreground mb-3">
+          <p className="text-xs font-mono text-muted-foreground mb-3">
             Get your Personal Access Token from{" "}
             <a
               href="https://cloud.ouraring.com/personal-access-tokens"
@@ -258,7 +258,7 @@ export function HealthPage() {
             </button>
           </div>
           {lastSync && (
-            <p className="text-[9px] font-mono text-muted-foreground mt-2">
+            <p className="text-xs font-mono text-muted-foreground mt-2">
               Last synced: {fmtDate(lastSync)}
             </p>
           )}
@@ -276,9 +276,9 @@ export function HealthPage() {
           </HudCard>
         ) : (
           <HudCard className="overflow-x-auto">
-            <table className="w-full min-w-max text-[10px] font-mono">
+            <table className="w-full min-w-max text-xs font-mono">
               <thead>
-                <tr className="text-muted-foreground uppercase text-[8px] tracking-widest border-b border-border/30">
+                <tr className="text-muted-foreground uppercase text-xs tracking-widest border-b border-border/30">
                   <th className="text-left py-1.5 pr-3">Date</th>
                   <th className="text-left py-1.5 pr-3">Source</th>
                   <th className="text-right py-1.5 pr-3">Sleep</th>
@@ -294,7 +294,7 @@ export function HealthPage() {
               <tbody className="divide-y divide-border/20">
                 {metrics.map((m) => (
                   <tr key={m.id} className="hover:bg-muted/10">
-                    <td className="py-1.5 pr-3 text-foreground/80">{m.date}</td>
+                    <td className="py-1.5 pr-3 text-foreground">{m.date}</td>
                     <td className="py-1.5 pr-3 text-muted-foreground uppercase">{m.source}</td>
                     <td className="py-1.5 pr-3 text-right">{fmtMins(m.sleep_duration_minutes)}</td>
                     <td className="py-1.5 pr-3 text-right">{fmtPct(m.sleep_efficiency)}</td>
@@ -312,9 +312,9 @@ export function HealthPage() {
             </table>
             {/* Readiness legend */}
             <div className="flex gap-4 mt-3 pt-2 border-t border-border/20">
-              <span className="text-[8px] font-mono text-green-400">■ ≥ 80 Optimal</span>
-              <span className="text-[8px] font-mono text-amber-400">■ 60-79 Moderate</span>
-              <span className="text-[8px] font-mono text-red-400">■ &lt;60 Low</span>
+              <span className="text-xs font-mono text-green-400">■ ≥ 80 Optimal</span>
+              <span className="text-xs font-mono text-amber-400">■ 60-79 Moderate</span>
+              <span className="text-xs font-mono text-red-400">■ &lt;60 Low</span>
             </div>
           </HudCard>
         )}
@@ -324,7 +324,7 @@ export function HealthPage() {
       <section>
         <h2 className="text-xs font-mono text-primary uppercase tracking-widest mb-3">Calendar Sync</h2>
         <HudCard className="mb-3">
-          <p className="text-[10px] font-mono text-muted-foreground mb-3">
+          <p className="text-xs font-mono text-muted-foreground mb-3">
             Google Calendar: Settings → your calendar → "Secret address in iCal format"
           </p>
           <div className="flex gap-2">
@@ -345,7 +345,7 @@ export function HealthPage() {
           </div>
         </HudCard>
 
-        <h3 className="text-[10px] font-mono text-muted-foreground uppercase tracking-widest mb-2">Next 7 Days</h3>
+        <h3 className="text-xs font-mono text-muted-foreground uppercase tracking-widest mb-2">Next 7 Days</h3>
         {calLoading ? (
           <div className="flex justify-center py-4"><Loader2 className="animate-spin text-primary" size={18} /></div>
         ) : calEvents.length === 0 ? (
@@ -359,7 +359,7 @@ export function HealthPage() {
                 <HudCard>
                   <div className="flex items-start gap-3">
                     <div className="shrink-0 w-10 text-center">
-                      <div className="text-[8px] font-mono text-muted-foreground uppercase">
+                      <div className="text-xs font-mono text-muted-foreground uppercase">
                         {new Date(ev.start_at).toLocaleDateString("en-US", { month: "short" })}
                       </div>
                       <div className="text-base font-display font-bold text-primary leading-none">
@@ -369,19 +369,19 @@ export function HealthPage() {
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-display font-bold truncate">{ev.title}</p>
                       <div className="flex items-center gap-3 mt-0.5">
-                        <span className="flex items-center gap-1 text-[10px] font-mono text-muted-foreground">
+                        <span className="flex items-center gap-1 text-xs font-mono text-muted-foreground">
                           <Clock size={9} />
                           {fmtDateTime(ev.start_at)}
                         </span>
                         {ev.location && (
-                          <span className="flex items-center gap-1 text-[10px] font-mono text-muted-foreground">
+                          <span className="flex items-center gap-1 text-xs font-mono text-muted-foreground">
                             <MapPin size={9} />
                             {ev.location}
                           </span>
                         )}
                       </div>
                       {ev.description && (
-                        <p className="text-[10px] text-muted-foreground mt-1 line-clamp-1">{ev.description}</p>
+                        <p className="text-xs text-muted-foreground mt-1 line-clamp-1">{ev.description}</p>
                       )}
                     </div>
                   </div>
@@ -396,11 +396,11 @@ export function HealthPage() {
       <section>
         <h2 className="text-xs font-mono text-primary uppercase tracking-widest mb-3">Manual Log</h2>
         <HudCard>
-          <p className="text-[9px] font-mono text-primary uppercase tracking-widest mb-3">Quick Health Entry</p>
+          <p className="text-xs font-mono text-primary uppercase tracking-widest mb-3">Quick Health Entry</p>
           <div className="space-y-2">
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
               <div>
-                <label className="text-[9px] font-mono text-muted-foreground block mb-0.5">Date</label>
+                <label className="text-xs font-mono text-muted-foreground block mb-0.5">Date</label>
                 <input
                   type="date"
                   value={manualForm.date}
@@ -409,7 +409,7 @@ export function HealthPage() {
                 />
               </div>
               <div>
-                <label className="text-[9px] font-mono text-muted-foreground block mb-0.5">Sleep (hours)</label>
+                <label className="text-xs font-mono text-muted-foreground block mb-0.5">Sleep (hours)</label>
                 <input
                   type="number"
                   step="0.5"
@@ -422,7 +422,7 @@ export function HealthPage() {
                 />
               </div>
               <div>
-                <label className="text-[9px] font-mono text-muted-foreground block mb-0.5">HRV (ms)</label>
+                <label className="text-xs font-mono text-muted-foreground block mb-0.5">HRV (ms)</label>
                 <input
                   type="number"
                   step="1"
@@ -433,7 +433,7 @@ export function HealthPage() {
                 />
               </div>
               <div>
-                <label className="text-[9px] font-mono text-muted-foreground block mb-0.5">Resting HR (bpm)</label>
+                <label className="text-xs font-mono text-muted-foreground block mb-0.5">Resting HR (bpm)</label>
                 <input
                   type="number"
                   step="1"
@@ -444,7 +444,7 @@ export function HealthPage() {
                 />
               </div>
               <div>
-                <label className="text-[9px] font-mono text-muted-foreground block mb-0.5">Readiness (1-100)</label>
+                <label className="text-xs font-mono text-muted-foreground block mb-0.5">Readiness (1-100)</label>
                 <input
                   type="number"
                   step="1"

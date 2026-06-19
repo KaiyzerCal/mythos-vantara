@@ -11,6 +11,7 @@ import {
   Users2, LayoutGrid, Trophy, Gauge, Bell, CreditCard, Upload,
   BrainCircuit, Brain, SlidersHorizontal, Phone, MessageSquare, Key, Users2 as UserGroup, Shield as ShieldIcon, PhoneCall,
 } from "lucide-react";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useState, useContext } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useAuth } from "@/contexts/AuthContext";
@@ -52,6 +53,7 @@ const INTEL_NAV = [
   { to: "/finance", icon: DollarSign, label: "Finance" },
   { to: "/scheduler", icon: CalendarClock, label: "Scheduler" },
   { to: "/goals", icon: Crosshair, label: "Goals" },
+  { to: "/memory", icon: Brain, label: "MAVIS Memory" },
   { to: "/playbooks", icon: BookOpen, label: "Playbooks" },
   { to: "/so-templates", icon: BookMarked, label: "SO Templates" },
   { to: "/study", icon: GraduationCap, label: "Study" },
@@ -102,7 +104,7 @@ function NavItem({ to, icon: Icon, label, collapsed }: { to: string; icon: any; 
   const location = useLocation();
   const isActive = location.pathname === to;
 
-  return (
+  const link = (
     <NavLink
       to={to}
       className={`flex items-center gap-3 px-3 py-2 rounded text-sm font-medium transition-all group ${
@@ -126,12 +128,23 @@ function NavItem({ to, icon: Icon, label, collapsed }: { to: string; icon: any; 
       </AnimatePresence>
     </NavLink>
   );
+
+  if (!collapsed) return link;
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>{link}</TooltipTrigger>
+      <TooltipContent side="right" className="font-mono text-xs">
+        {label}
+      </TooltipContent>
+    </Tooltip>
+  );
 }
 
 function SectionLabel({ label, collapsed }: { label: string; collapsed: boolean }) {
   if (collapsed) return <div className="h-px bg-border/50 mx-2 my-1" />;
   return (
-    <p className="px-3 pt-3 pb-1 text-[9px] font-mono text-muted-foreground tracking-widest uppercase">
+    <p className="px-3 pt-3 pb-1 text-xs font-mono text-muted-foreground tracking-widest uppercase">
       {label}
     </p>
   );
@@ -168,7 +181,7 @@ export default function AppSidebar() {
               <h1 className="font-display text-primary text-xs font-bold tracking-widest text-glow-gold whitespace-nowrap">
                 VANTARA.EXE
               </h1>
-              <p className="text-muted-foreground text-[9px] font-mono whitespace-nowrap">
+              <p className="text-muted-foreground text-xs font-mono whitespace-nowrap">
                 MAVIS-PRIME // CODEXOS
               </p>
             </motion.div>
@@ -186,18 +199,18 @@ export default function AppSidebar() {
             exit={{ opacity: 0, height: 0 }}
             className="px-3 py-2 border-b border-border/50 bg-muted/30"
           >
-            <p className="text-[10px] font-mono text-muted-foreground">OPERATOR</p>
+            <p className="text-xs font-mono text-muted-foreground">OPERATOR</p>
             <p className="text-xs font-display truncate" style={{ color: rankColor }}>
               {profile.inscribed_name}
             </p>
             <div className="flex items-center gap-1.5 mt-0.5">
-              <span className="text-[9px] font-mono" style={{ color: rankColor }}>
+              <span className="text-xs font-mono" style={{ color: rankColor }}>
                 LV.{profile.level}
               </span>
-              <span className="text-[9px] font-mono text-muted-foreground">
+              <span className="text-xs font-mono text-muted-foreground">
                 [{profile.rank}]
               </span>
-              <span className="text-[9px] font-mono text-muted-foreground ml-auto">
+              <span className="text-xs font-mono text-muted-foreground ml-auto">
                 {profile.full_cowl_sync}% SYNC
               </span>
             </div>
@@ -229,6 +242,20 @@ export default function AppSidebar() {
         <SectionLabel label="Utilities" collapsed={collapsed} />
         {UTILITY_NAV.map((item) => <NavItem key={item.to} {...item} collapsed={collapsed} />)}
       </nav>
+
+      {/* Cmd+K hint */}
+      <AnimatePresence>
+        {!collapsed && (
+          <motion.button
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            onClick={() => document.dispatchEvent(new KeyboardEvent("keydown", { key: "k", metaKey: true, bubbles: true }))}
+            className="mx-2 mb-1 px-3 py-1.5 rounded border border-border/50 text-muted-foreground hover:text-primary hover:border-primary/30 transition-all flex items-center justify-between"
+          >
+            <span className="text-xs font-mono">Search / Navigate</span>
+            <span className="text-xs font-mono bg-muted px-1.5 py-0.5 rounded">⌘K</span>
+          </motion.button>
+        )}
+      </AnimatePresence>
 
       {/* Sign out */}
       <button

@@ -175,7 +175,7 @@ export function SocialAnalyticsPage() {
           <button
             onClick={loadPosts}
             disabled={loading}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-mono bg-primary/10 border border-primary/30 text-primary rounded hover:bg-primary/20 disabled:opacity-50 transition-colors"
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono bg-primary/10 border border-primary/30 text-primary rounded hover:bg-primary/20 disabled:opacity-50 transition-colors"
           >
             {loading ? (
               <Loader2 size={10} className="animate-spin" />
@@ -213,7 +213,7 @@ export function SocialAnalyticsPage() {
           },
         ].map((stat) => (
           <HudCard key={stat.label}>
-            <p className="text-[9px] font-mono text-muted-foreground uppercase tracking-widest mb-1">
+            <p className="text-xs font-mono text-muted-foreground uppercase tracking-widest mb-1">
               {stat.label}
             </p>
             <p className={`text-xl font-display font-bold ${stat.color}`}>
@@ -231,7 +231,7 @@ export function SocialAnalyticsPage() {
             <button
               key={pf.value}
               onClick={() => setPlatformFilter(pf.value)}
-              className={`px-3 py-1 text-[10px] font-mono rounded border transition-colors ${
+              className={`px-3 py-1 text-xs font-mono rounded border transition-colors ${
                 platformFilter === pf.value
                   ? "bg-primary/20 border-primary/40 text-primary"
                   : "bg-muted/20 border-border text-muted-foreground hover:text-foreground hover:border-border/80"
@@ -244,13 +244,13 @@ export function SocialAnalyticsPage() {
 
         {/* Sort dropdown */}
         <div className="flex items-center gap-2">
-          <span className="text-[10px] font-mono text-muted-foreground">
+          <span className="text-xs font-mono text-muted-foreground">
             Sort by
           </span>
           <select
             value={sortBy}
             onChange={(e) => setSortBy(e.target.value as SortBy)}
-            className="bg-muted/30 border border-border rounded px-2 py-1 text-[10px] font-mono text-foreground focus:outline-none focus:border-primary/40"
+            className="bg-muted/30 border border-border rounded px-2 py-1 text-xs font-mono text-foreground focus:outline-none focus:border-primary/40"
           >
             <option value="date">Date</option>
             <option value="impressions">Impressions</option>
@@ -273,7 +273,7 @@ export function SocialAnalyticsPage() {
           <p className="text-xs font-mono text-muted-foreground mt-1">
             Posts with status "posted" will appear here.
           </p>
-          <p className="text-[10px] font-mono text-muted-foreground/60 mt-2">
+          <p className="text-xs font-mono text-muted-foreground mt-2">
             Note: Analytics require Twitter Basic tier or higher.
           </p>
         </HudCard>
@@ -296,7 +296,7 @@ export function SocialAnalyticsPage() {
                   <div className="flex items-start gap-3">
                     {/* Platform badge */}
                     <span
-                      className={`text-[9px] font-mono uppercase tracking-widest px-1.5 py-0.5 rounded border shrink-0 mt-0.5 ${platformStyle}`}
+                      className={`text-xs font-mono uppercase tracking-widest px-1.5 py-0.5 rounded border shrink-0 mt-0.5 ${platformStyle}`}
                     >
                       {post.platform}
                     </span>
@@ -308,7 +308,7 @@ export function SocialAnalyticsPage() {
                           ? `${post.content.slice(0, 80)}…`
                           : post.content}
                       </p>
-                      <span className="text-[9px] font-mono text-muted-foreground mt-0.5 block">
+                      <span className="text-xs font-mono text-muted-foreground mt-0.5 block">
                         {fmtDate(post.created_at)}
                       </span>
                     </div>
@@ -316,30 +316,30 @@ export function SocialAnalyticsPage() {
                     {/* Metrics */}
                     {a ? (
                       <div className="flex items-center gap-3 shrink-0 flex-wrap justify-end">
-                        <div className="flex items-center gap-1 text-[10px] font-mono text-muted-foreground">
+                        <div className="flex items-center gap-1 text-xs font-mono text-muted-foreground">
                           <Eye size={10} className="text-cyan-400" />
                           <span>{fmtNum(a.impressions)}</span>
                         </div>
-                        <div className="flex items-center gap-1 text-[10px] font-mono text-muted-foreground">
+                        <div className="flex items-center gap-1 text-xs font-mono text-muted-foreground">
                           <Heart size={10} className="text-pink-400" />
                           <span>{fmtNum(a.likes)}</span>
                         </div>
-                        <div className="flex items-center gap-1 text-[10px] font-mono text-muted-foreground">
+                        <div className="flex items-center gap-1 text-xs font-mono text-muted-foreground">
                           <MessageCircle size={10} className="text-blue-400" />
                           <span>{fmtNum(a.replies_count)}</span>
                         </div>
-                        <div className="flex items-center gap-1 text-[10px] font-mono text-muted-foreground">
+                        <div className="flex items-center gap-1 text-xs font-mono text-muted-foreground">
                           <Repeat2 size={10} className="text-green-400" />
                           <span>{fmtNum(a.reposts)}</span>
                         </div>
                         {eng && (
-                          <span className="text-[9px] font-mono text-amber-400">
+                          <span className="text-xs font-mono text-amber-400">
                             {eng}%
                           </span>
                         )}
                       </div>
                     ) : (
-                      <span className="text-[9px] font-mono text-muted-foreground/50 border border-border/30 rounded px-1.5 py-0.5 shrink-0">
+                      <span className="text-xs font-mono text-muted-foreground border border-border/30 rounded px-1.5 py-0.5 shrink-0">
                         No data
                       </span>
                     )}
@@ -354,7 +354,7 @@ export function SocialAnalyticsPage() {
       {/* ── Info banner ─────────────────────────────────────────── */}
       {!loading && posts.some((p) => !p.analytics) && (
         <div className="flex items-start gap-2 px-3 py-2.5 rounded border border-amber-800/40 bg-amber-950/20">
-          <span className="text-[10px] font-mono text-amber-400/80 leading-relaxed">
+          <span className="text-xs font-mono text-amber-400/80 leading-relaxed">
             Some posts have no analytics data. Twitter metrics require a Basic
             tier API subscription or higher.
           </span>

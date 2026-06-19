@@ -2029,7 +2029,7 @@ export default function VideoEditorPage() {
                 {renderFailedFfmpegCmd && (
                   <details className="text-xs">
                     <summary className="cursor-pointer text-gray-500 hover:text-gray-300 transition-colors">Show technical details</summary>
-                    <pre className="mt-2 bg-gray-900 rounded p-2 text-gray-400 text-[10px] overflow-x-auto whitespace-pre-wrap break-all">
+                    <pre className="mt-2 bg-gray-900 rounded p-2 text-gray-400 text-xs overflow-x-auto whitespace-pre-wrap break-all">
                       {renderFailedFfmpegCmd}
                     </pre>
                   </details>
@@ -2375,12 +2375,12 @@ export default function VideoEditorPage() {
                             </div>
                             <div className="flex-1 min-w-0">
                               <p className="text-xs font-medium text-white truncate">{clip.title ?? "Clip"}</p>
-                              <p className="text-[11px] text-gray-400 font-mono">
+                              <p className="text-xs text-gray-400 font-mono">
                                 {formatTimestamp(start)} → {formatTimestamp(end)} · {formatDuration(end - start)}
                               </p>
                             </div>
                             <div className="flex items-center gap-2 shrink-0">
-                              <span className="text-[10px] font-mono text-gray-500 border border-gray-600 rounded px-1.5 py-0.5">
+                              <span className="text-xs font-mono text-gray-500 border border-gray-600 rounded px-1.5 py-0.5">
                                 {FORMAT_LABELS[clip.format] ?? clip.format}
                               </span>
                               <ViralScoreBadge score={clip.viral_score ?? 0} />
@@ -2457,7 +2457,7 @@ export default function VideoEditorPage() {
 
                 {/* Note: browser builds the video in real-time — keep this tab focused */}
                 {!compilingInProgress && compilationSelected.size >= 2 && !compilationResult && (
-                  <p className="text-[11px] text-gray-500 text-center -mt-2">
+                  <p className="text-xs text-gray-500 text-center -mt-2">
                     Browser compile: keep this tab open. Cloud compile: renders server-side, no tab required.
                   </p>
                 )}
@@ -2589,7 +2589,7 @@ export default function VideoEditorPage() {
                         {compilationResult.ffmpeg_cmd && (
                           <details className="text-xs">
                             <summary className="cursor-pointer text-gray-500 hover:text-gray-300 transition-colors">Show technical details</summary>
-                            <pre className="mt-2 bg-gray-900 rounded p-2 text-gray-400 text-[10px] overflow-x-auto whitespace-pre-wrap break-all">
+                            <pre className="mt-2 bg-gray-900 rounded p-2 text-gray-400 text-xs overflow-x-auto whitespace-pre-wrap break-all">
                               {compilationResult.ffmpeg_cmd}
                             </pre>
                           </details>

@@ -496,7 +496,7 @@ export default function CouncilBoard() {
         <Users size={16} className="text-primary" />
         <div className="flex-1 min-w-0">
           <h1 className="text-sm font-mono font-bold text-primary">Council Board</h1>
-          <p className="text-[10px] font-mono text-muted-foreground truncate">
+          <p className="text-xs font-mono text-muted-foreground truncate">
             {councilMembers.length} member{councilMembers.length !== 1 ? "s" : ""}
             {activeSummonedPersonas.length > 0 && ` · ${activeSummonedPersonas.length} persona${activeSummonedPersonas.length > 1 ? "s" : ""} summoned`}
             {" · MAVIS presiding"}
@@ -521,7 +521,7 @@ export default function CouncilBoard() {
                     avatarUrl: member.avatar ?? undefined,
                   });
                 }}
-                className="appearance-none text-[10px] font-mono font-medium text-emerald-400 bg-emerald-950/30 hover:bg-emerald-950/50 border border-emerald-800/40 hover:border-emerald-500/50 rounded-md pl-2 pr-6 py-1 transition-all cursor-pointer focus:outline-none focus:border-emerald-500/60"
+                className="appearance-none text-xs font-mono font-medium text-emerald-400 bg-emerald-950/30 hover:bg-emerald-950/50 border border-emerald-800/40 hover:border-emerald-500/50 rounded-md pl-2 pr-6 py-1 transition-all cursor-pointer focus:outline-none focus:border-emerald-500/60"
               >
                 <option value="" disabled className="text-muted-foreground bg-card">Call a member…</option>
                 {councilMembers.map((m) => (
@@ -538,7 +538,7 @@ export default function CouncilBoard() {
         {personas.length > 0 && (
           <button
             onClick={() => setShowPersonaPanel(v => !v)}
-            className="flex items-center gap-1 text-[10px] font-mono text-amber-400 hover:text-amber-300 border border-amber-900/40 hover:border-amber-400/40 rounded px-2 py-1 transition-all"
+            className="flex items-center gap-1 text-xs font-mono text-amber-400 hover:text-amber-300 border border-amber-900/40 hover:border-amber-400/40 rounded px-2 py-1 transition-all"
             title="Summon personas"
           >
             <Zap size={10} />
@@ -549,13 +549,13 @@ export default function CouncilBoard() {
         <button
           onClick={handleOmniSync}
           disabled={isSyncing}
-          className="flex items-center gap-1 text-[10px] font-mono text-cyan-400 hover:text-cyan-300 border border-cyan-900/40 hover:border-cyan-400/40 rounded px-2 py-1 transition-all disabled:opacity-40"
+          className="flex items-center gap-1 text-xs font-mono text-cyan-400 hover:text-cyan-300 border border-cyan-900/40 hover:border-cyan-400/40 rounded px-2 py-1 transition-all disabled:opacity-40"
         >
           <Database size={10} /> OmniSync
         </button>
         <button
           onClick={() => setConfirmClear(true)}
-          className="text-[10px] font-mono text-muted-foreground hover:text-destructive border border-border hover:border-destructive/40 rounded px-2 py-1 transition-colors"
+          className="text-xs font-mono text-muted-foreground hover:text-destructive border border-border hover:border-destructive/40 rounded px-2 py-1 transition-colors"
         >
           Clear
         </button>
@@ -571,30 +571,30 @@ export default function CouncilBoard() {
             className="overflow-hidden border-b border-border bg-amber-950/10"
           >
             <div className="px-4 py-2 space-y-1.5">
-              <p className="text-[10px] font-mono text-amber-400/70 uppercase tracking-wider">Summon into session</p>
+              <p className="text-xs font-mono text-amber-400/70 uppercase tracking-wider">Summon into session</p>
               <div className="flex flex-wrap gap-1.5">
                 {availablePersonas.map(p => (
                   <button
                     key={p.id}
                     onClick={() => handleSummon(p)}
-                    className="flex items-center gap-1 text-[10px] font-mono text-amber-300 border border-amber-700/40 bg-amber-900/20 hover:bg-amber-800/30 hover:border-amber-500/50 rounded px-2 py-1 transition-all"
+                    className="flex items-center gap-1 text-xs font-mono text-amber-300 border border-amber-700/40 bg-amber-900/20 hover:bg-amber-800/30 hover:border-amber-500/50 rounded px-2 py-1 transition-all"
                   >
                     <Zap size={8} /> {p.name}
                     {p.role && <span className="text-amber-500/60 ml-0.5">· {p.role}</span>}
                   </button>
                 ))}
                 {availablePersonas.length === 0 && (
-                  <span className="text-[10px] font-mono text-muted-foreground/50">All personas are in session.</span>
+                  <span className="text-xs font-mono text-muted-foreground">All personas are in session.</span>
                 )}
               </div>
               {activeSummonedPersonas.length > 0 && (
                 <div className="flex flex-wrap gap-1.5 pt-1 border-t border-amber-900/30">
-                  <span className="text-[10px] font-mono text-amber-500/50 self-center">In session:</span>
+                  <span className="text-xs font-mono text-amber-500/50 self-center">In session:</span>
                   {activeSummonedPersonas.map(p => (
                     <div key={p.id} className="flex items-center gap-0.5">
                       <button
                         onClick={() => handleUnsummon(p.id)}
-                        className="flex items-center gap-1 text-[10px] font-mono text-amber-200 border border-amber-500/40 bg-amber-800/30 hover:bg-red-900/30 hover:border-red-500/40 hover:text-red-300 rounded-l px-2 py-1 transition-all"
+                        className="flex items-center gap-1 text-xs font-mono text-amber-200 border border-amber-500/40 bg-amber-800/30 hover:bg-red-900/30 hover:border-red-500/40 hover:text-red-300 rounded-l px-2 py-1 transition-all"
                         title="Remove from session"
                       >
                         {p.name} ×
@@ -622,13 +622,13 @@ export default function CouncilBoard() {
         <div ref={scrollRef} onScroll={handleScroll} className="absolute inset-0 overflow-y-auto px-4 py-4 space-y-3 scrollbar-thin">
           {messages.length === 0 && !loading && (
             <div className="flex flex-col items-center justify-center h-full text-center gap-3 py-16">
-              <Users size={32} className="text-muted-foreground/40" />
+              <Users size={32} className="text-muted-foreground" />
               <p className="text-sm font-mono text-muted-foreground">The council awaits your address.</p>
-              <p className="text-[11px] font-mono text-muted-foreground/60">
+              <p className="text-xs font-mono text-muted-foreground">
                 MAVIS responds first — council members weigh in based on relevance.
               </p>
               {personas.length > 0 && (
-                <p className="text-[10px] font-mono text-amber-500/50">
+                <p className="text-xs font-mono text-amber-500/50">
                   {personas.length} persona{personas.length !== 1 ? "s" : ""} available to summon via ⚡
                 </p>
               )}
@@ -646,22 +646,22 @@ export default function CouncilBoard() {
                   className={`border-l-2 ${style.border} pl-3 py-1.5`}
                 >
                   <div className="flex items-center gap-2 mb-1 flex-wrap">
-                    <span className={`text-[9px] font-mono font-bold px-2 py-0.5 rounded text-white ${style.badge}`}>
+                    <span className={`text-xs font-mono font-bold px-2 py-0.5 rounded text-white ${style.badge}`}>
                       {msg.speakerName}
                     </span>
                     {/* Agent type badge */}
                     {msg.speakerType === "council" && (
-                      <span className="text-[8px] font-mono px-1.5 py-0.5 rounded bg-purple-900/40 text-purple-400 border border-purple-700/30">
+                      <span className="text-xs font-mono px-1.5 py-0.5 rounded bg-purple-900/40 text-purple-400 border border-purple-700/30">
                         COUNCIL
                       </span>
                     )}
                     {msg.speakerType === "persona" && (
-                      <span className="text-[8px] font-mono px-1.5 py-0.5 rounded bg-amber-900/40 text-amber-400 border border-amber-700/30">
+                      <span className="text-xs font-mono px-1.5 py-0.5 rounded bg-amber-900/40 text-amber-400 border border-amber-700/30">
                         {msg.summoned ? "⚡ SUMMONED" : "PERSONA"}
                       </span>
                     )}
-                    <span className={`text-[9px] font-mono ${style.label}`}>{msg.speakerRole}</span>
-                    <span className="text-[9px] font-mono text-muted-foreground/50 ml-auto">
+                    <span className={`text-xs font-mono ${style.label}`}>{msg.speakerRole}</span>
+                    <span className="text-xs font-mono text-muted-foreground ml-auto">
                       {new Date(msg.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                     </span>
                     <CopyButton content={msg.content} />
@@ -677,8 +677,8 @@ export default function CouncilBoard() {
           {loading && (
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="border-l-2 border-purple-500/40 pl-3 py-1.5">
               <div className="flex items-center gap-2 mb-1">
-                <span className="text-[9px] font-mono font-bold px-2 py-0.5 rounded text-white bg-purple-700">Council</span>
-                <span className="text-[9px] font-mono text-purple-300">deliberating...</span>
+                <span className="text-xs font-mono font-bold px-2 py-0.5 rounded text-white bg-purple-700">Council</span>
+                <span className="text-xs font-mono text-purple-300">deliberating...</span>
               </div>
               <div className="flex gap-1 mt-1">
                 {[0, 1, 2].map(i => (
@@ -702,20 +702,20 @@ export default function CouncilBoard() {
                   className={`border-l-2 ${style.border} pl-3 py-1.5`}
                 >
                   <div className="flex items-center gap-2 mb-1 flex-wrap">
-                    <span className={`text-[9px] font-mono font-bold px-2 py-0.5 rounded text-white ${style.badge}`}>
+                    <span className={`text-xs font-mono font-bold px-2 py-0.5 rounded text-white ${style.badge}`}>
                       {state.speakerName}
                     </span>
                     {state.speakerType === "council" && (
-                      <span className="text-[8px] font-mono px-1.5 py-0.5 rounded bg-purple-900/40 text-purple-400 border border-purple-700/30">
+                      <span className="text-xs font-mono px-1.5 py-0.5 rounded bg-purple-900/40 text-purple-400 border border-purple-700/30">
                         COUNCIL
                       </span>
                     )}
                     {state.speakerType === "persona" && (
-                      <span className="text-[8px] font-mono px-1.5 py-0.5 rounded bg-amber-900/40 text-amber-400 border border-amber-700/30">
+                      <span className="text-xs font-mono px-1.5 py-0.5 rounded bg-amber-900/40 text-amber-400 border border-amber-700/30">
                         {state.summoned ? "⚡ SUMMONED" : "PERSONA"}
                       </span>
                     )}
-                    <span className={`text-[9px] font-mono ${style.label}`}>{state.speakerRole}</span>
+                    <span className={`text-xs font-mono ${style.label}`}>{state.speakerRole}</span>
                     {state.loading && (
                       <span className="flex gap-0.5 ml-auto">
                         {[0, 1, 2].map(i => (
@@ -724,13 +724,13 @@ export default function CouncilBoard() {
                       </span>
                     )}
                     {!state.loading && (
-                      <span className="text-[9px] font-mono text-muted-foreground/50 ml-auto">
+                      <span className="text-xs font-mono text-muted-foreground ml-auto">
                         {new Date(state.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                       </span>
                     )}
                   </div>
                   {state.loading ? (
-                    <p className="text-[10px] font-mono text-muted-foreground/50 italic">Thinking...</p>
+                    <p className="text-xs font-mono text-muted-foreground italic">Thinking...</p>
                   ) : (
                     <p className="text-xs font-body text-foreground/90 leading-relaxed whitespace-pre-wrap">
                       {state.error

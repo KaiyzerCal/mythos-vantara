@@ -343,11 +343,11 @@ export default function KnowledgeGraph() {
               {/* View toggle */}
               <div className="flex items-center border border-border rounded overflow-hidden">
                 <button onClick={() => setView("list")}
-                  className={`flex items-center gap-1 px-2.5 py-1.5 text-[10px] font-mono transition-colors ${view === "list" ? "bg-primary/20 text-primary" : "text-muted-foreground hover:text-foreground"}`}>
+                  className={`flex items-center gap-1 px-2.5 py-1.5 text-xs font-mono transition-colors ${view === "list" ? "bg-primary/20 text-primary" : "text-muted-foreground hover:text-foreground"}`}>
                   <List size={11} /> List
                 </button>
                 <button onClick={switchToGraph}
-                  className={`flex items-center gap-1 px-2.5 py-1.5 text-[10px] font-mono transition-colors border-l border-border ${view === "graph" ? "bg-primary/20 text-primary" : "text-muted-foreground hover:text-foreground"}`}>
+                  className={`flex items-center gap-1 px-2.5 py-1.5 text-xs font-mono transition-colors border-l border-border ${view === "graph" ? "bg-primary/20 text-primary" : "text-muted-foreground hover:text-foreground"}`}>
                   <GitGraph size={11} /> Graph
                 </button>
               </div>
@@ -382,13 +382,13 @@ export default function KnowledgeGraph() {
             <select
               value={filterTag}
               onChange={e => setFilterTag(e.target.value)}
-              className="text-[10px] font-mono bg-muted/20 border border-border rounded px-2 py-1 text-muted-foreground focus:outline-none focus:border-primary/50"
+              className="text-xs font-mono bg-muted/20 border border-border rounded px-2 py-1 text-muted-foreground focus:outline-none focus:border-primary/50"
             >
               <option value="">All tags</option>
               {allTags.map(t => <option key={t} value={t}>{t}</option>)}
             </select>
             {filterTag && (
-              <button onClick={() => setFilterTag("")} className="text-[10px] font-mono text-muted-foreground hover:text-foreground">
+              <button onClick={() => setFilterTag("")} className="text-xs font-mono text-muted-foreground hover:text-foreground">
                 clear
               </button>
             )}
@@ -437,7 +437,7 @@ export default function KnowledgeGraph() {
                 <span className="w-4 h-4 rounded-full border-2 border-primary border-t-transparent animate-spin" />
               </div>
             ) : filtered.length === 0 ? (
-              <p className="text-[10px] font-mono text-muted-foreground text-center py-8 px-4">
+              <p className="text-xs font-mono text-muted-foreground text-center py-8 px-4">
                 {search ? "No notes match." : "No notes yet.\nCreate your first note."}
               </p>
             ) : (
@@ -449,9 +449,9 @@ export default function KnowledgeGraph() {
                 >
                   <p className="text-xs font-mono font-medium truncate text-foreground">{note.title}</p>
                   <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
-                    <span className="text-[9px] font-mono text-muted-foreground">{timeAgo(note.updated_at)}</span>
+                    <span className="text-xs font-mono text-muted-foreground">{timeAgo(note.updated_at)}</span>
                     {note.tags.slice(0, 2).map(tag => (
-                      <span key={tag} className="text-[8px] font-mono px-1 py-0.5 rounded bg-primary/10 text-primary/80">{tag}</span>
+                      <span key={tag} className="text-xs font-mono px-1 py-0.5 rounded bg-primary/10 text-primary/80">{tag}</span>
                     ))}
                   </div>
                 </button>
@@ -460,7 +460,7 @@ export default function KnowledgeGraph() {
           </div>
 
           <div className="p-2 border-t border-border">
-            <p className="text-[9px] font-mono text-muted-foreground text-center">
+            <p className="text-xs font-mono text-muted-foreground text-center">
               {notes.length} note{notes.length !== 1 ? "s" : ""} · {outgoingLinks.length + backlinks.length} links
             </p>
           </div>
@@ -470,10 +470,10 @@ export default function KnowledgeGraph() {
         <div className="flex-1 flex flex-col min-w-0">
           {!selected ? (
             <div className="flex-1 flex flex-col items-center justify-center gap-4 text-center p-8">
-              <Network size={40} className="text-muted-foreground/30" />
+              <Network size={40} className="text-muted-foreground" />
               <div>
                 <p className="text-sm font-mono text-muted-foreground">Select a note or create one</p>
-                <p className="text-[10px] font-mono text-muted-foreground/60 mt-1">MAVIS can also create notes via chat using create_note actions</p>
+                <p className="text-xs font-mono text-muted-foreground mt-1">MAVIS can also create notes via chat using create_note actions</p>
               </div>
               <button onClick={createNote} className="flex items-center gap-2 px-4 py-2 rounded border border-primary/30 text-primary text-xs font-mono hover:bg-primary/10 transition-colors">
                 <Plus size={12} /> Create First Note
@@ -490,28 +490,28 @@ export default function KnowledgeGraph() {
                       onChange={e => setDraftTitle(e.target.value)}
                       className="flex-1 bg-transparent text-sm font-mono font-bold text-foreground outline-none border-b border-primary/30 pb-0.5"
                     />
-                    <button onClick={saveNote} disabled={saving} className="flex items-center gap-1 px-2 py-1 rounded text-[10px] font-mono bg-primary/10 border border-primary/30 text-primary hover:bg-primary/20 disabled:opacity-50">
+                    <button onClick={saveNote} disabled={saving} className="flex items-center gap-1 px-2 py-1 rounded text-xs font-mono bg-primary/10 border border-primary/30 text-primary hover:bg-primary/20 disabled:opacity-50">
                       <Save size={10} /> {saving ? "Saving…" : "Save"}
                     </button>
                     <button onClick={() => { setEditing(false); setDraftTitle(selected.title); setDraftContent(selected.content); setDraftTags(selected.tags.join(", ")); }}
-                      className="text-[10px] font-mono text-muted-foreground hover:text-foreground px-2 py-1 rounded border border-border">
+                      className="text-xs font-mono text-muted-foreground hover:text-foreground px-2 py-1 rounded border border-border">
                       Cancel
                     </button>
                   </>
                 ) : (
                   <>
                     <h2 className="flex-1 text-sm font-mono font-bold truncate">{selected.title}</h2>
-                    <button onClick={() => setEditing(true)} className="flex items-center gap-1 px-2 py-1 rounded text-[10px] font-mono text-muted-foreground hover:text-primary border border-border hover:border-primary/30 transition-colors">
+                    <button onClick={() => setEditing(true)} className="flex items-center gap-1 px-2 py-1 rounded text-xs font-mono text-muted-foreground hover:text-primary border border-border hover:border-primary/30 transition-colors">
                       <Edit3 size={10} /> Edit
                     </button>
-                    <button onClick={() => setShowLinkModal(true)} className="flex items-center gap-1 px-2 py-1 rounded text-[10px] font-mono text-muted-foreground hover:text-primary border border-border hover:border-primary/30 transition-colors">
+                    <button onClick={() => setShowLinkModal(true)} className="flex items-center gap-1 px-2 py-1 rounded text-xs font-mono text-muted-foreground hover:text-primary border border-border hover:border-primary/30 transition-colors">
                       <Link2 size={10} /> Link
                     </button>
-                    <button onClick={() => setShowVersions(!showVersions)} className="flex items-center gap-1 px-2 py-1 rounded text-[10px] font-mono text-muted-foreground hover:text-primary border border-border hover:border-primary/30 transition-colors">
+                    <button onClick={() => setShowVersions(!showVersions)} className="flex items-center gap-1 px-2 py-1 rounded text-xs font-mono text-muted-foreground hover:text-primary border border-border hover:border-primary/30 transition-colors">
                       <Clock size={10} /> v{versions.length}
                     </button>
                     <button onClick={() => setConfirmDeleteNote({ id: selected.id, title: selected.title })}
-                      className="flex items-center gap-1 px-2 py-1 rounded text-[10px] font-mono text-red-400 hover:bg-red-500/10 border border-border hover:border-red-500/30 transition-colors">
+                      className="flex items-center gap-1 px-2 py-1 rounded text-xs font-mono text-red-400 hover:bg-red-500/10 border border-border hover:border-red-500/30 transition-colors">
                       <Trash2 size={10} />
                     </button>
                   </>
@@ -524,7 +524,7 @@ export default function KnowledgeGraph() {
                   {editing ? (
                     <div className="flex flex-col flex-1 p-4 gap-3">
                       <div>
-                        <label className="text-[9px] font-mono text-muted-foreground uppercase tracking-widest block mb-1">Tags (comma separated)</label>
+                        <label className="text-xs font-mono text-muted-foreground uppercase tracking-widest block mb-1">Tags (comma separated)</label>
                         <input
                           value={draftTags}
                           onChange={e => setDraftTags(e.target.value)}
@@ -533,7 +533,7 @@ export default function KnowledgeGraph() {
                         />
                       </div>
                       <div className="flex-1 flex flex-col">
-                        <label className="text-[9px] font-mono text-muted-foreground uppercase tracking-widest block mb-1">Content (Markdown)</label>
+                        <label className="text-xs font-mono text-muted-foreground uppercase tracking-widest block mb-1">Content (Markdown)</label>
                         <textarea
                           ref={textareaRef}
                           value={draftContent}
@@ -548,7 +548,7 @@ export default function KnowledgeGraph() {
                       {selected.tags.length > 0 && (
                         <div className="flex flex-wrap gap-1 mb-4">
                           {selected.tags.map(tag => (
-                            <span key={tag} className="flex items-center gap-1 text-[9px] font-mono px-2 py-0.5 rounded-full bg-primary/10 border border-primary/20 text-primary/80">
+                            <span key={tag} className="flex items-center gap-1 text-xs font-mono px-2 py-0.5 rounded-full bg-primary/10 border border-primary/20 text-primary/80">
                               <Hash size={8} /> {tag}
                             </span>
                           ))}
@@ -561,7 +561,7 @@ export default function KnowledgeGraph() {
                       ) : (
                         <p className="text-xs font-mono text-muted-foreground italic">Empty note — click Edit to add content.</p>
                       )}
-                      <p className="text-[9px] font-mono text-muted-foreground mt-6">
+                      <p className="text-xs font-mono text-muted-foreground mt-6">
                         Created {timeAgo(selected.created_at)} · Updated {timeAgo(selected.updated_at)}
                       </p>
                     </div>
@@ -573,18 +573,18 @@ export default function KnowledgeGraph() {
                   {showVersions ? (
                     <div className="flex flex-col h-full">
                       <div className="px-3 py-2 border-b border-border flex items-center justify-between">
-                        <span className="text-[10px] font-mono text-muted-foreground">Version History</span>
+                        <span className="text-xs font-mono text-muted-foreground">Version History</span>
                         <button onClick={() => setShowVersions(false)}><X size={10} className="text-muted-foreground" /></button>
                       </div>
                       <div className="flex-1 overflow-y-auto">
                         {versions.length === 0 ? (
-                          <p className="text-[10px] font-mono text-muted-foreground text-center py-6">No saved versions yet.</p>
+                          <p className="text-xs font-mono text-muted-foreground text-center py-6">No saved versions yet.</p>
                         ) : versions.map(v => (
                           <button key={v.id} onClick={() => restoreVersion(v)}
                             className="w-full text-left px-3 py-2 border-b border-border/50 hover:bg-muted/20 transition-colors">
-                            <p className="text-[10px] font-mono font-medium">v{v.version_number}</p>
-                            <p className="text-[9px] font-mono text-muted-foreground">{timeAgo(v.created_at)}</p>
-                            <p className="text-[9px] font-mono text-muted-foreground truncate">{v.title}</p>
+                            <p className="text-xs font-mono font-medium">v{v.version_number}</p>
+                            <p className="text-xs font-mono text-muted-foreground">{timeAgo(v.created_at)}</p>
+                            <p className="text-xs font-mono text-muted-foreground truncate">{v.title}</p>
                           </button>
                         ))}
                       </div>
@@ -594,22 +594,22 @@ export default function KnowledgeGraph() {
                       {/* Outgoing links */}
                       <div className="px-3 py-2 border-b border-border bg-muted/5 flex items-center gap-1.5">
                         <ArrowRight size={9} className="text-primary" />
-                        <span className="text-[10px] font-mono text-muted-foreground">Links ({outgoingLinks.length})</span>
+                        <span className="text-xs font-mono text-muted-foreground">Links ({outgoingLinks.length})</span>
                       </div>
                       {outgoingLinks.length === 0 ? (
                         <div className="px-3 py-3 border-b border-border/40">
-                          <p className="text-[9px] font-mono text-muted-foreground/60 text-center">No outgoing links.</p>
+                          <p className="text-xs font-mono text-muted-foreground text-center">No outgoing links.</p>
                         </div>
                       ) : outgoingLinks.map(({ link, other }) => (
                         <div key={link.id} className="px-3 py-2 border-b border-border/40 group">
                           <div className="flex items-start gap-1.5">
                             <ArrowRight size={9} className="shrink-0 mt-0.5 text-primary" />
                             <div className="flex-1 min-w-0">
-                              <button onClick={() => other && loadNoteDetail(other)} className="text-[10px] font-mono text-foreground hover:text-primary transition-colors text-left truncate block w-full">
+                              <button onClick={() => other && loadNoteDetail(other)} className="text-xs font-mono text-foreground hover:text-primary transition-colors text-left truncate block w-full">
                                 {other?.title}
                               </button>
-                              <span className="text-[8px] font-mono text-muted-foreground">{link.type.replace(/_/g, " ")}</span>
-                              {link.description && <p className="text-[8px] font-mono text-muted-foreground/70 truncate">{link.description}</p>}
+                              <span className="text-xs font-mono text-muted-foreground">{link.type.replace(/_/g, " ")}</span>
+                              {link.description && <p className="text-xs font-mono text-muted-foreground truncate">{link.description}</p>}
                             </div>
                             <button onClick={() => setConfirmDeleteLink({ id: link.id })} className="opacity-0 group-hover:opacity-100 transition-opacity">
                               <X size={8} className="text-red-400" />
@@ -621,22 +621,22 @@ export default function KnowledgeGraph() {
                       {/* Backlinks */}
                       <div className="px-3 py-2 border-b border-border bg-muted/5 flex items-center gap-1.5">
                         <ArrowLeft size={9} className="text-muted-foreground" />
-                        <span className="text-[10px] font-mono text-muted-foreground">Backlinks ({backlinks.length})</span>
+                        <span className="text-xs font-mono text-muted-foreground">Backlinks ({backlinks.length})</span>
                       </div>
                       {backlinks.length === 0 ? (
                         <div className="px-3 py-3">
-                          <p className="text-[9px] font-mono text-muted-foreground/60 text-center">Nothing links here yet.</p>
+                          <p className="text-xs font-mono text-muted-foreground text-center">Nothing links here yet.</p>
                         </div>
                       ) : backlinks.map(({ link, other }) => (
                         <div key={link.id} className="px-3 py-2 border-b border-border/40 group">
                           <div className="flex items-start gap-1.5">
                             <ArrowLeft size={9} className="shrink-0 mt-0.5 text-muted-foreground" />
                             <div className="flex-1 min-w-0">
-                              <button onClick={() => other && loadNoteDetail(other)} className="text-[10px] font-mono text-foreground hover:text-primary transition-colors text-left truncate block w-full">
+                              <button onClick={() => other && loadNoteDetail(other)} className="text-xs font-mono text-foreground hover:text-primary transition-colors text-left truncate block w-full">
                                 {other?.title}
                               </button>
-                              <span className="text-[8px] font-mono text-muted-foreground">{link.type.replace(/_/g, " ")} · referenced here</span>
-                              {link.description && <p className="text-[8px] font-mono text-muted-foreground/70 truncate">{link.description}</p>}
+                              <span className="text-xs font-mono text-muted-foreground">{link.type.replace(/_/g, " ")} · referenced here</span>
+                              {link.description && <p className="text-xs font-mono text-muted-foreground truncate">{link.description}</p>}
                             </div>
                           </div>
                         </div>
@@ -644,8 +644,8 @@ export default function KnowledgeGraph() {
 
                       {outgoingLinks.length === 0 && backlinks.length === 0 && (
                         <div className="flex flex-col items-center gap-2 py-6 px-3">
-                          <Link2 size={16} className="text-muted-foreground/30" />
-                          <p className="text-[9px] font-mono text-muted-foreground text-center">No links yet. Use the Link button or ask MAVIS to link notes.</p>
+                          <Link2 size={16} className="text-muted-foreground" />
+                          <p className="text-xs font-mono text-muted-foreground text-center">No links yet. Use the Link button or ask MAVIS to link notes.</p>
                         </div>
                       )}
                     </div>
@@ -706,20 +706,20 @@ export default function KnowledgeGraph() {
                         <button
                           onClick={() => saveArxivToVault(p)}
                           disabled={savingArxiv === p.id}
-                          className="flex items-center gap-1 px-2 py-1 text-[10px] font-mono bg-primary/10 border border-primary/30 text-primary rounded hover:bg-primary/20 disabled:opacity-50"
+                          className="flex items-center gap-1 px-2 py-1 text-xs font-mono bg-primary/10 border border-primary/30 text-primary rounded hover:bg-primary/20 disabled:opacity-50"
                         >
                           {savingArxiv === p.id ? <Loader2 size={10} className="animate-spin" /> : <Download size={10} />}
                           Save
                         </button>
                       </div>
                     </div>
-                    <p className="text-[10px] font-mono text-muted-foreground">
+                    <p className="text-xs font-mono text-muted-foreground">
                       {p.authors?.slice(0, 3).join(", ")}{p.authors?.length > 3 ? " et al." : ""} · {p.published ? new Date(p.published).getFullYear() : ""}
                     </p>
                     {p.primary_category && (
-                      <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-primary/10 text-primary/80">{p.primary_category}</span>
+                      <span className="text-xs font-mono px-1.5 py-0.5 rounded bg-primary/10 text-primary/80">{p.primary_category}</span>
                     )}
-                    <p className="text-[10px] font-mono text-muted-foreground/80 line-clamp-3 leading-relaxed">{p.abstract}</p>
+                    <p className="text-xs font-mono text-muted-foreground line-clamp-3 leading-relaxed">{p.abstract}</p>
                   </div>
                 ))}
               </div>
@@ -741,7 +741,7 @@ export default function KnowledgeGraph() {
               </h3>
               <div className="space-y-3">
                 <div>
-                  <label className="text-[9px] font-mono text-muted-foreground uppercase tracking-widest block mb-1">Target Note (type to search)</label>
+                  <label className="text-xs font-mono text-muted-foreground uppercase tracking-widest block mb-1">Target Note (type to search)</label>
                   <input value={linkTarget} onChange={e => setLinkTarget(e.target.value)}
                     placeholder="Note title..."
                     className="w-full bg-muted/10 border border-border rounded px-2 py-1.5 text-xs font-mono outline-none focus:border-primary/50" />
@@ -749,7 +749,7 @@ export default function KnowledgeGraph() {
                     <div className="mt-1 border border-border rounded overflow-hidden max-h-28 overflow-y-auto">
                       {notes.filter(n => n.title.toLowerCase().includes(linkTarget.toLowerCase()) && n.id !== selected?.id).slice(0, 5).map(n => (
                         <button key={n.id} onClick={() => setLinkTarget(n.title)}
-                          className="w-full text-left px-2 py-1.5 text-[10px] font-mono hover:bg-muted/30 transition-colors border-b border-border/50 last:border-0">
+                          className="w-full text-left px-2 py-1.5 text-xs font-mono hover:bg-muted/30 transition-colors border-b border-border/50 last:border-0">
                           {n.title}
                         </button>
                       ))}
@@ -757,14 +757,14 @@ export default function KnowledgeGraph() {
                   )}
                 </div>
                 <div>
-                  <label className="text-[9px] font-mono text-muted-foreground uppercase tracking-widest block mb-1">Link Type</label>
+                  <label className="text-xs font-mono text-muted-foreground uppercase tracking-widest block mb-1">Link Type</label>
                   <select value={linkType} onChange={e => setLinkType(e.target.value)}
                     className="w-full bg-muted/10 border border-border rounded px-2 py-1.5 text-xs font-mono outline-none">
                     {LINK_TYPES.map(t => <option key={t} value={t}>{t.replace(/_/g, " ")}</option>)}
                   </select>
                 </div>
                 <div>
-                  <label className="text-[9px] font-mono text-muted-foreground uppercase tracking-widest block mb-1">Description (optional)</label>
+                  <label className="text-xs font-mono text-muted-foreground uppercase tracking-widest block mb-1">Description (optional)</label>
                   <input value={linkDesc} onChange={e => setLinkDesc(e.target.value)}
                     placeholder="Why are these linked?"
                     className="w-full bg-muted/10 border border-border rounded px-2 py-1.5 text-xs font-mono outline-none focus:border-primary/50" />

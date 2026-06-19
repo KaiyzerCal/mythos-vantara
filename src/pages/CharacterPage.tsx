@@ -210,7 +210,7 @@ export default function CharacterPage() {
               <p className="text-3xl font-display font-bold" style={{ color: rankColor }}>
                 {profile.level}
               </p>
-              <p className="text-[9px] font-mono text-muted-foreground uppercase">Level</p>
+              <p className="text-xs font-mono text-muted-foreground uppercase">Level</p>
               <p className="text-xs font-mono text-muted-foreground mt-2">
                 Floor {profile.current_floor}
               </p>
@@ -223,10 +223,10 @@ export default function CharacterPage() {
           {/* XP Progress */}
           <div className="mt-4 relative">
             <div className="flex justify-between mb-1.5">
-              <span className="text-[10px] font-mono text-muted-foreground">
+              <span className="text-xs font-mono text-muted-foreground">
                 XP PROGRESS — Level {profile.level} → {profile.level + 1}
               </span>
-              <span className="text-[10px] font-mono text-primary">
+              <span className="text-xs font-mono text-primary">
                 {profile.xp.toLocaleString()} / {profile.xp_to_next_level.toLocaleString()}
               </span>
             </div>
@@ -240,10 +240,10 @@ export default function CharacterPage() {
         <h3 className="text-xs font-mono text-muted-foreground uppercase tracking-widest mb-2 flex items-center gap-2">
           <Star size={10} className="text-primary" /> Core Attributes
           {Object.keys(gearBonuses).length > 0 && (
-            <span className="text-[9px] text-green-400 ml-1">(gear active)</span>
+            <span className="text-xs text-green-400 ml-1">(gear active)</span>
           )}
           {activeDomains.length > 0 && (
-            <span className="text-[9px] text-violet-400 ml-1">({activeDomains.length} domain{activeDomains.length > 1 ? "s" : ""})</span>
+            <span className="text-xs text-violet-400 ml-1">({activeDomains.length} domain{activeDomains.length > 1 ? "s" : ""})</span>
           )}
         </h3>
         <HudCard>
@@ -265,14 +265,14 @@ export default function CharacterPage() {
               const effective = Math.min(Math.max(base + bonus, 0), STAT_MAX);
               return (
                 <div key={key} className="flex items-center gap-3">
-                  <span className="text-[10px] font-mono text-muted-foreground w-8 shrink-0">{label}</span>
+                  <span className="text-xs font-mono text-muted-foreground w-8 shrink-0">{label}</span>
                   <div className="flex-1">
                     <ProgressBar value={effective} max={STAT_MAX} height="sm" />
                   </div>
                   <div className="flex items-center gap-1 shrink-0 w-14 justify-end">
-                    <span className="text-[10px] font-mono text-primary">{effective}</span>
+                    <span className="text-xs font-mono text-primary">{effective}</span>
                     {bonus !== 0 && (
-                      <span className={`text-[9px] font-mono ${bonus > 0 ? "text-green-400" : "text-red-400"}`}>
+                      <span className={`text-xs font-mono ${bonus > 0 ? "text-green-400" : "text-red-400"}`}>
                         {bonus > 0 ? "+" : ""}{bonus}
                       </span>
                     )}
@@ -295,7 +295,7 @@ export default function CharacterPage() {
             {/* Gear Effects */}
             {hasGearStats && (
               <HudCard>
-                <p className="text-[9px] font-mono text-muted-foreground uppercase tracking-widest mb-2 flex items-center gap-1.5">
+                <p className="text-xs font-mono text-muted-foreground uppercase tracking-widest mb-2 flex items-center gap-1.5">
                   <Package size={9} /> Gear Effects
                 </p>
                 <div className="space-y-2">
@@ -310,7 +310,7 @@ export default function CharacterPage() {
                             {effects.map((eff, idx) => (
                               <span
                                 key={idx}
-                                className={`text-[9px] font-mono px-1.5 py-0.5 rounded border ${eff.value >= 0 ? "text-green-400 border-green-500/30 bg-green-500/5" : "text-red-400 border-red-500/30 bg-red-500/5"}`}
+                                className={`text-xs font-mono px-1.5 py-0.5 rounded border ${eff.value >= 0 ? "text-green-400 border-green-500/30 bg-green-500/5" : "text-red-400 border-red-500/30 bg-red-500/5"}`}
                               >
                                 {eff.label} {eff.value >= 0 ? "+" : ""}{eff.value}{eff.unit}
                               </span>
@@ -322,12 +322,12 @@ export default function CharacterPage() {
                   {/* Totals row */}
                   {Object.keys(gearBonuses).length > 0 && (
                     <div className="flex items-center justify-between pt-1">
-                      <span className="text-[9px] font-mono text-muted-foreground">Total from gear</span>
+                      <span className="text-xs font-mono text-muted-foreground">Total from gear</span>
                       <div className="flex gap-1.5 flex-wrap justify-end">
                         {Object.entries(gearBonuses).map(([key, val]) => {
                           const label = CORE_STATS.find((s) => s.key === key)?.label ?? key;
                           return (
-                            <span key={key} className={`text-[9px] font-mono px-1.5 py-0.5 rounded border ${val >= 0 ? "text-green-400 border-green-500/40 bg-green-500/10" : "text-red-400 border-red-500/40 bg-red-500/10"}`}>
+                            <span key={key} className={`text-xs font-mono px-1.5 py-0.5 rounded border ${val >= 0 ? "text-green-400 border-green-500/40 bg-green-500/10" : "text-red-400 border-red-500/40 bg-red-500/10"}`}>
                               {label} {val >= 0 ? "+" : ""}{val}
                             </span>
                           );
@@ -342,15 +342,15 @@ export default function CharacterPage() {
             {/* Active Form Buffs */}
             {hasFormBuffs && (
               <HudCard>
-                <p className="text-[9px] font-mono text-muted-foreground uppercase tracking-widest mb-2 flex items-center gap-1.5">
+                <p className="text-xs font-mono text-muted-foreground uppercase tracking-widest mb-2 flex items-center gap-1.5">
                   <Swords size={9} /> Active Form — {profile.current_form}
                 </p>
                 {activeBuffs.length > 0 && (
                   <div className="mb-2">
-                    <p className="text-[9px] font-mono text-green-400 mb-1">Buffs</p>
+                    <p className="text-xs font-mono text-green-400 mb-1">Buffs</p>
                     <div className="space-y-1">
                       {activeBuffs.map((b, i) => (
-                        <p key={i} className="text-xs font-mono text-foreground/80 pl-2 border-l border-green-500/30">
+                        <p key={i} className="text-xs font-mono text-foreground pl-2 border-l border-green-500/30">
                           {b}
                         </p>
                       ))}
@@ -359,10 +359,10 @@ export default function CharacterPage() {
                 )}
                 {passiveBuffs.length > 0 && (
                   <div>
-                    <p className="text-[9px] font-mono text-amber-400 mb-1">Passives</p>
+                    <p className="text-xs font-mono text-amber-400 mb-1">Passives</p>
                     <div className="space-y-1">
                       {passiveBuffs.map((b, i) => (
-                        <p key={i} className="text-xs font-mono text-foreground/80 pl-2 border-l border-amber-500/30">
+                        <p key={i} className="text-xs font-mono text-foreground pl-2 border-l border-amber-500/30">
                           {b}
                         </p>
                       ))}
@@ -375,7 +375,7 @@ export default function CharacterPage() {
             {/* Domain / Area Effects */}
             {activeDomains.length > 0 && (
               <HudCard>
-                <p className="text-[9px] font-mono text-muted-foreground uppercase tracking-widest mb-2 flex items-center gap-1.5">
+                <p className="text-xs font-mono text-muted-foreground uppercase tracking-widest mb-2 flex items-center gap-1.5">
                   <Waves size={9} /> Domain & Area Effects
                 </p>
                 <div className="space-y-3">
@@ -388,20 +388,20 @@ export default function CharacterPage() {
                       <div key={ef.id} className="border-b border-border/20 last:border-0 pb-2 last:pb-0">
                         <div className="flex items-center gap-2 mb-1">
                           <span className="text-xs font-display font-semibold text-foreground">{ef.name}</span>
-                          <span className="text-[8px] font-mono text-violet-400 border border-violet-500/30 bg-violet-500/5 px-1 rounded">{ef.effect_type}</span>
+                          <span className="text-xs font-mono text-violet-400 border border-violet-500/30 bg-violet-500/5 px-1 rounded">{ef.effect_type}</span>
                         </div>
-                        {ef.source && <p className="text-[9px] font-mono text-muted-foreground mb-1">from {ef.source}</p>}
+                        {ef.source && <p className="text-xs font-mono text-muted-foreground mb-1">from {ef.source}</p>}
                         {mods.length > 0 && (
                           <div className="flex gap-1.5 flex-wrap mb-1">
                             {mods.map((mod, i) => (
-                              <span key={i} className={`text-[9px] font-mono px-1.5 py-0.5 rounded border ${mod.value >= 0 ? "text-green-400 border-green-500/30 bg-green-500/5" : "text-red-400 border-red-500/30 bg-red-500/5"}`}>
+                              <span key={i} className={`text-xs font-mono px-1.5 py-0.5 rounded border ${mod.value >= 0 ? "text-green-400 border-green-500/30 bg-green-500/5" : "text-red-400 border-red-500/30 bg-red-500/5"}`}>
                                 {mod.label} {mod.value >= 0 ? "+" : ""}{mod.value}{mod.unit}
                               </span>
                             ))}
                           </div>
                         )}
                         {areaFx.map((fx, i) => (
-                          <p key={i} className="text-[9px] font-mono text-cyan-400 pl-2 border-l border-cyan-500/30">{fx}</p>
+                          <p key={i} className="text-xs font-mono text-cyan-400 pl-2 border-l border-cyan-500/30">{fx}</p>
                         ))}
                       </div>
                     );
@@ -413,24 +413,24 @@ export default function CharacterPage() {
             {/* Quest Modifiers */}
             {questModifiers.length > 0 && (
               <HudCard>
-                <p className="text-[9px] font-mono text-muted-foreground uppercase tracking-widest mb-2 flex items-center gap-1.5">
+                <p className="text-xs font-mono text-muted-foreground uppercase tracking-widest mb-2 flex items-center gap-1.5">
                   <BookOpen size={9} /> Quest Modifiers
                 </p>
                 <div className="space-y-3">
                   {questModifiers.map((qm, qi) => (
                     <div key={qi}>
-                      <p className="text-[10px] font-display font-semibold text-foreground/80 mb-1">{qm.title}</p>
+                      <p className="text-xs font-display font-semibold text-foreground mb-1">{qm.title}</p>
                       {qm.buffs.length > 0 && (
                         <div className="flex flex-wrap gap-1 mb-1">
                           {qm.buffs.map((b, i) => (
-                            <span key={i} className="text-[9px] font-mono text-green-400 border border-green-500/30 bg-green-500/5 px-1.5 py-0.5 rounded">{b}</span>
+                            <span key={i} className="text-xs font-mono text-green-400 border border-green-500/30 bg-green-500/5 px-1.5 py-0.5 rounded">{b}</span>
                           ))}
                         </div>
                       )}
                       {qm.debuffs.length > 0 && (
                         <div className="flex flex-wrap gap-1">
                           {qm.debuffs.map((d, i) => (
-                            <span key={i} className="text-[9px] font-mono text-red-400 border border-red-500/30 bg-red-500/5 px-1.5 py-0.5 rounded">{d}</span>
+                            <span key={i} className="text-xs font-mono text-red-400 border border-red-500/30 bg-red-500/5 px-1.5 py-0.5 rounded">{d}</span>
                           ))}
                         </div>
                       )}
@@ -528,7 +528,7 @@ export default function CharacterPage() {
               ))}
             </div>
             {energySystems.length > 6 && (
-              <p className="text-[10px] font-mono text-muted-foreground mt-2 text-center">
+              <p className="text-xs font-mono text-muted-foreground mt-2 text-center">
                 +{energySystems.length - 6} more — see Energy page
               </p>
             )}
@@ -539,7 +539,7 @@ export default function CharacterPage() {
       {/* ── Arc Story ── */}
       <motion.div {...fadeIn(0.2)}>
         <HudCard className="border-primary/10">
-          <p className="text-[9px] font-mono text-muted-foreground uppercase tracking-widest mb-1">Current Arc</p>
+          <p className="text-xs font-mono text-muted-foreground uppercase tracking-widest mb-1">Current Arc</p>
           <p className="text-sm font-display text-primary/80 italic">{profile.arc_story}</p>
           <p className="text-xs font-mono text-muted-foreground mt-2">
             Form: <span className="text-foreground">{profile.current_form}</span>

@@ -490,7 +490,7 @@ export default function WidgetBuilderPage() {
                     >
                       <Icon size={18} className={wt.color} />
                       <span className="text-xs font-medium leading-tight">{wt.label}</span>
-                      <span className="text-[10px] text-muted-foreground font-mono">${wt.monthly}/mo</span>
+                      <span className="text-xs text-muted-foreground font-mono">${wt.monthly}/mo</span>
                     </button>
                   );
                 })}
@@ -648,7 +648,7 @@ export default function WidgetBuilderPage() {
               {selectedType === "faq" && (
                 <div className="space-y-1.5">
                   <label className="text-xs font-medium text-muted-foreground">FAQ Pairs</label>
-                  <p className="text-[10px] text-muted-foreground">
+                  <p className="text-xs text-muted-foreground">
                     Format: Q: Question\nA: Answer\n\nQ: Next question\nA: Next answer
                   </p>
                   <Textarea
@@ -725,7 +725,7 @@ export default function WidgetBuilderPage() {
                       onChange={(e) => setForm({ ...form, youtube_url: e.target.value })}
                       placeholder="https://www.youtube.com/watch?v=... or youtu.be/... or playlist URL"
                     />
-                    <p className="text-[10px] text-muted-foreground">
+                    <p className="text-xs text-muted-foreground">
                       Paste a video URL, playlist URL, or bare 11-character video ID. The widget embeds directly — the video stays on YouTube, no hosting needed.
                     </p>
                   </div>
@@ -770,7 +770,7 @@ export default function WidgetBuilderPage() {
                       </div>
                     ))}
                   </div>
-                  <p className="text-[10px] text-muted-foreground">
+                  <p className="text-xs text-muted-foreground">
                     Autoplay requires muted audio (browser policy) — viewers can unmute manually.
                   </p>
                 </>
@@ -1048,7 +1048,7 @@ export default function WidgetBuilderPage() {
                         <Button
                           size="sm"
                           variant="outline"
-                          className="h-6 px-2 text-[10px]"
+                          className="h-6 px-2 text-xs"
                           onClick={() => updateLeadStatus(lead.id, "contacted")}
                         >
                           Contacted
@@ -1058,7 +1058,7 @@ export default function WidgetBuilderPage() {
                         <Button
                           size="sm"
                           variant="outline"
-                          className="h-6 px-2 text-[10px] text-emerald-400 border-emerald-500/30"
+                          className="h-6 px-2 text-xs text-emerald-400 border-emerald-500/30"
                           onClick={() => updateLeadStatus(lead.id, "converted")}
                         >
                           Converted
@@ -1186,7 +1186,7 @@ export default function WidgetBuilderPage() {
           className={`flex items-center gap-2 px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${topTab === "agents" ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"}`}
         >
           <Bot size={14} /> AI Agents
-          <span className="text-[9px] font-mono text-emerald-400 border border-emerald-400/30 rounded px-1 py-0.5">Claude</span>
+          <span className="text-xs font-mono text-emerald-400 border border-emerald-400/30 rounded px-1 py-0.5">Claude</span>
         </button>
       </div>
 

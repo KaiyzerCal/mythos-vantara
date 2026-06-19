@@ -279,7 +279,7 @@ export default function PlanBoard() {
                     <span className={`text-sm font-semibold leading-snug ${isSelected ? "text-blue-200" : "text-foreground"}`}>
                       {plan.title}
                     </span>
-                    <span className={`inline-flex items-center gap-1 text-[10px] font-mono px-1.5 py-0.5 rounded border shrink-0 ${PLAN_STATUS_STYLE[plan.status]}`}>
+                    <span className={`inline-flex items-center gap-1 text-xs font-mono px-1.5 py-0.5 rounded border shrink-0 ${PLAN_STATUS_STYLE[plan.status]}`}>
                       <span className={`w-1 h-1 rounded-full ${PLAN_STATUS_DOT[plan.status]}`} />
                       {plan.status}
                     </span>
@@ -287,7 +287,7 @@ export default function PlanBoard() {
                   <p className="text-xs text-muted-foreground line-clamp-2 mb-2">{plan.goal}</p>
                   <div className="space-y-1">
                     <Progress value={pct} className="h-1" />
-                    <span className="text-[10px] text-muted-foreground font-mono">
+                    <span className="text-xs text-muted-foreground font-mono">
                       {plan.completed_steps}/{plan.total_steps} steps · {pct}%
                     </span>
                   </div>
@@ -354,7 +354,7 @@ function PlanDetail({
             </div>
             <Progress value={pct} className="h-2" />
           </div>
-          <p className="text-[11px] text-muted-foreground font-mono">
+          <p className="text-xs text-muted-foreground font-mono">
             Created {fmtDate(plan.created_at)}
           </p>
         </CardContent>
@@ -389,7 +389,7 @@ function PlanDetail({
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-0.5">
-                      <span className="text-[10px] font-mono text-muted-foreground shrink-0">
+                      <span className="text-xs font-mono text-muted-foreground shrink-0">
                         #{step.step_number}
                       </span>
                       <span className={`text-sm font-semibold ${STEP_STATUS_STYLE[step.status]}`}>
@@ -406,7 +406,7 @@ function PlanDetail({
                     )}
                     {/* Timeline */}
                     {(step.started_at || step.completed_at) && (
-                      <div className="flex items-center gap-3 text-[10px] text-muted-foreground font-mono">
+                      <div className="flex items-center gap-3 text-xs text-muted-foreground font-mono">
                         {step.started_at && (
                           <span className="flex items-center gap-1">
                             <Clock size={9} /> Started {fmtDate(step.started_at)}

@@ -124,7 +124,7 @@ export function AvatarUploader({
             loading="lazy"
           />
         ) : (
-          <span className="font-display font-bold text-foreground/70 text-lg">
+          <span className="font-display font-bold text-muted-foreground text-lg">
             {fallback?.[0]?.toUpperCase() ?? "?"}
           </span>
         )}

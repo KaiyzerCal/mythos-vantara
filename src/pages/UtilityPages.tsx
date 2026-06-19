@@ -95,7 +95,7 @@ export function AuthPage() {
             </button>
           </div>
 
-          <p className="text-[10px] font-mono text-muted-foreground text-center mt-4">
+          <p className="text-xs font-mono text-muted-foreground text-center mt-4">
             MAVIS-PRIME systems ready // CODEXOS v21.1
           </p>
         </HudCard>
@@ -176,7 +176,7 @@ function AutomationRulesSection() {
           <p className="text-xs font-mono text-muted-foreground">
             No automation rules configured. SENTINEL monitors system events automatically.
           </p>
-          <p className="text-[10px] font-mono text-muted-foreground/60">
+          <p className="text-xs font-mono text-muted-foreground">
             Rules can be added programmatically via the mavis_automation_rules table.
           </p>
         </div>
@@ -186,11 +186,11 @@ function AutomationRulesSection() {
             <div key={rule.id} className="flex items-center justify-between gap-2 py-1 border-b border-border/30 last:border-0">
               <div className="flex items-center gap-2 min-w-0 flex-1">
                 <span className="text-xs font-mono truncate">{rule.name}</span>
-                <span className="text-[9px] font-mono text-muted-foreground/60 shrink-0">{rule.triggerEvent}</span>
-                <span className="text-[9px] font-mono text-primary/60 shrink-0">{rule.actionType}</span>
+                <span className="text-xs font-mono text-muted-foreground shrink-0">{rule.triggerEvent}</span>
+                <span className="text-xs font-mono text-primary/60 shrink-0">{rule.actionType}</span>
               </div>
               <div className="flex items-center gap-2 shrink-0">
-                <span className="text-[9px] font-mono text-muted-foreground">{rule.triggerCount}</span>
+                <span className="text-xs font-mono text-muted-foreground">{rule.triggerCount}</span>
                 <button
                   onClick={() => toggleRule(rule)}
                   className={`w-10 h-5 rounded-full transition-all relative ${rule.enabled ? "bg-primary/30" : "bg-muted"}`}
@@ -246,25 +246,25 @@ export function SettingsPage() {
         </h3>
         <div className="space-y-3">
           <div>
-            <label className="text-[10px] font-mono text-muted-foreground uppercase mb-1 block">Inscribed Name</label>
+            <label className="text-xs font-mono text-muted-foreground uppercase mb-1 block">Inscribed Name</label>
             <input value={localProfile.inscribed_name} onChange={(e) => setLocalProfile((p) => ({ ...p, inscribed_name: e.target.value }))} className="w-full bg-muted/30 border border-border rounded px-3 py-1.5 text-sm focus:outline-none focus:border-primary/40" />
           </div>
           <div>
-            <label className="text-[10px] font-mono text-muted-foreground uppercase mb-1 block">Arc Story</label>
+            <label className="text-xs font-mono text-muted-foreground uppercase mb-1 block">Arc Story</label>
             <input value={localProfile.arc_story} onChange={(e) => setLocalProfile((p) => ({ ...p, arc_story: e.target.value }))} className="w-full bg-muted/30 border border-border rounded px-3 py-1.5 text-sm focus:outline-none focus:border-primary/40" />
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="text-[10px] font-mono text-muted-foreground uppercase mb-1 block">Current Form</label>
+              <label className="text-xs font-mono text-muted-foreground uppercase mb-1 block">Current Form</label>
               <input value={localProfile.current_form} onChange={(e) => setLocalProfile((p) => ({ ...p, current_form: e.target.value }))} className="w-full bg-muted/30 border border-border rounded px-3 py-1.5 text-sm focus:outline-none" />
             </div>
             <div>
-              <label className="text-[10px] font-mono text-muted-foreground uppercase mb-1 block">Current BPM</label>
+              <label className="text-xs font-mono text-muted-foreground uppercase mb-1 block">Current BPM</label>
               <input type="number" value={localProfile.current_bpm} onChange={(e) => setLocalProfile((p) => ({ ...p, current_bpm: Number(e.target.value) }))} className="w-full bg-muted/30 border border-border rounded px-3 py-1.5 text-sm focus:outline-none" />
             </div>
           </div>
           <div>
-            <label className="text-[10px] font-mono text-muted-foreground uppercase mb-1 block">Language</label>
+            <label className="text-xs font-mono text-muted-foreground uppercase mb-1 block">Language</label>
             <select
               value={localProfile.language}
               onChange={(e) => setLocalProfile((p) => ({ ...p, language: e.target.value }))}
@@ -321,7 +321,7 @@ export function SettingsPage() {
           ].map(([k, v]) => (
             <div key={k} className="flex justify-between text-xs">
               <span className="font-mono text-muted-foreground">{k}</span>
-              <span className="font-mono text-foreground/80">{v}</span>
+              <span className="font-mono text-foreground">{v}</span>
             </div>
           ))}
         </div>
@@ -340,7 +340,7 @@ export { default as IndexPage } from "./Dashboard";
 export function NotFound() {
   return (
     <div className="min-h-[60vh] flex flex-col items-center justify-center gap-4">
-      <p className="font-display text-4xl font-bold text-muted-foreground/30">404</p>
+      <p className="font-display text-4xl font-bold text-muted-foreground">404</p>
       <p className="text-xs font-mono text-muted-foreground">Route not found in CODEXOS map</p>
       <a href="/" className="text-xs font-mono text-primary hover:underline">← Return to Dashboard</a>
     </div>

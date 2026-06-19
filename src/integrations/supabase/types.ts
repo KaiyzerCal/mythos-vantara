@@ -1330,6 +1330,48 @@ export type Database = {
         }
         Relationships: []
       }
+      mavis_agent_traces: {
+        Row: {
+          action_type: string | null
+          created_at: string | null
+          duration_ms: number | null
+          id: string
+          iteration: number | null
+          ok: boolean | null
+          params: Json | null
+          result: Json | null
+          session_id: string | null
+          turn: number | null
+          user_id: string
+        }
+        Insert: {
+          action_type?: string | null
+          created_at?: string | null
+          duration_ms?: number | null
+          id?: string
+          iteration?: number | null
+          ok?: boolean | null
+          params?: Json | null
+          result?: Json | null
+          session_id?: string | null
+          turn?: number | null
+          user_id: string
+        }
+        Update: {
+          action_type?: string | null
+          created_at?: string | null
+          duration_ms?: number | null
+          id?: string
+          iteration?: number | null
+          ok?: boolean | null
+          params?: Json | null
+          result?: Json | null
+          session_id?: string | null
+          turn?: number | null
+          user_id?: string
+        }
+        Relationships: []
+      }
       mavis_autonomous_runs: {
         Row: {
           id: number

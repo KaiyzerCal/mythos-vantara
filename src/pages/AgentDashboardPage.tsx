@@ -185,9 +185,9 @@ function CouncilStatusTab({ userId }: { userId: string }) {
     return (
       <HudCard>
         <div className="flex flex-col items-center gap-3 py-8 text-center">
-          <Users size={28} className="text-muted-foreground/40" />
+          <Users size={28} className="text-muted-foreground" />
           <p className="text-sm font-mono text-muted-foreground">No council members found.</p>
-          <p className="text-[11px] font-mono text-muted-foreground/60">
+          <p className="text-xs font-mono text-muted-foreground">
             Create council members to see their status here.
           </p>
         </div>
@@ -205,21 +205,21 @@ function CouncilStatusTab({ userId }: { userId: string }) {
               <div className="flex items-center gap-2 flex-wrap">
                 <h3 className="text-sm font-display font-bold text-foreground truncate">{member.name}</h3>
                 {unreadCount > 0 && (
-                  <span className="flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-primary text-[9px] font-mono font-bold text-primary-foreground">
+                  <span className="flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-primary text-xs font-mono font-bold text-primary-foreground">
                     {unreadCount}
                   </span>
                 )}
               </div>
-              <p className="text-[11px] font-mono text-muted-foreground truncate mt-0.5">{member.role}</p>
+              <p className="text-xs font-mono text-muted-foreground truncate mt-0.5">{member.role}</p>
             </div>
-            <span className={`text-[9px] font-mono uppercase tracking-widest px-1.5 py-0.5 rounded border shrink-0 ${classBadge(member.class)}`}>
+            <span className={`text-xs font-mono uppercase tracking-widest px-1.5 py-0.5 rounded border shrink-0 ${classBadge(member.class)}`}>
               {member.class}
             </span>
           </div>
 
           {/* Specialty */}
           {member.specialty && (
-            <p className="text-[10px] font-mono text-muted-foreground/70 mb-3 border-l-2 border-border pl-2 italic">
+            <p className="text-xs font-mono text-muted-foreground mb-3 border-l-2 border-border pl-2 italic">
               {member.specialty}
             </p>
           )}
@@ -230,22 +230,22 @@ function CouncilStatusTab({ userId }: { userId: string }) {
               <span className="text-sm font-display font-bold text-amber-400 tabular-nums">
                 {karma > 0 ? `+${karma}` : karma}
               </span>
-              <span className="text-[8px] font-mono text-muted-foreground uppercase tracking-widest mt-0.5">Karma</span>
+              <span className="text-xs font-mono text-muted-foreground uppercase tracking-widest mt-0.5">Karma</span>
             </div>
             <div className="flex flex-col items-center justify-center rounded border border-border bg-muted/20 px-2 py-2">
               <span className="text-sm font-display font-bold text-cyan-400 tabular-nums">{memoryCount}</span>
-              <span className="text-[8px] font-mono text-muted-foreground uppercase tracking-widest mt-0.5">Memories</span>
+              <span className="text-xs font-mono text-muted-foreground uppercase tracking-widest mt-0.5">Memories</span>
             </div>
             <div className="flex flex-col items-center justify-center rounded border border-border bg-muted/20 px-2 py-2">
               <span className={`text-sm font-display font-bold tabular-nums ${unreadCount > 0 ? "text-primary" : "text-muted-foreground"}`}>
                 {unreadCount}
               </span>
-              <span className="text-[8px] font-mono text-muted-foreground uppercase tracking-widest mt-0.5">Unread</span>
+              <span className="text-xs font-mono text-muted-foreground uppercase tracking-widest mt-0.5">Unread</span>
             </div>
           </div>
 
           {/* Last active */}
-          <div className="flex items-center gap-1.5 text-[10px] font-mono text-muted-foreground/60">
+          <div className="flex items-center gap-1.5 text-xs font-mono text-muted-foreground">
             <Activity size={9} />
             <span>Last active: {fmtRelative(lastActive)}</span>
           </div>
@@ -374,7 +374,7 @@ function AgentMemoriesTab({ userId }: { userId: string }) {
           <ChevronDown size={12} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
         </div>
         {selectedMember && (
-          <span className={`text-[9px] font-mono uppercase px-1.5 py-0.5 rounded border ${classBadge(selectedMember.class)}`}>
+          <span className={`text-xs font-mono uppercase px-1.5 py-0.5 rounded border ${classBadge(selectedMember.class)}`}>
             {selectedMember.class}
           </span>
         )}
@@ -388,7 +388,7 @@ function AgentMemoriesTab({ userId }: { userId: string }) {
       ) : memories.length === 0 ? (
         <HudCard>
           <div className="flex flex-col items-center gap-2 py-8 text-center">
-            <Brain size={24} className="text-muted-foreground/40" />
+            <Brain size={24} className="text-muted-foreground" />
             <p className="text-xs font-mono text-muted-foreground">No memories for this agent.</p>
           </div>
         </HudCard>
@@ -405,12 +405,12 @@ function AgentMemoriesTab({ userId }: { userId: string }) {
                     {(mem.tags ?? []).map((tag) => (
                       <span
                         key={tag}
-                        className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-cyan-900/30 text-cyan-400 border border-cyan-800/40"
+                        className="text-xs font-mono px-1.5 py-0.5 rounded bg-cyan-900/30 text-cyan-400 border border-cyan-800/40"
                       >
                         #{tag}
                       </span>
                     ))}
-                    <span className="text-[9px] font-mono text-muted-foreground/50 ml-auto">
+                    <span className="text-xs font-mono text-muted-foreground ml-auto">
                       {fmtDate(mem.created_at)}
                     </span>
                   </div>
@@ -418,7 +418,7 @@ function AgentMemoriesTab({ userId }: { userId: string }) {
                 <button
                   onClick={() => setConfirmDelete({ id: mem.id, label: mem.content.slice(0, 60) })}
                   disabled={deleting === mem.id}
-                  className="shrink-0 p-1.5 rounded text-muted-foreground/40 hover:text-destructive hover:bg-destructive/10 transition-colors disabled:opacity-30 opacity-0 group-hover:opacity-100"
+                  className="shrink-0 p-1.5 rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors disabled:opacity-30 opacity-0 group-hover:opacity-100"
                   title="Delete memory"
                 >
                   {deleting === mem.id ? (
@@ -508,9 +508,9 @@ function ResponseQualityTab({ userId }: { userId: string }) {
     return (
       <HudCard>
         <div className="flex flex-col items-center gap-3 py-8 text-center">
-          <Star size={28} className="text-muted-foreground/40" />
+          <Star size={28} className="text-muted-foreground" />
           <p className="text-sm font-mono text-muted-foreground">No feedback yet</p>
-          <p className="text-[11px] font-mono text-muted-foreground/60">
+          <p className="text-xs font-mono text-muted-foreground">
             Use 👍/👎 in chat to rate responses
           </p>
         </div>
@@ -524,27 +524,27 @@ function ResponseQualityTab({ userId }: { userId: string }) {
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <HudCard className="text-center">
           <div className="text-xl font-display font-bold text-foreground tabular-nums">{total}</div>
-          <div className="text-[9px] font-mono text-muted-foreground uppercase tracking-widest mt-1">Total Ratings</div>
+          <div className="text-xs font-mono text-muted-foreground uppercase tracking-widest mt-1">Total Ratings</div>
         </HudCard>
         <HudCard className="text-center">
           <div className="text-xl font-display font-bold text-green-400 tabular-nums">{ups}</div>
           <div className="flex items-center justify-center gap-1 mt-1">
             <ThumbsUp size={9} className="text-green-400" />
-            <span className="text-[9px] font-mono text-muted-foreground uppercase tracking-widest">Positive</span>
+            <span className="text-xs font-mono text-muted-foreground uppercase tracking-widest">Positive</span>
           </div>
         </HudCard>
         <HudCard className="text-center">
           <div className="text-xl font-display font-bold text-red-400 tabular-nums">{downs}</div>
           <div className="flex items-center justify-center gap-1 mt-1">
             <ThumbsDown size={9} className="text-red-400" />
-            <span className="text-[9px] font-mono text-muted-foreground uppercase tracking-widest">Negative</span>
+            <span className="text-xs font-mono text-muted-foreground uppercase tracking-widest">Negative</span>
           </div>
         </HudCard>
         <HudCard className="text-center">
           <div className={`text-xl font-display font-bold tabular-nums ${satisfactionPct >= 80 ? "text-green-400" : satisfactionPct >= 50 ? "text-amber-400" : "text-red-400"}`}>
             {satisfactionPct}%
           </div>
-          <div className="text-[9px] font-mono text-muted-foreground uppercase tracking-widest mt-1">Satisfaction</div>
+          <div className="text-xs font-mono text-muted-foreground uppercase tracking-widest mt-1">Satisfaction</div>
         </HudCard>
       </div>
 
@@ -562,7 +562,7 @@ function ResponseQualityTab({ userId }: { userId: string }) {
             style={{ width: `${satisfactionPct}%` }}
           />
         </div>
-        <div className="flex justify-between text-[9px] font-mono text-muted-foreground/50 mt-1">
+        <div className="flex justify-between text-xs font-mono text-muted-foreground mt-1">
           <span>{ups} up</span>
           <span>{downs} down</span>
         </div>
@@ -584,22 +584,22 @@ function ResponseQualityTab({ userId }: { userId: string }) {
                 </div>
                 <div className="flex-1 min-w-0">
                   {fb.response_preview && (
-                    <p className="text-xs font-body text-foreground/80 leading-relaxed mb-2 line-clamp-2">
+                    <p className="text-xs font-body text-foreground leading-relaxed mb-2 line-clamp-2">
                       {fb.response_preview}
                     </p>
                   )}
                   <div className="flex items-center gap-2 flex-wrap">
                     {fb.provider && (
-                      <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-purple-900/30 text-purple-400 border border-purple-800/40">
+                      <span className="text-xs font-mono px-1.5 py-0.5 rounded bg-purple-900/30 text-purple-400 border border-purple-800/40">
                         {fb.provider}
                       </span>
                     )}
                     {fb.mode && (
-                      <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-blue-900/30 text-blue-400 border border-blue-800/40">
+                      <span className="text-xs font-mono px-1.5 py-0.5 rounded bg-blue-900/30 text-blue-400 border border-blue-800/40">
                         {fb.mode}
                       </span>
                     )}
-                    <span className="text-[9px] font-mono text-muted-foreground/50 ml-auto">
+                    <span className="text-xs font-mono text-muted-foreground ml-auto">
                       {fmtDate(fb.created_at)}
                     </span>
                   </div>

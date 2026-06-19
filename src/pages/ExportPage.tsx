@@ -263,7 +263,7 @@ export function ExportPage() {
                     <p className="text-sm font-display font-bold text-foreground leading-tight">
                       {et.label}
                     </p>
-                    <p className="text-[10px] font-mono text-muted-foreground mt-0.5 leading-snug">
+                    <p className="text-xs font-mono text-muted-foreground mt-0.5 leading-snug">
                       {et.description}
                     </p>
                   </div>
@@ -271,7 +271,7 @@ export function ExportPage() {
 
                 {/* Footer: record count + download button */}
                 <div className="flex items-center justify-between mt-auto">
-                  <span className="text-[10px] font-mono text-muted-foreground">
+                  <span className="text-xs font-mono text-muted-foreground">
                     {statsLoading
                       ? "— records"
                       : `${(count ?? 0).toLocaleString()} record${count !== 1 ? "s" : ""}`}
@@ -310,7 +310,7 @@ export function ExportPage() {
               <p className="text-sm font-display font-bold text-foreground leading-tight">
                 Obsidian Vault Export
               </p>
-              <p className="text-[10px] font-mono text-muted-foreground mt-0.5 leading-snug">
+              <p className="text-xs font-mono text-muted-foreground mt-0.5 leading-snug">
                 Export MAVIS notes, journal, and vault as Obsidian-compatible markdown with YAML frontmatter and [[wikilinks]].
               </p>
             </div>
@@ -351,7 +351,7 @@ export function ExportPage() {
               </p>
               <p className="text-xs font-mono text-muted-foreground leading-relaxed">
                 API keys and secrets stored in{" "}
-                <span className="font-bold text-foreground/80">mavis_user_integrations</span>{" "}
+                <span className="font-bold text-foreground">mavis_user_integrations</span>{" "}
                 are <span className="font-bold text-amber-400">not</span> included in any export for
                 security. Re-configure integrations manually after a restore.
               </p>

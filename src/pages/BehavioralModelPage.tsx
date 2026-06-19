@@ -136,7 +136,7 @@ export function BehavioralModelPage() {
               { label: "Last Updated", value: model.last_synthesized_at ? new Date(model.last_synthesized_at).toLocaleDateString() : "—", color: "text-amber-400" },
             ].map(stat => (
               <HudCard key={stat.label}>
-                <p className="text-[9px] font-mono text-muted-foreground uppercase tracking-widest mb-1">{stat.label}</p>
+                <p className="text-xs font-mono text-muted-foreground uppercase tracking-widest mb-1">{stat.label}</p>
                 <p className={`text-xl font-display font-bold ${stat.color}`}>{stat.value}</p>
               </HudCard>
             ))}

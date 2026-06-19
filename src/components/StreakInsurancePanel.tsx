@@ -143,7 +143,7 @@ export function StreakInsurancePanel() {
                       {formatStreakType(ins.streak_type)}
                     </span>
                     <Badge
-                      className={`text-[10px] border shrink-0 ${
+                      className={`text-xs border shrink-0 ${
                         active
                           ? "bg-emerald-900/40 text-emerald-300 border-emerald-700"
                           : "bg-zinc-800/40 text-zinc-400 border-zinc-600"

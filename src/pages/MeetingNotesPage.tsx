@@ -189,7 +189,7 @@ export function MeetingNotesPage() {
               <div className="space-y-3">
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   <div>
-                    <label className="text-[9px] font-mono text-muted-foreground block mb-0.5">
+                    <label className="text-xs font-mono text-muted-foreground block mb-0.5">
                       Meeting Title *
                     </label>
                     <input
@@ -201,7 +201,7 @@ export function MeetingNotesPage() {
                     />
                   </div>
                   <div>
-                    <label className="text-[9px] font-mono text-muted-foreground block mb-0.5">
+                    <label className="text-xs font-mono text-muted-foreground block mb-0.5">
                       Meeting Date
                     </label>
                     <input
@@ -213,7 +213,7 @@ export function MeetingNotesPage() {
                   </div>
                 </div>
                 <div>
-                  <label className="text-[9px] font-mono text-muted-foreground block mb-0.5">
+                  <label className="text-xs font-mono text-muted-foreground block mb-0.5">
                     Transcript / Raw Notes *
                   </label>
                   <textarea
@@ -280,7 +280,7 @@ export function MeetingNotesPage() {
                         <h3 className="text-sm font-mono font-bold text-foreground">
                           {meeting.title}
                         </h3>
-                        <span className="text-[8px] font-mono px-1.5 py-0.5 rounded border border-primary/20 bg-primary/10 text-primary shrink-0">
+                        <span className="text-xs font-mono px-1.5 py-0.5 rounded border border-primary/20 bg-primary/10 text-primary shrink-0">
                           {fmtDate(meeting.meeting_date)}
                         </span>
                       </div>
@@ -291,17 +291,17 @@ export function MeetingNotesPage() {
                       )}
                       <div className="flex items-center gap-3 mt-1.5">
                         {meeting.attendees && meeting.attendees.length > 0 && (
-                          <span className="text-[9px] font-mono text-muted-foreground flex items-center gap-1">
+                          <span className="text-xs font-mono text-muted-foreground flex items-center gap-1">
                             <Users size={9} /> {meeting.attendees.length} attendees
                           </span>
                         )}
                         {meeting.action_items && meeting.action_items.length > 0 && (
-                          <span className="text-[9px] font-mono text-muted-foreground flex items-center gap-1">
+                          <span className="text-xs font-mono text-muted-foreground flex items-center gap-1">
                             <Check size={9} /> {meeting.action_items.length} actions
                           </span>
                         )}
                         {meeting.key_points && meeting.key_points.length > 0 && (
-                          <span className="text-[9px] font-mono text-muted-foreground flex items-center gap-1">
+                          <span className="text-xs font-mono text-muted-foreground flex items-center gap-1">
                             <FileText size={9} /> {meeting.key_points.length} key points
                           </span>
                         )}
@@ -327,14 +327,14 @@ export function MeetingNotesPage() {
                         {/* Attendees */}
                         {meeting.attendees && meeting.attendees.length > 0 && (
                           <HudCard className="bg-muted/10">
-                            <p className="text-[9px] font-mono text-primary uppercase tracking-widest mb-2 flex items-center gap-1">
+                            <p className="text-xs font-mono text-primary uppercase tracking-widest mb-2 flex items-center gap-1">
                               <Users size={9} /> Attendees
                             </p>
                             <div className="flex flex-wrap gap-1.5">
                               {meeting.attendees.map((a, i) => (
                                 <span
                                   key={i}
-                                  className="text-[10px] font-mono px-2 py-0.5 rounded border border-border bg-muted/30 text-foreground"
+                                  className="text-xs font-mono px-2 py-0.5 rounded border border-border bg-muted/30 text-foreground"
                                 >
                                   {a}
                                 </span>
@@ -346,7 +346,7 @@ export function MeetingNotesPage() {
                         {/* Key Points */}
                         {meeting.key_points && meeting.key_points.length > 0 && (
                           <HudCard className="bg-muted/10">
-                            <p className="text-[9px] font-mono text-primary uppercase tracking-widest mb-2 flex items-center gap-1">
+                            <p className="text-xs font-mono text-primary uppercase tracking-widest mb-2 flex items-center gap-1">
                               <FileText size={9} /> Key Points
                             </p>
                             <ul className="space-y-1">
@@ -363,7 +363,7 @@ export function MeetingNotesPage() {
                         {/* Decisions */}
                         {meeting.decisions && meeting.decisions.length > 0 && (
                           <HudCard className="bg-muted/10">
-                            <p className="text-[9px] font-mono text-primary uppercase tracking-widest mb-2 flex items-center gap-1">
+                            <p className="text-xs font-mono text-primary uppercase tracking-widest mb-2 flex items-center gap-1">
                               <Check size={9} /> Decisions
                             </p>
                             <ul className="space-y-1">
@@ -380,16 +380,16 @@ export function MeetingNotesPage() {
                         {/* Action Items */}
                         {meeting.action_items && meeting.action_items.length > 0 && (
                           <HudCard className="bg-muted/10">
-                            <p className="text-[9px] font-mono text-primary uppercase tracking-widest mb-2 flex items-center gap-1">
+                            <p className="text-xs font-mono text-primary uppercase tracking-widest mb-2 flex items-center gap-1">
                               <Zap size={9} /> Action Items
                             </p>
                             <div className="overflow-x-auto">
                               <table className="w-full text-xs font-mono">
                                 <thead>
                                   <tr className="border-b border-border/40">
-                                    <th className="text-left text-[9px] text-muted-foreground pb-1 pr-3">Owner</th>
-                                    <th className="text-left text-[9px] text-muted-foreground pb-1 pr-3">Task</th>
-                                    <th className="text-left text-[9px] text-muted-foreground pb-1">Due</th>
+                                    <th className="text-left text-xs text-muted-foreground pb-1 pr-3">Owner</th>
+                                    <th className="text-left text-xs text-muted-foreground pb-1 pr-3">Task</th>
+                                    <th className="text-left text-xs text-muted-foreground pb-1">Due</th>
                                   </tr>
                                 </thead>
                                 <tbody>
@@ -413,7 +413,7 @@ export function MeetingNotesPage() {
                         {/* Calendar info row */}
                         <div className="flex items-center gap-1.5 pl-1">
                           <Calendar size={10} className="text-muted-foreground" />
-                          <span className="text-[9px] font-mono text-muted-foreground">
+                          <span className="text-xs font-mono text-muted-foreground">
                             Captured {new Date(meeting.created_at).toLocaleDateString()}
                           </span>
                         </div>
