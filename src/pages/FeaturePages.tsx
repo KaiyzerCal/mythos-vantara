@@ -135,13 +135,14 @@ export function QuestsPage() {
   useEffect(() => { loadQuestChains(); }, [loadQuestChains]);
 
   const autoLinkQuestChains = async () => {
-    const { data: { user } } = await (supabase as any).auth.getUser();
-    if (!user) return;
+    const { data: { session } } = await (supabase as any).auth.getSession();
+    if (!session?.user) return;
+    const user = session.user;
     setChainsLoading(true);
     try {
       const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/mavis-chain-builder`, {
         method: "POST",
-        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}` },
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${session.access_token}` },
         body: JSON.stringify({ userId: user.id, action: "auto_link_quest_chains" }),
       });
       const data = await res.json();
