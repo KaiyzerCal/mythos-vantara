@@ -115,7 +115,7 @@ async function callAI(
 // INTENT CLASSIFICATION
 // ─────────────────────────────────────────────────────────────
 
-type Intent = "query" | "social" | "research" | "action" | "status" | "comms";
+type Intent = "query" | "social" | "research" | "action" | "status" | "comms" | "crawl";
 
 const INTENT_KEYWORDS: Record<Intent, string[]> = {
   social:   ["post", "tweet", "content", "write a post", "linkedin", "twitter", "instagram", "caption", "draft a", "create content", "publish", "nora"],
@@ -123,6 +123,7 @@ const INTENT_KEYWORDS: Record<Intent, string[]> = {
   action:   ["create quest", "add task", "log", "update my", "complete", "set a goal", "new quest", "add to my", "delete", "record", "track"],
   status:   ["status", "how am i doing", "progress", "what's pending", "pending approvals", "how many", "overview", "dashboard", "brief me", "what do i have"],
   comms:    ["email", "schedule", "calendar", "meeting", "meet with", "contact", "reach out", "send to", "book", "appointment"],
+  crawl:    ["crawl", "scrape", "index this site", "index this url", "add to knowledge base", "scrape this", "ingest site", "crawl this"],
   query:    [],
 };
 
@@ -429,6 +430,62 @@ Be direct and concise. 2-4 sentences for most replies. Mobile-first format.`,
   );
 }
 
+// --- Deep web crawl + RAG ingestion ---
+async function handleCrawl(userId: string, message: string): Promise<string> {
+  const urlMatch = message.match(/https?:\/\/[^\s]+/);
+  const queryMatch = !urlMatch && message.match(/(?:search|find|what do you know about|query)\s+(.+)/i);
+
+  // Query mode — semantic search over already-crawled documents
+  if (queryMatch || (!urlMatch && /search|query|find in|look up/i.test(message))) {
+    const q = queryMatch?.[1] ?? message;
+    const r = await fetch(`${SUPABASE_URL}/functions/v1/mavis-web-crawler`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${SERVICE_KEY}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "query", user_id: userId, query: q, match_count: 5 }),
+      signal: AbortSignal.timeout(20000),
+    }).catch(() => null);
+    if (r?.ok) {
+      const d = await r.json();
+      const results = (d.results ?? []) as any[];
+      if (!results.length) return `🔍 *RAG Search*\n\nNo matching documents found. Try crawling a site first with a URL.`;
+      const lines = results.slice(0, 3).map((res: any, i: number) =>
+        `${i + 1}. ${(res.content ?? "").slice(0, 300)}…\n_Source: ${res.metadata?.source ?? "unknown"}_`
+      ).join("\n\n");
+      return `🔍 *RAG Results for:* _${q.slice(0, 60)}_\n\n${lines}`;
+    }
+  }
+
+  // Status check
+  if (/status|how many|progress|queue/i.test(message) && !urlMatch) {
+    const r = await fetch(`${SUPABASE_URL}/functions/v1/mavis-web-crawler`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${SERVICE_KEY}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "status", user_id: userId }),
+      signal: AbortSignal.timeout(10000),
+    }).catch(() => null);
+    if (r?.ok) {
+      const d = await r.json();
+      const q = d.queue ?? {};
+      return `🕷️ *Crawler Status*\n\n📋 Pending: ${q.pending ?? 0}\n⚙️ Processing: ${q.processing ?? 0}\n✅ Done: ${q.done ?? 0}\n❌ Errors: ${q.error ?? 0}\n📄 Documents embedded: ${d.documents ?? 0}\n\n_Embeddings: ${d.embeddings_enabled ? "✅ OpenAI" : "⚠️ Add OPENAI_API_KEY"}_`;
+    }
+  }
+
+  if (!urlMatch) return `🕷️ *Web Crawler*\n\nSend me a URL to start crawling:\n_e.g. "crawl https://docs.example.com"_\n\nOr query your existing knowledge base:\n_e.g. "query: API rate limits"_`;
+
+  const url = urlMatch[0];
+  const r = await fetch(`${SUPABASE_URL}/functions/v1/mavis-web-crawler`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${SERVICE_KEY}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "start", user_id: userId, url, process_now: false }),
+    signal: AbortSignal.timeout(15000),
+  }).catch(() => null);
+
+  if (r?.ok) {
+    return `🕷️ *Crawl Started*\n\nSeed: ${url}\n\nI'll crawl the page, extract all internal links, embed the text, and index it for RAG search.\n\nRun again with "crawl process" to continue, or I'll process it in the background.\n\n_Query your knowledge base any time: "query: [topic]"_`;
+  }
+  return `🕷️ *Crawler*\n\nQueued: ${url}\nUse "crawl process" to start extraction.`;
+}
+
 // --- Comms: email send or calendar manage ---
 async function handleComms(userId: string, message: string): Promise<string> {
   const lower = message.toLowerCase();
@@ -632,6 +689,7 @@ Deno.serve(async (req) => {
       case "action":   reply = await handleAction(user_id, message); break;
       case "status":   reply = await handleStatus(user_id, opName); break;
       case "comms":    reply = await handleComms(user_id, message); break;
+      case "crawl":    reply = await handleCrawl(user_id, message); break;
       default:         reply = await handleQuery(user_id, message, opName); break;
     }
 
