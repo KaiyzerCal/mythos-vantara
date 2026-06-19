@@ -1914,7 +1914,8 @@ serve(async (req) => {
     const sb = createClient(supabaseUrl, serviceKey, { auth: { persistSession: false } });
 
     const reqBody = await req.json();
-    const { messages: rawMessages, systemPrompt: clientSystemPrompt, mode, conversationId, appState, attachmentIds, chatKind, threadRef, stream: isStreaming } = reqBody;
+    const { messages: rawMessages, systemPrompt: clientSystemPrompt, mode, conversationId, appState, attachmentIds, chatKind, threadRef, stream: isStreaming, channel } = reqBody;
+    const isTelegramChannel = channel === "telegram";
 
     // Trim conversation history to stay within token budget.
     // 1 token ≈ 4 chars. Keep last ~8K tokens of history so the large
@@ -2646,12 +2647,17 @@ You always know the current date and time without being told. Reference it natur
               match_count:     8,
             });
             if (semMems?.length) {
-              const lines = (semMems as any[]).map((m: any, i: number) => {
-                const ts = m.timestamp ? new Date(m.timestamp as number).toISOString().slice(0, 10) : "";
-                const tags = Array.isArray(m.tags) && m.tags.length ? ` [${(m.tags as string[]).join(", ")}]` : "";
-                return `${i + 1}. [${ts}${tags}] ${String(m.content).slice(0, 400)}`;
-              });
-              semanticMemoryBlock = `\n═══ RELEVANT MEMORIES (semantic match to this query) ═══\n${lines.join("\n\n")}\n═══ END MEMORIES ═══`;
+              // Exclude telegram-sourced memories from in-app chats to prevent channel bleed-in
+              const filteredMems = isTelegramChannel
+                ? (semMems as any[])
+                : (semMems as any[]).filter((m: any) => !Array.isArray(m.tags) || !m.tags.includes("telegram"));
+              if (filteredMems.length) {
+                const lines = filteredMems.map((m: any, i: number) => {
+                  const ts = m.timestamp ? new Date(m.timestamp as number).toISOString().slice(0, 10) : "";
+                  return `${i + 1}. [${ts}] ${String(m.content).slice(0, 400)}`;
+                });
+                semanticMemoryBlock = `\n═══ RELEVANT MEMORIES (semantic match to this query) ═══\n${lines.join("\n\n")}\n═══ END MEMORIES ═══`;
+              }
             }
           }
         }
@@ -2878,9 +2884,10 @@ You always know the current date and time without being told. Reference it natur
               })();
               const sid = (conversationId as string | undefined) ?? "web-chat";
               const ts = Date.now();
+              const memTags: string[] = isTelegramChannel ? ["telegram"] : [];
               sb.from("mavis_memory").insert([
-                { user_id: user.id, session_id: sid, role: "user", content: lastUserText.slice(0, 4000), timestamp: ts, importance_score: scoreImportance(lastUserText), consolidated: false },
-                { user_id: user.id, session_id: sid, role: "assistant", content: accumulated.slice(0, 4000), timestamp: ts + 1, importance_score: scoreImportance(accumulated), consolidated: false },
+                { user_id: user.id, session_id: sid, role: "user", content: lastUserText.slice(0, 4000), timestamp: ts, importance_score: scoreImportance(lastUserText), consolidated: false, ...(memTags.length ? { tags: memTags } : {}) },
+                { user_id: user.id, session_id: sid, role: "assistant", content: accumulated.slice(0, 4000), timestamp: ts + 1, importance_score: scoreImportance(accumulated), consolidated: false, ...(memTags.length ? { tags: memTags } : {}) },
               ]).catch(() => {});
 
               // AI-powered tacit extraction (same as non-streaming path)
@@ -3340,6 +3347,7 @@ Respond with ONLY a JSON array (may be empty []):
       try {
         const sessionId = (conversationId as string | undefined) ?? "web-chat";
         const ts = Date.now();
+        const memTags: string[] = isTelegramChannel ? ["telegram"] : [];
         await sb.from("mavis_memory").insert([
           {
             user_id:          user.id,
@@ -3349,6 +3357,7 @@ Respond with ONLY a JSON array (may be empty []):
             timestamp:        ts,
             importance_score: scoreImportance(lastUserContent),
             consolidated:     false,
+            ...(memTags.length ? { tags: memTags } : {}),
           },
           {
             user_id:          user.id,
@@ -3358,6 +3367,7 @@ Respond with ONLY a JSON array (may be empty []):
             timestamp:        ts + 1,
             importance_score: scoreImportance(content),
             consolidated:     false,
+            ...(memTags.length ? { tags: memTags } : {}),
           },
         ]);
       } catch { /* non-critical */ }

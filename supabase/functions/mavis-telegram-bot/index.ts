@@ -521,6 +521,7 @@ async function handleChat(
         messages,
         mode:           "PRIME",
         conversationId: sessionId ?? undefined,
+        channel:        "telegram",
         stream:         false,
       }),
       signal: AbortSignal.timeout(55000),
