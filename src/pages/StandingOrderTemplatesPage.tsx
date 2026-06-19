@@ -137,14 +137,14 @@ function SOTemplateCard({
                 {template.status === "pinned" ? "★ Pinned" : template.status === "archived" ? "Archived" : "Active"}
               </span>
               {template.created_by_agent && (
-                <span className="text-[10px] text-primary bg-primary/10 rounded px-1.5 py-0.5">AI-created</span>
+                <span className="text-xs text-primary bg-primary/10 rounded px-1.5 py-0.5">AI-created</span>
               )}
-              <span className="text-[10px] text-white/40 bg-white/5 rounded px-1.5 py-0.5 capitalize">{template.category}</span>
+              <span className="text-xs text-white/40 bg-white/5 rounded px-1.5 py-0.5 capitalize">{template.category}</span>
             </div>
             {template.description && (
               <p className="text-xs text-white/50 mt-0.5 line-clamp-1">{template.description}</p>
             )}
-            <div className="flex items-center gap-3 mt-1.5 text-[10px] text-white/40">
+            <div className="flex items-center gap-3 mt-1.5 text-xs text-white/40">
               <span>v{template.version}</span>
               <span>Used {template.usage_count}×</span>
               <span>Success: {successRate(template)}</span>
@@ -203,7 +203,7 @@ function SOTemplateCard({
             {template.tags.length > 0 && (
               <div className="flex items-center gap-1.5 mt-2 flex-wrap">
                 {template.tags.map(t => (
-                  <span key={t} className="text-[10px] text-white/40 bg-white/5 rounded px-1.5 py-0.5">#{t}</span>
+                  <span key={t} className="text-xs text-white/40 bg-white/5 rounded px-1.5 py-0.5">#{t}</span>
                 ))}
               </div>
             )}
@@ -220,7 +220,7 @@ function SOTemplateCard({
               ) : (
                 <div className="space-y-1">
                   {executions.map(e => (
-                    <div key={e.id} className="flex items-center gap-2 text-[10px]">
+                    <div key={e.id} className="flex items-center gap-2 text-xs">
                       {e.status === "completed"
                         ? <CheckCircle2 size={10} className="text-green-400" />
                         : e.status === "failed"

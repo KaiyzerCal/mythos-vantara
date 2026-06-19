@@ -292,7 +292,7 @@ export function AvatarStudioPage() {
             )}
           </AnimatePresence>
 
-          <p className="text-[10px] text-muted-foreground mt-3 font-mono leading-relaxed">
+          <p className="text-xs text-muted-foreground mt-3 font-mono leading-relaxed">
             Best results: clear frontal face, good lighting, neutral expression, minimal background clutter.
           </p>
         </HudCard>
@@ -311,11 +311,11 @@ export function AvatarStudioPage() {
             className="w-full bg-zinc-900 border border-border rounded px-3 py-2 text-xs font-mono focus:outline-none focus:border-primary/50 resize-none leading-relaxed"
           />
           <div className="flex justify-between items-center mt-1 mb-3">
-            <span className={`text-[10px] font-mono ${script.length > 2200 ? "text-yellow-400" : "text-muted-foreground"}`}>
+            <span className={`text-xs font-mono ${script.length > 2200 ? "text-yellow-400" : "text-muted-foreground"}`}>
               {script.length}/2500 chars
             </span>
             {script.length > 0 && (
-              <button onClick={() => setScript("")} className="text-[10px] text-muted-foreground hover:text-foreground font-mono">
+              <button onClick={() => setScript("")} className="text-xs text-muted-foreground hover:text-foreground font-mono">
                 Clear
               </button>
             )}
@@ -323,7 +323,7 @@ export function AvatarStudioPage() {
 
           {/* Voice */}
           <div className="mb-3">
-            <label className="text-[10px] font-mono text-muted-foreground block mb-1">Voice</label>
+            <label className="text-xs font-mono text-muted-foreground block mb-1">Voice</label>
             <select
               value={voiceId}
               onChange={(e) => setVoiceId(e.target.value)}
@@ -337,7 +337,7 @@ export function AvatarStudioPage() {
 
           {/* Options */}
           <div className="space-y-2 mb-4">
-            <label className="text-[10px] font-mono text-muted-foreground block">Options</label>
+            <label className="text-xs font-mono text-muted-foreground block">Options</label>
             <label className="flex items-center gap-2 cursor-pointer group">
               <input
                 type="checkbox"
@@ -443,7 +443,7 @@ export function AvatarStudioPage() {
             </div>
           ) : (
             <div className="flex flex-col items-center justify-center gap-3 py-12">
-              <Video size={36} className="text-muted-foreground/20" />
+              <Video size={36} className="text-muted-foreground" />
               <p className="text-xs font-mono text-muted-foreground text-center">
                 Your avatar video will appear here
               </p>
@@ -451,7 +451,7 @@ export function AvatarStudioPage() {
                 <div className="flex flex-col items-center gap-2 mt-2">
                   <Loader2 size={16} className="animate-spin text-primary" />
                   <span className="text-xs font-mono text-primary/80">{statusMsg}</span>
-                  <p className="text-[10px] text-muted-foreground font-mono">
+                  <p className="text-xs text-muted-foreground font-mono">
                     SadTalker typically takes 30–90 seconds
                   </p>
                 </div>
@@ -463,11 +463,11 @@ export function AvatarStudioPage() {
 
       {/* How it works */}
       <div className="mt-4 px-4 py-3 rounded-lg border border-border bg-zinc-900/30">
-        <p className="text-[10px] font-mono text-muted-foreground leading-relaxed">
-          <span className="text-foreground/60 font-bold">How it works:</span>{" "}
+        <p className="text-xs font-mono text-muted-foreground leading-relaxed">
+          <span className="text-muted-foreground font-bold">How it works:</span>{" "}
           Upload a face photo → type your script → choose a voice → Generate.
           MAVIS converts the script to speech via ElevenLabs, then uses{" "}
-          <span className="text-foreground/60">SadTalker (fal.ai)</span> to animate the face with precise lip sync.
+          <span className="text-muted-foreground">SadTalker (fal.ai)</span> to animate the face with precise lip sync.
           The result is a fully synthetic talking-head video — no HeyGen subscription needed.
           For best quality, use a well-lit frontal headshot with a plain background.
         </p>

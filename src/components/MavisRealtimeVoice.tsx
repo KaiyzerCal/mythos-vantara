@@ -281,7 +281,7 @@ export function MavisRealtimeVoice({ onClose, context }: MavisRealtimeVoiceProps
         <h2 className="font-display text-primary text-sm font-bold tracking-widest text-glow-gold">
           MAVIS // VOICE REALTIME
         </h2>
-        <p className="text-[10px] font-mono text-muted-foreground mt-1">
+        <p className="text-xs font-mono text-muted-foreground mt-1">
           {PHASE_LABELS[phase]}
         </p>
       </div>
@@ -390,7 +390,7 @@ export function MavisRealtimeVoice({ onClose, context }: MavisRealtimeVoiceProps
                     : "bg-primary/10 text-primary border border-primary/20"
                 }`}
               >
-                <span className="block text-[9px] font-mono mb-0.5 opacity-60">
+                <span className="block text-xs font-mono mb-0.5 opacity-60">
                   {t.role === "user" ? "YOU" : "MAVIS"}
                 </span>
                 {t.text}
@@ -402,13 +402,13 @@ export function MavisRealtimeVoice({ onClose, context }: MavisRealtimeVoiceProps
       )}
 
       {transcript.length === 0 && connected && (
-        <p className="text-[10px] font-mono text-muted-foreground">
+        <p className="text-xs font-mono text-muted-foreground">
           Speak to begin — MAVIS is listening.
         </p>
       )}
 
       {/* Footer note */}
-      <p className="absolute bottom-4 text-[9px] font-mono text-muted-foreground/50">
+      <p className="absolute bottom-4 text-xs font-mono text-muted-foreground">
         MAVIS REALTIME · OPENAAI WEBRTC · END-TO-END ENCRYPTED
       </p>
     </motion.div>

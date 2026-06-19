@@ -240,7 +240,7 @@ function FileViewer({ files }: { files: GeneratedFile[] }) {
       <div className="flex items-center gap-1">
         <button
           onClick={() => setActiveTab("preview")}
-          className={`flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-mono rounded border transition-colors ${
+          className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono rounded border transition-colors ${
             activeTab === "preview"
               ? "bg-primary/10 border-primary/30 text-primary"
               : "border-border/50 text-muted-foreground hover:text-foreground"
@@ -250,7 +250,7 @@ function FileViewer({ files }: { files: GeneratedFile[] }) {
         </button>
         <button
           onClick={() => setActiveTab("code")}
-          className={`flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-mono rounded border transition-colors ${
+          className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono rounded border transition-colors ${
             activeTab === "code"
               ? "bg-primary/10 border-primary/30 text-primary"
               : "border-border/50 text-muted-foreground hover:text-foreground"
@@ -260,7 +260,7 @@ function FileViewer({ files }: { files: GeneratedFile[] }) {
         </button>
         <button
           onClick={handleDownload}
-          className="flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-mono rounded border border-border/50 text-muted-foreground hover:text-foreground transition-colors ml-auto"
+          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono rounded border border-border/50 text-muted-foreground hover:text-foreground transition-colors ml-auto"
         >
           <Download size={10} /> Download
         </button>
@@ -294,7 +294,7 @@ function FileViewer({ files }: { files: GeneratedFile[] }) {
               <button
                 key={f.path}
                 onClick={() => setActiveFile(f.path)}
-                className={`shrink-0 px-3 py-2 text-[10px] font-mono transition-colors border-r border-border last:border-r-0 ${
+                className={`shrink-0 px-3 py-2 text-xs font-mono transition-colors border-r border-border last:border-r-0 ${
                   activeFile === f.path
                     ? "text-primary bg-primary/10"
                     : "text-muted-foreground hover:text-foreground"
@@ -338,18 +338,18 @@ function ProjectCard({ project }: { project: Project }) {
       <div className="flex items-start justify-between gap-3">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-1">
-            <span className={`text-[9px] font-mono px-1.5 py-0.5 rounded border ${statusClass}`}>
+            <span className={`text-xs font-mono px-1.5 py-0.5 rounded border ${statusClass}`}>
               {project.status.replace("_", " ")}
             </span>
-            <span className="text-[9px] font-mono text-muted-foreground">{project.brand}</span>
-            <span className="text-[9px] font-mono text-muted-foreground">{timeAgo(project.created_at)}</span>
+            <span className="text-xs font-mono text-muted-foreground">{project.brand}</span>
+            <span className="text-xs font-mono text-muted-foreground">{timeAgo(project.created_at)}</span>
           </div>
           <p className="text-sm font-display font-bold">{project.project_name}</p>
           <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{project.project_goal}</p>
         </div>
         <div className="flex items-center gap-2 shrink-0">
           {project.project_value && (
-            <span className="text-[9px] font-mono text-green-400 flex items-center gap-0.5">
+            <span className="text-xs font-mono text-green-400 flex items-center gap-0.5">
               <DollarSign size={9} />
               {project.project_value.toLocaleString()}
             </span>
@@ -357,7 +357,7 @@ function ProjectCard({ project }: { project: Project }) {
           {project.status === "complete" && files.length > 0 && (
             <button
               onClick={() => setExpanded(!expanded)}
-              className={`flex items-center gap-1 px-2 py-1 text-[9px] font-mono rounded border transition-colors ${
+              className={`flex items-center gap-1 px-2 py-1 text-xs font-mono rounded border transition-colors ${
                 expanded
                   ? "bg-primary/10 border-primary/30 text-primary"
                   : "border-border/50 text-muted-foreground hover:text-primary hover:border-primary/30"
@@ -373,17 +373,17 @@ function ProjectCard({ project }: { project: Project }) {
       {project.status === "complete" && project.quality_gate_results && (
         <div className="flex items-center gap-2">
           {project.quality_gate_results.passed ? (
-            <span className="text-[9px] font-mono text-green-400 flex items-center gap-1">
+            <span className="text-xs font-mono text-green-400 flex items-center gap-1">
               <CheckCircle2 size={10} /> All quality checks passed
             </span>
           ) : (
-            <span className="text-[9px] font-mono text-amber-400 flex items-center gap-1">
+            <span className="text-xs font-mono text-amber-400 flex items-center gap-1">
               <XCircle size={10} />
               {project.quality_gate_results.failedChecks.length} check{project.quality_gate_results.failedChecks.length !== 1 ? "s" : ""} need attention
             </span>
           )}
           {files.length > 0 && (
-            <span className="text-[9px] font-mono text-muted-foreground flex items-center gap-1">
+            <span className="text-xs font-mono text-muted-foreground flex items-center gap-1">
               <FileCode2 size={9} /> {files.length} file{files.length !== 1 ? "s" : ""}
             </span>
           )}
@@ -463,7 +463,7 @@ function NewProjectForm({ onComplete, onCancel, userId }: NewProjectFormProps) {
     optional = false,
   ) => (
     <div>
-      <label className="block text-[10px] font-mono text-muted-foreground mb-1.5 uppercase tracking-wider">
+      <label className="block text-xs font-mono text-muted-foreground mb-1.5 uppercase tracking-wider">
         {label}{!optional && <span className="text-primary ml-1">*</span>}
       </label>
       <input
@@ -482,7 +482,7 @@ function NewProjectForm({ onComplete, onCancel, userId }: NewProjectFormProps) {
         <h2 className="text-sm font-mono text-primary uppercase tracking-widest">New Design Brief</h2>
         <button
           onClick={onCancel}
-          className="text-[10px] font-mono text-muted-foreground hover:text-foreground transition-colors"
+          className="text-xs font-mono text-muted-foreground hover:text-foreground transition-colors"
         >
           Cancel
         </button>
@@ -495,8 +495,8 @@ function NewProjectForm({ onComplete, onCancel, userId }: NewProjectFormProps) {
       {field("targetAudience", "Target Audience", "Solo operators frustrated with Zapier complexity")}
 
       <div>
-        <label className="block text-[10px] font-mono text-muted-foreground mb-1.5 uppercase tracking-wider">
-          Key Features <span className="text-muted-foreground/50">(comma-separated)</span>
+        <label className="block text-xs font-mono text-muted-foreground mb-1.5 uppercase tracking-wider">
+          Key Features <span className="text-muted-foreground">(comma-separated)</span>
         </label>
         <input
           type="text"
@@ -511,8 +511,8 @@ function NewProjectForm({ onComplete, onCancel, userId }: NewProjectFormProps) {
       {field("userJourney", "User Journey", "Land → Understand → Trust → Convert", true)}
 
       <div>
-        <label className="block text-[10px] font-mono text-muted-foreground mb-1.5 uppercase tracking-wider">
-          Competitor URLs <span className="text-muted-foreground/50">(comma-separated, optional)</span>
+        <label className="block text-xs font-mono text-muted-foreground mb-1.5 uppercase tracking-wider">
+          Competitor URLs <span className="text-muted-foreground">(comma-separated, optional)</span>
         </label>
         <input
           type="text"
@@ -525,7 +525,7 @@ function NewProjectForm({ onComplete, onCancel, userId }: NewProjectFormProps) {
 
       {/* Quality Tier selector */}
       <div>
-        <label className="block text-[10px] font-mono text-muted-foreground mb-2 uppercase tracking-wider">
+        <label className="block text-xs font-mono text-muted-foreground mb-2 uppercase tracking-wider">
           Quality Tier <span className="text-primary">*</span>
         </label>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
@@ -541,16 +541,16 @@ function NewProjectForm({ onComplete, onCancel, userId }: NewProjectFormProps) {
               }`}
             >
               <div className="flex items-center justify-between mb-1">
-                <span className={`text-[10px] font-mono font-bold ${qt.color}`}>{qt.label} — {qt.name}</span>
-                <span className={`text-[9px] font-mono ${qt.color} opacity-80`}>{qt.range}</span>
+                <span className={`text-xs font-mono font-bold ${qt.color}`}>{qt.label} — {qt.name}</span>
+                <span className={`text-xs font-mono ${qt.color} opacity-80`}>{qt.range}</span>
               </div>
-              <p className="text-[10px] font-mono text-muted-foreground leading-relaxed mb-2">{qt.desc}</p>
+              <p className="text-xs font-mono text-muted-foreground leading-relaxed mb-2">{qt.desc}</p>
               <div className="space-y-0.5">
-                <p className="text-[9px] font-mono text-muted-foreground/60">
-                  <span className="text-muted-foreground/80">Sections:</span> {qt.sections}
+                <p className="text-xs font-mono text-muted-foreground">
+                  <span className="text-muted-foreground">Sections:</span> {qt.sections}
                 </p>
-                <p className="text-[9px] font-mono text-muted-foreground/60">
-                  <span className="text-muted-foreground/80">Effects:</span> {qt.effects}
+                <p className="text-xs font-mono text-muted-foreground">
+                  <span className="text-muted-foreground">Effects:</span> {qt.effects}
                 </p>
               </div>
             </button>
@@ -559,13 +559,13 @@ function NewProjectForm({ onComplete, onCancel, userId }: NewProjectFormProps) {
       </div>
 
       <div>
-        <label className="block text-[10px] font-mono text-muted-foreground mb-2 uppercase tracking-wider">Brand</label>
+        <label className="block text-xs font-mono text-muted-foreground mb-2 uppercase tracking-wider">Brand</label>
         <div className="flex gap-2 flex-wrap">
           {BRANDS.map((b) => (
             <button
               key={b}
               onClick={() => setBrief((prev) => ({ ...prev, brand: b }))}
-              className={`px-3 py-1.5 text-[10px] font-mono rounded border transition-colors ${
+              className={`px-3 py-1.5 text-xs font-mono rounded border transition-colors ${
                 brief.brand === b
                   ? "bg-primary/10 border-primary/30 text-primary"
                   : "border-border/50 text-muted-foreground hover:text-foreground"
@@ -578,13 +578,13 @@ function NewProjectForm({ onComplete, onCancel, userId }: NewProjectFormProps) {
       </div>
 
       <div>
-        <label className="block text-[10px] font-mono text-muted-foreground mb-2 uppercase tracking-wider">Deadline Tier</label>
+        <label className="block text-xs font-mono text-muted-foreground mb-2 uppercase tracking-wider">Deadline Tier</label>
         <div className="flex gap-2">
           {DEADLINE_TIERS.map((t) => (
             <button
               key={t}
               onClick={() => setBrief((prev) => ({ ...prev, deadlineTier: t }))}
-              className={`px-3 py-1.5 text-[10px] font-mono rounded border transition-colors ${
+              className={`px-3 py-1.5 text-xs font-mono rounded border transition-colors ${
                 brief.deadlineTier === t
                   ? "bg-primary/10 border-primary/30 text-primary"
                   : "border-border/50 text-muted-foreground hover:text-foreground"
@@ -599,8 +599,8 @@ function NewProjectForm({ onComplete, onCancel, userId }: NewProjectFormProps) {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {field("clientName", "Client Name", "Acme Corp", true)}
         <div>
-          <label className="block text-[10px] font-mono text-muted-foreground mb-1.5 uppercase tracking-wider">
-            Project Value <span className="text-muted-foreground/50">(USD, optional)</span>
+          <label className="block text-xs font-mono text-muted-foreground mb-1.5 uppercase tracking-wider">
+            Project Value <span className="text-muted-foreground">(USD, optional)</span>
           </label>
           <input
             type="number"
@@ -631,7 +631,7 @@ function NewProjectForm({ onComplete, onCancel, userId }: NewProjectFormProps) {
       </button>
 
       {generating && (
-        <p className="text-[10px] font-mono text-muted-foreground text-center">
+        <p className="text-xs font-mono text-muted-foreground text-center">
           Design generation takes 30-90 seconds. MAVIS is building your full production site.
         </p>
       )}
@@ -750,13 +750,13 @@ function SiteEditor() {
           </div>
           <div className="text-center">
             <p className="text-sm font-mono text-foreground font-semibold">Upload your HTML file to edit</p>
-            <p className="text-[10px] font-mono text-muted-foreground mt-1">Drop .html / .htm here or click to browse</p>
+            <p className="text-xs font-mono text-muted-foreground mt-1">Drop .html / .htm here or click to browse</p>
           </div>
           <div className="text-center max-w-sm space-y-1">
-            <p className="text-[10px] font-mono text-muted-foreground/70">What MAVIS can do to your uploaded site:</p>
+            <p className="text-xs font-mono text-muted-foreground">What MAVIS can do to your uploaded site:</p>
             <div className="flex flex-wrap gap-1.5 justify-center">
               {["Upgrade to Tier 3", "Add YouTube widget", "Change color scheme", "Update content", "Add sections", "Fix layout", "Mobile optimize"].map((tag) => (
-                <span key={tag} className="text-[9px] font-mono px-2 py-0.5 rounded border border-border/50 text-muted-foreground/80">{tag}</span>
+                <span key={tag} className="text-xs font-mono px-2 py-0.5 rounded border border-border/50 text-muted-foreground">{tag}</span>
               ))}
             </div>
           </div>
@@ -776,17 +776,17 @@ function SiteEditor() {
           <FileCode2 size={14} className="text-primary shrink-0" />
           <div className="flex-1 min-w-0">
             <p className="text-sm font-mono font-bold truncate">{fileName}</p>
-            <p className="text-[10px] font-mono text-muted-foreground">{(html.length / 1024).toFixed(1)} KB · {history.length} edit{history.length !== 1 ? "s" : ""} applied</p>
+            <p className="text-xs font-mono text-muted-foreground">{(html.length / 1024).toFixed(1)} KB · {history.length} edit{history.length !== 1 ? "s" : ""} applied</p>
           </div>
           <button
             onClick={() => triggerUpload("site-editor-replace")}
-            className="flex items-center gap-1.5 px-2.5 py-1.5 text-[10px] font-mono rounded border border-border/50 text-muted-foreground hover:text-foreground transition-colors shrink-0"
+            className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-mono rounded border border-border/50 text-muted-foreground hover:text-foreground transition-colors shrink-0"
           >
             <Upload size={10} /> Replace
           </button>
           <button
             onClick={handleDownload}
-            className="flex items-center gap-1.5 px-2.5 py-1.5 text-[10px] font-mono rounded border border-border/50 text-muted-foreground hover:text-foreground transition-colors shrink-0"
+            className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-mono rounded border border-border/50 text-muted-foreground hover:text-foreground transition-colors shrink-0"
           >
             <Download size={10} /> Download
           </button>
@@ -803,7 +803,7 @@ function SiteEditor() {
       {/* Edit form */}
       <HudCard className="space-y-4">
         <div>
-          <label className="block text-[10px] font-mono text-muted-foreground mb-1.5 uppercase tracking-wider">
+          <label className="block text-xs font-mono text-muted-foreground mb-1.5 uppercase tracking-wider">
             Edit Instructions <span className="text-primary">*</span>
           </label>
           <textarea
@@ -818,13 +818,13 @@ function SiteEditor() {
 
         {/* Optional tier upgrade selector */}
         <div>
-          <label className="block text-[10px] font-mono text-muted-foreground mb-2 uppercase tracking-wider">
-            Quality Upgrade <span className="text-muted-foreground/40">(optional)</span>
+          <label className="block text-xs font-mono text-muted-foreground mb-2 uppercase tracking-wider">
+            Quality Upgrade <span className="text-muted-foreground">(optional)</span>
           </label>
           <div className="flex gap-2 flex-wrap">
             <button
               onClick={() => setTargetTier(null)}
-              className={`px-3 py-1.5 text-[10px] font-mono rounded border transition-colors ${
+              className={`px-3 py-1.5 text-xs font-mono rounded border transition-colors ${
                 targetTier === null
                   ? "bg-primary/10 border-primary/30 text-primary"
                   : "border-border/50 text-muted-foreground hover:text-foreground"
@@ -836,7 +836,7 @@ function SiteEditor() {
               <button
                 key={qt.tier}
                 onClick={() => setTargetTier(qt.tier)}
-                className={`px-3 py-1.5 text-[10px] font-mono rounded border transition-colors ${
+                className={`px-3 py-1.5 text-xs font-mono rounded border transition-colors ${
                   targetTier === qt.tier
                     ? qt.borderActive
                     : "border-border/50 text-muted-foreground hover:text-foreground"
@@ -847,7 +847,7 @@ function SiteEditor() {
             ))}
           </div>
           {targetTier != null && (
-            <p className="text-[9px] font-mono text-muted-foreground mt-1.5">
+            <p className="text-xs font-mono text-muted-foreground mt-1.5">
               {QUALITY_TIERS.find(q => q.tier === targetTier)?.desc}
             </p>
           )}
@@ -865,7 +865,7 @@ function SiteEditor() {
           )}
         </button>
         {editing && (
-          <p className="text-[10px] font-mono text-muted-foreground text-center">
+          <p className="text-xs font-mono text-muted-foreground text-center">
             {targetTier != null ? "Tier upgrades take 30–90 seconds." : "Targeted edits take 10–30 seconds."} ⌘+Enter to submit.
           </p>
         )}
@@ -875,9 +875,9 @@ function SiteEditor() {
       <HudCard className="p-0 overflow-hidden">
         <div className="flex items-center gap-2 px-4 py-2.5 border-b border-border bg-muted/10">
           <Eye size={10} className="text-primary" />
-          <span className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider">Live Preview</span>
+          <span className="text-xs font-mono text-muted-foreground uppercase tracking-wider">Live Preview</span>
           {history.length > 0 && (
-            <span className="ml-auto text-[9px] font-mono text-green-400/80">
+            <span className="ml-auto text-xs font-mono text-green-400/80">
               ✓ Updated after last edit
             </span>
           )}
@@ -900,7 +900,7 @@ function SiteEditor() {
             className="flex items-center gap-2 w-full text-left"
           >
             <History size={10} className="text-primary" />
-            <span className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider flex-1">
+            <span className="text-xs font-mono text-muted-foreground uppercase tracking-wider flex-1">
               Edit History ({history.length})
             </span>
             <ChevronDown size={10} className={`text-muted-foreground transition-transform ${showHistory ? "rotate-180" : ""}`} />
@@ -915,12 +915,12 @@ function SiteEditor() {
               >
                 {history.map((h, i) => (
                   <div key={i} className="flex items-start gap-2.5 py-1.5 border-b border-border/30 last:border-0">
-                    <span className="text-[9px] font-mono text-primary/50 shrink-0 mt-0.5 w-5 text-right">
+                    <span className="text-xs font-mono text-primary/50 shrink-0 mt-0.5 w-5 text-right">
                       #{history.length - i}
                     </span>
                     <div className="flex-1 min-w-0">
-                      <p className="text-[10px] font-mono text-foreground/80 leading-relaxed">{h.instructions}</p>
-                      <p className="text-[9px] font-mono text-muted-foreground/50 mt-0.5">{timeAgo(h.timestamp)}</p>
+                      <p className="text-xs font-mono text-foreground leading-relaxed">{h.instructions}</p>
+                      <p className="text-xs font-mono text-muted-foreground mt-0.5">{timeAgo(h.timestamp)}</p>
                     </div>
                   </div>
                 ))}
@@ -976,7 +976,7 @@ function ColorSwatch({ color, label }: { color: string; label: string }) {
         className="w-8 h-8 rounded border border-white/10 transition-transform group-hover:scale-110 shadow-sm"
         style={{ backgroundColor: isHex ? color : undefined, background: !isHex ? color : undefined }}
       />
-      <span className="text-[8px] font-mono text-muted-foreground group-hover:text-foreground transition-colors">
+      <span className="text-xs font-mono text-muted-foreground group-hover:text-foreground transition-colors">
         {copied ? "copied" : label}
       </span>
     </button>
@@ -1160,7 +1160,7 @@ function DesignSystemGenerator({ userId, onProjectComplete }: DesignSystemGenera
       <div className="flex items-center gap-1">
         <button
           onClick={() => setMode("describe")}
-          className={`flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-mono rounded border transition-colors ${
+          className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono rounded border transition-colors ${
             mode === "describe"
               ? "bg-primary/10 border-primary/30 text-primary"
               : "border-border/50 text-muted-foreground hover:text-foreground"
@@ -1170,7 +1170,7 @@ function DesignSystemGenerator({ userId, onProjectComplete }: DesignSystemGenera
         </button>
         <button
           onClick={() => setMode("clone")}
-          className={`flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-mono rounded border transition-colors ${
+          className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono rounded border transition-colors ${
             mode === "clone"
               ? "bg-primary/10 border-primary/30 text-primary"
               : "border-border/50 text-muted-foreground hover:text-foreground"
@@ -1184,8 +1184,8 @@ function DesignSystemGenerator({ userId, onProjectComplete }: DesignSystemGenera
       {mode === "clone" && (
         <HudCard className="space-y-5">
           <div>
-            <p className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider mb-1">Clone from HTML</p>
-            <p className="text-[10px] font-mono text-muted-foreground/70">
+            <p className="text-xs font-mono text-muted-foreground uppercase tracking-wider mb-1">Clone from HTML</p>
+            <p className="text-xs font-mono text-muted-foreground">
               Upload any .html file — MAVIS will analyze the structure, extract design tokens, and rebuild it as a production React site.
             </p>
           </div>
@@ -1218,7 +1218,7 @@ function DesignSystemGenerator({ userId, onProjectComplete }: DesignSystemGenera
                 </div>
                 <div className="text-center">
                   <p className="text-sm font-mono font-semibold text-green-400">{htmlFile.name}</p>
-                  <p className="text-[10px] font-mono text-muted-foreground mt-0.5">
+                  <p className="text-xs font-mono text-muted-foreground mt-0.5">
                     {(htmlFile.size / 1024).toFixed(1)} KB · click to replace
                   </p>
                 </div>
@@ -1230,7 +1230,7 @@ function DesignSystemGenerator({ userId, onProjectComplete }: DesignSystemGenera
                 </div>
                 <div className="text-center">
                   <p className="text-sm font-mono text-foreground">Drop your HTML file here</p>
-                  <p className="text-[10px] font-mono text-muted-foreground mt-0.5">or click to browse · .html / .htm</p>
+                  <p className="text-xs font-mono text-muted-foreground mt-0.5">or click to browse · .html / .htm</p>
                 </div>
               </>
             )}
@@ -1239,43 +1239,43 @@ function DesignSystemGenerator({ userId, onProjectComplete }: DesignSystemGenera
           {/* Extracted metadata */}
           {htmlMeta && (
             <div className="space-y-3 border border-border/50 rounded-lg p-4 bg-muted/10">
-              <p className="text-[9px] font-mono text-muted-foreground uppercase tracking-wider">Extracted from HTML</p>
+              <p className="text-xs font-mono text-muted-foreground uppercase tracking-wider">Extracted from HTML</p>
               <div className="space-y-2">
                 {htmlMeta.title && (
                   <div className="flex items-center gap-2">
-                    <span className="text-[9px] font-mono text-muted-foreground w-20 shrink-0">Title</span>
-                    <span className="text-[10px] font-mono text-foreground">{htmlMeta.title}</span>
+                    <span className="text-xs font-mono text-muted-foreground w-20 shrink-0">Title</span>
+                    <span className="text-xs font-mono text-foreground">{htmlMeta.title}</span>
                   </div>
                 )}
                 {htmlMeta.h1 && (
                   <div className="flex items-center gap-2">
-                    <span className="text-[9px] font-mono text-muted-foreground w-20 shrink-0">Hero H1</span>
-                    <span className="text-[10px] font-mono text-foreground truncate">{htmlMeta.h1}</span>
+                    <span className="text-xs font-mono text-muted-foreground w-20 shrink-0">Hero H1</span>
+                    <span className="text-xs font-mono text-foreground truncate">{htmlMeta.h1}</span>
                   </div>
                 )}
                 {htmlMeta.headings.length > 0 && (
                   <div className="flex items-start gap-2">
-                    <span className="text-[9px] font-mono text-muted-foreground w-20 shrink-0 mt-0.5">Sections</span>
+                    <span className="text-xs font-mono text-muted-foreground w-20 shrink-0 mt-0.5">Sections</span>
                     <div className="flex flex-wrap gap-1">
                       {htmlMeta.headings.map((h, i) => (
-                        <span key={i} className="text-[9px] font-mono px-1.5 py-0.5 rounded border border-border/50 text-muted-foreground">{h}</span>
+                        <span key={i} className="text-xs font-mono px-1.5 py-0.5 rounded border border-border/50 text-muted-foreground">{h}</span>
                       ))}
                     </div>
                   </div>
                 )}
                 {htmlMeta.fonts.length > 0 && (
                   <div className="flex items-start gap-2">
-                    <span className="text-[9px] font-mono text-muted-foreground w-20 shrink-0 mt-0.5">Fonts</span>
+                    <span className="text-xs font-mono text-muted-foreground w-20 shrink-0 mt-0.5">Fonts</span>
                     <div className="flex flex-wrap gap-1">
                       {htmlMeta.fonts.map((f, i) => (
-                        <span key={i} className="text-[9px] font-mono px-1.5 py-0.5 rounded border border-primary/30 text-primary/80 bg-primary/5">{f}</span>
+                        <span key={i} className="text-xs font-mono px-1.5 py-0.5 rounded border border-primary/30 text-primary/80 bg-primary/5">{f}</span>
                       ))}
                     </div>
                   </div>
                 )}
                 {htmlMeta.colorHints.length > 0 && (
                   <div className="flex items-center gap-2">
-                    <span className="text-[9px] font-mono text-muted-foreground w-20 shrink-0">Colors</span>
+                    <span className="text-xs font-mono text-muted-foreground w-20 shrink-0">Colors</span>
                     <div className="flex gap-1.5">
                       {htmlMeta.colorHints.map((c, i) => (
                         <div
@@ -1296,7 +1296,7 @@ function DesignSystemGenerator({ userId, onProjectComplete }: DesignSystemGenera
           {htmlFile && (
             <div className="space-y-4">
               <div>
-                <label className="block text-[10px] font-mono text-muted-foreground mb-1.5 uppercase tracking-wider">
+                <label className="block text-xs font-mono text-muted-foreground mb-1.5 uppercase tracking-wider">
                   Project Name <span className="text-primary">*</span>
                 </label>
                 <input
@@ -1309,13 +1309,13 @@ function DesignSystemGenerator({ userId, onProjectComplete }: DesignSystemGenera
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-[10px] font-mono text-muted-foreground mb-2 uppercase tracking-wider">Brand</label>
+                  <label className="block text-xs font-mono text-muted-foreground mb-2 uppercase tracking-wider">Brand</label>
                   <div className="flex gap-1.5 flex-wrap">
                     {BRANDS.map((b) => (
                       <button
                         key={b}
                         onClick={() => setCloneBrand(b)}
-                        className={`px-2.5 py-1 text-[10px] font-mono rounded border transition-colors ${
+                        className={`px-2.5 py-1 text-xs font-mono rounded border transition-colors ${
                           cloneBrand === b
                             ? "bg-primary/10 border-primary/30 text-primary"
                             : "border-border/50 text-muted-foreground hover:text-foreground"
@@ -1327,13 +1327,13 @@ function DesignSystemGenerator({ userId, onProjectComplete }: DesignSystemGenera
                   </div>
                 </div>
                 <div>
-                  <label className="block text-[10px] font-mono text-muted-foreground mb-2 uppercase tracking-wider">Tier</label>
+                  <label className="block text-xs font-mono text-muted-foreground mb-2 uppercase tracking-wider">Tier</label>
                   <div className="flex gap-1.5 flex-wrap">
                     {DEADLINE_TIERS.map((t) => (
                       <button
                         key={t}
                         onClick={() => setCloneTier(t)}
-                        className={`px-2.5 py-1 text-[10px] font-mono rounded border transition-colors ${
+                        className={`px-2.5 py-1 text-xs font-mono rounded border transition-colors ${
                           cloneTier === t
                             ? "bg-primary/10 border-primary/30 text-primary"
                             : "border-border/50 text-muted-foreground hover:text-foreground"
@@ -1358,7 +1358,7 @@ function DesignSystemGenerator({ userId, onProjectComplete }: DesignSystemGenera
                 )}
               </button>
               {rebuilding && (
-                <p className="text-[10px] font-mono text-muted-foreground text-center">
+                <p className="text-xs font-mono text-muted-foreground text-center">
                   MAVIS is analyzing the HTML structure and generating a full production site. Takes 30-90 seconds.
                 </p>
               )}
@@ -1371,7 +1371,7 @@ function DesignSystemGenerator({ userId, onProjectComplete }: DesignSystemGenera
       {mode === "describe" && (
       <HudCard className="space-y-4">
         <div>
-          <label className="block text-[10px] font-mono text-muted-foreground mb-1.5 uppercase tracking-wider">
+          <label className="block text-xs font-mono text-muted-foreground mb-1.5 uppercase tracking-wider">
             Product Description <span className="text-primary">*</span>
           </label>
           <textarea
@@ -1385,8 +1385,8 @@ function DesignSystemGenerator({ userId, onProjectComplete }: DesignSystemGenera
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
-            <label className="block text-[10px] font-mono text-muted-foreground mb-1.5 uppercase tracking-wider">
-              Project Name <span className="text-muted-foreground/50">(optional)</span>
+            <label className="block text-xs font-mono text-muted-foreground mb-1.5 uppercase tracking-wider">
+              Project Name <span className="text-muted-foreground">(optional)</span>
             </label>
             <input
               type="text"
@@ -1397,13 +1397,13 @@ function DesignSystemGenerator({ userId, onProjectComplete }: DesignSystemGenera
             />
           </div>
           <div>
-            <label className="block text-[10px] font-mono text-muted-foreground mb-2 uppercase tracking-wider">Stack</label>
+            <label className="block text-xs font-mono text-muted-foreground mb-2 uppercase tracking-wider">Stack</label>
             <div className="flex gap-2 flex-wrap">
               {STACKS.map((s) => (
                 <button
                   key={s.id}
                   onClick={() => setStack(s.id)}
-                  className={`px-2.5 py-1 text-[10px] font-mono rounded border transition-colors ${
+                  className={`px-2.5 py-1 text-xs font-mono rounded border transition-colors ${
                     stack === s.id
                       ? "bg-primary/10 border-primary/30 text-primary"
                       : "border-border/50 text-muted-foreground hover:text-foreground"
@@ -1442,17 +1442,17 @@ function DesignSystemGenerator({ userId, onProjectComplete }: DesignSystemGenera
             <div className="flex items-start justify-between gap-3">
               <div>
                 <div className="flex items-center gap-2 mb-1">
-                  <span className={`text-[9px] font-mono px-1.5 py-0.5 rounded border ${DS_SEVERITY_COLORS[result.severity] ?? DS_SEVERITY_COLORS.MEDIUM}`}>
+                  <span className={`text-xs font-mono px-1.5 py-0.5 rounded border ${DS_SEVERITY_COLORS[result.severity] ?? DS_SEVERITY_COLORS.MEDIUM}`}>
                     {result.severity} COMPLEXITY
                   </span>
-                  <span className="text-[9px] font-mono text-muted-foreground">{result.product_type}</span>
+                  <span className="text-xs font-mono text-muted-foreground">{result.product_type}</span>
                 </div>
                 <p className="text-sm font-display font-bold">{result.project_name ?? result.product_type}</p>
                 <p className="text-xs text-muted-foreground mt-0.5">{result.pattern}</p>
               </div>
               <button
                 onClick={copySpec}
-                className="shrink-0 flex items-center gap-1 px-2.5 py-1.5 text-[9px] font-mono border border-border/50 rounded hover:border-primary/30 hover:text-primary text-muted-foreground transition-colors"
+                className="shrink-0 flex items-center gap-1 px-2.5 py-1.5 text-xs font-mono border border-border/50 rounded hover:border-primary/30 hover:text-primary text-muted-foreground transition-colors"
               >
                 {specCopied ? <Check size={10} /> : <Copy size={10} />}
                 {specCopied ? "Copied" : "Copy JSON"}
@@ -1461,7 +1461,7 @@ function DesignSystemGenerator({ userId, onProjectComplete }: DesignSystemGenera
             <div className="grid grid-cols-3 gap-3">
               {[["Style", result.style], ["Color Mood", result.color_mood], ["Effects", result.effects]].map(([label, val]) => (
                 <div key={label} className="p-2.5 rounded border border-border/50 bg-muted/10">
-                  <p className="text-[9px] font-mono text-muted-foreground uppercase tracking-wider mb-1">{label}</p>
+                  <p className="text-xs font-mono text-muted-foreground uppercase tracking-wider mb-1">{label}</p>
                   <p className="text-xs font-mono text-foreground">{val}</p>
                 </div>
               ))}
@@ -1471,14 +1471,14 @@ function DesignSystemGenerator({ userId, onProjectComplete }: DesignSystemGenera
           {/* Color palette */}
           {result.colors && (
             <HudCard className="space-y-3">
-              <p className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider">Color Palette — click to copy</p>
+              <p className="text-xs font-mono text-muted-foreground uppercase tracking-wider">Color Palette — click to copy</p>
               <div className="flex gap-5 flex-wrap">
                 {COLOR_KEYS.map((key) => (
                   <ColorSwatch key={key} color={(result.colors as DSColorPalette)[key]} label={key} />
                 ))}
               </div>
               {result.colors.notes && (
-                <p className="text-[10px] font-mono text-muted-foreground italic">{result.colors.notes}</p>
+                <p className="text-xs font-mono text-muted-foreground italic">{result.colors.notes}</p>
               )}
             </HudCard>
           )}
@@ -1486,52 +1486,52 @@ function DesignSystemGenerator({ userId, onProjectComplete }: DesignSystemGenera
           {/* Typography */}
           {result.typography && (
             <HudCard className="space-y-3">
-              <p className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider">Typography — {result.typography.name}</p>
+              <p className="text-xs font-mono text-muted-foreground uppercase tracking-wider">Typography — {result.typography.name}</p>
               <div className="grid grid-cols-2 gap-3">
                 <div className="p-2.5 rounded border border-border/50 bg-muted/10">
-                  <p className="text-[9px] font-mono text-muted-foreground mb-1">Heading</p>
+                  <p className="text-xs font-mono text-muted-foreground mb-1">Heading</p>
                   <p className="text-sm font-mono font-bold">{result.typography.heading}</p>
                 </div>
                 <div className="p-2.5 rounded border border-border/50 bg-muted/10">
-                  <p className="text-[9px] font-mono text-muted-foreground mb-1">Body</p>
+                  <p className="text-xs font-mono text-muted-foreground mb-1">Body</p>
                   <p className="text-sm font-mono">{result.typography.body}</p>
                 </div>
               </div>
-              <p className="text-[10px] font-mono text-muted-foreground">{result.typography.mood}</p>
+              <p className="text-xs font-mono text-muted-foreground">{result.typography.mood}</p>
               <div className="relative">
                 <div className="absolute top-2 right-2"><CopyButton text={result.typography.css_import} /></div>
-                <pre className="text-[10px] font-mono text-muted-foreground bg-muted/20 rounded p-3 overflow-x-auto pr-8 whitespace-pre-wrap">{result.typography.css_import}</pre>
+                <pre className="text-xs font-mono text-muted-foreground bg-muted/20 rounded p-3 overflow-x-auto pr-8 whitespace-pre-wrap">{result.typography.css_import}</pre>
               </div>
               <div className="relative">
                 <div className="absolute top-2 right-2"><CopyButton text={result.typography.tailwind_config} /></div>
-                <pre className="text-[10px] font-mono text-muted-foreground bg-muted/20 rounded p-3 overflow-x-auto pr-8 whitespace-pre-wrap">{result.typography.tailwind_config}</pre>
+                <pre className="text-xs font-mono text-muted-foreground bg-muted/20 rounded p-3 overflow-x-auto pr-8 whitespace-pre-wrap">{result.typography.tailwind_config}</pre>
               </div>
             </HudCard>
           )}
 
           {/* Stack notes */}
           <HudCard className="space-y-2">
-            <p className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider">Stack Integration — {stack}</p>
+            <p className="text-xs font-mono text-muted-foreground uppercase tracking-wider">Stack Integration — {stack}</p>
             <p className="text-xs font-mono text-muted-foreground leading-relaxed">{result.stack_notes}</p>
           </HudCard>
 
           {/* Anti-patterns + Checklist */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <HudCard className="space-y-2">
-              <p className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider">Anti-Patterns — Avoid</p>
+              <p className="text-xs font-mono text-muted-foreground uppercase tracking-wider">Anti-Patterns — Avoid</p>
               <ul className="space-y-1.5">
                 {result.anti_patterns.map((ap, i) => (
-                  <li key={i} className="flex items-start gap-2 text-[10px] font-mono text-red-400/80">
+                  <li key={i} className="flex items-start gap-2 text-xs font-mono text-red-400/80">
                     <XCircle size={10} className="shrink-0 mt-0.5" />{ap}
                   </li>
                 ))}
               </ul>
             </HudCard>
             <HudCard className="space-y-2">
-              <p className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider">Quality Checklist</p>
+              <p className="text-xs font-mono text-muted-foreground uppercase tracking-wider">Quality Checklist</p>
               <ul className="space-y-1.5">
                 {result.checklist.map((item, i) => (
-                  <li key={i} className="flex items-start gap-2 text-[10px] font-mono text-green-400/80">
+                  <li key={i} className="flex items-start gap-2 text-xs font-mono text-green-400/80">
                     <CheckCircle2 size={10} className="shrink-0 mt-0.5" />{item}
                   </li>
                 ))}
@@ -1600,7 +1600,7 @@ export default function DesignStudio() {
         actions={
           <button
             onClick={load}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-mono bg-muted/30 border border-border text-muted-foreground rounded hover:text-primary hover:border-primary/30 transition-colors"
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono bg-muted/30 border border-border text-muted-foreground rounded hover:text-primary hover:border-primary/30 transition-colors"
           >
             <RefreshCw size={10} /> Refresh
           </button>
@@ -1613,7 +1613,7 @@ export default function DesignStudio() {
           <button
             key={tab.id}
             onClick={() => setActiveTab(tab.id)}
-            className={`flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-mono rounded border transition-colors ${
+            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono rounded border transition-colors ${
               activeTab === tab.id
                 ? "bg-primary/10 border-primary/30 text-primary"
                 : "border-border/50 text-muted-foreground hover:text-foreground"
@@ -1639,7 +1639,7 @@ export default function DesignStudio() {
                 <p className="text-xs font-mono">No design projects yet.</p>
                 <button
                   onClick={() => setActiveTab("new")}
-                  className="flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-mono bg-primary/10 border border-primary/30 text-primary rounded hover:bg-primary/20 transition-colors"
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono bg-primary/10 border border-primary/30 text-primary rounded hover:bg-primary/20 transition-colors"
                 >
                   <Plus size={10} /> Generate your first site
                 </button>
@@ -1691,22 +1691,22 @@ export default function DesignStudio() {
                     <div className="flex items-start justify-between">
                       <div>
                         <p className="text-sm font-mono font-bold">{c.component_name}</p>
-                        <p className="text-[10px] font-mono text-muted-foreground">{c.component_type}</p>
+                        <p className="text-xs font-mono text-muted-foreground">{c.component_type}</p>
                       </div>
-                      <div className="flex items-center gap-1 text-[9px] font-mono text-muted-foreground">
+                      <div className="flex items-center gap-1 text-xs font-mono text-muted-foreground">
                         <Clock size={9} />
                         {timeAgo(c.created_at)}
                       </div>
                     </div>
                     <div className="flex gap-1 flex-wrap">
                       {c.tags?.map((tag) => (
-                        <span key={tag} className="text-[9px] font-mono px-1.5 py-0.5 rounded border border-border/50 text-muted-foreground">
+                        <span key={tag} className="text-xs font-mono px-1.5 py-0.5 rounded border border-border/50 text-muted-foreground">
                           {tag}
                         </span>
                       ))}
                     </div>
                     <div className="flex items-center justify-between">
-                      <span className="text-[9px] font-mono text-primary">
+                      <span className="text-xs font-mono text-primary">
                         Used {c.times_used} time{c.times_used !== 1 ? "s" : ""}
                       </span>
                       {c.tsx_code && <CopyButton text={c.tsx_code} />}

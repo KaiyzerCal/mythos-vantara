@@ -9,6 +9,7 @@ import { useAppData } from "@/contexts/AppDataContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { PageHeader, HudCard, RarityBadge, ProgressBar } from "@/components/SharedUI";
+import { Skeleton } from "@/components/ui/skeleton";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { toast } from "sonner";
 
@@ -123,7 +124,24 @@ export function JournalPage() {
 
   const importanceColors: Record<string, string> = { low: "text-muted-foreground", medium: "text-blue-400", high: "text-amber-400", critical: "text-red-400" };
 
-  if (journalLoading) return <div className="flex items-center justify-center h-40"><Loader2 className="animate-spin text-primary" size={24} /></div>;
+  if (journalLoading) return (
+    <div className="space-y-5">
+      <div className="flex items-center justify-between border-b border-border pb-4">
+        <Skeleton className="h-5 w-24" />
+        <Skeleton className="h-8 w-32" />
+      </div>
+      {[...Array(4)].map((_, i) => (
+        <div key={i} className="hud-border rounded-lg p-4 space-y-2">
+          <div className="flex items-center justify-between">
+            <Skeleton className="h-4 w-1/2" />
+            <Skeleton className="h-3 w-20" />
+          </div>
+          <Skeleton className="h-3 w-3/4" />
+          <Skeleton className="h-3 w-2/3" />
+        </div>
+      ))}
+    </div>
+  );
 
   return (
     <div className="space-y-5">
@@ -153,7 +171,7 @@ export function JournalPage() {
         {showTemplates && (
           <motion.div initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }}>
             <HudCard className="border-primary/20">
-              <p className="text-[9px] font-mono text-primary uppercase tracking-widest mb-2">Choose a Template</p>
+              <p className="text-xs font-mono text-primary uppercase tracking-widest mb-2">Choose a Template</p>
               <div className="grid grid-cols-2 gap-2">
                 {JOURNAL_TEMPLATES.map(t => (
                   <button key={t.label} onClick={() => applyTemplate(t)} className="flex items-center gap-2 px-3 py-2 text-xs font-mono border border-border/50 rounded hover:border-primary/30 hover:text-primary text-muted-foreground transition-all text-left">
@@ -168,7 +186,7 @@ export function JournalPage() {
 
       {showCreate && !editingId && (
         <HudCard className="border-primary/20">
-          <p className="text-[9px] font-mono text-primary uppercase tracking-widest mb-3">New Entry</p>
+          <p className="text-xs font-mono text-primary uppercase tracking-widest mb-3">New Entry</p>
           <div className="space-y-2">
             <input value={form.title} onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))} placeholder="Title..." className="w-full bg-muted/30 border border-border rounded px-3 py-1.5 text-sm focus:outline-none focus:border-primary/40" />
             <textarea value={form.content} onChange={(e) => setForm((f) => ({ ...f, content: e.target.value }))} placeholder="Entry content..." rows={4} className="w-full bg-muted/30 border border-border rounded px-3 py-2 text-sm font-body resize-none focus:outline-none focus:border-primary/40" />
@@ -197,7 +215,7 @@ export function JournalPage() {
             return (
               <motion.div key={e.id} initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }}>
                 <HudCard className="border-primary/20">
-                  <p className="text-[9px] font-mono text-primary uppercase tracking-widest mb-3">Edit Entry</p>
+                  <p className="text-xs font-mono text-primary uppercase tracking-widest mb-3">Edit Entry</p>
                   <div className="space-y-2">
                     <input value={form.title} onChange={(ev) => setForm((f) => ({ ...f, title: ev.target.value }))} placeholder="Title..." className="w-full bg-muted/30 border border-border rounded px-3 py-1.5 text-sm focus:outline-none focus:border-primary/40" />
                     <textarea value={form.content} onChange={(ev) => setForm((f) => ({ ...f, content: ev.target.value }))} placeholder="Entry content..." rows={4} className="w-full bg-muted/30 border border-border rounded px-3 py-2 text-sm font-body resize-none focus:outline-none focus:border-primary/40" />
@@ -229,13 +247,13 @@ export function JournalPage() {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap mb-1">
                       <h3 className="text-sm font-display font-bold">{e.title}</h3>
-                      <span className={`text-[9px] font-mono uppercase ${importanceColors[e.importance]}`}>{e.importance}</span>
-                      <span className="text-[9px] font-mono text-muted-foreground">{e.category}</span>
+                      <span className={`text-xs font-mono uppercase ${importanceColors[e.importance]}`}>{e.importance}</span>
+                      <span className="text-xs font-mono text-muted-foreground">{e.category}</span>
                     </div>
                     {e.content && <p className={`text-xs font-body text-muted-foreground ${isExpanded ? "whitespace-pre-wrap" : "line-clamp-2"}`}>{e.content}</p>}
                     {isExpanded && (
                       <div className="mt-3 space-y-1.5 border-t border-border/30 pt-2">
-                        <div className="grid grid-cols-2 gap-2 text-[10px] font-mono">
+                        <div className="grid grid-cols-2 gap-2 text-xs font-mono">
                           <div><span className="text-muted-foreground">Category:</span> <span className="text-foreground">{e.category}</span></div>
                           <div><span className="text-muted-foreground">Importance:</span> <span className={importanceColors[e.importance]}>{e.importance}</span></div>
                           {e.mood && <div><span className="text-muted-foreground">Mood:</span> <span className="text-foreground">{e.mood}</span></div>}
@@ -246,14 +264,14 @@ export function JournalPage() {
                     )}
                     <div className="flex items-center gap-2 mt-1.5 flex-wrap">
                       {e.tags.map((t) => (
-                        <span key={t} className="text-[8px] font-mono text-primary/60 border border-primary/20 rounded px-1.5 py-0.5">#{t}</span>
+                        <span key={t} className="text-xs font-mono text-primary/60 border border-primary/20 rounded px-1.5 py-0.5">#{t}</span>
                       ))}
-                      {!isExpanded && e.mood && <span className="text-[9px] font-mono text-muted-foreground ml-auto">mood: {e.mood}</span>}
-                      {!isExpanded && <span className="text-[9px] font-mono text-muted-foreground">{new Date(e.created_at).toLocaleDateString()}</span>}
+                      {!isExpanded && e.mood && <span className="text-xs font-mono text-muted-foreground ml-auto">mood: {e.mood}</span>}
+                      {!isExpanded && <span className="text-xs font-mono text-muted-foreground">{new Date(e.created_at).toLocaleDateString()}</span>}
                     </div>
                   </div>
                   <div className="flex flex-col items-end gap-1 shrink-0" onClick={(ev) => ev.stopPropagation()}>
-                    <span className="text-[10px] font-mono text-green-400">+{e.xp_earned} XP</span>
+                    <span className="text-xs font-mono text-green-400">+{e.xp_earned} XP</span>
                     <button onClick={() => handleEdit(e)} className="p-1 text-muted-foreground hover:text-primary transition-colors"><Edit2 size={12} /></button>
                     <button onClick={() => setConfirmDeleteJournal({ id: e.id, label: e.title })} className="p-1 text-muted-foreground hover:text-destructive transition-colors"><Trash2 size={12} /></button>
                   </div>
@@ -518,7 +536,27 @@ export function VaultCodexPage() {
     } catch { toast.error("Delete failed"); }
   };
 
-  if (vaultLoading) return <div className="flex items-center justify-center h-40"><Loader2 className="animate-spin text-primary" size={24} /></div>;
+  if (vaultLoading) return (
+    <div className="space-y-5">
+      <div className="flex items-center justify-between border-b border-border pb-4">
+        <Skeleton className="h-5 w-28" />
+        <Skeleton className="h-8 w-28" />
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        {[...Array(6)].map((_, i) => (
+          <div key={i} className="hud-border rounded-lg p-4 space-y-3">
+            <Skeleton className="h-4 w-2/3" />
+            <Skeleton className="h-3 w-full" />
+            <Skeleton className="h-3 w-4/5" />
+            <div className="flex gap-2 mt-2">
+              <Skeleton className="h-5 w-14 rounded-full" />
+              <Skeleton className="h-5 w-12 rounded-full" />
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
 
   // Standalone media (not linked to any entry)
   const standaloneMedia = entryMedia["__unlinked"] || [];
@@ -557,7 +595,7 @@ export function VaultCodexPage() {
       {showUploadFor === "__standalone" && (
         <HudCard className="border-primary/20">
           <div className="flex items-center justify-between mb-2">
-            <p className="text-[9px] font-mono text-primary uppercase tracking-widest">Upload Files to Vault</p>
+            <p className="text-xs font-mono text-primary uppercase tracking-widest">Upload Files to Vault</p>
             <button onClick={() => setShowUploadFor(null)} className="text-muted-foreground hover:text-foreground"><X size={14} /></button>
           </div>
           <input
@@ -584,7 +622,7 @@ export function VaultCodexPage() {
 
       {showCreate && !editingId && (
         <HudCard className="border-primary/20">
-          <p className="text-[9px] font-mono text-primary uppercase tracking-widest mb-3">New Entry</p>
+          <p className="text-xs font-mono text-primary uppercase tracking-widest mb-3">New Entry</p>
           <div className="space-y-2">
             <input value={form.title} onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))} placeholder="Entry title..." className="w-full bg-muted/30 border border-border rounded px-3 py-1.5 text-sm focus:outline-none focus:border-primary/40" />
             <textarea value={form.content} onChange={(e) => setForm((f) => ({ ...f, content: e.target.value }))} placeholder="Vault content (evidence, notes, data)..." rows={4} className="w-full bg-muted/30 border border-border rounded px-3 py-2 text-sm resize-none focus:outline-none" />
@@ -643,7 +681,7 @@ export function VaultCodexPage() {
                   <button
                     key={t.key}
                     onClick={() => setGalleryTab(t.key)}
-                    className={`px-2.5 py-1 text-[10px] font-mono rounded border transition-all ${galleryTab === t.key ? "bg-primary/10 border-primary/30 text-primary" : "border-border/50 text-muted-foreground hover:text-primary"}`}
+                    className={`px-2.5 py-1 text-xs font-mono rounded border transition-all ${galleryTab === t.key ? "bg-primary/10 border-primary/30 text-primary" : "border-border/50 text-muted-foreground hover:text-primary"}`}
                   >
                     {t.label}
                   </button>
@@ -668,7 +706,7 @@ export function VaultCodexPage() {
                       ) : (
                         <div className="w-full h-28 flex flex-col items-center justify-center gap-1.5 bg-muted/20">
                           {getFileIcon(m.file_type)}
-                          <span className="text-[8px] font-mono text-muted-foreground text-center px-1 line-clamp-2">{m.file_name}</span>
+                          <span className="text-xs font-mono text-muted-foreground text-center px-1 line-clamp-2">{m.file_name}</span>
                         </div>
                       )}
                       {/* Generated tag */}
@@ -691,11 +729,11 @@ export function VaultCodexPage() {
                       </div>
                       {/* Footer */}
                       <div className="px-2 py-1 bg-card/90 border-t border-border/30">
-                        <p className="text-[8px] font-mono text-muted-foreground truncate">{m.file_name}</p>
+                        <p className="text-xs font-mono text-muted-foreground truncate">{m.file_name}</p>
                         {m.vault_entry_id && entryTitles[m.vault_entry_id] && (
                           <p className="text-[7px] font-mono text-primary/60 truncate">📁 {entryTitles[m.vault_entry_id]}</p>
                         )}
-                        <p className="text-[7px] font-mono text-muted-foreground/50">{new Date(m.created_at).toLocaleDateString()}</p>
+                        <p className="text-[7px] font-mono text-muted-foreground">{new Date(m.created_at).toLocaleDateString()}</p>
                       </div>
                     </div>
                   ))}
@@ -752,13 +790,13 @@ export function VaultCodexPage() {
                         <div>
                           <p className="text-xs font-mono text-white/80">{lightboxItem.file_name}</p>
                           {lightboxItem.vault_entry_id && entryTitles[lightboxItem.vault_entry_id] && (
-                            <p className="text-[10px] font-mono text-primary/60">📁 {entryTitles[lightboxItem.vault_entry_id]}</p>
+                            <p className="text-xs font-mono text-primary/60">📁 {entryTitles[lightboxItem.vault_entry_id]}</p>
                           )}
                           {lightboxItem.tags?.includes("mavis-generated") && (
-                            <p className="text-[9px] font-mono text-primary/80 flex items-center gap-1"><Wand2 size={9} /> MAVIS Generated</p>
+                            <p className="text-xs font-mono text-primary/80 flex items-center gap-1"><Wand2 size={9} /> MAVIS Generated</p>
                           )}
                         </div>
-                        <p className="text-[9px] font-mono text-white/40">{lightboxIdx + 1} / {imgItems.length}</p>
+                        <p className="text-xs font-mono text-white/40">{lightboxIdx + 1} / {imgItems.length}</p>
                       </div>
                     </motion.div>
                   </motion.div>
@@ -774,14 +812,14 @@ export function VaultCodexPage() {
 
       <div className="flex gap-1.5 flex-wrap">
         {categories.map((c) => (
-          <button key={c} onClick={() => setCatFilter(c)} className={`px-2 py-1 text-[10px] font-mono uppercase rounded border transition-all ${catFilter === c ? "bg-primary/10 border-primary/30 text-primary" : "border-border/50 text-muted-foreground"}`}>{c}</button>
+          <button key={c} onClick={() => setCatFilter(c)} className={`px-2 py-1 text-xs font-mono uppercase rounded border transition-all ${catFilter === c ? "bg-primary/10 border-primary/30 text-primary" : "border-border/50 text-muted-foreground"}`}>{c}</button>
         ))}
       </div>
 
       {/* Standalone media gallery */}
       {standaloneMedia.length > 0 && (
         <HudCard>
-          <p className="text-[9px] font-mono text-primary uppercase tracking-widest mb-2">Vault Files ({standaloneMedia.length})</p>
+          <p className="text-xs font-mono text-primary uppercase tracking-widest mb-2">Vault Files ({standaloneMedia.length})</p>
           <div className="grid grid-cols-2 gap-2">
             {standaloneMedia.map((m: any) => (
               <div key={m.id} className="relative group border border-border/50 rounded-lg overflow-hidden">
@@ -790,7 +828,7 @@ export function VaultCodexPage() {
                 ) : (
                   <div className="w-full h-20 flex flex-col items-center justify-center gap-1 bg-muted/20">
                     {getFileIcon(m.file_type)}
-                    <span className="text-[8px] font-mono text-muted-foreground truncate max-w-[90%]">{m.file_name}</span>
+                    <span className="text-xs font-mono text-muted-foreground truncate max-w-[90%]">{m.file_name}</span>
                   </div>
                 )}
                 <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
@@ -798,7 +836,7 @@ export function VaultCodexPage() {
                   <button onClick={() => setConfirmDeleteMedia({ id: m.id, fileUrl: m.file_url, label: m.file_name })} className="p-1 bg-destructive/20 rounded"><Trash2 size={12} className="text-destructive" /></button>
                 </div>
                 <div className="px-1.5 py-1 bg-card">
-                  <p className="text-[8px] font-mono truncate text-muted-foreground">{formatFileSize(m.file_size)}</p>
+                  <p className="text-xs font-mono truncate text-muted-foreground">{formatFileSize(m.file_size)}</p>
                 </div>
               </div>
             ))}
@@ -815,7 +853,7 @@ export function VaultCodexPage() {
             return (
               <motion.div key={e.id} initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }}>
                 <HudCard className="border-primary/20">
-                  <p className="text-[9px] font-mono text-primary uppercase tracking-widest mb-3">Edit Entry</p>
+                  <p className="text-xs font-mono text-primary uppercase tracking-widest mb-3">Edit Entry</p>
                   <div className="space-y-2">
                     <input value={form.title} onChange={(ev) => setForm((f) => ({ ...f, title: ev.target.value }))} placeholder="Entry title..." className="w-full bg-muted/30 border border-border rounded px-3 py-1.5 text-sm focus:outline-none focus:border-primary/40" />
                     <textarea value={form.content} onChange={(ev) => setForm((f) => ({ ...f, content: ev.target.value }))} placeholder="Vault content (evidence, notes, data)..." rows={4} className="w-full bg-muted/30 border border-border rounded px-3 py-2 text-sm resize-none focus:outline-none" />
@@ -844,9 +882,9 @@ export function VaultCodexPage() {
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 mb-1">
                     <h3 className="text-sm font-display font-bold">{e.title}</h3>
-                    <span className={`text-[9px] font-mono uppercase ${importanceColor[e.importance]}`}>{e.importance}</span>
-                    <span className="text-[9px] font-mono text-muted-foreground">{e.category}</span>
-                    {media.length > 0 && <span className="text-[9px] font-mono text-emerald-400">📎 {media.length}</span>}
+                    <span className={`text-xs font-mono uppercase ${importanceColor[e.importance]}`}>{e.importance}</span>
+                    <span className="text-xs font-mono text-muted-foreground">{e.category}</span>
+                    {media.length > 0 && <span className="text-xs font-mono text-emerald-400">📎 {media.length}</span>}
                   </div>
                   {e.content && (
                     <p className={`text-xs font-body text-muted-foreground ${isExpanded ? "whitespace-pre-wrap" : "line-clamp-3"}`}>
@@ -861,7 +899,7 @@ export function VaultCodexPage() {
                   )}
                   {isExpanded && (
                     <div className="mt-3 space-y-2 border-t border-border/30 pt-2">
-                      <div className="grid grid-cols-2 gap-2 text-[10px] font-mono">
+                      <div className="grid grid-cols-2 gap-2 text-xs font-mono">
                         <div><span className="text-muted-foreground">Category:</span> <span className="text-foreground">{e.category}</span></div>
                         <div><span className="text-muted-foreground">Importance:</span> <span className={importanceColor[e.importance]}>{e.importance}</span></div>
                         <div className="col-span-2"><span className="text-muted-foreground">Created:</span> <span className="text-foreground">{new Date(e.created_at).toLocaleString()}</span></div>
@@ -869,11 +907,11 @@ export function VaultCodexPage() {
                       {/* Backlinks */}
                       {(backlinks[e.id] ?? []).length > 0 && (
                         <div className="space-y-1">
-                          <p className="text-[9px] font-mono text-cyan-400 uppercase flex items-center gap-1"><Link2 size={10} /> Backlinks ({backlinks[e.id].length})</p>
+                          <p className="text-xs font-mono text-cyan-400 uppercase flex items-center gap-1"><Link2 size={10} /> Backlinks ({backlinks[e.id].length})</p>
                           <div className="flex flex-wrap gap-1">
                             {backlinks[e.id].map(bl => (
                               <button key={bl.id} onClick={(ev) => { ev.stopPropagation(); setExpandedId(bl.id); loadBacklinks(bl.id); }}
-                                className="text-[9px] font-mono text-cyan-400/80 border border-cyan-900/40 rounded px-2 py-0.5 hover:bg-cyan-900/20 transition-colors">
+                                className="text-xs font-mono text-cyan-400/80 border border-cyan-900/40 rounded px-2 py-0.5 hover:bg-cyan-900/20 transition-colors">
                                 ← {bl.title}
                               </button>
                             ))}
@@ -883,7 +921,7 @@ export function VaultCodexPage() {
                       {/* Attached media */}
                       {media.length > 0 && (
                         <div className="space-y-1">
-                          <p className="text-[9px] font-mono text-primary uppercase">Attached Files</p>
+                          <p className="text-xs font-mono text-primary uppercase">Attached Files</p>
                           <div className="grid grid-cols-2 gap-1.5">
                             {media.map((m: any) => (
                               <div key={m.id} className="relative group border border-border/50 rounded overflow-hidden">
@@ -920,14 +958,14 @@ export function VaultCodexPage() {
                         <button
                           onClick={() => document.getElementById(`upload-${e.id}`)?.click()}
                           disabled={uploading}
-                          className="flex items-center gap-1 text-[9px] font-mono text-muted-foreground hover:text-primary transition-colors mt-1"
+                          className="flex items-center gap-1 text-xs font-mono text-muted-foreground hover:text-primary transition-colors mt-1"
                         >
                           <Upload size={10} /> {uploading ? "Uploading..." : "Attach files"}
                         </button>
                       </div>
                     </div>
                   )}
-                  {!isExpanded && <p className="text-[9px] font-mono text-muted-foreground/50 mt-1.5">{new Date(e.created_at).toLocaleDateString()}</p>}
+                  {!isExpanded && <p className="text-xs font-mono text-muted-foreground mt-1.5">{new Date(e.created_at).toLocaleDateString()}</p>}
                 </div>
                 <div className="flex flex-col gap-1 shrink-0" onClick={(ev) => ev.stopPropagation()}>
                   <button onClick={() => handleEdit(e)} className="p-1 text-muted-foreground hover:text-primary transition-colors"><Edit2 size={12} /></button>
@@ -1142,7 +1180,33 @@ export function SkillsPage() {
     });
   };
 
-  if (skillsLoading || seeding) return <div className="flex items-center justify-center h-40"><Loader2 className="animate-spin text-primary" size={24} /><span className="ml-2 text-xs font-mono text-muted-foreground">{seeding ? "Seeding skill trees..." : "Loading..."}</span></div>;
+  if (skillsLoading || seeding) return (
+    <div className="space-y-5">
+      <div className="flex items-center justify-between border-b border-border pb-4">
+        <Skeleton className="h-5 w-24" />
+        <div className="flex gap-2">
+          <Skeleton className="h-8 w-28" />
+          <Skeleton className="h-8 w-24" />
+        </div>
+      </div>
+      {seeding && <p className="text-xs font-mono text-muted-foreground text-center py-2">Seeding skill trees...</p>}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        {[...Array(9)].map((_, i) => (
+          <div key={i} className="hud-border rounded-lg p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <Skeleton className="h-4 w-1/2" />
+              <Skeleton className="h-5 w-10 rounded-full" />
+            </div>
+            <Skeleton className="h-2 w-full rounded-full" />
+            <div className="flex items-center justify-between">
+              <Skeleton className="h-3 w-16" />
+              <Skeleton className="h-3 w-12" />
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
 
   return (
     <div className="space-y-5">
@@ -1155,16 +1219,16 @@ export function SkillsPage() {
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
             <Link2 size={12} className="text-cyan-400" />
-            <span className="text-[10px] font-mono text-cyan-400 uppercase tracking-widest">Skill Chains</span>
+            <span className="text-xs font-mono text-cyan-400 uppercase tracking-widest">Skill Chains</span>
             {skillChains.length > 0 && (
-              <span className="text-[9px] font-mono text-muted-foreground">({skillChains.length})</span>
+              <span className="text-xs font-mono text-muted-foreground">({skillChains.length})</span>
             )}
           </div>
           <div className="flex items-center gap-2">
             <button
               onClick={autoLinkSkillChains}
               disabled={skillChainsLoading}
-              className="flex items-center gap-1 px-2 py-1 text-[9px] font-mono text-cyan-400 border border-cyan-500/30 rounded hover:bg-cyan-500/10 transition-all disabled:opacity-50"
+              className="flex items-center gap-1 px-2 py-1 text-xs font-mono text-cyan-400 border border-cyan-500/30 rounded hover:bg-cyan-500/10 transition-all disabled:opacity-50"
             >
               {skillChainsLoading ? <Loader2 size={9} className="animate-spin" /> : <Wand2 size={9} />}
               {skillChainsLoading ? "Linking..." : "AI Generate"}
@@ -1176,7 +1240,7 @@ export function SkillsPage() {
         </div>
         {skillChainsPanelOpen && (
           skillChains.length === 0 ? (
-            <p className="text-[10px] font-mono text-muted-foreground/60 text-center py-2">
+            <p className="text-xs font-mono text-muted-foreground text-center py-2">
               No chains yet — click "AI Generate" to let MAVIS detect skill progression paths
             </p>
           ) : (
@@ -1184,13 +1248,13 @@ export function SkillsPage() {
               {skillChains.map((chain: any) => (
                 <div key={chain.id} className="space-y-1.5">
                   <div className="flex items-center gap-2">
-                    <span className="text-[10px] font-display font-bold text-foreground">{chain.title}</span>
+                    <span className="text-xs font-display font-bold text-foreground">{chain.title}</span>
                     {chain.category && (
-                      <span className="text-[8px] font-mono text-cyan-400/70 border border-cyan-500/20 rounded px-1.5 py-0.5">{chain.category}</span>
+                      <span className="text-xs font-mono text-cyan-400/70 border border-cyan-500/20 rounded px-1.5 py-0.5">{chain.category}</span>
                     )}
                   </div>
                   {chain.description && (
-                    <p className="text-[9px] font-body text-muted-foreground/70 leading-relaxed">{chain.description}</p>
+                    <p className="text-xs font-body text-muted-foreground leading-relaxed">{chain.description}</p>
                   )}
                   <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
                     {(chain.items ?? []).map((item: any, idx: number) => {
@@ -1202,13 +1266,13 @@ export function SkillsPage() {
                       return (
                         <div key={item.skill_id} className="flex items-center gap-1.5 shrink-0">
                           {idx > 0 && <ChevronRight size={10} className="text-cyan-500/40 shrink-0" />}
-                          <div className={`rounded px-2 py-1.5 border text-[9px] font-mono shrink-0 min-w-[80px] max-w-[130px] ${
+                          <div className={`rounded px-2 py-1.5 border text-xs font-mono shrink-0 min-w-[80px] max-w-[130px] ${
                             isMastered ? "bg-green-500/10 border-green-500/30 text-green-400" :
                             isLearning ? "bg-cyan-500/10 border-cyan-500/30 text-cyan-400" :
-                            "bg-muted/10 border-border/30 text-muted-foreground/60"
+                            "bg-muted/10 border-border/30 text-muted-foreground"
                           }`}>
                             <div className="truncate font-bold">{s.name}</div>
-                            <div className="text-[8px] opacity-70 mt-0.5">
+                            <div className="text-xs opacity-70 mt-0.5">
                               {isMastered ? "✓ Mastered" : isLearning ? `${prof}%` : "○ Locked"} · T{s.tier}
                             </div>
                             <div className={`h-0.5 rounded mt-1 ${isMastered ? "bg-green-400" : "bg-cyan-500/30"}`} style={{ width: `${prof}%` }} />
@@ -1226,7 +1290,7 @@ export function SkillsPage() {
 
       {showCreate && !editingId && (
         <HudCard className="border-primary/20">
-          <p className="text-[9px] font-mono text-primary uppercase tracking-widest mb-3">{form.parent_skill_id ? "New Subskill" : "New Skill"}</p>
+          <p className="text-xs font-mono text-primary uppercase tracking-widest mb-3">{form.parent_skill_id ? "New Subskill" : "New Skill"}</p>
           <div className="space-y-2">
             <div className="grid grid-cols-2 gap-2">
               <input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} placeholder="Skill name" className="bg-muted/30 border border-border rounded px-3 py-1.5 text-sm focus:outline-none focus:border-primary/40" />
@@ -1239,7 +1303,7 @@ export function SkillsPage() {
               <input type="number" value={form.proficiency} onChange={(e) => setForm((f) => ({ ...f, proficiency: Number(e.target.value) }))} placeholder="Proficiency %" className="bg-muted/30 border border-border rounded px-3 py-1.5 text-xs font-mono focus:outline-none" min={0} max={100} />
             </div>
             <div>
-              <p className="text-[9px] font-mono text-muted-foreground uppercase mb-1">Parent Skill (leave empty for top-level)</p>
+              <p className="text-xs font-mono text-muted-foreground uppercase mb-1">Parent Skill (leave empty for top-level)</p>
               <select value={form.parent_skill_id} onChange={(e) => setForm((f) => ({ ...f, parent_skill_id: e.target.value }))} className="w-full bg-muted/30 border border-border rounded px-2 py-1.5 text-xs font-mono focus:outline-none">
                 <option value="">None (Top-level skill)</option>
                 {parentSkills.map((s) => <option key={s.id} value={s.id}>{s.name} ({s.category})</option>)}
@@ -1254,7 +1318,7 @@ export function SkillsPage() {
       )}
       <div className="flex gap-1.5 flex-wrap">
         {categories.map((c) => (
-          <button key={c} onClick={() => setCatFilter(c)} className={`px-2 py-1 text-[10px] font-mono uppercase rounded border transition-all ${catFilter === c ? "bg-primary/10 border-primary/30 text-primary" : "border-border/50 text-muted-foreground"}`}>{c}</button>
+          <button key={c} onClick={() => setCatFilter(c)} className={`px-2 py-1 text-xs font-mono uppercase rounded border transition-all ${catFilter === c ? "bg-primary/10 border-primary/30 text-primary" : "border-border/50 text-muted-foreground"}`}>{c}</button>
         ))}
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -1266,7 +1330,7 @@ export function SkillsPage() {
             return (
               <div key={s.id} className="sm:col-span-2">
                 <HudCard className="border-primary/20">
-                  <p className="text-[9px] font-mono text-primary uppercase tracking-widest mb-3">Edit Skill: {s.name}</p>
+                  <p className="text-xs font-mono text-primary uppercase tracking-widest mb-3">Edit Skill: {s.name}</p>
                   <div className="space-y-2">
                     <div className="grid grid-cols-2 gap-2">
                       <input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} placeholder="Skill name" className="bg-muted/30 border border-border rounded px-3 py-1.5 text-sm focus:outline-none focus:border-primary/40" />
@@ -1298,22 +1362,22 @@ export function SkillsPage() {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
                       <p className="text-sm font-display font-bold">{s.name}</p>
-                      <span className="text-[9px] font-mono text-muted-foreground border border-border rounded px-1.5 py-0.5">T{s.tier}</span>
+                      <span className="text-xs font-mono text-muted-foreground border border-border rounded px-1.5 py-0.5">T{s.tier}</span>
                       {subs.length > 0 && (
-                        <button onClick={(e) => { e.stopPropagation(); toggleExpand(s.id); }} className="text-[9px] font-mono text-primary/60 hover:text-primary transition-colors">
+                        <button onClick={(e) => { e.stopPropagation(); toggleExpand(s.id); }} className="text-xs font-mono text-primary/60 hover:text-primary transition-colors">
                           {isExpanded ? "▾" : "▸"} {subs.length} sub
                         </button>
                       )}
                     </div>
-                    <p className="text-[10px] font-mono text-primary/60">{s.energy_type}</p>
+                    <p className="text-xs font-mono text-primary/60">{s.energy_type}</p>
                     {s.description && <p className={`text-xs font-body text-muted-foreground mt-1 ${expandedDetail === s.id ? "" : "line-clamp-2"}`}>{s.description}</p>}
                     {expandedDetail === s.id && (
-                      <div className="mt-2 space-y-1 text-[10px] font-mono text-muted-foreground">
-                        <p><span className="text-foreground/60">Category:</span> {s.category}</p>
-                        <p><span className="text-foreground/60">Energy:</span> {s.energy_type}</p>
-                        <p><span className="text-foreground/60">Tier:</span> {s.tier}</p>
-                        <p><span className="text-foreground/60">Proficiency:</span> {s.proficiency}%</p>
-                        <p><span className="text-foreground/60">Status:</span> {s.unlocked ? "Unlocked" : "Locked"}</p>
+                      <div className="mt-2 space-y-1 text-xs font-mono text-muted-foreground">
+                        <p><span className="text-muted-foreground">Category:</span> {s.category}</p>
+                        <p><span className="text-muted-foreground">Energy:</span> {s.energy_type}</p>
+                        <p><span className="text-muted-foreground">Tier:</span> {s.tier}</p>
+                        <p><span className="text-muted-foreground">Proficiency:</span> {s.proficiency}%</p>
+                        <p><span className="text-muted-foreground">Status:</span> {s.unlocked ? "Unlocked" : "Locked"}</p>
                       </div>
                     )}
                     {s.proficiency > 0 && (
@@ -1334,7 +1398,7 @@ export function SkillsPage() {
                 <div key={sub.id} className="ml-6">
                   {editingId === sub.id ? (
                     <HudCard className="border-primary/20">
-                      <p className="text-[9px] font-mono text-primary uppercase tracking-widest mb-3">Edit Subskill: {sub.name}</p>
+                      <p className="text-xs font-mono text-primary uppercase tracking-widest mb-3">Edit Subskill: {sub.name}</p>
                       <div className="space-y-2">
                         <div className="grid grid-cols-2 gap-2">
                           <input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} placeholder="Skill name" className="bg-muted/30 border border-border rounded px-3 py-1.5 text-sm focus:outline-none focus:border-primary/40" />
@@ -1358,16 +1422,16 @@ export function SkillsPage() {
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
                           <p className="text-xs font-display font-bold">{sub.name}</p>
-                          <span className="text-[8px] font-mono text-muted-foreground border border-border rounded px-1 py-0.5">T{sub.tier}</span>
+                          <span className="text-xs font-mono text-muted-foreground border border-border rounded px-1 py-0.5">T{sub.tier}</span>
                         </div>
-                        <p className="text-[9px] font-mono text-primary/60">{sub.energy_type}</p>
-                        {sub.description && <p className={`text-[10px] font-body text-muted-foreground mt-0.5 ${expandedDetail === sub.id ? "" : "line-clamp-2"}`}>{sub.description}</p>}
+                        <p className="text-xs font-mono text-primary/60">{sub.energy_type}</p>
+                        {sub.description && <p className={`text-xs font-body text-muted-foreground mt-0.5 ${expandedDetail === sub.id ? "" : "line-clamp-2"}`}>{sub.description}</p>}
                         {expandedDetail === sub.id && (
-                          <div className="mt-1.5 space-y-0.5 text-[9px] font-mono text-muted-foreground">
-                            <p><span className="text-foreground/60">Category:</span> {sub.category}</p>
-                            <p><span className="text-foreground/60">Energy:</span> {sub.energy_type}</p>
-                            <p><span className="text-foreground/60">Tier:</span> {sub.tier}</p>
-                            <p><span className="text-foreground/60">Proficiency:</span> {sub.proficiency}%</p>
+                          <div className="mt-1.5 space-y-0.5 text-xs font-mono text-muted-foreground">
+                            <p><span className="text-muted-foreground">Category:</span> {sub.category}</p>
+                            <p><span className="text-muted-foreground">Energy:</span> {sub.energy_type}</p>
+                            <p><span className="text-muted-foreground">Tier:</span> {sub.tier}</p>
+                            <p><span className="text-muted-foreground">Proficiency:</span> {sub.proficiency}%</p>
                           </div>
                         )}
                         {sub.proficiency > 0 && <ProgressBar value={sub.proficiency} max={100} height="xs" label={`${sub.proficiency}%`} />}
@@ -1456,7 +1520,23 @@ export function InventoryPage() {
     resetForm();
   };
 
-  if (inventoryLoading) return <div className="flex items-center justify-center h-40"><Loader2 className="animate-spin text-primary" size={24} /></div>;
+  if (inventoryLoading) return (
+    <div className="space-y-5">
+      <div className="flex items-center justify-between border-b border-border pb-4">
+        <Skeleton className="h-5 w-24" />
+        <Skeleton className="h-8 w-24" />
+      </div>
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+        {[...Array(8)].map((_, i) => (
+          <div key={i} className="hud-border rounded-lg p-3 space-y-2">
+            <Skeleton className="h-12 w-12 rounded mx-auto" />
+            <Skeleton className="h-3 w-3/4 mx-auto" />
+            <Skeleton className="h-3 w-1/2 mx-auto" />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
 
   return (
     <div className="space-y-5">
@@ -1465,7 +1545,7 @@ export function InventoryPage() {
       />
       {showCreate && !editingId && (
         <HudCard className="border-primary/20">
-          <p className="text-[9px] font-mono text-primary uppercase tracking-widest mb-3">New Item</p>
+          <p className="text-xs font-mono text-primary uppercase tracking-widest mb-3">New Item</p>
           <div className="space-y-2">
             <div className="grid grid-cols-2 gap-2">
               <input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} placeholder="Item name" className="bg-muted/30 border border-border rounded px-3 py-1.5 text-sm focus:outline-none focus:border-primary/40" />
@@ -1491,7 +1571,7 @@ export function InventoryPage() {
       {/* Equipped loadout */}
       {equipped.length > 0 && (
         <HudCard className="border-primary/20">
-          <p className="text-[9px] font-mono text-primary uppercase tracking-widest mb-2 flex items-center gap-1.5">
+          <p className="text-xs font-mono text-primary uppercase tracking-widest mb-2 flex items-center gap-1.5">
             <Shield size={10} /> Equipped Loadout ({equipped.length})
           </p>
           <div className="flex flex-wrap gap-2">
@@ -1502,12 +1582,12 @@ export function InventoryPage() {
                   <div className="flex-1">
                     <div className="flex items-center gap-1.5">
                       <span className="text-xs font-display font-semibold text-primary">{item.name}</span>
-                      <span className="text-[9px] font-mono text-muted-foreground">{item.type}</span>
+                      <span className="text-xs font-mono text-muted-foreground">{item.type}</span>
                     </div>
                     {effects.length > 0 && (
                       <div className="flex gap-1 flex-wrap mt-0.5">
                         {effects.map((eff, i) => (
-                          <span key={i} className={`text-[8px] font-mono ${eff.value >= 0 ? "text-green-400" : "text-red-400"}`}>
+                          <span key={i} className={`text-xs font-mono ${eff.value >= 0 ? "text-green-400" : "text-red-400"}`}>
                             {eff.label}{eff.value >= 0 ? "+" : ""}{eff.value}{eff.unit}
                           </span>
                         ))}
@@ -1526,7 +1606,7 @@ export function InventoryPage() {
 
       <div className="flex gap-1.5 flex-wrap">
         {types.map((t) => (
-          <button key={t} onClick={() => setTypeFilter(t)} className={`px-2 py-1 text-[10px] font-mono uppercase rounded border transition-all ${typeFilter === t ? "bg-primary/10 border-primary/30 text-primary" : "border-border/50 text-muted-foreground"}`}>{t}</button>
+          <button key={t} onClick={() => setTypeFilter(t)} className={`px-2 py-1 text-xs font-mono uppercase rounded border transition-all ${typeFilter === t ? "bg-primary/10 border-primary/30 text-primary" : "border-border/50 text-muted-foreground"}`}>{t}</button>
         ))}
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
@@ -1536,7 +1616,7 @@ export function InventoryPage() {
           if (editingId === item.id) {
             return (
               <HudCard key={item.id} className="border-primary/20 sm:col-span-2 lg:col-span-3">
-                <p className="text-[9px] font-mono text-primary uppercase tracking-widest mb-3">Edit Item</p>
+                <p className="text-xs font-mono text-primary uppercase tracking-widest mb-3">Edit Item</p>
                 <div className="space-y-2">
                   <div className="grid grid-cols-2 gap-2">
                     <input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} placeholder="Item name" className="bg-muted/30 border border-border rounded px-3 py-1.5 text-sm focus:outline-none focus:border-primary/40" />
@@ -1567,13 +1647,13 @@ export function InventoryPage() {
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-1.5 flex-wrap mb-1">
                     <p className="text-sm font-display font-bold">{item.name}</p>
-                    {item.is_equipped && <span className="text-[8px] font-mono text-primary border border-primary/30 rounded px-1">EQUIPPED</span>}
+                    {item.is_equipped && <span className="text-xs font-mono text-primary border border-primary/30 rounded px-1">EQUIPPED</span>}
                   </div>
                   <RarityBadge rarity={item.rarity} />
                   {item.description && <p className={`text-xs font-body text-muted-foreground mt-1 ${isExpanded ? "" : "line-clamp-2"}`}>{item.description}</p>}
-                  {item.effect && <p className="text-[10px] font-mono text-primary/60 mt-0.5">{item.effect}</p>}
+                  {item.effect && <p className="text-xs font-mono text-primary/60 mt-0.5">{item.effect}</p>}
                   {isExpanded && (
-                    <div className="mt-2 space-y-1 border-t border-border/30 pt-2 text-[10px] font-mono">
+                    <div className="mt-2 space-y-1 border-t border-border/30 pt-2 text-xs font-mono">
                       <div><span className="text-muted-foreground">Type:</span> <span className="text-foreground">{item.type}</span></div>
                       <div><span className="text-muted-foreground">Rarity:</span> <span className="text-foreground">{item.rarity}</span></div>
                       <div><span className="text-muted-foreground">Quantity:</span> <span className="text-foreground">{item.quantity}</span></div>
@@ -1585,7 +1665,7 @@ export function InventoryPage() {
                           <span className="text-muted-foreground block mb-1">Stat Effects:</span>
                           <div className="flex gap-1.5 flex-wrap">
                             {(item.stat_effects as { label: string; value: number; unit: string }[]).map((eff, idx) => (
-                              <span key={idx} className={`px-1.5 py-0.5 rounded border text-[9px] font-mono ${eff.value >= 0 ? "text-green-400 border-green-500/30 bg-green-500/5" : "text-red-400 border-red-500/30 bg-red-500/5"}`}>
+                              <span key={idx} className={`px-1.5 py-0.5 rounded border text-xs font-mono ${eff.value >= 0 ? "text-green-400 border-green-500/30 bg-green-500/5" : "text-red-400 border-red-500/30 bg-red-500/5"}`}>
                                 {eff.label} {eff.value >= 0 ? "+" : ""}{eff.value}{eff.unit}
                               </span>
                             ))}
@@ -1595,7 +1675,7 @@ export function InventoryPage() {
                     </div>
                   )}
                   {!isExpanded && (
-                    <p className="text-[9px] font-mono text-muted-foreground mt-1">
+                    <p className="text-xs font-mono text-muted-foreground mt-1">
                       {item.type} {item.quantity > 1 ? `× ${item.quantity}` : ""}
                     </p>
                   )}
@@ -1720,7 +1800,7 @@ export function DomainPage() {
 
   const EffectForm = () => (
     <HudCard className="border-primary/20">
-      <p className="text-[9px] font-mono text-primary uppercase tracking-widest mb-3">{editingId ? "Edit Effect" : "New Effect"}</p>
+      <p className="text-xs font-mono text-primary uppercase tracking-widest mb-3">{editingId ? "Edit Effect" : "New Effect"}</p>
       <div className="space-y-2">
         <div className="grid grid-cols-2 gap-2">
           <input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} placeholder="Effect name" className="bg-muted/30 border border-border rounded px-3 py-1.5 text-sm focus:outline-none focus:border-primary/40" />
@@ -1757,17 +1837,17 @@ export function DomainPage() {
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 flex-wrap mb-1">
               <p className="text-sm font-display font-bold">{ef.name}</p>
-              <span className={`text-[8px] font-mono px-1.5 py-0.5 rounded border ${colorClass}`}>{ef.effect_type.toUpperCase()}</span>
+              <span className={`text-xs font-mono px-1.5 py-0.5 rounded border ${colorClass}`}>{ef.effect_type.toUpperCase()}</span>
               {ef.is_active
-                ? <span className="text-[8px] font-mono text-green-400 border border-green-500/30 rounded px-1">ACTIVE</span>
-                : <span className="text-[8px] font-mono text-muted-foreground border border-border rounded px-1">INACTIVE</span>}
+                ? <span className="text-xs font-mono text-green-400 border border-green-500/30 rounded px-1">ACTIVE</span>
+                : <span className="text-xs font-mono text-muted-foreground border border-border rounded px-1">INACTIVE</span>}
             </div>
-            {ef.source && <p className="text-[10px] font-mono text-muted-foreground mb-1">Source: {ef.source}</p>}
+            {ef.source && <p className="text-xs font-mono text-muted-foreground mb-1">Source: {ef.source}</p>}
             {ef.description && <p className="text-xs font-body text-muted-foreground mb-2">{ef.description}</p>}
             {mods.length > 0 && (
               <div className="flex gap-1.5 flex-wrap mb-1.5">
                 {mods.map((mod, i) => (
-                  <span key={i} className={`text-[9px] font-mono px-1.5 py-0.5 rounded border ${mod.value >= 0 ? "text-green-400 border-green-500/30 bg-green-500/5" : "text-red-400 border-red-500/30 bg-red-500/5"}`}>
+                  <span key={i} className={`text-xs font-mono px-1.5 py-0.5 rounded border ${mod.value >= 0 ? "text-green-400 border-green-500/30 bg-green-500/5" : "text-red-400 border-red-500/30 bg-red-500/5"}`}>
                     {mod.label} {mod.value >= 0 ? "+" : ""}{mod.value}{mod.unit}
                   </span>
                 ))}
@@ -1776,12 +1856,12 @@ export function DomainPage() {
             {areaFx.length > 0 && (
               <div className="space-y-0.5">
                 {areaFx.map((fx, i) => (
-                  <p key={i} className="text-[10px] font-mono text-cyan-400 pl-2 border-l border-cyan-500/30">{fx}</p>
+                  <p key={i} className="text-xs font-mono text-cyan-400 pl-2 border-l border-cyan-500/30">{fx}</p>
                 ))}
               </div>
             )}
             {ef.expires_at && (
-              <p className="text-[9px] font-mono text-muted-foreground mt-1.5">
+              <p className="text-xs font-mono text-muted-foreground mt-1.5">
                 Expires: {new Date(ef.expires_at).toLocaleString()}
               </p>
             )}

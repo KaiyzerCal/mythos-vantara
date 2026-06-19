@@ -179,7 +179,7 @@ export function ForecastPage() {
 
       {/* ── Forecast Period Selector ─────────────────────────── */}
       <div className="flex items-center gap-2">
-        <span className="text-[9px] font-mono text-muted-foreground uppercase tracking-widest mr-1">
+        <span className="text-xs font-mono text-muted-foreground uppercase tracking-widest mr-1">
           Period
         </span>
         {([3, 6, 12] as ForecastMonths[]).map((m) => (
@@ -199,7 +199,7 @@ export function ForecastPage() {
         {/* Trend indicator */}
         {trendPct !== null && (
           <span
-            className={`ml-4 flex items-center gap-1 text-[10px] font-mono px-2 py-0.5 rounded border ${
+            className={`ml-4 flex items-center gap-1 text-xs font-mono px-2 py-0.5 rounded border ${
               trendUp
                 ? "text-green-400 border-green-700/40 bg-green-900/20"
                 : "text-red-400 border-red-700/40 bg-red-900/20"
@@ -225,31 +225,31 @@ export function ForecastPage() {
           className="grid grid-cols-2 lg:grid-cols-4 gap-3"
         >
           <HudCard glowColor="green">
-            <p className="text-[9px] font-mono text-muted-foreground uppercase tracking-widest mb-1">
+            <p className="text-xs font-mono text-muted-foreground uppercase tracking-widest mb-1">
               Projected Revenue
             </p>
             <p className="text-xl font-display font-bold text-green-400">
               {fmtCurrency(projectedRevenue)}
             </p>
-            <p className="text-[9px] font-mono text-muted-foreground mt-0.5">
+            <p className="text-xs font-mono text-muted-foreground mt-0.5">
               over {forecastMonths}M ({forecastWeeks} wks)
             </p>
           </HudCard>
 
           <HudCard glowColor="red">
-            <p className="text-[9px] font-mono text-muted-foreground uppercase tracking-widest mb-1">
+            <p className="text-xs font-mono text-muted-foreground uppercase tracking-widest mb-1">
               Projected Expenses
             </p>
             <p className="text-xl font-display font-bold text-red-400">
               {fmtCurrency(projectedExpenses)}
             </p>
-            <p className="text-[9px] font-mono text-muted-foreground mt-0.5">
+            <p className="text-xs font-mono text-muted-foreground mt-0.5">
               over {forecastMonths}M ({forecastWeeks} wks)
             </p>
           </HudCard>
 
           <HudCard glowColor="purple">
-            <p className="text-[9px] font-mono text-muted-foreground uppercase tracking-widest mb-1">
+            <p className="text-xs font-mono text-muted-foreground uppercase tracking-widest mb-1">
               Projected Net
             </p>
             <p
@@ -259,19 +259,19 @@ export function ForecastPage() {
             >
               {fmtCurrency(projectedNet)}
             </p>
-            <p className="text-[9px] font-mono text-muted-foreground mt-0.5">
+            <p className="text-xs font-mono text-muted-foreground mt-0.5">
               {projectedNet >= 0 ? "surplus" : "deficit"}
             </p>
           </HudCard>
 
           <HudCard>
-            <p className="text-[9px] font-mono text-muted-foreground uppercase tracking-widest mb-1">
+            <p className="text-xs font-mono text-muted-foreground uppercase tracking-widest mb-1">
               Weekly Run Rate
             </p>
             <p className="text-xl font-display font-bold text-cyan-400">
               {fmtCurrency(weeklyAvgRevenue - weeklyAvgExpense)}
             </p>
-            <p className="text-[9px] font-mono text-muted-foreground mt-0.5">
+            <p className="text-xs font-mono text-muted-foreground mt-0.5">
               net / week
             </p>
           </HudCard>
@@ -279,7 +279,7 @@ export function ForecastPage() {
       )}
 
       {/* ── Runway Note ──────────────────────────────────────── */}
-      <div className="text-[10px] font-mono text-muted-foreground">
+      <div className="text-xs font-mono text-muted-foreground">
         Runway:{" "}
         <span className="text-amber-400">
           N/A — add balance in Finance
@@ -312,7 +312,7 @@ export function ForecastPage() {
                     <div key={bar.week} className="group">
                       <div className="flex items-center gap-2 mb-0.5">
                         <span
-                          className={`text-[9px] font-mono w-16 shrink-0 ${
+                          className={`text-xs font-mono w-16 shrink-0 ${
                             isProjected
                               ? "text-primary/50"
                               : "text-muted-foreground"
@@ -329,7 +329,7 @@ export function ForecastPage() {
                         {/* Revenue bar */}
                         <div className="flex-1 flex flex-col gap-0.5">
                           <div className="flex items-center gap-1">
-                            <div className="w-8 text-[8px] font-mono text-green-400 text-right shrink-0">
+                            <div className="w-8 text-xs font-mono text-green-400 text-right shrink-0">
                               {bar.revenue > 0 ? `$${Math.round(bar.revenue)}` : ""}
                             </div>
                             <div className="flex-1 h-2 bg-muted/30 rounded-full overflow-hidden">
@@ -344,7 +344,7 @@ export function ForecastPage() {
                             </div>
                           </div>
                           <div className="flex items-center gap-1">
-                            <div className="w-8 text-[8px] font-mono text-red-400 text-right shrink-0">
+                            <div className="w-8 text-xs font-mono text-red-400 text-right shrink-0">
                               {bar.expenses > 0 ? `$${Math.round(bar.expenses)}` : ""}
                             </div>
                             <div className="flex-1 h-2 bg-muted/30 rounded-full overflow-hidden">
@@ -370,15 +370,15 @@ export function ForecastPage() {
             <div className="flex items-center gap-4 mt-4 pt-3 border-t border-border/30">
               <div className="flex items-center gap-1.5">
                 <div className="w-3 h-2 rounded bg-green-500/60" />
-                <span className="text-[9px] font-mono text-muted-foreground">Revenue</span>
+                <span className="text-xs font-mono text-muted-foreground">Revenue</span>
               </div>
               <div className="flex items-center gap-1.5">
                 <div className="w-3 h-2 rounded bg-red-500/60" />
-                <span className="text-[9px] font-mono text-muted-foreground">Expenses</span>
+                <span className="text-xs font-mono text-muted-foreground">Expenses</span>
               </div>
               <div className="flex items-center gap-1.5">
                 <div className="w-3 h-2 rounded opacity-40 border border-dashed border-muted-foreground" />
-                <span className="text-[9px] font-mono text-muted-foreground">Projected</span>
+                <span className="text-xs font-mono text-muted-foreground">Projected</span>
               </div>
             </div>
           </HudCard>
@@ -388,7 +388,7 @@ export function ForecastPage() {
       {/* ── Info Note ────────────────────────────────────────── */}
       <div className="flex items-start gap-2 px-3 py-2 rounded border border-border/40 bg-muted/10">
         <Info size={12} className="text-muted-foreground shrink-0 mt-0.5" />
-        <p className="text-[10px] font-mono text-muted-foreground">
+        <p className="text-xs font-mono text-muted-foreground">
           Forecast uses trailing 4-week average. Add entries in Finance to improve accuracy.
         </p>
       </div>

@@ -308,7 +308,7 @@ export function AnalyticsPage() {
           <button
             onClick={runPatternAnalysis}
             disabled={runningAnalysis}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-mono bg-primary/10 border border-primary/30 text-primary rounded hover:bg-primary/20 disabled:opacity-50 transition-colors"
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono bg-primary/10 border border-primary/30 text-primary rounded hover:bg-primary/20 disabled:opacity-50 transition-colors"
           >
             {runningAnalysis ? <Loader2 size={10} className="animate-spin" /> : <RefreshCw size={10} />}
             Run Pattern Analysis
@@ -326,11 +326,11 @@ export function AnalyticsPage() {
                   <div className="flex items-start gap-3">
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 flex-wrap mb-1">
-                        <span className={`text-[9px] font-mono uppercase tracking-widest px-1.5 py-0.5 rounded border ${SEVERITY_STYLES[ins.severity] ?? SEVERITY_STYLES.info}`}>
+                        <span className={`text-xs font-mono uppercase tracking-widest px-1.5 py-0.5 rounded border ${SEVERITY_STYLES[ins.severity] ?? SEVERITY_STYLES.info}`}>
                           {ins.severity}
                         </span>
-                        <span className="text-[9px] font-mono text-muted-foreground uppercase">{ins.category}</span>
-                        <span className="text-[9px] font-mono text-muted-foreground ml-auto">{formatDate(ins.generated_at)}</span>
+                        <span className="text-xs font-mono text-muted-foreground uppercase">{ins.category}</span>
+                        <span className="text-xs font-mono text-muted-foreground ml-auto">{formatDate(ins.generated_at)}</span>
                       </div>
                       <p className="text-sm font-display font-bold mb-0.5">{ins.title}</p>
                       <p className="text-xs text-muted-foreground">{ins.content}</p>
@@ -338,7 +338,7 @@ export function AnalyticsPage() {
                     {!ins.read_at && (
                       <button
                         onClick={() => markInsightRead(ins.id)}
-                        className="shrink-0 flex items-center gap-1 px-2 py-1 text-[10px] font-mono text-muted-foreground border border-border rounded hover:text-foreground transition-colors"
+                        className="shrink-0 flex items-center gap-1 px-2 py-1 text-xs font-mono text-muted-foreground border border-border rounded hover:text-foreground transition-colors"
                       >
                         <Eye size={9} /> Read
                       </button>
@@ -364,11 +364,11 @@ export function AnalyticsPage() {
             <div className="space-y-2">
               {streaks.map((s, idx) => (
                 <div key={s.id} className="flex items-center gap-3">
-                  <span className="text-[10px] font-mono text-muted-foreground w-5 text-right shrink-0">#{idx + 1}</span>
+                  <span className="text-xs font-mono text-muted-foreground w-5 text-right shrink-0">#{idx + 1}</span>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-0.5">
                       <span className="text-xs font-mono truncate">{s.name}</span>
-                      <span className="text-[8px] font-mono text-muted-foreground uppercase">{s.type}</span>
+                      <span className="text-xs font-mono text-muted-foreground uppercase">{s.type}</span>
                     </div>
                     <div className="w-full h-1 bg-muted rounded-full overflow-hidden">
                       <div
@@ -401,7 +401,7 @@ export function AnalyticsPage() {
                 {days30.map((d, i) => (
                   <div key={d} className="w-3 text-center">
                     {i % 5 === 0 && (
-                      <span className="text-[7px] font-mono text-muted-foreground/50" style={{ writingMode: "vertical-lr" }}>
+                      <span className="text-[7px] font-mono text-muted-foreground" style={{ writingMode: "vertical-lr" }}>
                         {new Date(d).getDate()}
                       </span>
                     )}
@@ -410,7 +410,7 @@ export function AnalyticsPage() {
               </div>
               {habitNames.slice(0, 12).map((h) => (
                 <div key={h.id} className="flex items-center gap-1">
-                  <span className="text-[10px] font-mono text-muted-foreground truncate w-28 shrink-0">{h.title}</span>
+                  <span className="text-xs font-mono text-muted-foreground truncate w-28 shrink-0">{h.title}</span>
                   {days30.map((d) => {
                     const done = completionData[h.id]?.[d];
                     const isPast = new Date(d) < new Date(new Date().toDateString());
@@ -428,9 +428,9 @@ export function AnalyticsPage() {
               ))}
               {/* Legend */}
               <div className="flex items-center gap-3 mt-2 pt-2 border-t border-border/30">
-                <div className="flex items-center gap-1"><div className="w-3 h-3 rounded-sm bg-green-500/80" /><span className="text-[9px] font-mono text-muted-foreground">Done</span></div>
-                <div className="flex items-center gap-1"><div className="w-3 h-3 rounded-sm bg-red-900/40" /><span className="text-[9px] font-mono text-muted-foreground">Missed</span></div>
-                <div className="flex items-center gap-1"><div className="w-3 h-3 rounded-sm bg-muted/30" /><span className="text-[9px] font-mono text-muted-foreground">Future</span></div>
+                <div className="flex items-center gap-1"><div className="w-3 h-3 rounded-sm bg-green-500/80" /><span className="text-xs font-mono text-muted-foreground">Done</span></div>
+                <div className="flex items-center gap-1"><div className="w-3 h-3 rounded-sm bg-red-900/40" /><span className="text-xs font-mono text-muted-foreground">Missed</span></div>
+                <div className="flex items-center gap-1"><div className="w-3 h-3 rounded-sm bg-muted/30" /><span className="text-xs font-mono text-muted-foreground">Future</span></div>
               </div>
             </div>
           </HudCard>
@@ -455,7 +455,7 @@ export function AnalyticsPage() {
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
                         <span className="text-xs font-mono">{e.name}</span>
-                        {e.type && <span className="text-[8px] font-mono text-muted-foreground uppercase">{e.type}</span>}
+                        {e.type && <span className="text-xs font-mono text-muted-foreground uppercase">{e.type}</span>}
                       </div>
                       <span className="text-xs font-display font-bold text-primary">{e.current}/{e.max}</span>
                     </div>
@@ -465,7 +465,7 @@ export function AnalyticsPage() {
                         style={{ width: `${pct}%` }}
                       />
                     </div>
-                    <div className="text-right text-[9px] font-mono text-muted-foreground">{pct}%</div>
+                    <div className="text-right text-xs font-mono text-muted-foreground">{pct}%</div>
                   </div>
                 );
               })}
@@ -531,12 +531,12 @@ export function AnalyticsPage() {
               </BarChart>
             </ResponsiveContainer>
             <div className="mt-3 border-t border-border/30 pt-3 overflow-x-auto">
-              <table className="w-full text-[9px] font-mono">
+              <table className="w-full text-xs font-mono">
                 <thead><tr className="text-muted-foreground"><th className="text-left pb-1">Tool</th><th className="text-right pb-1">Calls</th><th className="text-right pb-1">Success%</th><th className="text-right pb-1">Avg ms</th></tr></thead>
                 <tbody>
                   {toolStats.map((t) => (
                     <tr key={t.name} className="border-t border-border/10">
-                      <td className="py-0.5 pr-4 text-foreground/80">{t.name}</td>
+                      <td className="py-0.5 pr-4 text-foreground">{t.name}</td>
                       <td className="text-right">{t.calls}</td>
                       <td className="text-right">{t.calls > 0 ? Math.round((t.successes / t.calls) * 100) : 0}%</td>
                       <td className="text-right">{t.avgMs > 0 ? `${t.avgMs}` : "—"}</td>

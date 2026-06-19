@@ -157,7 +157,7 @@ function fmtPct(rate: number): string {
 function CategoryBadge({ cat }: { cat: TacitCategory }) {
   return (
     <span
-      className={`text-[9px] font-mono uppercase tracking-widest px-1.5 py-0.5 rounded border ${CATEGORY_STYLES[cat]}`}
+      className={`text-xs font-mono uppercase tracking-widest px-1.5 py-0.5 rounded border ${CATEGORY_STYLES[cat]}`}
     >
       {CATEGORY_LABEL[cat]}
     </span>
@@ -182,7 +182,7 @@ function ConfidenceBar({ value }: { value: number }) {
           style={{ width: `${pct}%` }}
         />
       </div>
-      <span className="text-[10px] font-mono text-muted-foreground tabular-nums">
+      <span className="text-xs font-mono text-muted-foreground tabular-nums">
         {(value).toFixed(2)}
       </span>
     </div>
@@ -364,12 +364,12 @@ function StandingOrdersTab() {
       {/* Add form */}
       {showAdd && (
         <HudCard glowColor="gold">
-          <p className="text-[10px] font-mono text-primary uppercase tracking-widest mb-3">
+          <p className="text-xs font-mono text-primary uppercase tracking-widest mb-3">
             New Standing Order
           </p>
           <div className="grid grid-cols-2 gap-3 mb-3">
             <div>
-              <label className="text-[10px] font-mono text-muted-foreground uppercase tracking-widest mb-1.5 block">
+              <label className="text-xs font-mono text-muted-foreground uppercase tracking-widest mb-1.5 block">
                 Category
               </label>
               <Select
@@ -389,7 +389,7 @@ function StandingOrdersTab() {
               </Select>
             </div>
             <div>
-              <label className="text-[10px] font-mono text-muted-foreground uppercase tracking-widest mb-1.5 block">
+              <label className="text-xs font-mono text-muted-foreground uppercase tracking-widest mb-1.5 block">
                 Key
               </label>
               <Input
@@ -401,7 +401,7 @@ function StandingOrdersTab() {
             </div>
           </div>
           <div className="mb-3">
-            <label className="text-[10px] font-mono text-muted-foreground uppercase tracking-widest mb-1.5 block">
+            <label className="text-xs font-mono text-muted-foreground uppercase tracking-widest mb-1.5 block">
               Value
             </label>
             <Textarea
@@ -413,7 +413,7 @@ function StandingOrdersTab() {
             />
           </div>
           <div className="mb-4">
-            <label className="text-[10px] font-mono text-muted-foreground uppercase tracking-widest mb-2 block">
+            <label className="text-xs font-mono text-muted-foreground uppercase tracking-widest mb-2 block">
               Confidence — {newConfidence.toFixed(2)}
             </label>
             <Slider
@@ -469,7 +469,7 @@ function StandingOrdersTab() {
                   }
                 >
                   <CategoryBadge cat={cat} />
-                  <span className="text-[10px] font-mono text-muted-foreground">
+                  <span className="text-xs font-mono text-muted-foreground">
                     {catEntries.length} {catEntries.length === 1 ? "entry" : "entries"}
                   </span>
                   {isCollapsed ? (
@@ -490,7 +490,7 @@ function StandingOrdersTab() {
                             <div className="space-y-3">
                               <div className="grid grid-cols-2 gap-3">
                                 <div>
-                                  <label className="text-[10px] font-mono text-muted-foreground uppercase tracking-widest mb-1 block">
+                                  <label className="text-xs font-mono text-muted-foreground uppercase tracking-widest mb-1 block">
                                     Category
                                   </label>
                                   <Select
@@ -519,7 +519,7 @@ function StandingOrdersTab() {
                                   </Select>
                                 </div>
                                 <div>
-                                  <label className="text-[10px] font-mono text-muted-foreground uppercase tracking-widest mb-1 block">
+                                  <label className="text-xs font-mono text-muted-foreground uppercase tracking-widest mb-1 block">
                                     Key
                                   </label>
                                   <Input
@@ -532,7 +532,7 @@ function StandingOrdersTab() {
                                 </div>
                               </div>
                               <div>
-                                <label className="text-[10px] font-mono text-muted-foreground uppercase tracking-widest mb-1 block">
+                                <label className="text-xs font-mono text-muted-foreground uppercase tracking-widest mb-1 block">
                                   Value
                                 </label>
                                 <Textarea
@@ -545,7 +545,7 @@ function StandingOrdersTab() {
                                 />
                               </div>
                               <div>
-                                <label className="text-[10px] font-mono text-muted-foreground uppercase tracking-widest mb-2 block">
+                                <label className="text-xs font-mono text-muted-foreground uppercase tracking-widest mb-2 block">
                                   Confidence — {(editDraft.confidence ?? 0).toFixed(2)}
                                 </label>
                                 <Slider
@@ -635,7 +635,7 @@ function StandingOrdersTab() {
             <div className="text-center py-12 text-muted-foreground">
               <BookOpen size={24} className="mx-auto mb-3 opacity-30" />
               <p className="text-xs font-mono">No standing orders yet.</p>
-              <p className="text-[10px] font-mono mt-1 opacity-60">
+              <p className="text-xs font-mono mt-1 opacity-60">
                 Add your first entry above.
               </p>
             </div>
@@ -684,7 +684,7 @@ function ModePill({
     <button
       type="button"
       onClick={onToggle}
-      className={`px-2 py-0.5 rounded text-[10px] font-mono uppercase tracking-widest border transition-all ${
+      className={`px-2 py-0.5 rounded text-xs font-mono uppercase tracking-widest border transition-all ${
         selected
           ? "bg-primary/20 border-primary/50 text-primary"
           : "bg-muted/20 border-border text-muted-foreground hover:border-border/60"
@@ -722,7 +722,7 @@ function SkillForm({
     <div className="space-y-3">
       <div className="grid grid-cols-2 gap-3">
         <div>
-          <label className="text-[10px] font-mono text-muted-foreground uppercase tracking-widest mb-1.5 block">
+          <label className="text-xs font-mono text-muted-foreground uppercase tracking-widest mb-1.5 block">
             Name
           </label>
           <Input
@@ -733,7 +733,7 @@ function SkillForm({
           />
         </div>
         <div>
-          <label className="text-[10px] font-mono text-muted-foreground uppercase tracking-widest mb-1.5 block">
+          <label className="text-xs font-mono text-muted-foreground uppercase tracking-widest mb-1.5 block">
             Trigger Phrase
           </label>
           <Input
@@ -747,7 +747,7 @@ function SkillForm({
         </div>
       </div>
       <div>
-        <label className="text-[10px] font-mono text-muted-foreground uppercase tracking-widest mb-1.5 block">
+        <label className="text-xs font-mono text-muted-foreground uppercase tracking-widest mb-1.5 block">
           Description
         </label>
         <Input
@@ -760,7 +760,7 @@ function SkillForm({
         />
       </div>
       <div>
-        <label className="text-[10px] font-mono text-muted-foreground uppercase tracking-widest mb-1.5 block">
+        <label className="text-xs font-mono text-muted-foreground uppercase tracking-widest mb-1.5 block">
           System Prompt
         </label>
         <Textarea
@@ -774,7 +774,7 @@ function SkillForm({
         />
       </div>
       <div>
-        <label className="text-[10px] font-mono text-muted-foreground uppercase tracking-widest mb-2 block">
+        <label className="text-xs font-mono text-muted-foreground uppercase tracking-widest mb-2 block">
           Active Modes
         </label>
         <div className="flex flex-wrap gap-1.5">
@@ -965,7 +965,7 @@ function CustomSkillsTab() {
       {/* Add form */}
       {showAdd && (
         <HudCard glowColor="gold">
-          <p className="text-[10px] font-mono text-primary uppercase tracking-widest mb-3">
+          <p className="text-xs font-mono text-primary uppercase tracking-widest mb-3">
             New Custom Skill
           </p>
           <SkillForm
@@ -987,7 +987,7 @@ function CustomSkillsTab() {
           {skills.map((skill) =>
             editingId === skill.id ? (
               <HudCard key={skill.id} glowColor="purple">
-                <p className="text-[10px] font-mono text-purple-400 uppercase tracking-widest mb-3">
+                <p className="text-xs font-mono text-purple-400 uppercase tracking-widest mb-3">
                   Edit Skill
                 </p>
                 <SkillForm
@@ -1023,12 +1023,12 @@ function CustomSkillsTab() {
                         {skill.name}
                       </span>
                       {skill.trigger_phrase && (
-                        <code className="text-[10px] font-mono bg-muted/40 border border-border px-1.5 py-0.5 rounded text-muted-foreground">
+                        <code className="text-xs font-mono bg-muted/40 border border-border px-1.5 py-0.5 rounded text-muted-foreground">
                           {skill.trigger_phrase}
                         </code>
                       )}
                       {!skill.enabled && (
-                        <Badge variant="outline" className="text-[9px] font-mono">
+                        <Badge variant="outline" className="text-xs font-mono">
                           Disabled
                         </Badge>
                       )}
@@ -1043,7 +1043,7 @@ function CustomSkillsTab() {
                         {skill.modes.map((m) => (
                           <span
                             key={m}
-                            className="text-[9px] font-mono uppercase tracking-widest px-1.5 py-0.5 rounded border bg-primary/10 border-primary/30 text-primary"
+                            className="text-xs font-mono uppercase tracking-widest px-1.5 py-0.5 rounded border bg-primary/10 border-primary/30 text-primary"
                           >
                             {m}
                           </span>
@@ -1086,7 +1086,7 @@ function CustomSkillsTab() {
             <div className="text-center py-12 text-muted-foreground">
               <Wrench size={24} className="mx-auto mb-3 opacity-30" />
               <p className="text-xs font-mono">No custom skills yet.</p>
-              <p className="text-[10px] font-mono mt-1 opacity-60">
+              <p className="text-xs font-mono mt-1 opacity-60">
                 Create your first skill above.
               </p>
             </div>
@@ -1124,14 +1124,14 @@ function AnalyticsSummaryCard({
 }) {
   return (
     <div className="hud-border rounded-lg p-4 flex flex-col gap-1">
-      <span className="text-[10px] font-mono text-muted-foreground uppercase tracking-widest">
+      <span className="text-xs font-mono text-muted-foreground uppercase tracking-widest">
         {label}
       </span>
       <span className="text-xl font-display font-bold text-foreground tabular-nums">
         {value}
       </span>
       {sub && (
-        <span className="text-[10px] font-mono text-muted-foreground">{sub}</span>
+        <span className="text-xs font-mono text-muted-foreground">{sub}</span>
       )}
     </div>
   );
@@ -1229,7 +1229,7 @@ function LlmAnalyticsTab() {
         <button
           onClick={load}
           disabled={loading}
-          className="text-[10px] font-mono text-muted-foreground hover:text-foreground flex items-center gap-1 transition-all disabled:opacity-40"
+          className="text-xs font-mono text-muted-foreground hover:text-foreground flex items-center gap-1 transition-all disabled:opacity-40"
         >
           <Loader2 size={11} className={loading ? "animate-spin" : ""} />
           Refresh
@@ -1277,22 +1277,22 @@ function LlmAnalyticsTab() {
               <table className="w-full text-xs font-mono">
                 <thead>
                   <tr className="border-b border-border bg-muted/20">
-                    <th className="text-left px-4 py-2.5 text-[10px] uppercase tracking-widest text-muted-foreground font-normal">
+                    <th className="text-left px-4 py-2.5 text-xs uppercase tracking-widest text-muted-foreground font-normal">
                       Provider
                     </th>
-                    <th className="text-left px-4 py-2.5 text-[10px] uppercase tracking-widest text-muted-foreground font-normal">
+                    <th className="text-left px-4 py-2.5 text-xs uppercase tracking-widest text-muted-foreground font-normal">
                       Mode
                     </th>
-                    <th className="text-right px-4 py-2.5 text-[10px] uppercase tracking-widest text-muted-foreground font-normal">
+                    <th className="text-right px-4 py-2.5 text-xs uppercase tracking-widest text-muted-foreground font-normal">
                       Calls
                     </th>
-                    <th className="text-right px-4 py-2.5 text-[10px] uppercase tracking-widest text-muted-foreground font-normal">
+                    <th className="text-right px-4 py-2.5 text-xs uppercase tracking-widest text-muted-foreground font-normal">
                       Avg Latency
                     </th>
-                    <th className="text-right px-4 py-2.5 text-[10px] uppercase tracking-widest text-muted-foreground font-normal">
+                    <th className="text-right px-4 py-2.5 text-xs uppercase tracking-widest text-muted-foreground font-normal">
                       Success
                     </th>
-                    <th className="text-right px-4 py-2.5 text-[10px] uppercase tracking-widest text-muted-foreground font-normal">
+                    <th className="text-right px-4 py-2.5 text-xs uppercase tracking-widest text-muted-foreground font-normal">
                       Cost
                     </th>
                   </tr>
@@ -1308,7 +1308,7 @@ function LlmAnalyticsTab() {
                       </td>
                       <td className="px-4 py-2.5">
                         {row.mode !== "—" ? (
-                          <span className="text-[9px] font-mono uppercase tracking-widest px-1.5 py-0.5 rounded border bg-primary/10 border-primary/30 text-primary">
+                          <span className="text-xs font-mono uppercase tracking-widest px-1.5 py-0.5 rounded border bg-primary/10 border-primary/30 text-primary">
                             {row.mode}
                           </span>
                         ) : (
@@ -1492,7 +1492,7 @@ function SkillCatalogTab() {
       <div className="flex flex-wrap gap-1">
         <button
           onClick={() => selectCategory("all")}
-          className={`text-[10px] font-mono px-2 py-1 rounded border transition-colors ${activeCategory === "all" ? "bg-primary/10 text-primary border-primary/40" : "text-muted-foreground border-border hover:border-primary/30"}`}
+          className={`text-xs font-mono px-2 py-1 rounded border transition-colors ${activeCategory === "all" ? "bg-primary/10 text-primary border-primary/40" : "text-muted-foreground border-border hover:border-primary/30"}`}
         >
           All
         </button>
@@ -1500,7 +1500,7 @@ function SkillCatalogTab() {
           <button
             key={cat}
             onClick={() => selectCategory(cat)}
-            className={`text-[10px] font-mono px-2 py-1 rounded border transition-colors ${activeCategory === cat ? "bg-primary/10 text-primary border-primary/40" : "text-muted-foreground border-border hover:border-primary/30"}`}
+            className={`text-xs font-mono px-2 py-1 rounded border transition-colors ${activeCategory === cat ? "bg-primary/10 text-primary border-primary/40" : "text-muted-foreground border-border hover:border-primary/30"}`}
           >
             {CATEGORY_LABELS[cat] ?? cat}
           </button>
@@ -1519,21 +1519,21 @@ function SkillCatalogTab() {
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 mb-0.5 flex-wrap">
                   <span className="text-sm font-medium font-mono">{skill.name}</span>
-                  {skill.is_featured && <Badge variant="secondary" className="text-[9px] px-1 py-0 h-4">Featured</Badge>}
-                  {skill.installed && <Badge variant="outline" className="text-[9px] px-1 py-0 h-4 text-green-400 border-green-400/30">Installed</Badge>}
-                  <span className="text-[9px] font-mono text-muted-foreground border border-border rounded px-1 py-0">
+                  {skill.is_featured && <Badge variant="secondary" className="text-xs px-1 py-0 h-4">Featured</Badge>}
+                  {skill.installed && <Badge variant="outline" className="text-xs px-1 py-0 h-4 text-green-400 border-green-400/30">Installed</Badge>}
+                  <span className="text-xs font-mono text-muted-foreground border border-border rounded px-1 py-0">
                     {CATEGORY_LABELS[skill.category] ?? skill.category}
                   </span>
                 </div>
                 <p className="text-xs text-muted-foreground leading-snug">{skill.description}</p>
-                <p className="text-[9px] font-mono text-primary/50 mt-1">trigger: "{skill.trigger_phrase}"</p>
+                <p className="text-xs font-mono text-primary/50 mt-1">trigger: "{skill.trigger_phrase}"</p>
               </div>
               <div className="shrink-0">
                 {skill.installed ? (
                   <button
                     onClick={() => uninstall(skill.slug)}
                     disabled={uninstallingSlug === skill.slug}
-                    className="text-[10px] font-mono text-red-400/70 border border-red-400/20 rounded px-2 py-1 hover:bg-red-500/10 transition-colors disabled:opacity-50"
+                    className="text-xs font-mono text-red-400/70 border border-red-400/20 rounded px-2 py-1 hover:bg-red-500/10 transition-colors disabled:opacity-50"
                   >
                     {uninstallingSlug === skill.slug ? <Loader2 size={10} className="animate-spin" /> : "Remove"}
                   </button>
@@ -1541,7 +1541,7 @@ function SkillCatalogTab() {
                   <button
                     onClick={() => install(skill.slug)}
                     disabled={installingSlug === skill.slug}
-                    className="text-[10px] font-mono text-primary border border-primary/30 rounded px-2 py-1 hover:bg-primary/10 transition-colors disabled:opacity-50 flex items-center gap-1"
+                    className="text-xs font-mono text-primary border border-primary/30 rounded px-2 py-1 hover:bg-primary/10 transition-colors disabled:opacity-50 flex items-center gap-1"
                   >
                     {installingSlug === skill.slug ? <Loader2 size={10} className="animate-spin" /> : <Download size={10} />}
                     Install
@@ -1636,11 +1636,11 @@ function RunDoctorTab() {
             <div key={check.integration_name} className="flex items-center gap-3 px-3 py-2 rounded border border-border bg-muted/5 text-xs font-mono">
               {STATUS_ICON[check.status] ?? STATUS_ICON.unknown}
               <span className="w-28 text-foreground capitalize">{check.integration_name.replace(/_/g, " ")}</span>
-              <span className={`text-[9px] border rounded px-1.5 py-0.5 ${STATUS_BADGE[check.status] ?? STATUS_BADGE.unknown}`}>
+              <span className={`text-xs border rounded px-1.5 py-0.5 ${STATUS_BADGE[check.status] ?? STATUS_BADGE.unknown}`}>
                 {check.status}
               </span>
               <span className="flex-1 text-muted-foreground truncate">{check.message}</span>
-              <span className="text-muted-foreground/50 shrink-0">{check.response_ms}ms</span>
+              <span className="text-muted-foreground shrink-0">{check.response_ms}ms</span>
             </div>
           ))}
         </div>
@@ -1743,15 +1743,15 @@ function DevicesTab() {
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 flex-wrap">
                   <span className="text-sm font-mono font-medium">{device.device_name || "Unknown Device"}</span>
-                  <span className={`text-[9px] border rounded px-1.5 py-0.5 font-mono ${STATUS_COLOR[device.status] ?? ""}`}>
+                  <span className={`text-xs border rounded px-1.5 py-0.5 font-mono ${STATUS_COLOR[device.status] ?? ""}`}>
                     {device.status}
                   </span>
-                  {device.platform && <span className="text-[9px] text-muted-foreground font-mono">{device.platform}</span>}
+                  {device.platform && <span className="text-xs text-muted-foreground font-mono">{device.platform}</span>}
                 </div>
-                <p className="text-[10px] text-muted-foreground font-mono mt-0.5">
+                <p className="text-xs text-muted-foreground font-mono mt-0.5">
                   {device.last_seen_at ? `Last seen: ${new Date(device.last_seen_at).toLocaleString()}` : "Never seen"}
                 </p>
-                <p className="text-[9px] text-muted-foreground/50 font-mono mt-0.5 truncate">
+                <p className="text-xs text-muted-foreground font-mono mt-0.5 truncate">
                   {device.device_fingerprint.slice(0, 20)}…
                 </p>
               </div>
@@ -1760,7 +1760,7 @@ function DevicesTab() {
                   <button
                     onClick={() => updateStatus(device.id, "approved")}
                     disabled={actionId === device.id}
-                    className="text-[10px] font-mono text-green-400 border border-green-400/30 rounded px-2 py-1 hover:bg-green-500/10 transition-colors disabled:opacity-50"
+                    className="text-xs font-mono text-green-400 border border-green-400/30 rounded px-2 py-1 hover:bg-green-500/10 transition-colors disabled:opacity-50"
                   >
                     {actionId === device.id ? <Loader2 size={10} className="animate-spin" /> : "Approve"}
                   </button>
@@ -1769,7 +1769,7 @@ function DevicesTab() {
                   <button
                     onClick={() => updateStatus(device.id, "revoked")}
                     disabled={actionId === device.id}
-                    className="text-[10px] font-mono text-red-400/70 border border-red-400/20 rounded px-2 py-1 hover:bg-red-500/10 transition-colors disabled:opacity-50"
+                    className="text-xs font-mono text-red-400/70 border border-red-400/20 rounded px-2 py-1 hover:bg-red-500/10 transition-colors disabled:opacity-50"
                   >
                     Revoke
                   </button>
@@ -1873,9 +1873,9 @@ function AutonomyTab() {
               <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${on ? "bg-primary" : "bg-muted-foreground/30"}`} />
               <span className="flex-1 min-w-0">
                 <span className="text-xs font-mono block">{label}</span>
-                <span className="text-[10px] font-mono text-muted-foreground/70">{desc}</span>
+                <span className="text-xs font-mono text-muted-foreground">{desc}</span>
               </span>
-              <span className={`text-[9px] font-mono border rounded px-1.5 py-0.5 shrink-0 ${
+              <span className={`text-xs font-mono border rounded px-1.5 py-0.5 shrink-0 ${
                 on ? "border-primary/30 text-primary" : "border-border text-muted-foreground"
               }`}>
                 {on ? "AUTO" : "MANUAL"}

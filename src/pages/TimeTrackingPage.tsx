@@ -221,7 +221,7 @@ export function TimeTrackingPage() {
               <div className="flex flex-col items-center gap-3 py-2">
                 <div className="flex items-center gap-2">
                   <span className="w-2 h-2 rounded-full bg-neon-green animate-pulse" />
-                  <span className="text-[9px] font-mono text-muted-foreground uppercase tracking-widest">
+                  <span className="text-xs font-mono text-muted-foreground uppercase tracking-widest">
                     Timer Running
                   </span>
                 </div>
@@ -231,7 +231,7 @@ export function TimeTrackingPage() {
                 <div className="flex flex-col items-center gap-0.5">
                   <p className="text-sm font-mono text-foreground">{activeTimer.description}</p>
                   {activeTimer.project && (
-                    <span className="text-[9px] font-mono px-2 py-0.5 rounded border border-border bg-muted/30 text-muted-foreground">
+                    <span className="text-xs font-mono px-2 py-0.5 rounded border border-border bg-muted/30 text-muted-foreground">
                       {activeTimer.project}
                     </span>
                   )}
@@ -260,12 +260,12 @@ export function TimeTrackingPage() {
             transition={{ duration: 0.2 }}
           >
             <HudCard glowColor="gold">
-              <p className="text-[9px] font-mono text-primary uppercase tracking-widest mb-3">
+              <p className="text-xs font-mono text-primary uppercase tracking-widest mb-3">
                 Start New Timer
               </p>
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                 <div className="sm:col-span-1">
-                  <label className="text-[9px] font-mono text-muted-foreground block mb-0.5">
+                  <label className="text-xs font-mono text-muted-foreground block mb-0.5">
                     Description *
                   </label>
                   <input
@@ -278,7 +278,7 @@ export function TimeTrackingPage() {
                   />
                 </div>
                 <div>
-                  <label className="text-[9px] font-mono text-muted-foreground block mb-0.5">
+                  <label className="text-xs font-mono text-muted-foreground block mb-0.5">
                     Project
                   </label>
                   <input
@@ -290,7 +290,7 @@ export function TimeTrackingPage() {
                   />
                 </div>
                 <div>
-                  <label className="text-[9px] font-mono text-muted-foreground block mb-0.5">
+                  <label className="text-xs font-mono text-muted-foreground block mb-0.5">
                     Tags (comma-separated)
                   </label>
                   <input
@@ -328,7 +328,7 @@ export function TimeTrackingPage() {
           { label: "Total Entries", value: String(logs.length), color: "text-amber-400" },
         ].map((stat) => (
           <HudCard key={stat.label}>
-            <p className="text-[9px] font-mono text-muted-foreground uppercase tracking-widest mb-1">
+            <p className="text-xs font-mono text-muted-foreground uppercase tracking-widest mb-1">
               {stat.label}
             </p>
             <p className={`text-xl font-display font-bold ${stat.color}`}>{stat.value}</p>
@@ -346,7 +346,7 @@ export function TimeTrackingPage() {
           <h2 className="text-xs font-mono text-primary uppercase tracking-widest">
             Recent Logs
           </h2>
-          <span className="text-[9px] font-mono text-muted-foreground">
+          <span className="text-xs font-mono text-muted-foreground">
             Last {logs.length} entries
           </span>
         </div>
@@ -359,7 +359,7 @@ export function TimeTrackingPage() {
             <div className="text-center py-10">
               <Clock size={28} className="text-muted-foreground mx-auto mb-2" />
               <p className="text-xs font-mono text-muted-foreground">No time logged yet.</p>
-              <p className="text-[10px] font-mono text-muted-foreground mt-0.5">
+              <p className="text-xs font-mono text-muted-foreground mt-0.5">
                 Start a timer above to begin tracking.
               </p>
             </div>
@@ -376,20 +376,20 @@ export function TimeTrackingPage() {
                         {log.description}
                       </span>
                       {log.project && (
-                        <span className="text-[8px] font-mono px-1.5 py-0.5 rounded border border-border bg-muted/40 text-muted-foreground shrink-0">
+                        <span className="text-xs font-mono px-1.5 py-0.5 rounded border border-border bg-muted/40 text-muted-foreground shrink-0">
                           {log.project}
                         </span>
                       )}
                       {log.tags && log.tags.length > 0 && log.tags.map((tag) => (
                         <span
                           key={tag}
-                          className="text-[8px] font-mono px-1 py-0.5 rounded border border-primary/20 bg-primary/10 text-primary/70 shrink-0"
+                          className="text-xs font-mono px-1 py-0.5 rounded border border-primary/20 bg-primary/10 text-primary/70 shrink-0"
                         >
                           {tag}
                         </span>
                       ))}
                     </div>
-                    <span className="text-[9px] font-mono text-muted-foreground">
+                    <span className="text-xs font-mono text-muted-foreground">
                       {fmtDate(log.started_at)}
                     </span>
                   </div>
@@ -424,7 +424,7 @@ export function TimeTrackingPage() {
       {/* ── Manual Add hint ──────────────────────────────────── */}
       {!loading && !activeTimer && (
         <div className="flex justify-center">
-          <p className="text-[10px] font-mono text-muted-foreground">
+          <p className="text-xs font-mono text-muted-foreground">
             <Plus size={10} className="inline mr-1" />
             Use the form above to start tracking. Logs save automatically when you stop.
           </p>

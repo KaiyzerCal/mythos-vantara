@@ -136,7 +136,7 @@ export function SystemHealthPage() {
           { label: "Weekly", value: CRON_JOBS.filter(j => j.schedule.startsWith("Sun") || j.schedule.startsWith("Mon") || j.schedule.startsWith("Weekly")).length, color: "text-violet-400" },
         ].map(stat => (
           <HudCard key={stat.label}>
-            <p className="text-[9px] font-mono text-muted-foreground uppercase tracking-widest mb-1">{stat.label}</p>
+            <p className="text-xs font-mono text-muted-foreground uppercase tracking-widest mb-1">{stat.label}</p>
             <p className={`text-2xl font-display font-bold ${stat.color}`}>{stat.value}</p>
           </HudCard>
         ))}

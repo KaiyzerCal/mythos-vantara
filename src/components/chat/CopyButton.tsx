@@ -43,7 +43,7 @@ export function CopyButton({ content, className, size = 12, title = "Copy messag
       title={title}
       aria-label={title}
       className={cn(
-        "inline-flex items-center justify-center rounded p-1 text-muted-foreground/70 hover:text-primary hover:bg-primary/10 transition-colors",
+        "inline-flex items-center justify-center rounded p-1 text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors",
         className,
       )}
     >

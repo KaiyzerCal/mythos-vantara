@@ -78,7 +78,7 @@ export function LocalMeshStatusChip({ collapsed = false, onClick }: LocalMeshSta
   return (
     <button
       onClick={onClick}
-      className={`flex items-center gap-1.5 px-2 py-1 rounded border ${colorClass} text-[9px] font-mono transition-colors hover:opacity-80`}
+      className={`flex items-center gap-1.5 px-2 py-1 rounded border ${colorClass} text-xs font-mono transition-colors hover:opacity-80`}
       title={
         offline ? "Offline — running on cached data"
         : status === "online" ? "Local Mesh active — click to configure"

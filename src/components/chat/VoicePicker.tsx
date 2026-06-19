@@ -31,7 +31,7 @@ export function VoicePicker({
     <div className="relative flex items-center gap-1">
       <button
         onClick={onToggle}
-        className={`flex items-center gap-1 px-2 py-1 text-[10px] font-mono rounded border transition-all ${
+        className={`flex items-center gap-1 px-2 py-1 text-xs font-mono rounded border transition-all ${
           enabled
             ? "text-primary border-primary/30 bg-primary/5"
             : "text-muted-foreground border-border/50"
@@ -45,7 +45,7 @@ export function VoicePicker({
       {enabled && (
         <button
           onClick={() => setOpen((o) => !o)}
-          className={`flex items-center gap-1 px-2 py-1 text-[10px] font-mono rounded border transition-all ${
+          className={`flex items-center gap-1 px-2 py-1 text-xs font-mono rounded border transition-all ${
             current?.gender === "female"
               ? "text-pink-400 border-pink-400/30 bg-pink-400/5"
               : "text-blue-400 border-blue-400/30 bg-blue-400/5"
@@ -79,7 +79,7 @@ export function VoicePicker({
             <div className="flex border-b border-border">
               <button
                 onClick={() => setTab("male")}
-                className={`flex-1 text-[10px] font-mono py-1.5 transition-colors ${
+                className={`flex-1 text-xs font-mono py-1.5 transition-colors ${
                   tab === "male"
                     ? "text-blue-400 bg-blue-400/10"
                     : "text-muted-foreground hover:text-foreground"
@@ -89,7 +89,7 @@ export function VoicePicker({
               </button>
               <button
                 onClick={() => setTab("female")}
-                className={`flex-1 text-[10px] font-mono py-1.5 transition-colors ${
+                className={`flex-1 text-xs font-mono py-1.5 transition-colors ${
                   tab === "female"
                     ? "text-pink-400 bg-pink-400/10"
                     : "text-muted-foreground hover:text-foreground"
@@ -111,7 +111,7 @@ export function VoicePicker({
                   }`}
                 >
                   <div className="font-mono font-bold">{v.name}</div>
-                  <div className="text-[9px] text-muted-foreground">{v.description}</div>
+                  <div className="text-xs text-muted-foreground">{v.description}</div>
                 </button>
               ))}
             </div>

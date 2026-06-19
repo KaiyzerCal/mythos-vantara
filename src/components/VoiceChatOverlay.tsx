@@ -928,14 +928,14 @@ export function VoiceChatOverlay({
         </div>
         <div>
           <p className="text-xs font-mono font-bold text-primary tracking-widest">{speakerName}</p>
-          {speakerRole && <p className="text-[10px] font-mono text-muted-foreground">{speakerRole}</p>}
+          {speakerRole && <p className="text-xs font-mono text-muted-foreground">{speakerRole}</p>}
         </div>
         <button
           onClick={() => {
             if (!liveMode) { setLiveMode(true); connectLiveVoice(); }
             else { disconnectLiveVoice(); setLiveMode(false); }
           }}
-          className={`text-[10px] font-mono px-2 py-0.5 rounded-full border transition-all ${
+          className={`text-xs font-mono px-2 py-0.5 rounded-full border transition-all ${
             liveMode
               ? "bg-neon-gold/20 border-neon-gold/50 text-neon-gold"
               : "bg-white/5 border-white/10 text-white/30 hover:text-white/60"
@@ -987,7 +987,7 @@ export function VoiceChatOverlay({
             transition={{ duration: 0.15 }}
             className="w-full max-w-md px-4"
           >
-            <p className="text-[9px] font-mono text-primary/50 tracking-widest text-center mb-1 uppercase">
+            <p className="text-xs font-mono text-primary/50 tracking-widest text-center mb-1 uppercase">
               You
             </p>
             <p className="text-center text-sm font-mono leading-relaxed break-words">

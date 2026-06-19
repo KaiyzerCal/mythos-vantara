@@ -246,7 +246,7 @@ export function EmailPage() {
                     setForm((f) => ({ ...f, useGenerate: false }));
                     setDraftPreview(null);
                   }}
-                  className={`px-3 py-1 text-[10px] font-mono rounded transition-colors ${
+                  className={`px-3 py-1 text-xs font-mono rounded transition-colors ${
                     !form.useGenerate
                       ? "bg-primary/20 text-primary border border-primary/30"
                       : "text-muted-foreground hover:text-foreground"
@@ -259,7 +259,7 @@ export function EmailPage() {
                     setForm((f) => ({ ...f, useGenerate: true }));
                     setDraftPreview(null);
                   }}
-                  className={`flex items-center gap-1 px-3 py-1 text-[10px] font-mono rounded transition-colors ${
+                  className={`flex items-center gap-1 px-3 py-1 text-xs font-mono rounded transition-colors ${
                     form.useGenerate
                       ? "bg-primary/20 text-primary border border-primary/30"
                       : "text-muted-foreground hover:text-foreground"
@@ -272,7 +272,7 @@ export function EmailPage() {
               <div className="space-y-2.5">
                 {/* To */}
                 <div>
-                  <label className="text-[9px] font-mono text-muted-foreground block mb-0.5">
+                  <label className="text-xs font-mono text-muted-foreground block mb-0.5">
                     To *
                   </label>
                   <input
@@ -290,7 +290,7 @@ export function EmailPage() {
                   <>
                     {/* Subject */}
                     <div>
-                      <label className="text-[9px] font-mono text-muted-foreground block mb-0.5">
+                      <label className="text-xs font-mono text-muted-foreground block mb-0.5">
                         Subject
                       </label>
                       <input
@@ -305,7 +305,7 @@ export function EmailPage() {
                     </div>
                     {/* Body */}
                     <div>
-                      <label className="text-[9px] font-mono text-muted-foreground block mb-0.5">
+                      <label className="text-xs font-mono text-muted-foreground block mb-0.5">
                         Body
                       </label>
                       <textarea
@@ -338,9 +338,9 @@ export function EmailPage() {
                   <>
                     {/* Subject (optional for MAVIS) */}
                     <div>
-                      <label className="text-[9px] font-mono text-muted-foreground block mb-0.5">
+                      <label className="text-xs font-mono text-muted-foreground block mb-0.5">
                         Subject{" "}
-                        <span className="text-muted-foreground/50">
+                        <span className="text-muted-foreground">
                           (optional — MAVIS can generate)
                         </span>
                       </label>
@@ -356,7 +356,7 @@ export function EmailPage() {
                     </div>
                     {/* Prompt */}
                     <div>
-                      <label className="text-[9px] font-mono text-muted-foreground block mb-0.5">
+                      <label className="text-xs font-mono text-muted-foreground block mb-0.5">
                         Describe the email *
                       </label>
                       <textarea
@@ -404,11 +404,11 @@ export function EmailPage() {
                           transition={{ duration: 0.2 }}
                           className="border border-primary/20 rounded-md p-3 bg-primary/5 space-y-2"
                         >
-                          <p className="text-[9px] font-mono text-primary uppercase tracking-widest">
+                          <p className="text-xs font-mono text-primary uppercase tracking-widest">
                             Generated Preview
                           </p>
                           <div>
-                            <p className="text-[9px] font-mono text-muted-foreground mb-0.5">
+                            <p className="text-xs font-mono text-muted-foreground mb-0.5">
                               Subject
                             </p>
                             <p className="text-xs font-mono text-foreground">
@@ -416,10 +416,10 @@ export function EmailPage() {
                             </p>
                           </div>
                           <div>
-                            <p className="text-[9px] font-mono text-muted-foreground mb-0.5">
+                            <p className="text-xs font-mono text-muted-foreground mb-0.5">
                               Body
                             </p>
-                            <p className="text-xs font-mono text-foreground/80 whitespace-pre-wrap leading-relaxed">
+                            <p className="text-xs font-mono text-foreground whitespace-pre-wrap leading-relaxed">
                               {draftPreview.body}
                             </p>
                           </div>
@@ -466,7 +466,7 @@ export function EmailPage() {
       {/* ── Info Banner ──────────────────────────────────────── */}
       <div className="flex items-start gap-2 px-3 py-2.5 rounded border border-blue-800/40 bg-blue-950/20">
         <Info size={12} className="text-blue-400 shrink-0 mt-0.5" />
-        <span className="text-[10px] font-mono text-blue-400/80 leading-relaxed">
+        <span className="text-xs font-mono text-blue-400/80 leading-relaxed">
           Powered by Resend. Set{" "}
           <code className="text-blue-300">RESEND_API_KEY</code> in Supabase
           secrets to enable sending.
@@ -482,7 +482,7 @@ export function EmailPage() {
           <button
             onClick={loadOutbox}
             disabled={loading}
-            className="flex items-center gap-1 text-[10px] font-mono text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
+            className="flex items-center gap-1 text-xs font-mono text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
           >
             {loading ? (
               <Loader2 size={10} className="animate-spin" />
@@ -526,17 +526,17 @@ export function EmailPage() {
                             {email.to_address}
                           </span>
                           <span
-                            className={`text-[9px] font-mono uppercase tracking-widest px-1.5 py-0.5 rounded border ${statusStyle}`}
+                            className={`text-xs font-mono uppercase tracking-widest px-1.5 py-0.5 rounded border ${statusStyle}`}
                           >
                             {email.status}
                           </span>
                         </div>
                         {email.subject && (
-                          <p className="text-[10px] font-mono text-muted-foreground mt-0.5 truncate">
+                          <p className="text-xs font-mono text-muted-foreground mt-0.5 truncate">
                             {email.subject}
                           </p>
                         )}
-                        <p className="text-[9px] font-mono text-muted-foreground/60 mt-0.5">
+                        <p className="text-xs font-mono text-muted-foreground mt-0.5">
                           {fmtDateTime(email.created_at)}
                         </p>
                       </div>
@@ -560,10 +560,10 @@ export function EmailPage() {
                           className="overflow-hidden"
                         >
                           <div className="mt-3 pt-3 border-t border-border/40">
-                            <p className="text-[9px] font-mono text-muted-foreground mb-1 uppercase tracking-widest">
+                            <p className="text-xs font-mono text-muted-foreground mb-1 uppercase tracking-widest">
                               Body
                             </p>
-                            <p className="text-xs font-mono text-foreground/70 whitespace-pre-wrap leading-relaxed">
+                            <p className="text-xs font-mono text-muted-foreground whitespace-pre-wrap leading-relaxed">
                               {email.body}
                             </p>
                           </div>

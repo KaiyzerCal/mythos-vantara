@@ -506,7 +506,7 @@ export function IntegrationsPage() {
                               <span className="text-sm font-mono text-foreground">
                                 {provider.name}
                               </span>
-                              <p className="text-[10px] font-mono text-muted-foreground truncate mt-0.5">
+                              <p className="text-xs font-mono text-muted-foreground truncate mt-0.5">
                                 {provider.description}
                               </p>
                             </div>
@@ -539,7 +539,7 @@ export function IntegrationsPage() {
 
                                 return (
                                   <div key={keyName}>
-                                    <label className="text-[10px] font-mono text-muted-foreground uppercase tracking-widest mb-1.5 block">
+                                    <label className="text-xs font-mono text-muted-foreground uppercase tracking-widest mb-1.5 block">
                                       {keyName}
                                     </label>
                                     <div className="flex gap-2">
@@ -550,7 +550,7 @@ export function IntegrationsPage() {
                                           setEditValue(provider.id, keyName, e.target.value)
                                         }
                                         placeholder={placeholder}
-                                        className="flex-1 bg-muted/30 border border-border rounded px-3 py-2 text-sm font-mono focus:outline-none focus:border-primary/50 placeholder:text-muted-foreground/50 placeholder:text-xs"
+                                        className="flex-1 bg-muted/30 border border-border rounded px-3 py-2 text-sm font-mono focus:outline-none focus:border-primary/50 placeholder:text-muted-foreground placeholder:text-xs"
                                       />
                                       <button
                                         type="button"
@@ -598,13 +598,13 @@ export function IntegrationsPage() {
 
                               {/* Test result badge (non-OAuth providers) */}
                               {!provider.oauthEnabled && testResult === "ok" && (
-                                <span className="flex items-center gap-1 text-[10px] font-mono text-green-400">
+                                <span className="flex items-center gap-1 text-xs font-mono text-green-400">
                                   <CheckCircle2 size={11} />
                                   Connected
                                 </span>
                               )}
                               {!provider.oauthEnabled && testResult === "fail" && (
-                                <span className="flex items-center gap-1 text-[10px] font-mono text-red-400">
+                                <span className="flex items-center gap-1 text-xs font-mono text-red-400">
                                   <XCircle size={11} />
                                   Failed
                                 </span>
@@ -631,7 +631,7 @@ export function IntegrationsPage() {
                                       <button
                                         onClick={disconnectGoogle}
                                         disabled={googleDisconnecting}
-                                        className="flex items-center gap-1 px-2.5 py-1 text-[10px] font-mono border border-red-500/30 text-red-400 rounded hover:bg-red-500/10 disabled:opacity-40 transition-all"
+                                        className="flex items-center gap-1 px-2.5 py-1 text-xs font-mono border border-red-500/30 text-red-400 rounded hover:bg-red-500/10 disabled:opacity-40 transition-all"
                                       >
                                         {googleDisconnecting
                                           ? <Loader2 size={10} className="animate-spin" />
@@ -644,17 +644,17 @@ export function IntegrationsPage() {
                                       {GOOGLE_OAUTH_PROVIDERS.map(p => (
                                         <span
                                           key={p}
-                                          className={`px-2 py-0.5 rounded text-[10px] font-mono border ${
+                                          className={`px-2 py-0.5 rounded text-xs font-mono border ${
                                             googleStatus.statuses[p]
                                               ? "border-green-500/40 text-green-400 bg-green-500/5"
-                                              : "border-border/30 text-muted-foreground/50"
+                                              : "border-border/30 text-muted-foreground"
                                           }`}
                                         >
                                           {GOOGLE_SERVICE_LABELS[p]}
                                         </span>
                                       ))}
                                     </div>
-                                    <p className="text-[10px] text-muted-foreground">
+                                    <p className="text-xs text-muted-foreground">
                                       Syncs run automatically every 20 min via the MAVIS heartbeat.
                                     </p>
                                   </>
@@ -670,10 +670,10 @@ export function IntegrationsPage() {
                                         : <Link2 size={12} />}
                                       {googleConnecting ? "Opening Google…" : "Connect Google Account"}
                                     </button>
-                                    <p className="text-[10px] text-muted-foreground leading-relaxed">
+                                    <p className="text-xs text-muted-foreground leading-relaxed">
                                       Save your Client ID + Secret above first, then click Connect. You'll be redirected to Google to grant permissions for Gmail, Drive, Contacts, Tasks, and Calendar.
                                     </p>
-                                    <p className="text-[10px] text-amber-400">
+                                    <p className="text-xs text-amber-400">
                                       Set <span className="font-mono">{window.location.origin}/integrations</span> as an Authorized Redirect URI in your Google Cloud Console OAuth credentials.
                                     </p>
                                   </>

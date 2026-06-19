@@ -141,7 +141,7 @@ function PlaybookCard({ playbook, onActivate }: { playbook: Playbook; onActivate
             <div className="flex items-center gap-2">
               <h3 className="text-sm font-semibold text-white">{playbook.name}</h3>
               {playbook.is_system && (
-                <span className="text-[10px] text-white/40 bg-white/5 rounded px-1.5 py-0.5 uppercase tracking-wide">System</span>
+                <span className="text-xs text-white/40 bg-white/5 rounded px-1.5 py-0.5 uppercase tracking-wide">System</span>
               )}
             </div>
             <p className="text-xs text-white/50 mt-0.5">{playbook.description}</p>
