@@ -11,7 +11,9 @@ import AppSidebar from "@/components/AppSidebar";
 import { CommandPalette, useCommandPalette } from "@/components/CommandPalette";
 import { Loader2, Menu } from "lucide-react";
 import { useMavisNotifications } from "@/hooks/useMavisNotifications";
-import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
+import { Sheet, SheetContent } from "@/components/ui/sheet";
+import { TooltipProvider } from "@/components/ui/tooltip";
+import { AnimatePresence, motion } from "framer-motion";
 import { useState } from "react";
 
 
@@ -183,6 +185,15 @@ function AppContent() {
           </div>
           <Suspense fallback={Spinner}>
             <ErrorBoundary>
+            <AnimatePresence mode="wait" initial={false}>
+              <motion.div
+                key={location.pathname}
+                initial={{ opacity: 0, y: 6 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -6 }}
+                transition={{ duration: 0.15, ease: "easeOut" }}
+                className="h-full"
+              >
             <Routes>
               <Route path="/" element={<Dashboard />} />
               <Route path="/character" element={<CharacterPage />} />
@@ -257,6 +268,8 @@ function AppContent() {
               <Route path="/rss-feeds" element={<RSSReaderPage />} />
               <Route path="*" element={<NotFound />} />
             </Routes>
+              </motion.div>
+            </AnimatePresence>
             </ErrorBoundary>
           </Suspense>
         </main>
@@ -268,14 +281,16 @@ function AppContent() {
 const App = () => (
   <QueryClientProvider client={queryClient}>
     <ThemeProvider attribute="class" defaultTheme="dark" enableSystem={false} storageKey="vantara-theme">
-      <ThemeColorSync />
-      <Toaster />
-      <SonnerToaster position="bottom-right" theme="dark" />
-      <BrowserRouter>
-        <AuthProvider>
-          <AppContent />
-        </AuthProvider>
-      </BrowserRouter>
+      <TooltipProvider delayDuration={300}>
+        <ThemeColorSync />
+        <Toaster />
+        <SonnerToaster position="bottom-right" theme="dark" />
+        <BrowserRouter>
+          <AuthProvider>
+            <AppContent />
+          </AuthProvider>
+        </BrowserRouter>
+      </TooltipProvider>
     </ThemeProvider>
   </QueryClientProvider>
 );

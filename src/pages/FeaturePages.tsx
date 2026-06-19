@@ -8,7 +8,7 @@ import { Target, Plus, Trash2, CheckCircle2, Filter, Loader2, Users, MessageCirc
 import { useAppData } from "@/contexts/AppDataContext";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
-import { PageHeader, HudCard, ProgressBar, QuestTypeBadge, RarityBadge } from "@/components/SharedUI";
+import { PageHeader, HudCard, ProgressBar, QuestTypeBadge, RarityBadge, FieldError, fieldClass } from "@/components/SharedUI";
 import { Skeleton } from "@/components/ui/skeleton";
 import { AvatarUploader } from "@/components/AvatarUploader";
 import ReactMarkdown from "react-markdown";
@@ -101,6 +101,7 @@ export function QuestsPage() {
     debuff_effects: [] as { label: string; value: number; unit: string; duration?: string }[],
     loot_rewards: [] as { itemName: string; quantity: number; rarity?: string }[],
   });
+  const [formErrors, setFormErrors] = useState<{ title?: string }>({});
   const [newBuff, setNewBuff] = useState({ label: "", value: 0, unit: "%", duration: "" });
   const [newDebuff, setNewDebuff] = useState({ label: "", value: 0, unit: "%", duration: "" });
   const [newLoot, setNewLoot] = useState({ itemName: "", quantity: 1, rarity: "common" });
@@ -205,7 +206,11 @@ export function QuestsPage() {
   };
 
   const handleSave = async () => {
-    if (!form.title.trim()) return;
+    if (!form.title.trim()) {
+      setFormErrors({ title: "Title is required" });
+      return;
+    }
+    setFormErrors({});
     let mapping = form.real_world_mapping;
     if (form.linked_stat) mapping = `stat:${form.linked_stat}`;
     else if (form.linked_energy_id) mapping = `energy:${form.linked_energy_id}`;
@@ -433,7 +438,15 @@ export function QuestsPage() {
           <HudCard className="border-primary/20">
             <p className="text-xs font-mono text-primary mb-3 uppercase tracking-widest">{editingId ? "Edit Quest" : "New Quest"}</p>
             <div className="space-y-2">
-              <input value={form.title} onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))} placeholder="Quest title..." className="w-full bg-muted/30 border border-border rounded px-3 py-1.5 text-sm font-body focus:outline-none focus:border-primary/40" />
+              <div>
+                <input
+                  value={form.title}
+                  onChange={(e) => { setForm((f) => ({ ...f, title: e.target.value })); if (formErrors.title) setFormErrors({}); }}
+                  placeholder="Quest title..."
+                  className={fieldClass(!!formErrors.title).replace("resize-none", "").replace("text-sm font-mono", "text-sm font-body")}
+                />
+                <FieldError message={formErrors.title} />
+              </div>
               <textarea value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))} placeholder="Description..." rows={2} className="w-full bg-muted/30 border border-border rounded px-3 py-1.5 text-sm font-body resize-none focus:outline-none focus:border-primary/40" />
               <div className="grid grid-cols-3 gap-2">
                 <select value={form.type} onChange={(e) => setForm((f) => ({ ...f, type: e.target.value }))} className="bg-muted/30 border border-border rounded px-2 py-1.5 text-xs font-mono focus:outline-none">
