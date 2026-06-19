@@ -116,7 +116,7 @@ const RSSReaderPage = lazy(() => import("@/pages/RSSReaderPage").then(m => ({ de
 const MavisDemo = lazy(() => import("@/pages/MavisDemo"));
 const IntelligencePage = lazy(() => import("@/pages/IntelligencePage"));
 const DesignStudio = lazy(() => import("@/pages/DesignStudio"));
-const MemoryPage = lazy(() => import("@/pages/MemoryPage").then(m => ({ default: m.MemoryPage })));
+const MemoryPage = lazy(() => import("@/pages/MemoryPage"));
 
 const queryClient = new QueryClient();
 

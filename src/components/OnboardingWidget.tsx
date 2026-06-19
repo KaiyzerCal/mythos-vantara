@@ -66,11 +66,12 @@ export function OnboardingWidget({ userId }: { userId: string }) {
   useEffect(() => {
     if (dismissed) return;
     async function load() {
+      const sb = supabase as any;
       const [{ count: goalCount }, { count: questCount }, { data: profile }, { count: integCount }] = await Promise.all([
-        supabase.from("goals").select("*", { count: "exact", head: true }).eq("user_id", userId),
-        supabase.from("quests").select("*", { count: "exact", head: true }).eq("user_id", userId),
-        supabase.from("profiles").select("inscribed_name").eq("id", userId).single(),
-        supabase.from("user_integrations").select("*", { count: "exact", head: true }).eq("user_id", userId),
+        sb.from("goals").select("*", { count: "exact", head: true }).eq("user_id", userId),
+        sb.from("quests").select("*", { count: "exact", head: true }).eq("user_id", userId),
+        sb.from("profiles").select("inscribed_name").eq("id", userId).single(),
+        sb.from("user_integrations").select("*", { count: "exact", head: true }).eq("user_id", userId),
       ]);
       setSnapshot({
         hasProfile: !!(profile?.inscribed_name && profile.inscribed_name !== "Operator"),
