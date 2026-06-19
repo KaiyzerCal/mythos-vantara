@@ -10,7 +10,17 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { motion, AnimatePresence } from "framer-motion";
+import ReactMarkdown from "react-markdown";
 import KnowledgeGraphCanvas from "@/components/KnowledgeGraphCanvas";
+
+const LINK_TYPE_STYLES: Record<string, string> = {
+  relates_to:   "bg-blue-500/10 text-blue-400 border-blue-500/20",
+  see_also:     "bg-violet-500/10 text-violet-400 border-violet-500/20",
+  depends_on:   "bg-amber-500/10 text-amber-400 border-amber-500/20",
+  child_of:     "bg-emerald-500/10 text-emerald-400 border-emerald-500/20",
+  inspired_by:  "bg-pink-500/10 text-pink-400 border-pink-500/20",
+  contradicts:  "bg-red-500/10 text-red-400 border-red-500/20",
+};
 
 const SB_URL = import.meta.env.VITE_SUPABASE_URL ?? "";
 
@@ -445,13 +455,18 @@ export default function KnowledgeGraph() {
                 <button
                   key={note.id}
                   onClick={() => loadNoteDetail(note)}
-                  className={`w-full text-left px-3 py-2.5 border-b border-border/50 transition-colors hover:bg-muted/20 ${selected?.id === note.id ? "bg-primary/10 border-l-2 border-l-primary" : ""}`}
+                  className={`w-full text-left px-3 py-3 border-b border-border/40 transition-colors hover:bg-muted/20 ${selected?.id === note.id ? "bg-primary/10 border-l-2 border-l-primary" : "border-l-2 border-l-transparent"}`}
                 >
-                  <p className="text-xs font-mono font-medium truncate text-foreground">{note.title}</p>
-                  <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
-                    <span className="text-xs font-mono text-muted-foreground">{timeAgo(note.updated_at)}</span>
+                  <p className="text-xs font-semibold truncate text-foreground leading-snug">{note.title}</p>
+                  {note.content && (
+                    <p className="text-xs text-muted-foreground/70 mt-0.5 line-clamp-2 leading-relaxed">
+                      {note.content.replace(/[#*`_~>\[\]]/g, "").slice(0, 100)}
+                    </p>
+                  )}
+                  <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
+                    <span className="text-xs font-mono text-muted-foreground/60">{timeAgo(note.updated_at)}</span>
                     {note.tags.slice(0, 2).map(tag => (
-                      <span key={tag} className="text-xs font-mono px-1 py-0.5 rounded bg-primary/10 text-primary/80">{tag}</span>
+                      <span key={tag} className="text-xs px-1.5 py-0 rounded-full bg-primary/10 text-primary/70 border border-primary/15">{tag}</span>
                     ))}
                   </div>
                 </button>
@@ -488,31 +503,31 @@ export default function KnowledgeGraph() {
                     <input
                       value={draftTitle}
                       onChange={e => setDraftTitle(e.target.value)}
-                      className="flex-1 bg-transparent text-sm font-mono font-bold text-foreground outline-none border-b border-primary/30 pb-0.5"
+                      className="flex-1 bg-transparent text-base font-semibold text-foreground outline-none border-b border-primary/40 pb-0.5"
                     />
-                    <button onClick={saveNote} disabled={saving} className="flex items-center gap-1 px-2 py-1 rounded text-xs font-mono bg-primary/10 border border-primary/30 text-primary hover:bg-primary/20 disabled:opacity-50">
-                      <Save size={10} /> {saving ? "Saving…" : "Save"}
+                    <button onClick={saveNote} disabled={saving} className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-mono bg-primary/10 border border-primary/30 text-primary hover:bg-primary/20 disabled:opacity-50">
+                      <Save size={11} /> {saving ? "Saving…" : "Save"}
                     </button>
                     <button onClick={() => { setEditing(false); setDraftTitle(selected.title); setDraftContent(selected.content); setDraftTags(selected.tags.join(", ")); }}
-                      className="text-xs font-mono text-muted-foreground hover:text-foreground px-2 py-1 rounded border border-border">
+                      className="text-xs font-mono text-muted-foreground hover:text-foreground px-2.5 py-1.5 rounded border border-border">
                       Cancel
                     </button>
                   </>
                 ) : (
                   <>
-                    <h2 className="flex-1 text-sm font-mono font-bold truncate">{selected.title}</h2>
-                    <button onClick={() => setEditing(true)} className="flex items-center gap-1 px-2 py-1 rounded text-xs font-mono text-muted-foreground hover:text-primary border border-border hover:border-primary/30 transition-colors">
-                      <Edit3 size={10} /> Edit
+                    <h2 className="flex-1 text-base font-semibold truncate text-foreground">{selected.title}</h2>
+                    <button onClick={() => setEditing(true)} className="flex items-center gap-1.5 px-2.5 py-1.5 rounded text-xs font-mono text-muted-foreground hover:text-primary border border-border hover:border-primary/30 transition-colors">
+                      <Edit3 size={11} /> Edit
                     </button>
-                    <button onClick={() => setShowLinkModal(true)} className="flex items-center gap-1 px-2 py-1 rounded text-xs font-mono text-muted-foreground hover:text-primary border border-border hover:border-primary/30 transition-colors">
-                      <Link2 size={10} /> Link
+                    <button onClick={() => setShowLinkModal(true)} className="flex items-center gap-1.5 px-2.5 py-1.5 rounded text-xs font-mono text-muted-foreground hover:text-primary border border-border hover:border-primary/30 transition-colors">
+                      <Link2 size={11} /> Link
                     </button>
-                    <button onClick={() => setShowVersions(!showVersions)} className="flex items-center gap-1 px-2 py-1 rounded text-xs font-mono text-muted-foreground hover:text-primary border border-border hover:border-primary/30 transition-colors">
-                      <Clock size={10} /> v{versions.length}
+                    <button onClick={() => setShowVersions(!showVersions)} className="flex items-center gap-1.5 px-2.5 py-1.5 rounded text-xs font-mono text-muted-foreground hover:text-primary border border-border hover:border-primary/30 transition-colors">
+                      <Clock size={11} /> v{versions.length}
                     </button>
                     <button onClick={() => setConfirmDeleteNote({ id: selected.id, title: selected.title })}
-                      className="flex items-center gap-1 px-2 py-1 rounded text-xs font-mono text-red-400 hover:bg-red-500/10 border border-border hover:border-red-500/30 transition-colors">
-                      <Trash2 size={10} />
+                      className="flex items-center gap-1.5 px-2.5 py-1.5 rounded text-xs font-mono text-red-400 hover:bg-red-500/10 border border-border hover:border-red-500/30 transition-colors">
+                      <Trash2 size={11} />
                     </button>
                   </>
                 )}
@@ -522,130 +537,162 @@ export default function KnowledgeGraph() {
                 {/* Content area */}
                 <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
                   {editing ? (
-                    <div className="flex flex-col flex-1 p-4 gap-3">
+                    <div className="flex flex-col flex-1 px-6 py-4 gap-4">
                       <div>
-                        <label className="text-xs font-mono text-muted-foreground uppercase tracking-widest block mb-1">Tags (comma separated)</label>
+                        <label className="text-xs font-mono text-muted-foreground/70 uppercase tracking-widest block mb-1.5">
+                          Tags <span className="normal-case">(comma separated)</span>
+                        </label>
                         <input
                           value={draftTags}
                           onChange={e => setDraftTags(e.target.value)}
                           placeholder="ai, productivity, systems"
-                          className="w-full bg-muted/10 border border-border rounded px-2 py-1.5 text-xs font-mono outline-none focus:border-primary/50"
+                          className="w-full bg-muted/10 border border-border rounded-md px-3 py-2 text-sm outline-none focus:border-primary/50 focus:ring-1 focus:ring-primary/20 transition-colors"
                         />
                       </div>
                       <div className="flex-1 flex flex-col">
-                        <label className="text-xs font-mono text-muted-foreground uppercase tracking-widest block mb-1">Content (Markdown)</label>
+                        <label className="text-xs font-mono text-muted-foreground/70 uppercase tracking-widest block mb-1.5">
+                          Content <span className="normal-case text-muted-foreground/50">— Markdown supported</span>
+                        </label>
                         <textarea
                           ref={textareaRef}
                           value={draftContent}
                           onChange={e => setDraftContent(e.target.value)}
-                          placeholder="Write in Markdown..."
-                          className="flex-1 bg-muted/10 border border-border rounded p-3 text-xs font-mono outline-none focus:border-primary/50 resize-none leading-relaxed"
+                          placeholder="# Heading&#10;&#10;Write in Markdown. **Bold**, *italic*, - lists, `code`, > quotes..."
+                          className="flex-1 bg-muted/10 border border-border rounded-md p-4 text-sm font-mono outline-none focus:border-primary/50 focus:ring-1 focus:ring-primary/20 resize-none leading-7 transition-colors"
                         />
                       </div>
                     </div>
                   ) : (
-                    <div className="flex-1 overflow-y-auto p-4">
+                    <div className="flex-1 overflow-y-auto px-6 py-5">
                       {selected.tags.length > 0 && (
-                        <div className="flex flex-wrap gap-1 mb-4">
+                        <div className="flex flex-wrap gap-1.5 mb-5">
                           {selected.tags.map(tag => (
-                            <span key={tag} className="flex items-center gap-1 text-xs font-mono px-2 py-0.5 rounded-full bg-primary/10 border border-primary/20 text-primary/80">
-                              <Hash size={8} /> {tag}
+                            <span key={tag} className="flex items-center gap-1 text-xs px-2.5 py-0.5 rounded-full bg-primary/10 border border-primary/20 text-primary/80">
+                              <Hash size={9} /> {tag}
                             </span>
                           ))}
                         </div>
                       )}
                       {selected.content ? (
-                        <pre className="text-xs font-mono text-foreground/90 whitespace-pre-wrap leading-relaxed">
-                          {selected.content}
-                        </pre>
+                        <div className="prose prose-sm dark:prose-invert max-w-none
+                          prose-headings:font-semibold prose-headings:text-foreground prose-headings:tracking-tight
+                          prose-h1:text-xl prose-h2:text-lg prose-h3:text-base
+                          prose-p:text-foreground/85 prose-p:leading-7 prose-p:my-3
+                          prose-a:text-primary prose-a:no-underline hover:prose-a:underline
+                          prose-strong:text-foreground prose-strong:font-semibold
+                          prose-em:text-foreground/80
+                          prose-code:text-primary prose-code:bg-primary/10 prose-code:rounded prose-code:px-1.5 prose-code:py-0.5 prose-code:text-xs prose-code:font-mono prose-code:before:content-none prose-code:after:content-none
+                          prose-pre:bg-muted/20 prose-pre:border prose-pre:border-border prose-pre:rounded-lg prose-pre:text-xs
+                          prose-blockquote:border-l-primary/40 prose-blockquote:text-muted-foreground prose-blockquote:not-italic
+                          prose-li:text-foreground/85 prose-li:leading-7 prose-li:my-0.5
+                          prose-ul:my-3 prose-ol:my-3
+                          prose-hr:border-border
+                          prose-table:text-sm prose-th:text-foreground prose-td:text-foreground/80">
+                          <ReactMarkdown>{selected.content}</ReactMarkdown>
+                        </div>
                       ) : (
-                        <p className="text-xs font-mono text-muted-foreground italic">Empty note — click Edit to add content.</p>
+                        <p className="text-sm text-muted-foreground italic">Empty note — click Edit to add content.</p>
                       )}
-                      <p className="text-xs font-mono text-muted-foreground mt-6">
-                        Created {timeAgo(selected.created_at)} · Updated {timeAgo(selected.updated_at)}
-                      </p>
+                      <div className="flex items-center gap-3 mt-8 pt-4 border-t border-border/40">
+                        <span className="text-xs font-mono text-muted-foreground/60">Created {timeAgo(selected.created_at)}</span>
+                        <span className="text-muted-foreground/30">·</span>
+                        <span className="text-xs font-mono text-muted-foreground/60">Updated {timeAgo(selected.updated_at)}</span>
+                      </div>
                     </div>
                   )}
                 </div>
 
                 {/* Right panel: links + versions */}
-                <div className="w-56 shrink-0 border-l border-border flex flex-col overflow-hidden">
+                <div className="w-64 shrink-0 border-l border-border flex flex-col overflow-hidden bg-sidebar/50">
                   {showVersions ? (
                     <div className="flex flex-col h-full">
-                      <div className="px-3 py-2 border-b border-border flex items-center justify-between">
-                        <span className="text-xs font-mono text-muted-foreground">Version History</span>
-                        <button onClick={() => setShowVersions(false)}><X size={10} className="text-muted-foreground" /></button>
+                      <div className="px-4 py-3 border-b border-border flex items-center justify-between">
+                        <span className="text-xs font-semibold text-foreground/70 uppercase tracking-wider">Version History</span>
+                        <button onClick={() => setShowVersions(false)} className="text-muted-foreground hover:text-foreground transition-colors">
+                          <X size={12} />
+                        </button>
                       </div>
                       <div className="flex-1 overflow-y-auto">
                         {versions.length === 0 ? (
-                          <p className="text-xs font-mono text-muted-foreground text-center py-6">No saved versions yet.</p>
+                          <p className="text-xs text-muted-foreground text-center py-8 px-4">No saved versions yet.</p>
                         ) : versions.map(v => (
                           <button key={v.id} onClick={() => restoreVersion(v)}
-                            className="w-full text-left px-3 py-2 border-b border-border/50 hover:bg-muted/20 transition-colors">
-                            <p className="text-xs font-mono font-medium">v{v.version_number}</p>
-                            <p className="text-xs font-mono text-muted-foreground">{timeAgo(v.created_at)}</p>
-                            <p className="text-xs font-mono text-muted-foreground truncate">{v.title}</p>
+                            className="w-full text-left px-4 py-3 border-b border-border/40 hover:bg-muted/20 transition-colors">
+                            <div className="flex items-center gap-2 mb-0.5">
+                              <span className="text-xs font-mono font-semibold text-primary">v{v.version_number}</span>
+                              <span className="text-xs text-muted-foreground">{timeAgo(v.created_at)}</span>
+                            </div>
+                            <p className="text-xs text-muted-foreground/70 truncate">{v.title}</p>
                           </button>
                         ))}
                       </div>
                     </div>
                   ) : (
                     <div className="flex flex-col h-full overflow-y-auto">
-                      {/* Outgoing links */}
-                      <div className="px-3 py-2 border-b border-border bg-muted/5 flex items-center gap-1.5">
-                        <ArrowRight size={9} className="text-primary" />
-                        <span className="text-xs font-mono text-muted-foreground">Links ({outgoingLinks.length})</span>
+                      {/* Outgoing links section */}
+                      <div className="px-4 py-3 border-b border-border bg-muted/5 flex items-center gap-2">
+                        <ArrowRight size={11} className="text-primary" />
+                        <span className="text-xs font-semibold text-foreground/70 uppercase tracking-wider">Links</span>
+                        <span className="ml-auto text-xs font-mono text-muted-foreground">{outgoingLinks.length}</span>
                       </div>
                       {outgoingLinks.length === 0 ? (
-                        <div className="px-3 py-3 border-b border-border/40">
-                          <p className="text-xs font-mono text-muted-foreground text-center">No outgoing links.</p>
+                        <div className="px-4 py-4 border-b border-border/30">
+                          <p className="text-xs text-muted-foreground/60 text-center">No outgoing links.</p>
                         </div>
                       ) : outgoingLinks.map(({ link, other }) => (
-                        <div key={link.id} className="px-3 py-2 border-b border-border/40 group">
-                          <div className="flex items-start gap-1.5">
-                            <ArrowRight size={9} className="shrink-0 mt-0.5 text-primary" />
-                            <div className="flex-1 min-w-0">
-                              <button onClick={() => other && loadNoteDetail(other)} className="text-xs font-mono text-foreground hover:text-primary transition-colors text-left truncate block w-full">
-                                {other?.title}
-                              </button>
-                              <span className="text-xs font-mono text-muted-foreground">{link.type.replace(/_/g, " ")}</span>
-                              {link.description && <p className="text-xs font-mono text-muted-foreground truncate">{link.description}</p>}
-                            </div>
-                            <button onClick={() => setConfirmDeleteLink({ id: link.id })} className="opacity-0 group-hover:opacity-100 transition-opacity">
-                              <X size={8} className="text-red-400" />
+                        <div key={link.id} className="px-4 py-3 border-b border-border/30 group hover:bg-muted/10 transition-colors">
+                          <div className="flex items-start justify-between gap-2">
+                            <button onClick={() => other && loadNoteDetail(other)}
+                              className="text-sm font-medium text-foreground hover:text-primary transition-colors text-left leading-snug flex-1 min-w-0 truncate">
+                              {other?.title}
+                            </button>
+                            <button onClick={() => setConfirmDeleteLink({ id: link.id })}
+                              className="opacity-0 group-hover:opacity-100 transition-opacity mt-0.5 shrink-0">
+                              <X size={10} className="text-red-400" />
                             </button>
                           </div>
+                          <div className="mt-1.5 flex items-center gap-1.5">
+                            <span className={`text-xs px-2 py-0.5 rounded-full border font-mono ${LINK_TYPE_STYLES[link.type] ?? "bg-muted/20 text-muted-foreground border-border"}`}>
+                              {link.type.replace(/_/g, " ")}
+                            </span>
+                          </div>
+                          {link.description && (
+                            <p className="text-xs text-muted-foreground/60 mt-1.5 leading-relaxed">{link.description}</p>
+                          )}
                         </div>
                       ))}
 
-                      {/* Backlinks */}
-                      <div className="px-3 py-2 border-b border-border bg-muted/5 flex items-center gap-1.5">
-                        <ArrowLeft size={9} className="text-muted-foreground" />
-                        <span className="text-xs font-mono text-muted-foreground">Backlinks ({backlinks.length})</span>
+                      {/* Backlinks section */}
+                      <div className="px-4 py-3 border-b border-border bg-muted/5 flex items-center gap-2">
+                        <ArrowLeft size={11} className="text-muted-foreground" />
+                        <span className="text-xs font-semibold text-foreground/70 uppercase tracking-wider">Backlinks</span>
+                        <span className="ml-auto text-xs font-mono text-muted-foreground">{backlinks.length}</span>
                       </div>
                       {backlinks.length === 0 ? (
-                        <div className="px-3 py-3">
-                          <p className="text-xs font-mono text-muted-foreground text-center">Nothing links here yet.</p>
+                        <div className="px-4 py-4">
+                          <p className="text-xs text-muted-foreground/60 text-center">Nothing links here yet.</p>
                         </div>
                       ) : backlinks.map(({ link, other }) => (
-                        <div key={link.id} className="px-3 py-2 border-b border-border/40 group">
-                          <div className="flex items-start gap-1.5">
-                            <ArrowLeft size={9} className="shrink-0 mt-0.5 text-muted-foreground" />
-                            <div className="flex-1 min-w-0">
-                              <button onClick={() => other && loadNoteDetail(other)} className="text-xs font-mono text-foreground hover:text-primary transition-colors text-left truncate block w-full">
-                                {other?.title}
-                              </button>
-                              <span className="text-xs font-mono text-muted-foreground">{link.type.replace(/_/g, " ")} · referenced here</span>
-                              {link.description && <p className="text-xs font-mono text-muted-foreground truncate">{link.description}</p>}
-                            </div>
+                        <div key={link.id} className="px-4 py-3 border-b border-border/30 hover:bg-muted/10 transition-colors">
+                          <button onClick={() => other && loadNoteDetail(other)}
+                            className="text-sm font-medium text-foreground hover:text-primary transition-colors text-left leading-snug w-full truncate block">
+                            {other?.title}
+                          </button>
+                          <div className="mt-1.5">
+                            <span className={`text-xs px-2 py-0.5 rounded-full border font-mono ${LINK_TYPE_STYLES[link.type] ?? "bg-muted/20 text-muted-foreground border-border"}`}>
+                              {link.type.replace(/_/g, " ")}
+                            </span>
                           </div>
+                          {link.description && (
+                            <p className="text-xs text-muted-foreground/60 mt-1.5 leading-relaxed">{link.description}</p>
+                          )}
                         </div>
                       ))}
 
                       {outgoingLinks.length === 0 && backlinks.length === 0 && (
-                        <div className="flex flex-col items-center gap-2 py-6 px-3">
-                          <Link2 size={16} className="text-muted-foreground" />
-                          <p className="text-xs font-mono text-muted-foreground text-center">No links yet. Use the Link button or ask MAVIS to link notes.</p>
+                        <div className="flex flex-col items-center gap-3 py-8 px-4">
+                          <Link2 size={18} className="text-muted-foreground/40" />
+                          <p className="text-xs text-muted-foreground/60 text-center leading-relaxed">No links yet. Use the Link button or ask MAVIS to link notes.</p>
                         </div>
                       )}
                     </div>
