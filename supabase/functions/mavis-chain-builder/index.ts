@@ -37,11 +37,11 @@ async function callClaude(system: string, user: string): Promise<string> {
     headers: { "x-api-key": CLAUDE_KEY, "anthropic-version": "2023-06-01", "Content-Type": "application/json" },
     body: JSON.stringify({
       model: "claude-haiku-4-5-20251001",
-      max_tokens: 4096,
+      max_tokens: 8192,
       system,
       messages: [{ role: "user", content: user }],
     }),
-    signal: AbortSignal.timeout(30_000),
+    signal: AbortSignal.timeout(90_000), // 82 quests / 86 skills = large prompt; Haiku needs 40-70s
   });
   if (!res.ok) throw new Error(`Claude error: ${res.status}`);
   const d = await res.json();

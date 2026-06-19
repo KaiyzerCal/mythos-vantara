@@ -1069,11 +1069,13 @@ export function SkillsPage() {
 
   const autoLinkSkillChains = async () => {
     if (!user) return;
+    const { data: { session } } = await (supabase as any).auth.getSession();
+    if (!session?.access_token) return;
     setSkillChainsLoading(true);
     try {
       const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/mavis-chain-builder`, {
         method: "POST",
-        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}` },
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${session.access_token}` },
         body: JSON.stringify({ userId: user.id, action: "auto_link_skill_chains" }),
       });
       const data = await res.json();
