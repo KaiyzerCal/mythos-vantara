@@ -12,7 +12,7 @@
 //   research  → Perplexity sonar-pro (+ Tavily fallback) → synthesized report
 //   action    → mavis-actions (full action grammar)
 //   status    → live DB pull → formatted summary
-//   comms     → stub (Gmail/Calendar integration pending)
+//   comms     → mavis-email-send (Resend) + mavis-calendar-manage (Google Calendar)
 //   query     → Claude Sonnet inline response with user context
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
@@ -241,8 +241,30 @@ async function handleResearch(userId: string, message: string, target?: string):
   return `I don't have a research provider configured (PERPLEXITY_API_KEY or Tavily_API). Add one to enable deep research.`;
 }
 
-// --- Social content via content pipeline ---
+// --- Social content via content pipeline (or full publisher if URL detected) ---
 async function handleSocial(userId: string, message: string, target?: string): Promise<string> {
+  // If a URL is embedded, route through the full AI Social Media System pipeline
+  const urlMatch = message.match(/https?:\/\/[^\s]+/);
+  if (urlMatch) {
+    const sourceUrl = urlMatch[0];
+    const r = await fetch(`${SUPABASE_URL}/functions/v1/mavis-social-publisher`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${SERVICE_KEY}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ source_url: sourceUrl, user_id: userId, dry_run: true }),
+      signal: AbortSignal.timeout(60000),
+    }).catch(() => null);
+    if (r?.ok) {
+      const d = await r.json();
+      const pkg = d.content ?? {};
+      const preview = [
+        pkg.twitter   ? `*Twitter:* ${pkg.twitter.slice(0, 200)}` : null,
+        pkg.linkedin  ? `*LinkedIn:* ${pkg.linkedin.slice(0, 200)}` : null,
+        pkg.instagram ? `*Instagram:* ${pkg.instagram.slice(0, 200)}` : null,
+      ].filter(Boolean).join("\n\n");
+      return `📱 *Content Campaign Draft*\nSource: ${sourceUrl}\n\n${preview || "Content generated — see Social Queue."}\n\n_Saved to queue (ID: ${d.queue_id}). Reply "publish" to go live on all platforms._`;
+    }
+  }
+
   const topic = target || message;
 
   // Extract platform hints from message
@@ -407,10 +429,144 @@ Be direct and concise. 2-4 sentences for most replies. Mobile-first format.`,
   );
 }
 
-// --- Comms stub ---
-async function handleComms(_userId: string, message: string): Promise<string> {
-  // Queue as a pending comms task — Gmail/Calendar integration coming
-  return `📬 *Communications*\n\nI've noted this request:\n_${message.slice(0, 200)}_\n\nGmail and Google Calendar integration is in the build queue. For now, the request is saved as a task.\n\n_Check /integrations in MAVIS to connect your accounts._`;
+// --- Comms: email send or calendar manage ---
+async function handleComms(userId: string, message: string): Promise<string> {
+  const lower = message.toLowerCase();
+
+  // ── Calendar path ──────────────────────────────────────────────────────────
+  const isCalendar = /schedule|calendar|meeting|book|appointment|event|reschedule|cancel\s+meeting/.test(lower);
+  if (isCalendar) {
+    // Parse intent: find_free_time | create_event | list_events | reschedule_event | cancel_event
+    const actionMap: Record<string, string> = {
+      "list|show|what.*meeting|what.*event|upcoming": "list_events",
+      "free|available|open slot|when.*free":          "find_free_time",
+      "reschedule|move.*meeting":                     "reschedule_event",
+      "cancel.*meeting|delete.*event":                "cancel_event",
+    };
+    let calAction = "create_event";
+    for (const [pat, act] of Object.entries(actionMap)) {
+      if (new RegExp(pat).test(lower)) { calAction = act; break; }
+    }
+
+    // Use AI to extract event details for create/reschedule
+    let params: Record<string, unknown> = { action: calAction };
+    if (calAction === "create_event" || calAction === "reschedule_event") {
+      const raw = await callAI(
+        `Extract calendar event details from this request. Respond ONLY as JSON:
+{"title":"...","start_date":"YYYY-MM-DD","start_time":"HH:MM","end_time":"HH:MM","attendees":["email"],"description":"..."}
+If a field is unclear, omit it.`,
+        message, 256, true,
+      );
+      try {
+        const match = raw.match(/\{[\s\S]*?\}/);
+        if (match) params = { action: calAction, ...JSON.parse(match[0]) };
+      } catch { /* use minimal params */ }
+    }
+
+    try {
+      const r = await fetch(`${SUPABASE_URL}/functions/v1/mavis-calendar-manage`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${SERVICE_KEY}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ ...params, user_id: userId }),
+        signal: AbortSignal.timeout(20000),
+      });
+      if (r.ok) {
+        const d = await r.json();
+        if (calAction === "list_events") {
+          const events = (d.events ?? d.items ?? []).slice(0, 8);
+          if (!events.length) return "📅 *Calendar*\n\nNo upcoming events found.";
+          const lines = events.map((e: any) =>
+            `• ${e.summary ?? e.title ?? "Event"} — ${e.start?.dateTime?.slice(0, 16) ?? e.start ?? ""}`
+          ).join("\n");
+          return `📅 *Upcoming Events*\n\n${lines}`;
+        }
+        if (calAction === "find_free_time") {
+          const slots = d.slots ?? d.free_slots ?? [];
+          if (!slots.length) return "📅 *Calendar*\n\nNo free slots found in the next 3 days.";
+          const lines = (slots as any[]).slice(0, 5).map((s: any) => `• ${s.start} → ${s.end}`).join("\n");
+          return `📅 *Free Slots*\n\n${lines}`;
+        }
+        const evt = d.event ?? d;
+        return `📅 *Event ${calAction.replace("_", " ")} — done*\n\n${evt.summary ?? evt.title ?? JSON.stringify(evt).slice(0, 200)}`;
+      }
+    } catch { /* fall through to queue */ }
+
+    // Calendar not connected or failed — queue the request
+    await supabase.from("mavis_action_queue").insert({
+      user_id: userId,
+      action_type: "calendar_request",
+      title: `Calendar: ${calAction.replace("_", " ")}`,
+      description: message.slice(0, 200),
+      status: "pending",
+      autonomy_tier: "approve",
+      payload: { action: calAction, message },
+    }).catch(() => {});
+    return `📅 *Calendar Request Queued*\n\n_${message.slice(0, 150)}_\n\nConnect Google Calendar in _/integrations_ to execute automatically.`;
+  }
+
+  // ── Email path ─────────────────────────────────────────────────────────────
+  const isEmail = /email|send.*to|message.*to|write.*to|reach out/.test(lower);
+  if (isEmail) {
+    const raw = await callAI(
+      `Extract email send details from this request. Respond ONLY as JSON:
+{"to":"recipient@email.com","subject":"...","generate_prompt":"what to write"}
+If recipient email isn't clear, set to is empty string.`,
+      message, 256, true,
+    );
+
+    let to = "", subject = "", generatePrompt = message;
+    try {
+      const match = raw.match(/\{[\s\S]*?\}/);
+      if (match) {
+        const d = JSON.parse(match[0]);
+        to = d.to ?? ""; subject = d.subject ?? ""; generatePrompt = d.generate_prompt ?? message;
+      }
+    } catch { /* use defaults */ }
+
+    if (!to) {
+      // Can't send without a recipient — queue it
+      await supabase.from("mavis_action_queue").insert({
+        user_id: userId,
+        action_type: "email_request",
+        title: "Email Request",
+        description: message.slice(0, 200),
+        status: "pending",
+        autonomy_tier: "approve",
+        payload: { message },
+      }).catch(() => {});
+      return `📧 *Email Request Queued*\n\n_${message.slice(0, 150)}_\n\nCouldn't identify the recipient. Please specify an email address and I'll send it immediately.`;
+    }
+
+    try {
+      const r = await fetch(`${SUPABASE_URL}/functions/v1/mavis-email-send`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${SERVICE_KEY}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ to, subject, generate: true, generate_prompt: generatePrompt }),
+        signal: AbortSignal.timeout(30000),
+      });
+      if (r.ok) {
+        const d = await r.json();
+        return `📧 *Email Sent*\n\nTo: ${to}\nSubject: ${d.subject ?? subject}\n\n_${(d.body ?? "").slice(0, 200)}…_`;
+      }
+      const err = await r.json().catch(() => ({}));
+      return `📧 *Email failed*: ${(err as any).error ?? "Unknown error"}. Check RESEND_API_KEY in secrets.`;
+    } catch (e: any) {
+      return `📧 *Email error*: ${e.message}`;
+    }
+  }
+
+  // ── Generic comms fallback ─────────────────────────────────────────────────
+  await supabase.from("mavis_action_queue").insert({
+    user_id: userId,
+    action_type: "comms_request",
+    title: "Communications Request",
+    description: message.slice(0, 200),
+    status: "pending",
+    autonomy_tier: "approve",
+    payload: { message },
+  }).catch(() => {});
+
+  return `📬 *Communications Request Queued*\n\n_${message.slice(0, 200)}_\n\nConnect Gmail and Google Calendar in _/integrations_ for automatic execution.`;
 }
 
 // ─────────────────────────────────────────────────────────────
