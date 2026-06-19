@@ -584,7 +584,7 @@ export default function MavisDemo() {
           ? await streamAgentMessage(content, systemPrompt, history, opts, onToken, () => {}, abortController.signal)
           : chatMode === "RESEARCH"
           ? await streamResearchMessage(content, opts, onToken, abortController.signal)
-          : await streamChatMessage(content, systemPrompt, history, opts, onToken, abortController.signal);
+          : await streamChatMessage(content, systemPrompt, history, opts, onToken, () => {}, abortController.signal);
 
       if (cancelledRef.current) {
         setChatMessages((prev: any[]) => prev.filter((m: any) => m.id !== sid));
