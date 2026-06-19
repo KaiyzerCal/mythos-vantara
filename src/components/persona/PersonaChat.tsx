@@ -319,24 +319,24 @@ export function PersonaChat({ persona, userId, onBack }: PersonaChatProps) {
             <span className="text-base leading-none" title={mood}>{MOOD_EMOJI[mood] ?? "😐"}</span>
             {isUpdatingEmotion && <RefreshCw size={10} className="animate-spin text-muted-foreground" />}
           </div>
-          <p className="text-[9px] font-mono text-muted-foreground truncate">{persona.archetype} · {persona.role}</p>
+          <p className="text-xs font-mono text-muted-foreground truncate">{persona.archetype} · {persona.role}</p>
         </div>
 
         {/* Bond / Trust mini bars */}
         <div className="hidden sm:flex flex-col gap-1 items-end w-28 shrink-0">
           <div className="flex items-center gap-1.5 w-full">
-            <span className="text-[8px] font-mono text-muted-foreground w-8 shrink-0">BOND</span>
+            <span className="text-xs font-mono text-muted-foreground w-8 shrink-0">BOND</span>
             <div className="flex-1 h-1 bg-muted rounded-full overflow-hidden">
               <div className="h-full bg-neon-purple rounded-full transition-all duration-500" style={{ width: `${bond}%` }} />
             </div>
-            <span className="text-[8px] font-mono text-muted-foreground w-6 text-right">{bond}</span>
+            <span className="text-xs font-mono text-muted-foreground w-6 text-right">{bond}</span>
           </div>
           <div className="flex items-center gap-1.5 w-full">
-            <span className="text-[8px] font-mono text-muted-foreground w-8 shrink-0">TRUST</span>
+            <span className="text-xs font-mono text-muted-foreground w-8 shrink-0">TRUST</span>
             <div className="flex-1 h-1 bg-muted rounded-full overflow-hidden">
               <div className="h-full bg-primary rounded-full transition-all duration-500" style={{ width: `${trust}%` }} />
             </div>
-            <span className="text-[8px] font-mono text-muted-foreground w-6 text-right">{trust}</span>
+            <span className="text-xs font-mono text-muted-foreground w-6 text-right">{trust}</span>
           </div>
         </div>
 
@@ -365,7 +365,7 @@ export function PersonaChat({ persona, userId, onBack }: PersonaChatProps) {
         <button
           onClick={handleOmniSync}
           disabled={isSyncing}
-          className="flex items-center gap-1 px-2 py-1 rounded border border-cyan-900/40 text-cyan-400 text-[9px] font-mono hover:border-cyan-400/50 transition-colors disabled:opacity-40"
+          className="flex items-center gap-1 px-2 py-1 rounded border border-cyan-900/40 text-cyan-400 text-xs font-mono hover:border-cyan-400/50 transition-colors disabled:opacity-40"
           title="OmniSync — snapshot this thread to memory"
         >
           {isSyncing ? <Loader2 size={9} className="animate-spin" /> : <Database size={9} />}
@@ -374,7 +374,7 @@ export function PersonaChat({ persona, userId, onBack }: PersonaChatProps) {
 
         <button
           onClick={handleClear}
-          className="px-2 py-1 rounded border border-border text-[9px] font-mono text-muted-foreground hover:text-destructive hover:border-destructive/40 transition-colors"
+          className="px-2 py-1 rounded border border-border text-xs font-mono text-muted-foreground hover:text-destructive hover:border-destructive/40 transition-colors"
           title="Archive thread to memory and clear"
         >
           CLEAR
@@ -382,7 +382,7 @@ export function PersonaChat({ persona, userId, onBack }: PersonaChatProps) {
 
         <button
           onClick={() => setVoiceOpen(true)}
-          className="flex items-center gap-1 px-2 py-1 rounded border border-primary/30 bg-primary/5 text-primary/70 hover:text-primary hover:bg-primary/15 text-[9px] font-mono transition-all"
+          className="flex items-center gap-1 px-2 py-1 rounded border border-primary/30 bg-primary/5 text-primary/70 hover:text-primary hover:bg-primary/15 text-xs font-mono transition-all"
           title={`Voice call ${persona.name}`}
         >
           <PhoneCall size={9} /> CALL
@@ -392,7 +392,7 @@ export function PersonaChat({ persona, userId, onBack }: PersonaChatProps) {
         {finetuneStatus === "training" ? (
           <button
             onClick={handleCheckTraining}
-            className="flex items-center gap-1 px-2 py-1 rounded border border-amber-500/30 text-amber-400 text-[9px] font-mono hover:border-amber-400/50 transition-colors"
+            className="flex items-center gap-1 px-2 py-1 rounded border border-amber-500/30 text-amber-400 text-xs font-mono hover:border-amber-400/50 transition-colors"
             title="Check training status"
           >
             <Loader2 size={9} className="animate-spin" />
@@ -400,7 +400,7 @@ export function PersonaChat({ persona, userId, onBack }: PersonaChatProps) {
           </button>
         ) : finetuneStatus === "deployed" ? (
           <span
-            className="flex items-center gap-1 px-2 py-1 rounded border border-neon-green/30 text-neon-green text-[9px] font-mono"
+            className="flex items-center gap-1 px-2 py-1 rounded border border-neon-green/30 text-neon-green text-xs font-mono"
             title={`Running on fine-tuned model (${persona.finetune_examples ?? "?"} examples)`}
           >
             <Brain size={9} />
@@ -410,7 +410,7 @@ export function PersonaChat({ persona, userId, onBack }: PersonaChatProps) {
           <button
             onClick={handleTrain}
             disabled={isFinetuning}
-            className="flex items-center gap-1 px-2 py-1 rounded border border-primary/30 text-primary text-[9px] font-mono hover:border-primary/50 hover:bg-primary/5 transition-colors disabled:opacity-40"
+            className="flex items-center gap-1 px-2 py-1 rounded border border-primary/30 text-primary text-xs font-mono hover:border-primary/50 hover:bg-primary/5 transition-colors disabled:opacity-40"
             title={`Train ${persona.name} on ${convCount} conversations`}
           >
             {isFinetuning ? <Loader2 size={9} className="animate-spin" /> : <Brain size={9} />}
@@ -445,7 +445,7 @@ export function PersonaChat({ persona, userId, onBack }: PersonaChatProps) {
             >
               {msg.role === "assistant" && (
                 <div className={cn(
-                  "w-6 h-6 rounded-full border flex items-center justify-center font-display text-[10px] font-bold shrink-0 mr-2 mt-0.5",
+                  "w-6 h-6 rounded-full border flex items-center justify-center font-display text-xs font-bold shrink-0 mr-2 mt-0.5",
                   "border-current", roleColor
                 )}>
                   {persona.name[0].toUpperCase()}
@@ -474,7 +474,7 @@ export function PersonaChat({ persona, userId, onBack }: PersonaChatProps) {
 
           {isLoading && (
             <div className="flex justify-start">
-              <div className={cn("w-6 h-6 rounded-full border flex items-center justify-center font-display text-[10px] font-bold shrink-0 mr-2 mt-0.5 border-current", roleColor)}>
+              <div className={cn("w-6 h-6 rounded-full border flex items-center justify-center font-display text-xs font-bold shrink-0 mr-2 mt-0.5 border-current", roleColor)}>
                 {persona.name[0].toUpperCase()}
               </div>
               <div className="hud-border rounded-lg rounded-tl-none px-3 py-2">

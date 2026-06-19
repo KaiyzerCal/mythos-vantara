@@ -152,14 +152,14 @@ export function NotificationsPage() {
           <div className="flex items-center gap-2">
             <button
               onClick={load}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-mono bg-muted/30 border border-border text-muted-foreground rounded hover:text-primary hover:border-primary/30 transition-colors"
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono bg-muted/30 border border-border text-muted-foreground rounded hover:text-primary hover:border-primary/30 transition-colors"
             >
               <RefreshCw size={10} /> Refresh
             </button>
             {unreadCount > 0 && (
               <button
                 onClick={markAllRead}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-mono bg-primary/10 border border-primary/30 text-primary rounded hover:bg-primary/20 transition-colors"
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono bg-primary/10 border border-primary/30 text-primary rounded hover:bg-primary/20 transition-colors"
               >
                 <CheckCircle2 size={10} /> Mark all read
               </button>
@@ -174,7 +174,7 @@ export function NotificationsPage() {
           <button
             key={f}
             onClick={() => setFilter(f)}
-            className={`px-3 py-1.5 text-[10px] font-mono rounded border transition-colors ${
+            className={`px-3 py-1.5 text-xs font-mono rounded border transition-colors ${
               filter === f
                 ? "bg-primary/10 border-primary/30 text-primary"
                 : "border-border/50 text-muted-foreground hover:text-foreground"
@@ -219,8 +219,8 @@ export function NotificationsPage() {
                       <div className="mt-0.5 shrink-0">{SEVERITY_ICON[ins.severity] ?? SEVERITY_ICON.info}</div>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 flex-wrap mb-1">
-                          <span className="text-[9px] font-mono text-muted-foreground uppercase">{ins.category}</span>
-                          <span className="text-[9px] font-mono text-muted-foreground ml-auto">{timeAgo(ins.generated_at)}</span>
+                          <span className="text-xs font-mono text-muted-foreground uppercase">{ins.category}</span>
+                          <span className="text-xs font-mono text-muted-foreground ml-auto">{timeAgo(ins.generated_at)}</span>
                         </div>
                         <p className="text-sm font-display font-bold mb-0.5">{ins.title}</p>
                         <p className="text-xs text-muted-foreground leading-relaxed">{ins.content}</p>
@@ -280,7 +280,7 @@ export function NotificationsPage() {
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
                       <span
-                        className={`text-[9px] font-mono px-1.5 py-0.5 rounded border ${
+                        className={`text-xs font-mono px-1.5 py-0.5 rounded border ${
                           c.status === "completed"
                             ? "text-green-400 border-green-800 bg-green-950/40"
                             : "text-amber-400 border-amber-800 bg-amber-950/40"
@@ -288,11 +288,11 @@ export function NotificationsPage() {
                       >
                         {c.status}
                       </span>
-                      <span className="text-[9px] font-mono text-muted-foreground">{timeAgo(c.created_at)}</span>
+                      <span className="text-xs font-mono text-muted-foreground">{timeAgo(c.created_at)}</span>
                       {c.status !== "completed" && (
                         <button
                           onClick={() => markCommitmentDone(c.id)}
-                          className="text-[9px] font-mono px-1.5 py-0.5 rounded border border-primary/30 text-primary hover:bg-primary/10 transition-colors"
+                          className="text-xs font-mono px-1.5 py-0.5 rounded border border-primary/30 text-primary hover:bg-primary/10 transition-colors"
                         >
                           Mark Done
                         </button>
@@ -327,13 +327,13 @@ export function NotificationsPage() {
                   <Activity size={12} className="text-primary/50 shrink-0" />
                   <div className="flex-1 min-w-0">
                     <p className="text-xs font-mono truncate">{a.description}</p>
-                    <p className="text-[9px] font-mono text-muted-foreground">{a.event_type}</p>
+                    <p className="text-xs font-mono text-muted-foreground">{a.event_type}</p>
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
                     {a.xp_awarded && a.xp_awarded > 0 && (
-                      <span className="text-[9px] font-mono text-amber-400">+{a.xp_awarded} XP</span>
+                      <span className="text-xs font-mono text-amber-400">+{a.xp_awarded} XP</span>
                     )}
-                    <span className="text-[9px] font-mono text-muted-foreground">{timeAgo(a.created_at)}</span>
+                    <span className="text-xs font-mono text-muted-foreground">{timeAgo(a.created_at)}</span>
                   </div>
                 </motion.div>
               ))}

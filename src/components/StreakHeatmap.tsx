@@ -110,7 +110,7 @@ export function StreakHeatmap() {
   if (loading) {
     return (
       <div className="space-y-1">
-        <p className="text-[10px] font-mono text-muted-foreground uppercase tracking-widest">Activity — Last 52 Weeks</p>
+        <p className="text-xs font-mono text-muted-foreground uppercase tracking-widest">Activity — Last 52 Weeks</p>
         <div className="h-[84px] bg-muted/20 rounded animate-pulse" />
       </div>
     );
@@ -119,8 +119,8 @@ export function StreakHeatmap() {
   return (
     <div className="space-y-1.5">
       <div className="flex items-center justify-between">
-        <p className="text-[10px] font-mono text-muted-foreground uppercase tracking-widest">Activity — Last 52 Weeks</p>
-        <p className="text-[10px] font-mono text-muted-foreground">{totalActivity} actions</p>
+        <p className="text-xs font-mono text-muted-foreground uppercase tracking-widest">Activity — Last 52 Weeks</p>
+        <p className="text-xs font-mono text-muted-foreground">{totalActivity} actions</p>
       </div>
 
       {/* Month labels */}
@@ -128,7 +128,7 @@ export function StreakHeatmap() {
         {monthCols.map(({ idx, label }) => (
           <span
             key={idx}
-            className="absolute text-[9px] font-mono text-muted-foreground/60"
+            className="absolute text-xs font-mono text-muted-foreground"
             style={{ left: idx * 12 }}
           >
             {label}
@@ -157,11 +157,11 @@ export function StreakHeatmap() {
 
       {/* Legend */}
       <div className="flex items-center gap-1.5 justify-end">
-        <span className="text-[9px] font-mono text-muted-foreground/50">Less</span>
+        <span className="text-xs font-mono text-muted-foreground">Less</span>
         {["bg-muted/30","bg-primary/20","bg-primary/40","bg-primary/70","bg-primary"].map((cls) => (
           <div key={cls} className={`w-[10px] h-[10px] rounded-sm ${cls}`} />
         ))}
-        <span className="text-[9px] font-mono text-muted-foreground/50">More</span>
+        <span className="text-xs font-mono text-muted-foreground">More</span>
       </div>
     </div>
   );

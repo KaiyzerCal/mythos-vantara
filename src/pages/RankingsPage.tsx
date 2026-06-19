@@ -39,7 +39,7 @@ export default function RankingsPage() {
 
   const renderFormPanel = (title: string) => (
     <HudCard className="border-primary/20">
-      <p className="text-[9px] font-mono text-primary uppercase tracking-widest mb-3">{title}</p>
+      <p className="text-xs font-mono text-primary uppercase tracking-widest mb-3">{title}</p>
       <div className="space-y-2">
         <div className="grid grid-cols-2 gap-2">
           <input value={form.display_name} onChange={(e) => setForm((f) => ({ ...f, display_name: e.target.value }))} placeholder="Display name" className="bg-muted/30 border border-border rounded px-3 py-1.5 text-sm focus:outline-none focus:border-primary/40" />
@@ -59,7 +59,7 @@ export default function RankingsPage() {
           <input value={form.influence} onChange={(e) => setForm((f) => ({ ...f, influence: e.target.value }))} placeholder="Influence" className="bg-muted/30 border border-border rounded px-2 py-1.5 text-xs font-mono focus:outline-none" />
         </div>
         <div className="flex items-center gap-2">
-          <label className="flex items-center gap-1.5 text-[10px] font-mono text-muted-foreground cursor-pointer">
+          <label className="flex items-center gap-1.5 text-xs font-mono text-muted-foreground cursor-pointer">
             <input type="checkbox" checked={form.is_self} onChange={(e) => setForm((f) => ({ ...f, is_self: e.target.checked }))} className="accent-primary" />
             This is me (Self)
           </label>
@@ -102,8 +102,8 @@ export default function RankingsPage() {
           <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }}>
             <HudCard className="border-primary/20">
               <div className="flex items-center justify-between mb-3">
-                <p className="text-[9px] font-mono text-primary uppercase tracking-widest">Profile Detail</p>
-                <button onClick={() => setDetailId(null)} className="text-[10px] font-mono text-muted-foreground hover:text-primary">Close</button>
+                <p className="text-xs font-mono text-primary uppercase tracking-widest">Profile Detail</p>
+                <button onClick={() => setDetailId(null)} className="text-xs font-mono text-muted-foreground hover:text-primary">Close</button>
               </div>
               <div className="space-y-2">
                 <div className="flex items-center gap-2">
@@ -121,8 +121,8 @@ export default function RankingsPage() {
                 </div>
                 {detailEntry.notes && <p className="text-xs font-body text-muted-foreground mt-2">{detailEntry.notes}</p>}
                 <div className="flex gap-2 mt-2">
-                  <button onClick={() => { handleEdit(detailEntry); setDetailId(null); }} className="px-3 py-1 text-[10px] font-mono bg-primary/10 border border-primary/30 text-primary rounded">Edit</button>
-                  <button onClick={() => setConfirmDelete({ id: detailEntry.id, label: detailEntry.display_name })} className="px-3 py-1 text-[10px] font-mono border border-destructive/30 text-destructive rounded">Delete</button>
+                  <button onClick={() => { handleEdit(detailEntry); setDetailId(null); }} className="px-3 py-1 text-xs font-mono bg-primary/10 border border-primary/30 text-primary rounded">Edit</button>
+                  <button onClick={() => setConfirmDelete({ id: detailEntry.id, label: detailEntry.display_name })} className="px-3 py-1 text-xs font-mono border border-destructive/30 text-destructive rounded">Delete</button>
                 </div>
               </div>
             </HudCard>
@@ -148,16 +148,16 @@ export default function RankingsPage() {
                   <span className="font-display text-base font-bold text-primary">{selfEntry.display_name}</span>
                   <RankBadge rank={selfEntry.rank} />
                 </div>
-                <p className="text-[10px] font-mono text-muted-foreground">LV{selfEntry.level} • {selfEntry.jjk_grade} • {selfEntry.op_tier}</p>
-                {selfEntry.notes && <p className="text-[10px] font-mono text-primary/60 mt-0.5">{selfEntry.notes}</p>}
+                <p className="text-xs font-mono text-muted-foreground">LV{selfEntry.level} • {selfEntry.jjk_grade} • {selfEntry.op_tier}</p>
+                {selfEntry.notes && <p className="text-xs font-mono text-primary/60 mt-0.5">{selfEntry.notes}</p>}
               </div>
             </div>
             <div className="flex items-center gap-2">
               <div className="text-right shrink-0">
                 <p className="text-sm font-display font-bold text-amber-400">{selfEntry.gpr.toLocaleString()}</p>
-                <p className="text-[9px] font-mono text-muted-foreground">GPR</p>
+                <p className="text-xs font-mono text-muted-foreground">GPR</p>
                 <p className="text-xs font-display font-bold text-red-400 mt-0.5">{selfEntry.pvp.toLocaleString()}</p>
-                <p className="text-[9px] font-mono text-muted-foreground">PVP</p>
+                <p className="text-xs font-mono text-muted-foreground">PVP</p>
               </div>
               <button onClick={(e) => { e.stopPropagation(); handleEdit(selfEntry); }} className="p-1 text-muted-foreground hover:text-primary transition-colors"><Edit2 size={14} /></button>
             </div>
@@ -174,9 +174,9 @@ export default function RankingsPage() {
       </AnimatePresence>
 
       <div className="flex items-center gap-2">
-        <span className="text-[9px] font-mono text-muted-foreground uppercase">Sort:</span>
+        <span className="text-xs font-mono text-muted-foreground uppercase">Sort:</span>
         {(["gpr", "pvp", "level"] as const).map((s) => (
-          <button key={s} onClick={() => setSortBy(s)} className={`px-2 py-1 text-[10px] font-mono uppercase rounded border transition-all ${sortBy === s ? "bg-primary/10 border-primary/30 text-primary" : "border-border/50 text-muted-foreground"}`}>{s}</button>
+          <button key={s} onClick={() => setSortBy(s)} className={`px-2 py-1 text-xs font-mono uppercase rounded border transition-all ${sortBy === s ? "bg-primary/10 border-primary/30 text-primary" : "border-border/50 text-muted-foreground"}`}>{s}</button>
         ))}
       </div>
 
@@ -200,21 +200,21 @@ export default function RankingsPage() {
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className={`text-sm font-display font-bold ${ROLE_COLORS[entry.role]}`}>{entry.display_name}</span>
                     <RankBadge rank={entry.rank} size="xs" />
-                    <span className="text-[9px] font-mono text-muted-foreground">LV{entry.level}</span>
-                    <span className="text-[9px] font-mono text-muted-foreground capitalize">{entry.role}</span>
+                    <span className="text-xs font-mono text-muted-foreground">LV{entry.level}</span>
+                    <span className="text-xs font-mono text-muted-foreground capitalize">{entry.role}</span>
                   </div>
                   <div className="flex gap-3 mt-0.5 flex-wrap">
-                    <span className="text-[9px] font-mono text-muted-foreground">{entry.jjk_grade}</span>
-                    <span className="text-[9px] font-mono text-muted-foreground">{entry.op_tier}</span>
-                    <span className="text-[9px] font-mono text-muted-foreground">{entry.influence}</span>
-                    {entry.notes && <span className="text-[9px] font-mono text-muted-foreground/60">— {entry.notes}</span>}
+                    <span className="text-xs font-mono text-muted-foreground">{entry.jjk_grade}</span>
+                    <span className="text-xs font-mono text-muted-foreground">{entry.op_tier}</span>
+                    <span className="text-xs font-mono text-muted-foreground">{entry.influence}</span>
+                    {entry.notes && <span className="text-xs font-mono text-muted-foreground">— {entry.notes}</span>}
                   </div>
                 </div>
                 <div className="text-right shrink-0">
                   <p className="text-xs font-mono text-amber-400">{entry.gpr.toLocaleString()}</p>
-                  <p className="text-[9px] font-mono text-muted-foreground">GPR</p>
+                  <p className="text-xs font-mono text-muted-foreground">GPR</p>
                   <p className="text-xs font-mono text-red-400 mt-0.5">{entry.pvp.toLocaleString()}</p>
-                  <p className="text-[9px] font-mono text-muted-foreground">PVP</p>
+                  <p className="text-xs font-mono text-muted-foreground">PVP</p>
                 </div>
                 <div className="flex flex-col gap-1 shrink-0 ml-1">
                   <button onClick={(e) => { e.stopPropagation(); handleEdit(entry); }} className="p-1 text-muted-foreground hover:text-primary transition-colors"><Edit2 size={12} /></button>

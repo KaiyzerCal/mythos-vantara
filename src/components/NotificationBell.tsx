@@ -39,7 +39,7 @@ export function NotificationBell() {
         <Button variant="ghost" size="icon" className="relative h-8 w-8">
           <Bell size={16} className="text-muted-foreground" />
           {unread > 0 && (
-            <span className="absolute -top-0.5 -right-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-neon-gold text-[9px] font-bold text-black">
+            <span className="absolute -top-0.5 -right-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-neon-gold text-xs font-bold text-black">
               {unread > 9 ? "9+" : unread}
             </span>
           )}
@@ -48,7 +48,7 @@ export function NotificationBell() {
       <PopoverContent className="w-80 p-0 bg-[#0d0d0d] border-white/10" align="end">
         <div className="flex items-center justify-between px-3 py-2 border-b border-white/10">
           <span className="text-xs font-mono font-semibold text-white/70">MAVIS ALERTS</span>
-          <span className="text-[10px] text-white/30">{notifications.length} total</span>
+          <span className="text-xs text-white/30">{notifications.length} total</span>
         </div>
         <div className="max-h-72 overflow-y-auto">
           {notifications.length === 0 ? (
@@ -62,8 +62,8 @@ export function NotificationBell() {
                 className={`px-3 py-2 border-b border-white/5 ${n.read ? "opacity-50" : ""}`}
               >
                 <div className="text-xs font-semibold text-white/80">{n.title}</div>
-                <div className="text-[11px] text-white/50 mt-0.5">{n.body}</div>
-                <div className="text-[10px] text-white/20 mt-0.5">
+                <div className="text-xs text-white/50 mt-0.5">{n.body}</div>
+                <div className="text-xs text-white/20 mt-0.5">
                   {new Date(n.timestamp).toLocaleString()}
                 </div>
               </div>

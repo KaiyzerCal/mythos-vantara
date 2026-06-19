@@ -95,24 +95,24 @@ export function SessionBlock({
       >
         {/* Chevron */}
         {expanded
-          ? <ChevronDown size={10} className="text-muted-foreground/60 shrink-0" />
-          : <ChevronRight size={10} className="text-muted-foreground/60 shrink-0" />
+          ? <ChevronDown size={10} className="text-muted-foreground shrink-0" />
+          : <ChevronRight size={10} className="text-muted-foreground shrink-0" />
         }
 
         {/* Mode icon + label */}
         <Icon size={11} className={cn(color, "shrink-0")} />
-        <span className={cn("text-[10px] font-mono font-bold tracking-wide", color)}>
+        <span className={cn("text-xs font-mono font-bold tracking-wide", color)}>
           {label}
         </span>
 
         {/* Message count */}
-        <span className="text-[9px] font-mono text-muted-foreground/50 bg-muted/40 rounded px-1.5 py-px">
+        <span className="text-xs font-mono text-muted-foreground bg-muted/40 rounded px-1.5 py-px">
           {msgCount}
         </span>
 
         {/* Timestamp */}
         {timeStr && (
-          <span className="text-[9px] font-mono text-muted-foreground/35">
+          <span className="text-xs font-mono text-muted-foreground">
             {timeStr}
           </span>
         )}
@@ -131,7 +131,7 @@ export function SessionBlock({
             />
           )}
           {isLive && (
-            <span className="text-[8px] font-mono text-neon-green border border-neon-green/25 rounded px-1 py-px">
+            <span className="text-xs font-mono text-neon-green border border-neon-green/25 rounded px-1 py-px">
               LIVE
             </span>
           )}

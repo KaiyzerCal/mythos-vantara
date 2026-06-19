@@ -106,7 +106,7 @@ export default function ActivityLogPage() {
           <button
             key={f}
             onClick={() => setFilter(f)}
-            className={`px-2.5 py-1 text-[10px] font-mono uppercase rounded border transition-all ${
+            className={`px-2.5 py-1 text-xs font-mono uppercase rounded border transition-all ${
               filter === f
                 ? "bg-primary/10 border-primary/30 text-primary"
                 : "border-border text-muted-foreground hover:border-border/80"
@@ -129,7 +129,7 @@ export default function ActivityLogPage() {
             <div key={day}>
               <div className="flex items-center gap-2 mb-2">
                 <div className="w-2 h-2 rounded-full bg-primary" />
-                <span className="text-[10px] font-mono text-muted-foreground uppercase tracking-widest">{day}</span>
+                <span className="text-xs font-mono text-muted-foreground uppercase tracking-widest">{day}</span>
                 <div className="flex-1 h-px bg-border" />
               </div>
 
@@ -152,13 +152,13 @@ export default function ActivityLogPage() {
                       </div>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
-                          <span className={`text-[9px] font-mono uppercase ${cfg.color}`}>{cfg.label}</span>
-                          <span className="text-[9px] font-mono text-muted-foreground">{time}</span>
+                          <span className={`text-xs font-mono uppercase ${cfg.color}`}>{cfg.label}</span>
+                          <span className="text-xs font-mono text-muted-foreground">{time}</span>
                         </div>
-                        <p className="text-xs text-foreground/80 truncate">{entry.description}</p>
+                        <p className="text-xs text-foreground truncate">{entry.description}</p>
                       </div>
                       {entry.xp_amount > 0 && (
-                        <span className="text-[10px] font-mono text-primary whitespace-nowrap">+{entry.xp_amount} XP</span>
+                        <span className="text-xs font-mono text-primary whitespace-nowrap">+{entry.xp_amount} XP</span>
                       )}
                     </motion.div>
                   );

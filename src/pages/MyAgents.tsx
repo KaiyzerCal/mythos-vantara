@@ -42,7 +42,7 @@ export default function MyAgents() {
           <Bot size={18} className="text-cyan-400" />
           <div>
             <h1 className="text-[15px] font-semibold">My Agents</h1>
-            <p className="text-[10px] font-mono text-white/30">Personal AI agents · Operator access only</p>
+            <p className="text-xs font-mono text-white/30">Personal AI agents · Operator access only</p>
           </div>
         </div>
       </div>
@@ -57,7 +57,7 @@ export default function MyAgents() {
               key={a.id}
               onClick={() => setActive(a.id)}
               className={cn(
-                "flex items-center gap-2 px-3 py-1.5 rounded-lg text-[11px] font-mono transition-all",
+                "flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-mono transition-all",
                 isActive
                   ? "text-white/90 bg-white/8"
                   : "text-white/35 hover:text-white/60 hover:bg-white/5"
@@ -69,7 +69,7 @@ export default function MyAgents() {
           );
         })}
 
-        <div className="ml-auto text-[9px] font-mono text-white/20">{agent.desc}</div>
+        <div className="ml-auto text-xs font-mono text-white/20">{agent.desc}</div>
       </div>
 
       {/* Widget */}

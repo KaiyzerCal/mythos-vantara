@@ -192,13 +192,13 @@ export function SchedulerPage() {
 
               {/* Platform selector */}
               <div className="mb-3">
-                <label className="text-[9px] font-mono text-muted-foreground block mb-1.5">Platform</label>
+                <label className="text-xs font-mono text-muted-foreground block mb-1.5">Platform</label>
                 <div className="flex flex-wrap gap-1.5">
                   {PLATFORMS.map((p) => (
                     <button
                       key={p}
                       onClick={() => setCreateForm((f) => ({ ...f, platform: p }))}
-                      className={`px-2.5 py-1 text-[10px] font-mono rounded border capitalize transition-colors ${
+                      className={`px-2.5 py-1 text-xs font-mono rounded border capitalize transition-colors ${
                         createForm.platform === p
                           ? PLATFORM_COLORS[p]
                           : "bg-muted/20 border-border text-muted-foreground hover:border-primary/30"
@@ -213,8 +213,8 @@ export function SchedulerPage() {
               {/* Content */}
               <div className="mb-3">
                 <div className="flex items-center justify-between mb-1">
-                  <label className="text-[9px] font-mono text-muted-foreground">Content *</label>
-                  <span className={`text-[9px] font-mono ${twitterCharWarn ? "text-red-400" : "text-muted-foreground"}`}>
+                  <label className="text-xs font-mono text-muted-foreground">Content *</label>
+                  <span className={`text-xs font-mono ${twitterCharWarn ? "text-red-400" : "text-muted-foreground"}`}>
                     {createForm.content.length}{createForm.platform === "twitter" ? " / 280" : ""}
                   </span>
                 </div>
@@ -228,13 +228,13 @@ export function SchedulerPage() {
                   }`}
                 />
                 {twitterCharWarn && (
-                  <p className="text-[9px] font-mono text-red-400 mt-0.5">Exceeds Twitter's 280 character limit</p>
+                  <p className="text-xs font-mono text-red-400 mt-0.5">Exceeds Twitter's 280 character limit</p>
                 )}
               </div>
 
               {/* Schedule toggle */}
               <div className="mb-3">
-                <label className="text-[9px] font-mono text-muted-foreground block mb-1.5">Schedule (optional)</label>
+                <label className="text-xs font-mono text-muted-foreground block mb-1.5">Schedule (optional)</label>
                 <div className="flex items-center gap-2">
                   <input
                     type="datetime-local"
@@ -243,9 +243,9 @@ export function SchedulerPage() {
                     className="bg-muted/30 border border-border rounded px-2 py-1.5 text-xs font-mono focus:outline-none focus:border-primary/40"
                   />
                   {createForm.scheduled_at ? (
-                    <span className="text-[9px] font-mono text-blue-400">Will be scheduled</span>
+                    <span className="text-xs font-mono text-blue-400">Will be scheduled</span>
                   ) : (
-                    <span className="text-[9px] font-mono text-green-400">Will be queued immediately</span>
+                    <span className="text-xs font-mono text-green-400">Will be queued immediately</span>
                   )}
                 </div>
               </div>
@@ -305,21 +305,21 @@ export function SchedulerPage() {
                 <HudCard>
                   <div className="flex items-start justify-between gap-3 mb-2">
                     <div className="flex items-center gap-2 flex-wrap">
-                      <span className={`text-[9px] font-mono px-1.5 py-0.5 rounded border capitalize ${PLATFORM_COLORS[post.platform] ?? PLATFORM_COLORS.other}`}>
+                      <span className={`text-xs font-mono px-1.5 py-0.5 rounded border capitalize ${PLATFORM_COLORS[post.platform] ?? PLATFORM_COLORS.other}`}>
                         {post.platform}
                       </span>
                       {post.status === "requires_confirmation" && (
-                        <span className="text-[9px] font-mono px-1.5 py-0.5 rounded border bg-amber-900/40 text-amber-300 border-amber-700">
+                        <span className="text-xs font-mono px-1.5 py-0.5 rounded border bg-amber-900/40 text-amber-300 border-amber-700">
                           Needs Approval
                         </span>
                       )}
                       {post.status === "scheduled" && (
-                        <span className="text-[9px] font-mono px-1.5 py-0.5 rounded border bg-blue-900/40 text-blue-300 border-blue-700">
+                        <span className="text-xs font-mono px-1.5 py-0.5 rounded border bg-blue-900/40 text-blue-300 border-blue-700">
                           Scheduled{post.scheduled_at ? ` for ${fmtDateTime(post.scheduled_at)}` : ""}
                         </span>
                       )}
                       {post.status === "queued" && (
-                        <span className="text-[9px] font-mono px-1.5 py-0.5 rounded border bg-green-900/40 text-green-300 border-green-700">
+                        <span className="text-xs font-mono px-1.5 py-0.5 rounded border bg-green-900/40 text-green-300 border-green-700">
                           Queued
                         </span>
                       )}
@@ -336,7 +336,7 @@ export function SchedulerPage() {
                   <p className="text-sm text-foreground/90 line-clamp-2 mb-2">{post.content}</p>
 
                   <div className="flex items-center justify-between">
-                    <span className="text-[9px] font-mono text-muted-foreground">
+                    <span className="text-xs font-mono text-muted-foreground">
                       Created {fmtDate(post.created_at)}
                     </span>
                     <div className="flex items-center gap-2 flex-wrap">
@@ -344,7 +344,7 @@ export function SchedulerPage() {
                         <button
                           onClick={() => handleApprove(post.id)}
                           disabled={actionLoading === post.id}
-                          className="flex items-center gap-1 px-2 py-1 text-[10px] font-mono bg-green-900/30 border border-green-700/50 text-green-300 rounded hover:bg-green-900/50 disabled:opacity-50 transition-colors"
+                          className="flex items-center gap-1 px-2 py-1 text-xs font-mono bg-green-900/30 border border-green-700/50 text-green-300 rounded hover:bg-green-900/50 disabled:opacity-50 transition-colors"
                         >
                           {actionLoading === post.id ? <Loader2 size={9} className="animate-spin" /> : <CheckCircle2 size={9} />}
                           Approve
@@ -356,12 +356,12 @@ export function SchedulerPage() {
                             type="datetime-local"
                             value={scheduleDate}
                             onChange={(e) => setScheduleDate(e.target.value)}
-                            className="bg-muted/30 border border-border rounded px-2 py-0.5 text-[10px] font-mono focus:outline-none focus:border-primary/40"
+                            className="bg-muted/30 border border-border rounded px-2 py-0.5 text-xs font-mono focus:outline-none focus:border-primary/40"
                           />
                           <button
                             onClick={() => handleSchedule(post.id)}
                             disabled={scheduleLoading === post.id}
-                            className="flex items-center gap-1 px-2 py-1 text-[10px] font-mono bg-blue-900/30 border border-blue-700/50 text-blue-300 rounded hover:bg-blue-900/50 disabled:opacity-50 transition-colors"
+                            className="flex items-center gap-1 px-2 py-1 text-xs font-mono bg-blue-900/30 border border-blue-700/50 text-blue-300 rounded hover:bg-blue-900/50 disabled:opacity-50 transition-colors"
                           >
                             {scheduleLoading === post.id ? <Loader2 size={9} className="animate-spin" /> : <Clock size={9} />}
                             Set
@@ -376,7 +376,7 @@ export function SchedulerPage() {
                       ) : (
                         <button
                           onClick={() => setScheduleTarget(post.id)}
-                          className="flex items-center gap-1 px-2 py-1 text-[10px] font-mono bg-muted/30 border border-border text-muted-foreground rounded hover:border-primary/40 hover:text-primary transition-colors"
+                          className="flex items-center gap-1 px-2 py-1 text-xs font-mono bg-muted/30 border border-border text-muted-foreground rounded hover:border-primary/40 hover:text-primary transition-colors"
                         >
                           <Calendar size={9} /> Schedule
                         </button>
@@ -415,7 +415,7 @@ export function SchedulerPage() {
           <div className="space-y-2">
             <div className="grid grid-cols-7 gap-1 text-center mb-1">
               {DAY_LABELS.map((d) => (
-                <p key={d} className="text-[9px] font-mono text-muted-foreground">{d}</p>
+                <p key={d} className="text-xs font-mono text-muted-foreground">{d}</p>
               ))}
             </div>
             <div className="grid grid-cols-7 gap-1">
@@ -428,13 +428,13 @@ export function SchedulerPage() {
                     key={key}
                     className={`min-h-[72px] rounded border p-1.5 ${isToday ? "border-primary/40 bg-primary/5" : "border-border bg-muted/10"}`}
                   >
-                    <p className={`text-[9px] font-mono mb-1 ${isToday ? "text-primary" : "text-muted-foreground"}`}>
+                    <p className={`text-xs font-mono mb-1 ${isToday ? "text-primary" : "text-muted-foreground"}`}>
                       {day.getDate()}
                     </p>
                     {dayPosts.map((p) => (
                       <div
                         key={p.id}
-                        className={`text-[8px] font-mono px-1 py-0.5 rounded mb-0.5 truncate ${PLATFORM_COLORS[p.platform] ?? PLATFORM_COLORS.other}`}
+                        className={`text-xs font-mono px-1 py-0.5 rounded mb-0.5 truncate ${PLATFORM_COLORS[p.platform] ?? PLATFORM_COLORS.other}`}
                         title={p.content}
                       >
                         {p.platform} — {p.content.slice(0, 15)}…
@@ -467,12 +467,12 @@ export function SchedulerPage() {
               >
                 <HudCard>
                   <div className="flex items-start gap-3">
-                    <span className={`text-[9px] font-mono px-1.5 py-0.5 rounded border capitalize shrink-0 ${PLATFORM_COLORS[post.platform] ?? PLATFORM_COLORS.other}`}>
+                    <span className={`text-xs font-mono px-1.5 py-0.5 rounded border capitalize shrink-0 ${PLATFORM_COLORS[post.platform] ?? PLATFORM_COLORS.other}`}>
                       {post.platform}
                     </span>
                     <div className="flex-1 min-w-0">
-                      <p className="text-xs text-foreground/80 line-clamp-2">{post.content}</p>
-                      <p className="text-[9px] font-mono text-muted-foreground mt-1">{fmtDateTime(post.created_at)}</p>
+                      <p className="text-xs text-foreground line-clamp-2">{post.content}</p>
+                      <p className="text-xs font-mono text-muted-foreground mt-1">{fmtDateTime(post.created_at)}</p>
                     </div>
                     <CheckCircle2 size={14} className="text-green-400 shrink-0" />
                   </div>

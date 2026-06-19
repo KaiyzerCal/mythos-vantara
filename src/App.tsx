@@ -8,8 +8,11 @@ import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import { AppDataProvider } from "@/contexts/AppDataContext";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import AppSidebar from "@/components/AppSidebar";
-import { Loader2 } from "lucide-react";
+import { CommandPalette, useCommandPalette } from "@/components/CommandPalette";
+import { Loader2, Menu } from "lucide-react";
 import { useMavisNotifications } from "@/hooks/useMavisNotifications";
+import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
+import { useState } from "react";
 
 
 /** Sync the mobile browser chrome (status bar) color with the active theme.
@@ -123,6 +126,8 @@ const Spinner = (
 function AppContent() {
   const { user, loading } = useAuth();
   const location = useLocation();
+  const { open: cmdOpen, setOpen: setCmdOpen } = useCommandPalette();
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   useMavisNotifications();
 
 
@@ -145,10 +150,37 @@ function AppContent() {
 
   return (
     <AppDataProvider>
+      <CommandPalette open={cmdOpen} onOpenChange={setCmdOpen} />
       <div className="flex min-h-screen bg-background">
-        <AppSidebar />
-        
+        {/* Desktop sidebar */}
+        <div className="hidden md:flex">
+          <AppSidebar />
+        </div>
+
+        {/* Mobile sidebar via Sheet */}
+        <Sheet open={mobileSidebarOpen} onOpenChange={setMobileSidebarOpen}>
+          <SheetContent side="left" className="p-0 w-[224px] border-r border-border bg-sidebar">
+            <AppSidebar />
+          </SheetContent>
+        </Sheet>
+
         <main className={`flex-1 min-w-0 ${["/mavis-ui", "/demo"].includes(location.pathname) ? "overflow-hidden" : "p-5 overflow-y-auto"}`}>
+          {/* Mobile topbar */}
+          <div className="md:hidden flex items-center justify-between mb-4 pb-3 border-b border-border">
+            <button
+              onClick={() => setMobileSidebarOpen(true)}
+              className="p-2 rounded border border-border text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors"
+            >
+              <Menu size={16} />
+            </button>
+            <span className="font-display text-primary text-xs font-bold tracking-widest text-glow-gold">VANTARA.EXE</span>
+            <button
+              onClick={() => setCmdOpen(true)}
+              className="p-2 rounded border border-border text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors text-xs font-mono"
+            >
+              ⌘K
+            </button>
+          </div>
           <Suspense fallback={Spinner}>
             <ErrorBoundary>
             <Routes>

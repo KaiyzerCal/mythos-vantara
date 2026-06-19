@@ -1010,13 +1010,13 @@ export default function MavisChat() {
                 <span className="flex-1 text-amber-300 truncate">Confirm: {label}</span>
                 <button
                   onClick={() => approvePendingAction(i)}
-                  className="px-2 py-0.5 rounded bg-primary/10 border border-primary/30 text-primary hover:bg-primary/20 text-[10px]"
+                  className="px-2 py-0.5 rounded bg-primary/10 border border-primary/30 text-primary hover:bg-primary/20 text-xs"
                 >
                   Approve
                 </button>
                 <button
                   onClick={() => rejectPendingAction(i)}
-                  className="px-2 py-0.5 rounded text-muted-foreground hover:text-destructive text-[10px]"
+                  className="px-2 py-0.5 rounded text-muted-foreground hover:text-destructive text-xs"
                 >
                   Reject
                 </button>
@@ -1033,16 +1033,16 @@ export default function MavisChat() {
             className="border border-primary/30 rounded-lg bg-primary/5 p-3 space-y-2"
           >
             <div className="flex items-center justify-between">
-              <span className="text-[9px] font-mono text-primary uppercase tracking-widest">Standing Orders — Custom Directives</span>
+              <span className="text-xs font-mono text-primary uppercase tracking-widest">Standing Orders — Custom Directives</span>
               <button onClick={() => setShowOrdersPanel(false)} className="text-muted-foreground hover:text-foreground"><X size={12} /></button>
             </div>
             {customOrders.length === 0 ? (
-              <p className="text-[9px] font-mono text-muted-foreground">No custom directives. Core standing orders are always active.</p>
+              <p className="text-xs font-mono text-muted-foreground">No custom directives. Core standing orders are always active.</p>
             ) : (
               <div className="space-y-1">
                 {customOrders.map((o) => (
                   <div key={o} className="flex items-center gap-2">
-                    <span className="text-[9px] font-mono flex-1 text-foreground/80">• {o}</span>
+                    <span className="text-xs font-mono flex-1 text-foreground">• {o}</span>
                     <button onClick={() => setConfirmRemoveOrder(o)} className="text-muted-foreground hover:text-destructive"><X size={10} /></button>
                   </div>
                 ))}
@@ -1050,11 +1050,11 @@ export default function MavisChat() {
             )}
             <div className="flex gap-2">
               <input value={newOrder} onChange={(e) => setNewOrder(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && newOrder.trim()) { addStandingOrder(newOrder.trim()); setCustomOrders(getCustomOrders()); setNewOrder(""); } }}
-                placeholder="Add directive..." className="flex-1 bg-card border border-border rounded px-2 py-1 text-[10px] font-mono focus:outline-none focus:border-primary/50 placeholder:text-muted-foreground" />
+                placeholder="Add directive..." className="flex-1 bg-card border border-border rounded px-2 py-1 text-xs font-mono focus:outline-none focus:border-primary/50 placeholder:text-muted-foreground" />
               <button onClick={() => { if (newOrder.trim()) { addStandingOrder(newOrder.trim()); setCustomOrders(getCustomOrders()); setNewOrder(""); } }}
-                className="px-2 py-1 rounded border border-primary/30 bg-primary/10 text-primary text-[9px] font-mono hover:bg-primary/20">Add</button>
+                className="px-2 py-1 rounded border border-primary/30 bg-primary/10 text-primary text-xs font-mono hover:bg-primary/20">Add</button>
             </div>
-            <p className="text-[8px] font-mono text-muted-foreground">Core directives are always active. These are your custom additions.</p>
+            <p className="text-xs font-mono text-muted-foreground">Core directives are always active. These are your custom additions.</p>
           </motion.div>
         )}
       </AnimatePresence>
@@ -1066,22 +1066,22 @@ export default function MavisChat() {
             className="border border-border rounded-lg bg-card p-3 space-y-2"
           >
             <div className="flex items-center justify-between">
-              <span className="text-[9px] font-mono text-primary uppercase tracking-widest">Inject Persona Context</span>
+              <span className="text-xs font-mono text-primary uppercase tracking-widest">Inject Persona Context</span>
               <button onClick={() => setShowPersonaPicker(false)} className="text-muted-foreground hover:text-foreground"><X size={12} /></button>
             </div>
             {pickerPersonas.length === 0 ? (
-              <p className="text-[9px] font-mono text-muted-foreground">No personas found. Create one on the Personas page.</p>
+              <p className="text-xs font-mono text-muted-foreground">No personas found. Create one on the Personas page.</p>
             ) : (
               <div className="flex flex-wrap gap-1">
                 {pickerPersonas.map((p) => (
                   <button key={p.id}
                     onClick={() => { setSelectedPersonaPrompt(p.system_prompt); setSelectedPersonaName(p.name); setShowPersonaPicker(false); }}
-                    className={`text-[9px] font-mono px-2 py-1 rounded border transition-colors ${selectedPersonaName === p.name ? "bg-primary/20 border-primary/40 text-primary" : "border-border/50 text-muted-foreground hover:text-foreground"}`}
+                    className={`text-xs font-mono px-2 py-1 rounded border transition-colors ${selectedPersonaName === p.name ? "bg-primary/20 border-primary/40 text-primary" : "border-border/50 text-muted-foreground hover:text-foreground"}`}
                   >{p.name}</button>
                 ))}
                 {selectedPersonaName && (
                   <button onClick={() => { setSelectedPersonaPrompt(null); setSelectedPersonaName(null); }}
-                    className="text-[9px] font-mono px-2 py-1 rounded border border-destructive/30 text-destructive hover:bg-destructive/10">Clear</button>
+                    className="text-xs font-mono px-2 py-1 rounded border border-destructive/30 text-destructive hover:bg-destructive/10">Clear</button>
                 )}
               </div>
             )}
@@ -1120,7 +1120,7 @@ export default function MavisChat() {
                   <m.icon size={14} className={m.color} />
                   <div>
                     <p className={`text-xs font-mono font-bold ${m.color}`}>{m.label}</p>
-                    <p className="text-[10px] font-mono text-muted-foreground">{m.desc}</p>
+                    <p className="text-xs font-mono text-muted-foreground">{m.desc}</p>
                   </div>
                   {chatMode === m.id && <span className="ml-auto text-primary text-xs">✓</span>}
                 </button>
@@ -1131,10 +1131,10 @@ export default function MavisChat() {
       </div>
       <div className="flex items-center gap-1 shrink-0">
         {selectedPersonaName && (
-          <span className="text-[9px] font-mono px-2 py-1 rounded bg-primary/10 border border-primary/30 text-primary">{selectedPersonaName}</span>
+          <span className="text-xs font-mono px-2 py-1 rounded bg-primary/10 border border-primary/30 text-primary">{selectedPersonaName}</span>
         )}
         <button onClick={() => setShowPersonaPicker((v) => !v)} title="Inject persona context"
-          className="p-2 rounded border border-border/50 text-muted-foreground hover:text-primary hover:border-primary/30 transition-colors text-[10px] font-mono">
+          className="p-2 rounded border border-border/50 text-muted-foreground hover:text-primary hover:border-primary/30 transition-colors text-xs font-mono">
           <Users size={12} />
         </button>
         <button onClick={() => setShowOrdersPanel((v) => !v)} title="Standing orders"
@@ -1184,7 +1184,7 @@ export default function MavisChat() {
                 <div className="prose prose-sm prose-invert max-w-none text-xs font-body leading-relaxed">
                   <ReactMarkdown>{initMessage.content}</ReactMarkdown>
                 </div>
-                <span className="text-[8px] font-mono text-muted-foreground/50">
+                <span className="text-xs font-mono text-muted-foreground">
                   {initMessage.timestamp.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                 </span>
               </div>
@@ -1231,7 +1231,7 @@ export default function MavisChat() {
                                 <span className="w-1.5 h-1.5 rounded-full bg-primary/70 animate-bounce" style={{ animationDelay: "320ms" }} />
                               </div>
                               {agentThinking && (
-                                <span className="text-[9px] font-mono text-violet-400/80 truncate max-w-[260px]">
+                                <span className="text-xs font-mono text-violet-400/80 truncate max-w-[260px]">
                                   ⚙ {agentThinking}
                                 </span>
                               )}
@@ -1248,7 +1248,7 @@ export default function MavisChat() {
                             return (
                               <button
                                 onClick={() => { setArtifactContent(code.trim()); setArtifactLang(lang || "text"); }}
-                                className="mt-2 flex items-center gap-1.5 text-[9px] font-mono text-cyan-400 border border-cyan-900/40 rounded px-2 py-1 hover:bg-cyan-900/20 transition-colors"
+                                className="mt-2 flex items-center gap-1.5 text-xs font-mono text-cyan-400 border border-cyan-900/40 rounded px-2 py-1 hover:bg-cyan-900/20 transition-colors"
                               >
                                 <FileCode size={10} /> Open Artifact
                               </button>
@@ -1272,7 +1272,7 @@ export default function MavisChat() {
                                   href={s.url}
                                   target="_blank"
                                   rel="noopener noreferrer"
-                                  className="text-[8px] font-mono text-cyan-400/80 hover:text-cyan-300 underline underline-offset-2 truncate block max-w-[280px]"
+                                  className="text-xs font-mono text-cyan-400/80 hover:text-cyan-300 underline underline-offset-2 truncate block max-w-[280px]"
                                 >
                                   [{i + 1}] {s.title}
                                 </a>
@@ -1285,24 +1285,24 @@ export default function MavisChat() {
                       )}
                       <div className="flex items-center justify-between mt-1.5 gap-2 flex-wrap">
                         {(msg as any).searched && (
-                          <span className="text-[8px] font-mono text-cyan-400 border border-cyan-900/40 rounded px-1.5 py-0.5">
+                          <span className="text-xs font-mono text-cyan-400 border border-cyan-900/40 rounded px-1.5 py-0.5">
                             🔍 web search
                           </span>
                         )}
                         {(msg as any).iterations != null && (
-                          <span className="text-[8px] font-mono text-violet-400 border border-violet-900/40 rounded px-1.5 py-0.5">
+                          <span className="text-xs font-mono text-violet-400 border border-violet-900/40 rounded px-1.5 py-0.5">
                             ⚙ {(msg as any).iterations} step{(msg as any).iterations !== 1 ? "s" : ""}
                           </span>
                         )}
                         {(msg as any).actionsExecuted > 0 && (
-                          <span className="text-[8px] font-mono text-primary border border-primary/30 rounded px-1.5 py-0.5">
+                          <span className="text-xs font-mono text-primary border border-primary/30 rounded px-1.5 py-0.5">
                             ⚡ {(msg as any).actionsExecuted} action{(msg as any).actionsExecuted > 1 ? "s" : ""} executed
                           </span>
                         )}
                         {msg.mode && msg.role === "assistant" && !(msg as any).searched && !(msg as any).actionsExecuted && (msg as any).iterations == null && (
-                          <span className="text-[8px] font-mono text-muted-foreground/60">[{msg.mode}]{(msg as any).model ? ` · ${(msg as any).model}` : ""}</span>
+                          <span className="text-xs font-mono text-muted-foreground">[{msg.mode}]{(msg as any).model ? ` · ${(msg as any).model}` : ""}</span>
                         )}
-                        <span className="text-[8px] font-mono text-muted-foreground/50 ml-auto">
+                        <span className="text-xs font-mono text-muted-foreground ml-auto">
                           {msg.timestamp.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                         </span>
                       </div>
@@ -1317,14 +1317,14 @@ export default function MavisChat() {
                           <button
                             onClick={() => sendFeedback(msg, 1)}
                             title="Good response"
-                            className={`p-0.5 rounded transition-colors ${feedbackGiven[msg.id] === 1 ? "text-emerald-400" : "text-muted-foreground/50 hover:text-emerald-400"}`}
+                            className={`p-0.5 rounded transition-colors ${feedbackGiven[msg.id] === 1 ? "text-emerald-400" : "text-muted-foreground hover:text-emerald-400"}`}
                           >
                             <ThumbsUp size={9} />
                           </button>
                           <button
                             onClick={() => sendFeedback(msg, -1)}
                             title="Bad response"
-                            className={`p-0.5 rounded transition-colors ${feedbackGiven[msg.id] === -1 ? "text-red-400" : "text-muted-foreground/50 hover:text-red-400"}`}
+                            className={`p-0.5 rounded transition-colors ${feedbackGiven[msg.id] === -1 ? "text-red-400" : "text-muted-foreground hover:text-red-400"}`}
                           >
                             <ThumbsDown size={9} />
                           </button>
@@ -1363,7 +1363,7 @@ export default function MavisChat() {
           <button
             key={p}
             onClick={() => sendMessage(p)}
-            className="text-[9px] font-mono text-muted-foreground hover:text-primary border border-border/50 hover:border-primary/30 rounded px-2 py-1 transition-all"
+            className="text-xs font-mono text-muted-foreground hover:text-primary border border-border/50 hover:border-primary/30 rounded px-2 py-1 transition-all"
           >
             {p}
           </button>
@@ -1381,7 +1381,7 @@ export default function MavisChat() {
               <Cpu size={11} className="text-violet-400" />
               {(["specialist", "crew"] as const).map((tab) => (
                 <button key={tab} onClick={() => setAgentPanelTab(tab)}
-                  className={`text-[9px] font-mono px-2 py-0.5 rounded border transition-colors ${agentPanelTab === tab ? "bg-violet-500/20 border-violet-500/40 text-violet-300" : "border-border/40 text-muted-foreground hover:text-foreground"}`}
+                  className={`text-xs font-mono px-2 py-0.5 rounded border transition-colors ${agentPanelTab === tab ? "bg-violet-500/20 border-violet-500/40 text-violet-300" : "border-border/40 text-muted-foreground hover:text-foreground"}`}
                 >{tab.toUpperCase()}</button>
               ))}
             </div>
@@ -1391,10 +1391,10 @@ export default function MavisChat() {
                 <div className="flex gap-2 flex-wrap">
                   {(["researcher", "analyst", "executor", "planner", "writer"] as const).map((s) => (
                     <button key={s} onClick={() => {}}
-                      className="text-[9px] font-mono px-2 py-1 rounded border border-border/50 text-muted-foreground hover:text-foreground transition-colors">{s}</button>
+                      className="text-xs font-mono px-2 py-1 rounded border border-border/50 text-muted-foreground hover:text-foreground transition-colors">{s}</button>
                   ))}
                 </div>
-                <p className="text-[9px] font-mono text-muted-foreground">Type your task in the input above and send — AGENT mode routes to the specialist automatically.</p>
+                <p className="text-xs font-mono text-muted-foreground">Type your task in the input above and send — AGENT mode routes to the specialist automatically.</p>
               </>
             ) : (
               <>
@@ -1412,7 +1412,7 @@ export default function MavisChat() {
                       }
                     }}
                     placeholder="Describe a goal for the researcher + analyst + planner crew..."
-                    className="flex-1 bg-card border border-border rounded px-2.5 py-1.5 text-xs font-body focus:outline-none focus:border-violet-500/50 placeholder:text-muted-foreground placeholder:text-[10px]"
+                    className="flex-1 bg-card border border-border rounded px-2.5 py-1.5 text-xs font-body focus:outline-none focus:border-violet-500/50 placeholder:text-muted-foreground placeholder:text-xs"
                   />
                   <button onClick={async () => {
                     if (!crewGoal.trim() || crewRunning) return;
@@ -1424,14 +1424,14 @@ export default function MavisChat() {
                     setChatMessages((prev) => [...prev, { id: `crew-${Date.now()}`, role: "assistant" as const, content: `**[CREW COMPLETE]**\n\n${(res as any).output}`, mode: "AGENT", timestamp: new Date() }]);
                     setCrewRunning(false);
                   }} disabled={crewRunning || !crewGoal.trim()}
-                    className="px-3 py-1.5 rounded border border-violet-500/30 bg-violet-500/10 text-violet-300 text-[10px] font-mono hover:bg-violet-500/20 disabled:opacity-40 transition-colors flex items-center gap-1.5"
+                    className="px-3 py-1.5 rounded border border-violet-500/30 bg-violet-500/10 text-violet-300 text-xs font-mono hover:bg-violet-500/20 disabled:opacity-40 transition-colors flex items-center gap-1.5"
                   >
                     {crewRunning ? <><span className="w-2 h-2 rounded-full border border-violet-400 border-t-transparent animate-spin" /> Running</> : <><Cpu size={10} /> Launch Crew</>}
                   </button>
                 </div>
                 {crewResult && (
                   <div className="border border-border/50 rounded bg-muted/20 p-2 max-h-28 overflow-y-auto">
-                    <pre className="text-[10px] font-mono text-foreground/80 whitespace-pre-wrap leading-relaxed">{crewResult}</pre>
+                    <pre className="text-xs font-mono text-foreground whitespace-pre-wrap leading-relaxed">{crewResult}</pre>
                   </div>
                 )}
               </>
@@ -1557,9 +1557,9 @@ export default function MavisChat() {
           <div className="flex items-center justify-between px-3 py-2 border-b border-border bg-muted/20">
             <div className="flex items-center gap-2">
               <FileCode size={13} className="text-primary" />
-              <span className="text-[10px] font-mono text-primary uppercase tracking-widest">Artifact</span>
+              <span className="text-xs font-mono text-primary uppercase tracking-widest">Artifact</span>
               {artifactLang !== "text" && (
-                <span className="text-[9px] font-mono text-muted-foreground bg-muted/50 px-1.5 rounded">{artifactLang}</span>
+                <span className="text-xs font-mono text-muted-foreground bg-muted/50 px-1.5 rounded">{artifactLang}</span>
               )}
             </div>
             <div className="flex items-center gap-1">
@@ -1594,7 +1594,7 @@ export default function MavisChat() {
           </div>
           {/* Content */}
           <div className="flex-1 overflow-y-auto p-3">
-            <pre className="text-[10px] font-mono text-foreground/90 whitespace-pre-wrap leading-relaxed break-words">
+            <pre className="text-xs font-mono text-foreground/90 whitespace-pre-wrap leading-relaxed break-words">
               {artifactContent}
             </pre>
           </div>

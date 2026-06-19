@@ -219,7 +219,7 @@ export function ImportPage() {
                       <p className="text-sm font-display font-bold text-foreground group-hover:text-primary transition-colors">
                         {m.label}
                       </p>
-                      <p className="text-[10px] font-mono text-muted-foreground mt-0.5">
+                      <p className="text-xs font-mono text-muted-foreground mt-0.5">
                         {m.description}
                       </p>
                     </div>
@@ -244,24 +244,24 @@ export function ImportPage() {
           <div className="flex items-center gap-3">
             <button
               onClick={() => setStep("select")}
-              className="text-[10px] font-mono text-muted-foreground hover:text-foreground transition-colors"
+              className="text-xs font-mono text-muted-foreground hover:text-foreground transition-colors"
             >
               ← Back
             </button>
-            <span className="flex items-center gap-1.5 px-2 py-0.5 rounded border border-primary/30 bg-primary/10 text-primary text-[10px] font-mono uppercase tracking-widest">
+            <span className="flex items-center gap-1.5 px-2 py-0.5 rounded border border-primary/30 bg-primary/10 text-primary text-xs font-mono uppercase tracking-widest">
               {meta.icon} {meta.label}
             </span>
           </div>
 
           <HudCard>
-            <p className="text-[9px] font-mono text-muted-foreground uppercase tracking-widest mb-2">
+            <p className="text-xs font-mono text-muted-foreground uppercase tracking-widest mb-2">
               Instructions
             </p>
-            <p className="text-xs font-mono text-foreground/80 mb-4">
+            <p className="text-xs font-mono text-foreground mb-4">
               {meta.instructions}
             </p>
 
-            <label className="text-[9px] font-mono text-muted-foreground block mb-1">
+            <label className="text-xs font-mono text-muted-foreground block mb-1">
               Paste content here *
             </label>
             <textarea
@@ -272,7 +272,7 @@ export function ImportPage() {
               }}
               placeholder={`Paste your ${meta.label} content here...`}
               rows={12}
-              className="w-full bg-muted/20 border border-border rounded px-3 py-2 text-xs font-mono resize-y focus:outline-none focus:border-primary/40 placeholder:text-muted-foreground/40"
+              className="w-full bg-muted/20 border border-border rounded px-3 py-2 text-xs font-mono resize-y focus:outline-none focus:border-primary/40 placeholder:text-muted-foreground"
             />
 
             <div className="flex items-center gap-2 mt-3">
@@ -309,14 +309,14 @@ export function ImportPage() {
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.2 }}
             >
-              <p className="text-[9px] font-mono text-primary uppercase tracking-widest mb-2">
+              <p className="text-xs font-mono text-primary uppercase tracking-widest mb-2">
                 Preview — {parsed.length} note{parsed.length !== 1 ? "s" : ""} found
               </p>
               <div className="flex flex-wrap gap-2">
                 {previewNotes.map((note, i) => (
                   <div
                     key={i}
-                    className="flex items-center gap-1.5 px-2 py-1 rounded border border-border/60 bg-muted/20 text-[10px] font-mono"
+                    className="flex items-center gap-1.5 px-2 py-1 rounded border border-border/60 bg-muted/20 text-xs font-mono"
                   >
                     <span className="text-foreground truncate max-w-[160px]">
                       {note.title}
@@ -327,7 +327,7 @@ export function ImportPage() {
                   </div>
                 ))}
                 {extraCount > 0 && (
-                  <div className="flex items-center px-2 py-1 rounded border border-border/40 bg-muted/10 text-[10px] font-mono text-muted-foreground">
+                  <div className="flex items-center px-2 py-1 rounded border border-border/40 bg-muted/10 text-xs font-mono text-muted-foreground">
                     +{extraCount} more
                   </div>
                 )}
@@ -354,7 +354,7 @@ export function ImportPage() {
                 <p className="text-2xl font-display font-bold text-green-400">
                   {result.imported}
                 </p>
-                <p className="text-[9px] font-mono text-muted-foreground uppercase tracking-widest">
+                <p className="text-xs font-mono text-muted-foreground uppercase tracking-widest">
                   Imported
                 </p>
               </div>
@@ -363,7 +363,7 @@ export function ImportPage() {
                   <p className="text-2xl font-display font-bold text-amber-400">
                     {result.skipped}
                   </p>
-                  <p className="text-[9px] font-mono text-muted-foreground uppercase tracking-widest">
+                  <p className="text-xs font-mono text-muted-foreground uppercase tracking-widest">
                     Skipped
                   </p>
                 </div>

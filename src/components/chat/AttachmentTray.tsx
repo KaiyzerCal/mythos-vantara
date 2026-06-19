@@ -40,7 +40,7 @@ export function AttachmentTray({
             return (
               <div
                 key={a.id}
-                className={`flex items-center gap-1 px-2 py-0.5 text-[10px] font-mono rounded border bg-muted/20 ${statusColor}`}
+                className={`flex items-center gap-1 px-2 py-0.5 text-xs font-mono rounded border bg-muted/20 ${statusColor}`}
                 title={`${a.file_name} — ${status}${a.extracted_text ? ` — ${a.extracted_text.slice(0, 200)}…` : ""}`}
               >
                 {iconFor(a.mime_type)}
@@ -59,7 +59,7 @@ export function AttachmentTray({
             );
           })}
           {attachments.length > 8 && (
-            <span className="text-[10px] font-mono text-muted-foreground self-center">
+            <span className="text-xs font-mono text-muted-foreground self-center">
               +{attachments.length - 8} more
             </span>
           )}
@@ -83,7 +83,7 @@ export function AttachmentTray({
         <button
           onClick={() => inputRef.current?.click()}
           disabled={isUploading}
-          className="flex items-center gap-1 px-2 py-1 text-[10px] font-mono rounded border border-border text-muted-foreground hover:text-primary hover:border-primary/40 transition-colors disabled:opacity-50"
+          className="flex items-center gap-1 px-2 py-1 text-xs font-mono rounded border border-border text-muted-foreground hover:text-primary hover:border-primary/40 transition-colors disabled:opacity-50"
         >
           {isUploading ? <Loader2 size={11} className="animate-spin" /> : <Paperclip size={11} />}
           {isUploading ? "Uploading..." : "Attach files"}

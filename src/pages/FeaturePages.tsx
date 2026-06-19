@@ -9,6 +9,7 @@ import { useAppData } from "@/contexts/AppDataContext";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { PageHeader, HudCard, ProgressBar, QuestTypeBadge, RarityBadge } from "@/components/SharedUI";
+import { Skeleton } from "@/components/ui/skeleton";
 import { AvatarUploader } from "@/components/AvatarUploader";
 import ReactMarkdown from "react-markdown";
 import { useElevenLabsTts } from "@/hooks/useElevenLabsTts";
@@ -318,7 +319,26 @@ export function QuestsPage() {
     }
   };
 
-  if (questsLoading) return <div className="flex items-center justify-center h-40"><Loader2 className="animate-spin text-primary" size={24} /></div>;
+  if (questsLoading) return (
+    <div className="space-y-5">
+      <div className="flex items-center justify-between border-b border-border pb-4">
+        <Skeleton className="h-5 w-32" />
+        <Skeleton className="h-8 w-24" />
+      </div>
+      <div className="grid grid-cols-3 gap-3">
+        {[...Array(3)].map((_, i) => <Skeleton key={i} className="h-16 rounded-lg" />)}
+      </div>
+      <div className="space-y-3">
+        {[...Array(5)].map((_, i) => (
+          <div key={i} className="hud-border rounded-lg p-4 space-y-2">
+            <Skeleton className="h-4 w-3/4" />
+            <Skeleton className="h-3 w-1/2" />
+            <Skeleton className="h-1.5 w-full rounded-full" />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
 
   return (
     <div className="space-y-5">
@@ -338,16 +358,16 @@ export function QuestsPage() {
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
             <ArrowRight size={12} className="text-purple-400" />
-            <span className="text-[10px] font-mono text-purple-400 uppercase tracking-widest">Quest Chains</span>
+            <span className="text-xs font-mono text-purple-400 uppercase tracking-widest">Quest Chains</span>
             {questChains.length > 0 && (
-              <span className="text-[9px] font-mono text-muted-foreground">({questChains.length})</span>
+              <span className="text-xs font-mono text-muted-foreground">({questChains.length})</span>
             )}
           </div>
           <div className="flex items-center gap-2">
             <button
               onClick={autoLinkQuestChains}
               disabled={chainsLoading}
-              className="flex items-center gap-1 px-2 py-1 text-[9px] font-mono text-purple-400 border border-purple-500/30 rounded hover:bg-purple-500/10 transition-all disabled:opacity-50"
+              className="flex items-center gap-1 px-2 py-1 text-xs font-mono text-purple-400 border border-purple-500/30 rounded hover:bg-purple-500/10 transition-all disabled:opacity-50"
             >
               {chainsLoading ? <Loader2 size={9} className="animate-spin" /> : <Wand2 size={9} />}
               {chainsLoading ? "Linking..." : "AI Generate"}
@@ -359,7 +379,7 @@ export function QuestsPage() {
         </div>
         {chainsPanelOpen && (
           questChains.length === 0 ? (
-            <p className="text-[10px] font-mono text-muted-foreground/60 text-center py-2">
+            <p className="text-xs font-mono text-muted-foreground text-center py-2">
               No chains yet — click "AI Generate" to let MAVIS detect quest progressions
             </p>
           ) : (
@@ -367,16 +387,16 @@ export function QuestsPage() {
               {questChains.map((chain: any) => (
                 <div key={chain.id} className="space-y-1.5">
                   <div className="flex items-center gap-2">
-                    <span className="text-[10px] font-display font-bold text-foreground">{chain.title}</span>
+                    <span className="text-xs font-display font-bold text-foreground">{chain.title}</span>
                     {chain.category && (
-                      <span className="text-[8px] font-mono text-purple-400/70 border border-purple-500/20 rounded px-1.5 py-0.5">{chain.category}</span>
+                      <span className="text-xs font-mono text-purple-400/70 border border-purple-500/20 rounded px-1.5 py-0.5">{chain.category}</span>
                     )}
                     {chain.status === "completed" && (
-                      <span className="text-[8px] font-mono text-green-400 border border-green-500/20 rounded px-1 py-0.5">COMPLETE</span>
+                      <span className="text-xs font-mono text-green-400 border border-green-500/20 rounded px-1 py-0.5">COMPLETE</span>
                     )}
                   </div>
                   {chain.description && (
-                    <p className="text-[9px] font-body text-muted-foreground/70 leading-relaxed">{chain.description}</p>
+                    <p className="text-xs font-body text-muted-foreground leading-relaxed">{chain.description}</p>
                   )}
                   <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
                     {(chain.items ?? []).map((item: any, idx: number) => {
@@ -387,13 +407,13 @@ export function QuestsPage() {
                       return (
                         <div key={item.quest_id} className="flex items-center gap-1.5 shrink-0">
                           {idx > 0 && <ChevronRight size={10} className="text-purple-500/40 shrink-0" />}
-                          <div className={`rounded px-2 py-1.5 border text-[9px] font-mono shrink-0 min-w-[80px] max-w-[130px] ${
+                          <div className={`rounded px-2 py-1.5 border text-xs font-mono shrink-0 min-w-[80px] max-w-[130px] ${
                             isCompleted ? "bg-green-500/10 border-green-500/30 text-green-400" :
                             isActive ? "bg-primary/10 border-primary/30 text-primary" :
-                            "bg-muted/10 border-border/30 text-muted-foreground/60"
+                            "bg-muted/10 border-border/30 text-muted-foreground"
                           }`}>
                             <div className="truncate font-bold">{q.title}</div>
-                            <div className="text-[8px] opacity-70 mt-0.5">
+                            <div className="text-xs opacity-70 mt-0.5">
                               {isCompleted ? "✓ Done" : isActive ? "● Active" : "○ Next"} · +{q.xp_reward}XP
                             </div>
                           </div>
@@ -426,7 +446,7 @@ export function QuestsPage() {
               </div>
               {/* Linking: Skills */}
               <div>
-                <p className="text-[9px] font-mono text-muted-foreground uppercase mb-1">Link Skills (proficiency +5 on completion)</p>
+                <p className="text-xs font-mono text-muted-foreground uppercase mb-1">Link Skills (proficiency +5 on completion)</p>
                 <div className="flex gap-1.5 flex-wrap">
                   {skills.map((s) => (
                     <button
@@ -438,7 +458,7 @@ export function QuestsPage() {
                           ? f.linked_skill_ids.filter((id) => id !== s.id)
                           : [...f.linked_skill_ids, s.id],
                       }))}
-                      className={`px-2 py-0.5 text-[10px] font-mono rounded border transition-all ${
+                      className={`px-2 py-0.5 text-xs font-mono rounded border transition-all ${
                         form.linked_skill_ids.includes(s.id)
                           ? "bg-primary/10 border-primary/30 text-primary"
                           : "border-border/50 text-muted-foreground hover:border-border"
@@ -447,20 +467,20 @@ export function QuestsPage() {
                       {s.name}
                     </button>
                   ))}
-                  {skills.length === 0 && <span className="text-[10px] font-mono text-muted-foreground">No skills — create skills first</span>}
+                  {skills.length === 0 && <span className="text-xs font-mono text-muted-foreground">No skills — create skills first</span>}
                 </div>
               </div>
               {/* Linking: Stat */}
               <div className="grid grid-cols-2 gap-2">
                 <div>
-                  <p className="text-[9px] font-mono text-muted-foreground uppercase mb-1">Link Stat (+1 on completion)</p>
+                  <p className="text-xs font-mono text-muted-foreground uppercase mb-1">Link Stat (+1 on completion)</p>
                   <select value={form.linked_stat} onChange={(e) => setForm((f) => ({ ...f, linked_stat: e.target.value, linked_energy_id: "" }))} className="w-full bg-muted/30 border border-border rounded px-2 py-1.5 text-xs font-mono focus:outline-none">
                     <option value="">None</option>
                     {["STR", "AGI", "VIT", "INT", "WIS", "CHA", "LCK"].map((s) => <option key={s} value={s}>{s}</option>)}
                   </select>
                 </div>
                 <div>
-                  <p className="text-[9px] font-mono text-muted-foreground uppercase mb-1">Link Energy (+5 on completion)</p>
+                  <p className="text-xs font-mono text-muted-foreground uppercase mb-1">Link Energy (+5 on completion)</p>
                   <select value={form.linked_energy_id} onChange={(e) => setForm((f) => ({ ...f, linked_energy_id: e.target.value, linked_stat: "" }))} className="w-full bg-muted/30 border border-border rounded px-2 py-1.5 text-xs font-mono focus:outline-none">
                     <option value="">None</option>
                     {energySystems.map((e) => <option key={e.id} value={e.id}>{e.type}</option>)}
@@ -471,68 +491,68 @@ export function QuestsPage() {
               
               {/* Codex Points */}
               <div>
-                <p className="text-[9px] font-mono text-muted-foreground uppercase mb-1">Codex Points Reward</p>
+                <p className="text-xs font-mono text-muted-foreground uppercase mb-1">Codex Points Reward</p>
                 <input type="number" value={form.codex_points_reward} onChange={(e) => setForm((f) => ({ ...f, codex_points_reward: Number(e.target.value) }))} placeholder="0" className="w-full bg-muted/30 border border-border rounded px-3 py-1.5 text-xs font-mono focus:outline-none" min={0} />
               </div>
 
               {/* Buff Effects */}
               <div>
-                <p className="text-[9px] font-mono text-green-400 uppercase mb-1">Buff Effects (status boosts on completion)</p>
+                <p className="text-xs font-mono text-green-400 uppercase mb-1">Buff Effects (status boosts on completion)</p>
                 <div className="flex gap-1 flex-wrap mb-1">
                   {form.buff_effects.map((b, i) => (
-                    <span key={i} className="text-[9px] font-mono text-green-400 border border-green-700/30 rounded px-1.5 py-0.5 flex items-center gap-1">
+                    <span key={i} className="text-xs font-mono text-green-400 border border-green-700/30 rounded px-1.5 py-0.5 flex items-center gap-1">
                       ▲ {b.label} +{b.value}{b.unit} {b.duration && `(${b.duration})`}
                       <button onClick={() => setForm((f) => ({ ...f, buff_effects: f.buff_effects.filter((_, j) => j !== i) }))} className="text-destructive hover:text-destructive/80">×</button>
                     </span>
                   ))}
                 </div>
                 <div className="flex gap-1">
-                  <input value={newBuff.label} onChange={(e) => setNewBuff((b) => ({ ...b, label: e.target.value }))} placeholder="Buff name" className="flex-1 bg-muted/30 border border-border rounded px-2 py-1 text-[10px] font-mono focus:outline-none" />
-                  <input type="number" value={newBuff.value} onChange={(e) => setNewBuff((b) => ({ ...b, value: Number(e.target.value) }))} className="w-14 bg-muted/30 border border-border rounded px-2 py-1 text-[10px] font-mono focus:outline-none" />
-                  <input value={newBuff.unit} onChange={(e) => setNewBuff((b) => ({ ...b, unit: e.target.value }))} className="w-10 bg-muted/30 border border-border rounded px-2 py-1 text-[10px] font-mono focus:outline-none" />
-                  <input value={newBuff.duration} onChange={(e) => setNewBuff((b) => ({ ...b, duration: e.target.value }))} placeholder="Duration" className="w-16 bg-muted/30 border border-border rounded px-2 py-1 text-[10px] font-mono focus:outline-none" />
-                  <button onClick={() => { if (newBuff.label) { setForm((f) => ({ ...f, buff_effects: [...f.buff_effects, { ...newBuff, duration: newBuff.duration || undefined }] })); setNewBuff({ label: "", value: 0, unit: "%", duration: "" }); } }} className="px-2 py-1 text-[10px] font-mono text-green-400 border border-green-700/30 rounded hover:bg-green-400/10">+</button>
+                  <input value={newBuff.label} onChange={(e) => setNewBuff((b) => ({ ...b, label: e.target.value }))} placeholder="Buff name" className="flex-1 bg-muted/30 border border-border rounded px-2 py-1 text-xs font-mono focus:outline-none" />
+                  <input type="number" value={newBuff.value} onChange={(e) => setNewBuff((b) => ({ ...b, value: Number(e.target.value) }))} className="w-14 bg-muted/30 border border-border rounded px-2 py-1 text-xs font-mono focus:outline-none" />
+                  <input value={newBuff.unit} onChange={(e) => setNewBuff((b) => ({ ...b, unit: e.target.value }))} className="w-10 bg-muted/30 border border-border rounded px-2 py-1 text-xs font-mono focus:outline-none" />
+                  <input value={newBuff.duration} onChange={(e) => setNewBuff((b) => ({ ...b, duration: e.target.value }))} placeholder="Duration" className="w-16 bg-muted/30 border border-border rounded px-2 py-1 text-xs font-mono focus:outline-none" />
+                  <button onClick={() => { if (newBuff.label) { setForm((f) => ({ ...f, buff_effects: [...f.buff_effects, { ...newBuff, duration: newBuff.duration || undefined }] })); setNewBuff({ label: "", value: 0, unit: "%", duration: "" }); } }} className="px-2 py-1 text-xs font-mono text-green-400 border border-green-700/30 rounded hover:bg-green-400/10">+</button>
                 </div>
               </div>
 
               {/* Debuff Effects */}
               <div>
-                <p className="text-[9px] font-mono text-red-400 uppercase mb-1">Debuff Effects (penalties/risks)</p>
+                <p className="text-xs font-mono text-red-400 uppercase mb-1">Debuff Effects (penalties/risks)</p>
                 <div className="flex gap-1 flex-wrap mb-1">
                   {form.debuff_effects.map((d, i) => (
-                    <span key={i} className="text-[9px] font-mono text-red-400 border border-red-700/30 rounded px-1.5 py-0.5 flex items-center gap-1">
+                    <span key={i} className="text-xs font-mono text-red-400 border border-red-700/30 rounded px-1.5 py-0.5 flex items-center gap-1">
                       ▼ {d.label} -{d.value}{d.unit} {d.duration && `(${d.duration})`}
                       <button onClick={() => setForm((f) => ({ ...f, debuff_effects: f.debuff_effects.filter((_, j) => j !== i) }))} className="text-destructive hover:text-destructive/80">×</button>
                     </span>
                   ))}
                 </div>
                 <div className="flex gap-1">
-                  <input value={newDebuff.label} onChange={(e) => setNewDebuff((d) => ({ ...d, label: e.target.value }))} placeholder="Debuff name" className="flex-1 bg-muted/30 border border-border rounded px-2 py-1 text-[10px] font-mono focus:outline-none" />
-                  <input type="number" value={newDebuff.value} onChange={(e) => setNewDebuff((d) => ({ ...d, value: Number(e.target.value) }))} className="w-14 bg-muted/30 border border-border rounded px-2 py-1 text-[10px] font-mono focus:outline-none" />
-                  <input value={newDebuff.unit} onChange={(e) => setNewDebuff((d) => ({ ...d, unit: e.target.value }))} className="w-10 bg-muted/30 border border-border rounded px-2 py-1 text-[10px] font-mono focus:outline-none" />
-                  <input value={newDebuff.duration} onChange={(e) => setNewDebuff((d) => ({ ...d, duration: e.target.value }))} placeholder="Duration" className="w-16 bg-muted/30 border border-border rounded px-2 py-1 text-[10px] font-mono focus:outline-none" />
-                  <button onClick={() => { if (newDebuff.label) { setForm((f) => ({ ...f, debuff_effects: [...f.debuff_effects, { ...newDebuff, duration: newDebuff.duration || undefined }] })); setNewDebuff({ label: "", value: 0, unit: "%", duration: "" }); } }} className="px-2 py-1 text-[10px] font-mono text-red-400 border border-red-700/30 rounded hover:bg-red-400/10">+</button>
+                  <input value={newDebuff.label} onChange={(e) => setNewDebuff((d) => ({ ...d, label: e.target.value }))} placeholder="Debuff name" className="flex-1 bg-muted/30 border border-border rounded px-2 py-1 text-xs font-mono focus:outline-none" />
+                  <input type="number" value={newDebuff.value} onChange={(e) => setNewDebuff((d) => ({ ...d, value: Number(e.target.value) }))} className="w-14 bg-muted/30 border border-border rounded px-2 py-1 text-xs font-mono focus:outline-none" />
+                  <input value={newDebuff.unit} onChange={(e) => setNewDebuff((d) => ({ ...d, unit: e.target.value }))} className="w-10 bg-muted/30 border border-border rounded px-2 py-1 text-xs font-mono focus:outline-none" />
+                  <input value={newDebuff.duration} onChange={(e) => setNewDebuff((d) => ({ ...d, duration: e.target.value }))} placeholder="Duration" className="w-16 bg-muted/30 border border-border rounded px-2 py-1 text-xs font-mono focus:outline-none" />
+                  <button onClick={() => { if (newDebuff.label) { setForm((f) => ({ ...f, debuff_effects: [...f.debuff_effects, { ...newDebuff, duration: newDebuff.duration || undefined }] })); setNewDebuff({ label: "", value: 0, unit: "%", duration: "" }); } }} className="px-2 py-1 text-xs font-mono text-red-400 border border-red-700/30 rounded hover:bg-red-400/10">+</button>
                 </div>
               </div>
 
               {/* Loot Rewards */}
               <div>
-                <p className="text-[9px] font-mono text-amber-400 uppercase mb-1">Loot Drops (items rewarded on completion)</p>
+                <p className="text-xs font-mono text-amber-400 uppercase mb-1">Loot Drops (items rewarded on completion)</p>
                 <div className="flex gap-1 flex-wrap mb-1">
                   {form.loot_rewards.map((l, i) => (
-                    <span key={i} className="text-[9px] font-mono text-amber-400 border border-amber-700/30 rounded px-1.5 py-0.5 flex items-center gap-1">
+                    <span key={i} className="text-xs font-mono text-amber-400 border border-amber-700/30 rounded px-1.5 py-0.5 flex items-center gap-1">
                       🎁 {l.itemName} ×{l.quantity} {l.rarity && `(${l.rarity})`}
                       <button onClick={() => setForm((f) => ({ ...f, loot_rewards: f.loot_rewards.filter((_, j) => j !== i) }))} className="text-destructive hover:text-destructive/80">×</button>
                     </span>
                   ))}
                 </div>
                 <div className="flex gap-1">
-                  <input value={newLoot.itemName} onChange={(e) => setNewLoot((l) => ({ ...l, itemName: e.target.value }))} placeholder="Item name" className="flex-1 bg-muted/30 border border-border rounded px-2 py-1 text-[10px] font-mono focus:outline-none" />
-                  <input type="number" value={newLoot.quantity} onChange={(e) => setNewLoot((l) => ({ ...l, quantity: Number(e.target.value) }))} min={1} className="w-12 bg-muted/30 border border-border rounded px-2 py-1 text-[10px] font-mono focus:outline-none" />
-                  <select value={newLoot.rarity} onChange={(e) => setNewLoot((l) => ({ ...l, rarity: e.target.value }))} className="bg-muted/30 border border-border rounded px-1 py-1 text-[10px] font-mono focus:outline-none">
+                  <input value={newLoot.itemName} onChange={(e) => setNewLoot((l) => ({ ...l, itemName: e.target.value }))} placeholder="Item name" className="flex-1 bg-muted/30 border border-border rounded px-2 py-1 text-xs font-mono focus:outline-none" />
+                  <input type="number" value={newLoot.quantity} onChange={(e) => setNewLoot((l) => ({ ...l, quantity: Number(e.target.value) }))} min={1} className="w-12 bg-muted/30 border border-border rounded px-2 py-1 text-xs font-mono focus:outline-none" />
+                  <select value={newLoot.rarity} onChange={(e) => setNewLoot((l) => ({ ...l, rarity: e.target.value }))} className="bg-muted/30 border border-border rounded px-1 py-1 text-xs font-mono focus:outline-none">
                     {["common", "rare", "epic", "legendary", "mythic"].map((r) => <option key={r}>{r}</option>)}
                   </select>
-                  <button onClick={() => { if (newLoot.itemName) { setForm((f) => ({ ...f, loot_rewards: [...f.loot_rewards, { ...newLoot }] })); setNewLoot({ itemName: "", quantity: 1, rarity: "common" }); } }} className="px-2 py-1 text-[10px] font-mono text-amber-400 border border-amber-700/30 rounded hover:bg-amber-400/10">+</button>
+                  <button onClick={() => { if (newLoot.itemName) { setForm((f) => ({ ...f, loot_rewards: [...f.loot_rewards, { ...newLoot }] })); setNewLoot({ itemName: "", quantity: 1, rarity: "common" }); } }} className="px-2 py-1 text-xs font-mono text-amber-400 border border-amber-700/30 rounded hover:bg-amber-400/10">+</button>
                 </div>
               </div>
 
@@ -549,11 +569,11 @@ export function QuestsPage() {
       <div className="flex gap-2 flex-wrap">
         <Filter size={12} className="text-muted-foreground self-center" />
         {QUEST_TYPES.map((t) => (
-          <button key={t} onClick={() => setTypeFilter(t)} className={`px-2 py-1 text-[10px] font-mono uppercase rounded border transition-all ${typeFilter === t ? "bg-primary/10 border-primary/30 text-primary" : "border-border/50 text-muted-foreground hover:border-border"}`}>{t}</button>
+          <button key={t} onClick={() => setTypeFilter(t)} className={`px-2 py-1 text-xs font-mono uppercase rounded border transition-all ${typeFilter === t ? "bg-primary/10 border-primary/30 text-primary" : "border-border/50 text-muted-foreground hover:border-border"}`}>{t}</button>
         ))}
         <div className="w-px bg-border mx-1" />
         {QUEST_STATUSES.map((s) => (
-          <button key={s} onClick={() => setStatusFilter(s)} className={`px-2 py-1 text-[10px] font-mono uppercase rounded border transition-all ${statusFilter === s ? "bg-primary/10 border-primary/30 text-primary" : "border-border/50 text-muted-foreground hover:border-border"}`}>{s}</button>
+          <button key={s} onClick={() => setStatusFilter(s)} className={`px-2 py-1 text-xs font-mono uppercase rounded border transition-all ${statusFilter === s ? "bg-primary/10 border-primary/30 text-primary" : "border-border/50 text-muted-foreground hover:border-border"}`}>{s}</button>
         ))}
       </div>
 
@@ -573,20 +593,20 @@ export function QuestsPage() {
                     <div className="flex items-center gap-2 flex-wrap">
                       <h3 className={`text-sm font-display font-bold ${q.status === "completed" ? "line-through text-muted-foreground" : ""}`}>{q.title}</h3>
                       {q.difficulty !== "Normal" && (
-                        <span className={`text-[9px] font-mono uppercase border rounded px-1.5 py-0.5 ${
+                        <span className={`text-xs font-mono uppercase border rounded px-1.5 py-0.5 ${
                           q.difficulty === "Impossible" ? "text-red-400 border-red-700" :
                           q.difficulty === "Extreme" ? "text-orange-400 border-orange-700" :
                           q.difficulty === "Hard" ? "text-amber-400 border-amber-700" : "border-border text-muted-foreground"
                         }`}>{q.difficulty}</span>
                       )}
-                      <span className={`text-[9px] font-mono uppercase ${q.status === "completed" ? "text-green-400" : q.status === "failed" ? "text-red-400" : "text-muted-foreground"}`}>{q.status}</span>
+                      <span className={`text-xs font-mono uppercase ${q.status === "completed" ? "text-green-400" : q.status === "failed" ? "text-red-400" : "text-muted-foreground"}`}>{q.status}</span>
                     </div>
                     {q.description && <p className={`text-xs font-body text-muted-foreground mt-0.5 ${isExpanded ? "" : "line-clamp-2"}`}>{q.description}</p>}
                     
                     {/* Expanded details */}
                     {isExpanded && (
                       <div className="mt-3 space-y-2 border-t border-border/30 pt-2">
-                        <div className="grid grid-cols-2 gap-2 text-[10px] font-mono">
+                        <div className="grid grid-cols-2 gap-2 text-xs font-mono">
                           <div><span className="text-muted-foreground">Type:</span> <span className="text-foreground">{q.type}</span></div>
                           <div><span className="text-muted-foreground">Difficulty:</span> <span className="text-foreground">{q.difficulty}</span></div>
                           <div><span className="text-muted-foreground">XP Reward:</span> <span className="text-primary">+{q.xp_reward}</span></div>
@@ -596,7 +616,7 @@ export function QuestsPage() {
                           {q.deadline && <div><span className="text-muted-foreground">Deadline:</span> <span className="text-foreground">{new Date(q.deadline).toLocaleDateString()}</span></div>}
                           {q.real_world_mapping && <div className="col-span-2"><span className="text-muted-foreground">Mapping:</span> <span className="text-foreground">{q.real_world_mapping}</span></div>}
                         </div>
-                        <div className="text-[9px] font-mono text-muted-foreground">Created: {new Date(q.created_at).toLocaleString()}</div>
+                        <div className="text-xs font-mono text-muted-foreground">Created: {new Date(q.created_at).toLocaleString()}</div>
                       </div>
                     )}
 
@@ -604,29 +624,29 @@ export function QuestsPage() {
                     <div className="flex items-center gap-1.5 mt-1 flex-wrap">
                       {q.linked_skill_ids?.length > 0 && q.linked_skill_ids.map((sid: string) => {
                         const sk = skills.find((s) => s.id === sid);
-                        return sk ? <span key={sid} className="text-[8px] font-mono text-primary/60 border border-primary/20 rounded px-1.5 py-0.5">⚡ {sk.name}</span> : null;
+                        return sk ? <span key={sid} className="text-xs font-mono text-primary/60 border border-primary/20 rounded px-1.5 py-0.5">⚡ {sk.name}</span> : null;
                       })}
                       {q.real_world_mapping?.startsWith("stat:") && (
-                        <span className="text-[8px] font-mono text-amber-400/80 border border-amber-700/30 rounded px-1.5 py-0.5">📊 {q.real_world_mapping.replace("stat:", "")} +1</span>
+                        <span className="text-xs font-mono text-amber-400/80 border border-amber-700/30 rounded px-1.5 py-0.5">📊 {q.real_world_mapping.replace("stat:", "")} +1</span>
                       )}
                       {q.real_world_mapping?.startsWith("energy:") && (() => {
                         const en = energySystems.find((e) => e.id === q.real_world_mapping?.replace("energy:", ""));
-                        return en ? <span className="text-[8px] font-mono border rounded px-1.5 py-0.5" style={{ color: en.color, borderColor: en.color + "44" }}>⚡ {en.type} +5</span> : null;
+                        return en ? <span className="text-xs font-mono border rounded px-1.5 py-0.5" style={{ color: en.color, borderColor: en.color + "44" }}>⚡ {en.type} +5</span> : null;
                       })()}
                       {q.real_world_mapping && !q.real_world_mapping.startsWith("stat:") && !q.real_world_mapping.startsWith("energy:") && (
-                        <span className="text-[10px] font-mono text-primary/60">↗ {q.real_world_mapping}</span>
+                        <span className="text-xs font-mono text-primary/60">↗ {q.real_world_mapping}</span>
                       )}
                       {q.codex_points_reward > 0 && (
-                        <span className="text-[8px] font-mono text-purple-400 border border-purple-700/30 rounded px-1.5 py-0.5">📜 +{q.codex_points_reward} CP</span>
+                        <span className="text-xs font-mono text-purple-400 border border-purple-700/30 rounded px-1.5 py-0.5">📜 +{q.codex_points_reward} CP</span>
                       )}
                       {(q.buff_effects as any[])?.length > 0 && (q.buff_effects as any[]).map((b: any, bi: number) => (
-                        <span key={`b${bi}`} className="text-[8px] font-mono text-green-400 border border-green-700/30 rounded px-1.5 py-0.5">▲ {b.label} +{b.value}{b.unit}</span>
+                        <span key={`b${bi}`} className="text-xs font-mono text-green-400 border border-green-700/30 rounded px-1.5 py-0.5">▲ {b.label} +{b.value}{b.unit}</span>
                       ))}
                       {(q.debuff_effects as any[])?.length > 0 && (q.debuff_effects as any[]).map((d: any, di: number) => (
-                        <span key={`d${di}`} className="text-[8px] font-mono text-red-400 border border-red-700/30 rounded px-1.5 py-0.5">▼ {d.label} -{d.value}{d.unit}</span>
+                        <span key={`d${di}`} className="text-xs font-mono text-red-400 border border-red-700/30 rounded px-1.5 py-0.5">▼ {d.label} -{d.value}{d.unit}</span>
                       ))}
                       {(q.loot_rewards as any[])?.length > 0 && (q.loot_rewards as any[]).map((l: any, li: number) => (
-                        <span key={`l${li}`} className="text-[8px] font-mono text-amber-400 border border-amber-700/30 rounded px-1.5 py-0.5">🎁 {l.itemName} ×{l.quantity}</span>
+                        <span key={`l${li}`} className="text-xs font-mono text-amber-400 border border-amber-700/30 rounded px-1.5 py-0.5">🎁 {l.itemName} ×{l.quantity}</span>
                       ))}
                     </div>
                     {q.progress_target > 1 && (
@@ -1166,7 +1186,7 @@ function CouncilChat({ member, profile, onClose }: { member: any; profile: any; 
           </div>
           <div className="flex-1 min-w-0">
             <p className="text-sm font-display font-bold truncate">{member.name}</p>
-            <p className="text-[10px] font-mono text-muted-foreground">{member.role} · {member.class}</p>
+            <p className="text-xs font-mono text-muted-foreground">{member.role} · {member.class}</p>
           </div>
           <VoicePicker
             enabled={ttsEnabled}
@@ -1180,13 +1200,13 @@ function CouncilChat({ member, profile, onClose }: { member: any; profile: any; 
           <button
             onClick={handleOmniSync}
             disabled={isSyncing}
-            className="flex items-center gap-1 text-[10px] font-mono text-cyan-400 hover:text-cyan-300 border border-cyan-900/40 hover:border-cyan-400/40 rounded px-1.5 py-0.5 transition-all disabled:opacity-40 mr-1"
+            className="flex items-center gap-1 text-xs font-mono text-cyan-400 hover:text-cyan-300 border border-cyan-900/40 hover:border-cyan-400/40 rounded px-1.5 py-0.5 transition-all disabled:opacity-40 mr-1"
             title="OmniSync — snapshot thread to memory"
           >
             {isSyncing ? <Loader2 size={9} className="animate-spin" /> : <Database size={9} />}
             SYNC
           </button>
-          <button onClick={clearCouncilChat} className="text-[10px] font-mono text-muted-foreground hover:text-destructive transition-colors mr-1">
+          <button onClick={clearCouncilChat} className="text-xs font-mono text-muted-foreground hover:text-destructive transition-colors mr-1">
             Clear
           </button>
           <button onClick={onClose} className="p-1.5 text-muted-foreground hover:text-foreground transition-colors">
@@ -1199,7 +1219,7 @@ function CouncilChat({ member, profile, onClose }: { member: any; profile: any; 
           {messages.map((msg) => (
             <div key={msg.id} className={`flex gap-2.5 ${msg.role === "user" ? "flex-row-reverse" : ""}`}>
               {msg.role === "assistant" && (
-                <div className={`w-6 h-6 rounded border flex items-center justify-center text-[10px] font-display font-bold shrink-0 mt-0.5 ${classColors[member.class] ?? "text-primary border-primary/40"}`}>
+                <div className={`w-6 h-6 rounded border flex items-center justify-center text-xs font-display font-bold shrink-0 mt-0.5 ${classColors[member.class] ?? "text-primary border-primary/40"}`}>
                   {member.name[0]}
                 </div>
               )}
@@ -1217,7 +1237,7 @@ function CouncilChat({ member, profile, onClose }: { member: any; profile: any; 
           ))}
           {isLoading && (
             <div className="flex gap-2.5">
-              <div className={`w-6 h-6 rounded border flex items-center justify-center text-[10px] font-display font-bold shrink-0 ${classColors[member.class]}`}>{member.name[0]}</div>
+              <div className={`w-6 h-6 rounded border flex items-center justify-center text-xs font-display font-bold shrink-0 ${classColors[member.class]}`}>{member.name[0]}</div>
               <div className="bg-muted/30 border border-border rounded-lg px-3 py-2.5">
                 <div className="flex gap-1">
                   {[0,1,2].map((i) => <span key={i} className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse" style={{ animationDelay: `${i * 0.2}s` }} />)}
@@ -1355,7 +1375,27 @@ export function CouncilsPage() {
     shadows: "border-red-900/40 hover:border-red-400/50",
   };
 
-  if (councilsLoading) return <div className="flex items-center justify-center h-40"><Loader2 className="animate-spin text-primary" size={24} /></div>;
+  if (councilsLoading) return (
+    <div className="space-y-5">
+      <div className="flex items-center justify-between border-b border-border pb-4">
+        <Skeleton className="h-5 w-32" />
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        {[...Array(6)].map((_, i) => (
+          <div key={i} className="hud-border rounded-lg p-4 space-y-3">
+            <div className="flex items-center gap-3">
+              <Skeleton className="h-10 w-10 rounded-full shrink-0" />
+              <div className="space-y-1.5 flex-1">
+                <Skeleton className="h-4 w-2/3" />
+                <Skeleton className="h-3 w-1/2" />
+              </div>
+            </div>
+            <Skeleton className="h-8 w-full rounded" />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
 
   return (
     <div className="space-y-5">
@@ -1373,7 +1413,7 @@ export function CouncilsPage() {
       {showCreate && (
         <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }}>
           <HudCard className="border-primary/20">
-            <p className="text-[9px] font-mono text-primary uppercase tracking-widest mb-3">{editingId ? "Edit Council Member" : "New Council Member"}</p>
+            <p className="text-xs font-mono text-primary uppercase tracking-widest mb-3">{editingId ? "Edit Council Member" : "New Council Member"}</p>
             <div className="space-y-2">
               <div className="grid grid-cols-2 gap-2">
                 <input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} placeholder="Name / Character" className="bg-muted/30 border border-border rounded px-3 py-1.5 text-sm focus:outline-none focus:border-primary/40" />
@@ -1425,9 +1465,9 @@ export function CouncilsPage() {
                     </div>
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-display font-bold">{m.name}</p>
-                      <p className="text-[10px] font-mono text-muted-foreground">{m.role}</p>
-                      {m.specialty && <p className="text-[10px] font-mono text-primary/50 truncate">⟡ {m.specialty}</p>}
-                      {m.notes && <p className="text-[10px] font-body text-muted-foreground mt-1 line-clamp-1">{m.notes}</p>}
+                      <p className="text-xs font-mono text-muted-foreground">{m.role}</p>
+                      {m.specialty && <p className="text-xs font-mono text-primary/50 truncate">⟡ {m.specialty}</p>}
+                      {m.notes && <p className="text-xs font-body text-muted-foreground mt-1 line-clamp-1">{m.notes}</p>}
                     </div>
                     <div className="flex flex-col gap-1 shrink-0">
                       <button onClick={(e) => handleEdit(m, e)} className="p-1 text-muted-foreground hover:text-primary hover:bg-primary/10 rounded transition-all opacity-0 group-hover:opacity-100" title="Edit">
@@ -1527,7 +1567,26 @@ export function EnergyPage() {
     resetForm();
   };
 
-  if (energyLoading) return <div className="flex items-center justify-center h-40"><Loader2 className="animate-spin text-primary" size={24} /></div>;
+  if (energyLoading) return (
+    <div className="space-y-5">
+      <div className="flex items-center justify-between border-b border-border pb-4">
+        <Skeleton className="h-5 w-32" />
+        <Skeleton className="h-8 w-28" />
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {[...Array(4)].map((_, i) => (
+          <div key={i} className="hud-border rounded-lg p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <Skeleton className="h-4 w-1/3" />
+              <Skeleton className="h-5 w-16 rounded-full" />
+            </div>
+            <Skeleton className="h-2 w-full rounded-full" />
+            <Skeleton className="h-3 w-2/3" />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
 
   return (
     <div className="space-y-5">
@@ -1538,7 +1597,7 @@ export function EnergyPage() {
       {showCreate && (
         <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }}>
           <HudCard className="border-primary/20">
-            <p className="text-[9px] font-mono text-primary uppercase tracking-widest mb-3">{editingId ? "Edit Energy System" : "New Energy System"}</p>
+            <p className="text-xs font-mono text-primary uppercase tracking-widest mb-3">{editingId ? "Edit Energy System" : "New Energy System"}</p>
             <div className="space-y-2">
               <div className="grid grid-cols-2 gap-2">
                 <input value={form.type} onChange={(e) => setForm((f) => ({ ...f, type: e.target.value }))} placeholder="Energy type (e.g. Ki, Mana)" className="bg-muted/30 border border-border rounded px-3 py-1.5 text-sm focus:outline-none focus:border-primary/40" />
@@ -1572,12 +1631,12 @@ export function EnergyPage() {
               <div className="flex items-center justify-between mb-1">
                 <div>
                   <h3 className="text-sm font-display font-bold">{e.type}</h3>
-                  <p className="text-[10px] font-mono text-muted-foreground">{e.description}</p>
+                  <p className="text-xs font-mono text-muted-foreground">{e.description}</p>
                 </div>
                 <div className="flex items-center gap-1">
                   <div className="text-right shrink-0 mr-1">
                     <p className="text-lg font-display font-bold" style={{ color: e.color }}>{e.current_value}</p>
-                    <p className={`text-[9px] font-mono uppercase ${statusColors[e.status] ?? "text-muted-foreground"}`}>{e.status}</p>
+                    <p className={`text-xs font-mono uppercase ${statusColors[e.status] ?? "text-muted-foreground"}`}>{e.status}</p>
                   </div>
                   <button onClick={() => handleEdit(e)} className="p-1 text-muted-foreground hover:text-primary transition-colors"><Edit2 size={12} /></button>
                   <button onClick={() => setConfirmDelete({ id: e.id, label: e.type })} className="p-1 text-muted-foreground hover:text-destructive transition-colors"><Trash2 size={12} /></button>
@@ -1587,7 +1646,7 @@ export function EnergyPage() {
                 <div className="flex-1 h-2 bg-muted rounded-full overflow-hidden">
                   <div className="h-full rounded-full transition-all" style={{ width: `${(e.current_value / e.max_value) * 100}%`, background: e.color }} />
                 </div>
-                <span className="text-[10px] font-mono text-muted-foreground w-16 text-right">{e.current_value}/{e.max_value}</span>
+                <span className="text-xs font-mono text-muted-foreground w-16 text-right">{e.current_value}/{e.max_value}</span>
               </div>
               <input
                 type="range" min={0} max={e.max_value} value={e.current_value}

@@ -286,7 +286,7 @@ export function WebhookConfigPage() {
               <div className="space-y-2.5">
                 {/* Name */}
                 <div>
-                  <label className="text-[9px] font-mono text-muted-foreground block mb-0.5">
+                  <label className="text-xs font-mono text-muted-foreground block mb-0.5">
                     Name *
                   </label>
                   <input
@@ -302,7 +302,7 @@ export function WebhookConfigPage() {
 
                 {/* URL */}
                 <div>
-                  <label className="text-[9px] font-mono text-muted-foreground block mb-0.5">
+                  <label className="text-xs font-mono text-muted-foreground block mb-0.5">
                     Endpoint URL *
                   </label>
                   <input
@@ -318,9 +318,9 @@ export function WebhookConfigPage() {
 
                 {/* Secret */}
                 <div>
-                  <label className="text-[9px] font-mono text-muted-foreground block mb-0.5">
+                  <label className="text-xs font-mono text-muted-foreground block mb-0.5">
                     Secret{" "}
-                    <span className="text-muted-foreground/50">
+                    <span className="text-muted-foreground">
                       (optional, for HMAC signing)
                     </span>
                   </label>
@@ -346,7 +346,7 @@ export function WebhookConfigPage() {
 
                 {/* Event types */}
                 <div>
-                  <label className="text-[9px] font-mono text-muted-foreground block mb-1.5">
+                  <label className="text-xs font-mono text-muted-foreground block mb-1.5">
                     Event Types *
                   </label>
                   <div className="flex flex-wrap gap-1.5">
@@ -357,7 +357,7 @@ export function WebhookConfigPage() {
                           key={et}
                           type="button"
                           onClick={() => toggleEventType(et)}
-                          className={`px-2 py-1 text-[9px] font-mono rounded border transition-colors ${
+                          className={`px-2 py-1 text-xs font-mono rounded border transition-colors ${
                             selected
                               ? "bg-primary/20 border-primary/40 text-primary"
                               : "bg-muted/20 border-border text-muted-foreground hover:text-foreground hover:border-border/80"
@@ -406,7 +406,7 @@ export function WebhookConfigPage() {
             <p className="text-xs font-mono text-muted-foreground">
               No endpoints configured yet.
             </p>
-            <p className="text-[10px] font-mono text-muted-foreground/60 mt-1">
+            <p className="text-xs font-mono text-muted-foreground mt-1">
               Add an endpoint to start routing events to Zapier, Make, or n8n.
             </p>
           </HudCard>
@@ -444,12 +444,12 @@ export function WebhookConfigPage() {
                             {cfg.name}
                           </span>
                           {!cfg.active && (
-                            <span className="text-[8px] font-mono text-muted-foreground bg-muted/30 px-1 py-0.5 rounded border border-border/50 uppercase">
+                            <span className="text-xs font-mono text-muted-foreground bg-muted/30 px-1 py-0.5 rounded border border-border/50 uppercase">
                               Disabled
                             </span>
                           )}
                         </div>
-                        <p className="text-[10px] font-mono text-muted-foreground mt-0.5 truncate">
+                        <p className="text-xs font-mono text-muted-foreground mt-0.5 truncate">
                           {truncateUrl(cfg.endpoint_url)}
                         </p>
 
@@ -458,7 +458,7 @@ export function WebhookConfigPage() {
                           {cfg.event_types.map((et) => (
                             <span
                               key={et}
-                              className="text-[8px] font-mono px-1.5 py-0.5 rounded border border-primary/20 bg-primary/5 text-primary/70"
+                              className="text-xs font-mono px-1.5 py-0.5 rounded border border-primary/20 bg-primary/5 text-primary/70"
                             >
                               {et}
                             </span>
@@ -470,7 +470,7 @@ export function WebhookConfigPage() {
                           onClick={() =>
                             setExpandedConfigId(isExpanded ? null : cfg.id)
                           }
-                          className="flex items-center gap-1 mt-2 text-[9px] font-mono text-muted-foreground hover:text-foreground transition-colors"
+                          className="flex items-center gap-1 mt-2 text-xs font-mono text-muted-foreground hover:text-foreground transition-colors"
                         >
                           {isExpanded ? (
                             <ChevronUp size={10} />
@@ -492,10 +492,10 @@ export function WebhookConfigPage() {
                             >
                               <div className="mt-2 pt-2 border-t border-border/30 space-y-1">
                                 <div className="flex items-center gap-2">
-                                  <span className="text-[9px] font-mono text-muted-foreground w-16">
+                                  <span className="text-xs font-mono text-muted-foreground w-16">
                                     Full URL
                                   </span>
-                                  <span className="text-[9px] font-mono text-foreground/70 break-all">
+                                  <span className="text-xs font-mono text-muted-foreground break-all">
                                     {cfg.endpoint_url}
                                   </span>
                                   <button
@@ -509,18 +509,18 @@ export function WebhookConfigPage() {
                                   </button>
                                 </div>
                                 <div className="flex items-center gap-2">
-                                  <span className="text-[9px] font-mono text-muted-foreground w-16">
+                                  <span className="text-xs font-mono text-muted-foreground w-16">
                                     Secret
                                   </span>
-                                  <span className="text-[9px] font-mono text-muted-foreground">
+                                  <span className="text-xs font-mono text-muted-foreground">
                                     {cfg.secret ? "••••••••" : "Not set"}
                                   </span>
                                 </div>
                                 <div className="flex items-center gap-2">
-                                  <span className="text-[9px] font-mono text-muted-foreground w-16">
+                                  <span className="text-xs font-mono text-muted-foreground w-16">
                                     Created
                                   </span>
-                                  <span className="text-[9px] font-mono text-muted-foreground">
+                                  <span className="text-xs font-mono text-muted-foreground">
                                     {fmtDateTime(cfg.created_at)}
                                   </span>
                                 </div>
@@ -555,7 +555,7 @@ export function WebhookConfigPage() {
           </h2>
           <button
             onClick={() => setShowLogs((v) => !v)}
-            className="flex items-center gap-1 text-[10px] font-mono text-muted-foreground hover:text-foreground transition-colors"
+            className="flex items-center gap-1 text-xs font-mono text-muted-foreground hover:text-foreground transition-colors"
           >
             {showLogs ? <ChevronUp size={11} /> : <ChevronDown size={11} />}
             {showLogs ? "Hide Logs" : "View Logs"}
@@ -591,7 +591,7 @@ export function WebhookConfigPage() {
                         ].map((h) => (
                           <th
                             key={h}
-                            className="text-left text-[9px] font-mono text-muted-foreground uppercase tracking-widest pb-1.5 pr-4 last:pr-0"
+                            className="text-left text-xs font-mono text-muted-foreground uppercase tracking-widest pb-1.5 pr-4 last:pr-0"
                           >
                             {h}
                           </th>
@@ -615,18 +615,18 @@ export function WebhookConfigPage() {
                             )}
                           </td>
                           <td className="py-1.5 pr-4">
-                            <span className="text-[10px] font-mono text-foreground/80">
+                            <span className="text-xs font-mono text-foreground">
                               {log.event_type}
                             </span>
                           </td>
                           <td className="py-1.5 pr-4">
-                            <span className="text-[10px] font-mono text-muted-foreground">
+                            <span className="text-xs font-mono text-muted-foreground">
                               {configName(log.config_id)}
                             </span>
                           </td>
                           <td className="py-1.5 pr-4">
                             <span
-                              className={`text-[10px] font-mono ${
+                              className={`text-xs font-mono ${
                                 log.ok
                                   ? "text-green-400"
                                   : "text-red-400"
@@ -636,7 +636,7 @@ export function WebhookConfigPage() {
                             </span>
                           </td>
                           <td className="py-1.5">
-                            <span className="text-[9px] font-mono text-muted-foreground whitespace-nowrap">
+                            <span className="text-xs font-mono text-muted-foreground whitespace-nowrap">
                               {fmtDateTime(log.created_at)}
                             </span>
                           </td>
@@ -655,7 +655,7 @@ export function WebhookConfigPage() {
       <section>
         <div className="flex items-start gap-2 px-3 py-2.5 rounded border border-blue-800/40 bg-blue-950/20 mb-3">
           <Info size={12} className="text-blue-400 shrink-0 mt-0.5" />
-          <span className="text-[10px] font-mono text-blue-400/80 leading-relaxed">
+          <span className="text-xs font-mono text-blue-400/80 leading-relaxed">
             Copy your endpoint URL into the Zapier / Make / n8n webhook trigger
             step. MAVIS will POST events as JSON when they occur.
           </span>
@@ -663,7 +663,7 @@ export function WebhookConfigPage() {
 
         <HudCard>
           <div className="flex items-center justify-between mb-2">
-            <p className="text-[9px] font-mono text-muted-foreground uppercase tracking-widest">
+            <p className="text-xs font-mono text-muted-foreground uppercase tracking-widest">
               Sample Payload Format
             </p>
             <button
@@ -671,12 +671,12 @@ export function WebhookConfigPage() {
                 navigator.clipboard.writeText(SAMPLE_PAYLOAD);
                 toast.success("Sample payload copied");
               }}
-              className="flex items-center gap-1 text-[9px] font-mono text-muted-foreground hover:text-primary transition-colors"
+              className="flex items-center gap-1 text-xs font-mono text-muted-foreground hover:text-primary transition-colors"
             >
               <Copy size={10} /> Copy
             </button>
           </div>
-          <pre className="text-[10px] font-mono text-foreground/70 bg-muted/20 rounded p-3 overflow-x-auto leading-relaxed">
+          <pre className="text-xs font-mono text-muted-foreground bg-muted/20 rounded p-3 overflow-x-auto leading-relaxed">
             {SAMPLE_PAYLOAD}
           </pre>
         </HudCard>
