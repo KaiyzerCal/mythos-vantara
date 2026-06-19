@@ -11,6 +11,7 @@ import {
   Users2, LayoutGrid, Trophy, Gauge, Bell, CreditCard, Upload,
   BrainCircuit, Brain, SlidersHorizontal, Phone, MessageSquare, Key, Users2 as UserGroup, Shield as ShieldIcon, PhoneCall,
 } from "lucide-react";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useState, useContext } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useAuth } from "@/contexts/AuthContext";
@@ -102,7 +103,7 @@ function NavItem({ to, icon: Icon, label, collapsed }: { to: string; icon: any; 
   const location = useLocation();
   const isActive = location.pathname === to;
 
-  return (
+  const link = (
     <NavLink
       to={to}
       className={`flex items-center gap-3 px-3 py-2 rounded text-sm font-medium transition-all group ${
@@ -125,6 +126,17 @@ function NavItem({ to, icon: Icon, label, collapsed }: { to: string; icon: any; 
         )}
       </AnimatePresence>
     </NavLink>
+  );
+
+  if (!collapsed) return link;
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>{link}</TooltipTrigger>
+      <TooltipContent side="right" className="font-mono text-xs">
+        {label}
+      </TooltipContent>
+    </Tooltip>
   );
 }
 

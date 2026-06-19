@@ -1,10 +1,35 @@
 // ============================================================
 // VANTARA.EXE — Shared UI Components
-// PageHeader | HudCard | ProgressBar | StatBadge | RarityBadge | RankBadge
+// PageHeader | HudCard | ProgressBar | StatBadge | RarityBadge | RankBadge | FieldError
 // ============================================================
 import { ReactNode } from "react";
+import { AlertCircle } from "lucide-react";
 import { RANK_COLORS, type Rank } from "@/types/rpg";
 import { cn } from "@/lib/utils";
+
+// ─── FieldError ────────────────────────────────────────────
+// Inline validation error shown beneath a form field.
+// Usage: <FieldError message={errors.title} />
+export function FieldError({ message }: { message?: string | null }) {
+  if (!message) return null;
+  return (
+    <div className="flex items-center gap-1.5 mt-1">
+      <AlertCircle size={11} className="text-destructive shrink-0" />
+      <p className="text-xs font-mono text-destructive">{message}</p>
+    </div>
+  );
+}
+
+// ─── fieldClass ────────────────────────────────────────────
+// Returns Tailwind classes for an input/textarea, highlighting red when in error.
+export function fieldClass(hasError?: boolean) {
+  return cn(
+    "w-full bg-muted/30 border rounded px-3 py-2 text-sm font-mono focus:outline-none transition-colors resize-none",
+    hasError
+      ? "border-destructive/70 focus:border-destructive"
+      : "border-border focus:border-primary/40",
+  );
+}
 
 // ─── PageHeader ────────────────────────────────────────────
 interface PageHeaderProps {

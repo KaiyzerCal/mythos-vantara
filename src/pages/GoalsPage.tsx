@@ -12,7 +12,7 @@ import { supabase as _supabase } from "@/integrations/supabase/client";
 const supabase = _supabase as any;
 import { useAuth } from "@/contexts/AuthContext";
 import { useAppData } from "@/contexts/AppDataContext";
-import { PageHeader, HudCard, ProgressBar } from "@/components/SharedUI";
+import { PageHeader, HudCard, ProgressBar, FieldError, fieldClass } from "@/components/SharedUI";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
@@ -80,6 +80,7 @@ export function GoalsPage() {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [createForm, setCreateForm] = useState<CreateForm>({ objective: "", context: "" });
+  const [createErrors, setCreateErrors] = useState<{ objective?: string }>({});
   const [confirmDelete, setConfirmDelete] = useState<{ id: string; label: string } | null>(null);
 
   // ─── Fetch ─────────────────────────────────────────────────
@@ -109,7 +110,11 @@ export function GoalsPage() {
   // ─── Create goal ───────────────────────────────────────────
   async function handleCreate() {
     if (!user) return;
-    if (!createForm.objective.trim()) { toast.error("Objective is required"); return; }
+    if (!createForm.objective.trim()) {
+      setCreateErrors({ objective: "Objective is required" });
+      return;
+    }
+    setCreateErrors({});
     setSubmitting(true);
     const { data: newGoal, error } = await supabase
       .from("mavis_goals")
@@ -246,11 +251,15 @@ export function GoalsPage() {
                   <label className="text-xs font-mono text-muted-foreground block mb-0.5">Objective *</label>
                   <textarea
                     value={createForm.objective}
-                    onChange={(e) => setCreateForm((f) => ({ ...f, objective: e.target.value }))}
+                    onChange={(e) => {
+                      setCreateForm((f) => ({ ...f, objective: e.target.value }));
+                      if (createErrors.objective) setCreateErrors({});
+                    }}
                     rows={3}
                     placeholder="What do you want to achieve?"
-                    className="w-full bg-muted/30 border border-border rounded px-3 py-2 text-sm font-mono focus:outline-none focus:border-primary/40 resize-none"
+                    className={fieldClass(!!createErrors.objective)}
                   />
+                  <FieldError message={createErrors.objective} />
                 </div>
                 <div>
                   <label className="text-xs font-mono text-muted-foreground block mb-0.5">Context (optional)</label>
@@ -259,7 +268,7 @@ export function GoalsPage() {
                     onChange={(e) => setCreateForm((f) => ({ ...f, context: e.target.value }))}
                     rows={2}
                     placeholder="Additional context for MAVIS..."
-                    className="w-full bg-muted/30 border border-border rounded px-3 py-2 text-xs font-mono focus:outline-none focus:border-primary/40 resize-none"
+                    className={fieldClass()}
                   />
                 </div>
                 <div className="flex justify-end">
