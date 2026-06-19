@@ -1970,6 +1970,33 @@ export type Database = {
         }
         Relationships: []
       }
+      mavis_documents: {
+        Row: {
+          content: string | null
+          created_at: string | null
+          embedding: string | null
+          id: number
+          metadata: Json | null
+          user_id: string | null
+        }
+        Insert: {
+          content?: string | null
+          created_at?: string | null
+          embedding?: string | null
+          id?: number
+          metadata?: Json | null
+          user_id?: string | null
+        }
+        Update: {
+          content?: string | null
+          created_at?: string | null
+          embedding?: string | null
+          id?: number
+          metadata?: Json | null
+          user_id?: string | null
+        }
+        Relationships: []
+      }
       mavis_domain_effects: {
         Row: {
           area_effects: string[]
@@ -3008,6 +3035,39 @@ export type Database = {
         }
         Relationships: []
       }
+      mavis_scrape_queue: {
+        Row: {
+          created_at: string | null
+          domain: string
+          emails: string[] | null
+          id: number
+          link: string
+          status: string
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          created_at?: string | null
+          domain: string
+          emails?: string[] | null
+          id?: number
+          link: string
+          status?: string
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          created_at?: string | null
+          domain?: string
+          emails?: string[] | null
+          id?: number
+          link?: string
+          status?: string
+          updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
       mavis_skill_definitions: {
         Row: {
           created_at: string | null
@@ -3139,6 +3199,96 @@ export type Database = {
           thread_parent_id?: string | null
           tweet_id?: string | null
           user_id?: string
+        }
+        Relationships: []
+      }
+      mavis_social_queue: {
+        Row: {
+          article_text: string | null
+          article_title: string | null
+          created_at: string | null
+          error_message: string | null
+          extraction_status: string
+          facebook_content: string | null
+          generated_image_url: string | null
+          heygen_video_id: string | null
+          id: string
+          image_status: string
+          instagram_content: string | null
+          linkedin_content: string | null
+          notes: string | null
+          publish_results: Json | null
+          published_at: string | null
+          scheduled_date: string | null
+          source_url: string | null
+          status: string
+          threads_content: string | null
+          tiktok_content: string | null
+          twitter_content: string | null
+          updated_at: string | null
+          user_id: string
+          video_caption: string | null
+          video_script: string | null
+          video_status: string
+          video_url: string | null
+        }
+        Insert: {
+          article_text?: string | null
+          article_title?: string | null
+          created_at?: string | null
+          error_message?: string | null
+          extraction_status?: string
+          facebook_content?: string | null
+          generated_image_url?: string | null
+          heygen_video_id?: string | null
+          id?: string
+          image_status?: string
+          instagram_content?: string | null
+          linkedin_content?: string | null
+          notes?: string | null
+          publish_results?: Json | null
+          published_at?: string | null
+          scheduled_date?: string | null
+          source_url?: string | null
+          status?: string
+          threads_content?: string | null
+          tiktok_content?: string | null
+          twitter_content?: string | null
+          updated_at?: string | null
+          user_id: string
+          video_caption?: string | null
+          video_script?: string | null
+          video_status?: string
+          video_url?: string | null
+        }
+        Update: {
+          article_text?: string | null
+          article_title?: string | null
+          created_at?: string | null
+          error_message?: string | null
+          extraction_status?: string
+          facebook_content?: string | null
+          generated_image_url?: string | null
+          heygen_video_id?: string | null
+          id?: string
+          image_status?: string
+          instagram_content?: string | null
+          linkedin_content?: string | null
+          notes?: string | null
+          publish_results?: Json | null
+          published_at?: string | null
+          scheduled_date?: string | null
+          source_url?: string | null
+          status?: string
+          threads_content?: string | null
+          tiktok_content?: string | null
+          twitter_content?: string | null
+          updated_at?: string | null
+          user_id?: string
+          video_caption?: string | null
+          video_script?: string | null
+          video_status?: string
+          video_url?: string | null
         }
         Relationships: []
       }
@@ -6236,6 +6386,20 @@ export type Database = {
       increment_widget_usage: {
         Args: { p_action: string; p_widget_id: string }
         Returns: undefined
+      }
+      match_documents: {
+        Args: {
+          filter?: Json
+          match_count?: number
+          match_user_id: string
+          query_embedding: string
+        }
+        Returns: {
+          content: string
+          id: number
+          metadata: Json
+          similarity: number
+        }[]
       }
       match_mavis_notes: {
         Args: {
