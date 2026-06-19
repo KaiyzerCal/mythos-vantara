@@ -64,37 +64,39 @@ serve(async (req) => {
 
       // ── AUTO LINK QUEST CHAINS ───────────────────────────────────────────────
       case "auto_link_quest_chains": {
-        // 1. Fetch all user quests
-        const { data: quests } = await sb.from("quests").select("id,title,description,type,category,status,linked_skill_ids").eq("user_id", userId);
+        const { data: quests } = await sb.from("quests").select("id,title,description,type,category,status").eq("user_id", userId);
         if (!quests?.length) { result = { chains_created: 0, message: "No quests found" }; break; }
 
-        // 2. Ask Claude to group them into chains
-        const questList = quests.map((q: any) =>
-          `ID:${q.id} | Title: ${q.title} | Type: ${q.type} | Category: ${q.category || "none"} | Status: ${q.status} | Desc: ${(q.description || "").slice(0, 150)}`
-        ).join("\n");
+        // Use 1-based indices instead of UUIDs — Haiku reliably copies small numbers,
+        // not 36-char UUIDs. We remap after parsing.
+        const indexToId: Record<number, string> = {};
+        const questList = (quests as any[]).map((q: any, i: number) => {
+          indexToId[i + 1] = q.id;
+          return `#${i + 1} | ${q.title} | type:${q.type} | cat:${q.category || "none"} | ${q.status} | ${(q.description || "").slice(0, 100)}`;
+        }).join("\n");
 
         const raw = await callClaude(
-          `You are an expert life-optimization AI. Analyze a list of quests and identify logical progression chains — groups of quests that naturally build on each other toward a shared goal. A chain should have 2-6 quests ordered by progression (foundational first, advanced last). Only group quests that are genuinely correlated. Do NOT force unrelated quests together. Reply ONLY with a valid JSON array. No prose.`,
-          `User's quests:\n${questList}\n\nReturn a JSON array of chains. Each chain:\n{"title":"string","description":"string","category":"string","quest_ids":["<uuid>","<uuid>",...],"rationale":"string"}\n\nRules:\n- quest_ids must be exact UUIDs from the list above\n- Order quest_ids from foundational to advanced\n- Only include quests that genuinely belong together\n- Create as many chains as make sense (minimum 2 quests per chain)\n- category should match the quest types/topics`
+          `You are a life-optimization AI. Analyze quests and identify logical progression chains — groups that naturally build toward a shared goal. Chains must have 2–6 quests ordered foundational→advanced. Only group genuinely related quests. Reply ONLY with a valid JSON array, no prose.`,
+          `Quests (reference by # number only):\n${questList}\n\nReturn JSON array:\n[{"title":"string","description":"string","category":"string","indices":[1,4,7],"rationale":"string"}]\n\nRules:\n- indices = the # numbers from the list above (integers, NOT UUIDs)\n- Order indices foundational→advanced\n- Minimum 2 per chain, maximum 6\n- Only group genuinely correlated quests`
         );
 
         const arrMatch = raw.match(/\[[\s\S]*\]/);
         if (!arrMatch) { result = { chains_created: 0, message: "Claude returned no chains" }; break; }
         const suggested = JSON.parse(arrMatch[0]) as any[];
 
-        // 3. Delete existing auto-generated chains (re-run clears old ones)
+        // Clear existing chains
         const existingChainIds = (await sb.from("quest_chains").select("id").eq("user_id", userId)).data?.map((r: any) => r.id) ?? [];
         if (existingChainIds.length) {
           await sb.from("quest_chain_items").delete().in("chain_id", existingChainIds);
           await sb.from("quest_chains").delete().eq("user_id", userId);
         }
 
-        // 4. Create chains
-        const validQuestIds = new Set(quests.map((q: any) => q.id));
         let chainsCreated = 0;
-
         for (const chain of suggested) {
-          const questIds: string[] = (chain.quest_ids ?? []).filter((id: string) => validQuestIds.has(id));
+          const rawIndices: number[] = (chain.indices ?? chain.quest_indices ?? []).map(Number);
+          const questIds: string[] = rawIndices
+            .map((idx: number) => indexToId[idx])
+            .filter(Boolean);
           if (questIds.length < 2) continue;
 
           const { data: chainRow, error: chainErr } = await sb.from("quest_chains").insert({
@@ -106,13 +108,9 @@ serve(async (req) => {
           }).select("id").single();
 
           if (chainErr || !chainRow) continue;
-
-          const items = questIds.map((qid: string, pos: number) => ({
-            chain_id: chainRow.id,
-            quest_id: qid,
-            position: pos,
-          }));
-          await sb.from("quest_chain_items").insert(items);
+          await sb.from("quest_chain_items").insert(
+            questIds.map((qid: string, pos: number) => ({ chain_id: chainRow.id, quest_id: qid, position: pos }))
+          );
           chainsCreated++;
         }
 
@@ -125,13 +123,15 @@ serve(async (req) => {
         const { data: skills } = await sb.from("skills").select("id,name,description,category,tier,proficiency").eq("user_id", userId);
         if (!skills?.length) { result = { chains_created: 0, message: "No skills found" }; break; }
 
-        const skillList = skills.map((s: any) =>
-          `ID:${s.id} | Name: ${s.name} | Category: ${s.category} | Tier: ${s.tier} | Proficiency: ${s.proficiency}% | Desc: ${(s.description || "").slice(0, 100)}`
-        ).join("\n");
+        const indexToSkillId: Record<number, string> = {};
+        const skillList = (skills as any[]).map((s: any, i: number) => {
+          indexToSkillId[i + 1] = s.id;
+          return `#${i + 1} | ${s.name} | cat:${s.category} | T${s.tier} | ${s.proficiency}% | ${(s.description || "").slice(0, 80)}`;
+        }).join("\n");
 
         const raw = await callClaude(
-          `You are an expert skill development AI. Analyze a list of skills and identify logical mastery chains — groups of skills that naturally build on each other from foundational to advanced. A chain should have 2-8 skills ordered by learning progression (beginner first, expert last). Only group skills that are genuinely related to the same domain. Reply ONLY with a valid JSON array. No prose.`,
-          `User's skills:\n${skillList}\n\nReturn a JSON array of chains. Each chain:\n{"title":"string","description":"string","category":"string","skill_ids":["<uuid>","<uuid>",...],"rationale":"string"}\n\nRules:\n- skill_ids must be exact UUIDs from the list above\n- Order skill_ids from beginner to expert progression\n- Group by domain/category (Business, Technical, Creative, etc.)\n- Only group skills that genuinely build on each other\n- Minimum 2 skills per chain`
+          `You are a skill development AI. Analyze skills and identify mastery chains — groups that build from foundational to advanced. Chains must have 2–8 skills ordered beginner→expert. Group by domain. Reply ONLY with a valid JSON array, no prose.`,
+          `Skills (reference by # number only):\n${skillList}\n\nReturn JSON array:\n[{"title":"string","description":"string","category":"string","indices":[2,5,9],"rationale":"string"}]\n\nRules:\n- indices = the # numbers from the list above (integers, NOT UUIDs)\n- Order indices beginner→expert\n- Group by domain/category\n- Minimum 2 per chain, maximum 8`
         );
 
         const arrMatch = raw.match(/\[[\s\S]*\]/);
@@ -145,11 +145,12 @@ serve(async (req) => {
           await sb.from("skill_chains").delete().eq("user_id", userId);
         }
 
-        const validSkillIds = new Set(skills.map((s: any) => s.id));
         let chainsCreated = 0;
-
         for (const chain of suggested) {
-          const skillIds: string[] = (chain.skill_ids ?? []).filter((id: string) => validSkillIds.has(id));
+          const rawIndices: number[] = (chain.indices ?? chain.skill_indices ?? []).map(Number);
+          const skillIds: string[] = rawIndices
+            .map((idx: number) => indexToSkillId[idx])
+            .filter(Boolean);
           if (skillIds.length < 2) continue;
 
           const { data: chainRow, error: chainErr } = await sb.from("skill_chains").insert({
@@ -160,13 +161,9 @@ serve(async (req) => {
           }).select("id").single();
 
           if (chainErr || !chainRow) continue;
-
-          const items = skillIds.map((sid: string, pos: number) => ({
-            chain_id: chainRow.id,
-            skill_id: sid,
-            position: pos,
-          }));
-          await sb.from("skill_chain_items").insert(items);
+          await sb.from("skill_chain_items").insert(
+            skillIds.map((sid: string, pos: number) => ({ chain_id: chainRow.id, skill_id: sid, position: pos }))
+          );
           chainsCreated++;
         }
 
