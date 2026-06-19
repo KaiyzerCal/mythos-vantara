@@ -171,7 +171,7 @@ export function RepurposePage() {
 
       {/* ── Input Section ─────────────────────────────────── */}
       <HudCard className="border-primary/10">
-        <p className="text-[9px] font-mono text-primary uppercase tracking-widest mb-3">Source Content</p>
+        <p className="text-xs font-mono text-primary uppercase tracking-widest mb-3">Source Content</p>
         <div className="space-y-3">
           {/* Title */}
           <input
@@ -191,14 +191,14 @@ export function RepurposePage() {
               className="w-full bg-muted/30 border border-border rounded px-3 py-2 text-sm resize-none focus:outline-none focus:border-primary/40"
             />
             <div className="flex justify-between items-center mt-1">
-              <span className="text-[9px] font-mono text-muted-foreground">{content.length} chars</span>
+              <span className="text-xs font-mono text-muted-foreground">{content.length} chars</span>
               <div className="relative">
                 <button
                   onClick={() => {
                     setShowVaultDropdown((v) => !v);
                     if (vaultEntries.length === 0) loadVaultEntries();
                   }}
-                  className="flex items-center gap-1.5 px-2.5 py-1 text-[10px] font-mono text-muted-foreground border border-border rounded hover:text-foreground hover:border-border/60 transition-colors"
+                  className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-mono text-muted-foreground border border-border rounded hover:text-foreground hover:border-border/60 transition-colors"
                 >
                   <Database size={9} /> Load from Vault <ChevronDown size={9} />
                 </button>
@@ -207,13 +207,13 @@ export function RepurposePage() {
                     {vaultLoading ? (
                       <div className="flex justify-center py-3"><Loader2 size={14} className="animate-spin text-primary" /></div>
                     ) : vaultEntries.length === 0 ? (
-                      <p className="text-[10px] font-mono text-muted-foreground px-3 py-2">No vault entries found</p>
+                      <p className="text-xs font-mono text-muted-foreground px-3 py-2">No vault entries found</p>
                     ) : (
                       vaultEntries.map((e) => (
                         <button
                           key={e.id}
                           onClick={() => handleSelectVaultEntry(e)}
-                          className="w-full text-left px-3 py-2 text-[10px] font-mono hover:bg-muted/30 transition-colors border-b border-border/20 last:border-0"
+                          className="w-full text-left px-3 py-2 text-xs font-mono hover:bg-muted/30 transition-colors border-b border-border/20 last:border-0"
                         >
                           {e.title}
                         </button>
@@ -227,13 +227,13 @@ export function RepurposePage() {
 
           {/* Brand voice */}
           <div className="flex items-center gap-3">
-            <span className="text-[10px] font-mono text-muted-foreground shrink-0">Brand Voice:</span>
+            <span className="text-xs font-mono text-muted-foreground shrink-0">Brand Voice:</span>
             <div className="flex gap-1.5 flex-wrap">
               {BRAND_VOICES.map((v) => (
                 <button
                   key={v}
                   onClick={() => setBrandVoice(v)}
-                  className={`px-2 py-1 text-[10px] font-mono rounded border transition-colors ${
+                  className={`px-2 py-1 text-xs font-mono rounded border transition-colors ${
                     brandVoice === v
                       ? "bg-primary/10 border-primary/40 text-primary"
                       : "border-border text-muted-foreground hover:text-foreground hover:border-border/60"
@@ -247,7 +247,7 @@ export function RepurposePage() {
 
           {/* Platform checkboxes */}
           <div>
-            <p className="text-[10px] font-mono text-muted-foreground mb-2">Output Platforms:</p>
+            <p className="text-xs font-mono text-muted-foreground mb-2">Output Platforms:</p>
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
               {PLATFORMS.map(({ key, label }) => (
                 <label
@@ -267,7 +267,7 @@ export function RepurposePage() {
                   <span className={`w-3 h-3 rounded-sm border flex items-center justify-center shrink-0 ${selectedPlatforms.has(key) ? "bg-primary border-primary" : "border-muted-foreground"}`}>
                     {selectedPlatforms.has(key) && <Check size={8} className="text-background" />}
                   </span>
-                  <span className="text-[10px] font-mono">{label}</span>
+                  <span className="text-xs font-mono">{label}</span>
                 </label>
               ))}
             </div>
@@ -310,7 +310,7 @@ export function RepurposePage() {
                   <div className="flex items-center justify-between mb-2">
                     <div className="flex items-center gap-2">
                       <span className="text-xs font-display font-bold">{platformLabel(key)}</span>
-                      <span className="text-[9px] font-mono text-muted-foreground bg-muted/30 px-1.5 py-0.5 rounded">
+                      <span className="text-xs font-mono text-muted-foreground bg-muted/30 px-1.5 py-0.5 rounded">
                         {charCount(key)} chars
                       </span>
                     </div>
@@ -319,7 +319,7 @@ export function RepurposePage() {
                         <button
                           onClick={() => handleQueueForNora(key)}
                           disabled={queuedKey === key}
-                          className="flex items-center gap-1 px-2 py-1 text-[10px] font-mono text-amber-400 border border-amber-800/40 rounded hover:bg-amber-900/20 disabled:opacity-50 transition-colors"
+                          className="flex items-center gap-1 px-2 py-1 text-xs font-mono text-amber-400 border border-amber-800/40 rounded hover:bg-amber-900/20 disabled:opacity-50 transition-colors"
                         >
                           {queuedKey === key ? <Loader2 size={9} className="animate-spin" /> : <Twitter size={9} />}
                           Queue for Nora
@@ -327,7 +327,7 @@ export function RepurposePage() {
                       )}
                       <button
                         onClick={() => handleCopy(key)}
-                        className="flex items-center gap-1 px-2 py-1 text-[10px] font-mono text-muted-foreground border border-border rounded hover:text-foreground hover:border-border/60 transition-colors"
+                        className="flex items-center gap-1 px-2 py-1 text-xs font-mono text-muted-foreground border border-border rounded hover:text-foreground hover:border-border/60 transition-colors"
                       >
                         {copiedKey === key ? <Check size={9} className="text-green-400" /> : <Copy size={9} />}
                         {copiedKey === key ? "Copied" : "Copy"}

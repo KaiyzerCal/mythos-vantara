@@ -132,7 +132,7 @@ export function ReadwisePage() {
                   <button
                     key={m}
                     onClick={() => setImportMode(m)}
-                    className={`flex items-center gap-1 px-3 py-1.5 rounded text-[10px] font-mono border transition-colors ${
+                    className={`flex items-center gap-1 px-3 py-1.5 rounded text-xs font-mono border transition-colors ${
                       importMode === m ? "border-primary/40 bg-primary/10 text-primary" : "border-border text-muted-foreground hover:text-primary"
                     }`}
                   >
@@ -151,7 +151,7 @@ export function ReadwisePage() {
                     value={importForm.readwise_token}
                     onChange={(e) => setImportForm((f) => ({ ...f, readwise_token: e.target.value }))}
                   />
-                  <p className="text-[9px] font-mono text-muted-foreground">
+                  <p className="text-xs font-mono text-muted-foreground">
                     Get your token at readwise.io/access_token
                   </p>
                 </div>
@@ -164,7 +164,7 @@ export function ReadwisePage() {
                     value={importForm.csv_text}
                     onChange={(e) => setImportForm((f) => ({ ...f, csv_text: e.target.value }))}
                   />
-                  <p className="text-[9px] font-mono text-muted-foreground">
+                  <p className="text-xs font-mono text-muted-foreground">
                     Columns: highlight, title, author, source_url
                   </p>
                 </div>
@@ -194,15 +194,15 @@ export function ReadwisePage() {
       <div className="grid grid-cols-3 gap-3">
         <HudCard className="text-center py-3">
           <p className="text-2xl font-display text-primary">{highlights.length}</p>
-          <p className="text-[10px] font-mono text-muted-foreground mt-0.5">TOTAL HIGHLIGHTS</p>
+          <p className="text-xs font-mono text-muted-foreground mt-0.5">TOTAL HIGHLIGHTS</p>
         </HudCard>
         <HudCard className="text-center py-3">
           <p className="text-2xl font-display text-primary">{uniqueSources}</p>
-          <p className="text-[10px] font-mono text-muted-foreground mt-0.5">SOURCES</p>
+          <p className="text-xs font-mono text-muted-foreground mt-0.5">SOURCES</p>
         </HudCard>
         <HudCard className="text-center py-3">
           <p className="text-2xl font-display text-primary">{thisWeek}</p>
-          <p className="text-[10px] font-mono text-muted-foreground mt-0.5">THIS WEEK</p>
+          <p className="text-xs font-mono text-muted-foreground mt-0.5">THIS WEEK</p>
         </HudCard>
       </div>
 
@@ -229,10 +229,10 @@ export function ReadwisePage() {
                   <div className="flex items-center gap-2 min-w-0">
                     <BookMarked size={13} className="text-primary shrink-0" />
                     <span className="text-xs font-display text-foreground truncate">{source}</span>
-                    {author && <span className="text-[10px] font-mono text-muted-foreground shrink-0">— {author}</span>}
+                    {author && <span className="text-xs font-mono text-muted-foreground shrink-0">— {author}</span>}
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
-                    <span className="text-[9px] font-mono text-primary bg-primary/10 px-1.5 py-0.5 rounded">
+                    <span className="text-xs font-mono text-primary bg-primary/10 px-1.5 py-0.5 rounded">
                       {items.length}
                     </span>
                     {isOpen ? <ChevronDown size={12} className="text-muted-foreground" /> : <ChevronRight size={12} className="text-muted-foreground" />}
@@ -252,7 +252,7 @@ export function ReadwisePage() {
                             <p className="text-xs font-mono text-foreground/90 leading-relaxed italic">
                               "{h.content}"
                             </p>
-                            <p className="text-[9px] font-mono text-muted-foreground/50">
+                            <p className="text-xs font-mono text-muted-foreground">
                               MAVIS can surface this in semantic searches
                             </p>
                           </div>

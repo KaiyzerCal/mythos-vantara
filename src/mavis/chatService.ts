@@ -59,6 +59,7 @@ export async function streamChatMessage(
   history: Array<{ role: string; content: string }>,
   options: ChatServiceOptions,
   onToken: (token: string, accumulated: string) => void,
+  onStep?: (step: { step: string; type?: string; ok?: boolean; count?: number; iteration?: number; preview?: string; attempt?: number }) => void,
   signal?: AbortSignal,
 ): Promise<ChatServiceResult> {
   const messages = [...history, { role: "user", content: userText }];
@@ -103,6 +104,7 @@ export async function streamChatMessage(
     if (!raw) return;
     try {
       const j = JSON.parse(raw);
+      if (j.step && onStep) { onStep(j); }
       if (j.t) { accumulated += j.t; onToken(j.t, accumulated); }
       if (j.done) metadata = j;
       if (j.error) throw new Error(j.error);

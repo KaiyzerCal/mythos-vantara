@@ -15,6 +15,17 @@ const SB_URL = Deno.env.get("SUPABASE_URL")!;
 const SB_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const ANTHROPIC_KEY = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
 
+async function tgSend(chatId: string, text: string): Promise<void> {
+  const BOT_TOKEN = Deno.env.get("TELEGRAM_BOT_TOKEN") ?? "";
+  if (!BOT_TOKEN || !chatId) return;
+  await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ chat_id: chatId, text, parse_mode: "HTML" }),
+    signal: AbortSignal.timeout(10_000),
+  }).catch(() => {});
+}
+
 const sb = () => createClient(SB_URL, SB_KEY, { auth: { persistSession: false } });
 
 async function scanOpportunities(userId: string): Promise<number> {
@@ -125,6 +136,132 @@ Be SPECIFIC. Not "improve your habits" but "Your coding skill is at 85% proficie
     if (toInsert.length > 0) {
       await sb().from("mavis_opportunities").insert(toInsert);
     }
+
+    // ── World model cross-reference ──────────────────────────────────────────
+    const { data: worldModelRow } = await sb()
+      .from("mavis_world_model")
+      .select("opportunities")
+      .eq("user_id", userId)
+      .order("updated_at", { ascending: false })
+      .maybeSingle();
+
+    const existingOppTitles: string[] = (
+      (worldModelRow as any)?.opportunities ?? []
+    ).map((o: any) => String(o.title ?? "").toLowerCase().trim());
+
+    const netNewOpportunities = toInsert.filter(
+      (o) => !existingOppTitles.some(
+        (existing) => existing === o.title.toLowerCase().trim()
+      )
+    );
+
+    if (netNewOpportunities.length === 0) return toInsert.length;
+
+    // ── Strategic scoring via Claude Haiku ──────────────────────────────────
+    const activeGoalTitles = quests
+      .filter((q: any) => q.status === "active")
+      .map((q: any) => q.title)
+      .join(", ");
+
+    const topSkillNames = skills
+      .slice(0, 8)
+      .map((s: any) => `${s.name}(${s.proficiency}%)`)
+      .join(", ");
+
+    const scoringPrompt = `You are a strategic advisor. Score each opportunity on three dimensions (1–10 each):
+1. goal_alignment – how well it aligns with the operator's active goals
+2. feasibility – how achievable it is given current skills and resources
+3. time_sensitivity – how urgent or time-limited the window is
+
+Active goals: ${activeGoalTitles || "none"}
+Top skills: ${topSkillNames || "none"}
+
+Opportunities to score:
+${netNewOpportunities.map((o, i) => `${i + 1}. ${o.title}: ${o.description}`).join("\n")}
+
+Return a JSON array in the same order, one object per opportunity:
+[{"goal_alignment":7,"feasibility":8,"time_sensitivity":5}, ...]
+Return ONLY valid JSON array, no commentary.`;
+
+    let scoredOpportunities = netNewOpportunities.map((o) => ({ ...o, avgScore: 7 }));
+
+    try {
+      const scoreRes = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-api-key": ANTHROPIC_KEY,
+          "anthropic-version": "2023-06-01",
+        },
+        body: JSON.stringify({
+          model: "claude-haiku-4-5",
+          max_tokens: 512,
+          messages: [{ role: "user", content: scoringPrompt }],
+        }),
+      });
+
+      if (scoreRes.ok) {
+        const scoreData = await scoreRes.json();
+        const scoreText = scoreData.content?.find((b: any) => b.type === "text")?.text ?? "[]";
+        const scoreMatch = scoreText.match(/\[[\s\S]*\]/);
+        if (scoreMatch) {
+          const scores: Array<{ goal_alignment: number; feasibility: number; time_sensitivity: number }> =
+            JSON.parse(scoreMatch[0]);
+          scoredOpportunities = netNewOpportunities.map((o, i) => {
+            const s = scores[i];
+            const avg = s
+              ? (Number(s.goal_alignment) + Number(s.feasibility) + Number(s.time_sensitivity)) / 3
+              : 7;
+            return { ...o, avgScore: avg, scores: s };
+          });
+        }
+      }
+    } catch { /* keep default scores */ }
+
+    // Keep only opportunities averaging >= 6
+    const qualifiedOpportunities = scoredOpportunities.filter((o) => o.avgScore >= 6);
+    if (qualifiedOpportunities.length === 0) return toInsert.length;
+
+    // Top 3 by average score
+    const top3 = qualifiedOpportunities
+      .sort((a, b) => b.avgScore - a.avgScore)
+      .slice(0, 3);
+
+    // ── Telegram delivery ────────────────────────────────────────────────────
+    const { data: profile } = await sb()
+      .from("profiles")
+      .select("telegram_chat_id")
+      .eq("id", userId)
+      .maybeSingle();
+    const chatId = (profile as any)?.telegram_chat_id;
+
+    const oppLines = top3
+      .map((o, i) => {
+        const scoreDisplay = Math.round(o.avgScore);
+        const timeReason = (o as any).scores?.time_sensitivity >= 7
+          ? "Window is closing — act this week."
+          : "Steady window, but momentum favors early movers.";
+        return `<b>${i + 1}. ${o.title}</b>\n${o.description}\nWhy now: ${timeReason}\nScore: ${scoreDisplay}/10`;
+      })
+      .join("\n\n");
+
+    const telegramMessage = `🎯 <b>MAVIS Weekly Opportunity Brief</b>\n\nHere's what I see that you haven't moved on yet:\n\n${oppLines}\n\nReply to act on any of these.`;
+
+    if (chatId) {
+      await tgSend(String(chatId), telegramMessage);
+    }
+
+    // ── Save brief to mavis_memory ───────────────────────────────────────────
+    const memoryContent = `Weekly Opportunity Brief (${new Date().toISOString().slice(0, 10)}):\n${top3.map((o, i) => `${i + 1}. ${o.title} — ${o.description}`).join("\n")}`;
+
+    await sb().from("mavis_memory").insert({
+      user_id: userId,
+      content: memoryContent,
+      importance_score: 4,
+      tags: ["opportunity", "proactive", "weekly-brief"],
+      source: "mavis-opportunity-scanner",
+    }).catch(() => {});
+
     return toInsert.length;
   } catch {
     return 0;

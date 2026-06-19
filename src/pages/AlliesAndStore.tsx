@@ -58,7 +58,7 @@ export function AlliesPage() {
       {showCreate && !editingId && (
         <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }}>
           <HudCard className="border-primary/20">
-            <p className="text-[9px] font-mono text-primary uppercase tracking-widest mb-3">New Ally</p>
+            <p className="text-xs font-mono text-primary uppercase tracking-widest mb-3">New Ally</p>
             <div className="space-y-2">
               <div className="grid grid-cols-2 gap-2">
                 <input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} placeholder="Name" className="bg-muted/30 border border-border rounded px-3 py-1.5 text-sm focus:outline-none focus:border-primary/40" />
@@ -70,7 +70,7 @@ export function AlliesPage() {
                 <input type="number" value={form.level} onChange={(e) => setForm((f) => ({ ...f, level: Number(e.target.value) }))} placeholder="Level" className="bg-muted/30 border border-border rounded px-3 py-1.5 text-xs font-mono focus:outline-none" />
                 <input value={form.specialty} onChange={(e) => setForm((f) => ({ ...f, specialty: e.target.value }))} placeholder="Specialty" className="bg-muted/30 border border-border rounded px-3 py-1.5 text-xs font-mono focus:outline-none" />
                 <div className="flex items-center gap-2">
-                  <label className="text-[10px] font-mono text-muted-foreground shrink-0">Affinity:</label>
+                  <label className="text-xs font-mono text-muted-foreground shrink-0">Affinity:</label>
                   <input type="number" value={form.affinity} onChange={(e) => setForm((f) => ({ ...f, affinity: Number(e.target.value) }))} min={0} max={100} className="w-full bg-muted/30 border border-border rounded px-2 py-1.5 text-xs font-mono focus:outline-none" />
                 </div>
               </div>
@@ -86,7 +86,7 @@ export function AlliesPage() {
 
       <div className="flex gap-1.5">
         {["all", "ally", "council", "rival"].map((r) => (
-          <button key={r} onClick={() => setFilter(r)} className={`px-2 py-1 text-[10px] font-mono uppercase rounded border transition-all ${filter === r ? "bg-primary/10 border-primary/30 text-primary" : "border-border/50 text-muted-foreground"}`}>{r}</button>
+          <button key={r} onClick={() => setFilter(r)} className={`px-2 py-1 text-xs font-mono uppercase rounded border transition-all ${filter === r ? "bg-primary/10 border-primary/30 text-primary" : "border-border/50 text-muted-foreground"}`}>{r}</button>
         ))}
       </div>
 
@@ -95,7 +95,7 @@ export function AlliesPage() {
           if (editingId === ally.id) {
             return (
               <HudCard key={ally.id} className="border-primary/20 sm:col-span-2">
-                <p className="text-[9px] font-mono text-primary uppercase tracking-widest mb-3">Edit Ally</p>
+                <p className="text-xs font-mono text-primary uppercase tracking-widest mb-3">Edit Ally</p>
                 <div className="space-y-2">
                   <div className="grid grid-cols-2 gap-2">
                     <input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} placeholder="Name" className="bg-muted/30 border border-border rounded px-3 py-1.5 text-sm focus:outline-none focus:border-primary/40" />
@@ -107,7 +107,7 @@ export function AlliesPage() {
                     <input type="number" value={form.level} onChange={(e) => setForm((f) => ({ ...f, level: Number(e.target.value) }))} placeholder="Level" className="bg-muted/30 border border-border rounded px-3 py-1.5 text-xs font-mono focus:outline-none" />
                     <input value={form.specialty} onChange={(e) => setForm((f) => ({ ...f, specialty: e.target.value }))} placeholder="Specialty" className="bg-muted/30 border border-border rounded px-3 py-1.5 text-xs font-mono focus:outline-none" />
                     <div className="flex items-center gap-2">
-                      <label className="text-[10px] font-mono text-muted-foreground shrink-0">Affinity:</label>
+                      <label className="text-xs font-mono text-muted-foreground shrink-0">Affinity:</label>
                       <input type="number" value={form.affinity} onChange={(e) => setForm((f) => ({ ...f, affinity: Number(e.target.value) }))} min={0} max={100} className="w-full bg-muted/30 border border-border rounded px-2 py-1.5 text-xs font-mono focus:outline-none" />
                     </div>
                   </div>
@@ -134,19 +134,19 @@ export function AlliesPage() {
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
                   <p className={`text-sm font-display font-bold ${RELATIONSHIP_COLORS[ally.relationship]}`}>{ally.name}</p>
-                  <span className={`text-[9px] font-mono uppercase ${RELATIONSHIP_COLORS[ally.relationship]}`}>{ally.relationship}</span>
+                  <span className={`text-xs font-mono uppercase ${RELATIONSHIP_COLORS[ally.relationship]}`}>{ally.relationship}</span>
                 </div>
-                <p className="text-[10px] font-mono text-muted-foreground">LV{ally.level} • {ally.specialty}</p>
+                <p className="text-xs font-mono text-muted-foreground">LV{ally.level} • {ally.specialty}</p>
                 {ally.notes && <p className="text-xs font-body text-muted-foreground mt-0.5 line-clamp-1">{ally.notes}</p>}
                 <div className="mt-2 flex items-center gap-2">
                   <Heart size={10} className={ally.affinity > 70 ? "text-red-400" : "text-muted-foreground"} />
                   <div className="flex-1">
                     <ProgressBar value={ally.affinity} max={100} height="xs" colorClass={ally.affinity > 70 ? "bg-red-400" : ally.affinity > 40 ? "bg-amber-400" : "bg-muted-foreground"} />
                   </div>
-                  <span className="text-[9px] font-mono text-muted-foreground w-6 text-right">{ally.affinity}</span>
+                  <span className="text-xs font-mono text-muted-foreground w-6 text-right">{ally.affinity}</span>
                   <div className="flex gap-0.5">
-                    <button onClick={() => adjustAffinity(ally.id, ally.affinity, -5)} className="text-[10px] text-muted-foreground hover:text-destructive px-0.5">−</button>
-                    <button onClick={() => adjustAffinity(ally.id, ally.affinity, 5)} className="text-[10px] text-muted-foreground hover:text-primary px-0.5">+</button>
+                    <button onClick={() => adjustAffinity(ally.id, ally.affinity, -5)} className="text-xs text-muted-foreground hover:text-destructive px-0.5">−</button>
+                    <button onClick={() => adjustAffinity(ally.id, ally.affinity, 5)} className="text-xs text-muted-foreground hover:text-primary px-0.5">+</button>
                   </div>
                 </div>
               </div>
@@ -249,7 +249,7 @@ export function StorePage() {
       {showCreate && !editingId && (
         <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }}>
           <HudCard className="border-primary/20">
-            <p className="text-[9px] font-mono text-primary uppercase tracking-widest mb-3">New Store Item</p>
+            <p className="text-xs font-mono text-primary uppercase tracking-widest mb-3">New Store Item</p>
             <div className="space-y-2">
               <div className="grid grid-cols-2 gap-2">
                 <input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} placeholder="Item name" className="bg-muted/30 border border-border rounded px-3 py-1.5 text-sm focus:outline-none focus:border-primary/40" />
@@ -281,7 +281,7 @@ export function StorePage() {
 
       <div className="flex gap-1.5 flex-wrap">
         {CATEGORY_FILTERS.map((c) => (
-          <button key={c} onClick={() => setCatFilter(c)} className={`px-2 py-1 text-[10px] font-mono uppercase rounded border transition-all ${catFilter === c ? "bg-primary/10 border-primary/30 text-primary" : "border-border/50 text-muted-foreground"}`}>{c}</button>
+          <button key={c} onClick={() => setCatFilter(c)} className={`px-2 py-1 text-xs font-mono uppercase rounded border transition-all ${catFilter === c ? "bg-primary/10 border-primary/30 text-primary" : "border-border/50 text-muted-foreground"}`}>{c}</button>
         ))}
       </div>
 
@@ -293,7 +293,7 @@ export function StorePage() {
           if (editingId === item.id) {
             return (
               <HudCard key={item.id} className="border-primary/20 sm:col-span-2 lg:col-span-3">
-                <p className="text-[9px] font-mono text-primary uppercase tracking-widest mb-3">Edit Item</p>
+                <p className="text-xs font-mono text-primary uppercase tracking-widest mb-3">Edit Item</p>
                 <div className="space-y-2">
                   <div className="grid grid-cols-2 gap-2">
                     <input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} placeholder="Item name" className="bg-muted/30 border border-border rounded px-3 py-1.5 text-sm focus:outline-none focus:border-primary/40" />
@@ -332,12 +332,12 @@ export function StorePage() {
                     <RarityBadge rarity={item.rarity} />
                   </div>
                   <p className="text-xs font-body text-muted-foreground line-clamp-2">{item.description}</p>
-                  {item.effect && <p className="text-[10px] font-mono text-primary/60 mt-0.5">⟡ {item.effect}</p>}
+                  {item.effect && <p className="text-xs font-mono text-primary/60 mt-0.5">⟡ {item.effect}</p>}
                   <div className="flex items-center gap-2 mt-2 flex-wrap">
                     <span className="text-xs font-mono font-bold text-primary">{item.price} {item.currency}</span>
-                    <span className="text-[9px] font-mono text-muted-foreground">{item.category}</span>
-                    {item.req_level && <span className="text-[9px] font-mono text-amber-400">LV{item.req_level}+</span>}
-                    {item.req_rank && <span className="text-[9px] font-mono text-amber-400">{item.req_rank}+</span>}
+                    <span className="text-xs font-mono text-muted-foreground">{item.category}</span>
+                    {item.req_level && <span className="text-xs font-mono text-amber-400">LV{item.req_level}+</span>}
+                    {item.req_rank && <span className="text-xs font-mono text-amber-400">{item.req_rank}+</span>}
                   </div>
                 </div>
                 <div className="flex flex-col gap-1 shrink-0">
@@ -346,7 +346,7 @@ export function StorePage() {
                   ) : bought ? (
                     <CheckCircle2 size={14} className="text-green-400" />
                   ) : (
-                    <button onClick={() => handleBuy(item.id)} className="px-2 py-1 text-[9px] font-mono text-primary border border-primary/30 rounded hover:bg-primary/10 transition-all">Buy</button>
+                    <button onClick={() => handleBuy(item.id)} className="px-2 py-1 text-xs font-mono text-primary border border-primary/30 rounded hover:bg-primary/10 transition-all">Buy</button>
                   )}
                   <button onClick={() => handleEdit(item)} className="p-1 text-muted-foreground hover:text-primary transition-colors"><Edit2 size={12} /></button>
                   <button onClick={() => setConfirmDelete({ id: item.id, label: item.name, type: 'store_item' })} className="p-1 text-muted-foreground hover:text-destructive transition-colors"><Trash2 size={12} /></button>

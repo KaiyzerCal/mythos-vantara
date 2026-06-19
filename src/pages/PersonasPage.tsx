@@ -33,7 +33,7 @@ function ForgePanel({ onForged }: { onForged: (p: ForgedPersona) => void }) {
         <Wand2 size={14} className="text-primary" />
         <p className="font-display text-sm font-bold text-glow-gold">PERSONA-FORGE</p>
       </div>
-      <p className="text-[10px] font-mono text-muted-foreground mb-3">
+      <p className="text-xs font-mono text-muted-foreground mb-3">
         Describe a persona in natural language and MAVIS will architect it.
       </p>
       <textarea
@@ -44,7 +44,7 @@ function ForgePanel({ onForged }: { onForged: (p: ForgedPersona) => void }) {
         className="w-full resize-none bg-muted/30 border border-border rounded-lg px-3 py-2 text-sm font-body text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary/50 transition-colors mb-3"
       />
       {error && (
-        <div className="flex items-center gap-1.5 text-neon-red text-[10px] font-mono mb-3">
+        <div className="flex items-center gap-1.5 text-neon-red text-xs font-mono mb-3">
           <AlertCircle size={10} />
           {error}
         </div>
@@ -196,7 +196,7 @@ export default function PersonasPage() {
           <div className="text-center py-8">
             <Users size={28} className="text-muted-foreground mx-auto mb-3 opacity-40" />
             <p className="text-sm font-display text-muted-foreground">No personas yet.</p>
-            <p className="text-[10px] font-mono text-muted-foreground mt-1">
+            <p className="text-xs font-mono text-muted-foreground mt-1">
               Use the forge above to create your first persona.
             </p>
           </div>
@@ -215,7 +215,7 @@ export default function PersonasPage() {
               />
               <button
                 onClick={() => setVoicePersona({ name: persona.name, role: persona.role, systemPrompt: persona.system_prompt, entityId: persona.id, entityType: "persona", userId: user.id, avatarUrl: persona.avatar_key ?? undefined })}
-                className="absolute top-2 right-2 flex items-center gap-1 px-2 py-1 rounded border border-primary/30 bg-primary/10 text-primary/70 hover:text-primary hover:bg-primary/20 text-[9px] font-mono transition-all"
+                className="absolute top-2 right-2 flex items-center gap-1 px-2 py-1 rounded border border-primary/30 bg-primary/10 text-primary/70 hover:text-primary hover:bg-primary/20 text-xs font-mono transition-all"
                 title={`Voice call ${persona.name}`}
               >
                 <PhoneCall size={9} /> CALL

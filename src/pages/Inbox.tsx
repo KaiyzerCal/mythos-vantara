@@ -303,7 +303,7 @@ export default function Inbox() {
         >
           Approvals
           {pendingApprovals > 0 && (
-            <span className="ml-2 px-1.5 py-0.5 rounded-full bg-amber-500/20 text-amber-400 text-[9px]">
+            <span className="ml-2 px-1.5 py-0.5 rounded-full bg-amber-500/20 text-amber-400 text-xs">
               {pendingApprovals}
             </span>
           )}
@@ -314,7 +314,7 @@ export default function Inbox() {
         >
           Watchtower Briefs
           {unreadBriefs > 0 && (
-            <span className="ml-2 px-1.5 py-0.5 rounded-full bg-cyan-500/20 text-cyan-400 text-[9px]">
+            <span className="ml-2 px-1.5 py-0.5 rounded-full bg-cyan-500/20 text-cyan-400 text-xs">
               {unreadBriefs}
             </span>
           )}
@@ -325,7 +325,7 @@ export default function Inbox() {
         >
           Task Log
           {activeTasks > 0 && (
-            <span className="ml-2 px-1.5 py-0.5 rounded-full bg-primary/20 text-primary text-[9px]">
+            <span className="ml-2 px-1.5 py-0.5 rounded-full bg-primary/20 text-primary text-xs">
               {activeTasks}
             </span>
           )}
@@ -357,9 +357,9 @@ export default function Inbox() {
                     <AlertCircle size={14} className="text-amber-400 shrink-0" />
                     <div className="flex-1 min-w-0">
                       <p className="text-xs font-mono font-medium truncate">{a.action_summary}</p>
-                      <p className="text-[10px] font-mono text-muted-foreground">{a.action_type} · {timeAgo(a.created_at)}</p>
+                      <p className="text-xs font-mono text-muted-foreground">{a.action_type} · {timeAgo(a.created_at)}</p>
                     </div>
-                    <span className={`text-[9px] font-mono px-2 py-0.5 rounded border ${statusBadge(a.status)}`}>
+                    <span className={`text-xs font-mono px-2 py-0.5 rounded border ${statusBadge(a.status)}`}>
                       {a.status}
                     </span>
                   </button>
@@ -371,11 +371,11 @@ export default function Inbox() {
                         className="overflow-hidden border-t border-border"
                       >
                         <div className="px-4 py-3 space-y-3">
-                          <pre className="text-[10px] font-mono text-muted-foreground bg-muted/10 rounded p-2 overflow-x-auto whitespace-pre-wrap">
+                          <pre className="text-xs font-mono text-muted-foreground bg-muted/10 rounded p-2 overflow-x-auto whitespace-pre-wrap">
                             {JSON.stringify(a.action_payload, null, 2)}
                           </pre>
                           {a.expires_at && (
-                            <p className="text-[10px] font-mono text-muted-foreground flex items-center gap-1">
+                            <p className="text-xs font-mono text-muted-foreground flex items-center gap-1">
                               <Clock size={10} /> Expires {timeAgo(a.expires_at)}
                             </p>
                           )}
@@ -384,18 +384,18 @@ export default function Inbox() {
                               <button
                                 disabled={executingId === a.id}
                                 onClick={() => resolveApproval(a.id, "approved")}
-                                className="flex items-center gap-1.5 px-3 py-1.5 rounded text-[10px] font-mono bg-green-500/10 border border-green-500/30 text-green-400 hover:bg-green-500/20 transition-colors disabled:opacity-50"
+                                className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-mono bg-green-500/10 border border-green-500/30 text-green-400 hover:bg-green-500/20 transition-colors disabled:opacity-50"
                               >
                                 <CheckCircle size={10} /> {executingId === a.id ? "MAVIS reviewing…" : "Approve & Execute"}
                               </button>
                               <button
                                 disabled={executingId === a.id}
                                 onClick={() => resolveApproval(a.id, "rejected")}
-                                className="flex items-center gap-1.5 px-3 py-1.5 rounded text-[10px] font-mono bg-red-500/10 border border-red-500/30 text-red-400 hover:bg-red-500/20 transition-colors disabled:opacity-50"
+                                className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-mono bg-red-500/10 border border-red-500/30 text-red-400 hover:bg-red-500/20 transition-colors disabled:opacity-50"
                               >
                                 Reject
                               </button>
-                              <span className="text-[9px] font-mono text-muted-foreground ml-auto">requires MAVIS co-sign</span>
+                              <span className="text-xs font-mono text-muted-foreground ml-auto">requires MAVIS co-sign</span>
                             </div>
                           )}
                         </div>
@@ -430,7 +430,7 @@ export default function Inbox() {
                       <p className={`text-xs font-mono font-medium truncate ${b.read ? "text-muted-foreground" : "text-foreground"}`}>
                         {b.summary}
                       </p>
-                      <p className="text-[10px] font-mono text-muted-foreground">{b.brief_date} · {timeAgo(b.created_at)}</p>
+                      <p className="text-xs font-mono text-muted-foreground">{b.brief_date} · {timeAgo(b.created_at)}</p>
                     </div>
                     {!b.read && <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 shrink-0" />}
                     <Eye size={12} className="text-muted-foreground shrink-0" />
@@ -470,7 +470,7 @@ export default function Inbox() {
                       <button
                         key={f}
                         onClick={() => setTaskFilter(f)}
-                        className={`px-2 py-1 rounded text-[10px] font-mono border transition-colors ${
+                        className={`px-2 py-1 rounded text-xs font-mono border transition-colors ${
                           taskFilter === f
                             ? "border-primary/50 text-primary bg-primary/10"
                             : "border-border text-muted-foreground hover:text-foreground"
@@ -484,7 +484,7 @@ export default function Inbox() {
                 </div>
                 <button
                   onClick={() => runTaskNow("")}
-                  className="text-[10px] font-mono text-primary hover:text-primary/80 transition-colors border border-primary/30 px-2 py-1 rounded"
+                  className="text-xs font-mono text-primary hover:text-primary/80 transition-colors border border-primary/30 px-2 py-1 rounded"
                 >
                   Run Executor Now
                 </button>
@@ -515,14 +515,14 @@ export default function Inbox() {
                         <p className="text-xs font-mono font-medium truncate">
                           {t.description ?? t.type}
                         </p>
-                        <p className="text-[10px] font-mono text-muted-foreground">
+                        <p className="text-xs font-mono text-muted-foreground">
                           {t.type} · {timeAgo(t.created_at)}
                           {t.revenue_generated > 0 && (
                             <span className="ml-2 text-green-400">+${Number(t.revenue_generated).toFixed(2)}</span>
                           )}
                         </p>
                       </div>
-                      <span className={`text-[9px] font-mono px-2 py-0.5 rounded border ${style.badge}`}>
+                      <span className={`text-xs font-mono px-2 py-0.5 rounded border ${style.badge}`}>
                         {t.status.replace("_", " ")}
                       </span>
                     </button>
@@ -536,21 +536,21 @@ export default function Inbox() {
                           <div className="px-4 py-3 space-y-2">
                             {Object.keys(t.payload ?? {}).length > 0 && (
                               <div>
-                                <p className="text-[9px] font-mono text-muted-foreground mb-1">PAYLOAD</p>
-                                <pre className="text-[10px] font-mono text-muted-foreground bg-muted/10 rounded p-2 overflow-x-auto whitespace-pre-wrap">
+                                <p className="text-xs font-mono text-muted-foreground mb-1">PAYLOAD</p>
+                                <pre className="text-xs font-mono text-muted-foreground bg-muted/10 rounded p-2 overflow-x-auto whitespace-pre-wrap">
                                   {JSON.stringify(t.payload, null, 2)}
                                 </pre>
                               </div>
                             )}
                             {t.result && Object.keys(t.result).length > 0 && (
                               <div>
-                                <p className="text-[9px] font-mono text-muted-foreground mb-1">RESULT</p>
-                                <pre className="text-[10px] font-mono text-muted-foreground bg-muted/10 rounded p-2 overflow-x-auto whitespace-pre-wrap">
+                                <p className="text-xs font-mono text-muted-foreground mb-1">RESULT</p>
+                                <pre className="text-xs font-mono text-muted-foreground bg-muted/10 rounded p-2 overflow-x-auto whitespace-pre-wrap">
                                   {JSON.stringify(t.result, null, 2)}
                                 </pre>
                               </div>
                             )}
-                            <div className="flex gap-2 items-center text-[9px] font-mono text-muted-foreground">
+                            <div className="flex gap-2 items-center text-xs font-mono text-muted-foreground">
                               {t.started_at && <span>Started {timeAgo(t.started_at)}</span>}
                               {t.completed_at && <span>· Completed {timeAgo(t.completed_at)}</span>}
                               {t.scheduled_at && <span>· Scheduled {timeAgo(t.scheduled_at)}</span>}
@@ -560,7 +560,7 @@ export default function Inbox() {
                                 {t.status === "requires_confirmation" && (
                                   <button
                                     onClick={() => approveTask(t.id)}
-                                    className="text-[10px] font-mono text-green-400 hover:text-green-300 border border-green-500/20 px-2 py-1 rounded transition-colors"
+                                    className="text-xs font-mono text-green-400 hover:text-green-300 border border-green-500/20 px-2 py-1 rounded transition-colors"
                                   >
                                     Approve & Queue
                                   </button>
@@ -568,7 +568,7 @@ export default function Inbox() {
                                 <button
                                   disabled={cancellingId === t.id}
                                   onClick={() => cancelTask(t.id)}
-                                  className="text-[10px] font-mono text-red-400 hover:text-red-300 border border-red-500/20 px-2 py-1 rounded transition-colors disabled:opacity-40"
+                                  className="text-xs font-mono text-red-400 hover:text-red-300 border border-red-500/20 px-2 py-1 rounded transition-colors disabled:opacity-40"
                                 >
                                   {cancellingId === t.id ? "Cancelling…" : "Cancel"}
                                 </button>
@@ -579,14 +579,14 @@ export default function Inbox() {
                                 <button
                                   disabled={retryingId === t.id}
                                   onClick={() => retryTask(t.id)}
-                                  className="text-[10px] font-mono text-amber-400 hover:text-amber-300 border border-amber-500/20 px-2 py-1 rounded transition-colors disabled:opacity-40"
+                                  className="text-xs font-mono text-amber-400 hover:text-amber-300 border border-amber-500/20 px-2 py-1 rounded transition-colors disabled:opacity-40"
                                 >
                                   {retryingId === t.id ? "Re-queuing…" : "Retry"}
                                 </button>
                                 <button
                                   disabled={cancellingId === t.id}
                                   onClick={() => cancelTask(t.id)}
-                                  className="text-[10px] font-mono text-red-400 hover:text-red-300 border border-red-500/20 px-2 py-1 rounded transition-colors disabled:opacity-40"
+                                  className="text-xs font-mono text-red-400 hover:text-red-300 border border-red-500/20 px-2 py-1 rounded transition-colors disabled:opacity-40"
                                 >
                                   {cancellingId === t.id ? "Cancelling…" : "Dismiss"}
                                 </button>

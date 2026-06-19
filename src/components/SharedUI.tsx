@@ -1,10 +1,35 @@
 // ============================================================
 // VANTARA.EXE — Shared UI Components
-// PageHeader | HudCard | ProgressBar | StatBadge | RarityBadge | RankBadge
+// PageHeader | HudCard | ProgressBar | StatBadge | RarityBadge | RankBadge | FieldError
 // ============================================================
 import { ReactNode } from "react";
+import { AlertCircle } from "lucide-react";
 import { RANK_COLORS, type Rank } from "@/types/rpg";
 import { cn } from "@/lib/utils";
+
+// ─── FieldError ────────────────────────────────────────────
+// Inline validation error shown beneath a form field.
+// Usage: <FieldError message={errors.title} />
+export function FieldError({ message }: { message?: string | null }) {
+  if (!message) return null;
+  return (
+    <div className="flex items-center gap-1.5 mt-1">
+      <AlertCircle size={11} className="text-destructive shrink-0" />
+      <p className="text-xs font-mono text-destructive">{message}</p>
+    </div>
+  );
+}
+
+// ─── fieldClass ────────────────────────────────────────────
+// Returns Tailwind classes for an input/textarea, highlighting red when in error.
+export function fieldClass(hasError?: boolean) {
+  return cn(
+    "w-full bg-muted/30 border rounded px-3 py-2 text-sm font-mono focus:outline-none transition-colors resize-none",
+    hasError
+      ? "border-destructive/70 focus:border-destructive"
+      : "border-border focus:border-primary/40",
+  );
+}
 
 // ─── PageHeader ────────────────────────────────────────────
 interface PageHeaderProps {
@@ -115,7 +140,7 @@ export function StatBadge({ label, value, color, small = false }: StatBadgeProps
       >
         {value}
       </span>
-      <span className="text-[9px] font-mono text-muted-foreground uppercase tracking-widest mt-0.5">
+      <span className="text-xs font-mono text-muted-foreground uppercase tracking-widest mt-0.5">
         {label}
       </span>
     </div>
@@ -134,7 +159,7 @@ const RARITY_STYLES: Record<string, string> = {
 export function RarityBadge({ rarity }: { rarity: string }) {
   const style = RARITY_STYLES[rarity.toLowerCase()] ?? RARITY_STYLES.common;
   return (
-    <span className={cn("text-[9px] font-mono uppercase tracking-widest px-1.5 py-0.5 rounded border", style)}>
+    <span className={cn("text-xs font-mono uppercase tracking-widest px-1.5 py-0.5 rounded border", style)}>
       {rarity}
     </span>
   );
@@ -143,7 +168,7 @@ export function RarityBadge({ rarity }: { rarity: string }) {
 // ─── RankBadge ─────────────────────────────────────────────
 export function RankBadge({ rank, size = "sm" }: { rank: string; size?: "xs" | "sm" | "md" }) {
   const color = RANK_COLORS[rank as Rank] ?? "#666";
-  const sizeClass = { xs: "text-[8px] px-1 py-0.5", sm: "text-[10px] px-1.5 py-0.5", md: "text-xs px-2 py-1" }[size];
+  const sizeClass = { xs: "text-xs px-1 py-0.5", sm: "text-xs px-1.5 py-0.5", md: "text-xs px-2 py-1" }[size];
 
   return (
     <span
@@ -165,7 +190,7 @@ const QUEST_TYPE_STYLES: Record<string, string> = {
 export function QuestTypeBadge({ type }: { type: string }) {
   const style = QUEST_TYPE_STYLES[type] ?? QUEST_TYPE_STYLES.side;
   return (
-    <span className={cn("text-[9px] font-mono uppercase tracking-widest px-1.5 py-0.5 rounded border", style)}>
+    <span className={cn("text-xs font-mono uppercase tracking-widest px-1.5 py-0.5 rounded border", style)}>
       {type}
     </span>
   );
@@ -191,9 +216,9 @@ export function EnergyBar({ label, current, max, color, status }: EnergyBarProps
   return (
     <div className="flex items-center gap-2">
       <div className="w-24 shrink-0">
-        <span className="text-[10px] font-mono text-foreground/80 truncate block">{label}</span>
+        <span className="text-xs font-mono text-foreground truncate block">{label}</span>
         {status && (
-          <span className={cn("text-[8px] font-mono uppercase", statusColors[status] ?? "text-muted-foreground")}>
+          <span className={cn("text-xs font-mono uppercase", statusColors[status] ?? "text-muted-foreground")}>
             {status}
           </span>
         )}
@@ -204,7 +229,7 @@ export function EnergyBar({ label, current, max, color, status }: EnergyBarProps
           style={{ width: `${pct}%`, background: color }}
         />
       </div>
-      <span className="text-[10px] font-mono text-muted-foreground w-8 text-right">{pct}%</span>
+      <span className="text-xs font-mono text-muted-foreground w-8 text-right">{pct}%</span>
     </div>
   );
 }

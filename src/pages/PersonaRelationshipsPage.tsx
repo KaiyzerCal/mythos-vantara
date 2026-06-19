@@ -75,8 +75,8 @@ function StatBar({ label, value, max = 100, color }: { label: string; value: num
   return (
     <div>
       <div className="flex justify-between items-center mb-1">
-        <span className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider">{label}</span>
-        <span className="text-[10px] font-mono" style={{ color }}>{value}/{max}</span>
+        <span className="text-xs font-mono text-muted-foreground uppercase tracking-wider">{label}</span>
+        <span className="text-xs font-mono" style={{ color }}>{value}/{max}</span>
       </div>
       <div className="h-1.5 bg-muted/50 rounded-full overflow-hidden">
         <div className="h-full transition-all" style={{ width: `${pct}%`, backgroundColor: color }} />
@@ -106,16 +106,16 @@ function RelationshipRow({ row }: { row: RowAggregate }) {
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2 flex-wrap">
             <p className="font-display text-sm font-bold text-foreground truncate">{persona.name}</p>
-            <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-primary/10 text-primary border border-primary/20 uppercase">
+            <span className="text-xs font-mono px-1.5 py-0.5 rounded bg-primary/10 text-primary border border-primary/20 uppercase">
               {persona.role}
             </span>
             {!persona.is_active && (
-              <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-muted text-muted-foreground uppercase">
+              <span className="text-xs font-mono px-1.5 py-0.5 rounded bg-muted text-muted-foreground uppercase">
                 archived
               </span>
             )}
           </div>
-          <p className="text-[10px] font-mono text-muted-foreground mt-0.5 truncate">
+          <p className="text-xs font-mono text-muted-foreground mt-0.5 truncate">
             {persona.archetype} · {persona.model}
           </p>
         </div>
@@ -133,15 +133,15 @@ function RelationshipRow({ row }: { row: RowAggregate }) {
       {/* Meta strip */}
       <div className="grid grid-cols-3 gap-2 mt-3 pt-3 border-t border-border/40">
         <div>
-          <p className="text-[9px] font-mono text-muted-foreground uppercase">Mood</p>
+          <p className="text-xs font-mono text-muted-foreground uppercase">Mood</p>
           <p className={`text-xs font-display capitalize ${moodColor(mood)}`}>{mood}</p>
         </div>
         <div>
-          <p className="text-[9px] font-mono text-muted-foreground uppercase">Messages</p>
+          <p className="text-xs font-mono text-muted-foreground uppercase">Messages</p>
           <p className="text-xs font-display text-foreground">{msgCount}</p>
         </div>
         <div>
-          <p className="text-[9px] font-mono text-muted-foreground uppercase">Last Talk</p>
+          <p className="text-xs font-mono text-muted-foreground uppercase">Last Talk</p>
           <p className="text-xs font-mono text-foreground truncate">{fmtDate(rel?.last_interaction_at ?? null)}</p>
         </div>
       </div>
@@ -151,7 +151,7 @@ function RelationshipRow({ row }: { row: RowAggregate }) {
         <div className="mt-3 pt-3 border-t border-border/40 space-y-3">
           {rel?.mood_reason && (
             <div>
-              <p className="text-[9px] font-mono text-muted-foreground uppercase mb-1">Mood Reason</p>
+              <p className="text-xs font-mono text-muted-foreground uppercase mb-1">Mood Reason</p>
               <p className="text-xs font-body text-foreground italic">"{rel.mood_reason}"</p>
             </div>
           )}
@@ -159,21 +159,21 @@ function RelationshipRow({ row }: { row: RowAggregate }) {
           <div>
             <div className="flex items-center gap-1.5 mb-1.5">
               <MessageCircle size={11} className="text-primary" />
-              <p className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider">
+              <p className="text-xs font-mono text-muted-foreground uppercase tracking-wider">
                 Conversation Linkage ({rel?.total_interactions ?? 0} turns)
               </p>
             </div>
             {recent.length === 0 ? (
-              <p className="text-[10px] font-mono text-muted-foreground">No conversation yet.</p>
+              <p className="text-xs font-mono text-muted-foreground">No conversation yet.</p>
             ) : (
               <div className="space-y-1.5">
                 {recent.map((m) => (
-                  <div key={m.id} className="text-[11px] font-body p-2 rounded bg-muted/30 border border-border/30">
+                  <div key={m.id} className="text-xs font-body p-2 rounded bg-muted/30 border border-border/30">
                     <div className="flex justify-between items-center mb-0.5">
-                      <span className={`text-[9px] font-mono uppercase ${m.role === "user" ? "text-primary" : "text-neon-cyan"}`}>
+                      <span className={`text-xs font-mono uppercase ${m.role === "user" ? "text-primary" : "text-neon-cyan"}`}>
                         {m.role === "user" ? "You" : persona.name}
                       </span>
-                      <span className="text-[9px] font-mono text-muted-foreground">
+                      <span className="text-xs font-mono text-muted-foreground">
                         {new Date(m.created_at).toLocaleString([], { dateStyle: "short", timeStyle: "short" })}
                       </span>
                     </div>
@@ -188,18 +188,18 @@ function RelationshipRow({ row }: { row: RowAggregate }) {
             <div>
               <div className="flex items-center gap-1.5 mb-1.5">
                 <Brain size={11} className="text-primary" />
-                <p className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider">
+                <p className="text-xs font-mono text-muted-foreground uppercase tracking-wider">
                   Top Memories
                 </p>
               </div>
               <div className="space-y-1">
                 {memories.map((mem) => (
-                  <div key={mem.id} className="flex items-start gap-2 text-[11px] font-body p-1.5 rounded bg-muted/20">
-                    <span className="text-[9px] font-mono px-1 py-0.5 rounded bg-primary/10 text-primary uppercase shrink-0">
+                  <div key={mem.id} className="flex items-start gap-2 text-xs font-body p-1.5 rounded bg-muted/20">
+                    <span className="text-xs font-mono px-1 py-0.5 rounded bg-primary/10 text-primary uppercase shrink-0">
                       {mem.memory_type}
                     </span>
                     <span className="text-foreground flex-1">{mem.content}</span>
-                    <span className="text-[9px] font-mono text-muted-foreground shrink-0">i:{mem.importance}</span>
+                    <span className="text-xs font-mono text-muted-foreground shrink-0">i:{mem.importance}</span>
                   </div>
                 ))}
               </div>
@@ -289,21 +289,21 @@ export default function PersonaRelationshipsPage() {
       {/* Aggregate strip */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <HudCard>
-          <p className="text-[9px] font-mono text-muted-foreground uppercase">Personas</p>
+          <p className="text-xs font-mono text-muted-foreground uppercase">Personas</p>
           <p className="font-display text-xl text-foreground mt-1 flex items-center gap-1.5">
             <Users size={14} className="text-primary" /> {rows.length}
           </p>
         </HudCard>
         <HudCard>
-          <p className="text-[9px] font-mono text-muted-foreground uppercase">Avg Trust</p>
+          <p className="text-xs font-mono text-muted-foreground uppercase">Avg Trust</p>
           <p className="font-display text-xl text-primary mt-1">{avgTrust}</p>
         </HudCard>
         <HudCard>
-          <p className="text-[9px] font-mono text-muted-foreground uppercase">Avg Bond</p>
+          <p className="text-xs font-mono text-muted-foreground uppercase">Avg Bond</p>
           <p className="font-display text-xl mt-1" style={{ color: "hsl(330 80% 60%)" }}>{avgBond}</p>
         </HudCard>
         <HudCard>
-          <p className="text-[9px] font-mono text-muted-foreground uppercase">Total Messages</p>
+          <p className="text-xs font-mono text-muted-foreground uppercase">Total Messages</p>
           <p className="font-display text-xl text-foreground mt-1">{totals.msgs}</p>
         </HudCard>
       </div>
@@ -320,7 +320,7 @@ export default function PersonaRelationshipsPage() {
           <div className="text-center py-8">
             <HeartPulse size={28} className="text-muted-foreground mx-auto mb-3 opacity-40" />
             <p className="text-sm font-display text-muted-foreground">No personas to inspect.</p>
-            <p className="text-[10px] font-mono text-muted-foreground mt-1">
+            <p className="text-xs font-mono text-muted-foreground mt-1">
               Forge a persona to begin tracking relationship dynamics.
             </p>
           </div>

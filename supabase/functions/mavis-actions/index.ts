@@ -1413,6 +1413,27 @@ async function executeAction(sb: any, userId: string, action: MavisAction, req: 
       });
       if (error) throw error;
       await logActivity(sb, userId, "calendar_event_created", `Event: ${String(p.title ?? "Untitled")}`, 0);
+
+      // Mirror to Google Calendar (fire-and-forget — silently skipped if not connected)
+      fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-google-agent`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+        },
+        body: JSON.stringify({
+          action:      "create_calendar_event",
+          userId,
+          title:       p.title,
+          start_at:    p.start_at ?? p.start_time,
+          end_at:      p.end_at ?? p.end_time,
+          description: p.description,
+          location:    p.location,
+          timezone:    p.timezone,
+          attendees:   p.attendees,
+          create_meet: p.create_meet,
+        }),
+      }).catch(() => {});
       return;
     }
 
@@ -1424,6 +1445,18 @@ async function executeAction(sb: any, userId: string, action: MavisAction, req: 
         if (p[k] !== undefined) upd[k] = p[k];
       }
       await sb.from("calendar_events").update(upd).eq("id", eventId).eq("user_id", userId);
+
+      // Mirror update to Google Calendar if google_event_id provided (fire-and-forget)
+      if (p.google_event_id) {
+        fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-google-agent`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+          },
+          body: JSON.stringify({ action: "update_calendar_event", userId, ...p }),
+        }).catch(() => {});
+      }
       return;
     }
 
@@ -1431,6 +1464,18 @@ async function executeAction(sb: any, userId: string, action: MavisAction, req: 
       const eventId = String(p.event_id ?? p.id ?? "");
       if (!eventId) return;
       await sb.from("calendar_events").delete().eq("id", eventId).eq("user_id", userId);
+
+      // Mirror delete to Google Calendar if google_event_id provided (fire-and-forget)
+      if (p.google_event_id) {
+        fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-google-agent`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+          },
+          body: JSON.stringify({ action: "delete_calendar_event", userId, event_id: p.google_event_id }),
+        }).catch(() => {});
+      }
       return;
     }
 
@@ -2328,6 +2373,1202 @@ async function executeAction(sb: any, userId: string, action: MavisAction, req: 
         .limit(20);
       if (searchErr) throw searchErr;
       return { results: data ?? [], count: data?.length ?? 0 };
+    }
+
+    // ── GOOGLE AGENT ────────────────────────────────────
+    case "google_agent": {
+      // Delegate to mavis-google-agent with service-role auth + userId
+      const res = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-google-agent`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+        },
+        body: JSON.stringify({ userId, ...p }),
+        signal: AbortSignal.timeout(30000),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((data as any).error ?? `mavis-google-agent returned ${res.status}`);
+      return data;
+    }
+
+    // ── SLACK AGENT ──────────────────────────────────────
+    case "slack_agent": {
+      const res = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-slack-agent`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
+        body: JSON.stringify({ userId, ...p }),
+        signal: AbortSignal.timeout(20000),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((data as any).error ?? `mavis-slack-agent returned ${res.status}`);
+      return data;
+    }
+
+    // ── NOTION AGENT ─────────────────────────────────────
+    case "notion_agent": {
+      const res = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-notion-agent`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
+        body: JSON.stringify({ userId, ...p }),
+        signal: AbortSignal.timeout(20000),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((data as any).error ?? `mavis-notion-agent returned ${res.status}`);
+      return data;
+    }
+
+    // ── GOOGLE MY BUSINESS AGENT ──────────────────────────
+    case "gmb_agent": {
+      const res = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-gmb-agent`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
+        body: JSON.stringify({ userId, ...p }),
+        signal: AbortSignal.timeout(30000),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((data as any).error ?? `mavis-gmb-agent returned ${res.status}`);
+      return data;
+    }
+
+    case "review_monitor": {
+      // Queue a GMB review monitor run: fetch new reviews → AI reply → Sheets log → post reply.
+      const { data: task } = await adminClient.from("mavis_tasks").insert({
+        user_id:      userId,
+        type:         "review_monitor",
+        description:  "GMB review monitor: new reviews → AI reply → Sheets → post",
+        payload:      p,
+        status:       "pending",
+        scheduled_at: new Date().toISOString(),
+      }).select().single();
+      return { queued: true, task_id: (task as any)?.id };
+    }
+
+    // ── AIRTABLE AGENT ────────────────────────────────────
+    case "airtable_agent": {
+      const res = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-airtable-agent`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
+        body: JSON.stringify({ userId, ...p }),
+        signal: AbortSignal.timeout(20000),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((data as any).error ?? `mavis-airtable-agent returned ${res.status}`);
+      return data;
+    }
+
+    case "airtable_enrich": {
+      // Fetch an Airtable record → AI enrichment → write result back to a specified field.
+      const res = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-airtable-agent`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
+        body: JSON.stringify({ action: "enrich_record", ...p }),
+        signal: AbortSignal.timeout(40000),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((data as any).error ?? `mavis-airtable-agent enrich_record returned ${res.status}`);
+      return data;
+    }
+
+    // ── TWILIO AGENT ─────────────────────────────────────
+    case "twilio_agent":
+    case "send_sms":
+    case "send_whatsapp": {
+      // Normalize: send_sms/send_whatsapp shorthands set the action
+      const agentAction = actionType === "twilio_agent" ? String(p.action ?? "send_sms") : actionType;
+      const res = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-twilio-agent`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
+        body: JSON.stringify({ userId, action: agentAction, ...p }),
+        signal: AbortSignal.timeout(20000),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((data as any).error ?? `mavis-twilio-agent returned ${res.status}`);
+      return data;
+    }
+
+    // ── CALENDLY AGENT ────────────────────────────────────
+    case "calendly_agent": {
+      const res = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-calendly-agent`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
+        body: JSON.stringify({ userId, ...p }),
+        signal: AbortSignal.timeout(20000),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((data as any).error ?? `mavis-calendly-agent returned ${res.status}`);
+      return data;
+    }
+
+    // ── META AGENTS ───────────────────────────────────────────────────────────
+    case "reflection_agent":
+    case "run_reflection": {
+      const res = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-reflection-agent`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
+        body: JSON.stringify({ userId, action: p.action ?? "run_reflection", ...p }),
+        signal: AbortSignal.timeout(60000),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((data as any).error ?? `mavis-reflection-agent returned ${res.status}`);
+      return data;
+    }
+
+    case "critic_agent":
+    case "review_content": {
+      const res = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-critic-agent`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
+        body: JSON.stringify({ userId, action: p.action ?? "review", ...p }),
+        signal: AbortSignal.timeout(20000),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((data as any).error ?? `mavis-critic-agent returned ${res.status}`);
+      return data;
+    }
+
+    case "orchestrator":
+    case "orchestrate": {
+      const res = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-orchestrator`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
+        body: JSON.stringify({ userId, action: p.action ?? "run", ...p }),
+        signal: AbortSignal.timeout(90000),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((data as any).error ?? `mavis-orchestrator returned ${res.status}`);
+      return data;
+    }
+
+    // ── INTELLIGENCE AGENTS ───────────────────────────────────────────────────
+    case "exa_agent":
+    case "exa_search": {
+      const res = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-exa-agent`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
+        body: JSON.stringify({ userId, action: p.action ?? "search", ...p }),
+        signal: AbortSignal.timeout(20000),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((data as any).error ?? `mavis-exa-agent returned ${res.status}`);
+      return data;
+    }
+
+    case "firecrawl_agent":
+    case "scrape_site": {
+      const res = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-firecrawl-agent`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
+        body: JSON.stringify({ userId, action: p.action ?? "scrape", ...p }),
+        signal: AbortSignal.timeout(60000),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((data as any).error ?? `mavis-firecrawl-agent returned ${res.status}`);
+      return data;
+    }
+
+    case "youtube_agent": {
+      const res = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-youtube-agent`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
+        body: JSON.stringify({ userId, action: p.action ?? "search", ...p }),
+        signal: AbortSignal.timeout(30000),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((data as any).error ?? `mavis-youtube-agent returned ${res.status}`);
+      return data;
+    }
+
+    case "spotify_agent": {
+      // Direct pass-through to mavis-spotify-agent (all actions including play_from_text).
+      const res = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-spotify-agent`, {
+        method:  "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
+        body:    JSON.stringify({ userId, ...p }),
+        signal:  AbortSignal.timeout(30000),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((data as any).error ?? `mavis-spotify-agent returned ${res.status}`);
+      return data;
+    }
+
+    // ── Spotify convenience aliases (matched by mavis-chat action type names) ──
+
+    case "spotify_play": {
+      // query + type (track|playlist|artist|album) → search → start context or play_from_text
+      const query = String(p.query ?? "");
+      const type  = String(p.type ?? "track");
+      const SB    = Deno.env.get("SUPABASE_URL")!;
+      const SK    = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+      if (!query) throw new Error("spotify_play requires query");
+
+      if (type === "track") {
+        // Use full play_from_text pipeline
+        const res = await fetch(`${SB}/functions/v1/mavis-spotify-agent`, {
+          method:  "POST",
+          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${SK}` },
+          body:    JSON.stringify({ userId, action: "play_from_text", text: query }),
+          signal:  AbortSignal.timeout(30000),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error((data as any).error ?? `spotify-agent returned ${res.status}`);
+        return data;
+      }
+
+      // For playlist/artist/album: search → start context
+      const searchRes = await fetch(`${SB}/functions/v1/mavis-spotify-agent`, {
+        method:  "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${SK}` },
+        body:    JSON.stringify({ userId, action: "search", query, type, limit: 1 }),
+        signal:  AbortSignal.timeout(15000),
+      });
+      const searchData = await searchRes.json().catch(() => ({})) as any;
+      const items = searchData.playlists ?? searchData.artists ?? searchData.albums ?? [];
+      if (!items.length) return { found: false, message: `${type} not found: "${query}"` };
+
+      const contextUri = items[0].uri;
+      const playRes = await fetch(`${SB}/functions/v1/mavis-spotify-agent`, {
+        method:  "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${SK}` },
+        body:    JSON.stringify({ userId, action: "start_context", context_uri: contextUri }),
+        signal:  AbortSignal.timeout(15000),
+      });
+      const playData = await playRes.json().catch(() => ({})) as any;
+      return { ...playData, name: items[0].name, uri: contextUri };
+    }
+
+    case "spotify_pause": {
+      const res = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-spotify-agent`, {
+        method:  "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
+        body:    JSON.stringify({ userId, action: "pause" }),
+        signal:  AbortSignal.timeout(10000),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((data as any).error ?? `spotify-agent returned ${res.status}`);
+      return data;
+    }
+
+    case "spotify_skip": {
+      const res = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-spotify-agent`, {
+        method:  "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
+        body:    JSON.stringify({ userId, action: "next_song" }),
+        signal:  AbortSignal.timeout(10000),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((data as any).error ?? `spotify-agent returned ${res.status}`);
+      return data;
+    }
+
+    case "spotify_previous": {
+      const res = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-spotify-agent`, {
+        method:  "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
+        body:    JSON.stringify({ userId, action: "previous_song" }),
+        signal:  AbortSignal.timeout(10000),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((data as any).error ?? `spotify-agent returned ${res.status}`);
+      return data;
+    }
+
+    case "spotify_volume": {
+      const res = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-spotify-agent`, {
+        method:  "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
+        body:    JSON.stringify({ userId, action: "set_volume", percent: p.percent ?? p.volume ?? 50 }),
+        signal:  AbortSignal.timeout(10000),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((data as any).error ?? `spotify-agent returned ${res.status}`);
+      return data;
+    }
+
+    case "spotify_shuffle": {
+      const res = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-spotify-agent`, {
+        method:  "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
+        body:    JSON.stringify({ userId, action: "set_shuffle", enabled: p.enabled ?? true }),
+        signal:  AbortSignal.timeout(10000),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((data as any).error ?? `spotify-agent returned ${res.status}`);
+      return data;
+    }
+
+    case "spotify_now_playing": {
+      const res = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-spotify-agent`, {
+        method:  "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
+        body:    JSON.stringify({ userId, action: "currently_playing" }),
+        signal:  AbortSignal.timeout(10000),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((data as any).error ?? `spotify-agent returned ${res.status}`);
+      return data;
+    }
+
+    case "sec_agent": {
+      const res = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-sec-agent`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
+        body: JSON.stringify({ userId, action: p.action ?? "search_company", ...p }),
+        signal: AbortSignal.timeout(20000),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((data as any).error ?? `mavis-sec-agent returned ${res.status}`);
+      return data;
+    }
+
+    // ── BUSINESS AGENTS ───────────────────────────────────────────────────────
+    case "crm_agent": {
+      const res = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-crm-agent`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
+        body: JSON.stringify({ userId, ...p }),
+        signal: AbortSignal.timeout(20000),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((data as any).error ?? `mavis-crm-agent returned ${res.status}`);
+      return data;
+    }
+
+    case "beehiiv_agent":
+    case "newsletter_agent": {
+      const res = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-beehiiv-agent`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
+        body: JSON.stringify({ userId, ...p }),
+        signal: AbortSignal.timeout(20000),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((data as any).error ?? `mavis-beehiiv-agent returned ${res.status}`);
+      return data;
+    }
+
+    case "shopify_agent": {
+      const res = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-shopify-agent`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
+        body: JSON.stringify({ userId, ...p }),
+        signal: AbortSignal.timeout(20000),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((data as any).error ?? `mavis-shopify-agent returned ${res.status}`);
+      return data;
+    }
+
+    // ── INFRASTRUCTURE AGENTS ────────────────────────────────────────────────
+    case "webhook_dispatch":
+    case "dispatch_webhook": {
+      const res = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-webhook-dispatcher`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
+        body: JSON.stringify({ userId, action: p.action ?? "dispatch", ...p }),
+        signal: AbortSignal.timeout(30000),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((data as any).error ?? `mavis-webhook-dispatcher returned ${res.status}`);
+      return data;
+    }
+
+    case "linear_agent": {
+      const res = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-linear-agent`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
+        body: JSON.stringify({ userId, ...p }),
+        signal: AbortSignal.timeout(20000),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((data as any).error ?? `mavis-linear-agent returned ${res.status}`);
+      return data;
+    }
+
+    case "vercel_agent": {
+      const res = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-vercel-agent`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
+        body: JSON.stringify({ userId, ...p }),
+        signal: AbortSignal.timeout(20000),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((data as any).error ?? `mavis-vercel-agent returned ${res.status}`);
+      return data;
+    }
+
+    case "sentry_agent": {
+      const res = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-sentry-agent`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
+        body: JSON.stringify({ userId, ...p }),
+        signal: AbortSignal.timeout(20000),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((data as any).error ?? `mavis-sentry-agent returned ${res.status}`);
+      return data;
+    }
+
+    case "sheets_agent": {
+      const res = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-sheets-agent`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
+        body: JSON.stringify({ userId, ...p }),
+        signal: AbortSignal.timeout(20000),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((data as any).error ?? `mavis-sheets-agent returned ${res.status}`);
+      return data;
+    }
+
+    case "email_triage": {
+      // Fire email triage as a task so it runs async and reports via Telegram
+      const { data: task } = await adminClient.from("mavis_tasks").insert({
+        user_id:      userId,
+        type:         "email_triage",
+        description:  "Gmail inbox triage — assess and draft replies",
+        payload:      p,
+        status:       "pending",
+        scheduled_at: new Date().toISOString(),
+      }).select().single();
+      return { queued: true, task_id: (task as any)?.id };
+    }
+
+    case "email_dual_draft": {
+      // Generate two AI drafts (concise + detailed) in parallel for a specific email, create combined Gmail draft.
+      const res = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-google-agent`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
+        body: JSON.stringify({ userId, action: "dual_draft", ...p }),
+        signal: AbortSignal.timeout(30000),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((data as any).error ?? `mavis-google-agent dual_draft returned ${res.status}`);
+      return data;
+    }
+
+    case "email_watch": {
+      // Queue an ambient inbox watcher — polls for new emails and auto-creates dual AI drafts.
+      const { data: task } = await adminClient.from("mavis_tasks").insert({
+        user_id:      userId,
+        type:         "email_watch",
+        description:  "Inbox watcher: new emails → dual AI drafts",
+        payload:      p,
+        status:       "pending",
+        scheduled_at: new Date().toISOString(),
+      }).select().single();
+      return { queued: true, task_id: (task as any)?.id };
+    }
+
+    case "email_smart_triage": {
+      // Queue smart triage: classify emails → Sheets prompt lookup → category-specific HTML reply draft.
+      // Mirrors Make.com: new email → AI classify → Sheets filterRows → AI reply → Gmail draft.
+      const { data: task } = await adminClient.from("mavis_tasks").insert({
+        user_id:      userId,
+        type:         "email_smart_triage",
+        description:  "Smart email triage: classify → Sheets prompt → HTML draft",
+        payload:      p,
+        status:       "pending",
+        scheduled_at: new Date().toISOString(),
+      }).select().single();
+      return { queued: true, task_id: (task as any)?.id };
+    }
+
+    case "instagram_agent": {
+      // Pass-through to mavis-instagram-agent for direct actions (list_media, get_comments, reply_to_comment, etc.)
+      const res = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-instagram-agent`, {
+        method:  "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
+        body:    JSON.stringify({ userId, ...p }),
+        signal:  AbortSignal.timeout(20000),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((data as any).error ?? `mavis-instagram-agent returned ${res.status}`);
+      return data;
+    }
+
+    case "instagram_monitor": {
+      // Queue Instagram comment monitor: check recent posts for new comments → AI reply → post.
+      const { data: task } = await adminClient.from("mavis_tasks").insert({
+        user_id:      userId,
+        type:         "instagram_monitor",
+        description:  "Instagram comment monitor: new comments → AI reply → post",
+        payload:      p,
+        status:       "pending",
+        scheduled_at: new Date().toISOString(),
+      }).select().single();
+      return { queued: true, task_id: (task as any)?.id };
+    }
+
+    case "comic_agent": {
+      // Direct pass-through to mavis-comic-agent (get_comic | translate_comic | daily_comic_post).
+      const res = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-comic-agent`, {
+        method:  "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
+        body:    JSON.stringify({ userId, ...p }),
+        signal:  AbortSignal.timeout(45000),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((data as any).error ?? `mavis-comic-agent returned ${res.status}`);
+      return data;
+    }
+
+    case "daily_comic": {
+      // Queue a daily comic task: scrape GoComics → Claude vision translate → Discord/Telegram post.
+      // Mirrors n8n: Schedule → param (date) → HTTP scrape → LLM extract URL → vision translate → Discord.
+      const { data: task } = await adminClient.from("mavis_tasks").insert({
+        user_id:      userId,
+        type:         "daily_comic",
+        description:  `Daily comic: ${String(p.strip ?? "calvinandhobbes")} → ${String(p.target_language ?? "Korean")} → Discord/Telegram`,
+        payload:      p,
+        status:       "pending",
+        scheduled_at: new Date().toISOString(),
+      }).select().single();
+      return { queued: true, task_id: (task as any)?.id };
+    }
+
+    case "story_agent": {
+      // Direct pass-through to mavis-story-agent (generate_story | daily_story_post).
+      const res = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-story-agent`, {
+        method:  "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
+        body:    JSON.stringify({ userId, ...p }),
+        signal:  AbortSignal.timeout(90000),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((data as any).error ?? `mavis-story-agent returned ${res.status}`);
+      return data;
+    }
+
+    case "daily_story": {
+      // Queue a daily children's story task: Claude story → OpenAI TTS → fal.ai image → Telegram post.
+      // Mirrors n8n: Schedule (12h) → Create story (LLM) → [Send text | TTS audio | DALL-E image] → Telegram.
+      const { data: task } = await adminClient.from("mavis_tasks").insert({
+        user_id:      userId,
+        type:         "daily_story",
+        description:  `Daily story → Telegram (${String(p.language ?? "English")})`,
+        payload:      p,
+        status:       "pending",
+        scheduled_at: new Date().toISOString(),
+      }).select().single();
+      return { queued: true, task_id: (task as any)?.id };
+    }
+
+    case "hashtag_tweet": {
+      // Pick a random hashtag → AI-generated tweet → log to Airtable → optionally post to Twitter.
+      // Mirrors n8n: FunctionItem (random hashtag) → AI completion → Set → Airtable append.
+      const SB_URL_LOCAL = Deno.env.get("SUPABASE_URL")!;
+      const SB_SRK_LOCAL = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+
+      // 1. Generate tweet via twitter-agent
+      const genRes = await fetch(`${SB_URL_LOCAL}/functions/v1/mavis-twitter-agent`, {
+        method:  "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${SB_SRK_LOCAL}` },
+        body:    JSON.stringify({ action: "generate_tweet", hashtags: p.hashtags ?? ["#ai"], topic: p.topic ?? "", max_chars: p.max_chars ?? 280 }),
+        signal:  AbortSignal.timeout(25000),
+      });
+      const genData = await genRes.json().catch(() => ({})) as any;
+      if (!genRes.ok) throw new Error(genData.error ?? `twitter-agent generate_tweet returned ${genRes.status}`);
+
+      const { hashtag, tweet } = genData;
+
+      // 2. Log to Airtable if base_id provided
+      let airtableRecordId: string | null = null;
+      if (p.airtable_base_id) {
+        const atRes = await fetch(`${SB_URL_LOCAL}/functions/v1/mavis-airtable-agent`, {
+          method:  "POST",
+          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${SB_SRK_LOCAL}` },
+          body:    JSON.stringify({
+            userId:  userId,
+            action:  "create_record",
+            base_id: p.airtable_base_id,
+            table:   p.airtable_table ?? "Tweets",
+            fields: {
+              Hashtag:    hashtag,
+              Content:    tweet,
+              Generated:  new Date().toISOString().split("T")[0],
+              Status:     p.auto_post ? "Posted" : "Draft",
+            },
+          }),
+          signal: AbortSignal.timeout(10000),
+        });
+        const atData = await atRes.json().catch(() => ({})) as any;
+        airtableRecordId = atData.id ?? atData.record?.id ?? null;
+      }
+
+      // 3. Optionally post to Twitter
+      let tweetId: string | null = null;
+      if (p.auto_post) {
+        const postRes = await fetch(`${SB_URL_LOCAL}/functions/v1/mavis-twitter-agent`, {
+          method:  "POST",
+          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${SB_SRK_LOCAL}` },
+          body:    JSON.stringify({ action: "post_tweet", text: tweet }),
+          signal:  AbortSignal.timeout(15000),
+        });
+        const postData = await postRes.json().catch(() => ({})) as any;
+        tweetId = postData.tweet_id ?? null;
+      }
+
+      return { hashtag, tweet, tweet_length: tweet.length, airtable_record_id: airtableRecordId, tweet_id: tweetId, posted: !!tweetId };
+    }
+
+    case "influencer_tweet": {
+      // Persona-driven viral tweet generator with optional Airtable logging and auto-post.
+      // Mirrors n8n: Schedule → Configure profile → Generate tweet (retry loop) → Verify constraints → Post tweet.
+      const SB_URL_INF = Deno.env.get("SUPABASE_URL")!;
+      const SB_SRK_INF = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+
+      // 1. Generate tweet in persona/influencer mode
+      const genRes = await fetch(`${SB_URL_INF}/functions/v1/mavis-twitter-agent`, {
+        method:  "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${SB_SRK_INF}` },
+        body:    JSON.stringify({
+          action:      "generate_tweet",
+          niche:       p.niche       ?? "personal development and modern philosophy",
+          style:       p.style       ?? "All of your tweets are very personal and relatable",
+          inspiration: p.inspiration ?? "",
+          max_chars:   p.max_chars   ?? 280,
+          max_retries: p.max_retries ?? 3,
+        }),
+        signal: AbortSignal.timeout(40000),
+      });
+      const genData = await genRes.json().catch(() => ({})) as any;
+      if (!genRes.ok) throw new Error(genData.error ?? `twitter-agent generate_tweet returned ${genRes.status}`);
+
+      const { tweet } = genData;
+
+      // 2. Log to Airtable if base_id provided
+      let airtableRecordId: string | null = null;
+      if (p.airtable_base_id) {
+        const atRes = await fetch(`${SB_URL_INF}/functions/v1/mavis-airtable-agent`, {
+          method:  "POST",
+          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${SB_SRK_INF}` },
+          body:    JSON.stringify({
+            userId:  userId,
+            action:  "create_record",
+            base_id: p.airtable_base_id,
+            table:   p.airtable_table ?? "Influencer Tweets",
+            fields: {
+              Niche:     p.niche ?? "personal development",
+              Content:   tweet,
+              Generated: new Date().toISOString().split("T")[0],
+              Status:    p.auto_post ? "Posted" : "Draft",
+              Attempts:  genData.attempts ?? 1,
+            },
+          }),
+          signal: AbortSignal.timeout(10000),
+        });
+        const atData = await atRes.json().catch(() => ({})) as any;
+        airtableRecordId = atData.id ?? atData.record?.id ?? null;
+      }
+
+      // 3. Optionally post to Twitter
+      let tweetId: string | null = null;
+      if (p.auto_post) {
+        const postRes = await fetch(`${SB_URL_INF}/functions/v1/mavis-twitter-agent`, {
+          method:  "POST",
+          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${SB_SRK_INF}` },
+          body:    JSON.stringify({ action: "post_tweet", text: tweet }),
+          signal:  AbortSignal.timeout(15000),
+        });
+        const postData = await postRes.json().catch(() => ({})) as any;
+        tweetId = postData.tweet_id ?? null;
+      }
+
+      return {
+        tweet,
+        tweet_length:      tweet.length,
+        valid:             tweet.length <= 280,
+        attempts:          genData.attempts ?? 1,
+        tweet_id:          tweetId,
+        airtable_record_id: airtableRecordId,
+        posted:            !!tweetId,
+      };
+    }
+
+    case "schedule_from_text": {
+      // Parse natural language text → structured Google Calendar event.
+      // Mirrors Make.com: CustomWebhook → AI parse → createAnEvent.
+      const res = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-google-agent`, {
+        method:  "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
+        body:    JSON.stringify({ userId, action: "schedule_from_text", ...p }),
+        signal:  AbortSignal.timeout(45000),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((data as any).error ?? `mavis-google-agent returned ${res.status}`);
+      return data;
+    }
+
+    case "translate_speak": {
+      // Translate text via Claude Haiku → synthesize speech via OpenAI TTS → send audio to Telegram.
+      // Mirrors Make.com: Telegram text → Google Translate → Google TTS → sendAudio.
+      const text       = String(p.text ?? "");
+      const targetLang = String(p.target_language ?? p.lang ?? "en");
+      const voice      = String(p.voice ?? "nova");
+      const chatId     = String(p.chat_id ?? "");
+      if (!text) throw new Error("translate_speak requires 'text'");
+
+      const ANTHROPIC_KEY_LOCAL = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
+      const OPENAI_KEY_LOCAL    = Deno.env.get("OPENAI_API") ?? Deno.env.get("OPENAI_API_KEY") ?? "";
+      const BOT_TOKEN_LOCAL     = Deno.env.get("TELEGRAM_BOT_TOKEN") ?? "";
+
+      const LANG_NAMES: Record<string, string> = {
+        en: "English", es: "Spanish", fr: "French", de: "German", ja: "Japanese",
+        ko: "Korean", zh: "Mandarin Chinese", pt: "Portuguese", it: "Italian",
+        ar: "Arabic", ru: "Russian", hi: "Hindi", nl: "Dutch", sv: "Swedish",
+      };
+
+      // 1. Translate via Claude Haiku
+      let translated = text;
+      if (ANTHROPIC_KEY_LOCAL) {
+        const langName = LANG_NAMES[targetLang] ?? targetLang;
+        const tRes = await fetch("https://api.anthropic.com/v1/messages", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "x-api-key": ANTHROPIC_KEY_LOCAL, "anthropic-version": "2023-06-01" },
+          body: JSON.stringify({
+            model: "claude-haiku-4-5-20251001",
+            max_tokens: 512,
+            system: `Translate the user's text into ${langName}. Return ONLY the translated text, nothing else.`,
+            messages: [{ role: "user", content: text }],
+          }),
+          signal: AbortSignal.timeout(15000),
+        });
+        const tData = await tRes.json().catch(() => ({}));
+        translated = (tData as any).content?.[0]?.text?.trim() ?? text;
+      }
+
+      if (!OPENAI_KEY_LOCAL) {
+        return { original: text, translated, target_language: targetLang, audio_sent: false, note: "Set OPENAI_API_KEY for TTS" };
+      }
+
+      // 2. TTS via OpenAI
+      const ttsRes = await fetch("https://api.openai.com/v1/audio/speech", {
+        method: "POST",
+        headers: { "Authorization": `Bearer ${OPENAI_KEY_LOCAL}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ model: "tts-1", input: translated, voice, response_format: "mp3" }),
+        signal: AbortSignal.timeout(30000),
+      });
+      if (!ttsRes.ok) throw new Error(`OpenAI TTS failed: ${ttsRes.status}`);
+      const audioBytes = await ttsRes.arrayBuffer();
+
+      // 3. Send audio to Telegram if chat_id provided
+      let audioSent = false;
+      if (chatId && BOT_TOKEN_LOCAL) {
+        const form = new FormData();
+        form.append("chat_id", chatId);
+        form.append("audio", new Blob([audioBytes], { type: "audio/mpeg" }), `mavis_${targetLang}.mp3`);
+        form.append("caption", `🌐 ${targetLang.toUpperCase()}: ${translated.slice(0, 900)}`);
+        const sendRes = await fetch(`https://api.telegram.org/bot${BOT_TOKEN_LOCAL}/sendAudio`, {
+          method: "POST", body: form, signal: AbortSignal.timeout(30000),
+        }).catch(() => null);
+        audioSent = sendRes?.ok ?? false;
+      }
+
+      return { original: text, translated, target_language: targetLang, voice, audio_sent: audioSent };
+    }
+
+    case "vision_agent": {
+      const res = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-vision-agent`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
+        body: JSON.stringify({ userId, ...p }),
+        signal: AbortSignal.timeout(30000),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((data as any).error ?? `mavis-vision-agent returned ${res.status}`);
+      return data;
+    }
+
+    case "video_narrator": {
+      // Batched Claude vision narration: frame_urls[] or frames_base64[] OR video_url (ffmpeg) → script → TTS → Telegram/GDrive.
+      // Mirrors n8n: Download video → OpenCV 90 frames → Loop 15-frame batches + "Continue from script" → TTS → Drive.
+      const res = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-video-narrator`, {
+        method:  "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
+        body:    JSON.stringify({ userId, ...p }),
+        signal:  AbortSignal.timeout(300000), // 5 min: multi-batch vision + TTS can be slow
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((data as any).error ?? `mavis-video-narrator returned ${res.status}`);
+      return data;
+    }
+
+    case "website_qa": {
+      // Live website Q&A: list_links → pick best → get_page → Claude answer.
+      // Mirrors n8n "AI Customer-Support Assistant" — no external scraping API needed.
+      // answer_from_website runs up to 2 link rounds + 8 page fetches (exact n8n limits).
+      const res = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-website-qa`, {
+        method:  "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
+        body:    JSON.stringify({ userId, ...p }),
+        signal:  AbortSignal.timeout(120000), // 2 min: multiple page fetches + 2 Claude calls
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((data as any).error ?? `mavis-website-qa returned ${res.status}`);
+      return data;
+    }
+
+    case "instagram_trends": {
+      // Scrape top hashtag posts → deduplicate → Claude vision + caption → fal.ai image → IG publish.
+      // Mirrors n8n: RapidAPI scrape → DB dedup → GPT vision → caption → Flux → IG 2-step upload.
+      const res = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-instagram-trends`, {
+        method:  "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
+        body:    JSON.stringify({ userId, ...p }),
+        signal:  AbortSignal.timeout(300000), // 5 min: vision + image gen + IG upload polling
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((data as any).error ?? `mavis-instagram-trends returned ${res.status}`);
+      return data;
+    }
+
+    case "memory_agent": {
+      // Long-term memory toolkit: save_memory | retrieve_memories | send_to_telegram | send_to_email.
+      // Mirrors n8n "Long Term Memory Tools Router": route-switched Google Docs + LLM formatting + delivery.
+      // MAVIS uses mavis_memory (Supabase) instead of Google Docs for persistence.
+      const res = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-memory-agent`, {
+        method:  "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
+        body:    JSON.stringify({ userId, ...p }),
+        signal:  AbortSignal.timeout(60000),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((data as any).error ?? `mavis-memory-agent returned ${res.status}`);
+      return data;
+    }
+
+    case "heygen_agent": {
+      // AI avatar video generation: text script + avatar_id + voice_id → MP4 video URL.
+      // Mirrors n8n: POST /v2/video/generate → poll /v1/video_status.get until completed.
+      // generate_video polls up to 120 s inline; use get_video_status for async follow-up.
+      const res = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-heygen-agent`, {
+        method:  "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
+        body:    JSON.stringify({ userId, ...p }),
+        signal:  AbortSignal.timeout(180000), // 3 min: generate_video polls up to 120 s + overhead
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((data as any).error ?? `mavis-heygen-agent returned ${res.status}`);
+      return data;
+    }
+
+    case "calendar_agent": {
+      // Google Calendar CRUD: get_event, get_all_events, check_availability, delete_event, update_event, create_event.
+      // Mirrors n8n MCP_CALENDAR. calendar_id defaults to "primary"; pass group calendar IDs for shared calendars.
+      const res = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-calendar-agent`, {
+        method:  "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
+        body:    JSON.stringify({ userId, ...p }),
+        signal:  AbortSignal.timeout(30000),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((data as any).error ?? `mavis-calendar-agent returned ${res.status}`);
+      return data;
+    }
+
+    case "security_scanner": {
+      // Website security audit: header analysis + vuln scan → A+-F grade → HTML report + optional email.
+      // Mirrors n8n: scrape URL → parallel [header audit + content audit] → grade → HTML email.
+      const res = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-security-scanner`, {
+        method:  "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
+        body:    JSON.stringify({ userId, ...p }),
+        signal:  AbortSignal.timeout(60000), // parallel Claude calls + website fetch
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((data as any).error ?? `mavis-security-scanner returned ${res.status}`);
+      return data;
+    }
+
+    case "twitter_agent": {
+      const res = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-twitter-agent`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
+        body: JSON.stringify({ userId, ...p }),
+        signal: AbortSignal.timeout(15000),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((data as any).error ?? `mavis-twitter-agent returned ${res.status}`);
+      return data;
+    }
+
+    case "social_content_pipeline": {
+      const { data: task } = await adminClient.from("mavis_tasks").insert({
+        user_id:      userId,
+        type:         "social_content_pipeline",
+        description:  `Social content pipeline from ${p.spreadsheet_id}`,
+        payload:      p,
+        status:       "pending",
+        scheduled_at: new Date().toISOString(),
+      }).select().single();
+      return { queued: true, task_id: (task as any)?.id };
+    }
+
+    case "youtube_summary": {
+      // Queue async — summarizes video, delivers via Telegram, stores transcript in memory
+      const { data: task } = await adminClient.from("mavis_tasks").insert({
+        user_id:      userId,
+        type:         "youtube_summary",
+        description:  `YouTube summary: ${p.url ?? p.video_id}`,
+        payload:      p,
+        status:       "pending",
+        scheduled_at: new Date().toISOString(),
+      }).select().single();
+      return { queued: true, task_id: (task as any)?.id };
+    }
+
+    case "content_digest": {
+      // Queues async digest — scrapes index pages, summarizes articles, sends via Telegram
+      const { data: task } = await adminClient.from("mavis_tasks").insert({
+        user_id:      userId,
+        type:         "content_digest",
+        description:  `Content digest: ${p.label ?? p.url ?? "multiple sources"}`,
+        payload:      p,
+        status:       "pending",
+        scheduled_at: new Date().toISOString(),
+      }).select().single();
+      return { queued: true, task_id: (task as any)?.id };
+    }
+
+    case "discord_agent": {
+      const res = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-discord-agent`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
+        body: JSON.stringify({ userId, ...p }),
+        signal: AbortSignal.timeout(15000),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((data as any).error ?? `mavis-discord-agent returned ${res.status}`);
+      return data;
+    }
+
+    case "flashcard_agent": {
+      const res = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-flashcard-agent`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
+        body: JSON.stringify({ userId, ...p }),
+        signal: AbortSignal.timeout(20000),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((data as any).error ?? `mavis-flashcard-agent returned ${res.status}`);
+      return data;
+    }
+
+    case "reddit_agent": {
+      const res = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-reddit-agent`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
+        body: JSON.stringify({ userId, ...p }),
+        signal: AbortSignal.timeout(20000),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((data as any).error ?? `mavis-reddit-agent returned ${res.status}`);
+      return data;
+    }
+
+    case "reddit_opportunities": {
+      const { data: task } = await adminClient.from("mavis_tasks").insert({
+        user_id:      userId,
+        type:         "reddit_opportunities",
+        description:  `Reddit scan: r/${p.subreddit ?? "smallbusiness"} — "${p.keyword ?? "looking for a solution"}"`,
+        payload:      p,
+        status:       "pending",
+        scheduled_at: new Date().toISOString(),
+      }).select().single();
+      return { queued: true, task_id: (task as any)?.id };
+    }
+
+    // ── CHAIN BUILDER ─────────────────────────────────────────────────────────
+    // Quest chains and skill chains: AI-powered correlation + manual CRUD.
+    // Delegates to mavis-chain-builder edge function.
+    case "auto_link_quest_chains":
+    case "auto_link_skill_chains":
+    case "get_quest_chains":
+    case "get_skill_chains":
+    case "create_quest_chain":
+    case "create_skill_chain":
+    case "update_quest_chain":
+    case "update_skill_chain":
+    case "delete_quest_chain":
+    case "delete_skill_chain":
+    case "add_quest_to_chain":
+    case "add_skill_to_chain":
+    case "chain_builder": {
+      const res = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-chain-builder`, {
+        method:  "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
+        body:    JSON.stringify({ userId, action: action.type === "chain_builder" ? (p.action ?? action.type) : action.type, ...p }),
+        signal:  AbortSignal.timeout(60_000),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((data as any).error ?? `mavis-chain-builder returned ${res.status}`);
+      return data;
+    }
+
+    // ── PERSISTENT PLANS ─────────────────────────────────────────────────────
+    // Long-horizon goal plans that survive across sessions.
+    case "generate_plan":
+    case "create_plan":
+    case "get_plans":
+    case "get_plan":
+    case "update_plan":
+    case "advance_step":
+    case "update_session":
+    case "complete_plan":
+    case "delete_plan": {
+      const planAction = action.type === "mavis_plans" ? (p.action ?? action.type) : action.type;
+      const res = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-plans`, {
+        method:  "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
+        body:    JSON.stringify({ userId, action: planAction, ...p }),
+        signal:  AbortSignal.timeout(60_000),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((data as any).error ?? `mavis-plans returned ${res.status}`);
+      return data;
+    }
+
+    // ── AUTONOMY SETTINGS ─────────────────────────────────────────────────────
+    // Get or set per-category permission levels for MAVIS autonomous actions.
+    case "get_autonomy_settings": {
+      const SB_URL2 = Deno.env.get("SUPABASE_URL")!;
+      const SB_SRK2 = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+      const { createClient: cc2 } = await import("https://esm.sh/@supabase/supabase-js@2.49.4");
+      const sb2 = cc2(SB_URL2, SB_SRK2, { auth: { persistSession: false } });
+      const { data: rows } = await sb2.from("mavis_autonomy_settings")
+        .select("action_category, permission_level, updated_at")
+        .eq("user_id", userId)
+        .order("action_category");
+      return { settings: rows ?? [], user_id: userId };
+    }
+
+    case "set_autonomy": {
+      const { action_category, permission_level } = p as Record<string, unknown>;
+      if (!action_category || !["always","ask","never"].includes(String(permission_level))) {
+        throw new Error("action_category and permission_level (always|ask|never) required");
+      }
+      const SB_URL2 = Deno.env.get("SUPABASE_URL")!;
+      const SB_SRK2 = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+      const { createClient: cc3 } = await import("https://esm.sh/@supabase/supabase-js@2.49.4");
+      const sb3 = cc3(SB_URL2, SB_SRK2, { auth: { persistSession: false } });
+      await sb3.from("mavis_autonomy_settings").upsert({
+        user_id: userId,
+        action_category: String(action_category),
+        permission_level: String(permission_level),
+        updated_at: new Date().toISOString(),
+      }, { onConflict: "user_id,action_category" });
+      return { updated: true, action_category, permission_level };
+    }
+
+    case "route_event": {
+      const res = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-event-router`, {
+        method:  "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
+        body:    JSON.stringify({ userId, event_type: p.event_type ?? "manual", source: p.source ?? "mavis", payload: p.payload ?? p, notify: p.notify ?? true }),
+        signal:  AbortSignal.timeout(45_000),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((data as any).error ?? `event-router returned ${res.status}`);
+      return data;
+    }
+
+    // ── A2A: Agent-to-Agent protocol ────────────────────────
+    case "call_a2a_agent":
+    case "agent_card": {
+      const SB_URL = Deno.env.get("SUPABASE_URL")!;
+      const SRK    = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+      const res = await fetch(`${SB_URL}/functions/v1/mavis-a2a`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${SRK}`, "X-Mavis-User-Id": userId },
+        body: JSON.stringify({ action: action.type, userId, ...p }),
+        signal: AbortSignal.timeout(45_000),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((data as any).error ?? `mavis-a2a returned ${res.status}`);
+      return data;
+    }
+
+    // ── Agent Evaluation ────────────────────────────────────
+    case "evaluate_conversations":
+    case "get_eval_history": {
+      const SB_URL = Deno.env.get("SUPABASE_URL")!;
+      const SRK    = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+      const res = await fetch(`${SB_URL}/functions/v1/mavis-eval`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${SRK}` },
+        body: JSON.stringify({ userId, action: action.type, ...p }),
+        signal: AbortSignal.timeout(60_000),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((data as any).error ?? `mavis-eval returned ${res.status}`);
+      return data;
+    }
+
+    // ── MCP: expose MAVIS as an MCP tool source ─────────────
+    case "mcp_call": {
+      const SB_URL = Deno.env.get("SUPABASE_URL")!;
+      const SRK    = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+      const res = await fetch(`${SB_URL}/functions/v1/mavis-mcp`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${SRK}`, "X-Mavis-User-Id": userId },
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: p.method ?? "tools/list", params: p.params ?? {} }),
+        signal: AbortSignal.timeout(45_000),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((data as any).error ?? `mavis-mcp returned ${res.status}`);
+      return data;
+    }
+
+    // ── Agent Identity: sign and verify autonomous actions ───
+    case "generate_keypair":
+    case "sign_action":
+    case "verify_action":
+    case "get_identity": {
+      const SB_URL = Deno.env.get("SUPABASE_URL")!;
+      const SRK    = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+      const res = await fetch(`${SB_URL}/functions/v1/mavis-agent-identity`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${SRK}` },
+        body: JSON.stringify({ userId, action: action.type, ...p }),
+        signal: AbortSignal.timeout(20_000),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((data as any).error ?? `mavis-agent-identity returned ${res.status}`);
+      return data;
+    }
+
+    // ── Vision Loop: screenshot → Claude vision → action ────
+    case "vision_loop":
+    case "vision_analyze": {
+      const SB_URL = Deno.env.get("SUPABASE_URL")!;
+      const SRK    = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+      const res = await fetch(`${SB_URL}/functions/v1/mavis-vision-agent`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${SRK}` },
+        body: JSON.stringify({ userId, action: action.type, ...p }),
+        signal: AbortSignal.timeout(120_000),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((data as any).error ?? `mavis-vision-agent returned ${res.status}`);
+      return data;
+    }
+
+    // ── Signal Watcher: proactive signal management ──────────
+    case "get_signal_configs":
+    case "upsert_signal_config":
+    case "delete_signal_config": {
+      const SB_URL = Deno.env.get("SUPABASE_URL")!;
+      const SRK    = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+      const res = await fetch(`${SB_URL}/functions/v1/mavis-signal-watcher`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${SRK}` },
+        body: JSON.stringify({ userId, action: action.type, ...p }),
+        signal: AbortSignal.timeout(20_000),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((data as any).error ?? `mavis-signal-watcher returned ${res.status}`);
+      return data;
     }
 
     default:

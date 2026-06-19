@@ -236,8 +236,8 @@ export default function FormsPage() {
         <textarea value={draftForm.description ?? ""} onChange={(e) => setDraftForm((f) => ({ ...f, description: e.target.value }))} placeholder="Description..." rows={2} className="w-full bg-muted/30 border border-border rounded px-3 py-1.5 text-sm resize-none focus:outline-none" />
         <div>
           <div className="flex items-center justify-between mb-1">
-            <p className="text-[9px] font-mono text-amber-400 uppercase">Active Buffs</p>
-            <button type="button" onClick={() => setDraftForm(f => ({ ...f, active_buffs: [...f.active_buffs, { label: "", value: 0, unit: "%" }] }))} className="text-[9px] font-mono text-amber-400 hover:text-amber-300">+ Add</button>
+            <p className="text-xs font-mono text-amber-400 uppercase">Active Buffs</p>
+            <button type="button" onClick={() => setDraftForm(f => ({ ...f, active_buffs: [...f.active_buffs, { label: "", value: 0, unit: "%" }] }))} className="text-xs font-mono text-amber-400 hover:text-amber-300">+ Add</button>
           </div>
           {draftForm.active_buffs.map((b, i) => (
             <div key={i} className="flex gap-1.5 mb-1">
@@ -250,8 +250,8 @@ export default function FormsPage() {
         </div>
         <div>
           <div className="flex items-center justify-between mb-1">
-            <p className="text-[9px] font-mono text-blue-400 uppercase">Passive Buffs</p>
-            <button type="button" onClick={() => setDraftForm(f => ({ ...f, passive_buffs: [...f.passive_buffs, { label: "", value: 0, unit: "%" }] }))} className="text-[9px] font-mono text-blue-400 hover:text-blue-300">+ Add</button>
+            <p className="text-xs font-mono text-blue-400 uppercase">Passive Buffs</p>
+            <button type="button" onClick={() => setDraftForm(f => ({ ...f, passive_buffs: [...f.passive_buffs, { label: "", value: 0, unit: "%" }] }))} className="text-xs font-mono text-blue-400 hover:text-blue-300">+ Add</button>
           </div>
           {draftForm.passive_buffs.map((b, i) => (
             <div key={i} className="flex gap-1.5 mb-1">
@@ -264,8 +264,8 @@ export default function FormsPage() {
         </div>
         <div>
           <div className="flex items-center justify-between mb-1">
-            <p className="text-[9px] font-mono text-green-400 uppercase">Abilities</p>
-            <button type="button" onClick={() => setDraftForm(f => ({ ...f, abilities: [...f.abilities, { title: "", irl: "" }] }))} className="text-[9px] font-mono text-green-400 hover:text-green-300">+ Add</button>
+            <p className="text-xs font-mono text-green-400 uppercase">Abilities</p>
+            <button type="button" onClick={() => setDraftForm(f => ({ ...f, abilities: [...f.abilities, { title: "", irl: "" }] }))} className="text-xs font-mono text-green-400 hover:text-green-300">+ Add</button>
           </div>
           {draftForm.abilities.map((a, i) => (
             <div key={i} className="flex gap-1.5 mb-1">
@@ -307,11 +307,11 @@ export default function FormsPage() {
       <HudCard className="border-primary/20 bg-primary/5">
         <div className="flex items-center justify-between">
           <div>
-            <p className="text-[9px] font-mono text-muted-foreground uppercase tracking-widest mb-0.5">Active Form</p>
+            <p className="text-xs font-mono text-muted-foreground uppercase tracking-widest mb-0.5">Active Form</p>
             <p className="text-sm font-display font-bold text-primary">{profile.current_form}</p>
           </div>
           <div className="text-right">
-            <p className="text-[9px] font-mono text-muted-foreground">BPM</p>
+            <p className="text-xs font-mono text-muted-foreground">BPM</p>
             <p className="text-xl font-display font-bold text-primary">{profile.current_bpm}</p>
           </div>
         </div>
@@ -332,7 +332,7 @@ export default function FormsPage() {
           <button
             key={t}
             onClick={() => setTierFilter(t)}
-            className={`px-2 py-1 text-[10px] font-mono uppercase rounded border transition-all ${
+            className={`px-2 py-1 text-xs font-mono uppercase rounded border transition-all ${
               tierFilter === t
                 ? "bg-primary/10 border-primary/30 text-primary"
                 : "border-border/50 text-muted-foreground hover:border-border"
@@ -389,7 +389,7 @@ export default function FormsPage() {
                 onClick={() => setExpandedId(isOpen ? null : form.id)}
               >
                 {/* Drag handle */}
-                <GripVertical size={12} className="shrink-0 text-muted-foreground/30 hover:text-muted-foreground/70 cursor-grab transition-colors" onMouseDown={(e) => e.stopPropagation()} />
+                <GripVertical size={12} className="shrink-0 text-muted-foreground hover:text-muted-foreground cursor-grab transition-colors" onMouseDown={(e) => e.stopPropagation()} />
                 {/* Tier color strip */}
                 <div className="w-1 self-stretch rounded-full shrink-0" style={{ background: tierColor }} />
 
@@ -398,21 +398,21 @@ export default function FormsPage() {
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="text-sm font-display font-bold">{form.name}</span>
                     {active && (
-                      <span className="text-[8px] font-mono text-primary border border-primary/30 rounded px-1.5 py-0.5 uppercase">
+                      <span className="text-xs font-mono text-primary border border-primary/30 rounded px-1.5 py-0.5 uppercase">
                         Active
                       </span>
                     )}
                     {!form.unlocked && (
-                      <span className="text-[8px] font-mono text-muted-foreground border border-border/50 rounded px-1.5 py-0.5 uppercase">
+                      <span className="text-xs font-mono text-muted-foreground border border-border/50 rounded px-1.5 py-0.5 uppercase">
                         Locked
                       </span>
                     )}
                   </div>
                   <div className="flex items-center gap-3 mt-0.5 flex-wrap">
-                    <span className="text-[9px] font-mono" style={{ color: tierColor }}>{form.tier}</span>
-                    <span className="text-[9px] font-mono text-muted-foreground">BPM: {form.bpm_range}</span>
-                    <span className="text-[9px] font-mono text-muted-foreground">{form.energy}</span>
-                    <span className="text-[9px] font-mono text-muted-foreground hidden sm:inline">{form.jjk_grade}</span>
+                    <span className="text-xs font-mono" style={{ color: tierColor }}>{form.tier}</span>
+                    <span className="text-xs font-mono text-muted-foreground">BPM: {form.bpm_range}</span>
+                    <span className="text-xs font-mono text-muted-foreground">{form.energy}</span>
+                    <span className="text-xs font-mono text-muted-foreground hidden sm:inline">{form.jjk_grade}</span>
                   </div>
                 </div>
 
@@ -421,7 +421,7 @@ export default function FormsPage() {
                   {form.unlocked && !active && (
                     <button
                       onClick={() => handleActivate(form)}
-                      className="px-2 py-1 text-[9px] font-mono text-primary border border-primary/30 rounded hover:bg-primary/10 transition-all"
+                      className="px-2 py-1 text-xs font-mono text-primary border border-primary/30 rounded hover:bg-primary/10 transition-all"
                     >
                       Activate
                     </button>
@@ -457,7 +457,7 @@ export default function FormsPage() {
                         {/* Active buffs */}
                         {form.active_buffs.length > 0 && (
                           <div>
-                            <p className="text-[9px] font-mono text-amber-400 uppercase mb-1.5">Active Buffs</p>
+                            <p className="text-xs font-mono text-amber-400 uppercase mb-1.5">Active Buffs</p>
                             {form.active_buffs.map((b, i) => (
                               <div key={i} className="flex justify-between text-xs">
                                 <span className="font-body text-muted-foreground">{b.label}</span>
@@ -469,7 +469,7 @@ export default function FormsPage() {
                         {/* Passive buffs */}
                         {form.passive_buffs.length > 0 && (
                           <div>
-                            <p className="text-[9px] font-mono text-blue-400 uppercase mb-1.5">Passive Buffs</p>
+                            <p className="text-xs font-mono text-blue-400 uppercase mb-1.5">Passive Buffs</p>
                             {form.passive_buffs.map((b, i) => (
                               <div key={i} className="flex justify-between text-xs">
                                 <span className="font-body text-muted-foreground">{b.label}</span>
@@ -483,7 +483,7 @@ export default function FormsPage() {
                       {/* Abilities */}
                       {form.abilities.length > 0 && (
                         <div>
-                          <p className="text-[9px] font-mono text-green-400 uppercase mb-1.5">Abilities</p>
+                          <p className="text-xs font-mono text-green-400 uppercase mb-1.5">Abilities</p>
                           <div className="space-y-1.5">
                             {form.abilities.map((a, i) => (
                               <div key={i} className="flex gap-2">
@@ -497,9 +497,9 @@ export default function FormsPage() {
 
                       {/* Meta */}
                       <div className="flex gap-4 pt-1 border-t border-border/30">
-                        <span className="text-[9px] font-mono text-muted-foreground">OP: {form.op_tier}</span>
-                        <span className="text-[9px] font-mono text-muted-foreground">JJK: {form.jjk_grade}</span>
-                        <span className="text-[9px] font-mono text-muted-foreground">Order: #{form.form_order}</span>
+                        <span className="text-xs font-mono text-muted-foreground">OP: {form.op_tier}</span>
+                        <span className="text-xs font-mono text-muted-foreground">JJK: {form.jjk_grade}</span>
+                        <span className="text-xs font-mono text-muted-foreground">Order: #{form.form_order}</span>
                       </div>
                     </div>
                   </motion.div>

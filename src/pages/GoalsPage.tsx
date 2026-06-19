@@ -12,7 +12,8 @@ import { supabase as _supabase } from "@/integrations/supabase/client";
 const supabase = _supabase as any;
 import { useAuth } from "@/contexts/AuthContext";
 import { useAppData } from "@/contexts/AppDataContext";
-import { PageHeader, HudCard, ProgressBar } from "@/components/SharedUI";
+import { PageHeader, HudCard, ProgressBar, FieldError, fieldClass } from "@/components/SharedUI";
+import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 
@@ -79,6 +80,7 @@ export function GoalsPage() {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [createForm, setCreateForm] = useState<CreateForm>({ objective: "", context: "" });
+  const [createErrors, setCreateErrors] = useState<{ objective?: string }>({});
   const [confirmDelete, setConfirmDelete] = useState<{ id: string; label: string } | null>(null);
 
   // ─── Fetch ─────────────────────────────────────────────────
@@ -108,7 +110,11 @@ export function GoalsPage() {
   // ─── Create goal ───────────────────────────────────────────
   async function handleCreate() {
     if (!user) return;
-    if (!createForm.objective.trim()) { toast.error("Objective is required"); return; }
+    if (!createForm.objective.trim()) {
+      setCreateErrors({ objective: "Objective is required" });
+      return;
+    }
+    setCreateErrors({});
     setSubmitting(true);
     const { data: newGoal, error } = await supabase
       .from("mavis_goals")
@@ -132,26 +138,34 @@ export function GoalsPage() {
     setGoals((prev) => [newGoal as MavisGoal, ...prev]);
     toast.success("Goal created — ask MAVIS to decompose it");
 
-    // Trigger MAVIS decomposition (non-blocking, best effort)
+    // Trigger MAVIS decomposition + chain building (non-blocking, best effort)
     try {
       const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string;
-      const ANON_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string;
       const session = await supabase.auth.getSession();
       if (session.data.session) {
+        const jwt = session.data.session.access_token;
+        // Decompose goal into quests/tasks
         fetch(`${SUPABASE_URL}/functions/v1/mavis-actions`, {
           method: "POST",
-          headers: {
-            Authorization: `Bearer ${session.data.session.access_token}`,
-            apikey: ANON_KEY,
-            "Content-Type": "application/json",
-          },
+          headers: { Authorization: `Bearer ${jwt}`, "Content-Type": "application/json" },
           body: JSON.stringify({
             action: { type: "goal", params: { objective: createForm.objective, context: createForm.context } },
           }),
         }).catch(() => undefined);
+        // Auto-link quest and skill chains for this user
+        fetch(`${SUPABASE_URL}/functions/v1/mavis-chain-builder`, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${jwt}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "auto_link_quest_chains", user_id: user.id }),
+        }).catch(() => undefined);
+        fetch(`${SUPABASE_URL}/functions/v1/mavis-chain-builder`, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${jwt}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "auto_link_skill_chains", user_id: user.id }),
+        }).catch(() => undefined);
       }
     } catch {
-      // Silently ignore — MAVIS decomposition is best-effort
+      // Silently ignore — agentic triggers are best-effort
     }
 
     setCreateForm({ objective: "", context: "" });
@@ -218,7 +232,7 @@ export function GoalsPage() {
           { label: "Decomposed", value: decomposedCount, color: "text-primary" },
         ].map((stat) => (
           <HudCard key={stat.label}>
-            <p className="text-[9px] font-mono text-muted-foreground uppercase tracking-widest mb-1">{stat.label}</p>
+            <p className="text-xs font-mono text-muted-foreground uppercase tracking-widest mb-1">{stat.label}</p>
             <p className={`text-2xl font-display font-bold ${stat.color}`}>{stat.value}</p>
           </HudCard>
         ))}
@@ -242,23 +256,27 @@ export function GoalsPage() {
               </div>
               <div className="space-y-2">
                 <div>
-                  <label className="text-[9px] font-mono text-muted-foreground block mb-0.5">Objective *</label>
+                  <label className="text-xs font-mono text-muted-foreground block mb-0.5">Objective *</label>
                   <textarea
                     value={createForm.objective}
-                    onChange={(e) => setCreateForm((f) => ({ ...f, objective: e.target.value }))}
+                    onChange={(e) => {
+                      setCreateForm((f) => ({ ...f, objective: e.target.value }));
+                      if (createErrors.objective) setCreateErrors({});
+                    }}
                     rows={3}
                     placeholder="What do you want to achieve?"
-                    className="w-full bg-muted/30 border border-border rounded px-3 py-2 text-sm font-mono focus:outline-none focus:border-primary/40 resize-none"
+                    className={fieldClass(!!createErrors.objective)}
                   />
+                  <FieldError message={createErrors.objective} />
                 </div>
                 <div>
-                  <label className="text-[9px] font-mono text-muted-foreground block mb-0.5">Context (optional)</label>
+                  <label className="text-xs font-mono text-muted-foreground block mb-0.5">Context (optional)</label>
                   <textarea
                     value={createForm.context}
                     onChange={(e) => setCreateForm((f) => ({ ...f, context: e.target.value }))}
                     rows={2}
                     placeholder="Additional context for MAVIS..."
-                    className="w-full bg-muted/30 border border-border rounded px-3 py-2 text-xs font-mono focus:outline-none focus:border-primary/40 resize-none"
+                    className={fieldClass()}
                   />
                 </div>
                 <div className="flex justify-end">
@@ -296,8 +314,23 @@ export function GoalsPage() {
 
       {/* ── Goal Cards ───────────────────────────────────────── */}
       {loading ? (
-        <div className="flex justify-center py-10">
-          <Loader2 className="animate-spin text-primary" size={24} />
+        <div className="space-y-3">
+          {[...Array(4)].map((_, i) => (
+            <div key={i} className="hud-border rounded-lg p-4 space-y-3">
+              <div className="flex items-start justify-between gap-3">
+                <div className="space-y-2 flex-1">
+                  <Skeleton className="h-4 w-3/4" />
+                  <Skeleton className="h-3 w-1/2" />
+                </div>
+                <Skeleton className="h-6 w-16 rounded-full shrink-0" />
+              </div>
+              <Skeleton className="h-1.5 w-full rounded-full" />
+              <div className="flex gap-2">
+                <Skeleton className="h-3 w-20" />
+                <Skeleton className="h-3 w-16" />
+              </div>
+            </div>
+          ))}
         </div>
       ) : filteredGoals.length === 0 ? (
         <HudCard>
@@ -332,16 +365,16 @@ export function GoalsPage() {
                   <div className="flex items-start gap-3">
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 flex-wrap mb-1">
-                        <span className={`text-[9px] font-mono px-1.5 py-0.5 rounded border ${STATUS_BADGE[goal.status]}`}>
+                        <span className={`text-xs font-mono px-1.5 py-0.5 rounded border ${STATUS_BADGE[goal.status]}`}>
                           {goal.status}
                         </span>
                         {goal.decomposed && (
-                          <span className="text-[9px] font-mono px-1.5 py-0.5 rounded border bg-purple-900/40 text-purple-300 border-purple-700">
+                          <span className="text-xs font-mono px-1.5 py-0.5 rounded border bg-purple-900/40 text-purple-300 border-purple-700">
                             Decomposed
                           </span>
                         )}
                         {(goal.quest_ids?.length ?? 0) > 0 && (
-                          <span className="flex items-center gap-0.5 text-[9px] font-mono px-1.5 py-0.5 rounded border bg-amber-900/40 text-amber-300 border-amber-700">
+                          <span className="flex items-center gap-0.5 text-xs font-mono px-1.5 py-0.5 rounded border bg-amber-900/40 text-amber-300 border-amber-700">
                             <Link2 size={8} /> {goal.quest_ids!.length} Quest{goal.quest_ids!.length !== 1 ? "s" : ""}
                           </span>
                         )}
@@ -350,7 +383,7 @@ export function GoalsPage() {
                       {goal.context && (
                         <p className="text-xs text-muted-foreground mt-1 line-clamp-2">{goal.context}</p>
                       )}
-                      <p className="text-[9px] font-mono text-muted-foreground mt-1">{fmtDate(goal.created_at)}</p>
+                      <p className="text-xs font-mono text-muted-foreground mt-1">{fmtDate(goal.created_at)}</p>
                     </div>
 
                     <div className="flex flex-col items-end gap-2 shrink-0">
@@ -376,18 +409,18 @@ export function GoalsPage() {
                         <div className="mt-4 pt-4 border-t border-border/40 space-y-4">
                           {/* Linked Quests */}
                           <div>
-                            <p className="text-[9px] font-mono text-muted-foreground uppercase tracking-widest mb-2">
+                            <p className="text-xs font-mono text-muted-foreground uppercase tracking-widest mb-2">
                               Linked Quests ({linkedQuests.length})
                             </p>
                             {linkedQuests.length === 0 ? (
-                              <p className="text-[10px] font-mono text-muted-foreground italic">No linked quests</p>
+                              <p className="text-xs font-mono text-muted-foreground italic">No linked quests</p>
                             ) : (
                               <div className="space-y-2">
                                 {linkedQuests.map((q) => (
                                   <div key={q.id} className="p-2 rounded bg-muted/20 border border-border/40">
                                     <div className="flex items-center justify-between mb-1">
                                       <span className="text-xs font-mono text-foreground">{q.title}</span>
-                                      <span className="text-[9px] font-mono text-muted-foreground capitalize">{q.status}</span>
+                                      <span className="text-xs font-mono text-muted-foreground capitalize">{q.status}</span>
                                     </div>
                                     <ProgressBar
                                       value={q.progress_current}
@@ -403,11 +436,11 @@ export function GoalsPage() {
 
                           {/* Linked Tasks */}
                           <div>
-                            <p className="text-[9px] font-mono text-muted-foreground uppercase tracking-widest mb-2">
+                            <p className="text-xs font-mono text-muted-foreground uppercase tracking-widest mb-2">
                               Linked Tasks ({linkedTasks.length})
                             </p>
                             {linkedTasks.length === 0 ? (
-                              <p className="text-[10px] font-mono text-muted-foreground italic">
+                              <p className="text-xs font-mono text-muted-foreground italic">
                                 No linked tasks yet — ask MAVIS to decompose this goal
                               </p>
                             ) : (
@@ -416,7 +449,7 @@ export function GoalsPage() {
                                   <div key={t.id} className="flex items-center gap-2 p-2 rounded bg-muted/20 border border-border/40">
                                     <CheckCircle2 size={11} className={t.status === "completed" ? "text-green-400" : "text-muted-foreground"} />
                                     <span className="text-xs font-mono text-foreground flex-1 truncate">{t.title}</span>
-                                    <span className="text-[9px] font-mono text-muted-foreground capitalize">{t.status}</span>
+                                    <span className="text-xs font-mono text-muted-foreground capitalize">{t.status}</span>
                                   </div>
                                 ))}
                               </div>

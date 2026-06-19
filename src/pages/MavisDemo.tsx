@@ -584,7 +584,7 @@ export default function MavisDemo() {
           ? await streamAgentMessage(content, systemPrompt, history, opts, onToken, () => {}, abortController.signal)
           : chatMode === "RESEARCH"
           ? await streamResearchMessage(content, opts, onToken, abortController.signal)
-          : await streamChatMessage(content, systemPrompt, history, opts, onToken, abortController.signal);
+          : await streamChatMessage(content, systemPrompt, history, opts, onToken, () => {}, abortController.signal);
 
       if (cancelledRef.current) {
         setChatMessages((prev: any[]) => prev.filter((m: any) => m.id !== sid));
@@ -795,7 +795,7 @@ export default function MavisDemo() {
           </div>
           <div>
             <span className="text-amber-400 font-display text-sm font-bold tracking-[0.3em]">MAVIS</span>
-            <span className="text-[10px] text-white/20 tracking-[0.15em] ml-3 hidden sm:inline">
+            <span className="text-xs text-white/20 tracking-[0.15em] ml-3 hidden sm:inline">
               MASTER ARTIFICIAL VANTARA INTELLIGENCE SYSTEM
             </span>
           </div>
@@ -805,7 +805,7 @@ export default function MavisDemo() {
         <div className="relative">
           <button
             onClick={() => setShowModes(v => !v)}
-            className={`flex items-center gap-1.5 text-[10px] font-mono font-medium border rounded px-2 py-1 transition-all ${currentMode.color} border-current/30 hover:bg-current/5`}
+            className={`flex items-center gap-1.5 text-xs font-mono font-medium border rounded px-2 py-1 transition-all ${currentMode.color} border-current/30 hover:bg-current/5`}
           >
             <ModeIcon size={10} />
             {currentMode.label}
@@ -823,7 +823,7 @@ export default function MavisDemo() {
                   const Icon = m.icon;
                   return (
                     <button key={m.id} onClick={() => { setChatMode(m.id); setShowModes(false); }}
-                      className={`flex items-center gap-1.5 text-[10px] font-mono px-3 py-1.5 hover:bg-white/5 transition-colors ${m.color} ${chatMode === m.id ? "opacity-100" : "opacity-50"}`}
+                      className={`flex items-center gap-1.5 text-xs font-mono px-3 py-1.5 hover:bg-white/5 transition-colors ${m.color} ${chatMode === m.id ? "opacity-100" : "opacity-50"}`}
                     >
                       <Icon size={9} />{m.label}
                     </button>
@@ -836,7 +836,7 @@ export default function MavisDemo() {
 
         {/* Action status */}
         {actionStatus && (
-          <span className="text-[10px] font-mono text-emerald-400/80 ml-1">{actionStatus}</span>
+          <span className="text-xs font-mono text-emerald-400/80 ml-1">{actionStatus}</span>
         )}
 
         <div className="flex-1" />
@@ -846,7 +846,7 @@ export default function MavisDemo() {
           onClick={handleOmniSync}
           disabled={isSyncing}
           title="OmniSync — archive snapshot"
-          className="flex items-center gap-1 text-[10px] font-mono text-cyan-400/85 hover:text-cyan-300 border border-cyan-400/25 hover:border-cyan-400/55 rounded px-2 py-1 transition-all disabled:opacity-40"
+          className="flex items-center gap-1 text-xs font-mono text-cyan-400/85 hover:text-cyan-300 border border-cyan-400/25 hover:border-cyan-400/55 rounded px-2 py-1 transition-all disabled:opacity-40"
         >
           {isSyncing
             ? <span className="w-2.5 h-2.5 rounded-full border-2 border-cyan-400 border-t-transparent animate-spin block" />
@@ -856,7 +856,7 @@ export default function MavisDemo() {
         <button
           onClick={clearChat}
           title="Clear thread (archives to memory)"
-          className="flex items-center gap-1 text-[10px] font-mono text-white/45 hover:text-red-400 border border-white/10 hover:border-red-400/40 rounded px-2 py-1 transition-all ml-2"
+          className="flex items-center gap-1 text-xs font-mono text-white/45 hover:text-red-400 border border-white/10 hover:border-red-400/40 rounded px-2 py-1 transition-all ml-2"
         >
           <Trash2 size={10} />
           <span className="hidden sm:inline tracking-widest">CLEAR</span>
@@ -865,12 +865,12 @@ export default function MavisDemo() {
 
         {/* Clock */}
         <div className="text-center hidden md:block">
-          <p className="text-[9px] text-white/30 tracking-widest uppercase">{dateStr}</p>
-          <p className="text-amber-400/80 text-[11px] tracking-widest tabular-nums">{timeStr}</p>
+          <p className="text-xs text-white/30 tracking-widest uppercase">{dateStr}</p>
+          <p className="text-amber-400/80 text-xs tracking-widest tabular-nums">{timeStr}</p>
         </div>
 
         {/* Status */}
-        <div className="flex items-center gap-1.5 text-[10px] ml-3">
+        <div className="flex items-center gap-1.5 text-xs ml-3">
           <div className={`w-1.5 h-1.5 rounded-full ${isLoading ? "bg-amber-400 animate-pulse" : "bg-emerald-400"}`} />
           <span className={`hidden sm:block tracking-widest ${isLoading ? "text-amber-400/80" : "text-emerald-400/80"}`}>
             {isLoading ? (streamingId ? "TRANSMITTING" : "PROCESSING") : "ONLINE"}
@@ -888,8 +888,8 @@ export default function MavisDemo() {
           {chatMessages.filter((m: any) => m.id !== "init").length === 0 && !isLoading ? (
             <div className="flex-1 flex flex-col items-center justify-center gap-2 text-center">
               <div className="w-10 h-[1px] bg-amber-400/20" />
-              <p className="text-white/22 text-[10px] tracking-[0.35em] uppercase">Sovereign Intelligence Standing By</p>
-              <p className="text-white/12 text-[9px] tracking-widest">Type a message or press the mic to begin</p>
+              <p className="text-white/22 text-xs tracking-[0.35em] uppercase">Sovereign Intelligence Standing By</p>
+              <p className="text-white/12 text-xs tracking-widest">Type a message or press the mic to begin</p>
               <div className="w-10 h-[1px] bg-amber-400/20" />
             </div>
           ) : (
@@ -904,7 +904,7 @@ export default function MavisDemo() {
                       animate={{ opacity: [0.15, 1, 0.15], scale: [0.7, 1.3, 0.7] }}
                       transition={{ duration: 0.85, repeat: Infinity, delay: i * 0.17 }} />
                   ))}
-                  <span className="text-white/25 text-[10px] tracking-[0.3em] ml-1 animate-pulse">PROCESSING</span>
+                  <span className="text-white/25 text-xs tracking-[0.3em] ml-1 animate-pulse">PROCESSING</span>
                 </div>
               )}
             </div>
@@ -982,7 +982,7 @@ export default function MavisDemo() {
               </button>
             )}
           </div>
-          <p className="text-[9px] text-white/10 text-center tracking-[0.3em] uppercase mt-1">
+          <p className="text-xs text-white/10 text-center tracking-[0.3em] uppercase mt-1">
             Enter to transmit · Shift+Enter for newline
           </p>
         </div>
@@ -990,7 +990,7 @@ export default function MavisDemo() {
 
       {/* ── FOOTER ─────────────────────────────────────────── */}
       <footer
-        className="relative z-10 flex items-center justify-between px-4 sm:px-6 py-2 border-t text-[9px] tracking-widest"
+        className="relative z-10 flex items-center justify-between px-4 sm:px-6 py-2 border-t text-xs tracking-widest"
         style={{ borderColor: "rgba(250,189,47,0.08)", background: "rgba(0,0,0,0.62)" }}
       >
         <div className="flex items-center gap-3 sm:gap-5 text-white/25">
@@ -1000,7 +1000,7 @@ export default function MavisDemo() {
           <span className="hidden md:inline">NET <span className="text-emerald-400/50">STABLE</span></span>
           <span className="hidden lg:inline">SYNC <span className="text-amber-400/45">{Math.round(stats.sync)}%</span></span>
         </div>
-        <span className="text-white/10 tracking-[0.25em] text-[8px] uppercase">Powered by Vantara</span>
+        <span className="text-white/10 tracking-[0.25em] text-xs uppercase">Powered by Vantara</span>
       </footer>
 
       {/* ── Voice overlay ──────────────────────────────────── */}

@@ -829,7 +829,7 @@ const handleCreateProduct: TaskHandler = async (task) => {
     method: "POST",
     headers: { "Content-Type": "application/json", "Authorization": `Bearer ${SERVICE_KEY}` },
     body: JSON.stringify({ ...flat, userId: task.user_id }),
-    signal: AbortSignal.timeout(30000),
+    signal: AbortSignal.timeout(140_000), // product creator: Claude generation + PDF + upload + Gumroad can take 60-120s
   });
 
   const data = await res.json();
@@ -1052,6 +1052,1023 @@ ${context}`,
   }
 };
 
+// client_welcome_sequence — fires when a client pays a Stripe invoice.
+// Two separate tasks are queued by mavis-stripe-webhook with staggered scheduled_at:
+//   phase="thankyou"   → T+4 min: warm thank-you email
+//   phase="onboarding" → T+7 min: next-steps email with Calendly booking link
+const handleClientWelcomeSequence: TaskHandler = async (task) => {
+  const p = extractPayload(task.payload as Record<string, unknown>);
+  const phase         = String(p.phase ?? "thankyou");
+  const email         = String(p.customer_email ?? "");
+  const fullName      = String(p.customer_name  ?? "there");
+  const firstName     = fullName.split(/\s+/)[0] || fullName;
+  const amountPaid    = Number(p.amount_paid ?? 0);
+  const calendlyUrl   = Deno.env.get("OPERATOR_CALENDLY_URL") ?? "";
+
+  if (!email) return { success: false, error: "client_welcome_sequence: no customer_email in payload" };
+
+  const amountStr = amountPaid > 0 ? `$${amountPaid.toFixed(2)}` : "your invoice";
+
+  let subject: string;
+  let body: string;
+
+  if (phase === "thankyou") {
+    subject = "Thank you & welcome aboard";
+    body = `Hi ${firstName},
+<br><br>
+Thanks for taking care of ${amountStr} — I really appreciate it.
+<br><br>
+I'm looking forward to working together. I'll be sending over onboarding details in just a moment so we can hit the ground running.
+<br><br>
+Talk soon!`;
+  } else {
+    const calendlyLine = calendlyUrl
+      ? `<a href="${calendlyUrl}">Do you mind booking a slot here?</a><br><br>Ideally in the next 72 hours, but I'm flexible — let me know what works for you.`
+      : `Reply to this email and we'll find a time that works for you.`;
+
+    subject = "Next steps — let's book your onboarding call";
+    body = `Hi ${firstName},
+<br><br>
+Just following up on my last email. Our next step is a quick onboarding call.
+<br><br>
+These usually take about 20 minutes via screenshare — it lets us go over timelines, expectations, any 2FA or access logistics, and answer any last-minute questions before we kick off.
+<br><br>
+${calendlyLine}
+<br><br>
+Thank you,<br>
+Calvin`;
+  }
+
+  const res = await callFunction("mavis-email-send", {
+    userId:  task.user_id,
+    to:      email,
+    subject,
+    body,
+    source:  `client_welcome_${phase}`,
+  });
+
+  if (!res.ok) {
+    const d = await res.json().catch(() => ({})) as Record<string, unknown>;
+    return { success: false, error: String((d as any).error ?? `email-send returned ${res.status}`) };
+  }
+
+  await sendTelegram(
+    `📧 *Client Welcome — ${phase}*\nTo: ${email} (${fullName})\nSubject: ${subject}`
+  );
+
+  return { success: true, output: { phase, to: email, subject } };
+};
+
+// nora_content_machine — end-to-end Nora Vale content pipeline.
+// Phase 1 (no fal_request_id): research topic → write script + captions → submit to fal.ai SadTalker → markContinue
+// Phase 2 (fal_request_id set): poll fal.ai → when video ready, post to Twitter / LinkedIn / TikTok → markComplete
+// Falls back to text-only posting when NORA_AVATAR_IMAGE_URL is not configured.
+const handleNoraContentMachine: TaskHandler = async (task) => {
+  const p = task.payload as Record<string, unknown>;
+  const topic = String(p.topic ?? "AI automation for founders");
+  const platforms = Array.isArray(p.platforms)
+    ? (p.platforms as string[])
+    : ["twitter", "linkedin", "tiktok"];
+  const avatarImageUrl = String(
+    p.avatar_image_url ?? Deno.env.get("NORA_AVATAR_IMAGE_URL") ?? ""
+  );
+  const voiceId = String(
+    p.voice_id ?? Deno.env.get("NORA_VOICE_ID") ?? "JBFqnCBsd6RMkjVDRZzb"
+  );
+
+  // ── PHASE 2: poll fal.ai for video completion ────────────────
+  if (p.fal_request_id) {
+    const pollAttempts = Number(p.poll_attempts ?? 0) + 1;
+    if (pollAttempts > 8) {
+      return { success: false, error: "fal.ai video generation timed out after 8 poll attempts (~2 hours)" };
+    }
+
+    const pollRes = await callFunction("mavis-avatar-video", {
+      action: "poll",
+      request_id: String(p.fal_request_id),
+    });
+    const pollData = await pollRes.json().catch(() => ({})) as Record<string, unknown>;
+
+    if (!pollRes.ok || pollData.error) {
+      return { success: false, error: String(pollData.error ?? `avatar-video poll returned ${pollRes.status}`) };
+    }
+
+    if (pollData.status !== "complete") {
+      await markContinue(task.id, { ...p, poll_attempts: pollAttempts });
+      return { success: true, continuing: true, output: { phase: "polling", attempt: pollAttempts } };
+    }
+
+    // Video ready — dispatch to all requested platforms
+    const videoUrl = String(pollData.url);
+    const captions = (p.captions ?? {}) as Record<string, string>;
+    const results: Record<string, unknown> = { video_url: videoUrl };
+
+    if (platforms.includes("twitter")) {
+      const r = await callFunction("mavis-nora-post", {
+        userId: task.user_id,
+        content: captions.twitter ?? topic,
+      });
+      results.twitter = r.ok ? "posted" : `failed:${r.status}`;
+    }
+
+    if (platforms.includes("linkedin")) {
+      const r = await callFunction("mavis-nora-linkedin", {
+        user_id: task.user_id,
+        content: captions.linkedin ?? captions.twitter ?? topic,
+      });
+      results.linkedin = r.ok ? "posted" : `failed:${r.status}`;
+    }
+
+    if (platforms.includes("tiktok")) {
+      const r = await callFunction("mavis-nora-tiktok", {
+        user_id: task.user_id,
+        content: captions.tiktok ?? topic,
+        video_url: videoUrl,
+      });
+      results.tiktok = r.ok ? "posted" : `failed:${r.status}`;
+    }
+
+    if (platforms.includes("instagram")) {
+      const r = await callFunction("mavis-nora-instagram", {
+        user_id: task.user_id,
+        image_url: videoUrl,
+        caption: captions.instagram,
+      });
+      results.instagram = r.ok ? "posted" : `failed:${r.status}`;
+    }
+
+    await sendTelegram(
+      `🎬 *Nora Content Machine complete*\nTopic: ${topic}\n` +
+      Object.entries(results)
+        .filter(([k]) => k !== "video_url")
+        .map(([k, v]) => `• ${k}: ${v}`)
+        .join("\n")
+    );
+
+    return { success: true, output: results };
+  }
+
+  // ── PHASE 1: research → write → submit ──────────────────────
+
+  // Optional web research via Tavily
+  let researchContext = "";
+  const tavilyKey = Deno.env.get("TAVILY_API_KEY");
+  if (tavilyKey) {
+    try {
+      const sr = await fetch("https://api.tavily.com/search", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ api_key: tavilyKey, query: topic, max_results: 4, search_depth: "basic" }),
+        signal: AbortSignal.timeout(10000),
+      });
+      if (sr.ok) {
+        const sd = await sr.json() as Record<string, unknown>;
+        researchContext = ((sd.results ?? []) as Array<{ title: string; content: string }>)
+          .slice(0, 4)
+          .map((r) => `• ${r.title}: ${String(r.content).slice(0, 200)}`)
+          .join("\n");
+      }
+    } catch { /* research is non-critical */ }
+  }
+
+  // Write script + platform captions
+  const rawContent = await callClaude(
+    `You are Nora Vale — tech-forward business strategist and AI automation expert. Direct, insight-dense, no fluff. First person. No stage directions.
+
+Output ONLY a JSON object (no markdown, no preamble):
+{
+  "script": "...",      // 60-90 second spoken script — pure speech
+  "twitter": "...",    // 240 chars max. Strong hook + insight. 2-3 hashtags.
+  "linkedin": "...",   // 300-500 chars. Story opener, insight, CTA.
+  "tiktok": "...",     // 130 chars max. High energy. 3-5 hashtags.
+  "instagram": "..."   // 200 chars. Visual-forward. 5-7 hashtags.
+}`,
+    `Topic: ${topic}${researchContext ? `\n\nResearch:\n${researchContext}` : ""}\n\nOutput only the JSON object.`,
+  );
+
+  let script = "";
+  let captions: Record<string, string> = {};
+  try {
+    const m = rawContent.match(/\{[\s\S]*\}/);
+    if (m) {
+      const parsed = JSON.parse(m[0]);
+      script = String(parsed.script ?? "");
+      captions = {
+        twitter:   String(parsed.twitter   ?? ""),
+        linkedin:  String(parsed.linkedin  ?? ""),
+        tiktok:    String(parsed.tiktok    ?? ""),
+        instagram: String(parsed.instagram ?? ""),
+      };
+    }
+  } catch { /* fall back */ }
+
+  if (!script) {
+    script = rawContent.slice(0, 800);
+    captions = {
+      twitter:   `${topic} — ${script.slice(0, 180)} #AI #automation`,
+      linkedin:  script.slice(0, 450),
+      tiktok:    `${topic} #AI #automation #founder`,
+      instagram: `${topic} #AI #business #founder`,
+    };
+  }
+
+  // If no avatar image configured — post text-only and finish
+  if (!avatarImageUrl) {
+    const results: Record<string, unknown> = { mode: "text-only" };
+
+    if (platforms.includes("twitter")) {
+      const r = await callFunction("mavis-nora-post", { userId: task.user_id, content: captions.twitter });
+      results.twitter = r.ok ? "posted" : `failed:${r.status}`;
+    }
+    if (platforms.includes("linkedin")) {
+      const r = await callFunction("mavis-nora-linkedin", { user_id: task.user_id, content: captions.linkedin });
+      results.linkedin = r.ok ? "posted" : `failed:${r.status}`;
+    }
+    if (platforms.includes("tiktok")) {
+      results.tiktok = "skipped — no video (set NORA_AVATAR_IMAGE_URL to enable)";
+    }
+
+    await sendTelegram(
+      `📝 *Nora Content (text-only)*\nTopic: ${topic}\n` +
+      Object.entries(results).map(([k, v]) => `• ${k}: ${v}`).join("\n") +
+      `\n\n_Set NORA_AVATAR_IMAGE_URL to enable avatar video._`
+    );
+    return { success: true, output: results };
+  }
+
+  // Submit avatar video job to fal.ai via mavis-avatar-video
+  const submitRes = await callFunction("mavis-avatar-video", {
+    source_image_url: avatarImageUrl,
+    text: script,
+    voice_id: voiceId,
+    still_mode: false,
+    use_enhancer: true,
+  });
+  const submitData = await submitRes.json().catch(() => ({})) as Record<string, unknown>;
+
+  if (!submitRes.ok || submitData.error) {
+    // fal.ai failed — fall back to text-only immediately
+    const results: Record<string, unknown> = { mode: "text-only-fallback", reason: String(submitData.error ?? `avatar-video returned ${submitRes.status}`) };
+    if (platforms.includes("twitter")) {
+      const r = await callFunction("mavis-nora-post", { userId: task.user_id, content: captions.twitter });
+      results.twitter = r.ok ? "posted" : `failed:${r.status}`;
+    }
+    if (platforms.includes("linkedin")) {
+      const r = await callFunction("mavis-nora-linkedin", { user_id: task.user_id, content: captions.linkedin });
+      results.linkedin = r.ok ? "posted" : `failed:${r.status}`;
+    }
+    return { success: true, output: results };
+  }
+
+  // Video submitted — queue Phase 2 for next cron cycle
+  await markContinue(task.id, {
+    ...p,
+    fal_request_id: String(submitData.request_id),
+    script,
+    captions,
+    poll_attempts: 0,
+  });
+
+  return {
+    success: true,
+    continuing: true,
+    output: { phase: "video_submitted", request_id: submitData.request_id, topic },
+  };
+};
+
+// google_agent — delegates any Google API operation to mavis-google-agent.
+// Useful for async operations like bulk calendar sync, Drive uploads, Gmail sends.
+// Payload: { action: "...", ...params }
+const handleGoogleAgent: TaskHandler = async (task) => {
+  const p = extractPayload(task.payload as Record<string, unknown>);
+  const action = String(p.action ?? "");
+  if (!action) return { success: false, error: "google_agent task missing 'action' in payload" };
+
+  const res = await callFunction("mavis-google-agent", {
+    userId: task.user_id,
+    ...p,
+  });
+
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const errMsg = (data as any).error ?? `mavis-google-agent returned ${res.status}`;
+    // 503 means Google not connected — not a fatal task failure, mark as failed with clear message
+    return { success: false, error: errMsg };
+  }
+  return { success: true, output: data };
+};
+
+// Generic agent task handler factory — for slack, notion, airtable, twilio, calendly
+function makeAgentHandler(fnName: string): TaskHandler {
+  return async (task) => {
+    const p = extractPayload(task.payload as Record<string, unknown>);
+    const action = String(p.action ?? "");
+    if (!action) return { success: false, error: `${fnName} task missing 'action' in payload` };
+
+    const res  = await callFunction(fnName, { userId: task.user_id, ...p });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) return { success: false, error: (data as any).error ?? `${fnName} returned ${res.status}` };
+    return { success: true, output: data };
+  };
+}
+
+// weekly_reflection — MAVIS self-improvement loop
+const handleWeeklyReflection: TaskHandler = async (task) => {
+  const res  = await callFunction("mavis-reflection-agent", { userId: task.user_id, action: "run_reflection" });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) return { success: false, error: (data as any).error ?? `reflection-agent returned ${res.status}` };
+  return { success: true, output: { summary: (data as any).report?.slice(0, 500) } };
+};
+
+// social_content_pipeline — read ideas from Google Sheets, generate posts,
+// route to the right platform, update sheet with status
+const handleSocialContentPipeline: TaskHandler = async (task) => {
+  const p             = extractPayload(task.payload as Record<string, unknown>);
+  const spreadsheetId = String(p.spreadsheet_id ?? "");
+  const sheetName     = String(p.sheet_name ?? "Sheet1");
+  const ideaCol       = String(p.idea_column ?? "Idea");
+  const platformCol   = String(p.platform_column ?? "Platform");
+  const statusCol     = String(p.status_column ?? "Status");
+  const limitN        = Math.min(Number(p.limit ?? 10), 25);
+  const channelMap    = (p.channel_map ?? {}) as Record<string, string>; // { "Discord": "123456789" }
+
+  if (!spreadsheetId) return { success: false, error: "spreadsheet_id required" };
+
+  // Step 1: Read all rows from the sheet
+  const sheetsRes = await callFunction("mavis-sheets-agent", {
+    userId:         task.user_id,
+    action:         "search_rows",
+    spreadsheet_id: spreadsheetId,
+    sheet_name:     sheetName,
+    column:         statusCol,
+    value:          "",            // empty status = not yet posted
+    limit:          limitN,
+  });
+  const sheetsData = await sheetsRes.json().catch(() => ({}));
+
+  let rows: any[] = (sheetsData as any).rows ?? [];
+  // Also include rows that literally don't have a Status column filled
+  if (!rows.length) {
+    // Fall back: get all rows, filter client-side
+    const allRes = await callFunction("mavis-sheets-agent", {
+      userId:         task.user_id,
+      action:         "get_range",
+      spreadsheet_id: spreadsheetId,
+      range:          `${sheetName}!A1:Z`,
+    });
+    const allData = await allRes.json().catch(() => ({}));
+    const values: string[][] = (allData as any).values ?? [];
+    if (values.length > 1) {
+      const headers = values[0];
+      const statusIdx  = headers.findIndex((h: string) => h.toLowerCase() === statusCol.toLowerCase());
+      const platformIdx = headers.findIndex((h: string) => h.toLowerCase() === platformCol.toLowerCase());
+      const ideaIdx    = headers.findIndex((h: string) => h.toLowerCase() === ideaCol.toLowerCase());
+      rows = values.slice(1)
+        .map((row, i) => {
+          const obj: Record<string, string> = { _row_number: String(i + 2) };
+          headers.forEach((h: string, hi: number) => { if (h) obj[h] = row[hi] ?? ""; });
+          return obj;
+        })
+        .filter(row => !row[statusCol] || row[statusCol].trim() === "")
+        .filter(row => row[platformCol] && row[ideaCol])
+        .slice(0, limitN);
+    }
+  }
+
+  if (!rows.length) return { success: true, output: { message: "No unposted rows found", processed: 0 } };
+
+  // Platform → agent routing
+  const PLATFORM_ROUTES: Record<string, { fn: string; actionKey: string; textKey: string; extraParams?: (row: any) => Record<string, unknown> }> = {
+    twitter:   { fn: "mavis-twitter-agent",  actionKey: "post_tweet",    textKey: "text" },
+    x:         { fn: "mavis-twitter-agent",  actionKey: "post_tweet",    textKey: "text" },
+    discord:   { fn: "mavis-discord-agent",  actionKey: "send_message",  textKey: "content",
+                 extraParams: (row) => ({ channel_id: channelMap[row[platformCol]] ?? channelMap.discord ?? "" }) },
+    slack:     { fn: "mavis-slack-agent",    actionKey: "send_message",  textKey: "text",
+                 extraParams: (row) => ({ channel: channelMap[row[platformCol]] ?? channelMap.slack ?? "#general" }) },
+    beehiiv:   { fn: "mavis-beehiiv-agent",  actionKey: "create_post",   textKey: "content",
+                 extraParams: (row) => ({ title: row[ideaCol]?.slice(0, 80) }) },
+    newsletter:{ fn: "mavis-beehiiv-agent",  actionKey: "create_post",   textKey: "content",
+                 extraParams: (row) => ({ title: row[ideaCol]?.slice(0, 80) }) },
+    telegram:  { fn: "mavis-telegram-agent", actionKey: "send_message",  textKey: "text" },
+  };
+
+  const results: any[] = [];
+  let posted = 0;
+
+  for (const row of rows) {
+    const platform = String(row[platformCol] ?? "").toLowerCase().trim();
+    const idea     = String(row[ideaCol] ?? "").trim();
+    const rowNum   = Number(row._row_number ?? 2);
+
+    if (!platform || !idea) continue;
+
+    // Step 2: Generate platform-specific post with Claude
+    let generatedText = "";
+    const claudeRes = await callFunction("mavis-chat", {
+      userId:   task.user_id,
+      messages: [{
+        role:    "user",
+        content: `Write a ${platform} post based on this idea: "${idea}". Platform: ${platform}. Keep it engaging and concise. Return ONLY the post text, nothing else.${platform === "twitter" || platform === "x" ? " Max 280 characters." : ""}`,
+      }],
+    }).catch(() => null);
+
+    if (claudeRes) {
+      const chatData = await claudeRes.json().catch(() => ({}));
+      generatedText = (chatData as any).reply ?? (chatData as any).message ?? (chatData as any).text ?? "";
+    }
+
+    if (!generatedText) {
+      // Fallback: use idea directly
+      generatedText = idea;
+    }
+
+    // Step 3: Route to platform
+    const route = PLATFORM_ROUTES[platform];
+    let postResult: any = null;
+    let postError: string | null = null;
+
+    if (route) {
+      const extraP = route.extraParams ? route.extraParams(row) : {};
+      const postRes = await callFunction(route.fn, {
+        userId: task.user_id,
+        action: route.actionKey,
+        [route.textKey]: generatedText,
+        ...extraP,
+      });
+      const postData = await postRes.json().catch(() => ({}));
+      if (!postRes.ok) {
+        postError = (postData as any).error ?? `${route.fn} returned ${postRes.status}`;
+      } else {
+        postResult = postData;
+        posted++;
+      }
+    } else {
+      postError = `Unknown platform: ${platform}. Add to channel_map or extend PLATFORM_ROUTES.`;
+    }
+
+    // Step 4: Update sheet row with status
+    const status    = postError ? `Error: ${postError.slice(0, 50)}` : "Posted";
+    const timestamp = new Date().toISOString();
+
+    await callFunction("mavis-sheets-agent", {
+      userId:         task.user_id,
+      action:         "update_row",
+      spreadsheet_id: spreadsheetId,
+      sheet_name:     sheetName,
+      row_number:     rowNum,
+      values:         { ...row, [statusCol]: status, Generated_Post: generatedText, Posted_At: timestamp },
+    }).catch(() => {});
+
+    results.push({ row: rowNum, platform, idea: idea.slice(0, 60), status, post_id: postResult?.tweet_id ?? postResult?.id ?? null, error: postError });
+  }
+
+  // Telegram summary
+  if (BOT_TOKEN && OPERATOR_CHAT_ID) {
+    const lines = results.map(r => `• ${r.platform} (row ${r.row}): ${r.status}`).join("\n");
+    await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        chat_id:    OPERATOR_CHAT_ID,
+        text:       `📣 *Social Content Pipeline*\n${posted}/${results.length} posted\n\n${lines}`,
+        parse_mode: "Markdown",
+      }),
+    }).catch(() => {});
+  }
+
+  return { success: true, output: { processed: results.length, posted, results } };
+};
+
+// youtube_summary — summarize a YouTube video and deliver via Telegram
+const handleYoutubeSummary: TaskHandler = async (task) => {
+  const p = extractPayload(task.payload as Record<string, unknown>);
+  const url = String(p.url ?? p.video_id ?? "");
+  if (!url) return { success: false, error: "url or video_id required" };
+
+  const res = await callFunction("mavis-youtube-agent", {
+    userId:   task.user_id,
+    action:   "summarize_video",
+    url,
+    language: p.language ?? "en",
+    model:    p.model,
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) return { success: false, error: (data as any).error ?? `youtube-agent returned ${res.status}` };
+
+  const d = data as any;
+  if (BOT_TOKEN && OPERATOR_CHAT_ID) {
+    const header = `🎬 *${(d.title ?? "Video").slice(0, 100)}*\n${d.channel ? `📺 ${d.channel} · ` : ""}⏱ ~${d.reading_time_minutes ?? "?"}m read\n[Watch on YouTube](${d.url})\n\n`;
+    const msg    = (header + (d.summary ?? "")).slice(0, 4000);
+    await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        chat_id:                  OPERATOR_CHAT_ID,
+        text:                     msg,
+        parse_mode:               "Markdown",
+        disable_web_page_preview: false,
+      }),
+    }).catch(() => {});
+  }
+
+  return { success: true, output: { title: d.title, stored_in_memory: d.stored_in_memory } };
+};
+
+// content_digest — scrape one or more source sites and send a summary via Telegram
+const handleContentDigest: TaskHandler = async (task) => {
+  const p = extractPayload(task.payload as Record<string, unknown>);
+
+  // Accept single source or array of sources
+  const sources: Array<{ url: string; link_pattern?: string; name?: string }> =
+    Array.isArray(p.sources)
+      ? (p.sources as any[]).map(s => typeof s === "string" ? { url: s } : s)
+      : [{ url: String(p.url ?? ""), link_pattern: p.link_pattern as string | undefined, name: p.name as string | undefined }];
+
+  const limit        = Math.min(Number(p.limit ?? 5), 10);
+  const allItems: any[] = [];
+
+  for (const source of sources) {
+    if (!source.url) continue;
+    const res = await callFunction("mavis-firecrawl-agent", {
+      userId:         task.user_id,
+      action:         "digest",
+      url:            source.url,
+      link_pattern:   source.link_pattern ?? "",
+      limit,
+      summary_prompt: p.summary_prompt,
+    });
+    const data = await res.json().catch(() => ({}));
+    if ((data as any).items) {
+      ((data as any).items as any[]).forEach(item =>
+        allItems.push({ ...item, source_name: source.name ?? source.url }),
+      );
+    }
+  }
+
+  // Telegram digest
+  if (allItems.length > 0 && BOT_TOKEN && OPERATOR_CHAT_ID) {
+    const label = String(p.label ?? "Content Digest");
+    const header = `📰 *${label}* — ${new Date().toLocaleDateString("en-US", { month: "short", day: "numeric" })}\n${allItems.length} article${allItems.length !== 1 ? "s" : ""} summarized\n\n`;
+    const body   = allItems.slice(0, 6).map((item: any, i: number) =>
+      `*${i + 1}. ${(item.title ?? "Untitled").slice(0, 80)}*\n${(item.summary ?? "").slice(0, 220)}...\n[Read →](${item.url})`,
+    ).join("\n\n");
+
+    await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        chat_id:                 OPERATOR_CHAT_ID,
+        text:                    (header + body).slice(0, 4000),
+        parse_mode:              "Markdown",
+        disable_web_page_preview: true,
+      }),
+    }).catch(() => {});
+  }
+
+  return { success: true, output: { items: allItems, count: allItems.length } };
+};
+
+// email_triage — runs Gmail auto-responder pipeline (assess + draft replies)
+const handleEmailTriage: TaskHandler = async (task) => {
+  const p = extractPayload(task.payload as Record<string, unknown>);
+  const res = await callFunction("mavis-google-agent", {
+    userId:        task.user_id,
+    action:        "triage_inbox",
+    limit:         p.limit ?? 10,
+    draft_replies: p.draft_replies !== false,
+    mark_read:     p.mark_read ?? false,
+    tone:          p.tone ?? "professional",
+    signature:     p.signature ?? "",
+    system_prompt: p.system_prompt ?? "",
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) return { success: false, error: (data as any).error ?? `google-agent returned ${res.status}` };
+
+  const result = data as any;
+  // Send Telegram summary if drafts were created
+  if (result.drafts_created > 0 && BOT_TOKEN && OPERATOR_CHAT_ID) {
+    const lines = (result.results ?? [])
+      .filter((r: any) => r.draft_id)
+      .map((r: any) => `• ${r.from?.split("<")[0].trim() || r.from} — ${r.subject}`)
+      .slice(0, 5);
+    const msg = `📬 *Email Triage*\n${result.triaged} checked · ${result.drafts_created} draft${result.drafts_created !== 1 ? "s" : ""} created\n\n${lines.join("\n")}`;
+    await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ chat_id: OPERATOR_CHAT_ID, text: msg, parse_mode: "Markdown" }),
+    }).catch(() => {});
+  }
+
+  return { success: true, output: { triaged: result.triaged, drafts_created: result.drafts_created } };
+};
+
+// review_monitor — poll GMB for new reviews → AI reply → log to Sheets → post reply → Telegram summary
+const handleReviewMonitor: TaskHandler = async (task) => {
+  const p = extractPayload(task.payload as Record<string, unknown>);
+  const res = await callFunction("mavis-gmb-agent", {
+    userId: task.user_id,
+    action: "monitor_reviews",
+    ...p,
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) return { success: false, error: (data as any).error ?? `mavis-gmb-agent returned ${res.status}` };
+
+  const result = data as any;
+  if (BOT_TOKEN && OPERATOR_CHAT_ID) {
+    const lines = (result.results ?? [])
+      .filter((r: any) => !r.error)
+      .map((r: any) => `• *${r.reviewer}* (${r.stars ?? r.star_rating}) — ${String(r.comment ?? "").slice(0, 80)}`)
+      .slice(0, 5);
+    const msg = [
+      `⭐ *GMB Review Monitor*`,
+      `${result.new_since_last_check ?? 0} new · ${result.replied ?? 0} replied · avg ${result.average_rating ?? "?"}★`,
+      result.sheets_logged > 0 ? `📊 ${result.sheets_logged} row${result.sheets_logged !== 1 ? "s" : ""} logged to Sheets` : "",
+      lines.length ? `\n${lines.join("\n")}` : "",
+    ].filter(Boolean).join("\n");
+    await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+      method:  "POST",
+      headers: { "Content-Type": "application/json" },
+      body:    JSON.stringify({ chat_id: OPERATOR_CHAT_ID, text: msg, parse_mode: "Markdown" }),
+    }).catch(() => {});
+  }
+
+  return { success: true, output: { processed: result.processed, new_reviews: result.new_since_last_check, replied: result.replied } };
+};
+
+// email_watch — poll for new emails since last check and create dual AI drafts for each
+const handleEmailWatch: TaskHandler = async (task) => {
+  const p = extractPayload(task.payload as Record<string, unknown>);
+  const res = await callFunction("mavis-google-agent", {
+    userId:      task.user_id,
+    action:      "watch_new_emails",
+    max_results: p.max_results ?? 5,
+    model_a:     p.model_a ?? "claude-haiku-4-5-20251001",
+    model_b:     p.model_b ?? "claude-sonnet-4-6",
+    prompt_a:    p.prompt_a ?? "",
+    prompt_b:    p.prompt_b ?? "",
+    signature:   p.signature ?? "",
+    state_key:   p.state_key ?? "email_watch_state",
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) return { success: false, error: (data as any).error ?? `google-agent returned ${res.status}` };
+
+  const result = data as any;
+  if (result.drafts_created > 0 && BOT_TOKEN && OPERATOR_CHAT_ID) {
+    const lines = (result.results ?? [])
+      .filter((r: any) => r.draft_id)
+      .map((r: any) => `• ${r.from?.split("<")[0].trim() || r.from} — ${r.subject}`)
+      .slice(0, 5);
+    const msg = [
+      `📬 *Inbox Watch*`,
+      `${result.processed} new email${result.processed !== 1 ? "s" : ""} · ${result.drafts_created} dual draft${result.drafts_created !== 1 ? "s" : ""} created`,
+      ``,
+      lines.join("\n"),
+    ].join("\n");
+    await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+      method:  "POST",
+      headers: { "Content-Type": "application/json" },
+      body:    JSON.stringify({ chat_id: OPERATOR_CHAT_ID, text: msg, parse_mode: "Markdown" }),
+    }).catch(() => {});
+  }
+
+  return { success: true, output: { processed: result.processed, drafts_created: result.drafts_created } };
+};
+
+// daily_comic — scrape today's GoComics strip → Claude vision translate dialogue → post to Discord/Telegram
+const handleDailyComic: TaskHandler = async (task) => {
+  const p = extractPayload(task.payload as Record<string, unknown>);
+  const res = await callFunction("mavis-comic-agent", {
+    userId:          task.user_id,
+    action:          "daily_comic_post",
+    strip:           p.strip           ?? "calvinandhobbes",
+    target_language: p.target_language ?? "Korean",
+    discord_webhook: p.discord_webhook ?? "",
+    telegram:        p.telegram        ?? true,
+    telegram_chat_id: p.telegram_chat_id ?? "",
+    model:           p.model           ?? "claude-haiku-4-5-20251001",
+  });
+  const data = await res.json().catch(() => ({})) as any;
+  if (!res.ok) return { success: false, error: data.error ?? `comic-agent returned ${res.status}` };
+
+  if (BOT_TOKEN && OPERATOR_CHAT && !data.telegram_posted) {
+    // Telegram wasn't configured in the agent or failed — send a fallback notification
+    const msg = [
+      `🗞️ *Daily Comic posted* — ${data.strip === "calvinandhobbes" ? "Calvin & Hobbes" : data.strip}`,
+      `📅 ${data.date}`,
+      data.discord_posted ? `✅ Discord posted` : `⚠️ Discord skipped (no webhook)`,
+      data.image_url ? `🖼 ${data.image_url}` : "",
+    ].filter(Boolean).join("\n");
+    await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+      method:  "POST",
+      headers: { "Content-Type": "application/json" },
+      body:    JSON.stringify({ chat_id: OPERATOR_CHAT, text: msg, parse_mode: "Markdown" }),
+    }).catch(() => {});
+  }
+
+  return { success: true, output: { date: data.date, strip: data.strip, discord_posted: data.discord_posted, telegram_posted: data.telegram_posted } };
+};
+
+// daily_story — generate children's story → OpenAI TTS audio → fal.ai illustration → post all three to Telegram
+const handleDailyStory: TaskHandler = async (task) => {
+  const p = extractPayload(task.payload as Record<string, unknown>);
+  const res = await callFunction("mavis-story-agent", {
+    userId:           task.user_id,
+    action:           "daily_story_post",
+    topic:            p.topic            ?? "",
+    language:         p.language         ?? "English",
+    voice:            p.voice            ?? "alloy",
+    telegram_chat_id: p.telegram_chat_id ?? "",
+    model:            p.model            ?? "claude-haiku-4-5-20251001",
+  });
+  const data = await res.json().catch(() => ({})) as any;
+  if (!res.ok) return { success: false, error: data.error ?? `story-agent returned ${res.status}` };
+
+  if (BOT_TOKEN && OPERATOR_CHAT_ID) {
+    const parts = [
+      `📖 *Daily Children's Story*`,
+      data.text_sent  ? "✅ Text sent"    : "❌ Text failed",
+      data.audio_sent ? "🔊 Audio sent"   : "⚠️ Audio skipped",
+      data.image_sent ? "🖼️ Image sent"  : "⚠️ Image skipped",
+      ``,
+      `"${String(data.story ?? "").slice(0, 200)}…"`,
+    ];
+    await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+      method:  "POST",
+      headers: { "Content-Type": "application/json" },
+      body:    JSON.stringify({ chat_id: OPERATOR_CHAT_ID, text: parts.join("\n"), parse_mode: "Markdown" }),
+    }).catch(() => {});
+  }
+
+  return {
+    success: true,
+    output: {
+      text_sent:  data.text_sent,
+      audio_sent: data.audio_sent,
+      image_sent: data.image_sent,
+      story:      String(data.story ?? "").slice(0, 200),
+    },
+  };
+};
+
+// hashtag_tweet — pick random hashtag → AI-generated tweet → log to Airtable → optionally post → Telegram notification
+const handleHashtagTweet: TaskHandler = async (task) => {
+  const p = extractPayload(task.payload as Record<string, unknown>);
+  const res = await callFunction("mavis-twitter-agent", {
+    action:    "generate_tweet",
+    hashtags:  p.hashtags ?? ["#ai"],
+    topic:     p.topic ?? "",
+    max_chars: p.max_chars ?? 280,
+  });
+  const genData = await res.json().catch(() => ({})) as any;
+  if (!res.ok) return { success: false, error: genData.error ?? `twitter-agent returned ${res.status}` };
+
+  const { hashtag, tweet } = genData;
+
+  // Log to Airtable
+  let airtableRecordId: string | null = null;
+  if (p.airtable_base_id) {
+    const atRes = await callFunction("mavis-airtable-agent", {
+      userId:  task.user_id,
+      action:  "create_record",
+      base_id: p.airtable_base_id,
+      table:   p.airtable_table ?? "Tweets",
+      fields: {
+        Hashtag:   hashtag,
+        Content:   tweet,
+        Generated: new Date().toISOString().split("T")[0],
+        Status:    p.auto_post ? "Posted" : "Draft",
+      },
+    });
+    const atData = await atRes.json().catch(() => ({})) as any;
+    airtableRecordId = atData.id ?? atData.record?.id ?? null;
+  }
+
+  // Optionally post to Twitter
+  let tweetId: string | null = null;
+  if (p.auto_post) {
+    const postRes = await callFunction("mavis-twitter-agent", { action: "post_tweet", text: tweet });
+    const postData = await postRes.json().catch(() => ({})) as any;
+    tweetId = postData.tweet_id ?? null;
+  }
+
+  if (BOT_TOKEN && OPERATOR_CHAT_ID) {
+    const status = tweetId ? "✅ Posted" : "📝 Draft saved";
+    const msg = [
+      `🐦 *Hashtag Tweet*`,
+      `${status} · ${hashtag}`,
+      ``,
+      `"${tweet}"`,
+      airtableRecordId ? `📊 Logged to Airtable (${airtableRecordId})` : "",
+    ].filter(Boolean).join("\n");
+    await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+      method:  "POST",
+      headers: { "Content-Type": "application/json" },
+      body:    JSON.stringify({ chat_id: OPERATOR_CHAT_ID, text: msg, parse_mode: "Markdown" }),
+    }).catch(() => {});
+  }
+
+  return { success: true, output: { hashtag, tweet, tweet_id: tweetId, airtable_record_id: airtableRecordId } };
+};
+
+// instagram_monitor — poll recent media for new comments → AI reply → post as @mention reply → Telegram summary
+const handleInstagramMonitor: TaskHandler = async (task) => {
+  const p = extractPayload(task.payload as Record<string, unknown>);
+  const res = await callFunction("mavis-instagram-agent", {
+    userId:             task.user_id,
+    action:             "monitor_comments",
+    business_name:      p.business_name ?? "our brand",
+    reply_signature:    p.reply_signature ?? "",
+    media_limit:        p.media_limit ?? 5,
+    comments_per_media: p.comments_per_media ?? 50,
+    auto_reply:         p.auto_reply ?? true,
+    skip_replies:       p.skip_replies ?? true,
+    state_key:          p.state_key ?? "ig_comment_watch_state",
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) return { success: false, error: (data as any).error ?? `instagram-agent returned ${res.status}` };
+
+  const result = data as any;
+  if (result.replied > 0 && BOT_TOKEN && OPERATOR_CHAT_ID) {
+    const lines = (result.results ?? [])
+      .filter((r: any) => r.reply_id)
+      .map((r: any) => `• @${r.commenter}: "${(r.comment_text ?? "").slice(0, 60)}…"`)
+      .slice(0, 5);
+    const msg = [
+      `📸 *Instagram Comment Monitor*`,
+      `${result.media_checked} post${result.media_checked !== 1 ? "s" : ""} checked · ${result.new_comments} new comment${result.new_comments !== 1 ? "s" : ""} · ${result.replied} repl${result.replied !== 1 ? "ies" : "y"} posted`,
+      ``,
+      lines.join("\n"),
+    ].filter(Boolean).join("\n");
+    await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+      method:  "POST",
+      headers: { "Content-Type": "application/json" },
+      body:    JSON.stringify({ chat_id: OPERATOR_CHAT_ID, text: msg, parse_mode: "Markdown" }),
+    }).catch(() => {});
+  }
+
+  return { success: true, output: { media_checked: result.media_checked, new_comments: result.new_comments, replied: result.replied } };
+};
+
+// email_smart_triage — classify emails via AI → lookup category-specific prompt from Sheets → generate HTML reply draft
+const handleEmailSmartTriage: TaskHandler = async (task) => {
+  const p = extractPayload(task.payload as Record<string, unknown>);
+  const res = await callFunction("mavis-google-agent", {
+    userId:         task.user_id,
+    action:         "smart_triage",
+    limit:          p.limit ?? 10,
+    spreadsheet_id: p.spreadsheet_id ?? "",
+    sheet_name:     p.sheet_name ?? "Prompts",
+    categories:     p.categories ?? ["Inquiry/Requests", "Complaints/Issues", "Job Applications/Resumes"],
+    signature:      p.signature ?? "",
+    mark_read:      p.mark_read ?? false,
+    state_key:      p.state_key ?? "smart_triage_state",
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) return { success: false, error: (data as any).error ?? `google-agent returned ${res.status}` };
+
+  const result = data as any;
+  if (result.drafts_created > 0 && BOT_TOKEN && OPERATOR_CHAT_ID) {
+    const catList = (result.categories_seen ?? []).join(", ") || "various";
+    const lines = (result.results ?? [])
+      .filter((r: any) => r.draft_id)
+      .map((r: any) => `• [${r.category}] ${r.from?.split("<")[0].trim() || r.from} — ${r.subject}`)
+      .slice(0, 5);
+    const msg = [
+      `📧 *Smart Email Triage*`,
+      `${result.processed} email${result.processed !== 1 ? "s" : ""} · ${result.drafts_created} HTML draft${result.drafts_created !== 1 ? "s" : ""} created`,
+      `Categories: ${catList}`,
+      ``,
+      lines.join("\n"),
+    ].join("\n");
+    await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+      method:  "POST",
+      headers: { "Content-Type": "application/json" },
+      body:    JSON.stringify({ chat_id: OPERATOR_CHAT_ID, text: msg, parse_mode: "Markdown" }),
+    }).catch(() => {});
+  }
+
+  return { success: true, output: { processed: result.processed, drafts_created: result.drafts_created, categories_seen: result.categories_seen } };
+};
+
+// influencer_tweet — persona-driven viral tweet generator; self-re-queues after each run for continuous cadence
+const handleInfluencerTweet: TaskHandler = async (task) => {
+  const p = extractPayload(task.payload as Record<string, unknown>);
+
+  // 1. Generate tweet in persona/influencer mode with retry loop
+  const genRes = await callFunction("mavis-twitter-agent", {
+    action:      "generate_tweet",
+    niche:       p.niche       ?? "personal development and modern philosophy",
+    style:       p.style       ?? "All of your tweets are very personal and relatable",
+    inspiration: p.inspiration ?? "",
+    max_chars:   p.max_chars   ?? 280,
+    max_retries: p.max_retries ?? 3,
+  });
+  const genData = await genRes.json().catch(() => ({})) as any;
+  if (!genRes.ok) return { success: false, error: genData.error ?? `twitter-agent returned ${genRes.status}` };
+
+  const { tweet } = genData;
+
+  // 2. Log to Airtable if configured
+  let airtableRecordId: string | null = null;
+  if (p.airtable_base_id) {
+    const atRes = await callFunction("mavis-airtable-agent", {
+      userId:  task.user_id,
+      action:  "create_record",
+      base_id: p.airtable_base_id,
+      table:   p.airtable_table ?? "Influencer Tweets",
+      fields: {
+        Niche:     p.niche ?? "personal development",
+        Content:   tweet,
+        Generated: new Date().toISOString().split("T")[0],
+        Status:    p.auto_post ? "Posted" : "Draft",
+        Attempts:  genData.attempts ?? 1,
+      },
+    });
+    const atData = await atRes.json().catch(() => ({})) as any;
+    airtableRecordId = atData.id ?? atData.record?.id ?? null;
+  }
+
+  // 3. Optionally post to Twitter
+  let tweetId: string | null = null;
+  if (p.auto_post) {
+    const postRes = await callFunction("mavis-twitter-agent", { action: "post_tweet", text: tweet });
+    const postData = await postRes.json().catch(() => ({})) as any;
+    tweetId = postData.tweet_id ?? null;
+  }
+
+  // 4. Telegram notification
+  if (BOT_TOKEN && OPERATOR_CHAT_ID) {
+    const status = tweetId ? "✅ Posted" : "📝 Draft";
+    const msg = [
+      `🐦 *Influencer Tweet*`,
+      `${status} · ${(p.niche as string ?? "").slice(0, 40)}`,
+      ``,
+      `"${tweet}"`,
+      airtableRecordId ? `📊 Logged to Airtable (${airtableRecordId})` : "",
+    ].filter(Boolean).join("\n");
+    await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+      method:  "POST",
+      headers: { "Content-Type": "application/json" },
+      body:    JSON.stringify({ chat_id: OPERATOR_CHAT_ID, text: msg, parse_mode: "Markdown" }),
+    }).catch(() => {});
+  }
+
+  // 5. Self-re-queue: schedule next run at intervalHours + random(0–55) minutes from now
+  const intervalHours  = Math.max(1, Number(p.interval_hours ?? 6));
+  const randomMinutes  = Math.floor(Math.random() * 56); // 0–55 min, mirrors n8n random minute
+  const nextRunAt      = new Date(Date.now() + intervalHours * 3_600_000 + randomMinutes * 60_000);
+  await supabase.from("mavis_tasks").insert({
+    user_id:      task.user_id,
+    type:         "influencer_tweet",
+    description:  `Auto influencer tweet — ${p.niche ?? "personal development"}`,
+    payload:      task.payload,
+    status:       "pending",
+    scheduled_at: nextRunAt.toISOString(),
+  });
+
+  return {
+    success:    true,
+    continuing: true,
+    output:     { tweet, tweet_id: tweetId, airtable_record_id: airtableRecordId, next_run: nextRunAt.toISOString() },
+  };
+};
+
+// reddit_opportunities — scan a subreddit for business opportunities, output to Sheets + Gmail drafts, deliver Telegram summary
+const handleRedditOpportunities: TaskHandler = async (task) => {
+  const p = extractPayload(task.payload as Record<string, unknown>);
+
+  const res = await callFunction("mavis-reddit-agent", {
+    userId: task.user_id,
+    action: "analyze_opportunities",
+    ...p,
+  });
+  const result = await res.json().catch(() => ({})) as any;
+
+  if (BOT_TOKEN && OPERATOR_CHAT_ID) {
+    const topItems: string = (result.results ?? []).slice(0, 3).map((r: any, i: number) =>
+      `*${i + 1}.* ${r.summary}\n💡 ${String(r.solution ?? "").slice(0, 180)}${r.solution?.length > 180 ? "…" : ""}`
+    ).join("\n\n");
+
+    const msg = [
+      `📊 *Reddit Opportunity Scan*`,
+      `r/${result.subreddit} · keyword: \`${result.keyword}\``,
+      ``,
+      `📥 Fetched: ${result.fetched} → ✅ Qualified: ${result.qualified} → 📝 Analyzed: ${result.analyzed}`,
+      result.sheets_appended ? `📊 Sheets: ${result.sheets_appended} rows added` : "",
+      result.drafts_created ? `✉️ Gmail: ${result.drafts_created} drafts created` : "",
+      topItems ? `\n${topItems}` : "",
+    ].filter(Boolean).join("\n");
+
+    await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+      method:  "POST",
+      headers: { "Content-Type": "application/json" },
+      body:    JSON.stringify({ chat_id: OPERATOR_CHAT_ID, text: msg, parse_mode: "Markdown" }),
+    }).catch(() => {});
+  }
+
+  return { success: true, output: { analyzed: result.analyzed, qualified: result.qualified, results: result.results } };
+};
+
 const HANDLERS: Record<string, TaskHandler> = {
   daily_brief: handleDailyBrief,
   check_idle_quests: handleCheckIdleQuests,
@@ -1069,6 +2086,57 @@ const HANDLERS: Record<string, TaskHandler> = {
   send_outreach: handleSendOutreach,
   email_reply: handleEmailReply,
   standing_order: handleStandingOrder,
+  nora_content_machine: handleNoraContentMachine,
+  client_welcome_sequence: handleClientWelcomeSequence,
+  google_agent:        handleGoogleAgent,
+  slack_agent:         makeAgentHandler("mavis-slack-agent"),
+  notion_agent:        makeAgentHandler("mavis-notion-agent"),
+  airtable_agent:      makeAgentHandler("mavis-airtable-agent"),
+  twilio_agent:        makeAgentHandler("mavis-twilio-agent"),
+  calendly_agent:      makeAgentHandler("mavis-calendly-agent"),
+  weekly_reflection:   handleWeeklyReflection,
+  critic_agent:        makeAgentHandler("mavis-critic-agent"),
+  orchestrator:        makeAgentHandler("mavis-orchestrator"),
+  exa_agent:           makeAgentHandler("mavis-exa-agent"),
+  firecrawl_agent:     makeAgentHandler("mavis-firecrawl-agent"),
+  youtube_agent:       makeAgentHandler("mavis-youtube-agent"),
+  spotify_agent:       makeAgentHandler("mavis-spotify-agent"),
+  sec_agent:           makeAgentHandler("mavis-sec-agent"),
+  crm_agent:           makeAgentHandler("mavis-crm-agent"),
+  beehiiv_agent:       makeAgentHandler("mavis-beehiiv-agent"),
+  shopify_agent:       makeAgentHandler("mavis-shopify-agent"),
+  webhook_dispatch:    makeAgentHandler("mavis-webhook-dispatcher"),
+  linear_agent:        makeAgentHandler("mavis-linear-agent"),
+  vercel_agent:        makeAgentHandler("mavis-vercel-agent"),
+  sentry_agent:        makeAgentHandler("mavis-sentry-agent"),
+  sheets_agent:        makeAgentHandler("mavis-sheets-agent"),
+  vision_agent:        makeAgentHandler("mavis-vision-agent"),
+  video_narrator:      makeAgentHandler("mavis-video-narrator"),
+  website_qa:          makeAgentHandler("mavis-website-qa"),
+  instagram_trends:    makeAgentHandler("mavis-instagram-trends"),
+  memory_agent:        makeAgentHandler("mavis-memory-agent"),
+  heygen_agent:        makeAgentHandler("mavis-heygen-agent"),
+  calendar_agent:      makeAgentHandler("mavis-calendar-agent"),
+  security_scanner:    makeAgentHandler("mavis-security-scanner"),
+  chain_builder:       makeAgentHandler("mavis-chain-builder"),
+  mavis_plans:         makeAgentHandler("mavis-plans"),
+  heartbeat:           makeAgentHandler("mavis-heartbeat"),
+  social_content_pipeline: handleSocialContentPipeline,
+  youtube_summary:     handleYoutubeSummary,
+  content_digest:      handleContentDigest,
+  email_triage:        handleEmailTriage,
+  email_watch:         handleEmailWatch,
+  email_smart_triage:  handleEmailSmartTriage,
+  review_monitor:      handleReviewMonitor,
+  instagram_monitor:   handleInstagramMonitor,
+  hashtag_tweet:       handleHashtagTweet,
+  influencer_tweet:    handleInfluencerTweet,
+  daily_comic:         handleDailyComic,
+  daily_story:         handleDailyStory,
+  discord_agent:       makeAgentHandler("mavis-discord-agent"),
+  flashcard_agent:     makeAgentHandler("mavis-flashcard-agent"),
+  reddit_agent:        makeAgentHandler("mavis-reddit-agent"),
+  reddit_opportunities: handleRedditOpportunities,
 };
 
 // ─────────────────────────────────────────────────────────────

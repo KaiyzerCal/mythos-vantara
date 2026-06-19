@@ -115,7 +115,7 @@ export default function LeadGenPage() {
           </div>
         </div>
         <div>
-          <label className="block text-xs text-muted-foreground mb-1">Your Product / Context <span className="text-muted-foreground/50">(used in outreach drafts)</span></label>
+          <label className="block text-xs text-muted-foreground mb-1">Your Product / Context <span className="text-muted-foreground">(used in outreach drafts)</span></label>
           <input className="w-full bg-background border border-border rounded px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:border-primary/50"
             placeholder="e.g. AI revenue automation for SMBs" value={productContext} onChange={e => setProductContext(e.target.value)} />
         </div>

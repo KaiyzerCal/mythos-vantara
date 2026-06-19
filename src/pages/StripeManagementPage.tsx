@@ -286,7 +286,7 @@ export function StripeManagementPage() {
 
       {/* ── Period Selector ──────────────────────────────────── */}
       <div className="flex items-center gap-2">
-        <span className="text-[9px] font-mono text-muted-foreground uppercase tracking-widest mr-1">
+        <span className="text-xs font-mono text-muted-foreground uppercase tracking-widest mr-1">
           Period
         </span>
         {(["7d", "30d", "90d", "all"] as Period[]).map((p) => (
@@ -317,31 +317,31 @@ export function StripeManagementPage() {
           className="grid grid-cols-1 sm:grid-cols-3 gap-3"
         >
           <HudCard glowColor="green">
-            <p className="text-[9px] font-mono text-muted-foreground uppercase tracking-widest mb-1">
+            <p className="text-xs font-mono text-muted-foreground uppercase tracking-widest mb-1">
               Total Revenue
             </p>
             <p className="text-xl font-display font-bold text-green-400">
               {fmtCurrency(totalRevenue)}
             </p>
-            <p className="text-[9px] font-mono text-muted-foreground mt-0.5">
+            <p className="text-xs font-mono text-muted-foreground mt-0.5">
               {filteredRevenue.length} transaction{filteredRevenue.length !== 1 ? "s" : ""}
             </p>
           </HudCard>
 
           <HudCard glowColor="red">
-            <p className="text-[9px] font-mono text-muted-foreground uppercase tracking-widest mb-1">
+            <p className="text-xs font-mono text-muted-foreground uppercase tracking-widest mb-1">
               Total Expenses
             </p>
             <p className="text-xl font-display font-bold text-red-400">
               {fmtCurrency(totalExpenses)}
             </p>
-            <p className="text-[9px] font-mono text-muted-foreground mt-0.5">
+            <p className="text-xs font-mono text-muted-foreground mt-0.5">
               {filteredExpenses.length} transaction{filteredExpenses.length !== 1 ? "s" : ""}
             </p>
           </HudCard>
 
           <HudCard glowColor="purple">
-            <p className="text-[9px] font-mono text-muted-foreground uppercase tracking-widest mb-1">
+            <p className="text-xs font-mono text-muted-foreground uppercase tracking-widest mb-1">
               Net Income
             </p>
             <p
@@ -351,7 +351,7 @@ export function StripeManagementPage() {
             >
               {fmtCurrency(netIncome)}
             </p>
-            <p className="text-[9px] font-mono text-muted-foreground mt-0.5">
+            <p className="text-xs font-mono text-muted-foreground mt-0.5">
               {netIncome >= 0 ? "profit" : "loss"}
             </p>
           </HudCard>
@@ -380,7 +380,7 @@ export function StripeManagementPage() {
                     {["Date", "Source", "Amount", "Running Total"].map((h) => (
                       <th
                         key={h}
-                        className="text-[9px] text-muted-foreground uppercase tracking-widest text-left pb-2 pr-4"
+                        className="text-xs text-muted-foreground uppercase tracking-widest text-left pb-2 pr-4"
                       >
                         {h}
                       </th>
@@ -398,7 +398,7 @@ export function StripeManagementPage() {
                       </td>
                       <td className="py-2 pr-4">
                         <span
-                          className={`px-1.5 py-0.5 rounded border text-[9px] uppercase tracking-wide ${getSourceBadgeClass(
+                          className={`px-1.5 py-0.5 rounded border text-xs uppercase tracking-wide ${getSourceBadgeClass(
                             r.source
                           )}`}
                         >
@@ -439,7 +439,7 @@ export function StripeManagementPage() {
             >
               <HudCard glowColor="green">
                 <div className="flex items-center justify-between mb-3">
-                  <p className="text-[9px] font-mono text-green-400 uppercase tracking-widest">
+                  <p className="text-xs font-mono text-green-400 uppercase tracking-widest">
                     Log Revenue Entry
                   </p>
                   <button
@@ -451,7 +451,7 @@ export function StripeManagementPage() {
                 </div>
                 <div className="grid grid-cols-2 gap-2">
                   <div className="col-span-2">
-                    <label className="text-[9px] font-mono text-muted-foreground block mb-0.5">
+                    <label className="text-xs font-mono text-muted-foreground block mb-0.5">
                       Description *
                     </label>
                     <input
@@ -465,7 +465,7 @@ export function StripeManagementPage() {
                     />
                   </div>
                   <div>
-                    <label className="text-[9px] font-mono text-muted-foreground block mb-0.5">
+                    <label className="text-xs font-mono text-muted-foreground block mb-0.5">
                       Amount *
                     </label>
                     <input
@@ -481,7 +481,7 @@ export function StripeManagementPage() {
                     />
                   </div>
                   <div>
-                    <label className="text-[9px] font-mono text-muted-foreground block mb-0.5">
+                    <label className="text-xs font-mono text-muted-foreground block mb-0.5">
                       Source
                     </label>
                     <select
@@ -499,7 +499,7 @@ export function StripeManagementPage() {
                     </select>
                   </div>
                   <div>
-                    <label className="text-[9px] font-mono text-muted-foreground block mb-0.5">
+                    <label className="text-xs font-mono text-muted-foreground block mb-0.5">
                       Currency
                     </label>
                     <select
@@ -553,7 +553,7 @@ export function StripeManagementPage() {
             >
               <HudCard glowColor="red">
                 <div className="flex items-center justify-between mb-3">
-                  <p className="text-[9px] font-mono text-red-400 uppercase tracking-widest">
+                  <p className="text-xs font-mono text-red-400 uppercase tracking-widest">
                     Log Expense Entry
                   </p>
                   <button
@@ -565,7 +565,7 @@ export function StripeManagementPage() {
                 </div>
                 <div className="grid grid-cols-2 gap-2">
                   <div className="col-span-2">
-                    <label className="text-[9px] font-mono text-muted-foreground block mb-0.5">
+                    <label className="text-xs font-mono text-muted-foreground block mb-0.5">
                       Description *
                     </label>
                     <input
@@ -579,7 +579,7 @@ export function StripeManagementPage() {
                     />
                   </div>
                   <div>
-                    <label className="text-[9px] font-mono text-muted-foreground block mb-0.5">
+                    <label className="text-xs font-mono text-muted-foreground block mb-0.5">
                       Amount *
                     </label>
                     <input
@@ -595,7 +595,7 @@ export function StripeManagementPage() {
                     />
                   </div>
                   <div>
-                    <label className="text-[9px] font-mono text-muted-foreground block mb-0.5">
+                    <label className="text-xs font-mono text-muted-foreground block mb-0.5">
                       Category
                     </label>
                     <select
@@ -613,7 +613,7 @@ export function StripeManagementPage() {
                     </select>
                   </div>
                   <div>
-                    <label className="text-[9px] font-mono text-muted-foreground block mb-0.5">
+                    <label className="text-xs font-mono text-muted-foreground block mb-0.5">
                       Currency
                     </label>
                     <select

@@ -79,7 +79,7 @@ function FormInput({ label, value, onChange, textarea = false, placeholder = "" 
   const cls = "w-full bg-background/60 border border-border/60 rounded px-2 text-xs font-mono text-foreground/90 focus:outline-none focus:border-primary/50 transition-colors";
   return (
     <div>
-      <p className="text-[9px] font-mono text-muted-foreground uppercase mb-1">{label}</p>
+      <p className="text-xs font-mono text-muted-foreground uppercase mb-1">{label}</p>
       {textarea
         ? <textarea rows={3} value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder} className={cls + " py-1.5 resize-none"} />
         : <input value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder} className={cls + " py-1 h-7"} />
@@ -98,7 +98,7 @@ function FloorEditForm({ draft, onChange, onSave, onCancel, saving }: {
   const f = (key: keyof TowerFloor) => (v: string) => onChange({ [key]: v });
   return (
     <div className="p-4 space-y-2 border-t border-border/40">
-      <p className="text-[9px] font-mono text-primary/60 uppercase tracking-widest mb-3">Editing Floor Data</p>
+      <p className="text-xs font-mono text-primary/60 uppercase tracking-widest mb-3">Editing Floor Data</p>
       <div className="grid grid-cols-3 gap-2">
         <div className="col-span-2"><FormInput label="Name" value={draft.name} onChange={f("name")} /></div>
         <FormInput label="Essence" value={draft.essence} onChange={f("essence")} />
@@ -143,10 +143,10 @@ function SubareaCard({ sub, editMode, onEdit, onDelete }: {
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 flex-wrap">
           <span className="text-xs font-mono font-semibold text-foreground/85">{sub.name}</span>
-          <span className="text-[8px] font-mono text-muted-foreground/50 border border-border/30 rounded px-1.5 py-0.5 capitalize">{sub.area_type}</span>
-          {rangeStr && <span className="text-[8px] font-mono text-muted-foreground/40">{rangeStr}</span>}
+          <span className="text-xs font-mono text-muted-foreground border border-border/30 rounded px-1.5 py-0.5 capitalize">{sub.area_type}</span>
+          {rangeStr && <span className="text-xs font-mono text-muted-foreground">{rangeStr}</span>}
         </div>
-        {sub.description && <p className="text-[10px] font-body text-muted-foreground/65 mt-0.5 leading-relaxed">{sub.description}</p>}
+        {sub.description && <p className="text-xs font-body text-muted-foreground mt-0.5 leading-relaxed">{sub.description}</p>}
       </div>
       {editMode && (
         <div className="flex gap-1 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -168,18 +168,18 @@ function SubareaForm({ draft, onChange, onSave, onCancel, saving, floor }: {
 }) {
   return (
     <div className="p-3 rounded border border-primary/20 bg-primary/5 space-y-2">
-      <p className="text-[9px] font-mono text-primary/60 uppercase tracking-wider">
+      <p className="text-xs font-mono text-primary/60 uppercase tracking-wider">
         {draft.id ? "Edit Sub-Area" : "New Sub-Area"}
       </p>
       <div className="grid grid-cols-2 gap-2">
         <div>
-          <p className="text-[9px] font-mono text-muted-foreground uppercase mb-1">Name</p>
+          <p className="text-xs font-mono text-muted-foreground uppercase mb-1">Name</p>
           <input value={draft.name ?? ""} onChange={e => onChange({ name: e.target.value })} placeholder="Sub-area name"
             className="w-full bg-background/60 border border-border/60 rounded px-2 py-1 h-7 text-xs font-mono text-foreground/90 focus:outline-none focus:border-primary/50"
           />
         </div>
         <div>
-          <p className="text-[9px] font-mono text-muted-foreground uppercase mb-1">Type</p>
+          <p className="text-xs font-mono text-muted-foreground uppercase mb-1">Type</p>
           <select value={draft.area_type ?? "location"} onChange={e => onChange({ area_type: e.target.value })}
             className="w-full bg-background/60 border border-border/60 rounded px-2 h-7 text-xs font-mono text-foreground/90 focus:outline-none focus:border-primary/50"
           >
@@ -187,7 +187,7 @@ function SubareaForm({ draft, onChange, onSave, onCancel, saving, floor }: {
           </select>
         </div>
         <div>
-          <p className="text-[9px] font-mono text-muted-foreground uppercase mb-1">Floor Start</p>
+          <p className="text-xs font-mono text-muted-foreground uppercase mb-1">Floor Start</p>
           <input type="number" min={floor.floor_min} max={floor.floor_max}
             value={draft.floor_start ?? ""} onChange={e => onChange({ floor_start: e.target.value ? Number(e.target.value) : null })}
             placeholder={String(floor.floor_min)}
@@ -195,7 +195,7 @@ function SubareaForm({ draft, onChange, onSave, onCancel, saving, floor }: {
           />
         </div>
         <div>
-          <p className="text-[9px] font-mono text-muted-foreground uppercase mb-1">Floor End</p>
+          <p className="text-xs font-mono text-muted-foreground uppercase mb-1">Floor End</p>
           <input type="number" min={floor.floor_min} max={floor.floor_max}
             value={draft.floor_end ?? ""} onChange={e => onChange({ floor_end: e.target.value ? Number(e.target.value) : null })}
             placeholder={String(floor.floor_max)}
@@ -203,7 +203,7 @@ function SubareaForm({ draft, onChange, onSave, onCancel, saving, floor }: {
           />
         </div>
         <div className="col-span-2">
-          <p className="text-[9px] font-mono text-muted-foreground uppercase mb-1">Description</p>
+          <p className="text-xs font-mono text-muted-foreground uppercase mb-1">Description</p>
           <textarea rows={2} value={draft.description ?? ""} onChange={e => onChange({ description: e.target.value })}
             placeholder="Describe this sub-area…"
             className="w-full bg-background/60 border border-border/60 rounded px-2 py-1.5 text-xs font-body text-foreground/90 focus:outline-none focus:border-primary/50 resize-none"
@@ -416,7 +416,7 @@ export default function TowerPage() {
         />
         <button
           onClick={toggleEditMode}
-          className={`mt-1 shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded border text-[10px] font-mono transition-all ${
+          className={`mt-1 shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded border text-xs font-mono transition-all ${
             editMode
               ? "bg-primary/15 border-primary/50 text-primary"
               : "bg-muted/10 border-border/40 text-muted-foreground hover:text-foreground hover:border-border/70"
@@ -433,7 +433,7 @@ export default function TowerPage() {
           <div className="pl-3">
             <div className="flex items-center justify-between mb-2">
               <div>
-                <p className="text-[9px] font-mono text-muted-foreground uppercase">Current Zone</p>
+                <p className="text-xs font-mono text-muted-foreground uppercase">Current Zone</p>
                 <h2 className="text-lg font-display font-bold" style={{ color: ec(currentZone.essence) }}>{currentZone.name}</h2>
                 <p className="text-xs font-mono text-muted-foreground italic">"{currentZone.law}"</p>
               </div>
@@ -444,23 +444,23 @@ export default function TowerPage() {
                 </div>
                 <div className="text-right">
                   <p className="text-3xl font-display font-black text-primary">{currentFloor}</p>
-                  <p className="text-[9px] font-mono text-muted-foreground">/ 100</p>
+                  <p className="text-xs font-mono text-muted-foreground">/ 100</p>
                 </div>
               </div>
             </div>
             <ProgressBar value={currentFloor} max={100} colorClass="bg-primary" height="sm" />
             <div className="mt-2 grid grid-cols-2 gap-3">
               <div>
-                <p className="text-[9px] font-mono text-muted-foreground">Essence</p>
+                <p className="text-xs font-mono text-muted-foreground">Essence</p>
                 <p className="text-xs font-mono" style={{ color: ec(currentZone.essence) }}>{currentZone.essence}</p>
               </div>
               <div>
-                <p className="text-[9px] font-mono text-muted-foreground">Energy</p>
-                <p className="text-xs font-mono text-foreground/80">{currentZone.energy}</p>
+                <p className="text-xs font-mono text-muted-foreground">Energy</p>
+                <p className="text-xs font-mono text-foreground">{currentZone.energy}</p>
               </div>
             </div>
             <div className="mt-3 flex items-center gap-2">
-              <span className="text-[9px] font-mono text-muted-foreground">Jump to:</span>
+              <span className="text-xs font-mono text-muted-foreground">Jump to:</span>
               <input
                 type="number" min={1} max={100} defaultValue={currentFloor}
                 onKeyDown={async e => {
@@ -509,27 +509,27 @@ export default function TowerPage() {
                   style={{ background: isCleared ? "#22c55e" : isActive ? color : "#444" }}
                 />
                 <div
-                  className="shrink-0 min-w-[52px] text-center px-2 py-0.5 rounded border text-[9px] font-mono"
+                  className="shrink-0 min-w-[52px] text-center px-2 py-0.5 rounded border text-xs font-mono"
                   style={{ borderColor: color + "44", color, background: color + "11" }}
                 >
                   {rangeLabel(floor)}
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
-                    <span className={`text-sm font-display font-bold ${isActive ? "text-foreground" : "text-foreground/70"}`}>{floor.name}</span>
-                    {isActive  && <span className="text-[8px] font-mono text-primary border border-primary/30 rounded px-1.5 py-0.5">CURRENT</span>}
-                    {isCleared && <span className="text-[8px] font-mono text-green-400 border border-green-900/40 rounded px-1.5 py-0.5">CLEARED</span>}
+                    <span className={`text-sm font-display font-bold ${isActive ? "text-foreground" : "text-muted-foreground"}`}>{floor.name}</span>
+                    {isActive  && <span className="text-xs font-mono text-primary border border-primary/30 rounded px-1.5 py-0.5">CURRENT</span>}
+                    {isCleared && <span className="text-xs font-mono text-green-400 border border-green-900/40 rounded px-1.5 py-0.5">CLEARED</span>}
                     {floorSubs.length > 0 && (
-                      <span className="text-[8px] font-mono text-muted-foreground/40">
+                      <span className="text-xs font-mono text-muted-foreground">
                         {floorSubs.length} area{floorSubs.length !== 1 ? "s" : ""}
                       </span>
                     )}
                   </div>
-                  <p className="text-[10px] font-mono text-muted-foreground/60 italic truncate">"{floor.law}"</p>
+                  <p className="text-xs font-mono text-muted-foreground italic truncate">"{floor.law}"</p>
                 </div>
                 <div className="text-right shrink-0 hidden sm:block">
-                  <p className="text-[10px] font-mono" style={{ color }}>{floor.essence}</p>
-                  <p className="text-[9px] font-mono text-muted-foreground">{floor.function}</p>
+                  <p className="text-xs font-mono" style={{ color }}>{floor.essence}</p>
+                  <p className="text-xs font-mono text-muted-foreground">{floor.function}</p>
                 </div>
                 {editMode && (
                   <button
@@ -575,36 +575,36 @@ export default function TowerPage() {
                         {/* Inhabitants / Dangers / Rewards */}
                         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                           <div>
-                            <p className="text-[9px] font-mono text-muted-foreground uppercase mb-1">Inhabitants</p>
-                            <p className="text-xs font-body text-foreground/80">{floor.inhabitants}</p>
+                            <p className="text-xs font-mono text-muted-foreground uppercase mb-1">Inhabitants</p>
+                            <p className="text-xs font-body text-foreground">{floor.inhabitants}</p>
                           </div>
                           <div>
-                            <p className="text-[9px] font-mono text-red-400 uppercase mb-1">Dangers</p>
-                            <p className="text-xs font-body text-foreground/80">{floor.dangers}</p>
+                            <p className="text-xs font-mono text-red-400 uppercase mb-1">Dangers</p>
+                            <p className="text-xs font-body text-foreground">{floor.dangers}</p>
                           </div>
                           <div>
-                            <p className="text-[9px] font-mono text-green-400 uppercase mb-1">Rewards</p>
-                            <p className="text-xs font-body text-foreground/80">{floor.rewards}</p>
+                            <p className="text-xs font-mono text-green-400 uppercase mb-1">Rewards</p>
+                            <p className="text-xs font-body text-foreground">{floor.rewards}</p>
                           </div>
                         </div>
 
                         {/* Energy / Function footer */}
                         <div className="flex gap-4 pt-1 border-t border-border/30">
-                          <span className="text-[9px] font-mono text-muted-foreground">Energy: {floor.energy}</span>
-                          <span className="text-[9px] font-mono text-muted-foreground">Function: {floor.function}</span>
+                          <span className="text-xs font-mono text-muted-foreground">Energy: {floor.energy}</span>
+                          <span className="text-xs font-mono text-muted-foreground">Function: {floor.function}</span>
                         </div>
 
                         {/* Sub-areas section */}
                         {(floorSubs.length > 0 || editMode) && (
                           <div className="pt-2 border-t border-border/20 space-y-2">
                             <div className="flex items-center justify-between">
-                              <p className="text-[9px] font-mono text-muted-foreground/50 uppercase tracking-wider">
+                              <p className="text-xs font-mono text-muted-foreground uppercase tracking-wider">
                                 Sub-Areas {floorSubs.length > 0 && `(${floorSubs.length})`}
                               </p>
                               {editMode && (
                                 <button
                                   onClick={() => isAddingSub ? cancelSubarea() : startAddSubarea(floor.id)}
-                                  className={`flex items-center gap-1 px-2 py-1 rounded border text-[9px] font-mono transition-all ${
+                                  className={`flex items-center gap-1 px-2 py-1 rounded border text-xs font-mono transition-all ${
                                     isAddingSub
                                       ? "border-muted/40 text-muted-foreground bg-muted/10"
                                       : "border-primary/20 text-primary/70 hover:bg-primary/10 hover:text-primary"
@@ -649,7 +649,7 @@ export default function TowerPage() {
                             )}
 
                             {floorSubs.length === 0 && !isAddingSub && editMode && (
-                              <p className="text-[10px] font-mono text-muted-foreground/35 italic">
+                              <p className="text-xs font-mono text-muted-foreground italic">
                                 No sub-areas yet — click + Add Sub-Area above.
                               </p>
                             )}

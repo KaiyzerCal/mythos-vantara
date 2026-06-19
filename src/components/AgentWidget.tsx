@@ -80,7 +80,7 @@ function TaskEntry({ task }: { task: TaskCard }) {
                   }
                   <div className="min-w-0">
                     <p className="font-mono text-white/60 leading-relaxed">{s.label}</p>
-                    {s.detail && <p className="font-mono text-white/30 text-[9px] truncate">{s.detail}</p>}
+                    {s.detail && <p className="font-mono text-white/30 text-xs truncate">{s.detail}</p>}
                   </div>
                 </div>
               ))}
@@ -204,7 +204,7 @@ export default function AgentWidget({ agentType, className }: AgentWidgetProps) 
         {/* Header */}
         <div className="flex items-center gap-2.5 px-4 py-3 border-b border-white/8 shrink-0">
           <div
-            className="w-6 h-6 rounded-md flex items-center justify-center text-[10px] font-bold"
+            className="w-6 h-6 rounded-md flex items-center justify-center text-xs font-bold"
             style={{ backgroundColor: meta.color + "22", color: meta.color, border: `1px solid ${meta.color}33` }}
           >
             {agentType === "google" ? "G" : agentType === "social" ? "S" : "AI"}
@@ -212,7 +212,7 @@ export default function AgentWidget({ agentType, className }: AgentWidgetProps) 
           <span className="text-[12px] font-semibold text-white/80">{meta.label}</span>
           <div className="ml-auto flex items-center gap-1.5">
             <span className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ backgroundColor: meta.color }} />
-            <span className="text-[9px] font-mono text-white/30">online</span>
+            <span className="text-xs font-mono text-white/30">online</span>
           </div>
         </div>
 
@@ -220,13 +220,13 @@ export default function AgentWidget({ agentType, className }: AgentWidgetProps) 
         <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
           {messages.length === 0 && !sending && (
             <div className="flex flex-col items-center justify-center h-full gap-4 py-8 text-center">
-              <p className="text-[11px] text-white/30 font-mono">Try asking:</p>
+              <p className="text-xs text-white/30 font-mono">Try asking:</p>
               <div className="flex flex-col gap-1.5 w-full max-w-xs">
                 {meta.starters.map((s) => (
                   <button
                     key={s}
                     onClick={() => setInput(s)}
-                    className="text-[10px] font-mono text-white/40 border border-white/8 rounded-lg px-3 py-2 hover:border-white/15 hover:text-white/60 transition-colors text-left"
+                    className="text-xs font-mono text-white/40 border border-white/8 rounded-lg px-3 py-2 hover:border-white/15 hover:text-white/60 transition-colors text-left"
                   >
                     {s}
                   </button>
@@ -310,16 +310,16 @@ export default function AgentWidget({ agentType, className }: AgentWidgetProps) 
       <div className="w-[35%] shrink-0 flex flex-col overflow-hidden">
         <div className="flex items-center gap-2 px-3 py-3 border-b border-white/8 shrink-0">
           <Clock size={10} className="text-white/30" />
-          <span className="text-[9px] font-mono uppercase tracking-widest text-white/30">Task Log</span>
+          <span className="text-xs font-mono uppercase tracking-widest text-white/30">Task Log</span>
           {tasks.length > 0 && (
-            <span className="ml-auto text-[9px] font-mono text-white/20">{tasks.length}</span>
+            <span className="ml-auto text-xs font-mono text-white/20">{tasks.length}</span>
           )}
         </div>
 
         <div className="flex-1 overflow-y-auto p-2 space-y-1.5">
           {tasks.length === 0 ? (
             <div className="flex items-center justify-center h-20">
-              <p className="text-[9px] font-mono text-white/20">Tasks appear here</p>
+              <p className="text-xs font-mono text-white/20">Tasks appear here</p>
             </div>
           ) : (
             [...tasks].reverse().map((t) => <TaskEntry key={t.id} task={t} />)

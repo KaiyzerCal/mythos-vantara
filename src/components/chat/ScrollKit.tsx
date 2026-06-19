@@ -77,7 +77,7 @@ export function BackToTopButton({
         "absolute top-3 left-1/2 -translate-x-1/2 z-10",
         "flex items-center gap-1 px-2.5 py-1 rounded-full",
         "bg-background/80 border border-border backdrop-blur-sm shadow-sm",
-        "text-[9px] font-mono text-muted-foreground hover:text-primary transition-colors",
+        "text-xs font-mono text-muted-foreground hover:text-primary transition-colors",
         className
       )}
     >
@@ -132,12 +132,12 @@ export function EndOfFeed({
     <div className={cn("flex flex-col items-center gap-1 py-5 select-none pointer-events-none", className)}>
       <div className="flex items-center gap-3 w-full max-w-[200px]">
         <div className="flex-1 h-px bg-border/40" />
-        <span className="text-[8px] font-mono text-muted-foreground/35 uppercase tracking-widest whitespace-nowrap">
+        <span className="text-xs font-mono text-muted-foreground uppercase tracking-widest whitespace-nowrap">
           end of thread
         </span>
         <div className="flex-1 h-px bg-border/40" />
       </div>
-      <div className="flex items-center gap-2 text-[8px] font-mono text-muted-foreground/25">
+      <div className="flex items-center gap-2 text-xs font-mono text-muted-foreground">
         <span>{messageCount} message{messageCount !== 1 ? "s" : ""}</span>
         {lastUpdated && (
           <>

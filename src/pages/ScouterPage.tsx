@@ -91,25 +91,25 @@ export default function ScouterPage() {
 
       {/* My PvP Stats */}
       <HudCard className="border-primary/30 bg-primary/5">
-        <p className="text-[9px] font-mono text-primary uppercase tracking-widest mb-3">⟡ YOUR COMBAT DATA</p>
+        <p className="text-xs font-mono text-primary uppercase tracking-widest mb-3">⟡ YOUR COMBAT DATA</p>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
           <div>
-            <p className="text-[9px] font-mono text-muted-foreground">RANK</p>
+            <p className="text-xs font-mono text-muted-foreground">RANK</p>
             <div className="flex items-center gap-1.5 mt-0.5">
               <RankBadge rank={profile.rank} />
               <span className="font-display text-sm font-bold">LV.{profile.level}</span>
             </div>
           </div>
           <div>
-            <p className="text-[9px] font-mono text-muted-foreground">GPR</p>
+            <p className="text-xs font-mono text-muted-foreground">GPR</p>
             <p className="font-display text-lg font-bold text-amber-400">{profile.gpr.toLocaleString()}</p>
           </div>
           <div>
-            <p className="text-[9px] font-mono text-muted-foreground">PVP RATING</p>
+            <p className="text-xs font-mono text-muted-foreground">PVP RATING</p>
             <p className="font-display text-lg font-bold text-red-400">{profile.pvp_rating.toLocaleString()}</p>
           </div>
           <div>
-            <p className="text-[9px] font-mono text-muted-foreground">COWL SYNC</p>
+            <p className="text-xs font-mono text-muted-foreground">COWL SYNC</p>
             <p className="font-display text-lg font-bold text-primary">{profile.full_cowl_sync}%</p>
           </div>
         </div>
@@ -124,7 +124,7 @@ export default function ScouterPage() {
             { label: "LCK", value: profile.stat_lck },
           ].map(s => (
             <div key={s.label} className="text-center">
-              <p className="text-[8px] font-mono text-muted-foreground">{s.label}</p>
+              <p className="text-xs font-mono text-muted-foreground">{s.label}</p>
               <p className="text-xs font-display font-bold">{s.value}</p>
             </div>
           ))}
@@ -133,7 +133,7 @@ export default function ScouterPage() {
 
       {/* Scout Section */}
       <HudCard>
-        <p className="text-[9px] font-mono text-primary uppercase tracking-widest mb-3">⟡ SCOUT TARGET</p>
+        <p className="text-xs font-mono text-primary uppercase tracking-widest mb-3">⟡ SCOUT TARGET</p>
         {!scouting && !result ? (
           <div className="flex gap-2">
             <input value={scoutName} onChange={(e) => setScoutName(e.target.value)} placeholder="Enter target name..."
@@ -162,9 +162,9 @@ export default function ScouterPage() {
             <div className="grid grid-cols-5 gap-2">
               {SCOUT_QUESTIONS.map(q => (
                 <div key={q.id} className="text-center">
-                  <p className="text-[8px] font-mono text-muted-foreground uppercase">{q.id}</p>
+                  <p className="text-xs font-mono text-muted-foreground uppercase">{q.id}</p>
                   <p className="text-xs font-mono font-bold">{result.answers[q.id]}</p>
-                  <p className="text-[9px] font-mono text-primary">{SCORE_MAP[result.answers[q.id]]}/10</p>
+                  <p className="text-xs font-mono text-primary">{SCORE_MAP[result.answers[q.id]]}/10</p>
                 </div>
               ))}
             </div>
@@ -181,7 +181,7 @@ export default function ScouterPage() {
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4">
             <div className="flex items-center justify-between">
               <p className="text-xs font-mono text-muted-foreground">Scouting: <span className="text-foreground font-bold">{scoutName}</span></p>
-              <p className="text-[9px] font-mono text-primary">{step + 1} / {SCOUT_QUESTIONS.length}</p>
+              <p className="text-xs font-mono text-primary">{step + 1} / {SCOUT_QUESTIONS.length}</p>
             </div>
             <div className="h-1 bg-muted rounded-full overflow-hidden">
               <div className="h-full bg-primary transition-all" style={{ width: `${((step + 1) / SCOUT_QUESTIONS.length) * 100}%` }} />
@@ -198,7 +198,7 @@ export default function ScouterPage() {
                 ))}
               </div>
             </div>
-            <button onClick={resetScout} className="text-[10px] font-mono text-muted-foreground hover:text-destructive transition-colors">Cancel</button>
+            <button onClick={resetScout} className="text-xs font-mono text-muted-foreground hover:text-destructive transition-colors">Cancel</button>
           </motion.div>
         )}
       </HudCard>
@@ -206,7 +206,7 @@ export default function ScouterPage() {
       {/* Recent Scouted in Rankings */}
       {rankings.filter(r => !r.is_self).length > 0 && (
         <div>
-          <p className="text-[9px] font-mono text-muted-foreground uppercase tracking-widest mb-2">SCOUTED PROFILES IN RANKINGS</p>
+          <p className="text-xs font-mono text-muted-foreground uppercase tracking-widest mb-2">SCOUTED PROFILES IN RANKINGS</p>
           <div className="space-y-1.5">
             {rankings.filter(r => !r.is_self).slice(0, 5).map(r => (
               <HudCard key={r.id} className="py-2">
@@ -214,7 +214,7 @@ export default function ScouterPage() {
                   <div className="flex items-center gap-2">
                     <span className="text-sm font-display font-bold">{r.display_name}</span>
                     <RankBadge rank={r.rank} size="xs" />
-                    <span className="text-[9px] font-mono text-muted-foreground">LV{r.level}</span>
+                    <span className="text-xs font-mono text-muted-foreground">LV{r.level}</span>
                   </div>
                   <div className="flex items-center gap-3 text-xs font-mono">
                     <span className="text-amber-400">{r.gpr.toLocaleString()} GPR</span>

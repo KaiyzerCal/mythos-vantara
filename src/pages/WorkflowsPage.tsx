@@ -250,7 +250,7 @@ function StepNode({ data, selected }: NodeProps) {
           {d.name || def.label}
         </span>
       </div>
-      <div className="text-zinc-500 mt-0.5 text-[10px] truncate">{def.label}</div>
+      <div className="text-zinc-500 mt-0.5 text-xs truncate">{def.label}</div>
       <Handle
         type="source"
         position={Position.Bottom}
@@ -296,7 +296,7 @@ function ConfigPanel({ node, onUpdate, onDelete }: ConfigPanelProps) {
       </div>
 
       <div>
-        <label className="text-[10px] font-mono text-zinc-500 block mb-1">Label</label>
+        <label className="text-xs font-mono text-zinc-500 block mb-1">Label</label>
         <input
           type="text"
           value={d.name}
@@ -307,7 +307,7 @@ function ConfigPanel({ node, onUpdate, onDelete }: ConfigPanelProps) {
 
       {def.fields.map((field) => (
         <div key={field.key}>
-          <label className="text-[10px] font-mono text-zinc-500 block mb-1">{field.label}</label>
+          <label className="text-xs font-mono text-zinc-500 block mb-1">{field.label}</label>
           {field.type === "select" ? (
             <select
               value={d.config[field.key] ?? ""}
@@ -338,12 +338,12 @@ function ConfigPanel({ node, onUpdate, onDelete }: ConfigPanelProps) {
       ))}
 
       {d.stepType === "send_email" && (
-        <p className="text-[10px] text-zinc-600 font-mono leading-relaxed">
+        <p className="text-xs text-zinc-600 font-mono leading-relaxed">
           Tip: fill either Body or AI Prompt — not both. Use {"{{output}}"} to inject the previous step's result.
         </p>
       )}
       {d.stepType === "for_each" && (
-        <p className="text-[10px] text-zinc-600 font-mono leading-relaxed">
+        <p className="text-xs text-zinc-600 font-mono leading-relaxed">
           Tip: Steps after this node run once per item. Use {"{{item}}"} in downstream steps.
         </p>
       )}
@@ -628,7 +628,7 @@ function CanvasEditor({
         <div className="w-44 shrink-0 border-r border-border bg-zinc-950 overflow-y-auto p-2">
           {palette.map(({ cat, items }) => (
             <div key={cat} className="mb-3">
-              <p className="text-[9px] uppercase tracking-widest text-zinc-600 font-mono px-1 mb-1.5">
+              <p className="text-xs uppercase tracking-widest text-zinc-600 font-mono px-1 mb-1.5">
                 {cat}
               </p>
               <div className="space-y-1">
@@ -670,7 +670,7 @@ function CanvasEditor({
               style={{ background: "#18181b", border: "1px solid #3f3f46" }}
             />
             <Panel position="bottom-center">
-              <p className="text-[10px] text-zinc-600 font-mono bg-zinc-900/80 px-3 py-1 rounded-full border border-zinc-800">
+              <p className="text-xs text-zinc-600 font-mono bg-zinc-900/80 px-3 py-1 rounded-full border border-zinc-800">
                 Click palette to add nodes · Drag handles to connect · Backspace to delete selected
               </p>
             </Panel>
@@ -976,7 +976,7 @@ export function WorkflowsPage() {
                                   {sl.status === "ok"
                                     ? <CheckCircle2 size={10} className="text-green-400 shrink-0" />
                                     : <XCircle size={10} className="text-red-400 shrink-0" />}
-                                  <span className="text-foreground/80 truncate">{sl.name ?? sl.type}</span>
+                                  <span className="text-foreground truncate">{sl.name ?? sl.type}</span>
                                   {sl.duration_ms != null && (
                                     <span className="ml-auto text-muted-foreground shrink-0">{sl.duration_ms}ms</span>
                                   )}

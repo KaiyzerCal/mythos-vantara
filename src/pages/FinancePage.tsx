@@ -267,7 +267,7 @@ export function FinancePage() {
           { label: "Avg / Day (30d)", value: fmtCurrency(avgPerDay), color: "text-green-400" },
         ].map((stat) => (
           <HudCard key={stat.label}>
-            <p className="text-[9px] font-mono text-muted-foreground uppercase tracking-widest mb-1">{stat.label}</p>
+            <p className="text-xs font-mono text-muted-foreground uppercase tracking-widest mb-1">{stat.label}</p>
             <p className={`text-xl font-display font-bold ${stat.color}`}>{stat.value}</p>
           </HudCard>
         ))}
@@ -289,7 +289,7 @@ export function FinancePage() {
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
               <div className="lg:col-span-2">
-                <label className="text-[9px] font-mono text-muted-foreground block mb-0.5">Description *</label>
+                <label className="text-xs font-mono text-muted-foreground block mb-0.5">Description *</label>
                 <input
                   type="text"
                   value={addForm.description}
@@ -299,7 +299,7 @@ export function FinancePage() {
                 />
               </div>
               <div>
-                <label className="text-[9px] font-mono text-muted-foreground block mb-0.5">Amount *</label>
+                <label className="text-xs font-mono text-muted-foreground block mb-0.5">Amount *</label>
                 <input
                   type="number"
                   step="0.01"
@@ -311,7 +311,7 @@ export function FinancePage() {
                 />
               </div>
               <div>
-                <label className="text-[9px] font-mono text-muted-foreground block mb-0.5">Currency</label>
+                <label className="text-xs font-mono text-muted-foreground block mb-0.5">Currency</label>
                 <select
                   value={addForm.currency}
                   onChange={(e) => setAddForm((f) => ({ ...f, currency: e.target.value }))}
@@ -321,7 +321,7 @@ export function FinancePage() {
                 </select>
               </div>
               <div>
-                <label className="text-[9px] font-mono text-muted-foreground block mb-0.5">Category</label>
+                <label className="text-xs font-mono text-muted-foreground block mb-0.5">Category</label>
                 <select
                   value={addForm.category}
                   onChange={(e) => setAddForm((f) => ({ ...f, category: e.target.value }))}
@@ -331,7 +331,7 @@ export function FinancePage() {
                 </select>
               </div>
               <div>
-                <label className="text-[9px] font-mono text-muted-foreground block mb-0.5">Date</label>
+                <label className="text-xs font-mono text-muted-foreground block mb-0.5">Date</label>
                 <input
                   type="date"
                   value={addForm.expense_date}
@@ -369,7 +369,7 @@ export function FinancePage() {
               const monthLabel = MONTH_LABELS[parseInt(m.slice(5, 7)) - 1];
               return (
                 <div key={m} className="flex-1 flex flex-col items-center gap-1">
-                  <span className="text-[8px] font-mono text-primary tabular-nums">
+                  <span className="text-xs font-mono text-primary tabular-nums">
                     {val > 0 ? `$${Math.round(val)}` : ""}
                   </span>
                   <div className="w-full flex items-end" style={{ height: "72px" }}>
@@ -378,7 +378,7 @@ export function FinancePage() {
                       style={{ height: `${pct}%`, minHeight: val > 0 ? "2px" : "0" }}
                     />
                   </div>
-                  <span className="text-[9px] font-mono text-muted-foreground">{monthLabel}</span>
+                  <span className="text-xs font-mono text-muted-foreground">{monthLabel}</span>
                 </div>
               );
             })}
@@ -408,7 +408,7 @@ export function FinancePage() {
                       <div className="flex justify-between mb-1">
                         <span className="text-xs font-mono text-foreground capitalize">{cat}</span>
                         <div className="flex items-center gap-2">
-                          <span className="text-[9px] font-mono text-muted-foreground">{pct}%</span>
+                          <span className="text-xs font-mono text-muted-foreground">{pct}%</span>
                           <span className="text-xs font-mono text-primary">{fmtCurrency(total)}</span>
                         </div>
                       </div>
@@ -441,11 +441,11 @@ export function FinancePage() {
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-1.5">
                         <span className="text-xs font-mono text-foreground truncate">{e.description}</span>
-                        <span className="text-[8px] font-mono text-muted-foreground bg-muted/50 px-1 py-0.5 rounded shrink-0 capitalize">
+                        <span className="text-xs font-mono text-muted-foreground bg-muted/50 px-1 py-0.5 rounded shrink-0 capitalize">
                           {e.category}
                         </span>
                       </div>
-                      <span className="text-[9px] font-mono text-muted-foreground">{fmtDate(e.expense_date)}</span>
+                      <span className="text-xs font-mono text-muted-foreground">{fmtDate(e.expense_date)}</span>
                     </div>
                     <span className="text-xs font-mono text-red-400 shrink-0">
                       -{fmtCurrency(Number(e.amount), e.currency)}

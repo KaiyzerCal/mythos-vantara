@@ -655,7 +655,7 @@ export default function ReceptionistPage() {
           >
             {t}
             {t === "Messages" && unreadMessages > 0 && (
-              <span className="ml-1.5 bg-red-500 text-white text-[10px] font-bold rounded-full px-1.5 py-0.5">{unreadMessages}</span>
+              <span className="ml-1.5 bg-red-500 text-white text-xs font-bold rounded-full px-1.5 py-0.5">{unreadMessages}</span>
             )}
           </button>
         ))}

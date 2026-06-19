@@ -122,10 +122,10 @@ export function AchievementsPage() {
       {/* ── Progress bar ─────────────────────────────────── */}
       <div>
         <div className="flex justify-between mb-1">
-          <span className="text-[9px] font-mono text-muted-foreground uppercase tracking-widest">
+          <span className="text-xs font-mono text-muted-foreground uppercase tracking-widest">
             {unlockedCount} / {totalCount} achievements unlocked
           </span>
-          <span className="text-[9px] font-mono text-primary">
+          <span className="text-xs font-mono text-primary">
             {totalCount > 0 ? Math.round((unlockedCount / totalCount) * 100) : 0}%
           </span>
         </div>
@@ -138,7 +138,7 @@ export function AchievementsPage() {
           <button
             key={cat}
             onClick={() => setCategoryFilter(cat)}
-            className={`px-3 py-1 text-[10px] font-mono rounded border transition-colors capitalize ${
+            className={`px-3 py-1 text-xs font-mono rounded border transition-colors capitalize ${
               categoryFilter === cat
                 ? "border-primary text-primary bg-primary/10"
                 : "border-border text-muted-foreground hover:border-border/80"
@@ -215,13 +215,13 @@ export function AchievementsPage() {
                   </p>
 
                   {/* Description */}
-                  <p className="text-[9px] font-mono text-muted-foreground leading-tight">
+                  <p className="text-xs font-mono text-muted-foreground leading-tight">
                     {entry.description}
                   </p>
 
                   {/* Unlocked date */}
                   {isUnlocked && (
-                    <p className="text-[8px] font-mono text-primary mt-2">
+                    <p className="text-xs font-mono text-primary mt-2">
                       {fmtDate(unlockedData.unlocked_at)}
                     </p>
                   )}
@@ -275,17 +275,17 @@ export function AchievementsPage() {
                     {selected.title}
                   </p>
 
-                  <p className="text-[10px] font-mono text-muted-foreground uppercase tracking-widest mb-4">
+                  <p className="text-xs font-mono text-muted-foreground uppercase tracking-widest mb-4">
                     {selected.category}
                   </p>
 
-                  <p className="text-sm font-mono text-foreground/80 mb-6">
+                  <p className="text-sm font-mono text-foreground mb-6">
                     {selected.description}
                   </p>
 
                   <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded border border-primary/30 bg-primary/10">
                     <Trophy size={11} className="text-primary" />
-                    <span className="text-[10px] font-mono text-primary">
+                    <span className="text-xs font-mono text-primary">
                       Unlocked {fmtDate(selected.unlocked_at)}
                     </span>
                   </div>

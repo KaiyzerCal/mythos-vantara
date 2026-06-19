@@ -91,7 +91,7 @@ export default function BpmPage() {
             >
               {manualBpm}
             </motion.p>
-            <p className="text-[10px] font-mono text-muted-foreground text-center uppercase tracking-widest">BPM</p>
+            <p className="text-xs font-mono text-muted-foreground text-center uppercase tracking-widest">BPM</p>
           </div>
 
           {/* Zone badge */}
@@ -130,8 +130,8 @@ export default function BpmPage() {
           {/* BPM range visual */}
           <div className="w-full max-w-xs mt-4">
             <div className="flex justify-between mb-1">
-              <span className="text-[9px] font-mono text-muted-foreground">40</span>
-              <span className="text-[9px] font-mono text-muted-foreground">400</span>
+              <span className="text-xs font-mono text-muted-foreground">40</span>
+              <span className="text-xs font-mono text-muted-foreground">400</span>
             </div>
             <div className="h-2 bg-muted rounded-full overflow-hidden relative">
               <div
@@ -145,7 +145,7 @@ export default function BpmPage() {
 
       {/* Session notes */}
       <HudCard>
-        <p className="text-[9px] font-mono text-muted-foreground uppercase tracking-widest mb-3">Log Session</p>
+        <p className="text-xs font-mono text-muted-foreground uppercase tracking-widest mb-3">Log Session</p>
         <div className="space-y-2">
           <input
             value={mood}
@@ -161,7 +161,7 @@ export default function BpmPage() {
             className="w-full bg-muted/30 border border-border rounded px-3 py-1.5 text-sm resize-none focus:outline-none"
           />
           <div className="flex items-center justify-between">
-            <p className="text-[9px] font-mono text-muted-foreground">Current form: {profile.current_form}</p>
+            <p className="text-xs font-mono text-muted-foreground">Current form: {profile.current_form}</p>
             <button
               onClick={handleSave}
               className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono bg-primary/10 border border-primary/30 text-primary rounded hover:bg-primary/20 transition-all"
@@ -177,22 +177,22 @@ export default function BpmPage() {
       <div className="grid grid-cols-3 gap-3">
         <HudCard className="text-center">
           <p className="text-2xl font-display font-bold text-primary">{profile.current_bpm}</p>
-          <p className="text-[9px] font-mono text-muted-foreground uppercase">Current</p>
+          <p className="text-xs font-mono text-muted-foreground uppercase">Current</p>
         </HudCard>
         <HudCard className="text-center">
           <p className="text-2xl font-display font-bold text-amber-400">{avgBpm || "—"}</p>
-          <p className="text-[9px] font-mono text-muted-foreground uppercase">7-Day Avg</p>
+          <p className="text-xs font-mono text-muted-foreground uppercase">7-Day Avg</p>
         </HudCard>
         <HudCard className="text-center">
           <p className="text-2xl font-display font-bold text-purple-400">{bpmSessions.length}</p>
-          <p className="text-[9px] font-mono text-muted-foreground uppercase">Sessions</p>
+          <p className="text-xs font-mono text-muted-foreground uppercase">Sessions</p>
         </HudCard>
       </div>
 
       {/* Recent sessions */}
       {recentSessions.length > 0 && (
         <HudCard>
-          <p className="text-[9px] font-mono text-muted-foreground uppercase tracking-widest mb-3 flex items-center gap-2">
+          <p className="text-xs font-mono text-muted-foreground uppercase tracking-widest mb-3 flex items-center gap-2">
             <TrendingUp size={10} /> Recent Sessions
           </p>
           <div className="space-y-2">
@@ -208,9 +208,9 @@ export default function BpmPage() {
                       <div className="h-full rounded-full" style={{ width: `${((s.bpm - 40) / 360) * 100}%`, background: z.color }} />
                     </div>
                   </div>
-                  <span className="text-[9px] font-mono text-muted-foreground w-20 shrink-0">{s.form}</span>
-                  {s.mood && <span className="text-[9px] font-mono text-muted-foreground">{s.mood}</span>}
-                  <span className="text-[9px] font-mono text-muted-foreground ml-auto shrink-0">
+                  <span className="text-xs font-mono text-muted-foreground w-20 shrink-0">{s.form}</span>
+                  {s.mood && <span className="text-xs font-mono text-muted-foreground">{s.mood}</span>}
+                  <span className="text-xs font-mono text-muted-foreground ml-auto shrink-0">
                     {new Date(s.created_at).toLocaleDateString()}
                   </span>
                 </div>

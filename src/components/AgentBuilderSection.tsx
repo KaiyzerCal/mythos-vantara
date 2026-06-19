@@ -226,7 +226,7 @@ export default function AgentBuilderSection() {
                 <div>
                   <p className="font-semibold text-sm">{a.agent_name}</p>
                   <p className="text-xs text-muted-foreground mt-0.5 truncate">{a.business_name}</p>
-                  <p className="text-[10px] text-muted-foreground/60 mt-0.5">For: {a.customer_name || "—"}</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">For: {a.customer_name || "—"}</p>
                 </div>
 
                 <div className="grid grid-cols-2 gap-2 text-xs">
@@ -353,7 +353,7 @@ export default function AgentBuilderSection() {
                     )}
                   >
                     <span className="font-semibold">{t.label}</span>
-                    <span className="text-[10px] opacity-70">{t.desc}</span>
+                    <span className="text-xs opacity-70">{t.desc}</span>
                   </button>
                 ))}
               </div>
@@ -385,11 +385,11 @@ export default function AgentBuilderSection() {
                     )}
                   >
                     <div className={cn("w-4 h-4 rounded border-2 flex items-center justify-center shrink-0 mt-0.5 transition-colors", isOn ? "border-primary bg-primary" : "border-border")}>
-                      {isOn && <span className="text-[8px] text-primary-foreground font-bold">✓</span>}
+                      {isOn && <span className="text-xs text-primary-foreground font-bold">✓</span>}
                     </div>
                     <div>
                       <p className="text-xs font-semibold">{cap.label}</p>
-                      <p className="text-[10px] text-muted-foreground">{cap.desc}</p>
+                      <p className="text-xs text-muted-foreground">{cap.desc}</p>
                     </div>
                   </button>
                 );
@@ -445,7 +445,7 @@ export default function AgentBuilderSection() {
                     <p className="text-xs font-semibold">{tier.label}</p>
                     <p className="text-xs font-mono text-primary shrink-0">${tier.price}/mo</p>
                   </div>
-                  <p className="text-[10px] text-muted-foreground">{tier.desc}</p>
+                  <p className="text-xs text-muted-foreground">{tier.desc}</p>
                 </div>
               </button>
             ))}
@@ -461,16 +461,16 @@ export default function AgentBuilderSection() {
             <div className="rounded-xl border border-white/10 bg-[#0d1117] overflow-hidden">
               <div className="flex items-center gap-2 px-3 py-2 border-b border-white/8 bg-[#060810]">
                 <div
-                  className="w-6 h-6 rounded-md flex items-center justify-center text-[10px] font-bold border"
+                  className="w-6 h-6 rounded-md flex items-center justify-center text-xs font-bold border"
                   style={{ backgroundColor: form.brand_color + "22", color: form.brand_color, borderColor: form.brand_color + "44" }}
                 >
                   {form.agent_name.slice(0, 2).toUpperCase() || "AI"}
                 </div>
-                <span className="text-[11px] font-semibold text-white/80">{form.agent_name || "AI Assistant"}</span>
+                <span className="text-xs font-semibold text-white/80">{form.agent_name || "AI Assistant"}</span>
                 <span className="ml-auto w-1.5 h-1.5 rounded-full animate-pulse" style={{ backgroundColor: form.brand_color }} />
               </div>
               <div className="px-3 py-3 space-y-2">
-                <div className="bg-black/40 border border-white/5 rounded-xl rounded-tl-sm px-3 py-2 text-[11px] text-white/60">
+                <div className="bg-black/40 border border-white/5 rounded-xl rounded-tl-sm px-3 py-2 text-xs text-white/60">
                   Hi! I'm {form.agent_name || "your AI assistant"}{form.business_name ? ` for ${form.business_name}` : ""}. How can I help you today?
                 </div>
               </div>
@@ -530,7 +530,7 @@ export default function AgentBuilderSection() {
             <div className="flex-1 min-w-0">
               <p className="font-semibold">{selectedAgent.agent_name}</p>
               <p className="text-sm text-muted-foreground">{selectedAgent.business_name}</p>
-              <p className="text-xs text-muted-foreground/60">Customer: {selectedAgent.customer_name || "—"}</p>
+              <p className="text-xs text-muted-foreground">Customer: {selectedAgent.customer_name || "—"}</p>
             </div>
             <div className="flex items-center gap-2">
               <Badge className="bg-green-500/20 text-green-400 border-green-500/30">{selectedAgent.status ?? "active"}</Badge>

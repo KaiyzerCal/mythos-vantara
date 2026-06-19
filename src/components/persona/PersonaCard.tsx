@@ -121,7 +121,7 @@ export function PersonaCard({ persona, userId, onChat, onDelete, notification, o
           </div>
           <div>
             <p className="font-display font-bold text-sm text-foreground">{persona.name}</p>
-            <p className="text-[9px] font-mono text-muted-foreground uppercase tracking-widest">{persona.archetype}</p>
+            <p className="text-xs font-mono text-muted-foreground uppercase tracking-widest">{persona.archetype}</p>
           </div>
         </div>
 
@@ -129,7 +129,7 @@ export function PersonaCard({ persona, userId, onChat, onDelete, notification, o
         <div className="flex flex-col items-end gap-1">
           <span className="text-lg leading-none" title={mood}>{MOOD_EMOJI[mood] ?? "😐"}</span>
           <span className={cn(
-            "text-[9px] font-mono px-1.5 py-0.5 rounded border",
+            "text-xs font-mono px-1.5 py-0.5 rounded border",
             roleStyle
           )}>
             {persona.role}
@@ -159,7 +159,7 @@ export function PersonaCard({ persona, userId, onChat, onDelete, notification, o
       </div>
 
       {/* Stats row */}
-      <div className="flex items-center gap-3 mb-3 text-[10px] font-mono text-muted-foreground flex-wrap">
+      <div className="flex items-center gap-3 mb-3 text-xs font-mono text-muted-foreground flex-wrap">
         <span className="flex items-center gap-1">
           <MessageCircle size={10} />
           {msgCount} msgs
@@ -179,32 +179,32 @@ export function PersonaCard({ persona, userId, onChat, onDelete, notification, o
       {cardExpanded && (
         <div className="mb-3 pt-2 border-t border-border/40 space-y-2">
           <div>
-            <p className="text-[9px] font-mono text-muted-foreground uppercase mb-0.5">Archetype</p>
-            <p className="text-[11px] font-body text-foreground">{persona.archetype}</p>
+            <p className="text-xs font-mono text-muted-foreground uppercase mb-0.5">Archetype</p>
+            <p className="text-xs font-body text-foreground">{persona.archetype}</p>
           </div>
           <div>
-            <p className="text-[9px] font-mono text-muted-foreground uppercase mb-0.5">Role · Model</p>
-            <p className="text-[11px] font-mono text-foreground">{persona.role} · {persona.model}</p>
+            <p className="text-xs font-mono text-muted-foreground uppercase mb-0.5">Role · Model</p>
+            <p className="text-xs font-mono text-foreground">{persona.role} · {persona.model}</p>
           </div>
           <div>
-            <p className="text-[9px] font-mono text-muted-foreground uppercase mb-0.5">Total Interactions</p>
-            <p className="text-[11px] font-mono text-foreground">{relState?.total_interactions ?? 0} (rel) · {msgCount} (logged)</p>
+            <p className="text-xs font-mono text-muted-foreground uppercase mb-0.5">Total Interactions</p>
+            <p className="text-xs font-mono text-foreground">{relState?.total_interactions ?? 0} (rel) · {msgCount} (logged)</p>
           </div>
           {persona.personality && Object.keys(persona.personality).length > 0 && (
             <div>
-              <p className="text-[9px] font-mono text-muted-foreground uppercase mb-0.5">Personality</p>
-              <pre className="text-[10px] font-mono text-foreground/80 whitespace-pre-wrap break-words bg-muted/30 rounded p-1.5">{JSON.stringify(persona.personality, null, 2)}</pre>
+              <p className="text-xs font-mono text-muted-foreground uppercase mb-0.5">Personality</p>
+              <pre className="text-xs font-mono text-foreground whitespace-pre-wrap break-words bg-muted/30 rounded p-1.5">{JSON.stringify(persona.personality, null, 2)}</pre>
             </div>
           )}
           {persona.system_prompt && (
             <div>
-              <p className="text-[9px] font-mono text-muted-foreground uppercase mb-0.5">System Prompt</p>
-              <p className="text-[10px] font-body text-foreground/80 whitespace-pre-wrap">{persona.system_prompt}</p>
+              <p className="text-xs font-mono text-muted-foreground uppercase mb-0.5">System Prompt</p>
+              <p className="text-xs font-body text-foreground whitespace-pre-wrap">{persona.system_prompt}</p>
             </div>
           )}
           <div>
-            <p className="text-[9px] font-mono text-muted-foreground uppercase mb-0.5">Forged</p>
-            <p className="text-[10px] font-mono text-foreground">{new Date(persona.created_at).toLocaleString()}</p>
+            <p className="text-xs font-mono text-muted-foreground uppercase mb-0.5">Forged</p>
+            <p className="text-xs font-mono text-foreground">{new Date(persona.created_at).toLocaleString()}</p>
           </div>
         </div>
       )}
@@ -218,7 +218,7 @@ export function PersonaCard({ persona, userId, onChat, onDelete, notification, o
             setReasonExpanded((v) => !v);
           }}
           className={cn(
-            "w-full text-left text-[10px] font-mono text-muted-foreground italic mb-3 cursor-pointer hover:text-foreground transition-colors",
+            "w-full text-left text-xs font-mono text-muted-foreground italic mb-3 cursor-pointer hover:text-foreground transition-colors",
             !reasonExpanded && "line-clamp-2"
           )}
           title={reasonExpanded ? "Click to collapse" : "Click to read full summary"}
@@ -231,7 +231,7 @@ export function PersonaCard({ persona, userId, onChat, onDelete, notification, o
       {notification && !notification.is_read && (
         <div className="flex items-start gap-1.5 mb-3 px-2 py-1.5 rounded bg-neon-purple/10 border border-neon-purple/20">
           <Bell size={10} className="text-neon-purple mt-0.5 shrink-0 animate-pulse" />
-          <p className="text-[10px] font-mono text-neon-purple/90 line-clamp-2 flex-1">
+          <p className="text-xs font-mono text-neon-purple/90 line-clamp-2 flex-1">
             {notification.message}
           </p>
         </div>
