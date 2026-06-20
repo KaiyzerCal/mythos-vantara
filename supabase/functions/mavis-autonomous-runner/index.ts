@@ -28,6 +28,7 @@ const TAVILY_KEY = Deno.env.get("Tavily_API") ?? "";
 const MAX_TASKS_PER_RUN = 3;
 const MAX_PLAN_STEPS = 20;
 const STEP_MAX_ATTEMPTS = 3;
+const TASK_TIME_BUDGET_MS = 45000; // 45s per task before yielding to next cron cycle
 const PLANNER_MODEL = "claude-haiku-4-5-20251001";
 const REASONER_MODEL = "claude-haiku-4-5-20251001";
 const SYNTHESIZER_MODEL = "claude-haiku-4-5-20251001";
@@ -204,6 +205,89 @@ async function callEdgeFunction(
     throw new Error(`Function ${fnName} returned error: ${errText.slice(0, 300)}`);
   }
   return data;
+}
+
+// ── Dynamic replanning ────────────────────────────────────────────────────────
+
+/**
+ * After a research or reason step, ask Claude if the remaining plan is still
+ * valid given the new output. If not, generate new remaining steps.
+ * Returns a replacement tail-plan, or null if no replan is needed.
+ */
+async function replanRemainingSteps(
+  task: AutonomousTask,
+  completedStepIndex: number,
+  stepOutput: string,
+): Promise<PlanStep[] | null> {
+  const remainingCount = task.plan.length - completedStepIndex - 1;
+  if (remainingCount <= 1) return null; // Nothing meaningful to replan
+
+  const completedSummary = task.context.steps_completed
+    .slice(-3)
+    .map((s) => `[${s.type}] ${s.description}: ${s.output.slice(0, 150)}`)
+    .join("\n") || "(none yet)";
+
+  const remainingPlan = task.plan
+    .slice(completedStepIndex + 1)
+    .map((s, i) => `${i + 1}. [${s.type}] ${s.description}`)
+    .join("\n");
+
+  // Quick yes/no check — use haiku to keep latency low
+  const checkRaw = await claudeCall(
+    "You evaluate whether an autonomous task plan needs updating based on new findings. Be conservative — only flag genuine invalidation, not minor deviations.",
+    `Goal: ${task.goal.slice(0, 200)}\n\nNew finding from step ${completedStepIndex}: ${stepOutput.slice(0, 400)}\n\nRemaining planned steps:\n${remainingPlan}\n\nDoes this finding make the remaining plan invalid or significantly suboptimal?\nRespond ONLY as JSON: {"needs_replan": true/false, "reason": "brief reason"}`,
+    PLANNER_MODEL,
+    128,
+  ).catch(() => '{"needs_replan": false}');
+
+  let needsReplan = false;
+  let reason = "";
+  try {
+    const parsed = JSON.parse((checkRaw.match(/\{[\s\S]*?\}/) ?? ["{}"])[0]);
+    needsReplan = parsed.needs_replan === true;
+    reason = String(parsed.reason ?? "");
+  } catch {
+    return null;
+  }
+
+  if (!needsReplan) return null;
+
+  console.log(
+    `[autonomous-runner] Replanning task ${task.id} after step ${completedStepIndex}: ${reason}`,
+  );
+
+  const replanRaw = await claudeCall(
+    "You are MAVIS task replanner. Generate new remaining steps for a task given what was just learned.",
+    `Goal: ${task.goal.slice(0, 200)}\n\nCompleted steps:\n${completedSummary}\n\nLatest finding: ${stepOutput.slice(0, 400)}\n\nReason to replan: ${reason}\n\nGenerate 2-6 new remaining steps as a JSON array. Each step: {type, description, input}. Valid types: research, reason, store, notify, execute, complete. Always end with "complete". Return ONLY the JSON array.`,
+    PLANNER_MODEL,
+    512,
+  ).catch(() => "");
+
+  const arrMatch = replanRaw.match(/\[[\s\S]*\]/);
+  if (!arrMatch) return null;
+
+  try {
+    const parsed = JSON.parse(arrMatch[0]);
+    if (!Array.isArray(parsed) || parsed.length === 0) return null;
+    const validTypes = new Set(["research", "reason", "store", "notify", "execute", "complete"]);
+    const newSteps: PlanStep[] = parsed
+      .filter(
+        (s: unknown) =>
+          s &&
+          typeof s === "object" &&
+          validTypes.has((s as Record<string, unknown>).type as string) &&
+          typeof (s as Record<string, unknown>).description === "string",
+      )
+      .slice(0, 8)
+      .map((s: Record<string, unknown>) => ({
+        type: s.type as StepType,
+        description: String(s.description).slice(0, 500),
+        input: (s.input as Record<string, unknown>) ?? {},
+      }));
+    return newSteps.length > 0 ? newSteps : null;
+  } catch {
+    return null;
+  }
 }
 
 // ── Phase 1: PLAN ─────────────────────────────────────────────────────────────
@@ -600,11 +684,25 @@ async function executeStep(
     output: stepOutput.slice(0, 300),
   });
 
-  const updatedPlan = task.plan.map((s, i) =>
+  let updatedPlan = task.plan.map((s, i) =>
     i === stepIndex ? { ...s, output: stepOutput, completed: true } : s,
   );
 
-  const isLastStep = nextStep >= task.plan.length;
+  // Dynamic replanning: after research/reason steps, check if remaining plan is still valid
+  if ((step.type === "research" || step.type === "reason") && nextStep < task.plan.length - 1) {
+    const newTail = await replanRemainingSteps(task, stepIndex, stepOutput).catch(() => null);
+    if (newTail && newTail.length > 0) {
+      updatedPlan = [
+        ...updatedPlan.slice(0, nextStep), // completed steps (including current)
+        ...newTail,                         // new remaining steps
+      ];
+      console.log(
+        `[autonomous-runner] Task ${task.id} replanned with ${newTail.length} new steps from step ${nextStep}`,
+      );
+    }
+  }
+
+  const isLastStep = nextStep >= updatedPlan.length;
 
   if (isLastStep) {
     let finalResult = stepOutput;
@@ -817,25 +915,61 @@ serve(async (req: Request): Promise<Response> => {
 
     let processed = 0;
     let advanced = 0;
+    let stepsTotal = 0;
 
-    for (const task of tasks) {
+    for (const initialTask of tasks) {
+      const taskStart = Date.now();
+      let currentTask = initialTask;
+      let stepsThisTask = 0;
+
       try {
-        const result =
-          task.status === "pending"
-            ? await planTask(sb, task)
-            : await executeStep(sb, task);
+        // Time-budgeted multi-step loop: advance as many steps as time allows.
+        // This means fast tasks (research → reason → complete) can finish in one
+        // cron cycle instead of waiting 4-6 minutes across multiple invocations.
+        while (Date.now() - taskStart < TASK_TIME_BUDGET_MS) {
+          let result: { advanced: boolean };
+
+          if (currentTask.status === "pending") {
+            result = await planTask(sb, currentTask);
+          } else if (currentTask.status === "running") {
+            result = await executeStep(sb, currentTask);
+          } else {
+            break; // terminal state — completed/failed/paused
+          }
+
+          if (result.advanced) {
+            advanced++;
+            stepsThisTask++;
+          }
+
+          // Re-fetch to see current state after the step
+          const { data: refreshed } = await sb
+            .from("mavis_autonomous_tasks")
+            .select("*")
+            .eq("id", currentTask.id)
+            .single();
+
+          if (!refreshed || !["pending", "running"].includes(refreshed.status)) {
+            break; // Task reached a terminal state
+          }
+
+          currentTask = refreshed as AutonomousTask;
+        }
 
         processed++;
-        if (result.advanced) advanced++;
+        stepsTotal += stepsThisTask;
+        console.log(
+          `[autonomous-runner] Task ${currentTask.id}: ${stepsThisTask} steps in ${Date.now() - taskStart}ms`,
+        );
       } catch (taskErr: unknown) {
         const msg = taskErr instanceof Error ? taskErr.message : String(taskErr);
-        console.error(`[autonomous-runner] Unhandled error for task ${task.id}:`, msg);
+        console.error(`[autonomous-runner] Unhandled error for task ${currentTask.id}:`, msg);
 
         try {
           await sb
             .from("mavis_autonomous_tasks")
             .update({ status: "failed", error: `Runner error: ${msg}`, updated_at: nowIso() })
-            .eq("id", task.id);
+            .eq("id", currentTask.id);
         } catch {
           // ignore secondary failure
         }
@@ -844,7 +978,7 @@ serve(async (req: Request): Promise<Response> => {
       }
     }
 
-    return json({ processed, advanced });
+    return json({ processed, advanced, steps_total: stepsTotal });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
     console.error("[autonomous-runner] Fatal error:", message);
