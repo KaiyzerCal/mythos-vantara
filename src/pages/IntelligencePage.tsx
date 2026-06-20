@@ -5,7 +5,7 @@ import {
   ChevronDown, ChevronUp, Loader2, RefreshCw, Sparkles,
   AlertTriangle, CheckCircle2, Target, Network, BarChart3,
   Send, BookOpen, Zap, Clock, ArrowRight, DollarSign, Search,
-  ExternalLink,
+  ExternalLink, Bell, CheckCheck,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase as supabaseTyped } from "@/integrations/supabase/client";
@@ -13,7 +13,7 @@ const supabase: any = supabaseTyped;
 
 const SB_URL = import.meta.env.VITE_SUPABASE_URL ?? "";
 
-const TABS = ["World Model", "Predictions", "Opportunities", "Prediction Markets", "Entity Graph", "Relationships", "Strategy Council"] as const;
+const TABS = ["Intel Feed", "World Model", "Predictions", "Opportunities", "Prediction Markets", "Entity Graph", "Relationships", "Strategy Council"] as const;
 type Tab = typeof TABS[number];
 
 function ConfidenceBar({ confidence }: { confidence: number }) {
@@ -34,6 +34,226 @@ function TypeBadge({ type, colors }: { type: string; colors: string }) {
     <span className={`text-xs px-2 py-0.5 rounded-full border font-medium ${colors}`}>
       {type.replace(/_/g, " ")}
     </span>
+  );
+}
+
+interface FeedItem {
+  id: string;
+  type: "prediction" | "action" | "causal" | "brief";
+  title: string;
+  body: string;
+  confidence?: number;
+  timestamp: string;
+  raw_id: string;
+}
+
+const FEED_TYPE_CONFIG = {
+  prediction: { icon: Sparkles, color: "text-violet-400", bg: "bg-violet-500/10 border-violet-500/20", label: "Prediction" },
+  action:     { icon: Zap,      color: "text-emerald-400", bg: "bg-emerald-500/10 border-emerald-500/20", label: "Action Done" },
+  causal:     { icon: Network,  color: "text-amber-400",  bg: "bg-amber-500/10 border-amber-500/20",   label: "Pattern" },
+  brief:      { icon: BookOpen, color: "text-blue-400",   bg: "bg-blue-500/10 border-blue-500/20",     label: "Brief" },
+};
+
+function IntelFeedPanel() {
+  const [items, setItems] = useState<FeedItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [dismissing, setDismissing] = useState<Set<string>>(new Set());
+
+  useEffect(() => { load(); }, []);
+
+  async function load() {
+    setLoading(true);
+    try {
+      const [preds, actions, briefs, causal] = await Promise.all([
+        supabase.from("mavis_predictions")
+          .select("id,type,prediction_text,description,confidence,created_at")
+          .eq("acted_on", false).order("created_at", { ascending: false }).limit(12),
+        supabase.from("mavis_action_queue")
+          .select("id,action_type,title,description,executed_at,created_at")
+          .eq("status", "executed").eq("autonomy_tier", "auto")
+          .order("executed_at", { ascending: false }).limit(12),
+        supabase.from("mavis_daily_briefs")
+          .select("id,brief_text,content,created_at")
+          .order("created_at", { ascending: false }).limit(3),
+        supabase.from("mavis_causal_chains")
+          .select("id,summary,root_cause,confidence,created_at")
+          .eq("verified", false).order("created_at", { ascending: false }).limit(8),
+      ]);
+
+      const merged: FeedItem[] = [
+        ...(preds.data ?? []).map((p: any) => ({
+          id: `pred_${p.id}`,
+          type: "prediction" as const,
+          title: (p.type ?? "prediction").replace(/_/g, " "),
+          body: p.prediction_text ?? p.description ?? "",
+          confidence: p.confidence,
+          timestamp: p.created_at,
+          raw_id: p.id,
+        })),
+        ...(actions.data ?? []).map((a: any) => ({
+          id: `action_${a.id}`,
+          type: "action" as const,
+          title: a.title ?? (a.action_type ?? "action").replace(/_/g, " "),
+          body: a.description ?? "",
+          timestamp: a.executed_at ?? a.created_at,
+          raw_id: a.id,
+        })),
+        ...(briefs.data ?? []).map((b: any) => ({
+          id: `brief_${b.id}`,
+          type: "brief" as const,
+          title: "Morning Brief",
+          body: (b.brief_text ?? b.content ?? "").slice(0, 500),
+          timestamp: b.created_at,
+          raw_id: b.id,
+        })),
+        ...(causal.data ?? []).map((c: any) => ({
+          id: `causal_${c.id}`,
+          type: "causal" as const,
+          title: "Pattern Detected",
+          body: c.summary ?? c.root_cause ?? "",
+          confidence: c.confidence,
+          timestamp: c.created_at,
+          raw_id: c.id,
+        })),
+      ].filter(i => i.body)
+       .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+
+      setItems(merged);
+    } catch { /* non-fatal */ } finally {
+      setLoading(false);
+    }
+  }
+
+  async function dismiss(item: FeedItem) {
+    setDismissing(prev => new Set(prev).add(item.id));
+    if (item.type === "prediction") {
+      await supabase.from("mavis_predictions").update({ acted_on: true }).eq("id", item.raw_id).catch(() => {});
+    } else if (item.type === "causal") {
+      await supabase.from("mavis_causal_chains").update({ verified: true }).eq("id", item.raw_id).catch(() => {});
+    }
+    setItems(prev => prev.filter(i => i.id !== item.id));
+  }
+
+  async function dismissAll() {
+    const predIds = items.filter(i => i.type === "prediction").map(i => i.raw_id);
+    const causalIds = items.filter(i => i.type === "causal").map(i => i.raw_id);
+    if (predIds.length) await supabase.from("mavis_predictions").update({ acted_on: true }).in("id", predIds).catch(() => {});
+    if (causalIds.length) await supabase.from("mavis_causal_chains").update({ verified: true }).in("id", causalIds).catch(() => {});
+    setItems([]);
+  }
+
+  function fmtTime(iso: string) {
+    const d = new Date(iso);
+    const now = Date.now();
+    const diff = now - d.getTime();
+    if (diff < 60000) return "just now";
+    if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`;
+    if (diff < 86400000) return `${Math.floor(diff / 3600000)}h ago`;
+    return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  }
+
+  if (loading) {
+    return (
+      <div className="space-y-3">
+        {[1,2,3,4].map(i => (
+          <div key={i} className="bg-zinc-900/60 border border-zinc-700/50 rounded-xl p-4 animate-pulse">
+            <div className="flex items-start gap-3">
+              <div className="w-8 h-8 bg-zinc-700/50 rounded-lg shrink-0" />
+              <div className="flex-1 space-y-2">
+                <div className="h-3 w-24 bg-zinc-700/50 rounded" />
+                <div className="h-3 w-full bg-zinc-700/30 rounded" />
+                <div className="h-3 w-3/4 bg-zinc-700/20 rounded" />
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  if (items.length === 0) {
+    return (
+      <div className="flex flex-col items-center py-16 gap-3">
+        <CheckCheck size={36} className="text-emerald-500/40" />
+        <p className="text-sm font-mono text-zinc-400">Intel feed is clear</p>
+        <p className="text-xs text-zinc-600 text-center max-w-xs">
+          MAVIS pushes predictions, patterns, completed actions, and daily briefs here.
+          They accumulate as the autonomous engines run.
+        </p>
+        <button onClick={load} className="mt-2 flex items-center gap-1.5 text-xs text-zinc-500 hover:text-zinc-300 font-mono">
+          <RefreshCw size={11} /> Refresh
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <Bell size={14} className="text-indigo-400" />
+          <span className="text-xs font-mono text-zinc-400">{items.length} signal{items.length !== 1 ? "s" : ""} from autonomous engines</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <button onClick={load} className="text-xs font-mono text-zinc-500 hover:text-zinc-300 flex items-center gap-1">
+            <RefreshCw size={10} /> Refresh
+          </button>
+          <button onClick={dismissAll} className="text-xs font-mono text-zinc-500 hover:text-zinc-300 flex items-center gap-1">
+            <CheckCheck size={10} /> Clear all
+          </button>
+        </div>
+      </div>
+
+      {items.map(item => {
+        const cfg = FEED_TYPE_CONFIG[item.type];
+        const Icon = cfg.icon;
+        const isDismissing = dismissing.has(item.id);
+
+        return (
+          <motion.div
+            key={item.id}
+            layout
+            initial={{ opacity: 0, x: -8 }}
+            animate={{ opacity: isDismissing ? 0 : 1, x: 0 }}
+            exit={{ opacity: 0, height: 0 }}
+            className="bg-zinc-900/60 border border-zinc-700/50 rounded-xl p-4 hover:border-zinc-600/60 transition-colors"
+          >
+            <div className="flex items-start gap-3">
+              <div className={`w-8 h-8 rounded-lg border flex items-center justify-center shrink-0 mt-0.5 ${cfg.bg}`}>
+                <Icon size={14} className={cfg.color} />
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-start justify-between gap-2 mb-1">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className={`text-[10px] font-mono font-bold uppercase tracking-widest px-1.5 py-0.5 rounded border ${cfg.bg} ${cfg.color}`}>
+                      {cfg.label}
+                    </span>
+                    <span className="text-sm font-medium text-white capitalize">{item.title}</span>
+                    {item.confidence !== undefined && (
+                      <span className="text-[10px] font-mono text-zinc-500">{Math.round(item.confidence * 100)}% conf.</span>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <span className="text-[10px] font-mono text-zinc-600">{fmtTime(item.timestamp)}</span>
+                    <button
+                      onClick={() => dismiss(item)}
+                      disabled={isDismissing}
+                      className="p-1 hover:bg-zinc-700/50 rounded text-zinc-600 hover:text-zinc-400 transition-colors"
+                      title="Dismiss"
+                    >
+                      <CheckCircle2 size={12} />
+                    </button>
+                  </div>
+                </div>
+                {item.body && (
+                  <p className="text-xs text-zinc-400 leading-relaxed line-clamp-4">{item.body}</p>
+                )}
+              </div>
+            </div>
+          </motion.div>
+        );
+      })}
+    </div>
   );
 }
 
@@ -653,9 +873,10 @@ function PolymarketPanel({ token }: { token: string }) {
 export default function IntelligencePage() {
   const { session } = useAuth();
   const token = session?.access_token ?? "";
-  const [tab, setTab] = useState<Tab>("World Model");
+  const [tab, setTab] = useState<Tab>("Intel Feed");
 
   const tabIcons: Record<Tab, any> = {
+    "Intel Feed": Bell,
     "World Model": Globe,
     "Predictions": Brain,
     "Opportunities": Lightbulb,
@@ -698,6 +919,7 @@ export default function IntelligencePage() {
       <div className="flex-1 overflow-y-auto px-6 py-5">
         <AnimatePresence mode="wait">
           <motion.div key={tab} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }}>
+            {tab === "Intel Feed" && <IntelFeedPanel />}
             {tab === "World Model" && <WorldModelPanel token={token} />}
             {tab === "Predictions" && <PredictionsPanel />}
             {tab === "Opportunities" && <OpportunitiesPanel token={token} />}

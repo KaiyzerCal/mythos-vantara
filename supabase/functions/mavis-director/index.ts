@@ -203,11 +203,12 @@ async function handleResearch(userId: string, message: string, target?: string):
         const report = d.choices?.[0]?.message?.content ?? "";
         if (report) {
           // Save as a MAVIS note for future recall
-          await supabase.from("mavis_notes").insert({
-            user_id: userId,
-            title:   `Research: ${query.slice(0, 60)}`,
-            content: report,
-            tags:    ["research", "director"],
+          await supabase.from("mavis_knowledge").insert({
+            user_id:  userId,
+            title:    `Research: ${query.slice(0, 60)}`,
+            content:  report,
+            tags:     ["research", "director"],
+            category: "Resources",
           }).catch(() => {});
           return `🔍 *Research Report*\n\n${report}\n\n_Saved to Knowledge Graph._`;
         }
@@ -406,28 +407,110 @@ ${questLines}
 _Systems operational._`;
 }
 
-// --- General query with context ---
+// --- General query with full context from all memory layers ---
 async function handleQuery(userId: string, message: string, operatorName: string): Promise<string> {
-  const [memories, profile] = await Promise.all([
-    supabase.from("mavis_tacit").select("content,category").eq("user_id", userId).order("confidence", { ascending: false }).limit(8),
-    supabase.from("profiles").select("level,rank,current_form").eq("id", userId).single(),
+  // Parallel retrieval from all three memory layers + profile + quests + pending queue
+  const [tacit, recentMemory, recentKnowledge, profile, activeQuests, pendingCount] = await Promise.all([
+    supabase.from("mavis_tacit")
+      .select("content,category")
+      .eq("user_id", userId)
+      .order("confidence", { ascending: false })
+      .limit(8),
+    supabase.from("mavis_memory")
+      .select("content,role,timestamp")
+      .eq("user_id", userId)
+      .order("timestamp", { ascending: false })
+      .limit(14),
+    supabase.from("mavis_knowledge")
+      .select("title,content,category")
+      .eq("user_id", userId)
+      .order("updated_at", { ascending: false })
+      .limit(5),
+    supabase.from("profiles")
+      .select("level,rank,current_form,inscribed_name")
+      .eq("id", userId)
+      .single(),
+    supabase.from("quests")
+      .select("title")
+      .eq("user_id", userId)
+      .eq("status", "active")
+      .limit(5),
+    supabase.from("mavis_action_queue")
+      .select("id", { count: "exact", head: true })
+      .eq("user_id", userId)
+      .eq("status", "pending")
+      .eq("autonomy_tier", "approve"),
   ]);
 
-  const memCtx = memories.data?.map((m: any) => `[${m.category}] ${m.content}`).join("\n") || "";
   const p = profile.data as any;
 
-  return await callAI(
-    `You are MAVIS, the personal AI OS for ${operatorName}.
+  // Build layered context string
+  const tacitCtx = tacit.data?.length
+    ? tacit.data.map((m: any) => `[RULE:${m.category}] ${m.content}`).join("\n")
+    : "";
+
+  // Interleave memory as a short conversation replay (last 6 exchanges)
+  const memoryCtx = recentMemory.data?.length
+    ? recentMemory.data
+        .slice(0, 12)
+        .reverse()
+        .map((m: any) => `${m.role === "user" ? "Operator" : "MAVIS"}: ${String(m.content).slice(0, 250)}`)
+        .join("\n")
+    : "";
+
+  const knowledgeCtx = recentKnowledge.data?.length
+    ? recentKnowledge.data
+        .map((n: any) => `[${n.category ?? "Note"}: ${n.title}] ${String(n.content ?? "").slice(0, 300)}`)
+        .join("\n")
+    : "";
+
+  const questCtx = activeQuests.data?.map((q: any) => `• ${q.title}`).join("\n") || "None";
+  const pendingApprovals = (pendingCount as any).count ?? 0;
+
+  const systemPrompt = `You are MAVIS — the personal sovereign AI OS for ${operatorName}.
 Level ${p?.level ?? "?"} | Rank: ${p?.rank ?? "?"} | Form: ${p?.current_form ?? "Base"}
 
-Known context:
-${memCtx}
+STANDING RULES (always apply):
+${tacitCtx || "No rules configured yet."}
 
-Be direct and concise. 2-4 sentences for most replies. Mobile-first format.`,
-    message,
-    512,
-    false,
-  );
+RECENT CONVERSATION (last exchanges):
+${memoryCtx || "No prior sessions."}
+
+KNOWLEDGE BASE (recent notes):
+${knowledgeCtx || "No notes yet."}
+
+ACTIVE QUESTS:
+${questCtx}
+
+PENDING APPROVALS: ${pendingApprovals}
+
+Guidelines: Be direct and concise. 2–4 sentences for conversational replies. Reference specific memory or knowledge when relevant — say where it came from. Mobile-first format.`;
+
+  const reply = await callAI(systemPrompt, message, 600, false);
+
+  // Persist this exchange to memory for future recall
+  await supabase.from("mavis_memory").insert([
+    {
+      user_id:          userId,
+      session_id:       "director",
+      role:             "user",
+      content:          message,
+      timestamp:        Date.now(),
+      importance_score: 5,
+      consolidated:     false,
+    },
+    {
+      user_id:          userId,
+      session_id:       "director",
+      role:             "assistant",
+      content:          reply,
+      timestamp:        Date.now() + 1,
+      importance_score: 5,
+      consolidated:     false,
+    },
+  ]).catch(() => {});
+
+  return reply;
 }
 
 // --- Deep web crawl + RAG ingestion ---

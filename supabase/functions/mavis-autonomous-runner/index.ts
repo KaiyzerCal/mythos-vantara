@@ -547,6 +547,72 @@ serve(async (req: Request): Promise<Response> => {
     // Service-role client — no user JWT
     const sb = createClient(SB_URL, SB_KEY, { auth: { persistSession: false } });
 
+    // ── Promote due standing orders into autonomous tasks ─────────────────────
+    // Checks standing_order_templates where next_run_at is due and status=active.
+    // Creates one mavis_autonomous_tasks entry per order, logs to mavis_so_executions,
+    // then advances next_run_at so it won't fire again until the next interval.
+    try {
+      const now = new Date().toISOString();
+      const { data: dueOrders } = await sb
+        .from("standing_order_templates")
+        .select("*")
+        .eq("status", "active")
+        .not("next_run_at", "is", null)
+        .lte("next_run_at", now);
+
+      for (const order of (dueOrders ?? []) as any[]) {
+        // Create an autonomous task from this standing order
+        await sb.from("mavis_autonomous_tasks").insert({
+          user_id:      order.user_id,
+          goal:         `[Standing Order: ${order.name}]\n${order.instructions}`,
+          status:       "pending",
+          plan:         [],
+          current_step: 0,
+          context: {
+            goal:             order.instructions,
+            steps_completed:  [],
+            reasoning:        [],
+            search_results:   [],
+            source:           "standing_order",
+            template_id:      order.id,
+            template_slug:    order.slug,
+          },
+        });
+
+        // Log execution entry
+        await sb.from("mavis_so_executions").insert({
+          template_id:  order.id,
+          template_slug: order.slug,
+          status:       "running",
+          triggered_by: "cron",
+          started_at:   now,
+          turns_used:   0,
+        });
+
+        // Advance next_run_at based on the cron expression (simple interval mapping)
+        const cron = (order.cron_expression ?? "") as string;
+        let intervalMs = 24 * 60 * 60 * 1000; // default: 1 day
+        if (/^\*\/\d+\s+\*/.test(cron)) {
+          const mins = parseInt(cron.match(/^\*\/(\d+)/)?.[1] ?? "1440", 10);
+          intervalMs = mins * 60 * 1000;
+        } else if (/^0\s+\*\s+/.test(cron)) {
+          intervalMs = 60 * 60 * 1000; // hourly
+        } else if (/^0\s+\d+\s+\*\s+\*\s+\d/.test(cron)) {
+          intervalMs = 7 * 24 * 60 * 60 * 1000; // weekly
+        }
+        const nextRun = new Date(Date.now() + intervalMs).toISOString();
+
+        await sb.from("standing_order_templates").update({
+          usage_count:  (order.usage_count ?? 0) + 1,
+          last_used_at: now,
+          next_run_at:  nextRun,
+        }).eq("id", order.id);
+      }
+    } catch (soErr) {
+      console.error("[autonomous-runner] Standing orders check failed:", soErr);
+      // Non-fatal — continue with regular task processing
+    }
+
     // ── Fetch up to MAX_TASKS_PER_RUN pending/running tasks (oldest first) ──
     const { data: taskRows, error: fetchErr } = await sb
       .from("mavis_autonomous_tasks")
