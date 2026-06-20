@@ -613,6 +613,80 @@ serve(async (req: Request): Promise<Response> => {
       // Non-fatal — continue with regular task processing
     }
 
+    // ── Execute pending A2A tasks (inbound from external agents) ─────────────
+    // Picks up mavis_a2a_tasks where status='pending', routes each through the
+    // Director, then writes the reply back as the completed result.
+    try {
+      const { data: a2aTasks } = await sb
+        .from("mavis_a2a_tasks")
+        .select("id, user_id, skill_id, input, calling_agent_url")
+        .eq("status", "pending")
+        .limit(5);
+
+      for (const task of (a2aTasks ?? []) as any[]) {
+        // Mark as running immediately to avoid double-processing
+        await sb
+          .from("mavis_a2a_tasks")
+          .update({ status: "running", updated_at: nowIso() })
+          .eq("id", task.id);
+
+        try {
+          // Extract the natural-language message from the task input (flexible schema)
+          const input = task.input ?? {};
+          const inputMessage: string =
+            (typeof input === "string" ? input : null) ??
+            input.message ?? input.text ?? input.query ?? input.content ??
+            JSON.stringify(input).slice(0, 500);
+
+          // Skill → intent hint mapping
+          const SKILL_INTENT: Record<string, string> = {
+            knowledge_query: "query",
+            quest_manage:    "action",
+            journal_entry:   "action",
+            code_review:     "query",
+            image_gen:       "action",
+          };
+          const intentHint = SKILL_INTENT[task.skill_id] ?? undefined;
+
+          // Route through the Director
+          const directorRes = await fetch(`${SB_URL}/functions/v1/mavis-director`, {
+            method: "POST",
+            headers: {
+              Authorization:   `Bearer ${SB_KEY}`,
+              "Content-Type":  "application/json",
+            },
+            body: JSON.stringify({
+              message:      inputMessage,
+              user_id:      task.user_id,
+              source:       "a2a",
+              intent_hint:  intentHint,
+            }),
+            signal: AbortSignal.timeout(50000),
+          });
+
+          const directorData = directorRes.ok ? await directorRes.json() : null;
+          const reply: string = directorData?.reply ?? `Director error: HTTP ${directorRes.status}`;
+
+          await sb.from("mavis_a2a_tasks").update({
+            status:     "completed",
+            result:     { reply, intent: directorData?.intent },
+            updated_at: nowIso(),
+          }).eq("id", task.id);
+
+        } catch (taskErr: any) {
+          console.error("[autonomous-runner] A2A task execution failed:", taskErr?.message);
+          await sb.from("mavis_a2a_tasks").update({
+            status:     "failed",
+            error:      taskErr?.message ?? "Unknown error",
+            updated_at: nowIso(),
+          }).eq("id", task.id);
+        }
+      }
+    } catch (a2aErr) {
+      console.error("[autonomous-runner] A2A task check failed:", a2aErr);
+      // Non-fatal
+    }
+
     // ── Fetch up to MAX_TASKS_PER_RUN pending/running tasks (oldest first) ──
     const { data: taskRows, error: fetchErr } = await sb
       .from("mavis_autonomous_tasks")

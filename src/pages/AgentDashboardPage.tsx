@@ -17,9 +17,16 @@ import {
   MessageSquare,
   Activity,
   Star,
+  Zap,
+  Network,
+  ChevronRight,
+  Clock,
+  XCircle,
+  CheckCircle2,
+  RefreshCw,
+  Play,
 } from "lucide-react";
 import { PageHeader, HudCard } from "@/components/SharedUI";
-import { ConfirmDialog } from "@/components/ConfirmDialog";
 
 // ─── Types ──────────────────────────────────────────────────
 
@@ -185,9 +192,9 @@ function CouncilStatusTab({ userId }: { userId: string }) {
     return (
       <HudCard>
         <div className="flex flex-col items-center gap-3 py-8 text-center">
-          <Users size={28} className="text-muted-foreground" />
+          <Users size={28} className="text-muted-foreground/40" />
           <p className="text-sm font-mono text-muted-foreground">No council members found.</p>
-          <p className="text-xs font-mono text-muted-foreground">
+          <p className="text-[11px] font-mono text-muted-foreground/60">
             Create council members to see their status here.
           </p>
         </div>
@@ -205,21 +212,21 @@ function CouncilStatusTab({ userId }: { userId: string }) {
               <div className="flex items-center gap-2 flex-wrap">
                 <h3 className="text-sm font-display font-bold text-foreground truncate">{member.name}</h3>
                 {unreadCount > 0 && (
-                  <span className="flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-primary text-xs font-mono font-bold text-primary-foreground">
+                  <span className="flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-primary text-[9px] font-mono font-bold text-primary-foreground">
                     {unreadCount}
                   </span>
                 )}
               </div>
-              <p className="text-xs font-mono text-muted-foreground truncate mt-0.5">{member.role}</p>
+              <p className="text-[11px] font-mono text-muted-foreground truncate mt-0.5">{member.role}</p>
             </div>
-            <span className={`text-xs font-mono uppercase tracking-widest px-1.5 py-0.5 rounded border shrink-0 ${classBadge(member.class)}`}>
+            <span className={`text-[9px] font-mono uppercase tracking-widest px-1.5 py-0.5 rounded border shrink-0 ${classBadge(member.class)}`}>
               {member.class}
             </span>
           </div>
 
           {/* Specialty */}
           {member.specialty && (
-            <p className="text-xs font-mono text-muted-foreground mb-3 border-l-2 border-border pl-2 italic">
+            <p className="text-[10px] font-mono text-muted-foreground/70 mb-3 border-l-2 border-border pl-2 italic">
               {member.specialty}
             </p>
           )}
@@ -230,22 +237,22 @@ function CouncilStatusTab({ userId }: { userId: string }) {
               <span className="text-sm font-display font-bold text-amber-400 tabular-nums">
                 {karma > 0 ? `+${karma}` : karma}
               </span>
-              <span className="text-xs font-mono text-muted-foreground uppercase tracking-widest mt-0.5">Karma</span>
+              <span className="text-[8px] font-mono text-muted-foreground uppercase tracking-widest mt-0.5">Karma</span>
             </div>
             <div className="flex flex-col items-center justify-center rounded border border-border bg-muted/20 px-2 py-2">
               <span className="text-sm font-display font-bold text-cyan-400 tabular-nums">{memoryCount}</span>
-              <span className="text-xs font-mono text-muted-foreground uppercase tracking-widest mt-0.5">Memories</span>
+              <span className="text-[8px] font-mono text-muted-foreground uppercase tracking-widest mt-0.5">Memories</span>
             </div>
             <div className="flex flex-col items-center justify-center rounded border border-border bg-muted/20 px-2 py-2">
               <span className={`text-sm font-display font-bold tabular-nums ${unreadCount > 0 ? "text-primary" : "text-muted-foreground"}`}>
                 {unreadCount}
               </span>
-              <span className="text-xs font-mono text-muted-foreground uppercase tracking-widest mt-0.5">Unread</span>
+              <span className="text-[8px] font-mono text-muted-foreground uppercase tracking-widest mt-0.5">Unread</span>
             </div>
           </div>
 
           {/* Last active */}
-          <div className="flex items-center gap-1.5 text-xs font-mono text-muted-foreground">
+          <div className="flex items-center gap-1.5 text-[10px] font-mono text-muted-foreground/60">
             <Activity size={9} />
             <span>Last active: {fmtRelative(lastActive)}</span>
           </div>
@@ -268,7 +275,6 @@ function AgentMemoriesTab({ userId }: { userId: string }) {
   const [loading, setLoading] = useState(false);
   const [loadingMembers, setLoadingMembers] = useState(true);
   const [deleting, setDeleting] = useState<string | null>(null);
-  const [confirmDelete, setConfirmDelete] = useState<{ id: string; label: string } | null>(null);
 
   useEffect(() => {
     (async () => {
@@ -374,7 +380,7 @@ function AgentMemoriesTab({ userId }: { userId: string }) {
           <ChevronDown size={12} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
         </div>
         {selectedMember && (
-          <span className={`text-xs font-mono uppercase px-1.5 py-0.5 rounded border ${classBadge(selectedMember.class)}`}>
+          <span className={`text-[9px] font-mono uppercase px-1.5 py-0.5 rounded border ${classBadge(selectedMember.class)}`}>
             {selectedMember.class}
           </span>
         )}
@@ -388,7 +394,7 @@ function AgentMemoriesTab({ userId }: { userId: string }) {
       ) : memories.length === 0 ? (
         <HudCard>
           <div className="flex flex-col items-center gap-2 py-8 text-center">
-            <Brain size={24} className="text-muted-foreground" />
+            <Brain size={24} className="text-muted-foreground/40" />
             <p className="text-xs font-mono text-muted-foreground">No memories for this agent.</p>
           </div>
         </HudCard>
@@ -405,20 +411,20 @@ function AgentMemoriesTab({ userId }: { userId: string }) {
                     {(mem.tags ?? []).map((tag) => (
                       <span
                         key={tag}
-                        className="text-xs font-mono px-1.5 py-0.5 rounded bg-cyan-900/30 text-cyan-400 border border-cyan-800/40"
+                        className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-cyan-900/30 text-cyan-400 border border-cyan-800/40"
                       >
                         #{tag}
                       </span>
                     ))}
-                    <span className="text-xs font-mono text-muted-foreground ml-auto">
+                    <span className="text-[9px] font-mono text-muted-foreground/50 ml-auto">
                       {fmtDate(mem.created_at)}
                     </span>
                   </div>
                 </div>
                 <button
-                  onClick={() => setConfirmDelete({ id: mem.id, label: mem.content.slice(0, 60) })}
+                  onClick={() => handleDelete(mem.id)}
                   disabled={deleting === mem.id}
-                  className="shrink-0 p-1.5 rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors disabled:opacity-30 opacity-0 group-hover:opacity-100"
+                  className="shrink-0 p-1.5 rounded text-muted-foreground/40 hover:text-destructive hover:bg-destructive/10 transition-colors disabled:opacity-30 opacity-0 group-hover:opacity-100"
                   title="Delete memory"
                 >
                   {deleting === mem.id ? (
@@ -448,18 +454,6 @@ function AgentMemoriesTab({ userId }: { userId: string }) {
           )}
         </div>
       )}
-
-      <ConfirmDialog
-        open={confirmDelete !== null}
-        title="Delete memory?"
-        description="This action cannot be undone."
-        onConfirm={async () => {
-          if (!confirmDelete) return;
-          await handleDelete(confirmDelete.id);
-          setConfirmDelete(null);
-        }}
-        onCancel={() => setConfirmDelete(null)}
-      />
     </div>
   );
 }
@@ -508,9 +502,9 @@ function ResponseQualityTab({ userId }: { userId: string }) {
     return (
       <HudCard>
         <div className="flex flex-col items-center gap-3 py-8 text-center">
-          <Star size={28} className="text-muted-foreground" />
+          <Star size={28} className="text-muted-foreground/40" />
           <p className="text-sm font-mono text-muted-foreground">No feedback yet</p>
-          <p className="text-xs font-mono text-muted-foreground">
+          <p className="text-[11px] font-mono text-muted-foreground/60">
             Use 👍/👎 in chat to rate responses
           </p>
         </div>
@@ -524,27 +518,27 @@ function ResponseQualityTab({ userId }: { userId: string }) {
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <HudCard className="text-center">
           <div className="text-xl font-display font-bold text-foreground tabular-nums">{total}</div>
-          <div className="text-xs font-mono text-muted-foreground uppercase tracking-widest mt-1">Total Ratings</div>
+          <div className="text-[9px] font-mono text-muted-foreground uppercase tracking-widest mt-1">Total Ratings</div>
         </HudCard>
         <HudCard className="text-center">
           <div className="text-xl font-display font-bold text-green-400 tabular-nums">{ups}</div>
           <div className="flex items-center justify-center gap-1 mt-1">
             <ThumbsUp size={9} className="text-green-400" />
-            <span className="text-xs font-mono text-muted-foreground uppercase tracking-widest">Positive</span>
+            <span className="text-[9px] font-mono text-muted-foreground uppercase tracking-widest">Positive</span>
           </div>
         </HudCard>
         <HudCard className="text-center">
           <div className="text-xl font-display font-bold text-red-400 tabular-nums">{downs}</div>
           <div className="flex items-center justify-center gap-1 mt-1">
             <ThumbsDown size={9} className="text-red-400" />
-            <span className="text-xs font-mono text-muted-foreground uppercase tracking-widest">Negative</span>
+            <span className="text-[9px] font-mono text-muted-foreground uppercase tracking-widest">Negative</span>
           </div>
         </HudCard>
         <HudCard className="text-center">
           <div className={`text-xl font-display font-bold tabular-nums ${satisfactionPct >= 80 ? "text-green-400" : satisfactionPct >= 50 ? "text-amber-400" : "text-red-400"}`}>
             {satisfactionPct}%
           </div>
-          <div className="text-xs font-mono text-muted-foreground uppercase tracking-widest mt-1">Satisfaction</div>
+          <div className="text-[9px] font-mono text-muted-foreground uppercase tracking-widest mt-1">Satisfaction</div>
         </HudCard>
       </div>
 
@@ -562,7 +556,7 @@ function ResponseQualityTab({ userId }: { userId: string }) {
             style={{ width: `${satisfactionPct}%` }}
           />
         </div>
-        <div className="flex justify-between text-xs font-mono text-muted-foreground mt-1">
+        <div className="flex justify-between text-[9px] font-mono text-muted-foreground/50 mt-1">
           <span>{ups} up</span>
           <span>{downs} down</span>
         </div>
@@ -584,22 +578,22 @@ function ResponseQualityTab({ userId }: { userId: string }) {
                 </div>
                 <div className="flex-1 min-w-0">
                   {fb.response_preview && (
-                    <p className="text-xs font-body text-foreground leading-relaxed mb-2 line-clamp-2">
+                    <p className="text-xs font-body text-foreground/80 leading-relaxed mb-2 line-clamp-2">
                       {fb.response_preview}
                     </p>
                   )}
                   <div className="flex items-center gap-2 flex-wrap">
                     {fb.provider && (
-                      <span className="text-xs font-mono px-1.5 py-0.5 rounded bg-purple-900/30 text-purple-400 border border-purple-800/40">
+                      <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-purple-900/30 text-purple-400 border border-purple-800/40">
                         {fb.provider}
                       </span>
                     )}
                     {fb.mode && (
-                      <span className="text-xs font-mono px-1.5 py-0.5 rounded bg-blue-900/30 text-blue-400 border border-blue-800/40">
+                      <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-blue-900/30 text-blue-400 border border-blue-800/40">
                         {fb.mode}
                       </span>
                     )}
-                    <span className="text-xs font-mono text-muted-foreground ml-auto">
+                    <span className="text-[9px] font-mono text-muted-foreground/50 ml-auto">
                       {fmtDate(fb.created_at)}
                     </span>
                   </div>
@@ -613,14 +607,401 @@ function ResponseQualityTab({ userId }: { userId: string }) {
   );
 }
 
+// ─── AutonomousTasksTab ──────────────────────────────────────
+interface AutonomousTask {
+  id: string;
+  goal: string;
+  status: "pending" | "running" | "paused" | "completed" | "failed";
+  plan: Array<{ type: string; description: string; completed?: boolean; output?: string; error?: string }>;
+  current_step: number;
+  context: { steps_completed?: Array<{ step: number; type: string; description: string; output: string }>; source?: string };
+  result: string | null;
+  error: string | null;
+  created_at: string;
+  updated_at: string;
+  completed_at: string | null;
+}
+
+const TASK_STATUS_CONFIG = {
+  pending:   { label: "Pending",   color: "text-zinc-400",    bg: "bg-zinc-500/10 border-zinc-500/20" },
+  running:   { label: "Running",   color: "text-blue-400",    bg: "bg-blue-500/10 border-blue-500/20" },
+  paused:    { label: "Paused",    color: "text-amber-400",   bg: "bg-amber-500/10 border-amber-500/20" },
+  completed: { label: "Completed", color: "text-emerald-400", bg: "bg-emerald-500/10 border-emerald-500/20" },
+  failed:    { label: "Failed",    color: "text-red-400",     bg: "bg-red-500/10 border-red-500/20" },
+};
+
+function AutonomousTasksTab({ userId }: { userId: string }) {
+  const [tasks, setTasks] = useState<AutonomousTask[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [expanded, setExpanded] = useState<string | null>(null);
+  const [filter, setFilter] = useState<"all" | "active" | "done">("active");
+
+  useEffect(() => {
+    load();
+    const interval = setInterval(load, 15000); // auto-refresh every 15s
+    return () => clearInterval(interval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filter]);
+
+  async function load() {
+    const statusFilter = filter === "active"
+      ? ["pending", "running", "paused"]
+      : filter === "done"
+        ? ["completed", "failed"]
+        : ["pending", "running", "paused", "completed", "failed"];
+
+    const { data } = await (supabase as any)
+      .from("mavis_autonomous_tasks")
+      .select("*")
+      .eq("user_id", userId)
+      .in("status", statusFilter)
+      .order("updated_at", { ascending: false })
+      .limit(30);
+    setTasks(data ?? []);
+    setLoading(false);
+  }
+
+  async function cancelTask(id: string) {
+    await (supabase as any).from("mavis_autonomous_tasks").update({ status: "failed", error: "Cancelled by operator" }).eq("id", id);
+    setTasks(prev => prev.map(t => t.id === id ? { ...t, status: "failed" as const, error: "Cancelled by operator" } : t));
+  }
+
+  function fmtTime(iso: string) {
+    const d = new Date(iso);
+    const diff = Date.now() - d.getTime();
+    if (diff < 60000) return "just now";
+    if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`;
+    if (diff < 86400000) return `${Math.floor(diff / 3600000)}h ago`;
+    return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  }
+
+  const activeCounts = tasks.filter(t => t.status === "pending" || t.status === "running").length;
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          {(["all", "active", "done"] as const).map(f => (
+            <button
+              key={f}
+              onClick={() => setFilter(f)}
+              className={`text-xs font-mono px-3 py-1 rounded-full border transition-colors capitalize ${
+                filter === f
+                  ? "border-primary/50 bg-primary/10 text-primary"
+                  : "border-border text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              {f}
+            </button>
+          ))}
+          {activeCounts > 0 && (
+            <span className="text-xs font-mono text-blue-400 flex items-center gap-1">
+              <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse inline-block" />
+              {activeCounts} running
+            </span>
+          )}
+        </div>
+        <button onClick={load} className="text-xs font-mono text-muted-foreground hover:text-foreground flex items-center gap-1">
+          <RefreshCw size={10} /> Refresh
+        </button>
+      </div>
+
+      {loading ? (
+        <div className="space-y-2">
+          {[1, 2, 3].map(i => (
+            <div key={i} className="bg-muted/20 border border-border rounded-xl p-4 animate-pulse h-16" />
+          ))}
+        </div>
+      ) : tasks.length === 0 ? (
+        <HudCard>
+          <div className="text-center py-10">
+            <Zap size={28} className="mx-auto mb-2 text-muted-foreground/40" />
+            <p className="text-xs font-mono text-muted-foreground">No {filter !== "all" ? filter : ""} autonomous tasks</p>
+            <p className="text-xs text-muted-foreground/60 mt-1">Tasks appear here when MAVIS executes standing orders or multi-step goals.</p>
+          </div>
+        </HudCard>
+      ) : (
+        <div className="space-y-2">
+          {tasks.map(task => {
+            const sc = TASK_STATUS_CONFIG[task.status] ?? TASK_STATUS_CONFIG.pending;
+            const isExpanded = expanded === task.id;
+            const progress = task.plan.length > 0
+              ? Math.round((task.current_step / task.plan.length) * 100)
+              : 0;
+            const steps = task.context?.steps_completed ?? [];
+
+            return (
+              <HudCard key={task.id} className="overflow-hidden">
+                <div
+                  className="flex items-start gap-3 cursor-pointer"
+                  onClick={() => setExpanded(isExpanded ? null : task.id)}
+                >
+                  <div className={`mt-0.5 shrink-0 px-1.5 py-0.5 rounded border text-[10px] font-mono font-bold ${sc.bg} ${sc.color}`}>
+                    {sc.label}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-foreground truncate">{task.goal.replace(/^\[Standing Order:.*?\]\n?/, "")}</p>
+                    <div className="flex items-center gap-3 mt-1">
+                      {task.plan.length > 0 && (
+                        <span className="text-xs font-mono text-muted-foreground">
+                          Step {Math.min(task.current_step + 1, task.plan.length)}/{task.plan.length}
+                        </span>
+                      )}
+                      {task.context?.source && (
+                        <span className="text-xs font-mono text-muted-foreground/60">{task.context.source}</span>
+                      )}
+                      <span className="text-xs font-mono text-muted-foreground/60">{fmtTime(task.updated_at)}</span>
+                    </div>
+                    {task.plan.length > 0 && (
+                      <div className="mt-2 h-1 bg-muted/40 rounded-full overflow-hidden">
+                        <div
+                          className={`h-full rounded-full transition-all ${task.status === "completed" ? "bg-emerald-500" : task.status === "failed" ? "bg-red-500" : "bg-blue-500"}`}
+                          style={{ width: `${task.status === "completed" ? 100 : progress}%` }}
+                        />
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    {(task.status === "pending" || task.status === "running") && (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); cancelTask(task.id); }}
+                        className="p-1 rounded hover:bg-red-500/10 text-muted-foreground hover:text-red-400 transition-colors"
+                        title="Cancel"
+                      >
+                        <XCircle size={13} />
+                      </button>
+                    )}
+                    <ChevronRight size={13} className={`text-muted-foreground transition-transform ${isExpanded ? "rotate-90" : ""}`} />
+                  </div>
+                </div>
+
+                {isExpanded && (
+                  <div className="mt-3 pt-3 border-t border-border/40 space-y-2">
+                    {/* Plan steps */}
+                    {task.plan.length > 0 && (
+                      <div>
+                        <p className="text-[10px] font-mono text-muted-foreground uppercase tracking-widest mb-2">Execution Plan</p>
+                        <div className="space-y-1">
+                          {task.plan.map((step: any, i: number) => {
+                            const done = i < task.current_step;
+                            const active = i === task.current_step && task.status === "running";
+                            const stepOutput = steps.find((s: any) => s.step === i);
+                            return (
+                              <div key={i} className={`flex items-start gap-2 text-xs p-2 rounded ${active ? "bg-blue-500/5 border border-blue-500/20" : ""}`}>
+                                <span className={`shrink-0 mt-0.5 ${done ? "text-emerald-400" : active ? "text-blue-400" : "text-muted-foreground/40"}`}>
+                                  {done ? "✓" : active ? "▶" : `${i + 1}.`}
+                                </span>
+                                <div className="flex-1 min-w-0">
+                                  <span className={`font-mono ${done ? "text-muted-foreground" : active ? "text-foreground" : "text-muted-foreground/50"}`}>
+                                    [{step.type}] {step.description}
+                                  </span>
+                                  {stepOutput?.output && (
+                                    <p className="text-[10px] text-muted-foreground/70 mt-0.5 line-clamp-2">{stepOutput.output}</p>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Final result */}
+                    {task.result && (
+                      <div className="p-3 bg-emerald-500/5 border border-emerald-500/20 rounded-lg">
+                        <p className="text-[10px] font-mono text-emerald-400 uppercase tracking-widest mb-1">Result</p>
+                        <p className="text-xs text-muted-foreground whitespace-pre-wrap">{task.result}</p>
+                      </div>
+                    )}
+
+                    {/* Error */}
+                    {task.error && (
+                      <div className="p-3 bg-red-500/5 border border-red-500/20 rounded-lg">
+                        <p className="text-[10px] font-mono text-red-400 uppercase tracking-widest mb-1">Error</p>
+                        <p className="text-xs text-red-400/80">{task.error}</p>
+                      </div>
+                    )}
+
+                    {task.completed_at && (
+                      <p className="text-[10px] font-mono text-muted-foreground/50">Completed: {new Date(task.completed_at).toLocaleString()}</p>
+                    )}
+                  </div>
+                )}
+              </HudCard>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── A2ATasksTab ─────────────────────────────────────────────
+interface A2ATask {
+  id: string;
+  skill_id: string;
+  calling_agent_url: string | null;
+  input: any;
+  status: "pending" | "running" | "completed" | "failed" | "cancelled";
+  result: any;
+  error: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+const A2A_STATUS_CONFIG = {
+  pending:   { label: "Pending",   color: "text-zinc-400",    icon: Clock },
+  running:   { label: "Running",   color: "text-blue-400",    icon: Play },
+  completed: { label: "Done",      color: "text-emerald-400", icon: CheckCircle2 },
+  failed:    { label: "Failed",    color: "text-red-400",     icon: XCircle },
+  cancelled: { label: "Cancelled", color: "text-zinc-500",    icon: XCircle },
+};
+
+function A2ATasksTab({ userId }: { userId: string }) {
+  const [tasks, setTasks] = useState<A2ATask[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [expanded, setExpanded] = useState<string | null>(null);
+
+  useEffect(() => {
+    load();
+    const interval = setInterval(load, 20000);
+    return () => clearInterval(interval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  async function load() {
+    const { data } = await (supabase as any)
+      .from("mavis_a2a_tasks")
+      .select("*")
+      .eq("user_id", userId)
+      .order("created_at", { ascending: false })
+      .limit(25);
+    setTasks(data ?? []);
+    setLoading(false);
+  }
+
+  function fmtTime(iso: string) {
+    const d = new Date(iso);
+    const diff = Date.now() - d.getTime();
+    if (diff < 60000) return "just now";
+    if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`;
+    if (diff < 86400000) return `${Math.floor(diff / 3600000)}h ago`;
+    return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  }
+
+  const pendingCount = tasks.filter(t => t.status === "pending" || t.status === "running").length;
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <Network size={14} className="text-primary" />
+          <span className="text-xs font-mono text-muted-foreground">
+            Inbound tasks from external agents via A2A protocol
+          </span>
+          {pendingCount > 0 && (
+            <span className="text-xs font-mono text-blue-400 flex items-center gap-1">
+              <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse inline-block" />
+              {pendingCount} processing
+            </span>
+          )}
+        </div>
+        <button onClick={load} className="text-xs font-mono text-muted-foreground hover:text-foreground flex items-center gap-1">
+          <RefreshCw size={10} /> Refresh
+        </button>
+      </div>
+
+      {loading ? (
+        <div className="space-y-2">
+          {[1, 2].map(i => <div key={i} className="bg-muted/20 border border-border rounded-xl p-4 animate-pulse h-14" />)}
+        </div>
+      ) : tasks.length === 0 ? (
+        <HudCard>
+          <div className="text-center py-10">
+            <Network size={28} className="mx-auto mb-2 text-muted-foreground/40" />
+            <p className="text-xs font-mono text-muted-foreground">No inbound A2A tasks yet</p>
+            <p className="text-xs text-muted-foreground/60 mt-1 max-w-xs mx-auto">
+              External agents can delegate tasks to MAVIS via the A2A gateway.
+              They'll appear here and be auto-executed.
+            </p>
+          </div>
+        </HudCard>
+      ) : (
+        <div className="space-y-2">
+          {tasks.map(task => {
+            const sc = A2A_STATUS_CONFIG[task.status] ?? A2A_STATUS_CONFIG.pending;
+            const SIcon = sc.icon;
+            const isExpanded = expanded === task.id;
+            const inputText = typeof task.input === "string"
+              ? task.input
+              : task.input?.message ?? task.input?.text ?? task.input?.query ?? JSON.stringify(task.input ?? {});
+            const resultText = typeof task.result === "string"
+              ? task.result
+              : task.result?.reply ?? JSON.stringify(task.result ?? {});
+
+            return (
+              <HudCard key={task.id} className="overflow-hidden">
+                <div
+                  className="flex items-start gap-3 cursor-pointer"
+                  onClick={() => setExpanded(isExpanded ? null : task.id)}
+                >
+                  <SIcon size={14} className={`${sc.color} mt-0.5 shrink-0`} />
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-sm font-medium text-foreground capitalize">
+                        {(task.skill_id ?? "task").replace(/_/g, " ")}
+                      </span>
+                      <span className={`text-[10px] font-mono ${sc.color}`}>{sc.label}</span>
+                      {task.calling_agent_url && (
+                        <span className="text-[10px] font-mono text-muted-foreground/50 truncate max-w-[160px]">
+                          from {task.calling_agent_url}
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-0.5 truncate">{inputText.slice(0, 120)}</p>
+                    <p className="text-[10px] font-mono text-muted-foreground/50 mt-0.5">{fmtTime(task.created_at)}</p>
+                  </div>
+                  <ChevronRight size={13} className={`text-muted-foreground transition-transform shrink-0 ${isExpanded ? "rotate-90" : ""}`} />
+                </div>
+
+                {isExpanded && (
+                  <div className="mt-3 pt-3 border-t border-border/40 space-y-3">
+                    <div>
+                      <p className="text-[10px] font-mono text-muted-foreground uppercase tracking-widest mb-1">Input</p>
+                      <p className="text-xs text-muted-foreground bg-muted/20 rounded p-2 whitespace-pre-wrap">{inputText}</p>
+                    </div>
+                    {resultText && resultText !== "{}" && (
+                      <div>
+                        <p className="text-[10px] font-mono text-emerald-400 uppercase tracking-widest mb-1">Result</p>
+                        <p className="text-xs text-muted-foreground whitespace-pre-wrap">{resultText.slice(0, 800)}</p>
+                      </div>
+                    )}
+                    {task.error && (
+                      <div className="p-2 bg-red-500/5 border border-red-500/20 rounded">
+                        <p className="text-xs text-red-400">{task.error}</p>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </HudCard>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Tabs ────────────────────────────────────────────────────
 
-type TabId = "status" | "memories" | "quality";
+type TabId = "status" | "memories" | "quality" | "tasks" | "a2a";
 
 const TABS: { id: TabId; label: string; icon: React.ReactNode }[] = [
   { id: "status",   label: "Council Status",    icon: <Users size={12} /> },
   { id: "memories", label: "Agent Memories",    icon: <Brain size={12} /> },
   { id: "quality",  label: "Response Quality",  icon: <MessageSquare size={12} /> },
+  { id: "tasks",    label: "Autonomous Tasks",  icon: <Zap size={12} /> },
+  { id: "a2a",      label: "A2A Inbox",         icon: <Network size={12} /> },
 ];
 
 // ─── AgentDashboardPage ──────────────────────────────────────
@@ -679,6 +1060,8 @@ export function AgentDashboardPage() {
         {activeTab === "status" && <CouncilStatusTab userId={userId} />}
         {activeTab === "memories" && <AgentMemoriesTab userId={userId} />}
         {activeTab === "quality" && <ResponseQualityTab userId={userId} />}
+        {activeTab === "tasks" && <AutonomousTasksTab userId={userId} />}
+        {activeTab === "a2a"   && <A2ATasksTab userId={userId} />}
       </div>
     </div>
   );

@@ -127,6 +127,32 @@ const INTENT_KEYWORDS: Record<Intent, string[]> = {
   query:    [],
 };
 
+// ─────────────────────────────────────────────────────────────
+// COMPOUND INTENT DETECTION
+// Patterns where one message clearly requests two sequential actions.
+// ─────────────────────────────────────────────────────────────
+
+interface CompoundIntents {
+  first: Intent;
+  second: Intent;
+}
+
+// Hardcoded high-confidence compound patterns (fast path, no AI call needed)
+const COMPOUND_PATTERNS: Array<{ pattern: RegExp; intents: CompoundIntents }> = [
+  { pattern: /research.+?(and|then).{0,20}(post|tweet|write|share|publish|linkedin|instagram)/i, intents: { first: "research", second: "social" } },
+  { pattern: /(find|look\s+up|research).+?(then|and).{0,20}(email|send|contact|reach)/i,         intents: { first: "research", second: "comms" } },
+  { pattern: /(post|write\s+content|create\s+content).+?(and|then).{0,20}(email|schedule)/i,     intents: { first: "social",   second: "comms" } },
+  { pattern: /research.+?(and|then).{0,20}(add|create|log|track|save)/i,                         intents: { first: "research", second: "action" } },
+  { pattern: /(crawl|scrape|index).+?(and|then).{0,20}(research|find|query)/i,                   intents: { first: "crawl",    second: "research" } },
+];
+
+function detectCompoundPattern(message: string): CompoundIntents | null {
+  for (const { pattern, intents } of COMPOUND_PATTERNS) {
+    if (pattern.test(message)) return intents;
+  }
+  return null;
+}
+
 async function classifyIntent(message: string, hint?: string): Promise<{ intent: Intent; confidence: number; target?: string }> {
   if (hint && INTENT_KEYWORDS[hint as Intent]) return { intent: hint as Intent, confidence: 100 };
 
@@ -749,31 +775,74 @@ Deno.serve(async (req) => {
       opName = (p as any)?.inscribed_name || (p as any)?.display_name || "Operator";
     }
 
-    // Classify intent
-    const { intent, confidence, target } = await classifyIntent(message, intent_hint);
+    // Check for compound intent (two actions in one message) first
+    const compound = detectCompoundPattern(message);
 
-    // Log routing decision
-    await supabase.from("mavis_action_queue").insert({
-      user_id,
-      action_type:   "director_route",
-      title:         `Director → ${intent}`,
-      description:   `"${message.slice(0, 80)}" (${confidence}% confidence) from ${source}`,
-      status:        "executed",
-      autonomy_tier: "auto",
-      executed_at:   new Date().toISOString(),
-      payload:       { intent, confidence, target, source, message: message.slice(0, 500) },
-    }).catch(() => {});
-
-    // Route to specialist
     let reply = "";
-    switch (intent) {
-      case "social":   reply = await handleSocial(user_id, message, target); break;
-      case "research": reply = await handleResearch(user_id, message, target); break;
-      case "action":   reply = await handleAction(user_id, message); break;
-      case "status":   reply = await handleStatus(user_id, opName); break;
-      case "comms":    reply = await handleComms(user_id, message); break;
-      case "crawl":    reply = await handleCrawl(user_id, message); break;
-      default:         reply = await handleQuery(user_id, message, opName); break;
+    let intent: Intent = "query";
+    let confidence = 60;
+    let target: string | undefined;
+
+    if (compound) {
+      // Compound intent: execute first action, feed result into second
+      const dispatchSingle = async (i: Intent, ctx?: string): Promise<string> => {
+        const input = ctx ? `${message}\n\n[Context from previous step:]\n${ctx.slice(0, 600)}` : message;
+        switch (i) {
+          case "social":   return handleSocial(user_id, input);
+          case "research": return handleResearch(user_id, input);
+          case "action":   return handleAction(user_id, input);
+          case "status":   return handleStatus(user_id, opName);
+          case "comms":    return handleComms(user_id, input);
+          case "crawl":    return handleCrawl(user_id, input);
+          default:         return handleQuery(user_id, input, opName);
+        }
+      };
+
+      const firstResult = await dispatchSingle(compound.first);
+      const secondResult = await dispatchSingle(compound.second, firstResult);
+
+      reply = `${firstResult}\n\n---\n\n${secondResult}`;
+      intent = compound.first;
+      confidence = 90;
+
+      await supabase.from("mavis_action_queue").insert({
+        user_id,
+        action_type:   "director_route",
+        title:         `Director → ${compound.first} → ${compound.second}`,
+        description:   `"${message.slice(0, 80)}" (compound) from ${source}`,
+        status:        "executed",
+        autonomy_tier: "auto",
+        executed_at:   new Date().toISOString(),
+        payload:       { compound: true, intents: [compound.first, compound.second], source, message: message.slice(0, 500) },
+      }).catch(() => {});
+
+    } else {
+      // Single intent routing
+      const classified = await classifyIntent(message, intent_hint);
+      intent = classified.intent;
+      confidence = classified.confidence;
+      target = classified.target;
+
+      await supabase.from("mavis_action_queue").insert({
+        user_id,
+        action_type:   "director_route",
+        title:         `Director → ${intent}`,
+        description:   `"${message.slice(0, 80)}" (${confidence}% confidence) from ${source}`,
+        status:        "executed",
+        autonomy_tier: "auto",
+        executed_at:   new Date().toISOString(),
+        payload:       { intent, confidence, target, source, message: message.slice(0, 500) },
+      }).catch(() => {});
+
+      switch (intent) {
+        case "social":   reply = await handleSocial(user_id, message, target); break;
+        case "research": reply = await handleResearch(user_id, message, target); break;
+        case "action":   reply = await handleAction(user_id, message); break;
+        case "status":   reply = await handleStatus(user_id, opName); break;
+        case "comms":    reply = await handleComms(user_id, message); break;
+        case "crawl":    reply = await handleCrawl(user_id, message); break;
+        default:         reply = await handleQuery(user_id, message, opName); break;
+      }
     }
 
     // Push reply back via Telegram if triggered from there
