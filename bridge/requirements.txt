@@ -1,3 +1,20 @@
+# Core (required)
 supabase>=2.0.0
 psutil>=5.9.0
 python-dotenv>=1.0.0
+
+# HTTP device control (usually pre-installed)
+requests>=2.31.0
+
+# Serial (Arduino, ESP32, etc.) — install if needed
+# pyserial>=3.5
+
+# MQTT (smart home, Zigbee hubs, etc.) — install if needed
+# paho-mqtt>=2.0.0
+
+# GPIO (Raspberry Pi only) — install on the Pi
+# RPi.GPIO>=0.7.1
+
+# Screenshot support — install if needed
+# Pillow>=10.0.0
+# pyautogui>=0.9.54
