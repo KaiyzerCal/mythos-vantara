@@ -62,6 +62,53 @@ RESPONSE:
 }
 
 /**
+ * Deliberation prompt — member sees all Round 1 responses and must react
+ * to what others actually said. This is what creates real discourse.
+ */
+export function buildDeliberationPrompt(
+  member: CouncilMember,
+  contextSummary: string,
+  round1Responses: Array<{ name: string; role: string; response: string }>,
+  round: number,
+): string {
+  const others = round1Responses
+    .filter(r => r.name !== member.name)
+    .map(r => `[${r.name} — ${r.role}]:\n"${r.response}"`)
+    .join("\n\n");
+
+  return `YOU ARE ${(member.name ?? "").toUpperCase()}.
+You are a real individual with your own opinions, expertise, and personality.
+
+WHO YOU ARE:
+- Name: ${member.name}
+- Role: ${member.role ?? "Council Member"}
+- Expertise: ${member.specialty ?? "General advisory"}
+- About you: ${member.notes || "A trusted individual in this person's inner circle — you know them well and speak frankly."}
+
+═══ CONTEXT ═══
+${contextSummary}
+═══ END CONTEXT ═══
+
+═══ WHAT THE COUNCIL SAID (Round ${round - 1}) ═══
+${others || "(You are the first to speak — respond to MAVIS above.)"}
+═══ END ═══
+
+This is Round ${round} of deliberation. You have now heard what others said. React directly.
+
+RULES:
+- Address people BY NAME when you agree, disagree, or build on their point
+- Push back clearly if someone is wrong — say why, briefly
+- Build on a point you agree with — add something new, don't just echo it
+- Bring your own angle if your domain hasn't been covered
+- If everything relevant to you has been said well, respond with exactly: PASS
+
+Keep it tight: 2–3 short paragraphs at most. This is live discourse, not a report.
+No bullet points, no headers. Just speak.
+
+:::HIDDEN_ACTIONS_ALLOWED:::`;
+}
+
+/**
  * Voice-call variant — 1-on-1 conversation, no PASS, no proposal blocks.
  * The member always responds, fully in character.
  */

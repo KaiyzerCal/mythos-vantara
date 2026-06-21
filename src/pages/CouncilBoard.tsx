@@ -77,7 +77,7 @@ export default function CouncilBoard() {
   const [confirmClear,     setConfirmClear]     = useState(false);
 
   // ── Realtime streaming state ──────────────────────────────────────
-  // Keyed by speakerId; populated as council member responses arrive via broadcast.
+  // Keyed by `${speakerId}:${round}` so Round 1 and deliberation cards coexist.
   const [memberResponses, setMemberResponses] = useState<Record<string, {
     speakerName: string;
     speakerRole: string;
@@ -87,6 +87,7 @@ export default function CouncilBoard() {
     loading: boolean;
     summoned?: boolean;
     timestamp: number;
+    deliberationRound?: number;
   }>>({});
 
   const cancelledRef      = useRef(false);
@@ -227,32 +228,42 @@ export default function CouncilBoard() {
 
   // ── Realtime channel subscription ────────────────────────────────────
   // Subscribes to `council:{sessionId}` so member responses stream in as they
-  // resolve on the service side, without waiting for the full round-trip.
+  // resolve. Handles both "member_response" (Round 1) and "deliberation_response"
+  // (deliberation rounds) events — both use the same card format but are
+  // shown with a round badge so the user sees the discourse unfolding.
   useEffect(() => {
     const sid = sessionIdRef.current;
     if (!sid) return;
+
+    const handleBroadcast = ({ payload }: { payload: any }) => {
+      if (!payload?.speakerId) return;
+      const round = payload.round ?? 1;
+      // Use a compound key so Round 1 and deliberation cards coexist
+      const key = `${payload.speakerId}:${round}`;
+      setMemberResponses(prev => ({
+        ...prev,
+        [key]: {
+          speakerName:        payload.memberName,
+          speakerRole:        payload.speakerRole,
+          speakerType:        payload.speakerType,
+          response:           payload.response ?? "",
+          error:              payload.error,
+          loading:            false,
+          summoned:           payload.summoned,
+          timestamp:          payload.timestamp ?? Date.now(),
+          deliberationRound:  round,
+        },
+      }));
+    };
+
     const channel = supabase
       .channel(`council:${sid}`)
-      .on("broadcast", { event: "member_response" }, ({ payload }) => {
-        if (!payload?.speakerId) return;
-        setMemberResponses(prev => ({
-          ...prev,
-          [payload.speakerId]: {
-            speakerName: payload.memberName,
-            speakerRole: payload.speakerRole,
-            speakerType: payload.speakerType,
-            response:    payload.response ?? "",
-            error:       payload.error,
-            loading:     false,
-            summoned:    payload.summoned,
-            timestamp:   payload.timestamp ?? Date.now(),
-          },
-        }));
-      })
+      .on("broadcast", { event: "member_response" },     handleBroadcast)
+      .on("broadcast", { event: "deliberation_response" }, handleBroadcast)
       .subscribe();
     return () => { supabase.removeChannel(channel); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loading]); // re-subscribe each time a new deliberation starts
+  }, [loading]);
 
   // ── Summon / un-summon persona ────────────────────────────────────
   const handleSummon = useCallback((persona: UnifiedPersona) => {
@@ -449,7 +460,7 @@ export default function CouncilBoard() {
         });
       }
 
-      // Persona replies (summoned)
+      // Persona replies (Round 1)
       for (const r of (result.personaResponses ?? [])) {
         const parsed = parseProposedActions(r.response);
         newMsgs.push({
@@ -458,7 +469,48 @@ export default function CouncilBoard() {
           content: parsed.cleanText || r.response,
           timestamp: Date.now(), isUser: false,
           summoned: r.summoned,
+          deliberationRound: 1,
         });
+      }
+
+      // Deliberation rounds — members responding to each other
+      for (const dRound of (result.deliberationRounds ?? [])) {
+        // Visual separator
+        newMsgs.push({
+          id: makeId(), speakerId: "system",
+          speakerName: `Deliberation — Round ${dRound.round}`,
+          speakerRole: "Council continues", speakerType: "mavis",
+          content: "The council deliberates — members respond to each other.",
+          timestamp: Date.now(), isUser: false,
+          deliberationRound: dRound.round,
+        });
+
+        for (const r of dRound.memberResponses) {
+          const parsed = parseProposedActions(r.response);
+          if (parsed.proposals.length > 0) {
+            const n = await submitProposalsForApproval(userId, r.member.name, parsed.proposals);
+            if (n > 0) toast.success(`${r.member.name} proposed ${n} action${n > 1 ? "s" : ""}`);
+          }
+          newMsgs.push({
+            id: makeId(), speakerId: r.member.id, speakerName: r.member.name,
+            speakerRole: r.member.role ?? "Council Member", speakerType: "council",
+            content: parsed.cleanText || r.response,
+            timestamp: Date.now(), isUser: false,
+            deliberationRound: dRound.round,
+          });
+        }
+
+        for (const r of dRound.personaResponses) {
+          const parsed = parseProposedActions(r.response);
+          newMsgs.push({
+            id: makeId(), speakerId: r.persona.id, speakerName: r.persona.name,
+            speakerRole: r.persona.role ?? "Persona", speakerType: "persona",
+            content: parsed.cleanText || r.response,
+            timestamp: Date.now(), isUser: false,
+            summoned: r.summoned,
+            deliberationRound: dRound.round,
+          });
+        }
       }
 
       setMessages(prev => [...prev, ...newMsgs]);
@@ -638,6 +690,26 @@ export default function CouncilBoard() {
           <AnimatePresence initial={false}>
             {messages.map(msg => {
               const style = speakerStyle(msg.speakerId, msg.isUser, msg.speakerType);
+              const isDelibSeparator = msg.speakerId === "system" && (msg.deliberationRound ?? 0) >= 2;
+
+              // Deliberation round separator — full-width divider
+              if (isDelibSeparator) {
+                return (
+                  <motion.div
+                    key={msg.id}
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    className="flex items-center gap-3 py-2"
+                  >
+                    <div className="flex-1 h-px bg-border" />
+                    <span className="text-xs font-mono text-muted-foreground px-2 py-0.5 rounded border border-border bg-card/60 whitespace-nowrap">
+                      ⟳ {msg.speakerName}
+                    </span>
+                    <div className="flex-1 h-px bg-border" />
+                  </motion.div>
+                );
+              }
+
               return (
                 <motion.div
                   key={msg.id}
@@ -652,7 +724,7 @@ export default function CouncilBoard() {
                     {/* Agent type badge */}
                     {msg.speakerType === "council" && (
                       <span className="text-xs font-mono px-1.5 py-0.5 rounded bg-purple-900/40 text-purple-400 border border-purple-700/30">
-                        COUNCIL
+                        {(msg.deliberationRound ?? 1) >= 2 ? "DELIBERATION" : "COUNCIL"}
                       </span>
                     )}
                     {msg.speakerType === "persona" && (
