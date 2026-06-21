@@ -425,7 +425,7 @@ export function VoiceChatOverlay({
         // Race the edge function call against a 30-second client-side timeout so the
         // overlay never gets permanently stuck in "thinking" on a slow/hung function.
         const invokePromise = supabase.functions.invoke("mavis-persona-router", {
-          body: { persona_id: p.entityId, user_id: p.userId, message: text },
+          body: { persona_id: p.entityId, user_id: p.userId, message: text, channel: "voice" },
         });
         const timeoutPromise = new Promise<never>((_, reject) =>
           setTimeout(() => reject(new Error("Persona router timed out (30s)")), 30000),

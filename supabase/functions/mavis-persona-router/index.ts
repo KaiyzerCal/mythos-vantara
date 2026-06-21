@@ -155,7 +155,7 @@ async function callLLM(model: string, system: string, messages: any[]): Promise<
 
 // ── System prompt builder ─────────────────────────────────────────────────────
 
-function buildSystemPrompt(persona: any, relState: any, memoryContext: string): string {
+function buildSystemPrompt(persona: any, relState: any, memoryContext: string, channel = "app"): string {
   const now = new Date();
   const dateStr = now.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric", timeZone: "UTC" });
   const timeStr = now.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", timeZone: "UTC" });
@@ -212,6 +212,8 @@ RIGHT NOW:
 
 WHAT YOU REMEMBER ABOUT THIS PERSON:
 ${memoryContext || "You're meeting for the first time or have little history yet. Approach with curiosity."}
+
+CURRENT MEDIUM: ${channel === "voice" ? "voice call — speak the way you would out loud, naturally. Short sentences. Contractions. No bullet points, no lists, no formatting." : channel === "telegram" ? "text message" : "in-app chat"}
 
 HOW YOU SPEAK AND BEHAVE:
 - You respond as yourself — not as a helper, not as a service. You have your own feelings about what's said.
@@ -280,7 +282,7 @@ serve(async (req) => {
       { auth: { persistSession: false } }
     );
 
-    const { persona_id, user_id, message, attachment_ids } = await req.json();
+    const { persona_id, user_id, message, attachment_ids, channel = "app" } = await req.json();
     if (!persona_id || !user_id || !message) {
       return new Response(JSON.stringify({ error: "persona_id, user_id, and message are required" }), { status: 400, headers: corsHeaders });
     }
@@ -439,7 +441,7 @@ You always know the current date and time without being told. Reference it natur
 ═══ END TEMPORAL AWARENESS ═══
 `;
 
-    const systemPrompt = buildSystemPrompt(persona, relState, memoryContext) + timeBlock + appCtx + attBlock + archivedBlock;
+    const systemPrompt = buildSystemPrompt(persona, relState, memoryContext, channel) + timeBlock + appCtx + attBlock + archivedBlock;
 
     const llmMessages = [
       ...history.map((h: any) => ({ role: h.role, content: h.content })),
