@@ -13,6 +13,7 @@ import type { CouncilMember } from "@/mavis/councilPersona";
 import { buildCouncilMemberPrompt, buildCouncilMemberVoicePrompt, buildPersonaVoiceSystemPrompt } from "@/mavis/councilPersona";
 import { VoiceChatOverlay } from "@/components/VoiceChatOverlay";
 import type { VoicePersona } from "@/components/VoiceChatOverlay";
+import { CouncilGroupVoice } from "@/components/CouncilGroupVoice";
 import type { UnifiedPersona } from "@/mavis/agentTypes";
 import { loadPersonaAgents } from "@/mavis/agentLoader";
 import { parseProposedActions, submitProposalsForApproval } from "@/mavis/proposeAction";
@@ -74,6 +75,7 @@ export default function CouncilBoard() {
   const [showBackToTop,    setShowBackToTop]    = useState(false);
   const [isListening,      setIsListening]      = useState(false);
   const [voiceTarget,      setVoiceTarget]      = useState<VoicePersona | null>(null);
+  const [groupVoiceOpen,   setGroupVoiceOpen]   = useState(false);
   const [confirmClear,     setConfirmClear]     = useState(false);
 
   // ── Realtime streaming state ──────────────────────────────────────
@@ -585,6 +587,16 @@ export default function CouncilBoard() {
               <ChevronDown size={10} className="absolute right-1.5 text-emerald-400/60 pointer-events-none" />
             </div>
           )}
+          {/* Group voice call — all members at once */}
+          {councilMembers.length > 1 && (
+            <button
+              onClick={() => setGroupVoiceOpen(true)}
+              className="mt-1.5 inline-flex items-center gap-1 text-xs font-mono font-medium text-primary hover:text-primary/80 bg-primary/10 hover:bg-primary/20 border border-primary/30 hover:border-primary/50 rounded-md px-2 py-1 transition-all"
+            >
+              <Users size={10} />
+              Group Call
+            </button>
+          )}
         </div>
         {/* Persona summon toggle */}
         {personas.length > 0 && (
@@ -889,6 +901,16 @@ export default function CouncilBoard() {
           </button>
         )}
       </div>
+
+      {/* Group voice call — all council members simultaneously */}
+      <AnimatePresence>
+        {groupVoiceOpen && userId && (
+          <CouncilGroupVoice
+            userId={userId}
+            onClose={() => setGroupVoiceOpen(false)}
+          />
+        )}
+      </AnimatePresence>
 
       {/* Per-member / per-persona voice call overlay */}
       <AnimatePresence>
