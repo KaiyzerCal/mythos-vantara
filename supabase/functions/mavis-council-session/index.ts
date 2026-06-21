@@ -1,0 +1,436 @@
+import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
+
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+};
+
+function json(data: unknown, status = 200): Response {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
+  });
+}
+
+// ── LLM helpers ───────────────────────────────────────────────────────────────
+
+function isUnfundedStatus(status: number, body: string): boolean {
+  if ([401, 402, 403, 429].includes(status)) return true;
+  const b = body.toLowerCase();
+  return b.includes("credit") || b.includes("quota") || b.includes("billing") || b.includes("payment") || b.includes("insufficient");
+}
+
+class ProviderUnavailableError extends Error {
+  constructor(public providerName: string, public reason: string, public status: number) {
+    super(`${providerName} unavailable (${status}): ${reason}`);
+  }
+}
+
+async function callClaude(model: string, system: string, userMsg: string, key: string, maxTokens: number): Promise<string> {
+  const res = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "x-api-key": key, "anthropic-version": "2023-06-01" },
+    body: JSON.stringify({ model, max_tokens: maxTokens, system, messages: [{ role: "user", content: userMsg }] }),
+    signal: AbortSignal.timeout(25_000),
+  });
+  if (!res.ok) {
+    const errText = await res.text();
+    if (isUnfundedStatus(res.status, errText)) throw new ProviderUnavailableError("claude", errText.slice(0, 200), res.status);
+    throw new Error(`Claude ${res.status}: ${errText.slice(0, 200)}`);
+  }
+  const d = await res.json();
+  return d.content?.[0]?.text ?? "";
+}
+
+async function callOpenAI(model: string, system: string, userMsg: string, key: string, maxTokens: number): Promise<string> {
+  const res = await fetch("https://api.openai.com/v1/chat/completions", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
+    body: JSON.stringify({ model, messages: [{ role: "system", content: system }, { role: "user", content: userMsg }], max_tokens: maxTokens }),
+    signal: AbortSignal.timeout(25_000),
+  });
+  if (!res.ok) {
+    const errText = await res.text();
+    if (isUnfundedStatus(res.status, errText)) throw new ProviderUnavailableError("openai", errText.slice(0, 200), res.status);
+    throw new Error(`OpenAI ${res.status}: ${errText.slice(0, 200)}`);
+  }
+  const d = await res.json();
+  return d.choices?.[0]?.message?.content ?? "";
+}
+
+async function callLovableGateway(system: string, userMsg: string, key: string, maxTokens: number): Promise<string> {
+  const res = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
+    body: JSON.stringify({
+      model: "google/gemini-2.5-flash",
+      messages: [{ role: "system", content: system }, { role: "user", content: userMsg }],
+      max_tokens: maxTokens,
+    }),
+    signal: AbortSignal.timeout(25_000),
+  });
+  if (!res.ok) {
+    const errText = await res.text();
+    throw new Error(`Lovable Gateway ${res.status}: ${errText.slice(0, 200)}`);
+  }
+  const d = await res.json();
+  return d.choices?.[0]?.message?.content ?? "";
+}
+
+async function callGroupLLM(system: string, userMsg: string, maxTokens: number): Promise<string> {
+  const lovableKey = Deno.env.get("LOVABLE_API_KEY") ?? "";
+  const claudeKey  = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
+  const openaiKey  = Deno.env.get("OPENAI_API") ?? Deno.env.get("OPENAI_API_KEY") ?? "";
+
+  if (lovableKey) {
+    try {
+      return await callLovableGateway(system, userMsg, lovableKey, maxTokens);
+    } catch (err: any) {
+      console.warn(`[council-session] Gemini Flash failed (${err.message}) → falling back to Claude Haiku`);
+    }
+  }
+
+  if (claudeKey) {
+    try {
+      return await callClaude("claude-haiku-4-5-20251001", system, userMsg, claudeKey, maxTokens);
+    } catch (err: any) {
+      if (!(err instanceof ProviderUnavailableError)) throw err;
+      console.warn(`[council-session] Claude Haiku unfunded → falling back to GPT-4o-mini`);
+    }
+  }
+
+  if (openaiKey) {
+    return await callOpenAI("gpt-4o-mini", system, userMsg, openaiKey, maxTokens);
+  }
+
+  throw new Error("All AI providers unavailable for group council session.");
+}
+
+// ── Prompt builder ────────────────────────────────────────────────────────────
+
+function buildGroupPrompt(
+  member: any,
+  allMembers: any[],
+  history: any[],
+  contextSummary: string,
+  mode: string,
+): string {
+  const peers = allMembers
+    .filter(m => m.id !== member.id)
+    .map(m => `${m.name} (${m.role ?? m.specialty ?? "advisor"})`)
+    .join(", ");
+
+  const recentHistory = history.slice(-12)
+    .map(t => `${t.speaker_name}${t.speaker_role ? ` [${t.speaker_role}]` : ""}: ${t.content}`)
+    .join("\n");
+
+  return `YOU ARE ${(member.name ?? "").toUpperCase()}.
+You are in a live ${mode === "voice" ? "voice" : "group text"} session with the operator and fellow council members.
+
+WHO YOU ARE:
+- Name: ${member.name}
+- Role: ${member.role ?? "Council Member"}
+- Expertise: ${member.specialty ?? "General advisory"}
+- About you: ${member.notes || "A trusted inner-circle advisor who speaks frankly."}
+
+OTHERS ON THIS CALL: ${peers || "just you and the operator"}
+${contextSummary ? `\nCONTEXT:\n${contextSummary}` : ""}
+
+CONVERSATION SO FAR:
+${recentHistory || "(Session just started.)"}
+
+HOW YOU RESPOND:
+- Speak directly to whoever you're addressing — use their name
+- React to what was just said; agree, disagree, or add a new angle
+- ${mode === "voice" ? "2–4 sentences max. Live voice — be crisp." : "2–3 short paragraphs. Direct, not a report."}
+- No bullet points, no headers
+- If someone said exactly what you'd say and you have nothing new: respond with exactly PASS
+- Never start with your own name`.trim();
+}
+
+// ── JWT user ID extractor ─────────────────────────────────────────────────────
+
+function extractUserIdFromJwt(token: string): string | null {
+  try {
+    const parts = token.split(".");
+    if (parts.length !== 3) return null;
+    const payload = JSON.parse(atob(parts[1]));
+    return payload.sub ?? null;
+  } catch {
+    return null;
+  }
+}
+
+// ── Main handler ──────────────────────────────────────────────────────────────
+
+serve(async (req) => {
+  if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+
+  try {
+    const supabase = createClient(
+      Deno.env.get("SUPABASE_URL")!,
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+      { auth: { persistSession: false } },
+    );
+
+    const body = await req.json();
+    const { action } = body;
+
+    // Resolve userId: body first, then JWT
+    let userId: string = body.userId ?? body.user_id ?? "";
+    if (!userId) {
+      const authHeader = req.headers.get("authorization") ?? "";
+      const token = authHeader.replace(/^Bearer\s+/i, "").trim();
+      if (token && !token.startsWith("eyJ")) {
+        // Service role key — userId must come from body
+      } else if (token) {
+        userId = extractUserIdFromJwt(token) ?? "";
+      }
+    }
+
+    if (!userId) return json({ error: "userId is required" }, 400);
+    if (!action) return json({ error: "action is required" }, 400);
+
+    // ── start_session ─────────────────────────────────────────────────────────
+    if (action === "start_session") {
+      const { topic, voice_mode = false, participant_ids } = body;
+
+      let membersQuery = supabase.from("councils").select("id, name, role, specialty, class, notes, avatar, voice_style").eq("user_id", userId);
+      if (Array.isArray(participant_ids) && participant_ids.length > 0) {
+        membersQuery = membersQuery.in("id", participant_ids);
+      }
+      const { data: members, error: membersErr } = await membersQuery;
+      if (membersErr) return json({ error: membersErr.message }, 500);
+      if (!members || members.length === 0) return json({ error: "No council members found" }, 404);
+
+      const memberIds = members.map((m: any) => m.id);
+
+      const { data: session, error: sessionErr } = await supabase
+        .from("council_sessions")
+        .insert({
+          user_id: userId,
+          session_type: "council",
+          participants: memberIds,
+          messages: [],
+          active: true,
+          topic: topic ?? null,
+          voice_mode,
+          turn_count: 0,
+          started_at: new Date().toISOString(),
+        })
+        .select("id")
+        .single();
+
+      if (sessionErr) return json({ error: sessionErr.message }, 500);
+
+      await supabase.from("council_group_messages").insert({
+        user_id: userId,
+        session_id: session.id,
+        speaker_type: "mavis",
+        speaker_name: "MAVIS",
+        content: "Council session started.",
+        turn_number: 0,
+      });
+
+      return json({
+        ok: true,
+        session_id: session.id,
+        members: members.map((m: any) => ({
+          id: m.id,
+          name: m.name,
+          role: m.role,
+          specialty: m.specialty,
+          avatar: m.avatar,
+          voice_style: m.voice_style,
+        })),
+      });
+    }
+
+    // ── send_message ──────────────────────────────────────────────────────────
+    if (action === "send_message") {
+      const { session_id, content, speaker_type = "user", mode = "voice" } = body;
+      if (!session_id) return json({ error: "session_id is required" }, 400);
+      if (!content) return json({ error: "content is required" }, 400);
+
+      const { data: session, error: sessionErr } = await supabase
+        .from("council_sessions")
+        .select("id, user_id, participants, turn_count, voice_mode, topic")
+        .eq("id", session_id)
+        .eq("user_id", userId)
+        .single();
+
+      if (sessionErr || !session) return json({ error: "Session not found" }, 404);
+
+      const turnCount: number = session.turn_count ?? 0;
+      const participants: string[] = Array.isArray(session.participants) ? session.participants : [];
+      const sessionMode: string = mode ?? (session.voice_mode ? "voice" : "text");
+      const maxTokens = sessionMode === "voice" ? 200 : 400;
+
+      const [histRes, membersRes, profileRes] = await Promise.all([
+        supabase
+          .from("council_group_messages")
+          .select("speaker_name, speaker_role, speaker_type, content, turn_number")
+          .eq("session_id", session_id)
+          .order("turn_number", { ascending: true })
+          .order("created_at", { ascending: true })
+          .limit(20),
+        supabase
+          .from("councils")
+          .select("id, name, role, specialty, class, notes, avatar, voice_style, personality_prompt")
+          .eq("user_id", userId)
+          .in("id", participants),
+        supabase
+          .from("profiles")
+          .select("inscribed_name, level, rank, current_form")
+          .eq("id", userId)
+          .single(),
+      ]);
+
+      const history = histRes.data ?? [];
+      const allMembers = membersRes.data ?? [];
+      const profile = profileRes.data;
+
+      // Store user message
+      const userTurn = turnCount + 1;
+      await supabase.from("council_group_messages").insert({
+        user_id: userId,
+        session_id,
+        speaker_type,
+        speaker_name: "Operator",
+        content,
+        turn_number: userTurn,
+      });
+
+      // Lightweight context summary
+      const ctxLines: string[] = [];
+      if (profile) {
+        ctxLines.push(`Operator: ${profile.inscribed_name ?? "Unknown"} — Lv${profile.level} [${profile.rank}] — Form: ${profile.current_form}`);
+      }
+      if (session.topic) ctxLines.push(`Session topic: ${session.topic}`);
+      ctxLines.push(`Council members on this call: ${allMembers.map((m: any) => `${m.name} (${m.role ?? m.specialty ?? "advisor"})`).join(", ")}`);
+      const contextSummary = ctxLines.join("\n");
+
+      // Append user message to history view for LLM context
+      const historyWithUser = [
+        ...history,
+        { speaker_name: "Operator", speaker_role: null, speaker_type: "user", content, turn_number: userTurn },
+      ];
+
+      // Run all member LLM calls in parallel
+      const llmResults = await Promise.allSettled(
+        allMembers.map(async (member: any) => {
+          const systemPrompt = buildGroupPrompt(member, allMembers, historyWithUser, contextSummary, sessionMode);
+          const response = await callGroupLLM(systemPrompt, `"${content}"`, maxTokens);
+          return { member, response: response.trim() };
+        }),
+      );
+
+      // Filter out PASS and failures, then store responses
+      const responses: Array<{ member_id: string; member_name: string; member_role: string; voice_style: string | null; content: string }> = [];
+      const insertRows: any[] = [];
+
+      for (const result of llmResults) {
+        if (result.status === "rejected") {
+          console.warn("[council-session] LLM call failed:", result.reason);
+          continue;
+        }
+        const { member, response } = result.value;
+        if (!response || response.toUpperCase() === "PASS") continue;
+
+        responses.push({
+          member_id: member.id,
+          member_name: member.name,
+          member_role: member.role ?? "",
+          voice_style: member.voice_style ?? null,
+          content: response,
+        });
+
+        insertRows.push({
+          user_id: userId,
+          session_id,
+          speaker_type: "council",
+          speaker_id: member.id,
+          speaker_name: member.name,
+          speaker_role: member.role ?? null,
+          content: response,
+          turn_number: userTurn,
+        });
+      }
+
+      const finalTurn = userTurn;
+      await Promise.all([
+        insertRows.length > 0 ? supabase.from("council_group_messages").insert(insertRows) : Promise.resolve(),
+        supabase.from("council_sessions").update({ turn_count: finalTurn }).eq("id", session_id),
+      ]);
+
+      return json({ ok: true, responses, turn_number: finalTurn });
+    }
+
+    // ── end_session ───────────────────────────────────────────────────────────
+    if (action === "end_session") {
+      const { session_id } = body;
+      if (!session_id) return json({ error: "session_id is required" }, 400);
+
+      const { error } = await supabase
+        .from("council_sessions")
+        .update({ active: false, ended_at: new Date().toISOString() })
+        .eq("id", session_id)
+        .eq("user_id", userId);
+
+      if (error) return json({ error: error.message }, 500);
+      return json({ ok: true });
+    }
+
+    // ── get_history ───────────────────────────────────────────────────────────
+    if (action === "get_history") {
+      const { session_id, limit = 100 } = body;
+      if (!session_id) return json({ error: "session_id is required" }, 400);
+
+      const { data: messages, error } = await supabase
+        .from("council_group_messages")
+        .select("id, speaker_type, speaker_id, speaker_name, speaker_role, content, turn_number, created_at")
+        .eq("session_id", session_id)
+        .eq("user_id", userId)
+        .order("turn_number", { ascending: true })
+        .order("created_at", { ascending: true })
+        .limit(Math.min(limit, 100));
+
+      if (error) return json({ error: error.message }, 500);
+      return json({ ok: true, messages: messages ?? [] });
+    }
+
+    // ── get_active_session ────────────────────────────────────────────────────
+    if (action === "get_active_session") {
+      const { data: session, error: sessionErr } = await supabase
+        .from("council_sessions")
+        .select("id, session_type, participants, summary, active, topic, voice_mode, turn_count, started_at")
+        .eq("user_id", userId)
+        .eq("active", true)
+        .order("started_at", { ascending: false })
+        .limit(1)
+        .single();
+
+      if (sessionErr || !session) return json({ ok: true, session: null });
+
+      const participants: string[] = Array.isArray(session.participants) ? session.participants : [];
+      let members: any[] = [];
+
+      if (participants.length > 0) {
+        const { data: memberRows } = await supabase
+          .from("councils")
+          .select("id, name, role, specialty, avatar, voice_style")
+          .eq("user_id", userId)
+          .in("id", participants);
+        members = memberRows ?? [];
+      }
+
+      return json({ ok: true, session, members });
+    }
+
+    return json({ error: `Unknown action: ${action}` }, 400);
+  } catch (err: any) {
+    console.error("[council-session] error:", err.message);
+    return json({ error: err.message }, 500);
+  }
+});
