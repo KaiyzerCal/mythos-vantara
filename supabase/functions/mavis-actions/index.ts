@@ -1193,6 +1193,39 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
       return await rcRes.json();
     }
 
+    // ── Social Persona Agent ───────────────────────────────────────────────
+    // Multi-persona social media posting (Nora Vale, BioneerX, etc.).
+    // Personas are configured in mavis_social_personas. Credentials are
+    // env vars keyed by each persona's cred_prefix.
+    case "social_upsert_persona":
+    case "social_get_persona":
+    case "social_list_personas":
+    case "social_generate_post":
+    case "social_schedule_post":
+    case "social_post_now":
+    case "social_list_posts":
+    case "social_process_scheduled": {
+      const socialActionMap: Record<string, string> = {
+        social_upsert_persona:    "upsert_persona",
+        social_get_persona:       "get_persona",
+        social_list_personas:     "list_personas",
+        social_generate_post:     "generate_post",
+        social_schedule_post:     "schedule_post",
+        social_post_now:          "post_now",
+        social_list_posts:        "list_posts",
+        social_process_scheduled: "process_scheduled",
+      };
+      const socialRes = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-persona-social`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
+        body: JSON.stringify({ action: socialActionMap[action.type], userId, ...p }),
+        signal: AbortSignal.timeout(30_000),
+      });
+      const socialData = await socialRes.json().catch(() => ({}));
+      if (!socialRes.ok) throw new Error((socialData as any).error ?? `persona-social returned ${socialRes.status}`);
+      return socialData;
+    }
+
     // ── Salesforce CRM ────────────────────────────────────────────────────
     // Proxies to mavis-salesforce. action.sf_action selects the sub-action.
     case "salesforce_query":
