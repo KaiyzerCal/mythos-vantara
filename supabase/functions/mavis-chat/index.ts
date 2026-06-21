@@ -183,7 +183,7 @@ async function callOpenAI(messages: any[], system: string, key: string, model = 
   });
   if (!res.ok) {
     const errText = await res.text();
-    if (isUnfundedStatus(res.status, errText)) {
+    if (isUnfundedStatus(res.status, errText) || res.status === 400) {
       throw new ProviderUnavailableError("openai", errText.slice(0, 200), res.status);
     }
     throw new Error(`OpenAI ${res.status}: ${errText}`);
@@ -193,6 +193,16 @@ async function callOpenAI(messages: any[], system: string, key: string, model = 
 }
 
 async function callClaude(messages: any[], system: string, key: string, model = "claude-haiku-4-5-20251001", useThinking = false): Promise<string> {
+  // Anthropic requires strictly alternating user/assistant roles. Merge consecutive
+  // same-role messages so a bad history never causes an unrecoverable 400.
+  const merged: any[] = [];
+  for (const m of messages) {
+    if (merged.length > 0 && merged[merged.length - 1].role === m.role) {
+      merged[merged.length - 1] = { role: m.role, content: merged[merged.length - 1].content + "\n\n" + (typeof m.content === "string" ? m.content : JSON.stringify(m.content)) };
+    } else {
+      merged.push({ role: m.role, content: m.content });
+    }
+  }
   const res = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: {
@@ -205,12 +215,14 @@ async function callClaude(messages: any[], system: string, key: string, model = 
       max_tokens: useThinking ? 16000 : 4096,
       ...(useThinking ? { thinking: { type: "enabled", budget_tokens: 8000 } } : {}),
       system,
-      messages: messages.map((m: any) => ({ role: m.role, content: m.content })),
+      messages: merged.map((m: any) => ({ role: m.role, content: m.content })),
     }),
   });
   if (!res.ok) {
     const errText = await res.text();
-    if (isUnfundedStatus(res.status, errText)) {
+    // Treat 400 "bad request" as cascadable (same as quota errors) — bad message format
+    // should cascade to the next provider rather than blow up with a 500.
+    if (isUnfundedStatus(res.status, errText) || res.status === 400) {
       throw new ProviderUnavailableError("claude", errText.slice(0, 200), res.status);
     }
     throw new Error(`Claude ${res.status}: ${errText}`);
@@ -234,7 +246,7 @@ async function callGrok(messages: any[], system: string, key: string): Promise<s
   });
   if (!res.ok) {
     const errText = await res.text();
-    if (isUnfundedStatus(res.status, errText)) {
+    if (isUnfundedStatus(res.status, errText) || res.status === 400) {
       throw new ProviderUnavailableError("grok", errText.slice(0, 200), res.status);
     }
     throw new Error(`Grok ${res.status}: ${errText}`);

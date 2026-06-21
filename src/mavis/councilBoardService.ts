@@ -88,7 +88,7 @@ async function runRound1(
   const memberPromises = councilMembers.map(async (member) => {
     const prompt = buildCouncilMemberPrompt(member, contextSummary);
     try {
-      const response = await invokeAI(prompt, historyWithMavis, "PRIME", "council-member");
+      const response = await invokeAI(prompt, historyWithMavis, "COUNCIL", "council-member");
       if (sessionId) {
         await broadcastCouncilResponse(
           sessionId, member.name, member.id,
@@ -111,7 +111,7 @@ async function runRound1(
     const isSummoned = summonedPersonas.some(s => s.id === persona.id);
     const prompt = buildPersonaCouncilPrompt(persona, {} as AppContextSnapshot);
     try {
-      const response = await invokeAI(prompt, historyWithMavis, "PRIME", "council-persona");
+      const response = await invokeAI(prompt, historyWithMavis, "COUNCIL", "council-persona");
       if (sessionId) {
         await broadcastCouncilResponse(
           sessionId, persona.name, persona.id,
@@ -169,7 +169,7 @@ async function runDeliberationRound(
   const memberPromises = councilMembers.map(async (member) => {
     const prompt = buildDeliberationPrompt(member, contextSummary, allPreviousResponses, round);
     try {
-      const response = await invokeAI(prompt, historyWithMavis, "PRIME", "council-deliberation");
+      const response = await invokeAI(prompt, historyWithMavis, "COUNCIL", "council-deliberation");
       if (sessionId) {
         await broadcastCouncilResponse(
           sessionId, member.name, member.id,
@@ -200,7 +200,7 @@ async function runDeliberationRound(
     };
     const prompt = buildDeliberationPrompt(memberLike, contextSummary, allPreviousResponses, round);
     try {
-      const response = await invokeAI(prompt, historyWithMavis, "PRIME", "council-deliberation");
+      const response = await invokeAI(prompt, historyWithMavis, "COUNCIL", "council-deliberation");
       if (sessionId) {
         await broadcastCouncilResponse(
           sessionId, persona.name, persona.id,
@@ -251,6 +251,20 @@ async function runDeliberationRound(
  *      Members address each other by name, push back, agree, build on points
  *   4. Returns all rounds so the UI can render the full discourse chronologically
  */
+function mergeConsecutiveAssistants(
+  msgs: { role: "user" | "assistant"; content: string }[],
+): { role: "user" | "assistant"; content: string }[] {
+  const out: { role: "user" | "assistant"; content: string }[] = [];
+  for (const msg of msgs) {
+    if (out.length > 0 && out[out.length - 1].role === "assistant" && msg.role === "assistant") {
+      out[out.length - 1] = { role: "assistant", content: out[out.length - 1].content + "\n\n" + msg.content };
+    } else {
+      out.push({ ...msg });
+    }
+  }
+  return out;
+}
+
 export async function sendCouncilMessage(
   userMessage: string,
   history: CouncilBoardMessage[],
@@ -261,10 +275,14 @@ export async function sendCouncilMessage(
   const contextSummary = buildContextSummary(appContext);
   const maxDeliberationRounds = sessionOptions?.deliberationRounds ?? 1;
 
-  const historyForAI = history.slice(-10).map(m => ({
-    role: m.isUser ? "user" : "assistant",
+  // Council board produces multiple assistant messages per user turn (MAVIS + each member).
+  // AI APIs (Claude, OpenAI, Gemini) all reject consecutive same-role messages, so we
+  // merge them into a single combined assistant message before sending.
+  const rawHistory = history.slice(-10).map(m => ({
+    role: (m.isUser ? "user" : "assistant") as "user" | "assistant",
     content: m.isUser ? m.content : `[${m.speakerName}]: ${m.content}`,
   }));
+  const historyForAI = mergeConsecutiveAssistants(rawHistory);
 
   const currentUserMsg = { role: "user" as const, content: userMessage };
 
