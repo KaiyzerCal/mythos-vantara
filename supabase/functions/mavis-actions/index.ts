@@ -1193,6 +1193,52 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
       return await rcRes.json();
     }
 
+    // ── Salesforce CRM ────────────────────────────────────────────────────
+    // Proxies to mavis-salesforce. action.sf_action selects the sub-action.
+    case "salesforce_query":
+    case "salesforce_search":
+    case "salesforce_get_record":
+    case "salesforce_create_record":
+    case "salesforce_update_record":
+    case "salesforce_log_activity":
+    case "salesforce_get_crm_context": {
+      const sfAction = action.type.replace("salesforce_", "");
+      const sfRes = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-salesforce`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
+        body: JSON.stringify({ action: sfAction, userId, ...p }),
+        signal: AbortSignal.timeout(25_000),
+      });
+      const sfData = await sfRes.json().catch(() => ({}));
+      if (!sfRes.ok) throw new Error((sfData as any).error ?? `Salesforce returned ${sfRes.status}`);
+      return sfData;
+    }
+
+    // ── Booking system ────────────────────────────────────────────────────
+    // Venue search (OSM), calendar-backed reservations, booking management.
+    case "booking_find_venue":
+    case "booking_create":
+    case "booking_list":
+    case "booking_cancel":
+    case "booking_update": {
+      const bookingActionMap: Record<string, string> = {
+        booking_find_venue: "find_venue",
+        booking_create:     "create_booking",
+        booking_list:       "list_bookings",
+        booking_cancel:     "cancel_booking",
+        booking_update:     "update_booking",
+      };
+      const bookRes = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-booking`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
+        body: JSON.stringify({ action: bookingActionMap[action.type], userId, ...p }),
+        signal: AbortSignal.timeout(25_000),
+      });
+      const bookData = await bookRes.json().catch(() => ({}));
+      if (!bookRes.ok) throw new Error((bookData as any).error ?? `Booking returned ${bookRes.status}`);
+      return bookData;
+    }
+
     // ── Device Command — queue a command for the MAVIS bridge ────────────
     // Sends the command to mavis-device-bridge and optionally polls for result.
     case "device_command": {
