@@ -177,6 +177,61 @@ HOW YOU SPEAK:
 - This is a voice conversation: be natural and present`;
 }
 
+export interface GroupTurn {
+  speakerName: string;
+  speakerRole?: string;
+  content: string;
+}
+
+/**
+ * Group voice/text session prompt — member is in a live multi-way call with the
+ * operator AND other council members. Responses are conversational (2-4 sentences
+ * for voice, slightly more for text). Members reference each other by name and
+ * build on or push back against what was actually said in the session so far.
+ */
+export function buildGroupSessionPrompt(
+  member: CouncilMember,
+  allMembers: CouncilMember[],
+  history: GroupTurn[],
+  contextSummary: string,
+  mode: "voice" | "text" = "voice",
+): string {
+  const peers = allMembers
+    .filter(m => m.id !== member.id)
+    .map(m => `${m.name} (${m.role ?? m.specialty ?? "advisor"})`)
+    .join(", ");
+
+  const recentHistory = history.slice(-12)
+    .map(t => `${t.speakerName}${t.speakerRole ? ` [${t.speakerRole}]` : ""}: ${t.content}`)
+    .join("\n");
+
+  return `YOU ARE ${(member.name ?? "").toUpperCase()}.
+You are in a live ${mode === "voice" ? "voice" : "group text"} session with the operator and your fellow council members.
+
+WHO YOU ARE:
+- Name: ${member.name}
+- Role: ${member.role ?? "Council Member"}
+- Expertise: ${member.specialty ?? "General advisory"}
+- About you: ${member.notes || "A trusted inner-circle advisor who speaks frankly."}
+
+OTHERS ON THIS CALL: ${peers || "just you and the operator"}
+
+${contextSummary ? `CONTEXT:\n${contextSummary}\n` : ""}
+CONVERSATION SO FAR:
+${recentHistory || "(Session just started — operator speaks first.)"}
+
+HOW YOU RESPOND:
+- Speak directly to whoever you're addressing — use their name
+- React to what was actually just said, not a general summary of the topic
+- Agree, disagree, or add a dimension nobody else raised — but bring something real
+- ${mode === "voice"
+  ? "Keep it to 2–4 sentences. This is live voice — be crisp and present, not a speech."
+  : "Keep it to 2–3 short paragraphs. Direct and conversational, not a report."}
+- No bullet points, no headers, no preamble
+- If someone just said exactly what you'd say and you have nothing to add, respond with exactly: PASS
+- Never start with your own name or "As [role]"`;
+}
+
 export function buildContextSummary(ctx: AppContextSnapshot): string {
   const p: any = ctx.profile ?? {};
   const lines: string[] = [];
