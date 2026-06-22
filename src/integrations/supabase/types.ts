@@ -663,6 +663,7 @@ export type Database = {
           ended_at: string | null
           id: string
           messages: Json | null
+          parent_session_id: string | null
           participants: Json | null
           session_type: string | null
           started_at: string | null
@@ -679,6 +680,7 @@ export type Database = {
           ended_at?: string | null
           id?: string
           messages?: Json | null
+          parent_session_id?: string | null
           participants?: Json | null
           session_type?: string | null
           started_at?: string | null
@@ -695,6 +697,7 @@ export type Database = {
           ended_at?: string | null
           id?: string
           messages?: Json | null
+          parent_session_id?: string | null
           participants?: Json | null
           session_type?: string | null
           started_at?: string | null
@@ -705,7 +708,15 @@ export type Database = {
           user_id?: string
           voice_mode?: boolean | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "council_sessions_parent_session_id_fkey"
+            columns: ["parent_session_id"]
+            isOneToOne: false
+            referencedRelation: "council_sessions"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       councils: {
         Row: {
@@ -715,11 +726,13 @@ export type Database = {
           created_at: string
           data_access_tier: string | null
           id: string
+          last_used_at: string | null
           name: string
           notes: string
           personality_prompt: string | null
           role: string
           specialty: string | null
+          tactic_state: string
           telegram_enabled: boolean | null
           updated_at: string
           user_id: string
@@ -734,11 +747,13 @@ export type Database = {
           created_at?: string
           data_access_tier?: string | null
           id?: string
+          last_used_at?: string | null
           name: string
           notes?: string
           personality_prompt?: string | null
           role?: string
           specialty?: string | null
+          tactic_state?: string
           telegram_enabled?: boolean | null
           updated_at?: string
           user_id: string
@@ -753,11 +768,13 @@ export type Database = {
           created_at?: string
           data_access_tier?: string | null
           id?: string
+          last_used_at?: string | null
           name?: string
           notes?: string
           personality_prompt?: string | null
           role?: string
           specialty?: string | null
+          tactic_state?: string
           telegram_enabled?: boolean | null
           updated_at?: string
           user_id?: string
@@ -2434,6 +2451,72 @@ export type Database = {
         }
         Relationships: []
       }
+      mavis_media_library: {
+        Row: {
+          analysis: Json | null
+          blueprint: Json | null
+          created_at: string
+          duration_seconds: number | null
+          error_message: string | null
+          file_size_bytes: number | null
+          file_url: string | null
+          gemini_file_uri: string | null
+          height: number | null
+          id: string
+          media_type: string
+          mime_type: string | null
+          source_tool: string | null
+          status: string
+          storage_path: string
+          title: string | null
+          updated_at: string
+          user_id: string
+          width: number | null
+        }
+        Insert: {
+          analysis?: Json | null
+          blueprint?: Json | null
+          created_at?: string
+          duration_seconds?: number | null
+          error_message?: string | null
+          file_size_bytes?: number | null
+          file_url?: string | null
+          gemini_file_uri?: string | null
+          height?: number | null
+          id?: string
+          media_type: string
+          mime_type?: string | null
+          source_tool?: string | null
+          status?: string
+          storage_path: string
+          title?: string | null
+          updated_at?: string
+          user_id: string
+          width?: number | null
+        }
+        Update: {
+          analysis?: Json | null
+          blueprint?: Json | null
+          created_at?: string
+          duration_seconds?: number | null
+          error_message?: string | null
+          file_size_bytes?: number | null
+          file_url?: string | null
+          gemini_file_uri?: string | null
+          height?: number | null
+          id?: string
+          media_type?: string
+          mime_type?: string | null
+          source_tool?: string | null
+          status?: string
+          storage_path?: string
+          title?: string | null
+          updated_at?: string
+          user_id?: string
+          width?: number | null
+        }
+        Relationships: []
+      }
       mavis_meeting_preps: {
         Row: {
           attendees: string[]
@@ -2812,10 +2895,11 @@ export type Database = {
           created_at: string
           id: string
           importance: number
-          persona_id: string
+          persona_id: string | null
           persona_name: string
           role: string
           session_id: string | null
+          source: string | null
           user_id: string
         }
         Insert: {
@@ -2824,10 +2908,11 @@ export type Database = {
           created_at?: string
           id?: string
           importance?: number
-          persona_id: string
+          persona_id?: string | null
           persona_name: string
           role: string
           session_id?: string | null
+          source?: string | null
           user_id: string
         }
         Update: {
@@ -2836,10 +2921,11 @@ export type Database = {
           created_at?: string
           id?: string
           importance?: number
-          persona_id?: string
+          persona_id?: string | null
           persona_name?: string
           role?: string
           session_id?: string | null
+          source?: string | null
           user_id?: string
         }
         Relationships: []
@@ -3691,6 +3777,48 @@ export type Database = {
           timeout_ms?: number | null
           updated_at?: string | null
           usage_count?: number | null
+          user_id?: string
+        }
+        Relationships: []
+      }
+      mavis_usage_log: {
+        Row: {
+          cache_read_tokens: number
+          cache_write_tokens: number
+          created_at: string
+          estimated_cost_usd: number
+          id: string
+          input_tokens: number
+          model: string
+          output_tokens: number
+          persona_id: string | null
+          session_type: string
+          user_id: string
+        }
+        Insert: {
+          cache_read_tokens?: number
+          cache_write_tokens?: number
+          created_at?: string
+          estimated_cost_usd?: number
+          id?: string
+          input_tokens?: number
+          model?: string
+          output_tokens?: number
+          persona_id?: string | null
+          session_type: string
+          user_id: string
+        }
+        Update: {
+          cache_read_tokens?: number
+          cache_write_tokens?: number
+          created_at?: string
+          estimated_cost_usd?: number
+          id?: string
+          input_tokens?: number
+          model?: string
+          output_tokens?: number
+          persona_id?: string | null
+          session_type?: string
           user_id?: string
         }
         Relationships: []
