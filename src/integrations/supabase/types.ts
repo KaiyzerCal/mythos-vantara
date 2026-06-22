@@ -609,36 +609,101 @@ export type Database = {
           },
         ]
       }
+      council_group_messages: {
+        Row: {
+          content: string
+          created_at: string | null
+          id: string
+          session_id: string
+          speaker_id: string | null
+          speaker_name: string
+          speaker_role: string | null
+          speaker_type: string
+          turn_number: number | null
+          user_id: string
+        }
+        Insert: {
+          content: string
+          created_at?: string | null
+          id?: string
+          session_id: string
+          speaker_id?: string | null
+          speaker_name: string
+          speaker_role?: string | null
+          speaker_type: string
+          turn_number?: number | null
+          user_id: string
+        }
+        Update: {
+          content?: string
+          created_at?: string | null
+          id?: string
+          session_id?: string
+          speaker_id?: string | null
+          speaker_name?: string
+          speaker_role?: string | null
+          speaker_type?: string
+          turn_number?: number | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "council_group_messages_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "council_sessions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       council_sessions: {
         Row: {
+          active: boolean | null
           created_at: string | null
+          ended_at: string | null
           id: string
           messages: Json | null
           participants: Json | null
           session_type: string | null
+          started_at: string | null
           summary: string | null
+          topic: string | null
+          turn_count: number | null
           updated_at: string | null
           user_id: string
+          voice_mode: boolean | null
         }
         Insert: {
+          active?: boolean | null
           created_at?: string | null
+          ended_at?: string | null
           id?: string
           messages?: Json | null
           participants?: Json | null
           session_type?: string | null
+          started_at?: string | null
           summary?: string | null
+          topic?: string | null
+          turn_count?: number | null
           updated_at?: string | null
           user_id: string
+          voice_mode?: boolean | null
         }
         Update: {
+          active?: boolean | null
           created_at?: string | null
+          ended_at?: string | null
           id?: string
           messages?: Json | null
           participants?: Json | null
           session_type?: string | null
+          started_at?: string | null
           summary?: string | null
+          topic?: string | null
+          turn_count?: number | null
           updated_at?: string | null
           user_id?: string
+          voice_mode?: boolean | null
         }
         Relationships: []
       }
@@ -1460,6 +1525,60 @@ export type Database = {
           last_interaction_at?: string | null
           milestones?: Json | null
           trust_level?: number | null
+          updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
+      mavis_bookings: {
+        Row: {
+          attendees: Json | null
+          booking_type: string
+          created_at: string | null
+          description: string | null
+          end_time: string | null
+          external_id: string | null
+          id: string
+          location: string | null
+          metadata: Json | null
+          provider: string | null
+          start_time: string
+          status: string | null
+          title: string
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          attendees?: Json | null
+          booking_type: string
+          created_at?: string | null
+          description?: string | null
+          end_time?: string | null
+          external_id?: string | null
+          id?: string
+          location?: string | null
+          metadata?: Json | null
+          provider?: string | null
+          start_time: string
+          status?: string | null
+          title: string
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          attendees?: Json | null
+          booking_type?: string
+          created_at?: string | null
+          description?: string | null
+          end_time?: string | null
+          external_id?: string | null
+          id?: string
+          location?: string | null
+          metadata?: Json | null
+          provider?: string | null
+          start_time?: string
+          status?: string | null
+          title?: string
           updated_at?: string | null
           user_id?: string
         }
@@ -2569,6 +2688,48 @@ export type Database = {
         }
         Relationships: []
       }
+      mavis_oauth_tokens: {
+        Row: {
+          access_token: string
+          created_at: string | null
+          expires_at: number | null
+          id: string
+          instance_url: string | null
+          metadata: Json | null
+          provider: string
+          refresh_token: string | null
+          scope: string | null
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          access_token: string
+          created_at?: string | null
+          expires_at?: number | null
+          id?: string
+          instance_url?: string | null
+          metadata?: Json | null
+          provider: string
+          refresh_token?: string | null
+          scope?: string | null
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          access_token?: string
+          created_at?: string | null
+          expires_at?: number | null
+          id?: string
+          instance_url?: string | null
+          metadata?: Json | null
+          provider?: string
+          refresh_token?: string | null
+          scope?: string | null
+          updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
       mavis_outcome_events: {
         Row: {
           actual_outcome: string | null
@@ -3160,15 +3321,72 @@ export type Database = {
           },
         ]
       }
+      mavis_social_personas: {
+        Row: {
+          active: boolean | null
+          bio: string | null
+          created_at: string | null
+          display_name: string
+          id: string
+          metadata: Json | null
+          persona_name: string
+          platforms: Json | null
+          post_formats: Json | null
+          tone: string | null
+          topics: string[] | null
+          updated_at: string | null
+          user_id: string
+          voice: string
+        }
+        Insert: {
+          active?: boolean | null
+          bio?: string | null
+          created_at?: string | null
+          display_name: string
+          id?: string
+          metadata?: Json | null
+          persona_name: string
+          platforms?: Json | null
+          post_formats?: Json | null
+          tone?: string | null
+          topics?: string[] | null
+          updated_at?: string | null
+          user_id: string
+          voice?: string
+        }
+        Update: {
+          active?: boolean | null
+          bio?: string | null
+          created_at?: string | null
+          display_name?: string
+          id?: string
+          metadata?: Json | null
+          persona_name?: string
+          platforms?: Json | null
+          post_formats?: Json | null
+          tone?: string | null
+          topics?: string[] | null
+          updated_at?: string | null
+          user_id?: string
+          voice?: string
+        }
+        Relationships: []
+      }
       mavis_social_posts: {
         Row: {
           content: string
           created_at: string | null
           engagement: Json | null
+          error: string | null
+          external_id: string | null
           id: string
+          media_urls: string[] | null
+          metadata: Json | null
           persona: string
+          persona_id: string | null
           platform: string
           posted_at: string | null
+          scheduled_at: string | null
           status: string
           thread_parent_id: string | null
           tweet_id: string | null
@@ -3178,10 +3396,16 @@ export type Database = {
           content: string
           created_at?: string | null
           engagement?: Json | null
+          error?: string | null
+          external_id?: string | null
           id?: string
+          media_urls?: string[] | null
+          metadata?: Json | null
           persona?: string
+          persona_id?: string | null
           platform?: string
           posted_at?: string | null
+          scheduled_at?: string | null
           status?: string
           thread_parent_id?: string | null
           tweet_id?: string | null
@@ -3191,16 +3415,30 @@ export type Database = {
           content?: string
           created_at?: string | null
           engagement?: Json | null
+          error?: string | null
+          external_id?: string | null
           id?: string
+          media_urls?: string[] | null
+          metadata?: Json | null
           persona?: string
+          persona_id?: string | null
           platform?: string
           posted_at?: string | null
+          scheduled_at?: string | null
           status?: string
           thread_parent_id?: string | null
           tweet_id?: string | null
           user_id?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "mavis_social_posts_persona_id_fkey"
+            columns: ["persona_id"]
+            isOneToOne: false
+            referencedRelation: "mavis_social_personas"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       mavis_social_queue: {
         Row: {
