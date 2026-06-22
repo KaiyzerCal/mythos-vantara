@@ -2554,32 +2554,58 @@ ${fmtGoals}
       : baseSystem + dynamicSOBlock;
 
     // ── Cross-relationship awareness (MAVIS knows what user discusses elsewhere) ──
-    // Queries mavis_persona_memory for recent exchanges across all personas/council members
-    // so MAVIS can reference shared context without the user having to repeat themselves.
+    // Reads from both sources so MAVIS sees all conversations:
+    //   • persona_conversations (joined with personas) — all historical 1-on-1 chats
+    //   • mavis_persona_memory — council-mode chats and new router chats going forward
     let crossRelationshipBlock = "";
     if (!isCouncilMode) {
       try {
-        const { data: relMems } = await sb
-          .from("mavis_persona_memory")
-          .select("persona_name, role, content, created_at")
-          .eq("user_id", user.id)
-          .eq("role", "assistant")
-          .order("created_at", { ascending: false })
-          .limit(40);
-        if (relMems && (relMems as any[]).length > 0) {
-          const byPersona = new Map<string, string[]>();
-          for (const m of relMems as any[]) {
-            const name = String((m as any).persona_name ?? "Unknown");
-            if (!byPersona.has(name)) byPersona.set(name, []);
-            const arr = byPersona.get(name)!;
-            if (arr.length < 2) arr.push(String((m as any).content).slice(0, 250));
+        const [memRes, convRes] = await Promise.allSettled([
+          sb.from("mavis_persona_memory")
+            .select("persona_name, content, created_at")
+            .eq("user_id", user.id)
+            .eq("role", "assistant")
+            .order("created_at", { ascending: false })
+            .limit(30),
+          sb.from("persona_conversations")
+            .select("content, created_at, personas(name)")
+            .eq("user_id", user.id)
+            .eq("role", "assistant")
+            .order("created_at", { ascending: false })
+            .limit(30),
+        ]);
+
+        // Unified map: persona_name → [snippet, ...]
+        const byPersona = new Map<string, { snippets: string[]; ts: string }>();
+
+        const upsertSnippet = (name: string, content: string, ts: string) => {
+          const key = name.trim();
+          if (!key || key === "Unknown") return;
+          if (!byPersona.has(key)) byPersona.set(key, { snippets: [], ts });
+          const entry = byPersona.get(key)!;
+          if (entry.snippets.length < 3) entry.snippets.push(String(content).slice(0, 300));
+          if (ts > entry.ts) entry.ts = ts;
+        };
+
+        if (memRes.status === "fulfilled" && memRes.value.data) {
+          for (const m of memRes.value.data as any[]) {
+            upsertSnippet(m.persona_name ?? "Unknown", m.content, m.created_at ?? "");
           }
-          if (byPersona.size > 0) {
-            const lines = [...byPersona.entries()].map(([name, snippets]) =>
-              `[${name}]:\n${snippets.map(s => `  • "${s}"`).join("\n")}`
-            );
-            crossRelationshipBlock = `\n═══ RELATIONSHIP CONTEXT (recent conversations with personas & council members) ═══\nThe operator has been talking to these individuals. Use this for deeper awareness — reference only when directly relevant, not as a report.\n${lines.join("\n\n")}\n═══ END RELATIONSHIP CONTEXT ═══`;
+        }
+        if (convRes.status === "fulfilled" && convRes.value.data) {
+          for (const m of convRes.value.data as any[]) {
+            const name = (m as any).personas?.name ?? "Unknown";
+            upsertSnippet(name, m.content, m.created_at ?? "");
           }
+        }
+
+        if (byPersona.size > 0) {
+          // Sort by most recent first
+          const sorted = [...byPersona.entries()].sort((a, b) => b[1].ts.localeCompare(a[1].ts));
+          const lines = sorted.map(([name, { snippets }]) =>
+            `[${name}]:\n${snippets.map(s => `  • "${s}"`).join("\n")}`
+          );
+          crossRelationshipBlock = `\n═══ RELATIONSHIP CONTEXT (recent conversations with each persona/council member) ═══\nThe operator has been talking to these individuals. Use this for deeper awareness — reference only when directly relevant.\n${lines.join("\n\n")}\n═══ END RELATIONSHIP CONTEXT ═══`;
         }
       } catch { /* non-critical */ }
     }
