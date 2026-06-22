@@ -2553,6 +2553,37 @@ ${fmtGoals}
       ? baseSystem + personaMemoryBlock + dynamicSOBlock
       : baseSystem + dynamicSOBlock;
 
+    // ── Cross-relationship awareness (MAVIS knows what user discusses elsewhere) ──
+    // Queries mavis_persona_memory for recent exchanges across all personas/council members
+    // so MAVIS can reference shared context without the user having to repeat themselves.
+    let crossRelationshipBlock = "";
+    if (!isCouncilMode) {
+      try {
+        const { data: relMems } = await sb
+          .from("mavis_persona_memory")
+          .select("persona_name, role, content, created_at")
+          .eq("user_id", user.id)
+          .eq("role", "assistant")
+          .order("created_at", { ascending: false })
+          .limit(40);
+        if (relMems && (relMems as any[]).length > 0) {
+          const byPersona = new Map<string, string[]>();
+          for (const m of relMems as any[]) {
+            const name = String((m as any).persona_name ?? "Unknown");
+            if (!byPersona.has(name)) byPersona.set(name, []);
+            const arr = byPersona.get(name)!;
+            if (arr.length < 2) arr.push(String((m as any).content).slice(0, 250));
+          }
+          if (byPersona.size > 0) {
+            const lines = [...byPersona.entries()].map(([name, snippets]) =>
+              `[${name}]:\n${snippets.map(s => `  • "${s}"`).join("\n")}`
+            );
+            crossRelationshipBlock = `\n═══ RELATIONSHIP CONTEXT (recent conversations with personas & council members) ═══\nThe operator has been talking to these individuals. Use this for deeper awareness — reference only when directly relevant, not as a report.\n${lines.join("\n\n")}\n═══ END RELATIONSHIP CONTEXT ═══`;
+          }
+        }
+      } catch { /* non-critical */ }
+    }
+
     // ── Attachments uploaded to this thread ────────────────
     let attachmentsBlock = "";
     const visionImages: { url: string; mime: string }[] = [];
@@ -2725,6 +2756,7 @@ You always know the current date and time without being told. Reference it natur
       worldModelBlock,
       compressBlock(naviBlock),
       compressBlock(knowledgeBlock),
+      crossRelationshipBlock,
       semanticMemoryBlock,
       attachmentsBlock,
       proactiveBlock,
