@@ -7,7 +7,7 @@ import {
   UserCheck, BarChart2, Repeat2, Heart, DollarSign, CalendarClock,
   Crosshair, GraduationCap, Clock, Video, BookMarked,
   TrendingUp, Mail, Webhook, KeyRound, Archive,
-  Clapperboard, Globe, LayoutTemplate, Workflow, Kanban, UserSquare2, Palette,
+  Clapperboard, Globe, LayoutTemplate, Workflow, Kanban, UserSquare2, Palette, Wand2,
   Users2, LayoutGrid, Trophy, Gauge, Bell, CreditCard, Upload,
   BrainCircuit, Brain, SlidersHorizontal, Phone, MessageSquare, Key, Users2 as UserGroup, Shield as ShieldIcon, PhoneCall,
 } from "lucide-react";
@@ -73,6 +73,7 @@ const INTEL_NAV = [
 const CREATOR_NAV = [
   { to: "/creator", icon: Clapperboard, label: "Video Editor" },
   { to: "/avatar-studio", icon: UserSquare2, label: "Avatar Studio" },
+  { to: "/production-intel", icon: Wand2, label: "Production Intel" },
   { to: "/websites", icon: Globe, label: "Website Builder" },
   { to: "/widgets", icon: LayoutTemplate, label: "Widgets" },
   { to: "/design-studio", icon: Palette, label: "Design Studio" },

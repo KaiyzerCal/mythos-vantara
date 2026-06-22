@@ -96,6 +96,7 @@ const NotificationsPage = lazy(() => import("@/pages/NotificationsPage").then(m 
 const StripeManagementPage = lazy(() => import("@/pages/StripeManagementPage").then(m => ({ default: m.StripeManagementPage })));
 const WorkflowsPage = lazy(() => import("@/pages/WorkflowsPage").then(m => ({ default: m.WorkflowsPage })));
 const AvatarStudioPage = lazy(() => import("@/pages/AvatarStudioPage").then(m => ({ default: m.AvatarStudioPage })));
+const ProductionIntelligence = lazy(() => import("@/pages/ProductionIntelligence"));
 const ImportPage = lazy(() => import("@/pages/ImportPage").then(m => ({ default: m.ImportPage })));
 const SystemSettingsPage = lazy(() => import("@/pages/SystemSettingsPage").then(m => ({ default: m.SystemSettingsPage })));
 const AgentDashboardPage = lazy(() => import("@/pages/AgentDashboardPage").then(m => ({ default: m.AgentDashboardPage })));
@@ -250,6 +251,7 @@ function AppContent() {
               <Route path="/import" element={<ImportPage />} />
               <Route path="/creator" element={<VideoEditorPage />} />
               <Route path="/avatar-studio" element={<AvatarStudioPage />} />
+              <Route path="/production-intel" element={<ProductionIntelligence />} />
               <Route path="/system-settings" element={<SystemSettingsPage />} />
               <Route path="/agents" element={<AgentDashboardPage />} />
               <Route path="/my-agents" element={<MyAgents />} />
