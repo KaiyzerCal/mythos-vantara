@@ -194,7 +194,7 @@ serve(async (req) => {
 
     // ── start_session ─────────────────────────────────────────────────────────
     if (action === "start_session") {
-      const { topic, voice_mode = false, participant_ids } = body;
+      const { topic, voice_mode = false, participant_ids, parent_session_id = null } = body;
 
       let membersQuery = supabase.from("councils").select("id, name, role, specialty, class, notes, avatar, voice_style").eq("user_id", userId);
       if (Array.isArray(participant_ids) && participant_ids.length > 0) {
@@ -218,6 +218,7 @@ serve(async (req) => {
           voice_mode,
           turn_count: 0,
           started_at: new Date().toISOString(),
+          parent_session_id: parent_session_id ?? null,
         })
         .select("id")
         .single();
@@ -364,6 +365,38 @@ serve(async (req) => {
         supabase.from("council_sessions").update({ turn_count: finalTurn }).eq("id", session_id),
       ]);
 
+      // Update last_used_at for responding members (non-blocking)
+      if (responses.length > 0) {
+        const respondingIds = responses.map(r => r.member_id);
+        supabase.from("councils")
+          .update({ last_used_at: new Date().toISOString() })
+          .in("id", respondingIds)
+          .then(() => {}).catch(() => {});
+      }
+
+      // Lifecycle sweep: mark stale/archived members based on inactivity (non-blocking)
+      (async () => {
+        try {
+          const now = new Date();
+          const staleDate   = new Date(now.getTime() - 30 * 86_400_000).toISOString();
+          const archiveDate = new Date(now.getTime() - 90 * 86_400_000).toISOString();
+          await supabase.from("councils")
+            .update({ tactic_state: "archived" })
+            .eq("user_id", userId)
+            .neq("tactic_state", "pinned")
+            .not("last_used_at", "is", null)
+            .lt("last_used_at", archiveDate);
+          await supabase.from("councils")
+            .update({ tactic_state: "stale" })
+            .eq("user_id", userId)
+            .neq("tactic_state", "pinned")
+            .neq("tactic_state", "archived")
+            .not("last_used_at", "is", null)
+            .lt("last_used_at", staleDate)
+            .gte("last_used_at", archiveDate);
+        } catch { /* non-critical */ }
+      })();
+
       return json({ ok: true, responses, turn_number: finalTurn });
     }
 
@@ -379,7 +412,85 @@ serve(async (req) => {
         .eq("user_id", userId);
 
       if (error) return json({ error: error.message }, 500);
+
+      // Fire-and-forget: structured summary + per-member memory entries
+      (async () => {
+        try {
+          const { data: msgs } = await supabase
+            .from("council_group_messages")
+            .select("speaker_name, speaker_type, content, turn_number")
+            .eq("session_id", session_id)
+            .order("turn_number", { ascending: true })
+            .limit(60);
+          if (!msgs || msgs.length === 0) return;
+
+          const transcript = (msgs as any[])
+            .map((m: any) => `${m.speaker_name}: ${m.content}`)
+            .join("\n");
+
+          // Generate structured session summary and store on the session row
+          const summaryPrompt = `Summarize this council session using EXACTLY these four section headers (no changes to wording):
+## Resolved
+## Pending
+## Active Task
+## Remaining Work
+Keep each section to 2–4 bullet points. Be concrete and specific.`;
+          const sessionSummary = await callGroupLLM(summaryPrompt, transcript.slice(0, 4000), 600);
+          await supabase.from("council_sessions")
+            .update({ summary: sessionSummary })
+            .eq("id", session_id);
+
+          // Per-member memory: each council member gets a summary entry in mavis_persona_memory
+          const speakers = [...new Set(
+            (msgs as any[])
+              .filter((m: any) => m.speaker_type === "council")
+              .map((m: any) => m.speaker_name as string)
+          )];
+
+          for (const speakerName of speakers) {
+            const memberPrompt = `You are reviewing a council session. Write a structured memory summary from ${speakerName}'s perspective using EXACTLY these headers:
+## Resolved
+## Key Decisions
+## Follow-ups
+2–4 bullets each. Concrete and brief.`;
+            const memberSummary = await callGroupLLM(memberPrompt, transcript.slice(0, 3000), 400);
+            await supabase.from("mavis_persona_memory").insert({
+              user_id:      userId,
+              persona_id:   null,
+              persona_name: speakerName,
+              role:         "summary",
+              content:      memberSummary,
+              importance:   7,
+              session_id,
+              source:       "council-group",
+            });
+          }
+        } catch (e: any) {
+          console.warn("[council-session] end_session review fork failed:", e.message);
+        }
+      })();
+
       return json({ ok: true });
+    }
+
+    // ── get_session_chain ─────────────────────────────────────────────────────
+    if (action === "get_session_chain") {
+      const { session_id } = body;
+      if (!session_id) return json({ error: "session_id is required" }, 400);
+      const chain: any[] = [];
+      let cur: string | null = session_id;
+      while (cur) {
+        const { data: sess } = await supabase
+          .from("council_sessions")
+          .select("id, topic, summary, parent_session_id, started_at, ended_at, turn_count")
+          .eq("id", cur)
+          .eq("user_id", userId)
+          .single();
+        if (!sess) break;
+        chain.unshift(sess);
+        cur = (sess as any).parent_session_id ?? null;
+      }
+      return json({ ok: true, chain });
     }
 
     // ── get_history ───────────────────────────────────────────────────────────

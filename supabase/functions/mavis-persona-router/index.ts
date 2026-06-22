@@ -597,8 +597,8 @@ You always know the current date and time without being told. Reference it natur
     (async () => {
       try {
         await supabase.from("mavis_persona_memory").insert([
-          { user_id, persona_id, persona_name: persona.name, role: "user",      content: message.slice(0, 1000),  importance: 1 },
-          { user_id, persona_id, persona_name: persona.name, role: "assistant", content: response.slice(0, 1000), importance: 1 },
+          { user_id, persona_id, persona_name: persona.name, role: "user",      content: message.slice(0, 1000),  importance: 1, source: channel },
+          { user_id, persona_id, persona_name: persona.name, role: "assistant", content: response.slice(0, 1000), importance: 1, source: channel },
         ]);
       } catch { /* non-critical */ }
     })();
