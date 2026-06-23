@@ -164,7 +164,7 @@ export default function AppSidebar() {
     <motion.aside
       animate={{ width: collapsed ? 64 : 224 }}
       transition={{ duration: 0.2, ease: "easeInOut" }}
-      className="h-screen flex flex-col border-r border-border bg-sidebar sticky top-0 overflow-hidden shrink-0"
+      className="h-full flex flex-col border-r border-border bg-sidebar overflow-hidden shrink-0"
     >
       {/* Logo / Identity */}
       <div className="p-3 flex items-center gap-2.5 border-b border-border min-h-[60px]">

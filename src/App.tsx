@@ -116,10 +116,10 @@ function AppContent() {
 
   return (
     <AppDataProvider>
-      <div className="flex min-h-screen bg-background">
+      <div className="h-screen flex overflow-hidden bg-background">
         <AppSidebar />
-        
-        <main className={`flex-1 min-w-0 ${["/mavis-ui", "/demo"].includes(location.pathname) ? "overflow-hidden" : "p-5 overflow-y-auto"}`}>
+
+        <main className={`flex-1 min-w-0 h-full ${["/mavis-ui", "/demo"].includes(location.pathname) ? "overflow-hidden" : "overflow-y-auto p-5"}`}>
           <Suspense fallback={Spinner}>
             <Routes>
               <Route path="/" element={<Dashboard />} />
