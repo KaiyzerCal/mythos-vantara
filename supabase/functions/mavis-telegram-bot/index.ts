@@ -6,7 +6,7 @@
 //   curl -s "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/setWebhook" \
 //     -d "url=${SUPABASE_URL}/functions/v1/mavis-telegram-bot" \
 //     -d "secret_token=${TELEGRAM_WEBHOOK_SECRET}" \
-//     -d "allowed_updates=[\"message\"]"
+//     -d "allowed_updates=[\"message\",\"callback_query\"]"
 //
 // Required env vars:
 //   TELEGRAM_BOT_TOKEN                — from @BotFather
@@ -267,6 +267,92 @@ async function queueTask(
     .single()
     .catch(() => ({ data: null }));
   return (data as any)?.id ?? null;
+}
+
+// ─────────────────────────────────────────────────────────────
+// APPROVAL CALLBACK HANDLER (inline button presses from MAVIS notifications)
+// ─────────────────────────────────────────────────────────────
+
+async function handleApprovalCallback(
+  callbackQuery: Record<string, unknown>,
+) {
+  const callbackId   = String(callbackQuery.id ?? "");
+  const callbackData = String(callbackQuery.data ?? "");
+  const chatId       = String((callbackQuery.message as any)?.chat?.id ?? "");
+  const messageId    = (callbackQuery.message as any)?.message_id as number | undefined;
+
+  // Security gate — only Calvin and Caliyah
+  const isCalvin  = OPERATOR_CHAT && chatId === String(OPERATOR_CHAT);
+  const isCaliyah = CALIYAH_CHAT  && chatId === String(CALIYAH_CHAT);
+  if (!isCalvin && !isCaliyah) {
+    await tg("answerCallbackQuery", { callback_query_id: callbackId, text: "⛔ Unauthorized" });
+    return;
+  }
+
+  const uid = isCaliyah ? CALIYAH_UID : OPERATOR_UID;
+  const colonIdx = callbackData.indexOf(":");
+  if (colonIdx === -1) {
+    await tg("answerCallbackQuery", { callback_query_id: callbackId, text: "⚠️ Invalid callback" });
+    return;
+  }
+
+  const cbAction   = callbackData.slice(0, colonIdx);
+  const actionId   = callbackData.slice(colonIdx + 1);
+
+  // ── Approve or execute ─────────────────────────────────────────────────────
+  if (cbAction === "approve" || cbAction === "execute") {
+    const { error: updateErr } = await sb
+      .from("mavis_action_queue")
+      .update({ status: "approved" })
+      .eq("id", actionId)
+      .eq("user_id", uid);
+
+    if (updateErr) {
+      await tg("answerCallbackQuery", { callback_query_id: callbackId, text: "⚠️ DB update failed" });
+      return;
+    }
+
+    // Fire execution in background
+    callFunction("mavis-action-executor", { action: "execute", action_queue_id: actionId })
+      .catch(() => null);
+
+    await tg("answerCallbackQuery", { callback_query_id: callbackId, text: "✅ Approved! Executing…" });
+
+    if (chatId && messageId) {
+      await tg("editMessageText", {
+        chat_id:      chatId,
+        message_id:   messageId,
+        text:         `✅ *Approved and executing*`,
+        parse_mode:   "Markdown",
+        reply_markup: { inline_keyboard: [] },
+      }).catch(() => null);
+    }
+    return;
+  }
+
+  // ── Reject ─────────────────────────────────────────────────────────────────
+  if (cbAction === "reject") {
+    await sb
+      .from("mavis_action_queue")
+      .update({ status: "rejected" })
+      .eq("id", actionId)
+      .eq("user_id", uid);
+
+    await tg("answerCallbackQuery", { callback_query_id: callbackId, text: "❌ Rejected" });
+
+    if (chatId && messageId) {
+      await tg("editMessageText", {
+        chat_id:      chatId,
+        message_id:   messageId,
+        text:         `❌ *Rejected*`,
+        parse_mode:   "Markdown",
+        reply_markup: { inline_keyboard: [] },
+      }).catch(() => null);
+    }
+    return;
+  }
+
+  await tg("answerCallbackQuery", { callback_query_id: callbackId, text: "⚠️ Unknown action" });
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -587,6 +673,13 @@ serve(async (req) => {
   }
 
   const process = async () => {
+    // Handle inline button presses (approve/reject from MAVIS notifications)
+    const callbackQuery = update.callback_query as Record<string, unknown> | undefined;
+    if (callbackQuery) {
+      await handleApprovalCallback(callbackQuery);
+      return;
+    }
+
     const message = (update.message ?? update.edited_message) as Record<string, unknown> | undefined;
     if (!message) return;
 

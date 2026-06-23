@@ -53,6 +53,58 @@ async function refreshGoogleToken(
   return data.access_token as string;
 }
 
+// ── Telegram push notification helper ────────────────────────────────────────
+async function sendTelegramNotification(
+  summary: string,
+  tier: "auto" | "queue" | "approve",
+  actionId: string | null,
+): Promise<void> {
+  const botToken = Deno.env.get("TELEGRAM_BOT_TOKEN") ?? "";
+  const chatId   = Deno.env.get("TELEGRAM_OPERATOR_CHAT_ID") ?? "";
+  if (!botToken || !chatId) return;
+
+  let text: string;
+  let replyMarkup: Record<string, unknown> | undefined;
+
+  if (tier === "auto") {
+    text = `✅ *MAVIS executed:* ${summary}`;
+  } else if (tier === "queue") {
+    text = `⚡ *MAVIS queued (auto-approved):*\n${summary}`;
+    if (actionId) {
+      replyMarkup = {
+        inline_keyboard: [[
+          { text: "▶️ Execute now", callback_data: `execute:${actionId}` },
+          { text: "❌ Cancel",      callback_data: `reject:${actionId}` },
+        ]],
+      };
+    }
+  } else {
+    text = `🔔 *MAVIS needs your approval:*\n${summary}`;
+    if (actionId) {
+      replyMarkup = {
+        inline_keyboard: [[
+          { text: "✅ Approve", callback_data: `approve:${actionId}` },
+          { text: "❌ Reject",  callback_data: `reject:${actionId}` },
+        ]],
+      };
+    }
+  }
+
+  const body: Record<string, unknown> = {
+    chat_id:    chatId,
+    text:       text.slice(0, 4096),
+    parse_mode: "Markdown",
+  };
+  if (replyMarkup) body.reply_markup = replyMarkup;
+
+  await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body:    JSON.stringify(body),
+    signal:  AbortSignal.timeout(8_000),
+  }).catch(() => {}); // fire-and-forget
+}
+
 // ── Tool definitions (Anthropic tool_use format) ──────────────────────────────
 const MAVIS_TOOLS = [
   {
@@ -208,6 +260,39 @@ const MAVIS_TOOLS = [
       properties: {},
     },
   },
+  {
+    name: "create_campaign",
+    description:
+      "Create a multi-step autonomous campaign that MAVIS executes over time — one step every run cycle with optional delays between steps. Use for outreach sequences, project plans, or any goal requiring multiple ordered actions.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        title: {
+          type: "string",
+          description: "Campaign name (e.g. 'Q3 investor outreach')",
+        },
+        description: {
+          type: "string",
+          description: "Campaign goal and context — helps MAVIS execute each step intelligently",
+        },
+        steps: {
+          type: "array",
+          description: "Ordered steps MAVIS will execute autonomously",
+          items: {
+            type: "object" as const,
+            properties: {
+              title:       { type: "string",  description: "Step description" },
+              action_type: { type: "string",  description: "draft_email | schedule_event | create_task | create_drive_file | search_web | create_google_task | other" },
+              payload:     { type: "object",  description: "Action parameters (to, subject, body for emails; title, start, end for events; etc.)" },
+              delay_hours: { type: "number",  description: "Hours to wait after the previous step before running this one (default 0)" },
+            },
+            required: ["title", "action_type"],
+          },
+        },
+      },
+      required: ["title", "steps"],
+    },
+  },
 ];
 
 // ── Tool handler ──────────────────────────────────────────────────────────────
@@ -292,6 +377,7 @@ async function handleTool(
               priority: 5,
             });
 
+            sendTelegramNotification(summary, "auto", null).catch(() => {});
             return { executed: true, tier: "auto", summary, result: execData };
           } catch (err) {
             // Fall through to queue as approve if auto-execution fails
@@ -304,6 +390,7 @@ async function handleTool(
                 autonomy_tier: "approve", status: "pending", priority: 5,
               })
               .select("id").single();
+            sendTelegramNotification(summary, "approve", fallback?.id ?? null).catch(() => {});
             return { queued: true, tier: "approve", action_id: fallback?.id, summary, note: `Auto-execution failed (${errMsg}), queued for approval` };
           }
         }
@@ -326,6 +413,7 @@ async function handleTool(
           .single();
 
         if (error) return { queued: false, error: error.message };
+        sendTelegramNotification(summary, tier, data.id).catch(() => {});
         return { queued: true, tier, action_id: data.id, summary };
       }
 
@@ -791,6 +879,44 @@ async function handleTool(
         } catch (err: unknown) {
           return { error: `Tasks read error: ${err instanceof Error ? err.message : String(err)}` };
         }
+      }
+
+      // ── create_campaign ───────────────────────────────────────────────────────
+      case "create_campaign": {
+        const title       = String(input.title ?? "").trim();
+        const description = input.description ? String(input.description) : null;
+        const rawSteps    = Array.isArray(input.steps) ? input.steps : [];
+
+        if (!title)             return { error: "Campaign title required" };
+        if (!rawSteps.length)   return { error: "At least one step required" };
+
+        const steps = (rawSteps as Record<string, unknown>[]).map((s, i) => ({
+          index:       i,
+          title:       String(s.title ?? `Step ${i + 1}`),
+          action_type: String(s.action_type ?? "other"),
+          payload:     (s.payload ?? {}) as Record<string, unknown>,
+          delay_hours: Number(s.delay_hours ?? 0),
+          condition:   s.condition ? String(s.condition) : null,
+          status:      "pending",
+          executed_at: null,
+          result:      null,
+        }));
+
+        const { data, error } = await supabase
+          .from("mavis_campaigns")
+          .insert({ user_id: userId, title, description, steps, status: "active", current_step: 0 })
+          .select("id")
+          .single();
+
+        if (error) return { error: `Failed to create campaign: ${error.message}` };
+
+        return {
+          created:     true,
+          campaign_id: data.id,
+          title,
+          steps:       steps.length,
+          message:     `Campaign "${title}" created with ${steps.length} step${steps.length === 1 ? "" : "s"}. MAVIS will begin executing step 1 on the next campaign runner cycle (every 4 hours).`,
+        };
       }
 
       default:
