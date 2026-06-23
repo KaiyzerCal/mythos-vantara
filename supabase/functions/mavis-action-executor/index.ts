@@ -678,16 +678,18 @@ serve(async (req) => {
     }
 
     const token = authHeader.replace("Bearer ", "").trim();
-    const userClient = createClient(SUPABASE_URL, token);
-    const {
-      data: { user },
-    } = await userClient.auth.getUser();
 
-    if (!user?.id) {
-      return json({ ok: false, error: "Unauthorized" }, 401);
+    // Service-role bypass — called by other Edge Functions (trigger engine, agent loop)
+    let userId: string;
+    if (token === SERVICE_ROLE_KEY) {
+      userId = (req.headers.get("x-user-id") ?? "").trim();
+      if (!userId) return json({ ok: false, error: "x-user-id required for service role calls" }, 401);
+    } else {
+      const userClient = createClient(SUPABASE_URL, token);
+      const { data: { user } } = await userClient.auth.getUser();
+      userId = user?.id ?? "";
+      if (!userId) return json({ ok: false, error: "Unauthorized" }, 401);
     }
-
-    const userId = user.id;
     const body = await req.json().catch(() => ({})) as Record<string, unknown>;
     const { action, queue_item_id, reason, status, limit } = body as {
       action: string;
@@ -696,6 +698,22 @@ serve(async (req) => {
       status?: string;
       limit?: number;
     };
+
+    // ── execute_direct — called by agent loop for auto-tier actions ───────────
+    if (action === "execute_direct") {
+      const { action_type, action_payload } = body as {
+        action_type?: string;
+        action_payload?: Record<string, unknown>;
+      };
+      if (!action_type) return json({ ok: false, error: "action_type required" }, 400);
+      try {
+        const result = await routeActionType(action_type, action_payload ?? {}, userId, adminSb);
+        return json({ ok: true, action_type, result });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        return json({ ok: false, error: msg }, 500);
+      }
+    }
 
     // ── execute ────────────────────────────────────────────────────────────────
     if (action === "execute") {

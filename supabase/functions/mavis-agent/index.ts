@@ -232,6 +232,84 @@ async function handleTool(
         const summary = String(input.summary ?? "");
         const payload = (input.payload ?? {}) as Record<string, unknown>;
 
+        // Default autonomy tiers — safe minimums, overridable per user
+        const DEFAULT_TIERS: Record<string, "auto" | "queue" | "approve"> = {
+          create_task:        "auto",    // DB task — no external side-effect
+          create_note:        "auto",    // Note — no external side-effect
+          update_memory:      "auto",    // Memory write — no external side-effect
+          create_google_task: "queue",   // Native Google Task — low risk, log it
+          create_drive_file:  "queue",   // New Drive file — low risk, log it
+          draft_email:        "approve", // Sends email — always ask
+          schedule_event:     "approve", // Calendar change — always ask
+          update_drive_file:  "approve", // Edits existing content — always ask
+          update_sheet:       "approve", // Edits sheet data — always ask
+          post_social:        "approve", // Public post — always ask
+          make_call:          "approve", // Phone call — always ask
+        };
+
+        // Check for per-user override
+        const { data: cfgRow } = await supabase
+          .from("mavis_autonomy_config")
+          .select("tier")
+          .eq("user_id", userId)
+          .eq("action_type", actionType)
+          .maybeSingle();
+
+        const tier: "auto" | "queue" | "approve" =
+          (cfgRow?.tier as "auto" | "queue" | "approve" | null) ??
+          DEFAULT_TIERS[actionType] ??
+          "approve";
+
+        // ── Auto tier: execute immediately, log silently ──────────────────
+        if (tier === "auto") {
+          try {
+            const execRes = await fetch(
+              `${env.supabaseUrl}/functions/v1/mavis-action-executor`,
+              {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                  Authorization: `Bearer ${env.serviceKey}`,
+                  "x-user-id": userId,
+                },
+                body: JSON.stringify({ action: "execute_direct", action_type: actionType, action_payload: payload }),
+                signal: AbortSignal.timeout(30_000),
+              },
+            );
+            const execData = await execRes.json();
+
+            // Log the auto-execution in the queue for audit trail
+            await supabase.from("mavis_action_queue").insert({
+              user_id: userId,
+              action_type: actionType,
+              action_payload: payload,
+              source_context: summary,
+              source_system: "mavis-agent",
+              autonomy_tier: "auto",
+              status: execData.ok ? "executed" : "failed",
+              executed_at: new Date().toISOString(),
+              result_data: execData,
+              priority: 5,
+            });
+
+            return { executed: true, tier: "auto", summary, result: execData };
+          } catch (err) {
+            // Fall through to queue as approve if auto-execution fails
+            const errMsg = err instanceof Error ? err.message : String(err);
+            const { data: fallback } = await supabase
+              .from("mavis_action_queue")
+              .insert({
+                user_id: userId, action_type: actionType, action_payload: payload,
+                source_context: summary, source_system: "mavis-agent",
+                autonomy_tier: "approve", status: "pending", priority: 5,
+              })
+              .select("id").single();
+            return { queued: true, tier: "approve", action_id: fallback?.id, summary, note: `Auto-execution failed (${errMsg}), queued for approval` };
+          }
+        }
+
+        // ── Queue tier: auto-approved, ready to execute on demand ─────────
+        // ── Approve tier: requires explicit operator approval ─────────────
         const { data, error } = await supabase
           .from("mavis_action_queue")
           .insert({
@@ -240,18 +318,15 @@ async function handleTool(
             action_payload: payload,
             source_context: summary,
             source_system: "mavis-agent",
-            autonomy_tier: "approve",
-            status: "pending",
+            autonomy_tier: tier,
+            status: tier === "queue" ? "approved" : "pending",
             priority: 5,
           })
           .select("id")
           .single();
 
-        if (error) {
-          return { queued: false, error: error.message };
-        }
-
-        return { queued: true, action_id: data.id, summary };
+        if (error) return { queued: false, error: error.message };
+        return { queued: true, tier, action_id: data.id, summary };
       }
 
       // ── read_emails ───────────────────────────────────────────────────────
