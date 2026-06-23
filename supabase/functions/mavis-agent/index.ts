@@ -83,6 +83,30 @@ const MAVIS_TOOLS = [
     },
   },
   {
+    name: "read_sheet_range",
+    description: "Read specific cell ranges from a Google Sheet using the Sheets API v4. Better than read_drive_file when you need specific rows/columns.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        spreadsheet_id: { type: "string", description: "Google Sheets file ID" },
+        range: { type: "string", description: "A1 notation range, e.g. 'Sheet1!A1:D10' or 'A:Z' for all columns" },
+        spreadsheet_name: { type: "string", description: "Spreadsheet name to search for if ID is unknown" },
+      },
+    },
+  },
+  {
+    name: "read_google_tasks",
+    description: "Read tasks from Google Tasks (native Google task lists, not MAVIS tasks)",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        tasklist_id: { type: "string", description: "Task list ID (default: @default)" },
+        show_completed: { type: "boolean", description: "Include completed tasks (default false)" },
+        max_results: { type: "number", description: "Max tasks to return (default 20)" },
+      },
+    },
+  },
+  {
     name: "queue_action",
     description:
       "Queue an action for the operator to review and approve before execution. Use this for ANY write operation — emails, calendar events, Drive files, social posts, etc.",
@@ -92,7 +116,7 @@ const MAVIS_TOOLS = [
         action_type: {
           type: "string",
           description:
-            "Type: draft_email | schedule_event | create_task | create_drive_file | update_drive_file | post_social | make_call | other",
+            "Type: draft_email | schedule_event | create_task | create_drive_file | update_drive_file | update_sheet | create_google_task | post_social | make_call | other",
         },
         summary: {
           type: "string",
@@ -584,6 +608,113 @@ async function handleTool(
           };
         } catch (err: unknown) {
           return { error: `Drive read error: ${err instanceof Error ? err.message : String(err)}` };
+        }
+      }
+
+      // ── read_sheet_range ──────────────────────────────────────────────────
+      case "read_sheet_range": {
+        const { data: integration } = await supabase
+          .from("mavis_user_integrations")
+          .select("config")
+          .eq("user_id", userId)
+          .eq("provider", "gdrive")
+          .maybeSingle();
+
+        if (!integration?.config) {
+          return { error: "Google Drive/Sheets not connected. Connect via /integrations." };
+        }
+
+        try {
+          const token = await refreshGoogleToken(
+            integration.config as Record<string, unknown>,
+            supabase, userId, "gdrive",
+          );
+
+          let spreadsheetId = input.spreadsheet_id ? String(input.spreadsheet_id) : "";
+
+          // Search by name if no ID given
+          if (!spreadsheetId && input.spreadsheet_name) {
+            const safe = String(input.spreadsheet_name).replace(/'/g, "\\'");
+            const sr = await fetch(
+              `https://www.googleapis.com/drive/v3/files?q=name contains '${safe}' and mimeType='application/vnd.google-apps.spreadsheet' and trashed=false&fields=files(id,name)&pageSize=1`,
+              { headers: { Authorization: `Bearer ${token}` } },
+            );
+            const sd = await sr.json();
+            spreadsheetId = sd.files?.[0]?.id ?? "";
+            if (!spreadsheetId) return { error: `Spreadsheet not found: ${input.spreadsheet_name}` };
+          }
+
+          if (!spreadsheetId) return { error: "Provide spreadsheet_id or spreadsheet_name" };
+
+          const range = input.range ? String(input.range) : "A1:Z1000";
+          const res = await fetch(
+            `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(range)}`,
+            { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(15_000) },
+          );
+
+          if (!res.ok) return { error: `Sheets API error (${res.status}): ${await res.text()}` };
+          const data = await res.json();
+
+          return {
+            spreadsheet_id: spreadsheetId,
+            range: data.range ?? range,
+            rows: data.values ?? [],
+            total_rows: (data.values ?? []).length,
+          };
+        } catch (err: unknown) {
+          return { error: `Sheets read error: ${err instanceof Error ? err.message : String(err)}` };
+        }
+      }
+
+      // ── read_google_tasks ─────────────────────────────────────────────────
+      case "read_google_tasks": {
+        const { data: integration } = await supabase
+          .from("mavis_user_integrations")
+          .select("config")
+          .eq("user_id", userId)
+          .eq("provider", "google_tasks")
+          .maybeSingle();
+
+        if (!integration?.config) {
+          return { error: "Google Tasks not connected. Connect via /integrations." };
+        }
+
+        try {
+          const token = await refreshGoogleToken(
+            integration.config as Record<string, unknown>,
+            supabase, userId, "google_tasks",
+          );
+
+          const tasklistId = input.tasklist_id ? String(input.tasklist_id) : "@default";
+          const showCompleted = Boolean(input.show_completed ?? false);
+          const maxResults = Math.min(Number(input.max_results ?? 20), 100);
+
+          const params = new URLSearchParams({
+            maxResults: String(maxResults),
+            showCompleted: String(showCompleted),
+            showHidden: "false",
+          });
+
+          const res = await fetch(
+            `https://tasks.googleapis.com/tasks/v1/lists/${tasklistId}/tasks?${params}`,
+            { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(15_000) },
+          );
+
+          if (!res.ok) return { error: `Tasks API error (${res.status}): ${await res.text()}` };
+          const data = await res.json();
+
+          const tasks = (data.items ?? []).map((t: Record<string, unknown>) => ({
+            id: t.id,
+            title: t.title,
+            status: t.status,
+            due: t.due ?? null,
+            notes: t.notes ?? null,
+            completed: t.completed ?? null,
+          }));
+
+          return { tasklist_id: tasklistId, tasks, total: tasks.length };
+        } catch (err: unknown) {
+          return { error: `Tasks read error: ${err instanceof Error ? err.message : String(err)}` };
         }
       }
 

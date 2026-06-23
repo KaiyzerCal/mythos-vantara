@@ -504,6 +504,119 @@ async function executeUpdateDriveFile(
   return { file_id, file_name: meta.name, updated: true, timestamp: new Date().toISOString() };
 }
 
+// ── Google Sheets: update_sheet ───────────────────────────────────────────────
+
+async function executeUpdateSheet(
+  payload: Record<string, unknown>,
+  userId: string,
+  adminSb: ReturnType<typeof createClient>,
+): Promise<Record<string, unknown>> {
+  const { data: integration } = await adminSb
+    .from("mavis_user_integrations")
+    .select("config")
+    .eq("user_id", userId)
+    .eq("provider", "gdrive")
+    .single();
+
+  if (!integration?.config) {
+    throw new Error("Google Sheets not connected. Add OAuth credentials in Integrations.");
+  }
+
+  const config = integration.config as Record<string, unknown>;
+  const accessToken = await refreshGoogleToken(config, adminSb, userId, "gdrive");
+
+  const { spreadsheet_id, range, values, value_input_option = "USER_ENTERED" } = payload as {
+    spreadsheet_id?: string;
+    range?: string;
+    values?: unknown[][];
+    value_input_option?: string;
+  };
+
+  if (!spreadsheet_id) throw new Error("update_sheet payload must include: spreadsheet_id");
+  if (!range) throw new Error("update_sheet payload must include: range");
+  if (!values || !Array.isArray(values)) throw new Error("update_sheet payload must include: values (2D array)");
+
+  const res = await fetch(
+    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheet_id}/values/${encodeURIComponent(range)}?valueInputOption=${value_input_option}`,
+    {
+      method: "PUT",
+      headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ range, majorDimension: "ROWS", values }),
+    },
+  );
+
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(`Sheets update failed (${res.status}): ${err}`);
+  }
+
+  const result = await res.json();
+  return {
+    spreadsheet_id,
+    updated_range: result.updatedRange,
+    updated_cells: result.updatedCells,
+    timestamp: new Date().toISOString(),
+  };
+}
+
+// ── Google Tasks: create_google_task ─────────────────────────────────────────
+
+async function executeCreateGoogleTask(
+  payload: Record<string, unknown>,
+  userId: string,
+  adminSb: ReturnType<typeof createClient>,
+): Promise<Record<string, unknown>> {
+  const { data: integration } = await adminSb
+    .from("mavis_user_integrations")
+    .select("config")
+    .eq("user_id", userId)
+    .eq("provider", "google_tasks")
+    .single();
+
+  if (!integration?.config) {
+    throw new Error("Google Tasks not connected. Add OAuth credentials in Integrations.");
+  }
+
+  const config = integration.config as Record<string, unknown>;
+  const accessToken = await refreshGoogleToken(config, adminSb, userId, "google_tasks");
+
+  const { title, notes, due, tasklist_id = "@default" } = payload as {
+    title?: string;
+    notes?: string;
+    due?: string;
+    tasklist_id?: string;
+  };
+
+  if (!title) throw new Error("create_google_task payload must include: title");
+
+  const taskBody: Record<string, unknown> = { title };
+  if (notes) taskBody.notes = notes;
+  if (due) taskBody.due = due; // RFC 3339 timestamp
+
+  const res = await fetch(
+    `https://tasks.googleapis.com/tasks/v1/lists/${tasklist_id}/tasks`,
+    {
+      method: "POST",
+      headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+      body: JSON.stringify(taskBody),
+    },
+  );
+
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(`Google Tasks create failed (${res.status}): ${err}`);
+  }
+
+  const task = await res.json();
+  return {
+    task_id: task.id,
+    title: task.title,
+    tasklist_id,
+    web_link: task.selfLink,
+    timestamp: new Date().toISOString(),
+  };
+}
+
 // ── post_social ───────────────────────────────────────────────────────────────
 
 async function executePostSocial(
@@ -536,6 +649,10 @@ async function routeActionType(
       return await executeCreateDriveFile(actionPayload, userId, adminSb);
     case "update_drive_file":
       return await executeUpdateDriveFile(actionPayload, userId, adminSb);
+    case "update_sheet":
+      return await executeUpdateSheet(actionPayload, userId, adminSb);
+    case "create_google_task":
+      return await executeCreateGoogleTask(actionPayload, userId, adminSb);
     default:
       return {
         note: `Action type '${actionType}' requires manual handling.`,
