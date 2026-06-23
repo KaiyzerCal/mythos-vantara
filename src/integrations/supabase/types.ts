@@ -1213,9 +1213,11 @@ export type Database = {
         Row: {
           action_payload: Json
           action_type: string
+          agent_name: string | null
           approved_at: string | null
           autonomy_tier: string
           created_at: string
+          draft_content: string | null
           executed_at: string | null
           expires_at: string
           id: string
@@ -1230,9 +1232,11 @@ export type Database = {
         Insert: {
           action_payload?: Json
           action_type: string
+          agent_name?: string | null
           approved_at?: string | null
           autonomy_tier?: string
           created_at?: string
+          draft_content?: string | null
           executed_at?: string | null
           expires_at?: string
           id?: string
@@ -1247,9 +1251,11 @@ export type Database = {
         Update: {
           action_payload?: Json
           action_type?: string
+          agent_name?: string | null
           approved_at?: string | null
           autonomy_tier?: string
           created_at?: string
+          draft_content?: string | null
           executed_at?: string | null
           expires_at?: string
           id?: string
@@ -1293,6 +1299,42 @@ export type Database = {
           type?: string
           user_id?: string
           xp_earned?: number
+        }
+        Relationships: []
+      }
+      mavis_agent_briefs: {
+        Row: {
+          actions_queued: number
+          brief_type: string
+          calendar_preview: string | null
+          created_at: string
+          id: string
+          raw_data: Json | null
+          summary: string | null
+          urgent_items: Json
+          user_id: string
+        }
+        Insert: {
+          actions_queued?: number
+          brief_type?: string
+          calendar_preview?: string | null
+          created_at?: string
+          id?: string
+          raw_data?: Json | null
+          summary?: string | null
+          urgent_items?: Json
+          user_id: string
+        }
+        Update: {
+          actions_queued?: number
+          brief_type?: string
+          calendar_preview?: string | null
+          created_at?: string
+          id?: string
+          raw_data?: Json | null
+          summary?: string | null
+          urgent_items?: Json
+          user_id?: string
         }
         Relationships: []
       }
@@ -1412,6 +1454,45 @@ export type Database = {
         }
         Relationships: []
       }
+      mavis_agent_schedules: {
+        Row: {
+          agent_name: string
+          config: Json
+          created_at: string
+          cron_expr: string
+          enabled: boolean
+          id: string
+          last_run_at: string | null
+          next_run_at: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          agent_name: string
+          config?: Json
+          created_at?: string
+          cron_expr?: string
+          enabled?: boolean
+          id?: string
+          last_run_at?: string | null
+          next_run_at?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          agent_name?: string
+          config?: Json
+          created_at?: string
+          cron_expr?: string
+          enabled?: boolean
+          id?: string
+          last_run_at?: string | null
+          next_run_at?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       mavis_agent_traces: {
         Row: {
           action_type: string | null
@@ -1478,6 +1559,33 @@ export type Database = {
           response_code?: number | null
           status?: string | null
           triggered_at?: string | null
+        }
+        Relationships: []
+      }
+      mavis_autonomy_config: {
+        Row: {
+          action_type: string
+          created_at: string
+          id: string
+          tier: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          action_type: string
+          created_at?: string
+          id?: string
+          tier?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          action_type?: string
+          created_at?: string
+          id?: string
+          tier?: string
+          updated_at?: string
+          user_id?: string
         }
         Relationships: []
       }
@@ -3781,6 +3889,69 @@ export type Database = {
         }
         Relationships: []
       }
+      mavis_trigger_log: {
+        Row: {
+          actions_auto: number
+          actions_queued: number
+          agent_response: string | null
+          context_summary: string | null
+          id: string
+          ran_at: string
+          trigger_types: string[]
+          user_id: string
+        }
+        Insert: {
+          actions_auto?: number
+          actions_queued?: number
+          agent_response?: string | null
+          context_summary?: string | null
+          id?: string
+          ran_at?: string
+          trigger_types?: string[]
+          user_id: string
+        }
+        Update: {
+          actions_auto?: number
+          actions_queued?: number
+          agent_response?: string | null
+          context_summary?: string | null
+          id?: string
+          ran_at?: string
+          trigger_types?: string[]
+          user_id?: string
+        }
+        Relationships: []
+      }
+      mavis_trigger_subscriptions: {
+        Row: {
+          config: Json
+          created_at: string
+          enabled: boolean
+          id: string
+          last_checked_at: string | null
+          trigger_type: string
+          user_id: string
+        }
+        Insert: {
+          config?: Json
+          created_at?: string
+          enabled?: boolean
+          id?: string
+          last_checked_at?: string | null
+          trigger_type: string
+          user_id: string
+        }
+        Update: {
+          config?: Json
+          created_at?: string
+          enabled?: boolean
+          id?: string
+          last_checked_at?: string | null
+          trigger_type?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       mavis_usage_log: {
         Row: {
           cache_read_tokens: number
@@ -3820,6 +3991,48 @@ export type Database = {
           persona_id?: string | null
           session_type?: string
           user_id?: string
+        }
+        Relationships: []
+      }
+      mavis_user_integrations: {
+        Row: {
+          config: Json | null
+          created_at: string
+          id: string
+          key_name: string
+          key_value: string
+          last_tested: string | null
+          provider: string
+          status: string | null
+          updated_at: string
+          user_id: string
+          verified: boolean
+        }
+        Insert: {
+          config?: Json | null
+          created_at?: string
+          id?: string
+          key_name: string
+          key_value?: string
+          last_tested?: string | null
+          provider: string
+          status?: string | null
+          updated_at?: string
+          user_id: string
+          verified?: boolean
+        }
+        Update: {
+          config?: Json | null
+          created_at?: string
+          id?: string
+          key_name?: string
+          key_value?: string
+          last_tested?: string | null
+          provider?: string
+          status?: string | null
+          updated_at?: string
+          user_id?: string
+          verified?: boolean
         }
         Relationships: []
       }
