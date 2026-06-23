@@ -1,0 +1,1923 @@
+// ============================================================
+// VANTARA.EXE — Journal, VaultCodex, SkillsPage, InventoryPage
+// All with full edit/modify support + auto-seed for skills
+// ============================================================
+import { useState, useEffect, useRef, useCallback } from "react";
+import { motion, AnimatePresence } from "framer-motion";
+import { BookOpen, BookLock, Sparkles, Package, Plus, Trash2, Loader2, Star, Edit2, Upload, FileText, Image, Film, Music, File, X, Eye, LayoutGrid, ChevronLeft, ChevronRight, Wand2, Mic, MicOff, Download, FileDown, LayoutTemplate, Link2, Shield, ShieldOff, Swords, AlertTriangle, CheckCircle2, Waves } from "lucide-react";
+import { useAppData } from "@/contexts/AppDataContext";
+import { useAuth } from "@/contexts/AuthContext";
+import { supabase } from "@/integrations/supabase/client";
+import { PageHeader, HudCard, RarityBadge, ProgressBar } from "@/components/SharedUI";
+import { Skeleton } from "@/components/ui/skeleton";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { toast } from "sonner";
+
+// ─── Journal templates ─────────────────────────────────────
+const JOURNAL_TEMPLATES = [
+  { label: "Morning Check-in", title: "Morning Check-in", content: "**Today's intention:**\n\n\n**Grateful for:**\n1. \n2. \n3. \n\n**Top 3 priorities:**\n1. \n2. \n3. \n\n**Energy level (1–10):**\n", tags: "morning,check-in" },
+  { label: "Reflection", title: "Daily Reflection", content: "**What went well today:**\n\n\n**What I learned:**\n\n\n**What I'd do differently:**\n\n\n**Tomorrow's focus:**\n\n", tags: "reflection,daily" },
+  { label: "Goal Review", title: "Goal Review", content: "**Goal:**\n\n\n**Progress this week:**\n\n\n**Blockers:**\n\n\n**Next actions:**\n1. \n2. \n3. \n", tags: "goals,review" },
+  { label: "Mind Dump", title: "Mind Dump", content: "", tags: "mind-dump,stream-of-consciousness" },
+];
+
+// ─── JournalPage ───────────────────────────────────────────
+export function JournalPage() {
+  const { journalEntries, journalLoading, createJournalEntry, updateJournalEntry, deleteJournalEntry, awardXP, logActivity } = useAppData();
+  const { session } = useAuth();
+  const [showCreate, setShowCreate] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [form, setForm] = useState({ title: "", content: "", category: "personal", importance: "medium", mood: "", tags: "" });
+  const [showTemplates, setShowTemplates] = useState(false);
+  const [recording, setRecording] = useState(false);
+  const [transcribing, setTranscribing] = useState(false);
+  const [confirmDeleteJournal, setConfirmDeleteJournal] = useState<{ id: string; label: string } | null>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const chunksRef = useRef<Blob[]>([]);
+
+  const resetForm = () => {
+    setForm({ title: "", content: "", category: "personal", importance: "medium", mood: "", tags: "" });
+    setEditingId(null);
+    setShowCreate(false);
+    setShowTemplates(false);
+  };
+
+  const applyTemplate = (t: typeof JOURNAL_TEMPLATES[number]) => {
+    setForm(f => ({ ...f, title: t.title, content: t.content, tags: t.tags }));
+    setShowTemplates(false);
+    setShowCreate(true);
+  };
+
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      chunksRef.current = [];
+      const mr = new MediaRecorder(stream, { mimeType: "audio/webm" });
+      mr.ondataavailable = (e) => { if (e.data.size > 0) chunksRef.current.push(e.data); };
+      mr.onstop = async () => {
+        stream.getTracks().forEach(t => t.stop());
+        if (!session?.access_token) return;
+        const blob = new Blob(chunksRef.current, { type: "audio/webm" });
+        if (blob.size < 1000) return;
+        setTranscribing(true);
+        try {
+          const formData = new FormData();
+          formData.append("audio", blob, "voice_memo.webm");
+          const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/mavis-transcribe`, {
+            method: "POST",
+            headers: { Authorization: `Bearer ${session.access_token}` },
+            body: formData,
+          });
+          const data = await res.json();
+          if (data.transcript) {
+            setForm(f => ({ ...f, content: f.content ? f.content + "\n\n" + data.transcript : data.transcript }));
+            if (!form.title) setForm(f => ({ ...f, title: `Voice Note ${new Date().toLocaleString()}` }));
+            setShowCreate(true);
+            toast.success("Voice memo transcribed");
+          }
+        } catch { toast.error("Transcription failed"); } finally { setTranscribing(false); }
+      };
+      mediaRecorderRef.current = mr;
+      mr.start();
+      setRecording(true);
+    } catch { toast.error("Microphone access denied"); }
+  };
+
+  const stopRecording = () => {
+    mediaRecorderRef.current?.stop();
+    mediaRecorderRef.current = null;
+    setRecording(false);
+  };
+
+  const exportJournalMarkdown = () => {
+    const md = journalEntries.map(e =>
+      `# ${e.title}\n\n**Date:** ${new Date(e.created_at).toLocaleString()}\n**Category:** ${e.category} | **Importance:** ${e.importance}${e.mood ? ` | **Mood:** ${e.mood}` : ""}\n${e.tags?.length ? `**Tags:** ${e.tags.map((t: string) => `#${t}`).join(" ")}\n` : ""}\n${e.content}\n\n---\n`
+    ).join("\n");
+    const blob = new Blob([md], { type: "text/markdown" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a"); a.href = url; a.download = `journal_${new Date().toISOString().slice(0,10)}.md`; a.click();
+    URL.revokeObjectURL(url);
+    toast.success("Journal exported as Markdown");
+  };
+
+  const handleEdit = (e: any) => {
+    setForm({ title: e.title, content: e.content, category: e.category, importance: e.importance, mood: e.mood || "", tags: (e.tags || []).join(", ") });
+    setEditingId(e.id);
+    setShowCreate(true);
+  };
+
+  const handleSave = async () => {
+    if (!form.title.trim()) return;
+    const tags = form.tags.split(",").map((t) => t.trim()).filter(Boolean);
+    if (editingId) {
+      await updateJournalEntry(editingId, { ...form, tags, mood: form.mood || null });
+    } else {
+      const entry = await createJournalEntry({ ...form, tags, mood: form.mood || null, xp_earned: 10 });
+      if (entry) {
+        await awardXP(10);
+        await logActivity("journal_entry", `Journal: ${form.title}`, 10);
+      }
+    }
+    resetForm();
+  };
+
+  const importanceColors: Record<string, string> = { low: "text-muted-foreground", medium: "text-blue-400", high: "text-amber-400", critical: "text-red-400" };
+
+  if (journalLoading) return (
+    <div className="space-y-5">
+      <div className="flex items-center justify-between border-b border-border pb-4">
+        <Skeleton className="h-5 w-24" />
+        <Skeleton className="h-8 w-32" />
+      </div>
+      {[...Array(4)].map((_, i) => (
+        <div key={i} className="hud-border rounded-lg p-4 space-y-2">
+          <div className="flex items-center justify-between">
+            <Skeleton className="h-4 w-1/2" />
+            <Skeleton className="h-3 w-20" />
+          </div>
+          <Skeleton className="h-3 w-3/4" />
+          <Skeleton className="h-3 w-2/3" />
+        </div>
+      ))}
+    </div>
+  );
+
+  return (
+    <div className="space-y-5">
+      <PageHeader title="Journal" subtitle={`${journalEntries.length} entries logged`} icon={<BookOpen size={18} />}
+        actions={
+          <div className="flex gap-2 flex-wrap">
+            <button onClick={exportJournalMarkdown} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono bg-muted/30 border border-border text-muted-foreground hover:text-primary hover:border-primary/30 rounded transition-all">
+              <FileDown size={12} /> Export
+            </button>
+            <button
+              onClick={recording ? stopRecording : startRecording}
+              disabled={transcribing}
+              className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono rounded border transition-all ${recording ? "bg-red-900/30 border-red-700/50 text-red-400 animate-pulse" : "bg-muted/30 border-border text-muted-foreground hover:text-primary hover:border-primary/30"}`}
+            >
+              {transcribing ? <Loader2 size={12} className="animate-spin" /> : recording ? <MicOff size={12} /> : <Mic size={12} />}
+              {transcribing ? "Transcribing..." : recording ? "Stop" : "Voice"}
+            </button>
+            <button onClick={() => setShowTemplates(t => !t)} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono bg-muted/30 border border-border text-muted-foreground hover:text-primary hover:border-primary/30 rounded transition-all">
+              <LayoutTemplate size={12} /> Templates
+            </button>
+            <button onClick={() => { resetForm(); setShowCreate(true); }} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono bg-primary/10 border border-primary/30 text-primary rounded"><Plus size={12} /> New Entry</button>
+          </div>
+        }
+      />
+      {/* Template picker */}
+      <AnimatePresence>
+        {showTemplates && (
+          <motion.div initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }}>
+            <HudCard className="border-primary/20">
+              <p className="text-xs font-mono text-primary uppercase tracking-widest mb-2">Choose a Template</p>
+              <div className="grid grid-cols-2 gap-2">
+                {JOURNAL_TEMPLATES.map(t => (
+                  <button key={t.label} onClick={() => applyTemplate(t)} className="flex items-center gap-2 px-3 py-2 text-xs font-mono border border-border/50 rounded hover:border-primary/30 hover:text-primary text-muted-foreground transition-all text-left">
+                    <LayoutTemplate size={12} className="shrink-0 text-primary" /> {t.label}
+                  </button>
+                ))}
+              </div>
+            </HudCard>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {showCreate && !editingId && (
+        <HudCard className="border-primary/20">
+          <p className="text-xs font-mono text-primary uppercase tracking-widest mb-3">New Entry</p>
+          <div className="space-y-2">
+            <input value={form.title} onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))} placeholder="Title..." className="w-full bg-muted/30 border border-border rounded px-3 py-1.5 text-sm focus:outline-none focus:border-primary/40" />
+            <textarea value={form.content} onChange={(e) => setForm((f) => ({ ...f, content: e.target.value }))} placeholder="Entry content..." rows={4} className="w-full bg-muted/30 border border-border rounded px-3 py-2 text-sm font-body resize-none focus:outline-none focus:border-primary/40" />
+            <div className="grid grid-cols-3 gap-2">
+              <select value={form.category} onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))} className="bg-muted/30 border border-border rounded px-2 py-1.5 text-xs font-mono focus:outline-none">
+                {["personal", "business", "fitness", "legal", "reflection"].map((c) => <option key={c}>{c}</option>)}
+              </select>
+              <select value={form.importance} onChange={(e) => setForm((f) => ({ ...f, importance: e.target.value }))} className="bg-muted/30 border border-border rounded px-2 py-1.5 text-xs font-mono focus:outline-none">
+                {["low", "medium", "high", "critical"].map((i) => <option key={i}>{i}</option>)}
+              </select>
+              <input value={form.mood} onChange={(e) => setForm((f) => ({ ...f, mood: e.target.value }))} placeholder="Mood" className="bg-muted/30 border border-border rounded px-3 py-1.5 text-xs font-mono focus:outline-none" />
+            </div>
+            <input value={form.tags} onChange={(e) => setForm((f) => ({ ...f, tags: e.target.value }))} placeholder="Tags (comma-separated)" className="w-full bg-muted/30 border border-border rounded px-3 py-1.5 text-xs font-mono focus:outline-none" />
+            <div className="flex gap-2 justify-end">
+              <button onClick={resetForm} className="px-3 py-1.5 text-xs font-mono text-muted-foreground border border-border rounded">Cancel</button>
+              <button onClick={handleSave} className="px-3 py-1.5 text-xs font-mono bg-primary/10 border border-primary/30 text-primary rounded">Log Entry (+10 XP)</button>
+            </div>
+          </div>
+        </HudCard>
+      )}
+      <div className="space-y-2">
+        {journalEntries.map((e, i) => {
+          const isExpanded = expandedId === e.id;
+
+          if (editingId === e.id) {
+            return (
+              <motion.div key={e.id} initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }}>
+                <HudCard className="border-primary/20">
+                  <p className="text-xs font-mono text-primary uppercase tracking-widest mb-3">Edit Entry</p>
+                  <div className="space-y-2">
+                    <input value={form.title} onChange={(ev) => setForm((f) => ({ ...f, title: ev.target.value }))} placeholder="Title..." className="w-full bg-muted/30 border border-border rounded px-3 py-1.5 text-sm focus:outline-none focus:border-primary/40" />
+                    <textarea value={form.content} onChange={(ev) => setForm((f) => ({ ...f, content: ev.target.value }))} placeholder="Entry content..." rows={4} className="w-full bg-muted/30 border border-border rounded px-3 py-2 text-sm font-body resize-none focus:outline-none focus:border-primary/40" />
+                    <div className="grid grid-cols-3 gap-2">
+                      <select value={form.category} onChange={(ev) => setForm((f) => ({ ...f, category: ev.target.value }))} className="bg-muted/30 border border-border rounded px-2 py-1.5 text-xs font-mono focus:outline-none">
+                        {["personal", "business", "fitness", "legal", "reflection"].map((c) => <option key={c}>{c}</option>)}
+                      </select>
+                      <select value={form.importance} onChange={(ev) => setForm((f) => ({ ...f, importance: ev.target.value }))} className="bg-muted/30 border border-border rounded px-2 py-1.5 text-xs font-mono focus:outline-none">
+                        {["low", "medium", "high", "critical"].map((imp) => <option key={imp}>{imp}</option>)}
+                      </select>
+                      <input value={form.mood} onChange={(ev) => setForm((f) => ({ ...f, mood: ev.target.value }))} placeholder="Mood" className="bg-muted/30 border border-border rounded px-3 py-1.5 text-xs font-mono focus:outline-none" />
+                    </div>
+                    <input value={form.tags} onChange={(ev) => setForm((f) => ({ ...f, tags: ev.target.value }))} placeholder="Tags (comma-separated)" className="w-full bg-muted/30 border border-border rounded px-3 py-1.5 text-xs font-mono focus:outline-none" />
+                    <div className="flex gap-2 justify-end">
+                      <button onClick={resetForm} className="px-3 py-1.5 text-xs font-mono text-muted-foreground border border-border rounded">Cancel</button>
+                      <button onClick={handleSave} className="px-3 py-1.5 text-xs font-mono bg-primary/10 border border-primary/30 text-primary rounded">Save</button>
+                    </div>
+                  </div>
+                </HudCard>
+              </motion.div>
+            );
+          }
+
+          return (
+          <motion.div key={e.id} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.03 }}>
+            <HudCard className={`cursor-pointer transition-all ${isExpanded ? "border-primary/30" : ""}`}>
+              <div onClick={() => setExpandedId(isExpanded ? null : e.id)}>
+                <div className="flex items-start gap-3">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap mb-1">
+                      <h3 className="text-sm font-display font-bold">{e.title}</h3>
+                      <span className={`text-xs font-mono uppercase ${importanceColors[e.importance]}`}>{e.importance}</span>
+                      <span className="text-xs font-mono text-muted-foreground">{e.category}</span>
+                    </div>
+                    {e.content && <p className={`text-xs font-body text-muted-foreground ${isExpanded ? "whitespace-pre-wrap" : "line-clamp-2"}`}>{e.content}</p>}
+                    {isExpanded && (
+                      <div className="mt-3 space-y-1.5 border-t border-border/30 pt-2">
+                        <div className="grid grid-cols-2 gap-2 text-xs font-mono">
+                          <div><span className="text-muted-foreground">Category:</span> <span className="text-foreground">{e.category}</span></div>
+                          <div><span className="text-muted-foreground">Importance:</span> <span className={importanceColors[e.importance]}>{e.importance}</span></div>
+                          {e.mood && <div><span className="text-muted-foreground">Mood:</span> <span className="text-foreground">{e.mood}</span></div>}
+                          <div><span className="text-muted-foreground">XP Earned:</span> <span className="text-green-400">+{e.xp_earned}</span></div>
+                          <div className="col-span-2"><span className="text-muted-foreground">Created:</span> <span className="text-foreground">{new Date(e.created_at).toLocaleString()}</span></div>
+                        </div>
+                      </div>
+                    )}
+                    <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+                      {e.tags.map((t) => (
+                        <span key={t} className="text-xs font-mono text-primary/60 border border-primary/20 rounded px-1.5 py-0.5">#{t}</span>
+                      ))}
+                      {!isExpanded && e.mood && <span className="text-xs font-mono text-muted-foreground ml-auto">mood: {e.mood}</span>}
+                      {!isExpanded && <span className="text-xs font-mono text-muted-foreground">{new Date(e.created_at).toLocaleDateString()}</span>}
+                    </div>
+                  </div>
+                  <div className="flex flex-col items-end gap-1 shrink-0" onClick={(ev) => ev.stopPropagation()}>
+                    <span className="text-xs font-mono text-green-400">+{e.xp_earned} XP</span>
+                    <button onClick={() => handleEdit(e)} className="p-1 text-muted-foreground hover:text-primary transition-colors"><Edit2 size={12} /></button>
+                    <button onClick={() => setConfirmDeleteJournal({ id: e.id, label: e.title })} className="p-1 text-muted-foreground hover:text-destructive transition-colors"><Trash2 size={12} /></button>
+                  </div>
+                </div>
+              </div>
+            </HudCard>
+          </motion.div>
+          );
+        })}
+        {journalEntries.length === 0 && <p className="text-xs font-mono text-muted-foreground text-center py-8">No journal entries yet. Start logging your arc.</p>}
+      </div>
+      <ConfirmDialog
+        open={confirmDeleteJournal !== null}
+        title={`Delete "${confirmDeleteJournal?.label}"?`}
+        description="This action cannot be undone."
+        onConfirm={() => {
+          if (!confirmDeleteJournal) return;
+          deleteJournalEntry(confirmDeleteJournal.id);
+          setConfirmDeleteJournal(null);
+        }}
+        onCancel={() => setConfirmDeleteJournal(null)}
+      />
+    </div>
+  );
+}
+
+// ─── VaultCodexPage ────────────────────────────────────────
+export function VaultCodexPage() {
+  const { vaultEntries, vaultLoading, createVaultEntry, updateVaultEntry, deleteVaultEntry } = useAppData();
+  const { session } = useAuth();
+  const [showCreate, setShowCreate] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [catFilter, setCatFilter] = useState("all");
+  const [form, setForm] = useState({ title: "", content: "", category: "personal", importance: "medium" });
+  const [uploading, setUploading] = useState(false);
+  const [entryMedia, setEntryMedia] = useState<Record<string, any[]>>({});
+  const [showUploadFor, setShowUploadFor] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [showGallery, setShowGallery] = useState(false);
+  const [confirmDeleteMedia, setConfirmDeleteMedia] = useState<{ id: string; fileUrl: string; label: string } | null>(null);
+  const [confirmDeleteVault, setConfirmDeleteVault] = useState<{ id: string; label: string } | null>(null);
+  const [galleryTab, setGalleryTab] = useState<"all" | "image" | "video" | "audio" | "document">("all");
+  const [lightboxItem, setLightboxItem] = useState<any>(null);
+  const [showIngestUrl, setShowIngestUrl] = useState(false);
+  const [ingestUrl, setIngestUrl] = useState("");
+  const [ingestSaveAs, setIngestSaveAs] = useState<"note" | "vault">("note");
+  const [ingesting, setIngesting] = useState(false);
+  const [backlinks, setBacklinks] = useState<Record<string, { id: string; title: string }[]>>({});
+
+  // Parse [[wikilinks]] from content, resolve to entry IDs, save to mavis_note_links-style backlinks
+  const syncWikilinks = useCallback(async (entryId: string, content: string) => {
+    if (!session?.user?.id || !content) return;
+    const matches = [...content.matchAll(/\[\[([^\]]+)\]\]/g)].map(m => m[1].trim().toLowerCase());
+    if (matches.length === 0) return;
+    const { data: allEntries } = await supabase.from("vault_entries").select("id, title").eq("user_id", session.user.id);
+    const resolved = (allEntries ?? []).filter((e: any) => matches.includes(e.title.toLowerCase()) && e.id !== entryId);
+    // Upsert links (delete old + re-insert)
+    await supabase.from("mavis_note_links").delete().eq("source_note_id", entryId);
+    if (resolved.length > 0) {
+      await supabase.from("mavis_note_links").insert(resolved.map((r: any) => ({ source_note_id: entryId, target_note_id: r.id, user_id: session.user.id })));
+    }
+  }, [session?.user?.id]);
+
+  // Load backlinks for an expanded entry
+  const loadBacklinks = useCallback(async (entryId: string) => {
+    if (!session?.user?.id || backlinks[entryId]) return;
+    const { data } = await supabase
+      .from("mavis_note_links")
+      .select("source_note_id, vault_entries!mavis_note_links_source_note_id_fkey(id, title)")
+      .eq("target_note_id", entryId);
+    const links = (data ?? []).map((r: any) => ({ id: r.source_note_id, title: r.vault_entries?.title ?? "Unknown" }));
+    setBacklinks(prev => ({ ...prev, [entryId]: links }));
+  }, [session?.user?.id, backlinks]);
+
+  const categories = ["all", "legal", "business", "personal", "evidence", "achievement"];
+  const filtered = vaultEntries.filter((e) => catFilter === "all" || e.category === catFilter);
+  const importanceBorder: Record<string, string> = { critical: "border-red-700/50", high: "border-amber-700/50", medium: "border-border", low: "border-border/50" };
+  const importanceColor: Record<string, string> = { critical: "text-red-400", high: "text-amber-400", medium: "text-blue-400", low: "text-muted-foreground" };
+
+  // Load media for all entries
+  useEffect(() => {
+    if (!session?.user?.id) return;
+    (async () => {
+      const { data } = await supabase.from("vault_media").select("*").eq("user_id", session.user.id).order("created_at", { ascending: false });
+      if (data) {
+        const grouped: Record<string, any[]> = {};
+        data.forEach((m: any) => {
+          const key = m.vault_entry_id || "__unlinked";
+          if (!grouped[key]) grouped[key] = [];
+          grouped[key].push(m);
+        });
+        setEntryMedia(grouped);
+      }
+    })();
+  }, [session?.user?.id, vaultEntries.length]);
+
+  const resetForm = () => { setForm({ title: "", content: "", category: "personal", importance: "medium" }); setEditingId(null); setShowCreate(false); };
+
+  const exportVaultMarkdown = () => {
+    const md = vaultEntries.map(e =>
+      `# ${e.title}\n\n**Category:** ${e.category} | **Importance:** ${e.importance}\n**Created:** ${new Date(e.created_at).toLocaleString()}\n\n${e.content}\n\n---\n`
+    ).join("\n");
+    const blob = new Blob([md], { type: "text/markdown" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a"); a.href = url; a.download = `vault_${new Date().toISOString().slice(0,10)}.md`; a.click();
+    URL.revokeObjectURL(url);
+    toast.success("Vault exported as Markdown");
+  };
+
+  const handleIngestUrl = async () => {
+    if (!ingestUrl.trim() || !session?.access_token) return;
+    setIngesting(true);
+    try {
+      const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/mavis-ingest-url`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify({ url: ingestUrl, save_as: ingestSaveAs }),
+      });
+      const data = await res.json();
+      if (!res.ok || data.error) throw new Error(data.error ?? "Ingest failed");
+      toast.success(`"${data.title ?? ingestUrl}" ingested — ${data.chunks_created ?? 0} knowledge chunks added`);
+      setShowIngestUrl(false);
+      setIngestUrl("");
+    } catch (err: any) {
+      toast.error(err.message ?? "URL ingest failed");
+    } finally {
+      setIngesting(false);
+    }
+  };
+
+  const handleEdit = (e: any) => {
+    setForm({ title: e.title, content: e.content, category: e.category, importance: e.importance });
+    setEditingId(e.id);
+    setShowCreate(true);
+  };
+
+  const handleSave = async () => {
+    if (!form.title.trim()) return;
+    if (editingId) {
+      await updateVaultEntry(editingId, form);
+    } else {
+      await createVaultEntry({ ...form, attachments: [] });
+    }
+    resetForm();
+  };
+
+  const getFileIcon = (fileType: string) => {
+    if (fileType.startsWith("image")) return <Image size={14} className="text-emerald-400" />;
+    if (fileType.startsWith("video")) return <Film size={14} className="text-purple-400" />;
+    if (fileType.startsWith("audio")) return <Music size={14} className="text-amber-400" />;
+    if (fileType.includes("pdf") || fileType.includes("document")) return <FileText size={14} className="text-blue-400" />;
+    return <File size={14} className="text-muted-foreground" />;
+  };
+
+  const formatFileSize = (bytes: number) => {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1048576) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / 1048576).toFixed(1)} MB`;
+  };
+
+  const handleFileUpload = async (entryId: string | null, files: FileList) => {
+    if (!session?.user?.id || files.length === 0) return;
+    setUploading(true);
+    const userId = session.user.id;
+
+    try {
+      for (const file of Array.from(files)) {
+        if (file.size > 50 * 1024 * 1024) {
+          toast.error(`${file.name} exceeds 50MB limit`);
+          continue;
+        }
+
+        const filePath = `${userId}/${Date.now()}_${file.name}`;
+        const { error: uploadError } = await supabase.storage.from("vault-media").upload(filePath, file);
+        if (uploadError) {
+          toast.error(`Upload failed: ${uploadError.message}`);
+          continue;
+        }
+
+        const { data: urlData } = supabase.storage.from("vault-media").getPublicUrl(filePath);
+        const fileUrl = urlData?.publicUrl || filePath;
+
+        // Determine file type category
+        let fileType = "document";
+        if (file.type.startsWith("image/")) fileType = "image";
+        else if (file.type.startsWith("video/")) fileType = "video";
+        else if (file.type.startsWith("audio/")) fileType = "audio";
+        else if (file.type.includes("pdf")) fileType = "pdf";
+
+        const { data: mediaRow } = await supabase.from("vault_media").insert({
+          user_id: userId,
+          vault_entry_id: entryId,
+          file_name: file.name,
+          file_url: fileUrl,
+          file_type: fileType,
+          file_size: file.size,
+          description: "",
+          tags: [],
+        }).select("id").maybeSingle();
+
+        // Auto-extract text from documents for MAVIS knowledge base (non-blocking)
+        const isExtractable = ["pdf", "document"].includes(fileType) ||
+          file.name.match(/\.(txt|md|csv|json|docx?)$/i);
+        if (isExtractable && fileUrl && session?.access_token) {
+          const extractPayload = { file_url: fileUrl, file_name: file.name, file_type: fileType, vault_entry_id: entryId ?? mediaRow?.id ?? null };
+          fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/mavis-doc-extract`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+            body: JSON.stringify(extractPayload),
+          }).then(r => r.json()).then(d => {
+            if (d.chunks_created > 0) toast.success(`📚 ${file.name} extracted — ${d.chunks_created} knowledge chunks added`);
+          }).catch(() => {});
+        }
+      }
+
+      // Reload media
+      const { data } = await supabase.from("vault_media").select("*").eq("user_id", userId).order("created_at", { ascending: false });
+      if (data) {
+        const grouped: Record<string, any[]> = {};
+        data.forEach((m: any) => {
+          const key = m.vault_entry_id || "__unlinked";
+          if (!grouped[key]) grouped[key] = [];
+          grouped[key].push(m);
+        });
+        setEntryMedia(grouped);
+      }
+
+      toast.success(`${files.length} file(s) uploaded`);
+    } catch (err) {
+      console.error("Upload error:", err);
+      toast.error("Upload failed");
+    } finally {
+      setUploading(false);
+      setShowUploadFor(null);
+    }
+  };
+
+  const deleteMedia = async (mediaId: string, filePath: string) => {
+    try {
+      // Extract the storage path from the URL
+      const pathMatch = filePath.match(/vault-media\/(.+)$/);
+      if (pathMatch) {
+        await supabase.storage.from("vault-media").remove([pathMatch[1]]);
+      }
+      await supabase.from("vault_media").delete().eq("id", mediaId);
+      
+      // Refresh
+      if (session?.user?.id) {
+        const { data } = await supabase.from("vault_media").select("*").eq("user_id", session.user.id).order("created_at", { ascending: false });
+        if (data) {
+          const grouped: Record<string, any[]> = {};
+          data.forEach((m: any) => {
+            const key = m.vault_entry_id || "__unlinked";
+            if (!grouped[key]) grouped[key] = [];
+            grouped[key].push(m);
+          });
+          setEntryMedia(grouped);
+        }
+      }
+      toast.success("File deleted");
+    } catch { toast.error("Delete failed"); }
+  };
+
+  if (vaultLoading) return (
+    <div className="space-y-5">
+      <div className="flex items-center justify-between border-b border-border pb-4">
+        <Skeleton className="h-5 w-28" />
+        <Skeleton className="h-8 w-28" />
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        {[...Array(6)].map((_, i) => (
+          <div key={i} className="hud-border rounded-lg p-4 space-y-3">
+            <Skeleton className="h-4 w-2/3" />
+            <Skeleton className="h-3 w-full" />
+            <Skeleton className="h-3 w-4/5" />
+            <div className="flex gap-2 mt-2">
+              <Skeleton className="h-5 w-14 rounded-full" />
+              <Skeleton className="h-5 w-12 rounded-full" />
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+
+  // Standalone media (not linked to any entry)
+  const standaloneMedia = entryMedia["__unlinked"] || [];
+
+  return (
+    <div className="space-y-5">
+      <PageHeader title="Vault Codex" subtitle="Classified knowledge & evidence repository" icon={<BookLock size={18} />}
+        actions={
+          <div className="flex gap-2 flex-wrap">
+            <button onClick={exportVaultMarkdown} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono bg-muted/30 border border-border text-muted-foreground hover:text-primary hover:border-primary/30 rounded transition-all">
+              <FileDown size={12} /> Export
+            </button>
+            <button onClick={() => setShowIngestUrl(u => !u)} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono bg-muted/30 border border-border text-muted-foreground hover:text-primary hover:border-primary/30 rounded transition-all">
+              <Download size={12} /> Ingest URL
+            </button>
+            <button
+              onClick={() => setShowGallery(g => !g)}
+              className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono rounded border transition-all ${showGallery ? "bg-primary/10 border-primary/30 text-primary" : "bg-muted/30 border-border text-muted-foreground hover:text-primary hover:border-primary/30"}`}
+            >
+              <LayoutGrid size={12} /> Gallery
+            </button>
+            <button
+              onClick={() => { setShowUploadFor("__standalone"); setShowGallery(false); }}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono bg-muted/30 border border-border text-muted-foreground hover:text-primary hover:border-primary/30 rounded transition-all"
+            >
+              <Upload size={12} /> Upload
+            </button>
+            <button onClick={() => { resetForm(); setShowCreate(true); setShowGallery(false); }} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono bg-primary/10 border border-primary/30 text-primary rounded">
+              <Plus size={12} /> New Entry
+            </button>
+          </div>
+        }
+      />
+
+      {/* Standalone file upload */}
+      {showUploadFor === "__standalone" && (
+        <HudCard className="border-primary/20">
+          <div className="flex items-center justify-between mb-2">
+            <p className="text-xs font-mono text-primary uppercase tracking-widest">Upload Files to Vault</p>
+            <button onClick={() => setShowUploadFor(null)} className="text-muted-foreground hover:text-foreground"><X size={14} /></button>
+          </div>
+          <input
+            type="file"
+            ref={fileInputRef}
+            multiple
+            className="hidden"
+            accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.txt,.md,.csv,.json,.xls,.xlsx"
+            onChange={(e) => {
+              if (e.target.files) handleFileUpload(null, e.target.files);
+              e.target.value = "";
+            }}
+          />
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            disabled={uploading}
+            className="w-full py-6 border-2 border-dashed border-border hover:border-primary/40 rounded-lg flex flex-col items-center gap-2 transition-all"
+          >
+            {uploading ? <Loader2 className="animate-spin text-primary" size={24} /> : <Upload size={24} className="text-muted-foreground" />}
+            <span className="text-xs font-mono text-muted-foreground">{uploading ? "Uploading..." : "Click to select files (images, videos, audio, PDFs, docs)"}</span>
+          </button>
+        </HudCard>
+      )}
+
+      {showCreate && !editingId && (
+        <HudCard className="border-primary/20">
+          <p className="text-xs font-mono text-primary uppercase tracking-widest mb-3">New Entry</p>
+          <div className="space-y-2">
+            <input value={form.title} onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))} placeholder="Entry title..." className="w-full bg-muted/30 border border-border rounded px-3 py-1.5 text-sm focus:outline-none focus:border-primary/40" />
+            <textarea value={form.content} onChange={(e) => setForm((f) => ({ ...f, content: e.target.value }))} placeholder="Vault content (evidence, notes, data)..." rows={4} className="w-full bg-muted/30 border border-border rounded px-3 py-2 text-sm resize-none focus:outline-none" />
+            <div className="grid grid-cols-2 gap-2">
+              <select value={form.category} onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))} className="bg-muted/30 border border-border rounded px-2 py-1.5 text-xs font-mono focus:outline-none">
+                {["legal", "business", "personal", "evidence", "achievement"].map((c) => <option key={c}>{c}</option>)}
+              </select>
+              <select value={form.importance} onChange={(e) => setForm((f) => ({ ...f, importance: e.target.value }))} className="bg-muted/30 border border-border rounded px-2 py-1.5 text-xs font-mono focus:outline-none">
+                {["low", "medium", "high", "critical"].map((i) => <option key={i}>{i}</option>)}
+              </select>
+            </div>
+            <div className="flex gap-2 justify-end">
+              <button onClick={resetForm} className="px-3 py-1.5 text-xs font-mono text-muted-foreground border border-border rounded">Cancel</button>
+              <button onClick={handleSave} className="px-3 py-1.5 text-xs font-mono bg-primary/10 border border-primary/30 text-primary rounded">Store</button>
+            </div>
+          </div>
+        </HudCard>
+      )}
+
+      {/* ── Full Media Gallery ───────────────────────────────── */}
+      <AnimatePresence>
+        {showGallery && (() => {
+          const allMedia: any[] = Object.values(entryMedia).flat().sort((a, b) =>
+            new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+          );
+          const TABS: Array<{ key: "all" | "image" | "video" | "audio" | "document"; label: string }> = [
+            { key: "all", label: `All (${allMedia.length})` },
+            { key: "image", label: `Images (${allMedia.filter(m => m.file_type === "image").length})` },
+            { key: "video", label: `Videos (${allMedia.filter(m => m.file_type === "video").length})` },
+            { key: "audio", label: `Audio (${allMedia.filter(m => m.file_type === "audio").length})` },
+            { key: "document", label: `Docs (${allMedia.filter(m => !["image","video","audio"].includes(m.file_type)).length})` },
+          ];
+          const filtered2 = galleryTab === "all" ? allMedia
+            : galleryTab === "document" ? allMedia.filter(m => !["image","video","audio"].includes(m.file_type))
+            : allMedia.filter(m => m.file_type === galleryTab);
+          const imgItems = filtered2.filter(m => m.file_type === "image");
+
+          // Entry title lookup
+          const entryTitles: Record<string, string> = {};
+          (vaultEntries as any[]).forEach((e: any) => { entryTitles[e.id] = e.title; });
+
+          const openLightbox = (item: any) => item.file_type === "image" ? setLightboxItem(item) : window.open(item.file_url, "_blank");
+          const lightboxIdx = lightboxItem ? imgItems.findIndex(m => m.id === lightboxItem.id) : -1;
+
+          return (
+            <motion.div
+              key="gallery"
+              initial={{ opacity: 0, y: -6 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -6 }}
+              className="space-y-3"
+            >
+              {/* Tab pills */}
+              <div className="flex gap-1.5 flex-wrap">
+                {TABS.map(t => (
+                  <button
+                    key={t.key}
+                    onClick={() => setGalleryTab(t.key)}
+                    className={`px-2.5 py-1 text-xs font-mono rounded border transition-all ${galleryTab === t.key ? "bg-primary/10 border-primary/30 text-primary" : "border-border/50 text-muted-foreground hover:text-primary"}`}
+                  >
+                    {t.label}
+                  </button>
+                ))}
+              </div>
+
+              {filtered2.length === 0 ? (
+                <div className="flex flex-col items-center gap-2 py-12 text-muted-foreground">
+                  <LayoutGrid size={32} className="opacity-30" />
+                  <p className="text-xs font-mono">No media yet — upload files or ask MAVIS to generate an image.</p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                  {filtered2.map((m: any) => (
+                    <div
+                      key={m.id}
+                      className="relative group border border-border/50 rounded-lg overflow-hidden cursor-pointer hover:border-primary/40 transition-all"
+                      onClick={() => openLightbox(m)}
+                    >
+                      {m.file_type === "image" ? (
+                        <img src={m.file_url} alt={m.file_name} className="w-full h-28 object-cover" />
+                      ) : (
+                        <div className="w-full h-28 flex flex-col items-center justify-center gap-1.5 bg-muted/20">
+                          {getFileIcon(m.file_type)}
+                          <span className="text-xs font-mono text-muted-foreground text-center px-1 line-clamp-2">{m.file_name}</span>
+                        </div>
+                      )}
+                      {/* Generated tag */}
+                      {m.tags?.includes("mavis-generated") && (
+                        <div className="absolute top-1.5 left-1.5">
+                          <span className="flex items-center gap-0.5 text-[7px] font-mono bg-primary/80 text-background rounded px-1 py-0.5">
+                            <Wand2 size={7} /> AI
+                          </span>
+                        </div>
+                      )}
+                      {/* Hover overlay */}
+                      <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                        <button className="p-1.5 bg-primary/20 rounded-full"><Eye size={13} className="text-primary" /></button>
+                        <button
+                          onClick={(ev) => { ev.stopPropagation(); setConfirmDeleteMedia({ id: m.id, fileUrl: m.file_url, label: m.file_name }); }}
+                          className="p-1.5 bg-destructive/20 rounded-full"
+                        >
+                          <Trash2 size={13} className="text-destructive" />
+                        </button>
+                      </div>
+                      {/* Footer */}
+                      <div className="px-2 py-1 bg-card/90 border-t border-border/30">
+                        <p className="text-xs font-mono text-muted-foreground truncate">{m.file_name}</p>
+                        {m.vault_entry_id && entryTitles[m.vault_entry_id] && (
+                          <p className="text-[7px] font-mono text-primary/60 truncate">📁 {entryTitles[m.vault_entry_id]}</p>
+                        )}
+                        <p className="text-[7px] font-mono text-muted-foreground">{new Date(m.created_at).toLocaleDateString()}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Lightbox */}
+              <AnimatePresence>
+                {lightboxItem && (
+                  <motion.div
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    className="fixed inset-0 z-50 bg-black/90 flex items-center justify-center p-4"
+                    onClick={() => setLightboxItem(null)}
+                  >
+                    <motion.div
+                      initial={{ scale: 0.9 }}
+                      animate={{ scale: 1 }}
+                      exit={{ scale: 0.9 }}
+                      className="relative max-w-4xl w-full"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <img
+                        src={lightboxItem.file_url}
+                        alt={lightboxItem.file_name}
+                        className="w-full max-h-[80vh] object-contain rounded-lg"
+                      />
+                      {/* Controls */}
+                      <button
+                        onClick={() => setLightboxItem(null)}
+                        className="absolute top-3 right-3 p-2 bg-black/60 rounded-full text-white hover:bg-black/80 transition-all"
+                      >
+                        <X size={16} />
+                      </button>
+                      {lightboxIdx > 0 && (
+                        <button
+                          onClick={() => setLightboxItem(imgItems[lightboxIdx - 1])}
+                          className="absolute left-3 top-1/2 -translate-y-1/2 p-2 bg-black/60 rounded-full text-white hover:bg-black/80 transition-all"
+                        >
+                          <ChevronLeft size={20} />
+                        </button>
+                      )}
+                      {lightboxIdx < imgItems.length - 1 && (
+                        <button
+                          onClick={() => setLightboxItem(imgItems[lightboxIdx + 1])}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 p-2 bg-black/60 rounded-full text-white hover:bg-black/80 transition-all"
+                        >
+                          <ChevronRight size={20} />
+                        </button>
+                      )}
+                      {/* Caption */}
+                      <div className="mt-2 flex items-center justify-between px-1">
+                        <div>
+                          <p className="text-xs font-mono text-white/80">{lightboxItem.file_name}</p>
+                          {lightboxItem.vault_entry_id && entryTitles[lightboxItem.vault_entry_id] && (
+                            <p className="text-xs font-mono text-primary/60">📁 {entryTitles[lightboxItem.vault_entry_id]}</p>
+                          )}
+                          {lightboxItem.tags?.includes("mavis-generated") && (
+                            <p className="text-xs font-mono text-primary/80 flex items-center gap-1"><Wand2 size={9} /> MAVIS Generated</p>
+                          )}
+                        </div>
+                        <p className="text-xs font-mono text-white/40">{lightboxIdx + 1} / {imgItems.length}</p>
+                      </div>
+                    </motion.div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </motion.div>
+          );
+        })()}
+      </AnimatePresence>
+
+      {/* Only show entries list / upload UI when not in gallery mode */}
+      {!showGallery && <>
+
+      <div className="flex gap-1.5 flex-wrap">
+        {categories.map((c) => (
+          <button key={c} onClick={() => setCatFilter(c)} className={`px-2 py-1 text-xs font-mono uppercase rounded border transition-all ${catFilter === c ? "bg-primary/10 border-primary/30 text-primary" : "border-border/50 text-muted-foreground"}`}>{c}</button>
+        ))}
+      </div>
+
+      {/* Standalone media gallery */}
+      {standaloneMedia.length > 0 && (
+        <HudCard>
+          <p className="text-xs font-mono text-primary uppercase tracking-widest mb-2">Vault Files ({standaloneMedia.length})</p>
+          <div className="grid grid-cols-2 gap-2">
+            {standaloneMedia.map((m: any) => (
+              <div key={m.id} className="relative group border border-border/50 rounded-lg overflow-hidden">
+                {m.file_type === "image" ? (
+                  <img src={m.file_url} alt={m.file_name} className="w-full h-20 object-cover" />
+                ) : (
+                  <div className="w-full h-20 flex flex-col items-center justify-center gap-1 bg-muted/20">
+                    {getFileIcon(m.file_type)}
+                    <span className="text-xs font-mono text-muted-foreground truncate max-w-[90%]">{m.file_name}</span>
+                  </div>
+                )}
+                <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                  <a href={m.file_url} target="_blank" rel="noopener noreferrer" className="p-1 bg-primary/20 rounded"><Eye size={12} className="text-primary" /></a>
+                  <button onClick={() => setConfirmDeleteMedia({ id: m.id, fileUrl: m.file_url, label: m.file_name })} className="p-1 bg-destructive/20 rounded"><Trash2 size={12} className="text-destructive" /></button>
+                </div>
+                <div className="px-1.5 py-1 bg-card">
+                  <p className="text-xs font-mono truncate text-muted-foreground">{formatFileSize(m.file_size)}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </HudCard>
+      )}
+
+      <div className="space-y-2">
+        {filtered.map((e) => {
+          const isExpanded = expandedId === e.id;
+          const media = entryMedia[e.id] || [];
+
+          if (editingId === e.id) {
+            return (
+              <motion.div key={e.id} initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }}>
+                <HudCard className="border-primary/20">
+                  <p className="text-xs font-mono text-primary uppercase tracking-widest mb-3">Edit Entry</p>
+                  <div className="space-y-2">
+                    <input value={form.title} onChange={(ev) => setForm((f) => ({ ...f, title: ev.target.value }))} placeholder="Entry title..." className="w-full bg-muted/30 border border-border rounded px-3 py-1.5 text-sm focus:outline-none focus:border-primary/40" />
+                    <textarea value={form.content} onChange={(ev) => setForm((f) => ({ ...f, content: ev.target.value }))} placeholder="Vault content (evidence, notes, data)..." rows={4} className="w-full bg-muted/30 border border-border rounded px-3 py-2 text-sm resize-none focus:outline-none" />
+                    <div className="grid grid-cols-2 gap-2">
+                      <select value={form.category} onChange={(ev) => setForm((f) => ({ ...f, category: ev.target.value }))} className="bg-muted/30 border border-border rounded px-2 py-1.5 text-xs font-mono focus:outline-none">
+                        {["legal", "business", "personal", "evidence", "achievement"].map((c) => <option key={c}>{c}</option>)}
+                      </select>
+                      <select value={form.importance} onChange={(ev) => setForm((f) => ({ ...f, importance: ev.target.value }))} className="bg-muted/30 border border-border rounded px-2 py-1.5 text-xs font-mono focus:outline-none">
+                        {["low", "medium", "high", "critical"].map((imp) => <option key={imp}>{imp}</option>)}
+                      </select>
+                    </div>
+                    <div className="flex gap-2 justify-end">
+                      <button onClick={resetForm} className="px-3 py-1.5 text-xs font-mono text-muted-foreground border border-border rounded">Cancel</button>
+                      <button onClick={handleSave} className="px-3 py-1.5 text-xs font-mono bg-primary/10 border border-primary/30 text-primary rounded">Save</button>
+                    </div>
+                  </div>
+                </HudCard>
+              </motion.div>
+            );
+          }
+
+          return (
+          <HudCard key={e.id} className={`cursor-pointer transition-all ${importanceBorder[e.importance]} ${isExpanded ? "border-primary/30" : ""}`}>
+            <div onClick={() => { const next = isExpanded ? null : e.id; setExpandedId(next); if (next) { loadBacklinks(next); syncWikilinks(next, e.content ?? ""); } }}>
+              <div className="flex items-start gap-3">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-1">
+                    <h3 className="text-sm font-display font-bold">{e.title}</h3>
+                    <span className={`text-xs font-mono uppercase ${importanceColor[e.importance]}`}>{e.importance}</span>
+                    <span className="text-xs font-mono text-muted-foreground">{e.category}</span>
+                    {media.length > 0 && <span className="text-xs font-mono text-emerald-400">📎 {media.length}</span>}
+                  </div>
+                  {e.content && (
+                    <p className={`text-xs font-body text-muted-foreground ${isExpanded ? "whitespace-pre-wrap" : "line-clamp-3"}`}>
+                      {isExpanded
+                        ? e.content.split(/(\[\[[^\]]+\]\])/).map((part, i) =>
+                            /^\[\[.+\]\]$/.test(part)
+                              ? <span key={i} className="text-cyan-400 underline underline-offset-2 cursor-pointer hover:text-cyan-300">{part}</span>
+                              : part
+                          )
+                        : e.content}
+                    </p>
+                  )}
+                  {isExpanded && (
+                    <div className="mt-3 space-y-2 border-t border-border/30 pt-2">
+                      <div className="grid grid-cols-2 gap-2 text-xs font-mono">
+                        <div><span className="text-muted-foreground">Category:</span> <span className="text-foreground">{e.category}</span></div>
+                        <div><span className="text-muted-foreground">Importance:</span> <span className={importanceColor[e.importance]}>{e.importance}</span></div>
+                        <div className="col-span-2"><span className="text-muted-foreground">Created:</span> <span className="text-foreground">{new Date(e.created_at).toLocaleString()}</span></div>
+                      </div>
+                      {/* Backlinks */}
+                      {(backlinks[e.id] ?? []).length > 0 && (
+                        <div className="space-y-1">
+                          <p className="text-xs font-mono text-cyan-400 uppercase flex items-center gap-1"><Link2 size={10} /> Backlinks ({backlinks[e.id].length})</p>
+                          <div className="flex flex-wrap gap-1">
+                            {backlinks[e.id].map(bl => (
+                              <button key={bl.id} onClick={(ev) => { ev.stopPropagation(); setExpandedId(bl.id); loadBacklinks(bl.id); }}
+                                className="text-xs font-mono text-cyan-400/80 border border-cyan-900/40 rounded px-2 py-0.5 hover:bg-cyan-900/20 transition-colors">
+                                ← {bl.title}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      {/* Attached media */}
+                      {media.length > 0 && (
+                        <div className="space-y-1">
+                          <p className="text-xs font-mono text-primary uppercase">Attached Files</p>
+                          <div className="grid grid-cols-2 gap-1.5">
+                            {media.map((m: any) => (
+                              <div key={m.id} className="relative group border border-border/50 rounded overflow-hidden">
+                                {m.file_type === "image" ? (
+                                  <img src={m.file_url} alt={m.file_name} className="w-full h-16 object-cover" />
+                                ) : (
+                                  <div className="w-full h-16 flex flex-col items-center justify-center gap-1 bg-muted/20">
+                                    {getFileIcon(m.file_type)}
+                                    <span className="text-[7px] font-mono text-muted-foreground truncate max-w-[90%]">{m.file_name}</span>
+                                  </div>
+                                )}
+                                <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                                  <a href={m.file_url} target="_blank" rel="noopener noreferrer" className="p-1 bg-primary/20 rounded"><Eye size={10} className="text-primary" /></a>
+                                  <button onClick={(ev) => { ev.stopPropagation(); setConfirmDeleteMedia({ id: m.id, fileUrl: m.file_url, label: m.file_name }); }} className="p-1 bg-destructive/20 rounded"><Trash2 size={10} className="text-destructive" /></button>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      {/* Upload to this entry */}
+                      <div onClick={(ev) => ev.stopPropagation()}>
+                        <input
+                          type="file"
+                          id={`upload-${e.id}`}
+                          multiple
+                          className="hidden"
+                          accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.txt,.md,.csv,.json,.xls,.xlsx"
+                          onChange={(ev) => {
+                            if (ev.target.files) handleFileUpload(e.id, ev.target.files);
+                            ev.target.value = "";
+                          }}
+                        />
+                        <button
+                          onClick={() => document.getElementById(`upload-${e.id}`)?.click()}
+                          disabled={uploading}
+                          className="flex items-center gap-1 text-xs font-mono text-muted-foreground hover:text-primary transition-colors mt-1"
+                        >
+                          <Upload size={10} /> {uploading ? "Uploading..." : "Attach files"}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                  {!isExpanded && <p className="text-xs font-mono text-muted-foreground mt-1.5">{new Date(e.created_at).toLocaleDateString()}</p>}
+                </div>
+                <div className="flex flex-col gap-1 shrink-0" onClick={(ev) => ev.stopPropagation()}>
+                  <button onClick={() => handleEdit(e)} className="p-1 text-muted-foreground hover:text-primary transition-colors"><Edit2 size={12} /></button>
+                  <button onClick={() => setConfirmDeleteVault({ id: e.id, label: e.title })} className="p-1 text-muted-foreground hover:text-destructive transition-colors"><Trash2 size={12} /></button>
+                </div>
+              </div>
+            </div>
+          </HudCard>
+          );
+        })}
+        {filtered.length === 0 && <p className="text-xs font-mono text-muted-foreground text-center py-8">Vault empty — classified knowledge awaits.</p>}
+      </div>
+      </>}
+      <ConfirmDialog
+        open={confirmDeleteMedia !== null}
+        title={`Delete "${confirmDeleteMedia?.label}"?`}
+        description="This file will be permanently deleted."
+        onConfirm={() => {
+          if (!confirmDeleteMedia) return;
+          deleteMedia(confirmDeleteMedia.id, confirmDeleteMedia.fileUrl);
+          setConfirmDeleteMedia(null);
+        }}
+        onCancel={() => setConfirmDeleteMedia(null)}
+      />
+      <ConfirmDialog
+        open={confirmDeleteVault !== null}
+        title={`Delete "${confirmDeleteVault?.label}"?`}
+        description="This action cannot be undone."
+        onConfirm={() => {
+          if (!confirmDeleteVault) return;
+          deleteVaultEntry(confirmDeleteVault.id);
+          setConfirmDeleteVault(null);
+        }}
+        onCancel={() => setConfirmDeleteVault(null)}
+      />
+    </div>
+  );
+}
+
+// ─── SkillsPage ────────────────────────────────────────────
+
+const DEFAULT_SKILLS = [
+  // Combat
+  { name: "Striking Mastery", description: "Precision and power in unarmed combat. Muay Thai, boxing, karate foundations.", category: "Combat", energy_type: "Ki", tier: 3, proficiency: 65 },
+  { name: "Grappling Arts", description: "Control on the ground. BJJ, wrestling, joint locks and positional dominance.", category: "Combat", energy_type: "Ki", tier: 2, proficiency: 45 },
+  { name: "Weapon Proficiency", description: "Mastery of blade, staff, and improvised weapons. Kali/Escrima base.", category: "Combat", energy_type: "Ki", tier: 2, proficiency: 40 },
+  { name: "Combat Strategy", description: "Reading opponents, timing attacks, controlling distance and pace.", category: "Combat", energy_type: "Aura", tier: 4, proficiency: 70 },
+  { name: "Domain Expansion", description: "Project overwhelming presence — control the space, control the fight.", category: "Combat", energy_type: "Cursed Energy", tier: 5, proficiency: 55 },
+
+  // Mental
+  { name: "Strategic Thinking", description: "Long-term planning, systems design, seeing 5 moves ahead.", category: "Mental", energy_type: "Aura", tier: 5, proficiency: 85 },
+  { name: "Pattern Recognition", description: "Rapidly identify recurring patterns in data, behavior, and markets.", category: "Mental", energy_type: "Nen", tier: 4, proficiency: 72 },
+  { name: "Emotional Alchemy", description: "Transform negative emotions into fuel. Rage → focus, fear → clarity.", category: "Mental", energy_type: "Cursed Energy", tier: 4, proficiency: 68 },
+  { name: "Deep Focus", description: "Enter and sustain flow state for extended periods.", category: "Mental", energy_type: "Mana", tier: 3, proficiency: 60 },
+  { name: "Memory Palace", description: "Advanced recall through spatial memory architecture.", category: "Mental", energy_type: "Mana", tier: 3, proficiency: 50 },
+  { name: "Speed Reading", description: "Process written information at 3-5x normal speed with full comprehension.", category: "Mental", energy_type: "Nen", tier: 2, proficiency: 55 },
+
+  // Business
+  { name: "Revenue Architecture", description: "Design and build systems that generate income autonomously.", category: "Business", energy_type: "Emerald Flames", tier: 5, proficiency: 75 },
+  { name: "Brand Engineering", description: "Build brands that command attention and loyalty. Positioning, identity, story.", category: "Business", energy_type: "Aura", tier: 4, proficiency: 65 },
+  { name: "Negotiation", description: "Win without fighting. Frame control, anchoring, strategic concession.", category: "Business", energy_type: "Haki", tier: 4, proficiency: 70 },
+  { name: "AI Systems Design", description: "Build and deploy AI agents, automations, and intelligent workflows.", category: "Business", energy_type: "Emerald Flames", tier: 5, proficiency: 80 },
+  { name: "Financial Intelligence", description: "Cash flow management, asset building, tax strategy, investment.", category: "Business", energy_type: "VRIL", tier: 3, proficiency: 55 },
+  { name: "Sales Mastery", description: "Convert interest into commitment. Objection handling, closing, relationship building.", category: "Business", energy_type: "Haki", tier: 3, proficiency: 50 },
+
+  // Spiritual
+  { name: "Meditation", description: "Still the mind. Access deeper consciousness and intuitive knowing.", category: "Spiritual", energy_type: "Black Heart", tier: 4, proficiency: 72 },
+  { name: "Energy Sensing", description: "Feel the energy of rooms, people, and situations before conscious analysis.", category: "Spiritual", energy_type: "Nen", tier: 3, proficiency: 60 },
+  { name: "Manifestation", description: "Align thought, emotion, and action to create specific outcomes.", category: "Spiritual", energy_type: "Black Heart", tier: 5, proficiency: 65 },
+  { name: "Breath Control", description: "Pranayama, Wim Hof, box breathing. Control physiology through breath.", category: "Spiritual", energy_type: "Chakra", tier: 3, proficiency: 70 },
+  { name: "Aura Projection", description: "Consciously project energy and presence into a space.", category: "Spiritual", energy_type: "Aura", tier: 4, proficiency: 58 },
+
+  // Physical
+  { name: "Strength Training", description: "Progressive overload. Compound lifts, calisthenics, functional strength.", category: "Physical", energy_type: "Ki", tier: 3, proficiency: 65 },
+  { name: "Endurance", description: "Cardiovascular capacity and sustained output. Running, swimming, cycling.", category: "Physical", energy_type: "Ki", tier: 3, proficiency: 55 },
+  { name: "Flexibility & Mobility", description: "Joint health, range of motion, yoga, dynamic stretching.", category: "Physical", energy_type: "Chakra", tier: 2, proficiency: 45 },
+  { name: "Recovery Science", description: "Sleep optimization, cold exposure, sauna, nutrition timing.", category: "Physical", energy_type: "VRIL", tier: 3, proficiency: 60 },
+  { name: "Body Recomposition", description: "Optimize muscle-to-fat ratio through training and nutrition science.", category: "Physical", energy_type: "Ki", tier: 3, proficiency: 50 },
+
+  // Creative
+  { name: "Writing", description: "Persuasive, narrative, and technical writing. Words that move people.", category: "Creative", energy_type: "Mana", tier: 4, proficiency: 75 },
+  { name: "UI/UX Design", description: "Design interfaces that are intuitive, beautiful, and functional.", category: "Creative", energy_type: "Mana", tier: 3, proficiency: 60 },
+  { name: "Music Production", description: "Create sonic landscapes. Beat-making, mixing, sound design.", category: "Creative", energy_type: "Lacrima", tier: 2, proficiency: 35 },
+  { name: "Storytelling", description: "Craft narratives that captivate, persuade, and transform.", category: "Creative", energy_type: "Aura", tier: 4, proficiency: 70 },
+
+  // Technical
+  { name: "Full-Stack Development", description: "Build complete web applications. React, Node, databases, deployment.", category: "Technical", energy_type: "Emerald Flames", tier: 5, proficiency: 78 },
+  { name: "Prompt Engineering", description: "Craft precise AI instructions for optimal output.", category: "Technical", energy_type: "Emerald Flames", tier: 4, proficiency: 85 },
+  { name: "Systems Architecture", description: "Design scalable, maintainable systems and infrastructure.", category: "Technical", energy_type: "Emerald Flames", tier: 4, proficiency: 70 },
+  { name: "Data Analysis", description: "Extract insights from data. Pattern detection, visualization, prediction.", category: "Technical", energy_type: "Nen", tier: 3, proficiency: 55 },
+
+  // Leadership
+  { name: "Sovereign Presence", description: "Walk into any room and own it. Presence that reshapes the atmosphere.", category: "Leadership", energy_type: "Haki", tier: 5, proficiency: 72 },
+  { name: "Team Building", description: "Identify talent, assign roles, build culture, maximize output.", category: "Leadership", energy_type: "Aura", tier: 3, proficiency: 55 },
+  { name: "Decision Making", description: "Make high-stakes decisions quickly with incomplete information.", category: "Leadership", energy_type: "Haki", tier: 4, proficiency: 68 },
+  { name: "Mentorship", description: "Transfer knowledge and wisdom. Accelerate others' growth.", category: "Leadership", energy_type: "Aura", tier: 3, proficiency: 50 },
+];
+
+export function SkillsPage() {
+  const { skills, skillsLoading, createSkill, updateSkill, deleteSkill } = useAppData();
+  const { user } = useAuth();
+  const [showCreate, setShowCreate] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [catFilter, setCatFilter] = useState("all");
+  const [form, setForm] = useState({ name: "", description: "", category: "General", energy_type: "Emerald Flames", tier: 1, proficiency: 0, parent_skill_id: "" });
+  const [seeding, setSeeding] = useState(false);
+  const [expandedSkills, setExpandedSkills] = useState<Set<string>>(new Set());
+  const [expandedDetail, setExpandedDetail] = useState<string | null>(null);
+  const [confirmDeleteSkill, setConfirmDeleteSkill] = useState<{ id: string; label: string } | null>(null);
+
+  // ── Skill Chains ─────────────────────────────────────────
+  const [skillChains, setSkillChains] = useState<any[]>([]);
+  const [skillChainsPanelOpen, setSkillChainsPanelOpen] = useState(true);
+  const [skillChainsLoading, setSkillChainsLoading] = useState(false);
+
+  const loadSkillChains = useCallback(async () => {
+    if (!user) return;
+    const { data: chains } = await (supabase as any)
+      .from("skill_chains")
+      .select("*")
+      .eq("user_id", user.id)
+      .order("created_at", { ascending: false });
+    if (!chains?.length) { setSkillChains([]); return; }
+    const chainIds = chains.map((c: any) => c.id);
+    const { data: items } = await (supabase as any)
+      .from("skill_chain_items")
+      .select("chain_id, skill_id, position")
+      .in("chain_id", chainIds)
+      .order("position", { ascending: true });
+    const itemsByChain: Record<string, any[]> = {};
+    for (const item of items ?? []) {
+      if (!itemsByChain[item.chain_id]) itemsByChain[item.chain_id] = [];
+      itemsByChain[item.chain_id].push(item);
+    }
+    setSkillChains(chains.map((c: any) => ({ ...c, items: (itemsByChain[c.id] ?? []).sort((a: any, b: any) => a.position - b.position) })));
+  }, [user]);
+
+  useEffect(() => { loadSkillChains(); }, [loadSkillChains]);
+
+  const autoLinkSkillChains = async () => {
+    if (!user) return;
+    const { data: { session } } = await (supabase as any).auth.getSession();
+    if (!session?.access_token) return;
+    setSkillChainsLoading(true);
+    try {
+      const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/mavis-chain-builder`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${session.access_token}` },
+        body: JSON.stringify({ userId: user.id, action: "auto_link_skill_chains" }),
+      });
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      await loadSkillChains();
+      toast.success(`Created ${data.chains_created} skill chain${data.chains_created !== 1 ? "s" : ""}`);
+      setSkillChainsPanelOpen(true);
+    } catch (e: any) {
+      toast.error(e.message ?? "Skill chain linking failed");
+    } finally {
+      setSkillChainsLoading(false);
+    }
+  };
+
+  // Auto-seed skills on first load
+  useEffect(() => {
+    if (!skillsLoading && skills.length === 0 && user && !seeding) {
+      setSeeding(true);
+      (async () => {
+        for (const s of DEFAULT_SKILLS) {
+          await createSkill({ ...s, unlocked: true, cost: 0, prerequisites: [], parent_skill_id: null });
+        }
+        setSeeding(false);
+      })();
+    }
+  }, [skillsLoading, skills.length, user]);
+
+  const parentSkills = skills.filter((s) => !s.parent_skill_id);
+  const getSubskills = (parentId: string) => skills.filter((s) => s.parent_skill_id === parentId);
+  const categories = ["all", ...Array.from(new Set(skills.map((s) => s.category)))];
+  const filtered = parentSkills.filter((s) => catFilter === "all" || s.category === catFilter);
+
+  const resetForm = () => { setForm({ name: "", description: "", category: "General", energy_type: "Emerald Flames", tier: 1, proficiency: 0, parent_skill_id: "" }); setEditingId(null); setShowCreate(false); };
+
+  const handleEdit = (s: any) => {
+    setForm({ name: s.name, description: s.description, category: s.category, energy_type: s.energy_type, tier: s.tier, proficiency: s.proficiency, parent_skill_id: s.parent_skill_id || "" });
+    setEditingId(s.id);
+    setShowCreate(true);
+  };
+
+  const handleAddSubskill = (parentId: string) => {
+    const parent = skills.find((s) => s.id === parentId);
+    resetForm();
+    setForm((f) => ({ ...f, category: parent?.category || "General", energy_type: parent?.energy_type || "Emerald Flames", parent_skill_id: parentId }));
+    setShowCreate(true);
+  };
+
+  const handleSave = async () => {
+    if (!form.name.trim()) return;
+    const payload = { ...form, tier: Number(form.tier), proficiency: Number(form.proficiency), parent_skill_id: form.parent_skill_id || null };
+    if (editingId) {
+      await updateSkill(editingId, payload);
+    } else {
+      await createSkill({ ...payload, unlocked: true, cost: 0, prerequisites: [] });
+    }
+    resetForm();
+  };
+
+  const toggleExpand = (id: string) => {
+    setExpandedSkills((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  };
+
+  if (skillsLoading || seeding) return (
+    <div className="space-y-5">
+      <div className="flex items-center justify-between border-b border-border pb-4">
+        <Skeleton className="h-5 w-24" />
+        <div className="flex gap-2">
+          <Skeleton className="h-8 w-28" />
+          <Skeleton className="h-8 w-24" />
+        </div>
+      </div>
+      {seeding && <p className="text-xs font-mono text-muted-foreground text-center py-2">Seeding skill trees...</p>}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        {[...Array(9)].map((_, i) => (
+          <div key={i} className="hud-border rounded-lg p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <Skeleton className="h-4 w-1/2" />
+              <Skeleton className="h-5 w-10 rounded-full" />
+            </div>
+            <Skeleton className="h-2 w-full rounded-full" />
+            <div className="flex items-center justify-between">
+              <Skeleton className="h-3 w-16" />
+              <Skeleton className="h-3 w-12" />
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="space-y-5">
+      <PageHeader title="Skill Trees" subtitle={`${skills.filter((s) => s.unlocked).length} / ${skills.length} skills unlocked`} icon={<Sparkles size={18} />}
+        actions={<button onClick={() => { resetForm(); setShowCreate(true); }} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono bg-primary/10 border border-primary/30 text-primary rounded"><Plus size={12} /> Add Skill</button>}
+      />
+
+      {/* Skill Chains */}
+      <HudCard className="border-cyan-500/20 bg-cyan-500/5">
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center gap-2">
+            <Link2 size={12} className="text-cyan-400" />
+            <span className="text-xs font-mono text-cyan-400 uppercase tracking-widest">Skill Chains</span>
+            {skillChains.length > 0 && (
+              <span className="text-xs font-mono text-muted-foreground">({skillChains.length})</span>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={autoLinkSkillChains}
+              disabled={skillChainsLoading}
+              className="flex items-center gap-1 px-2 py-1 text-xs font-mono text-cyan-400 border border-cyan-500/30 rounded hover:bg-cyan-500/10 transition-all disabled:opacity-50"
+            >
+              {skillChainsLoading ? <Loader2 size={9} className="animate-spin" /> : <Wand2 size={9} />}
+              {skillChainsLoading ? "Linking..." : "AI Generate"}
+            </button>
+            <button onClick={() => setSkillChainsPanelOpen((v) => !v)} className="text-muted-foreground hover:text-foreground transition-colors">
+              <ChevronRight size={12} className={`transition-transform ${skillChainsPanelOpen ? "rotate-90" : ""}`} />
+            </button>
+          </div>
+        </div>
+        {skillChainsPanelOpen && (
+          skillChains.length === 0 ? (
+            <p className="text-xs font-mono text-muted-foreground text-center py-2">
+              No chains yet — click "AI Generate" to let MAVIS detect skill progression paths
+            </p>
+          ) : (
+            <div className="space-y-3">
+              {skillChains.map((chain: any) => (
+                <div key={chain.id} className="space-y-1.5">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-display font-bold text-foreground">{chain.title}</span>
+                    {chain.category && (
+                      <span className="text-xs font-mono text-cyan-400/70 border border-cyan-500/20 rounded px-1.5 py-0.5">{chain.category}</span>
+                    )}
+                  </div>
+                  {chain.description && (
+                    <p className="text-xs font-body text-muted-foreground leading-relaxed">{chain.description}</p>
+                  )}
+                  <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
+                    {(chain.items ?? []).map((item: any, idx: number) => {
+                      const s = skills.find((sx: any) => sx.id === item.skill_id);
+                      if (!s) return null;
+                      const prof = Number(s.proficiency ?? 0);
+                      const isMastered = prof >= 80;
+                      const isLearning = prof > 0 && prof < 80;
+                      return (
+                        <div key={item.skill_id} className="flex items-center gap-1.5 shrink-0">
+                          {idx > 0 && <ChevronRight size={10} className="text-cyan-500/40 shrink-0" />}
+                          <div className={`rounded px-2 py-1.5 border text-xs font-mono shrink-0 min-w-[80px] max-w-[130px] ${
+                            isMastered ? "bg-green-500/10 border-green-500/30 text-green-400" :
+                            isLearning ? "bg-cyan-500/10 border-cyan-500/30 text-cyan-400" :
+                            "bg-muted/10 border-border/30 text-muted-foreground"
+                          }`}>
+                            <div className="truncate font-bold">{s.name}</div>
+                            <div className="text-xs opacity-70 mt-0.5">
+                              {isMastered ? "✓ Mastered" : isLearning ? `${prof}%` : "○ Locked"} · T{s.tier}
+                            </div>
+                            <div className={`h-0.5 rounded mt-1 ${isMastered ? "bg-green-400" : "bg-cyan-500/30"}`} style={{ width: `${prof}%` }} />
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )
+        )}
+      </HudCard>
+
+      {showCreate && !editingId && (
+        <HudCard className="border-primary/20">
+          <p className="text-xs font-mono text-primary uppercase tracking-widest mb-3">{form.parent_skill_id ? "New Subskill" : "New Skill"}</p>
+          <div className="space-y-2">
+            <div className="grid grid-cols-2 gap-2">
+              <input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} placeholder="Skill name" className="bg-muted/30 border border-border rounded px-3 py-1.5 text-sm focus:outline-none focus:border-primary/40" />
+              <input value={form.category} onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))} placeholder="Category" className="bg-muted/30 border border-border rounded px-3 py-1.5 text-sm focus:outline-none" />
+            </div>
+            <textarea value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))} placeholder="Description..." rows={2} className="w-full bg-muted/30 border border-border rounded px-3 py-1.5 text-sm resize-none focus:outline-none" />
+            <div className="grid grid-cols-3 gap-2">
+              <input value={form.energy_type} onChange={(e) => setForm((f) => ({ ...f, energy_type: e.target.value }))} placeholder="Energy type" className="bg-muted/30 border border-border rounded px-3 py-1.5 text-xs font-mono focus:outline-none" />
+              <input type="number" value={form.tier} onChange={(e) => setForm((f) => ({ ...f, tier: Number(e.target.value) }))} placeholder="Tier" className="bg-muted/30 border border-border rounded px-3 py-1.5 text-xs font-mono focus:outline-none" min={1} max={10} />
+              <input type="number" value={form.proficiency} onChange={(e) => setForm((f) => ({ ...f, proficiency: Number(e.target.value) }))} placeholder="Proficiency %" className="bg-muted/30 border border-border rounded px-3 py-1.5 text-xs font-mono focus:outline-none" min={0} max={100} />
+            </div>
+            <div>
+              <p className="text-xs font-mono text-muted-foreground uppercase mb-1">Parent Skill (leave empty for top-level)</p>
+              <select value={form.parent_skill_id} onChange={(e) => setForm((f) => ({ ...f, parent_skill_id: e.target.value }))} className="w-full bg-muted/30 border border-border rounded px-2 py-1.5 text-xs font-mono focus:outline-none">
+                <option value="">None (Top-level skill)</option>
+                {parentSkills.map((s) => <option key={s.id} value={s.id}>{s.name} ({s.category})</option>)}
+              </select>
+            </div>
+            <div className="flex gap-2 justify-end">
+              <button onClick={resetForm} className="px-3 py-1.5 text-xs font-mono text-muted-foreground border border-border rounded">Cancel</button>
+              <button onClick={handleSave} className="px-3 py-1.5 text-xs font-mono bg-primary/10 border border-primary/30 text-primary rounded">Unlock</button>
+            </div>
+          </div>
+        </HudCard>
+      )}
+      <div className="flex gap-1.5 flex-wrap">
+        {categories.map((c) => (
+          <button key={c} onClick={() => setCatFilter(c)} className={`px-2 py-1 text-xs font-mono uppercase rounded border transition-all ${catFilter === c ? "bg-primary/10 border-primary/30 text-primary" : "border-border/50 text-muted-foreground"}`}>{c}</button>
+        ))}
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        {filtered.map((s) => {
+          const subs = getSubskills(s.id);
+          const isExpanded = expandedSkills.has(s.id);
+
+          if (editingId === s.id) {
+            return (
+              <div key={s.id} className="sm:col-span-2">
+                <HudCard className="border-primary/20">
+                  <p className="text-xs font-mono text-primary uppercase tracking-widest mb-3">Edit Skill: {s.name}</p>
+                  <div className="space-y-2">
+                    <div className="grid grid-cols-2 gap-2">
+                      <input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} placeholder="Skill name" className="bg-muted/30 border border-border rounded px-3 py-1.5 text-sm focus:outline-none focus:border-primary/40" />
+                      <input value={form.category} onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))} placeholder="Category" className="bg-muted/30 border border-border rounded px-3 py-1.5 text-sm focus:outline-none" />
+                    </div>
+                    <textarea value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))} placeholder="Description..." rows={2} className="w-full bg-muted/30 border border-border rounded px-3 py-1.5 text-sm resize-none focus:outline-none" />
+                    <div className="grid grid-cols-3 gap-2">
+                      <input value={form.energy_type} onChange={(e) => setForm((f) => ({ ...f, energy_type: e.target.value }))} placeholder="Energy type" className="bg-muted/30 border border-border rounded px-3 py-1.5 text-xs font-mono focus:outline-none" />
+                      <input type="number" value={form.tier} onChange={(e) => setForm((f) => ({ ...f, tier: Number(e.target.value) }))} placeholder="Tier" className="bg-muted/30 border border-border rounded px-3 py-1.5 text-xs font-mono focus:outline-none" min={1} max={10} />
+                      <input type="number" value={form.proficiency} onChange={(e) => setForm((f) => ({ ...f, proficiency: Number(e.target.value) }))} placeholder="Proficiency %" className="bg-muted/30 border border-border rounded px-3 py-1.5 text-xs font-mono focus:outline-none" min={0} max={100} />
+                    </div>
+                    <div className="flex gap-2 justify-end">
+                      <button onClick={resetForm} className="px-3 py-1.5 text-xs font-mono text-muted-foreground border border-border rounded">Cancel</button>
+                      <button onClick={handleSave} className="px-3 py-1.5 text-xs font-mono bg-primary/10 border border-primary/30 text-primary rounded">Save</button>
+                    </div>
+                  </div>
+                </HudCard>
+              </div>
+            );
+          }
+
+          return (
+             <div key={s.id} className="space-y-1">
+              <HudCard className={`cursor-pointer transition-all ${s.unlocked ? "" : "opacity-50"} ${expandedDetail === s.id ? "ring-1 ring-primary/30" : ""}`} onClick={() => setExpandedDetail(expandedDetail === s.id ? null : s.id)}>
+                <div className="flex items-start gap-3">
+                  <div className="w-8 h-8 rounded border border-primary/20 bg-primary/5 flex items-center justify-center shrink-0">
+                    <Star size={14} className="text-primary" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <p className="text-sm font-display font-bold">{s.name}</p>
+                      <span className="text-xs font-mono text-muted-foreground border border-border rounded px-1.5 py-0.5">T{s.tier}</span>
+                      {subs.length > 0 && (
+                        <button onClick={(e) => { e.stopPropagation(); toggleExpand(s.id); }} className="text-xs font-mono text-primary/60 hover:text-primary transition-colors">
+                          {isExpanded ? "▾" : "▸"} {subs.length} sub
+                        </button>
+                      )}
+                    </div>
+                    <p className="text-xs font-mono text-primary/60">{s.energy_type}</p>
+                    {s.description && <p className={`text-xs font-body text-muted-foreground mt-1 ${expandedDetail === s.id ? "" : "line-clamp-2"}`}>{s.description}</p>}
+                    {expandedDetail === s.id && (
+                      <div className="mt-2 space-y-1 text-xs font-mono text-muted-foreground">
+                        <p><span className="text-muted-foreground">Category:</span> {s.category}</p>
+                        <p><span className="text-muted-foreground">Energy:</span> {s.energy_type}</p>
+                        <p><span className="text-muted-foreground">Tier:</span> {s.tier}</p>
+                        <p><span className="text-muted-foreground">Proficiency:</span> {s.proficiency}%</p>
+                        <p><span className="text-muted-foreground">Status:</span> {s.unlocked ? "Unlocked" : "Locked"}</p>
+                      </div>
+                    )}
+                    {s.proficiency > 0 && (
+                      <div className="mt-1.5">
+                        <ProgressBar value={s.proficiency} max={100} height="xs" label={`${s.proficiency}% proficiency`} />
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex flex-col gap-1 shrink-0">
+                    <button onClick={(e) => { e.stopPropagation(); handleAddSubskill(s.id); }} className="p-1 text-muted-foreground hover:text-primary transition-colors" title="Add subskill"><Plus size={12} /></button>
+                    <button onClick={(e) => { e.stopPropagation(); handleEdit(s); }} className="p-1 text-muted-foreground hover:text-primary transition-colors"><Edit2 size={12} /></button>
+                    <button onClick={(e) => { e.stopPropagation(); setConfirmDeleteSkill({ id: s.id, label: s.name }); }} className="p-1 text-muted-foreground hover:text-destructive transition-colors"><Trash2 size={12} /></button>
+                  </div>
+                </div>
+              </HudCard>
+              {/* Subskills */}
+              {isExpanded && subs.map((sub) => (
+                <div key={sub.id} className="ml-6">
+                  {editingId === sub.id ? (
+                    <HudCard className="border-primary/20">
+                      <p className="text-xs font-mono text-primary uppercase tracking-widest mb-3">Edit Subskill: {sub.name}</p>
+                      <div className="space-y-2">
+                        <div className="grid grid-cols-2 gap-2">
+                          <input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} placeholder="Skill name" className="bg-muted/30 border border-border rounded px-3 py-1.5 text-sm focus:outline-none focus:border-primary/40" />
+                          <input value={form.category} onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))} placeholder="Category" className="bg-muted/30 border border-border rounded px-3 py-1.5 text-sm focus:outline-none" />
+                        </div>
+                        <textarea value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))} placeholder="Description..." rows={2} className="w-full bg-muted/30 border border-border rounded px-3 py-1.5 text-sm resize-none focus:outline-none" />
+                        <div className="grid grid-cols-3 gap-2">
+                          <input value={form.energy_type} onChange={(e) => setForm((f) => ({ ...f, energy_type: e.target.value }))} placeholder="Energy type" className="bg-muted/30 border border-border rounded px-3 py-1.5 text-xs font-mono focus:outline-none" />
+                          <input type="number" value={form.tier} onChange={(e) => setForm((f) => ({ ...f, tier: Number(e.target.value) }))} placeholder="Tier" className="bg-muted/30 border border-border rounded px-3 py-1.5 text-xs font-mono focus:outline-none" min={1} max={10} />
+                          <input type="number" value={form.proficiency} onChange={(e) => setForm((f) => ({ ...f, proficiency: Number(e.target.value) }))} placeholder="Proficiency %" className="bg-muted/30 border border-border rounded px-3 py-1.5 text-xs font-mono focus:outline-none" min={0} max={100} />
+                        </div>
+                        <div className="flex gap-2 justify-end">
+                          <button onClick={resetForm} className="px-3 py-1.5 text-xs font-mono text-muted-foreground border border-border rounded">Cancel</button>
+                          <button onClick={handleSave} className="px-3 py-1.5 text-xs font-mono bg-primary/10 border border-primary/30 text-primary rounded">Save</button>
+                        </div>
+                      </div>
+                    </HudCard>
+                  ) : (
+                  <HudCard className={`border-l-2 border-primary/20 cursor-pointer transition-all ${expandedDetail === sub.id ? "ring-1 ring-primary/30" : ""}`} onClick={() => setExpandedDetail(expandedDetail === sub.id ? null : sub.id)}>
+                    <div className="flex items-start gap-2">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <p className="text-xs font-display font-bold">{sub.name}</p>
+                          <span className="text-xs font-mono text-muted-foreground border border-border rounded px-1 py-0.5">T{sub.tier}</span>
+                        </div>
+                        <p className="text-xs font-mono text-primary/60">{sub.energy_type}</p>
+                        {sub.description && <p className={`text-xs font-body text-muted-foreground mt-0.5 ${expandedDetail === sub.id ? "" : "line-clamp-2"}`}>{sub.description}</p>}
+                        {expandedDetail === sub.id && (
+                          <div className="mt-1.5 space-y-0.5 text-xs font-mono text-muted-foreground">
+                            <p><span className="text-muted-foreground">Category:</span> {sub.category}</p>
+                            <p><span className="text-muted-foreground">Energy:</span> {sub.energy_type}</p>
+                            <p><span className="text-muted-foreground">Tier:</span> {sub.tier}</p>
+                            <p><span className="text-muted-foreground">Proficiency:</span> {sub.proficiency}%</p>
+                          </div>
+                        )}
+                        {sub.proficiency > 0 && <ProgressBar value={sub.proficiency} max={100} height="xs" label={`${sub.proficiency}%`} />}
+                      </div>
+                      <div className="flex flex-col gap-0.5 shrink-0">
+                        <button onClick={(e) => { e.stopPropagation(); handleEdit(sub); }} className="p-0.5 text-muted-foreground hover:text-primary transition-colors"><Edit2 size={10} /></button>
+                        <button onClick={(e) => { e.stopPropagation(); setConfirmDeleteSkill({ id: sub.id, label: sub.name }); }} className="p-0.5 text-muted-foreground hover:text-destructive transition-colors"><Trash2 size={10} /></button>
+                      </div>
+                    </div>
+                  </HudCard>
+                  )}
+                </div>
+              ))}
+            </div>
+          );
+        })}
+        {filtered.length === 0 && <p className="text-xs font-mono text-muted-foreground text-center py-8 col-span-2">No skills — unlock your first ability.</p>}
+      </div>
+      <ConfirmDialog
+        open={confirmDeleteSkill !== null}
+        title={`Delete "${confirmDeleteSkill?.label}"?`}
+        description="This action cannot be undone."
+        onConfirm={() => {
+          if (!confirmDeleteSkill) return;
+          deleteSkill(confirmDeleteSkill.id);
+          setConfirmDeleteSkill(null);
+        }}
+        onCancel={() => setConfirmDeleteSkill(null)}
+      />
+    </div>
+  );
+}
+
+// ─── InventoryPage ─────────────────────────────────────────
+export function InventoryPage() {
+  const { inventory, inventoryLoading, createInventoryItem, updateInventoryItem, deleteInventoryItem, refetchInventory } = useAppData();
+  const [showCreate, setShowCreate] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [typeFilter, setTypeFilter] = useState("all");
+  const [form, setForm] = useState({ name: "", description: "", type: "equipment", rarity: "common", quantity: 1, effect: "", stat_effects: "" });
+  const [confirmDeleteItem, setConfirmDeleteItem] = useState<{ id: string; label: string } | null>(null);
+
+  const parseStatEffects = (str: string): { label: string; value: number; unit: string }[] => {
+    if (!str.trim()) return [];
+    return str.split(",").flatMap((token) => {
+      const m = token.trim().match(/^([A-Z]+)\s*([+-]?\d+)(%?)$/i);
+      if (!m) return [];
+      return [{ label: m[1].toUpperCase(), value: Number(m[2]), unit: m[3] || "" }];
+    });
+  };
+  const serializeStatEffects = (effects: { label: string; value: number; unit: string }[]): string =>
+    effects.map((e) => `${e.label} ${e.value >= 0 ? "+" : ""}${e.value}${e.unit}`).join(", ");
+
+  useEffect(() => {
+    void refetchInventory();
+  }, [refetchInventory]);
+
+  const EQUIPPABLE = new Set(["equipment", "weapon", "artifact"]);
+  const types = ["all", "equipment", "weapon", "artifact", "consumable", "material"];
+  const filtered = inventory.filter((i) => typeFilter === "all" || i.type === typeFilter);
+  const equipped = inventory.filter((i) => i.is_equipped);
+
+  const handleEquip = async (item: any) => {
+    const next = !item.is_equipped;
+    await updateInventoryItem(item.id, { is_equipped: next });
+    toast.success(next ? `${item.name} equipped` : `${item.name} unequipped`);
+  };
+
+  const resetForm = () => { setForm({ name: "", description: "", type: "equipment", rarity: "common", quantity: 1, effect: "", stat_effects: "" }); setEditingId(null); setShowCreate(false); };
+
+  const handleEdit = (item: any) => {
+    setForm({ name: item.name, description: item.description, type: item.type, rarity: item.rarity, quantity: item.quantity, effect: item.effect || "", stat_effects: serializeStatEffects(Array.isArray(item.stat_effects) ? item.stat_effects : []) });
+    setEditingId(item.id);
+    setShowCreate(true);
+  };
+
+  const handleSave = async () => {
+    if (!form.name.trim()) return;
+    const statEffects = parseStatEffects(form.stat_effects);
+    if (editingId) {
+      await updateInventoryItem(editingId, { ...form, quantity: Number(form.quantity), effect: form.effect || null, stat_effects: statEffects });
+    } else {
+      await createInventoryItem({ ...form, quantity: Number(form.quantity), effect: form.effect || null, slot: null, tier: null, stat_effects: statEffects, is_equipped: false });
+    }
+    resetForm();
+  };
+
+  if (inventoryLoading) return (
+    <div className="space-y-5">
+      <div className="flex items-center justify-between border-b border-border pb-4">
+        <Skeleton className="h-5 w-24" />
+        <Skeleton className="h-8 w-24" />
+      </div>
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+        {[...Array(8)].map((_, i) => (
+          <div key={i} className="hud-border rounded-lg p-3 space-y-2">
+            <Skeleton className="h-12 w-12 rounded mx-auto" />
+            <Skeleton className="h-3 w-3/4 mx-auto" />
+            <Skeleton className="h-3 w-1/2 mx-auto" />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="space-y-5">
+      <PageHeader title="Inventory" subtitle={`${inventory.length} items — ${inventory.filter((i) => i.is_equipped).length} equipped`} icon={<Package size={18} />}
+        actions={<button onClick={() => { resetForm(); setShowCreate(true); }} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono bg-primary/10 border border-primary/30 text-primary rounded"><Plus size={12} /> Add Item</button>}
+      />
+      {showCreate && !editingId && (
+        <HudCard className="border-primary/20">
+          <p className="text-xs font-mono text-primary uppercase tracking-widest mb-3">New Item</p>
+          <div className="space-y-2">
+            <div className="grid grid-cols-2 gap-2">
+              <input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} placeholder="Item name" className="bg-muted/30 border border-border rounded px-3 py-1.5 text-sm focus:outline-none focus:border-primary/40" />
+              <input type="number" value={form.quantity} onChange={(e) => setForm((f) => ({ ...f, quantity: Number(e.target.value) }))} placeholder="Qty" className="bg-muted/30 border border-border rounded px-3 py-1.5 text-sm focus:outline-none" min={1} />
+              <select value={form.type} onChange={(e) => setForm((f) => ({ ...f, type: e.target.value }))} className="bg-muted/30 border border-border rounded px-2 py-1.5 text-xs font-mono focus:outline-none">
+                {["equipment", "weapon", "artifact", "consumable", "material"].map((t) => <option key={t}>{t}</option>)}
+              </select>
+              <select value={form.rarity} onChange={(e) => setForm((f) => ({ ...f, rarity: e.target.value }))} className="bg-muted/30 border border-border rounded px-2 py-1.5 text-xs font-mono focus:outline-none">
+                {["common", "rare", "epic", "legendary", "mythic"].map((r) => <option key={r}>{r}</option>)}
+              </select>
+            </div>
+            <input value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))} placeholder="Description" className="w-full bg-muted/30 border border-border rounded px-3 py-1.5 text-sm focus:outline-none" />
+            <input value={form.effect} onChange={(e) => setForm((f) => ({ ...f, effect: e.target.value }))} placeholder="Effect description" className="w-full bg-muted/30 border border-border rounded px-3 py-1.5 text-xs font-mono focus:outline-none" />
+            <input value={form.stat_effects} onChange={(e) => setForm((f) => ({ ...f, stat_effects: e.target.value }))} placeholder="Stat bonuses: STR +5, VIT +3, INT -2" className="w-full bg-muted/30 border border-border rounded px-3 py-1.5 text-xs font-mono focus:outline-none focus:border-primary/40" />
+            <div className="flex gap-2 justify-end">
+              <button onClick={resetForm} className="px-3 py-1.5 text-xs font-mono text-muted-foreground border border-border rounded">Cancel</button>
+              <button onClick={handleSave} className="px-3 py-1.5 text-xs font-mono bg-primary/10 border border-primary/30 text-primary rounded">Add</button>
+            </div>
+          </div>
+        </HudCard>
+      )}
+
+      {/* Equipped loadout */}
+      {equipped.length > 0 && (
+        <HudCard className="border-primary/20">
+          <p className="text-xs font-mono text-primary uppercase tracking-widest mb-2 flex items-center gap-1.5">
+            <Shield size={10} /> Equipped Loadout ({equipped.length})
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {equipped.map((item) => {
+              const effects = Array.isArray(item.stat_effects) ? (item.stat_effects as { label: string; value: number; unit: string }[]) : [];
+              return (
+                <div key={item.id} className="flex items-start gap-1.5 px-2 py-1.5 rounded border border-primary/30 bg-primary/5">
+                  <div className="flex-1">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-xs font-display font-semibold text-primary">{item.name}</span>
+                      <span className="text-xs font-mono text-muted-foreground">{item.type}</span>
+                    </div>
+                    {effects.length > 0 && (
+                      <div className="flex gap-1 flex-wrap mt-0.5">
+                        {effects.map((eff, i) => (
+                          <span key={i} className={`text-xs font-mono ${eff.value >= 0 ? "text-green-400" : "text-red-400"}`}>
+                            {eff.label}{eff.value >= 0 ? "+" : ""}{eff.value}{eff.unit}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  <button onClick={() => handleEquip(item)} className="text-muted-foreground hover:text-destructive transition-colors mt-0.5" title="Unequip">
+                    <X size={10} />
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        </HudCard>
+      )}
+
+      <div className="flex gap-1.5 flex-wrap">
+        {types.map((t) => (
+          <button key={t} onClick={() => setTypeFilter(t)} className={`px-2 py-1 text-xs font-mono uppercase rounded border transition-all ${typeFilter === t ? "bg-primary/10 border-primary/30 text-primary" : "border-border/50 text-muted-foreground"}`}>{t}</button>
+        ))}
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+        {filtered.map((item) => {
+          const isExpanded = expandedId === item.id;
+
+          if (editingId === item.id) {
+            return (
+              <HudCard key={item.id} className="border-primary/20 sm:col-span-2 lg:col-span-3">
+                <p className="text-xs font-mono text-primary uppercase tracking-widest mb-3">Edit Item</p>
+                <div className="space-y-2">
+                  <div className="grid grid-cols-2 gap-2">
+                    <input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} placeholder="Item name" className="bg-muted/30 border border-border rounded px-3 py-1.5 text-sm focus:outline-none focus:border-primary/40" />
+                    <input type="number" value={form.quantity} onChange={(e) => setForm((f) => ({ ...f, quantity: Number(e.target.value) }))} placeholder="Qty" className="bg-muted/30 border border-border rounded px-3 py-1.5 text-sm focus:outline-none" min={1} />
+                    <select value={form.type} onChange={(e) => setForm((f) => ({ ...f, type: e.target.value }))} className="bg-muted/30 border border-border rounded px-2 py-1.5 text-xs font-mono focus:outline-none">
+                      {["equipment", "consumable", "material", "artifact"].map((t) => <option key={t}>{t}</option>)}
+                    </select>
+                    <select value={form.rarity} onChange={(e) => setForm((f) => ({ ...f, rarity: e.target.value }))} className="bg-muted/30 border border-border rounded px-2 py-1.5 text-xs font-mono focus:outline-none">
+                      {["common", "rare", "epic", "legendary", "mythic"].map((r) => <option key={r}>{r}</option>)}
+                    </select>
+                  </div>
+                  <input value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))} placeholder="Description" className="w-full bg-muted/30 border border-border rounded px-3 py-1.5 text-sm focus:outline-none" />
+                  <input value={form.effect} onChange={(e) => setForm((f) => ({ ...f, effect: e.target.value }))} placeholder="Effect description" className="w-full bg-muted/30 border border-border rounded px-3 py-1.5 text-xs font-mono focus:outline-none" />
+                  <input value={form.stat_effects} onChange={(e) => setForm((f) => ({ ...f, stat_effects: e.target.value }))} placeholder="Stat bonuses: STR +5, VIT +3, INT -2" className="w-full bg-muted/30 border border-border rounded px-3 py-1.5 text-xs font-mono focus:outline-none focus:border-primary/40" />
+                  <div className="flex gap-2 justify-end">
+                    <button onClick={resetForm} className="px-3 py-1.5 text-xs font-mono text-muted-foreground border border-border rounded">Cancel</button>
+                    <button onClick={handleSave} className="px-3 py-1.5 text-xs font-mono bg-primary/10 border border-primary/30 text-primary rounded">Save</button>
+                  </div>
+                </div>
+              </HudCard>
+            );
+          }
+
+          return (
+          <HudCard key={item.id} className={`cursor-pointer transition-all ${item.is_equipped ? "border-primary/30" : ""} ${isExpanded ? "border-primary/30" : ""}`}>
+            <div onClick={() => setExpandedId(isExpanded ? null : item.id)}>
+              <div className="flex items-start justify-between gap-2">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-1.5 flex-wrap mb-1">
+                    <p className="text-sm font-display font-bold">{item.name}</p>
+                    {item.is_equipped && <span className="text-xs font-mono text-primary border border-primary/30 rounded px-1">EQUIPPED</span>}
+                  </div>
+                  <RarityBadge rarity={item.rarity} />
+                  {item.description && <p className={`text-xs font-body text-muted-foreground mt-1 ${isExpanded ? "" : "line-clamp-2"}`}>{item.description}</p>}
+                  {item.effect && <p className="text-xs font-mono text-primary/60 mt-0.5">{item.effect}</p>}
+                  {isExpanded && (
+                    <div className="mt-2 space-y-1 border-t border-border/30 pt-2 text-xs font-mono">
+                      <div><span className="text-muted-foreground">Type:</span> <span className="text-foreground">{item.type}</span></div>
+                      <div><span className="text-muted-foreground">Rarity:</span> <span className="text-foreground">{item.rarity}</span></div>
+                      <div><span className="text-muted-foreground">Quantity:</span> <span className="text-foreground">{item.quantity}</span></div>
+                      {item.slot && <div><span className="text-muted-foreground">Slot:</span> <span className="text-foreground">{item.slot}</span></div>}
+                      {item.tier && <div><span className="text-muted-foreground">Tier:</span> <span className="text-foreground">{item.tier}</span></div>}
+                      <div><span className="text-muted-foreground">Obtained:</span> <span className="text-foreground">{new Date(item.obtained_at).toLocaleString()}</span></div>
+                      {Array.isArray(item.stat_effects) && item.stat_effects.length > 0 && (
+                        <div className="pt-1">
+                          <span className="text-muted-foreground block mb-1">Stat Effects:</span>
+                          <div className="flex gap-1.5 flex-wrap">
+                            {(item.stat_effects as { label: string; value: number; unit: string }[]).map((eff, idx) => (
+                              <span key={idx} className={`px-1.5 py-0.5 rounded border text-xs font-mono ${eff.value >= 0 ? "text-green-400 border-green-500/30 bg-green-500/5" : "text-red-400 border-red-500/30 bg-red-500/5"}`}>
+                                {eff.label} {eff.value >= 0 ? "+" : ""}{eff.value}{eff.unit}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  {!isExpanded && (
+                    <p className="text-xs font-mono text-muted-foreground mt-1">
+                      {item.type} {item.quantity > 1 ? `× ${item.quantity}` : ""}
+                    </p>
+                  )}
+                </div>
+                <div className="flex flex-col gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
+                  {EQUIPPABLE.has(item.type) && (
+                    <button
+                      onClick={() => handleEquip(item)}
+                      className={`p-1 transition-colors ${item.is_equipped ? "text-primary hover:text-primary/60" : "text-muted-foreground hover:text-primary"}`}
+                      title={item.is_equipped ? "Unequip" : "Equip"}
+                    >
+                      {item.is_equipped ? <ShieldOff size={12} /> : <Shield size={12} />}
+                    </button>
+                  )}
+                  <button onClick={() => handleEdit(item)} className="p-1 text-muted-foreground hover:text-primary transition-colors"><Edit2 size={12} /></button>
+                  <button onClick={() => setConfirmDeleteItem({ id: item.id, label: item.name })} className="p-1 text-muted-foreground hover:text-destructive transition-colors"><Trash2 size={12} /></button>
+                </div>
+              </div>
+            </div>
+          </HudCard>
+          );
+        })}
+        {filtered.length === 0 && <p className="text-xs font-mono text-muted-foreground text-center py-8 col-span-3">Inventory empty.</p>}
+      </div>
+      <ConfirmDialog
+        open={confirmDeleteItem !== null}
+        title={`Delete "${confirmDeleteItem?.label}"?`}
+        description="This action cannot be undone."
+        onConfirm={() => {
+          if (!confirmDeleteItem) return;
+          deleteInventoryItem(confirmDeleteItem.id);
+          setConfirmDeleteItem(null);
+        }}
+        onCancel={() => setConfirmDeleteItem(null)}
+      />
+    </div>
+  );
+}
+
+// ─── DomainPage ────────────────────────────────────────────
+const EFFECT_TYPE_COLORS: Record<string, string> = {
+  domain:        "text-violet-400 border-violet-500/30 bg-violet-500/5",
+  curse:         "text-red-400 border-red-500/30 bg-red-500/5",
+  terrain:       "text-amber-400 border-amber-500/30 bg-amber-500/5",
+  environmental: "text-blue-400 border-blue-500/30 bg-blue-500/5",
+  aura:          "text-green-400 border-green-500/30 bg-green-500/5",
+  zone:          "text-cyan-400 border-cyan-500/30 bg-cyan-500/5",
+};
+const EFFECT_TYPES = ["domain", "curse", "terrain", "environmental", "aura", "zone"] as const;
+
+export function DomainPage() {
+  const { domainEffects, domainEffectsLoading, createDomainEffect, updateDomainEffect, deleteDomainEffect, refetchDomainEffects } = useAppData();
+  const [showCreate, setShowCreate] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [form, setForm] = useState({ name: "", description: "", effect_type: "domain", stat_modifiers: "", area_effects: "", source: "", expires_at: "", is_active: true });
+  const [confirmDelete, setConfirmDelete] = useState<{ id: string; label: string } | null>(null);
+
+  useEffect(() => { void refetchDomainEffects(); }, [refetchDomainEffects]);
+
+  const parseModifiers = (str: string): { label: string; value: number; unit: string }[] => {
+    if (!str.trim()) return [];
+    return str.split(",").flatMap((token) => {
+      const m = token.trim().match(/^([A-Z]+)\s*([+-]?\d+)(%?)$/i);
+      if (!m) return [];
+      return [{ label: m[1].toUpperCase(), value: Number(m[2]), unit: m[3] || "" }];
+    });
+  };
+  const serializeModifiers = (mods: { label: string; value: number; unit: string }[]): string =>
+    mods.map((m) => `${m.label} ${m.value >= 0 ? "+" : ""}${m.value}${m.unit}`).join(", ");
+
+  const resetForm = () => {
+    setForm({ name: "", description: "", effect_type: "domain", stat_modifiers: "", area_effects: "", source: "", expires_at: "", is_active: true });
+    setEditingId(null);
+    setShowCreate(false);
+  };
+
+  const handleEdit = (ef: any) => {
+    setForm({
+      name: ef.name,
+      description: ef.description || "",
+      effect_type: ef.effect_type,
+      stat_modifiers: serializeModifiers(Array.isArray(ef.stat_modifiers) ? ef.stat_modifiers : []),
+      area_effects: Array.isArray(ef.area_effects) ? ef.area_effects.join(", ") : "",
+      source: ef.source || "",
+      expires_at: ef.expires_at ? ef.expires_at.slice(0, 16) : "",
+      is_active: ef.is_active,
+    });
+    setEditingId(ef.id);
+    setShowCreate(true);
+  };
+
+  const handleSave = async () => {
+    if (!form.name.trim()) return;
+    const stat_modifiers = parseModifiers(form.stat_modifiers);
+    const area_effects = form.area_effects.split(",").map((s) => s.trim()).filter(Boolean);
+    const payload = {
+      name: form.name,
+      description: form.description || null,
+      effect_type: form.effect_type,
+      stat_modifiers,
+      area_effects,
+      source: form.source || null,
+      expires_at: form.expires_at ? new Date(form.expires_at).toISOString() : null,
+      is_active: form.is_active,
+    };
+    if (editingId) {
+      await updateDomainEffect(editingId, payload);
+    } else {
+      await createDomainEffect(payload);
+    }
+    resetForm();
+  };
+
+  const handleToggle = async (ef: any) => {
+    await updateDomainEffect(ef.id, { is_active: !ef.is_active });
+  };
+
+  const active = domainEffects.filter((e) => e.is_active);
+  const inactive = domainEffects.filter((e) => !e.is_active);
+
+  if (domainEffectsLoading) return <div className="flex items-center justify-center h-40"><Loader2 className="animate-spin text-primary" size={24} /></div>;
+
+  const EffectForm = () => (
+    <HudCard className="border-primary/20">
+      <p className="text-xs font-mono text-primary uppercase tracking-widest mb-3">{editingId ? "Edit Effect" : "New Effect"}</p>
+      <div className="space-y-2">
+        <div className="grid grid-cols-2 gap-2">
+          <input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} placeholder="Effect name" className="bg-muted/30 border border-border rounded px-3 py-1.5 text-sm focus:outline-none focus:border-primary/40" />
+          <select value={form.effect_type} onChange={(e) => setForm((f) => ({ ...f, effect_type: e.target.value }))} className="bg-muted/30 border border-border rounded px-2 py-1.5 text-xs font-mono focus:outline-none">
+            {EFFECT_TYPES.map((t) => <option key={t}>{t}</option>)}
+          </select>
+        </div>
+        <textarea value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))} placeholder="Description..." rows={2} className="w-full bg-muted/30 border border-border rounded px-3 py-1.5 text-sm resize-none focus:outline-none" />
+        <input value={form.stat_modifiers} onChange={(e) => setForm((f) => ({ ...f, stat_modifiers: e.target.value }))} placeholder="Stat modifiers: STR -10, AGI +5, VIT -20%" className="w-full bg-muted/30 border border-border rounded px-3 py-1.5 text-xs font-mono focus:outline-none focus:border-primary/40" />
+        <input value={form.area_effects} onChange={(e) => setForm((f) => ({ ...f, area_effects: e.target.value }))} placeholder="Area effects (comma-separated): gravity doubled, invisibility nullified" className="w-full bg-muted/30 border border-border rounded px-3 py-1.5 text-xs font-mono focus:outline-none" />
+        <div className="grid grid-cols-2 gap-2">
+          <input value={form.source} onChange={(e) => setForm((f) => ({ ...f, source: e.target.value }))} placeholder="Source (who applied it)" className="bg-muted/30 border border-border rounded px-3 py-1.5 text-xs font-mono focus:outline-none" />
+          <input type="datetime-local" value={form.expires_at} onChange={(e) => setForm((f) => ({ ...f, expires_at: e.target.value }))} className="bg-muted/30 border border-border rounded px-3 py-1.5 text-xs font-mono focus:outline-none" />
+        </div>
+        <label className="flex items-center gap-2 text-xs font-mono text-muted-foreground cursor-pointer">
+          <input type="checkbox" checked={form.is_active} onChange={(e) => setForm((f) => ({ ...f, is_active: e.target.checked }))} className="rounded" />
+          Currently active
+        </label>
+        <div className="flex gap-2 justify-end">
+          <button onClick={resetForm} className="px-3 py-1.5 text-xs font-mono text-muted-foreground border border-border rounded">Cancel</button>
+          <button onClick={handleSave} className="px-3 py-1.5 text-xs font-mono bg-primary/10 border border-primary/30 text-primary rounded">{editingId ? "Save" : "Add"}</button>
+        </div>
+      </div>
+    </HudCard>
+  );
+
+  const EffectCard = ({ ef }: { ef: any }) => {
+    const mods = Array.isArray(ef.stat_modifiers) ? (ef.stat_modifiers as { label: string; value: number; unit: string }[]) : [];
+    const areaFx = Array.isArray(ef.area_effects) ? ef.area_effects as string[] : [];
+    const colorClass = EFFECT_TYPE_COLORS[ef.effect_type] ?? EFFECT_TYPE_COLORS.domain;
+    return (
+      <HudCard className={ef.is_active ? "border-primary/20" : "opacity-50"}>
+        <div className="flex items-start justify-between gap-2">
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 flex-wrap mb-1">
+              <p className="text-sm font-display font-bold">{ef.name}</p>
+              <span className={`text-xs font-mono px-1.5 py-0.5 rounded border ${colorClass}`}>{ef.effect_type.toUpperCase()}</span>
+              {ef.is_active
+                ? <span className="text-xs font-mono text-green-400 border border-green-500/30 rounded px-1">ACTIVE</span>
+                : <span className="text-xs font-mono text-muted-foreground border border-border rounded px-1">INACTIVE</span>}
+            </div>
+            {ef.source && <p className="text-xs font-mono text-muted-foreground mb-1">Source: {ef.source}</p>}
+            {ef.description && <p className="text-xs font-body text-muted-foreground mb-2">{ef.description}</p>}
+            {mods.length > 0 && (
+              <div className="flex gap-1.5 flex-wrap mb-1.5">
+                {mods.map((mod, i) => (
+                  <span key={i} className={`text-xs font-mono px-1.5 py-0.5 rounded border ${mod.value >= 0 ? "text-green-400 border-green-500/30 bg-green-500/5" : "text-red-400 border-red-500/30 bg-red-500/5"}`}>
+                    {mod.label} {mod.value >= 0 ? "+" : ""}{mod.value}{mod.unit}
+                  </span>
+                ))}
+              </div>
+            )}
+            {areaFx.length > 0 && (
+              <div className="space-y-0.5">
+                {areaFx.map((fx, i) => (
+                  <p key={i} className="text-xs font-mono text-cyan-400 pl-2 border-l border-cyan-500/30">{fx}</p>
+                ))}
+              </div>
+            )}
+            {ef.expires_at && (
+              <p className="text-xs font-mono text-muted-foreground mt-1.5">
+                Expires: {new Date(ef.expires_at).toLocaleString()}
+              </p>
+            )}
+          </div>
+          <div className="flex flex-col gap-1 shrink-0">
+            <button onClick={() => handleToggle(ef)} className={`p-1 transition-colors ${ef.is_active ? "text-green-400 hover:text-muted-foreground" : "text-muted-foreground hover:text-green-400"}`} title={ef.is_active ? "Deactivate" : "Activate"}>
+              {ef.is_active ? <CheckCircle2 size={12} /> : <AlertTriangle size={12} />}
+            </button>
+            <button onClick={() => handleEdit(ef)} className="p-1 text-muted-foreground hover:text-primary transition-colors"><Edit2 size={12} /></button>
+            <button onClick={() => setConfirmDelete({ id: ef.id, label: ef.name })} className="p-1 text-muted-foreground hover:text-destructive transition-colors"><Trash2 size={12} /></button>
+          </div>
+        </div>
+      </HudCard>
+    );
+  };
+
+  return (
+    <div className="space-y-5">
+      <PageHeader
+        title="Domain Effects"
+        subtitle={`${active.length} active · ${domainEffects.length} total`}
+        icon={<Waves size={18} />}
+        actions={<button onClick={() => { resetForm(); setShowCreate(true); }} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono bg-primary/10 border border-primary/30 text-primary rounded"><Plus size={12} /> Add Effect</button>}
+      />
+
+      {showCreate && !editingId && <EffectForm />}
+
+      {active.length > 0 && (
+        <div className="space-y-3">
+          <h3 className="text-xs font-mono text-muted-foreground uppercase tracking-widest flex items-center gap-2">
+            <CheckCircle2 size={10} className="text-green-400" /> Active Effects ({active.length})
+          </h3>
+          {active.map((ef) => editingId === ef.id ? <EffectForm key={ef.id} /> : <EffectCard key={ef.id} ef={ef} />)}
+        </div>
+      )}
+
+      {inactive.length > 0 && (
+        <div className="space-y-3">
+          <h3 className="text-xs font-mono text-muted-foreground uppercase tracking-widest flex items-center gap-2">
+            <AlertTriangle size={10} className="text-muted-foreground" /> Inactive ({inactive.length})
+          </h3>
+          {inactive.map((ef) => editingId === ef.id ? <EffectForm key={ef.id} /> : <EffectCard key={ef.id} ef={ef} />)}
+        </div>
+      )}
+
+      {domainEffects.length === 0 && !showCreate && (
+        <p className="text-xs font-mono text-muted-foreground text-center py-12">No domain effects. Add one to track active domains, curses, terrain modifiers, or aura zones.</p>
+      )}
+
+      <ConfirmDialog
+        open={confirmDelete !== null}
+        title={`Remove "${confirmDelete?.label}"?`}
+        description="This will permanently delete this domain effect."
+        onConfirm={async () => { if (confirmDelete) { await deleteDomainEffect(confirmDelete.id); setConfirmDelete(null); } }}
+        onCancel={() => setConfirmDelete(null)}
+      />
+    </div>
+  );
+}

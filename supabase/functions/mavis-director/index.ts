@@ -1,0 +1,1393 @@
+// MAVIS Director — Native tool-use routing (Claude tool_use API)
+// The routing brain between any inbound source and MAVIS specialist systems.
+//
+// Input (POST):
+//   { message, source, user_id, chat_id?, intent_hint? }
+//
+// Sources: "telegram" | "web" | "webhook" | "cron" | "make"
+// Intent categories: query | social | research | action | status | comms | crawl
+//
+// Routes via Claude native tool_use → specialist handlers:
+//   web_research      → Perplexity sonar-pro (+ Tavily fallback) → synthesized report
+//   create_content    → mavis-content-pipeline (47 social commands across all platforms)
+//   execute_action    → mavis-actions (full action grammar)
+//   get_status        → live DB pull → formatted summary
+//   send_comms        → mavis-email-send (Resend) + mavis-calendar-manage (Google Calendar)
+//   crawl_web         → mavis-web-crawler RAG ingestion
+//   recall_memory     → semantic search over mavis_memory + mavis_knowledge
+//   save_knowledge    → insert into mavis_knowledge
+//   queue_autonomous_task → insert into mavis_autonomous_tasks
+
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
+
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+};
+
+const SUPABASE_URL  = Deno.env.get("SUPABASE_URL")!;
+const SERVICE_KEY   = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+const ANTHROPIC_KEY = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
+const PERPLEXITY_KEY = Deno.env.get("PERPLEXITY_API_KEY") ?? "";
+const TAVILY_KEY    = Deno.env.get("Tavily_API") ?? Deno.env.get("TAVILY_API_KEY") ?? "";
+const LOVABLE_KEY   = Deno.env.get("LOVABLE_API_KEY") ?? "";
+const OPENAI_KEY    = Deno.env.get("OPENAI_API") ?? Deno.env.get("OPENAI_API_KEY") ?? "";
+
+const supabase = createClient(SUPABASE_URL, SERVICE_KEY);
+
+const json = (data: unknown, status = 200) =>
+  new Response(JSON.stringify(data), {
+    status,
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
+  });
+
+// ─────────────────────────────────────────────────────────────
+// AI HELPERS — same cascade as telegram-webhook
+// ─────────────────────────────────────────────────────────────
+
+async function callAI(
+  system: string,
+  user: string,
+  maxTokens = 512,
+  preferFast = true,
+): Promise<string> {
+  // Tier 1: Gemini Flash via Lovable (free)
+  if (LOVABLE_KEY) {
+    try {
+      const r = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${LOVABLE_KEY}` },
+        body: JSON.stringify({
+          model: "google/gemini-2.5-flash",
+          max_tokens: maxTokens,
+          messages: [{ role: "system", content: system }, { role: "user", content: user }],
+        }),
+      });
+      if (r.ok) {
+        const d = await r.json();
+        const t = d.choices?.[0]?.message?.content ?? "";
+        if (t) return t;
+      }
+    } catch { /* fall through */ }
+  }
+
+  // Tier 2: Claude Haiku (fast/cheap) or Sonnet (quality)
+  if (ANTHROPIC_KEY) {
+    const model = preferFast ? "claude-haiku-4-5-20251001" : "claude-sonnet-4-6";
+    try {
+      const r = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-api-key": ANTHROPIC_KEY,
+          "anthropic-version": "2023-06-01",
+        },
+        body: JSON.stringify({ model, max_tokens: maxTokens, system,
+          messages: [{ role: "user", content: user }] }),
+      });
+      if (r.ok) {
+        const d = await r.json();
+        return d.content?.[0]?.text ?? "";
+      }
+    } catch { /* fall through */ }
+  }
+
+  // Tier 3: OpenAI mini
+  if (OPENAI_KEY) {
+    try {
+      const r = await fetch("https://api.openai.com/v1/chat/completions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${OPENAI_KEY}` },
+        body: JSON.stringify({
+          model: "gpt-4o-mini",
+          max_tokens: maxTokens,
+          messages: [{ role: "system", content: system }, { role: "user", content: user }],
+        }),
+      });
+      if (r.ok) {
+        const d = await r.json();
+        return d.choices?.[0]?.message?.content ?? "";
+      }
+    } catch { /* fall through */ }
+  }
+
+  return "[No AI provider available]";
+}
+
+// ─────────────────────────────────────────────────────────────
+// INTENT CLASSIFICATION (kept as fallback)
+// ─────────────────────────────────────────────────────────────
+
+type Intent = "query" | "social" | "research" | "action" | "status" | "comms" | "crawl";
+
+const INTENT_KEYWORDS: Record<Intent, string[]> = {
+  social:   ["post", "tweet", "content", "write a post", "linkedin", "twitter", "instagram", "caption", "draft a", "create content", "publish", "nora"],
+  research: ["research", "find out", "investigate", "deep dive", "what's going on", "look into", "analyze", "study", "search for", "report on", "latest on"],
+  action:   ["create quest", "add task", "log", "update my", "complete", "set a goal", "new quest", "add to my", "delete", "record", "track"],
+  status:   ["status", "how am i doing", "progress", "what's pending", "pending approvals", "how many", "overview", "dashboard", "brief me", "what do i have"],
+  comms:    ["email", "schedule", "calendar", "meeting", "meet with", "contact", "reach out", "send to", "book", "appointment"],
+  crawl:    ["crawl", "scrape", "index this site", "index this url", "add to knowledge base", "scrape this", "ingest site", "crawl this"],
+  query:    [],
+};
+
+// ─────────────────────────────────────────────────────────────
+// COMPOUND INTENT DETECTION
+// Patterns where one message clearly requests two sequential actions.
+// ─────────────────────────────────────────────────────────────
+
+interface CompoundIntents {
+  first: Intent;
+  second: Intent;
+}
+
+// Hardcoded high-confidence compound patterns (fast path, no AI call needed)
+const COMPOUND_PATTERNS: Array<{ pattern: RegExp; intents: CompoundIntents }> = [
+  { pattern: /research.+?(and|then).{0,20}(post|tweet|write|share|publish|linkedin|instagram)/i, intents: { first: "research", second: "social" } },
+  { pattern: /(find|look\s+up|research).+?(then|and).{0,20}(email|send|contact|reach)/i,         intents: { first: "research", second: "comms" } },
+  { pattern: /(post|write\s+content|create\s+content).+?(and|then).{0,20}(email|schedule)/i,     intents: { first: "social",   second: "comms" } },
+  { pattern: /research.+?(and|then).{0,20}(add|create|log|track|save)/i,                         intents: { first: "research", second: "action" } },
+  { pattern: /(crawl|scrape|index).+?(and|then).{0,20}(research|find|query)/i,                   intents: { first: "crawl",    second: "research" } },
+];
+
+function detectCompoundPattern(message: string): CompoundIntents | null {
+  for (const { pattern, intents } of COMPOUND_PATTERNS) {
+    if (pattern.test(message)) return intents;
+  }
+  return null;
+}
+
+async function classifyIntent(message: string, hint?: string): Promise<{ intent: Intent; confidence: number; target?: string }> {
+  if (hint && INTENT_KEYWORDS[hint as Intent]) return { intent: hint as Intent, confidence: 100 };
+
+  const lower = message.toLowerCase();
+  for (const [intent, keywords] of Object.entries(INTENT_KEYWORDS) as [Intent, string[]][]) {
+    if (intent === "query") continue;
+    const hits = keywords.filter(k => lower.includes(k));
+    if (hits.length >= 2 || (hits.length === 1 && message.length < 80)) {
+      return { intent, confidence: 85 };
+    }
+  }
+
+  // Claude Haiku for ambiguous cases
+  const raw = await callAI(
+    `Classify the intent of this message into one of: query, social, research, action, status, comms.
+Respond ONLY as JSON: {"intent":"<category>","confidence":0-100,"target":"<main subject>"}
+- social: creating/drafting social media posts or content
+- research: finding information, web search, investigating topics
+- action: creating/updating/deleting MAVIS data (quests, goals, tasks, journal)
+- status: checking current state, pending items, progress
+- comms: email, calendar, scheduling, contacting people
+- query: general question/conversation`,
+    message,
+    128,
+    true,
+  );
+
+  try {
+    const match = raw.match(/\{[\s\S]*?\}/);
+    if (match) {
+      const parsed = JSON.parse(match[0]);
+      return {
+        intent:     parsed.intent as Intent ?? "query",
+        confidence: Number(parsed.confidence ?? 70),
+        target:     parsed.target,
+      };
+    }
+  } catch { /* fall through */ }
+
+  return { intent: "query", confidence: 60 };
+}
+
+// ─────────────────────────────────────────────────────────────
+// TOOL DEFINITIONS
+// ─────────────────────────────────────────────────────────────
+
+const MAVIS_TOOLS = [
+  {
+    name: "web_research",
+    description: "Search the web and produce a cited research report on any topic.",
+    input_schema: {
+      type: "object",
+      properties: {
+        query: { type: "string", description: "Search query" },
+      },
+      required: ["query"],
+    },
+  },
+  {
+    name: "create_content",
+    description: "Draft social media content (Twitter, LinkedIn, Instagram, TikTok).",
+    input_schema: {
+      type: "object",
+      properties: {
+        topic: { type: "string" },
+        platforms: { type: "array", items: { type: "string" } },
+      },
+      required: ["topic"],
+    },
+  },
+  {
+    name: "execute_action",
+    description: "Create or update MAVIS data: quests, tasks, goals, journal entries, notes.",
+    input_schema: {
+      type: "object",
+      properties: {
+        action_type: { type: "string", description: "e.g. create_quest, create_journal, create_goal, complete_task, award_xp" },
+        params: { type: "object", description: "Parameters for the action" },
+      },
+      required: ["action_type", "params"],
+    },
+  },
+  {
+    name: "get_status",
+    description: "Return current MAVIS status: goals, quests, pending approvals, running tasks.",
+    input_schema: {
+      type: "object",
+      properties: {},
+    },
+  },
+  {
+    name: "send_comms",
+    description: "Send an email or manage Google Calendar events.",
+    input_schema: {
+      type: "object",
+      properties: {
+        type: { type: "string", enum: ["email", "calendar"] },
+        details: { type: "object", description: "Email: {to, subject, body}. Calendar: {action, title, start_date, start_time, end_time, attendees}" },
+      },
+      required: ["type", "details"],
+    },
+  },
+  {
+    name: "crawl_web",
+    description: "Crawl a URL into the knowledge base or search already-crawled documents.",
+    input_schema: {
+      type: "object",
+      properties: {
+        url_or_query: { type: "string" },
+      },
+      required: ["url_or_query"],
+    },
+  },
+  {
+    name: "recall_memory",
+    description: "Semantic search over MAVIS memory and knowledge base to recall specific past conversations, notes, or knowledge.",
+    input_schema: {
+      type: "object",
+      properties: {
+        query: { type: "string", description: "What to search for in memory" },
+      },
+      required: ["query"],
+    },
+  },
+  {
+    name: "save_knowledge",
+    description: "Save a piece of information permanently to the MAVIS knowledge base.",
+    input_schema: {
+      type: "object",
+      properties: {
+        title: { type: "string" },
+        content: { type: "string" },
+        category: { type: "string", description: "e.g. Research, Notes, Reference, Resources" },
+      },
+      required: ["title", "content"],
+    },
+  },
+  {
+    name: "queue_autonomous_task",
+    description: "Queue a complex multi-step goal for fully autonomous background execution (takes 2-10 minutes, runs without further input).",
+    input_schema: {
+      type: "object",
+      properties: {
+        goal: { type: "string", description: "Detailed goal description for the autonomous agent" },
+      },
+      required: ["goal"],
+    },
+  },
+] as const;
+
+// ─────────────────────────────────────────────────────────────
+// EMBEDDING + SEMANTIC MEMORY
+// ─────────────────────────────────────────────────────────────
+
+async function getEmbedding(text: string): Promise<number[] | null> {
+  if (!OPENAI_KEY) return null;
+  try {
+    const r = await fetch("https://api.openai.com/v1/embeddings", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${OPENAI_KEY}`,
+      },
+      body: JSON.stringify({ model: "text-embedding-3-small", input: text }),
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!r.ok) return null;
+    const d = await r.json();
+    return d.data?.[0]?.embedding ?? null;
+  } catch {
+    return null;
+  }
+}
+
+async function semanticSearchMemory(userId: string, query: string): Promise<string> {
+  const embedding = await getEmbedding(query);
+
+  const parts: string[] = [];
+
+  if (embedding) {
+    // Semantic search over memory
+    const [memResult, knowledgeResult] = await Promise.all([
+      supabase.rpc("match_memories", {
+        query_embedding: embedding,
+        match_user_id: userId,
+        match_count: 10,
+      }).catch(() => ({ data: null, error: true })),
+      supabase.rpc("match_knowledge", {
+        query_embedding: embedding,
+        match_user_id: userId,
+        match_count: 5,
+      }).catch(() => ({ data: null, error: true })),
+    ]);
+
+    if (memResult.data && Array.isArray(memResult.data)) {
+      for (const row of memResult.data as any[]) {
+        parts.push(`[memory] ${String(row.content ?? "").slice(0, 300)}`);
+      }
+    } else {
+      // Fallback: recency pull
+      const { data: recent } = await supabase
+        .from("mavis_memory")
+        .select("content,role,timestamp")
+        .eq("user_id", userId)
+        .order("timestamp", { ascending: false })
+        .limit(10)
+        .catch(() => ({ data: null }));
+      for (const row of (recent ?? []) as any[]) {
+        parts.push(`[memory] ${String(row.content ?? "").slice(0, 300)}`);
+      }
+    }
+
+    if (knowledgeResult.data && Array.isArray(knowledgeResult.data)) {
+      for (const row of knowledgeResult.data as any[]) {
+        parts.push(`[knowledge: ${row.title ?? ""}] ${String(row.content ?? "").slice(0, 300)}`);
+      }
+    }
+  } else {
+    // No embedding — recency fallback
+    const { data: recent } = await supabase
+      .from("mavis_memory")
+      .select("content,role,timestamp")
+      .eq("user_id", userId)
+      .order("timestamp", { ascending: false })
+      .limit(10)
+      .catch(() => ({ data: null }));
+    for (const row of (recent ?? []) as any[]) {
+      parts.push(`[memory] ${String(row.content ?? "").slice(0, 300)}`);
+    }
+  }
+
+  return parts.join("\n").slice(0, 2000);
+}
+
+// ─────────────────────────────────────────────────────────────
+// CLAUDE TOOL-USE API
+// ─────────────────────────────────────────────────────────────
+
+type AnthropicMessage = {
+  role: "user" | "assistant";
+  content: unknown;
+};
+
+type ClaudeToolResponse = {
+  text: string;
+  tool_calls: Array<{ id: string; name: string; input: Record<string, unknown> }>;
+};
+
+function extractText(content: unknown[]): string {
+  if (!Array.isArray(content)) return "";
+  return content
+    .filter((b: any) => b.type === "text")
+    .map((b: any) => b.text ?? "")
+    .join("\n")
+    .trim();
+}
+
+async function callClaudeWithTools(
+  system: string,
+  messages: AnthropicMessage[],
+  tools: typeof MAVIS_TOOLS,
+): Promise<ClaudeToolResponse> {
+  const r = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-api-key": ANTHROPIC_KEY,
+      "anthropic-version": "2023-06-01",
+    },
+    body: JSON.stringify({
+      model: "claude-haiku-4-5-20251001",
+      max_tokens: 1024,
+      system,
+      tools,
+      messages,
+    }),
+    signal: AbortSignal.timeout(30000),
+  });
+
+  if (!r.ok) {
+    const err = await r.text().catch(() => "");
+    throw new Error(`Claude API error ${r.status}: ${err}`);
+  }
+
+  const d = await r.json();
+  const content: any[] = d.content ?? [];
+  const stopReason: string = d.stop_reason ?? "end_turn";
+
+  if (stopReason === "end_turn") {
+    return { text: extractText(content), tool_calls: [] };
+  }
+
+  if (stopReason === "tool_use") {
+    const toolUseBlocks = content
+      .filter((b: any) => b.type === "tool_use")
+      .map((b: any) => ({ id: b.id as string, name: b.name as string, input: b.input as Record<string, unknown> }));
+    return { text: extractText(content), tool_calls: toolUseBlocks };
+  }
+
+  // Unexpected stop reason — treat as end_turn
+  return { text: extractText(content), tool_calls: [] };
+}
+
+// ─────────────────────────────────────────────────────────────
+// TOOL EXECUTOR
+// ─────────────────────────────────────────────────────────────
+
+async function executeToolCall(
+  name: string,
+  input: Record<string, unknown>,
+  userId: string,
+  opName: string,
+): Promise<string> {
+  switch (name) {
+    case "web_research":
+      return handleResearch(userId, String(input.query));
+
+    case "create_content":
+      return handleSocial(
+        userId,
+        String(input.topic),
+        (input.platforms as string[])?.join(", ") || "",
+      );
+
+    case "execute_action":
+      return handleAction(userId, JSON.stringify(input));
+
+    case "get_status":
+      return handleStatus(userId, opName);
+
+    case "send_comms":
+      return handleComms(userId, JSON.stringify(input.details ?? input));
+
+    case "crawl_web":
+      return handleCrawl(userId, String(input.url_or_query));
+
+    case "recall_memory":
+      return semanticSearchMemory(userId, String(input.query));
+
+    case "save_knowledge": {
+      await supabase.from("mavis_knowledge").insert({
+        user_id:  userId,
+        title:    String(input.title ?? ""),
+        content:  String(input.content ?? ""),
+        category: String(input.category ?? "Notes"),
+        tags:     ["director"],
+      }).catch(() => {});
+      return "saved";
+    }
+
+    case "queue_autonomous_task": {
+      const goal = String(input.goal ?? "");
+      await supabase.from("mavis_autonomous_tasks").insert({
+        user_id:      userId,
+        goal,
+        status:       "pending",
+        plan:         [],
+        current_step: 0,
+        context: {
+          goal,
+          steps_completed: [],
+          reasoning:       [],
+          search_results:  [],
+          source:          "director",
+        },
+      }).catch(() => {});
+      return "Task queued for autonomous execution (≤2 min)";
+    }
+
+    default:
+      return "Unknown tool";
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+// MAIN TOOL-USE HANDLER
+// ─────────────────────────────────────────────────────────────
+
+async function handleWithTools(
+  userId: string,
+  message: string,
+  opName: string,
+): Promise<{ reply: string; intent: string }> {
+  // Parallel context fetch
+  const [tacit, recentMemory, profile, activeQuests, pendingCount] = await Promise.all([
+    supabase.from("mavis_tacit")
+      .select("content,category")
+      .eq("user_id", userId)
+      .order("confidence", { ascending: false })
+      .limit(8),
+    supabase.from("mavis_memory")
+      .select("content,role,timestamp")
+      .eq("user_id", userId)
+      .order("timestamp", { ascending: false })
+      .limit(4),
+    supabase.from("profiles")
+      .select("level,rank,current_form,inscribed_name")
+      .eq("id", userId)
+      .single(),
+    supabase.from("quests")
+      .select("title")
+      .eq("user_id", userId)
+      .eq("status", "active")
+      .limit(5),
+    supabase.from("mavis_action_queue")
+      .select("id", { count: "exact", head: true })
+      .eq("user_id", userId)
+      .eq("status", "pending")
+      .eq("autonomy_tier", "approve"),
+  ]);
+
+  const p = profile.data as any;
+
+  const tacitCtx = tacit.data?.length
+    ? tacit.data.map((m: any) => `[RULE:${m.category}] ${m.content}`).join("\n")
+    : "No rules configured yet.";
+
+  const memCtx = recentMemory.data?.length
+    ? recentMemory.data
+        .slice(0, 4)
+        .reverse()
+        .map((m: any) => `${m.role === "user" ? "Operator" : "MAVIS"}: ${String(m.content).slice(0, 200)}`)
+        .join("\n")
+    : "No prior sessions.";
+
+  const questCtx = activeQuests.data?.map((q: any) => `• ${q.title}`).join("\n") || "None";
+  const pendingApprovals = (pendingCount as any).count ?? 0;
+
+  const systemPrompt = `You are MAVIS — the personal sovereign AI OS for ${opName}.
+Level ${p?.level ?? "?"} | Rank: ${p?.rank ?? "?"} | Form: ${p?.current_form ?? "Base"}
+
+STANDING RULES (always apply):
+${tacitCtx}
+
+RECENT CONVERSATION (short context):
+${memCtx}
+
+ACTIVE QUESTS:
+${questCtx}
+
+PENDING APPROVALS: ${pendingApprovals}
+
+You have access to tools to help the operator. Use them when the request requires it.
+For simple conversational replies, respond directly without calling a tool.
+Be direct and concise. Mobile-first format.`;
+
+  const messages: AnthropicMessage[] = [{ role: "user", content: message }];
+
+  let finalText = "";
+  let firstToolName = "";
+
+  // Tool-use loop — up to 3 rounds
+  for (let round = 0; round < 3; round++) {
+    const response = await callClaudeWithTools(systemPrompt, messages, MAVIS_TOOLS);
+
+    if (!response.tool_calls.length) {
+      finalText = response.text;
+      break;
+    }
+
+    // Track first tool called for intent logging
+    if (!firstToolName && response.tool_calls.length > 0) {
+      firstToolName = response.tool_calls[0].name;
+    }
+
+    // Execute all tool calls in parallel
+    const toolResults = await Promise.all(
+      response.tool_calls.map(async (tc) => {
+        const result = await executeToolCall(tc.name, tc.input, userId, opName);
+        return { id: tc.id, result };
+      }),
+    );
+
+    // Build assistant message with the tool_use content blocks
+    const assistantContent: any[] = [];
+    if (response.text) {
+      assistantContent.push({ type: "text", text: response.text });
+    }
+    for (const tc of response.tool_calls) {
+      assistantContent.push({ type: "tool_use", id: tc.id, name: tc.name, input: tc.input });
+    }
+    messages.push({ role: "assistant", content: assistantContent });
+
+    // Build tool_results user message
+    const toolResultContent = toolResults.map(({ id, result }) => ({
+      type: "tool_result",
+      tool_use_id: id,
+      content: result,
+    }));
+    messages.push({ role: "user", content: toolResultContent });
+  }
+
+  // If loop exhausted without a final text, use last assistant text
+  if (!finalText) {
+    const lastAssistant = [...messages].reverse().find((m) => m.role === "assistant");
+    if (lastAssistant && Array.isArray(lastAssistant.content)) {
+      finalText = extractText(lastAssistant.content as any[]);
+    }
+  }
+
+  const intent = firstToolName || "query";
+
+  // Persist exchange to memory — fire-and-forget
+  supabase.from("mavis_memory").insert([
+    {
+      user_id:          userId,
+      session_id:       "director",
+      role:             "user",
+      content:          message,
+      timestamp:        Date.now(),
+      importance_score: 5,
+      consolidated:     false,
+    },
+    {
+      user_id:          userId,
+      session_id:       "director",
+      role:             "assistant",
+      content:          finalText,
+      timestamp:        Date.now() + 1,
+      importance_score: 5,
+      consolidated:     false,
+    },
+  ]).then(() => {
+    // Try to store embedding on the user row
+    getEmbedding(message).then((emb) => {
+      if (emb) {
+        supabase
+          .from("mavis_memory")
+          .update({ embedding: emb })
+          .eq("user_id", userId)
+          .eq("role", "user")
+          .eq("session_id", "director")
+          .order("timestamp", { ascending: false })
+          .limit(1)
+          .catch(() => {});
+      }
+    }).catch(() => {});
+  }).catch(() => {});
+
+  return { reply: finalText || "[No response]", intent };
+}
+
+// ─────────────────────────────────────────────────────────────
+// SPECIALIST HANDLERS
+// ─────────────────────────────────────────────────────────────
+
+// --- Research via Perplexity (primary) + Tavily (fallback) ---
+async function handleResearch(userId: string, message: string, target?: string): Promise<string> {
+  const query = target || message;
+
+  // Perplexity sonar-pro — real-time web with citations
+  if (PERPLEXITY_KEY) {
+    try {
+      const r = await fetch("https://api.perplexity.ai/chat/completions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${PERPLEXITY_KEY}`,
+        },
+        body: JSON.stringify({
+          model: "sonar-pro",
+          max_tokens: 1024,
+          messages: [
+            {
+              role: "system",
+              content: "You are a research specialist. Provide a concise, fact-based report with key findings, data points, and actionable insights. Use bullet points for scannability.",
+            },
+            { role: "user", content: query },
+          ],
+        }),
+      });
+      if (r.ok) {
+        const d = await r.json();
+        const report = d.choices?.[0]?.message?.content ?? "";
+        if (report) {
+          // Save as a MAVIS note for future recall
+          await supabase.from("mavis_knowledge").insert({
+            user_id:  userId,
+            title:    `Research: ${query.slice(0, 60)}`,
+            content:  report,
+            tags:     ["research", "director"],
+            category: "Resources",
+          }).catch(() => {});
+          return `🔍 *Research Report*\n\n${report}\n\n_Saved to Knowledge Graph._`;
+        }
+      }
+    } catch { /* fall through to Tavily */ }
+  }
+
+  // Tavily fallback
+  if (TAVILY_KEY) {
+    try {
+      const r = await fetch("https://api.tavily.com/search", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          api_key:        TAVILY_KEY,
+          query,
+          search_depth:   "advanced",
+          max_results:    6,
+          include_answer: true,
+        }),
+      });
+      if (r.ok) {
+        const d = await r.json();
+        const answer  = d.answer ?? "";
+        const sources = (d.results ?? [] as any[]).slice(0, 4).map((s: any) => `• ${s.title}: ${(s.content ?? "").slice(0, 200)}`).join("\n");
+        const report  = [answer, sources].filter(Boolean).join("\n\n");
+        return `🔍 *Research Results*\n\n${report}`;
+      }
+    } catch { /* fall through */ }
+  }
+
+  return `I don't have a research provider configured (PERPLEXITY_API_KEY or Tavily_API). Add one to enable deep research.`;
+}
+
+// --- Social content via content pipeline (or full publisher if URL detected) ---
+async function handleSocial(userId: string, message: string, target?: string): Promise<string> {
+  // If a URL is embedded, route through the full AI Social Media System pipeline
+  const urlMatch = message.match(/https?:\/\/[^\s]+/);
+  if (urlMatch) {
+    const sourceUrl = urlMatch[0];
+    const r = await fetch(`${SUPABASE_URL}/functions/v1/mavis-social-publisher`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${SERVICE_KEY}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ source_url: sourceUrl, user_id: userId, dry_run: true }),
+      signal: AbortSignal.timeout(60000),
+    }).catch(() => null);
+    if (r?.ok) {
+      const d = await r.json();
+      const pkg = d.content ?? {};
+      const preview = [
+        pkg.twitter   ? `*Twitter:* ${pkg.twitter.slice(0, 200)}` : null,
+        pkg.linkedin  ? `*LinkedIn:* ${pkg.linkedin.slice(0, 200)}` : null,
+        pkg.instagram ? `*Instagram:* ${pkg.instagram.slice(0, 200)}` : null,
+      ].filter(Boolean).join("\n\n");
+      return `📱 *Content Campaign Draft*\nSource: ${sourceUrl}\n\n${preview || "Content generated — see Social Queue."}\n\n_Saved to queue (ID: ${d.queue_id}). Reply "publish" to go live on all platforms._`;
+    }
+  }
+
+  const topic = target || message;
+
+  // Extract platform hints from message
+  const lower = message.toLowerCase();
+  const platforms = [
+    lower.includes("linkedin") ? "linkedin" : null,
+    lower.includes("twitter") || lower.includes("tweet") ? "twitter" : null,
+    lower.includes("instagram") ? "instagram" : null,
+    lower.includes("tiktok") ? "tiktok" : null,
+  ].filter(Boolean) as string[];
+
+  if (platforms.length === 0) platforms.push("twitter", "linkedin");
+
+  const drafts: string[] = [];
+
+  for (const platform of platforms) {
+    try {
+      const r = await fetch(`${SUPABASE_URL}/functions/v1/mavis-content-pipeline`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${SERVICE_KEY}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          userId,
+          action:   "create_post",
+          platform,
+          topic,
+          style:    "nora",
+        }),
+      });
+      if (r.ok) {
+        const d = await r.json();
+        const content = d.content ?? d.post ?? d.text ?? "";
+        if (content) {
+          // Queue for approval
+          await supabase.from("mavis_action_queue").insert({
+            user_id:       userId,
+            action_type:   "social_draft",
+            title:         `${platform.toUpperCase()} Draft Ready`,
+            description:   topic.slice(0, 120),
+            status:        "pending",
+            autonomy_tier: "approve",
+            payload:       { platform, content, topic },
+          }).catch(() => {});
+          drafts.push(`*${platform.toUpperCase()}:*\n${content}`);
+        }
+      }
+    } catch { /* non-fatal */ }
+  }
+
+  if (drafts.length === 0) {
+    // Inline fallback using Claude
+    const fallback = await callAI(
+      `You are Nora Vale — a tech-forward business strategist. Create compelling social media content. Be direct, no fluff.`,
+      `Create social content about: ${topic}\n\nProvide Twitter (280 chars max) and LinkedIn versions.`,
+      512,
+      false,
+    );
+    await supabase.from("mavis_action_queue").insert({
+      user_id:       userId,
+      action_type:   "social_draft",
+      title:         "Social Content Draft",
+      description:   topic.slice(0, 120),
+      status:        "pending",
+      autonomy_tier: "approve",
+      payload:       { content: fallback, topic },
+    }).catch(() => {});
+    return `📱 *Social Content Draft*\n\n${fallback}\n\n_Saved to Approval Queue._`;
+  }
+
+  return `📱 *Social Drafts Ready* (${drafts.length} platform${drafts.length > 1 ? "s" : ""})\n\n${drafts.join("\n\n---\n\n")}\n\n_All saved to your Approval Queue._`;
+}
+
+// --- MAVIS action dispatch ---
+async function handleAction(userId: string, message: string): Promise<string> {
+  // Parse natural language into an action
+  const raw = await callAI(
+    `Convert this natural language request into a MAVIS action JSON.
+Common types: create_quest, create_task, create_goal, create_journal, create_note, complete_task, award_xp, update_profile
+Respond ONLY as JSON: {"type":"<action_type>","params":{<fields>}}`,
+    message,
+    256,
+    true,
+  );
+
+  let action = { type: "create_task", params: { title: message.slice(0, 100) } };
+  try {
+    const match = raw.match(/\{[\s\S]*?\}/);
+    if (match) {
+      const parsed = JSON.parse(match[0]);
+      if (parsed.type) action = parsed;
+    }
+  } catch { /* use fallback */ }
+
+  try {
+    const r = await fetch(`${SUPABASE_URL}/functions/v1/mavis-actions`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${SERVICE_KEY}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ actions: [action], userId }),
+    });
+    if (r.ok) return `⚡ *Action Executed*\n\`${action.type}\` completed.`;
+  } catch { /* fall through */ }
+
+  // Queue if execution fails
+  await supabase.from("mavis_action_queue").insert({
+    user_id:       userId,
+    action_type:   action.type,
+    title:         `Queued: ${action.type}`,
+    description:   message.slice(0, 120),
+    status:        "pending",
+    autonomy_tier: "approve",
+    payload:       action,
+  }).catch(() => {});
+  return `📥 Action queued for manual execution: \`${action.type}\``;
+}
+
+// --- Status summary ---
+async function handleStatus(userId: string, operatorName: string): Promise<string> {
+  const [goals, pending, tasks, quests] = await Promise.all([
+    supabase.from("mavis_goals").select("objective,progress_pct,status").eq("user_id", userId).eq("status", "active").limit(5),
+    supabase.from("mavis_action_queue").select("id").eq("user_id", userId).eq("status", "pending").eq("autonomy_tier", "approve"),
+    supabase.from("mavis_tasks").select("id").eq("user_id", userId).in("status", ["pending", "running"]),
+    supabase.from("quests").select("title,status").eq("user_id", userId).eq("status", "active").limit(5),
+  ]);
+
+  const goalLines  = goals.data?.map((g: any) => `• ${g.objective.slice(0, 60)} — ${g.progress_pct || 0}%`).join("\n") || "_No active goals_";
+  const questLines = quests.data?.map((q: any) => `• ${q.title}`).join("\n") || "_No active quests_";
+
+  return `📊 *MAVIS Status — ${operatorName}*
+
+🎯 *Goals:*
+${goalLines}
+
+⚔️ *Active Quests:*
+${questLines}
+
+⏳ *Pending Approvals:* ${pending.data?.length || 0}
+🔄 *Running Tasks:* ${tasks.data?.length || 0}
+
+_Systems operational._`;
+}
+
+// --- General query with full context from all memory layers ---
+async function handleQuery(userId: string, message: string, operatorName: string): Promise<string> {
+  // Parallel retrieval from all three memory layers + profile + quests + pending queue
+  const [tacit, recentMemory, recentKnowledge, profile, activeQuests, pendingCount] = await Promise.all([
+    supabase.from("mavis_tacit")
+      .select("content,category")
+      .eq("user_id", userId)
+      .order("confidence", { ascending: false })
+      .limit(8),
+    supabase.from("mavis_memory")
+      .select("content,role,timestamp")
+      .eq("user_id", userId)
+      .order("timestamp", { ascending: false })
+      .limit(14),
+    supabase.from("mavis_knowledge")
+      .select("title,content,category")
+      .eq("user_id", userId)
+      .order("updated_at", { ascending: false })
+      .limit(5),
+    supabase.from("profiles")
+      .select("level,rank,current_form,inscribed_name")
+      .eq("id", userId)
+      .single(),
+    supabase.from("quests")
+      .select("title")
+      .eq("user_id", userId)
+      .eq("status", "active")
+      .limit(5),
+    supabase.from("mavis_action_queue")
+      .select("id", { count: "exact", head: true })
+      .eq("user_id", userId)
+      .eq("status", "pending")
+      .eq("autonomy_tier", "approve"),
+  ]);
+
+  const p = profile.data as any;
+
+  // Build layered context string
+  const tacitCtx = tacit.data?.length
+    ? tacit.data.map((m: any) => `[RULE:${m.category}] ${m.content}`).join("\n")
+    : "";
+
+  // Interleave memory as a short conversation replay (last 6 exchanges)
+  const memoryCtx = recentMemory.data?.length
+    ? recentMemory.data
+        .slice(0, 12)
+        .reverse()
+        .map((m: any) => `${m.role === "user" ? "Operator" : "MAVIS"}: ${String(m.content).slice(0, 250)}`)
+        .join("\n")
+    : "";
+
+  const knowledgeCtx = recentKnowledge.data?.length
+    ? recentKnowledge.data
+        .map((n: any) => `[${n.category ?? "Note"}: ${n.title}] ${String(n.content ?? "").slice(0, 300)}`)
+        .join("\n")
+    : "";
+
+  const questCtx = activeQuests.data?.map((q: any) => `• ${q.title}`).join("\n") || "None";
+  const pendingApprovals = (pendingCount as any).count ?? 0;
+
+  const systemPrompt = `You are MAVIS — the personal sovereign AI OS for ${operatorName}.
+Level ${p?.level ?? "?"} | Rank: ${p?.rank ?? "?"} | Form: ${p?.current_form ?? "Base"}
+
+STANDING RULES (always apply):
+${tacitCtx || "No rules configured yet."}
+
+RECENT CONVERSATION (last exchanges):
+${memoryCtx || "No prior sessions."}
+
+KNOWLEDGE BASE (recent notes):
+${knowledgeCtx || "No notes yet."}
+
+ACTIVE QUESTS:
+${questCtx}
+
+PENDING APPROVALS: ${pendingApprovals}
+
+Guidelines: Be direct and concise. 2–4 sentences for conversational replies. Reference specific memory or knowledge when relevant — say where it came from. Mobile-first format.`;
+
+  const reply = await callAI(systemPrompt, message, 600, false);
+
+  // Persist this exchange to memory for future recall
+  await supabase.from("mavis_memory").insert([
+    {
+      user_id:          userId,
+      session_id:       "director",
+      role:             "user",
+      content:          message,
+      timestamp:        Date.now(),
+      importance_score: 5,
+      consolidated:     false,
+    },
+    {
+      user_id:          userId,
+      session_id:       "director",
+      role:             "assistant",
+      content:          reply,
+      timestamp:        Date.now() + 1,
+      importance_score: 5,
+      consolidated:     false,
+    },
+  ]).catch(() => {});
+
+  // Fire-and-forget embedding update
+  getEmbedding(message).then((emb) => {
+    if (emb) {
+      supabase
+        .from("mavis_memory")
+        .update({ embedding: emb })
+        .eq("user_id", userId)
+        .eq("role", "user")
+        .eq("session_id", "director")
+        .order("timestamp", { ascending: false })
+        .limit(1)
+        .catch(() => {});
+    }
+  }).catch(() => {});
+
+  return reply;
+}
+
+// --- Deep web crawl + RAG ingestion ---
+async function handleCrawl(userId: string, message: string): Promise<string> {
+  const urlMatch = message.match(/https?:\/\/[^\s]+/);
+  const queryMatch = !urlMatch && message.match(/(?:search|find|what do you know about|query)\s+(.+)/i);
+
+  // Query mode — semantic search over already-crawled documents
+  if (queryMatch || (!urlMatch && /search|query|find in|look up/i.test(message))) {
+    const q = queryMatch?.[1] ?? message;
+    const r = await fetch(`${SUPABASE_URL}/functions/v1/mavis-web-crawler`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${SERVICE_KEY}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "query", user_id: userId, query: q, match_count: 5 }),
+      signal: AbortSignal.timeout(20000),
+    }).catch(() => null);
+    if (r?.ok) {
+      const d = await r.json();
+      const results = (d.results ?? []) as any[];
+      if (!results.length) return `🔍 *RAG Search*\n\nNo matching documents found. Try crawling a site first with a URL.`;
+      const lines = results.slice(0, 3).map((res: any, i: number) =>
+        `${i + 1}. ${(res.content ?? "").slice(0, 300)}…\n_Source: ${res.metadata?.source ?? "unknown"}_`
+      ).join("\n\n");
+      return `🔍 *RAG Results for:* _${q.slice(0, 60)}_\n\n${lines}`;
+    }
+  }
+
+  // Status check
+  if (/status|how many|progress|queue/i.test(message) && !urlMatch) {
+    const r = await fetch(`${SUPABASE_URL}/functions/v1/mavis-web-crawler`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${SERVICE_KEY}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "status", user_id: userId }),
+      signal: AbortSignal.timeout(10000),
+    }).catch(() => null);
+    if (r?.ok) {
+      const d = await r.json();
+      const q = d.queue ?? {};
+      return `🕷️ *Crawler Status*\n\n📋 Pending: ${q.pending ?? 0}\n⚙️ Processing: ${q.processing ?? 0}\n✅ Done: ${q.done ?? 0}\n❌ Errors: ${q.error ?? 0}\n📄 Documents embedded: ${d.documents ?? 0}\n\n_Embeddings: ${d.embeddings_enabled ? "✅ OpenAI" : "⚠️ Add OPENAI_API_KEY"}_`;
+    }
+  }
+
+  if (!urlMatch) return `🕷️ *Web Crawler*\n\nSend me a URL to start crawling:\n_e.g. "crawl https://docs.example.com"_\n\nOr query your existing knowledge base:\n_e.g. "query: API rate limits"_`;
+
+  const url = urlMatch[0];
+  const r = await fetch(`${SUPABASE_URL}/functions/v1/mavis-web-crawler`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${SERVICE_KEY}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "start", user_id: userId, url, process_now: false }),
+    signal: AbortSignal.timeout(15000),
+  }).catch(() => null);
+
+  if (r?.ok) {
+    return `🕷️ *Crawl Started*\n\nSeed: ${url}\n\nI'll crawl the page, extract all internal links, embed the text, and index it for RAG search.\n\nRun again with "crawl process" to continue, or I'll process it in the background.\n\n_Query your knowledge base any time: "query: [topic]"_`;
+  }
+  return `🕷️ *Crawler*\n\nQueued: ${url}\nUse "crawl process" to start extraction.`;
+}
+
+// --- Comms: email send or calendar manage ---
+async function handleComms(userId: string, message: string): Promise<string> {
+  const lower = message.toLowerCase();
+
+  // ── Calendar path ──────────────────────────────────────────────────────────
+  const isCalendar = /schedule|calendar|meeting|book|appointment|event|reschedule|cancel\s+meeting/.test(lower);
+  if (isCalendar) {
+    // Parse intent: find_free_time | create_event | list_events | reschedule_event | cancel_event
+    const actionMap: Record<string, string> = {
+      "list|show|what.*meeting|what.*event|upcoming": "list_events",
+      "free|available|open slot|when.*free":          "find_free_time",
+      "reschedule|move.*meeting":                     "reschedule_event",
+      "cancel.*meeting|delete.*event":                "cancel_event",
+    };
+    let calAction = "create_event";
+    for (const [pat, act] of Object.entries(actionMap)) {
+      if (new RegExp(pat).test(lower)) { calAction = act; break; }
+    }
+
+    // Use AI to extract event details for create/reschedule
+    let params: Record<string, unknown> = { action: calAction };
+    if (calAction === "create_event" || calAction === "reschedule_event") {
+      const raw = await callAI(
+        `Extract calendar event details from this request. Respond ONLY as JSON:
+{"title":"...","start_date":"YYYY-MM-DD","start_time":"HH:MM","end_time":"HH:MM","attendees":["email"],"description":"..."}
+If a field is unclear, omit it.`,
+        message, 256, true,
+      );
+      try {
+        const match = raw.match(/\{[\s\S]*?\}/);
+        if (match) params = { action: calAction, ...JSON.parse(match[0]) };
+      } catch { /* use minimal params */ }
+    }
+
+    try {
+      const r = await fetch(`${SUPABASE_URL}/functions/v1/mavis-calendar-manage`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${SERVICE_KEY}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ ...params, user_id: userId }),
+        signal: AbortSignal.timeout(20000),
+      });
+      if (r.ok) {
+        const d = await r.json();
+        if (calAction === "list_events") {
+          const events = (d.events ?? d.items ?? []).slice(0, 8);
+          if (!events.length) return "📅 *Calendar*\n\nNo upcoming events found.";
+          const lines = events.map((e: any) =>
+            `• ${e.summary ?? e.title ?? "Event"} — ${e.start?.dateTime?.slice(0, 16) ?? e.start ?? ""}`
+          ).join("\n");
+          return `📅 *Upcoming Events*\n\n${lines}`;
+        }
+        if (calAction === "find_free_time") {
+          const slots = d.slots ?? d.free_slots ?? [];
+          if (!slots.length) return "📅 *Calendar*\n\nNo free slots found in the next 3 days.";
+          const lines = (slots as any[]).slice(0, 5).map((s: any) => `• ${s.start} → ${s.end}`).join("\n");
+          return `📅 *Free Slots*\n\n${lines}`;
+        }
+        const evt = d.event ?? d;
+        return `📅 *Event ${calAction.replace("_", " ")} — done*\n\n${evt.summary ?? evt.title ?? JSON.stringify(evt).slice(0, 200)}`;
+      }
+    } catch { /* fall through to queue */ }
+
+    // Calendar not connected or failed — queue the request
+    await supabase.from("mavis_action_queue").insert({
+      user_id: userId,
+      action_type: "calendar_request",
+      title: `Calendar: ${calAction.replace("_", " ")}`,
+      description: message.slice(0, 200),
+      status: "pending",
+      autonomy_tier: "approve",
+      payload: { action: calAction, message },
+    }).catch(() => {});
+    return `📅 *Calendar Request Queued*\n\n_${message.slice(0, 150)}_\n\nConnect Google Calendar in _/integrations_ to execute automatically.`;
+  }
+
+  // ── Email path ─────────────────────────────────────────────────────────────
+  const isEmail = /email|send.*to|message.*to|write.*to|reach out/.test(lower);
+  if (isEmail) {
+    const raw = await callAI(
+      `Extract email send details from this request. Respond ONLY as JSON:
+{"to":"recipient@email.com","subject":"...","generate_prompt":"what to write"}
+If recipient email isn't clear, set to is empty string.`,
+      message, 256, true,
+    );
+
+    let to = "", subject = "", generatePrompt = message;
+    try {
+      const match = raw.match(/\{[\s\S]*?\}/);
+      if (match) {
+        const d = JSON.parse(match[0]);
+        to = d.to ?? ""; subject = d.subject ?? ""; generatePrompt = d.generate_prompt ?? message;
+      }
+    } catch { /* use defaults */ }
+
+    if (!to) {
+      // Can't send without a recipient — queue it
+      await supabase.from("mavis_action_queue").insert({
+        user_id: userId,
+        action_type: "email_request",
+        title: "Email Request",
+        description: message.slice(0, 200),
+        status: "pending",
+        autonomy_tier: "approve",
+        payload: { message },
+      }).catch(() => {});
+      return `📧 *Email Request Queued*\n\n_${message.slice(0, 150)}_\n\nCouldn't identify the recipient. Please specify an email address and I'll send it immediately.`;
+    }
+
+    try {
+      const r = await fetch(`${SUPABASE_URL}/functions/v1/mavis-email-send`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${SERVICE_KEY}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ to, subject, generate: true, generate_prompt: generatePrompt }),
+        signal: AbortSignal.timeout(30000),
+      });
+      if (r.ok) {
+        const d = await r.json();
+        return `📧 *Email Sent*\n\nTo: ${to}\nSubject: ${d.subject ?? subject}\n\n_${(d.body ?? "").slice(0, 200)}…_`;
+      }
+      const err = await r.json().catch(() => ({}));
+      return `📧 *Email failed*: ${(err as any).error ?? "Unknown error"}. Check RESEND_API_KEY in secrets.`;
+    } catch (e: any) {
+      return `📧 *Email error*: ${e.message}`;
+    }
+  }
+
+  // ── Generic comms fallback ─────────────────────────────────────────────────
+  await supabase.from("mavis_action_queue").insert({
+    user_id: userId,
+    action_type: "comms_request",
+    title: "Communications Request",
+    description: message.slice(0, 200),
+    status: "pending",
+    autonomy_tier: "approve",
+    payload: { message },
+  }).catch(() => {});
+
+  return `📬 *Communications Request Queued*\n\n_${message.slice(0, 200)}_\n\nConnect Gmail and Google Calendar in _/integrations_ for automatic execution.`;
+}
+
+// ─────────────────────────────────────────────────────────────
+// MAIN HANDLER
+// ─────────────────────────────────────────────────────────────
+
+Deno.serve(async (req) => {
+  if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
+
+  try {
+    // Auth: service-role (internal) or user JWT (direct API calls)
+    const auth  = req.headers.get("Authorization") ?? "";
+    const token = auth.replace(/^Bearer\s+/i, "").trim();
+    if (!token) return json({ error: "Unauthorized" }, 401);
+
+    const body = await req.json() as Record<string, unknown>;
+    const {
+      message,
+      source     = "web",
+      user_id,
+      chat_id,
+      intent_hint,
+      operator_name,
+    } = body as {
+      message:        string;
+      source?:        string;
+      user_id:        string;
+      chat_id?:       string | number;
+      intent_hint?:   string;
+      operator_name?: string;
+    };
+
+    if (!user_id) return json({ error: "user_id required" }, 400);
+    if (!message) return json({ error: "message required" }, 400);
+
+    // Resolve operator name
+    let opName = operator_name ?? "Operator";
+    if (!operator_name) {
+      const { data: p } = await supabase.from("profiles").select("inscribed_name,display_name").eq("id", user_id).single();
+      opName = (p as any)?.inscribed_name || (p as any)?.display_name || "Operator";
+    }
+
+    // Check for compound intent (two actions in one message) first
+    const compound = detectCompoundPattern(message);
+
+    let reply = "";
+    let intent: Intent = "query";
+    let confidence = 60;
+    let target: string | undefined;
+
+    if (compound) {
+      // Compound intent: execute first action, feed result into second
+      const dispatchSingle = async (i: Intent, ctx?: string): Promise<string> => {
+        const input = ctx ? `${message}\n\n[Context from previous step:]\n${ctx.slice(0, 600)}` : message;
+        switch (i) {
+          case "social":   return handleSocial(user_id, input);
+          case "research": return handleResearch(user_id, input);
+          case "action":   return handleAction(user_id, input);
+          case "status":   return handleStatus(user_id, opName);
+          case "comms":    return handleComms(user_id, input);
+          case "crawl":    return handleCrawl(user_id, input);
+          default:         return handleQuery(user_id, input, opName);
+        }
+      };
+
+      const firstResult = await dispatchSingle(compound.first);
+      const secondResult = await dispatchSingle(compound.second, firstResult);
+
+      reply = `${firstResult}\n\n---\n\n${secondResult}`;
+      intent = compound.first;
+      confidence = 90;
+
+      await supabase.from("mavis_action_queue").insert({
+        user_id,
+        action_type:   "director_route",
+        title:         `Director → ${compound.first} → ${compound.second}`,
+        description:   `"${message.slice(0, 80)}" (compound) from ${source}`,
+        status:        "executed",
+        autonomy_tier: "auto",
+        executed_at:   new Date().toISOString(),
+        payload:       { compound: true, intents: [compound.first, compound.second], source, message: message.slice(0, 500) },
+      }).catch(() => {});
+
+    } else {
+      // Tool-use routing (primary) or classify→dispatch fallback
+      if (ANTHROPIC_KEY) {
+        const { reply: toolReply, intent: toolIntent } = await handleWithTools(user_id, message, opName);
+        reply = toolReply;
+        intent = toolIntent as Intent;
+        confidence = 95;
+      } else {
+        // Fallback: old classify → dispatch path
+        const classified = await classifyIntent(message, intent_hint);
+        intent = classified.intent;
+        confidence = classified.confidence;
+        target = classified.target;
+
+        switch (intent) {
+          case "social":   reply = await handleSocial(user_id, message, target); break;
+          case "research": reply = await handleResearch(user_id, message, target); break;
+          case "action":   reply = await handleAction(user_id, message); break;
+          case "status":   reply = await handleStatus(user_id, opName); break;
+          case "comms":    reply = await handleComms(user_id, message); break;
+          case "crawl":    reply = await handleCrawl(user_id, message); break;
+          default:         reply = await handleQuery(user_id, message, opName); break;
+        }
+      }
+
+      await supabase.from("mavis_action_queue").insert({
+        user_id,
+        action_type:   "director_route",
+        title:         `Director → ${intent}`,
+        description:   `"${message.slice(0, 80)}" (${confidence}% confidence) from ${source}`,
+        status:        "executed",
+        autonomy_tier: "auto",
+        executed_at:   new Date().toISOString(),
+        payload:       { intent, confidence, target, source, message: message.slice(0, 500) },
+      }).catch(() => {});
+    }
+
+    // Push reply back via Telegram if triggered from there
+    if (source === "telegram" && (chat_id || Deno.env.get("TELEGRAM_OPERATOR_CHAT_ID"))) {
+      fetch(`${SUPABASE_URL}/functions/v1/telegram-sender`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${SERVICE_KEY}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          chat_id:    chat_id || Deno.env.get("TELEGRAM_OPERATOR_CHAT_ID"),
+          text:       reply,
+          parse_mode: "Markdown",
+        }),
+      }).catch((e) => console.error("[Director] telegram-sender error:", e));
+    }
+
+    return json({ ok: true, intent, confidence, reply });
+
+  } catch (err) {
+    console.error("[mavis-director]", err);
+    return json({ error: err instanceof Error ? err.message : String(err) }, 500);
+  }
+});

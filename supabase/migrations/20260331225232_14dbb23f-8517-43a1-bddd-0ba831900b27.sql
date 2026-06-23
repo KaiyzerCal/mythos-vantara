@@ -1,0 +1,1 @@
+DROP POLICY IF EXISTS "Public can read vault media" ON storage.objects;
