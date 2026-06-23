@@ -628,12 +628,17 @@ export function CouncilGroupVoice({
     return () => observer.disconnect();
   }, [members]);
 
+  // Derived: which member is currently speaking
+  const currentMemberResponseEarly =
+    currentSpeakerIndex >= 0 ? pendingResponsesRef.current[currentSpeakerIndex] : null;
+  const activeMemberIdEarly = currentMemberResponseEarly?.member_id ?? null;
+
   // Auto-scroll carousel to the speaking member
   useEffect(() => {
-    if (!activeMemberId || !carouselRef.current) return;
-    const card = carouselRef.current.querySelector(`[data-member-id="${activeMemberId}"]`) as HTMLElement | null;
+    if (!activeMemberIdEarly || !carouselRef.current) return;
+    const card = carouselRef.current.querySelector(`[data-member-id="${activeMemberIdEarly}"]`) as HTMLElement | null;
     if (card) card.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "center" });
-  }, [activeMemberId]);
+  }, [activeMemberIdEarly]);
 
   // ── Close handler ──────────────────────────────────────────────────────────
   const handleClose = useCallback(async () => {
