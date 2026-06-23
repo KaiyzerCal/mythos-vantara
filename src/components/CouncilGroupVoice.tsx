@@ -80,6 +80,10 @@ export function CouncilGroupVoice({
   const [directedAt, setDirectedAt] = useState<SessionMember | null>(null);
   const directedAtRef = useRef<SessionMember | null>(null);
 
+  // Carousel
+  const carouselRef = useRef<HTMLDivElement>(null);
+  const [centeredMemberId, setCenteredMemberId] = useState<string | null>(null);
+
   // ── Phase + speech ─────────────────────────────────────────────────────────
   const [phase, setPhase] = useState<Phase>("idle");
   const [transcript, setTranscript] = useState("");
@@ -600,6 +604,37 @@ export function CouncilGroupVoice({
     }
   }, [history]);
 
+  // Carousel: track centered card via IntersectionObserver
+  useEffect(() => {
+    const container = carouselRef.current;
+    if (!container || members.length === 0) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (entry.intersectionRatio >= 0.7) {
+            const id = (entry.target as HTMLElement).dataset.memberId;
+            if (id) setCenteredMemberId(id);
+          }
+        }
+      },
+      { root: container, threshold: 0.7 },
+    );
+
+    const cards = container.querySelectorAll("[data-member-id]");
+    cards.forEach((el) => observer.observe(el));
+    // Seed initial centered member (first card)
+    if (members[0]) setCenteredMemberId(members[0].id);
+    return () => observer.disconnect();
+  }, [members]);
+
+  // Auto-scroll carousel to the speaking member
+  useEffect(() => {
+    if (!activeMemberId || !carouselRef.current) return;
+    const card = carouselRef.current.querySelector(`[data-member-id="${activeMemberId}"]`) as HTMLElement | null;
+    if (card) card.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "center" });
+  }, [activeMemberId]);
+
   // ── Close handler ──────────────────────────────────────────────────────────
   const handleClose = useCallback(async () => {
     closingRef.current = true;
@@ -697,87 +732,116 @@ export function CouncilGroupVoice({
         </button>
       </div>
 
-      {/* ── Member avatar row ── */}
-      <div className="flex items-end justify-center gap-5 px-6 py-5 shrink-0">
-        {members.length === 0 ? (
-          [0, 1, 2, 3].map((i) => (
-            <div key={i} className="flex flex-col items-center gap-1.5">
-              <div className="w-12 h-12 rounded-full bg-white/5 border border-white/10 animate-pulse" />
-              <div className="h-2 w-10 rounded bg-white/10 animate-pulse" />
-            </div>
-          ))
-        ) : (
-          members.map((member) => {
-            const isActive   = member.id === activeMemberId;
-            const isDirected = directedAt?.id === member.id;
-            const isBystander = directedAt !== null && !isDirected;
-            const canTap = phase === "idle" || phase === "listening" || phase === "done";
+      {/* ── Member carousel — swipe to browse, tap to put on the spot ── */}
+      <div className="relative shrink-0 py-2">
+        <div
+          ref={carouselRef}
+          className="flex overflow-x-auto snap-x snap-mandatory gap-3"
+          style={{
+            paddingInline: "calc(50% - 56px)",
+            scrollbarWidth: "none",
+            msOverflowStyle: "none",
+          } as React.CSSProperties}
+        >
+          {members.length === 0 ? (
+            [0, 1, 2, 3].map((i) => (
+              <div key={i} className="snap-center shrink-0 w-28 flex flex-col items-center gap-2 py-3">
+                <div className="w-14 h-14 rounded-full bg-white/5 border border-white/10 animate-pulse" />
+                <div className="h-2 w-16 rounded bg-white/10 animate-pulse" />
+                <div className="h-2 w-10 rounded bg-white/5 animate-pulse" />
+              </div>
+            ))
+          ) : (
+            members.map((member) => {
+              const isActive    = member.id === activeMemberId;
+              const isDirected  = directedAt?.id === member.id;
+              const isCentered  = centeredMemberId === member.id;
+              const isBystander = directedAt !== null && !isDirected;
+              const canTap = phase === "idle" || phase === "listening" || phase === "done";
 
-            return (
-              <motion.div
-                key={member.id}
-                animate={{ opacity: isBystander ? 0.35 : 1 }}
-                transition={{ duration: 0.25 }}
-                className="flex flex-col items-center gap-1.5"
-              >
-                <button
-                  disabled={!canTap}
-                  onClick={() => {
-                    if (!canTap) return;
-                    if (isDirected) {
-                      directedAtRef.current = null;
-                      setDirectedAt(null);
-                    } else {
-                      directedAtRef.current = member;
-                      setDirectedAt(member);
-                    }
+              return (
+                <motion.div
+                  key={member.id}
+                  data-member-id={member.id}
+                  animate={{
+                    opacity: isBystander ? 0.35 : 1,
+                    scale: isCentered ? 1 : 0.82,
                   }}
-                  aria-label={isDirected ? `Unpin ${member.name}` : `Direct to ${member.name}`}
-                  className="focus:outline-none"
+                  transition={{ duration: 0.2 }}
+                  className="snap-center shrink-0 w-28 flex flex-col items-center gap-1.5 py-3"
                 >
-                  <div
-                    className={[
-                      "w-12 h-12 rounded-full overflow-hidden border-2 flex items-center justify-center transition-all duration-300",
-                      isActive && !isDirected
-                        ? "border-primary ring-2 ring-primary/60 animate-pulse scale-110 shadow-[0_0_20px_rgba(var(--primary)/0.5)]"
-                        : isDirected
-                        ? "border-amber-400 ring-2 ring-amber-400/60 scale-110 shadow-[0_0_20px_rgba(251,191,36,0.4)]"
-                        : "border-white/15 bg-white/5",
-                    ].join(" ")}
+                  <button
+                    disabled={!canTap}
+                    onClick={() => {
+                      if (!canTap) return;
+                      if (isDirected) {
+                        directedAtRef.current = null;
+                        setDirectedAt(null);
+                      } else {
+                        directedAtRef.current = member;
+                        setDirectedAt(member);
+                      }
+                    }}
+                    aria-label={isDirected ? `Release ${member.name}` : `Put ${member.name} on the spot`}
+                    className="focus:outline-none flex flex-col items-center gap-1.5 w-full"
                   >
-                    {member.avatar ? (
-                      <img
-                        src={member.avatar}
-                        alt={member.name}
-                        className="w-full h-full object-cover"
-                      />
-                    ) : (
-                      <span
-                        className={[
-                          "text-xs font-bold font-mono",
-                          isActive && !isDirected ? "text-primary" : isDirected ? "text-amber-400" : "text-white/50",
-                        ].join(" ")}
-                      >
-                        {initials(member.name)}
-                      </span>
+                    <div
+                      className={[
+                        "w-14 h-14 rounded-full overflow-hidden border-2 flex items-center justify-center transition-all duration-300",
+                        isActive && !isDirected
+                          ? "border-primary ring-2 ring-primary/60 shadow-[0_0_18px_rgba(var(--primary)/0.4)] animate-pulse"
+                          : isDirected
+                          ? "border-amber-400 ring-2 ring-amber-400/60 shadow-[0_0_18px_rgba(251,191,36,0.35)]"
+                          : isCentered
+                          ? "border-white/35 bg-white/8"
+                          : "border-white/10 bg-white/5",
+                      ].join(" ")}
+                    >
+                      {member.avatar ? (
+                        <img src={member.avatar} alt={member.name} className="w-full h-full object-cover" />
+                      ) : (
+                        <span
+                          className={[
+                            "text-sm font-bold font-mono",
+                            isActive && !isDirected ? "text-primary" : isDirected ? "text-amber-400" : isCentered ? "text-white/80" : "text-white/30",
+                          ].join(" ")}
+                        >
+                          {initials(member.name)}
+                        </span>
+                      )}
+                    </div>
+
+                    <p
+                      className={[
+                        "text-[10px] font-mono tracking-wide text-center leading-tight",
+                        isDirected ? "text-amber-400 font-bold" : isCentered ? "text-white/80 font-semibold" : "text-white/25",
+                      ].join(" ")}
+                    >
+                      {member.name.split(" ")[0]}
+                    </p>
+
+                    {member.role && isCentered && (
+                      <p className="text-[9px] font-mono text-white/30 text-center truncate max-w-[96px]">
+                        {member.role}
+                      </p>
                     )}
-                  </div>
-                </button>
-                <p
-                  className={[
-                    "text-[10px] font-mono tracking-wide truncate max-w-[60px] text-center",
-                    isActive && !isDirected ? "text-primary font-bold" : isDirected ? "text-amber-400 font-bold" : "text-white/40",
-                  ].join(" ")}
-                >
-                  {member.name.split(" ")[0]}
-                </p>
-                {isDirected && (
-                  <span className="text-[8px] font-mono text-amber-400/70 tracking-widest">ON SPOT</span>
-                )}
-              </motion.div>
-            );
-          })
-        )}
+
+                    {isDirected ? (
+                      <span className="text-[8px] font-mono text-amber-400/90 tracking-widest bg-amber-400/10 border border-amber-400/30 rounded px-1.5 py-0.5">
+                        ON SPOT
+                      </span>
+                    ) : isCentered && canTap ? (
+                      <span className="text-[8px] font-mono text-white/20 tracking-widest">TAP TO DIRECT</span>
+                    ) : null}
+                  </button>
+                </motion.div>
+              );
+            })
+          )}
+        </div>
+        {/* Edge fade */}
+        <div className="pointer-events-none absolute inset-y-0 left-0 w-10 bg-gradient-to-r from-black/80 to-transparent" />
+        <div className="pointer-events-none absolute inset-y-0 right-0 w-10 bg-gradient-to-l from-black/80 to-transparent" />
       </div>
 
       {/* ── Karaoke text box ── */}
