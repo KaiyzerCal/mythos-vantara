@@ -15,19 +15,84 @@ function json(data: unknown, status = 200): Response {
   });
 }
 
+// ── Google token refresh (used by Drive tool handlers) ────────────────────────
+async function refreshGoogleToken(
+  config: Record<string, unknown>,
+  supabase: ReturnType<typeof createClient>,
+  userId: string,
+  provider: string,
+): Promise<string> {
+  if (
+    typeof config.expires_at === "number" &&
+    config.expires_at > Date.now() / 1000 + 300
+  ) {
+    return config.access_token as string;
+  }
+  const res = await fetch("https://oauth2.googleapis.com/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      client_id: config.client_id as string,
+      client_secret: config.client_secret as string,
+      refresh_token: config.refresh_token as string,
+      grant_type: "refresh_token",
+    }),
+  });
+  const data = await res.json();
+  if (!data.access_token) throw new Error("Token refresh failed: " + JSON.stringify(data));
+  const newConfig = {
+    ...config,
+    access_token: data.access_token,
+    expires_at: Math.floor(Date.now() / 1000) + (data.expires_in ?? 3600),
+  };
+  await supabase
+    .from("mavis_user_integrations")
+    .update({ config: newConfig })
+    .eq("user_id", userId)
+    .eq("provider", provider);
+  return data.access_token as string;
+}
+
 // ── Tool definitions (Anthropic tool_use format) ──────────────────────────────
 const MAVIS_TOOLS = [
   {
+    name: "search_drive",
+    description: "Search Google Drive for files and documents by name or content",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        query: { type: "string", description: "Search terms (file name or content)" },
+        file_type: {
+          type: "string",
+          description: "Filter: doc | sheet | pdf | folder | any (default: any)",
+        },
+        max_results: { type: "number", description: "Max results (default 10)" },
+      },
+      required: ["query"],
+    },
+  },
+  {
+    name: "read_drive_file",
+    description: "Read the content of a Google Drive file (Docs exported as text, Sheets as CSV, other files as raw text)",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        file_id: { type: "string", description: "Google Drive file ID (use search_drive first if you don't have it)" },
+        file_name: { type: "string", description: "File name to search for if file_id is unknown" },
+      },
+    },
+  },
+  {
     name: "queue_action",
     description:
-      "Queue an action for the operator to review and approve before execution. Use this for ANY write operation — emails, calendar events, social posts, etc.",
+      "Queue an action for the operator to review and approve before execution. Use this for ANY write operation — emails, calendar events, Drive files, social posts, etc.",
     input_schema: {
       type: "object" as const,
       properties: {
         action_type: {
           type: "string",
           description:
-            "Type: draft_email | schedule_event | create_task | post_social | make_call | other",
+            "Type: draft_email | schedule_event | create_task | create_drive_file | update_drive_file | post_social | make_call | other",
         },
         summary: {
           type: "string",
@@ -398,6 +463,128 @@ async function handleTool(
           recent_memory: memory,
           summary: `Operator has ${quests.length} active quest(s), ${tasks.length} pending task(s), and ${memory.length} recent memory item(s).`,
         };
+      }
+
+      // ── search_drive ──────────────────────────────────────────────────────
+      case "search_drive": {
+        const query = String(input.query ?? "");
+        const fileType = input.file_type ? String(input.file_type) : "any";
+        const maxResults = Math.min(Number(input.max_results ?? 10), 30);
+
+        const { data: integration } = await supabase
+          .from("mavis_user_integrations")
+          .select("config")
+          .eq("user_id", userId)
+          .eq("provider", "gdrive")
+          .maybeSingle();
+
+        if (!integration?.config) {
+          return { error: "Google Drive not connected. Connect via /integrations." };
+        }
+
+        try {
+          const token = await refreshGoogleToken(
+            integration.config as Record<string, unknown>,
+            supabase, userId, "gdrive",
+          );
+
+          const safe = query.replace(/'/g, "\\'");
+          let driveQ = `(fullText contains '${safe}' or name contains '${safe}') and trashed=false`;
+          if (fileType === "doc") driveQ += " and mimeType='application/vnd.google-apps.document'";
+          else if (fileType === "sheet") driveQ += " and mimeType='application/vnd.google-apps.spreadsheet'";
+          else if (fileType === "pdf") driveQ += " and mimeType='application/pdf'";
+          else if (fileType === "folder") driveQ += " and mimeType='application/vnd.google-apps.folder'";
+
+          const res = await fetch(
+            `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(driveQ)}&fields=files(id,name,mimeType,size,modifiedTime,webViewLink)&pageSize=${maxResults}`,
+            { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(15_000) },
+          );
+
+          if (!res.ok) return { error: `Drive search failed (${res.status}): ${await res.text()}` };
+          const data = await res.json();
+          return { files: (data.files ?? []) as unknown[] };
+        } catch (err: unknown) {
+          return { error: `Drive search error: ${err instanceof Error ? err.message : String(err)}` };
+        }
+      }
+
+      // ── read_drive_file ───────────────────────────────────────────────────
+      case "read_drive_file": {
+        const { data: integration } = await supabase
+          .from("mavis_user_integrations")
+          .select("config")
+          .eq("user_id", userId)
+          .eq("provider", "gdrive")
+          .maybeSingle();
+
+        if (!integration?.config) {
+          return { error: "Google Drive not connected. Connect via /integrations." };
+        }
+
+        try {
+          const token = await refreshGoogleToken(
+            integration.config as Record<string, unknown>,
+            supabase, userId, "gdrive",
+          );
+
+          let fileId = input.file_id ? String(input.file_id) : "";
+
+          // Search by name if no ID given
+          if (!fileId && input.file_name) {
+            const safe = String(input.file_name).replace(/'/g, "\\'");
+            const sr = await fetch(
+              `https://www.googleapis.com/drive/v3/files?q=name contains '${safe}' and trashed=false&fields=files(id,name,mimeType)&pageSize=1`,
+              { headers: { Authorization: `Bearer ${token}` } },
+            );
+            const sd = await sr.json();
+            fileId = sd.files?.[0]?.id ?? "";
+            if (!fileId) return { error: `File not found: ${input.file_name}` };
+          }
+
+          if (!fileId) return { error: "Provide file_id or file_name" };
+
+          // Get metadata
+          const metaRes = await fetch(
+            `https://www.googleapis.com/drive/v3/files/${fileId}?fields=id,name,mimeType`,
+            { headers: { Authorization: `Bearer ${token}` } },
+          );
+          const meta = await metaRes.json();
+          const mime: string = meta.mimeType ?? "";
+
+          let content = "";
+          if (mime === "application/vnd.google-apps.document") {
+            const r = await fetch(
+              `https://www.googleapis.com/drive/v3/files/${fileId}/export?mimeType=text/plain`,
+              { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(20_000) },
+            );
+            content = await r.text();
+          } else if (mime === "application/vnd.google-apps.spreadsheet") {
+            const r = await fetch(
+              `https://www.googleapis.com/drive/v3/files/${fileId}/export?mimeType=text/csv`,
+              { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(20_000) },
+            );
+            content = await r.text();
+          } else {
+            const r = await fetch(
+              `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`,
+              { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(20_000) },
+            );
+            content = await r.text();
+          }
+
+          const MAX = 12_000;
+          const truncated = content.length > MAX;
+          return {
+            file_id: fileId,
+            file_name: meta.name,
+            mime_type: mime,
+            content: content.slice(0, MAX),
+            truncated,
+            total_chars: content.length,
+          };
+        } catch (err: unknown) {
+          return { error: `Drive read error: ${err instanceof Error ? err.message : String(err)}` };
+        }
       }
 
       default:
