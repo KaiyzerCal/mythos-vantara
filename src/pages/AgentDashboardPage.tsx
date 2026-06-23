@@ -992,9 +992,397 @@ function A2ATasksTab({ userId }: { userId: string }) {
   );
 }
 
+// ─── Tab: Action Queue ───────────────────────────────────────
+
+interface ActionQueueItem {
+  id: string;
+  action_type: string;
+  action_payload: Record<string, any>;
+  status: string;
+  autonomy_tier: string;
+  priority: number;
+  source_system: string | null;
+  source_context: string | null;
+  approved_at: string | null;
+  executed_at: string | null;
+  result_data: Record<string, any> | null;
+  created_at: string;
+  expires_at: string;
+}
+
+const ACTION_TYPE_COLORS: Record<string, string> = {
+  draft_email:    "text-blue-400 bg-blue-900/20 border-blue-800/40",
+  schedule_event: "text-purple-400 bg-purple-900/20 border-purple-800/40",
+  create_task:    "text-green-400 bg-green-900/20 border-green-800/40",
+  post_social:    "text-orange-400 bg-orange-900/20 border-orange-800/40",
+  make_call:      "text-red-400 bg-red-900/20 border-red-800/40",
+};
+
+function actionTypeColor(type: string) {
+  return ACTION_TYPE_COLORS[type] ?? "text-muted-foreground bg-muted/30 border-border";
+}
+
+const QUEUE_STATUS_COLORS: Record<string, string> = {
+  pending:  "text-amber-400 bg-amber-900/20 border-amber-800/40",
+  approved: "text-blue-400 bg-blue-900/20 border-blue-800/40",
+  executed: "text-emerald-400 bg-emerald-900/20 border-emerald-800/40",
+  rejected: "text-zinc-400 bg-zinc-900/20 border-zinc-800/40",
+  expired:  "text-red-400 bg-red-900/20 border-red-800/40",
+};
+
+function queueStatusColor(status: string) {
+  return QUEUE_STATUS_COLORS[status] ?? "text-muted-foreground bg-muted/30 border-border";
+}
+
+function renderPayloadPreview(actionType: string, payload: Record<string, any>) {
+  if (!payload || Object.keys(payload).length === 0) return null;
+  const fields: { label: string; value: string }[] = [];
+
+  if (actionType === "draft_email") {
+    if (payload.to) fields.push({ label: "To", value: String(payload.to) });
+    if (payload.subject) fields.push({ label: "Subject", value: String(payload.subject) });
+  } else if (actionType === "schedule_event") {
+    if (payload.title) fields.push({ label: "Event", value: String(payload.title) });
+    if (payload.start) fields.push({ label: "Start", value: String(payload.start) });
+  } else if (actionType === "create_task") {
+    if (payload.title) fields.push({ label: "Task", value: String(payload.title) });
+    if (payload.due_date) fields.push({ label: "Due", value: String(payload.due_date) });
+  } else if (actionType === "post_social") {
+    if (payload.platform) fields.push({ label: "Platform", value: String(payload.platform) });
+    if (payload.content) fields.push({ label: "Content", value: String(payload.content).slice(0, 80) + (String(payload.content).length > 80 ? "..." : "") });
+  } else if (actionType === "make_call") {
+    if (payload.to) fields.push({ label: "To", value: String(payload.to) });
+    if (payload.purpose) fields.push({ label: "Purpose", value: String(payload.purpose) });
+  } else {
+    const keys = Object.keys(payload).slice(0, 3);
+    for (const k of keys) {
+      const v = payload[k];
+      if (v !== null && v !== undefined && typeof v !== "object") {
+        fields.push({ label: k, value: String(v).slice(0, 60) });
+      }
+    }
+  }
+
+  if (fields.length === 0) return null;
+  return (
+    <div className="flex flex-wrap gap-x-4 gap-y-0.5 mt-1.5">
+      {fields.map(({ label, value }) => (
+        <span key={label} className="text-[10px] font-mono text-muted-foreground">
+          <span className="text-muted-foreground/50">{label}:</span> {value}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+function ActionQueueTab({ userId }: { userId: string }) {
+  const [items, setItems] = useState<ActionQueueItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [filter, setFilter] = useState<"all" | "pending" | "approved" | "executed" | "rejected">("all");
+  const [actingId, setActingId] = useState<string | null>(null);
+
+  useEffect(() => {
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userId]);
+
+  async function load() {
+    setLoading(true);
+    try {
+      const { data } = await (supabase as any)
+        .from("mavis_action_queue")
+        .select("*")
+        .eq("user_id", userId)
+        .order("created_at", { ascending: false })
+        .limit(50);
+      setItems(data ?? []);
+    } catch (err: any) {
+      toast.error("Failed to load action queue: " + (err?.message ?? "unknown"));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function doAction(item: ActionQueueItem, action: "approve" | "reject" | "execute") {
+    setActingId(item.id);
+    try {
+      const { error } = await (supabase as any).functions.invoke("mavis-action-executor", {
+        body: { action, queue_item_id: item.id, userId },
+      });
+      if (error) throw error;
+      toast.success(`Action ${action}d`);
+      await load();
+    } catch (err: any) {
+      toast.error(`Failed to ${action}: ` + (err?.message ?? "unknown"));
+    } finally {
+      setActingId(null);
+    }
+  }
+
+  const filtered = filter === "all" ? items : items.filter((i) => i.status === filter);
+  const pendingCount = items.filter((i) => i.status === "pending").length;
+
+  return (
+    <div className="space-y-4">
+      {/* Header row */}
+      <div className="flex items-center gap-2 flex-wrap">
+        <h3 className="text-sm font-mono font-bold text-foreground">Action Queue</h3>
+        {pendingCount > 0 && (
+          <span className="text-[10px] font-mono px-1.5 py-0.5 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-400">
+            {pendingCount} pending
+          </span>
+        )}
+        <div className="flex-1" />
+        <button
+          onClick={load}
+          disabled={loading}
+          className="flex items-center gap-1 text-xs font-mono text-muted-foreground hover:text-foreground transition-colors disabled:opacity-40"
+        >
+          <RefreshCw size={10} className={loading ? "animate-spin" : ""} /> Refresh
+        </button>
+      </div>
+
+      {/* Filter pills */}
+      <div className="flex gap-1 flex-wrap">
+        {(["all", "pending", "approved", "executed", "rejected"] as const).map((f) => (
+          <button
+            key={f}
+            onClick={() => setFilter(f)}
+            className={`text-xs font-mono px-3 py-1 rounded-full border transition-colors capitalize ${
+              filter === f
+                ? "border-primary/50 bg-primary/10 text-primary"
+                : "border-border text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            {f}
+          </button>
+        ))}
+      </div>
+
+      {loading ? (
+        <div className="space-y-2">
+          {[1, 2, 3].map((i) => (
+            <div key={i} className="bg-muted/20 border border-border rounded-xl p-4 animate-pulse h-20" />
+          ))}
+        </div>
+      ) : filtered.length === 0 ? (
+        <HudCard>
+          <div className="flex flex-col items-center gap-3 py-10 text-center">
+            <CheckCircle2 size={28} className="text-muted-foreground/40" />
+            <p className="text-sm font-mono text-muted-foreground">No actions in queue</p>
+            <p className="text-[11px] font-mono text-muted-foreground/60">
+              When MAVIS suggests actions, they'll appear here for your review.
+            </p>
+          </div>
+        </HudCard>
+      ) : (
+        <div className="space-y-2">
+          {filtered.map((item) => {
+            const isRejected = item.status === "rejected";
+            return (
+              <HudCard key={item.id} className={isRejected ? "opacity-50" : ""}>
+                {/* Top row */}
+                <div className="flex items-center gap-2 flex-wrap mb-2">
+                  <span className={`text-[9px] font-mono uppercase tracking-widest px-1.5 py-0.5 rounded border ${actionTypeColor(item.action_type)}`}>
+                    {item.action_type.replace(/_/g, " ")}
+                  </span>
+                  <span className={`text-[9px] font-mono uppercase tracking-widest px-1.5 py-0.5 rounded border ${queueStatusColor(item.status)}`}>
+                    {item.status}
+                  </span>
+                  <span className="text-[9px] font-mono px-1.5 py-0.5 rounded border border-border bg-muted/20 text-muted-foreground">
+                    P{item.priority}
+                  </span>
+                  <span className="text-[9px] font-mono text-muted-foreground/50 ml-auto">
+                    {fmtDate(item.created_at)}
+                  </span>
+                </div>
+
+                {/* Description */}
+                {item.source_context && (
+                  <p className="text-xs font-body text-foreground/80 leading-relaxed mb-1">
+                    {item.source_context}
+                  </p>
+                )}
+
+                {/* Payload preview */}
+                {renderPayloadPreview(item.action_type, item.action_payload ?? {})}
+
+                {/* Executed result */}
+                {item.status === "executed" && item.result_data && (
+                  <div className="mt-2 p-2 rounded bg-emerald-900/10 border border-emerald-800/30">
+                    <p className="text-[10px] font-mono text-emerald-400 uppercase tracking-widest mb-0.5">Result</p>
+                    <p className="text-xs font-mono text-muted-foreground">
+                      {typeof item.result_data === "string"
+                        ? String(item.result_data).slice(0, 200)
+                        : (item.result_data as any)?.summary ?? (item.result_data as any)?.message ?? JSON.stringify(item.result_data).slice(0, 200)}
+                    </p>
+                  </div>
+                )}
+
+                {/* Action buttons */}
+                {(item.status === "pending" || item.status === "approved") && (
+                  <div className="flex items-center gap-2 mt-3 pt-2 border-t border-border/40">
+                    {item.status === "pending" && (
+                      <>
+                        <button
+                          onClick={() => doAction(item, "approve")}
+                          disabled={actingId === item.id}
+                          className="flex items-center gap-1 text-xs font-mono px-2.5 py-1 rounded border border-emerald-800/40 bg-emerald-900/10 text-emerald-400 hover:bg-emerald-900/20 transition-colors disabled:opacity-40"
+                        >
+                          {actingId === item.id ? <Loader2 size={10} className="animate-spin" /> : "Approve"}
+                        </button>
+                        <button
+                          onClick={() => doAction(item, "reject")}
+                          disabled={actingId === item.id}
+                          className="flex items-center gap-1 text-xs font-mono px-2.5 py-1 rounded border border-red-800/40 bg-red-900/10 text-red-400 hover:bg-red-900/20 transition-colors disabled:opacity-40"
+                        >
+                          Reject
+                        </button>
+                      </>
+                    )}
+                    {item.status === "approved" && (
+                      <button
+                        onClick={() => doAction(item, "execute")}
+                        disabled={actingId === item.id}
+                        className="flex items-center gap-1 text-xs font-mono px-2.5 py-1 rounded border border-blue-800/40 bg-blue-900/10 text-blue-400 hover:bg-blue-900/20 transition-colors disabled:opacity-40"
+                      >
+                        {actingId === item.id ? <Loader2 size={10} className="animate-spin" /> : "Execute"}
+                      </button>
+                    )}
+                  </div>
+                )}
+              </HudCard>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Tab: Morning Brief ──────────────────────────────────────
+
+interface BriefResult {
+  summary: string;
+  urgent_items: string[];
+  calendar_preview: string;
+  actions_queued: number;
+}
+
+function ProactiveAgentTab({ userId, onSwitchToQueue }: { userId: string; onSwitchToQueue: () => void }) {
+  const [running, setRunning] = useState(false);
+  const [lastBrief, setLastBrief] = useState<BriefResult | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  async function runBrief() {
+    setRunning(true);
+    setError(null);
+    try {
+      const { data, error: fnErr } = await (supabase as any).functions.invoke("mavis-proactive-agent", {
+        body: { action: "run_brief", userId },
+      });
+      if (fnErr) throw fnErr;
+      setLastBrief(data ?? null);
+    } catch (err: any) {
+      setError(err?.message ?? "Unknown error running morning brief");
+    } finally {
+      setRunning(false);
+    }
+  }
+
+  return (
+    <div className="space-y-5 max-w-2xl">
+      <HudCard>
+        <div className="flex flex-col gap-3">
+          <div>
+            <h3 className="text-sm font-display font-bold text-foreground">MAVIS Morning Brief</h3>
+            <p className="text-xs font-mono text-muted-foreground mt-1">
+              MAVIS reads your emails, calendar, and tasks, then surfaces suggested actions for review.
+            </p>
+          </div>
+          <button
+            onClick={runBrief}
+            disabled={running}
+            className="flex items-center justify-center gap-2 w-full py-3 rounded-lg border border-primary/30 bg-primary/10 text-primary text-sm font-mono hover:bg-primary/20 transition-colors disabled:opacity-50"
+          >
+            {running ? (
+              <>
+                <Loader2 size={16} className="animate-spin" />
+                Running Morning Brief...
+              </>
+            ) : (
+              "Run Morning Brief"
+            )}
+          </button>
+        </div>
+      </HudCard>
+
+      {error && (
+        <HudCard className="border-destructive/30 bg-destructive/5">
+          <p className="text-xs font-mono text-destructive">{error}</p>
+        </HudCard>
+      )}
+
+      {lastBrief && (
+        <div className="space-y-3">
+          {/* Summary */}
+          {lastBrief.summary && (
+            <HudCard>
+              <p className="text-[10px] font-mono text-primary uppercase tracking-widest mb-2">Summary</p>
+              <p className="text-sm font-body text-foreground/90 leading-relaxed">{lastBrief.summary}</p>
+            </HudCard>
+          )}
+
+          {/* Urgent items */}
+          {lastBrief.urgent_items?.length > 0 && (
+            <HudCard>
+              <p className="text-[10px] font-mono text-amber-400 uppercase tracking-widest mb-2">Urgent Items</p>
+              <div className="flex flex-col gap-1.5">
+                {lastBrief.urgent_items.map((urgentItem, i) => (
+                  <div key={i} className="flex items-start gap-2">
+                    <span className="shrink-0 text-[9px] font-mono px-1.5 py-0.5 rounded border border-amber-800/40 bg-amber-900/20 text-amber-400 mt-0.5">
+                      URGENT
+                    </span>
+                    <span className="text-xs font-body text-foreground/80">{urgentItem}</span>
+                  </div>
+                ))}
+              </div>
+            </HudCard>
+          )}
+
+          {/* Calendar preview */}
+          {lastBrief.calendar_preview && (
+            <HudCard>
+              <p className="text-[10px] font-mono text-purple-400 uppercase tracking-widest mb-2">Calendar Preview</p>
+              <p className="text-xs font-body text-foreground/80 leading-relaxed whitespace-pre-wrap">{lastBrief.calendar_preview}</p>
+            </HudCard>
+          )}
+
+          {/* Actions queued */}
+          {lastBrief.actions_queued != null && (
+            <HudCard className="border-primary/20 bg-primary/5">
+              <div className="flex items-center justify-between">
+                <p className="text-xs font-mono text-primary">
+                  {lastBrief.actions_queued} action{lastBrief.actions_queued !== 1 ? "s" : ""} queued for review
+                </p>
+                <button
+                  onClick={onSwitchToQueue}
+                  className="text-xs font-mono text-primary underline underline-offset-2 hover:text-primary/80 transition-colors"
+                >
+                  View Action Queue
+                </button>
+              </div>
+            </HudCard>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Tabs ────────────────────────────────────────────────────
 
-type TabId = "status" | "memories" | "quality" | "tasks" | "a2a";
+type TabId = "status" | "memories" | "quality" | "tasks" | "a2a" | "queue" | "brief";
 
 const TABS: { id: TabId; label: string; icon: React.ReactNode }[] = [
   { id: "status",   label: "Council Status",    icon: <Users size={12} /> },
@@ -1002,6 +1390,8 @@ const TABS: { id: TabId; label: string; icon: React.ReactNode }[] = [
   { id: "quality",  label: "Response Quality",  icon: <MessageSquare size={12} /> },
   { id: "tasks",    label: "Autonomous Tasks",  icon: <Zap size={12} /> },
   { id: "a2a",      label: "A2A Inbox",         icon: <Network size={12} /> },
+  { id: "queue",    label: "Action Queue",      icon: <CheckCircle2 size={12} /> },
+  { id: "brief",    label: "Morning Brief",     icon: <RefreshCw size={12} /> },
 ];
 
 // ─── AgentDashboardPage ──────────────────────────────────────
@@ -1057,11 +1447,13 @@ export function AgentDashboardPage() {
 
       {/* Tab content */}
       <div>
-        {activeTab === "status" && <CouncilStatusTab userId={userId} />}
+        {activeTab === "status"   && <CouncilStatusTab userId={userId} />}
         {activeTab === "memories" && <AgentMemoriesTab userId={userId} />}
-        {activeTab === "quality" && <ResponseQualityTab userId={userId} />}
-        {activeTab === "tasks" && <AutonomousTasksTab userId={userId} />}
-        {activeTab === "a2a"   && <A2ATasksTab userId={userId} />}
+        {activeTab === "quality"  && <ResponseQualityTab userId={userId} />}
+        {activeTab === "tasks"    && <AutonomousTasksTab userId={userId} />}
+        {activeTab === "a2a"      && <A2ATasksTab userId={userId} />}
+        {activeTab === "queue"    && <ActionQueueTab userId={userId} />}
+        {activeTab === "brief"    && <ProactiveAgentTab userId={userId} onSwitchToQueue={() => setActiveTab("queue")} />}
       </div>
     </div>
   );

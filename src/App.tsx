@@ -6,15 +6,9 @@ import { Toaster as SonnerToaster } from "sonner";
 import { ThemeProvider, useTheme } from "next-themes";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import { AppDataProvider } from "@/contexts/AppDataContext";
-import { ErrorBoundary } from "@/components/ErrorBoundary";
 import AppSidebar from "@/components/AppSidebar";
-import { CommandPalette, useCommandPalette } from "@/components/CommandPalette";
-import { Loader2, Menu } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import { useMavisNotifications } from "@/hooks/useMavisNotifications";
-import { Sheet, SheetContent } from "@/components/ui/sheet";
-import { TooltipProvider } from "@/components/ui/tooltip";
-import { AnimatePresence, motion } from "framer-motion";
-import { useState } from "react";
 
 
 /** Sync the mobile browser chrome (status bar) color with the active theme.
@@ -23,21 +17,11 @@ function ThemeColorSync() {
   const { resolvedTheme } = useTheme();
   useEffect(() => {
     const color = resolvedTheme === "light" ? "#ffffff" : "#0a0d1f";
-    const colorScheme = resolvedTheme === "light" ? "light" : "dark";
     document.querySelectorAll('meta[name="theme-color"]').forEach((el) => el.remove());
     const meta = document.createElement("meta");
     meta.name = "theme-color";
     meta.content = color;
     document.head.appendChild(meta);
-
-    document.documentElement.style.backgroundColor = color;
-    document.documentElement.style.colorScheme = colorScheme;
-    document.body.style.backgroundColor = color;
-    document.body.style.colorScheme = colorScheme;
-    const root = document.getElementById("root");
-    if (root) {
-      root.style.backgroundColor = color;
-    }
   }, [resolvedTheme]);
   return null;
 }
@@ -56,7 +40,6 @@ const JournalPage = lazy(() => import("@/pages/ContentPages").then(m => ({ defau
 const VaultCodexPage = lazy(() => import("@/pages/ContentPages").then(m => ({ default: m.VaultCodexPage })));
 const SkillsPage = lazy(() => import("@/pages/ContentPages").then(m => ({ default: m.SkillsPage })));
 const InventoryPage = lazy(() => import("@/pages/ContentPages").then(m => ({ default: m.InventoryPage })));
-const DomainPage = lazy(() => import("@/pages/ContentPages").then(m => ({ default: m.DomainPage })));
 const FormsPage = lazy(() => import("@/pages/FormsPage"));
 const BpmPage = lazy(() => import("@/pages/BpmPage"));
 const RankingsPage = lazy(() => import("@/pages/RankingsPage"));
@@ -95,29 +78,10 @@ const ForecastPage = lazy(() => import("@/pages/ForecastPage").then(m => ({ defa
 const NotificationsPage = lazy(() => import("@/pages/NotificationsPage").then(m => ({ default: m.NotificationsPage })));
 const StripeManagementPage = lazy(() => import("@/pages/StripeManagementPage").then(m => ({ default: m.StripeManagementPage })));
 const WorkflowsPage = lazy(() => import("@/pages/WorkflowsPage").then(m => ({ default: m.WorkflowsPage })));
-const AvatarStudioPage = lazy(() => import("@/pages/AvatarStudioPage").then(m => ({ default: m.AvatarStudioPage })));
-const ProductionIntelligence = lazy(() => import("@/pages/ProductionIntelligence"));
 const ImportPage = lazy(() => import("@/pages/ImportPage").then(m => ({ default: m.ImportPage })));
-const SystemSettingsPage = lazy(() => import("@/pages/SystemSettingsPage").then(m => ({ default: m.SystemSettingsPage })));
 const AgentDashboardPage = lazy(() => import("@/pages/AgentDashboardPage").then(m => ({ default: m.AgentDashboardPage })));
-const MyAgents = lazy(() => import("@/pages/MyAgents"));
-const WpcomCallbackPage = lazy(() => import("@/pages/WpcomCallbackPage"));
-const PhoneCallsPage = lazy(() => import("@/pages/PhoneCallsPage"));
-const SMSPage = lazy(() => import("@/pages/SMSPage"));
-const ApiKeysPage = lazy(() => import("@/pages/ApiKeysPage"));
-const LeadGenPage = lazy(() => import("@/pages/LeadGenPage"));
-const CompetitorIntelPage = lazy(() => import("@/pages/CompetitorIntelPage"));
-const ReceptionistPage = lazy(() => import("@/pages/ReceptionistPage"));
-const PlaybooksPage = lazy(() => import("@/pages/PlaybooksPage").then(m => ({ default: m.PlaybooksPage })));
-const StandingOrderTemplatesPage = lazy(() => import("@/pages/StandingOrderTemplatesPage").then(m => ({ default: m.StandingOrderTemplatesPage })));
-const SystemHealthPage = lazy(() => import("@/pages/SystemHealthPage").then(m => ({ default: m.SystemHealthPage })));
-const BehavioralModelPage = lazy(() => import("@/pages/BehavioralModelPage").then(m => ({ default: m.BehavioralModelPage })));
-const RSSReaderPage = lazy(() => import("@/pages/RSSReaderPage").then(m => ({ default: m.RSSReaderPage })));
 // Public demo — no auth required
 const MavisDemo = lazy(() => import("@/pages/MavisDemo"));
-const IntelligencePage = lazy(() => import("@/pages/IntelligencePage"));
-const DesignStudio = lazy(() => import("@/pages/DesignStudio"));
-const MemoryPage = lazy(() => import("@/pages/MemoryPage"));
 
 const queryClient = new QueryClient();
 
@@ -130,8 +94,6 @@ const Spinner = (
 function AppContent() {
   const { user, loading } = useAuth();
   const location = useLocation();
-  const { open: cmdOpen, setOpen: setCmdOpen } = useCommandPalette();
-  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   useMavisNotifications();
 
 
@@ -154,52 +116,16 @@ function AppContent() {
 
   return (
     <AppDataProvider>
-      <CommandPalette open={cmdOpen} onOpenChange={setCmdOpen} />
       <div className="flex min-h-screen bg-background">
-        {/* Desktop sidebar */}
-        <div className="hidden md:flex">
-          <AppSidebar />
-        </div>
-
-        {/* Mobile sidebar via Sheet */}
-        <Sheet open={mobileSidebarOpen} onOpenChange={setMobileSidebarOpen}>
-          <SheetContent side="left" className="p-0 w-[224px] border-r border-border bg-sidebar">
-            <AppSidebar />
-          </SheetContent>
-        </Sheet>
-
+        <AppSidebar />
+        
         <main className={`flex-1 min-w-0 ${["/mavis-ui", "/demo"].includes(location.pathname) ? "overflow-hidden" : "p-5 overflow-y-auto"}`}>
-          {/* Mobile topbar */}
-          <div className="md:hidden flex items-center justify-between mb-4 pb-3 border-b border-border">
-            <button
-              onClick={() => setMobileSidebarOpen(true)}
-              className="p-2 rounded border border-border text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors"
-            >
-              <Menu size={16} />
-            </button>
-            <span className="font-display text-primary text-xs font-bold tracking-widest text-glow-gold">VANTARA.EXE</span>
-            <button
-              onClick={() => setCmdOpen(true)}
-              className="p-2 rounded border border-border text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors text-xs font-mono"
-            >
-              ⌘K
-            </button>
-          </div>
           <Suspense fallback={Spinner}>
-            <ErrorBoundary>
-            <AnimatePresence mode="wait" initial={false}>
-              <motion.div
-                key={location.pathname}
-                initial={{ opacity: 0, y: 6 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -6 }}
-                transition={{ duration: 0.15, ease: "easeOut" }}
-                className="h-full"
-              >
             <Routes>
               <Route path="/" element={<Dashboard />} />
               <Route path="/character" element={<CharacterPage />} />
               <Route path="/mavis-ui" element={<MavisDemo />} />
+              <Route path="/demo" element={<MavisDemo />} />
               <Route path="/mavis" element={<MavisChat />} />
               <Route path="/quests" element={<QuestsPage />} />
 
@@ -208,7 +134,6 @@ function AppContent() {
               <Route path="/energy" element={<EnergyPage />} />
               <Route path="/skills" element={<SkillsPage />} />
               <Route path="/inventory" element={<InventoryPage />} />
-              <Route path="/domain" element={<DomainPage />} />
               <Route path="/journal" element={<JournalPage />} />
               <Route path="/vault" element={<VaultCodexPage />} />
               <Route path="/rankings" element={<RankingsPage />} />
@@ -250,31 +175,9 @@ function AppContent() {
               <Route path="/workflows" element={<WorkflowsPage />} />
               <Route path="/import" element={<ImportPage />} />
               <Route path="/creator" element={<VideoEditorPage />} />
-              <Route path="/avatar-studio" element={<AvatarStudioPage />} />
-              <Route path="/production-intel" element={<ProductionIntelligence />} />
-              <Route path="/system-settings" element={<SystemSettingsPage />} />
               <Route path="/agents" element={<AgentDashboardPage />} />
-              <Route path="/my-agents" element={<MyAgents />} />
-              <Route path="/intelligence" element={<IntelligencePage />} />
-              <Route path="/design-studio" element={<DesignStudio />} />
-              <Route path="/wpcom-callback" element={<WpcomCallbackPage />} />
-              <Route path="/phone" element={<PhoneCallsPage />} />
-              <Route path="/receptionist" element={<ReceptionistPage />} />
-              <Route path="/sms" element={<SMSPage />} />
-              <Route path="/api-keys" element={<ApiKeysPage />} />
-              <Route path="/leads" element={<LeadGenPage />} />
-              <Route path="/competitors" element={<CompetitorIntelPage />} />
-              <Route path="/playbooks" element={<PlaybooksPage />} />
-              <Route path="/so-templates" element={<StandingOrderTemplatesPage />} />
-              <Route path="/system-health" element={<SystemHealthPage />} />
-              <Route path="/behavioral-model" element={<BehavioralModelPage />} />
-              <Route path="/rss-feeds" element={<RSSReaderPage />} />
-              <Route path="/memory" element={<MemoryPage />} />
               <Route path="*" element={<NotFound />} />
             </Routes>
-              </motion.div>
-            </AnimatePresence>
-            </ErrorBoundary>
           </Suspense>
         </main>
       </div>
@@ -285,16 +188,14 @@ function AppContent() {
 const App = () => (
   <QueryClientProvider client={queryClient}>
     <ThemeProvider attribute="class" defaultTheme="dark" enableSystem={false} storageKey="vantara-theme">
-      <TooltipProvider delayDuration={300}>
-        <ThemeColorSync />
-        <Toaster />
-        <SonnerToaster position="bottom-right" theme="dark" />
-        <BrowserRouter>
-          <AuthProvider>
-            <AppContent />
-          </AuthProvider>
-        </BrowserRouter>
-      </TooltipProvider>
+      <ThemeColorSync />
+      <Toaster />
+      <SonnerToaster position="bottom-right" theme="dark" />
+      <BrowserRouter>
+        <AuthProvider>
+          <AppContent />
+        </AuthProvider>
+      </BrowserRouter>
     </ThemeProvider>
   </QueryClientProvider>
 );
