@@ -149,6 +149,76 @@ HOW YOU RESPOND:
 - Never start with your own name`.trim();
 }
 
+/** Called-out directly — must respond, no PASS. More personal than group mode. */
+function buildDirectedPrompt(
+  member: any,
+  allMembers: any[],
+  history: any[],
+  contextSummary: string,
+  mode: string,
+): string {
+  const peers = allMembers
+    .filter(m => m.id !== member.id)
+    .map(m => m.name)
+    .join(", ");
+
+  const recentHistory = history.slice(-12)
+    .map(t => `${t.speaker_name}${t.speaker_role ? ` [${t.speaker_role}]` : ""}: ${t.content}`)
+    .join("\n");
+
+  return `YOU ARE ${(member.name ?? "").toUpperCase()}.
+You are in a live ${mode === "voice" ? "voice" : "group text"} session and THE OPERATOR HAS CALLED YOU OUT DIRECTLY.
+
+WHO YOU ARE:
+- Name: ${member.name}
+- Role: ${member.role ?? "Council Member"}
+- Expertise: ${member.specialty ?? "General advisory"}
+- About you: ${member.notes || "A trusted inner-circle advisor who speaks frankly."}
+
+OTHERS ON THIS CALL (listening): ${peers || "just you two"}
+${contextSummary ? `\nCONTEXT:\n${contextSummary}` : ""}
+
+CONVERSATION SO FAR:
+${recentHistory || "(Session just started — you've been called on first.)"}
+
+YOU HAVE BEEN CALLED ON DIRECTLY. Rules for this moment:
+- Do NOT respond with PASS — you were specifically addressed
+- This is your 1-on-1 moment even though others can hear; be more personal and direct than usual
+- Respond fully and in your most authentic voice — don't be brief for the sake of it
+- ${mode === "voice" ? "3–6 sentences — this is your spotlight, use it." : "2–4 paragraphs — speak fully."}
+- No bullet points, no headers`.trim();
+}
+
+/** Bystander — another member was called out. Strong PASS bias; only interject if critical. */
+function buildBystanderPrompt(
+  member: any,
+  history: any[],
+  contextSummary: string,
+  mode: string,
+  directedAtName: string,
+): string {
+  const recentHistory = history.slice(-12)
+    .map(t => `${t.speaker_name}${t.speaker_role ? ` [${t.speaker_role}]` : ""}: ${t.content}`)
+    .join("\n");
+
+  return `YOU ARE ${(member.name ?? "").toUpperCase()}.
+You are in a live session. The operator is speaking directly with ${directedAtName} right now — not you.
+
+WHO YOU ARE:
+- Name: ${member.name}
+- Role: ${member.role ?? "Council Member"}
+- Expertise: ${member.specialty ?? "General advisory"}
+
+CONVERSATION SO FAR:
+${recentHistory || "(Session just started.)"}
+
+${directedAtName} HAS THE FLOOR. Your rules right now:
+- Only interject if you have something CRITICALLY important that ${directedAtName} cannot address — a warning, a correction, a missing piece
+- If you interject, be very brief (1–2 sentences) and say something like "Before you answer — just want to add..."
+- If you have nothing urgent: respond with exactly PASS
+- Do NOT try to redirect the conversation to yourself`.trim();
+}
+
 // ── JWT user ID extractor ─────────────────────────────────────────────────────
 
 function extractUserIdFromJwt(token: string): string | null {
@@ -250,7 +320,7 @@ serve(async (req) => {
 
     // ── send_message ──────────────────────────────────────────────────────────
     if (action === "send_message") {
-      const { session_id, content, speaker_type = "user", mode = "voice" } = body;
+      const { session_id, content, speaker_type = "user", mode = "voice", directed_at_name = null } = body;
       if (!session_id) return json({ error: "session_id is required" }, 400);
       if (!content) return json({ error: "content is required" }, 400);
 
@@ -292,6 +362,33 @@ serve(async (req) => {
       const allMembers = membersRes.data ?? [];
       const profile = profileRes.data;
 
+      // ── Resolve directed member ────────────────────────────────────────────
+      // Priority 1: explicit directed_at_name from client (tap-to-direct)
+      // Priority 2: auto-detect "@Name", "Name," or "Name:" at message start
+      let directedMember: any | null = null;
+
+      if (directed_at_name) {
+        directedMember = allMembers.find((m: any) =>
+          m.name.toLowerCase() === (directed_at_name as string).toLowerCase() ||
+          m.name.split(" ")[0].toLowerCase() === (directed_at_name as string).toLowerCase()
+        ) ?? null;
+      } else {
+        const contentTrimmed = content.trim();
+        for (const m of allMembers) {
+          const first = (m.name as string).split(" ")[0];
+          const full = m.name as string;
+          const atFirst = new RegExp(`^@${first}\\b`, "i");
+          const atFull  = new RegExp(`^@${full}\\b`, "i");
+          const sepFirst = new RegExp(`^${first}[,:]`, "i");
+          const sepFull  = new RegExp(`^${full}[,:]`, "i");
+          if (atFirst.test(contentTrimmed) || atFull.test(contentTrimmed) ||
+              sepFirst.test(contentTrimmed) || sepFull.test(contentTrimmed)) {
+            directedMember = m;
+            break;
+          }
+        }
+      }
+
       // Store user message
       const userTurn = turnCount + 1;
       await supabase.from("council_group_messages").insert({
@@ -318,10 +415,17 @@ serve(async (req) => {
         { speaker_name: "Operator", speaker_role: null, speaker_type: "user", content, turn_number: userTurn },
       ];
 
-      // Run all member LLM calls in parallel
+      // Run all member LLM calls in parallel — directed member gets spotlight prompt
       const llmResults = await Promise.allSettled(
         allMembers.map(async (member: any) => {
-          const systemPrompt = buildGroupPrompt(member, allMembers, historyWithUser, contextSummary, sessionMode);
+          let systemPrompt: string;
+          if (directedMember && member.id === directedMember.id) {
+            systemPrompt = buildDirectedPrompt(member, allMembers, historyWithUser, contextSummary, sessionMode);
+          } else if (directedMember) {
+            systemPrompt = buildBystanderPrompt(member, historyWithUser, contextSummary, sessionMode, directedMember.name);
+          } else {
+            systemPrompt = buildGroupPrompt(member, allMembers, historyWithUser, contextSummary, sessionMode);
+          }
           const response = await callGroupLLM(systemPrompt, `"${content}"`, maxTokens);
           return { member, response: response.trim() };
         }),
@@ -356,6 +460,15 @@ serve(async (req) => {
           speaker_role: member.role ?? null,
           content: response,
           turn_number: userTurn,
+        });
+      }
+
+      // Directed member speaks first in TTS playback order
+      if (directedMember) {
+        responses.sort((a, b) => {
+          if (a.member_id === directedMember!.id) return -1;
+          if (b.member_id === directedMember!.id) return 1;
+          return 0;
         });
       }
 
@@ -397,7 +510,12 @@ serve(async (req) => {
         } catch { /* non-critical */ }
       })();
 
-      return json({ ok: true, responses, turn_number: finalTurn });
+      return json({
+        ok: true,
+        responses,
+        turn_number: finalTurn,
+        directed_at: directedMember ? { id: directedMember.id, name: directedMember.name } : null,
+      });
     }
 
     // ── end_session ───────────────────────────────────────────────────────────

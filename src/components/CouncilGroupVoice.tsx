@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { X, Mic, MicOff, Users } from "lucide-react";
+import { X, Mic, MicOff, Users, XCircle } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -47,6 +47,20 @@ function initials(name: string): string {
     .join("");
 }
 
+function detectDirectedMember(text: string, mems: SessionMember[]): SessionMember | null {
+  const t = text.trim();
+  for (const m of mems) {
+    const first = m.name.split(" ")[0];
+    const full = m.name;
+    const atFirst  = new RegExp(`^@${first}\\b`, "i");
+    const atFull   = new RegExp(`^@${full}\\b`, "i");
+    const sepFirst = new RegExp(`^${first}[,:]`, "i");
+    const sepFull  = new RegExp(`^${full}[,:]`, "i");
+    if (atFirst.test(t) || atFull.test(t) || sepFirst.test(t) || sepFull.test(t)) return m;
+  }
+  return null;
+}
+
 // ── Component ────────────────────────────────────────────────────────────────
 
 export function CouncilGroupVoice({
@@ -61,6 +75,10 @@ export function CouncilGroupVoice({
   const [turnCount, setTurnCount] = useState(0);
   const [history, setHistory] = useState<TurnEntry[]>([]);
   const sessionIdRef = useRef<string | null>(null);
+
+  // Directed-address state
+  const [directedAt, setDirectedAt] = useState<SessionMember | null>(null);
+  const directedAtRef = useRef<SessionMember | null>(null);
 
   // ── Phase + speech ─────────────────────────────────────────────────────────
   const [phase, setPhase] = useState<Phase>("idle");
@@ -360,9 +378,26 @@ export function CouncilGroupVoice({
       setPhase("processing");
       setHistory((prev) => [...prev, { speaker: "user", text }]);
 
+      // Auto-detect directed member from text (fallback if not already pinned)
+      const currentDirected = directedAtRef.current;
+      const autoDetected = !currentDirected ? detectDirectedMember(text, members) : null;
+      const effectiveDirected = currentDirected ?? autoDetected;
+
+      if (autoDetected && !currentDirected) {
+        directedAtRef.current = autoDetected;
+        setDirectedAt(autoDetected);
+      }
+
       try {
         const { data, error } = await supabase.functions.invoke("mavis-council-session", {
-          body: { action: "send_message", userId, session_id: sid, content: text, mode: "voice" },
+          body: {
+            action: "send_message",
+            userId,
+            session_id: sid,
+            content: text,
+            mode: "voice",
+            directed_at_name: effectiveDirected?.name ?? null,
+          },
         });
 
         if (closingRef.current) return;
@@ -372,11 +407,17 @@ export function CouncilGroupVoice({
         setTurnCount((n) => n + 1);
         pendingResponsesRef.current = responses;
         playResponseAtIndex(responses, 0);
+
+        // After each directed turn, auto-clear direction (one turn at a time)
+        if (effectiveDirected) {
+          directedAtRef.current = null;
+          setDirectedAt(null);
+        }
       } catch {
         if (!closingRef.current) setPhase("idle");
       }
     },
-    [userId, playResponseAtIndex],
+    [userId, members, playResponseAtIndex],
   );
 
   const startListening = useCallback(() => {
@@ -611,7 +652,30 @@ export function CouncilGroupVoice({
             <Users size={14} className="text-primary" />
           </div>
           <div>
-            <p className="text-xs font-mono font-bold text-primary tracking-widest">COUNCIL SESSION</p>
+            <div className="flex items-center gap-2">
+              <p className="text-xs font-mono font-bold text-primary tracking-widest">COUNCIL SESSION</p>
+              <AnimatePresence>
+                {directedAt && (
+                  <motion.div
+                    initial={{ opacity: 0, scale: 0.85 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    exit={{ opacity: 0, scale: 0.85 }}
+                    className="flex items-center gap-1 bg-amber-500/15 border border-amber-500/40 rounded px-1.5 py-0.5"
+                  >
+                    <span className="text-[9px] font-mono text-amber-400 tracking-widest">
+                      DIRECT: {directedAt.name.split(" ")[0].toUpperCase()}
+                    </span>
+                    <button
+                      onClick={() => { directedAtRef.current = null; setDirectedAt(null); }}
+                      className="text-amber-400/60 hover:text-amber-300 transition-colors"
+                      aria-label="Clear direct address"
+                    >
+                      <XCircle size={10} />
+                    </button>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
             <p className="text-[10px] font-mono text-white/30 tracking-widest flex items-center gap-1">
               {sessionId ? (
                 <>
@@ -636,7 +700,6 @@ export function CouncilGroupVoice({
       {/* ── Member avatar row ── */}
       <div className="flex items-end justify-center gap-5 px-6 py-5 shrink-0">
         {members.length === 0 ? (
-          // Loading placeholders
           [0, 1, 2, 3].map((i) => (
             <div key={i} className="flex flex-col items-center gap-1.5">
               <div className="w-12 h-12 rounded-full bg-white/5 border border-white/10 animate-pulse" />
@@ -645,43 +708,73 @@ export function CouncilGroupVoice({
           ))
         ) : (
           members.map((member) => {
-            const isActive = member.id === activeMemberId;
+            const isActive   = member.id === activeMemberId;
+            const isDirected = directedAt?.id === member.id;
+            const isBystander = directedAt !== null && !isDirected;
+            const canTap = phase === "idle" || phase === "listening" || phase === "done";
+
             return (
-              <div key={member.id} className="flex flex-col items-center gap-1.5">
-                <div
-                  className={[
-                    "w-12 h-12 rounded-full overflow-hidden border-2 flex items-center justify-center transition-all duration-300",
-                    isActive
-                      ? "border-primary ring-2 ring-primary/60 animate-pulse scale-110 shadow-[0_0_20px_rgba(var(--primary)/0.5)]"
-                      : "border-white/15 bg-white/5",
-                  ].join(" ")}
+              <motion.div
+                key={member.id}
+                animate={{ opacity: isBystander ? 0.35 : 1 }}
+                transition={{ duration: 0.25 }}
+                className="flex flex-col items-center gap-1.5"
+              >
+                <button
+                  disabled={!canTap}
+                  onClick={() => {
+                    if (!canTap) return;
+                    if (isDirected) {
+                      directedAtRef.current = null;
+                      setDirectedAt(null);
+                    } else {
+                      directedAtRef.current = member;
+                      setDirectedAt(member);
+                    }
+                  }}
+                  aria-label={isDirected ? `Unpin ${member.name}` : `Direct to ${member.name}`}
+                  className="focus:outline-none"
                 >
-                  {member.avatar ? (
-                    <img
-                      src={member.avatar}
-                      alt={member.name}
-                      className="w-full h-full object-cover"
-                    />
-                  ) : (
-                    <span
-                      className={[
-                        "text-xs font-bold font-mono",
-                        isActive ? "text-primary" : "text-white/50",
-                      ].join(" ")}
-                    >
-                      {initials(member.name)}
-                    </span>
-                  )}
-                </div>
+                  <div
+                    className={[
+                      "w-12 h-12 rounded-full overflow-hidden border-2 flex items-center justify-center transition-all duration-300",
+                      isActive && !isDirected
+                        ? "border-primary ring-2 ring-primary/60 animate-pulse scale-110 shadow-[0_0_20px_rgba(var(--primary)/0.5)]"
+                        : isDirected
+                        ? "border-amber-400 ring-2 ring-amber-400/60 scale-110 shadow-[0_0_20px_rgba(251,191,36,0.4)]"
+                        : "border-white/15 bg-white/5",
+                    ].join(" ")}
+                  >
+                    {member.avatar ? (
+                      <img
+                        src={member.avatar}
+                        alt={member.name}
+                        className="w-full h-full object-cover"
+                      />
+                    ) : (
+                      <span
+                        className={[
+                          "text-xs font-bold font-mono",
+                          isActive && !isDirected ? "text-primary" : isDirected ? "text-amber-400" : "text-white/50",
+                        ].join(" ")}
+                      >
+                        {initials(member.name)}
+                      </span>
+                    )}
+                  </div>
+                </button>
                 <p
                   className={[
                     "text-[10px] font-mono tracking-wide truncate max-w-[60px] text-center",
-                    isActive ? "text-primary font-bold" : "text-white/40",
+                    isActive && !isDirected ? "text-primary font-bold" : isDirected ? "text-amber-400 font-bold" : "text-white/40",
                   ].join(" ")}
                 >
                   {member.name.split(" ")[0]}
                 </p>
-              </div>
+                {isDirected && (
+                  <span className="text-[8px] font-mono text-amber-400/70 tracking-widest">ON SPOT</span>
+                )}
+              </motion.div>
             );
           })
         )}
@@ -818,6 +911,11 @@ export function CouncilGroupVoice({
         >
           {phase === "listening" ? <MicOff size={26} /> : <Mic size={26} />}
         </button>
+        <p className="text-[9px] font-mono text-white/20 text-center leading-relaxed">
+          {directedAt
+            ? `Tap ${directedAt.name.split(" ")[0]}'s avatar to release`
+            : "Tap an avatar · say @Name or Name: to put someone on the spot"}
+        </p>
       </div>
     </motion.div>
   );
