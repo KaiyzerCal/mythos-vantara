@@ -2,9 +2,8 @@
 // Handles the full Google OAuth 2.0 flow for MAVIS.
 // Actions: get_auth_url | exchange_code | get_status | disconnect
 //
-// Once connected, tokens are stored in mavis_user_integrations for each
-// Google provider (gmail, gdrive, gcontacts, google_tasks, google_calendar)
-// so the sync functions can pick them up automatically.
+// Once connected, tokens are stored in mavis_user_integrations for every
+// Google provider so all sync functions and the google_api tool can use them.
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
@@ -21,23 +20,56 @@ function json(data: unknown, status = 200) {
   });
 }
 
-const SUPABASE_URL       = Deno.env.get("SUPABASE_URL")!;
-const SERVICE_KEY        = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
+const SERVICE_KEY  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
-// All Google services MAVIS syncs — one row per provider after connecting
-const GOOGLE_PROVIDERS = ["gmail", "gdrive", "gcontacts", "google_tasks", "google_calendar"] as const;
+// Every Google service MAVIS can use — one integration row per provider after connecting.
+// All rows share the same underlying OAuth token (same client ID / refresh token).
+const GOOGLE_PROVIDERS = [
+  // Core workspace
+  "gmail", "gdrive", "gcontacts", "google_tasks", "google_calendar",
+  // Media + content
+  "google_photos", "youtube", "blogger",
+  // Analytics + marketing
+  "google_analytics", "search_console", "google_ads",
+  // Health + fitness
+  "google_fit",
+] as const;
 
-// OAuth scopes needed across all MAVIS Google features
+// OAuth scopes — covers every Google API the operator has enabled in Cloud Console.
+// Re-authenticate if new scopes were added after the initial connect.
 const SCOPES = [
+  // Identity
   "https://www.googleapis.com/auth/userinfo.email",
   "https://www.googleapis.com/auth/userinfo.profile",
-  "https://mail.google.com/",                                      // Gmail full read
-  "https://www.googleapis.com/auth/drive",                         // Drive full read+write
-  "https://www.googleapis.com/auth/spreadsheets",                  // Sheets API v4 cell-level read+write
-  "https://www.googleapis.com/auth/documents",                     // Docs API full access
-  "https://www.googleapis.com/auth/contacts.readonly",            // Contacts read
-  "https://www.googleapis.com/auth/tasks",                         // Tasks read+write
-  "https://www.googleapis.com/auth/calendar",                      // Calendar read+write
+  // Gmail
+  "https://mail.google.com/",
+  // Drive + Docs + Sheets
+  "https://www.googleapis.com/auth/drive",
+  "https://www.googleapis.com/auth/spreadsheets",
+  "https://www.googleapis.com/auth/documents",
+  // Contacts + Tasks + Calendar
+  "https://www.googleapis.com/auth/contacts.readonly",
+  "https://www.googleapis.com/auth/tasks",
+  "https://www.googleapis.com/auth/calendar",
+  // Google Photos
+  "https://www.googleapis.com/auth/photoslibrary.readonly",
+  // YouTube
+  "https://www.googleapis.com/auth/youtube",
+  "https://www.googleapis.com/auth/youtube.readonly",
+  "https://www.googleapis.com/auth/yt-analytics.readonly",
+  // Analytics + Search Console
+  "https://www.googleapis.com/auth/analytics.readonly",
+  "https://www.googleapis.com/auth/webmasters.readonly",
+  // Google Ads
+  "https://www.googleapis.com/auth/adwords",
+  // Google Fit
+  "https://www.googleapis.com/auth/fitness.activity.read",
+  "https://www.googleapis.com/auth/fitness.body.read",
+  "https://www.googleapis.com/auth/fitness.location.read",
+  "https://www.googleapis.com/auth/fitness.sleep.read",
+  // Blogger
+  "https://www.googleapis.com/auth/blogger",
 ].join(" ");
 
 async function getCredentials(userId: string, adminSb: ReturnType<typeof createClient>) {
