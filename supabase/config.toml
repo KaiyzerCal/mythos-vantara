@@ -8,6 +8,9 @@ verify_jwt = false
 [functions.telegram-setup]
 verify_jwt = false
 
+[functions.mavis-telegram-bot]
+verify_jwt = false
+
 [functions.mavis-gumroad-webhook]
 verify_jwt = false
 
