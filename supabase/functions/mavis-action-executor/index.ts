@@ -137,12 +137,12 @@ async function executeDraftEmail(
     `Subject: ${encodeMailHeader(subject)}`,
     "MIME-Version: 1.0",
     "Content-Type: text/plain; charset=UTF-8",
-    "Content-Transfer-Encoding: 8bit",
+    "Content-Transfer-Encoding: base64",
   ];
   if (cc) lines.push(`Cc: ${cc}`);
   if (bcc) lines.push(`Bcc: ${bcc}`);
   if (reply_to_message_id) lines.push(`In-Reply-To: ${reply_to_message_id}`);
-  lines.push("", body);
+  lines.push("", base64FromBytes(new TextEncoder().encode(body)));
 
   const rawMessage = lines.join("\r\n");
   const encodedMessage = base64UrlEncodeUtf8(rawMessage);
