@@ -638,12 +638,26 @@ async function handleTool(
             sortOrder: "FIRST_NAME_ASCENDING",
           });
           const res = await fetch(
-            `https://people.googleapis.com/v1/people/me/connections?${params}`,
+            `https://people.googleapis.com/v1/people:searchContacts?${new URLSearchParams({ query, readMask: "names,emailAddresses,phoneNumbers,organizations", pageSize: String(maxResults) })}`,
             { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(15_000) },
           );
-          if (!res.ok) return { error: `Contacts API error (${res.status}): ${await res.text()}` };
-          const data = await res.json();
-          const contacts = ((data.connections ?? []) as Record<string, unknown>[])
+          let people: Record<string, unknown>[] = [];
+          if (res.ok) {
+            const data = await res.json();
+            people = ((data.results ?? []) as Array<{ person?: Record<string, unknown> }>).map((r) => r.person ?? {});
+          } else {
+            // Fallback: list connections and filter locally. Some accounts have
+            // contact search disabled until sources are warmed up.
+            const listRes = await fetch(
+              `https://people.googleapis.com/v1/people/me/connections?${params}`,
+              { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(15_000) },
+            );
+            if (!listRes.ok) return { error: `Contacts API error (${listRes.status}): ${await listRes.text()}` };
+            const data = await listRes.json();
+            people = (data.connections ?? []) as Record<string, unknown>[];
+          }
+
+          const contacts = people
             .map((person) => {
               const names = ((person.names ?? []) as Record<string, unknown>[]).map((n) => n.displayName).filter(Boolean);
               const emails = ((person.emailAddresses ?? []) as Record<string, unknown>[]).map((e) => e.value).filter(Boolean);
