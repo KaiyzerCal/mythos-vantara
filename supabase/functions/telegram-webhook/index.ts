@@ -628,9 +628,26 @@ REVENUE & SOCIAL:
 :::ACTION{"type":"propose_product","params":{"title":"...","description":"...","audience":"...","category":"guide|prompt_pack|template|framework|mini_course","price_cents":2900,"platform":"gumroad|stripe"}}:::
 :::ACTION{"type":"nora_tweet","params":{"content":"Tweet text max 280 chars — Nora Vale voice, direct, no fluff"}}:::
 
-EMAIL (Gmail is connected and ready — use this immediately when asked to send any email):
+GOOGLE INTEGRATIONS (all connected and live — use these immediately, never say they're unavailable):
+
+EMAIL — Gmail:
 :::ACTION{"type":"draft_email","params":{"to":"recipient@example.com","subject":"Subject line","body":"Full email body text"}}:::
-This queues the email for your approval via Telegram buttons before sending. DO NOT say you can't email — Gmail is live.
+Queued for your Telegram approval before sending.
+
+CALENDAR — Google Calendar:
+:::ACTION{"type":"schedule_event","params":{"title":"Event title","start":"2026-06-25T10:00:00Z","end":"2026-06-25T11:00:00Z","description":"Optional notes","attendees":["email@example.com"],"location":"Optional"}}:::
+start/end in ISO 8601 UTC. Queued for approval.
+
+DRIVE — Google Drive (create Docs, Sheets, plain files):
+:::ACTION{"type":"create_drive_file","params":{"title":"Document title","content":"Content here","mime_type":"application/vnd.google-apps.document"}}:::
+mime_type: "application/vnd.google-apps.document" = Doc | "application/vnd.google-apps.spreadsheet" = Sheet | "text/plain" = text file
+:::ACTION{"type":"update_drive_file","params":{"file_id":"DRIVE_FILE_ID","content":"Updated content","append":false}}:::
+
+SHEETS — Google Sheets (update cells):
+:::ACTION{"type":"update_sheet","params":{"spreadsheet_id":"SHEET_ID","range":"Sheet1!A1:C2","values":[["Col1","Col2"],["val1","val2"]]}}:::
+
+TASKS — Google Tasks:
+:::ACTION{"type":"create_google_task","params":{"title":"Task title","notes":"Optional notes","due":"2026-06-25T10:00:00Z"}}:::
 
 STORE ITEMS:
 :::ACTION{"type":"create_store_item","params":{"name":"...","description":"...","price":100,"currency":"Codex Points","rarity":"common|rare|epic|legendary","category":"consumable|equipment|upgrade"}}:::
@@ -1007,6 +1024,71 @@ async function executeActions(actions: ParsedAction[], chatId: string, context =
         console.error("[Telegram] draft_email queue insert failed:", queueErr);
       }
       queued++;
+      continue;
+    }
+
+    // schedule_event: queue for approval with Telegram buttons
+    if (type === "schedule_event") {
+      const params  = (action.payload.params as Record<string, unknown>) ?? {};
+      const { data: queueItem, error: queueErr } = await supabase
+        .from("mavis_action_queue")
+        .insert({
+          user_id:        OPERATOR_USER_ID,
+          action_type:    "schedule_event",
+          autonomy_tier:  "approve",
+          status:         "pending",
+          action_payload: params,
+        })
+        .select("id")
+        .single();
+
+      if (!queueErr && queueItem?.id) {
+        const title   = String(params.title ?? "Event");
+        const start   = String(params.start ?? "");
+        const end     = String(params.end ?? "");
+        const preview = `Calendar event ready:\n\n${title}\n${start} → ${end}${params.description ? `\n${params.description}` : ""}${params.attendees ? `\nAttendees: ${(params.attendees as string[]).join(", ")}` : ""}`;
+        await tgPost("sendMessage", {
+          chat_id:      chatId,
+          text:         preview,
+          reply_markup: {
+            inline_keyboard: [[
+              { text: "Create Event", callback_data: `gexec_approve:${queueItem.id}` },
+              { text: "Cancel",       callback_data: `gexec_reject:${queueItem.id}` },
+            ]],
+          },
+        });
+      } else {
+        console.error("[Telegram] schedule_event queue insert failed:", queueErr);
+      }
+      queued++;
+      continue;
+    }
+
+    // Google executor actions that auto-execute: create_drive_file, update_drive_file, update_sheet, create_google_task
+    const GOOGLE_EXEC_TYPES = new Set(["create_drive_file", "update_drive_file", "update_sheet", "create_google_task"]);
+    if (GOOGLE_EXEC_TYPES.has(type)) {
+      const params     = (action.payload.params as Record<string, unknown>) ?? {};
+      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+      const serviceKey  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+      try {
+        const res = await fetch(`${supabaseUrl}/functions/v1/mavis-action-executor`, {
+          method:  "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${serviceKey}`,
+            "x-user-id":    OPERATOR_USER_ID,
+          },
+          body: JSON.stringify({ action: "execute_direct", action_type: type, action_payload: params }),
+        });
+        if (res.ok) {
+          executed++;
+        } else {
+          const errText = await res.text().catch(() => "");
+          console.error(`[Telegram] ${type} execute_direct failed (${res.status}):`, errText);
+        }
+      } catch (err) {
+        console.error(`[Telegram] ${type} execute_direct error:`, err);
+      }
       continue;
     }
 
@@ -2041,6 +2123,44 @@ Deno.serve(async (req) => {
     const cq   = update.callback_query;
     const data = String(cq.data ?? "");
     const cbChatId = String(cq.message?.chat?.id ?? "");
+
+    // ── Google action (Calendar) approve/reject buttons ───────
+    if (data.startsWith("gexec_approve:") || data.startsWith("gexec_reject:")) {
+      const queueItemId = data.split(":")[1];
+      const approved    = data.startsWith("gexec_approve:");
+
+      await fetch(`${TELEGRAM_API}/answerCallbackQuery`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          callback_query_id: cq.id,
+          text: approved ? "Creating..." : "Cancelled.",
+        }),
+      }).catch(() => {});
+
+      if (approved) {
+        const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+        const serviceKey  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+        const res = await fetch(`${supabaseUrl}/functions/v1/mavis-action-executor`, {
+          method:  "POST",
+          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${serviceKey}`, "x-user-id": OPERATOR_USER_ID },
+          body:    JSON.stringify({ action: "execute", queue_item_id: queueItemId }),
+        }).catch(() => null);
+
+        let msg = "Done.";
+        if (!res?.ok) {
+          const errText = await res?.text().catch(() => "");
+          msg = `Failed (${res?.status ?? "network"}): ${errText.slice(0, 120)}`;
+        } else {
+          try { const d = await res.json(); if (d.result?.htmlLink) msg = `Event created.`; } catch {}
+        }
+        await sendPlain(cbChatId, msg);
+      } else {
+        await supabase.from("mavis_action_queue").update({ status: "rejected" }).eq("id", queueItemId);
+        await sendPlain(cbChatId, "Cancelled.");
+      }
+      return new Response("OK");
+    }
 
     // ── Email approve/reject buttons ──────────────────────────
     if (data.startsWith("email_approve:") || data.startsWith("email_reject:")) {
