@@ -22,6 +22,11 @@ function json(data: unknown, status = 200): Response {
   });
 }
 
+function encodeSheetRange(range: string): string {
+  // Keep ':' and '!' readable for Google Sheets A1 notation while escaping spaces etc.
+  return encodeURIComponent(range).replace(/%3A/gi, ":").replace(/%21/gi, "!");
+}
+
 // ── Token refresh ─────────────────────────────────────────────────────────────
 
 async function refreshGoogleToken(
@@ -537,7 +542,7 @@ async function executeUpdateSheet(
   if (!values || !Array.isArray(values)) throw new Error("update_sheet payload must include: values (2D array)");
 
   const res = await fetch(
-    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheet_id}/values/${encodeURIComponent(range)}?valueInputOption=${value_input_option}`,
+    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheet_id}/values/${encodeSheetRange(range)}?valueInputOption=${encodeURIComponent(value_input_option)}`,
     {
       method: "PUT",
       headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
@@ -683,7 +688,6 @@ serve(async (req) => {
     let userId: string;
     if (token === SERVICE_ROLE_KEY) {
       userId = (req.headers.get("x-user-id") ?? "").trim();
-      if (!userId) return json({ ok: false, error: "x-user-id required for service role calls" }, 401);
     } else {
       const userClient = createClient(SUPABASE_URL, token);
       const { data: { user } } = await userClient.auth.getUser();
@@ -691,6 +695,10 @@ serve(async (req) => {
       if (!userId) return json({ ok: false, error: "Unauthorized" }, 401);
     }
     const body = await req.json().catch(() => ({})) as Record<string, unknown>;
+    if (token === SERVICE_ROLE_KEY && !userId) {
+      userId = String((body.userId ?? body.user_id) ?? "").trim();
+    }
+    if (!userId) return json({ ok: false, error: "x-user-id or user_id required for service role calls" }, 401);
     const { action, queue_item_id, reason, status, limit } = body as {
       action: string;
       queue_item_id?: string;
