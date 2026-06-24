@@ -220,6 +220,18 @@ const MAVIS_TOOLS = [
     },
   },
   {
+    name: "search_contacts",
+    description: "Search Google Contacts / People API for names, email addresses, and phone numbers before composing outreach",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        query: { type: "string", description: "Name, email, company, or other contact search text" },
+        max_results: { type: "number", description: "Maximum contacts to return (default 10, max 30)" },
+      },
+      required: ["query"],
+    },
+  },
+  {
     name: "search_web",
     description: "Search the web for current information",
     input_schema: {
