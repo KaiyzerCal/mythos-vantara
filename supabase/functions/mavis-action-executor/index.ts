@@ -22,6 +22,33 @@ function json(data: unknown, status = 200): Response {
   });
 }
 
+function encodeSheetRange(range: string): string {
+  // Keep ':' and '!' readable for Google Sheets A1 notation while escaping spaces etc.
+  return encodeURIComponent(range).replace(/%3A/gi, ":").replace(/%21/gi, "!");
+}
+
+function base64FromBytes(bytes: Uint8Array): string {
+  let binary = "";
+  const chunkSize = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    binary += String.fromCharCode(...bytes.slice(i, i + chunkSize));
+  }
+  return btoa(binary);
+}
+
+function base64UrlEncodeUtf8(value: string): string {
+  return base64FromBytes(new TextEncoder().encode(value))
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
+}
+
+function encodeMailHeader(value: string): string {
+  return /^[\x00-\x7F]*$/.test(value)
+    ? value
+    : `=?UTF-8?B?${base64FromBytes(new TextEncoder().encode(value))}?=`;
+}
+
 // ── Token refresh ─────────────────────────────────────────────────────────────
 
 async function refreshGoogleToken(
@@ -107,20 +134,18 @@ async function executeDraftEmail(
   // Build RFC 2822 message
   const lines: string[] = [
     `To: ${to}`,
-    `Subject: ${subject}`,
+    `Subject: ${encodeMailHeader(subject)}`,
     "MIME-Version: 1.0",
     "Content-Type: text/plain; charset=UTF-8",
+    "Content-Transfer-Encoding: base64",
   ];
   if (cc) lines.push(`Cc: ${cc}`);
   if (bcc) lines.push(`Bcc: ${bcc}`);
   if (reply_to_message_id) lines.push(`In-Reply-To: ${reply_to_message_id}`);
-  lines.push("", body);
+  lines.push("", base64FromBytes(new TextEncoder().encode(body)));
 
   const rawMessage = lines.join("\r\n");
-  const encodedMessage = btoa(rawMessage)
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/=+$/, "");
+  const encodedMessage = base64UrlEncodeUtf8(rawMessage);
 
   const sendBody: Record<string, unknown> = { raw: encodedMessage };
   if (reply_to_message_id) {
@@ -537,7 +562,7 @@ async function executeUpdateSheet(
   if (!values || !Array.isArray(values)) throw new Error("update_sheet payload must include: values (2D array)");
 
   const res = await fetch(
-    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheet_id}/values/${encodeURIComponent(range)}?valueInputOption=${value_input_option}`,
+    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheet_id}/values/${encodeSheetRange(range)}?valueInputOption=${encodeURIComponent(value_input_option)}`,
     {
       method: "PUT",
       headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
@@ -683,7 +708,6 @@ serve(async (req) => {
     let userId: string;
     if (token === SERVICE_ROLE_KEY) {
       userId = (req.headers.get("x-user-id") ?? "").trim();
-      if (!userId) return json({ ok: false, error: "x-user-id required for service role calls" }, 401);
     } else {
       const userClient = createClient(SUPABASE_URL, token);
       const { data: { user } } = await userClient.auth.getUser();
@@ -691,6 +715,10 @@ serve(async (req) => {
       if (!userId) return json({ ok: false, error: "Unauthorized" }, 401);
     }
     const body = await req.json().catch(() => ({})) as Record<string, unknown>;
+    if (token === SERVICE_ROLE_KEY && !userId) {
+      userId = String((body.userId ?? body.user_id) ?? "").trim();
+    }
+    if (!userId) return json({ ok: false, error: "x-user-id or user_id required for service role calls" }, 401);
     const { action, queue_item_id, reason, status, limit } = body as {
       action: string;
       queue_item_id?: string;
