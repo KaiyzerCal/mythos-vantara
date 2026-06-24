@@ -26,6 +26,78 @@ async function tgSend(text: string): Promise<void> {
   }).catch(() => {});
 }
 
+// ── Google token refresh ──────────────────────────────────────────────────────
+
+async function refreshGoogleToken(config: Record<string, unknown>): Promise<string> {
+  if (typeof config.expires_at === "number" && config.expires_at > Date.now() / 1000 + 60) {
+    return config.access_token as string;
+  }
+  const res = await fetch("https://oauth2.googleapis.com/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      client_id:     config.client_id as string,
+      client_secret: config.client_secret as string,
+      refresh_token: config.refresh_token as string,
+      grant_type:    "refresh_token",
+    }),
+  });
+  const data = await res.json();
+  if (!data.access_token) throw new Error("Token refresh failed");
+  return data.access_token as string;
+}
+
+// ── Google Cloud API live probes ──────────────────────────────────────────────
+
+const GOOGLE_API_PROBES: Array<{ key: string; label: string; url: string }> = [
+  { key: "gmail",            label: "Gmail",            url: "https://gmail.googleapis.com/gmail/v1/users/me/profile" },
+  { key: "gdrive",           label: "Google Drive",     url: "https://www.googleapis.com/drive/v3/about?fields=user" },
+  { key: "google_calendar",  label: "Google Calendar",  url: "https://www.googleapis.com/calendar/v3/users/me/calendarList?maxResults=1" },
+  { key: "google_tasks",     label: "Google Tasks",     url: "https://tasks.googleapis.com/tasks/v1/users/@me/lists?maxResults=1" },
+  { key: "gcontacts",        label: "Google Contacts",  url: "https://people.googleapis.com/v1/people/me?personFields=names" },
+  { key: "google_photos",    label: "Google Photos",    url: "https://photoslibrary.googleapis.com/v1/albums?pageSize=1" },
+  { key: "youtube",          label: "YouTube",          url: "https://www.googleapis.com/youtube/v3/channels?part=id&mine=true&maxResults=1" },
+  { key: "google_analytics", label: "Google Analytics", url: "https://analyticsdata.googleapis.com/v1beta/properties" },
+  { key: "google_fit",       label: "Google Fit",       url: "https://www.googleapis.com/fitness/v1/users/me/dataSources?dataTypeName=com.google.step_count.delta" },
+  { key: "search_console",   label: "Search Console",   url: "https://searchconsole.googleapis.com/webmasters/v3/sites" },
+  { key: "google_ads",       label: "Google Ads",       url: "https://googleads.googleapis.com/v17/customers:listAccessibleCustomers" },
+  { key: "blogger",          label: "Blogger",          url: "https://www.googleapis.com/blogger/v3/users/self/blogs" },
+];
+
+async function probeGoogleAPIs(sb: ReturnType<typeof createClient>, uid: string): Promise<Array<{ key: string; label: string; accessible: boolean; note: string }>> {
+  // Get a valid Google token from any connected provider (they all share the same grant)
+  let token: string | null = null;
+  const PROVIDERS_TO_TRY = ["gdrive", "gmail", "google_calendar", "google_tasks", "gcontacts"];
+  for (const p of PROVIDERS_TO_TRY) {
+    const { data } = await sb.from("mavis_user_integrations").select("config").eq("user_id", uid).eq("provider", p).maybeSingle();
+    if (data?.config) {
+      try { token = await refreshGoogleToken(data.config as Record<string, unknown>); break; } catch { /* try next */ }
+    }
+  }
+
+  if (!token) return GOOGLE_API_PROBES.map(p => ({ ...p, accessible: false, note: "No Google account connected" }));
+
+  return await Promise.all(GOOGLE_API_PROBES.map(async (probe) => {
+    try {
+      const res = await fetch(probe.url, {
+        headers: { Authorization: `Bearer ${token}` },
+        signal: AbortSignal.timeout(8_000),
+      });
+      if (res.status === 200 || res.status === 204) return { ...probe, accessible: true, note: "✅ Live" };
+      if (res.status === 401 || res.status === 403) {
+        const body = await res.json().catch(() => ({}));
+        const reason = (body?.error?.message ?? String(res.status)).slice(0, 80);
+        return { ...probe, accessible: false, note: `❌ Auth error — ${reason}. Re-authenticate with expanded scopes.` };
+      }
+      // 4xx other than auth (e.g. 404 not found) still means API is accessible
+      if (res.status >= 400 && res.status < 500) return { ...probe, accessible: true, note: `✅ Accessible (${res.status})` };
+      return { ...probe, accessible: false, note: `⚠️ HTTP ${res.status}` };
+    } catch (err) {
+      return { ...probe, accessible: false, note: `⚠️ Probe failed: ${err instanceof Error ? err.message : String(err)}` };
+    }
+  }));
+}
+
 // ── Integration display labels ────────────────────────────────────────────────
 
 const PROVIDER_LABELS: Record<string, string> = {
@@ -34,6 +106,13 @@ const PROVIDER_LABELS: Record<string, string> = {
   gcontacts:        "Google Contacts (read)",
   google_tasks:     "Google Tasks (read + write)",
   google_calendar:  "Google Calendar (read + write events)",
+  google_photos:    "Google Photos (albums + media items)",
+  youtube:          "YouTube (channel + videos + analytics)",
+  google_analytics: "Google Analytics (traffic + conversion reports)",
+  google_fit:       "Google Fit (activity + sleep + health data)",
+  search_console:   "Search Console (search performance + index coverage)",
+  google_ads:       "Google Ads (campaigns + performance)",
+  blogger:          "Blogger (posts + blogs)",
   spotify:          "Spotify (playback control + library)",
   strava:           "Strava (activity sync)",
   whoop:            "Whoop (sleep + recovery data)",
@@ -49,7 +128,6 @@ const PROVIDER_LABELS: Record<string, string> = {
   instagram:        "Instagram (posting)",
   linkedin:         "LinkedIn (posting)",
   tiktok:           "TikTok (posting)",
-  youtube:          "YouTube (video data)",
   wordpress:        "WordPress.com (posts + pages)",
   salesforce:       "Salesforce (CRM)",
   hubspot:          "HubSpot (CRM)",
@@ -90,9 +168,11 @@ create_google_task → auto-executed (adds task to Google Tasks)
 
 ## MAVIS-AGENT TOOLS (Claude tool_use loop)
 search_drive, read_drive_file, read_sheet_range, read_google_tasks
-queue_action (email/calendar/tasks/Drive), read_emails, read_calendar
+queue_action (email/calendar/Drive — Google Workspace), read_emails, read_calendar
+google_api — generic caller for ANY Google Cloud Console API (Photos, YouTube, Analytics,
+             Fit, Search Console, Ads, Blogger, or any other googleapis.com endpoint)
 search_web (Tavily), get_pending_actions, get_user_context
-create_campaign, think, recall_memory, save_memory
+create_campaign, think, recall_memory, save_memory, codexos_action
 
 ## WEB SEARCH
 Tavily: real-time web search — proactive (auto-triggered on relevant queries) +
@@ -152,13 +232,28 @@ Deno.serve(async (req) => {
           .join("\n")
       : "## ACTIVE BACKGROUND JOBS\nNone registered — run mavis-cron-setup to activate.";
 
-    const staticCaps = buildStaticCapabilities();
+      const staticCaps = buildStaticCapabilities();
+
+    // ── Google API live probe ─────────────────────────────────────────────────
+    const googleProbeResults = await probeGoogleAPIs(sb, OPERATOR_UID);
+    const accessibleApis = googleProbeResults.filter(r => r.accessible);
+    const blockedApis    = googleProbeResults.filter(r => !r.accessible);
+
+    const googleApiSection = [
+      `## GOOGLE CLOUD API STATUS (live probe)`,
+      ...accessibleApis.map(r => `- ${r.label}: ${r.note}`),
+      ...(blockedApis.length > 0 ? [`\n### Needs Re-authentication (expanded scopes):`, ...blockedApis.map(r => `- ${r.label}: ${r.note}`)] : []),
+      "",
+      "To enable blocked APIs: re-authenticate via /integrations → Google Workspace (scopes have been expanded).",
+    ].join("\n");
 
     const fullContent = [
       `# MAVIS System Capabilities — Live Audit`,
       `Last updated: ${now.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric", timeZone: "UTC" })} ${now.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", timeZone: "UTC" })} UTC`,
       "",
       integrationSection,
+      "",
+      googleApiSection,
       "",
       cronSection,
       "",
@@ -179,20 +274,24 @@ Deno.serve(async (req) => {
       .limit(1)
       .maybeSingle();
 
-    // Detect integration changes
+    // Detect integration and API access changes
     let diffMsg = "";
     if (existingNote?.content) {
       const prevConnected = (existingNote.content.match(/^- (\w[\w-]+):/gm) ?? [])
         .map((m: string) => m.replace(/^- /, "").replace(/:.*$/, "").trim());
       const newProviders  = connectedProviders.filter(p => !prevConnected.includes(p));
       const lostProviders = prevConnected.filter((p: string) => !connectedProviders.includes(p));
+      if (newProviders.length > 0)  diffMsg += `New integrations: ${newProviders.join(", ")}\n`;
+      if (lostProviders.length > 0) diffMsg += `Removed integrations: ${lostProviders.join(", ")}\n`;
 
-      if (newProviders.length > 0) {
-        diffMsg += `New integrations: ${newProviders.join(", ")}\n`;
-      }
-      if (lostProviders.length > 0) {
-        diffMsg += `Removed integrations: ${lostProviders.join(", ")}\n`;
-      }
+      // Detect newly accessible Google APIs
+      const prevAccessible = (existingNote.content.match(/^- (.+?): ✅/gm) ?? [])
+        .map((m: string) => m.replace(/^- /, "").replace(/:.*$/, "").trim());
+      const nowAccessible  = accessibleApis.map(r => r.label);
+      const newlyOpen = nowAccessible.filter(l => !prevAccessible.includes(l));
+      const newlyClosed = prevAccessible.filter(l => !nowAccessible.includes(l));
+      if (newlyOpen.length > 0)   diffMsg += `Newly accessible APIs: ${newlyOpen.join(", ")}\n`;
+      if (newlyClosed.length > 0) diffMsg += `Lost API access: ${newlyClosed.join(", ")}\n`;
     }
 
     // ── 5. Upsert the capability note ─────────────────────────────────────────

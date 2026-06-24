@@ -344,6 +344,40 @@ const MAVIS_TOOLS = [
     },
   },
   {
+    name: "google_api",
+    description:
+      "Call ANY Google Cloud Console API using the operator's OAuth credentials. " +
+      "Use this for any Google service not covered by a dedicated tool: Google Photos, YouTube, Analytics, Fit, Search Console, Ads, Blogger, or any other enabled API. " +
+      "All Google services share the same OAuth token — you ALWAYS have access. " +
+      "NEVER say you can't access a Google API. Find the endpoint and call it.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        provider: {
+          type: "string",
+          description: "Provider hint for token lookup: google_photos | youtube | google_analytics | google_fit | search_console | google_ads | blogger | gmail | gdrive | google_calendar | google_tasks | gcontacts (default: gdrive — all share the same token)",
+        },
+        endpoint: {
+          type: "string",
+          description: "Full Google API URL. Examples: 'https://photoslibrary.googleapis.com/v1/albums' | 'https://www.googleapis.com/youtube/v3/channels?part=snippet&mine=true' | 'https://analyticsdata.googleapis.com/v1beta/properties' | 'https://www.googleapis.com/fitness/v1/users/me/dataSources' | 'https://searchconsole.googleapis.com/webmasters/v3/sites' | 'https://www.googleapis.com/blogger/v3/users/self/blogs'",
+        },
+        method: {
+          type: "string",
+          description: "HTTP method: GET | POST | PATCH | PUT | DELETE (default: GET)",
+        },
+        params: {
+          type: "object",
+          description: "Query parameters to append to the URL (e.g. { part: 'snippet', maxResults: 10 })",
+        },
+        body: {
+          type: "object",
+          description: "Request body for POST/PATCH/PUT requests",
+        },
+      },
+      required: ["endpoint"],
+    },
+  },
+  {
     name: "codexos_action",
     description:
       "Execute a CODEXOS / VANTARA game-layer action — quests, tasks, skills, journal, vault, council, allies, inventory, energy systems, transformations, rankings, rituals, BPM sessions, profile/XP, personas (NAVI), knowledge graph notes, revenue proposals, autonomous goals, and store items. " +
@@ -1257,6 +1291,73 @@ async function handleTool(
         return { saved: true, key, category, importance };
       }
 
+      // ── google_api ────────────────────────────────────────────────────────────
+      // Generic Google API caller. All Google services share the same OAuth token.
+      // Falls back to any connected Google provider if the requested one isn't found.
+      case "google_api": {
+        const provider  = String(input.provider ?? "gdrive");
+        const endpoint  = String(input.endpoint ?? "").trim();
+        const method    = String(input.method ?? "GET").toUpperCase();
+        const params    = (input.params ?? {}) as Record<string, string | number | boolean>;
+        const bodyData  = input.body as Record<string, unknown> | undefined;
+
+        if (!endpoint) return { error: "endpoint is required" };
+
+        // All Google services share the same OAuth grant. Try the requested
+        // provider first, then fall back to any connected Google provider.
+        const FALLBACK_ORDER = [provider, "gdrive", "gmail", "google_calendar", "google_tasks", "gcontacts"];
+        let token: string | null = null;
+        let tokenProvider = provider;
+
+        for (const p of FALLBACK_ORDER) {
+          const { data: intRow } = await supabase
+            .from("mavis_user_integrations")
+            .select("config")
+            .eq("user_id", userId)
+            .eq("provider", p)
+            .maybeSingle();
+          if (intRow?.config) {
+            try {
+              token = await refreshGoogleToken(intRow.config as Record<string, unknown>, supabase, userId, p);
+              tokenProvider = p;
+              break;
+            } catch { /* try next */ }
+          }
+        }
+
+        if (!token) {
+          return { error: "No Google account connected. Connect via /integrations → Google Workspace." };
+        }
+
+        // Build URL with query params
+        let url = endpoint;
+        const qEntries = Object.entries(params);
+        if (qEntries.length > 0) {
+          const qs = new URLSearchParams(qEntries.map(([k, v]) => [k, String(v)]));
+          url += (url.includes("?") ? "&" : "?") + qs.toString();
+        }
+
+        const fetchOpts: RequestInit = {
+          method,
+          headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+          signal: AbortSignal.timeout(25_000),
+        };
+        if (bodyData && method !== "GET" && method !== "DELETE") {
+          fetchOpts.body = JSON.stringify(bodyData);
+        }
+
+        const res = await fetch(url, fetchOpts);
+        const rawText = await res.text();
+        let data: unknown;
+        try { data = JSON.parse(rawText); } catch { data = rawText; }
+
+        if (!res.ok) {
+          return { error: `Google API ${res.status}`, details: rawText.slice(0, 400), endpoint, token_from: tokenProvider };
+        }
+
+        return { ok: true, data, status: res.status, endpoint, token_from: tokenProvider };
+      }
+
       // ── codexos_action ─────────────────────────────────────────────────────
       // Delegates to mavis-actions — the same pipeline used by mavis-chat and
       // telegram-webhook's :::ACTION::: grammar. Zero duplication; nothing breaks.
@@ -1515,6 +1616,23 @@ LOG BPM SESSION → codexos_action(type="log_bpm_session", params={bpm, duration
 
 AWARD XP → codexos_action(type="award_xp", params={amount, reason})
 
+── ALL GOOGLE CLOUD APIs (use google_api tool) ──────────────────────────────
+
+ALL Google Cloud Console APIs the operator has enabled are accessible via google_api.
+All Google services share ONE OAuth token — you ALWAYS have access.
+NEVER say you lack access to a Google API. Just find the right endpoint and call it.
+
+Google Photos   → google_api(endpoint="https://photoslibrary.googleapis.com/v1/albums")
+                  → google_api(endpoint="https://photoslibrary.googleapis.com/v1/mediaItems:search", method="POST", body={filters:{...}})
+YouTube channel → google_api(endpoint="https://www.googleapis.com/youtube/v3/channels", params={part:"snippet,statistics",mine:true})
+YouTube videos  → google_api(endpoint="https://www.googleapis.com/youtube/v3/videos", params={part:"snippet",mine:true,maxResults:10})
+Analytics       → google_api(endpoint="https://analyticsdata.googleapis.com/v1beta/properties/{propertyId}:runReport", method="POST", body={...})
+Google Fit      → google_api(endpoint="https://www.googleapis.com/fitness/v1/users/me/dataSources")
+Search Console  → google_api(endpoint="https://searchconsole.googleapis.com/webmasters/v3/sites")
+Google Ads      → google_api(endpoint="https://googleads.googleapis.com/v17/customers:listAccessibleCustomers")
+Blogger         → google_api(endpoint="https://www.googleapis.com/blogger/v3/users/self/blogs")
+Any other API   → google_api(endpoint="<full googleapis.com URL>", method?, params?, body?)
+
 ── MEMORY ───────────────────────────────────────────────────────────────────
 
 REMEMBER SOMETHING → save_memory(key, value, category, importance)
@@ -1525,13 +1643,23 @@ RECALL CONTEXT → recall_memory(query="...")
 WHAT YOU CAN DO
 ═══════════════════════════════════════════
 
-GOOGLE WORKSPACE (fully connected):
+GOOGLE WORKSPACE (fully connected, dedicated tools):
 • Gmail — read inbox, search emails, draft and send replies
 • Google Drive — search files, read Docs/Sheets/PDFs, create new Docs and Sheets, edit existing files
 • Google Sheets — read specific cell ranges, write values to cell ranges
 • Google Calendar — read upcoming events, create calendar events
 • Google Tasks — read task lists, create native Google Tasks
 • Google Contacts — available for email composition context
+
+ALL OTHER GOOGLE CLOUD APIs — use google_api tool (same OAuth token, same access):
+• Google Photos — browse albums, search photos by date/content, retrieve media items
+• YouTube — channel stats, video library, playlists, upload metadata, YT Analytics
+• Google Analytics — property reports, traffic data, conversion metrics, audience insights
+• Google Fit — activity data, step counts, heart rate, sleep, workout sessions
+• Google Search Console — search performance, queries, pages, index coverage
+• Google Ads — accessible accounts, campaigns, performance (developer token may be needed)
+• Blogger — list blogs, create/update posts, manage comments
+• Any API enabled in Cloud Console — find the endpoint, call google_api
 
 CODEXOS / VANTARA GAME LAYER — use codexos_action tool:
 • Quests — create, update, complete, delete quests with XP rewards and deadlines
