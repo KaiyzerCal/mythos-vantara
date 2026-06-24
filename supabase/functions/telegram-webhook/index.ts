@@ -2207,6 +2207,53 @@ Deno.serve(async (req) => {
       return new Response("OK");
     }
 
+    // ── mavis-agent queue_action callbacks (approve:/reject:/execute:) ──
+    if (data.startsWith("approve:") || data.startsWith("reject:") || data.startsWith("execute:")) {
+      const colonIdx    = data.indexOf(":");
+      const prefix      = data.slice(0, colonIdx);
+      const queueItemId = data.slice(colonIdx + 1);
+      const isApproved  = prefix === "approve" || prefix === "execute";
+
+      await fetch(`${TELEGRAM_API}/answerCallbackQuery`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          callback_query_id: cq.id,
+          text: isApproved ? "Executing..." : "Rejected.",
+        }),
+      }).catch(() => {});
+
+      if (isApproved) {
+        const sbUrl2 = Deno.env.get("SUPABASE_URL")!;
+        const sk2    = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+        const res = await fetch(`${sbUrl2}/functions/v1/mavis-action-executor`, {
+          method:  "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${sk2}`,
+            "x-user-id":    OPERATOR_USER_ID,
+          },
+          body: JSON.stringify({ action: "execute", queue_item_id: queueItemId }),
+        }).catch(() => null);
+
+        let msg = "Done.";
+        if (!res?.ok) {
+          const errText = await res?.text().catch(() => "");
+          msg = `Failed (${res?.status ?? "network"}): ${errText.slice(0, 120)}`;
+        } else {
+          try {
+            const d = await res.json();
+            if (d.ok || d.result) msg = "Action executed.";
+          } catch {}
+        }
+        await sendPlain(cbChatId, msg);
+      } else {
+        await supabase.from("mavis_action_queue").update({ status: "rejected" }).eq("id", queueItemId);
+        await sendPlain(cbChatId, "Action rejected.");
+      }
+      return new Response("OK");
+    }
+
     if (data.startsWith("sr_master:") || data.startsWith("sr_forget:")) {
       const noteId  = data.split(":")[1];
       const master  = data.startsWith("sr_master:");
@@ -2335,95 +2382,129 @@ Deno.serve(async (req) => {
       return new Response("OK");
     }
 
-    // ── MAVIS MODE: full pipeline ──────────────────────────
-    const [history, context, knowledgeCtx] = await Promise.all([
-      loadHistory(chatId),
-      loadContext(),
-      loadKnowledgeContext(inputText),
-    ]);
+    // ── MAVIS MODE: route through mavis-agent (tool_use loop) ─────
+    const history = await loadHistory(chatId);
+    const userContent = [mediaContext, inputText].filter(Boolean).join("");
 
-    // ── Persist user message ───────────────────────────────
+    // Persist user message before calling agent
     await persistMessage(chatId, "user", inputText);
 
-    // ── Proactive web search — runs BEFORE calling the AI ──
-    // Detects questions about current/real-world info and injects Tavily
-    // results so the AI always has live data regardless of whether it
-    // emits :::SEARCH::: tags.
-    let proactiveSearchContext = "";
-    if (TAVILY_KEY) {
-      const lower = inputText.toLowerCase();
-      const needsSearch = [
-        "market", "competitor", "alternative", "similar to", "like this",
-        "price", "cost", "news", "latest", "current", "today", "trending",
-        "stock", "crypto", "weather", "who is", "what is", "how much",
-        "release", "update", "product", "startup", "ai tool", "app",
-        "search", "find", "look up", "research",
-      ].some(kw => lower.includes(kw));
+    const supabaseUrl2 = Deno.env.get("SUPABASE_URL")!;
+    const serviceKey2  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
-      if (needsSearch) {
-        try {
-          const result = await searchWeb(inputText.slice(0, 200));
-          if (result) {
-            proactiveSearchContext = `\nSEARCH RESULTS (Tavily — live web data for this query):\n${result}\n`;
-          }
-        } catch { /* non-fatal */ }
+    let agentData: any = null;
+    try {
+      const agentRes = await fetch(`${supabaseUrl2}/functions/v1/mavis-agent`, {
+        method:  "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${serviceKey2}`,
+        },
+        body: JSON.stringify({
+          user_id:  OPERATOR_USER_ID,
+          goal:     userContent,
+          mode:     "TELEGRAM",
+          messages: history,
+        }),
+        signal: AbortSignal.timeout(90_000),
+      });
+      if (agentRes.ok) {
+        agentData = await agentRes.json();
+      } else {
+        const errText = await agentRes.text().catch(() => "");
+        console.error(`[Telegram] mavis-agent ${agentRes.status}:`, errText.slice(0, 300));
       }
+    } catch (agentErr) {
+      console.error("[Telegram] mavis-agent call failed:", agentErr);
     }
 
-    // ── Build messages array ───────────────────────────────
-    const userContent = [
-      mediaContext,
-      proactiveSearchContext,
-      inputText,
-    ].filter(Boolean).join("");
-    const messages = [
-      ...history,
-      { role: "user", content: userContent },
-    ];
-
-    // ── Call MAVIS ─────────────────────────────────────────
-    const systemPrompt = buildSystemPrompt(context, knowledgeCtx);
-    let rawResponse    = await callClaude(systemPrompt, messages);
-
-    // ── Reactive web search — handles :::SEARCH::: tags the AI emitted ──
-    if (TAVILY_KEY) {
-      const queries = parseSearchQueries(rawResponse).slice(0, 2);
-      if (queries.length > 0) {
-        const searchResults = await Promise.all(queries.map(async (q) => {
-          const result = await searchWeb(q);
-          return `SEARCH: "${q}"\n${result}`;
-        }));
-        const injected = searchResults.filter(Boolean).join("\n\n---\n\n");
-        if (injected) {
-          const searchMessages = [
-            ...messages,
-            { role: "assistant", content: stripSearchTags(rawResponse) },
-            { role: "user",      content: `Web search results:\n\n${injected}\n\nNow give your final response using these results.` },
-          ];
-          rawResponse = await callClaude(systemPrompt, searchMessages);
-        }
-      }
-    }
-
-    // ── Execute actions ────────────────────────────────────
-    const actions = parseActions(rawResponse);
+    let cleanResponse: string;
     let actionSummary = "";
 
-    if (actions.length > 0) {
-      const { executed, queued } = await executeActions(actions, chatId, context);
-      const parts: string[] = [];
-      if (executed > 0) parts.push(`${executed} action${executed !== 1 ? "s" : ""} executed`);
-      if (queued > 0)   parts.push(`${queued} queued in Inbox`);
-      if (parts.length) actionSummary = `\n\n[${parts.join(" · ")}]`;
+    if (agentData?.content) {
+      // ── mavis-agent responded successfully ─────────────────────
+      const rawReply = String(agentData.content);
+
+      // Process any :::ACTION::: tags for RPG/CODEXOS operations
+      // (mavis-agent doesn't emit these, but forward-compat for when it does)
+      const legacyActions = parseActions(rawReply);
+      if (legacyActions.length > 0) {
+        const ctx = await loadContext();
+        const { executed, queued } = await executeActions(legacyActions, chatId, ctx);
+        const parts: string[] = [];
+        if (executed > 0) parts.push(`${executed} action${executed !== 1 ? "s" : ""} executed`);
+        if (queued > 0)   parts.push(`${queued} queued in Inbox`);
+        if (parts.length) actionSummary = `\n\n[${parts.join(" · ")}]`;
+      }
+
+      const agentActionsQueued = Number(agentData.actionsQueued ?? 0);
+      if (agentActionsQueued > 0 && !actionSummary) {
+        actionSummary = `\n\n[${agentActionsQueued} action${agentActionsQueued !== 1 ? "s" : ""} queued for approval]`;
+      }
+
+      cleanResponse = stripActions(rawReply);
+    } else {
+      // ── mavis-agent unavailable — fall back to direct AI call ──
+      console.warn("[Telegram] falling back to direct AI call");
+
+      const [context, knowledgeCtx] = await Promise.all([loadContext(), loadKnowledgeContext(inputText)]);
+      const systemPrompt = buildSystemPrompt(context, knowledgeCtx);
+
+      let proactiveSearchContext = "";
+      if (TAVILY_KEY) {
+        const lower = inputText.toLowerCase();
+        const needsSearch = [
+          "market", "competitor", "alternative", "similar to", "like this",
+          "price", "cost", "news", "latest", "current", "today", "trending",
+          "stock", "crypto", "weather", "who is", "what is", "how much",
+          "release", "update", "product", "startup", "ai tool", "app",
+          "search", "find", "look up", "research",
+        ].some(kw => lower.includes(kw));
+        if (needsSearch) {
+          try {
+            const result = await searchWeb(inputText.slice(0, 200));
+            if (result) proactiveSearchContext = `\nSEARCH RESULTS (Tavily):\n${result}\n`;
+          } catch { /* non-fatal */ }
+        }
+      }
+
+      const fbUserContent = [mediaContext, proactiveSearchContext, inputText].filter(Boolean).join("");
+      const messages = [...history, { role: "user", content: fbUserContent }];
+      let rawResponse = await callClaude(systemPrompt, messages);
+
+      if (TAVILY_KEY) {
+        const queries = parseSearchQueries(rawResponse).slice(0, 2);
+        if (queries.length > 0) {
+          const searchResults = await Promise.all(queries.map(async (q) => {
+            const result = await searchWeb(q);
+            return `SEARCH: "${q}"\n${result}`;
+          }));
+          const injected = searchResults.filter(Boolean).join("\n\n---\n\n");
+          if (injected) {
+            const searchMessages = [
+              ...messages,
+              { role: "assistant", content: stripSearchTags(rawResponse) },
+              { role: "user",      content: `Web search results:\n\n${injected}\n\nNow give your final response using these results.` },
+            ];
+            rawResponse = await callClaude(systemPrompt, searchMessages);
+          }
+        }
+      }
+
+      const actions = parseActions(rawResponse);
+      if (actions.length > 0) {
+        const { executed, queued } = await executeActions(actions, chatId, context);
+        const parts: string[] = [];
+        if (executed > 0) parts.push(`${executed} action${executed !== 1 ? "s" : ""} executed`);
+        if (queued > 0)   parts.push(`${queued} queued in Inbox`);
+        if (parts.length) actionSummary = `\n\n[${parts.join(" · ")}]`;
+      }
+
+      cleanResponse = stripActions(rawResponse);
     }
 
-    // ── Strip action tags and send ─────────────────────────
-    const cleanResponse = stripActions(rawResponse);
-
-    // ── Persist MAVIS response ─────────────────────────────
+    // ── Persist MAVIS response and reply ───────────────────────────
     await persistMessage(chatId, "assistant", cleanResponse);
-
-    // ── Reply ──────────────────────────────────────────────
     await sendPlain(chatId, cleanResponse + actionSummary);
 
   } catch (err) {
