@@ -64,7 +64,16 @@ function toTelegramMarkdown(text: string): string {
 
 async function send(chatId: string | number, text: string, extra: Record<string, unknown> = {}) {
   const formatted = toTelegramMarkdown(text);
-  return tg("sendMessage", { chat_id: chatId, text: formatted.slice(0, 4096), parse_mode: "Markdown", ...extra });
+  const result = await tg("sendMessage", { chat_id: chatId, text: formatted.slice(0, 4096), parse_mode: "Markdown", ...extra }) as Record<string, unknown>;
+
+  // Telegram Markdown is brittle; if formatting rejects a MAVIS response,
+  // retry as plain text so the operator still gets an answer.
+  if (result?.ok === false) {
+    const { parse_mode: _parseMode, ...plainExtra } = extra;
+    return tg("sendMessage", { chat_id: chatId, text: text.slice(0, 4096), ...plainExtra });
+  }
+
+  return result;
 }
 
 async function sendPhoto(chatId: string | number, photoUrl: string, caption?: string) {
