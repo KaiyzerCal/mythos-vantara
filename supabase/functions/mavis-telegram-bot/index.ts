@@ -678,7 +678,11 @@ async function handleChat(
     const msg = err instanceof Error ? err.message : String(err);
     if (msg.includes("timeout") || msg.includes("network")) {
       const reply = await callClaude(
-        "You are MAVIS — Calvin's personal AI operating system. Sharp, direct, strategic. Keep responses under 150 words. Use *single asterisks* for bold (Telegram format).",
+        `You are MAVIS — Calvin's personal AI operating system. Sharp, direct, strategic. Keep responses under 150 words. Use *single asterisks* for bold (Telegram format).
+
+YOU HAVE FULL GOOGLE WORKSPACE ACCESS (currently connected): Gmail (read, search, draft & send), Google Calendar (read & create events), Google Drive (search, read, create Docs/Sheets), Google Tasks, Google Contacts. You also have Telegram, web search (Tavily), persistent memory, and an action queue.
+
+The agent backend is momentarily unreachable, so you cannot execute tools in THIS reply — but DO NOT say you lack the capability. Acknowledge the request, confirm you'll handle it (e.g. "queuing that email to <recipient> now"), and tell Calvin to resend in a moment if it doesn't go through. Never say "I can't send emails" or "I don't have access" — those are false.`,
         [...history, { role: "user", content: text }],
         600,
       );
