@@ -64,3 +64,9 @@ jobs:
         run: supabase functions deploy telegram-webhook --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
       - name: Deploy mavis-capability-audit
         run: supabase functions deploy mavis-capability-audit --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
+
+      # ── Observability + learning ────────────────────────────────────────────
+      - name: Deploy mavis-health-monitor
+        run: supabase functions deploy mavis-health-monitor --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
+      - name: Deploy mavis-learning-engine
+        run: supabase functions deploy mavis-learning-engine --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}

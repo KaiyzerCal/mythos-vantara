@@ -57,6 +57,16 @@ Deno.serve(async (req) => {
     if (!OPERATOR_USER_ID) throw new Error("TELEGRAM_OPERATOR_USER_ID not set");
     const uid = OPERATOR_USER_ID;
     const now = new Date();
+
+    // Heartbeat: mark running
+    supabase.from("mavis_function_health").upsert({
+      function_name: "mavis-morning-brief",
+      last_started_at: now.toISOString(),
+      last_status: "running",
+      run_count: 1,
+      expected_interval_min: 1440,
+      updated_at: now.toISOString(),
+    }, { onConflict: "function_name" }).catch(() => {});
     const todayIso = now.toISOString().slice(0, 10);
     const yesterdayIso = new Date(now.getTime() - 86400000).toISOString();
 
@@ -464,15 +474,37 @@ Deno.serve(async (req) => {
       });
     } catch { /* non-critical */ }
 
+    // Heartbeat: mark ok
+    supabase.from("mavis_function_health").upsert({
+      function_name: "mavis-morning-brief",
+      last_completed_at: new Date().toISOString(),
+      last_status: "ok",
+      last_error: null,
+      run_count: 1,
+      expected_interval_min: 1440,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: "function_name" }).catch(() => {});
+
     return new Response(
       JSON.stringify({ ok: true, sections: sections.length - 2 }),
       { headers: { "Content-Type": "application/json" } },
     );
 
   } catch (err) {
-    console.error("[mavis-morning-brief]", err);
+    const _errMsg = err instanceof Error ? err.message : String(err);
+    console.error("[mavis-morning-brief]", _errMsg);
+    supabase.from("mavis_function_health").upsert({
+      function_name: "mavis-morning-brief",
+      last_completed_at: new Date().toISOString(),
+      last_status: "error",
+      last_error: _errMsg.slice(0, 500),
+      run_count: 1,
+      error_count: 1,
+      expected_interval_min: 1440,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: "function_name" }).catch(() => {});
     return new Response(
-      JSON.stringify({ error: err instanceof Error ? err.message : String(err) }),
+      JSON.stringify({ error: _errMsg }),
       { status: 500, headers: { "Content-Type": "application/json" } },
     );
   }
