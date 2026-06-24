@@ -1330,9 +1330,15 @@ SEND AN EMAIL → queue_action(action_type="draft_email", payload={to:"addr", su
 
 SCHEDULE A MEETING → queue_action(action_type="schedule_event", payload={title, start, end, description, attendees})
 
+SEARCH CONTACTS → search_contacts(query="name or email")
+
+CREATE / EDIT GOOGLE DOCS, DRIVE FILES, SHEETS, TASKS → queue_action with create_drive_file, update_drive_file, update_sheet, or create_google_task.
+
 CREATE A TASK → queue_action(action_type="create_task", payload={title, description, due_date})
 
 SEARCH EMAIL → read_emails(query="...", max_results=5)
+
+READ CALENDAR → read_calendar(days_ahead=7, max_results=20)
 
 SEARCH WEB → search_web(query="...")
 
