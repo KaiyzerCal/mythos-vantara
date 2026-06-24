@@ -335,8 +335,28 @@ const MAVIS_TOOLS = [
 // ── Tool handler ──────────────────────────────────────────────────────────────
 interface Env {
   tavilyKey: string;
+  lovableKey: string;
   supabaseUrl: string;
   serviceKey: string;
+}
+
+const OPENAI_COMPAT_TOOLS = MAVIS_TOOLS.map((tool) => ({
+  type: "function" as const,
+  function: {
+    name: tool.name,
+    description: tool.description,
+    parameters: tool.input_schema,
+  },
+}));
+
+function safeParseToolArguments(raw: unknown): Record<string, unknown> {
+  if (!raw) return {};
+  if (typeof raw === "object") return raw as Record<string, unknown>;
+  try {
+    return JSON.parse(String(raw)) as Record<string, unknown>;
+  } catch {
+    return {};
+  }
 }
 
 async function handleTool(
@@ -472,32 +492,44 @@ async function handleTool(
         }
 
         try {
-          const res = await fetch(
-            `${env.supabaseUrl}/functions/v1/mavis-gmail-sync`,
-            {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-                Authorization: `Bearer ${env.serviceKey}`,
-                "x-user-id": userId,
-              },
-              body: JSON.stringify({
-                action: "list",
-                max: maxResults,
-                ...(query ? { query } : {}),
-              }),
-              signal: AbortSignal.timeout(25_000),
-            },
+          const token = await refreshGoogleToken(
+            integration.config as Record<string, unknown>,
+            supabase, userId, "gmail",
           );
 
-          if (!res.ok) {
-            const errText = await res.text();
-            return {
-              error: `Gmail sync error ${res.status}: ${errText.slice(0, 200)}`,
-            };
-          }
+          const params = new URLSearchParams({ maxResults: String(maxResults) });
+          if (query) params.set("q", query);
+          else params.set("q", "in:inbox category:primary");
 
-          return await res.json();
+          const listRes = await fetch(
+            `https://gmail.googleapis.com/gmail/v1/users/me/messages?${params}`,
+            { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(15_000) },
+          );
+          if (!listRes.ok) return { error: `Gmail list failed (${listRes.status}): ${await listRes.text()}` };
+          const listData = await listRes.json();
+          const messages = (listData.messages ?? []) as Array<{ id: string; threadId?: string }>;
+
+          const emails = await Promise.all(messages.slice(0, maxResults).map(async (m) => {
+            const msgRes = await fetch(
+              `https://gmail.googleapis.com/gmail/v1/users/me/messages/${m.id}?format=metadata&metadataHeaders=From&metadataHeaders=To&metadataHeaders=Subject&metadataHeaders=Date`,
+              { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(10_000) },
+            );
+            if (!msgRes.ok) return { id: m.id, error: `fetch failed ${msgRes.status}` };
+            const msg = await msgRes.json();
+            const headers = (msg.payload?.headers ?? []) as Array<{ name: string; value: string }>;
+            const getHeader = (name: string) => headers.find((h) => h.name.toLowerCase() === name.toLowerCase())?.value ?? "";
+            return {
+              id: msg.id,
+              thread_id: msg.threadId,
+              from: getHeader("From"),
+              to: getHeader("To"),
+              subject: getHeader("Subject"),
+              date: getHeader("Date"),
+              snippet: msg.snippet ?? "",
+            };
+          }));
+
+          return { emails, total: emails.length, query: query ?? "in:inbox category:primary" };
         } catch (err: unknown) {
           const msg = err instanceof Error ? err.message : String(err);
           return { error: `Failed to read emails: ${msg}` };
@@ -509,12 +541,12 @@ async function handleTool(
         const daysAhead = Number(input.days_ahead ?? 7);
         const maxResults = Number(input.max_results ?? 20);
 
-        // Check if Google Calendar is connected (provider = "google" or "google_calendar")
+        // Check if Google Calendar is connected
         const { data: integration } = await supabase
           .from("mavis_user_integrations")
           .select("config")
           .eq("user_id", userId)
-          .in("provider", ["google", "google_calendar"])
+          .eq("provider", "google_calendar")
           .maybeSingle();
 
         if (!integration?.config) {
@@ -525,32 +557,36 @@ async function handleTool(
         }
 
         try {
+          const token = await refreshGoogleToken(
+            integration.config as Record<string, unknown>,
+            supabase, userId, "google_calendar",
+          );
+          const timeMin = new Date().toISOString();
+          const timeMax = new Date(Date.now() + daysAhead * 86400_000).toISOString();
+          const params = new URLSearchParams({
+            timeMin,
+            timeMax,
+            maxResults: String(maxResults),
+            singleEvents: "true",
+            orderBy: "startTime",
+          });
           const res = await fetch(
-            `${env.supabaseUrl}/functions/v1/mavis-calendar-agent`,
-            {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-                Authorization: `Bearer ${env.serviceKey}`,
-              },
-              body: JSON.stringify({
-                action: "list_events",
-                days_ahead: daysAhead,
-                max: maxResults,
-                user_id: userId,
-              }),
-              signal: AbortSignal.timeout(25_000),
-            },
+            `https://www.googleapis.com/calendar/v3/calendars/primary/events?${params}`,
+            { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(15_000) },
           );
 
-          if (!res.ok) {
-            const errText = await res.text();
-            return {
-              error: `Calendar error ${res.status}: ${errText.slice(0, 200)}`,
-            };
-          }
-
-          return await res.json();
+          if (!res.ok) return { error: `Calendar error ${res.status}: ${await res.text()}` };
+          const data = await res.json();
+          const events = ((data.items ?? []) as Record<string, unknown>[]).map((event) => ({
+            id: event.id,
+            title: event.summary ?? "(No title)",
+            start: (event.start as any)?.dateTime ?? (event.start as any)?.date,
+            end: (event.end as any)?.dateTime ?? (event.end as any)?.date,
+            location: event.location ?? null,
+            attendees: event.attendees ?? [],
+            htmlLink: event.htmlLink ?? null,
+          }));
+          return { events, total: events.length, days_ahead: daysAhead };
         } catch (err: unknown) {
           const msg = err instanceof Error ? err.message : String(err);
           return { error: `Failed to read calendar: ${msg}` };
