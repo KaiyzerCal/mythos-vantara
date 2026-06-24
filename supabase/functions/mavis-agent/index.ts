@@ -628,9 +628,11 @@ async function handleTool(
             .from("contacts")
             .select("id, name, relationship_type, notes, profile, tags")
             .eq("user_id", userId)
-            .or(`name.ilike.%${query}%,notes.ilike.%${query}%`)
-            .limit(maxResults);
-          return { contacts: localContacts ?? [], total: (localContacts ?? []).length, query, source: "local_contacts" };
+            .limit(100);
+          const filtered = ((localContacts ?? []) as Record<string, unknown>[])
+            .filter((contact) => JSON.stringify(contact).toLowerCase().includes(query))
+            .slice(0, maxResults);
+          return { contacts: filtered, total: filtered.length, query, source: "local_contacts" };
         }
 
         try {
@@ -663,14 +665,16 @@ async function handleTool(
                 .from("contacts")
                 .select("id, name, relationship_type, notes, profile, tags")
                 .eq("user_id", userId)
-                .or(`name.ilike.%${query}%,notes.ilike.%${query}%`)
-                .limit(maxResults);
+                .limit(100);
+              const filtered = ((localContacts ?? []) as Record<string, unknown>[])
+                .filter((contact) => JSON.stringify(contact).toLowerCase().includes(query))
+                .slice(0, maxResults);
               return {
-                contacts: localContacts ?? [],
-                total: (localContacts ?? []).length,
+                contacts: filtered,
+                total: filtered.length,
                 query,
                 source: "local_contacts",
-                google_contacts_error: `Contacts API error (${listRes.status}): ${(await listRes.text()).slice(0, 300)}`,
+                note: "Google Contacts API unavailable; searched MAVIS local contacts instead.",
               };
             } else {
               const data = await listRes.json();
