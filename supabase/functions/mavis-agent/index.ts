@@ -605,6 +605,55 @@ async function handleTool(
         }
       }
 
+      // ── search_contacts ───────────────────────────────────────────────────
+      case "search_contacts": {
+        const query = String(input.query ?? "").trim().toLowerCase();
+        const maxResults = Math.min(Number(input.max_results ?? 10), 30);
+        if (!query) return { error: "query required" };
+
+        const { data: integration } = await supabase
+          .from("mavis_user_integrations")
+          .select("config")
+          .eq("user_id", userId)
+          .eq("provider", "gcontacts")
+          .maybeSingle();
+
+        if (!integration?.config) {
+          return { error: "Google Contacts not connected. Connect via /integrations." };
+        }
+
+        try {
+          const token = await refreshGoogleToken(
+            integration.config as Record<string, unknown>,
+            supabase, userId, "gcontacts",
+          );
+          const params = new URLSearchParams({
+            pageSize: String(Math.max(maxResults, 10)),
+            personFields: "names,emailAddresses,phoneNumbers,organizations,metadata",
+            sortOrder: "FIRST_NAME_ASCENDING",
+          });
+          const res = await fetch(
+            `https://people.googleapis.com/v1/people/me/connections?${params}`,
+            { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(15_000) },
+          );
+          if (!res.ok) return { error: `Contacts API error (${res.status}): ${await res.text()}` };
+          const data = await res.json();
+          const contacts = ((data.connections ?? []) as Record<string, unknown>[])
+            .map((person) => {
+              const names = ((person.names ?? []) as Record<string, unknown>[]).map((n) => n.displayName).filter(Boolean);
+              const emails = ((person.emailAddresses ?? []) as Record<string, unknown>[]).map((e) => e.value).filter(Boolean);
+              const phones = ((person.phoneNumbers ?? []) as Record<string, unknown>[]).map((p) => p.value).filter(Boolean);
+              const organizations = ((person.organizations ?? []) as Record<string, unknown>[]).map((o) => o.name).filter(Boolean);
+              return { resource_name: person.resourceName, names, emails, phones, organizations };
+            })
+            .filter((contact) => JSON.stringify(contact).toLowerCase().includes(query))
+            .slice(0, maxResults);
+          return { contacts, total: contacts.length, query };
+        } catch (err: unknown) {
+          return { error: `Contacts search error: ${err instanceof Error ? err.message : String(err)}` };
+        }
+      }
+
       // ── search_web ────────────────────────────────────────────────────────
       case "search_web": {
         const query = String(input.query ?? "");
