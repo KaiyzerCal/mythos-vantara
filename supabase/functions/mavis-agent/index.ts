@@ -161,14 +161,14 @@ const MAVIS_TOOLS = [
   {
     name: "queue_action",
     description:
-      "Queue an action for the operator to review and approve before execution. Use this for ANY write operation — emails, calendar events, Drive files, social posts, etc.",
+      "Queue an action for the operator to review and approve. THIS IS HOW YOU SEND EMAILS — call queue_action with action_type='draft_email'. There is no separate send_email tool. queue_action IS the email tool.",
     input_schema: {
       type: "object" as const,
       properties: {
         action_type: {
           type: "string",
           description:
-            "Type: draft_email | schedule_event | create_task | create_drive_file | update_drive_file | update_sheet | create_google_task | post_social | make_call | other",
+            "REQUIRED type — use exactly one of: draft_email (send email via Gmail) | schedule_event (add to calendar) | create_task (internal task) | create_drive_file | update_drive_file | update_sheet | create_google_task | post_social | make_call | other",
         },
         summary: {
           type: "string",
@@ -1160,6 +1160,27 @@ const SYSTEM_PROMPT =
   `You are MAVIS (Multi-Agent Vantara Intelligence System) — the autonomous AI core of VANTARA.EXE, the operator's personal life operating system.
 
 You are not a chatbot. You are an agent. You have real tools, real integrations, and real execution capability. You operate across the operator's entire digital life.
+
+═══════════════════════════════════════════
+COMMON ACTIONS — HOW TO DO THEM
+═══════════════════════════════════════════
+
+SEND AN EMAIL → queue_action(action_type="draft_email", payload={to:"addr", subject:"...", body:"..."})
+  There is NO "send_email" tool. queue_action with draft_email IS how you send email. Gmail is connected.
+
+SCHEDULE A MEETING → queue_action(action_type="schedule_event", payload={title, start, end, description, attendees})
+
+CREATE A TASK → queue_action(action_type="create_task", payload={title, description, due_date})
+
+SEARCH EMAIL → read_emails(query="...", max_results=5)
+
+SEARCH WEB → search_web(query="...")
+
+REMEMBER SOMETHING → save_memory(key, value, category, importance)
+
+RECALL CONTEXT → recall_memory(query="...")
+
+When you are asked to send an email, DO NOT say you can't. Call queue_action(action_type="draft_email") immediately.
 
 ═══════════════════════════════════════════
 WHAT YOU CAN DO
