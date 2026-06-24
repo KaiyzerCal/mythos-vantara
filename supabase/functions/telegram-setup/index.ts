@@ -1,4 +1,4 @@
-// MAVIS Telegram Setup — run ONCE after deploying telegram-webhook.
+// MAVIS Telegram Setup — run ONCE after deploying mavis-telegram-bot.
 // Registers the webhook URL with Telegram so updates are delivered.
 //
 // Call this endpoint after deployment:
@@ -7,8 +7,9 @@
 //
 // Or trigger from Supabase dashboard → Edge Functions → telegram-setup → Invoke
 
-const BOT_TOKEN    = Deno.env.get("TELEGRAM_BOT_TOKEN")!;
-const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
+const BOT_TOKEN      = Deno.env.get("TELEGRAM_BOT_TOKEN")!;
+const SUPABASE_URL   = Deno.env.get("SUPABASE_URL")!;
+const WEBHOOK_SECRET = Deno.env.get("TELEGRAM_WEBHOOK_SECRET") ?? "";
 
 Deno.serve(async (_req) => {
   if (!BOT_TOKEN) {
@@ -17,8 +18,8 @@ Deno.serve(async (_req) => {
     });
   }
 
-  // Derive webhook URL from Supabase project URL
-  const webhookUrl = `${SUPABASE_URL}/functions/v1/telegram-webhook`;
+  // Derive webhook URL from the active MAVIS Telegram bot endpoint.
+  const webhookUrl = `${SUPABASE_URL}/functions/v1/mavis-telegram-bot`;
 
   // Register webhook with Telegram
   const res = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/setWebhook`, {
@@ -26,8 +27,9 @@ Deno.serve(async (_req) => {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       url: webhookUrl,
-      allowed_updates: ["message", "edited_message"],
+      allowed_updates: ["message", "edited_message", "callback_query"],
       drop_pending_updates: true,
+      ...(WEBHOOK_SECRET ? { secret_token: WEBHOOK_SECRET } : {}),
     }),
   });
 
