@@ -1484,12 +1484,14 @@ serve(async (req) => {
     }
 
     const claudeKey = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
-    if (!claudeKey) {
-      return json({ error: "ANTHROPIC_API_KEY not set" }, 500);
+    const lovableKey = Deno.env.get("LOVABLE_API_KEY") ?? "";
+    if (!lovableKey && !claudeKey) {
+      return json({ error: "No AI provider configured" }, 500);
     }
 
     const env: Env = {
       tavilyKey: Deno.env.get("Tavily_API") ?? "",
+      lovableKey,
       supabaseUrl: SUPABASE_URL,
       serviceKey: SERVICE_KEY,
     };
