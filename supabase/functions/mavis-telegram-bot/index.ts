@@ -283,13 +283,29 @@ async function callClaude(
 // INTERNAL HELPERS
 // ─────────────────────────────────────────────────────────────
 
-async function callFunction(name: string, body: Record<string, unknown>): Promise<Response> {
+async function callFunction(
+  name: string,
+  body: Record<string, unknown>,
+  extraHeaders: Record<string, string> = {},
+): Promise<Response> {
   return fetch(`${SUPABASE_URL}/functions/v1/${name}`, {
     method:  "POST",
-    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${SERVICE_KEY}` },
+    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${SERVICE_KEY}`, ...extraHeaders },
     body:    JSON.stringify(body),
     signal:  AbortSignal.timeout(45000),
   });
+}
+
+function describeExecutedAction(actionType: string): string {
+  switch (actionType) {
+    case "draft_email": return "Email sent via Gmail.";
+    case "schedule_event": return "Calendar event created.";
+    case "create_drive_file": return "Drive file created.";
+    case "update_drive_file": return "Drive file updated.";
+    case "update_sheet": return "Google Sheet updated.";
+    case "create_google_task": return "Google Task created.";
+    default: return "Action executed.";
+  }
 }
 
 async function queueTask(
@@ -344,20 +360,18 @@ async function handleApprovalCallback(
 
   // ── Approve or execute ─────────────────────────────────────────────────────
   if (cbAction === "approve" || cbAction === "execute") {
-    const { error: updateErr } = await sb
+    const { data: queuedAction, error: updateErr } = await sb
       .from("mavis_action_queue")
-      .update({ status: "approved" })
+      .update({ status: "approved", approved_at: new Date().toISOString() })
       .eq("id", actionId)
-      .eq("user_id", uid);
+      .eq("user_id", uid)
+      .select("action_type")
+      .maybeSingle();
 
     if (updateErr) {
       await tg("answerCallbackQuery", { callback_query_id: callbackId, text: "⚠️ DB update failed" });
       return;
     }
-
-    // Fire execution in background
-    callFunction("mavis-action-executor", { action: "execute", queue_item_id: actionId })
-      .catch(() => null);
 
     await tg("answerCallbackQuery", { callback_query_id: callbackId, text: "✅ Approved! Executing…" });
 
@@ -369,6 +383,26 @@ async function handleApprovalCallback(
         parse_mode:   "Markdown",
         reply_markup: { inline_keyboard: [] },
       }).catch(() => null);
+    }
+
+    // Execute with the operator UID. The executor is called with the service key,
+    // so it needs x-user-id to know whose Google Workspace tokens to use.
+    try {
+      const execRes = await callFunction(
+        "mavis-action-executor",
+        { action: "execute", queue_item_id: actionId, user_id: uid },
+        { "x-user-id": uid },
+      );
+      const execData = await execRes.json().catch(() => ({})) as Record<string, unknown>;
+      if (!execRes.ok || execData.ok === false) {
+        const errText = String((execData as any).error ?? `HTTP ${execRes.status}`);
+        await send(chatId, `⚠️ Action approved but execution failed: ${errText.slice(0, 500)}`);
+        return;
+      }
+      await send(chatId, `✅ ${describeExecutedAction(String((queuedAction as any)?.action_type ?? ""))}`);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      await send(chatId, `⚠️ Action approved but execution failed: ${msg.slice(0, 500)}`);
     }
     return;
   }
@@ -631,7 +665,7 @@ async function sendPendingActionButtons(chatId: string | number, uid: string): P
   try {
     const { data } = await sb
       .from("mavis_action_queue")
-      .select("id, action_type, summary, action_payload")
+        .select("id, action_type, source_context, action_payload")
       .eq("user_id", uid)
       .eq("status", "pending")
       .order("created_at", { ascending: false })
@@ -645,7 +679,7 @@ async function sendPendingActionButtons(chatId: string | number, uid: string): P
 
   for (const action of actions as any[]) {
     const label   = String(action.action_type ?? "action");
-    const summary = String(action.summary ?? "").slice(0, 280) ||
+    const summary = String(action.source_context ?? "").slice(0, 280) ||
       JSON.stringify(action.action_payload ?? {}).slice(0, 280);
 
     await tg("sendMessage", {
