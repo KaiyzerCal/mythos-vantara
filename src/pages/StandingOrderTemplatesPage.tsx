@@ -336,27 +336,44 @@ export function StandingOrderTemplatesPage() {
   async function activateTemplate(template: SOTemplate) {
     setActivating(template);
     try {
-      const { error } = await supabase.from("mavis_tasks").insert({
-        user_id: user!.id,
-        type: "standing_order",
-        description: template.name,
-        payload: {
-          instructions: template.instructions,
-          template_id: template.id,
-          template_slug: template.slug,
-          triggered_by: "manual",
+      const now = new Date().toISOString();
+
+      // Queue in the autonomous multi-step executor (runs every 2 min)
+      const { error } = await supabase.from("mavis_autonomous_tasks").insert({
+        user_id:      user!.id,
+        goal:         `[Standing Order: ${template.name}]\n${template.instructions}`,
+        status:       "pending",
+        plan:         [],
+        current_step: 0,
+        context: {
+          goal:            template.instructions,
+          steps_completed: [],
+          reasoning:       [],
+          search_results:  [],
+          source:          "standing_order",
+          template_id:     template.id,
+          template_slug:   template.slug,
         },
-        status: "pending",
       });
       if (error) throw error;
 
+      // Log to execution history
+      await supabase.from("mavis_so_executions").insert({
+        template_id:   template.id,
+        template_slug: template.slug,
+        status:        "running",
+        triggered_by:  "manual",
+        started_at:    now,
+        turns_used:    0,
+      }).catch(() => {});
+
       // Update usage stats
       await supabase.from("standing_order_templates").update({
-        usage_count: (template.usage_count ?? 0) + 1,
-        last_used_at: new Date().toISOString(),
+        usage_count:  (template.usage_count ?? 0) + 1,
+        last_used_at: now,
       }).eq("id", template.id);
 
-      toast.success(`"${template.name}" queued — MAVIS will execute it next cycle.`, { duration: 4000 });
+      toast.success(`"${template.name}" sent to MAVIS executor — runs next cycle (≤2 min).`, { duration: 4000 });
       await loadTemplates();
     } catch (e: any) {
       toast.error("Failed to queue: " + e.message);

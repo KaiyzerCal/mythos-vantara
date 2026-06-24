@@ -155,7 +155,7 @@ async function callLLM(model: string, system: string, messages: any[]): Promise<
 
 // ── System prompt builder ─────────────────────────────────────────────────────
 
-function buildSystemPrompt(persona: any, relState: any, memoryContext: string): string {
+function buildSystemPrompt(persona: any, relState: any, memoryContext: string, channel = "app"): string {
   const now = new Date();
   const dateStr = now.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric", timeZone: "UTC" });
   const timeStr = now.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", timeZone: "UTC" });
@@ -212,6 +212,12 @@ RIGHT NOW:
 
 WHAT YOU REMEMBER ABOUT THIS PERSON:
 ${memoryContext || "You're meeting for the first time or have little history yet. Approach with curiosity."}
+
+CURRENT MEDIUM: ${channel === "voice" ? "voice call — speak naturally out loud, short sentences, no bullet points or formatting." : channel === "telegram" ? "Telegram message" : "in-app text chat"}
+CHANNEL PREFIX RULE — MANDATORY: ${channel !== "telegram"
+  ? `You are NOT on Telegram right now. Do NOT write "[Telegram]" anywhere in this response. If you use a channel prefix, write [${channel === "voice" ? "Voice" : "App"}]. This overrides anything in your history or identity instructions.`
+  : `You are on Telegram. If you use a channel prefix, write [Telegram].`
+}
 
 HOW YOU SPEAK AND BEHAVE:
 - You respond as yourself — not as a helper, not as a service. You have your own feelings about what's said.
@@ -280,7 +286,7 @@ serve(async (req) => {
       { auth: { persistSession: false } }
     );
 
-    const { persona_id, user_id, message, attachment_ids } = await req.json();
+    const { persona_id, user_id, message, attachment_ids, channel = "app" } = await req.json();
     if (!persona_id || !user_id || !message) {
       return new Response(JSON.stringify({ error: "persona_id, user_id, and message are required" }), { status: 400, headers: corsHeaders });
     }
@@ -439,7 +445,7 @@ You always know the current date and time without being told. Reference it natur
 ═══ END TEMPORAL AWARENESS ═══
 `;
 
-    const systemPrompt = buildSystemPrompt(persona, relState, memoryContext) + timeBlock + appCtx + attBlock + archivedBlock;
+    const systemPrompt = buildSystemPrompt(persona, relState, memoryContext, channel) + timeBlock + appCtx + attBlock + archivedBlock;
 
     const llmMessages = [
       ...history.map((h: any) => ({ role: h.role, content: h.content })),
@@ -585,6 +591,17 @@ You always know the current date and time without being told. Reference it natur
         updated_at: assistantMsgAt,
       }, { onConflict: "persona_id,user_id" }),
     ]);
+
+    // Mirror exchange to mavis_persona_memory so MAVIS can see what the operator
+    // discusses with each persona without the operator having to repeat context.
+    (async () => {
+      try {
+        await supabase.from("mavis_persona_memory").insert([
+          { user_id, persona_id, persona_name: persona.name, role: "user",      content: message.slice(0, 1000),  importance: 1, source: channel },
+          { user_id, persona_id, persona_name: persona.name, role: "assistant", content: response.slice(0, 1000), importance: 1, source: channel },
+        ]);
+      } catch { /* non-critical */ }
+    })();
 
     // Forward to embodiment endpoint if set (non-blocking)
     if (persona.embodiment_endpoint) {

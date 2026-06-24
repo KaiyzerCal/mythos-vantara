@@ -3,6 +3,14 @@
 // No user JWT required; uses service role. Advances each active task by exactly
 // ONE step per invocation to avoid edge-function timeouts.
 //
+// Step types: research | reason | store | notify | execute | complete
+//   "execute" calls arbitrary MAVIS edge functions by name, enabling the runner
+//   to use the full 140+ capability surface during autonomous execution.
+//
+// Error recovery: each step is retried up to 3 times with exponential backoff.
+//   On total failure the task is paused and a human-review entry is created in
+//   mavis_action_queue (autonomy_tier = "approve") rather than hard-failing.
+//
 // config.toml entry required (do NOT edit that file — note only):
 //   [functions.mavis-autonomous-runner]
 //   verify_jwt = false
@@ -19,6 +27,8 @@ const TAVILY_KEY = Deno.env.get("Tavily_API") ?? "";
 // ── Constants ─────────────────────────────────────────────────────────────────
 const MAX_TASKS_PER_RUN = 3;
 const MAX_PLAN_STEPS = 20;
+const STEP_MAX_ATTEMPTS = 3;
+const TASK_TIME_BUDGET_MS = 45000; // 45s per task before yielding to next cron cycle
 const PLANNER_MODEL = "claude-haiku-4-5-20251001";
 const REASONER_MODEL = "claude-haiku-4-5-20251001";
 const SYNTHESIZER_MODEL = "claude-haiku-4-5-20251001";
@@ -30,7 +40,7 @@ const corsHeaders = {
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-type StepType = "research" | "reason" | "store" | "notify" | "complete";
+type StepType = "research" | "reason" | "store" | "notify" | "execute" | "complete";
 type TaskStatus = "pending" | "running" | "paused" | "completed" | "failed";
 
 interface PlanStep {
@@ -47,6 +57,7 @@ interface TaskContext {
   steps_completed: Array<{ step: number; type: StepType; description: string; output: string }>;
   reasoning: string[];
   search_results: string[];
+  [key: string]: unknown;
 }
 
 interface AutonomousTask {
@@ -68,6 +79,31 @@ interface AutonomousTask {
 
 function nowIso(): string {
   return new Date().toISOString();
+}
+
+/** Exponential backoff retry — throws the last error if all attempts fail. */
+async function withRetry<T>(
+  fn: () => Promise<T>,
+  maxAttempts = STEP_MAX_ATTEMPTS,
+  baseDelayMs = 1000,
+): Promise<T> {
+  let lastErr: unknown;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      lastErr = err;
+      if (attempt < maxAttempts) {
+        const delayMs = baseDelayMs * Math.pow(2, attempt - 1);
+        console.warn(
+          `[autonomous-runner] Attempt ${attempt}/${maxAttempts} failed, retrying in ${delayMs}ms:`,
+          err instanceof Error ? err.message : String(err),
+        );
+        await new Promise((r) => setTimeout(r, delayMs));
+      }
+    }
+  }
+  throw lastErr;
 }
 
 /** Raw Claude API call — reuses the pattern from mavis-crew-orchestrator. */
@@ -140,7 +176,6 @@ async function webSearch(query: string): Promise<string> {
     }
   }
 
-  // Fallback: Claude reasons from training data
   return claudeCall(
     "You are a knowledgeable research assistant. Answer the query with facts from your training data. Be specific and concise.",
     `Research query: ${query}`,
@@ -149,9 +184,114 @@ async function webSearch(query: string): Promise<string> {
   );
 }
 
+/** Call any MAVIS edge function by name with the given params. */
+async function callEdgeFunction(
+  fnName: string,
+  params: Record<string, unknown>,
+): Promise<unknown> {
+  const res = await fetch(`${SB_URL}/functions/v1/${fnName}`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${SB_KEY}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(params),
+    signal: AbortSignal.timeout(40000),
+  });
+
+  const data = res.ok ? await res.json() : null;
+  if (!res.ok) {
+    const errText = data ? JSON.stringify(data) : `HTTP ${res.status}`;
+    throw new Error(`Function ${fnName} returned error: ${errText.slice(0, 300)}`);
+  }
+  return data;
+}
+
+// ── Dynamic replanning ────────────────────────────────────────────────────────
+
+/**
+ * After a research or reason step, ask Claude if the remaining plan is still
+ * valid given the new output. If not, generate new remaining steps.
+ * Returns a replacement tail-plan, or null if no replan is needed.
+ */
+async function replanRemainingSteps(
+  task: AutonomousTask,
+  completedStepIndex: number,
+  stepOutput: string,
+): Promise<PlanStep[] | null> {
+  const remainingCount = task.plan.length - completedStepIndex - 1;
+  if (remainingCount <= 1) return null; // Nothing meaningful to replan
+
+  const completedSummary = task.context.steps_completed
+    .slice(-3)
+    .map((s) => `[${s.type}] ${s.description}: ${s.output.slice(0, 150)}`)
+    .join("\n") || "(none yet)";
+
+  const remainingPlan = task.plan
+    .slice(completedStepIndex + 1)
+    .map((s, i) => `${i + 1}. [${s.type}] ${s.description}`)
+    .join("\n");
+
+  // Quick yes/no check — use haiku to keep latency low
+  const checkRaw = await claudeCall(
+    "You evaluate whether an autonomous task plan needs updating based on new findings. Be conservative — only flag genuine invalidation, not minor deviations.",
+    `Goal: ${task.goal.slice(0, 200)}\n\nNew finding from step ${completedStepIndex}: ${stepOutput.slice(0, 400)}\n\nRemaining planned steps:\n${remainingPlan}\n\nDoes this finding make the remaining plan invalid or significantly suboptimal?\nRespond ONLY as JSON: {"needs_replan": true/false, "reason": "brief reason"}`,
+    PLANNER_MODEL,
+    128,
+  ).catch(() => '{"needs_replan": false}');
+
+  let needsReplan = false;
+  let reason = "";
+  try {
+    const parsed = JSON.parse((checkRaw.match(/\{[\s\S]*?\}/) ?? ["{}"])[0]);
+    needsReplan = parsed.needs_replan === true;
+    reason = String(parsed.reason ?? "");
+  } catch {
+    return null;
+  }
+
+  if (!needsReplan) return null;
+
+  console.log(
+    `[autonomous-runner] Replanning task ${task.id} after step ${completedStepIndex}: ${reason}`,
+  );
+
+  const replanRaw = await claudeCall(
+    "You are MAVIS task replanner. Generate new remaining steps for a task given what was just learned.",
+    `Goal: ${task.goal.slice(0, 200)}\n\nCompleted steps:\n${completedSummary}\n\nLatest finding: ${stepOutput.slice(0, 400)}\n\nReason to replan: ${reason}\n\nGenerate 2-6 new remaining steps as a JSON array. Each step: {type, description, input}. Valid types: research, reason, store, notify, execute, complete. Always end with "complete". Return ONLY the JSON array.`,
+    PLANNER_MODEL,
+    512,
+  ).catch(() => "");
+
+  const arrMatch = replanRaw.match(/\[[\s\S]*\]/);
+  if (!arrMatch) return null;
+
+  try {
+    const parsed = JSON.parse(arrMatch[0]);
+    if (!Array.isArray(parsed) || parsed.length === 0) return null;
+    const validTypes = new Set(["research", "reason", "store", "notify", "execute", "complete"]);
+    const newSteps: PlanStep[] = parsed
+      .filter(
+        (s: unknown) =>
+          s &&
+          typeof s === "object" &&
+          validTypes.has((s as Record<string, unknown>).type as string) &&
+          typeof (s as Record<string, unknown>).description === "string",
+      )
+      .slice(0, 8)
+      .map((s: Record<string, unknown>) => ({
+        type: s.type as StepType,
+        description: String(s.description).slice(0, 500),
+        input: (s.input as Record<string, unknown>) ?? {},
+      }));
+    return newSteps.length > 0 ? newSteps : null;
+  } catch {
+    return null;
+  }
+}
+
 // ── Phase 1: PLAN ─────────────────────────────────────────────────────────────
 
-/** Generate a step plan for a pending task. */
 async function planTask(
   sb: ReturnType<typeof createClient>,
   task: AutonomousTask,
@@ -159,16 +299,25 @@ async function planTask(
   console.log(`[autonomous-runner] Planning task ${task.id}: ${task.goal.slice(0, 80)}`);
 
   const system =
-    "You are MAVIS autonomous task planner. Given a goal, output a JSON array of 3-8 steps. " +
-    'Each step must be: { "type": "research"|"reason"|"store"|"notify"|"complete", ' +
-    '"description": string, "input": any }. ' +
-    'Always end with a step of type "complete". Return ONLY the JSON array, no prose.';
+    "You are MAVIS autonomous task planner. Given a goal, output a JSON array of 3-8 steps.\n" +
+    "Each step must be one of:\n" +
+    '  { "type": "research",  "description": string, "input": { "query": string } }\n' +
+    '  { "type": "reason",   "description": string, "input": {} }\n' +
+    '  { "type": "store",    "description": string, "input": { "content": string } }\n' +
+    '  { "type": "notify",   "description": string, "input": { "message": string } }\n' +
+    '  { "type": "execute",  "description": string, "input": { "function": "<edge-fn-name>", "params": {} } }\n' +
+    '  { "type": "complete", "description": string, "input": {} }\n\n' +
+    'The "execute" type calls a live MAVIS edge function. Common functions:\n' +
+    '  mavis-director        — general AI query/action (params: message, user_id)\n' +
+    '  mavis-screenpipe      — desktop context capture (params: action, user_id)\n' +
+    '  mavis-webhook-dispatch — send outbound webhook (params: event_type, user_id, payload)\n' +
+    "Always end with a step of type \"complete\". Return ONLY the JSON array, no prose.";
 
   const userMsg = `Goal: ${task.goal}\n\nGenerate a step plan as JSON array.`;
 
   let planRaw: string;
   try {
-    planRaw = await claudeCall(system, userMsg, PLANNER_MODEL, 1024);
+    planRaw = await withRetry(() => claudeCall(system, userMsg, PLANNER_MODEL, 1024));
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error(`[autonomous-runner] Plan generation failed for ${task.id}:`, msg);
@@ -179,7 +328,6 @@ async function planTask(
     return { advanced: false };
   }
 
-  // Extract the JSON array from the response (robust against prose preamble)
   const match = planRaw.match(/\[[\s\S]*\]/);
   if (!match) {
     const errMsg = "Planner did not return a valid JSON array";
@@ -197,8 +345,7 @@ async function planTask(
     if (!Array.isArray(parsed) || parsed.length === 0) {
       throw new Error("Parsed value is not a non-empty array");
     }
-    // Sanitise: enforce known types, cap at MAX_PLAN_STEPS
-    const validTypes = new Set<StepType>(["research", "reason", "store", "notify", "complete"]);
+    const validTypes = new Set<StepType>(["research", "reason", "store", "notify", "execute", "complete"]);
     plan = parsed
       .filter(
         (s: unknown) =>
@@ -226,16 +373,6 @@ async function planTask(
     return { advanced: false };
   }
 
-  if (plan.length > MAX_PLAN_STEPS) {
-    const errMsg = `Plan exceeds max steps (${plan.length} > ${MAX_PLAN_STEPS})`;
-    await sb
-      .from("mavis_autonomous_tasks")
-      .update({ status: "failed", error: errMsg, updated_at: nowIso() })
-      .eq("id", task.id);
-    return { advanced: false };
-  }
-
-  // Initialise context
   const context: TaskContext = {
     goal: task.goal,
     steps_completed: [],
@@ -265,7 +402,6 @@ async function planTask(
 
 // ── Phase 2: EXECUTE (one step) ───────────────────────────────────────────────
 
-/** Synthesise all step outputs into a final result string. */
 async function synthesiseFinal(task: AutonomousTask): Promise<string> {
   const contextSummary = [
     `Goal: ${task.context.goal}`,
@@ -293,7 +429,112 @@ async function synthesiseFinal(task: AutonomousTask): Promise<string> {
   );
 }
 
-/** Execute exactly one step of a running task. */
+/**
+ * Execute the logic for a single step. Returns the step output string.
+ * Throws on failure — caller handles retry and approval escalation.
+ */
+async function runStepLogic(
+  step: PlanStep,
+  stepIndex: number,
+  task: AutonomousTask,
+  updatedContext: TaskContext,
+  sb: ReturnType<typeof createClient>,
+): Promise<string> {
+  const input = (step.input ?? {}) as Record<string, unknown>;
+
+  switch (step.type) {
+    // ── research ──────────────────────────────────────────────────────────────
+    case "research": {
+      const query = String(input.query ?? "") || step.description;
+      const result = await webSearch(query);
+      updatedContext.search_results.push(
+        `[Step ${stepIndex}] ${step.description}: ${result.slice(0, 800)}`,
+      );
+      return result;
+    }
+
+    // ── reason ────────────────────────────────────────────────────────────────
+    case "reason": {
+      const contextForReason = [
+        `Goal: ${task.context.goal}`,
+        task.context.reasoning.length > 0
+          ? `Prior reasoning:\n${task.context.reasoning.slice(-3).join("\n")}`
+          : "",
+        task.context.search_results.length > 0
+          ? `Research findings:\n${task.context.search_results.slice(-3).join("\n")}`
+          : "",
+        `Current task: ${step.description}`,
+      ]
+        .filter(Boolean)
+        .join("\n\n");
+
+      const result = await claudeCall(
+        "You are MAVIS reasoning engine. Think step by step to address the task.",
+        contextForReason,
+        REASONER_MODEL,
+        1024,
+      );
+      updatedContext.reasoning.push(
+        `[Step ${stepIndex}] ${step.description}: ${result.slice(0, 600)}`,
+      );
+      return result;
+    }
+
+    // ── store ─────────────────────────────────────────────────────────────────
+    case "store": {
+      const content = String(input.content ?? "") || step.description;
+      const { error: insertErr } = await sb.from("mavis_memory").insert({
+        user_id: task.user_id,
+        role: "assistant",
+        content: content.slice(0, 4000),
+      });
+      if (insertErr) throw new Error(`Memory insert failed: ${insertErr.message}`);
+      return "stored";
+    }
+
+    // ── notify ────────────────────────────────────────────────────────────────
+    case "notify": {
+      const message = String(input.message ?? "") || step.description;
+      const { error: insightErr } = await sb.from("mavis_insights").insert({
+        user_id: task.user_id,
+        category: "autonomous",
+        insight: message.slice(0, 2000),
+        importance_score: 6,
+      });
+      if (insightErr) throw new Error(`Insight insert failed: ${insightErr.message}`);
+      return "notified";
+    }
+
+    // ── execute — calls a live MAVIS edge function ─────────────────────────
+    case "execute": {
+      const fnName = String(input.function ?? "").trim();
+      if (!fnName) throw new Error('execute step missing required "function" field');
+
+      const fnParams = ((input.params as Record<string, unknown>) ?? {});
+      // Always inject user_id so called functions know who they're acting for
+      if (!fnParams.user_id) fnParams.user_id = task.user_id;
+
+      console.log(
+        `[autonomous-runner] Task ${task.id} step ${stepIndex}: calling ${fnName} with`,
+        JSON.stringify(fnParams).slice(0, 200),
+      );
+
+      const fnResult = await callEdgeFunction(fnName, fnParams);
+      return JSON.stringify(fnResult).slice(0, 800);
+    }
+
+    // ── complete ──────────────────────────────────────────────────────────────
+    case "complete": {
+      return await synthesiseFinal(task);
+    }
+
+    default: {
+      return `Unknown step type: ${(step as PlanStep).type}`;
+    }
+  }
+}
+
+/** Execute exactly one step of a running task (with retry + approval escalation). */
 async function executeStep(
   sb: ReturnType<typeof createClient>,
   task: AutonomousTask,
@@ -302,12 +543,12 @@ async function executeStep(
   const step = task.plan[stepIndex];
 
   if (!step) {
-    // plan exhausted without a 'complete' step — auto-synthesise
+    // Plan exhausted without a "complete" step — auto-synthesise
     console.log(`[autonomous-runner] Task ${task.id} plan exhausted at step ${stepIndex} — auto-completing`);
     let synthesis: string;
     try {
-      synthesis = await synthesiseFinal(task);
-    } catch (err: unknown) {
+      synthesis = await withRetry(() => synthesiseFinal(task));
+    } catch {
       synthesis = `Task completed after ${stepIndex} steps. Context: ${JSON.stringify(task.context.steps_completed)}`;
     }
     await sb
@@ -326,7 +567,6 @@ async function executeStep(
     `[autonomous-runner] Task ${task.id} step ${stepIndex}/${task.plan.length - 1} (${step.type}): ${step.description.slice(0, 80)}`,
   );
 
-  // Mutable copies of context arrays
   const updatedContext: TaskContext = {
     ...task.context,
     steps_completed: [...task.context.steps_completed],
@@ -334,134 +574,108 @@ async function executeStep(
     search_results: [...task.context.search_results],
   };
 
+  // ── Run step with retry ───────────────────────────────────────────────────
   let stepOutput = "";
-  let stepError: string | undefined;
+  let lastError: string | undefined;
+  let attemptsUsed = 0;
 
-  try {
-    switch (step.type) {
-      // ── research ──────────────────────────────────────────────────────────
-      case "research": {
-        const query =
-          String((step.input as Record<string, unknown>)?.query ?? "") ||
-          step.description;
-        stepOutput = await webSearch(query);
-        updatedContext.search_results.push(
-          `[Step ${stepIndex}] ${step.description}: ${stepOutput.slice(0, 800)}`,
-        );
-        break;
-      }
-
-      // ── reason ────────────────────────────────────────────────────────────
-      case "reason": {
-        const contextForReason = [
-          `Goal: ${task.context.goal}`,
-          task.context.reasoning.length > 0
-            ? `Prior reasoning:\n${task.context.reasoning.slice(-3).join("\n")}`
-            : "",
-          task.context.search_results.length > 0
-            ? `Research findings:\n${task.context.search_results.slice(-3).join("\n")}`
-            : "",
-          `Current task: ${step.description}`,
-        ]
-          .filter(Boolean)
-          .join("\n\n");
-
-        stepOutput = await claudeCall(
-          "You are MAVIS reasoning engine. Think step by step to address the task.",
-          contextForReason,
-          REASONER_MODEL,
-          1024,
-        );
-        updatedContext.reasoning.push(
-          `[Step ${stepIndex}] ${step.description}: ${stepOutput.slice(0, 600)}`,
-        );
-        break;
-      }
-
-      // ── store ─────────────────────────────────────────────────────────────
-      case "store": {
-        const content =
-          String((step.input as Record<string, unknown>)?.content ?? "") ||
-          step.description;
-        const { error: insertErr } = await sb.from("mavis_memory").insert({
-          user_id: task.user_id,
-          role: "assistant",
-          content: content.slice(0, 4000),
-        });
-        if (insertErr) throw new Error(`Memory insert failed: ${insertErr.message}`);
-        stepOutput = "stored";
-        break;
-      }
-
-      // ── notify ────────────────────────────────────────────────────────────
-      case "notify": {
-        const message =
-          String((step.input as Record<string, unknown>)?.message ?? "") ||
-          step.description;
-        const { error: insightErr } = await sb.from("mavis_insights").insert({
-          user_id: task.user_id,
-          category: "autonomous",
-          insight: message.slice(0, 2000),
-          importance_score: 6,
-        });
-        if (insightErr) throw new Error(`Insight insert failed: ${insightErr.message}`);
-        stepOutput = "notified";
-        break;
-      }
-
-      // ── complete ──────────────────────────────────────────────────────────
-      case "complete": {
-        stepOutput = await synthesiseFinal(task);
-        updatedContext.steps_completed.push({
-          step: stepIndex,
-          type: step.type,
-          description: step.description,
-          output: stepOutput.slice(0, 300),
-        });
-
-        await sb
-          .from("mavis_autonomous_tasks")
-          .update({
-            plan: task.plan.map((s, i) =>
-              i === stepIndex ? { ...s, output: stepOutput, completed: true } : s,
-            ),
-            context: updatedContext,
-            status: "completed",
-            result: stepOutput,
-            completed_at: nowIso(),
-            updated_at: nowIso(),
-          })
-          .eq("id", task.id);
-
-        console.log(`[autonomous-runner] Task ${task.id} completed`);
-        return { advanced: true };
-      }
-
-      default: {
-        stepOutput = `Unknown step type: ${(step as PlanStep).type}`;
-        break;
+  for (let attempt = 1; attempt <= STEP_MAX_ATTEMPTS; attempt++) {
+    attemptsUsed = attempt;
+    try {
+      stepOutput = await runStepLogic(step, stepIndex, task, updatedContext, sb);
+      lastError = undefined;
+      break;
+    } catch (err: unknown) {
+      lastError = err instanceof Error ? err.message : String(err);
+      console.warn(
+        `[autonomous-runner] Step ${stepIndex} attempt ${attempt}/${STEP_MAX_ATTEMPTS} failed for task ${task.id}:`,
+        lastError,
+      );
+      if (attempt < STEP_MAX_ATTEMPTS) {
+        const delayMs = 1000 * Math.pow(2, attempt - 1); // 1s → 2s
+        await new Promise((r) => setTimeout(r, delayMs));
       }
     }
-  } catch (err: unknown) {
-    stepError = err instanceof Error ? err.message : String(err);
+  }
+
+  // ── All retries exhausted → escalate to human approval ───────────────────
+  if (lastError !== undefined) {
     console.error(
-      `[autonomous-runner] Step ${stepIndex} (${step.type}) failed for task ${task.id}:`,
-      stepError,
+      `[autonomous-runner] Step ${stepIndex} (${step.type}) exhausted all retries for task ${task.id}. Escalating.`,
     );
 
-    // Mark this task as failed — do not affect other tasks
+    const approvalDescription =
+      `Autonomous task "${task.goal.slice(0, 100)}" stalled at step ${stepIndex} ` +
+      `(${step.type}: "${step.description.slice(0, 80)}") after ${attemptsUsed} attempts.\n\n` +
+      `Error: ${lastError}\n\n` +
+      `Progress so far:\n${task.context.steps_completed
+        .slice(-5)
+        .map((s) => `  [${s.step + 1}] ${s.type}: ${s.output.slice(0, 120)}`)
+        .join("\n") || "  (no steps completed yet)"}`;
+
+    // Create approval queue entry — user can review and retry or cancel
+    await sb
+      .from("mavis_action_queue")
+      .insert({
+        user_id: task.user_id,
+        action_type: "task_step_failure",
+        title: `Task stalled: ${step.description.slice(0, 60)}`,
+        description: approvalDescription,
+        status: "pending",
+        autonomy_tier: "approve",
+        payload: {
+          task_id: task.id,
+          step_index: stepIndex,
+          step_type: step.type,
+          step_description: step.description,
+          error: lastError,
+          attempts: attemptsUsed,
+        },
+      })
+      .catch((e) => console.error("[autonomous-runner] Failed to create approval entry:", e));
+
+    // Pause (not fail) the task — it can be resumed after human review
     await sb
       .from("mavis_autonomous_tasks")
       .update({
-        status: "failed",
-        error: `Step ${stepIndex} (${step.type}) failed: ${stepError}`,
+        status: "paused",
+        error: `Step ${stepIndex} (${step.type}) failed after ${attemptsUsed} attempts — awaiting review`,
         updated_at: nowIso(),
       })
       .eq("id", task.id);
+
     return { advanced: false };
   }
 
-  // Record step completion and advance pointer
+  // ── Step succeeded — record and advance ───────────────────────────────────
+
+  // "complete" step already calls synthesiseFinal; persist it as completed
+  if (step.type === "complete") {
+    updatedContext.steps_completed.push({
+      step: stepIndex,
+      type: step.type,
+      description: step.description,
+      output: stepOutput.slice(0, 300),
+    });
+
+    await sb
+      .from("mavis_autonomous_tasks")
+      .update({
+        plan: task.plan.map((s, i) =>
+          i === stepIndex ? { ...s, output: stepOutput, completed: true } : s,
+        ),
+        context: updatedContext,
+        status: "completed",
+        result: stepOutput,
+        completed_at: nowIso(),
+        updated_at: nowIso(),
+      })
+      .eq("id", task.id);
+
+    console.log(`[autonomous-runner] Task ${task.id} completed`);
+    return { advanced: true };
+  }
+
   const nextStep = stepIndex + 1;
   updatedContext.steps_completed.push({
     step: stepIndex,
@@ -470,23 +684,34 @@ async function executeStep(
     output: stepOutput.slice(0, 300),
   });
 
-  const updatedPlan = task.plan.map((s, i) =>
+  let updatedPlan = task.plan.map((s, i) =>
     i === stepIndex ? { ...s, output: stepOutput, completed: true } : s,
   );
 
-  // Auto-complete if we've advanced past the last step
-  const isLastStep = nextStep >= task.plan.length;
+  // Dynamic replanning: after research/reason steps, check if remaining plan is still valid
+  if ((step.type === "research" || step.type === "reason") && nextStep < task.plan.length - 1) {
+    const newTail = await replanRemainingSteps(task, stepIndex, stepOutput).catch(() => null);
+    if (newTail && newTail.length > 0) {
+      updatedPlan = [
+        ...updatedPlan.slice(0, nextStep), // completed steps (including current)
+        ...newTail,                         // new remaining steps
+      ];
+      console.log(
+        `[autonomous-runner] Task ${task.id} replanned with ${newTail.length} new steps from step ${nextStep}`,
+      );
+    }
+  }
+
+  const isLastStep = nextStep >= updatedPlan.length;
 
   if (isLastStep) {
     let finalResult = stepOutput;
     try {
-      finalResult = await synthesiseFinal({
-        ...task,
-        context: updatedContext,
-        plan: updatedPlan,
-      });
+      finalResult = await withRetry(() =>
+        synthesiseFinal({ ...task, context: updatedContext, plan: updatedPlan }),
+      );
     } catch {
-      // keep last step output as result
+      // keep last step output
     }
 
     await sb
@@ -544,10 +769,132 @@ serve(async (req: Request): Promise<Response> => {
     });
 
   try {
-    // Service-role client — no user JWT
     const sb = createClient(SB_URL, SB_KEY, { auth: { persistSession: false } });
 
-    // ── Fetch up to MAX_TASKS_PER_RUN pending/running tasks (oldest first) ──
+    // ── Promote due standing orders into autonomous tasks ─────────────────────
+    try {
+      const now = new Date().toISOString();
+      const { data: dueOrders } = await sb
+        .from("standing_order_templates")
+        .select("*")
+        .eq("status", "active")
+        .not("next_run_at", "is", null)
+        .lte("next_run_at", now);
+
+      for (const order of (dueOrders ?? []) as any[]) {
+        await sb.from("mavis_autonomous_tasks").insert({
+          user_id: order.user_id,
+          goal: `[Standing Order: ${order.name}]\n${order.instructions}`,
+          status: "pending",
+          plan: [],
+          current_step: 0,
+          context: {
+            goal: order.instructions,
+            steps_completed: [],
+            reasoning: [],
+            search_results: [],
+            source: "standing_order",
+            template_id: order.id,
+            template_slug: order.slug,
+          },
+        });
+
+        await sb.from("mavis_so_executions").insert({
+          template_id: order.id,
+          template_slug: order.slug,
+          status: "running",
+          triggered_by: "cron",
+          started_at: now,
+          turns_used: 0,
+        });
+
+        const cron = (order.cron_expression ?? "") as string;
+        let intervalMs = 24 * 60 * 60 * 1000;
+        if (/^\*\/\d+\s+\*/.test(cron)) {
+          const mins = parseInt(cron.match(/^\*\/(\d+)/)?.[1] ?? "1440", 10);
+          intervalMs = mins * 60 * 1000;
+        } else if (/^0\s+\*\s+/.test(cron)) {
+          intervalMs = 60 * 60 * 1000;
+        } else if (/^0\s+\d+\s+\*\s+\*\s+\d/.test(cron)) {
+          intervalMs = 7 * 24 * 60 * 60 * 1000;
+        }
+
+        await sb.from("standing_order_templates").update({
+          usage_count: (order.usage_count ?? 0) + 1,
+          last_used_at: now,
+          next_run_at: new Date(Date.now() + intervalMs).toISOString(),
+        }).eq("id", order.id);
+      }
+    } catch (soErr) {
+      console.error("[autonomous-runner] Standing orders check failed:", soErr);
+    }
+
+    // ── Execute pending A2A tasks ─────────────────────────────────────────────
+    try {
+      const { data: a2aTasks } = await sb
+        .from("mavis_a2a_tasks")
+        .select("id, user_id, skill_id, input, calling_agent_url")
+        .eq("status", "pending")
+        .limit(5);
+
+      for (const task of (a2aTasks ?? []) as any[]) {
+        await sb
+          .from("mavis_a2a_tasks")
+          .update({ status: "running", updated_at: nowIso() })
+          .eq("id", task.id);
+
+        try {
+          const input = task.input ?? {};
+          const inputMessage: string =
+            (typeof input === "string" ? input : null) ??
+            input.message ?? input.text ?? input.query ?? input.content ??
+            JSON.stringify(input).slice(0, 500);
+
+          const SKILL_INTENT: Record<string, string> = {
+            knowledge_query: "query",
+            quest_manage: "action",
+            journal_entry: "action",
+            code_review: "query",
+            image_gen: "action",
+          };
+
+          const directorRes = await fetch(`${SB_URL}/functions/v1/mavis-director`, {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${SB_KEY}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              message: inputMessage,
+              user_id: task.user_id,
+              source: "a2a",
+              intent_hint: SKILL_INTENT[task.skill_id] ?? undefined,
+            }),
+            signal: AbortSignal.timeout(50000),
+          });
+
+          const directorData = directorRes.ok ? await directorRes.json() : null;
+          const reply: string = directorData?.reply ?? `Director error: HTTP ${directorRes.status}`;
+
+          await sb.from("mavis_a2a_tasks").update({
+            status: "completed",
+            result: { reply, intent: directorData?.intent },
+            updated_at: nowIso(),
+          }).eq("id", task.id);
+        } catch (taskErr: any) {
+          console.error("[autonomous-runner] A2A task execution failed:", taskErr?.message);
+          await sb.from("mavis_a2a_tasks").update({
+            status: "failed",
+            error: taskErr?.message ?? "Unknown error",
+            updated_at: nowIso(),
+          }).eq("id", task.id);
+        }
+      }
+    } catch (a2aErr) {
+      console.error("[autonomous-runner] A2A task check failed:", a2aErr);
+    }
+
+    // ── Fetch pending/running tasks ───────────────────────────────────────────
     const { data: taskRows, error: fetchErr } = await sb
       .from("mavis_autonomous_tasks")
       .select("*")
@@ -568,40 +915,70 @@ serve(async (req: Request): Promise<Response> => {
 
     let processed = 0;
     let advanced = 0;
+    let stepsTotal = 0;
 
-    for (const task of tasks) {
+    for (const initialTask of tasks) {
+      const taskStart = Date.now();
+      let currentTask = initialTask;
+      let stepsThisTask = 0;
+
       try {
-        let result: { advanced: boolean };
+        // Time-budgeted multi-step loop: advance as many steps as time allows.
+        // This means fast tasks (research → reason → complete) can finish in one
+        // cron cycle instead of waiting 4-6 minutes across multiple invocations.
+        while (Date.now() - taskStart < TASK_TIME_BUDGET_MS) {
+          let result: { advanced: boolean };
 
-        if (task.status === "pending") {
-          result = await planTask(sb, task);
-        } else {
-          // status === 'running'
-          result = await executeStep(sb, task);
+          if (currentTask.status === "pending") {
+            result = await planTask(sb, currentTask);
+          } else if (currentTask.status === "running") {
+            result = await executeStep(sb, currentTask);
+          } else {
+            break; // terminal state — completed/failed/paused
+          }
+
+          if (result.advanced) {
+            advanced++;
+            stepsThisTask++;
+          }
+
+          // Re-fetch to see current state after the step
+          const { data: refreshed } = await sb
+            .from("mavis_autonomous_tasks")
+            .select("*")
+            .eq("id", currentTask.id)
+            .single();
+
+          if (!refreshed || !["pending", "running"].includes(refreshed.status)) {
+            break; // Task reached a terminal state
+          }
+
+          currentTask = refreshed as AutonomousTask;
         }
 
         processed++;
-        if (result.advanced) advanced++;
+        stepsTotal += stepsThisTask;
+        console.log(
+          `[autonomous-runner] Task ${currentTask.id}: ${stepsThisTask} steps in ${Date.now() - taskStart}ms`,
+        );
       } catch (taskErr: unknown) {
-        // Catch-all: a catastrophic error for one task must not crash others
         const msg = taskErr instanceof Error ? taskErr.message : String(taskErr);
-        console.error(`[autonomous-runner] Unhandled error for task ${task.id}:`, msg);
+        console.error(`[autonomous-runner] Unhandled error for task ${currentTask.id}:`, msg);
 
-        // Best-effort: mark the task failed
         try {
           await sb
             .from("mavis_autonomous_tasks")
             .update({ status: "failed", error: `Runner error: ${msg}`, updated_at: nowIso() })
-            .eq("id", task.id);
+            .eq("id", currentTask.id);
         } catch {
-          // Ignore secondary failure
+          // ignore secondary failure
         }
 
         processed++;
       }
     }
 
-    return json({ processed, advanced });
+    return json({ processed, advanced, steps_total: stepsTotal });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
     console.error("[autonomous-runner] Fatal error:", message);

@@ -101,6 +101,10 @@ export default function MavisChat() {
   // messages can be skipped — prevents duplicates when we receive our own writes.
   const recentWebWrites = useRef<Map<string, number>>(new Map());
 
+  // ── Agent Mode (Action Queue integration) ──
+  const [agentModeOn, setAgentModeOn] = useState(false);
+  const [lastAgentMeta, setLastAgentMeta] = useState<{ toolsUsed: string[]; actionsQueued: number } | null>(null);
+
   // ── Crew coordinator state ──
   const [agentPanelTab, setAgentPanelTab] = useState<"specialist" | "crew">("specialist");
   const [crewGoal, setCrewGoal] = useState("");
@@ -663,6 +667,54 @@ export default function MavisChat() {
 
     let streamingId = "";
     try {
+      // ── Agent Mode: route to mavis-agent edge function ──────
+      if (agentModeOn && userId) {
+        streamingId = `streaming-${Date.now()}`;
+        setChatMessages((prev) => [...prev, {
+          id: streamingId,
+          role: "assistant" as const,
+          content: "",
+          mode: chatMode,
+          timestamp: new Date(),
+        }]);
+        try {
+          const { data: agentData, error: agentErr } = await supabase.functions.invoke("mavis-agent", {
+            body: {
+              goal: content,
+              userId,
+              messages: history,
+            },
+          });
+          if (agentErr) throw agentErr;
+          const agentText = agentData?.response ?? agentData?.result ?? agentData?.output ?? JSON.stringify(agentData);
+          const toolsUsed: string[] = agentData?.toolsUsed ?? agentData?.tools_used ?? [];
+          const actionsQueued: number = agentData?.actionsQueued ?? agentData?.actions_queued ?? 0;
+          setLastAgentMeta({ toolsUsed, actionsQueued });
+          const agentMsg = {
+            id: `a-${Date.now()}`,
+            role: "assistant" as const,
+            content: agentText,
+            mode: chatMode,
+            timestamp: new Date(),
+            _agentMeta: { toolsUsed, actionsQueued },
+          };
+          setChatMessages((prev) => prev.filter((m) => m.id !== streamingId).concat(agentMsg));
+          if (convoId) persistMessage({ role: "assistant", content: agentText, mode: chatMode }, convoId);
+        } catch (err: any) {
+          setChatMessages((prev) => prev.filter((m) => m.id !== streamingId).concat({
+            id: `err-${Date.now()}`,
+            role: "assistant" as const,
+            content: `Agent error: ${err?.message ?? "unknown"}`,
+            mode: chatMode,
+            timestamp: new Date(),
+          }));
+        } finally {
+          setIsLoading(false);
+          setAgentThinking(null);
+        }
+        return;
+      }
+
       // Use fresh Supabase context if available, else fall back to useAppData() data
       let systemPrompt = await (fullCtx
         ? buildSystemPromptFromSnapshot(chatMode, fullCtx, archivedMemories, vaultMedia)
@@ -834,7 +886,7 @@ export default function MavisChat() {
       setAgentSteps([]);
       abortRef.current = null;
     }
-  }, [input, chatMessages, isLoading, chatMode, agentThinking, profile, quests, tasks, skills, journalEntries, vaultEntries, conversationId, setChatMessages, setConversationId, refetchAll, ensureConversation, persistMessage, saveMemoriesFromResponse, speakText, attachments]);
+  }, [input, chatMessages, isLoading, chatMode, agentModeOn, agentThinking, profile, quests, tasks, skills, journalEntries, vaultEntries, conversationId, setChatMessages, setConversationId, refetchAll, ensureConversation, persistMessage, saveMemoriesFromResponse, speakText, attachments]);
 
   const sendFeedback = useCallback(async (msg: any, rating: 1 | -1) => {
     if (feedbackGiven[msg.id]) return;
@@ -951,6 +1003,19 @@ export default function MavisChat() {
         actions={
           <div className="flex items-center gap-3">
             <button
+              onClick={() => { setAgentModeOn((v) => !v); setLastAgentMeta(null); }}
+              className={`flex items-center gap-1.5 text-xs font-mono rounded px-2 py-1 border transition-all ${
+                agentModeOn
+                  ? "border-violet-500/60 bg-violet-500/15 text-violet-300"
+                  : "border-border/60 text-muted-foreground hover:text-violet-300 hover:border-violet-500/40"
+              }`}
+              title={agentModeOn ? "Agent Mode ON — click to turn off" : "Agent Mode OFF — click to turn on"}
+            >
+              <Cpu size={12} />
+              Agent Mode
+              {agentModeOn && <span className="w-1.5 h-1.5 rounded-full bg-violet-400 animate-pulse ml-0.5" />}
+            </button>
+            <button
               onClick={() => navigate("/council-board")}
               className="flex items-center gap-1.5 text-xs font-mono text-amber-400 hover:text-amber-300 border border-amber-900/40 hover:border-amber-400/40 rounded px-2 py-1 transition-all"
               title="Open Council Board"
@@ -988,6 +1053,37 @@ export default function MavisChat() {
           >
             <span className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse" />
             {actionStatus}
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Agent Mode meta bar — shows after agent response */}
+      <AnimatePresence>
+        {agentModeOn && lastAgentMeta && (
+          <motion.div
+            initial={{ opacity: 0, y: -4 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -4 }}
+            className="flex items-center gap-2 px-3 py-1.5 rounded border border-violet-500/20 bg-violet-950/20 text-xs font-mono text-violet-300"
+          >
+            <Cpu size={10} className="text-violet-400 shrink-0" />
+            {lastAgentMeta.toolsUsed.length > 0 ? (
+              <span>Tools used: [{lastAgentMeta.toolsUsed.join(", ")}]</span>
+            ) : (
+              <span>Agent mode active</span>
+            )}
+            {lastAgentMeta.actionsQueued > 0 && (
+              <>
+                <span className="text-muted-foreground">·</span>
+                <span className="text-amber-400">{lastAgentMeta.actionsQueued} action{lastAgentMeta.actionsQueued !== 1 ? "s" : ""} queued</span>
+              </>
+            )}
+            <button
+              onClick={() => setLastAgentMeta(null)}
+              className="ml-auto text-muted-foreground/50 hover:text-muted-foreground"
+            >
+              <X size={10} />
+            </button>
           </motion.div>
         )}
       </AnimatePresence>

@@ -1,8 +1,7 @@
 // mavis-memory-embed
 // Runs every 15 minutes via pg_cron.
-// Picks up unembedded mavis_memory rows, generates embeddings using
-// Supabase's built-in gte-small model (self-hosted, no external API),
-// and stores them for semantic search.
+// Embeds both mavis_memory (conversation history) and mavis_persona_memory
+// (structured key/value store) using Supabase's built-in gte-small model.
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
@@ -12,73 +11,100 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-const SUPABASE_URL  = Deno.env.get("SUPABASE_URL")!;
-const SERVICE_KEY   = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-const BATCH_SIZE    = 20; // rows per run
+const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
+const SERVICE_KEY  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+const BATCH_SIZE   = 20;
+
+function jsonRes(data: unknown, status = 200): Response {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
+  });
+}
+
+async function embedRows(
+  adminSb: ReturnType<typeof createClient>,
+  // @ts-ignore — Supabase.ai available in edge runtime
+  session: Supabase.ai.Session,
+  table: string,
+  textCol: string,
+  rows: Array<{ id: string; [key: string]: unknown }>,
+): Promise<{ embedded: number; errors: string[] }> {
+  let embedded = 0;
+  const errors: string[] = [];
+
+  for (const row of rows) {
+    try {
+      const raw = String(row[textCol] ?? "");
+      const text = raw
+        .replace(/```[\s\S]*?```/g, "")
+        .replace(/[#*_~`]/g, "")
+        .trim()
+        .slice(0, 512);
+
+      if (!text) continue;
+
+      const output = await session.run(text, { mean_pool: true, normalize: true });
+      const embedding: number[] = Array.from(output.data as Float32Array);
+
+      const { error: updateErr } = await adminSb
+        .from(table)
+        .update({ embedding: JSON.stringify(embedding) })
+        .eq("id", row.id);
+
+      if (updateErr) errors.push(`${table}[${row.id}]: ${updateErr.message}`);
+      else embedded++;
+    } catch (e: unknown) {
+      errors.push(`${table}[${row.id}]: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+
+  return { embedded, errors };
+}
 
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
-  const json = (data: unknown, status = 200) =>
-    new Response(JSON.stringify(data), {
-      status,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
-
   try {
     const adminSb = createClient(SUPABASE_URL, SERVICE_KEY);
 
-    // Fetch rows without embeddings yet (oldest first)
-    const { data: rows, error } = await adminSb
+    // @ts-ignore
+    const session = new Supabase.ai.Session("gte-small");
+
+    // ── Embed mavis_memory (conversation history) ────────────────────────────
+    const { data: memRows, error: memErr } = await adminSb
       .from("mavis_memory")
-      .select("id, content, user_id")
+      .select("id, content")
       .is("embedding", null)
       .not("content", "is", null)
       .order("timestamp", { ascending: true })
       .limit(BATCH_SIZE);
 
-    if (error) throw new Error(error.message);
-    if (!rows || rows.length === 0) return json({ embedded: 0, message: "Nothing to embed" });
+    if (memErr) throw new Error(memErr.message);
 
-    // Use Supabase's built-in gte-small model — fully self-hosted, no external API
-    // @ts-ignore — Supabase.ai is available in Supabase edge runtime
-    const session = new Supabase.ai.Session("gte-small");
+    const memResult = await embedRows(adminSb, session, "mavis_memory", "content", memRows ?? []);
 
-    let embedded = 0;
-    const errors: string[] = [];
+    // ── Embed mavis_persona_memory (structured key/value notes) ─────────────
+    const { data: pRows, error: pErr } = await adminSb
+      .from("mavis_persona_memory")
+      .select("id, value")
+      .is("embedding", null)
+      .not("value", "is", null)
+      .order("created_at", { ascending: true })
+      .limit(BATCH_SIZE);
 
-    for (const row of rows) {
-      try {
-        // Clean text: strip markdown noise, cap at 512 chars for gte-small
-        const text = row.content
-          .replace(/```[\s\S]*?```/g, "")
-          .replace(/[#*_~`]/g, "")
-          .trim()
-          .slice(0, 512);
+    if (pErr) throw new Error(pErr.message);
 
-        if (!text) continue;
+    const pResult = await embedRows(adminSb, session, "mavis_persona_memory", "value", pRows ?? []);
 
-        const output = await session.run(text, { mean_pool: true, normalize: true });
-        const embedding: number[] = Array.from(output.data as Float32Array);
-
-        const { error: updateErr } = await adminSb
-          .from("mavis_memory")
-          .update({ embedding: JSON.stringify(embedding) })
-          .eq("id", row.id);
-
-        if (updateErr) errors.push(`row ${row.id}: ${updateErr.message}`);
-        else embedded++;
-
-      } catch (e: any) {
-        errors.push(`row ${row.id}: ${e.message}`);
-      }
-    }
-
-    return json({ embedded, errors: errors.slice(0, 5), total_pending: rows.length - embedded });
-
+    return jsonRes({
+      ok: true,
+      mavis_memory:         { embedded: memResult.embedded, errors: memResult.errors.slice(0, 3) },
+      mavis_persona_memory: { embedded: pResult.embedded,   errors: pResult.errors.slice(0, 3) },
+    });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
     console.error("mavis-memory-embed error:", message);
-    return json({ error: message }, 500);
+    return jsonRes({ ok: false, error: message }, 500);
   }
 });

@@ -1,0 +1,10 @@
+{
+  "supabase_url": "https://your-project.supabase.co",
+  "supabase_key": "your-anon-key",
+  "device_id": "",
+  "device_name": "Calvin's PC",
+  "device_type": "pc",
+  "user_email": "your@email.com",
+  "user_password": "your-password",
+  "http_port": 7791
+}
