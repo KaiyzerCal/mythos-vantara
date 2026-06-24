@@ -979,11 +979,11 @@ async function executeActions(actions: ParsedAction[], chatId: string, context =
       const { data: queueItem, error: queueErr } = await supabase
         .from("mavis_action_queue")
         .insert({
-          user_id:     OPERATOR_USER_ID,
-          action_type: "draft_email",
-          tier:        "approve",
-          status:      "pending",
-          payload:     { to, subject, body },
+          user_id:        OPERATOR_USER_ID,
+          action_type:    "draft_email",
+          autonomy_tier:  "approve",
+          status:         "pending",
+          action_payload: { to, subject, body },
         })
         .select("id")
         .single();
@@ -2058,8 +2058,12 @@ Deno.serve(async (req) => {
         const serviceKey  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
         const res = await fetch(`${supabaseUrl}/functions/v1/mavis-action-executor`, {
           method:  "POST",
-          headers: { "Content-Type": "application/json", Authorization: `Bearer ${serviceKey}` },
-          body:    JSON.stringify({ queue_item_id: queueItemId }),
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${serviceKey}`,
+            "x-user-id": OPERATOR_USER_ID,
+          },
+          body: JSON.stringify({ action: "execute", queue_item_id: queueItemId }),
         }).catch(() => null);
 
         let resultMsg = "Email sent.";
