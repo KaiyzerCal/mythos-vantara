@@ -27,6 +27,28 @@ function encodeSheetRange(range: string): string {
   return encodeURIComponent(range).replace(/%3A/gi, ":").replace(/%21/gi, "!");
 }
 
+function base64FromBytes(bytes: Uint8Array): string {
+  let binary = "";
+  const chunkSize = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    binary += String.fromCharCode(...bytes.slice(i, i + chunkSize));
+  }
+  return btoa(binary);
+}
+
+function base64UrlEncodeUtf8(value: string): string {
+  return base64FromBytes(new TextEncoder().encode(value))
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
+}
+
+function encodeMailHeader(value: string): string {
+  return /^[\x00-\x7F]*$/.test(value)
+    ? value
+    : `=?UTF-8?B?${base64FromBytes(new TextEncoder().encode(value))}?=`;
+}
+
 // ── Token refresh ─────────────────────────────────────────────────────────────
 
 async function refreshGoogleToken(
@@ -112,9 +134,10 @@ async function executeDraftEmail(
   // Build RFC 2822 message
   const lines: string[] = [
     `To: ${to}`,
-    `Subject: ${subject}`,
+    `Subject: ${encodeMailHeader(subject)}`,
     "MIME-Version: 1.0",
     "Content-Type: text/plain; charset=UTF-8",
+    "Content-Transfer-Encoding: 8bit",
   ];
   if (cc) lines.push(`Cc: ${cc}`);
   if (bcc) lines.push(`Bcc: ${bcc}`);
@@ -122,10 +145,7 @@ async function executeDraftEmail(
   lines.push("", body);
 
   const rawMessage = lines.join("\r\n");
-  const encodedMessage = btoa(rawMessage)
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/=+$/, "");
+  const encodedMessage = base64UrlEncodeUtf8(rawMessage);
 
   const sendBody: Record<string, unknown> = { raw: encodedMessage };
   if (reply_to_message_id) {
