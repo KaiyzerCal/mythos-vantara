@@ -53,8 +53,18 @@ async function tg(method: string, body: Record<string, unknown>): Promise<unknow
   return res.json().catch(() => ({}));
 }
 
+// Convert Claude/CommonMark markdown to Telegram Markdown v1 format.
+// Telegram uses *single asterisks* for bold; Claude outputs **double asterisks**.
+function toTelegramMarkdown(text: string): string {
+  return text
+    .replace(/\*\*(.+?)\*\*/gs, "*$1*")   // **bold** → *bold*
+    .replace(/__(.+?)__/gs, "_$1_")         // __italic__ → _italic_
+    .replace(/^#{1,6}\s+(.+)$/gm, "*$1*"); // ## Heading → *Heading*
+}
+
 async function send(chatId: string | number, text: string, extra: Record<string, unknown> = {}) {
-  return tg("sendMessage", { chat_id: chatId, text: text.slice(0, 4096), parse_mode: "Markdown", ...extra });
+  const formatted = toTelegramMarkdown(text);
+  return tg("sendMessage", { chat_id: chatId, text: formatted.slice(0, 4096), parse_mode: "Markdown", ...extra });
 }
 
 async function sendPhoto(chatId: string | number, photoUrl: string, caption?: string) {
@@ -581,6 +591,39 @@ async function handleTasks(chatId: string | number, uid: string) {
   await send(chatId, `📌 *Queue (${lines.length})*\n\n${lines.join("\n")}`);
 }
 
+// Fetch up to 5 pending actions from mavis_action_queue and send each
+// as a Telegram message with Approve / Reject inline buttons.
+async function sendPendingActionButtons(chatId: string | number, uid: string): Promise<void> {
+  const { data: actions } = await sb
+    .from("mavis_action_queue")
+    .select("id, action_type, summary, action_payload")
+    .eq("user_id", uid)
+    .eq("status", "pending")
+    .order("created_at", { ascending: false })
+    .limit(5)
+    .catch(() => ({ data: null }));
+
+  if (!actions?.length) return;
+
+  for (const action of actions as any[]) {
+    const label   = String(action.action_type ?? "action");
+    const summary = String(action.summary ?? "").slice(0, 280) ||
+      JSON.stringify(action.action_payload ?? {}).slice(0, 280);
+
+    await tg("sendMessage", {
+      chat_id:    chatId,
+      text:       `🔔 *Action needs approval*\n*${label}*\n${summary}`,
+      parse_mode: "Markdown",
+      reply_markup: {
+        inline_keyboard: [[
+          { text: "✅ Approve", callback_data: `approve:${action.id}` },
+          { text: "❌ Reject",  callback_data: `reject:${action.id}`  },
+        ]],
+      },
+    });
+  }
+}
+
 async function handleChat(
   chatId: string | number,
   uid: string,
@@ -591,26 +634,24 @@ async function handleChat(
   await typing(chatId);
 
   try {
-    const messages: ChatMessage[] = [
-      ...history,
-      { role: "user", content: text },
-    ];
+    // Include recent conversation history so MAVIS has context
+    let goal = text;
+    if (history.length > 0) {
+      const historyStr = history
+        .slice(-6)
+        .map((m) => `${m.role === "user" ? "User" : "MAVIS"}: ${m.content.slice(0, 300)}`)
+        .join("\n");
+      goal = `CONVERSATION HISTORY:\n${historyStr}\n\nCURRENT REQUEST: ${text}`;
+    }
 
-    const res = await fetch(`${SUPABASE_URL}/functions/v1/mavis-chat`, {
+    const res = await fetch(`${SUPABASE_URL}/functions/v1/mavis-agent`, {
       method: "POST",
       headers: {
         "Content-Type":  "application/json",
         "Authorization": `Bearer ${SERVICE_KEY}`,
-        "X-Mavis-User-Id": uid,
       },
-      body: JSON.stringify({
-        messages,
-        mode:           "PRIME",
-        conversationId: sessionId ?? undefined,
-        channel:        "telegram",
-        stream:         false,
-      }),
-      signal: AbortSignal.timeout(55000),
+      body: JSON.stringify({ user_id: uid, goal, mode: "TELEGRAM" }),
+      signal: AbortSignal.timeout(90_000),
     });
 
     if (!res.ok) {
@@ -619,18 +660,21 @@ async function handleChat(
       return;
     }
 
-    const data    = await res.json() as Record<string, unknown>;
-    const content = String(data.content ?? "").trim();
-    const visible = content.replace(/:::ACTION\{[\s\S]*?\}:::/g, "").trim();
+    const data          = await res.json() as Record<string, unknown>;
+    const content       = String(data.content ?? "").trim();
+    const actionsQueued = Number(data.actionsQueued ?? 0);
 
-    if (!visible) {
+    if (content) {
+      await send(chatId, content);
+      if (sessionId) await saveExchange(sessionId, uid, text, content);
+    } else {
       await send(chatId, "⚠️ No response from MAVIS.");
-      return;
     }
 
-    await send(chatId, visible);
-
-    if (sessionId) await saveExchange(sessionId, uid, text, visible);
+    // Send approval buttons for any actions MAVIS just queued
+    if (actionsQueued > 0) {
+      await sendPendingActionButtons(chatId, uid);
+    }
 
     const imageUrl = String(data.imageUrl ?? "");
     if (imageUrl.startsWith("http")) await sendPhoto(chatId, imageUrl);
@@ -639,7 +683,7 @@ async function handleChat(
     const msg = err instanceof Error ? err.message : String(err);
     if (msg.includes("timeout") || msg.includes("network")) {
       const reply = await callClaude(
-        "You are MAVIS — Calvin's personal AI operating system. Sharp, direct, strategic. Via Telegram.",
+        "You are MAVIS — Calvin's personal AI operating system. Sharp, direct, strategic. Keep responses under 150 words. Use *single asterisks* for bold (Telegram format).",
         [...history, { role: "user", content: text }],
         600,
       );
