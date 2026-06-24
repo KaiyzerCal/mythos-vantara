@@ -659,6 +659,28 @@ async function handleTasks(chatId: string | number, uid: string) {
   await send(chatId, `📌 *Queue (${lines.length})*\n\n${lines.join("\n")}`);
 }
 
+async function handleActions(chatId: string | number, uid: string) {
+  const { data: actions } = await sb
+    .from("mavis_action_queue")
+    .select("id, action_type, source_context, status, created_at, executed_at, result_data")
+    .eq("user_id", uid)
+    .order("created_at", { ascending: false })
+    .limit(8);
+
+  if (!actions || (actions as any[]).length === 0) {
+    await send(chatId, `📭 No Google Workspace actions found.`);
+    return;
+  }
+
+  const lines = (actions as any[]).map((a) => {
+    const shortId = String(a.id ?? "").slice(0, 8);
+    const summary = String(a.source_context ?? a.action_type ?? "action").slice(0, 80);
+    const error = a.status === "failed" ? ` — ${String(a.result_data?.error ?? "failed").slice(0, 80)}` : "";
+    return `• [${a.status}] ${a.action_type} ${shortId} — ${summary}${error}`;
+  });
+  await send(chatId, `📬 *Recent action queue*\n\n${lines.join("\n")}`);
+}
+
 // Fetch up to 5 pending actions from mavis_action_queue and send each
 // as a Telegram message with Approve / Reject inline buttons.
 async function sendPendingActionButtons(chatId: string | number, uid: string): Promise<void> {
@@ -889,6 +911,7 @@ serve(async (req) => {
         case "quests":          await handleQuests(chatId, uid); break;
         case "revenue":         await handleRevenue(chatId, uid); break;
         case "tasks":           await handleTasks(chatId, uid); break;
+        case "actions":         await handleActions(chatId, uid); break;
         case "speak":           await handleSpeak(chatId, uid, params.args ?? ""); break;
         case "content_machine": await handleContentMachine(chatId, uid, params.topic ?? text); break;
         default:                await handleChat(chatId, uid, text, history, sessionId); break;
