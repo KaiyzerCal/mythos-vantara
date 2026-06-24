@@ -762,10 +762,9 @@ async function handleChat(
       await send(chatId, "⚠️ No response from MAVIS.");
     }
 
-    // Send approval buttons for any actions MAVIS just queued
-    if (actionsQueued > 0) {
-      await sendPendingActionButtons(chatId, uid);
-    }
+    // NOTE: mavis-agent's queue_action tool already sends Telegram approval
+    // buttons via sendTelegramNotification. Do NOT call sendPendingActionButtons
+    // here — it would send a second set of buttons for the same action.
 
     const imageUrl = String(data.imageUrl ?? "");
     if (imageUrl.startsWith("http")) await sendPhoto(chatId, imageUrl);

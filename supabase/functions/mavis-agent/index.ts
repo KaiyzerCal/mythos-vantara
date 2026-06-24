@@ -161,14 +161,15 @@ const MAVIS_TOOLS = [
   {
     name: "queue_action",
     description:
-      "Queue an action for the operator to review and approve. THIS IS HOW YOU SEND EMAILS — call queue_action with action_type='draft_email'. There is no separate send_email tool. queue_action IS the email tool.",
+      "Queue a GOOGLE WORKSPACE action for the operator to review and approve. THIS IS HOW YOU SEND EMAILS — call queue_action with action_type='draft_email'. There is no separate send_email tool. queue_action IS the email tool. " +
+      "⚠️ DO NOT use queue_action for VANTARA quests, VANTARA tasks, journal entries, XP, personas, or any RPG game-layer action — use codexos_action for those.",
     input_schema: {
       type: "object" as const,
       properties: {
         action_type: {
           type: "string",
           description:
-            "REQUIRED type — use exactly one of: draft_email (send email via Gmail) | schedule_event (add to calendar) | create_task (internal task) | create_drive_file | update_drive_file | update_sheet | create_google_task | post_social | make_call | other",
+            "REQUIRED type — use exactly one of: draft_email (send email via Gmail) | schedule_event (add to Google Calendar) | create_drive_file (new Google Doc/Sheet) | update_drive_file | update_sheet | create_google_task (native Google Task, NOT VANTARA task) | post_social | make_call | other",
         },
         summary: {
           type: "string",
@@ -178,7 +179,7 @@ const MAVIS_TOOLS = [
         payload: {
           type: "object",
           description:
-            "Full action data. For draft_email: { to, subject, body }. For schedule_event: { title, start, end, description, attendees }. For create_task: { title, description, due_date }",
+            "Full action data. For draft_email: { to, subject, body }. For schedule_event: { title, start, end, description, attendees }. For create_google_task: { title, notes, due }. For create_drive_file: { name, content, mimeType }.",
         },
       },
       required: ["action_type", "summary", "payload"],
@@ -487,6 +488,8 @@ async function handleTool(
             );
             const execData = await execRes.json();
 
+            const autoSucceeded = execRes.ok && execData.ok !== false;
+
             // Log the auto-execution in the queue for audit trail
             await supabase.from("mavis_action_queue").insert({
               user_id: userId,
@@ -495,14 +498,18 @@ async function handleTool(
               source_context: summary,
               source_system: "mavis-agent",
               autonomy_tier: "auto",
-              status: execData.ok ? "executed" : "failed",
+              status: autoSucceeded ? "executed" : "failed",
               executed_at: new Date().toISOString(),
               result_data: execData,
               priority: 5,
             });
 
-            sendTelegramNotification(summary, "auto", null).catch(() => {});
-            return { executed: true, tier: "auto", summary, result: execData };
+            if (autoSucceeded) {
+              sendTelegramNotification(summary, "auto", null).catch(() => {});
+              return { executed: true, tier: "auto", summary, result: execData };
+            }
+            // Execution returned an error response — fall through to approval queue
+            throw new Error(`Executor returned failure: ${JSON.stringify(execData).slice(0, 200)}`);
           } catch (err) {
             // Fall through to queue as approve if auto-execution fails
             const errMsg = err instanceof Error ? err.message : String(err);
@@ -1439,16 +1446,20 @@ You are not a chatbot. You are an agent. You have real tools, real integrations,
 COMMON ACTIONS — HOW TO DO THEM
 ═══════════════════════════════════════════
 
+── GOOGLE WORKSPACE (use queue_action) ──────────────────────────────────────
+
 SEND AN EMAIL → queue_action(action_type="draft_email", payload={to:"addr", subject:"...", body:"..."})
   There is NO "send_email" tool. queue_action with draft_email IS how you send email. Gmail is connected.
+  When you are asked to send an email, DO NOT say you can't. Call queue_action(action_type="draft_email") immediately.
 
 SCHEDULE A MEETING → queue_action(action_type="schedule_event", payload={title, start, end, description, attendees})
 
 SEARCH CONTACTS → search_contacts(query="name or email")
 
-CREATE / EDIT GOOGLE DOCS, DRIVE FILES, SHEETS, TASKS → queue_action with create_drive_file, update_drive_file, update_sheet, or create_google_task.
+CREATE NATIVE GOOGLE TASK → queue_action(action_type="create_google_task", payload={title, notes, due})
+  ⚠️ This creates a task in Google Tasks (Google's own app). NOT the same as a VANTARA task.
 
-CREATE A TASK → queue_action(action_type="create_task", payload={title, description, due_date})
+CREATE / EDIT GOOGLE DOCS, DRIVE FILES, SHEETS → queue_action with create_drive_file, update_drive_file, update_sheet.
 
 SEARCH EMAIL → read_emails(query="...", max_results=5)
 
@@ -1456,11 +1467,29 @@ READ CALENDAR → read_calendar(days_ahead=7, max_results=20)
 
 SEARCH WEB → search_web(query="...")
 
+── VANTARA GAME LAYER (use codexos_action) ──────────────────────────────────
+
+CREATE A QUEST (VANTARA app) → codexos_action(type="create_quest", params={title, description, type, difficulty, xp_reward, category})
+  ⚠️ NEVER use queue_action for VANTARA quests. codexos_action ONLY.
+
+CREATE A VANTARA TASK (VANTARA app) → codexos_action(type="create_task", params={title, description, type, recurrence, xp_reward, priority})
+  ⚠️ NEVER use queue_action for VANTARA tasks. codexos_action ONLY.
+  Fields: type = 'task'|'habit', recurrence = 'once'|'daily'|'weekly'|'monthly', priority = 'low'|'medium'|'high'|'critical'
+  ⛔ NO due_date field exists — do NOT include it.
+
+LOG A JOURNAL ENTRY → codexos_action(type="create_journal", params={title, content, mood, tags})
+
+FORGE A PERSONA → codexos_action(type="forge_persona", params={description:"full natural-language spec"})
+
+LOG BPM SESSION → codexos_action(type="log_bpm_session", params={bpm, duration, form, mood, notes})
+
+AWARD XP → codexos_action(type="award_xp", params={amount, reason})
+
+── MEMORY ───────────────────────────────────────────────────────────────────
+
 REMEMBER SOMETHING → save_memory(key, value, category, importance)
 
 RECALL CONTEXT → recall_memory(query="...")
-
-When you are asked to send an email, DO NOT say you can't. Call queue_action(action_type="draft_email") immediately.
 
 ═══════════════════════════════════════════
 WHAT YOU CAN DO
