@@ -1,15 +1,14 @@
 // MAVIS Telegram Setup — run ONCE after deploying mavis-telegram-bot.
-// Registers the webhook URL with Telegram so updates are delivered.
+// Registers the webhook URL with Telegram so updates are delivered to
+// the correct function (mavis-telegram-bot, not the legacy telegram-webhook).
 //
-// Call this endpoint after deployment:
-//   curl -X POST https://<project>.supabase.co/functions/v1/telegram-setup \
-//     -H "Authorization: Bearer <service-role-key>"
-//
-// Or trigger from Supabase dashboard → Edge Functions → telegram-setup → Invoke
+// Invoke via Supabase dashboard → Edge Functions → telegram-setup → Invoke
+// or: curl -X POST https://<project>.supabase.co/functions/v1/telegram-setup \
+//       -H "Authorization: Bearer <service-role-key>"
 
 const BOT_TOKEN      = Deno.env.get("TELEGRAM_BOT_TOKEN")!;
-const SUPABASE_URL   = Deno.env.get("SUPABASE_URL")!;
 const WEBHOOK_SECRET = Deno.env.get("TELEGRAM_WEBHOOK_SECRET") ?? "";
+const SUPABASE_URL   = Deno.env.get("SUPABASE_URL")!;
 
 Deno.serve(async (_req) => {
   if (!BOT_TOKEN) {
@@ -18,19 +17,20 @@ Deno.serve(async (_req) => {
     });
   }
 
-  // Derive webhook URL from the active MAVIS Telegram bot endpoint.
+  // Point webhook at mavis-telegram-bot (the full-featured bot with tools)
   const webhookUrl = `${SUPABASE_URL}/functions/v1/mavis-telegram-bot`;
 
-  // Register webhook with Telegram
+  const body: Record<string, unknown> = {
+    url:                  webhookUrl,
+    allowed_updates:      ["message", "edited_message", "callback_query"],
+    drop_pending_updates: true,
+  };
+  if (WEBHOOK_SECRET) body.secret_token = WEBHOOK_SECRET;
+
   const res = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/setWebhook`, {
-    method: "POST",
+    method:  "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      url: webhookUrl,
-      allowed_updates: ["message", "edited_message", "callback_query"],
-      drop_pending_updates: true,
-      ...(WEBHOOK_SECRET ? { secret_token: WEBHOOK_SECRET } : {}),
-    }),
+    body:    JSON.stringify(body),
   });
 
   const data = await res.json();
@@ -41,12 +41,12 @@ Deno.serve(async (_req) => {
     });
   }
 
-  // Verify it was registered correctly
+  // Confirm what Telegram now has registered
   const infoRes = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/getWebhookInfo`);
-  const info = await infoRes.json();
+  const info    = await infoRes.json();
 
   return new Response(JSON.stringify({
-    success: true,
+    success:    true,
     webhookUrl,
     telegramConfirmation: data,
     webhookInfo: info.result,
