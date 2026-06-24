@@ -64,7 +64,16 @@ function toTelegramMarkdown(text: string): string {
 
 async function send(chatId: string | number, text: string, extra: Record<string, unknown> = {}) {
   const formatted = toTelegramMarkdown(text);
-  return tg("sendMessage", { chat_id: chatId, text: formatted.slice(0, 4096), parse_mode: "Markdown", ...extra });
+  const result = await tg("sendMessage", { chat_id: chatId, text: formatted.slice(0, 4096), parse_mode: "Markdown", ...extra }) as Record<string, unknown>;
+
+  // Telegram Markdown is brittle; if formatting rejects a MAVIS response,
+  // retry as plain text so the operator still gets an answer.
+  if (result?.ok === false) {
+    const { parse_mode: _parseMode, ...plainExtra } = extra;
+    return tg("sendMessage", { chat_id: chatId, text: text.slice(0, 4096), ...plainExtra });
+  }
+
+  return result;
 }
 
 async function sendPhoto(chatId: string | number, photoUrl: string, caption?: string) {
@@ -178,36 +187,51 @@ async function getOrCreateSession(uid: string): Promise<string | null> {
   if (!uid) return null;
   const title = sessionTitle(uid);
 
-  const { data: existing } = await sb
-    .from("chat_conversations")
-    .select("id")
-    .eq("user_id", uid)
-    .eq("title", title)
-    .order("updated_at", { ascending: false })
-    .limit(1)
-    .single()
-    .catch(() => ({ data: null }));
+  let existing: unknown = null;
+  try {
+    const { data } = await sb
+      .from("chat_conversations")
+      .select("id")
+      .eq("user_id", uid)
+      .eq("title", title)
+      .order("updated_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    existing = data;
+  } catch {
+    existing = null;
+  }
 
   if ((existing as any)?.id) return (existing as any).id;
 
-  const { data: created } = await sb
-    .from("chat_conversations")
-    .insert({ user_id: uid, title })
-    .select("id")
-    .single()
-    .catch(() => ({ data: null }));
+  let created: unknown = null;
+  try {
+    const { data } = await sb
+      .from("chat_conversations")
+      .insert({ user_id: uid, title })
+      .select("id")
+      .single();
+    created = data;
+  } catch {
+    created = null;
+  }
 
   return (created as any)?.id ?? null;
 }
 
 async function loadHistory(conversationId: string): Promise<ChatMessage[]> {
-  const { data } = await sb
-    .from("chat_messages")
-    .select("role, content")
-    .eq("conversation_id", conversationId)
-    .order("created_at", { ascending: false })
-    .limit(HISTORY_LIMIT * 2)
-    .catch(() => ({ data: null }));
+  let data: unknown = null;
+  try {
+    const result = await sb
+      .from("chat_messages")
+      .select("role, content")
+      .eq("conversation_id", conversationId)
+      .order("created_at", { ascending: false })
+      .limit(HISTORY_LIMIT * 2);
+    data = result.data;
+  } catch {
+    data = null;
+  }
 
   if (!data) return [];
   return ((data as any[]).reverse() as ChatMessage[]);
@@ -220,10 +244,14 @@ async function saveExchange(
   assistantContent: string,
 ): Promise<void> {
   if (!uid) return;
-  await sb.from("chat_messages").insert([
-    { conversation_id: conversationId, user_id: uid, role: "user",      content: userContent,      mode: "TELEGRAM" },
-    { conversation_id: conversationId, user_id: uid, role: "assistant", content: assistantContent, mode: "TELEGRAM" },
-  ]).catch(() => null);
+  try {
+    await sb.from("chat_messages").insert([
+      { conversation_id: conversationId, user_id: uid, role: "user",      content: userContent,      mode: "TELEGRAM" },
+      { conversation_id: conversationId, user_id: uid, role: "assistant", content: assistantContent, mode: "TELEGRAM" },
+    ]);
+  } catch {
+    // Memory persistence should never block Telegram replies.
+  }
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -270,12 +298,17 @@ async function queueTask(
   description: string,
   payload: Record<string, unknown>,
 ): Promise<string | null> {
-  const { data } = await sb
-    .from("mavis_tasks")
-    .insert({ user_id: uid, type, description, payload, status: "pending" })
-    .select("id")
-    .single()
-    .catch(() => ({ data: null }));
+  let data: unknown = null;
+  try {
+    const result = await sb
+      .from("mavis_tasks")
+      .insert({ user_id: uid, type, description, payload, status: "pending" })
+      .select("id")
+      .single();
+    data = result.data;
+  } catch {
+    data = null;
+  }
   return (data as any)?.id ?? null;
 }
 
@@ -594,14 +627,19 @@ async function handleTasks(chatId: string | number, uid: string) {
 // Fetch up to 5 pending actions from mavis_action_queue and send each
 // as a Telegram message with Approve / Reject inline buttons.
 async function sendPendingActionButtons(chatId: string | number, uid: string): Promise<void> {
-  const { data: actions } = await sb
-    .from("mavis_action_queue")
-    .select("id, action_type, summary, action_payload")
-    .eq("user_id", uid)
-    .eq("status", "pending")
-    .order("created_at", { ascending: false })
-    .limit(5)
-    .catch(() => ({ data: null }));
+  let actions: unknown[] | null = null;
+  try {
+    const { data } = await sb
+      .from("mavis_action_queue")
+      .select("id, action_type, summary, action_payload")
+      .eq("user_id", uid)
+      .eq("status", "pending")
+      .order("created_at", { ascending: false })
+      .limit(5);
+    actions = data as unknown[] | null;
+  } catch {
+    actions = null;
+  }
 
   if (!actions?.length) return;
 
