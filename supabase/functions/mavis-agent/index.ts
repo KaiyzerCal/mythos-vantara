@@ -624,7 +624,13 @@ async function handleTool(
           .maybeSingle();
 
         if (!integration?.config) {
-          return { error: "Google Contacts not connected. Connect via /integrations." };
+          const { data: localContacts } = await supabase
+            .from("contacts")
+            .select("id, name, relationship_type, notes, profile, tags")
+            .eq("user_id", userId)
+            .or(`name.ilike.%${query}%,notes.ilike.%${query}%`)
+            .limit(maxResults);
+          return { contacts: localContacts ?? [], total: (localContacts ?? []).length, query, source: "local_contacts" };
         }
 
         try {
@@ -652,9 +658,24 @@ async function handleTool(
               `https://people.googleapis.com/v1/people/me/connections?${params}`,
               { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(15_000) },
             );
-            if (!listRes.ok) return { error: `Contacts API error (${listRes.status}): ${await listRes.text()}` };
-            const data = await listRes.json();
-            people = (data.connections ?? []) as Record<string, unknown>[];
+            if (!listRes.ok) {
+              const { data: localContacts } = await supabase
+                .from("contacts")
+                .select("id, name, relationship_type, notes, profile, tags")
+                .eq("user_id", userId)
+                .or(`name.ilike.%${query}%,notes.ilike.%${query}%`)
+                .limit(maxResults);
+              return {
+                contacts: localContacts ?? [],
+                total: (localContacts ?? []).length,
+                query,
+                source: "local_contacts",
+                google_contacts_error: `Contacts API error (${listRes.status}): ${(await listRes.text()).slice(0, 300)}`,
+              };
+            } else {
+              const data = await listRes.json();
+              people = (data.connections ?? []) as Record<string, unknown>[];
+            }
           }
 
           const contacts = people
