@@ -1150,46 +1150,104 @@ async function runAgentLoop(
   supabase: ReturnType<typeof createClient>,
   env: Env,
 ): Promise<AgentLoopResult> {
-  const model = "claude-sonnet-4-6";
+  const anthropicModel = "claude-sonnet-4-6";
+  const gatewayModel = "google/gemini-2.5-flash";
   let iteration = 0;
   const MAX_ITERATIONS = 10;
   let actionsQueued = 0;
   const toolsUsed: string[] = [];
 
   while (iteration < MAX_ITERATIONS) {
-    const res = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": claudeKey,
-        "anthropic-version": "2023-06-01",
-      },
-      body: JSON.stringify({
-        model,
-        max_tokens: 4096,
-        system,
-        messages,
-        tools: MAVIS_TOOLS,
-      }),
-      signal: AbortSignal.timeout(90_000),
-    });
-
-    if (!res.ok) {
-      const errText = await res.text();
-      throw new Error(
-        `Claude API error ${res.status}: ${errText.slice(0, 300)}`,
-      );
-    }
-
-    const data = await res.json();
-    const stopReason: string = data.stop_reason ?? "end_turn";
-    const content: Array<{
+    let provider: "gateway" | "anthropic" = "anthropic";
+    let stopReason = "end_turn";
+    let content: Array<{
       type: string;
       text?: string;
       id?: string;
       name?: string;
       input?: Record<string, unknown>;
-    }> = data.content ?? [];
+    }> = [];
+
+    const gatewayMessages = messages.map((message) => {
+      if (typeof message.content === "string") return message as { role: string; content: string };
+      if (Array.isArray(message.content)) {
+        const parts = (message.content as any[]).map((part) => {
+          if (part.type === "tool_result") return `Tool result for ${part.tool_use_id}: ${part.content}`;
+          if (part.type === "text") return part.text ?? "";
+          return JSON.stringify(part);
+        });
+        return { role: message.role, content: parts.join("\n") };
+      }
+      return { role: message.role, content: JSON.stringify(message.content) };
+    });
+
+    if (env.lovableKey) {
+      const gatewayRes = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${env.lovableKey}` },
+        body: JSON.stringify({
+          model: gatewayModel,
+          max_tokens: 4096,
+          messages: [{ role: "system", content: system }, ...gatewayMessages],
+          tools: OPENAI_COMPAT_TOOLS,
+          tool_choice: "auto",
+        }),
+        signal: AbortSignal.timeout(90_000),
+      });
+
+      if (gatewayRes.ok) {
+        provider = "gateway";
+        const data = await gatewayRes.json();
+        const msg = data.choices?.[0]?.message ?? {};
+        const toolCalls = (msg.tool_calls ?? []) as Array<{ id?: string; function?: { name?: string; arguments?: unknown } }>;
+        if (toolCalls.length > 0) {
+          stopReason = "tool_use";
+          if (msg.content) content.push({ type: "text", text: String(msg.content) });
+          content.push(...toolCalls.map((call, idx) => ({
+            type: "tool_use",
+            id: call.id ?? `gateway_tool_${iteration}_${idx}`,
+            name: call.function?.name ?? "",
+            input: safeParseToolArguments(call.function?.arguments),
+          })));
+        } else {
+          stopReason = "end_turn";
+          content = [{ type: "text", text: String(msg.content ?? "") }];
+        }
+      } else if (!claudeKey) {
+        const errText = await gatewayRes.text();
+        throw new Error(`AI Gateway error ${gatewayRes.status}: ${errText.slice(0, 300)}`);
+      }
+    }
+
+    if (provider !== "gateway") {
+      const res = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-api-key": claudeKey,
+          "anthropic-version": "2023-06-01",
+        },
+        body: JSON.stringify({
+          model: anthropicModel,
+          max_tokens: 4096,
+          system,
+          messages,
+          tools: MAVIS_TOOLS,
+        }),
+        signal: AbortSignal.timeout(90_000),
+      });
+
+      if (!res.ok) {
+        const errText = await res.text();
+        throw new Error(
+          `Claude API error ${res.status}: ${errText.slice(0, 300)}`,
+        );
+      }
+
+      const data = await res.json();
+      stopReason = data.stop_reason ?? "end_turn";
+      content = data.content ?? [];
+    }
 
     if (stopReason === "end_turn") {
       const text = content
