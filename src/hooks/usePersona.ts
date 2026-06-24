@@ -28,7 +28,7 @@ export function usePersona(personaId: string, userId: string) {
     setError(null);
     try {
       const { data, error: fnError } = await supabase.functions.invoke("mavis-persona-router", {
-        body: { persona_id: personaId, user_id: userId, message, attachment_ids: attachmentIds },
+        body: { persona_id: personaId, user_id: userId, message, attachment_ids: attachmentIds, channel: "app" },
       });
       if (fnError) throw new Error(fnError.message);
       return {

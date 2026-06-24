@@ -1489,15 +1489,24 @@ export function CouncilsPage() {
                       <button onClick={(e) => handleDelete(m.id, e)} className="p-1 text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded transition-all opacity-0 group-hover:opacity-100" title="Delete">
                         <Trash2 size={12} />
                       </button>
-                      <button
-                        onClick={(e) => { e.stopPropagation(); setVoiceTarget({ name: m.name, role: m.role, systemPrompt: buildCouncilMemberPrompt(m, appCtx ? buildContextSummary(appCtx) : ""), voiceId: m.voice_id ?? undefined, avatarUrl: m.avatar ?? undefined }); }}
-                        className="p-1 text-muted-foreground hover:text-primary hover:bg-primary/10 rounded transition-all opacity-0 group-hover:opacity-100"
-                        title={`Voice call ${m.name}`}
-                      >
-                        <PhoneCall size={12} />
-                      </button>
-                      <MessageCircle size={12} className={`mt-0.5 opacity-0 group-hover:opacity-100 transition-opacity ${classColors[m.class]}`} />
                     </div>
+                  </div>
+                  {/* Always-visible action strip */}
+                  <div className="flex gap-1.5 mt-2.5 pt-2 border-t border-border/30" onClick={(e) => e.stopPropagation()}>
+                    <button
+                      onClick={() => setActiveChat(m)}
+                      className="flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 text-[10px] font-mono text-muted-foreground hover:text-primary hover:bg-primary/8 rounded border border-transparent hover:border-primary/20 transition-all"
+                    >
+                      <MessageCircle size={10} />
+                      Chat
+                    </button>
+                    <button
+                      onClick={() => setVoiceTarget({ name: m.name, role: m.role, systemPrompt: buildCouncilMemberPrompt(m, appCtx ? buildContextSummary(appCtx) : ""), voiceId: m.voice_id ?? undefined, avatarUrl: m.avatar ?? undefined })}
+                      className="flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 text-[10px] font-mono text-muted-foreground hover:text-green-400 hover:bg-green-400/8 rounded border border-transparent hover:border-green-400/25 transition-all"
+                    >
+                      <PhoneCall size={10} />
+                      1-on-1 Call
+                    </button>
                   </div>
                 </motion.div>
               ))}

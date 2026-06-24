@@ -32,7 +32,9 @@ const SCOPES = [
   "https://www.googleapis.com/auth/userinfo.email",
   "https://www.googleapis.com/auth/userinfo.profile",
   "https://mail.google.com/",                                      // Gmail full read
-  "https://www.googleapis.com/auth/drive.readonly",               // Drive read
+  "https://www.googleapis.com/auth/drive",                         // Drive full read+write
+  "https://www.googleapis.com/auth/spreadsheets",                  // Sheets API v4 cell-level read+write
+  "https://www.googleapis.com/auth/documents",                     // Docs API full access
   "https://www.googleapis.com/auth/contacts.readonly",            // Contacts read
   "https://www.googleapis.com/auth/tasks",                         // Tasks read+write
   "https://www.googleapis.com/auth/calendar",                      // Calendar read+write
