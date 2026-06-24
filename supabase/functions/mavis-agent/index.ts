@@ -1349,6 +1349,14 @@ serve(async (req) => {
       }
     }
 
+    // Prepend channel-specific formatting instructions for Telegram
+    if (mode === "TELEGRAM") {
+      systemWithContext =
+        "CHANNEL: Telegram mobile. Keep responses under 200 words. Be direct and action-oriented. " +
+        "Use *single asterisks* for bold (NOT double **). No markdown headings — use bold labels instead.\n\n" +
+        systemWithContext;
+    }
+
     const result = await runAgentLoop(
       messages.map((m) => ({ ...m })),
       systemWithContext,
