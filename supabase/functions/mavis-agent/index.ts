@@ -220,6 +220,18 @@ const MAVIS_TOOLS = [
     },
   },
   {
+    name: "search_contacts",
+    description: "Search Google Contacts / People API for names, email addresses, and phone numbers before composing outreach",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        query: { type: "string", description: "Name, email, company, or other contact search text" },
+        max_results: { type: "number", description: "Maximum contacts to return (default 10, max 30)" },
+      },
+      required: ["query"],
+    },
+  },
+  {
     name: "search_web",
     description: "Search the web for current information",
     input_schema: {
@@ -335,8 +347,33 @@ const MAVIS_TOOLS = [
 // ── Tool handler ──────────────────────────────────────────────────────────────
 interface Env {
   tavilyKey: string;
+  lovableKey: string;
   supabaseUrl: string;
   serviceKey: string;
+}
+
+const OPENAI_COMPAT_TOOLS = MAVIS_TOOLS.map((tool) => ({
+  type: "function" as const,
+  function: {
+    name: tool.name,
+    description: tool.description,
+    parameters: tool.input_schema,
+  },
+}));
+
+function safeParseToolArguments(raw: unknown): Record<string, unknown> {
+  if (!raw) return {};
+  if (typeof raw === "object") return raw as Record<string, unknown>;
+  try {
+    return JSON.parse(String(raw)) as Record<string, unknown>;
+  } catch {
+    return {};
+  }
+}
+
+function encodeSheetRange(range: string): string {
+  // Sheets ranges use A1 notation; ':' must remain a literal path character.
+  return encodeURIComponent(range).replace(/%3A/gi, ":").replace(/%21/gi, "!");
 }
 
 async function handleTool(
@@ -472,32 +509,44 @@ async function handleTool(
         }
 
         try {
-          const res = await fetch(
-            `${env.supabaseUrl}/functions/v1/mavis-gmail-sync`,
-            {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-                Authorization: `Bearer ${env.serviceKey}`,
-                "x-user-id": userId,
-              },
-              body: JSON.stringify({
-                action: "list",
-                max: maxResults,
-                ...(query ? { query } : {}),
-              }),
-              signal: AbortSignal.timeout(25_000),
-            },
+          const token = await refreshGoogleToken(
+            integration.config as Record<string, unknown>,
+            supabase, userId, "gmail",
           );
 
-          if (!res.ok) {
-            const errText = await res.text();
-            return {
-              error: `Gmail sync error ${res.status}: ${errText.slice(0, 200)}`,
-            };
-          }
+          const params = new URLSearchParams({ maxResults: String(maxResults) });
+          if (query) params.set("q", query);
+          else params.set("q", "in:inbox category:primary");
 
-          return await res.json();
+          const listRes = await fetch(
+            `https://gmail.googleapis.com/gmail/v1/users/me/messages?${params}`,
+            { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(15_000) },
+          );
+          if (!listRes.ok) return { error: `Gmail list failed (${listRes.status}): ${await listRes.text()}` };
+          const listData = await listRes.json();
+          const messages = (listData.messages ?? []) as Array<{ id: string; threadId?: string }>;
+
+          const emails = await Promise.all(messages.slice(0, maxResults).map(async (m) => {
+            const msgRes = await fetch(
+              `https://gmail.googleapis.com/gmail/v1/users/me/messages/${m.id}?format=metadata&metadataHeaders=From&metadataHeaders=To&metadataHeaders=Subject&metadataHeaders=Date`,
+              { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(10_000) },
+            );
+            if (!msgRes.ok) return { id: m.id, error: `fetch failed ${msgRes.status}` };
+            const msg = await msgRes.json();
+            const headers = (msg.payload?.headers ?? []) as Array<{ name: string; value: string }>;
+            const getHeader = (name: string) => headers.find((h) => h.name.toLowerCase() === name.toLowerCase())?.value ?? "";
+            return {
+              id: msg.id,
+              thread_id: msg.threadId,
+              from: getHeader("From"),
+              to: getHeader("To"),
+              subject: getHeader("Subject"),
+              date: getHeader("Date"),
+              snippet: msg.snippet ?? "",
+            };
+          }));
+
+          return { emails, total: emails.length, query: query ?? "in:inbox category:primary" };
         } catch (err: unknown) {
           const msg = err instanceof Error ? err.message : String(err);
           return { error: `Failed to read emails: ${msg}` };
@@ -509,12 +558,12 @@ async function handleTool(
         const daysAhead = Number(input.days_ahead ?? 7);
         const maxResults = Number(input.max_results ?? 20);
 
-        // Check if Google Calendar is connected (provider = "google" or "google_calendar")
+        // Check if Google Calendar is connected
         const { data: integration } = await supabase
           .from("mavis_user_integrations")
           .select("config")
           .eq("user_id", userId)
-          .in("provider", ["google", "google_calendar"])
+          .eq("provider", "google_calendar")
           .maybeSingle();
 
         if (!integration?.config) {
@@ -525,35 +574,127 @@ async function handleTool(
         }
 
         try {
+          const token = await refreshGoogleToken(
+            integration.config as Record<string, unknown>,
+            supabase, userId, "google_calendar",
+          );
+          const timeMin = new Date().toISOString();
+          const timeMax = new Date(Date.now() + daysAhead * 86400_000).toISOString();
+          const params = new URLSearchParams({
+            timeMin,
+            timeMax,
+            maxResults: String(maxResults),
+            singleEvents: "true",
+            orderBy: "startTime",
+          });
           const res = await fetch(
-            `${env.supabaseUrl}/functions/v1/mavis-calendar-agent`,
-            {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-                Authorization: `Bearer ${env.serviceKey}`,
-              },
-              body: JSON.stringify({
-                action: "list_events",
-                days_ahead: daysAhead,
-                max: maxResults,
-                user_id: userId,
-              }),
-              signal: AbortSignal.timeout(25_000),
-            },
+            `https://www.googleapis.com/calendar/v3/calendars/primary/events?${params}`,
+            { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(15_000) },
           );
 
-          if (!res.ok) {
-            const errText = await res.text();
-            return {
-              error: `Calendar error ${res.status}: ${errText.slice(0, 200)}`,
-            };
-          }
-
-          return await res.json();
+          if (!res.ok) return { error: `Calendar error ${res.status}: ${await res.text()}` };
+          const data = await res.json();
+          const events = ((data.items ?? []) as Record<string, unknown>[]).map((event) => ({
+            id: event.id,
+            title: event.summary ?? "(No title)",
+            start: (event.start as any)?.dateTime ?? (event.start as any)?.date,
+            end: (event.end as any)?.dateTime ?? (event.end as any)?.date,
+            location: event.location ?? null,
+            attendees: event.attendees ?? [],
+            htmlLink: event.htmlLink ?? null,
+          }));
+          return { events, total: events.length, days_ahead: daysAhead };
         } catch (err: unknown) {
           const msg = err instanceof Error ? err.message : String(err);
           return { error: `Failed to read calendar: ${msg}` };
+        }
+      }
+
+      // ── search_contacts ───────────────────────────────────────────────────
+      case "search_contacts": {
+        const query = String(input.query ?? "").trim().toLowerCase();
+        const maxResults = Math.min(Number(input.max_results ?? 10), 30);
+        if (!query) return { error: "query required" };
+
+        const { data: integration } = await supabase
+          .from("mavis_user_integrations")
+          .select("config")
+          .eq("user_id", userId)
+          .eq("provider", "gcontacts")
+          .maybeSingle();
+
+        if (!integration?.config) {
+          const { data: localContacts } = await supabase
+            .from("contacts")
+            .select("id, name, relationship_type, notes, profile, tags")
+            .eq("user_id", userId)
+            .limit(100);
+          const filtered = ((localContacts ?? []) as Record<string, unknown>[])
+            .filter((contact) => JSON.stringify(contact).toLowerCase().includes(query))
+            .slice(0, maxResults);
+          return { contacts: filtered, total: filtered.length, query, source: "local_contacts" };
+        }
+
+        try {
+          const token = await refreshGoogleToken(
+            integration.config as Record<string, unknown>,
+            supabase, userId, "gcontacts",
+          );
+          const params = new URLSearchParams({
+            pageSize: String(Math.max(maxResults, 10)),
+            personFields: "names,emailAddresses,phoneNumbers,organizations,metadata",
+            sortOrder: "FIRST_NAME_ASCENDING",
+          });
+          const res = await fetch(
+            `https://people.googleapis.com/v1/people:searchContacts?${new URLSearchParams({ query, readMask: "names,emailAddresses,phoneNumbers,organizations", pageSize: String(maxResults) })}`,
+            { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(15_000) },
+          );
+          let people: Record<string, unknown>[] = [];
+          if (res.ok) {
+            const data = await res.json();
+            people = ((data.results ?? []) as Array<{ person?: Record<string, unknown> }>).map((r) => r.person ?? {});
+          } else {
+            // Fallback: list connections and filter locally. Some accounts have
+            // contact search disabled until sources are warmed up.
+            const listRes = await fetch(
+              `https://people.googleapis.com/v1/people/me/connections?${params}`,
+              { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(15_000) },
+            );
+            if (!listRes.ok) {
+              const { data: localContacts } = await supabase
+                .from("contacts")
+                .select("id, name, relationship_type, notes, profile, tags")
+                .eq("user_id", userId)
+                .limit(100);
+              const filtered = ((localContacts ?? []) as Record<string, unknown>[])
+                .filter((contact) => JSON.stringify(contact).toLowerCase().includes(query))
+                .slice(0, maxResults);
+              return {
+                contacts: filtered,
+                total: filtered.length,
+                query,
+                source: "local_contacts",
+                note: "Google Contacts API unavailable; searched MAVIS local contacts instead.",
+              };
+            } else {
+              const data = await listRes.json();
+              people = (data.connections ?? []) as Record<string, unknown>[];
+            }
+          }
+
+          const contacts = people
+            .map((person) => {
+              const names = ((person.names ?? []) as Record<string, unknown>[]).map((n) => n.displayName).filter(Boolean);
+              const emails = ((person.emailAddresses ?? []) as Record<string, unknown>[]).map((e) => e.value).filter(Boolean);
+              const phones = ((person.phoneNumbers ?? []) as Record<string, unknown>[]).map((p) => p.value).filter(Boolean);
+              const organizations = ((person.organizations ?? []) as Record<string, unknown>[]).map((o) => o.name).filter(Boolean);
+              return { resource_name: person.resourceName, names, emails, phones, organizations };
+            })
+            .filter((contact) => JSON.stringify(contact).toLowerCase().includes(query))
+            .slice(0, maxResults);
+          return { contacts, total: contacts.length, query };
+        } catch (err: unknown) {
+          return { error: `Contacts search error: ${err instanceof Error ? err.message : String(err)}` };
         }
       }
 
@@ -848,7 +989,7 @@ async function handleTool(
 
           const range = input.range ? String(input.range) : "A1:Z1000";
           const res = await fetch(
-            `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(range)}`,
+            `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeSheetRange(range)}`,
             { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(15_000) },
           );
 
@@ -1053,46 +1194,104 @@ async function runAgentLoop(
   supabase: ReturnType<typeof createClient>,
   env: Env,
 ): Promise<AgentLoopResult> {
-  const model = "claude-sonnet-4-6";
+  const anthropicModel = "claude-sonnet-4-6";
+  const gatewayModel = "google/gemini-2.5-flash";
   let iteration = 0;
   const MAX_ITERATIONS = 10;
   let actionsQueued = 0;
   const toolsUsed: string[] = [];
 
   while (iteration < MAX_ITERATIONS) {
-    const res = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": claudeKey,
-        "anthropic-version": "2023-06-01",
-      },
-      body: JSON.stringify({
-        model,
-        max_tokens: 4096,
-        system,
-        messages,
-        tools: MAVIS_TOOLS,
-      }),
-      signal: AbortSignal.timeout(90_000),
-    });
-
-    if (!res.ok) {
-      const errText = await res.text();
-      throw new Error(
-        `Claude API error ${res.status}: ${errText.slice(0, 300)}`,
-      );
-    }
-
-    const data = await res.json();
-    const stopReason: string = data.stop_reason ?? "end_turn";
-    const content: Array<{
+    let provider: "gateway" | "anthropic" = "anthropic";
+    let stopReason = "end_turn";
+    let content: Array<{
       type: string;
       text?: string;
       id?: string;
       name?: string;
       input?: Record<string, unknown>;
-    }> = data.content ?? [];
+    }> = [];
+
+    const gatewayMessages = messages.map((message) => {
+      if (typeof message.content === "string") return message as { role: string; content: string };
+      if (Array.isArray(message.content)) {
+        const parts = (message.content as any[]).map((part) => {
+          if (part.type === "tool_result") return `Tool result for ${part.tool_use_id}: ${part.content}`;
+          if (part.type === "text") return part.text ?? "";
+          return JSON.stringify(part);
+        });
+        return { role: message.role, content: parts.join("\n") };
+      }
+      return { role: message.role, content: JSON.stringify(message.content) };
+    });
+
+    if (env.lovableKey) {
+      const gatewayRes = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${env.lovableKey}` },
+        body: JSON.stringify({
+          model: gatewayModel,
+          max_tokens: 4096,
+          messages: [{ role: "system", content: system }, ...gatewayMessages],
+          tools: OPENAI_COMPAT_TOOLS,
+          tool_choice: "auto",
+        }),
+        signal: AbortSignal.timeout(90_000),
+      });
+
+      if (gatewayRes.ok) {
+        provider = "gateway";
+        const data = await gatewayRes.json();
+        const msg = data.choices?.[0]?.message ?? {};
+        const toolCalls = (msg.tool_calls ?? []) as Array<{ id?: string; function?: { name?: string; arguments?: unknown } }>;
+        if (toolCalls.length > 0) {
+          stopReason = "tool_use";
+          if (msg.content) content.push({ type: "text", text: String(msg.content) });
+          content.push(...toolCalls.map((call, idx) => ({
+            type: "tool_use",
+            id: call.id ?? `gateway_tool_${iteration}_${idx}`,
+            name: call.function?.name ?? "",
+            input: safeParseToolArguments(call.function?.arguments),
+          })));
+        } else {
+          stopReason = "end_turn";
+          content = [{ type: "text", text: String(msg.content ?? "") }];
+        }
+      } else if (!claudeKey) {
+        const errText = await gatewayRes.text();
+        throw new Error(`AI Gateway error ${gatewayRes.status}: ${errText.slice(0, 300)}`);
+      }
+    }
+
+    if (provider !== "gateway") {
+      const res = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-api-key": claudeKey,
+          "anthropic-version": "2023-06-01",
+        },
+        body: JSON.stringify({
+          model: anthropicModel,
+          max_tokens: 4096,
+          system,
+          messages,
+          tools: MAVIS_TOOLS,
+        }),
+        signal: AbortSignal.timeout(90_000),
+      });
+
+      if (!res.ok) {
+        const errText = await res.text();
+        throw new Error(
+          `Claude API error ${res.status}: ${errText.slice(0, 300)}`,
+        );
+      }
+
+      const data = await res.json();
+      stopReason = data.stop_reason ?? "end_turn";
+      content = data.content ?? [];
+    }
 
     if (stopReason === "end_turn") {
       const text = content
@@ -1170,9 +1369,15 @@ SEND AN EMAIL → queue_action(action_type="draft_email", payload={to:"addr", su
 
 SCHEDULE A MEETING → queue_action(action_type="schedule_event", payload={title, start, end, description, attendees})
 
+SEARCH CONTACTS → search_contacts(query="name or email")
+
+CREATE / EDIT GOOGLE DOCS, DRIVE FILES, SHEETS, TASKS → queue_action with create_drive_file, update_drive_file, update_sheet, or create_google_task.
+
 CREATE A TASK → queue_action(action_type="create_task", payload={title, description, due_date})
 
 SEARCH EMAIL → read_emails(query="...", max_results=5)
+
+READ CALENDAR → read_calendar(days_ahead=7, max_results=20)
 
 SEARCH WEB → search_web(query="...")
 
@@ -1324,12 +1529,14 @@ serve(async (req) => {
     }
 
     const claudeKey = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
-    if (!claudeKey) {
-      return json({ error: "ANTHROPIC_API_KEY not set" }, 500);
+    const lovableKey = Deno.env.get("LOVABLE_API_KEY") ?? "";
+    if (!lovableKey && !claudeKey) {
+      return json({ error: "No AI provider configured" }, 500);
     }
 
     const env: Env = {
       tavilyKey: Deno.env.get("Tavily_API") ?? "",
+      lovableKey,
       supabaseUrl: SUPABASE_URL,
       serviceKey: SERVICE_KEY,
     };
