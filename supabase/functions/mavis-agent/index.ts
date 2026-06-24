@@ -371,6 +371,11 @@ function safeParseToolArguments(raw: unknown): Record<string, unknown> {
   }
 }
 
+function encodeSheetRange(range: string): string {
+  // Sheets ranges use A1 notation; ':' must remain a literal path character.
+  return encodeURIComponent(range).replace(/%3A/gi, ":").replace(/%21/gi, "!");
+}
+
 async function handleTool(
   name: string,
   input: Record<string, unknown>,
@@ -945,7 +950,7 @@ async function handleTool(
 
           const range = input.range ? String(input.range) : "A1:Z1000";
           const res = await fetch(
-            `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(range)}`,
+            `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeSheetRange(range)}`,
             { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(15_000) },
           );
 
