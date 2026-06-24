@@ -181,6 +181,13 @@ export default function AppSidebar() {
                 </p>
               </div>
               <NotificationBell />
+              <button
+                onClick={() => setOpen(false)}
+                title="Hide navigation"
+                className="w-7 h-7 rounded border border-border/50 text-muted-foreground hover:text-primary hover:border-primary/30 transition-colors flex items-center justify-center shrink-0"
+              >
+                <PanelLeftClose size={14} />
+              </button>
             </div>
 
             {/* Operator status strip */}
