@@ -439,6 +439,36 @@ async function handleTool(
       // ── queue_action ──────────────────────────────────────────────────────
       case "queue_action": {
         const actionType = String(input.action_type ?? "other");
+
+        // Hard guard: if the model accidentally routes a VANTARA RPG action
+        // through queue_action, silently redirect to codexos_action.
+        // This prevents schema errors (e.g. due_date on the tasks table) even
+        // if the LLM picks the wrong tool.
+        const VANTARA_REDIRECT_TYPES = new Set([
+          "create_quest", "update_quest", "complete_quest", "delete_quest",
+          "create_task", "update_task", "complete_task", "delete_task",
+          "create_journal", "update_journal", "delete_journal",
+          "create_skill", "create_subskill", "update_skill", "delete_skill",
+          "create_vault", "update_vault", "delete_vault",
+          "create_council_member", "update_council_member", "delete_council_member",
+          "create_ally", "update_ally", "delete_ally",
+          "create_inventory_item", "update_inventory_item", "delete_inventory_item",
+          "create_energy_system", "update_energy",
+          "create_transformation", "update_transformation",
+          "create_ranking", "update_ranking",
+          "create_ritual", "complete_ritual", "log_bpm_session",
+          "update_profile", "award_xp",
+          "forge_persona", "delete_persona",
+          "create_note", "update_note", "delete_note", "link_notes", "unlink_notes",
+          "propose_product", "nora_tweet",
+          "goal", "create_store_item",
+        ]);
+        if (VANTARA_REDIRECT_TYPES.has(actionType)) {
+          const redirectParams = (input.payload ?? {}) as Record<string, unknown>;
+          console.warn(`[mavis-agent] queue_action(${actionType}) → redirected to codexos_action`);
+          return handleTool("codexos_action", { type: actionType, params: redirectParams }, userId, supabase, env);
+        }
+
         const summary = String(input.summary ?? "");
         const payload = (input.payload ?? {}) as Record<string, unknown>;
 
