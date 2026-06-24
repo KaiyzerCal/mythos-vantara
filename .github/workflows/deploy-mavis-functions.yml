@@ -62,3 +62,5 @@ jobs:
         run: supabase functions deploy telegram-setup --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
       - name: Deploy telegram-webhook
         run: supabase functions deploy telegram-webhook --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
+      - name: Deploy mavis-capability-audit
+        run: supabase functions deploy mavis-capability-audit --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}

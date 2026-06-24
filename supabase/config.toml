@@ -43,6 +43,10 @@ verify_jwt = false
 [functions.mavis-api-gateway]
 verify_jwt = false
 
+# Capability audit — runs every 6 hours via pg_cron with service-role key.
+[functions.mavis-capability-audit]
+verify_jwt = false
+
 # Autonomous task runner — triggered by pg_cron with service-role key (no user JWT).
 [functions.mavis-autonomous-runner]
 verify_jwt = false
