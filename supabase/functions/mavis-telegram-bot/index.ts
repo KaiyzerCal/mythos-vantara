@@ -436,7 +436,7 @@ async function handleApprovalCallback(
 // INTENT CLASSIFICATION
 // ─────────────────────────────────────────────────────────────
 
-type Intent = "help" | "quests" | "revenue" | "tasks" | "content_machine" | "speak" | "chat";
+type Intent = "help" | "quests" | "revenue" | "tasks" | "actions" | "content_machine" | "speak" | "chat";
 interface Classified { intent: Intent; params: Record<string, string>; }
 
 function classify(text: string): Classified {
@@ -444,6 +444,7 @@ function classify(text: string): Classified {
   if (/^\/?(help|commands?)$/i.test(lower))    return { intent: "help",    params: {} };
   if (/^\/?(quests?|missions?)$/i.test(lower)) return { intent: "quests",  params: {} };
   if (/^\/?(revenue|money|earnings?|income)$/i.test(lower)) return { intent: "revenue", params: {} };
+  if (/^\/?(orders?|approvals?|actions?|action queue)$/i.test(lower)) return { intent: "actions", params: {} };
   if (/^\/?(tasks?|queue|pending)$/i.test(lower)) return { intent: "tasks", params: {} };
   if (/^\/?(content|nora content|video content|post content)\s+(.+)$/i.test(lower)) {
     const topic = text.replace(/^\/?(content|nora content|video content|post content)\s+/i, "").trim();
