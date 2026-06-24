@@ -323,7 +323,7 @@ async function handleApprovalCallback(
     }
 
     // Fire execution in background
-    callFunction("mavis-action-executor", { action: "execute", action_queue_id: actionId })
+    callFunction("mavis-action-executor", { action: "execute", queue_item_id: actionId })
       .catch(() => null);
 
     await tg("answerCallbackQuery", { callback_query_id: callbackId, text: "✅ Approved! Executing…" });
