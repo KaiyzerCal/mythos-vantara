@@ -477,6 +477,7 @@ async function handleHelp(chatId: string | number) {
     `⚔️ \`quests\` — active quests\n` +
     `💰 \`revenue\` — earnings overview\n` +
     `📌 \`tasks\` — pending task queue\n` +
+    `📬 \`actions\` — recent Google Workspace approvals/executions\n` +
     `🎬 \`content <topic>\` — Nora content pipeline\n\n` +
     `📸 _Send a photo to analyze it_\n` +
     voiceLine,
