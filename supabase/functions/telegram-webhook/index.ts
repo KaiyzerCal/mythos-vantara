@@ -625,6 +625,10 @@ REVENUE & SOCIAL:
 :::ACTION{"type":"propose_product","params":{"title":"...","description":"...","audience":"...","category":"guide|prompt_pack|template|framework|mini_course","price_cents":2900,"platform":"gumroad|stripe"}}:::
 :::ACTION{"type":"nora_tweet","params":{"content":"Tweet text max 280 chars — Nora Vale voice, direct, no fluff"}}:::
 
+EMAIL (Gmail is connected and ready — use this immediately when asked to send any email):
+:::ACTION{"type":"draft_email","params":{"to":"recipient@example.com","subject":"Subject line","body":"Full email body text"}}:::
+This queues the email for your approval via Telegram buttons before sending. DO NOT say you can't email — Gmail is live.
+
 STORE ITEMS:
 :::ACTION{"type":"create_store_item","params":{"name":"...","description":"...","price":100,"currency":"Codex Points","rarity":"common|rare|epic|legendary","category":"consumable|equipment|upgrade"}}:::
 
@@ -964,6 +968,44 @@ async function executeActions(actions: ParsedAction[], chatId: string, context =
 
   for (const action of actions) {
     const type = String(action.payload.type ?? "");
+
+    // draft_email: queue in mavis_action_queue and send Telegram Approve/Reject buttons
+    if (type === "draft_email") {
+      const params  = (action.payload.params as Record<string, unknown>) ?? {};
+      const to      = String(params.to ?? "");
+      const subject = String(params.subject ?? "(no subject)");
+      const body    = String(params.body ?? "");
+
+      const { data: queueItem, error: queueErr } = await supabase
+        .from("mavis_action_queue")
+        .insert({
+          user_id:     OPERATOR_USER_ID,
+          action_type: "draft_email",
+          tier:        "approve",
+          status:      "pending",
+          payload:     { to, subject, body },
+        })
+        .select("id")
+        .single();
+
+      if (!queueErr && queueItem?.id) {
+        const preview = `Email ready to send:\n\nTo: ${to}\nSubject: ${subject}\n\n${body.slice(0, 400)}${body.length > 400 ? "…" : ""}`;
+        await tgPost("sendMessage", {
+          chat_id:      chatId,
+          text:         preview,
+          reply_markup: {
+            inline_keyboard: [[
+              { text: "Send", callback_data: `email_approve:${queueItem.id}` },
+              { text: "Cancel", callback_data: `email_reject:${queueItem.id}` },
+            ]],
+          },
+        });
+      } else {
+        console.error("[Telegram] draft_email queue insert failed:", queueErr);
+      }
+      queued++;
+      continue;
+    }
 
     // propose_product always queues as requires_confirmation
     if (type === "propose_product") {
@@ -1996,6 +2038,47 @@ Deno.serve(async (req) => {
     const cq   = update.callback_query;
     const data = String(cq.data ?? "");
     const cbChatId = String(cq.message?.chat?.id ?? "");
+
+    // ── Email approve/reject buttons ──────────────────────────
+    if (data.startsWith("email_approve:") || data.startsWith("email_reject:")) {
+      const queueItemId = data.split(":")[1];
+      const approved    = data.startsWith("email_approve:");
+
+      await fetch(`${TELEGRAM_API}/answerCallbackQuery`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          callback_query_id: cq.id,
+          text: approved ? "Sending..." : "Cancelled.",
+        }),
+      }).catch(() => {});
+
+      if (approved) {
+        const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+        const serviceKey  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+        const res = await fetch(`${supabaseUrl}/functions/v1/mavis-action-executor`, {
+          method:  "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${serviceKey}` },
+          body:    JSON.stringify({ queue_item_id: queueItemId }),
+        }).catch(() => null);
+
+        let resultMsg = "Email sent.";
+        if (!res?.ok) {
+          const errText = await res?.text().catch(() => "");
+          resultMsg = `Email send failed (${res?.status ?? "network"}): ${errText.slice(0, 120)}`;
+        } else {
+          try {
+            const d = await res.json();
+            if (d.result) resultMsg = `Email sent: ${String(d.result).slice(0, 120)}`;
+          } catch {}
+        }
+        await sendPlain(cbChatId, resultMsg);
+      } else {
+        await supabase.from("mavis_action_queue").update({ status: "rejected" }).eq("id", queueItemId);
+        await sendPlain(cbChatId, "Email cancelled.");
+      }
+      return new Response("OK");
+    }
 
     if (data.startsWith("sr_master:") || data.startsWith("sr_forget:")) {
       const noteId  = data.split(":")[1];
