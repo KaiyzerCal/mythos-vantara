@@ -634,15 +634,10 @@ async function handleChat(
   await typing(chatId);
 
   try {
-    // Include recent conversation history so MAVIS has context
-    let goal = text;
-    if (history.length > 0) {
-      const historyStr = history
-        .slice(-6)
-        .map((m) => `${m.role === "user" ? "User" : "MAVIS"}: ${m.content.slice(0, 300)}`)
-        .join("\n");
-      goal = `CONVERSATION HISTORY:\n${historyStr}\n\nCURRENT REQUEST: ${text}`;
-    }
+    // Pass the message directly — MAVIS uses recall_memory for persistent context.
+    // We do NOT inject chat_messages history because stale responses from previous
+    // broken sessions ("I can't send email") would mislead the agent.
+    const goal = text;
 
     const res = await fetch(`${SUPABASE_URL}/functions/v1/mavis-agent`, {
       method: "POST",
