@@ -342,6 +342,56 @@ const MAVIS_TOOLS = [
       required: ["key", "value"],
     },
   },
+  {
+    name: "codexos_action",
+    description:
+      "Execute a CODEXOS / VANTARA game-layer action — quests, tasks, skills, journal, vault, council, allies, inventory, energy systems, transformations, rankings, rituals, BPM sessions, profile/XP, personas (NAVI), knowledge graph notes, revenue proposals, autonomous goals, and store items. " +
+      "Use this any time the operator asks you to: create/update/complete/delete a quest or task, forge a persona, set a background goal, save a note to the knowledge graph, log a BPM session, award XP, or interact with any VANTARA RPG layer. " +
+      "This runs through the same mavis-actions pipeline used by mavis-chat — nothing breaks.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        type: {
+          type: "string",
+          description:
+            "Action type. Quests: create_quest | update_quest | complete_quest | delete_quest. " +
+            "Tasks: create_task | complete_task | update_task | delete_task. " +
+            "Skills: create_skill | create_subskill | update_skill | delete_skill. " +
+            "Journal: create_journal | update_journal | delete_journal. " +
+            "Vault: create_vault | update_vault | delete_vault. " +
+            "Council: create_council_member | update_council_member | delete_council_member. " +
+            "Allies: create_ally | update_ally | delete_ally. " +
+            "Inventory: create_inventory_item | update_inventory_item | delete_inventory_item. " +
+            "Energy: create_energy_system | update_energy. " +
+            "Transformations: create_transformation | update_transformation. " +
+            "Rankings: create_ranking | update_ranking. " +
+            "Rituals & BPM: create_ritual | complete_ritual | log_bpm_session. " +
+            "Profile & XP: update_profile | award_xp. " +
+            "Personas: forge_persona | delete_persona. " +
+            "Revenue: propose_product | nora_tweet. " +
+            "Knowledge Graph: create_note | update_note | delete_note | link_notes | unlink_notes. " +
+            "Autonomous Goals: goal. " +
+            "Store: create_store_item.",
+        },
+        params: {
+          type: "object",
+          description:
+            "Action parameters. Examples — " +
+            "create_quest: { title, description, type ('daily'|'side'|'main'|'epic'), difficulty ('Easy'|'Normal'|'Hard'|'Extreme'|'Impossible'), xp_reward, real_world_mapping, category }. " +
+            "create_task: { title, description, type ('task'|'habit'), recurrence ('once'|'daily'|'weekly'|'monthly'), xp_reward, priority ('low'|'medium'|'high'|'critical') }. " +
+            "complete_quest / complete_task: { quest_id } or { task_id }. " +
+            "forge_persona: { description (full natural-language spec: name, role, personality, tone, quirks, values, communication style, archetype) }. " +
+            "goal: { objective (one clear sentence), context }. " +
+            "create_note: { title, content (markdown), tags (string[]), aliases (string[]) }. " +
+            "update_note: { note_id, title, content, tags }. " +
+            "log_bpm_session: { bpm, duration, form, mood, notes }. " +
+            "award_xp: { amount, reason }. " +
+            "update_profile: { stat_str, stat_agi, stat_int, fatigue, full_cowl_sync, current_form, current_bpm, display_name }.",
+        },
+      },
+      required: ["type", "params"],
+    },
+  },
 ];
 
 // ── Tool handler ──────────────────────────────────────────────────────────────
@@ -1170,6 +1220,34 @@ async function handleTool(
         return { saved: true, key, category, importance };
       }
 
+      // ── codexos_action ─────────────────────────────────────────────────────
+      // Delegates to mavis-actions — the same pipeline used by mavis-chat and
+      // telegram-webhook's :::ACTION::: grammar. Zero duplication; nothing breaks.
+      case "codexos_action": {
+        const actionType = String(input.type ?? "").trim();
+        const params = (input.params ?? {}) as Record<string, unknown>;
+
+        if (!actionType) return { error: "type required" };
+
+        const res = await fetch(`${env.supabaseUrl}/functions/v1/mavis-actions`, {
+          method:  "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${env.serviceKey}`,
+          },
+          body: JSON.stringify({ actions: [{ type: actionType, params }], userId }),
+          signal: AbortSignal.timeout(30_000),
+        });
+
+        if (!res.ok) {
+          const errText = await res.text().catch(() => "");
+          return { error: `mavis-actions error ${res.status}: ${errText.slice(0, 200)}` };
+        }
+
+        const data = await res.json();
+        return { executed: true, type: actionType, result: data };
+      }
+
       default:
         return { error: `Unknown tool: ${name}` };
     }
@@ -1323,14 +1401,11 @@ async function runAgentLoop(
             env,
           );
 
-          // Track queued actions
-          if (
-            toolName === "queue_action" &&
-            result !== null &&
-            typeof result === "object" &&
-            (result as { queued?: boolean }).queued === true
-          ) {
-            actionsQueued++;
+          // Track queued/executed actions
+          if (result !== null && typeof result === "object") {
+            const r = result as Record<string, unknown>;
+            if (toolName === "queue_action" && r.queued === true) actionsQueued++;
+            if (toolName === "codexos_action" && r.executed === true) actionsQueued++;
           }
 
           return {
@@ -1399,10 +1474,26 @@ GOOGLE WORKSPACE (fully connected):
 • Google Tasks — read task lists, create native Google Tasks
 • Google Contacts — available for email composition context
 
+CODEXOS / VANTARA GAME LAYER — use codexos_action tool:
+• Quests — create, update, complete, delete quests with XP rewards and deadlines
+• Tasks — create habits and one-off tasks with recurrence and priority
+• Skills — forge and level up skills and subskills
+• Journal & Vault — log entries, evidence, achievements
+• Council & Allies — manage the advisory board and relationship network
+• Inventory — equip and manage items, artifacts, consumables
+• Energy Systems — track and update energy meters
+• Transformations & Rankings — unlock forms, track competitive standings
+• Rituals & BPM — log rituals, record heart-rate sessions
+• Profile & XP — update stats, award experience points
+• Personas (NAVI) — forge and delete AI companions via natural-language spec
+• Knowledge Graph — create/update/delete/link notes (operator's second brain)
+• Revenue — propose products, queue Nora social posts
+• Autonomous Goals — set background objectives MAVIS pursues every 15 min
+• Store — create store items
+
+When the operator says things like "create a quest", "log my BPM", "forge a persona", "save a note", "award me XP", or any VANTARA RPG command → call codexos_action immediately. Don't describe what you would do — do it.
+
 INTERNAL SYSTEM:
-• Quests — the operator's active goals with deadlines and progress tracking
-• Tasks — internal task list for execution tracking
-• MAVIS Memory — persistent knowledge about the operator, preferences, relationships, history
 • Action Queue — staging area for actions pending operator approval
 • Persona Memory — cross-session memory that persists everything important
 
@@ -1420,7 +1511,8 @@ AUTONOMY TIERS — WHAT YOU CAN DO WITHOUT ASKING
 ═══════════════════════════════════════════
 
 AUTO (execute immediately, no approval needed):
-  • create_task — add a task to the internal system
+  • codexos_action — all VANTARA game-layer actions execute immediately (quests, tasks, skills, notes, XP, personas, etc.)
+  • create_task (queue_action) — add a task to the internal system
   • create_note / update_memory / save_memory — write to MAVIS memory
 
 QUEUE (auto-approved, executes when operator reviews):
