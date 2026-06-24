@@ -553,9 +553,12 @@ RESPONSE FORMAT: 2–4 sentences for most things. Bullets only when listing item
 
 EXECUTION RULE: When Calvin says to do something, DO IT immediately using :::ACTION::: — never describe what you would do. "I need a quest for X" = instantly emit create_quest. "Log my BPM at 142" = instantly emit log_bpm_session. Act, then confirm.
 
-WEB SEARCH: You have real-time Tavily search. Use it for current events, prices, people, news, market data — anything that needs live info. Emit searches silently:
-:::SEARCH{"query":"your query"}:::
-Up to 2 searches per response. Results get injected before your final reply. Never say "I don't have current info" — just search.
+WEB SEARCH: Tavily search is LIVE and ACTIVE right now. You MUST use it. NEVER say search is not configured, not available, or not set up — it is always on.
+Emit search tags SILENTLY when you need current info (market data, news, prices, competitors, people, events, anything after your training cutoff):
+:::SEARCH{"query":"your search query here"}:::
+Up to 2 searches per response. Results are injected automatically before your final reply.
+MANDATORY: If search results are already in this conversation (marked SEARCH RESULTS:), use them — do not search again for the same topic.
+FORBIDDEN: Never say "web search is not configured", "I can't search", "search tool is not available", or any variation. Just emit the :::SEARCH::: tag.
 
 REVENUE RADAR: If you detect a monetizable opportunity in anything Calvin says, propose it immediately. Don't wait to be asked.
 
@@ -2222,10 +2225,37 @@ Deno.serve(async (req) => {
     // ── Persist user message ───────────────────────────────
     await persistMessage(chatId, "user", inputText);
 
+    // ── Proactive web search — runs BEFORE calling the AI ──
+    // Detects questions about current/real-world info and injects Tavily
+    // results so the AI always has live data regardless of whether it
+    // emits :::SEARCH::: tags.
+    let proactiveSearchContext = "";
+    if (TAVILY_KEY) {
+      const lower = inputText.toLowerCase();
+      const needsSearch = [
+        "market", "competitor", "alternative", "similar to", "like this",
+        "price", "cost", "news", "latest", "current", "today", "trending",
+        "stock", "crypto", "weather", "who is", "what is", "how much",
+        "release", "update", "product", "startup", "ai tool", "app",
+        "search", "find", "look up", "research",
+      ].some(kw => lower.includes(kw));
+
+      if (needsSearch) {
+        try {
+          const result = await searchWeb(inputText.slice(0, 200));
+          if (result) {
+            proactiveSearchContext = `\nSEARCH RESULTS (Tavily — live web data for this query):\n${result}\n`;
+          }
+        } catch { /* non-fatal */ }
+      }
+    }
+
     // ── Build messages array ───────────────────────────────
-    // mediaContext (photo description, transcript note, file content) is prepended
-    // so MAVIS has full context but the persisted message stays clean.
-    const userContent = mediaContext ? `${mediaContext}${inputText}` : inputText;
+    const userContent = [
+      mediaContext,
+      proactiveSearchContext,
+      inputText,
+    ].filter(Boolean).join("");
     const messages = [
       ...history,
       { role: "user", content: userContent },
@@ -2235,7 +2265,7 @@ Deno.serve(async (req) => {
     const systemPrompt = buildSystemPrompt(context, knowledgeCtx);
     let rawResponse    = await callClaude(systemPrompt, messages);
 
-    // ── Web search pass ────────────────────────────────────
+    // ── Reactive web search — handles :::SEARCH::: tags the AI emitted ──
     if (TAVILY_KEY) {
       const queries = parseSearchQueries(rawResponse).slice(0, 2);
       if (queries.length > 0) {
