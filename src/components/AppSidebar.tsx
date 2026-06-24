@@ -244,14 +244,6 @@ export default function AppSidebar() {
               <span className="whitespace-nowrap font-body text-xs">Sign Out</span>
             </button>
 
-            {/* Hide nav button */}
-            <button
-              onClick={() => setOpen(false)}
-              className="p-3 border-t border-border text-muted-foreground hover:text-primary transition-colors flex items-center justify-center gap-2"
-            >
-              <PanelLeftClose size={14} />
-              <span className="text-xs font-mono">Hide nav</span>
-            </button>
           </motion.aside>
         )}
       </AnimatePresence>
