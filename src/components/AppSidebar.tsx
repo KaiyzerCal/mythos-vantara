@@ -181,6 +181,13 @@ export default function AppSidebar() {
                 </p>
               </div>
               <NotificationBell />
+              <button
+                onClick={() => setOpen(false)}
+                title="Hide navigation"
+                className="w-7 h-7 rounded border border-border/50 text-muted-foreground hover:text-primary hover:border-primary/30 transition-colors flex items-center justify-center shrink-0"
+              >
+                <PanelLeftClose size={14} />
+              </button>
             </div>
 
             {/* Operator status strip */}
@@ -244,14 +251,6 @@ export default function AppSidebar() {
               <span className="whitespace-nowrap font-body text-xs">Sign Out</span>
             </button>
 
-            {/* Hide nav button */}
-            <button
-              onClick={() => setOpen(false)}
-              className="p-3 border-t border-border text-muted-foreground hover:text-primary transition-colors flex items-center justify-center gap-2"
-            >
-              <PanelLeftClose size={14} />
-              <span className="text-xs font-mono">Hide nav</span>
-            </button>
           </motion.aside>
         )}
       </AnimatePresence>
