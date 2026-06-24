@@ -1546,6 +1546,20 @@ async function runAgentLoop(
             if (toolName === "codexos_action" && r.executed === true) actionsQueued++;
           }
 
+          // Log tool usage signal (fire-and-forget)
+          {
+            const _t = new Date();
+            const _hasError = result !== null && typeof result === "object" && !!(result as Record<string, unknown>).error;
+            supabase.from("mavis_behavioral_signals").insert({
+              user_id:     userId,
+              signal_type: "tool_used",
+              tool_name:   toolName,
+              outcome:     _hasError ? "failure" : "success",
+              hour_of_day: _t.getUTCHours(),
+              day_of_week: _t.getUTCDay(),
+            }).catch(() => {});
+          }
+
           return {
             type: "tool_result",
             tool_use_id: toolUse.id ?? "",
@@ -1854,6 +1868,64 @@ serve(async (req) => {
       } catch {
         // Embedding service unavailable — proceed without semantic context
       }
+    }
+
+    // ── Load learned behavioral context ──────────────────────────────────────
+    try {
+      const { data: prefs } = await supabase
+        .from("mavis_learned_preferences")
+        .select("preference_type, key, value")
+        .eq("user_id", userId)
+        .in("preference_type", ["active_hours", "tool_frequency", "auto_upgraded_action"])
+        .order("updated_at", { ascending: false })
+        .limit(30);
+
+      if (prefs && (prefs as unknown[]).length > 0) {
+        const prefRows = prefs as Array<{ preference_type: string; key: string; value: Record<string, unknown> }>;
+
+        const activeHours = prefRows
+          .filter(p => p.preference_type === "active_hours")
+          .sort((a, b) => ((b.value?.count as number) ?? 0) - ((a.value?.count as number) ?? 0))
+          .slice(0, 3)
+          .map(p => `${p.key} (${p.value?.pct ?? 0}%)`)
+          .join(", ");
+
+        const topTools = prefRows
+          .filter(p => p.preference_type === "tool_frequency")
+          .sort((a, b) => ((b.value?.total as number) ?? 0) - ((a.value?.total as number) ?? 0))
+          .slice(0, 5)
+          .map(p => `${p.key}(${p.value?.total ?? 0}x)`)
+          .join(", ");
+
+        const autoApproved = prefRows
+          .filter(p => p.preference_type === "auto_upgraded_action")
+          .map(p => `${p.key}→${p.value?.tier}`)
+          .join(", ");
+
+        const lines = [
+          activeHours   ? `Operator is most active during: ${activeHours}.` : "",
+          topTools      ? `Most-used tools: ${topTools}.` : "",
+          autoApproved  ? `Auto-approved actions (execute without asking): ${autoApproved}.` : "",
+        ].filter(Boolean);
+
+        if (lines.length > 0) {
+          systemWithContext +=
+            "\n\n═══════════════════════════════════════════\nLEARNED OPERATOR PATTERNS\n═══════════════════════════════════════════\n" +
+            lines.join("\n");
+        }
+      }
+    } catch { /* non-critical — proceed without behavioral context */ }
+
+    // Log message_received signal (fire-and-forget)
+    if (userId) {
+      const _now = new Date();
+      supabase.from("mavis_behavioral_signals").insert({
+        user_id:     userId,
+        signal_type: "message_received",
+        hour_of_day: _now.getUTCHours(),
+        day_of_week: _now.getUTCDay(),
+        metadata:    { mode },
+      }).catch(() => {});
     }
 
     // Prepend channel-specific formatting instructions for Telegram

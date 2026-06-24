@@ -357,6 +357,14 @@ verify_jwt = true
 [functions.mavis-emotion-engine]
 verify_jwt = true
 
+# Health monitor — runs hourly via pg_cron with service-role key.
+[functions.mavis-health-monitor]
+verify_jwt = false
+
+# Learning engine — runs daily midnight via pg_cron with service-role key.
+[functions.mavis-learning-engine]
+verify_jwt = false
+
 [functions.mavis-emotion-tag]
 verify_jwt = true
 

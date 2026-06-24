@@ -349,6 +349,16 @@ serve(async (req) => {
   try {
     const adminSb = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, { auth: { persistSession: false } });
 
+    // Heartbeat: mark running
+    adminSb.from("mavis_function_health").upsert({
+      function_name: "mavis-trigger-engine",
+      last_started_at: new Date().toISOString(),
+      last_status: "running",
+      run_count: 1,
+      expected_interval_min: 10,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: "function_name" }).catch(() => {});
+
     const body = await req.json().catch(() => ({})) as Record<string, string>;
     const action = body.action ?? "run";
 
@@ -392,6 +402,17 @@ serve(async (req) => {
       );
 
       const processed = results.filter((r) => r.status === "fulfilled").length;
+
+      adminSb.from("mavis_function_health").upsert({
+        function_name: "mavis-trigger-engine",
+        last_completed_at: new Date().toISOString(),
+        last_status: "ok",
+        last_error: null,
+        run_count: 1,
+        expected_interval_min: 10,
+        updated_at: new Date().toISOString(),
+      }, { onConflict: "function_name" }).catch(() => {});
+
       return json({ ok: true, processed, results: results.map((r) => r.status === "fulfilled" ? r.value : { error: (r as PromiseRejectedResult).reason }) });
     }
 
@@ -406,7 +427,19 @@ serve(async (req) => {
 
     return json({ ok: false, error: `Unknown action: ${action}` }, 400);
   } catch (err) {
-    console.error("[mavis-trigger-engine]", err);
-    return json({ ok: false, error: err instanceof Error ? err.message : String(err) }, 500);
+    const _errMsg = err instanceof Error ? err.message : String(err);
+    console.error("[mavis-trigger-engine]", _errMsg);
+    const _errSb = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, { auth: { persistSession: false } });
+    _errSb.from("mavis_function_health").upsert({
+      function_name: "mavis-trigger-engine",
+      last_completed_at: new Date().toISOString(),
+      last_status: "error",
+      last_error: _errMsg.slice(0, 500),
+      run_count: 1,
+      error_count: 1,
+      expected_interval_min: 10,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: "function_name" }).catch(() => {});
+    return json({ ok: false, error: _errMsg }, 500);
   }
 });

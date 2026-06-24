@@ -783,6 +783,16 @@ serve(async (req) => {
           .eq("id", queue_item_id)
           .eq("user_id", userId);
 
+        // Log action_executed signal (fire-and-forget)
+        adminSb.from("mavis_behavioral_signals").insert({
+          user_id:     userId,
+          signal_type: "action_executed",
+          action_type: item.action_type as string,
+          outcome:     "success",
+          hour_of_day: new Date().getUTCHours(),
+          day_of_week: new Date().getUTCDay(),
+        }).catch(() => {});
+
         return json({ ok: true, action_type: item.action_type, result });
       } catch (execErr) {
         const errMsg = execErr instanceof Error ? execErr.message : String(execErr);
@@ -804,6 +814,14 @@ serve(async (req) => {
     if (action === "approve") {
       if (!queue_item_id) return json({ ok: false, error: "queue_item_id required" }, 400);
 
+      // Fetch action_type for behavioral signal before updating
+      const { data: approveItem } = await adminSb
+        .from("mavis_action_queue")
+        .select("action_type")
+        .eq("id", queue_item_id)
+        .eq("user_id", userId)
+        .maybeSingle();
+
       const { error } = await adminSb
         .from("mavis_action_queue")
         .update({
@@ -814,12 +832,30 @@ serve(async (req) => {
         .eq("user_id", userId);
 
       if (error) return json({ ok: false, error: error.message }, 500);
+
+      // Log action_approved signal (fire-and-forget)
+      adminSb.from("mavis_behavioral_signals").insert({
+        user_id:     userId,
+        signal_type: "action_approved",
+        action_type: (approveItem as any)?.action_type ?? null,
+        hour_of_day: new Date().getUTCHours(),
+        day_of_week: new Date().getUTCDay(),
+      }).catch(() => {});
+
       return json({ ok: true });
     }
 
     // ── reject ─────────────────────────────────────────────────────────────────
     if (action === "reject") {
       if (!queue_item_id) return json({ ok: false, error: "queue_item_id required" }, 400);
+
+      // Fetch action_type for behavioral signal before updating
+      const { data: rejectItem } = await adminSb
+        .from("mavis_action_queue")
+        .select("action_type")
+        .eq("id", queue_item_id)
+        .eq("user_id", userId)
+        .maybeSingle();
 
       const { error } = await adminSb
         .from("mavis_action_queue")
@@ -831,6 +867,16 @@ serve(async (req) => {
         .eq("user_id", userId);
 
       if (error) return json({ ok: false, error: error.message }, 500);
+
+      // Log action_rejected signal (fire-and-forget)
+      adminSb.from("mavis_behavioral_signals").insert({
+        user_id:     userId,
+        signal_type: "action_rejected",
+        action_type: (rejectItem as any)?.action_type ?? null,
+        hour_of_day: new Date().getUTCHours(),
+        day_of_week: new Date().getUTCDay(),
+      }).catch(() => {});
+
       return json({ ok: true });
     }
 
