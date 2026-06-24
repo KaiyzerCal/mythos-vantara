@@ -293,6 +293,43 @@ const MAVIS_TOOLS = [
       required: ["title", "steps"],
     },
   },
+  {
+    name: "think",
+    description: "Use this before acting on any complex or multi-step goal. Write your full analysis: what the situation requires, which tools to call in what order, what risks to watch for. This is your scratchpad — the operator never sees it.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        reasoning: { type: "string", description: "Your complete step-by-step analysis and execution plan" },
+      },
+      required: ["reasoning"],
+    },
+  },
+  {
+    name: "recall_memory",
+    description: "Semantically search MAVIS persona memory for relevant context — preferences, past decisions, relationship notes, system learnings. Use before acting on anything the operator might have mentioned before.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        query: { type: "string", description: "What to look for — be descriptive (e.g. 'email reply style preferences', 'John Doe relationship notes')" },
+        limit: { type: "number", description: "Max results (default 5, max 10)" },
+      },
+      required: ["query"],
+    },
+  },
+  {
+    name: "save_memory",
+    description: "Persist an important fact, preference, decision, outcome, or relationship note to MAVIS persona memory. Call this after learning something meaningful about the operator or completing a significant action.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        key:        { type: "string", description: "Unique key (e.g. 'operator:email_tone', 'contact:john:last_interaction', 'system:draft_email:outcome_2024')" },
+        value:      { type: "string", description: "The memory content — be specific and complete" },
+        category:   { type: "string", description: "Category: operator | contact | system | goal | preference | outcome | learning (default: general)" },
+        importance: { type: "number", description: "Importance 1-10. 8-10 = critical facts. 5-7 = useful context. 1-4 = minor notes." },
+      },
+      required: ["key", "value"],
+    },
+  },
 ];
 
 // ── Tool handler ──────────────────────────────────────────────────────────────
@@ -919,6 +956,79 @@ async function handleTool(
         };
       }
 
+      // ── think ─────────────────────────────────────────────────────────────
+      case "think": {
+        // Scratchpad — acknowledged so MAVIS gets a tool_result to continue
+        return { acknowledged: true, message: "Reasoning complete. Execute your plan." };
+      }
+
+      // ── recall_memory ─────────────────────────────────────────────────────
+      case "recall_memory": {
+        const query = String(input.query ?? "").trim();
+        if (!query) return { error: "query required" };
+        const limitN = Math.min(Number(input.limit ?? 5), 10);
+
+        try {
+          // @ts-ignore — Supabase.ai available in edge runtime
+          const embedSession = new Supabase.ai.Session("gte-small");
+          const output = await embedSession.run(query.slice(0, 512), { mean_pool: true, normalize: true });
+          const embedding: number[] = Array.from(output.data as Float32Array);
+
+          const { data, error } = await supabase.rpc("match_persona_memory", {
+            query_embedding: JSON.stringify(embedding),
+            match_user_id:   userId,
+            match_threshold: 0.25,
+            match_count:     limitN,
+          });
+
+          if (error) throw new Error(error.message);
+
+          return {
+            memories: data ?? [],
+            count:    (data ?? []).length,
+            note:     (data ?? []).length === 0 ? "No relevant memories found — this may be new context." : undefined,
+          };
+        } catch {
+          // Embedding unavailable — fall back to keyword search
+          const { data } = await supabase
+            .from("mavis_persona_memory")
+            .select("key, value, category, importance, created_at")
+            .eq("user_id", userId)
+            .ilike("value", `%${query.slice(0, 100)}%`)
+            .order("importance", { ascending: false })
+            .limit(limitN);
+
+          return { memories: data ?? [], count: (data ?? []).length, fallback: "keyword" };
+        }
+      }
+
+      // ── save_memory ───────────────────────────────────────────────────────
+      case "save_memory": {
+        const key        = String(input.key ?? "").trim();
+        const value      = String(input.value ?? "").trim();
+        const category   = String(input.category ?? "general");
+        const importance = Math.min(Math.max(Number(input.importance ?? 5), 1), 10);
+
+        if (!key)   return { error: "key required" };
+        if (!value) return { error: "value required" };
+
+        const { error } = await supabase
+          .from("mavis_persona_memory")
+          .upsert({
+            user_id:    userId,
+            key,
+            value,
+            category,
+            importance,
+            source:     "mavis-agent",
+            role:       "system",
+            created_at: new Date().toISOString(),
+          }, { onConflict: "user_id,key" });
+
+        if (error) return { error: error.message };
+        return { saved: true, key, category, importance };
+      }
+
       default:
         return { error: `Unknown tool: ${name}` };
     }
@@ -1070,8 +1180,14 @@ INTERNAL SYSTEM:
 • Action Queue — staging area for actions pending operator approval
 • Persona Memory — cross-session memory that persists everything important
 
-WEB:
+INTELLIGENCE TOOLS:
+• think — plan before acting on complex goals (private scratchpad)
+• recall_memory — semantically search past context, preferences, and relationship notes
+• save_memory — persist important facts, outcomes, and learnings across sessions
 • Web search — real-time search via Tavily for current information
+
+CAMPAIGNS:
+• create_campaign — multi-step autonomous goals that MAVIS executes over time
 
 ═══════════════════════════════════════════
 AUTONOMY TIERS — WHAT YOU CAN DO WITHOUT ASKING
@@ -1079,7 +1195,7 @@ AUTONOMY TIERS — WHAT YOU CAN DO WITHOUT ASKING
 
 AUTO (execute immediately, no approval needed):
   • create_task — add a task to the internal system
-  • create_note / update_memory — write to MAVIS memory
+  • create_note / update_memory / save_memory — write to MAVIS memory
 
 QUEUE (auto-approved, executes when operator reviews):
   • create_drive_file — create a new Google Doc or Sheet
@@ -1096,14 +1212,17 @@ APPROVE (always ask the operator first):
 YOUR OPERATING PRINCIPLES
 ═══════════════════════════════════════════
 
-1. EXECUTE, don't just suggest. You have tools — use them.
-2. READ freely. Emails, calendar, Drive — gather context before responding.
-3. QUEUE high-stakes actions. The operator approves emails and calendar events before they go out.
-4. AUTO-EXECUTE low-stakes actions. Tasks and memory writes happen immediately.
-5. REMEMBER everything important. Write key facts to memory so you carry context forward.
-6. PURSUE goals proactively. You run every 4 hours against active quests — make real progress.
-7. REACT to triggers. You wake up when emails arrive, not just when asked.
-8. BE CONCISE. Tell the operator what you did and what needs their attention. No filler.
+1. THINK FIRST. For any complex or multi-step task, call "think" before touching other tools. Plan your approach, sequence, and expected outcomes. Don't skip this.
+2. RECALL CONTEXT. Before acting on anything involving a person, topic, or ongoing situation, call "recall_memory" to check what you already know.
+3. EXECUTE, don't just suggest. You have tools — use them.
+4. READ freely. Emails, calendar, Drive — gather context before responding.
+5. QUEUE high-stakes actions. The operator approves emails and calendar events before they go out.
+6. AUTO-EXECUTE low-stakes actions. Tasks and memory writes happen immediately.
+7. SAVE LEARNINGS. After any significant interaction or action, call "save_memory" to persist: what happened, what worked, what the operator prefers. This is how you grow.
+8. PURSUE goals proactively. You run every 4 hours against active quests — make real progress.
+9. REACT to triggers. You wake up when emails arrive, not just when asked.
+10. VERIFY outcomes. After executing actions, confirm results match the goal. If something went wrong, flag it.
+11. BE CONCISE. Tell the operator what you did and what needs their attention. No filler.
 
 ═══════════════════════════════════════════
 YOUR ROLE IN THE CODEXOS ECOSYSTEM
@@ -1116,7 +1235,7 @@ NAVI.EXE is the learning system — you can pull study materials from Drive, tra
 
 The Council is the operator's advisory board of AI personas — Tao, and others. You share context with them so they always know what's happening in the operator's world.
 
-You are not a feature. You are the operator's autonomous agent.`;
+You are not a feature. You are the operator's autonomous agent. You learn. You adapt. You get better with every interaction.`;
 
 
 // ── Main handler ──────────────────────────────────────────────────────────────
@@ -1194,10 +1313,45 @@ serve(async (req) => {
       serviceKey: SERVICE_KEY,
     };
 
+    // ── Semantic memory retrieval ─────────────────────────────────────────────
+    // Embed the incoming goal and surface the top-5 most relevant persona memories
+    // to inject into the system prompt as grounding context.
+    let systemWithContext = SYSTEM_PROMPT;
+    const goalText = goal || (rawMessages.length > 0
+      ? String(rawMessages[rawMessages.length - 1]?.content ?? "").slice(0, 300)
+      : "");
+
+    if (goalText && userId) {
+      try {
+        // @ts-ignore — Supabase.ai available in edge runtime
+        const embedSession = new Supabase.ai.Session("gte-small");
+        const embedOutput = await embedSession.run(goalText.slice(0, 512), { mean_pool: true, normalize: true });
+        const queryEmbedding: number[] = Array.from(embedOutput.data as Float32Array);
+
+        const { data: relatedMemories } = await supabase.rpc("match_persona_memory", {
+          query_embedding: JSON.stringify(queryEmbedding),
+          match_user_id:   userId,
+          match_threshold: 0.3,
+          match_count:     6,
+        });
+
+        if (relatedMemories && (relatedMemories as unknown[]).length > 0) {
+          const memLines = (relatedMemories as Array<{ key: string; value: string; category: string; importance: number }>)
+            .sort((a, b) => b.importance - a.importance)
+            .map((m) => `  [${m.category}] ${m.value}`)
+            .join("\n");
+          systemWithContext = SYSTEM_PROMPT +
+            "\n\n═══════════════════════════════════════════\nRELEVANT OPERATOR CONTEXT (auto-recalled)\n═══════════════════════════════════════════\n" +
+            memLines;
+        }
+      } catch {
+        // Embedding service unavailable — proceed without semantic context
+      }
+    }
+
     const result = await runAgentLoop(
-      // Shallow-copy to avoid mutating the parsed body reference
       messages.map((m) => ({ ...m })),
-      SYSTEM_PROMPT,
+      systemWithContext,
       claudeKey,
       userId,
       supabase,

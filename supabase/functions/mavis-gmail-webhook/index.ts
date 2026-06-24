@@ -51,10 +51,72 @@ async function refreshToken(
 
 interface NewMessage {
   id: string;
+  threadId: string;
   from: string;
+  to: string;
   subject: string;
+  date: string;
+  body: string;
   snippet: string;
   isImportant: boolean;
+  isReply: boolean;
+}
+
+function extractTextBody(payload: Record<string, unknown>): string {
+  if (!payload) return "";
+  const mimeType = String(payload.mimeType ?? "");
+  const body = payload.body as { data?: string; size?: number } | undefined;
+
+  if (mimeType === "text/plain" && body?.data) {
+    try {
+      return atob(body.data.replace(/-/g, "+").replace(/_/g, "/"));
+    } catch {
+      return "";
+    }
+  }
+
+  if (mimeType.startsWith("multipart/")) {
+    for (const part of (payload.parts as Record<string, unknown>[] ?? [])) {
+      const text = extractTextBody(part);
+      if (text) return text;
+    }
+  }
+
+  return "";
+}
+
+async function fetchFullMessage(
+  msgId: string,
+  token: string,
+): Promise<{ from: string; to: string; subject: string; date: string; body: string; threadId: string; isReply: boolean }> {
+  const res = await fetch(
+    `https://gmail.googleapis.com/gmail/v1/users/me/messages/${msgId}?format=full`,
+    { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(12_000) },
+  );
+
+  if (!res.ok) return { from: "", to: "", subject: "(unavailable)", date: "", body: "", threadId: "", isReply: false };
+
+  const msg = await res.json();
+  const headers: { name: string; value: string }[] = msg.payload?.headers ?? [];
+  const get = (name: string) => headers.find((h: { name: string }) => h.name.toLowerCase() === name.toLowerCase())?.value ?? "";
+
+  const rawBody = extractTextBody(msg.payload ?? {});
+  // Strip quoted replies — keep only the first ~3000 chars of the actual message
+  const body = rawBody
+    .split(/\n\n(On .+wrote:|From:.+Sent:|------+)/m)[0]
+    .trim()
+    .slice(0, 3000);
+
+  const subject = get("Subject");
+  return {
+    from:     get("From"),
+    to:       get("To"),
+    subject,
+    date:     get("Date"),
+    body:     body || "(body unavailable)",
+    threadId: String(msg.threadId ?? ""),
+    isReply:  subject.toLowerCase().startsWith("re:") || !!get("In-Reply-To"),
+  };
 }
 
 async function fetchNewMessages(
@@ -66,7 +128,6 @@ async function fetchNewMessages(
   const lastHistoryId = String(config.gmail_history_id ?? newHistoryId);
   const token = await refreshToken(config, adminSb, userId);
 
-  // Use History API — only fetches changes since last known historyId
   const histRes = await fetch(
     `https://gmail.googleapis.com/gmail/v1/users/me/history?startHistoryId=${lastHistoryId}&historyTypes=messageAdded&labelId=INBOX`,
     { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(15_000) },
@@ -75,7 +136,6 @@ async function fetchNewMessages(
   if (!histRes.ok) return [];
   const histData = await histRes.json();
 
-  // Update stored historyId so next call is incremental
   await adminSb.from("mavis_user_integrations").update({
     config: { ...config, gmail_history_id: newHistoryId },
   }).eq("user_id", userId).eq("provider", "gmail");
@@ -89,24 +149,38 @@ async function fetchNewMessages(
 
   if (addedMessages.length === 0) return [];
 
-  // Fetch metadata for each new message (max 5)
+  // Fetch full message content (max 5 messages)
   const messages = await Promise.allSettled(
     addedMessages.slice(0, 5).map(async ({ message: { id } }) => {
-      const msgRes = await fetch(
-        `https://gmail.googleapis.com/gmail/v1/users/me/messages/${id}?format=metadata&metadataHeaders=From&metadataHeaders=Subject`,
-        { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(10_000) },
+      // Quick label check first (to filter spam/promotions cheaply)
+      const metaRes = await fetch(
+        `https://gmail.googleapis.com/gmail/v1/users/me/messages/${id}?format=metadata&metadataHeaders=Subject`,
+        { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(8_000) },
       );
-      if (!msgRes.ok) return null;
-      const msg = await msgRes.json();
-      const headers: { name: string; value: string }[] = msg.payload?.headers ?? [];
-      const get = (name: string) => headers.find((h) => h.name === name)?.value ?? "";
-      const labels: string[] = msg.labelIds ?? [];
+      if (!metaRes.ok) return null;
+
+      const meta = await metaRes.json();
+      const labels: string[] = meta.labelIds ?? [];
+
+      // Skip promotions, spam, social unless important/starred
+      const isImportant = labels.includes("IMPORTANT") || labels.includes("STARRED");
+      const isJunk = labels.some((l: string) => ["CATEGORY_PROMOTIONS", "CATEGORY_SOCIAL", "SPAM"].includes(l));
+      if (isJunk && !isImportant) return null;
+
+      const full = await fetchFullMessage(id, token);
+      const snippet = String(meta.snippet ?? "").slice(0, 200);
+
       return {
         id,
-        from:        get("From"),
-        subject:     get("Subject"),
-        snippet:     (msg.snippet ?? "").slice(0, 250),
-        isImportant: labels.includes("IMPORTANT") || labels.includes("STARRED"),
+        threadId:    full.threadId,
+        from:        full.from,
+        to:          full.to,
+        subject:     full.subject,
+        date:        full.date,
+        body:        full.body,
+        snippet,
+        isImportant,
+        isReply:     full.isReply,
       } satisfies NewMessage;
     }),
   );
@@ -166,22 +240,36 @@ serve(async (req) => {
       return new Response("ok", { status: 200 }); // notification was for something non-inbox (sent, etc.)
     }
 
-    // Build context and run MAVIS immediately
-    const emailContext = newMessages
-      .map((m) => `• From: ${m.from}\n  Subject: ${m.subject}\n  Preview: ${m.snippet}${m.isImportant ? " [IMPORTANT]" : ""}`)
-      .join("\n");
+    // Build full-content context for MAVIS
+    const emailContext = newMessages.map((m) => {
+      const lines = [
+        `FROM: ${m.from}`,
+        `TO: ${m.to}`,
+        `SUBJECT: ${m.subject}`,
+        `DATE: ${m.date}`,
+        m.isReply ? `TYPE: Reply thread` : `TYPE: New email`,
+        m.isImportant ? `PRIORITY: IMPORTANT/STARRED` : null,
+        `---`,
+        m.body || m.snippet,
+      ].filter(Boolean);
+      return lines.join("\n");
+    }).join("\n\n════════════════\n\n");
 
-    const goal = `You are MAVIS. A new email just arrived for the operator — real-time notification.
+    const goal = `You are MAVIS. A new email just arrived in the operator's inbox — triage and act now.
 
 NEW EMAIL${newMessages.length > 1 ? `S (${newMessages.length})` : ""}:
+
 ${emailContext}
 
-React immediately:
-- If it needs a response, draft a reply (queue for approval)
-- If it creates a task, create it (auto-executed)
-- If it mentions a meeting, check the calendar and flag conflicts
-- If it's a newsletter/marketing/automated email, ignore it
-- Be decisive — one sentence per action, no rambling`;
+TRIAGE PROTOCOL:
+1. First, call "think" to reason about what this email requires and what action (if any) to take.
+2. Call "recall_memory" to check what you know about the sender or topic.
+3. Decide: reply needed? task to create? calendar conflict? or ignore?
+4. If reply needed: draft it via queue_action (draft_email, approve tier) — write in the operator's voice, professional but direct.
+5. If task created or decision made: call "save_memory" to record what happened.
+
+Do NOT reply to newsletters, promotions, automated alerts, or cold outreach. For those, just note the content type and stop.
+Be decisive. One clear action per email.`;
 
     // Fire and don't await — we must return 200 to Google quickly (< 10s)
     // to prevent Pub/Sub retry. Agent runs async.
