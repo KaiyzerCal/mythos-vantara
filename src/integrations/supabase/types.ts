@@ -1772,6 +1772,42 @@ export type Database = {
         }
         Relationships: []
       }
+      mavis_campaigns: {
+        Row: {
+          created_at: string
+          current_step: number
+          description: string | null
+          id: string
+          status: string
+          steps: Json
+          title: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          current_step?: number
+          description?: string | null
+          id?: string
+          status?: string
+          steps?: Json
+          title: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          current_step?: number
+          description?: string | null
+          id?: string
+          status?: string
+          steps?: Json
+          title?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       mavis_capabilities: {
         Row: {
           action_type: string
@@ -2998,43 +3034,55 @@ export type Database = {
       }
       mavis_persona_memory: {
         Row: {
+          category: string
           consolidated: boolean
           content: string
           created_at: string
+          embedding: string | null
           id: string
           importance: number
+          key: string | null
           persona_id: string | null
           persona_name: string
           role: string
           session_id: string | null
           source: string | null
           user_id: string
+          value: string | null
         }
         Insert: {
+          category?: string
           consolidated?: boolean
           content: string
           created_at?: string
+          embedding?: string | null
           id?: string
           importance?: number
+          key?: string | null
           persona_id?: string | null
           persona_name: string
           role: string
           session_id?: string | null
           source?: string | null
           user_id: string
+          value?: string | null
         }
         Update: {
+          category?: string
           consolidated?: boolean
           content?: string
           created_at?: string
+          embedding?: string | null
           id?: string
           importance?: number
+          key?: string | null
           persona_id?: string | null
           persona_name?: string
           role?: string
           session_id?: string | null
           source?: string | null
           user_id?: string
+          value?: string | null
         }
         Relationships: []
       }
@@ -6993,6 +7041,21 @@ export type Database = {
           similarity: number
           tags: string[]
           title: string
+        }[]
+      }
+      match_persona_memory: {
+        Args: {
+          match_count?: number
+          match_threshold?: number
+          match_user_id: string
+          query_embedding: string
+        }
+        Returns: {
+          category: string
+          importance: number
+          key: string
+          similarity: number
+          value: string
         }[]
       }
       mavis_log_cron_run: {
