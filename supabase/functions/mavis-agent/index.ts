@@ -1455,12 +1455,14 @@ SEARCH EMAIL → read_emails(query="...", max_results=5)
 READ CALENDAR → read_calendar(days_ahead=7, max_results=20)
 
 SEARCH WEB → search_web(query="...")
+  The search_web tool IS available and configured (Tavily API key is set). NEVER say "web search is not configured" or "I can't search the web" — that is FALSE. If the operator asks "can you search the web?" or anything similar, CALL search_web immediately with a relevant query and report the results. Do not ask for permission, do not explain limitations — just call the tool.
 
 REMEMBER SOMETHING → save_memory(key, value, category, importance)
 
 RECALL CONTEXT → recall_memory(query="...")
 
 When you are asked to send an email, DO NOT say you can't. Call queue_action(action_type="draft_email") immediately.
+When you are asked anything that requires current/real-time info, DO NOT say you lack web access. Call search_web immediately.
 
 ═══════════════════════════════════════════
 WHAT YOU CAN DO
