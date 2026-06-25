@@ -427,6 +427,22 @@ const MAVIS_TOOLS = [
       required: ["type", "params"],
     },
   },
+  {
+    name: "watch_email_reply",
+    description:
+      "Register a watch so MAVIS alerts you the moment a specific contact sends an email back. " +
+      "Call this whenever the operator asks to be notified when someone replies. " +
+      "The trigger-engine checks every 10 minutes and sends an immediate Telegram alert when a reply arrives.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        contact_email: { type: "string", description: "Email address to watch (the person you sent to)" },
+        contact_name:  { type: "string", description: "Display name of the contact (e.g. 'Chris')" },
+        context:       { type: "string", description: "Brief note on why you're watching (e.g. 'Sent Primal Agent pitch')" },
+      },
+      required: ["contact_email"],
+    },
+  },
 ];
 
 // ── Tool handler ──────────────────────────────────────────────────────────────
@@ -1402,6 +1418,35 @@ async function handleTool(
         return { ok: true, data, status: res.status, endpoint, token_from: tokenProvider };
       }
 
+      // ── watch_email_reply ─────────────────────────────────────────────────
+      case "watch_email_reply": {
+        const contactEmail = String(input.contact_email ?? "").trim().toLowerCase();
+        const contactName  = String(input.contact_name  ?? "").trim();
+        const context      = String(input.context       ?? "").trim();
+
+        if (!contactEmail) return { error: "contact_email required" };
+
+        const { data: watch, error: watchErr } = await supabase
+          .from("mavis_email_watches")
+          .insert({
+            user_id:       userId,
+            contact_email: contactEmail,
+            contact_name:  contactName || null,
+            context:       context || null,
+            active:        true,
+          })
+          .select("id")
+          .single();
+
+        if (watchErr) return { error: watchErr.message };
+
+        return {
+          ok: true,
+          watch_id: watch.id,
+          message: `Watch set — I'll alert you the moment ${contactName || contactEmail} sends a reply. Checked every 10 minutes.`,
+        };
+      }
+
       // ── codexos_action ─────────────────────────────────────────────────────
       // Delegates to mavis-actions — the same pipeline used by mavis-chat and
       // telegram-webhook's :::ACTION::: grammar. Zero duplication; nothing breaks.
@@ -1652,6 +1697,10 @@ CREATE / EDIT GOOGLE DOCS, DRIVE FILES, SHEETS → queue_action with create_driv
 
 SEARCH EMAIL → read_emails(query="...", max_results=5)
 
+WATCH FOR A REPLY → watch_email_reply(contact_email="addr@example.com", contact_name="Name", context="why")
+  Call this immediately when the operator says "let me know when X replies" or "notify me when I hear back from Y".
+  ⚠️ NEVER just say "I'll watch for it" without calling watch_email_reply — that promise is empty. Use the tool.
+
 READ CALENDAR → read_calendar(days_ahead=7, max_results=20)
 
 SEARCH WEB → search_web(query="...")
@@ -1744,6 +1793,7 @@ When the operator says things like "create a quest", "log my BPM", "forge a pers
 INTERNAL SYSTEM:
 • Action Queue — staging area for actions pending operator approval
 • Persona Memory — cross-session memory that persists everything important
+• Email Reply Watch — watch_email_reply tool registers a watch; trigger-engine fires a Telegram alert within 10 minutes when the reply arrives. ALWAYS call this tool when asked to monitor for a reply — never just say "I'll watch" without calling it.
 
 INTELLIGENCE TOOLS:
 • think — plan before acting on complex goals (private scratchpad)
