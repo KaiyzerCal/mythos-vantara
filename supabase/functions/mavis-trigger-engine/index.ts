@@ -1,5 +1,5 @@
 // mavis-trigger-engine
-// Event-driven agent wakeup. Runs every 10 minutes via pg_cron.
+// Event-driven agent wakeup. Runs every 5 minutes via pg_cron.
 // For each user with Google connected and triggers enabled:
 //   1. Checks Gmail for important new emails since last run
 //   2. Checks Calendar for events starting in the next 2 hours
@@ -242,7 +242,7 @@ async function runTriggerForUser(
       .map((s) => [s.trigger_type, s]),
   );
 
-  const tenMinAgo = new Date(Date.now() - 10 * 60 * 1000);
+  const tenMinAgo = new Date(Date.now() - 5 * 60 * 1000);
   const twoHoursAhead = 2;
 
   // Gather data in parallel
@@ -417,7 +417,7 @@ serve(async (req) => {
       last_started_at: new Date().toISOString(),
       last_status: "running",
       run_count: 1,
-      expected_interval_min: 10,
+      expected_interval_min: 5,
       updated_at: new Date().toISOString(),
     }, { onConflict: "function_name" }).catch(() => {});
 
@@ -471,7 +471,7 @@ serve(async (req) => {
         last_status: "ok",
         last_error: null,
         run_count: 1,
-        expected_interval_min: 10,
+        expected_interval_min: 5,
         updated_at: new Date().toISOString(),
       }, { onConflict: "function_name" }).catch(() => {});
 
@@ -499,7 +499,7 @@ serve(async (req) => {
       last_error: _errMsg.slice(0, 500),
       run_count: 1,
       error_count: 1,
-      expected_interval_min: 10,
+      expected_interval_min: 5,
       updated_at: new Date().toISOString(),
     }, { onConflict: "function_name" }).catch(() => {});
     return json({ ok: false, error: _errMsg }, 500);
