@@ -4,8 +4,9 @@
 //   1. Checks Gmail for important new emails since last run
 //   2. Checks Calendar for events starting in the next 2 hours
 //   3. Checks for overdue tasks/quests
-//   4. Runs mavis-agent with findings — auto-tier actions execute immediately
-//   5. Logs results to mavis_trigger_log
+//   4. Checks mavis_email_watches — fires direct Telegram alert if a watched contact replied
+//   5. Runs mavis-agent with findings — auto-tier actions execute immediately
+//   6. Logs results to mavis_trigger_log
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
@@ -18,6 +19,7 @@ const corsHeaders = {
 const SUPABASE_URL     = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const ANTHROPIC_KEY    = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
+const BOT_TOKEN        = Deno.env.get("TELEGRAM_BOT_TOKEN") ?? "";
 
 function json(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data), {
@@ -258,6 +260,66 @@ async function runTriggerForUser(
     shouldCheckCal   ? fetchUpcomingEvents(userId, twoHoursAhead, adminSb) : Promise.resolve([]),
     shouldCheckTasks ? fetchOverdueTasks(userId, adminSb)               : Promise.resolve([]),
   ]);
+
+  // ── Check email reply watches ─────────────────────────────────────────────
+  // Query active watches for this user, then match against newly fetched emails.
+  // Fire a direct Telegram alert (no agent call needed) for each hit.
+  if (emails.length > 0) {
+    try {
+      const { data: watches } = await adminSb
+        .from("mavis_email_watches")
+        .select("id, contact_email, contact_name, context")
+        .eq("user_id", userId)
+        .eq("active", true);
+
+      if (watches && (watches as any[]).length > 0) {
+        for (const watch of watches as { id: string; contact_email: string; contact_name: string | null; context: string | null }[]) {
+          const matchedEmail = emails.find((e) =>
+            e.from.toLowerCase().includes(watch.contact_email.toLowerCase()),
+          );
+
+          if (matchedEmail) {
+            // Send immediate Telegram alert
+            const displayName = watch.contact_name || watch.contact_email;
+            const alertText   = [
+              `📬 *Reply received from ${displayName}!*`,
+              watch.context ? `_Context: ${watch.context}_` : "",
+              `*Subject:* ${matchedEmail.subject || "(no subject)"}`,
+              matchedEmail.snippet ? `\n${matchedEmail.snippet}` : "",
+            ].filter(Boolean).join("\n");
+
+            // Get the user's Telegram chat ID
+            const { data: chatRow } = await adminSb
+              .from("mavis_user_integrations")
+              .select("key_value")
+              .eq("user_id", userId)
+              .eq("provider", "telegram")
+              .eq("key_name", "chat_id")
+              .maybeSingle();
+
+            const chatId = (chatRow as any)?.key_value ?? Deno.env.get("TELEGRAM_OPERATOR_CHAT_ID") ?? "";
+
+            if (chatId && BOT_TOKEN) {
+              await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+                method:  "POST",
+                headers: { "Content-Type": "application/json" },
+                body:    JSON.stringify({ chat_id: chatId, text: alertText, parse_mode: "Markdown" }),
+                signal:  AbortSignal.timeout(8_000),
+              }).catch(() => {});
+            }
+
+            // Deactivate the watch so it doesn't fire again
+            await adminSb
+              .from("mavis_email_watches")
+              .update({ active: false, triggered_at: new Date().toISOString() })
+              .eq("id", watch.id);
+          }
+        }
+      }
+    } catch (err) {
+      console.warn("[trigger-engine] email watch check failed:", err);
+    }
+  }
 
   // Nothing actionable — skip agent call
   if (emails.length === 0 && events.length === 0 && overdue.length === 0) {
