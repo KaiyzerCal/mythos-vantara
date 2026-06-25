@@ -730,10 +730,15 @@ async function handleChat(
   await typing(chatId);
 
   try {
-    // Pass the message directly — MAVIS uses recall_memory for persistent context.
-    // We do NOT inject chat_messages history because stale responses from previous
-    // broken sessions ("I can't send email") would mislead the agent.
-    const goal = text;
+    // Include recent conversational history so MAVIS has multi-turn memory on
+    // Telegram — matches the app's MavisChat behaviour (it forwards full history
+    // to mavis-agent). Stale "I can't" responses are no longer an issue now that
+    // the agent has full Google Workspace tools wired up.
+    const recentHistory = history.slice(-8).map((m) => ({
+      role:    m.role === "assistant" ? "assistant" : "user",
+      content: String(m.content ?? ""),
+    }));
+    const messages = [...recentHistory, { role: "user", content: text }];
 
     const res = await fetch(`${SUPABASE_URL}/functions/v1/mavis-agent`, {
       method: "POST",
@@ -741,7 +746,7 @@ async function handleChat(
         "Content-Type":  "application/json",
         "Authorization": `Bearer ${SERVICE_KEY}`,
       },
-      body: JSON.stringify({ user_id: uid, goal, mode: "TELEGRAM" }),
+      body: JSON.stringify({ user_id: uid, messages, mode: "TELEGRAM" }),
       signal: AbortSignal.timeout(90_000),
     });
 
