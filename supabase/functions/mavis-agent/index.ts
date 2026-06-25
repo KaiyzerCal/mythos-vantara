@@ -1627,7 +1627,7 @@ serve(async (req) => {
     }
 
     const env: Env = {
-      tavilyKey: Deno.env.get("Tavily_API") ?? "",
+      tavilyKey: Deno.env.get("TAVILY_API_KEY") ?? Deno.env.get("Tavily_API") ?? "",
       lovableKey,
       supabaseUrl: SUPABASE_URL,
       serviceKey: SERVICE_KEY,
