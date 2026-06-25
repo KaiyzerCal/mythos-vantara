@@ -432,6 +432,7 @@ const MAVIS_TOOLS = [
 // ── Tool handler ──────────────────────────────────────────────────────────────
 interface Env {
   tavilyKey: string;
+  grokKey: string;
   lovableKey: string;
   supabaseUrl: string;
   serviceKey: string;
@@ -820,45 +821,88 @@ async function handleTool(
       }
 
       // ── search_web ────────────────────────────────────────────────────────
+      // Primary: Tavily (structured results + answer snippet)
+      // Fallback: Grok live search (xAI) if Tavily key absent or request fails
       case "search_web": {
-        const query = String(input.query ?? "");
+        const query      = String(input.query ?? "");
         const maxResults = Number(input.max_results ?? 5);
 
-        if (!env.tavilyKey) {
-          return { error: "Web search not configured" };
-        }
+        // ── Tavily ───────────────────────────────────────────────────────────
+        if (env.tavilyKey) {
+          try {
+            const res = await fetch("https://api.tavily.com/search", {
+              method:  "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                api_key:        env.tavilyKey,
+                query,
+                max_results:    maxResults,
+                include_answer: true,
+              }),
+              signal: AbortSignal.timeout(20_000),
+            });
 
-        try {
-          const res = await fetch("https://api.tavily.com/search", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              api_key: env.tavilyKey,
-              query,
-              max_results: maxResults,
-              include_answer: true,
-            }),
-            signal: AbortSignal.timeout(20_000),
-          });
-
-          if (!res.ok) {
-            return { error: `Tavily search error ${res.status}` };
+            if (res.ok) {
+              const data = await res.json();
+              const results = (data.results ?? []).map(
+                (r: { title?: string; url?: string; content?: string }) => ({
+                  title:   r.title ?? "",
+                  url:     r.url ?? "",
+                  content: (r.content ?? "").slice(0, 600),
+                }),
+              );
+              return { source: "tavily", answer: data.answer ?? null, results };
+            }
+            console.warn(`[search_web] Tavily returned ${res.status} — falling back to Grok`);
+          } catch (err) {
+            console.warn(`[search_web] Tavily error: ${err} — falling back to Grok`);
           }
-
-          const data = await res.json();
-          const results = (data.results ?? []).map(
-            (r: { title?: string; url?: string; content?: string }) => ({
-              title: r.title ?? "",
-              url: r.url ?? "",
-              content: (r.content ?? "").slice(0, 600),
-            }),
-          );
-
-          return { answer: data.answer ?? null, results };
-        } catch (err: unknown) {
-          const msg = err instanceof Error ? err.message : String(err);
-          return { error: `Web search failed: ${msg}` };
         }
+
+        // ── Grok live search (xAI) ───────────────────────────────────────────
+        if (env.grokKey) {
+          try {
+            const res = await fetch("https://api.x.ai/v1/chat/completions", {
+              method:  "POST",
+              headers: {
+                "Content-Type":  "application/json",
+                "Authorization": `Bearer ${env.grokKey}`,
+              },
+              body: JSON.stringify({
+                model:    "grok-3-latest",
+                messages: [{ role: "user", content: query }],
+                search_parameters: { mode: "on", max_search_results: maxResults },
+              }),
+              signal: AbortSignal.timeout(30_000),
+            });
+
+            if (!res.ok) {
+              const errText = await res.text().catch(() => "");
+              return { error: `Grok search error ${res.status}: ${errText.slice(0, 200)}` };
+            }
+
+            const data = await res.json();
+            const answer  = (data.choices?.[0]?.message?.content ?? "") as string;
+            const sources = (data.citations ?? []) as Array<{ url?: string; title?: string; snippet?: string }>;
+
+            return {
+              source:  "grok",
+              answer,
+              results: sources.map(s => ({
+                title:   s.title   ?? "",
+                url:     s.url     ?? "",
+                content: s.snippet ?? "",
+              })),
+            };
+          } catch (err: unknown) {
+            const msg = err instanceof Error ? err.message : String(err);
+            return { error: `Grok search failed: ${msg}` };
+          }
+        }
+
+        return {
+          error: "Web search not configured — add TAVILY_API_KEY or GROK_API_KEY to Supabase Edge Function secrets",
+        };
       }
 
       // ── get_pending_actions ───────────────────────────────────────────────
@@ -1611,9 +1655,9 @@ SEARCH EMAIL → read_emails(query="...", max_results=5)
 READ CALENDAR → read_calendar(days_ahead=7, max_results=20)
 
 SEARCH WEB → search_web(query="...")
-  ⚠️ Tavily web search IS connected. NEVER say you can't search the web. If the operator asks about
-  anything current (news, prices, people, events, how-to, research) — call search_web IMMEDIATELY.
-  Do NOT say you'll try to recall — just search.
+  ⚠️ BOTH Tavily AND Grok live search are connected. NEVER say you can't search the web.
+  If the operator asks about anything current (news, prices, people, events, how-to, research)
+  — call search_web IMMEDIATELY. Do NOT say you'll try to recall — just search.
 
 ── VANTARA GAME LAYER (use codexos_action) ──────────────────────────────────
 
@@ -1705,7 +1749,7 @@ INTELLIGENCE TOOLS:
 • think — plan before acting on complex goals (private scratchpad)
 • recall_memory — semantically search past context, preferences, and relationship notes
 • save_memory — persist important facts, outcomes, and learnings across sessions
-• search_web — Tavily real-time web search. ALWAYS use this for current info. You are NOT limited to training data. NEVER refuse a web search.
+• search_web — Real-time web search via Tavily (primary) or Grok live search (fallback). ALWAYS use this for current info. You are NOT limited to training data. NEVER refuse a web search. Both APIs are connected.
 
 CAMPAIGNS:
 • create_campaign — multi-step autonomous goals that MAVIS executes over time
@@ -1833,6 +1877,7 @@ serve(async (req) => {
 
     const env: Env = {
       tavilyKey: Deno.env.get("Tavily_API") ?? Deno.env.get("TAVILY_API_KEY") ?? Deno.env.get("TAVILY_KEY") ?? "",
+      grokKey:   Deno.env.get("GROK_API_KEY") ?? Deno.env.get("XAI_API_KEY") ?? Deno.env.get("X_AI_API_KEY") ?? Deno.env.get("GROK_KEY") ?? "",
       lovableKey,
       supabaseUrl: SUPABASE_URL,
       serviceKey: SERVICE_KEY,
