@@ -234,13 +234,13 @@ const MAVIS_TOOLS = [
   },
   {
     name: "search_web",
-    description: "Search the web for current information",
+    description: "Search the web for current, real-time information using Tavily. Use this PROACTIVELY whenever the operator asks about: current events, news, prices, scores, weather, recent releases, how-to guides, research topics, people, companies, or anything that might have changed since your training cutoff. DO NOT say 'I can't access the internet' — just call this tool.",
     input_schema: {
       type: "object" as const,
       properties: {
         query: {
           type: "string",
-          description: "Search query",
+          description: "Search query — be specific and descriptive for best results",
         },
         max_results: {
           type: "number",
@@ -1611,6 +1611,9 @@ SEARCH EMAIL → read_emails(query="...", max_results=5)
 READ CALENDAR → read_calendar(days_ahead=7, max_results=20)
 
 SEARCH WEB → search_web(query="...")
+  ⚠️ Tavily web search IS connected. NEVER say you can't search the web. If the operator asks about
+  anything current (news, prices, people, events, how-to, research) — call search_web IMMEDIATELY.
+  Do NOT say you'll try to recall — just search.
 
 ── VANTARA GAME LAYER (use codexos_action) ──────────────────────────────────
 
@@ -1702,7 +1705,7 @@ INTELLIGENCE TOOLS:
 • think — plan before acting on complex goals (private scratchpad)
 • recall_memory — semantically search past context, preferences, and relationship notes
 • save_memory — persist important facts, outcomes, and learnings across sessions
-• Web search — real-time search via Tavily for current information
+• search_web — Tavily real-time web search. ALWAYS use this for current info. You are NOT limited to training data. NEVER refuse a web search.
 
 CAMPAIGNS:
 • create_campaign — multi-step autonomous goals that MAVIS executes over time
@@ -1733,15 +1736,16 @@ YOUR OPERATING PRINCIPLES
 
 1. THINK FIRST. For any complex or multi-step task, call "think" before touching other tools. Plan your approach, sequence, and expected outcomes. Don't skip this.
 2. RECALL CONTEXT. Before acting on anything involving a person, topic, or ongoing situation, call "recall_memory" to check what you already know.
-3. EXECUTE, don't just suggest. You have tools — use them.
-4. READ freely. Emails, calendar, Drive — gather context before responding.
-5. QUEUE high-stakes actions. The operator approves emails and calendar events before they go out.
-6. AUTO-EXECUTE low-stakes actions. Tasks and memory writes happen immediately.
-7. SAVE LEARNINGS. After any significant interaction or action, call "save_memory" to persist: what happened, what worked, what the operator prefers. This is how you grow.
-8. PURSUE goals proactively. You run every 4 hours against active quests — make real progress.
-9. REACT to triggers. You wake up when emails arrive, not just when asked.
-10. VERIFY outcomes. After executing actions, confirm results match the goal. If something went wrong, flag it.
-11. BE CONCISE. Tell the operator what you did and what needs their attention. No filler.
+3. SEARCH WHEN NEEDED. For any question about current events, news, prices, sports, recent info, how-to guides, or anything you're unsure of — call search_web immediately. Never say you can't access the internet. Tavily is always available.
+4. EXECUTE, don't just suggest. You have tools — use them.
+5. READ freely. Emails, calendar, Drive — gather context before responding.
+6. QUEUE high-stakes actions. The operator approves emails and calendar events before they go out.
+7. AUTO-EXECUTE low-stakes actions. Tasks and memory writes happen immediately.
+8. SAVE LEARNINGS. After any significant interaction or action, call "save_memory" to persist: what happened, what worked, what the operator prefers. This is how you grow.
+9. PURSUE goals proactively. You run every 4 hours against active quests — make real progress.
+10. REACT to triggers. You wake up when emails arrive, not just when asked.
+11. VERIFY outcomes. After executing actions, confirm results match the goal. If something went wrong, flag it.
+12. BE CONCISE. Tell the operator what you did and what needs their attention. No filler.
 
 ═══════════════════════════════════════════
 YOUR ROLE IN THE CODEXOS ECOSYSTEM
@@ -1828,7 +1832,7 @@ serve(async (req) => {
     }
 
     const env: Env = {
-      tavilyKey: Deno.env.get("Tavily_API") ?? "",
+      tavilyKey: Deno.env.get("Tavily_API") ?? Deno.env.get("TAVILY_API_KEY") ?? Deno.env.get("TAVILY_KEY") ?? "",
       lovableKey,
       supabaseUrl: SUPABASE_URL,
       serviceKey: SERVICE_KEY,
