@@ -12,6 +12,7 @@ import { useElevenLabsTts } from "@/hooks/useElevenLabsTts";
 import { useChatAttachments } from "@/hooks/useChatAttachments";
 import { VoicePicker } from "@/components/chat/VoicePicker";
 import { AttachmentTray, AttachButton } from "@/components/chat/AttachmentTray";
+import { ChatMediaPreview } from "@/components/chat/ChatMediaPreview";
 import { DEFAULT_VOICE_BY_GENDER, findVoice } from "@/lib/voiceCatalog";
 import { ScrollProgressBar, BackToTopButton, ScrollToBottomButton, EndOfFeed } from "@/components/chat/ScrollKit";
 import { SessionBlock, groupMessagesIntoSessions } from "@/components/chat/SessionBlock";
@@ -125,7 +126,8 @@ export default function MavisChat() {
 
   // ElevenLabs TTS + chat attachments
   const { speak, stop: stopSpeaking, isSpeaking, isLoading: isVoiceLoading } = useElevenLabsTts();
-  const { attachments, isUploading, upload, remove } = useChatAttachments("mavis", "main");
+  const { attachments, isUploading, upload, remove, clearStaged } = useChatAttachments("mavis", "main");
+  const [isDragging, setIsDragging] = useState(false);
 
   // ── Register the mavis-actions edge function as default action handler ──
   useEffect(() => {
@@ -589,14 +591,17 @@ export default function MavisChat() {
 
     const convoId = await ensureConversation();
 
+    const stagedAttachments = [...attachments];
     const userMsg = {
       id: `u-${Date.now()}`,
       role: "user" as const,
       content,
       mode: chatMode,
       timestamp: new Date(),
+      stagedAttachments,
     };
     setChatMessages((prev) => [...prev, userMsg]);
+    clearStaged();
     setIsLoading(true);
 
     if (convoId) {
@@ -886,7 +891,7 @@ export default function MavisChat() {
       setAgentSteps([]);
       abortRef.current = null;
     }
-  }, [input, chatMessages, isLoading, chatMode, agentModeOn, agentThinking, profile, quests, tasks, skills, journalEntries, vaultEntries, conversationId, setChatMessages, setConversationId, refetchAll, ensureConversation, persistMessage, saveMemoriesFromResponse, speakText, attachments]);
+  }, [input, chatMessages, isLoading, chatMode, agentModeOn, agentThinking, profile, quests, tasks, skills, journalEntries, vaultEntries, conversationId, setChatMessages, setConversationId, refetchAll, ensureConversation, persistMessage, saveMemoriesFromResponse, speakText, attachments, clearStaged]);
 
   const sendFeedback = useCallback(async (msg: any, rating: 1 | -1) => {
     if (feedbackGiven[msg.id]) return;
@@ -995,7 +1000,24 @@ export default function MavisChat() {
   return (
     <>
     <div className="flex gap-3 h-[calc(100dvh-4rem)]">
-    <div className="flex flex-col flex-1 min-w-0 gap-2 pb-0">
+    <div
+      className={`flex flex-col flex-1 min-w-0 gap-2 pb-0 relative transition-colors ${isDragging ? "bg-primary/5 ring-1 ring-inset ring-primary/20 rounded-lg" : ""}`}
+      onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
+      onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setIsDragging(false); }}
+      onDrop={(e) => {
+        e.preventDefault();
+        setIsDragging(false);
+        const files = Array.from(e.dataTransfer.files);
+        if (files.length) upload(files);
+      }}
+    >
+      {isDragging && (
+        <div className="absolute inset-0 z-20 flex items-center justify-center pointer-events-none">
+          <div className="border-2 border-dashed border-primary/50 rounded-xl px-8 py-4 bg-background/80">
+            <p className="text-sm font-mono text-primary">Drop files to attach</p>
+          </div>
+        </div>
+      )}
       <PageHeader
         title="MAVIS"
         subtitle={`Mode: ${currentMode.label} // Supreme Intelligence`}
@@ -1377,7 +1399,12 @@ export default function MavisChat() {
                           )}
                         </>
                       ) : (
-                        <p className="text-xs font-body leading-relaxed">{msg.content}</p>
+                        <>
+                          {(msg as any).stagedAttachments?.length > 0 && (
+                            <ChatMediaPreview attachments={(msg as any).stagedAttachments} />
+                          )}
+                          <p className="text-xs font-body leading-relaxed">{msg.content}</p>
+                        </>
                       )}
                       <div className="flex items-center justify-between mt-1.5 gap-2 flex-wrap">
                         {(msg as any).searched && (
@@ -1597,6 +1624,15 @@ export default function MavisChat() {
           onChange={(e) => setInput(e.target.value)}
           onCompositionStart={() => setIsComposing(true)}
           onCompositionEnd={() => setIsComposing(false)}
+          onPaste={(e) => {
+            const items = Array.from(e.clipboardData.items);
+            const fileItems = items.filter((i) => i.kind === "file");
+            if (fileItems.length) {
+              e.preventDefault();
+              const files = fileItems.map((i) => i.getAsFile()).filter((f): f is File => f !== null);
+              if (files.length) upload(files);
+            }
+          }}
           onKeyDown={(e) => {
             if (e.key === "Enter" && !e.shiftKey && !isComposing) {
               e.preventDefault();
