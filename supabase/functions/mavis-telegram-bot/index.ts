@@ -179,21 +179,19 @@ async function analyzePhoto(
 
 type ChatMessage = { role: "user" | "assistant"; content: string };
 
-function sessionTitle(uid: string): string {
-  return uid === CALIYAH_UID ? "[Telegram Caliyah] MAVIS Session" : "[Telegram] MAVIS Session";
-}
-
 async function getOrCreateSession(uid: string): Promise<string | null> {
   if (!uid) return null;
-  const title = sessionTitle(uid);
 
+  // Use the same lookup strategy as the web chat: most recently updated
+  // non-Council-Board conversation. This ensures Telegram and web always
+  // share one unified thread instead of writing to separate conversations.
   let existing: unknown = null;
   try {
     const { data } = await sb
       .from("chat_conversations")
       .select("id")
       .eq("user_id", uid)
-      .eq("title", title)
+      .not("title", "ilike", "Council Board%")
       .order("updated_at", { ascending: false })
       .limit(1)
       .maybeSingle();
@@ -204,11 +202,12 @@ async function getOrCreateSession(uid: string): Promise<string | null> {
 
   if ((existing as any)?.id) return (existing as any).id;
 
+  // No conversation yet — create a neutral shared one
   let created: unknown = null;
   try {
     const { data } = await sb
       .from("chat_conversations")
-      .insert({ user_id: uid, title })
+      .insert({ user_id: uid, title: "MAVIS Session" })
       .select("id")
       .single();
     created = data;
@@ -249,6 +248,10 @@ async function saveExchange(
       { conversation_id: conversationId, user_id: uid, role: "user",      content: userContent,      mode: "TELEGRAM" },
       { conversation_id: conversationId, user_id: uid, role: "assistant", content: assistantContent, mode: "TELEGRAM" },
     ]);
+    // Bump updated_at so the web chat loads this conversation first on next visit
+    await sb.from("chat_conversations")
+      .update({ updated_at: new Date().toISOString() })
+      .eq("id", conversationId);
   } catch {
     // Memory persistence should never block Telegram replies.
   }
