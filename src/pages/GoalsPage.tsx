@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { supabase as _supabase } from "@/integrations/supabase/client";
 const supabase = _supabase as any;
+import { recordAutoMemory } from "@/mavis/autoMemory";
 import { useAuth } from "@/contexts/AuthContext";
 import { useAppData } from "@/contexts/AppDataContext";
 import { PageHeader, HudCard, ProgressBar, FieldError, fieldClass } from "@/components/SharedUI";
@@ -183,7 +184,18 @@ export function GoalsPage() {
       .update({ status, updated_at: new Date().toISOString() })
       .eq("id", id);
     if (error) { toast.error("Failed to update goal"); fetchGoals(); }
-    else toast.success(`Goal marked as ${status}`);
+    else {
+      toast.success(`Goal marked as ${status}`);
+      if (status === "completed") {
+        const goal = goals.find(g => g.id === id);
+        recordAutoMemory("goal_achieved", {
+          title: `Goal Achieved: ${goal?.objective ?? "Goal"}`,
+          content: `Achieved goal: "${goal?.objective ?? id}"${goal?.context ? `. ${goal.context}` : ""}`,
+          tags: ["goal"],
+          metadata: { goal_id: id },
+        }).catch(() => {});
+      }
+    }
     setActionLoading(null);
   }
 
