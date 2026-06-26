@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { Send, Square, Cpu, Copy, Check, ChevronDown, Zap, Brain, Target, Crown, Flame, Database, Mic, MicOff, Users, Search, FileCode, X, Download, Gamepad2, Layers, Globe, ThumbsUp, ThumbsDown, AlertTriangle } from "lucide-react";
+import { Send, Square, Cpu, Copy, Check, ChevronDown, Zap, Brain, Target, Crown, Flame, Database, Mic, MicOff, Users, Search, FileCode, X, Download, Gamepad2, Layers, Globe, ThumbsUp, ThumbsDown, AlertTriangle, RefreshCw, Pencil } from "lucide-react";
 import { useAppData } from "@/contexts/AppDataContext";
 import { supabase as _supabase } from "@/integrations/supabase/client";
 const supabase = _supabase as any;
@@ -11,6 +11,7 @@ import { toast } from "sonner";
 import { useElevenLabsTts } from "@/hooks/useElevenLabsTts";
 import { useChatAttachments } from "@/hooks/useChatAttachments";
 import { VoicePicker } from "@/components/chat/VoicePicker";
+import { MarkdownRenderer } from "@/components/chat/MarkdownRenderer";
 import { AttachmentTray, AttachButton } from "@/components/chat/AttachmentTray";
 import { ChatMediaPreview } from "@/components/chat/ChatMediaPreview";
 import { DEFAULT_VOICE_BY_GENDER, findVoice } from "@/lib/voiceCatalog";
@@ -22,7 +23,7 @@ import { MavisRealtimeVoice } from "@/components/MavisRealtimeVoice";
 // ── MAVIS modules ───────────────────────────────────────────
 import { buildSystemPromptFromSnapshot } from "@/mavis/buildSystemPrompt";
 import { setDefaultHandler, registerActionHandler } from "@/mavis/actionExecutor";
-import { streamChatMessage, streamAgentMessage, streamResearchMessage } from "@/mavis/chatService";
+import { streamChatMessage, streamAgentMessage, streamResearchMessage, invokeAI } from "@/mavis/chatService";
 import { loadFullAppContext } from "@/mavis/appContextLoader";
 import { initSession } from "@/mavis/memoryEngine";
 import { loadRuntimeSkills } from "@/mavis/skills/_registry";
@@ -123,6 +124,15 @@ export default function MavisChat() {
   const [selectedPersonaName, setSelectedPersonaName] = useState<string | null>(null);
   const [showPersonaPicker, setShowPersonaPicker] = useState(false);
   const [pickerPersonas, setPickerPersonas] = useState<{ id: string; name: string; system_prompt: string }[]>([]);
+
+  // ── Edit & Regenerate ──
+  const [editingMsgId, setEditingMsgId] = useState<string | null>(null);
+
+  // ── Suggested follow-ups ──
+  const [suggestions, setSuggestions] = useState<Map<string, string[]>>(new Map());
+
+  // ── Response length control ──
+  const [responseLength, setResponseLength] = useState<"concise" | "normal" | "detailed">("normal");
 
   // ElevenLabs TTS + chat attachments
   const { speak, stop: stopSpeaking, isSpeaking, isLoading: isVoiceLoading } = useElevenLabsTts();
@@ -502,6 +512,10 @@ export default function MavisChat() {
     return "";
   }, [chatMessages]);
   const nonInitCount = useMemo(() => chatMessages.filter((m) => m.id !== "init").length, [chatMessages]);
+  const lastAssistantMsgId = useMemo(() => {
+    const assistantMsgs = chatMessages.filter((m) => m.role === "assistant" && !m.id.startsWith("streaming-") && m.content);
+    return assistantMsgs.at(-1)?.id ?? null;
+  }, [chatMessages]);
   const lastMessageTime = useMemo(() => {
     const last = [...chatMessages].reverse().find((m) => m.id !== "init");
     return last?.timestamp;
@@ -591,6 +605,17 @@ export default function MavisChat() {
 
     const convoId = await ensureConversation();
 
+    // ── Edit mode: truncate history to before the edited message ──
+    let effectiveMessages = chatMessages;
+    if (editingMsgId) {
+      const editIdx = chatMessages.findIndex((m) => m.id === editingMsgId);
+      if (editIdx !== -1) {
+        effectiveMessages = chatMessages.slice(0, editIdx);
+        setChatMessages(effectiveMessages);
+      }
+      setEditingMsgId(null);
+    }
+
     const stagedAttachments = [...attachments];
     const userMsg = {
       id: `u-${Date.now()}`,
@@ -608,7 +633,7 @@ export default function MavisChat() {
       persistMessage({ role: "user", content, mode: chatMode }, convoId).catch(() => {});
     }
 
-    const history = chatMessages
+    const history = effectiveMessages
       .filter((m) => m.id !== "init")
       .slice(-18)
       .map((m) => ({ role: m.role, content: m.content }));
@@ -734,6 +759,8 @@ export default function MavisChat() {
             rituals: rituals as any[], pendingApprovals: [], loadedAt: new Date().toISOString(),
           } as any), archivedMemories, vaultMedia));
       if (recallCtxRaw) systemPrompt += `\n\n${recallCtxRaw}`;
+      if (responseLength === "concise") systemPrompt += "\n\n[RESPONSE LENGTH: Be concise — 2-4 sentences unless more is genuinely needed.]";
+      else if (responseLength === "detailed") systemPrompt += "\n\n[RESPONSE LENGTH: Be thorough and detailed — elaborate with examples where useful.]";
       if (selectedPersonaPrompt) systemPrompt += `\n\n--- ACTIVE PERSONA ---\n${selectedPersonaPrompt}\n---`;
       const attachmentIds = attachments.map((a) => a.id);
 
@@ -869,6 +896,27 @@ export default function MavisChat() {
         await persistMessage({ role: "assistant", content: cleanText, mode: chatMode }, convoId);
       }
       saveMemoriesFromResponse(content, cleanText);
+
+      // Fire-and-forget: generate suggested follow-ups
+      if (cleanText.length > 80) {
+        const msgId = assistantMsg.id;
+        (async () => {
+          try {
+            const suggestSys = "You are a suggestion engine. Based on the assistant's last response, suggest 3 short follow-up questions or actions the user might want to take next. Reply with ONLY a JSON array of 3 strings, e.g. [\"Question 1\", \"Question 2\", \"Question 3\"]. No other text.";
+            const suggestMsgs = [
+              { role: "user", content: `User asked: ${content}\n\nAssistant replied: ${cleanText.slice(0, 800)}` },
+            ];
+            const result = await invokeAI(suggestSys, suggestMsgs, "PRIME");
+            const match = result.match(/\[[\s\S]*?\]/);
+            if (match) {
+              const parsed = JSON.parse(match[0]);
+              if (Array.isArray(parsed)) {
+                setSuggestions((prev) => new Map(prev).set(msgId, parsed.slice(0, 3)));
+              }
+            }
+          } catch { /* non-critical */ }
+        })();
+      }
     } catch (err: any) {
       if (cancelledRef.current || err?.name === "AbortError") {
         if (streamingId) setChatMessages((prev) => prev.filter((m) => m.id !== streamingId));
@@ -891,7 +939,7 @@ export default function MavisChat() {
       setAgentSteps([]);
       abortRef.current = null;
     }
-  }, [input, chatMessages, isLoading, chatMode, agentModeOn, agentThinking, profile, quests, tasks, skills, journalEntries, vaultEntries, conversationId, setChatMessages, setConversationId, refetchAll, ensureConversation, persistMessage, saveMemoriesFromResponse, speakText, attachments, clearStaged]);
+  }, [input, chatMessages, isLoading, chatMode, agentModeOn, agentThinking, profile, quests, tasks, skills, journalEntries, vaultEntries, conversationId, setChatMessages, setConversationId, refetchAll, ensureConversation, persistMessage, saveMemoriesFromResponse, speakText, attachments, clearStaged, editingMsgId, responseLength]);
 
   const sendFeedback = useCallback(async (msg: any, rating: 1 | -1) => {
     if (feedbackGiven[msg.id]) return;
@@ -914,6 +962,23 @@ export default function MavisChat() {
     setCopiedId(id);
     setTimeout(() => setCopiedId(null), 2000);
   };
+
+  // ── Regenerate last assistant response ──
+  const regenerate = useCallback(() => {
+    const msgs = chatMessages.filter((m) => m.id !== "init");
+    // Find the last user message
+    const lastUserMsg = [...msgs].reverse().find((m) => m.role === "user");
+    if (!lastUserMsg) return;
+    // Remove the last assistant message
+    const lastAssistantIdx = msgs.map((m) => m.role).lastIndexOf("assistant");
+    if (lastAssistantIdx === -1) return;
+    const withoutLast = chatMessages.filter((_, i) => {
+      const filtered = chatMessages.filter((m) => m.id !== "init");
+      return chatMessages[i].id !== filtered[lastAssistantIdx].id;
+    });
+    setChatMessages(withoutLast);
+    sendMessage(lastUserMsg.content);
+  }, [chatMessages, setChatMessages, sendMessage]);
 
   // ── Pending action helpers ──────────────────────────────────
   function getActionLabel(action: ParsedAction): string {
