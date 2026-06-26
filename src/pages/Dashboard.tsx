@@ -177,8 +177,10 @@ export default function Dashboard() {
         .order("created_at", { ascending: false })
         .limit(1)
         .maybeSingle()
-        .then(({ data }) => setLastEvolution(data ?? null))
-        .catch((e: unknown) => { console.error("Failed to load evolution log", e); toast.error("Failed to load Self-Evolution"); }),
+        .then(
+          ({ data }) => setLastEvolution(data ?? null),
+          (e: unknown) => { console.error("Failed to load evolution log", e); toast.error("Failed to load Self-Evolution"); },
+        ),
 
       // Performance Score
       (supabase as any)
