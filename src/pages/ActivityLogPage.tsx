@@ -5,6 +5,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { useAppData } from "@/contexts/AppDataContext";
 import { PageHeader, HudCard } from "@/components/SharedUI";
+import { EmptyState } from "@/components/EmptyState";
 
 interface ActivityEntry {
   id: string;
@@ -129,7 +130,11 @@ export default function ActivityLogPage() {
         <p className="text-xs font-mono text-muted-foreground animate-pulse">Loading activity...</p>
       ) : entries.length === 0 ? (
         <HudCard>
-          <p className="text-xs font-mono text-muted-foreground text-center py-8">No activity recorded yet. Complete quests to generate events.</p>
+          <EmptyState
+            icon={ScrollText}
+            title="No activity recorded yet"
+            description="Complete quests to generate events."
+          />
         </HudCard>
       ) : (
         <div className="space-y-6">

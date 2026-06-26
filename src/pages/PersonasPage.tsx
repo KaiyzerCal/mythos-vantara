@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
-import { Plus, Users, Loader2, AlertCircle, Wand2, PhoneCall } from "lucide-react";
+import { Plus, Users, Loader2, AlertCircle, Wand2, PhoneCall, Edit2, X, Save } from "lucide-react";
 import { AnimatePresence } from "framer-motion";
+import { toast } from "sonner";
 import { VoiceChatOverlay } from "@/components/VoiceChatOverlay";
 import type { VoicePersona } from "@/components/VoiceChatOverlay";
 import { PageHeader, HudCard } from "@/components/SharedUI";
@@ -70,6 +71,181 @@ function ForgePanel({ onForged }: { onForged: (p: ForgedPersona) => void }) {
   );
 }
 
+// ─── Edit Persona Panel ──────────────────────────────────────
+interface EditPersonaPanelProps {
+  persona: ForgedPersona;
+  onSaved: (updated: ForgedPersona) => void;
+  onCancel: () => void;
+}
+
+function EditPersonaPanel({ persona, onSaved, onCancel }: EditPersonaPanelProps) {
+  const [name, setName] = useState(persona.name);
+  const [role, setRole] = useState(persona.role);
+  const [archetype, setArchetype] = useState(persona.archetype);
+  const [systemPrompt, setSystemPrompt] = useState(persona.system_prompt);
+  const [personalityText, setPersonalityText] = useState(
+    JSON.stringify(persona.personality ?? {}, null, 2)
+  );
+  const [model, setModel] = useState(persona.model);
+  const [personalityError, setPersonalityError] = useState<string | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
+
+  const handleSave = async () => {
+    // Validate personality JSON
+    let parsedPersonality: Record<string, any> = {};
+    try {
+      parsedPersonality = JSON.parse(personalityText);
+    } catch {
+      setPersonalityError("Invalid JSON — please fix the personality field.");
+      return;
+    }
+    setPersonalityError(null);
+
+    if (!name.trim()) return;
+
+    setIsSaving(true);
+    try {
+      const { data, error } = await supabase
+        .from("personas")
+        .update({
+          name: name.trim(),
+          role: role.trim(),
+          archetype: archetype.trim(),
+          system_prompt: systemPrompt,
+          personality: parsedPersonality,
+          model: model.trim(),
+        })
+        .eq("id", persona.id)
+        .select()
+        .single();
+
+      if (error) throw new Error(error.message);
+
+      toast.success(`"${name.trim()}" updated successfully.`);
+      onSaved(data as unknown as ForgedPersona);
+    } catch (e: any) {
+      toast.error("Failed to save: " + (e.message ?? "Unknown error"));
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  return (
+    <HudCard glowColor="gold">
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-2">
+          <Edit2 size={14} className="text-primary" />
+          <p className="font-display text-sm font-bold text-glow-gold">EDIT PERSONA</p>
+        </div>
+        <button
+          onClick={onCancel}
+          className="p-1 rounded text-muted-foreground hover:text-foreground transition-colors"
+          title="Cancel editing"
+        >
+          <X size={14} />
+        </button>
+      </div>
+
+      <div className="space-y-3">
+        {/* Name */}
+        <div>
+          <label className="block text-xs font-mono text-muted-foreground uppercase mb-1">Name</label>
+          <input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            className="w-full bg-muted/30 border border-border rounded-lg px-3 py-2 text-sm font-body text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary/50 transition-colors"
+          />
+        </div>
+
+        {/* Role */}
+        <div>
+          <label className="block text-xs font-mono text-muted-foreground uppercase mb-1">Role</label>
+          <input
+            value={role}
+            onChange={(e) => setRole(e.target.value)}
+            placeholder="girlfriend, friend, mentor, rival, companion, custom"
+            className="w-full bg-muted/30 border border-border rounded-lg px-3 py-2 text-sm font-body text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary/50 transition-colors"
+          />
+        </div>
+
+        {/* Archetype */}
+        <div>
+          <label className="block text-xs font-mono text-muted-foreground uppercase mb-1">Archetype</label>
+          <input
+            value={archetype}
+            onChange={(e) => setArchetype(e.target.value)}
+            className="w-full bg-muted/30 border border-border rounded-lg px-3 py-2 text-sm font-body text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary/50 transition-colors"
+          />
+        </div>
+
+        {/* Model */}
+        <div>
+          <label className="block text-xs font-mono text-muted-foreground uppercase mb-1">Model</label>
+          <input
+            value={model}
+            onChange={(e) => setModel(e.target.value)}
+            className="w-full bg-muted/30 border border-border rounded-lg px-3 py-2 text-sm font-mono text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary/50 transition-colors"
+          />
+        </div>
+
+        {/* Personality JSON */}
+        <div>
+          <label className="block text-xs font-mono text-muted-foreground uppercase mb-1">Personality (JSON)</label>
+          <textarea
+            value={personalityText}
+            onChange={(e) => { setPersonalityText(e.target.value); setPersonalityError(null); }}
+            rows={5}
+            className="w-full resize-none bg-muted/30 border border-border rounded-lg px-3 py-2 text-xs font-mono text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary/50 transition-colors"
+          />
+          {personalityError && (
+            <div className="flex items-center gap-1.5 text-neon-red text-xs font-mono mt-1">
+              <AlertCircle size={10} />
+              {personalityError}
+            </div>
+          )}
+        </div>
+
+        {/* System Prompt */}
+        <div>
+          <label className="block text-xs font-mono text-muted-foreground uppercase mb-1">System Prompt</label>
+          <textarea
+            value={systemPrompt}
+            onChange={(e) => setSystemPrompt(e.target.value)}
+            rows={6}
+            className="w-full resize-none bg-muted/30 border border-border rounded-lg px-3 py-2 text-sm font-body text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary/50 transition-colors"
+          />
+        </div>
+      </div>
+
+      <div className="flex items-center gap-2 mt-4">
+        <button
+          onClick={handleSave}
+          disabled={isSaving || !name.trim()}
+          className="flex items-center gap-2 px-4 py-2 rounded border border-primary/30 bg-primary/10 text-primary text-xs font-medium hover:bg-primary/20 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+        >
+          {isSaving ? (
+            <>
+              <Loader2 size={12} className="animate-spin" />
+              Saving...
+            </>
+          ) : (
+            <>
+              <Save size={12} />
+              Save Changes
+            </>
+          )}
+        </button>
+        <button
+          onClick={onCancel}
+          className="px-4 py-2 rounded border border-border text-muted-foreground text-xs font-medium hover:text-foreground hover:border-border/80 transition-colors"
+        >
+          Cancel
+        </button>
+      </div>
+    </HudCard>
+  );
+}
+
 // ─── Main Page ───────────────────────────────────────────────
 export default function PersonasPage() {
   const { user } = useAuth();
@@ -79,6 +255,7 @@ export default function PersonasPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [activeChat, setActiveChat] = useState<ForgedPersona | null>(null);
   const [voicePersona, setVoicePersona] = useState<VoicePersona | null>(null);
+  const [editingPersona, setEditingPersona] = useState<ForgedPersona | null>(null);
   // Map of persona_id → latest unread heartbeat notification
   const [notifications, setNotifications] = useState<Record<string, NaviNotification>>({});
 
@@ -154,6 +331,12 @@ export default function PersonasPage() {
     await deletePersona(personaId);
     setPersonas((prev) => prev.filter((p) => p.id !== personaId));
     if (activeChat?.id === personaId) setActiveChat(null);
+    if (editingPersona?.id === personaId) setEditingPersona(null);
+  };
+
+  const handleEditSaved = (updated: ForgedPersona) => {
+    setPersonas((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
+    setEditingPersona(null);
   };
 
   if (!user) return null;
@@ -180,8 +363,16 @@ export default function PersonasPage() {
         icon={<Users size={16} />}
       />
 
-      {/* Forge panel always visible at top */}
-      <ForgePanel onForged={handleForged} />
+      {/* Forge panel always visible at top (hidden while editing) */}
+      {editingPersona ? (
+        <EditPersonaPanel
+          persona={editingPersona}
+          onSaved={handleEditSaved}
+          onCancel={() => setEditingPersona(null)}
+        />
+      ) : (
+        <ForgePanel onForged={handleForged} />
+      )}
 
       {/* Persona roster */}
       {isLoading ? (
@@ -204,7 +395,7 @@ export default function PersonasPage() {
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
           {personas.map((persona) => (
-            <div key={persona.id} className="relative">
+            <div key={persona.id} className="relative group">
               <PersonaCard
                 persona={persona}
                 userId={user.id}
@@ -213,6 +404,14 @@ export default function PersonasPage() {
                 notification={notifications[persona.id] ?? null}
                 onNotificationRead={handleNotificationRead}
               />
+              {/* Edit button — visible on hover */}
+              <button
+                onClick={() => setEditingPersona(persona)}
+                className="absolute top-10 right-2 flex items-center gap-1 px-2 py-1 rounded border border-primary/30 bg-primary/10 text-primary/70 hover:text-primary hover:bg-primary/20 text-xs font-mono transition-all opacity-0 group-hover:opacity-100"
+                title={`Edit ${persona.name}`}
+              >
+                <Edit2 size={9} />
+              </button>
               <button
                 onClick={() => setVoicePersona({ name: persona.name, role: persona.role, systemPrompt: persona.system_prompt, entityId: persona.id, entityType: "persona", userId: user.id, avatarUrl: persona.avatar_key ?? undefined })}
                 className="absolute top-2 right-2 flex items-center gap-1 px-2 py-1 rounded border border-primary/30 bg-primary/10 text-primary/70 hover:text-primary hover:bg-primary/20 text-xs font-mono transition-all"
