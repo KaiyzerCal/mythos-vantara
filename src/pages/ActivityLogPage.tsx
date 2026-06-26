@@ -137,6 +137,7 @@ export default function ActivityLogPage() {
           />
         </HudCard>
       ) : (
+        <>
         <div className="space-y-6">
           {Object.entries(grouped).map(([day, items]) => (
             <div key={day}>
@@ -199,6 +200,7 @@ export default function ActivityLogPage() {
             Next
           </button>
         </div>
+        </>
       )}
     </div>
   );
