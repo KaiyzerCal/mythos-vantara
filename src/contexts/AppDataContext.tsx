@@ -2,6 +2,7 @@ import { createContext, useContext, useState, useCallback, useEffect, useRef, Re
 import { supabase } from "@/integrations/supabase/client";
 import { useProfile, type ProfileData } from "@/hooks/useProfile";
 import { useQuests, type Quest } from "@/hooks/useQuests";
+import { recordAutoMemory } from "@/mavis/autoMemory";
 import {
   useTasks, useJournal, useVault, useCouncils,
   useSkills, useEnergySystems, useInventory, useAllies, useBpmSessions, useActivityLog, useStoreItems, useTransformations, useRankings, useRituals, useDomainEffects,
@@ -171,7 +172,22 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
   const { quests, loading: questsLoading, stats: questStats, createQuest, updateQuest, completeQuest, deleteQuest, refetch: refetchQuests } = useQuests();
 
   const { data: rituals, loading: ritualsLoading, refetch: refetchRituals } = useRituals();
-  const { data: tasks, loading: tasksLoading, create: createTask, update: updateTask, remove: deleteTask, refetch: refetchTasks } = useTasks();
+  const { data: tasks, loading: tasksLoading, create: createTask, update: _updateTask, remove: deleteTask, refetch: refetchTasks } = useTasks();
+
+  const updateTask = useCallback(async (id: string, input: any) => {
+    if (input.status === "completed") {
+      const task = tasks.find((t) => t.id === id);
+      if (task) {
+        recordAutoMemory("task_complete", {
+          title: `Task Completed: ${task.title}`,
+          content: `Completed task: "${task.title}"${task.description ? `. ${task.description}` : ""} (${task.type}, ${task.xp_reward ?? 0} XP, streak: ${task.streak ?? 0}).`,
+          tags: ["task", task.type ?? "task"],
+          metadata: { task_id: id, xp_reward: task.xp_reward, streak: task.streak },
+        }).catch(() => {});
+      }
+    }
+    return _updateTask(id, input);
+  }, [_updateTask, tasks]);
   const { data: journalEntries, loading: journalLoading, create: createJournalEntry, update: updateJournalEntry, remove: deleteJournalEntry, refetch: refetchJournal } = useJournal();
   const { data: vaultEntries, loading: vaultLoading, create: createVaultEntry, update: updateVaultEntry, remove: deleteVaultEntry, refetch: refetchVault } = useVault();
   const { data: councils, loading: councilsLoading, create: createCouncilMember, update: updateCouncilMember, remove: deleteCouncilMember, refetch: refetchCouncils } = useCouncils();

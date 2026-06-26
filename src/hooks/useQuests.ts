@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
+import { recordAutoMemory } from "@/mavis/autoMemory";
 
 export interface QuestBuffEffect {
   label: string;
@@ -72,8 +73,17 @@ export function useQuests() {
   }, []);
 
   const completeQuest = useCallback(async (id: string) => {
+    const quest = quests.find(q => q.id === id);
     await updateQuest(id, { status: "completed" });
-  }, [updateQuest]);
+    if (quest) {
+      recordAutoMemory("quest_complete", {
+        title: `Quest Completed: ${quest.title}`,
+        content: `Completed quest "${quest.title}" (${quest.type}, ${quest.xp_reward ?? 0} XP).${quest.description ? ` Description: ${quest.description}` : ""}`,
+        tags: [quest.type ?? "quest"],
+        metadata: { quest_id: id, xp_reward: quest.xp_reward },
+      }).catch(() => {});
+    }
+  }, [updateQuest, quests]);
 
   const deleteQuest = useCallback(async (id: string) => {
     setQuests((qs) => qs.filter((q) => q.id !== id));

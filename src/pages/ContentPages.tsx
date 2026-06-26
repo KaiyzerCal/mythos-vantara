@@ -12,6 +12,7 @@ import { PageHeader, HudCard, RarityBadge, ProgressBar } from "@/components/Shar
 import { Skeleton } from "@/components/ui/skeleton";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { toast } from "sonner";
+import { recordAutoMemory } from "@/mavis/autoMemory";
 
 // ─── Journal templates ─────────────────────────────────────
 const JOURNAL_TEMPLATES = [
@@ -117,6 +118,12 @@ export function JournalPage() {
       if (entry) {
         await awardXP(10);
         await logActivity("journal_entry", `Journal: ${form.title}`, 10);
+        recordAutoMemory("journal_entry", {
+          title: `Journal: ${entry.title}`,
+          content: `Logged journal entry: "${entry.title}". ${(entry.content ?? "").slice(0, 400)}`,
+          tags: ["journal", ...(entry.mood ? [entry.mood] : [])],
+          metadata: { entry_id: entry.id },
+        }).catch(() => {});
       }
     }
     resetForm();
