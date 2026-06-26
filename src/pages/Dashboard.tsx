@@ -150,8 +150,10 @@ export default function Dashboard() {
         .gte("created_at", yesterday)
         .order("relevance_score", { ascending: false })
         .limit(3)
-        .then(({ data }) => setMarketIntel(data ?? []))
-        .catch((e: unknown) => { console.error("Failed to load market intel", e); toast.error("Failed to load Market Radar"); }),
+        .then(
+          ({ data }) => setMarketIntel(data ?? []),
+          (e: unknown) => { console.error("Failed to load market intel", e); toast.error("Failed to load Market Radar"); },
+        ),
 
       // Outcome Accuracy
       supabase
