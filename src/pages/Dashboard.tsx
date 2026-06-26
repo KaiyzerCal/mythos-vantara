@@ -5,7 +5,7 @@ import {
   Target, Flame, Zap, Sparkles, Package, BookLock, ShoppingBag,
   Medal, TowerControl, Activity, Users, CheckSquare, BookOpen,
   Shield, Cpu, Crown, Copy, TrendingUp, CalendarDays, Radio,
-  BookMarked, Brain,
+  BookMarked, Brain, Loader2, RefreshCw,
 } from "lucide-react";
 import { useAppData } from "@/contexts/AppDataContext";
 import { useAuth } from "@/contexts/AuthContext";
@@ -71,6 +71,29 @@ export default function Dashboard() {
     brief_date: string;
     brief_text: string;
   } | null>(null);
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [briefExpanded, setBriefExpanded] = useState(false);
+
+  const generateBrief = async () => {
+    setIsGenerating(true);
+    try {
+      await supabase.functions.invoke("mavis-morning-brief", {});
+      // Re-fetch the brief after generation
+      const today = new Date().toISOString().slice(0, 10);
+      const { data } = await (supabase as any)
+        .from("mavis_daily_briefs")
+        .select("brief_date, brief_text")
+        .eq("brief_date", today)
+        .maybeSingle();
+      setMorningBrief(data ?? null);
+      toast.success("Brief generated!");
+    } catch (e) {
+      console.error("Failed to generate brief", e);
+      toast.error("Failed to generate brief");
+    } finally {
+      setIsGenerating(false);
+    }
+  };
 
   // ── Market Intel ──
   const [marketIntel, setMarketIntel] = useState<Array<{
@@ -309,9 +332,19 @@ export default function Dashboard() {
               <CalendarDays size={14} className="text-primary shrink-0" />
               <h3 className="text-sm font-display text-foreground">Morning Brief</h3>
               {morningBrief && (
-                <span className="ml-auto text-xs font-mono text-muted-foreground">
-                  {morningBrief.brief_date}
-                </span>
+                <>
+                  <span className="ml-auto text-xs font-mono text-muted-foreground">
+                    {morningBrief.brief_date}
+                  </span>
+                  <button
+                    onClick={generateBrief}
+                    disabled={isGenerating}
+                    className="ml-2 p-0.5 text-muted-foreground hover:text-primary transition-colors disabled:opacity-40"
+                    title="Regenerate brief"
+                  >
+                    {isGenerating ? <Loader2 size={11} className="animate-spin" /> : <RefreshCw size={11} />}
+                  </button>
+                </>
               )}
             </div>
             {isLoading ? (
@@ -320,15 +353,33 @@ export default function Dashboard() {
                 <div className="h-3 bg-muted/40 rounded w-1/2" />
               </div>
             ) : morningBrief ? (
-              <p className="text-xs font-body text-foreground leading-relaxed">
-                {morningBrief.brief_text.length > 400
-                  ? morningBrief.brief_text.slice(0, 400) + "..."
-                  : morningBrief.brief_text}
-              </p>
+              <div>
+                <p className="text-xs font-body text-foreground leading-relaxed whitespace-pre-wrap">
+                  {briefExpanded || morningBrief.brief_text.length <= 400
+                    ? morningBrief.brief_text
+                    : morningBrief.brief_text.slice(0, 400) + "..."}
+                </p>
+                {morningBrief.brief_text.length > 400 && (
+                  <button
+                    onClick={() => setBriefExpanded(v => !v)}
+                    className="mt-1 text-xs font-mono text-primary/70 hover:text-primary transition-colors"
+                  >
+                    {briefExpanded ? "Show less" : "Read more"}
+                  </button>
+                )}
+              </div>
             ) : (
-              <p className="text-xs font-mono text-muted-foreground text-center py-3">
-                Brief generates at 6am daily
-              </p>
+              <div className="flex flex-col items-center gap-2 py-3">
+                <p className="text-xs font-mono text-muted-foreground">Brief generates at 6am daily</p>
+                <button
+                  onClick={generateBrief}
+                  disabled={isGenerating}
+                  className="flex items-center gap-1.5 text-xs font-mono px-3 py-1.5 rounded border border-primary/30 bg-primary/10 text-primary hover:bg-primary/20 transition-colors disabled:opacity-40"
+                >
+                  {isGenerating ? <Loader2 size={10} className="animate-spin" /> : <RefreshCw size={10} />}
+                  {isGenerating ? "Generating..." : "Generate Now"}
+                </button>
+              </div>
             )}
           </HudCard>
 
