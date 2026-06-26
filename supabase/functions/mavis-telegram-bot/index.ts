@@ -987,7 +987,7 @@ serve(async (req) => {
     if (!wasVoice && !wasPhoto && doc?.file_id) {
       await typing(chatId);
       const fileName = String(doc.file_name ?? "file");
-      const result = await downloadFileContent(String(doc.file_id));
+      const result = await downloadFileContent(String(doc.file_id), fileName);
       if (result.error) {
         await send(chatId, `⚠️ ${result.error}`);
         return;
@@ -995,6 +995,21 @@ serve(async (req) => {
       if (result.isImage) {
         const analysis = await analyzePhoto(String(doc.file_id), text || `Analyze: ${fileName}`, uid);
         await send(chatId, analysis ? `📸 ${analysis}` : "⚠️ Could not analyze image.");
+        return;
+      }
+      if (result.isPdf && result.pdfUrl) {
+        await send(chatId, `📄 _Reading ${fileName}…_`);
+        const extracted = await extractDocWithClaude(result.pdfUrl, text || `Analyze this document (${fileName}) and explain its key points.`);
+        if (!extracted) {
+          await send(chatId, `⚠️ Couldn't read ${fileName}. The document may be too large, encrypted, or unsupported.`);
+          return;
+        }
+        const sessionId = await getOrCreateSession(uid);
+        const history   = sessionId ? await loadHistory(sessionId) : [];
+        const userPrompt = text
+          ? `${text}\n\n[Attached document: ${fileName}]\n\n${extracted}`
+          : `Document attached: ${fileName}\n\n${extracted}`;
+        await handleChat(chatId, uid, userPrompt, history, sessionId);
         return;
       }
       const sessionId = await getOrCreateSession(uid);
