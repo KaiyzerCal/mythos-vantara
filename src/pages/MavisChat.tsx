@@ -1477,7 +1477,12 @@ export default function MavisChat() {
                             ⚡ {(msg as any).actionsExecuted} action{(msg as any).actionsExecuted > 1 ? "s" : ""} executed
                           </span>
                         )}
-                        {msg.mode && msg.role === "assistant" && !(msg as any).searched && !(msg as any).actionsExecuted && (msg as any).iterations == null && (
+                        {msg.mode === "TELEGRAM" && (
+                          <span className="text-xs font-mono text-sky-400/70 border border-sky-400/20 rounded px-1.5 py-0.5">
+                            📱 Telegram
+                          </span>
+                        )}
+                        {msg.mode && msg.mode !== "TELEGRAM" && msg.role === "assistant" && !(msg as any).searched && !(msg as any).actionsExecuted && (msg as any).iterations == null && (
                           <span className="text-xs font-mono text-muted-foreground">[{msg.mode}]{(msg as any).model ? ` · ${(msg as any).model}` : ""}</span>
                         )}
                         <span className="text-xs font-mono text-muted-foreground ml-auto">
