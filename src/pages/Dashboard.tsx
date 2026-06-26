@@ -19,6 +19,7 @@ import { MavisActivityFeed } from "@/components/MavisActivityFeed";
 import { ApprovalQueue } from "@/components/ApprovalQueue";
 import { CausalInsights } from "@/components/CausalInsights";
 import { StandingOrdersWidget } from "@/components/StandingOrdersWidget";
+import { toast } from "sonner";
 
 const fadeIn = (delay = 0) => ({
   initial: { opacity: 0, y: 12 },
@@ -71,17 +72,6 @@ export default function Dashboard() {
     brief_text: string;
   } | null>(null);
 
-  useEffect(() => {
-    const today = new Date().toISOString().slice(0, 10);
-    (supabase as any)
-      .from("mavis_daily_briefs")
-      .select("brief_date, brief_text")
-      .eq("brief_date", today)
-      .maybeSingle()
-      .then(({ data }: any) => setMorningBrief(data ?? null))
-      .catch(() => {});
-  }, []);
-
   // ── Market Intel ──
   const [marketIntel, setMarketIntel] = useState<Array<{
     topic: string;
@@ -91,42 +81,11 @@ export default function Dashboard() {
     signal_type: string;
   }>>([]);
 
-  useEffect(() => {
-    const yesterday = new Date(Date.now() - 86400000).toISOString();
-    Promise.resolve(
-      supabase
-        .from("mavis_market_intel")
-        .select("topic, headline, summary, relevance_score, signal_type")
-        .gte("relevance_score", 0.6)
-        .gte("created_at", yesterday)
-        .order("relevance_score", { ascending: false })
-        .limit(3)
-    )
-      .then(({ data }) => setMarketIntel(data ?? []))
-      .catch(() => {});
-  }, []);
-
   // ── Action Queue ──
   const [approvalCount, setApprovalCount] = useState(0);
 
   // ── Outcome Accuracy ──
   const [outcomeAccuracy, setOutcomeAccuracy] = useState<number | null>(null);
-
-  useEffect(() => {
-    Promise.resolve(
-      supabase
-        .from("mavis_outcome_events")
-        .select("outcome_status")
-        .not("outcome_status", "eq", "pending")
-        .limit(50)
-    )
-      .then(({ data }) => {
-        if (!data || data.length === 0) return;
-        const confirmed = data.filter(e => e.outcome_status === "confirmed").length;
-        setOutcomeAccuracy(Math.round((confirmed / data.length) * 100));
-      })
-      .catch(() => {});
-  }, []);
 
   // ── Evolution Log ──
   const [lastEvolution, setLastEvolution] = useState<{
@@ -134,19 +93,6 @@ export default function Dashboard() {
     affected_key: string;
     reason: string;
   } | null>(null);
-
-  useEffect(() => {
-    Promise.resolve(
-      supabase
-        .from("mavis_evolution_log")
-        .select("evolution_type, affected_key, reason")
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle()
-    )
-      .then(({ data }) => setLastEvolution(data ?? null))
-      .catch(() => {});
-  }, []);
 
   // ── Performance Score ──
   const [perfScore, setPerfScore] = useState<{
@@ -156,15 +102,66 @@ export default function Dashboard() {
     recommendation: string;
   } | null>(null);
 
+  // ── Loading State ──
+  const [isLoading, setIsLoading] = useState(true);
+
   useEffect(() => {
     const today = new Date().toISOString().slice(0, 10);
-    (supabase as any)
-      .from("mavis_daily_scores")
-      .select("score, trend, optimal_window, recommendation")
-      .eq("score_date", today)
-      .maybeSingle()
-      .then(({ data }: any) => setPerfScore(data ?? null))
-      .catch(() => {});
+    const yesterday = new Date(Date.now() - 86400000).toISOString();
+
+    Promise.all([
+      // Morning Brief
+      (supabase as any)
+        .from("mavis_daily_briefs")
+        .select("brief_date, brief_text")
+        .eq("brief_date", today)
+        .maybeSingle()
+        .then(({ data }: any) => setMorningBrief(data ?? null))
+        .catch((e: unknown) => { console.error("Failed to load morning brief", e); toast.error("Failed to load Morning Brief"); }),
+
+      // Market Intel
+      supabase
+        .from("mavis_market_intel")
+        .select("topic, headline, summary, relevance_score, signal_type")
+        .gte("relevance_score", 0.6)
+        .gte("created_at", yesterday)
+        .order("relevance_score", { ascending: false })
+        .limit(3)
+        .then(({ data }) => setMarketIntel(data ?? []))
+        .catch((e: unknown) => { console.error("Failed to load market intel", e); toast.error("Failed to load Market Radar"); }),
+
+      // Outcome Accuracy
+      supabase
+        .from("mavis_outcome_events")
+        .select("outcome_status")
+        .not("outcome_status", "eq", "pending")
+        .limit(50)
+        .then(({ data }) => {
+          if (!data || data.length === 0) return;
+          const confirmed = data.filter((ev) => ev.outcome_status === "confirmed").length;
+          setOutcomeAccuracy(Math.round((confirmed / data.length) * 100));
+        })
+        .catch((e: unknown) => { console.error("Failed to load outcome accuracy", e); toast.error("Failed to load Prediction Accuracy"); }),
+
+      // Evolution Log
+      supabase
+        .from("mavis_evolution_log")
+        .select("evolution_type, affected_key, reason")
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle()
+        .then(({ data }) => setLastEvolution(data ?? null))
+        .catch((e: unknown) => { console.error("Failed to load evolution log", e); toast.error("Failed to load Self-Evolution"); }),
+
+      // Performance Score
+      (supabase as any)
+        .from("mavis_daily_scores")
+        .select("score, trend, optimal_window, recommendation")
+        .eq("score_date", today)
+        .maybeSingle()
+        .then(({ data }: any) => setPerfScore(data ?? null))
+        .catch((e: unknown) => { console.error("Failed to load performance score", e); toast.error("Failed to load Performance Score"); }),
+    ]).finally(() => setIsLoading(false));
   }, []);
 
   const scoreColor =
@@ -317,7 +314,12 @@ export default function Dashboard() {
                 </span>
               )}
             </div>
-            {morningBrief ? (
+            {isLoading ? (
+              <div className="animate-pulse space-y-2">
+                <div className="h-3 bg-muted/40 rounded w-3/4" />
+                <div className="h-3 bg-muted/40 rounded w-1/2" />
+              </div>
+            ) : morningBrief ? (
               <p className="text-xs font-body text-foreground leading-relaxed">
                 {morningBrief.brief_text.length > 400
                   ? morningBrief.brief_text.slice(0, 400) + "..."
@@ -336,7 +338,12 @@ export default function Dashboard() {
               <Activity size={14} className="text-primary shrink-0" />
               <h3 className="text-sm font-display text-foreground">Today's Performance</h3>
             </div>
-            {perfScore ? (
+            {isLoading ? (
+              <div className="animate-pulse space-y-2">
+                <div className="h-3 bg-muted/40 rounded w-3/4" />
+                <div className="h-3 bg-muted/40 rounded w-1/2" />
+              </div>
+            ) : perfScore ? (
               <div className="space-y-2">
                 <div className="flex items-center gap-3">
                   <span className={`text-3xl font-display font-bold ${scoreColor}`}>
