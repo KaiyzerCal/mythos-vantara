@@ -16,6 +16,7 @@ import { PageHeader, HudCard, ProgressBar, FieldError, fieldClass } from "@/comp
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { EmptyState } from "@/components/EmptyState";
 
 // ─── Types ──────────────────────────────────────────────────
 type GoalStatus = "active" | "completed" | "abandoned";
@@ -334,11 +335,12 @@ export function GoalsPage() {
         </div>
       ) : filteredGoals.length === 0 ? (
         <HudCard>
-          <div className="text-center py-10">
-            <Target size={32} className="text-muted-foreground mx-auto mb-3" />
-            <p className="text-sm font-mono text-muted-foreground">No goals found.</p>
-            <p className="text-xs font-mono text-muted-foreground mt-1">Create your first goal to get started.</p>
-          </div>
+          <EmptyState
+            icon={Target}
+            title="No goals found"
+            description="Create your first goal to get started."
+            action={{ label: "+ New Goal", onClick: () => setShowCreate(true) }}
+          />
         </HudCard>
       ) : (
         <div className="space-y-3">
