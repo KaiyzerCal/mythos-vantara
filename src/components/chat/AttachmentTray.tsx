@@ -33,10 +33,38 @@ export function AttachmentTray({
         <div className="flex flex-wrap gap-1.5">
           {attachments.slice(0, 8).map((a) => {
             const status = a.processing_status;
+            const isImage = a.mime_type.startsWith("image/") && a.file_url;
+            const isPending = status !== "done" && status !== "failed";
             const statusColor =
               status === "done" ? "text-emerald-400 border-emerald-400/30"
               : status === "failed" ? "text-destructive border-destructive/30"
               : "text-muted-foreground border-border animate-pulse";
+
+            if (isImage) {
+              return (
+                <div key={a.id} className="relative group/chip shrink-0">
+                  <img
+                    src={a.file_url}
+                    alt={a.file_name}
+                    className="w-14 h-14 object-cover rounded border border-primary/20"
+                    title={`${a.file_name} — ${status}`}
+                  />
+                  {isPending && (
+                    <div className="absolute inset-0 bg-black/50 rounded flex items-center justify-center">
+                      <Loader2 size={14} className="animate-spin text-white/80" />
+                    </div>
+                  )}
+                  <button
+                    onClick={() => onRemove(a.id)}
+                    className="absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full bg-background border border-border flex items-center justify-center text-muted-foreground hover:text-destructive opacity-0 group-hover/chip:opacity-100 transition-opacity"
+                    title="Remove"
+                  >
+                    <X size={8} />
+                  </button>
+                </div>
+              );
+            }
+
             return (
               <div
                 key={a.id}
@@ -45,9 +73,7 @@ export function AttachmentTray({
               >
                 {iconFor(a.mime_type)}
                 <span className="max-w-[120px] truncate">{a.file_name}</span>
-                {status !== "done" && status !== "failed" && (
-                  <Loader2 size={10} className="animate-spin" />
-                )}
+                {isPending && <Loader2 size={10} className="animate-spin" />}
                 <button
                   onClick={() => onRemove(a.id)}
                   className="text-muted-foreground hover:text-destructive ml-0.5"

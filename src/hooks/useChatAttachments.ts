@@ -23,6 +23,8 @@ export function useChatAttachments(chatKind: ChatKind, threadRef: string | null 
   const [attachments, setAttachments] = useState<ChatAttachment[]>([]);
   const [isUploading, setIsUploading] = useState(false);
   const pollRef = useRef<number | null>(null);
+  // IDs that have been "sent" — excluded from refresh so the tray stays clear after send
+  const sentIds = useRef<Set<string>>(new Set());
 
   const refresh = useCallback(async () => {
     if (!threadRef) return;
@@ -36,7 +38,7 @@ export function useChatAttachments(chatKind: ChatKind, threadRef: string | null 
       .eq("thread_ref", threadRef)
       .order("created_at", { ascending: false })
       .limit(50);
-    setAttachments((data ?? []) as ChatAttachment[]);
+    setAttachments(((data ?? []) as ChatAttachment[]).filter(a => !sentIds.current.has(a.id)));
   }, [chatKind, threadRef]);
 
   useEffect(() => {
@@ -168,5 +170,13 @@ export function useChatAttachments(chatKind: ChatKind, threadRef: string | null 
     }
   }, [attachments]);
 
-  return { attachments, isUploading, upload, remove, refresh };
+  // Clears the staging tray without deleting DB rows (MAVIS still reads them via attachmentIds)
+  const clearStaged = useCallback(() => {
+    setAttachments((prev) => {
+      prev.forEach((a) => sentIds.current.add(a.id));
+      return [];
+    });
+  }, []);
+
+  return { attachments, isUploading, upload, remove, refresh, clearStaged };
 }
