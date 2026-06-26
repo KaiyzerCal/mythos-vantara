@@ -1008,9 +1008,9 @@ serve(async (req) => {
         await send(chatId, analysis ? `📸 ${analysis}` : "⚠️ Could not analyze image.");
         return;
       }
-      if (result.isPdf && result.pdfUrl) {
+      if (result.isPdf && result.pdfBase64) {
         await send(chatId, `📄 _Reading ${fileName}…_`);
-        const extracted = await extractDocWithClaude(result.pdfUrl, text || `Analyze this document (${fileName}) and explain its key points.`);
+        const extracted = await extractDocWithClaude(result.pdfBase64, result.mediaType ?? "application/pdf", text || `Analyze this document (${fileName}) and explain its key points.`);
         if (!extracted) {
           await send(chatId, `⚠️ Couldn't read ${fileName}. The document may be too large, encrypted, or unsupported.`);
           return;
