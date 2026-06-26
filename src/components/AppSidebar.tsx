@@ -215,6 +215,15 @@ export default function AppSidebar() {
               </div>
             </div>
 
+            {/* Search / Navigate */}
+            <button
+              onClick={() => document.dispatchEvent(new KeyboardEvent("keydown", { key: "k", metaKey: true, bubbles: true }))}
+              className="mx-2 mt-2 mb-1 px-3 py-1.5 rounded border border-border/50 text-muted-foreground hover:text-primary hover:border-primary/30 transition-all flex items-center justify-between"
+            >
+              <span className="text-xs font-mono">Search / Navigate</span>
+              <span className="text-xs font-mono bg-muted px-1.5 py-0.5 rounded">⌘K</span>
+            </button>
+
             {/* Nav */}
             <nav className="flex-1 p-2 space-y-0.5 overflow-y-auto scrollbar-thin">
               <SectionLabel label="Core" />
@@ -232,15 +241,6 @@ export default function AppSidebar() {
               <SectionLabel label="Utilities" />
               {UTILITY_NAV.map((item) => <NavItem key={item.to} {...item} />)}
             </nav>
-
-            {/* Cmd+K hint */}
-            <button
-              onClick={() => document.dispatchEvent(new KeyboardEvent("keydown", { key: "k", metaKey: true, bubbles: true }))}
-              className="mx-2 mb-1 px-3 py-1.5 rounded border border-border/50 text-muted-foreground hover:text-primary hover:border-primary/30 transition-all flex items-center justify-between"
-            >
-              <span className="text-xs font-mono">Search / Navigate</span>
-              <span className="text-xs font-mono bg-muted px-1.5 py-0.5 rounded">⌘K</span>
-            </button>
 
             {/* Sign out */}
             <button
