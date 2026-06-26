@@ -222,12 +222,18 @@ const MAVIS_TOOLS = [
   },
   {
     name: "search_contacts",
-    description: "Search Google Contacts / People API for names, email addresses, and phone numbers before composing outreach",
+    description:
+      "Search contacts from BOTH the MAVIS in-app contacts tab (your personal CRM) AND Google Contacts simultaneously. " +
+      "Always searches both sources and returns merged, deduplicated results. " +
+      "MAVIS contacts have relationship context, notes, tags, and CRM data you've built up in the app. " +
+      "Google Contacts covers your full Google/Gmail network. " +
+      "Each result includes a 'source' field: 'mavis_contacts' (in-app CRM) or 'google_contacts' (Google). " +
+      "Use before sending any email, looking up contact details, or when the operator asks to find someone.",
     input_schema: {
       type: "object" as const,
       properties: {
         query: { type: "string", description: "Name, email, company, or other contact search text" },
-        max_results: { type: "number", description: "Maximum contacts to return (default 10, max 30)" },
+        max_results: { type: "number", description: "Maximum contacts to return per source (default 10, max 30)" },
       },
       required: ["query"],
     },
@@ -749,10 +755,38 @@ async function handleTool(
       }
 
       // ── search_contacts ───────────────────────────────────────────────────
+      // Always searches BOTH the MAVIS in-app contacts table AND Google
+      // Contacts (if connected), then merges and deduplicates by email.
       case "search_contacts": {
         const query = String(input.query ?? "").trim().toLowerCase();
         const maxResults = Math.min(Number(input.max_results ?? 10), 30);
         if (!query) return { error: "query required" };
+
+        // ── 1. MAVIS in-app contacts (always searched) ────────────────────
+        const { data: localRows } = await supabase
+          .from("contacts")
+          .select("id, name, email, phone, company, relationship_type, notes, profile, tags, source")
+          .eq("user_id", userId)
+          .limit(200);
+
+        const localContacts = ((localRows ?? []) as Record<string, unknown>[])
+          .filter((c) => JSON.stringify(c).toLowerCase().includes(query))
+          .slice(0, maxResults)
+          .map((c) => ({
+            source:            "mavis_contacts",
+            id:                c.id,
+            name:              c.name,
+            emails:            c.email ? [c.email] : [],
+            phones:            c.phone ? [c.phone] : [],
+            organizations:     c.company ? [c.company] : [],
+            relationship_type: c.relationship_type,
+            notes:             c.notes,
+            tags:              c.tags,
+          }));
+
+        // ── 2. Google Contacts (searched if connected) ────────────────────
+        let googleContacts: Record<string, unknown>[] = [];
+        let googleConnected = false;
 
         const { data: integration } = await supabase
           .from("mavis_user_integrations")
@@ -761,79 +795,88 @@ async function handleTool(
           .eq("provider", "gcontacts")
           .maybeSingle();
 
-        if (!integration?.config) {
-          const { data: localContacts } = await supabase
-            .from("contacts")
-            .select("id, name, relationship_type, notes, profile, tags")
-            .eq("user_id", userId)
-            .limit(100);
-          const filtered = ((localContacts ?? []) as Record<string, unknown>[])
-            .filter((contact) => JSON.stringify(contact).toLowerCase().includes(query))
-            .slice(0, maxResults);
-          return { contacts: filtered, total: filtered.length, query, source: "local_contacts" };
-        }
+        if (integration?.config) {
+          googleConnected = true;
+          try {
+            const token = await refreshGoogleToken(
+              integration.config as Record<string, unknown>,
+              supabase, userId, "gcontacts",
+            );
 
-        try {
-          const token = await refreshGoogleToken(
-            integration.config as Record<string, unknown>,
-            supabase, userId, "gcontacts",
-          );
-          const params = new URLSearchParams({
-            pageSize: String(Math.max(maxResults, 10)),
-            personFields: "names,emailAddresses,phoneNumbers,organizations,metadata",
-            sortOrder: "FIRST_NAME_ASCENDING",
-          });
-          const res = await fetch(
-            `https://people.googleapis.com/v1/people:searchContacts?${new URLSearchParams({ query, readMask: "names,emailAddresses,phoneNumbers,organizations", pageSize: String(maxResults) })}`,
-            { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(15_000) },
-          );
-          let people: Record<string, unknown>[] = [];
-          if (res.ok) {
-            const data = await res.json();
-            people = ((data.results ?? []) as Array<{ person?: Record<string, unknown> }>).map((r) => r.person ?? {});
-          } else {
-            // Fallback: list connections and filter locally. Some accounts have
-            // contact search disabled until sources are warmed up.
-            const listRes = await fetch(
-              `https://people.googleapis.com/v1/people/me/connections?${params}`,
+            // Try the dedicated search endpoint first
+            const searchRes = await fetch(
+              `https://people.googleapis.com/v1/people:searchContacts?${new URLSearchParams({ query, readMask: "names,emailAddresses,phoneNumbers,organizations", pageSize: String(maxResults) })}`,
               { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(15_000) },
             );
-            if (!listRes.ok) {
-              const { data: localContacts } = await supabase
-                .from("contacts")
-                .select("id, name, relationship_type, notes, profile, tags")
-                .eq("user_id", userId)
-                .limit(100);
-              const filtered = ((localContacts ?? []) as Record<string, unknown>[])
-                .filter((contact) => JSON.stringify(contact).toLowerCase().includes(query))
-                .slice(0, maxResults);
-              return {
-                contacts: filtered,
-                total: filtered.length,
-                query,
-                source: "local_contacts",
-                note: "Google Contacts API unavailable; searched MAVIS local contacts instead.",
-              };
-            } else {
-              const data = await listRes.json();
-              people = (data.connections ?? []) as Record<string, unknown>[];
-            }
-          }
 
-          const contacts = people
-            .map((person) => {
-              const names = ((person.names ?? []) as Record<string, unknown>[]).map((n) => n.displayName).filter(Boolean);
-              const emails = ((person.emailAddresses ?? []) as Record<string, unknown>[]).map((e) => e.value).filter(Boolean);
-              const phones = ((person.phoneNumbers ?? []) as Record<string, unknown>[]).map((p) => p.value).filter(Boolean);
-              const organizations = ((person.organizations ?? []) as Record<string, unknown>[]).map((o) => o.name).filter(Boolean);
-              return { resource_name: person.resourceName, names, emails, phones, organizations };
-            })
-            .filter((contact) => JSON.stringify(contact).toLowerCase().includes(query))
-            .slice(0, maxResults);
-          return { contacts, total: contacts.length, query };
-        } catch (err: unknown) {
-          return { error: `Contacts search error: ${err instanceof Error ? err.message : String(err)}` };
+            let people: Record<string, unknown>[] = [];
+            if (searchRes.ok) {
+              const data = await searchRes.json();
+              people = ((data.results ?? []) as Array<{ person?: Record<string, unknown> }>).map((r) => r.person ?? {});
+            } else {
+              // Fallback: list all connections and filter client-side
+              const listRes = await fetch(
+                `https://people.googleapis.com/v1/people/me/connections?${new URLSearchParams({ pageSize: String(Math.max(maxResults, 20)), personFields: "names,emailAddresses,phoneNumbers,organizations", sortOrder: "FIRST_NAME_ASCENDING" })}`,
+                { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(15_000) },
+              );
+              if (listRes.ok) {
+                const data = await listRes.json();
+                people = (data.connections ?? []) as Record<string, unknown>[];
+              }
+            }
+
+            googleContacts = people
+              .map((person) => {
+                const names         = ((person.names ?? []) as Record<string, unknown>[]).map((n) => n.displayName).filter(Boolean);
+                const emails        = ((person.emailAddresses ?? []) as Record<string, unknown>[]).map((e) => e.value).filter(Boolean);
+                const phones        = ((person.phoneNumbers ?? []) as Record<string, unknown>[]).map((p) => p.value).filter(Boolean);
+                const organizations = ((person.organizations ?? []) as Record<string, unknown>[]).map((o) => o.name).filter(Boolean);
+                return {
+                  source:        "google_contacts",
+                  resource_name: person.resourceName,
+                  name:          names[0] ?? null,
+                  emails,
+                  phones,
+                  organizations,
+                };
+              })
+              .filter((c) => JSON.stringify(c).toLowerCase().includes(query))
+              .slice(0, maxResults);
+          } catch {
+            // Google Contacts unavailable — local results still returned
+          }
         }
+
+        // ── 3. Merge, deduplicate by email ────────────────────────────────
+        // MAVIS contacts take priority — add Google contacts only when their
+        // email doesn't already appear in local results.
+        const seenEmails = new Set<string>(
+          localContacts.flatMap((c) => (c.emails as string[]).map((e) => String(e).toLowerCase())),
+        );
+        const seenNames = new Set<string>(
+          localContacts.map((c) => String(c.name ?? "").toLowerCase()),
+        );
+
+        const merged: Record<string, unknown>[] = [...localContacts];
+        for (const gc of googleContacts) {
+          const gcEmails = (gc.emails as string[]).map((e) => String(e).toLowerCase());
+          const gcName   = String(gc.name ?? "").toLowerCase();
+          if (gcEmails.some((e) => seenEmails.has(e))) continue;
+          if (!gcEmails.length && gcName && seenNames.has(gcName)) continue;
+          gcEmails.forEach((e) => seenEmails.add(e));
+          merged.push(gc);
+        }
+
+        const contacts = merged.slice(0, maxResults);
+        return {
+          contacts,
+          total:            contacts.length,
+          query,
+          sources_searched: googleConnected ? ["mavis_contacts", "google_contacts"] : ["mavis_contacts"],
+          note: !googleConnected
+            ? "Google Contacts not connected — searched MAVIS in-app contacts only. Connect via /integrations to also search your Google network."
+            : undefined,
+        };
       }
 
       // ── search_web ────────────────────────────────────────────────────────
@@ -1689,6 +1732,11 @@ SEND AN EMAIL → queue_action(action_type="draft_email", payload={to:"addr", su
 SCHEDULE A MEETING → queue_action(action_type="schedule_event", payload={title, start, end, description, attendees})
 
 SEARCH CONTACTS → search_contacts(query="name or email")
+  Searches BOTH MAVIS in-app contacts (your CRM) AND Google Contacts simultaneously.
+  Results include a 'source' field: 'mavis_contacts' (app) or 'google_contacts' (Google).
+  MAVIS contacts have relationship context, notes, and tags you've built up.
+  Google Contacts covers your full Gmail network.
+  ALWAYS call this before composing outreach so you have the right email address.
 
 CREATE NATIVE GOOGLE TASK → queue_action(action_type="create_google_task", payload={title, notes, due})
   ⚠️ This creates a task in Google Tasks (Google's own app). NOT the same as a VANTARA task.
@@ -1759,7 +1807,7 @@ GOOGLE WORKSPACE (fully connected, dedicated tools):
 • Google Sheets — read specific cell ranges, write values to cell ranges
 • Google Calendar — read upcoming events, create calendar events
 • Google Tasks — read task lists, create native Google Tasks
-• Google Contacts — available for email composition context
+• Contacts — search_contacts always searches BOTH the MAVIS in-app contacts tab (your personal CRM with relationship notes, tags, and context) AND Google Contacts (your full Gmail network) simultaneously, then returns merged results. Each contact has a 'source' field so you know where it came from.
 
 ALL OTHER GOOGLE CLOUD APIs — use google_api tool (same OAuth token, same access):
 • Google Photos — browse albums, search photos by date/content, retrieve media items
