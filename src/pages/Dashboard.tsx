@@ -468,7 +468,12 @@ export default function Dashboard() {
             <TrendingUp size={14} className="text-primary shrink-0" />
             <h3 className="text-sm font-display text-foreground">Prediction Accuracy</h3>
           </div>
-          {outcomeAccuracy !== null ? (
+          {isLoading ? (
+            <div className="animate-pulse space-y-2">
+              <div className="h-3 bg-muted/40 rounded w-3/4" />
+              <div className="h-3 bg-muted/40 rounded w-1/2" />
+            </div>
+          ) : outcomeAccuracy !== null ? (
             <div className="flex flex-col items-center justify-center py-2">
               <span className={`text-4xl font-display font-bold ${outcomeAccuracy >= 70 ? "text-green-400" : outcomeAccuracy >= 50 ? "text-amber-400" : "text-red-400"}`}>
                 {outcomeAccuracy}%
@@ -486,7 +491,12 @@ export default function Dashboard() {
             <Sparkles size={14} className="text-primary shrink-0" />
             <h3 className="text-sm font-display text-foreground">Self-Evolution</h3>
           </div>
-          {lastEvolution ? (
+          {isLoading ? (
+            <div className="animate-pulse space-y-2">
+              <div className="h-3 bg-muted/40 rounded w-3/4" />
+              <div className="h-3 bg-muted/40 rounded w-1/2" />
+            </div>
+          ) : lastEvolution ? (
             <div className="space-y-1">
               <span className={`text-xs font-mono px-1 py-0.5 rounded ${lastEvolution.evolution_type.includes("added") || lastEvolution.evolution_type.includes("strengthened") ? "bg-green-400/20 text-green-400" : "bg-amber-400/20 text-amber-400"}`}>
                 {lastEvolution.evolution_type.replace(/_/g, " ")}
@@ -574,7 +584,7 @@ export default function Dashboard() {
         <h3 className="text-xs font-mono text-muted-foreground uppercase tracking-widest mb-2">
           Quick Access
         </h3>
-        <div className="grid grid-cols-5 sm:grid-cols-8 lg:grid-cols-15 gap-2">
+        <div className="grid grid-cols-4 sm:grid-cols-8 lg:grid-cols-12 gap-2">
           {QUICK_ACCESS.map(({ name, icon: Icon, to, color }) => (
             <button
               key={to}
