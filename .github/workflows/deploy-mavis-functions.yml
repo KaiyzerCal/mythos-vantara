@@ -65,6 +65,10 @@ jobs:
       - name: Deploy mavis-capability-audit
         run: supabase functions deploy mavis-capability-audit --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
 
+      # ── Google integrations ─────────────────────────────────────────────────
+      - name: Deploy mavis-gcontacts-sync
+        run: supabase functions deploy mavis-gcontacts-sync --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
+
       # ── Observability + learning ────────────────────────────────────────────
       - name: Deploy mavis-health-monitor
         run: supabase functions deploy mavis-health-monitor --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
