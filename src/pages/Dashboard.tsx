@@ -150,8 +150,10 @@ export default function Dashboard() {
         .gte("created_at", yesterday)
         .order("relevance_score", { ascending: false })
         .limit(3)
-        .then(({ data }) => setMarketIntel(data ?? []))
-        .catch((e: unknown) => { console.error("Failed to load market intel", e); toast.error("Failed to load Market Radar"); }),
+        .then(
+          ({ data }) => setMarketIntel(data ?? []),
+          (e: unknown) => { console.error("Failed to load market intel", e); toast.error("Failed to load Market Radar"); },
+        ),
 
       // Outcome Accuracy
       supabase
@@ -159,12 +161,14 @@ export default function Dashboard() {
         .select("outcome_status")
         .not("outcome_status", "eq", "pending")
         .limit(50)
-        .then(({ data }) => {
-          if (!data || data.length === 0) return;
-          const confirmed = data.filter((ev) => ev.outcome_status === "confirmed").length;
-          setOutcomeAccuracy(Math.round((confirmed / data.length) * 100));
-        })
-        .catch((e: unknown) => { console.error("Failed to load outcome accuracy", e); toast.error("Failed to load Prediction Accuracy"); }),
+        .then(
+          ({ data }) => {
+            if (!data || data.length === 0) return;
+            const confirmed = data.filter((ev) => ev.outcome_status === "confirmed").length;
+            setOutcomeAccuracy(Math.round((confirmed / data.length) * 100));
+          },
+          (e: unknown) => { console.error("Failed to load outcome accuracy", e); toast.error("Failed to load Prediction Accuracy"); },
+        ),
 
       // Evolution Log
       supabase
@@ -173,8 +177,10 @@ export default function Dashboard() {
         .order("created_at", { ascending: false })
         .limit(1)
         .maybeSingle()
-        .then(({ data }) => setLastEvolution(data ?? null))
-        .catch((e: unknown) => { console.error("Failed to load evolution log", e); toast.error("Failed to load Self-Evolution"); }),
+        .then(
+          ({ data }) => setLastEvolution(data ?? null),
+          (e: unknown) => { console.error("Failed to load evolution log", e); toast.error("Failed to load Self-Evolution"); },
+        ),
 
       // Performance Score
       (supabase as any)

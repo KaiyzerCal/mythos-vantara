@@ -137,10 +137,20 @@ const TEXT_EXTENSIONS = new Set([
   "swift","kt","dart","r","lua","pl","ex","exs","vue","svelte","astro",
 ]);
 const IMAGE_EXTENSIONS = new Set(["jpg","jpeg","png","webp","gif","bmp","tiff","heic"]);
+const PDF_EXTENSIONS   = new Set(["pdf"]);
 
-interface FileResult { text?: string; isImage?: boolean; error?: string; }
+interface FileResult { text?: string; isImage?: boolean; isPdf?: boolean; pdfBase64?: string; mediaType?: string; fileName?: string; error?: string; }
 
-async function downloadFileContent(fileId: string): Promise<FileResult> {
+function bytesToBase64(bytes: Uint8Array): string {
+  let binary = "";
+  const chunkSize = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
+  }
+  return btoa(binary);
+}
+
+async function downloadFileContent(fileId: string, fileName?: string): Promise<FileResult> {
   try {
     const fileRes = await fetch(
       `https://api.telegram.org/bot${BOT_TOKEN}/getFile?file_id=${fileId}`,
@@ -149,19 +159,66 @@ async function downloadFileContent(fileId: string): Promise<FileResult> {
     const fileData = await fileRes.json() as Record<string, unknown>;
     const filePath = (fileData.result as any)?.file_path as string | undefined;
     if (!filePath) return { error: "Telegram couldn't resolve the file path — try re-sending the file." };
-    const ext = filePath.split(".").pop()?.toLowerCase() ?? "";
+    const ext = (filePath.split(".").pop() ?? fileName?.split(".").pop() ?? "").toLowerCase();
     if (IMAGE_EXTENSIONS.has(ext)) return { isImage: true };
-    const dlRes = await fetch(
-      `https://api.telegram.org/file/bot${BOT_TOKEN}/${filePath}`,
-      { signal: AbortSignal.timeout(25_000) },
-    );
+    const downloadUrl = `https://api.telegram.org/file/bot${BOT_TOKEN}/${filePath}`;
+    const dlRes = await fetch(downloadUrl, { signal: AbortSignal.timeout(25_000) });
     if (!dlRes.ok) return { error: `File download failed (HTTP ${dlRes.status}).` };
-    const raw = await dlRes.text();
+    const buf = new Uint8Array(await dlRes.arrayBuffer());
+    if (PDF_EXTENSIONS.has(ext)) {
+      return { isPdf: true, pdfBase64: bytesToBase64(buf), mediaType: "application/pdf", fileName };
+    }
+    // Detect binary by sampling first 2KB; route binaries to Claude as PDF (best-effort).
+    let nonPrintable = 0;
+    const sample = buf.subarray(0, Math.min(buf.length, 2048));
+    for (const b of sample) {
+      if (b === 0 || b < 9 || (b > 13 && b < 32)) nonPrintable++;
+    }
+    if (sample.length > 0 && nonPrintable / sample.length > 0.1) {
+      return { isPdf: true, pdfBase64: bytesToBase64(buf), mediaType: "application/pdf", fileName };
+    }
+    const raw = new TextDecoder("utf-8", { fatal: false }).decode(buf);
     const MAX = 18_000;
     const truncated = raw.length > MAX;
     return { text: raw.slice(0, MAX) + (truncated ? "\n\n[...truncated]" : "") };
   } catch (err) {
     return { error: `File error: ${err instanceof Error ? err.message : String(err)}` };
+  }
+}
+
+// Analyze a PDF or binary doc via Claude's document block (base64 source — keeps bot token private).
+async function extractDocWithClaude(base64: string, mediaType: string, prompt: string): Promise<string | null> {
+  if (!ANTHROPIC_KEY) return null;
+  try {
+    const res = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": ANTHROPIC_KEY,
+        "anthropic-version": "2023-06-01",
+      },
+      body: JSON.stringify({
+        model: "claude-haiku-4-5-20251001",
+        max_tokens: 2048,
+        messages: [{
+          role: "user",
+          content: [
+            { type: "document", source: { type: "base64", media_type: mediaType, data: base64 } },
+            { type: "text", text: prompt || "Read this document and provide a concise, useful summary of its key points." },
+          ],
+        }],
+      }),
+      signal: AbortSignal.timeout(60_000),
+    });
+    if (!res.ok) {
+      console.error("[telegram-bot] Claude doc extract failed:", res.status, await res.text());
+      return null;
+    }
+    const data = await res.json();
+    return (data.content?.[0]?.text ?? "").trim() || null;
+  } catch (err) {
+    console.error("[telegram-bot] Claude doc extract error:", err);
+    return null;
   }
 }
 
@@ -941,7 +998,7 @@ serve(async (req) => {
     if (!wasVoice && !wasPhoto && doc?.file_id) {
       await typing(chatId);
       const fileName = String(doc.file_name ?? "file");
-      const result = await downloadFileContent(String(doc.file_id));
+      const result = await downloadFileContent(String(doc.file_id), fileName);
       if (result.error) {
         await send(chatId, `⚠️ ${result.error}`);
         return;
@@ -949,6 +1006,21 @@ serve(async (req) => {
       if (result.isImage) {
         const analysis = await analyzePhoto(String(doc.file_id), text || `Analyze: ${fileName}`, uid);
         await send(chatId, analysis ? `📸 ${analysis}` : "⚠️ Could not analyze image.");
+        return;
+      }
+      if (result.isPdf && result.pdfBase64) {
+        await send(chatId, `📄 _Reading ${fileName}…_`);
+        const extracted = await extractDocWithClaude(result.pdfBase64, result.mediaType ?? "application/pdf", text || `Analyze this document (${fileName}) and explain its key points.`);
+        if (!extracted) {
+          await send(chatId, `⚠️ Couldn't read ${fileName}. The document may be too large, encrypted, or unsupported.`);
+          return;
+        }
+        const sessionId = await getOrCreateSession(uid);
+        const history   = sessionId ? await loadHistory(sessionId) : [];
+        const userPrompt = text
+          ? `${text}\n\n[Attached document: ${fileName}]\n\n${extracted}`
+          : `Document attached: ${fileName}\n\n${extracted}`;
+        await handleChat(chatId, uid, userPrompt, history, sessionId);
         return;
       }
       const sessionId = await getOrCreateSession(uid);
