@@ -139,7 +139,16 @@ const TEXT_EXTENSIONS = new Set([
 const IMAGE_EXTENSIONS = new Set(["jpg","jpeg","png","webp","gif","bmp","tiff","heic"]);
 const PDF_EXTENSIONS   = new Set(["pdf"]);
 
-interface FileResult { text?: string; isImage?: boolean; isPdf?: boolean; pdfUrl?: string; fileName?: string; error?: string; }
+interface FileResult { text?: string; isImage?: boolean; isPdf?: boolean; pdfBase64?: string; mediaType?: string; fileName?: string; error?: string; }
+
+function bytesToBase64(bytes: Uint8Array): string {
+  let binary = "";
+  const chunkSize = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
+  }
+  return btoa(binary);
+}
 
 async function downloadFileContent(fileId: string, fileName?: string): Promise<FileResult> {
   try {
@@ -153,18 +162,20 @@ async function downloadFileContent(fileId: string, fileName?: string): Promise<F
     const ext = (filePath.split(".").pop() ?? fileName?.split(".").pop() ?? "").toLowerCase();
     if (IMAGE_EXTENSIONS.has(ext)) return { isImage: true };
     const downloadUrl = `https://api.telegram.org/file/bot${BOT_TOKEN}/${filePath}`;
-    if (PDF_EXTENSIONS.has(ext)) return { isPdf: true, pdfUrl: downloadUrl, fileName };
     const dlRes = await fetch(downloadUrl, { signal: AbortSignal.timeout(25_000) });
     if (!dlRes.ok) return { error: `File download failed (HTTP ${dlRes.status}).` };
-    // Detect binary content by sampling first 2KB; route binaries to Claude's document analyzer.
     const buf = new Uint8Array(await dlRes.arrayBuffer());
+    if (PDF_EXTENSIONS.has(ext)) {
+      return { isPdf: true, pdfBase64: bytesToBase64(buf), mediaType: "application/pdf", fileName };
+    }
+    // Detect binary by sampling first 2KB; route binaries to Claude as PDF (best-effort).
     let nonPrintable = 0;
     const sample = buf.subarray(0, Math.min(buf.length, 2048));
     for (const b of sample) {
       if (b === 0 || b < 9 || (b > 13 && b < 32)) nonPrintable++;
     }
     if (sample.length > 0 && nonPrintable / sample.length > 0.1) {
-      return { isPdf: true, pdfUrl: downloadUrl, fileName };
+      return { isPdf: true, pdfBase64: bytesToBase64(buf), mediaType: "application/pdf", fileName };
     }
     const raw = new TextDecoder("utf-8", { fatal: false }).decode(buf);
     const MAX = 18_000;
@@ -175,8 +186,8 @@ async function downloadFileContent(fileId: string, fileName?: string): Promise<F
   }
 }
 
-// Extract / analyze a PDF or binary doc via Claude's document block (URL source).
-async function extractDocWithClaude(fileUrl: string, prompt: string): Promise<string | null> {
+// Analyze a PDF or binary doc via Claude's document block (base64 source — keeps bot token private).
+async function extractDocWithClaude(base64: string, mediaType: string, prompt: string): Promise<string | null> {
   if (!ANTHROPIC_KEY) return null;
   try {
     const res = await fetch("https://api.anthropic.com/v1/messages", {
@@ -192,7 +203,7 @@ async function extractDocWithClaude(fileUrl: string, prompt: string): Promise<st
         messages: [{
           role: "user",
           content: [
-            { type: "document", source: { type: "url", url: fileUrl } },
+            { type: "document", source: { type: "base64", media_type: mediaType, data: base64 } },
             { type: "text", text: prompt || "Read this document and provide a concise, useful summary of its key points." },
           ],
         }],
