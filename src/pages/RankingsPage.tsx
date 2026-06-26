@@ -1,9 +1,10 @@
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Medal, Plus, Trash2, Edit2, Copy, Loader2 } from "lucide-react";
+import { Medal, Plus, Trash2, Edit2, Copy, Loader2, Trophy } from "lucide-react";
 import { PageHeader, HudCard, RankBadge } from "@/components/SharedUI";
 import { useAppData } from "@/contexts/AppDataContext";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { EmptyState } from "@/components/EmptyState";
 
 const ROLE_COLORS: Record<string, string> = { self: "text-primary", ally: "text-green-400", enemy: "text-red-400", npc: "text-muted-foreground" };
 
@@ -225,7 +226,14 @@ export default function RankingsPage() {
           </motion.div>
           );
         })}
-        {rankings.length === 0 && <p className="text-xs font-mono text-muted-foreground text-center py-8">No rankings yet. Add your first entry or ask MAVIS.</p>}
+        {rankings.length === 0 && (
+          <EmptyState
+            icon={Trophy}
+            title="No rankings yet"
+            description="Rankings are calculated as you level up and complete quests."
+            action={{ label: "+ Add Entry", onClick: () => { resetForm(); setShowCreate(true); } }}
+          />
+        )}
       </div>
 
       <ConfirmDialog

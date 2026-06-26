@@ -7,6 +7,7 @@ import { PageHeader, HudCard, FieldError, fieldClass } from "@/components/Shared
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
+import { EmptyState } from "@/components/EmptyState";
 
 // ─── Types ────────────────────────────────────────────────────
 interface TacitEntry {
@@ -212,11 +213,12 @@ function TacitSection({ userId }: { userId: string }) {
       </AnimatePresence>
 
       {!filtered.length && (
-        <div className="py-8 text-center">
-          <Brain size={24} className="text-muted-foreground mx-auto mb-2" />
-          <p className="text-sm font-mono text-muted-foreground">No {filterCat === "all" ? "" : filterCat} memories yet.</p>
-          <p className="text-xs text-muted-foreground mt-1">MAVIS learns these from your conversations and behavior.</p>
-        </div>
+        <EmptyState
+          icon={Brain}
+          title={`No ${filterCat === "all" ? "" : filterCat + " "}memories yet`}
+          description="MAVIS learns these from your conversations and behavior."
+          action={{ label: "+ Add Memory", onClick: () => setShowCreate(true) }}
+        />
       )}
 
       {/* Create */}
@@ -347,10 +349,11 @@ function KnowledgeSection({ userId }: { userId: string }) {
       ))}
 
       {!filtered.length && (
-        <div className="py-8 text-center">
-          <BookOpen size={20} className="text-muted-foreground mx-auto mb-2" />
-          <p className="text-xs font-mono text-muted-foreground">No knowledge entries yet.</p>
-        </div>
+        <EmptyState
+          icon={BookOpen}
+          title="No knowledge entries yet"
+          description="MAVIS builds your knowledge base through conversations."
+        />
       )}
 
       <ConfirmDialog
