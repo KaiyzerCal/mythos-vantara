@@ -1421,22 +1421,12 @@ export default function MavisChat() {
                             </div>
                           ) : (
                             <div className="mavis-prose">
-                              <ReactMarkdown>{msg.content}</ReactMarkdown>
+                              <MarkdownRenderer
+                                content={msg.content}
+                                onOpenArtifact={(code, lang) => { setArtifactContent(code); setArtifactLang(lang); }}
+                              />
                             </div>
                           )}
-                          {(() => {
-                            const codeMatch = msg.content.match(/```(\w*)\n([\s\S]{200,}?)```/);
-                            if (!codeMatch) return null;
-                            const [, lang, code] = codeMatch;
-                            return (
-                              <button
-                                onClick={() => { setArtifactContent(code.trim()); setArtifactLang(lang || "text"); }}
-                                className="mt-2 flex items-center gap-1.5 text-xs font-mono text-cyan-400 border border-cyan-900/40 rounded px-2 py-1 hover:bg-cyan-900/20 transition-colors"
-                              >
-                                <FileCode size={10} /> Open Artifact
-                              </button>
-                            );
-                          })()}
                           {(msg as any).imageUrl && (
                             <div className="mt-2">
                               <img
@@ -1494,14 +1484,47 @@ export default function MavisChat() {
                           {msg.timestamp.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                         </span>
                       </div>
+                      {/* Suggested follow-ups — only on the last assistant message */}
+                      {msg.role === "assistant" && msg.id === lastAssistantMsgId && suggestions.has(msg.id) && (
+                        <div className="flex flex-wrap gap-1.5 mt-2">
+                          {(suggestions.get(msg.id) ?? []).map((s, i) => (
+                            <button
+                              key={i}
+                              onClick={() => sendMessage(s)}
+                              className="text-xs font-mono text-muted-foreground hover:text-primary border border-border/50 hover:border-primary/30 rounded-full px-2.5 py-1 transition-all"
+                            >
+                              {s}
+                            </button>
+                          ))}
+                        </div>
+                      )}
                       <button
-                        onClick={() => copyMessage(msg.id, msg.content)}
+                        onClick={() => {
+                          if (msg.role === "user") {
+                            setEditingMsgId(msg.id);
+                            setInput(msg.content);
+                          } else {
+                            copyMessage(msg.id, msg.content);
+                          }
+                        }}
                         className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-primary"
                       >
-                        {copiedId === msg.id ? <Check size={10} /> : <Copy size={10} />}
+                        {msg.role === "user"
+                          ? <Pencil size={10} />
+                          : (copiedId === msg.id ? <Check size={10} /> : <Copy size={10} />)
+                        }
                       </button>
                       {msg.role === "assistant" && !msg.id.startsWith("streaming-") && msg.content && (
                         <div className="absolute bottom-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1">
+                          {msg.id === lastAssistantMsgId && (
+                            <button
+                              onClick={regenerate}
+                              title="Regenerate response"
+                              className="p-0.5 rounded transition-colors text-muted-foreground hover:text-primary"
+                            >
+                              <RefreshCw size={9} />
+                            </button>
+                          )}
                           <button
                             onClick={() => sendFeedback(msg, 1)}
                             title="Good response"
@@ -1630,6 +1653,25 @@ export default function MavisChat() {
 
       {/* Voice controls */}
       <div className="flex items-center gap-2 justify-end flex-wrap">
+        {/* Response length chips */}
+        {(["concise", "normal", "detailed"] as const).map((len, i) => {
+          const label = ["S", "M", "L"][i];
+          const active = responseLength === len;
+          return (
+            <button
+              key={len}
+              onClick={() => setResponseLength(len)}
+              title={len.charAt(0).toUpperCase() + len.slice(1)}
+              className={`text-xs font-mono px-2 py-0.5 rounded border transition-colors ${
+                active
+                  ? "bg-primary/20 border-primary/40 text-primary"
+                  : "border-border text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              {label}
+            </button>
+          );
+        })}
         <VoicePicker
           enabled={ttsEnabled}
           onToggle={() => {
@@ -1654,6 +1696,21 @@ export default function MavisChat() {
             onRemove={remove}
             compact
           />
+        </div>
+      )}
+
+      {/* Editing pill */}
+      {editingMsgId && (
+        <div className="flex items-center gap-2 px-1">
+          <span className="text-xs font-mono text-amber-400 border border-amber-900/40 rounded px-2 py-0.5 flex items-center gap-1">
+            <Pencil size={9} /> Editing…
+          </span>
+          <button
+            onClick={() => { setEditingMsgId(null); setInput(""); }}
+            className="text-xs font-mono text-muted-foreground hover:text-foreground"
+          >
+            <X size={12} />
+          </button>
         </div>
       )}
 
