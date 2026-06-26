@@ -60,30 +60,38 @@ const FILTERS = [
   "buff", "debuff", "loot", "codex",
 ];
 
+const PAGE_SIZE = 50;
+
 export default function ActivityLogPage() {
   const { user } = useAuth();
   const { lastActionTs } = useAppData();
   const [entries, setEntries] = useState<ActivityEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState("all");
+  const [page, setPage] = useState(0);
+  const [totalCount, setTotalCount] = useState(0);
 
   const fetchEntries = useCallback(async () => {
     if (!user) return;
     let query = supabase
       .from("activity_log")
-      .select("*")
+      .select("*", { count: "exact" })
       .eq("user_id", user.id)
       .order("created_at", { ascending: false })
-      .limit(200);
+      .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);
 
     if (filter !== "all") {
       query = query.eq("event_type", filter);
     }
 
-    const { data } = await query;
+    const { data, count } = await query;
     if (data) setEntries(data as ActivityEntry[]);
+    if (count !== null) setTotalCount(count);
     setLoading(false);
-  }, [user, filter]);
+  }, [user, filter, page]);
+
+  // Reset to page 0 whenever the filter changes
+  useEffect(() => { setPage(0); }, [filter]);
 
   useEffect(() => { fetchEntries(); }, [fetchEntries]);
   useEffect(() => { if (lastActionTs) fetchEntries(); }, [lastActionTs]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -166,6 +174,25 @@ export default function ActivityLogPage() {
               </div>
             </div>
           ))}
+        </div>
+
+        {/* Pagination */}
+        <div className="flex items-center gap-3 mt-4 justify-center">
+          <button
+            disabled={page === 0}
+            onClick={() => setPage((p) => p - 1)}
+            className="px-3 py-1 text-xs font-mono border border-border text-muted-foreground rounded hover:border-border/80 hover:text-foreground disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+          >
+            Previous
+          </button>
+          <span className="text-xs font-mono text-muted-foreground">Page {page + 1}</span>
+          <button
+            disabled={(page + 1) * PAGE_SIZE >= totalCount}
+            onClick={() => setPage((p) => p + 1)}
+            className="px-3 py-1 text-xs font-mono border border-border text-muted-foreground rounded hover:border-border/80 hover:text-foreground disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+          >
+            Next
+          </button>
         </div>
       )}
     </div>
