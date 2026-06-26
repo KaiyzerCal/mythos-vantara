@@ -531,43 +531,55 @@ export type Database = {
       }
       contacts: {
         Row: {
+          company: string | null
           created_at: string
+          email: string | null
           follow_up_date: string | null
           id: string
           interaction_count: number | null
           last_contact_at: string | null
           name: string
           notes: string | null
+          phone: string | null
           profile: Json | null
           relationship_type: string | null
+          source: string | null
           tags: string[] | null
           updated_at: string
           user_id: string
         }
         Insert: {
+          company?: string | null
           created_at?: string
+          email?: string | null
           follow_up_date?: string | null
           id?: string
           interaction_count?: number | null
           last_contact_at?: string | null
           name: string
           notes?: string | null
+          phone?: string | null
           profile?: Json | null
           relationship_type?: string | null
+          source?: string | null
           tags?: string[] | null
           updated_at?: string
           user_id: string
         }
         Update: {
+          company?: string | null
           created_at?: string
+          email?: string | null
           follow_up_date?: string | null
           id?: string
           interaction_count?: number | null
           last_contact_at?: string | null
           name?: string
           notes?: string | null
+          phone?: string | null
           profile?: Json | null
           relationship_type?: string | null
+          source?: string | null
           tags?: string[] | null
           updated_at?: string
           user_id?: string
@@ -1619,6 +1631,45 @@ export type Database = {
         }
         Relationships: []
       }
+      mavis_behavioral_signals: {
+        Row: {
+          action_type: string | null
+          created_at: string | null
+          day_of_week: number | null
+          hour_of_day: number | null
+          id: string
+          metadata: Json | null
+          outcome: string | null
+          signal_type: string
+          tool_name: string | null
+          user_id: string
+        }
+        Insert: {
+          action_type?: string | null
+          created_at?: string | null
+          day_of_week?: number | null
+          hour_of_day?: number | null
+          id?: string
+          metadata?: Json | null
+          outcome?: string | null
+          signal_type: string
+          tool_name?: string | null
+          user_id: string
+        }
+        Update: {
+          action_type?: string | null
+          created_at?: string | null
+          day_of_week?: number | null
+          hour_of_day?: number | null
+          id?: string
+          metadata?: Json | null
+          outcome?: string | null
+          signal_type?: string
+          tool_name?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
       mavis_bond: {
         Row: {
           bond_level: number | null
@@ -2319,6 +2370,39 @@ export type Database = {
         }
         Relationships: []
       }
+      mavis_email_watches: {
+        Row: {
+          active: boolean | null
+          contact_email: string
+          contact_name: string | null
+          context: string | null
+          created_at: string | null
+          id: string
+          triggered_at: string | null
+          user_id: string
+        }
+        Insert: {
+          active?: boolean | null
+          contact_email: string
+          contact_name?: string | null
+          context?: string | null
+          created_at?: string | null
+          id?: string
+          triggered_at?: string | null
+          user_id: string
+        }
+        Update: {
+          active?: boolean | null
+          contact_email?: string
+          contact_name?: string | null
+          context?: string | null
+          created_at?: string | null
+          id?: string
+          triggered_at?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
       mavis_evolution_log: {
         Row: {
           affected_key: string | null
@@ -2394,6 +2478,42 @@ export type Database = {
           id?: string
           source?: string | null
           user_id?: string
+        }
+        Relationships: []
+      }
+      mavis_function_health: {
+        Row: {
+          error_count: number | null
+          expected_interval_min: number
+          function_name: string
+          last_completed_at: string | null
+          last_error: string | null
+          last_started_at: string | null
+          last_status: string | null
+          run_count: number | null
+          updated_at: string | null
+        }
+        Insert: {
+          error_count?: number | null
+          expected_interval_min?: number
+          function_name: string
+          last_completed_at?: string | null
+          last_error?: string | null
+          last_started_at?: string | null
+          last_status?: string | null
+          run_count?: number | null
+          updated_at?: string | null
+        }
+        Update: {
+          error_count?: number | null
+          expected_interval_min?: number
+          function_name?: string
+          last_completed_at?: string | null
+          last_error?: string | null
+          last_started_at?: string | null
+          last_status?: string | null
+          run_count?: number | null
+          updated_at?: string | null
         }
         Relationships: []
       }
@@ -2475,6 +2595,36 @@ export type Database = {
           title?: string
           updated_at?: string | null
           user_id?: string
+        }
+        Relationships: []
+      }
+      mavis_learned_preferences: {
+        Row: {
+          confidence: number | null
+          key: string
+          preference_type: string
+          sample_size: number | null
+          updated_at: string | null
+          user_id: string
+          value: Json
+        }
+        Insert: {
+          confidence?: number | null
+          key: string
+          preference_type: string
+          sample_size?: number | null
+          updated_at?: string | null
+          user_id: string
+          value: Json
+        }
+        Update: {
+          confidence?: number | null
+          key?: string
+          preference_type?: string
+          sample_size?: number | null
+          updated_at?: string | null
+          user_id?: string
+          value?: Json
         }
         Relationships: []
       }
