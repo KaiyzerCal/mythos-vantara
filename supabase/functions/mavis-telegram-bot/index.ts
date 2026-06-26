@@ -127,6 +127,45 @@ async function transcribeVoice(fileId: string): Promise<string | null> {
 }
 
 // ─────────────────────────────────────────────────────────────
+// FILE / DOCUMENT DOWNLOAD
+// ─────────────────────────────────────────────────────────────
+
+const TEXT_EXTENSIONS = new Set([
+  "txt","md","markdown","csv","json","jsonl","ts","tsx","js","jsx","mjs","cjs",
+  "py","html","htm","xml","yaml","yml","toml","ini","env","sh","bash","sql",
+  "log","css","scss","sass","rs","go","java","c","cpp","h","hpp","rb","php",
+  "swift","kt","dart","r","lua","pl","ex","exs","vue","svelte","astro",
+]);
+const IMAGE_EXTENSIONS = new Set(["jpg","jpeg","png","webp","gif","bmp","tiff","heic"]);
+
+interface FileResult { text?: string; isImage?: boolean; error?: string; }
+
+async function downloadFileContent(fileId: string): Promise<FileResult> {
+  try {
+    const fileRes = await fetch(
+      `https://api.telegram.org/bot${BOT_TOKEN}/getFile?file_id=${fileId}`,
+      { signal: AbortSignal.timeout(10_000) },
+    );
+    const fileData = await fileRes.json() as Record<string, unknown>;
+    const filePath = (fileData.result as any)?.file_path as string | undefined;
+    if (!filePath) return { error: "Telegram couldn't resolve the file path — try re-sending the file." };
+    const ext = filePath.split(".").pop()?.toLowerCase() ?? "";
+    if (IMAGE_EXTENSIONS.has(ext)) return { isImage: true };
+    const dlRes = await fetch(
+      `https://api.telegram.org/file/bot${BOT_TOKEN}/${filePath}`,
+      { signal: AbortSignal.timeout(25_000) },
+    );
+    if (!dlRes.ok) return { error: `File download failed (HTTP ${dlRes.status}).` };
+    const raw = await dlRes.text();
+    const MAX = 18_000;
+    const truncated = raw.length > MAX;
+    return { text: raw.slice(0, MAX) + (truncated ? "\n\n[...truncated]" : "") };
+  } catch (err) {
+    return { error: `File error: ${err instanceof Error ? err.message : String(err)}` };
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
 // PHOTO / IMAGE ANALYSIS
 // ─────────────────────────────────────────────────────────────
 
@@ -483,6 +522,7 @@ async function handleHelp(chatId: string | number) {
     `📬 \`actions\` — recent Google Workspace approvals/executions\n` +
     `🎬 \`content <topic>\` — Nora content pipeline\n\n` +
     `📸 _Send a photo to analyze it_\n` +
+    `📄 _Send any file (.md, .txt, .csv, .json, .py, .ts, etc.) to analyze it_\n` +
     voiceLine,
   );
 }
@@ -896,9 +936,34 @@ serve(async (req) => {
       return;
     }
 
+    // Document / audio file — text extraction or image routing
+    const doc = (message.document ?? (!wasVoice && message.audio)) as Record<string, unknown> | undefined;
+    if (!wasVoice && !wasPhoto && doc?.file_id) {
+      await typing(chatId);
+      const fileName = String(doc.file_name ?? "file");
+      const result = await downloadFileContent(String(doc.file_id));
+      if (result.error) {
+        await send(chatId, `⚠️ ${result.error}`);
+        return;
+      }
+      if (result.isImage) {
+        const analysis = await analyzePhoto(String(doc.file_id), text || `Analyze: ${fileName}`, uid);
+        await send(chatId, analysis ? `📸 ${analysis}` : "⚠️ Could not analyze image.");
+        return;
+      }
+      const sessionId = await getOrCreateSession(uid);
+      const history   = sessionId ? await loadHistory(sessionId) : [];
+      const userPrompt = text
+        ? `${text}\n\n[Attached file: ${fileName}]\n\`\`\`\n${result.text}\n\`\`\``
+        : `Analyze this file: ${fileName}\n\n\`\`\`\n${result.text}\n\`\`\``;
+      await send(chatId, `📄 _Reading ${fileName}…_`);
+      await handleChat(chatId, uid, userPrompt, history, sessionId);
+      return;
+    }
+
     if (!text) {
       // Unsupported message type (sticker, location, etc.)
-      await send(chatId, "⚠️ Unable to process your message. Send text, voice, or a photo.");
+      await send(chatId, "⚠️ Unable to process your message. Send text, voice, a photo, or a file.");
       return;
     }
 
