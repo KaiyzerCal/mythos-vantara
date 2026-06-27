@@ -1317,6 +1317,69 @@ const STATE_PREFIX = "telegram-state-";
 interface PersonaState {
   persona_id: string;
   persona_name: string;
+  user_id?: string;
+}
+
+function normalizePersonaName(value: string): string {
+  return value.trim().toLowerCase().replace(/^\/+/, "").replace(/[_\-]+/g, " ").replace(/\s+/g, " ");
+}
+
+async function resolvePersonaOwnerUid(uid: string): Promise<string> {
+  if (uid) {
+    const { data: own } = await supabase
+      .from("personas")
+      .select("user_id")
+      .eq("user_id", uid)
+      .eq("is_active", true)
+      .limit(1);
+    if (own?.length) return uid;
+  }
+
+  const fallbackUid = Deno.env.get("MAVIS_OPERATOR_MAIN_ID") ?? "";
+  if (fallbackUid && fallbackUid !== uid) {
+    const { data: fallback } = await supabase
+      .from("personas")
+      .select("user_id")
+      .eq("user_id", fallbackUid)
+      .eq("is_active", true)
+      .limit(1);
+    if (fallback?.length) return fallbackUid;
+  }
+
+  const { data: anyOwner } = await supabase
+    .from("personas")
+    .select("user_id")
+    .eq("is_active", true)
+    .limit(1);
+  return anyOwner?.[0]?.user_id ? String(anyOwner[0].user_id) : uid;
+}
+
+async function listTelegramPersonas(): Promise<any[]> {
+  const effectiveUid = await resolvePersonaOwnerUid(OPERATOR_USER_ID);
+  const { data } = await supabase
+    .from("personas")
+    .select("id, user_id, name, role, archetype")
+    .eq("user_id", effectiveUid)
+    .eq("is_active", true)
+    .order("created_at", { ascending: false })
+    .limit(50);
+  return data ?? [];
+}
+
+async function findTelegramPersona(nameQuery: string): Promise<any | null> {
+  const effectiveUid = await resolvePersonaOwnerUid(OPERATOR_USER_ID);
+  const { data } = await supabase
+    .from("personas")
+    .select("id, user_id, name, role, archetype")
+    .eq("user_id", effectiveUid)
+    .eq("is_active", true)
+    .ilike("name", `%${nameQuery}%`)
+    .limit(10);
+
+  const personas = data ?? [];
+  if (!personas.length) return null;
+  const wanted = normalizePersonaName(nameQuery);
+  return personas.find((p: any) => normalizePersonaName(String(p.name ?? "")) === wanted) ?? personas[0];
 }
 
 async function getActivePersona(chatId: string): Promise<PersonaState | null> {
@@ -1363,7 +1426,7 @@ async function setActivePersona(chatId: string, state: PersonaState | null): Pro
 // semantic memory, bond/trust/mood, and app context.
 // ─────────────────────────────────────────────────────────────
 
-async function callPersona(personaId: string, message: string, chatId: string): Promise<string> {
+async function callPersona(personaId: string, message: string, chatId: string, userId = OPERATOR_USER_ID): Promise<string> {
   const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
   const serviceKey  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
@@ -1375,7 +1438,7 @@ async function callPersona(personaId: string, message: string, chatId: string): 
     },
     body: JSON.stringify({
       persona_id: personaId,
-      user_id: OPERATOR_USER_ID,
+      user_id: userId,
       message,
       chat_id: chatId,
     }),
