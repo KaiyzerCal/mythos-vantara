@@ -801,6 +801,13 @@ function normalizePersonaName(value: string): string {
   return value.trim().toLowerCase().replace(/^\/+/, "").replace(/[_\-]+/g, " ").replace(/\s+/g, " ");
 }
 
+// Map any model string to a valid Anthropic model ID.
+// Personas/councils may store OpenAI or legacy model names.
+function toClaudeModel(model: string): string {
+  if (!model || !model.startsWith("claude-")) return "claude-haiku-4-5-20251001";
+  return model;
+}
+
 function personaSummary(p: any): string {
   const role = p.role ? ` — ${p.role}` : "";
   const archetype = p.archetype ? ` (${p.archetype})` : "";
@@ -875,7 +882,8 @@ async function handleSwitchPersona(chatId: string | number, uid: string, name: s
     lore:          [],
     adjectives,
     topics:        Array.isArray(personality.topics) ? personality.topics.map(String) : [],
-    model:         String(p.model ?? "claude-haiku-4-5-20251001"),
+    // personas.model may be "gpt-4o-mini" (OpenAI default) — map to Claude equivalent
+    model:         toClaudeModel(String(p.model ?? "")),
   };
 
   await setActivePersona(uid, session);
@@ -928,9 +936,10 @@ async function handleListCouncil(chatId: string | number, uid: string) {
 
 async function handleSwitchCouncil(chatId: string | number, uid: string, name: string): Promise<boolean> {
   const effectiveUid = await resolveCouncilOwnerUid(uid);
+  // NOTE: councils table has no "model" column — omit it to avoid PostgREST errors
   const { data: members } = await sb
     .from("councils")
-    .select("id, name, role, specialty, personality_prompt, notes, model")
+    .select("id, name, role, specialty, personality_prompt, notes")
     .eq("user_id", effectiveUid)
     .ilike("name", `%${name}%`)
     .limit(5);
@@ -948,7 +957,7 @@ async function handleSwitchCouncil(chatId: string | number, uid: string, name: s
     specialty:        String(m.specialty ?? ""),
     personality_prompt: String(m.personality_prompt ?? ""),
     notes:            String(m.notes ?? ""),
-    model:            String(m.model ?? "claude-haiku-4-5-20251001"),
+    model:            "claude-haiku-4-5-20251001",
   };
 
   await setActiveCouncil(uid, session);
@@ -1207,7 +1216,7 @@ async function handleChat(
         content: String(m.content ?? ""),
       }));
       const msgs: ChatMessage[] = [...recentHistory, { role: "user", content: text }];
-      const model = activeCouncil.model || "claude-haiku-4-5-20251001";
+      const model = toClaudeModel(activeCouncil.model);
       const reply = await callClaude(councilSystem, msgs, 1000, model);
 
       if (reply) {
@@ -1247,7 +1256,7 @@ async function handleChat(
       }));
 
       const msgs: ChatMessage[] = [...recentHistory, { role: "user", content: text }];
-      const model = activePersona.model || "claude-haiku-4-5-20251001";
+      const model = toClaudeModel(activePersona.model);
       const reply = await callClaude(personaSystem, msgs, 1000, model);
 
       if (reply) {
