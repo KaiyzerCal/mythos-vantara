@@ -42,6 +42,7 @@ const JournalPage = lazy(() => import("@/pages/ContentPages").then(m => ({ defau
 const VaultCodexPage = lazy(() => import("@/pages/ContentPages").then(m => ({ default: m.VaultCodexPage })));
 const SkillsPage = lazy(() => import("@/pages/ContentPages").then(m => ({ default: m.SkillsPage })));
 const InventoryPage = lazy(() => import("@/pages/ContentPages").then(m => ({ default: m.InventoryPage })));
+const DomainPage = lazy(() => import("@/pages/ContentPages").then(m => ({ default: m.DomainPage })));
 const FormsPage = lazy(() => import("@/pages/FormsPage"));
 const BpmPage = lazy(() => import("@/pages/BpmPage"));
 const RankingsPage = lazy(() => import("@/pages/RankingsPage"));
@@ -56,18 +57,28 @@ const Inbox = lazy(() => import("@/pages/Inbox"));
 const CouncilBoard = lazy(() => import("@/pages/CouncilBoard"));
 const KnowledgeGraph = lazy(() => import("@/pages/KnowledgeGraph"));
 const ContactsPage = lazy(() => import("@/pages/ContactsPage").then(m => ({ default: m.ContactsPage })));
+const IntelligencePage = lazy(() => import("@/pages/IntelligencePage"));
+const PhoneCallsPage = lazy(() => import("@/pages/PhoneCallsPage"));
+const ReceptionistPage = lazy(() => import("@/pages/ReceptionistPage"));
+const SMSPage = lazy(() => import("@/pages/SMSPage"));
 const AnalyticsPage = lazy(() => import("@/pages/AnalyticsPage").then(m => ({ default: m.AnalyticsPage })));
 const RepurposePage = lazy(() => import("@/pages/RepurposePage").then(m => ({ default: m.RepurposePage })));
 const HealthPage = lazy(() => import("@/pages/HealthPage").then(m => ({ default: m.HealthPage })));
 const FinancePage = lazy(() => import("@/pages/FinancePage").then(m => ({ default: m.FinancePage })));
 const SchedulerPage = lazy(() => import("@/pages/SchedulerPage").then(m => ({ default: m.SchedulerPage })));
 const GoalsPage = lazy(() => import("@/pages/GoalsPage").then(m => ({ default: m.GoalsPage })));
+const MemoryPage = lazy(() => import("@/pages/MemoryPage"));
+const PlaybooksPage = lazy(() => import("@/pages/PlaybooksPage").then(m => ({ default: m.PlaybooksPage })));
+const StandingOrderTemplatesPage = lazy(() => import("@/pages/StandingOrderTemplatesPage").then(m => ({ default: m.StandingOrderTemplatesPage })));
 const StudyPage = lazy(() => import("@/pages/StudyPage").then(m => ({ default: m.StudyPage })));
 const TimeTrackingPage = lazy(() => import("@/pages/TimeTrackingPage").then(m => ({ default: m.TimeTrackingPage })));
 const MeetingNotesPage = lazy(() => import("@/pages/MeetingNotesPage").then(m => ({ default: m.MeetingNotesPage })));
 const ReadwisePage = lazy(() => import("@/pages/ReadwisePage").then(m => ({ default: m.ReadwisePage })));
 const SocialAnalyticsPage = lazy(() => import("@/pages/SocialAnalyticsPage").then(m => ({ default: m.SocialAnalyticsPage })));
 const EmailPage = lazy(() => import("@/pages/EmailPage").then(m => ({ default: m.EmailPage })));
+const LeadGenPage = lazy(() => import("@/pages/LeadGenPage"));
+const CompetitorIntelPage = lazy(() => import("@/pages/CompetitorIntelPage"));
+const ApiKeysPage = lazy(() => import("@/pages/ApiKeysPage"));
 const WebhookConfigPage = lazy(() => import("@/pages/WebhookConfigPage").then(m => ({ default: m.WebhookConfigPage })));
 const IntegrationsPage = lazy(() => import("@/pages/IntegrationsPage").then(m => ({ default: m.IntegrationsPage })));
 const ExportPage = lazy(() => import("@/pages/ExportPage").then(m => ({ default: m.ExportPage })));
@@ -75,6 +86,9 @@ const PlanBoard = lazy(() => import("@/pages/PlanBoard"));
 const WebsiteBuilderPage = lazy(() => import("@/pages/WebsiteBuilderPage"));
 const WidgetBuilderPage = lazy(() => import("@/pages/WidgetBuilderPage"));
 const VideoEditorPage = lazy(() => import("@/pages/VideoEditorPage"));
+const AvatarStudioPage = lazy(() => import("@/pages/AvatarStudioPage").then(m => ({ default: m.AvatarStudioPage })));
+const ProductionIntelligence = lazy(() => import("@/pages/ProductionIntelligence"));
+const DesignStudio = lazy(() => import("@/pages/DesignStudio"));
 const AchievementsPage = lazy(() => import("@/pages/AchievementsPage").then(m => ({ default: m.AchievementsPage })));
 const ForecastPage = lazy(() => import("@/pages/ForecastPage").then(m => ({ default: m.ForecastPage })));
 const NotificationsPage = lazy(() => import("@/pages/NotificationsPage").then(m => ({ default: m.NotificationsPage })));
@@ -82,6 +96,7 @@ const StripeManagementPage = lazy(() => import("@/pages/StripeManagementPage").t
 const WorkflowsPage = lazy(() => import("@/pages/WorkflowsPage").then(m => ({ default: m.WorkflowsPage })));
 const ImportPage = lazy(() => import("@/pages/ImportPage").then(m => ({ default: m.ImportPage })));
 const AgentDashboardPage = lazy(() => import("@/pages/AgentDashboardPage").then(m => ({ default: m.AgentDashboardPage })));
+const SystemSettingsPage = lazy(() => import("@/pages/SystemSettingsPage").then(m => ({ default: m.SystemSettingsPage })));
 // Public demo — no auth required
 const MavisDemo = lazy(() => import("@/pages/MavisDemo"));
 
@@ -138,6 +153,7 @@ function AppContent() {
           <Suspense fallback={Spinner}>
             <Routes>
               <Route path="/" element={<Dashboard />} />
+              <Route path="/index" element={<Dashboard />} />
               <Route path="/character" element={<CharacterPage />} />
               <Route path="/mavis-ui" element={<MavisDemo />} />
               <Route path="/demo" element={<MavisDemo />} />
@@ -149,6 +165,7 @@ function AppContent() {
               <Route path="/energy" element={<EnergyPage />} />
               <Route path="/skills" element={<SkillsPage />} />
               <Route path="/inventory" element={<InventoryPage />} />
+              <Route path="/domain" element={<DomainPage />} />
               <Route path="/journal" element={<JournalPage />} />
               <Route path="/vault" element={<VaultCodexPage />} />
               <Route path="/rankings" element={<RankingsPage />} />
@@ -165,24 +182,37 @@ function AppContent() {
               <Route path="/council-board" element={<CouncilBoard />} />
               <Route path="/knowledge" element={<KnowledgeGraph />} />
               <Route path="/contacts" element={<ContactsPage />} />
+              <Route path="/intelligence" element={<IntelligencePage />} />
+              <Route path="/phone" element={<PhoneCallsPage />} />
+              <Route path="/receptionist" element={<ReceptionistPage />} />
+              <Route path="/sms" element={<SMSPage />} />
               <Route path="/analytics" element={<AnalyticsPage />} />
               <Route path="/repurpose" element={<RepurposePage />} />
               <Route path="/health" element={<HealthPage />} />
               <Route path="/finance" element={<FinancePage />} />
               <Route path="/scheduler" element={<SchedulerPage />} />
               <Route path="/goals" element={<GoalsPage />} />
+              <Route path="/memory" element={<MemoryPage />} />
+              <Route path="/playbooks" element={<PlaybooksPage />} />
+              <Route path="/so-templates" element={<StandingOrderTemplatesPage />} />
               <Route path="/study" element={<StudyPage />} />
               <Route path="/time" element={<TimeTrackingPage />} />
               <Route path="/meetings" element={<MeetingNotesPage />} />
               <Route path="/highlights" element={<ReadwisePage />} />
               <Route path="/social-analytics" element={<SocialAnalyticsPage />} />
               <Route path="/email" element={<EmailPage />} />
+              <Route path="/leads" element={<LeadGenPage />} />
+              <Route path="/competitors" element={<CompetitorIntelPage />} />
+              <Route path="/api-keys" element={<ApiKeysPage />} />
               <Route path="/webhooks" element={<WebhookConfigPage />} />
               <Route path="/integrations" element={<IntegrationsPage />} />
               <Route path="/export" element={<ExportPage />} />
               <Route path="/plans" element={<PlanBoard />} />
               <Route path="/websites" element={<WebsiteBuilderPage />} />
               <Route path="/widgets" element={<WidgetBuilderPage />} />
+              <Route path="/avatar-studio" element={<AvatarStudioPage />} />
+              <Route path="/production-intel" element={<ProductionIntelligence />} />
+              <Route path="/design-studio" element={<DesignStudio />} />
               <Route path="/achievements" element={<AchievementsPage />} />
               <Route path="/forecast" element={<ForecastPage />} />
               <Route path="/notifications" element={<NotificationsPage />} />
@@ -191,6 +221,7 @@ function AppContent() {
               <Route path="/import" element={<ImportPage />} />
               <Route path="/creator" element={<VideoEditorPage />} />
               <Route path="/agents" element={<AgentDashboardPage />} />
+              <Route path="/system-settings" element={<SystemSettingsPage />} />
               <Route path="*" element={<NotFound />} />
             </Routes>
           </Suspense>
