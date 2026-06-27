@@ -377,9 +377,9 @@ function EditPersonaPanel({ persona, onSaved, onCancel }: EditPersonaPanelProps)
             </div>
           )}
         </div>
-      </div>
 
       <div className="flex items-center gap-2 mt-4 flex-wrap">
+
         <button
           onClick={handleSave}
           disabled={isSaving || !name.trim()}
