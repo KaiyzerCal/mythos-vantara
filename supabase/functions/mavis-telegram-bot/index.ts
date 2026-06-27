@@ -860,7 +860,7 @@ Supported types:
   create_quest       — params: title, description, type (daily|side|main|boss), xp_reward
   complete_quest     — params: title (or id)
   create_journal     — params: title, content, category (general|reflection|gratitude|focus|dream), mood
-  create_vault       — params: title, content, category (idea|quote|goal|strategy|reference)
+  create_vault       — params: title, content, category (legal|business|personal|evidence|achievement)
   create_skill       — params: name, category, tier (1–5)
   complete_ritual    — params: name (or id)
   award_xp           — params: amount, reason
@@ -1004,11 +1004,13 @@ async function executeDirectAction(type: string, params: Record<string, any>, ui
         return data ? `Journal entry created: "${(data as any).title}"` : null;
       }
       case "create_vault": {
+        const VALID_VAULT_CATS = ["legal","business","personal","evidence","achievement"];
+        const vaultCat = VALID_VAULT_CATS.includes(params.category) ? params.category : "personal";
         const { data } = await sb.from("vault_entries").insert({
           user_id:  uid,
           title:    params.title ?? "Vault Entry",
           content:  params.content ?? "",
-          category: params.category ?? "general",
+          category: vaultCat,
         }).select("title").single();
         return data ? `Vault entry saved: "${(data as any).title}"` : null;
       }
