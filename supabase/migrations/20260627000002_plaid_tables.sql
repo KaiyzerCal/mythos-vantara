@@ -62,7 +62,9 @@ create table if not exists plaid_sync_cursors (
 );
 
 -- mavis_expenses unique constraint for Plaid dedup
--- (safe if already exists — Postgres will warn, not error, on duplicate constraint names)
-alter table mavis_expenses
-  add constraint if not exists mavis_expenses_dedup
-  unique (user_id, description, expense_date, amount);
+DO $$ BEGIN
+  ALTER TABLE mavis_expenses
+    ADD CONSTRAINT mavis_expenses_dedup
+    UNIQUE (user_id, description, expense_date, amount);
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
