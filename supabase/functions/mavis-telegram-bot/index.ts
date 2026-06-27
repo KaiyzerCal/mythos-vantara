@@ -533,13 +533,14 @@ async function handleApprovalCallback(
 }
 
 // ─────────────────────────────────────────────────────────────
-// PERSONA SESSION STATE  (persisted in mavis_user_profile.preferences)
+// PERSONA SESSION STATE  (persisted in mavis_memory)
 // ─────────────────────────────────────────────────────────────
 
 interface PersonaSession {
   id:          string;
   name:        string;
   role:        string;
+  archetype:   string;
   system_prompt: string;
   bio:         string;
   lore:        string[];
@@ -548,14 +549,20 @@ interface PersonaSession {
   model:       string;
 }
 
+const PERSONA_STATE_PREFIX = "telegram-persona-state-";
+
 async function getActivePersona(uid: string): Promise<PersonaSession | null> {
   try {
-    const { data } = await sb.from("mavis_user_profile")
-      .select("preferences")
+    const { data } = await sb.from("mavis_memory")
+      .select("content")
       .eq("user_id", uid)
+      .eq("session_id", `${PERSONA_STATE_PREFIX}${uid}`)
+      .eq("role", "system")
+      .order("timestamp", { ascending: false })
+      .limit(1)
       .maybeSingle();
-    const p = (data?.preferences as any)?.telegram_active_persona;
-    return p ?? null;
+    if (!data?.content) return null;
+    return JSON.parse(String(data.content)) as PersonaSession;
   } catch {
     return null;
   }
@@ -563,27 +570,30 @@ async function getActivePersona(uid: string): Promise<PersonaSession | null> {
 
 async function setActivePersona(uid: string, persona: PersonaSession | null): Promise<void> {
   try {
-    const { data } = await sb.from("mavis_user_profile")
-      .select("preferences")
+    await sb.from("mavis_memory")
+      .delete()
       .eq("user_id", uid)
-      .maybeSingle();
-    const current = (data?.preferences as Record<string, unknown>) ?? {};
-    const updated  = { ...current };
+      .eq("session_id", `${PERSONA_STATE_PREFIX}${uid}`)
+      .eq("role", "system");
+
     if (persona) {
-      updated.telegram_active_persona = persona;
-    } else {
-      delete updated.telegram_active_persona;
+      await sb.from("mavis_memory").insert({
+        user_id: uid,
+        session_id: `${PERSONA_STATE_PREFIX}${uid}`,
+        role: "system",
+        content: JSON.stringify(persona),
+        timestamp: Date.now(),
+        importance_score: 1,
+        consolidated: true,
+      });
     }
-    await sb.from("mavis_user_profile").upsert(
-      { user_id: uid, preferences: updated, updated_at: new Date().toISOString() },
-      { onConflict: "user_id" },
-    );
   } catch { /* non-fatal */ }
 }
 
 function buildPersonaSystemPrompt(p: PersonaSession): string {
   const parts: string[] = [];
   parts.push(`You are ${p.name}${p.role ? `, a ${p.role}` : ""}.`);
+  if (p.archetype?.trim())  parts.push(`\nArchetype: ${p.archetype.trim()}`);
   if (p.bio?.trim())        parts.push(`\nBackground: ${p.bio.trim()}`);
   if (p.lore?.length)       parts.push(`\nLore:\n${p.lore.map(l => `- ${l}`).join("\n")}`);
   if (p.adjectives?.length) parts.push(`\nYour personality: ${p.adjectives.join(", ")}`);
