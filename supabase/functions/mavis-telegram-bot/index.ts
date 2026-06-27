@@ -701,21 +701,32 @@ async function handleContentMachine(chatId: string | number, uid: string, topic:
 async function resolvePersonaOwnerUid(uid: string): Promise<string> {
   // Configured operator UID first
   if (uid) {
-    const { data: own } = await sb.from("personas").select("user_id").eq("user_id", uid).limit(1);
+    const { data: own } = await sb.from("personas").select("user_id").eq("user_id", uid).eq("is_active", true).limit(1);
     if (own && (own as any[]).length > 0) return uid;
   }
   // Fallback: single-tenant — pick whichever user owns personas
-  const { data: any1 } = await sb.from("personas").select("user_id").limit(1);
+  const { data: any1 } = await sb.from("personas").select("user_id").eq("is_active", true).limit(1);
   if (any1 && (any1 as any[]).length > 0) return String((any1 as any[])[0].user_id);
   return uid;
+}
+
+function normalizePersonaName(value: string): string {
+  return value.trim().toLowerCase().replace(/^\/+/, "").replace(/[_\-]+/g, " ").replace(/\s+/g, " ");
+}
+
+function personaSummary(p: any): string {
+  const role = p.role ? ` — ${p.role}` : "";
+  const archetype = p.archetype ? ` (${p.archetype})` : "";
+  return `• *${p.name}*${role}${archetype}`;
 }
 
 async function handleListPersonas(chatId: string | number, uid: string) {
   const effectiveUid = await resolvePersonaOwnerUid(uid);
   const { data: personas } = await sb
     .from("personas")
-    .select("id, name, role, bio")
+    .select("id, name, role, archetype")
     .eq("user_id", effectiveUid)
+    .eq("is_active", true)
     .order("name", { ascending: true })
     .limit(50);
 
@@ -727,7 +738,7 @@ async function handleListPersonas(chatId: string | number, uid: string) {
   const active = await getActivePersona(uid);
   const lines = (personas as any[]).map((p) => {
     const marker = active?.id === p.id ? " ✅" : "";
-    return `• *${p.name}*${marker} — ${p.role ?? "no role set"}`;
+    return `${personaSummary(p)}${marker}`;
   });
 
   await send(chatId,
@@ -740,10 +751,11 @@ async function handleSwitchPersona(chatId: string | number, uid: string, name: s
   const effectiveUid = await resolvePersonaOwnerUid(uid);
   const { data: personas } = await sb
     .from("personas")
-    .select("id, name, role, system_prompt, bio, lore, adjectives, topics, model")
+    .select("id, name, role, archetype, personality, system_prompt, model")
     .eq("user_id", effectiveUid)
+    .eq("is_active", true)
     .ilike("name", `%${name}%`)
-    .limit(5);
+    .limit(10);
 
   if (!personas || (personas as any[]).length === 0) {
     await send(chatId,
@@ -752,18 +764,26 @@ async function handleSwitchPersona(chatId: string | number, uid: string, name: s
     return;
   }
 
-  const exact = (personas as any[]).find((p) => p.name.toLowerCase() === name.toLowerCase());
+  const wanted = normalizePersonaName(name);
+  const exact = (personas as any[]).find((p) => normalizePersonaName(String(p.name ?? "")) === wanted);
   const p: any = exact ?? (personas as any[])[0];
+  const personality = p.personality && typeof p.personality === "object" ? p.personality as Record<string, unknown> : {};
+  const quirks = Array.isArray(personality.quirks) ? personality.quirks.map(String) : [];
+  const values = Array.isArray(personality.values) ? personality.values.map(String) : [];
+  const adjectives = [personality.tone, personality.communication_style, ...quirks, ...values]
+    .filter(Boolean)
+    .map(String);
 
   const session: PersonaSession = {
     id:            String(p.id ?? ""),
     name:          String(p.name ?? ""),
     role:          String(p.role ?? ""),
+    archetype:     String(p.archetype ?? ""),
     system_prompt: String(p.system_prompt ?? ""),
-    bio:           String(p.bio ?? ""),
-    lore:          Array.isArray(p.lore)        ? p.lore        : [],
-    adjectives:    Array.isArray(p.adjectives)  ? p.adjectives  : [],
-    topics:        Array.isArray(p.topics)      ? p.topics      : [],
+    bio:           String(personality.bio ?? p.archetype ?? ""),
+    lore:          [],
+    adjectives,
+    topics:        Array.isArray(personality.topics) ? personality.topics.map(String) : [],
     model:         String(p.model ?? "claude-haiku-4-5-20251001"),
   };
 
