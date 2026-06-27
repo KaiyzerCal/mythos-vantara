@@ -34,6 +34,8 @@ const SUPABASE_URL   = Deno.env.get("SUPABASE_URL") ?? "";
 const SERVICE_KEY    = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 const ANTHROPIC_KEY  = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
 const OPENAI_KEY     = Deno.env.get("OPENAI_API") ?? Deno.env.get("OPENAI_API_KEY") ?? "";
+const GEMINI_KEY     = Deno.env.get("GEMINI_API_KEY") ?? Deno.env.get("GOOGLE_API_KEY") ?? "";
+const XAI_KEY        = Deno.env.get("XAI_API_KEY") ?? Deno.env.get("GROK_API_KEY") ?? "";
 
 const HISTORY_LIMIT = 10;
 
@@ -363,29 +365,111 @@ async function saveExchange(
 }
 
 // ─────────────────────────────────────────────────────────────
-// CLAUDE (fallback direct)
+// MULTI-MODEL LLM ROUTER
+// Routes to Anthropic, OpenAI, Gemini, or xAI based on model name.
 // ─────────────────────────────────────────────────────────────
 
+function detectProvider(model: string): "anthropic" | "openai" | "gemini" | "xai" {
+  if (model.startsWith("claude-"))   return "anthropic";
+  if (model.startsWith("gemini-"))   return "gemini";
+  if (model.startsWith("grok-"))     return "xai";
+  // gpt-*, o1-*, o3-*, o4-* → OpenAI
+  return "openai";
+}
+
+async function callLLM(
+  model: string,
+  system: string,
+  messages: ChatMessage[],
+  maxTokens = 800,
+): Promise<string> {
+  const provider = detectProvider(model || "claude-haiku-4-5-20251001");
+  const effectiveModel = model || "claude-haiku-4-5-20251001";
+
+  // ── Anthropic ──────────────────────────────────────────────
+  if (provider === "anthropic") {
+    if (!ANTHROPIC_KEY) return "(ANTHROPIC_API_KEY not set)";
+    const res = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": ANTHROPIC_KEY,
+        "anthropic-version": "2023-06-01",
+      },
+      body: JSON.stringify({ model: effectiveModel, max_tokens: maxTokens, system, messages }),
+      signal: AbortSignal.timeout(30000),
+    });
+    if (!res.ok) { console.error("[llm] Anthropic error", res.status, await res.text().catch(() => "")); return ""; }
+    const d = await res.json();
+    return d?.content?.[0]?.text ?? "";
+  }
+
+  // ── OpenAI ─────────────────────────────────────────────────
+  if (provider === "openai") {
+    if (!OPENAI_KEY) return "(OPENAI_API_KEY not set)";
+    const oaiMessages = [{ role: "system", content: system }, ...messages];
+    const res = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${OPENAI_KEY}` },
+      body: JSON.stringify({ model: effectiveModel, max_tokens: maxTokens, messages: oaiMessages }),
+      signal: AbortSignal.timeout(30000),
+    });
+    if (!res.ok) { console.error("[llm] OpenAI error", res.status, await res.text().catch(() => "")); return ""; }
+    const d = await res.json();
+    return d?.choices?.[0]?.message?.content ?? "";
+  }
+
+  // ── Google Gemini ──────────────────────────────────────────
+  if (provider === "gemini") {
+    if (!GEMINI_KEY) return "(GEMINI_API_KEY not set)";
+    const geminiContents = messages.map((m) => ({
+      role: m.role === "assistant" ? "model" : "user",
+      parts: [{ text: m.content }],
+    }));
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${effectiveModel}:generateContent?key=${GEMINI_KEY}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          systemInstruction: { parts: [{ text: system }] },
+          contents: geminiContents,
+          generationConfig: { maxOutputTokens: maxTokens },
+        }),
+        signal: AbortSignal.timeout(30000),
+      },
+    );
+    if (!res.ok) { console.error("[llm] Gemini error", res.status, await res.text().catch(() => "")); return ""; }
+    const d = await res.json();
+    return d?.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
+  }
+
+  // ── xAI / Grok ─────────────────────────────────────────────
+  if (provider === "xai") {
+    if (!XAI_KEY) return "(XAI_API_KEY not set)";
+    const xaiMessages = [{ role: "system", content: system }, ...messages];
+    const res = await fetch("https://api.x.ai/v1/chat/completions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${XAI_KEY}` },
+      body: JSON.stringify({ model: effectiveModel, max_tokens: maxTokens, messages: xaiMessages }),
+      signal: AbortSignal.timeout(30000),
+    });
+    if (!res.ok) { console.error("[llm] xAI error", res.status, await res.text().catch(() => "")); return ""; }
+    const d = await res.json();
+    return d?.choices?.[0]?.message?.content ?? "";
+  }
+
+  return "";
+}
+
+// Kept for internal use (non-persona calls that always use Claude Haiku)
 async function callClaude(
   system: string,
   messages: ChatMessage[],
   maxTokens = 800,
   model = "claude-haiku-4-5-20251001",
 ): Promise<string> {
-  if (!ANTHROPIC_KEY) return "(ANTHROPIC_API_KEY not set)";
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-api-key": ANTHROPIC_KEY,
-      "anthropic-version": "2023-06-01",
-    },
-    body: JSON.stringify({ model, max_tokens: maxTokens, system, messages }),
-    signal: AbortSignal.timeout(30000),
-  });
-  if (!res.ok) return "";
-  const d = await res.json();
-  return d?.content?.[0]?.text ?? "";
+  return callLLM(model, system, messages, maxTokens);
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -801,12 +885,6 @@ function normalizePersonaName(value: string): string {
   return value.trim().toLowerCase().replace(/^\/+/, "").replace(/[_\-]+/g, " ").replace(/\s+/g, " ");
 }
 
-// Map any model string to a valid Anthropic model ID.
-// Personas/councils may store OpenAI or legacy model names.
-function toClaudeModel(model: string): string {
-  if (!model || !model.startsWith("claude-")) return "claude-haiku-4-5-20251001";
-  return model;
-}
 
 function personaSummary(p: any): string {
   const role = p.role ? ` — ${p.role}` : "";
@@ -882,8 +960,7 @@ async function handleSwitchPersona(chatId: string | number, uid: string, name: s
     lore:          [],
     adjectives,
     topics:        Array.isArray(personality.topics) ? personality.topics.map(String) : [],
-    // personas.model may be "gpt-4o-mini" (OpenAI default) — map to Claude equivalent
-    model:         toClaudeModel(String(p.model ?? "")),
+    model:         String(p.model ?? "claude-haiku-4-5-20251001") || "claude-haiku-4-5-20251001",
   };
 
   await setActivePersona(uid, session);
@@ -1216,8 +1293,7 @@ async function handleChat(
         content: String(m.content ?? ""),
       }));
       const msgs: ChatMessage[] = [...recentHistory, { role: "user", content: text }];
-      const model = toClaudeModel(activeCouncil.model);
-      const reply = await callClaude(councilSystem, msgs, 1000, model);
+      const reply = await callLLM(activeCouncil.model || "claude-haiku-4-5-20251001", councilSystem, msgs, 1000);
 
       if (reply) {
         await send(chatId, reply);
@@ -1256,8 +1332,7 @@ async function handleChat(
       }));
 
       const msgs: ChatMessage[] = [...recentHistory, { role: "user", content: text }];
-      const model = toClaudeModel(activePersona.model);
-      const reply = await callClaude(personaSystem, msgs, 1000, model);
+      const reply = await callLLM(activePersona.model || "claude-haiku-4-5-20251001", personaSystem, msgs, 1000);
 
       if (reply) {
         await send(chatId, reply);
