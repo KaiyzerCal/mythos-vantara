@@ -44,13 +44,22 @@ const sb = createClient(SUPABASE_URL, SERVICE_KEY);
 // ─────────────────────────────────────────────────────────────
 
 async function tg(method: string, body: Record<string, unknown>): Promise<unknown> {
-  const res = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/${method}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-    signal: AbortSignal.timeout(10000),
-  });
-  return res.json().catch(() => ({}));
+  try {
+    const res = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/${method}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(10000),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || (data as any)?.ok === false) {
+      console.warn("[telegram-bot] Telegram API call failed", method, res.status, JSON.stringify(data).slice(0, 500));
+    }
+    return data;
+  } catch (err) {
+    console.error("[telegram-bot] Telegram API call error", method, err instanceof Error ? err.message : String(err));
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
 }
 
 // Convert Claude/CommonMark markdown to Telegram Markdown v1 format.
@@ -1055,10 +1064,10 @@ async function handleChat(
       if (reply) {
         await send(chatId, reply);
         // Write to persona_conversations so the exchange appears in the web PersonaChat thread
-        await sb.from("persona_conversations").insert([
+        await Promise.resolve(sb.from("persona_conversations").insert([
           { persona_id: activePersona.id, user_id: uid, role: "user",      content: text  },
           { persona_id: activePersona.id, user_id: uid, role: "assistant", content: reply },
-        ]).catch(() => {});
+        ])).catch((err) => console.warn("[telegram-bot] persona_conversations write failed", err));
       } else {
         await send(chatId, `⚠️ ${activePersona.name} is unavailable right now. Try again.`);
       }
@@ -1157,6 +1166,13 @@ serve(async (req) => {
   }
 
   const process = async () => {
+    console.log("[telegram-bot] received update", {
+      update_id: update.update_id,
+      has_message: Boolean(update.message),
+      has_edited_message: Boolean(update.edited_message),
+      has_callback_query: Boolean(update.callback_query),
+    });
+
     // Handle inline button presses (approve/reject from MAVIS notifications)
     const callbackQuery = update.callback_query as Record<string, unknown> | undefined;
     if (callbackQuery) {
@@ -1170,11 +1186,22 @@ serve(async (req) => {
     const chatId = String((message.chat as any)?.id ?? "");
     if (!chatId) return;
 
+    console.log("[telegram-bot] processing message", {
+      update_id: update.update_id,
+      chat_id: chatId,
+      has_text: Boolean(message.text),
+      has_caption: Boolean(message.caption),
+      has_voice: Boolean(message.voice),
+      has_document: Boolean(message.document),
+      has_photo: Boolean(message.photo),
+    });
+
     // Security gate — only Calvin and Caliyah
     const isCalvin  = OPERATOR_CHAT  && chatId === String(OPERATOR_CHAT);
     const isCaliyah = CALIYAH_CHAT   && chatId === String(CALIYAH_CHAT);
 
     if (!isCalvin && !isCaliyah) {
+      console.warn("[telegram-bot] unauthorized chat", { chat_id: chatId });
       await tg("sendMessage", { chat_id: chatId, text: "⛔ Unauthorized. This MAVIS instance is operator-locked." });
       return;
     }
@@ -1311,11 +1338,15 @@ serve(async (req) => {
     }
   };
 
-  // Return 200 to Telegram immediately, process async
+  // Return 200 to Telegram immediately when the runtime can keep background work alive.
+  // If waitUntil is unavailable, await processing so Telegram replies are not dropped.
+  const processPromise = process().catch((err) => {
+    console.error("[telegram-bot] unhandled processing error", err instanceof Error ? err.stack ?? err.message : String(err));
+  });
   if (typeof (globalThis as any).EdgeRuntime?.waitUntil === "function") {
-    (globalThis as any).EdgeRuntime.waitUntil(process());
+    (globalThis as any).EdgeRuntime.waitUntil(processPromise);
   } else {
-    process();
+    await processPromise;
   }
 
   return new Response("ok", { status: 200 });
