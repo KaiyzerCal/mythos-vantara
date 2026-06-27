@@ -361,6 +361,7 @@ async function callClaude(
   system: string,
   messages: ChatMessage[],
   maxTokens = 800,
+  model = "claude-haiku-4-5-20251001",
 ): Promise<string> {
   if (!ANTHROPIC_KEY) return "(ANTHROPIC_API_KEY not set)";
   const res = await fetch("https://api.anthropic.com/v1/messages", {
@@ -370,7 +371,7 @@ async function callClaude(
       "x-api-key": ANTHROPIC_KEY,
       "anthropic-version": "2023-06-01",
     },
-    body: JSON.stringify({ model: "claude-haiku-4-5-20251001", max_tokens: maxTokens, system, messages }),
+    body: JSON.stringify({ model, max_tokens: maxTokens, system, messages }),
     signal: AbortSignal.timeout(30000),
   });
   if (!res.ok) return "";
@@ -532,10 +533,72 @@ async function handleApprovalCallback(
 }
 
 // ─────────────────────────────────────────────────────────────
+// PERSONA SESSION STATE  (persisted in mavis_user_profile.preferences)
+// ─────────────────────────────────────────────────────────────
+
+interface PersonaSession {
+  id:          string;
+  name:        string;
+  role:        string;
+  system_prompt: string;
+  bio:         string;
+  lore:        string[];
+  adjectives:  string[];
+  topics:      string[];
+  model:       string;
+}
+
+async function getActivePersona(uid: string): Promise<PersonaSession | null> {
+  try {
+    const { data } = await sb.from("mavis_user_profile")
+      .select("preferences")
+      .eq("user_id", uid)
+      .maybeSingle();
+    const p = (data?.preferences as any)?.telegram_active_persona;
+    return p ?? null;
+  } catch {
+    return null;
+  }
+}
+
+async function setActivePersona(uid: string, persona: PersonaSession | null): Promise<void> {
+  try {
+    const { data } = await sb.from("mavis_user_profile")
+      .select("preferences")
+      .eq("user_id", uid)
+      .maybeSingle();
+    const current = (data?.preferences as Record<string, unknown>) ?? {};
+    const updated  = { ...current };
+    if (persona) {
+      updated.telegram_active_persona = persona;
+    } else {
+      delete updated.telegram_active_persona;
+    }
+    await sb.from("mavis_user_profile").upsert(
+      { user_id: uid, preferences: updated, updated_at: new Date().toISOString() },
+      { onConflict: "user_id" },
+    );
+  } catch { /* non-fatal */ }
+}
+
+function buildPersonaSystemPrompt(p: PersonaSession): string {
+  const parts: string[] = [];
+  parts.push(`You are ${p.name}${p.role ? `, a ${p.role}` : ""}.`);
+  if (p.bio?.trim())        parts.push(`\nBackground: ${p.bio.trim()}`);
+  if (p.lore?.length)       parts.push(`\nLore:\n${p.lore.map(l => `- ${l}`).join("\n")}`);
+  if (p.adjectives?.length) parts.push(`\nYour personality: ${p.adjectives.join(", ")}`);
+  if (p.topics?.length)     parts.push(`\nYour natural topics: ${p.topics.join(", ")}`);
+  if (p.system_prompt?.trim()) parts.push(`\n${p.system_prompt.trim()}`);
+  parts.push(`\nStay fully in character as ${p.name}. Do not refer to yourself as MAVIS or as an AI unless directly asked.`);
+  return parts.join("");
+}
+
+// ─────────────────────────────────────────────────────────────
 // INTENT CLASSIFICATION
 // ─────────────────────────────────────────────────────────────
 
-type Intent = "help" | "quests" | "revenue" | "tasks" | "actions" | "content_machine" | "speak" | "chat";
+type Intent = "help" | "quests" | "revenue" | "tasks" | "actions" | "content_machine" | "speak"
+            | "list_personas" | "switch_persona" | "reset_persona" | "chat";
 interface Classified { intent: Intent; params: Record<string, string>; }
 
 function classify(text: string): Classified {
@@ -551,6 +614,16 @@ function classify(text: string): Classified {
   }
   const speakMatch = text.match(/^\/?(speak|tts|say)\s*(.*)?$/i);
   if (speakMatch) return { intent: "speak", params: { args: (speakMatch[2] ?? "").trim() } };
+
+  // Persona switching
+  if (/^\/?(personas?(\s+list)?|characters?(\s+list)?)$/i.test(lower))
+    return { intent: "list_personas", params: {} };
+  if (/^\/?(mavis|reset(\s+persona)?|exit(\s+persona)?|back\s+to\s+mavis)$/i.test(lower))
+    return { intent: "reset_persona", params: {} };
+  const personaMatch = text.match(/^\/?(persona|as|speak[- ]as|be|character)\s+(.+)$/i);
+  if (personaMatch)
+    return { intent: "switch_persona", params: { name: personaMatch[2].trim() } };
+
   return { intent: "chat", params: {} };
 }
 
@@ -578,6 +651,10 @@ async function handleHelp(chatId: string | number) {
     `📌 \`tasks\` — pending task queue\n` +
     `📬 \`actions\` — recent Google Workspace approvals/executions\n` +
     `🎬 \`content <topic>\` — Nora content pipeline\n\n` +
+    `*Personas:*\n` +
+    `🎭 \`/personas\` — list your personas\n` +
+    `🎭 \`/as [name]\` — switch to a persona (e.g. \`/as Nora\`)\n` +
+    `✨ \`/mavis\` — return to MAVIS from any persona\n\n` +
     `📸 _Send a photo to analyze it_\n` +
     `📄 _Send any file (.md, .txt, .csv, .json, .py, .ts, etc.) to analyze it_\n` +
     voiceLine,
@@ -600,6 +677,82 @@ async function handleContentMachine(chatId: string | number, uid: string, topic:
   } else {
     await send(chatId, `⚠️ Failed to queue content pipeline.`);
   }
+}
+
+// ─────────────────────────────────────────────────────────────
+// PERSONA HANDLERS
+// ─────────────────────────────────────────────────────────────
+
+async function handleListPersonas(chatId: string | number, uid: string) {
+  const { data: personas } = await sb
+    .from("personas")
+    .select("id, name, role, bio")
+    .eq("user_id", uid)
+    .order("name", { ascending: true })
+    .limit(20);
+
+  if (!personas || (personas as any[]).length === 0) {
+    await send(chatId,
+      `🎭 No personas found. Create personas in the Vantara app first.\n\n` +
+      `Go to: *Personas* tab → Create new persona`,
+    );
+    return;
+  }
+
+  const active = await getActivePersona(uid);
+  const lines = (personas as any[]).map((p) => {
+    const marker = active?.id === p.id ? " ✅" : "";
+    return `• *${p.name}*${marker} — ${p.role ?? "no role set"}`;
+  });
+
+  await send(chatId,
+    `🎭 *Your Personas (${lines.length})*\n\n${lines.join("\n")}\n\n` +
+    `Switch: \`/as [name]\`   Reset: \`/mavis\``,
+  );
+}
+
+async function handleSwitchPersona(chatId: string | number, uid: string, name: string) {
+  const { data: personas } = await sb
+    .from("personas")
+    .select("id, name, role, system_prompt, bio, lore, adjectives, topics, model")
+    .eq("user_id", uid)
+    .ilike("name", `%${name}%`)
+    .limit(5);
+
+  if (!personas || (personas as any[]).length === 0) {
+    await send(chatId,
+      `🎭 No persona matching "*${name}*".\n\nUse \`/personas\` to list available personas.`,
+    );
+    return;
+  }
+
+  const exact = (personas as any[]).find((p) => p.name.toLowerCase() === name.toLowerCase());
+  const p: any = exact ?? (personas as any[])[0];
+
+  const session: PersonaSession = {
+    id:            String(p.id ?? ""),
+    name:          String(p.name ?? ""),
+    role:          String(p.role ?? ""),
+    system_prompt: String(p.system_prompt ?? ""),
+    bio:           String(p.bio ?? ""),
+    lore:          Array.isArray(p.lore)        ? p.lore        : [],
+    adjectives:    Array.isArray(p.adjectives)  ? p.adjectives  : [],
+    topics:        Array.isArray(p.topics)      ? p.topics      : [],
+    model:         String(p.model ?? "claude-haiku-4-5-20251001"),
+  };
+
+  await setActivePersona(uid, session);
+
+  await send(chatId,
+    `🎭 *Now speaking as ${p.name}*${p.role ? ` — ${p.role}` : ""}\n\n` +
+    `Send any message to chat with ${p.name}.\n` +
+    `Send \`/mavis\` to return to MAVIS.`,
+  );
+}
+
+async function handleResetPersona(chatId: string | number, uid: string) {
+  await setActivePersona(uid, null);
+  await send(chatId, `✨ *MAVIS online.* Persona session ended.`);
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -828,6 +981,31 @@ async function handleChat(
   sessionId: string | null,
 ) {
   await typing(chatId);
+
+  // ── Persona mode: bypass mavis-agent, talk directly as the character ──────
+  const activePersona = await getActivePersona(uid);
+  if (activePersona) {
+    try {
+      const personaSystem = buildPersonaSystemPrompt(activePersona);
+      const recentHistory = history.slice(-8).map((m) => ({
+        role:    m.role as "user" | "assistant",
+        content: String(m.content ?? ""),
+      }));
+      const msgs: ChatMessage[] = [...recentHistory, { role: "user", content: text }];
+      const model = activePersona.model || "claude-haiku-4-5-20251001";
+      const reply = await callClaude(personaSystem, msgs, 1000, model);
+      if (reply) {
+        await send(chatId, reply);
+        if (sessionId) await saveExchange(sessionId, uid, text, reply);
+      } else {
+        await send(chatId, `⚠️ ${activePersona.name} is unavailable right now. Try again.`);
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      await send(chatId, `⚠️ Persona error: ${msg.slice(0, 200)}`);
+    }
+    return;
+  }
 
   try {
     // Include recent conversational history so MAVIS has multi-turn memory on
@@ -1060,6 +1238,9 @@ serve(async (req) => {
         case "actions":         await handleActions(chatId, uid); break;
         case "speak":           await handleSpeak(chatId, uid, params.args ?? ""); break;
         case "content_machine": await handleContentMachine(chatId, uid, params.topic ?? text); break;
+        case "list_personas":   await handleListPersonas(chatId, uid); break;
+        case "switch_persona":  await handleSwitchPersona(chatId, uid, params.name ?? ""); break;
+        case "reset_persona":   await handleResetPersona(chatId, uid); break;
         default:                await handleChat(chatId, uid, text, history, sessionId); break;
       }
     } catch (err) {
