@@ -56,13 +56,15 @@ function estimateLlmCost(provider: string, inputChars: number, outputChars: numb
   const inTok  = inputChars  / 4;
   const outTok = outputChars / 4;
   const RATES: Record<string, [number, number]> = {
-    "gemini-2.5-flash":   [0.075,  0.30],
-    "gemini-2.5-thinking":[3.5,   10.50],
-    "openai-mini":        [0.15,   0.60],
-    "claude-haiku":       [0.25,   1.25],
-    "claude-sonnet":      [3.0,   15.0],
-    "claude-sonnet-thinking": [3.0, 15.0],
-    "grok":               [0.30,   0.50],
+    "gemini-2.0-flash":       [0.0,    0.0  ],  // free tier
+    "gemini-2.0-flash-lite":  [0.0,    0.0  ],  // free tier
+    "gemini-2.5-flash":       [0.075,  0.30 ],
+    "gemini-2.5-thinking":    [3.5,   10.50 ],
+    "openai-mini":            [0.15,   0.60 ],
+    "claude-haiku":           [0.25,   1.25 ],
+    "claude-sonnet":          [3.0,   15.0  ],
+    "claude-sonnet-thinking": [3.0,   15.0  ],
+    "grok":                   [0.30,   0.50 ],
   };
   const [inRate, outRate] = RATES[provider] ?? [0.15, 0.60];
   return Math.round(((inTok * inRate + outTok * outRate) / 1_000_000) * 1_000_000) / 1_000_000;
@@ -267,11 +269,15 @@ async function callGrok(messages: any[], system: string, key: string): Promise<s
   return d.choices?.[0]?.message?.content ?? "";
 }
 
-async function callGemini(messages: any[], system: string, key: string, opts: { thinking?: boolean; grounding?: boolean; codeExec?: boolean } = {}): Promise<string> {
+async function callGemini(messages: any[], system: string, key: string, opts: { model?: string; thinking?: boolean; grounding?: boolean; codeExec?: boolean } = {}): Promise<string> {
   const contents = messages.map((m: any) => ({
     role: m.role === "user" ? "user" : "model",
     parts: [{ text: typeof m.content === "string" ? m.content : JSON.stringify(m.content) }],
   }));
+  // Use opts.model if provided; thinking requires the 2.5 preview model.
+  const geminiModel = opts.thinking
+    ? "gemini-2.5-flash-preview-05-20"
+    : (opts.model ?? "gemini-2.5-flash-preview-05-20");
   const body: any = {
     systemInstruction: { parts: [{ text: system }] },
     contents,
@@ -280,7 +286,7 @@ async function callGemini(messages: any[], system: string, key: string, opts: { 
   if (opts.thinking) body.generationConfig.thinkingConfig = { thinkingBudget: 8192 };
   if (opts.grounding && !opts.thinking) body.tools = [{ googleSearch: {} }];
   else if (opts.codeExec && !opts.thinking) body.tools = [{ codeExecution: {} }];
-  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${key}`, {
+  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${geminiModel}:generateContent?key=${key}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
@@ -296,14 +302,15 @@ async function callGemini(messages: any[], system: string, key: string, opts: { 
   return parts.filter((p: any) => p.text && !p.thought).map((p: any) => p.text).join("") || "";
 }
 
-// Cascade order (cheapest/free → premium):
-//   1. Gemini Flash (free quota)
-//   2. OpenAI gpt-4o-mini
-//   3. Claude Haiku
-//   4. Claude Sonnet
-//   5. Grok (last resort, real-time persona-routed default)
-// If `primary` explicitly requests claude/grok (mode-routed), try that first,
-// then fall through the standard cascade.
+// Cascade order (free → cheapest → premium):
+//   0a. Gemini 2.0 Flash      (free tier, 15 RPM)
+//   0b. Gemini 2.0 Flash Lite (free tier, 30 RPM, separate quota)
+//   1.  Gemini 2.5 Flash preview (paid, mode-specific tools)
+//   2.  Mode-designated provider (Claude Sonnet for ARCH/CODEX, Grok for WATCHTOWER)
+//   3.  OpenAI gpt-4o-mini
+//   4.  Claude Haiku
+//   5.  Claude Sonnet
+//   6.  Grok (last resort)
 async function callWithFallback(
   primary: Provider,
   messages: any[],
@@ -312,14 +319,40 @@ async function callWithFallback(
   useThinking = false,
   mode = "PRIME",
 ): Promise<{ content: string; provider: string }> {
-  // Tier 0 — Free Gemini (always attempted first)
+  const mU = mode.toUpperCase();
+
+  // Tier 0a — Free Gemini 2.0 Flash (no per-token cost, 15 RPM limit)
+  // Skip for DEEP (thinking) mode — only 2.5 supports thinkingConfig.
+  if (keys.gemini && mU !== "DEEP" && !isProviderUnhealthy("gemini-2.0-flash")) {
+    try {
+      return { content: await callGemini(messages, system, keys.gemini, { model: "gemini-2.0-flash" }), provider: "gemini-2.0-flash" };
+    } catch (err: any) {
+      if (err instanceof ProviderUnavailableError) {
+        markProviderUnhealthy("gemini-2.0-flash", err.status === 429 ? 60_000 : 120_000);
+      }
+      console.warn(`[fallback] gemini-2.0-flash failed (${err.message}) → trying flash-lite`);
+    }
+  }
+
+  // Tier 0b — Free Gemini 2.0 Flash Lite (separate rate-limit pool, 30 RPM)
+  if (keys.gemini && mU !== "DEEP" && !isProviderUnhealthy("gemini-2.0-flash-lite")) {
+    try {
+      return { content: await callGemini(messages, system, keys.gemini, { model: "gemini-2.0-flash-lite" }), provider: "gemini-2.0-flash-lite" };
+    } catch (err: any) {
+      if (err instanceof ProviderUnavailableError) {
+        markProviderUnhealthy("gemini-2.0-flash-lite", err.status === 429 ? 60_000 : 120_000);
+      }
+      console.warn(`[fallback] gemini-2.0-flash-lite failed (${err.message}) → escalating to paid tier`);
+    }
+  }
+
+  // Tier 1 — Gemini 2.5 Flash (paid; supports thinking, grounding, code-exec)
   if (keys.gemini && !isProviderUnhealthy("gemini")) {
     try {
-      const mU = mode.toUpperCase();
       const geminiOpts = {
-        thinking: mU === "DEEP",
+        thinking:  mU === "DEEP",
         grounding: ["WATCHTOWER", "GROUNDED"].includes(mU),
-        codeExec: ["DATA", "CODEX", "RESEARCH"].includes(mU),
+        codeExec:  ["DATA", "CODEX", "RESEARCH"].includes(mU),
       };
       return { content: await callGemini(messages, system, keys.gemini, geminiOpts), provider: geminiOpts.thinking ? "gemini-2.5-thinking" : "gemini-2.5-flash" };
     } catch (err: any) {
