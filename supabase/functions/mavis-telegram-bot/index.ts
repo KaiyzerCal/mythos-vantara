@@ -688,20 +688,29 @@ async function handleContentMachine(chatId: string | number, uid: string, topic:
 // PERSONA HANDLERS
 // ─────────────────────────────────────────────────────────────
 
+async function resolvePersonaOwnerUid(uid: string): Promise<string> {
+  // Configured operator UID first
+  if (uid) {
+    const { data: own } = await sb.from("personas").select("user_id").eq("user_id", uid).limit(1);
+    if (own && (own as any[]).length > 0) return uid;
+  }
+  // Fallback: single-tenant — pick whichever user owns personas
+  const { data: any1 } = await sb.from("personas").select("user_id").limit(1);
+  if (any1 && (any1 as any[]).length > 0) return String((any1 as any[])[0].user_id);
+  return uid;
+}
+
 async function handleListPersonas(chatId: string | number, uid: string) {
+  const effectiveUid = await resolvePersonaOwnerUid(uid);
   const { data: personas } = await sb
     .from("personas")
     .select("id, name, role, bio")
-    .eq("user_id", uid)
+    .eq("user_id", effectiveUid)
     .order("name", { ascending: true })
-    .limit(20);
+    .limit(50);
 
   if (!personas || (personas as any[]).length === 0) {
-    await send(chatId,
-      `🎭 No personas found for this account.\n\n` +
-      `If you have personas in the Vantara app, check that *MAVIS\\_OPERATOR\\_MAIN\\_ID* in your Supabase secrets matches your Supabase auth user UUID.\n\n` +
-      `Current UID being searched: \`${uid}\``,
-    );
+    await send(chatId, `🎭 No personas found.\n\nSearched UID: \`${effectiveUid}\``);
     return;
   }
 
@@ -718,17 +727,17 @@ async function handleListPersonas(chatId: string | number, uid: string) {
 }
 
 async function handleSwitchPersona(chatId: string | number, uid: string, name: string) {
+  const effectiveUid = await resolvePersonaOwnerUid(uid);
   const { data: personas } = await sb
     .from("personas")
     .select("id, name, role, system_prompt, bio, lore, adjectives, topics, model")
-    .eq("user_id", uid)
+    .eq("user_id", effectiveUid)
     .ilike("name", `%${name}%`)
     .limit(5);
 
   if (!personas || (personas as any[]).length === 0) {
     await send(chatId,
-      `🎭 No persona matching "*${name}*".\n\n` +
-      `Use \`/personas\` to list available personas, or check that *MAVIS\\_OPERATOR\\_MAIN\\_ID* in Supabase secrets matches your auth user UUID (\`${uid}\`).`,
+      `🎭 No persona matching "*${name}*". Use \`/personas\` to list available personas.`,
     );
     return;
   }
