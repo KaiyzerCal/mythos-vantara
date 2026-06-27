@@ -1646,7 +1646,8 @@ export default function MavisChat() {
                 </div>
                 <p className="text-xs font-mono text-muted-foreground">Type your task in the input above and send — AGENT mode routes to the specialist automatically.</p>
               </>
-            ) : (
+            ) : agentPanelTab === "crew" ? (
+
               <>
                 <div className="flex gap-2">
                   <input value={crewGoal} onChange={(e) => setCrewGoal(e.target.value)}
