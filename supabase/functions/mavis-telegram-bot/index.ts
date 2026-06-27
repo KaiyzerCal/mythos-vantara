@@ -987,16 +987,32 @@ async function handleChat(
   if (activePersona) {
     try {
       const personaSystem = buildPersonaSystemPrompt(activePersona);
-      const recentHistory = history.slice(-8).map((m) => ({
+
+      // Load recent persona_conversations for this persona (matches web PersonaChat history)
+      const { data: personaHistory } = await sb
+        .from("persona_conversations")
+        .select("role, content")
+        .eq("persona_id", activePersona.id)
+        .eq("user_id", uid)
+        .order("created_at", { ascending: false })
+        .limit(16);
+
+      const recentHistory: ChatMessage[] = ((personaHistory ?? []).reverse() as any[]).map((m: any) => ({
         role:    m.role as "user" | "assistant",
         content: String(m.content ?? ""),
       }));
+
       const msgs: ChatMessage[] = [...recentHistory, { role: "user", content: text }];
       const model = activePersona.model || "claude-haiku-4-5-20251001";
       const reply = await callClaude(personaSystem, msgs, 1000, model);
+
       if (reply) {
         await send(chatId, reply);
-        if (sessionId) await saveExchange(sessionId, uid, text, reply);
+        // Write to persona_conversations so the exchange appears in the web PersonaChat thread
+        await sb.from("persona_conversations").insert([
+          { persona_id: activePersona.id, user_id: uid, role: "user",      content: text  },
+          { persona_id: activePersona.id, user_id: uid, role: "assistant", content: reply },
+        ]).catch(() => {});
       } else {
         await send(chatId, `⚠️ ${activePersona.name} is unavailable right now. Try again.`);
       }
