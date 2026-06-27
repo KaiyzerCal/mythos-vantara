@@ -2388,6 +2388,25 @@ Deno.serve(async (req) => {
   if (message.text?.startsWith("/")) {
     let rawText = message.text;
 
+    const barePersonaMatch = rawText.match(/^\/([a-zA-Z][a-zA-Z0-9_\- ]{1,40})(?:@\w+)?$/);
+    if (barePersonaMatch) {
+      const reserved = new Set([
+        "start", "help", "brief", "quests", "energy", "revenue", "goals", "orders", "approve", "reject",
+        "preview", "expense", "tasks", "scan", "daily", "weekly", "monthly", "search", "note", "addnote",
+        "review", "ingest", "personas", "switch", "council", "council-mode", "council-on", "council-off",
+        "mavis", "imagine",
+      ]);
+      const shortcut = barePersonaMatch[1].trim();
+      if (!reserved.has(shortcut.toLowerCase())) {
+        const persona = await findTelegramPersona(shortcut);
+        if (persona) {
+          await setActivePersona(chatId, { persona_id: persona.id, persona_name: persona.name, user_id: persona.user_id });
+          await sendPlain(chatId, `Switching to ${persona.name} (${persona.role}). Say hi — they remember everything.`);
+          return new Response("OK");
+        }
+      }
+    }
+
     // ── Backward-compat aliases from ambient-monitor nudges ───
     // /approve_outreach_<id>  →  /approve <id>
     // /skip_<id>              →  /reject <id>
@@ -2427,7 +2446,7 @@ Deno.serve(async (req) => {
       // Do NOT write to chat_messages here — that would pollute MAVIS thread.
       const sourcedInput = `[Telegram] ${inputText}`;
       const personaMessage = mediaContext ? `${mediaContext}${sourcedInput}` : sourcedInput;
-      const reply = await callPersona(activePersona.persona_id, personaMessage, chatId);
+      const reply = await callPersona(activePersona.persona_id, personaMessage, chatId, activePersona.user_id ?? OPERATOR_USER_ID);
       await sendPlain(chatId, reply);
       return new Response("OK");
     }
