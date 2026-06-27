@@ -103,6 +103,11 @@ export default function MavisChat() {
   // messages can be skipped — prevents duplicates when we receive our own writes.
   const recentWebWrites = useRef<Map<string, number>>(new Map());
 
+  // ── SuperContext scout (OpenHuman pattern) ──
+  // Assembled at session start; injected as standing context in system prompt
+  const [superContext, setSuperContext] = useState<string | null>(null);
+  const superContextLoaded = useRef(false);
+
   // ── Agent Mode (Action Queue integration) ──
   const [agentModeOn, setAgentModeOn] = useState(false);
   const [lastAgentMeta, setLastAgentMeta] = useState<{ toolsUsed: string[]; actionsQueued: number } | null>(null);
@@ -381,6 +386,26 @@ export default function MavisChat() {
       cancelled = true;
       sub?.subscription?.unsubscribe?.();
     };
+  }, [dbLoaded]);
+
+  // ── SuperContext scout — runs once after auth + DB load ─────────────
+  // Calls mavis-context-scout to assemble a rich context block (quests, goals,
+  // tasks, journal, memories, user profile) that MAVIS uses as standing context.
+  useEffect(() => {
+    if (!dbLoaded || superContextLoaded.current) return;
+    superContextLoaded.current = true;
+    (async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session?.user) return;
+        const res = await supabase.functions.invoke("mavis-context-scout", {
+          body: { user_id: session.user.id },
+        });
+        if (res.data?.context_block) {
+          setSuperContext(res.data.context_block);
+        }
+      } catch { /* non-critical */ }
+    })();
   }, [dbLoaded]);
 
   // ── Persist a single message to DB ───────────────────────
@@ -759,6 +784,8 @@ export default function MavisChat() {
             rituals: rituals as any[], pendingApprovals: [], loadedAt: new Date().toISOString(),
           } as any), archivedMemories, vaultMedia));
       if (recallCtxRaw) systemPrompt += `\n\n${recallCtxRaw}`;
+      // SuperContext — assembled by mavis-context-scout at session start (OpenHuman pattern)
+      if (superContext) systemPrompt += `\n\n${superContext}`;
       if (responseLength === "concise") systemPrompt += "\n\n[RESPONSE LENGTH: Be concise — 2-4 sentences unless more is genuinely needed.]";
       else if (responseLength === "detailed") systemPrompt += "\n\n[RESPONSE LENGTH: Be thorough and detailed — elaborate with examples where useful.]";
       if (selectedPersonaPrompt) systemPrompt += `\n\n--- ACTIVE PERSONA ---\n${selectedPersonaPrompt}\n---`;

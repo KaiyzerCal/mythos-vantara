@@ -1,5 +1,5 @@
-import { useState, useEffect, useCallback } from "react";
-import { Plus, Users, Loader2, AlertCircle, Wand2, PhoneCall, Edit2, X, Save } from "lucide-react";
+import { useState, useEffect, useCallback, useRef } from "react";
+import { Plus, Users, Loader2, AlertCircle, Wand2, PhoneCall, Edit2, X, Save, Download, Upload, ChevronDown, ChevronUp } from "lucide-react";
 import { AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
 import { VoiceChatOverlay } from "@/components/VoiceChatOverlay";
@@ -89,9 +89,19 @@ function EditPersonaPanel({ persona, onSaved, onCancel }: EditPersonaPanelProps)
   const [model, setModel] = useState(persona.model);
   const [personalityError, setPersonalityError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  // ElizaOS character.json fields
+  const [bio, setBio] = useState((persona as any).bio ?? "");
+  const [loreText, setLoreText] = useState(((persona as any).lore ?? []).join("\n"));
+  const [domains, setDomains] = useState(((persona as any).knowledge_domains ?? []).join(", "));
+  const [adjectives, setAdjectives] = useState(((persona as any).adjectives ?? []).join(", "));
+  const [topics, setTopics] = useState(((persona as any).topics ?? []).join(", "));
+  const [msgExamplesText, setMsgExamplesText] = useState(
+    JSON.stringify((persona as any).message_examples ?? [], null, 2)
+  );
+  const [showCharacter, setShowCharacter] = useState(false);
+  const importRef = useRef<HTMLInputElement>(null);
 
   const handleSave = async () => {
-    // Validate personality JSON
     let parsedPersonality: Record<string, any> = {};
     try {
       parsedPersonality = JSON.parse(personalityText);
@@ -99,8 +109,11 @@ function EditPersonaPanel({ persona, onSaved, onCancel }: EditPersonaPanelProps)
       setPersonalityError("Invalid JSON — please fix the personality field.");
       return;
     }
+    let parsedMsgExamples: any[] = [];
+    try {
+      parsedMsgExamples = JSON.parse(msgExamplesText);
+    } catch { /* ignore */ }
     setPersonalityError(null);
-
     if (!name.trim()) return;
 
     setIsSaving(true);
@@ -114,13 +127,18 @@ function EditPersonaPanel({ persona, onSaved, onCancel }: EditPersonaPanelProps)
           system_prompt: systemPrompt,
           personality: parsedPersonality,
           model: model.trim(),
+          bio: bio.trim(),
+          lore: loreText.split("\n").map(s => s.trim()).filter(Boolean),
+          knowledge_domains: domains.split(",").map(s => s.trim()).filter(Boolean),
+          adjectives: adjectives.split(",").map(s => s.trim()).filter(Boolean),
+          topics: topics.split(",").map(s => s.trim()).filter(Boolean),
+          message_examples: parsedMsgExamples,
         })
         .eq("id", persona.id)
         .select()
         .single();
 
       if (error) throw new Error(error.message);
-
       toast.success(`"${name.trim()}" updated successfully.`);
       onSaved(data as unknown as ForgedPersona);
     } catch (e: any) {
@@ -128,6 +146,61 @@ function EditPersonaPanel({ persona, onSaved, onCancel }: EditPersonaPanelProps)
     } finally {
       setIsSaving(false);
     }
+  };
+
+  const exportCharacterJson = () => {
+    let parsedPersonality: Record<string, any> = {};
+    try { parsedPersonality = JSON.parse(personalityText); } catch { /* skip */ }
+    let parsedMsgExamples: any[] = [];
+    try { parsedMsgExamples = JSON.parse(msgExamplesText); } catch { /* skip */ }
+
+    const character = {
+      name:             name.trim(),
+      role:             role.trim(),
+      archetype:        archetype.trim(),
+      bio:              bio.trim(),
+      lore:             loreText.split("\n").map(s => s.trim()).filter(Boolean),
+      knowledge_domains: domains.split(",").map(s => s.trim()).filter(Boolean),
+      adjectives:       adjectives.split(",").map(s => s.trim()).filter(Boolean),
+      topics:           topics.split(",").map(s => s.trim()).filter(Boolean),
+      message_examples: parsedMsgExamples,
+      personality:      parsedPersonality,
+      system_prompt:    systemPrompt,
+      model:            model.trim(),
+    };
+    const blob = new Blob([JSON.stringify(character, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = `${name.trim().replace(/\s+/g, "_")}_character.json`; a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const importCharacterJson = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      try {
+        const c = JSON.parse(ev.target?.result as string);
+        if (c.name)             setName(c.name);
+        if (c.role)             setRole(c.role);
+        if (c.archetype)        setArchetype(c.archetype);
+        if (c.bio)              setBio(c.bio);
+        if (Array.isArray(c.lore))              setLoreText(c.lore.join("\n"));
+        if (Array.isArray(c.knowledge_domains)) setDomains(c.knowledge_domains.join(", "));
+        if (Array.isArray(c.adjectives))        setAdjectives(c.adjectives.join(", "));
+        if (Array.isArray(c.topics))            setTopics(c.topics.join(", "));
+        if (Array.isArray(c.message_examples))  setMsgExamplesText(JSON.stringify(c.message_examples, null, 2));
+        if (c.personality)    setPersonalityText(JSON.stringify(c.personality, null, 2));
+        if (c.system_prompt)  setSystemPrompt(c.system_prompt);
+        if (c.model)          setModel(c.model);
+        toast.success("Character imported — review and save.");
+      } catch {
+        toast.error("Invalid character.json file.");
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = "";
   };
 
   return (
@@ -217,7 +290,96 @@ function EditPersonaPanel({ persona, onSaved, onCancel }: EditPersonaPanelProps)
         </div>
       </div>
 
-      <div className="flex items-center gap-2 mt-4">
+        {/* Character.json (ElizaOS-style) — collapsible section */}
+        <div className="border border-border/50 rounded-lg overflow-hidden">
+          <button
+            type="button"
+            onClick={() => setShowCharacter(v => !v)}
+            className="w-full flex items-center justify-between px-3 py-2 text-xs font-mono text-muted-foreground hover:text-foreground bg-muted/10 hover:bg-muted/20 transition-colors"
+          >
+            <span className="flex items-center gap-1.5">
+              <span className="text-primary">{ }</span>
+              Character Config (ElizaOS-style)
+            </span>
+            {showCharacter ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+          </button>
+
+          {showCharacter && (
+            <div className="p-3 space-y-3 bg-muted/5">
+              {/* Bio */}
+              <div>
+                <label className="block text-xs font-mono text-muted-foreground uppercase mb-1">Bio (1–3 sentences)</label>
+                <textarea
+                  value={bio}
+                  onChange={e => setBio(e.target.value)}
+                  rows={2}
+                  placeholder="A brief overview of who this persona is, their background and energy."
+                  className="w-full resize-none bg-muted/30 border border-border rounded px-3 py-2 text-xs font-body text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary/50 transition-colors"
+                />
+              </div>
+
+              {/* Lore */}
+              <div>
+                <label className="block text-xs font-mono text-muted-foreground uppercase mb-1">Lore (one fact per line)</label>
+                <textarea
+                  value={loreText}
+                  onChange={e => setLoreText(e.target.value)}
+                  rows={3}
+                  placeholder="Grew up in Tokyo&#10;Survived a betrayal at 23&#10;Has a photographic memory for patterns"
+                  className="w-full resize-none bg-muted/30 border border-border rounded px-3 py-2 text-xs font-mono text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary/50 transition-colors"
+                />
+              </div>
+
+              {/* Knowledge domains */}
+              <div>
+                <label className="block text-xs font-mono text-muted-foreground uppercase mb-1">Knowledge Domains (comma-separated)</label>
+                <input
+                  value={domains}
+                  onChange={e => setDomains(e.target.value)}
+                  placeholder="psychology, systems thinking, startup strategy"
+                  className="w-full bg-muted/30 border border-border rounded px-3 py-2 text-xs font-mono text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary/50 transition-colors"
+                />
+              </div>
+
+              {/* Adjectives */}
+              <div>
+                <label className="block text-xs font-mono text-muted-foreground uppercase mb-1">Adjectives (comma-separated)</label>
+                <input
+                  value={adjectives}
+                  onChange={e => setAdjectives(e.target.value)}
+                  placeholder="warm, sharp, slightly mysterious, direct"
+                  className="w-full bg-muted/30 border border-border rounded px-3 py-2 text-xs font-mono text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary/50 transition-colors"
+                />
+              </div>
+
+              {/* Topics */}
+              <div>
+                <label className="block text-xs font-mono text-muted-foreground uppercase mb-1">Topics (comma-separated)</label>
+                <input
+                  value={topics}
+                  onChange={e => setTopics(e.target.value)}
+                  placeholder="consciousness, pattern recognition, dark humor, human connection"
+                  className="w-full bg-muted/30 border border-border rounded px-3 py-2 text-xs font-mono text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary/50 transition-colors"
+                />
+              </div>
+
+              {/* Message examples */}
+              <div>
+                <label className="block text-xs font-mono text-muted-foreground uppercase mb-1">Message Examples (JSON array)</label>
+                <textarea
+                  value={msgExamplesText}
+                  onChange={e => setMsgExamplesText(e.target.value)}
+                  rows={4}
+                  placeholder='[{"user": "How are you?", "persona": "Sharper than yesterday, which is all I ask."}]'
+                  className="w-full resize-none bg-muted/30 border border-border rounded px-3 py-2 text-xs font-mono text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary/50 transition-colors"
+                />
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="flex items-center gap-2 mt-4 flex-wrap">
         <button
           onClick={handleSave}
           disabled={isSaving || !name.trim()}
@@ -241,6 +403,25 @@ function EditPersonaPanel({ persona, onSaved, onCancel }: EditPersonaPanelProps)
         >
           Cancel
         </button>
+        <div className="ml-auto flex items-center gap-1.5">
+          <input ref={importRef} type="file" accept=".json" className="hidden" onChange={importCharacterJson} />
+          <button
+            type="button"
+            onClick={() => importRef.current?.click()}
+            className="flex items-center gap-1 px-2.5 py-1.5 rounded border border-border text-muted-foreground text-xs hover:text-foreground hover:border-border/80 transition-colors"
+            title="Import character.json"
+          >
+            <Upload size={10} /> Import
+          </button>
+          <button
+            type="button"
+            onClick={exportCharacterJson}
+            className="flex items-center gap-1 px-2.5 py-1.5 rounded border border-border text-muted-foreground text-xs hover:text-foreground hover:border-border/80 transition-colors"
+            title="Export character.json"
+          >
+            <Download size={10} /> Export
+          </button>
+        </div>
       </div>
     </HudCard>
   );

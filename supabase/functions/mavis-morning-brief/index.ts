@@ -24,6 +24,53 @@ async function sendTelegram(text: string): Promise<void> {
   }).catch(() => {});
 }
 
+// OpenJarvis-style TTS morning brief — sends an audio voice note to Telegram
+// alongside the text brief. Falls back silently if OpenAI or Telegram fails.
+async function sendTTSVoiceBrief(text: string): Promise<void> {
+  const openaiKey = Deno.env.get("OPENAI_API") ?? Deno.env.get("OPENAI_API_KEY");
+  if (!openaiKey || !BOT_TOKEN || !CHAT_ID) return;
+
+  try {
+    // Build a concise audio version (strip markdown symbols, cap at ~900 chars for a clean 60s clip)
+    const audioText = text
+      .replace(/[*_`#]/g, "")
+      .replace(/\n{3,}/g, "\n\n")
+      .replace(/→/g, "Next:")
+      .replace(/⚡/g, "Alert:")
+      .replace(/💡/g, "Memory:")
+      .replace(/📸/g, "")
+      .trim()
+      .slice(0, 900);
+
+    const ttsRes = await fetch("https://api.openai.com/v1/audio/speech", {
+      method: "POST",
+      headers: { "Authorization": `Bearer ${openaiKey}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: "tts-1",
+        voice: "onyx",
+        input: `Good morning. Here is your MAVIS morning brief.\n\n${audioText}`,
+        response_format: "ogg",
+      }),
+      signal: AbortSignal.timeout(30_000),
+    });
+    if (!ttsRes.ok) return;
+
+    const audioBytes = new Uint8Array(await ttsRes.arrayBuffer());
+
+    // Send via Telegram sendVoice (multipart/form-data)
+    const form = new FormData();
+    form.append("chat_id", String(CHAT_ID));
+    form.append("voice", new Blob([audioBytes], { type: "audio/ogg" }), "brief.ogg");
+    form.append("caption", "🎙️ MAVIS Morning Brief");
+
+    await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendVoice`, {
+      method: "POST",
+      body: form,
+      signal: AbortSignal.timeout(30_000),
+    }).catch(() => {});
+  } catch { /* non-critical — text brief already sent */ }
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, {
@@ -325,6 +372,8 @@ Deno.serve(async (req) => {
 
     const briefText = sections.join("\n\n");
     await sendTelegram(briefText);
+    // Fire-and-forget TTS voice note (OpenJarvis pattern — brief as spoken audio)
+    sendTTSVoiceBrief(briefText);
 
     // Store brief in DB for in-app display
     try {
