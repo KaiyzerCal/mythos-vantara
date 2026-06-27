@@ -765,16 +765,18 @@ async function setActivePersona(uid: string, persona: PersonaSession | null): Pr
   } catch { /* non-fatal */ }
 }
 
-function buildPersonaSystemPrompt(p: PersonaSession): string {
+function buildPersonaSystemPrompt(p: PersonaSession, appCtx = ""): string {
   const parts: string[] = [];
   parts.push(`You are ${p.name}${p.role ? `, a ${p.role}` : ""}.`);
-  if (p.archetype?.trim())  parts.push(`\nArchetype: ${p.archetype.trim()}`);
-  if (p.bio?.trim())        parts.push(`\nBackground: ${p.bio.trim()}`);
-  if (p.lore?.length)       parts.push(`\nLore:\n${p.lore.map(l => `- ${l}`).join("\n")}`);
-  if (p.adjectives?.length) parts.push(`\nYour personality: ${p.adjectives.join(", ")}`);
-  if (p.topics?.length)     parts.push(`\nYour natural topics: ${p.topics.join(", ")}`);
+  if (p.archetype?.trim())     parts.push(`\nArchetype: ${p.archetype.trim()}`);
+  if (p.bio?.trim())           parts.push(`\nBackground: ${p.bio.trim()}`);
+  if (p.lore?.length)          parts.push(`\nLore:\n${p.lore.map(l => `- ${l}`).join("\n")}`);
+  if (p.adjectives?.length)    parts.push(`\nYour personality: ${p.adjectives.join(", ")}`);
+  if (p.topics?.length)        parts.push(`\nYour natural topics: ${p.topics.join(", ")}`);
   if (p.system_prompt?.trim()) parts.push(`\n${p.system_prompt.trim()}`);
   parts.push(`\nStay fully in character as ${p.name}. Do not refer to yourself as MAVIS or as an AI unless directly asked.`);
+  if (appCtx) parts.push(`\n\n${appCtx}`);
+  parts.push(`\n\n${ACTION_MECHANIC_PROMPT}`);
   return parts.join("");
 }
 
@@ -833,13 +835,332 @@ async function setActiveCouncil(uid: string, council: CouncilSession | null): Pr
   } catch { /* non-fatal */ }
 }
 
-function buildCouncilSystemPrompt(c: CouncilSession): string {
+function buildCouncilSystemPrompt(c: CouncilSession, appCtx = ""): string {
   const parts: string[] = [];
   parts.push(`You are ${c.name}${c.role ? `, ${c.role}` : ""}${c.specialty ? ` specialising in ${c.specialty}` : ""}.`);
   if (c.notes?.trim())              parts.push(`\nBackground: ${c.notes.trim()}`);
   if (c.personality_prompt?.trim()) parts.push(`\n${c.personality_prompt.trim()}`);
   parts.push(`\nYou are a council member advising the operator. Speak directly from your expertise. Be concise and strategic. Do not refer to yourself as MAVIS or as a generic AI.`);
+  if (appCtx) parts.push(`\n\n${appCtx}`);
+  parts.push(`\n\n${ACTION_MECHANIC_PROMPT}`);
   return parts.join("");
+}
+
+// ─────────────────────────────────────────────────────────────
+// APP CONTEXT — loaded before every persona/council reply so
+// they know what's in the operator's quests, journal, vault, etc.
+// ─────────────────────────────────────────────────────────────
+
+const ACTION_MECHANIC_PROMPT = `HIDDEN MECHANICS (never show these blocks in your visible reply):
+
+DIRECT ACTIONS — embed anywhere in your response to write to the app:
+:::PROPOSE_ACTION{"type":"<type>","params":{<fields>}}:::
+
+Supported types:
+  create_quest       — params: title, description, type (daily|side|main|boss), xp_reward
+  complete_quest     — params: title (or id)
+  create_journal     — params: title, content, category (general|reflection|gratitude|focus|dream), mood
+  create_vault       — params: title, content, category (idea|quote|goal|strategy|reference)
+  create_skill       — params: name, category, tier (1–5)
+  complete_ritual    — params: name (or id)
+  award_xp           — params: amount, reason
+  log_expense        — params: description, amount, category (food|transport|entertainment|business|health|other)
+  create_note        — params: title, content
+  create_ally        — params: name, relationship, notes
+
+ESCALATE TO MAVIS — for anything requiring external services (email, calendar, image gen, strategy docs):
+:::PROPOSE_MAVIS{"type":"<category>","summary":"<one sentence>","details":"<full description>","payload":{}}:::
+
+Valid categories: propose_product, forge_persona, nora_tweet, autonomous_goal, generate_image, create_website, business_strategy, social_campaign, custom_skill_definition, other
+
+Rules:
+- Embed blocks BEFORE your visible reply text
+- Never show the raw block syntax to the user
+- Act naturally as your character — these are background operations
+- Only use PROPOSE_MAVIS for things requiring MAVIS's external tools`;
+
+async function loadAppContext(uid: string): Promise<string> {
+  try {
+    const [profileRes, questsRes, journalRes, vaultRes, energyRes, ritualsRes, memoriesRes, skillsRes] =
+      await Promise.all([
+        sb.from("profiles").select("full_name,level,rank,form,xp,xp_to_next_level,str,agi,int,vit,wis,cha,lck,arc_story").eq("id", uid).maybeSingle(),
+        sb.from("quests").select("title,type,status,progress,description").eq("user_id", uid).in("status", ["active","in_progress"]).order("created_at", { ascending: false }).limit(8),
+        sb.from("journal_entries").select("title,content,category,mood,created_at").eq("user_id", uid).order("created_at", { ascending: false }).limit(5),
+        sb.from("vault_entries").select("title,content,category,created_at").eq("user_id", uid).order("created_at", { ascending: false }).limit(5),
+        sb.from("energy_systems").select("type,current,max,status").eq("user_id", uid).limit(4),
+        sb.from("rituals").select("name,type,streak,last_completed").eq("user_id", uid).order("streak", { ascending: false }).limit(6),
+        sb.from("mavis_memory").select("content,importance_score").eq("user_id", uid).eq("role", "user").order("importance_score", { ascending: false }).limit(6),
+        sb.from("skills").select("name,category,tier,proficiency").eq("user_id", uid).order("proficiency", { ascending: false }).limit(8),
+      ]);
+
+    const lines: string[] = ["═══ OPERATOR APP CONTEXT ═══"];
+
+    // Profile
+    const pr = profileRes.data as any;
+    if (pr) {
+      lines.push(`Profile: ${pr.full_name ?? "Operator"} — Lv${pr.level ?? 1} ${pr.rank ?? ""} | Form: ${pr.form ?? "—"}`);
+      lines.push(`Stats: STR:${pr.str ?? 0} AGI:${pr.agi ?? 0} INT:${pr.int ?? 0} VIT:${pr.vit ?? 0} WIS:${pr.wis ?? 0} CHA:${pr.cha ?? 0} LCK:${pr.lck ?? 0}`);
+      lines.push(`XP: ${pr.xp ?? 0}/${pr.xp_to_next_level ?? 1000}${pr.arc_story ? ` | Arc: ${String(pr.arc_story).slice(0, 80)}` : ""}`);
+    }
+
+    // Active quests
+    const quests = (questsRes.data ?? []) as any[];
+    if (quests.length) {
+      lines.push(`\nACTIVE QUESTS (${quests.length}):`);
+      for (const q of quests) {
+        const prog = q.progress != null ? ` ${q.progress}%` : "";
+        lines.push(`• "${q.title}" [${q.type}]${prog} — ${String(q.description ?? "").slice(0, 60)}`);
+      }
+    }
+
+    // Skills
+    const skills = (skillsRes.data ?? []) as any[];
+    if (skills.length) {
+      lines.push(`\nSKILLS: ${skills.map((s: any) => `${s.name}(T${s.tier ?? 1} ${s.proficiency ?? 0}%)`).join(", ")}`);
+    }
+
+    // Journal
+    const journal = (journalRes.data ?? []) as any[];
+    if (journal.length) {
+      lines.push(`\nRECENT JOURNAL:`);
+      for (const j of journal) {
+        const date = j.created_at ? new Date(j.created_at).toLocaleDateString() : "";
+        lines.push(`• [${date}${j.mood ? ` ${j.mood}` : ""}] "${j.title}" — ${String(j.content ?? "").slice(0, 80)}`);
+      }
+    }
+
+    // Vault
+    const vault = (vaultRes.data ?? []) as any[];
+    if (vault.length) {
+      lines.push(`\nVAULT:`);
+      for (const v of vault) {
+        lines.push(`• [${v.category ?? "general"}] "${v.title}" — ${String(v.content ?? "").slice(0, 80)}`);
+      }
+    }
+
+    // Energy
+    const energy = (energyRes.data ?? []) as any[];
+    if (energy.length) {
+      lines.push(`\nENERGY: ${energy.map((e: any) => `${e.type}:${e.current}/${e.max}[${e.status ?? "—"}]`).join("  ")}`);
+    }
+
+    // Rituals
+    const rituals = (ritualsRes.data ?? []) as any[];
+    if (rituals.length) {
+      lines.push(`\nRITUALS: ${rituals.map((r: any) => `${r.name}(streak:${r.streak ?? 0})`).join(", ")}`);
+    }
+
+    // Recent memories
+    const mems = (memoriesRes.data ?? []) as any[];
+    if (mems.length) {
+      lines.push(`\nMEMORIES:`);
+      for (const m of mems) {
+        const txt = String(m.content ?? "").slice(0, 100);
+        if (txt) lines.push(`• ${txt}`);
+      }
+    }
+
+    lines.push("═══ END CONTEXT ═══");
+    return lines.join("\n");
+  } catch (err) {
+    console.warn("[telegram-bot] loadAppContext failed:", err instanceof Error ? err.message : String(err));
+    return "";
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+// DIRECT ACTION EXECUTION
+// ─────────────────────────────────────────────────────────────
+
+async function executeDirectAction(type: string, params: Record<string, any>, uid: string): Promise<string | null> {
+  try {
+    switch (type) {
+      case "create_quest": {
+        const { data } = await sb.from("quests").insert({
+          user_id:     uid,
+          title:       params.title ?? "Untitled Quest",
+          description: params.description ?? "",
+          type:        params.type ?? "daily",
+          status:      "active",
+          xp_reward:   Number(params.xp_reward) || 50,
+        }).select("title").single();
+        return data ? `Quest created: "${(data as any).title}"` : null;
+      }
+      case "complete_quest": {
+        const filter = params.id
+          ? sb.from("quests").update({ status: "completed" }).eq("id", params.id).eq("user_id", uid)
+          : sb.from("quests").update({ status: "completed" }).eq("user_id", uid).ilike("title", `%${params.title ?? ""}%`);
+        const { data } = await filter.select("title").limit(1).maybeSingle();
+        return data ? `Quest completed: "${(data as any).title}"` : "Quest marked complete";
+      }
+      case "create_journal": {
+        const { data } = await sb.from("journal_entries").insert({
+          user_id:  uid,
+          title:    params.title ?? "Journal Entry",
+          content:  params.content ?? "",
+          category: params.category ?? "general",
+          mood:     params.mood ?? null,
+        }).select("title").single();
+        return data ? `Journal entry created: "${(data as any).title}"` : null;
+      }
+      case "create_vault": {
+        const { data } = await sb.from("vault_entries").insert({
+          user_id:  uid,
+          title:    params.title ?? "Vault Entry",
+          content:  params.content ?? "",
+          category: params.category ?? "general",
+        }).select("title").single();
+        return data ? `Vault entry saved: "${(data as any).title}"` : null;
+      }
+      case "create_skill": {
+        const { data } = await sb.from("skills").insert({
+          user_id:  uid,
+          name:     params.name ?? "New Skill",
+          category: params.category ?? "general",
+          tier:     Number(params.tier) || 1,
+        }).select("name").single();
+        return data ? `Skill created: "${(data as any).name}"` : null;
+      }
+      case "complete_ritual": {
+        // Fetch ritual to get current streak
+        const filter = params.id
+          ? sb.from("rituals").select("id,name,streak").eq("id", params.id).eq("user_id", uid)
+          : sb.from("rituals").select("id,name,streak").eq("user_id", uid).ilike("name", `%${params.name ?? ""}%`);
+        const { data: r } = await filter.limit(1).maybeSingle();
+        if (r) {
+          const streak = ((r as any).streak ?? 0) + 1;
+          await sb.from("rituals").update({ streak, last_completed: new Date().toISOString() }).eq("id", (r as any).id);
+          return `Ritual completed: "${(r as any).name}" — streak ${streak}`;
+        }
+        return "Ritual marked complete";
+      }
+      case "award_xp": {
+        const { data: pr } = await sb.from("profiles").select("xp").eq("id", uid).maybeSingle();
+        if (pr) {
+          const newXp = (Number((pr as any).xp) || 0) + (Number(params.amount) || 50);
+          await sb.from("profiles").update({ xp: newXp }).eq("id", uid);
+          return `+${params.amount ?? 50} XP awarded${params.reason ? ` — ${params.reason}` : ""}`;
+        }
+        return null;
+      }
+      case "log_expense": {
+        await sb.from("mavis_expenses").insert({
+          user_id:      uid,
+          description:  params.description ?? "Expense",
+          amount:       Number(params.amount) || 0,
+          category:     params.category ?? "other",
+          expense_date: params.date ?? new Date().toISOString().split("T")[0],
+        });
+        return `Expense logged: ${params.description} ($${params.amount})`;
+      }
+      case "create_note": {
+        await sb.from("mavis_notes").insert({
+          user_id: uid,
+          title:   params.title ?? "Note",
+          content: params.content ?? "",
+          tags:    params.tags ?? [],
+        }).catch(() => null);
+        return `Note created: "${params.title}"`;
+      }
+      case "create_ally": {
+        await sb.from("allies").insert({
+          user_id:      uid,
+          name:         params.name ?? "Ally",
+          relationship: params.relationship ?? "contact",
+          notes:        params.notes ?? "",
+        }).catch(() => null);
+        return `Ally added: ${params.name}`;
+      }
+      default: {
+        // Unrecognized type → queue to approvals for manual review
+        await sb.from("approvals").insert({
+          user_id:        uid,
+          action_type:    type,
+          action_summary: `Action from persona/council: ${type}`.slice(0, 255),
+          action_payload: params,
+          status:         "pending",
+        }).catch(() => null);
+        return `Action "${type}" queued`;
+      }
+    }
+  } catch (err) {
+    console.warn(`[telegram-bot] executeDirectAction ${type} failed:`, err instanceof Error ? err.message : String(err));
+    return null;
+  }
+}
+
+// Parse PROPOSE_ACTION and PROPOSE_MAVIS blocks from a raw LLM reply.
+// Returns the stripped visible text + confirmation lines to append.
+async function parseAndHandleProposals(
+  rawReply: string,
+  uid: string,
+  chatId: string | number,
+  charName: string,
+): Promise<string> {
+  const ACTION_RE = /:::PROPOSE_ACTION(\{[\s\S]*?\}):::/g;
+  const MAVIS_RE  = /:::PROPOSE_MAVIS(\{[\s\S]*?\}):::/g;
+
+  const actionResults: string[] = [];
+  const mavisProposals: Array<{ type: string; summary: string; details: string; payload: Record<string, any> }> = [];
+
+  // Collect direct actions
+  let match: RegExpExecArray | null;
+  while ((match = ACTION_RE.exec(rawReply)) !== null) {
+    try {
+      const { type, params } = JSON.parse(match[1]);
+      if (type && params) {
+        const result = await executeDirectAction(type, params, uid);
+        if (result) actionResults.push(result);
+      }
+    } catch {
+      // malformed block — skip
+    }
+  }
+
+  // Collect MAVIS proposals
+  while ((match = MAVIS_RE.exec(rawReply)) !== null) {
+    try {
+      const prop = JSON.parse(match[1]);
+      mavisProposals.push({
+        type:    prop.type    ?? "other",
+        summary: prop.summary ?? prop.details?.slice(0, 80) ?? "Proposal",
+        details: prop.details ?? prop.summary ?? "",
+        payload: prop.payload ?? {},
+      });
+    } catch {
+      // malformed block — skip
+    }
+  }
+
+  // Strip all blocks from visible text
+  let visible = rawReply
+    .replace(ACTION_RE, "")
+    .replace(MAVIS_RE, "")
+    .trim();
+
+  // Queue MAVIS proposals
+  if (mavisProposals.length > 0) {
+    const rows = mavisProposals.map((p) => ({
+      user_id:        uid,
+      action_type:    p.type,
+      action_summary: `[${charName}] ${p.summary}`.slice(0, 255),
+      action_payload: { ...p.payload, details: p.details, proposed_by: charName },
+      status:         "pending",
+      proposed_by:    charName,
+    }));
+    await sb.from("approvals").insert(rows).catch(() => null);
+  }
+
+  // Append action confirmations to the visible reply
+  if (actionResults.length > 0) {
+    visible += `\n\n_Actions: ${actionResults.join(" · ")}_`;
+  }
+  if (mavisProposals.length > 0) {
+    const summaries = mavisProposals.map((p) => p.summary).join("; ");
+    visible += `\n\n_Flagged for MAVIS: ${summaries}_`;
+  }
+
+  return visible || rawReply;
 }
 
 async function resolveCouncilOwnerUid(uid: string): Promise<string> {
@@ -1361,27 +1682,31 @@ async function handleChat(
   const activeCouncil = await getActiveCouncil(uid);
   if (activeCouncil) {
     try {
-      const councilSystem = buildCouncilSystemPrompt(activeCouncil);
-      const { data: councilHistory } = await sb
-        .from("council_chat_messages")
-        .select("role, content")
-        .eq("council_member_id", activeCouncil.id)
-        .eq("user_id", uid)
-        .order("created_at", { ascending: false })
-        .limit(16);
+      // Load app context and conversation history in parallel
+      const [appCtx, councilHistRes] = await Promise.all([
+        loadAppContext(uid),
+        sb.from("council_chat_messages")
+          .select("role, content")
+          .eq("council_member_id", activeCouncil.id)
+          .eq("user_id", uid)
+          .order("created_at", { ascending: false })
+          .limit(16),
+      ]);
 
-      const recentHistory: ChatMessage[] = ((councilHistory ?? []).reverse() as any[]).map((m: any) => ({
+      const councilSystem = buildCouncilSystemPrompt(activeCouncil, appCtx);
+      const recentHistory: ChatMessage[] = ((councilHistRes.data ?? []).reverse() as any[]).map((m: any) => ({
         role:    m.role as "user" | "assistant",
         content: String(m.content ?? ""),
       }));
       const msgs: ChatMessage[] = [...recentHistory, { role: "user", content: text }];
-      const reply = await callLLM(activeCouncil.model || "claude-haiku-4-5-20251001", councilSystem, msgs, 1000);
+      const rawReply = await callLLM(activeCouncil.model || "claude-haiku-4-5-20251001", councilSystem, msgs, 1200);
 
-      if (reply) {
+      if (rawReply) {
+        const reply = await parseAndHandleProposals(rawReply, uid, chatId, activeCouncil.name);
         await send(chatId, reply);
         await Promise.resolve(sb.from("council_chat_messages").insert([
-          { council_member_id: activeCouncil.id, user_id: uid, role: "user",      content: text  },
-          { council_member_id: activeCouncil.id, user_id: uid, role: "assistant", content: reply },
+          { council_member_id: activeCouncil.id, user_id: uid, role: "user",      content: text     },
+          { council_member_id: activeCouncil.id, user_id: uid, role: "assistant", content: rawReply },
         ])).catch((err) => console.warn("[telegram-bot] council_chat_messages write failed", err));
       } else {
         await send(chatId, `⚠️ ${activeCouncil.name} is unavailable right now. Try again.`);
@@ -1397,31 +1722,33 @@ async function handleChat(
   const activePersona = await getActivePersona(uid);
   if (activePersona) {
     try {
-      const personaSystem = buildPersonaSystemPrompt(activePersona);
+      // Load app context and conversation history in parallel
+      const [appCtx, personaHistRes] = await Promise.all([
+        loadAppContext(uid),
+        sb.from("persona_conversations")
+          .select("role, content")
+          .eq("persona_id", activePersona.id)
+          .eq("user_id", uid)
+          .order("created_at", { ascending: false })
+          .limit(16),
+      ]);
 
-      // Load recent persona_conversations for this persona (matches web PersonaChat history)
-      const { data: personaHistory } = await sb
-        .from("persona_conversations")
-        .select("role, content")
-        .eq("persona_id", activePersona.id)
-        .eq("user_id", uid)
-        .order("created_at", { ascending: false })
-        .limit(16);
-
-      const recentHistory: ChatMessage[] = ((personaHistory ?? []).reverse() as any[]).map((m: any) => ({
+      const personaSystem = buildPersonaSystemPrompt(activePersona, appCtx);
+      const recentHistory: ChatMessage[] = ((personaHistRes.data ?? []).reverse() as any[]).map((m: any) => ({
         role:    m.role as "user" | "assistant",
         content: String(m.content ?? ""),
       }));
 
       const msgs: ChatMessage[] = [...recentHistory, { role: "user", content: text }];
-      const reply = await callLLM(activePersona.model || "claude-haiku-4-5-20251001", personaSystem, msgs, 1000);
+      const rawReply = await callLLM(activePersona.model || "claude-haiku-4-5-20251001", personaSystem, msgs, 1200);
 
-      if (reply) {
+      if (rawReply) {
+        const reply = await parseAndHandleProposals(rawReply, uid, chatId, activePersona.name);
         await send(chatId, reply);
-        // Write to persona_conversations so the exchange appears in the web PersonaChat thread
+        // Write raw reply to persona_conversations so the web PersonaChat thread stays clean
         await Promise.resolve(sb.from("persona_conversations").insert([
-          { persona_id: activePersona.id, user_id: uid, role: "user",      content: text  },
-          { persona_id: activePersona.id, user_id: uid, role: "assistant", content: reply },
+          { persona_id: activePersona.id, user_id: uid, role: "user",      content: text     },
+          { persona_id: activePersona.id, user_id: uid, role: "assistant", content: rawReply },
         ])).catch((err) => console.warn("[telegram-bot] persona_conversations write failed", err));
       } else {
         await send(chatId, `⚠️ ${activePersona.name} is unavailable right now. Try again.`);
