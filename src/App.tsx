@@ -7,6 +7,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { ThemeProvider, useTheme } from "next-themes";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import { AppDataProvider } from "@/contexts/AppDataContext";
+import { VoiceProvider, useVoice } from "@/contexts/VoiceContext";
 import AppSidebar from "@/components/AppSidebar";
 import { Loader2 } from "lucide-react";
 import { useMavisNotifications } from "@/hooks/useMavisNotifications";
@@ -95,7 +96,19 @@ const Spinner = (
 function AppContent() {
   const { user, loading } = useAuth();
   const location = useLocation();
+  const { toggleVoice } = useVoice();
   useMavisNotifications();
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.ctrlKey && e.shiftKey && e.key === "V") {
+        e.preventDefault();
+        toggleVoice();
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [toggleVoice]);
 
 
   if (loading) {
@@ -117,6 +130,7 @@ function AppContent() {
 
   return (
     <AppDataProvider>
+      <VoiceProvider>
       <div className="h-screen flex overflow-hidden bg-background">
         <AppSidebar />
 
@@ -182,6 +196,7 @@ function AppContent() {
           </Suspense>
         </main>
       </div>
+      </VoiceProvider>
     </AppDataProvider>
   );
 }
