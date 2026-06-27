@@ -1964,15 +1964,9 @@ async function handleCommand(command: string, chatId: string, fullText: string):
     }
 
     case "/personas": {
-      const { data } = await supabase
-        .from("personas")
-        .select("name, role, archetype")
-        .eq("user_id", OPERATOR_USER_ID)
-        .eq("is_active", true)
-        .order("created_at", { ascending: false })
-        .limit(15);
-      if (!data?.length) return "No personas forged yet. Ask MAVIS to create one.";
-      return `Your Personas\n${data.map((p: any) => `• ${p.name} — ${p.role}${p.archetype ? ` (${p.archetype})` : ""}`).join("\n")}\n\nUse /switch [name] to talk to one.`;
+      const data = await listTelegramPersonas();
+      if (!data.length) return `No personas forged yet. Searched UID: ${await resolvePersonaOwnerUid(OPERATOR_USER_ID)}`;
+      return `Your Personas\n${data.map((p: any) => `• ${p.name} — ${p.role}${p.archetype ? ` (${p.archetype})` : ""}`).join("\n")}\n\nUse /switch [name] or /[name] to talk to one.`;
     }
 
     case "/daily": {
@@ -2149,18 +2143,11 @@ async function handleCommand(command: string, chatId: string, fullText: string):
       const nameQuery = fullText.replace(/^\/switch\s*/i, "").trim();
       if (!nameQuery) return "Usage: /switch [persona name]";
 
-      const { data } = await supabase
-        .from("personas")
-        .select("id, name, role")
-        .eq("user_id", OPERATOR_USER_ID)
-        .eq("is_active", true)
-        .ilike("name", `%${nameQuery}%`)
-        .limit(1)
-        .single();
+      const data = await findTelegramPersona(nameQuery);
 
       if (!data) return `No persona found matching "${nameQuery}". Use /personas to see your roster.`;
 
-      await setActivePersona(chatId, { persona_id: data.id, persona_name: data.name });
+      await setActivePersona(chatId, { persona_id: data.id, persona_name: data.name, user_id: data.user_id });
       return `Switching to ${data.name} (${data.role}). Say hi — they remember everything.`;
     }
 
