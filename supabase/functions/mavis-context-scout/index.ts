@@ -27,6 +27,8 @@ Deno.serve(async (req) => {
 
     const now = new Date();
 
+    const sevenDaysAgo = new Date(now.getTime() - 7 * 86400000).toISOString();
+
     const [
       profileRes,
       questsRes,
@@ -35,6 +37,7 @@ Deno.serve(async (req) => {
       journalRes,
       memoriesRes,
       insightsRes,
+      moodRes,
     ] = await Promise.all([
       // Hermes-style user profile
       supabase.from("mavis_user_profile")
@@ -87,6 +90,15 @@ Deno.serve(async (req) => {
         .in("severity", ["warning", "critical"])
         .order("created_at", { ascending: false })
         .limit(3),
+
+      // Mood signals from journal entries (last 7 days)
+      supabase.from("journal_entries")
+        .select("mood, created_at")
+        .eq("user_id", user_id)
+        .gte("created_at", sevenDaysAgo)
+        .not("mood", "is", null)
+        .order("created_at", { ascending: false })
+        .limit(7),
     ]);
 
     const profile  = profileRes.data;
@@ -96,6 +108,7 @@ Deno.serve(async (req) => {
     const journal  = journalRes.data  ?? [];
     const memories = memoriesRes.data ?? [];
     const insights = insightsRes.data ?? [];
+    const moods    = moodRes.data     ?? [];
 
     const parts: string[] = [];
 
@@ -165,6 +178,23 @@ Deno.serve(async (req) => {
       parts.push(
         `## ACTIVE ALERTS\n` +
         insights.map((i: any) => `- ⚡ [${i.severity.toUpperCase()}] ${i.title}: ${i.content?.slice(0, 100) ?? ""}`).join("\n")
+      );
+    }
+
+    // ── Emotional state signal (OpenHuman pattern) ─────────────────────
+    if (moods.length > 0) {
+      const moodList = moods.map((m: any) => {
+        const daysAgo = Math.round((now.getTime() - new Date(m.created_at).getTime()) / 86400000);
+        return `${m.mood}${daysAgo === 0 ? " (today)" : daysAgo === 1 ? " (yesterday)" : ` (${daysAgo}d ago)`}`;
+      });
+      // Derive dominant mood from most recent entries
+      const dominant = moods[0]?.mood ?? "neutral";
+      const trendStr = moods.length >= 3
+        ? ` — pattern across week: ${moodList.slice(0, 5).join(" → ")}`
+        : "";
+      parts.push(
+        `## EMOTIONAL STATE\nMost recent: **${dominant}**${trendStr}\n` +
+        `Adjust your communication style to this emotional context. If distressed or low-energy, be warmer and more supportive. If energized and focused, match their pace and be direct.`
       );
     }
 
