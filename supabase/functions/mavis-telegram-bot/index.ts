@@ -624,6 +624,11 @@ function classify(text: string): Classified {
   if (personaMatch)
     return { intent: "switch_persona", params: { name: personaMatch[2].trim() } };
 
+  // Bare /personaName shortcut — e.g. /lilu, /nora (after all other slash commands checked)
+  const bareSlash = text.match(/^\/([a-zA-Z][a-zA-Z0-9_\- ]{1,40})$/);
+  if (bareSlash)
+    return { intent: "switch_persona", params: { name: bareSlash[1].trim() } };
+
   return { intent: "chat", params: {} };
 }
 
@@ -693,8 +698,9 @@ async function handleListPersonas(chatId: string | number, uid: string) {
 
   if (!personas || (personas as any[]).length === 0) {
     await send(chatId,
-      `🎭 No personas found. Create personas in the Vantara app first.\n\n` +
-      `Go to: *Personas* tab → Create new persona`,
+      `🎭 No personas found for this account.\n\n` +
+      `If you have personas in the Vantara app, check that *MAVIS\\_OPERATOR\\_MAIN\\_ID* in your Supabase secrets matches your Supabase auth user UUID.\n\n` +
+      `Current UID being searched: \`${uid}\``,
     );
     return;
   }
@@ -721,7 +727,8 @@ async function handleSwitchPersona(chatId: string | number, uid: string, name: s
 
   if (!personas || (personas as any[]).length === 0) {
     await send(chatId,
-      `🎭 No persona matching "*${name}*".\n\nUse \`/personas\` to list available personas.`,
+      `🎭 No persona matching "*${name}*".\n\n` +
+      `Use \`/personas\` to list available personas, or check that *MAVIS\\_OPERATOR\\_MAIN\\_ID* in Supabase secrets matches your auth user UUID (\`${uid}\`).`,
     );
     return;
   }
