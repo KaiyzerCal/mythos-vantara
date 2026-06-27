@@ -613,11 +613,86 @@ function buildPersonaSystemPrompt(p: PersonaSession): string {
 }
 
 // ─────────────────────────────────────────────────────────────
+// COUNCIL SESSION STATE  (persisted in mavis_memory, same approach as persona)
+// ─────────────────────────────────────────────────────────────
+
+interface CouncilSession {
+  id:               string;
+  name:             string;
+  role:             string;
+  specialty:        string;
+  personality_prompt: string;
+  notes:            string;
+  model:            string;
+}
+
+const COUNCIL_STATE_PREFIX = "telegram-council-state-";
+
+async function getActiveCouncil(uid: string): Promise<CouncilSession | null> {
+  try {
+    const { data } = await sb.from("mavis_memory")
+      .select("content")
+      .eq("user_id", uid)
+      .eq("session_id", `${COUNCIL_STATE_PREFIX}${uid}`)
+      .eq("role", "system")
+      .order("timestamp", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (!data?.content) return null;
+    return JSON.parse(String(data.content)) as CouncilSession;
+  } catch {
+    return null;
+  }
+}
+
+async function setActiveCouncil(uid: string, council: CouncilSession | null): Promise<void> {
+  try {
+    await sb.from("mavis_memory")
+      .delete()
+      .eq("user_id", uid)
+      .eq("session_id", `${COUNCIL_STATE_PREFIX}${uid}`)
+      .eq("role", "system");
+
+    if (council) {
+      await sb.from("mavis_memory").insert({
+        user_id:           uid,
+        session_id:        `${COUNCIL_STATE_PREFIX}${uid}`,
+        role:              "system",
+        content:           JSON.stringify(council),
+        timestamp:         Date.now(),
+        importance_score:  1,
+        consolidated:      true,
+      });
+    }
+  } catch { /* non-fatal */ }
+}
+
+function buildCouncilSystemPrompt(c: CouncilSession): string {
+  const parts: string[] = [];
+  parts.push(`You are ${c.name}${c.role ? `, ${c.role}` : ""}${c.specialty ? ` specialising in ${c.specialty}` : ""}.`);
+  if (c.notes?.trim())              parts.push(`\nBackground: ${c.notes.trim()}`);
+  if (c.personality_prompt?.trim()) parts.push(`\n${c.personality_prompt.trim()}`);
+  parts.push(`\nYou are a council member advising the operator. Speak directly from your expertise. Be concise and strategic. Do not refer to yourself as MAVIS or as a generic AI.`);
+  return parts.join("");
+}
+
+async function resolveCouncilOwnerUid(uid: string): Promise<string> {
+  if (uid) {
+    const { data: own } = await sb.from("councils").select("user_id").eq("user_id", uid).limit(1);
+    if (own && (own as any[]).length > 0) return uid;
+  }
+  const { data: any1 } = await sb.from("councils").select("user_id").limit(1);
+  if (any1 && (any1 as any[]).length > 0) return String((any1 as any[])[0].user_id);
+  return uid;
+}
+
+// ─────────────────────────────────────────────────────────────
 // INTENT CLASSIFICATION
 // ─────────────────────────────────────────────────────────────
 
 type Intent = "help" | "quests" | "revenue" | "tasks" | "actions" | "content_machine" | "speak"
-            | "list_personas" | "switch_persona" | "reset_persona" | "chat";
+            | "list_personas" | "switch_persona" | "reset_persona"
+            | "list_council" | "chat";
 interface Classified { intent: Intent; params: Record<string, string>; }
 
 function classify(text: string): Classified {
@@ -634,16 +709,18 @@ function classify(text: string): Classified {
   const speakMatch = text.match(/^\/?(speak|tts|say)\s*(.*)?$/i);
   if (speakMatch) return { intent: "speak", params: { args: (speakMatch[2] ?? "").trim() } };
 
-  // Persona switching
+  // Persona / council switching
   if (/^\/?(personas?(\s+list)?|characters?(\s+list)?)$/i.test(lower))
     return { intent: "list_personas", params: {} };
-  if (/^\/?(mavis|reset(\s+persona)?|exit(\s+persona)?|back\s+to\s+mavis)$/i.test(lower))
+  if (/^\/?(council(s|board|members?)?(\s+list)?)$/i.test(lower))
+    return { intent: "list_council", params: {} };
+  if (/^\/?(mavis|reset(\s+(persona|council))?|exit(\s+(persona|council))?|back\s+to\s+mavis)$/i.test(lower))
     return { intent: "reset_persona", params: {} };
-  const personaMatch = text.match(/^\/?(persona|as|speak[- ]as|be|character)\s+(.+)$/i);
+  const personaMatch = text.match(/^\/?(persona|as|speak[- ]as|be|character|council\s+member)\s+(.+)$/i);
   if (personaMatch)
     return { intent: "switch_persona", params: { name: personaMatch[2].trim() } };
 
-  // Bare /personaName shortcut — e.g. /lilu, /nora (after all other slash commands checked)
+  // Bare /name shortcut — e.g. /lilu, /marcus (tries persona then council)
   const bareSlash = text.match(/^\/([a-zA-Z][a-zA-Z0-9_\- ]{1,40})$/);
   if (bareSlash)
     return { intent: "switch_persona", params: { name: bareSlash[1].trim() } };
@@ -675,10 +752,11 @@ async function handleHelp(chatId: string | number) {
     `📌 \`tasks\` — pending task queue\n` +
     `📬 \`actions\` — recent Google Workspace approvals/executions\n` +
     `🎬 \`content <topic>\` — Nora content pipeline\n\n` +
-    `*Personas:*\n` +
+    `*Personas & Council:*\n` +
     `🎭 \`/personas\` — list your personas\n` +
-    `🎭 \`/as [name]\` — switch to a persona (e.g. \`/as Nora\`)\n` +
-    `✨ \`/mavis\` — return to MAVIS from any persona\n\n` +
+    `🏛️ \`/council\` — list your council members\n` +
+    `🎭 \`/as [name]\` or \`/[name]\` — switch to a persona or council member\n` +
+    `✨ \`/mavis\` — return to MAVIS\n\n` +
     `📸 _Send a photo to analyze it_\n` +
     `📄 _Send any file (.md, .txt, .csv, .json, .py, .ts, etc.) to analyze it_\n` +
     voiceLine,
@@ -767,9 +845,13 @@ async function handleSwitchPersona(chatId: string | number, uid: string, name: s
     .limit(10);
 
   if (!personas || (personas as any[]).length === 0) {
-    await send(chatId,
-      `🎭 No persona matching "*${name}*". Use \`/personas\` to list available personas.`,
-    );
+    // Try council members as fallback before giving up
+    const switched = await handleSwitchCouncil(chatId, uid, name);
+    if (!switched) {
+      await send(chatId,
+        `🎭 No persona or council member matching "*${name}*".\n\nUse \`/personas\` or \`/council\` to see available names.`,
+      );
+    }
     return;
   }
 
@@ -807,7 +889,77 @@ async function handleSwitchPersona(chatId: string | number, uid: string, name: s
 
 async function handleResetPersona(chatId: string | number, uid: string) {
   await setActivePersona(uid, null);
-  await send(chatId, `✨ *MAVIS online.* Persona session ended.`);
+  await setActiveCouncil(uid, null);
+  await send(chatId, `✨ *MAVIS online.* Session ended.`);
+}
+
+// ─────────────────────────────────────────────────────────────
+// COUNCIL HANDLERS
+// ─────────────────────────────────────────────────────────────
+
+async function handleListCouncil(chatId: string | number, uid: string) {
+  const effectiveUid = await resolveCouncilOwnerUid(uid);
+  const { data: members } = await sb
+    .from("councils")
+    .select("id, name, role, specialty, class")
+    .eq("user_id", effectiveUid)
+    .order("name", { ascending: true })
+    .limit(30);
+
+  if (!members || (members as any[]).length === 0) {
+    await send(chatId,
+      `🏛️ No council members found.\n\nAdd members in the Vantara app → Council Board tab.\n\n_(UID: \`${effectiveUid}\`)_`,
+    );
+    return;
+  }
+
+  const active = await getActiveCouncil(uid);
+  const lines = (members as any[]).map((m) => {
+    const marker = active?.id === m.id ? " ✅" : "";
+    const spec = m.specialty ? ` · ${m.specialty}` : "";
+    return `• *${m.name}*${marker} — ${m.role ?? "Member"}${spec}`;
+  });
+
+  await send(chatId,
+    `🏛️ *Your Council (${lines.length})*\n\n${lines.join("\n")}\n\n` +
+    `Switch: \`/as [name]\` or \`/[name]\`   Reset: \`/mavis\``,
+  );
+}
+
+async function handleSwitchCouncil(chatId: string | number, uid: string, name: string): Promise<boolean> {
+  const effectiveUid = await resolveCouncilOwnerUid(uid);
+  const { data: members } = await sb
+    .from("councils")
+    .select("id, name, role, specialty, personality_prompt, notes, model")
+    .eq("user_id", effectiveUid)
+    .ilike("name", `%${name}%`)
+    .limit(5);
+
+  if (!members || (members as any[]).length === 0) return false;
+
+  const wanted = normalizePersonaName(name);
+  const exact = (members as any[]).find((m) => normalizePersonaName(String(m.name ?? "")) === wanted);
+  const m: any = exact ?? (members as any[])[0];
+
+  const session: CouncilSession = {
+    id:               String(m.id ?? ""),
+    name:             String(m.name ?? ""),
+    role:             String(m.role ?? ""),
+    specialty:        String(m.specialty ?? ""),
+    personality_prompt: String(m.personality_prompt ?? ""),
+    notes:            String(m.notes ?? ""),
+    model:            String(m.model ?? "claude-haiku-4-5-20251001"),
+  };
+
+  await setActiveCouncil(uid, session);
+  await setActivePersona(uid, null); // mutually exclusive
+
+  await send(chatId,
+    `🏛️ *Now speaking with ${m.name}*${m.role ? ` — ${m.role}` : ""}${m.specialty ? ` (${m.specialty})` : ""}\n\n` +
+    `Send any message to chat with ${m.name}.\n` +
+    `Send \`/mavis\` to return to MAVIS.`,
+  );
+  return true;
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -1036,6 +1188,43 @@ async function handleChat(
   sessionId: string | null,
 ) {
   await typing(chatId);
+
+  // ── Council member mode ────────────────────────────────────────────────────
+  const activeCouncil = await getActiveCouncil(uid);
+  if (activeCouncil) {
+    try {
+      const councilSystem = buildCouncilSystemPrompt(activeCouncil);
+      const { data: councilHistory } = await sb
+        .from("council_chat_messages")
+        .select("role, content")
+        .eq("council_member_id", activeCouncil.id)
+        .eq("user_id", uid)
+        .order("created_at", { ascending: false })
+        .limit(16);
+
+      const recentHistory: ChatMessage[] = ((councilHistory ?? []).reverse() as any[]).map((m: any) => ({
+        role:    m.role as "user" | "assistant",
+        content: String(m.content ?? ""),
+      }));
+      const msgs: ChatMessage[] = [...recentHistory, { role: "user", content: text }];
+      const model = activeCouncil.model || "claude-haiku-4-5-20251001";
+      const reply = await callClaude(councilSystem, msgs, 1000, model);
+
+      if (reply) {
+        await send(chatId, reply);
+        await Promise.resolve(sb.from("council_chat_messages").insert([
+          { council_member_id: activeCouncil.id, user_id: uid, role: "user",      content: text  },
+          { council_member_id: activeCouncil.id, user_id: uid, role: "assistant", content: reply },
+        ])).catch((err) => console.warn("[telegram-bot] council_chat_messages write failed", err));
+      } else {
+        await send(chatId, `⚠️ ${activeCouncil.name} is unavailable right now. Try again.`);
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      await send(chatId, `⚠️ Council error: ${msg.slice(0, 200)}`);
+    }
+    return;
+  }
 
   // ── Persona mode: bypass mavis-agent, talk directly as the character ──────
   const activePersona = await getActivePersona(uid);
@@ -1328,6 +1517,7 @@ serve(async (req) => {
         case "speak":           await handleSpeak(chatId, uid, params.args ?? ""); break;
         case "content_machine": await handleContentMachine(chatId, uid, params.topic ?? text); break;
         case "list_personas":   await handleListPersonas(chatId, uid); break;
+        case "list_council":    await handleListCouncil(chatId, uid); break;
         case "switch_persona":  await handleSwitchPersona(chatId, uid, params.name ?? ""); break;
         case "reset_persona":   await handleResetPersona(chatId, uid); break;
         default:                await handleChat(chatId, uid, text, history, sessionId); break;
