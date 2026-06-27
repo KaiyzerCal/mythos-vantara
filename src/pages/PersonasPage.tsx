@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import { Plus, Users, Loader2, AlertCircle, Wand2, PhoneCall, Edit2, X, Save, Download, Upload, ChevronDown, ChevronUp } from "lucide-react";
+import { Plus, Users, Loader2, AlertCircle, Wand2, PhoneCall, Edit2, X, Save, Download, Upload, ChevronDown, ChevronUp, Send } from "lucide-react";
 import { AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
 import { VoiceChatOverlay } from "@/components/VoiceChatOverlay";
@@ -437,6 +437,10 @@ export default function PersonasPage() {
   const [activeChat, setActiveChat] = useState<ForgedPersona | null>(null);
   const [voicePersona, setVoicePersona] = useState<VoicePersona | null>(null);
   const [editingPersona, setEditingPersona] = useState<ForgedPersona | null>(null);
+  const [postingPersona, setPostingPersona] = useState<ForgedPersona | null>(null);
+  const [postContent, setPostContent] = useState("");
+  const [postPlatform, setPostPlatform] = useState<"twitter" | "linkedin" | "instagram" | "discord">("twitter");
+  const [postSending, setPostSending] = useState(false);
   // Map of persona_id → latest unread heartbeat notification
   const [notifications, setNotifications] = useState<Record<string, NaviNotification>>({});
 
@@ -503,6 +507,34 @@ export default function PersonasPage() {
       return next;
     });
   }, []);
+
+  const handlePersonaPost = async () => {
+    if (!user || !postingPersona || !postContent.trim()) return;
+    setPostSending(true);
+    try {
+      const fnMap: Record<string, string> = {
+        twitter:   "mavis-nora-post",
+        linkedin:  "mavis-nora-linkedin",
+        instagram: "mavis-nora-instagram",
+        discord:   "mavis-nora-discord",
+      };
+      const { error } = await (supabase as any).functions.invoke(fnMap[postPlatform], {
+        body: {
+          user_id:  user.id,
+          content:  postContent.trim(),
+          persona:  { name: postingPersona.name, role: postingPersona.role, bio: (postingPersona as any).bio ?? "" },
+        },
+      });
+      if (error) throw error;
+      toast.success(`Posted as ${postingPersona.name} on ${postPlatform}`);
+      setPostContent("");
+      setPostingPersona(null);
+    } catch (e: any) {
+      toast.error(`Post failed: ${e?.message ?? "Unknown error"}`);
+    } finally {
+      setPostSending(false);
+    }
+  };
 
   const handleForged = (persona: ForgedPersona) => {
     setPersonas((prev) => [persona, ...prev]);
@@ -600,6 +632,13 @@ export default function PersonasPage() {
               >
                 <PhoneCall size={9} /> CALL
               </button>
+              <button
+                onClick={() => { setPostingPersona(persona); setPostContent(""); }}
+                className="absolute top-18 right-2 flex items-center gap-1 px-2 py-1 rounded border border-violet-500/30 bg-violet-500/10 text-violet-400/70 hover:text-violet-300 hover:bg-violet-500/20 text-xs font-mono transition-all opacity-0 group-hover:opacity-100"
+                title={`Post as ${persona.name}`}
+              >
+                <Send size={9} /> POST
+              </button>
             </div>
           ))}
         </div>
@@ -610,6 +649,56 @@ export default function PersonasPage() {
             persona={voicePersona}
             onClose={() => setVoicePersona(null)}
           />
+        )}
+      </AnimatePresence>
+
+      {/* ── Post as Persona panel ──────────────────────────────── */}
+      <AnimatePresence>
+        {postingPersona && (
+          <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/60 backdrop-blur-sm">
+            <div className="w-full max-w-md bg-card border border-border rounded-xl p-5 space-y-3 shadow-xl mx-4">
+              <div className="flex items-center justify-between">
+                <p className="text-sm font-display font-bold text-primary">Post as {postingPersona.name}</p>
+                <button onClick={() => setPostingPersona(null)} className="text-muted-foreground hover:text-foreground">
+                  <X size={14} />
+                </button>
+              </div>
+              <div className="flex gap-1.5">
+                {(["twitter", "linkedin", "instagram", "discord"] as const).map((p) => (
+                  <button
+                    key={p}
+                    onClick={() => setPostPlatform(p)}
+                    className={`px-2.5 py-1 rounded text-xs font-mono border transition-colors capitalize ${postPlatform === p ? "bg-violet-500/20 border-violet-500/40 text-violet-300" : "border-border/40 text-muted-foreground hover:text-foreground"}`}
+                  >
+                    {p}
+                  </button>
+                ))}
+              </div>
+              <textarea
+                value={postContent}
+                onChange={(e) => setPostContent(e.target.value)}
+                rows={4}
+                placeholder={`Write as ${postingPersona.name}…`}
+                className="w-full resize-none bg-muted/30 border border-border rounded-lg px-3 py-2 text-sm font-body text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-violet-500/50 transition-colors"
+              />
+              <p className="text-xs font-mono text-muted-foreground">
+                {postingPersona.name} · {postingPersona.role} · posting on {postPlatform}
+              </p>
+              <div className="flex justify-end gap-2">
+                <button onClick={() => setPostingPersona(null)} className="px-3 py-1.5 text-xs font-mono border border-border rounded text-muted-foreground hover:text-foreground transition-colors">
+                  Cancel
+                </button>
+                <button
+                  onClick={handlePersonaPost}
+                  disabled={postSending || !postContent.trim()}
+                  className="flex items-center gap-1.5 px-4 py-1.5 text-xs font-mono bg-violet-500/10 border border-violet-500/30 text-violet-300 rounded hover:bg-violet-500/20 disabled:opacity-50 transition-colors"
+                >
+                  {postSending ? <Loader2 size={11} className="animate-spin" /> : <Send size={11} />}
+                  Post
+                </button>
+              </div>
+            </div>
+          </div>
         )}
       </AnimatePresence>
     </div>

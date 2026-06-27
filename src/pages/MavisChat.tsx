@@ -55,6 +55,7 @@ const MAVIS_MODES = [
   { id: "DEEP",        label: "DEEP",        icon: Layers,    color: "text-indigo-400",  desc: "Gemini 2.5 Flash · Extended thinking (8K budget)" },
   { id: "GAME_MASTER", label: "GAME MASTER", icon: Gamepad2,  color: "text-violet-400",  desc: "Gemini 2.5 · Narrative arcs & consequence engine" },
   { id: "WEBMASTER",  label: "WEBMASTER",  icon: Globe,     color: "text-cyan-400",    desc: "Build complete client websites — AI copy, Gutenberg blocks, WordPress publishing" },
+  { id: "AUTO",       label: "AUTO",       icon: Cpu,       color: "text-emerald-300",  desc: "Auto-routing · MAVIS selects the optimal mode based on your message" },
 ];
 
 const QUICK_PROMPTS = [
@@ -113,10 +114,16 @@ export default function MavisChat() {
   const [lastAgentMeta, setLastAgentMeta] = useState<{ toolsUsed: string[]; actionsQueued: number } | null>(null);
 
   // ── Crew coordinator state ──
-  const [agentPanelTab, setAgentPanelTab] = useState<"specialist" | "crew">("specialist");
+  const [agentPanelTab, setAgentPanelTab] = useState<"specialist" | "crew" | "delegate">("specialist");
   const [crewGoal, setCrewGoal] = useState("");
   const [crewRunning, setCrewRunning] = useState(false);
   const [crewResult, setCrewResult] = useState("");
+
+  // ── Delegate (goal-loop) state ──
+  const [delegateGoal, setDelegateGoal] = useState("");
+  const [delegateRunning, setDelegateRunning] = useState(false);
+  const [delegateSteps, setDelegateSteps] = useState<Array<{ iteration: number; thought: string; action: string; result: string; done: boolean }>>([]);
+  const [delegateResult, setDelegateResult] = useState("");
 
   // ── Standing orders panel ──
   const [showOrdersPanel, setShowOrdersPanel] = useState(false);
@@ -1622,7 +1629,7 @@ export default function MavisChat() {
             {/* Tab toggle */}
             <div className="flex items-center gap-2">
               <Cpu size={11} className="text-violet-400" />
-              {(["specialist", "crew"] as const).map((tab) => (
+              {(["specialist", "crew", "delegate"] as const).map((tab) => (
                 <button key={tab} onClick={() => setAgentPanelTab(tab)}
                   className={`text-xs font-mono px-2 py-0.5 rounded border transition-colors ${agentPanelTab === tab ? "bg-violet-500/20 border-violet-500/40 text-violet-300" : "border-border/40 text-muted-foreground hover:text-foreground"}`}
                 >{tab.toUpperCase()}</button>
@@ -1678,7 +1685,62 @@ export default function MavisChat() {
                   </div>
                 )}
               </>
-            )}
+            ) : agentPanelTab === "delegate" ? (
+              <>
+                <p className="text-xs font-mono text-muted-foreground mb-2">Give MAVIS a goal. It will autonomously think, plan, and act until done.</p>
+                <div className="flex gap-2">
+                  <input value={delegateGoal} onChange={(e) => setDelegateGoal(e.target.value)}
+                    onKeyDown={async (e) => {
+                      if (e.key === "Enter" && delegateGoal.trim() && !delegateRunning) {
+                        setDelegateRunning(true); setDelegateSteps([]); setDelegateResult("");
+                        const { data: { session: s } } = await (supabase as any).auth.getSession();
+                        if (!s) { setDelegateRunning(false); return; }
+                        const { data, error } = await (supabase as any).functions.invoke("mavis-goal-loop", { body: { goal: delegateGoal.trim(), max_iterations: 6 } });
+                        if (!error && data) {
+                          setDelegateSteps(data.steps ?? []);
+                          setDelegateResult(data.final_result ?? "");
+                          setChatMessages((prev) => [...prev, { id: `delegate-${Date.now()}`, role: "assistant" as const, content: `**[DELEGATE COMPLETE — ${data.iterations} steps]**\n\n${data.final_result}`, mode: "AGENT", timestamp: new Date() }]);
+                        }
+                        setDelegateRunning(false);
+                      }
+                    }}
+                    placeholder="e.g. Research top 3 competitors and create tasks for each gap..."
+                    className="flex-1 bg-card border border-border rounded px-2.5 py-1.5 text-xs font-body focus:outline-none focus:border-violet-500/50 placeholder:text-muted-foreground placeholder:text-xs"
+                  />
+                  <button onClick={async () => {
+                    if (!delegateGoal.trim() || delegateRunning) return;
+                    setDelegateRunning(true); setDelegateSteps([]); setDelegateResult("");
+                    const { data: { session: s } } = await (supabase as any).auth.getSession();
+                    if (!s) { setDelegateRunning(false); return; }
+                    const { data, error } = await (supabase as any).functions.invoke("mavis-goal-loop", { body: { goal: delegateGoal.trim(), max_iterations: 6 } });
+                    if (!error && data) {
+                      setDelegateSteps(data.steps ?? []);
+                      setDelegateResult(data.final_result ?? "");
+                      setChatMessages((prev) => [...prev, { id: `delegate-${Date.now()}`, role: "assistant" as const, content: `**[DELEGATE COMPLETE — ${data.iterations} steps]**\n\n${data.final_result}`, mode: "AGENT", timestamp: new Date() }]);
+                    }
+                    setDelegateRunning(false);
+                  }} disabled={delegateRunning || !delegateGoal.trim()}
+                    className="px-3 py-1.5 rounded border border-emerald-500/30 bg-emerald-500/10 text-emerald-300 text-xs font-mono hover:bg-emerald-500/20 disabled:opacity-40 transition-colors flex items-center gap-1.5"
+                  >
+                    {delegateRunning ? <><span className="w-2 h-2 rounded-full border border-emerald-400 border-t-transparent animate-spin" /> Running</> : <><Cpu size={10} /> Delegate</>}
+                  </button>
+                </div>
+                {delegateSteps.length > 0 && (
+                  <div className="border border-border/50 rounded bg-muted/20 p-2 max-h-36 overflow-y-auto space-y-1.5">
+                    {delegateSteps.map((s) => (
+                      <div key={s.iteration} className="flex gap-1.5 text-xs font-mono">
+                        <span className="text-muted-foreground shrink-0">{s.iteration}.</span>
+                        <span className="text-violet-300">[{s.action}]</span>
+                        <span className="text-foreground/70 truncate">{s.thought}</span>
+                      </div>
+                    ))}
+                    {delegateResult && (
+                      <div className="mt-1 pt-1 border-t border-border/30 text-xs font-mono text-emerald-300">{delegateResult.slice(0, 200)}</div>
+                    )}
+                  </div>
+                )}
+              </>
+            ) : null}
           </motion.div>
         )}
       </AnimatePresence>
