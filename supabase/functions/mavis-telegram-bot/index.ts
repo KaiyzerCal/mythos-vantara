@@ -365,98 +365,180 @@ async function saveExchange(
 }
 
 // ─────────────────────────────────────────────────────────────
-// MULTI-MODEL LLM ROUTER
-// Routes to Anthropic, OpenAI, Gemini, or xAI based on model name.
+// FREE-GEMINI-FIRST LLM ROUTER
+// Cascade: gemini-2.0-flash (free) → gemini-2.0-flash-lite (free)
+//          → explicit persona/council model → Claude Haiku → GPT-4o-mini
 // ─────────────────────────────────────────────────────────────
 
+// Circuit breaker — survives warm Deno isolate; prevents hammering degraded providers.
+const _llmUnhealthyUntil = new Map<string, number>();
+function _isUnhealthy(key: string): boolean {
+  const t = _llmUnhealthyUntil.get(key);
+  return t !== undefined && Date.now() < t;
+}
+function _markUnhealthy(key: string, ttlMs = 120_000): void {
+  _llmUnhealthyUntil.set(key, Date.now() + ttlMs);
+}
+
 function detectProvider(model: string): "anthropic" | "openai" | "gemini" | "xai" {
-  if (model.startsWith("claude-"))   return "anthropic";
-  if (model.startsWith("gemini-"))   return "gemini";
-  if (model.startsWith("grok-"))     return "xai";
-  // gpt-*, o1-*, o3-*, o4-* → OpenAI
+  if (model.startsWith("claude-")) return "anthropic";
+  if (model.startsWith("gemini-")) return "gemini";
+  if (model.startsWith("grok-"))   return "xai";
   return "openai";
 }
 
+async function _callGeminiModel(model: string, system: string, messages: ChatMessage[], maxTokens: number): Promise<string> {
+  const contents = messages.map((m) => ({
+    role:  m.role === "assistant" ? "model" : "user",
+    parts: [{ text: m.content }],
+  }));
+  const res = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_KEY}`,
+    {
+      method:  "POST",
+      headers: { "Content-Type": "application/json" },
+      body:    JSON.stringify({
+        systemInstruction: { parts: [{ text: system }] },
+        contents,
+        generationConfig: { maxOutputTokens: maxTokens },
+      }),
+      signal: AbortSignal.timeout(30_000),
+    },
+  );
+  if (!res.ok) {
+    const errText = await res.text().catch(() => "");
+    if (res.status === 429) _markUnhealthy(model, 60_000);
+    else if (res.status >= 400) _markUnhealthy(model);
+    throw new Error(`Gemini ${model} ${res.status}: ${errText.slice(0, 150)}`);
+  }
+  const d = await res.json();
+  return d?.candidates?.[0]?.content?.parts?.find((p: any) => p.text && !p.thought)?.text ?? "";
+}
+
+async function _callAnthropicModel(model: string, system: string, messages: ChatMessage[], maxTokens: number): Promise<string> {
+  // Merge consecutive same-role messages (Anthropic strict alternation requirement)
+  const merged: { role: string; content: string }[] = [];
+  for (const m of messages) {
+    const last = merged[merged.length - 1];
+    if (last && last.role === m.role) last.content += "\n\n" + m.content;
+    else merged.push({ role: m.role, content: m.content });
+  }
+  const res = await fetch("https://api.anthropic.com/v1/messages", {
+    method:  "POST",
+    headers: { "Content-Type": "application/json", "x-api-key": ANTHROPIC_KEY, "anthropic-version": "2023-06-01" },
+    body:    JSON.stringify({ model, max_tokens: maxTokens, system, messages: merged }),
+    signal:  AbortSignal.timeout(30_000),
+  });
+  if (!res.ok) {
+    const errText = await res.text().catch(() => "");
+    _markUnhealthy(model);
+    throw new Error(`Anthropic ${model} ${res.status}: ${errText.slice(0, 150)}`);
+  }
+  const d = await res.json();
+  const blocks: any[] = Array.isArray(d.content) ? d.content : [];
+  return blocks.filter((b: any) => b.type === "text").map((b: any) => b.text).join("") || "";
+}
+
+async function _callOpenAIModel(model: string, system: string, messages: ChatMessage[], maxTokens: number): Promise<string> {
+  const res = await fetch("https://api.openai.com/v1/chat/completions", {
+    method:  "POST",
+    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${OPENAI_KEY}` },
+    body:    JSON.stringify({ model, max_tokens: maxTokens, messages: [{ role: "system", content: system }, ...messages] }),
+    signal:  AbortSignal.timeout(30_000),
+  });
+  if (!res.ok) {
+    const errText = await res.text().catch(() => "");
+    _markUnhealthy(model);
+    throw new Error(`OpenAI ${model} ${res.status}: ${errText.slice(0, 150)}`);
+  }
+  const d = await res.json();
+  return d?.choices?.[0]?.message?.content ?? "";
+}
+
+async function _callXAIModel(model: string, system: string, messages: ChatMessage[], maxTokens: number): Promise<string> {
+  const res = await fetch("https://api.x.ai/v1/chat/completions", {
+    method:  "POST",
+    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${XAI_KEY}` },
+    body:    JSON.stringify({ model, max_tokens: maxTokens, messages: [{ role: "system", content: system }, ...messages] }),
+    signal:  AbortSignal.timeout(30_000),
+  });
+  if (!res.ok) {
+    const errText = await res.text().catch(() => "");
+    _markUnhealthy(model);
+    throw new Error(`xAI ${model} ${res.status}: ${errText.slice(0, 150)}`);
+  }
+  const d = await res.json();
+  return d?.choices?.[0]?.message?.content ?? "";
+}
+
+// Main cascade. If model is provided, it's tried AFTER the free Gemini tiers.
 async function callLLM(
   model: string,
   system: string,
   messages: ChatMessage[],
   maxTokens = 800,
 ): Promise<string> {
-  const provider = detectProvider(model || "claude-haiku-4-5-20251001");
+  // ── Tier 1: Free Gemini 2.0 Flash (15 RPM) ────────────────────────────
+  if (GEMINI_KEY && !_isUnhealthy("gemini-2.0-flash")) {
+    try {
+      const text = await _callGeminiModel("gemini-2.0-flash", system, messages, maxTokens);
+      if (text) return text;
+    } catch (err) {
+      console.warn("[llm] gemini-2.0-flash failed:", err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  // ── Tier 2: Free Gemini 2.0 Flash Lite (30 RPM, separate quota) ───────
+  if (GEMINI_KEY && !_isUnhealthy("gemini-2.0-flash-lite")) {
+    try {
+      const text = await _callGeminiModel("gemini-2.0-flash-lite", system, messages, maxTokens);
+      if (text) return text;
+    } catch (err) {
+      console.warn("[llm] gemini-2.0-flash-lite failed:", err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  // ── Tier 3: Persona/council's assigned model ───────────────────────────
   const effectiveModel = model || "claude-haiku-4-5-20251001";
-
-  // ── Anthropic ──────────────────────────────────────────────
-  if (provider === "anthropic") {
-    if (!ANTHROPIC_KEY) return "(ANTHROPIC_API_KEY not set)";
-    const res = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": ANTHROPIC_KEY,
-        "anthropic-version": "2023-06-01",
-      },
-      body: JSON.stringify({ model: effectiveModel, max_tokens: maxTokens, system, messages }),
-      signal: AbortSignal.timeout(30000),
-    });
-    if (!res.ok) { console.error("[llm] Anthropic error", res.status, await res.text().catch(() => "")); return ""; }
-    const d = await res.json();
-    return d?.content?.[0]?.text ?? "";
+  const provider       = detectProvider(effectiveModel);
+  // Skip if it's a Gemini model we already tried
+  const isFreeTier = effectiveModel === "gemini-2.0-flash" || effectiveModel === "gemini-2.0-flash-lite";
+  if (!isFreeTier && !_isUnhealthy(effectiveModel)) {
+    try {
+      if (provider === "gemini"    && GEMINI_KEY)    return await _callGeminiModel(effectiveModel, system, messages, maxTokens);
+      if (provider === "anthropic" && ANTHROPIC_KEY) return await _callAnthropicModel(effectiveModel, system, messages, maxTokens);
+      if (provider === "openai"    && OPENAI_KEY)    return await _callOpenAIModel(effectiveModel, system, messages, maxTokens);
+      if (provider === "xai"       && XAI_KEY)       return await _callXAIModel(effectiveModel, system, messages, maxTokens);
+    } catch (err) {
+      console.warn(`[llm] ${effectiveModel} failed:`, err instanceof Error ? err.message : String(err));
+    }
   }
 
-  // ── OpenAI ─────────────────────────────────────────────────
-  if (provider === "openai") {
-    if (!OPENAI_KEY) return "(OPENAI_API_KEY not set)";
-    const oaiMessages = [{ role: "system", content: system }, ...messages];
-    const res = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${OPENAI_KEY}` },
-      body: JSON.stringify({ model: effectiveModel, max_tokens: maxTokens, messages: oaiMessages }),
-      signal: AbortSignal.timeout(30000),
-    });
-    if (!res.ok) { console.error("[llm] OpenAI error", res.status, await res.text().catch(() => "")); return ""; }
-    const d = await res.json();
-    return d?.choices?.[0]?.message?.content ?? "";
+  // ── Tier 4: Claude Haiku fallback ─────────────────────────────────────
+  if (ANTHROPIC_KEY && effectiveModel !== "claude-haiku-4-5-20251001" && !_isUnhealthy("claude-haiku-4-5-20251001")) {
+    try {
+      return await _callAnthropicModel("claude-haiku-4-5-20251001", system, messages, maxTokens);
+    } catch (err) {
+      console.warn("[llm] claude-haiku fallback failed:", err instanceof Error ? err.message : String(err));
+    }
   }
 
-  // ── Google Gemini ──────────────────────────────────────────
-  if (provider === "gemini") {
-    if (!GEMINI_KEY) return "(GEMINI_API_KEY not set)";
-    const geminiContents = messages.map((m) => ({
-      role: m.role === "assistant" ? "model" : "user",
-      parts: [{ text: m.content }],
-    }));
-    const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${effectiveModel}:generateContent?key=${GEMINI_KEY}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          systemInstruction: { parts: [{ text: system }] },
-          contents: geminiContents,
-          generationConfig: { maxOutputTokens: maxTokens },
-        }),
-        signal: AbortSignal.timeout(30000),
-      },
-    );
-    if (!res.ok) { console.error("[llm] Gemini error", res.status, await res.text().catch(() => "")); return ""; }
-    const d = await res.json();
-    return d?.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
+  // ── Tier 5: GPT-4o-mini fallback ──────────────────────────────────────
+  if (OPENAI_KEY && effectiveModel !== "gpt-4o-mini" && !_isUnhealthy("gpt-4o-mini")) {
+    try {
+      return await _callOpenAIModel("gpt-4o-mini", system, messages, maxTokens);
+    } catch (err) {
+      console.warn("[llm] gpt-4o-mini fallback failed:", err instanceof Error ? err.message : String(err));
+    }
   }
 
-  // ── xAI / Grok ─────────────────────────────────────────────
-  if (provider === "xai") {
-    if (!XAI_KEY) return "(XAI_API_KEY not set)";
-    const xaiMessages = [{ role: "system", content: system }, ...messages];
-    const res = await fetch("https://api.x.ai/v1/chat/completions", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${XAI_KEY}` },
-      body: JSON.stringify({ model: effectiveModel, max_tokens: maxTokens, messages: xaiMessages }),
-      signal: AbortSignal.timeout(30000),
-    });
-    if (!res.ok) { console.error("[llm] xAI error", res.status, await res.text().catch(() => "")); return ""; }
-    const d = await res.json();
-    return d?.choices?.[0]?.message?.content ?? "";
+  // ── Tier 6: Grok last resort ───────────────────────────────────────────
+  if (XAI_KEY && !_isUnhealthy("grok-3-mini")) {
+    try {
+      return await _callXAIModel("grok-3-mini", system, messages, maxTokens);
+    } catch (err) {
+      console.warn("[llm] grok-3-mini fallback failed:", err instanceof Error ? err.message : String(err));
+    }
   }
 
   return "";
