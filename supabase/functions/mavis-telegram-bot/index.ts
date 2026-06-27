@@ -533,13 +533,14 @@ async function handleApprovalCallback(
 }
 
 // ─────────────────────────────────────────────────────────────
-// PERSONA SESSION STATE  (persisted in mavis_user_profile.preferences)
+// PERSONA SESSION STATE  (persisted in mavis_memory)
 // ─────────────────────────────────────────────────────────────
 
 interface PersonaSession {
   id:          string;
   name:        string;
   role:        string;
+  archetype:   string;
   system_prompt: string;
   bio:         string;
   lore:        string[];
@@ -548,14 +549,20 @@ interface PersonaSession {
   model:       string;
 }
 
+const PERSONA_STATE_PREFIX = "telegram-persona-state-";
+
 async function getActivePersona(uid: string): Promise<PersonaSession | null> {
   try {
-    const { data } = await sb.from("mavis_user_profile")
-      .select("preferences")
+    const { data } = await sb.from("mavis_memory")
+      .select("content")
       .eq("user_id", uid)
+      .eq("session_id", `${PERSONA_STATE_PREFIX}${uid}`)
+      .eq("role", "system")
+      .order("timestamp", { ascending: false })
+      .limit(1)
       .maybeSingle();
-    const p = (data?.preferences as any)?.telegram_active_persona;
-    return p ?? null;
+    if (!data?.content) return null;
+    return JSON.parse(String(data.content)) as PersonaSession;
   } catch {
     return null;
   }
@@ -563,27 +570,30 @@ async function getActivePersona(uid: string): Promise<PersonaSession | null> {
 
 async function setActivePersona(uid: string, persona: PersonaSession | null): Promise<void> {
   try {
-    const { data } = await sb.from("mavis_user_profile")
-      .select("preferences")
+    await sb.from("mavis_memory")
+      .delete()
       .eq("user_id", uid)
-      .maybeSingle();
-    const current = (data?.preferences as Record<string, unknown>) ?? {};
-    const updated  = { ...current };
+      .eq("session_id", `${PERSONA_STATE_PREFIX}${uid}`)
+      .eq("role", "system");
+
     if (persona) {
-      updated.telegram_active_persona = persona;
-    } else {
-      delete updated.telegram_active_persona;
+      await sb.from("mavis_memory").insert({
+        user_id: uid,
+        session_id: `${PERSONA_STATE_PREFIX}${uid}`,
+        role: "system",
+        content: JSON.stringify(persona),
+        timestamp: Date.now(),
+        importance_score: 1,
+        consolidated: true,
+      });
     }
-    await sb.from("mavis_user_profile").upsert(
-      { user_id: uid, preferences: updated, updated_at: new Date().toISOString() },
-      { onConflict: "user_id" },
-    );
   } catch { /* non-fatal */ }
 }
 
 function buildPersonaSystemPrompt(p: PersonaSession): string {
   const parts: string[] = [];
   parts.push(`You are ${p.name}${p.role ? `, a ${p.role}` : ""}.`);
+  if (p.archetype?.trim())  parts.push(`\nArchetype: ${p.archetype.trim()}`);
   if (p.bio?.trim())        parts.push(`\nBackground: ${p.bio.trim()}`);
   if (p.lore?.length)       parts.push(`\nLore:\n${p.lore.map(l => `- ${l}`).join("\n")}`);
   if (p.adjectives?.length) parts.push(`\nYour personality: ${p.adjectives.join(", ")}`);
@@ -691,21 +701,32 @@ async function handleContentMachine(chatId: string | number, uid: string, topic:
 async function resolvePersonaOwnerUid(uid: string): Promise<string> {
   // Configured operator UID first
   if (uid) {
-    const { data: own } = await sb.from("personas").select("user_id").eq("user_id", uid).limit(1);
+    const { data: own } = await sb.from("personas").select("user_id").eq("user_id", uid).eq("is_active", true).limit(1);
     if (own && (own as any[]).length > 0) return uid;
   }
   // Fallback: single-tenant — pick whichever user owns personas
-  const { data: any1 } = await sb.from("personas").select("user_id").limit(1);
+  const { data: any1 } = await sb.from("personas").select("user_id").eq("is_active", true).limit(1);
   if (any1 && (any1 as any[]).length > 0) return String((any1 as any[])[0].user_id);
   return uid;
+}
+
+function normalizePersonaName(value: string): string {
+  return value.trim().toLowerCase().replace(/^\/+/, "").replace(/[_\-]+/g, " ").replace(/\s+/g, " ");
+}
+
+function personaSummary(p: any): string {
+  const role = p.role ? ` — ${p.role}` : "";
+  const archetype = p.archetype ? ` (${p.archetype})` : "";
+  return `• *${p.name}*${role}${archetype}`;
 }
 
 async function handleListPersonas(chatId: string | number, uid: string) {
   const effectiveUid = await resolvePersonaOwnerUid(uid);
   const { data: personas } = await sb
     .from("personas")
-    .select("id, name, role, bio")
+    .select("id, name, role, archetype")
     .eq("user_id", effectiveUid)
+    .eq("is_active", true)
     .order("name", { ascending: true })
     .limit(50);
 
@@ -717,7 +738,7 @@ async function handleListPersonas(chatId: string | number, uid: string) {
   const active = await getActivePersona(uid);
   const lines = (personas as any[]).map((p) => {
     const marker = active?.id === p.id ? " ✅" : "";
-    return `• *${p.name}*${marker} — ${p.role ?? "no role set"}`;
+    return `${personaSummary(p)}${marker}`;
   });
 
   await send(chatId,
@@ -730,10 +751,11 @@ async function handleSwitchPersona(chatId: string | number, uid: string, name: s
   const effectiveUid = await resolvePersonaOwnerUid(uid);
   const { data: personas } = await sb
     .from("personas")
-    .select("id, name, role, system_prompt, bio, lore, adjectives, topics, model")
+    .select("id, name, role, archetype, personality, system_prompt, model")
     .eq("user_id", effectiveUid)
+    .eq("is_active", true)
     .ilike("name", `%${name}%`)
-    .limit(5);
+    .limit(10);
 
   if (!personas || (personas as any[]).length === 0) {
     await send(chatId,
@@ -742,18 +764,26 @@ async function handleSwitchPersona(chatId: string | number, uid: string, name: s
     return;
   }
 
-  const exact = (personas as any[]).find((p) => p.name.toLowerCase() === name.toLowerCase());
+  const wanted = normalizePersonaName(name);
+  const exact = (personas as any[]).find((p) => normalizePersonaName(String(p.name ?? "")) === wanted);
   const p: any = exact ?? (personas as any[])[0];
+  const personality = p.personality && typeof p.personality === "object" ? p.personality as Record<string, unknown> : {};
+  const quirks = Array.isArray(personality.quirks) ? personality.quirks.map(String) : [];
+  const values = Array.isArray(personality.values) ? personality.values.map(String) : [];
+  const adjectives = [personality.tone, personality.communication_style, ...quirks, ...values]
+    .filter(Boolean)
+    .map(String);
 
   const session: PersonaSession = {
     id:            String(p.id ?? ""),
     name:          String(p.name ?? ""),
     role:          String(p.role ?? ""),
+    archetype:     String(p.archetype ?? ""),
     system_prompt: String(p.system_prompt ?? ""),
-    bio:           String(p.bio ?? ""),
-    lore:          Array.isArray(p.lore)        ? p.lore        : [],
-    adjectives:    Array.isArray(p.adjectives)  ? p.adjectives  : [],
-    topics:        Array.isArray(p.topics)      ? p.topics      : [],
+    bio:           String(personality.bio ?? p.archetype ?? ""),
+    lore:          [],
+    adjectives,
+    topics:        Array.isArray(personality.topics) ? personality.topics.map(String) : [],
     model:         String(p.model ?? "claude-haiku-4-5-20251001"),
   };
 
