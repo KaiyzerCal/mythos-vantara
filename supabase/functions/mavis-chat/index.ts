@@ -2758,7 +2758,7 @@ ${fmtGoals}
     // and inject their real response so MAVIS can relay it accurately in one turn.
     let a2aBlock = "";
     if (!isCouncilMode && lastUserText.length > 5) {
-      try {
+      try { await Promise.race([ (async () => {
         const A2A_PATTERNS = [
           /\b(?:ask|consult|check\s+with|run\s+(?:this|it)\s+by|get\s+input\s+from)\s+([A-Za-z][A-Za-z0-9_'-]{1,})\b/i,
           /\bwhat\s+(?:does|would|did|do)\s+([A-Za-z][A-Za-z0-9_'-]{1,})\s+(?:think|say|know|recommend|suggest|feel)/i,
@@ -2822,14 +2822,20 @@ ${fmtGoals}
             ];
             try {
               const a2aKeys = { openai: openaiKey, claude: claudeKey, grok: grokKey, gemini: geminiKey };
-              const { content: entityResp } = await callWithFallback("gemini", a2aMessages, entitySystem, a2aKeys, false, "PRIME");
-              if (entityResp && entityResp.trim().length > 10) {
+              // Hard 8-second timeout — A2A must not block the main response
+              const A2A_TIMEOUT = new Promise<null>((resolve) => setTimeout(() => resolve(null), 8000));
+              const a2aResult = await Promise.race([
+                callWithFallback("gemini", a2aMessages, entitySystem, a2aKeys, false, "PRIME"),
+                A2A_TIMEOUT,
+              ]);
+              if (a2aResult && (a2aResult as any).content && (a2aResult as any).content.trim().length > 10) {
+                const entityResp = (a2aResult as any).content as string;
                 a2aBlock = `\n\n═══ LIVE A2A CONSULTATION — ${entityName.toUpperCase()} RESPONDED ═══\nMAVIS just consulted ${entityName} in real-time. Their actual response:\n\n"${entityResp.trim()}"\n\nInstructions: Relay ${entityName}'s response to the operator, attributing it directly to ${entityName}. Quote or closely paraphrase what they said. Do not fabricate or add claims beyond what they provided above.\n═══ END A2A ═══`;
               }
             } catch { /* non-critical — MAVIS will fall back naturally */ }
           }
         }
-      } catch { /* non-critical */ }
+      })(), new Promise<void>((resolve) => setTimeout(resolve, 12000)) ]); } catch { /* non-critical */ }
     }
 
     // ── Attachments uploaded to this thread ────────────────
