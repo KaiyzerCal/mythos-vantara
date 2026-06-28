@@ -296,14 +296,15 @@ serve(async (req) => {
         );
     }
 
-    // If result itself contains an error key (from our handlers), wrap as RPC error
-    if (result && typeof result === "object" && "error" in (result as object)) {
+    // If a handler returned a soft error payload, surface as JSON-RPC error
+    if (result && typeof result === "object" && "error" in (result as object) && typeof (result as { error: unknown }).error === "string") {
       const r = result as { error: string };
       return new Response(
-        JSON.stringify(rpcError(rpcId, -32603, r.error)),
+        JSON.stringify(rpcError(rpcId, -32602, r.error)),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     }
+
 
     return new Response(
       JSON.stringify(rpcSuccess(rpcId, result)),
