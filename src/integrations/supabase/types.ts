@@ -2137,6 +2137,72 @@ export type Database = {
         }
         Relationships: []
       }
+      mavis_daily_briefs: {
+        Row: {
+          brief_date: string
+          brief_text: string
+          created_at: string
+          id: string
+          sections: Json
+          user_id: string
+        }
+        Insert: {
+          brief_date: string
+          brief_text: string
+          created_at?: string
+          id?: string
+          sections?: Json
+          user_id: string
+        }
+        Update: {
+          brief_date?: string
+          brief_text?: string
+          created_at?: string
+          id?: string
+          sections?: Json
+          user_id?: string
+        }
+        Relationships: []
+      }
+      mavis_daily_scores: {
+        Row: {
+          components: Json
+          created_at: string
+          id: string
+          optimal_window: string | null
+          raw_data: Json
+          recommendation: string | null
+          score: number
+          score_date: string
+          trend: string | null
+          user_id: string
+        }
+        Insert: {
+          components?: Json
+          created_at?: string
+          id?: string
+          optimal_window?: string | null
+          raw_data?: Json
+          recommendation?: string | null
+          score: number
+          score_date: string
+          trend?: string | null
+          user_id: string
+        }
+        Update: {
+          components?: Json
+          created_at?: string
+          id?: string
+          optimal_window?: string | null
+          raw_data?: Json
+          recommendation?: string | null
+          score?: number
+          score_date?: string
+          trend?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
       mavis_design_components: {
         Row: {
           accessibility_score: number | null
@@ -2555,6 +2621,42 @@ export type Database = {
           judge_verdict?: boolean | null
           max_turns?: number | null
           turn_number?: number | null
+          user_id?: string
+        }
+        Relationships: []
+      }
+      mavis_goals: {
+        Row: {
+          context: string | null
+          created_at: string | null
+          decomposed: boolean | null
+          id: string
+          objective: string
+          quest_ids: string[] | null
+          status: string | null
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          context?: string | null
+          created_at?: string | null
+          decomposed?: boolean | null
+          id?: string
+          objective: string
+          quest_ids?: string[] | null
+          status?: string | null
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          context?: string | null
+          created_at?: string | null
+          decomposed?: boolean | null
+          id?: string
+          objective?: string
+          quest_ids?: string[] | null
+          status?: string | null
+          updated_at?: string | null
           user_id?: string
         }
         Relationships: []
@@ -3024,7 +3126,10 @@ export type Database = {
           fts: unknown
           id: string
           last_accessed_at: string | null
+          last_reviewed_at: string | null
+          next_review_at: string | null
           properties: Json
+          review_interval_days: number | null
           source_url: string | null
           tags: string[]
           title: string
@@ -3040,7 +3145,10 @@ export type Database = {
           fts?: unknown
           id?: string
           last_accessed_at?: string | null
+          last_reviewed_at?: string | null
+          next_review_at?: string | null
           properties?: Json
+          review_interval_days?: number | null
           source_url?: string | null
           tags?: string[]
           title?: string
@@ -3056,7 +3164,10 @@ export type Database = {
           fts?: unknown
           id?: string
           last_accessed_at?: string | null
+          last_reviewed_at?: string | null
+          next_review_at?: string | null
           properties?: Json
+          review_interval_days?: number | null
           source_url?: string | null
           tags?: string[]
           title?: string
@@ -4811,6 +4922,172 @@ export type Database = {
           voice_id?: string | null
           voice_settings?: Json
           voice_style?: string | null
+        }
+        Relationships: []
+      }
+      plaid_accounts: {
+        Row: {
+          account_id: string
+          available_bal: number | null
+          currency: string
+          current_bal: number | null
+          id: string
+          item_id: string
+          mask: string | null
+          name: string
+          official_name: string | null
+          subtype: string | null
+          type: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          account_id: string
+          available_bal?: number | null
+          currency?: string
+          current_bal?: number | null
+          id?: string
+          item_id: string
+          mask?: string | null
+          name: string
+          official_name?: string | null
+          subtype?: string | null
+          type?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          account_id?: string
+          available_bal?: number | null
+          currency?: string
+          current_bal?: number | null
+          id?: string
+          item_id?: string
+          mask?: string | null
+          name?: string
+          official_name?: string | null
+          subtype?: string | null
+          type?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "plaid_accounts_item_id_fkey"
+            columns: ["item_id"]
+            isOneToOne: false
+            referencedRelation: "plaid_items"
+            referencedColumns: ["item_id"]
+          },
+        ]
+      }
+      plaid_items: {
+        Row: {
+          access_token: string
+          created_at: string
+          id: string
+          institution_name: string
+          item_id: string
+          status: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          access_token: string
+          created_at?: string
+          id?: string
+          institution_name?: string
+          item_id: string
+          status?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          access_token?: string
+          created_at?: string
+          id?: string
+          institution_name?: string
+          item_id?: string
+          status?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      plaid_sync_cursors: {
+        Row: {
+          cursor: string
+          item_id: string
+          updated_at: string
+        }
+        Insert: {
+          cursor: string
+          item_id: string
+          updated_at?: string
+        }
+        Update: {
+          cursor?: string
+          item_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "plaid_sync_cursors_item_id_fkey"
+            columns: ["item_id"]
+            isOneToOne: true
+            referencedRelation: "plaid_items"
+            referencedColumns: ["item_id"]
+          },
+        ]
+      }
+      plaid_transactions: {
+        Row: {
+          account_id: string
+          amount: number
+          category: string
+          created_at: string
+          currency: string
+          date: string
+          id: string
+          item_id: string
+          merchant_name: string | null
+          name: string
+          pending: boolean
+          raw: Json
+          transaction_id: string
+          user_id: string
+        }
+        Insert: {
+          account_id: string
+          amount: number
+          category?: string
+          created_at?: string
+          currency?: string
+          date: string
+          id?: string
+          item_id: string
+          merchant_name?: string | null
+          name: string
+          pending?: boolean
+          raw?: Json
+          transaction_id: string
+          user_id: string
+        }
+        Update: {
+          account_id?: string
+          amount?: number
+          category?: string
+          created_at?: string
+          currency?: string
+          date?: string
+          id?: string
+          item_id?: string
+          merchant_name?: string | null
+          name?: string
+          pending?: boolean
+          raw?: Json
+          transaction_id?: string
+          user_id?: string
         }
         Relationships: []
       }
@@ -6931,6 +7208,89 @@ export type Database = {
           },
         ]
       }
+      workflow_runs: {
+        Row: {
+          completed_at: string | null
+          id: string
+          started_at: string | null
+          status: string | null
+          steps_log: Json | null
+          user_id: string
+          workflow_id: string | null
+        }
+        Insert: {
+          completed_at?: string | null
+          id?: string
+          started_at?: string | null
+          status?: string | null
+          steps_log?: Json | null
+          user_id: string
+          workflow_id?: string | null
+        }
+        Update: {
+          completed_at?: string | null
+          id?: string
+          started_at?: string | null
+          status?: string | null
+          steps_log?: Json | null
+          user_id?: string
+          workflow_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "workflow_runs_workflow_id_fkey"
+            columns: ["workflow_id"]
+            isOneToOne: false
+            referencedRelation: "workflows"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      workflows: {
+        Row: {
+          created_at: string | null
+          description: string | null
+          id: string
+          is_active: boolean | null
+          last_run_at: string | null
+          last_run_status: string | null
+          name: string
+          steps: Json | null
+          trigger_config: Json | null
+          trigger_type: string | null
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          created_at?: string | null
+          description?: string | null
+          id?: string
+          is_active?: boolean | null
+          last_run_at?: string | null
+          last_run_status?: string | null
+          name: string
+          steps?: Json | null
+          trigger_config?: Json | null
+          trigger_type?: string | null
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          created_at?: string | null
+          description?: string | null
+          id?: string
+          is_active?: boolean | null
+          last_run_at?: string | null
+          last_run_status?: string | null
+          name?: string
+          steps?: Json | null
+          trigger_config?: Json | null
+          trigger_type?: string | null
+          updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
       workspaces: {
         Row: {
           color: string
@@ -7208,6 +7568,7 @@ export type Database = {
           value: string
         }[]
       }
+      mavis_dispatch_event: { Args: { payload: Json }; Returns: undefined }
       mavis_log_cron_run: {
         Args: { p_code: number; p_job_name: string }
         Returns: undefined
