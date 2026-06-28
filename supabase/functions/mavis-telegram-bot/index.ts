@@ -573,12 +573,53 @@ async function callFunction(
 
 function describeExecutedAction(actionType: string): string {
   switch (actionType) {
-    case "draft_email": return "Email sent via Gmail.";
-    case "schedule_event": return "Calendar event created.";
-    case "create_drive_file": return "Drive file created.";
+    // Gmail
+    case "draft_email": case "send_email": return "Email sent via Gmail.";
+    case "get_emails":       return "Emails fetched from Gmail.";
+    case "get_email_thread": return "Email thread fetched.";
+    case "archive_email":    return "Email archived.";
+    case "delete_email":     return "Email deleted.";
+    case "mark_email":       return "Email marked.";
+    // Calendar
+    case "schedule_event": case "create_event": return "Calendar event created.";
+    case "get_calendar_events":   return "Calendar events fetched.";
+    case "get_availability":      return "Availability checked.";
+    case "update_calendar_event": return "Calendar event updated.";
+    case "delete_calendar_event": return "Calendar event deleted.";
+    case "schedule_meet":         return "Google Meet scheduled.";
+    // Tasks
+    case "create_google_task":    return "Google Task created.";
+    case "list_google_tasks":     return "Google Tasks fetched.";
+    case "complete_google_task":  return "Google Task completed.";
+    case "update_google_task":    return "Google Task updated.";
+    // Drive
+    case "create_drive_file": case "create_drive_folder": return "Drive folder/file created.";
     case "update_drive_file": return "Drive file updated.";
-    case "update_sheet": return "Google Sheet updated.";
-    case "create_google_task": return "Google Task created.";
+    case "list_drive_files":  return "Drive files listed.";
+    case "search_drive_files": return "Drive files searched.";
+    case "get_file_info":     return "Drive file info fetched.";
+    case "read_drive_file":   return "Drive file content read.";
+    case "move_file":         return "Drive file moved.";
+    case "rename_file":       return "Drive file renamed.";
+    case "delete_file":       return "Drive file deleted.";
+    case "share_file":        return "Drive file shared.";
+    // Docs / Sheets / Slides
+    case "read_document":        return "Google Doc read.";
+    case "update_sheet":
+    case "create_sheet":         return "Google Sheet updated.";
+    case "read_sheet":           return "Google Sheet read.";
+    case "create_presentation":  return "Google Slides presentation created.";
+    case "read_presentation":    return "Google Slides read.";
+    // Contacts
+    case "create_contact":  return "Google Contact created.";
+    case "list_contacts":   return "Google Contacts listed.";
+    case "search_contacts": return "Google Contacts searched.";
+    case "update_contact":  return "Google Contact updated.";
+    case "delete_contact":  return "Google Contact deleted.";
+    // Business Profile
+    case "get_gbp_reviews":   return "Google Business reviews fetched.";
+    case "respond_to_review": return "Google review response posted.";
+    case "create_gbp_post":   return "Google Business post created.";
     default: return "Action executed.";
   }
 }
@@ -873,17 +914,73 @@ QUERY MAVIS — when you need information from MAVIS's memory, the operator's hi
 MAVIS will look up the answer and replace this block with the actual information inline in your response.
 Use this when the operator asks you to check something, recall a past discussion, or get context from another entity.
 
-ESCALATE TO MAVIS — for anything requiring external services (email, calendar, image gen, strategy docs):
-:::PROPOSE_MAVIS{"type":"<category>","summary":"<one sentence>","details":"<full description>","payload":{}}:::
+ESCALATE TO MAVIS — for anything requiring external services (email, calendar, Drive, contacts, image gen, etc.):
+:::PROPOSE_MAVIS{"type":"<action_type>","summary":"<one sentence>","details":"<full description>","payload":{<fields>}}:::
 
-Valid categories: propose_product, forge_persona, nora_tweet, autonomous_goal, generate_image, create_website, business_strategy, social_campaign, custom_skill_definition, other
+Supported action types and their payload fields:
+
+  GMAIL:
+    send_email          — to, subject, body, cc?, bcc?
+    get_emails          — query?, max_results?, label_ids?
+    get_email_thread    — message_id
+    archive_email       — message_id
+    delete_email        — message_id
+    mark_email          — message_id, read ("true"/"false")
+
+  GOOGLE CALENDAR:
+    create_event            — title, start, end, description?, location?, attendees?
+    get_calendar_events     — time_min?, time_max?, max_results?
+    get_availability        — time_min, time_max
+    update_calendar_event   — event_id, title?, start?, end?, description?, location?
+    delete_calendar_event   — event_id
+    schedule_meet           — title, start, end, attendees?, description?
+
+  GOOGLE TASKS:
+    list_google_tasks       — tasklist_id?, show_completed?
+    complete_google_task    — task_id, tasklist_id?
+    update_google_task      — task_id, title?, due?, tasklist_id?
+
+  GOOGLE DRIVE:
+    list_drive_files        — folder_id?, max_results?
+    search_drive_files      — query, max_results?
+    get_file_info           — file_id
+    read_drive_file         — file_id
+    create_drive_folder     — name, parent_id?
+    move_file               — file_id, new_parent_id
+    rename_file             — file_id, new_name
+    share_file              — file_id, email?, role?, type?
+    delete_file             — file_id
+
+  GOOGLE DOCS / SHEETS / SLIDES:
+    read_document           — document_id
+    create_sheet            — title, headers?
+    read_sheet              — spreadsheet_id, range?
+    update_sheet            — spreadsheet_id, range, values (JSON 2D array string)
+    create_presentation     — title, subtitle?
+    read_presentation       — presentation_id
+
+  GOOGLE CONTACTS:
+    create_contact          — name, email?, phone?, notes?
+    list_contacts           — max_results?
+    search_contacts         — query
+    update_contact          — resource_name, etag, name?, email?, phone?, notes?
+    delete_contact          — resource_name
+
+  GOOGLE BUSINESS PROFILE:
+    get_gbp_reviews         — account_id, location_id, max_results?
+    respond_to_review       — account_id, location_id, review_id, comment
+    create_gbp_post         — account_id, location_id, summary, topic_type, call_to_action_type?, call_to_action_url?
+
+  OTHER:
+    propose_product, forge_persona, nora_tweet, autonomous_goal, generate_image,
+    create_website, business_strategy, social_campaign, custom_skill_definition, other
 
 Rules:
 - Embed blocks BEFORE or WITHIN your visible reply text at the natural point where the info would appear
 - QUERY_MAVIS is replaced inline — put it where you want the answer to appear
 - Never show the raw block syntax to the user
 - Act naturally as your character — these are background operations
-- Only use PROPOSE_MAVIS for things requiring MAVIS's external tools`;
+- Use PROPOSE_MAVIS for any Google Workspace task — MAVIS will execute it with the operator's connected account`;
 
 async function loadAppContext(uid: string): Promise<string> {
   try {
