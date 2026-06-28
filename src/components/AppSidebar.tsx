@@ -148,7 +148,7 @@ export default function AppSidebar() {
             exit={{ opacity: 0, x: -16 }}
             transition={{ duration: 0.18 }}
             onClick={() => setOpen(true)}
-            className="fixed top-4 left-4 z-50 w-8 h-8 rounded border border-border bg-sidebar shadow-lg flex items-center justify-center text-muted-foreground hover:text-primary hover:border-primary/30 transition-colors"
+            className="fixed top-16 left-4 z-50 w-8 h-8 rounded border border-border bg-sidebar shadow-lg flex items-center justify-center text-muted-foreground hover:text-primary hover:border-primary/30 transition-colors"
             title="Open navigation"
           >
             <ChevronRight size={14} />
