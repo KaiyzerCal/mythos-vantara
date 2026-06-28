@@ -1341,9 +1341,16 @@ function hasActionIntent(text: string): boolean {
     "vault entry","journal entry","council member",
     "award xp","give xp","add xp",
     "generate image","create image","forge persona","create persona",
-    // A2A / cross-entity
+    // A2A / cross-entity (explicit names)
     "ask ","consult ","what does","what would","'s thoughts","'s take","'s opinion","'s perspective",
     "have them discuss","get their take","what do they think","let them weigh in",
+    // A2A pronoun-based ("I want to know his opinion", "what does he think", "her thoughts on this")
+    "his opinion","her opinion","their opinion","his thoughts","her thoughts","their thoughts",
+    "his take","her take","their take","his perspective","her perspective","their perspective",
+    "what he thinks","what she thinks","what he would","what she would",
+    "want to know his","want to know her","want to know their",
+    "want his","want her","want their","get his take","get her take","get their input",
+    "i want to know","ask him","ask her","ask them",
     // Google Workspace
     "check my email","read my email","my inbox","unread email","email from","send email","send an email",
     "my calendar","my schedule","upcoming event","calendar event","schedule a","book a meeting","create event",
@@ -3511,6 +3518,28 @@ ${fmtGoals}
             break;
           }
         }
+
+        // Pronoun fallback: "his/her/their opinion/thoughts/take" — resolve entity name from conversation history
+        if (!a2aTargetName && /\b(?:his|her|their)\s+(?:opinion|thoughts?|take|perspective|view|insights?|opinion|stance|input)\b/i.test(lastUserText)) {
+          // Scan the last 6 messages for a proper noun that is a known entity
+          const recentText = (messages as any[]).slice(-6).map((m: any) => String(m.content ?? "")).join(" ");
+          // Extract capitalized multi-word names (e.g. "Madara Uchiha", "Tao", "Kira")
+          const nameMatches = recentText.match(/\b[A-Z][a-z]{1,}(?:\s+[A-Z][a-z]+)?\b/g) ?? [];
+          const COMMON_WORDS = new Set(["MAVIS","The","This","That","Your","My","His","Her","Their","You","We","Council","Clan","Operator","What","How","When","Who","Ok","Yes","No"]);
+          for (const candidate of [...new Set(nameMatches)].reverse()) {
+            if (COMMON_WORDS.has(candidate) || candidate.length < 2) continue;
+            // Check if this name exists in personas or councils
+            const [pCheck, cCheck] = await Promise.all([
+              sb.from("personas").select("id,name").eq("user_id", user.id).ilike("name", `%${candidate}%`).limit(1),
+              sb.from("councils").select("id,name").eq("user_id", user.id).ilike("name", `%${candidate}%`).limit(1),
+            ]);
+            if (pCheck.data?.[0] || cCheck.data?.[0]) {
+              a2aTargetName = (pCheck.data?.[0] ?? cCheck.data?.[0])?.name as string;
+              break;
+            }
+          }
+        }
+
         if (a2aTargetName) {
           const nameLower = a2aTargetName.toLowerCase();
           const [pRes, cRes] = await Promise.all([
@@ -3565,7 +3594,7 @@ ${fmtGoals}
               ]);
               if (a2aResult && (a2aResult as any).content && (a2aResult as any).content.trim().length > 10) {
                 const entityResp = (a2aResult as any).content as string;
-                a2aBlock = `\n\n═══ LIVE A2A CONSULTATION — ${entityName.toUpperCase()} RESPONDED ═══\nMAVIS just consulted ${entityName} in real-time. Their actual response:\n\n"${entityResp.trim()}"\n\nInstructions: Relay ${entityName}'s response to the operator, attributing it directly to ${entityName}. Quote or closely paraphrase what they said. Do not fabricate or add claims beyond what they provided above.\n═══ END A2A ═══`;
+                a2aBlock = `\n\n═══ LIVE A2A RESULT — ${entityName.toUpperCase()} JUST RESPONDED ═══\n${entityName} said:\n\n"${entityResp.trim()}"\n\n⚠️ MANDATORY INSTRUCTION: You MUST share what ${entityName} just said above. Do NOT say "I've transmitted the query" or "his response is coming" — the response is already here. Quote or closely paraphrase it right now, attribute it to ${entityName} by name, and add your own brief reaction if relevant. The operator is waiting for the actual answer.\n═══ END A2A ═══`;
               }
             } catch { /* non-critical — MAVIS will fall back naturally */ }
           }
@@ -3758,7 +3787,7 @@ You always know the current date and time without being told. Reference it natur
       // Inline image rendering directive (Prymal pattern)
       `\n═══ INLINE MEDIA RENDERING ═══\nWhen tool results contain file_url, thumbnail_url, image_url, or drive links pointing to images, render them inline as markdown: ![description](url). The chat interface renders these as <img> tags — always show images directly rather than describing them separately.\n═══ END MEDIA ═══`,
       // A2A awareness — every entity (MAVIS, persona, council member) sees this
-      `\n═══ A2A ENTITY NETWORK ═══\nYou exist within an ecosystem of AI entities — personas and council members — each with their own knowledge, personality, and expertise. You can consult any of them in real-time.\n\nHOW A2A WORKS:\n• The system detects A2A intent in the operator's message BEFORE you respond and pre-resolves it via the consult_entity tool. The result appears in your context above as ═══ LIVE A2A CONSULTATION ═══.\n• If you want to proactively consult another entity yourself, use the consult_entity tool call (name, question). Do NOT emit any ::: block for this — the tool call is handled automatically.\n• When A2A results appear in your context, relay that entity's actual response accurately — quote or closely paraphrase, attribute it by name.\n\nCRITICAL — NEVER DO THIS:\n• NEVER emit :::CREATE_JOURNAL{...}:::, :::CREATE_VAULT{...}:::, :::PROPOSE_ACTION{...}:::, :::CONSULT_ENTITY{...}:::, or ANY other ::: block to simulate or proxy an A2A call. Those action blocks are for writing to the operator's database — misusing them will corrupt data and show garbage in the UI.\n• If you cannot do A2A (no pre-resolved result, no tool call available), simply say "I can check with [name] on that" and the system will handle it on the next turn. Never improvise with action blocks.\n═══ END A2A ═══`,
+      `\n═══ A2A ENTITY NETWORK ═══\nYou exist within an ecosystem of AI entities — personas and council members — each with their own knowledge, personality, and expertise.\n\nHOW A2A WORKS:\n• When the operator asks about another entity, the system fetches their LIVE response BEFORE you generate your reply. It appears in your context as ═══ LIVE A2A RESULT ═══.\n• If you SEE that block above: the entity's response is already there. You MUST share it immediately — do NOT say "I've sent the query" or "their response is coming" — it is already there. Just relay what they said.\n• If you do NOT see that block: the system didn't detect A2A intent. Just say naturally "Let me check with [name] on that" — do not pretend to initiate anything yourself.\n\nCRITICAL:\n• NEVER emit :::CREATE_JOURNAL:::, :::CREATE_VAULT:::, :::CONSULT_ENTITY:::, :::PROPOSE_ACTION::: or any ::: block to simulate A2A. Those write to the database and will corrupt data.\n• NEVER roleplay "initiating protocol" or "transmitting query" — you either have the answer right now or you don't.\n═══ END A2A ═══`,
     ].filter(Boolean).join("\n\n");
 
     // ── Vision: inject image URLs into last user message ────
@@ -3812,7 +3841,8 @@ You always know the current date and time without being told. Reference it natur
     // reference executed actions in its live response rather than after-the-fact.
     // Falls back gracefully — if this returns nothing, fullPromptFinal === fullPrompt.
     let fullPromptFinal = fullPrompt;
-    if ((!isCouncilMode || !!personaId) && hasActionIntent(lastUserText) && (geminiKey || claudeKey)) {
+    // In persona mode always run the pre-pass — persona chats need A2A even when intent isn't explicit
+    if ((!isCouncilMode || !!personaId) && (!!personaId || hasActionIntent(lastUserText)) && (geminiKey || claudeKey)) {
       try {
         const nativeBlock = await Promise.race([
           resolveActionsNative(callMessages, systemWithPersonaMemory, aiKeys, supabaseUrl, serviceKey, user.id),
