@@ -115,7 +115,7 @@ async function handleTasksSend(
   // Determine user_id: prefer explicit user_id in metadata, else fallback to service account
   const userId = requestUserId ?? (params.metadata?.user_id as string) ?? null;
   if (!userId) {
-    return rpcError(null, -32600, "user_id required in task metadata");
+    throw new Error("user_id required in task metadata or via Bearer auth");
   }
 
   const now = new Date().toISOString();
@@ -136,8 +136,9 @@ async function handleTasksSend(
 
   if (dbErr) {
     console.error("[a2a-gateway] DB insert error:", dbErr.message);
-    return rpcError(null, -32603, "Failed to create task", dbErr.message);
+    throw new Error(`Failed to create task: ${dbErr.message}`);
   }
+
 
   return {
     id: inserted.id,
