@@ -3758,7 +3758,7 @@ You always know the current date and time without being told. Reference it natur
       // Inline image rendering directive (Prymal pattern)
       `\n═══ INLINE MEDIA RENDERING ═══\nWhen tool results contain file_url, thumbnail_url, image_url, or drive links pointing to images, render them inline as markdown: ![description](url). The chat interface renders these as <img> tags — always show images directly rather than describing them separately.\n═══ END MEDIA ═══`,
       // A2A awareness — every entity (MAVIS, persona, council member) sees this
-      `\n═══ A2A ENTITY NETWORK ═══\nYou exist within an ecosystem of AI entities — personas and council members — each with their own knowledge, personality, and expertise. You can consult any of them in real-time:\n\n• Use the consult_entity tool (name, question) to invoke another entity's LLM and get their actual live response — NOT a memory lookup, their real reasoning right now.\n• You decide when to use it. If the operator asks "what does Tao think?" or you genuinely need another perspective before answering, call consult_entity. Don't use it reflexively — only when it meaningfully improves your answer.\n• The operator can also direct you to start a dialogue: "have Tao and Kira discuss X" → orchestrate a real exchange between them.\n• When A2A consultation results appear above (═══ LIVE A2A CONSULTATION ═══), relay that entity's actual response accurately — quote or closely paraphrase, attribute it by name, don't add claims beyond what they said.\n═══ END A2A ═══`,
+      `\n═══ A2A ENTITY NETWORK ═══\nYou exist within an ecosystem of AI entities — personas and council members — each with their own knowledge, personality, and expertise. You can consult any of them in real-time.\n\nHOW A2A WORKS:\n• The system detects A2A intent in the operator's message BEFORE you respond and pre-resolves it via the consult_entity tool. The result appears in your context above as ═══ LIVE A2A CONSULTATION ═══.\n• If you want to proactively consult another entity yourself, use the consult_entity tool call (name, question). Do NOT emit any ::: block for this — the tool call is handled automatically.\n• When A2A results appear in your context, relay that entity's actual response accurately — quote or closely paraphrase, attribute it by name.\n\nCRITICAL — NEVER DO THIS:\n• NEVER emit :::CREATE_JOURNAL{...}:::, :::CREATE_VAULT{...}:::, :::PROPOSE_ACTION{...}:::, :::CONSULT_ENTITY{...}:::, or ANY other ::: block to simulate or proxy an A2A call. Those action blocks are for writing to the operator's database — misusing them will corrupt data and show garbage in the UI.\n• If you cannot do A2A (no pre-resolved result, no tool call available), simply say "I can check with [name] on that" and the system will handle it on the next turn. Never improvise with action blocks.\n═══ END A2A ═══`,
     ].filter(Boolean).join("\n\n");
 
     // ── Vision: inject image URLs into last user message ────
@@ -3829,6 +3829,48 @@ You always know the current date and time without being told. Reference it natur
       const sseBody = new ReadableStream<Uint8Array>({
         async start(controller) {
           let accumulated = "";
+          // ── Hidden-block stream filter ──────────────────────────────────────
+          // Buffers ::: sequences; passes :::ACTION{...}::: through, queues
+          // :::CONSULT_ENTITY{...}::: for post-stream resolution, drops all others.
+          let _fBuf = "";
+          const _pendingConsults: Array<{ name: string; question: string }> = [];
+          function _emitFiltered(val: string) {
+            _fBuf += val;
+            while (true) {
+              const oi = _fBuf.indexOf(":::");
+              if (oi === -1) {
+                if (_fBuf) controller.enqueue(enc.encode(`data: ${JSON.stringify({ t: _fBuf })}\n\n`));
+                _fBuf = "";
+                break;
+              }
+              if (oi > 0) {
+                controller.enqueue(enc.encode(`data: ${JSON.stringify({ t: _fBuf.slice(0, oi) })}\n\n`));
+                _fBuf = _fBuf.slice(oi);
+              }
+              const ci = _fBuf.indexOf(":::", 3);
+              if (ci === -1) break; // incomplete block — keep buffering
+              const blk = _fBuf.slice(0, ci + 3);
+              _fBuf = _fBuf.slice(ci + 3);
+              if (/^:::ACTION\{/.test(blk)) {
+                controller.enqueue(enc.encode(`data: ${JSON.stringify({ t: blk })}\n\n`));
+              } else if (/^:::CONSULT_ENTITY\{/i.test(blk)) {
+                try {
+                  const _m = blk.match(/:::CONSULT_ENTITY(\{[\s\S]*?\}):::/i);
+                  if (_m) {
+                    const _p = JSON.parse(_m[1]) as { name?: string; question?: string };
+                    if (_p.name && _p.question) _pendingConsults.push({ name: _p.name, question: _p.question });
+                  }
+                } catch { /* malformed */ }
+              }
+              // All other :::WORD{...}::: blocks: silently drop — never show raw
+            }
+          }
+          function _flushFilter() {
+            if (_fBuf && !_fBuf.startsWith(":::")) {
+              controller.enqueue(enc.encode(`data: ${JSON.stringify({ t: _fBuf })}\n\n`));
+            }
+            _fBuf = "";
+          }
           try {
             const { stream: aiStream, provider: streamProv } = await callWithFallbackStream(
               provider, callMessages, fullPromptFinal, aiKeys, useThinking, modeUpper,
@@ -3838,8 +3880,9 @@ You always know the current date and time without being told. Reference it natur
               const { done, value } = await reader.read();
               if (done) break;
               accumulated += value;
-              controller.enqueue(enc.encode(`data: ${JSON.stringify({ t: value })}\n\n`));
+              _emitFiltered(value);
             }
+            _flushFilter();
             // ── ReAct loop: execute ACTION blocks, observe results, synthesize ──
             {
               const REACT_MAX_ITER    = 5;
@@ -3890,8 +3933,9 @@ You always know the current date and time without being told. Reference it natur
                   const { done: sd, value: sv } = await synthReader.read();
                   if (sd) break;
                   accumulated += sv;
-                  controller.enqueue(enc.encode(`data: ${JSON.stringify({ t: sv })}\n\n`));
+                  _emitFiltered(sv);
                 }
+                _flushFilter();
 
                 reactIter++;
               }
@@ -3938,6 +3982,40 @@ You always know the current date and time without being told. Reference it natur
                   }
                 }
               } catch { /* non-critical */ }
+            }
+            // ── Post-stream: resolve any :::CONSULT_ENTITY::: blocks the persona emitted
+            if (_pendingConsults.length > 0) {
+              const _csb = createClient(supabaseUrl, serviceKey);
+              for (const _c of _pendingConsults.slice(0, 3)) {
+                try {
+                  const [_pr, _cr] = await Promise.all([
+                    _csb.from("personas").select("id,name,role,system_prompt,bio,archetype,model").eq("user_id",user.id).ilike("name",`%${_c.name}%`).limit(1),
+                    _csb.from("councils").select("id,name,role,specialty,personality_prompt,notes,model").eq("user_id",user.id).ilike("name",`%${_c.name}%`).limit(1),
+                  ]);
+                  const _ep = _pr.data?.[0] as any;
+                  const _ec = _cr.data?.[0] as any;
+                  const _ent = _ep ?? _ec;
+                  if (!_ent) continue;
+                  const _elabel = String(_ent.name ?? "");
+                  const _esys = _ep
+                    ? `You are ${_elabel}${_ent.role ? `, ${_ent.role}` : ""}. ${_ent.archetype ? `Archetype: ${_ent.archetype}.` : ""} ${_ent.bio ? `Background: ${_ent.bio}.` : ""} ${_ent.system_prompt ?? ""} Respond in 3-6 sentences — in character, direct, specific.`.trim()
+                    : `You are ${_elabel}${_ent.role ? `, ${_ent.role}` : ""}${_ent.specialty ? ` specialising in ${_ent.specialty}` : ""}. ${_ent.notes ?? ""} ${_ent.personality_prompt ?? ""} 3-6 sentences — direct, from your expertise.`.trim();
+                  const _usesClaude = String(_ent.model ?? "").includes("claude");
+                  const _ekey = _usesClaude ? claudeKey : geminiKey;
+                  if (!_ekey) continue;
+                  const _eresp = await Promise.race([
+                    (_usesClaude
+                      ? callClaude([{ role: "user", content: _c.question }], _esys, _ekey)
+                      : callGemini([{ role: "user", content: _c.question }], _esys, _ekey)),
+                    new Promise<string>(r => setTimeout(() => r(""), 8_000)),
+                  ]);
+                  if (_eresp?.trim()) {
+                    const _followUp = `\n\n═══ ${_elabel.toUpperCase()} RESPONDS ═══\n${_eresp.trim()}\n═══ END ═══`;
+                    controller.enqueue(enc.encode(`data: ${JSON.stringify({ t: _followUp })}\n\n`));
+                    accumulated += _followUp;
+                  }
+                } catch { /* non-critical */ }
+              }
             }
             controller.enqueue(enc.encode(`data: ${JSON.stringify({ done: true, provider: streamProv, conversationId, searched: !!webSearchResults, imageUrl: imgUrl, imageMediaId })}\n\n`));
           } catch (e: any) {
