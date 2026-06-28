@@ -3757,6 +3757,8 @@ You always know the current date and time without being told. Reference it natur
       webSearchResults ? `\n---\nWEB SEARCH:\n${webSearchResults}\n---` : "",
       // Inline image rendering directive (Prymal pattern)
       `\n═══ INLINE MEDIA RENDERING ═══\nWhen tool results contain file_url, thumbnail_url, image_url, or drive links pointing to images, render them inline as markdown: ![description](url). The chat interface renders these as <img> tags — always show images directly rather than describing them separately.\n═══ END MEDIA ═══`,
+      // A2A awareness — every entity (MAVIS, persona, council member) sees this
+      `\n═══ A2A ENTITY NETWORK ═══\nYou exist within an ecosystem of AI entities — personas and council members — each with their own knowledge, personality, and expertise. You can consult any of them in real-time:\n\n• Use the consult_entity tool (name, question) to invoke another entity's LLM and get their actual live response — NOT a memory lookup, their real reasoning right now.\n• You decide when to use it. If the operator asks "what does Tao think?" or you genuinely need another perspective before answering, call consult_entity. Don't use it reflexively — only when it meaningfully improves your answer.\n• The operator can also direct you to start a dialogue: "have Tao and Kira discuss X" → orchestrate a real exchange between them.\n• When A2A consultation results appear above (═══ LIVE A2A CONSULTATION ═══), relay that entity's actual response accurately — quote or closely paraphrase, attribute it by name, don't add claims beyond what they said.\n═══ END A2A ═══`,
     ].filter(Boolean).join("\n\n");
 
     // ── Vision: inject image URLs into last user message ────
