@@ -3376,7 +3376,7 @@ ${fmtGoals}
     // pull their FULL recent conversation (both sides) so MAVIS can
     // accurately relay what was said — not just 3-sentence snippets.
     let targetedPersonaBlock = "";
-    if (!isCouncilMode && lastUserText.length > 10) {
+    if ((!isCouncilMode || !!personaId) && lastUserText.length > 10) {
       try {
         // 1. Load all known entity names in one shot
         const [pRes, cRes] = await Promise.all([
@@ -3440,7 +3440,7 @@ ${fmtGoals}
 
     // ── A2A: synchronous agent-to-agent consultation + multi-entity dialogue ──
     let a2aBlock = "";
-    if (!isCouncilMode && lastUserText.length > 5) {
+    if ((!isCouncilMode || !!personaId) && lastUserText.length > 5) {
 
       // ── Multi-entity directed dialogue ─────────────────────────────────────
       // "have X and Y discuss Z" → orchestrate a real 2-turn exchange, stream as dialogue
@@ -3812,7 +3812,7 @@ You always know the current date and time without being told. Reference it natur
     // reference executed actions in its live response rather than after-the-fact.
     // Falls back gracefully — if this returns nothing, fullPromptFinal === fullPrompt.
     let fullPromptFinal = fullPrompt;
-    if (!isCouncilMode && hasActionIntent(lastUserText) && (geminiKey || claudeKey)) {
+    if ((!isCouncilMode || !!personaId) && hasActionIntent(lastUserText) && (geminiKey || claudeKey)) {
       try {
         const nativeBlock = await Promise.race([
           resolveActionsNative(callMessages, systemWithPersonaMemory, aiKeys, supabaseUrl, serviceKey, user.id),
