@@ -1,6 +1,9 @@
 import type { ParsedAction, ParseResult } from "./types";
 
 const ACTION_TAG_REGEX = /:::ACTION(\{[\s\S]*?\}):::/g;
+// Strip any remaining :::WORD{...}::: blocks that aren't :::ACTION{...}:::
+// (e.g. :::CREATE_JOURNAL:::, :::PROPOSE_ACTION:::, :::CONSULT_ENTITY::: emitted by rogue LLM)
+const HIDDEN_BLOCK_REGEX = /:::[A-Z_]+(\{[\s\S]*?\})?:::/g;
 
 export function parseActions(raw: string): ParseResult {
   const actions: ParsedAction[] = [];
@@ -19,6 +22,9 @@ export function parseActions(raw: string): ParseResult {
     }
     cleanText = cleanText.replace(fullTag, "").trim();
   }
+
+  // Strip any remaining hidden-block patterns so they never show raw in the UI
+  cleanText = cleanText.replace(HIDDEN_BLOCK_REGEX, "").trim();
 
   return { cleanText, actions };
 }
