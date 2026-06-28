@@ -892,6 +892,338 @@ const MAVIS_TOOL_DEFS: MavToolDef[] = [
       description: { type: "string", desc: "Full description of the persona — name, personality, role, backstory", required: true },
     },
   },
+  // ── Gmail ──────────────────────────────────────────────────────────────
+  {
+    name: "get_emails",
+    description: "Fetch recent emails from Gmail inbox. Use when the user wants to read, check, or review their email.",
+    params: {
+      max_results: { type: "number", desc: "Maximum number of emails to return (default 10)" },
+      label_ids: { type: "string", desc: "Comma-separated Gmail label IDs to filter by (e.g. INBOX, SENT, UNREAD)" },
+      query: { type: "string", desc: "Gmail search query string (e.g. 'from:boss@co.com is:unread')" },
+    },
+  },
+  {
+    name: "send_email",
+    description: "Send an email via Gmail. Use when the user explicitly asks to send or draft an email.",
+    params: {
+      to: { type: "string", desc: "Recipient email address", required: true },
+      subject: { type: "string", desc: "Email subject line", required: true },
+      body: { type: "string", desc: "Plain-text email body", required: true },
+      cc: { type: "string", desc: "CC email addresses (comma-separated)" },
+      bcc: { type: "string", desc: "BCC email addresses (comma-separated)" },
+    },
+  },
+  {
+    name: "get_email_thread",
+    description: "Fetch the full conversation thread for a specific Gmail message ID.",
+    params: {
+      message_id: { type: "string", desc: "Gmail message ID", required: true },
+    },
+  },
+  {
+    name: "archive_email",
+    description: "Archive (remove from inbox) a Gmail message.",
+    params: {
+      message_id: { type: "string", desc: "Gmail message ID to archive", required: true },
+    },
+  },
+  {
+    name: "delete_email",
+    description: "Permanently delete or trash a Gmail message.",
+    params: {
+      message_id: { type: "string", desc: "Gmail message ID to delete", required: true },
+    },
+  },
+  {
+    name: "mark_email",
+    description: "Mark a Gmail message as read or unread.",
+    params: {
+      message_id: { type: "string", desc: "Gmail message ID", required: true },
+      read: { type: "string", desc: "Set to 'true' to mark as read, 'false' to mark as unread", enum: ["true", "false"], required: true },
+    },
+  },
+  // ── Google Calendar ────────────────────────────────────────────────────
+  {
+    name: "get_calendar_events",
+    description: "Fetch upcoming events from Google Calendar. Use when user asks about their schedule, upcoming meetings, or what's on their calendar.",
+    params: {
+      max_results: { type: "number", desc: "Maximum events to return (default 10)" },
+      time_min: { type: "string", desc: "Start of time range in ISO 8601 format (default: now)" },
+      time_max: { type: "string", desc: "End of time range in ISO 8601 format" },
+      calendar_id: { type: "string", desc: "Calendar ID (default: primary)" },
+    },
+  },
+  {
+    name: "get_availability",
+    description: "Check free/busy availability in Google Calendar for scheduling.",
+    params: {
+      time_min: { type: "string", desc: "Start of window in ISO 8601 format", required: true },
+      time_max: { type: "string", desc: "End of window in ISO 8601 format", required: true },
+    },
+  },
+  {
+    name: "create_event",
+    description: "Create or schedule an event in Google Calendar.",
+    params: {
+      title: { type: "string", desc: "Event title/summary", required: true },
+      start: { type: "string", desc: "Start time in ISO 8601 format", required: true },
+      end: { type: "string", desc: "End time in ISO 8601 format", required: true },
+      description: { type: "string", desc: "Event description or notes" },
+      location: { type: "string", desc: "Physical or virtual location" },
+      attendees: { type: "string", desc: "Comma-separated attendee email addresses" },
+      calendar_id: { type: "string", desc: "Calendar ID (default: primary)" },
+    },
+  },
+  {
+    name: "update_calendar_event",
+    description: "Update an existing Google Calendar event.",
+    params: {
+      event_id: { type: "string", desc: "Google Calendar event ID", required: true },
+      title: { type: "string", desc: "New event title" },
+      start: { type: "string", desc: "New start time in ISO 8601 format" },
+      end: { type: "string", desc: "New end time in ISO 8601 format" },
+      description: { type: "string", desc: "New event description" },
+      location: { type: "string", desc: "New event location" },
+      calendar_id: { type: "string", desc: "Calendar ID (default: primary)" },
+    },
+  },
+  {
+    name: "delete_calendar_event",
+    description: "Delete or cancel an event from Google Calendar.",
+    params: {
+      event_id: { type: "string", desc: "Google Calendar event ID to delete", required: true },
+      calendar_id: { type: "string", desc: "Calendar ID (default: primary)" },
+    },
+  },
+  {
+    name: "schedule_meet",
+    description: "Create a Google Calendar event with an auto-generated Google Meet video link.",
+    params: {
+      title: { type: "string", desc: "Meeting title", required: true },
+      start: { type: "string", desc: "Start time in ISO 8601 format", required: true },
+      end: { type: "string", desc: "End time in ISO 8601 format", required: true },
+      attendees: { type: "string", desc: "Comma-separated attendee email addresses" },
+      description: { type: "string", desc: "Meeting agenda or description" },
+    },
+  },
+  // ── Google Tasks ───────────────────────────────────────────────────────
+  {
+    name: "list_google_tasks",
+    description: "List tasks from Google Tasks. Use when user asks about their to-do list or Google Tasks.",
+    params: {
+      tasklist_id: { type: "string", desc: "Task list ID (default: @default)" },
+      show_completed: { type: "string", desc: "Include completed tasks: true or false", enum: ["true", "false"] },
+    },
+  },
+  {
+    name: "complete_google_task",
+    description: "Mark a Google Task as completed.",
+    params: {
+      task_id: { type: "string", desc: "Task ID to mark complete", required: true },
+      tasklist_id: { type: "string", desc: "Task list ID (default: @default)" },
+    },
+  },
+  {
+    name: "update_google_task",
+    description: "Update the title or due date of a Google Task.",
+    params: {
+      task_id: { type: "string", desc: "Task ID to update", required: true },
+      title: { type: "string", desc: "New task title" },
+      due: { type: "string", desc: "New due date in ISO 8601 format" },
+      tasklist_id: { type: "string", desc: "Task list ID (default: @default)" },
+    },
+  },
+  // ── Google Drive ───────────────────────────────────────────────────────
+  {
+    name: "list_drive_files",
+    description: "List files and folders in Google Drive. Use when user asks what's in their Drive or wants to browse files.",
+    params: {
+      folder_id: { type: "string", desc: "Folder ID to list (default: root)" },
+      max_results: { type: "number", desc: "Maximum files to return (default 20)" },
+    },
+  },
+  {
+    name: "search_drive_files",
+    description: "Search for files in Google Drive by name or content.",
+    params: {
+      query: { type: "string", desc: "Search query (e.g. 'name contains budget')", required: true },
+      max_results: { type: "number", desc: "Maximum files to return (default 10)" },
+    },
+  },
+  {
+    name: "get_file_info",
+    description: "Get metadata and details for a specific Google Drive file.",
+    params: {
+      file_id: { type: "string", desc: "Google Drive file ID", required: true },
+    },
+  },
+  {
+    name: "read_drive_file",
+    description: "Read the text content of a Google Drive file (Docs, plain text, etc.).",
+    params: {
+      file_id: { type: "string", desc: "Google Drive file ID", required: true },
+    },
+  },
+  {
+    name: "create_drive_folder",
+    description: "Create a new folder in Google Drive.",
+    params: {
+      name: { type: "string", desc: "Folder name", required: true },
+      parent_id: { type: "string", desc: "Parent folder ID (default: root)" },
+    },
+  },
+  {
+    name: "move_file",
+    description: "Move a file or folder to a different location in Google Drive.",
+    params: {
+      file_id: { type: "string", desc: "File or folder ID to move", required: true },
+      new_parent_id: { type: "string", desc: "Destination folder ID", required: true },
+    },
+  },
+  {
+    name: "rename_file",
+    description: "Rename a file or folder in Google Drive.",
+    params: {
+      file_id: { type: "string", desc: "File or folder ID to rename", required: true },
+      new_name: { type: "string", desc: "New name for the file/folder", required: true },
+    },
+  },
+  {
+    name: "share_file",
+    description: "Share a Google Drive file with another person or set sharing permissions.",
+    params: {
+      file_id: { type: "string", desc: "File or folder ID to share", required: true },
+      email: { type: "string", desc: "Email address of the person to share with" },
+      role: { type: "string", desc: "Permission role", enum: ["reader", "commenter", "writer", "owner"] },
+      type: { type: "string", desc: "Share type", enum: ["user", "group", "domain", "anyone"] },
+    },
+  },
+  // ── Google Docs ────────────────────────────────────────────────────────
+  {
+    name: "read_document",
+    description: "Read the full text content of a Google Docs document.",
+    params: {
+      document_id: { type: "string", desc: "Google Docs document ID", required: true },
+    },
+  },
+  // ── Google Sheets ──────────────────────────────────────────────────────
+  {
+    name: "create_sheet",
+    description: "Create a new Google Spreadsheet with an optional header row.",
+    params: {
+      title: { type: "string", desc: "Spreadsheet title", required: true },
+      headers: { type: "string", desc: "Comma-separated column headers for the first row" },
+    },
+  },
+  {
+    name: "read_sheet",
+    description: "Read cell data from a Google Spreadsheet.",
+    params: {
+      spreadsheet_id: { type: "string", desc: "Google Sheets spreadsheet ID", required: true },
+      range: { type: "string", desc: "A1 notation range (e.g. Sheet1!A1:D10, default: Sheet1!A1:Z100)" },
+    },
+  },
+  {
+    name: "update_sheet",
+    description: "Write or update cell values in a Google Spreadsheet.",
+    params: {
+      spreadsheet_id: { type: "string", desc: "Google Sheets spreadsheet ID", required: true },
+      range: { type: "string", desc: "A1 notation range to write to", required: true },
+      values: { type: "string", desc: "JSON array of rows (e.g. [[\"a\",\"b\"],[\"c\",\"d\"]])", required: true },
+    },
+  },
+  // ── Google Slides ──────────────────────────────────────────────────────
+  {
+    name: "create_presentation",
+    description: "Create a new Google Slides presentation with a title slide.",
+    params: {
+      title: { type: "string", desc: "Presentation title", required: true },
+      subtitle: { type: "string", desc: "Optional subtitle text for the title slide" },
+    },
+  },
+  {
+    name: "read_presentation",
+    description: "Read the text content of all slides in a Google Slides presentation.",
+    params: {
+      presentation_id: { type: "string", desc: "Google Slides presentation ID", required: true },
+    },
+  },
+  // ── Google Contacts ────────────────────────────────────────────────────
+  {
+    name: "create_contact",
+    description: "Create a new contact in Google Contacts.",
+    params: {
+      name: { type: "string", desc: "Contact full name", required: true },
+      email: { type: "string", desc: "Contact email address" },
+      phone: { type: "string", desc: "Contact phone number" },
+      notes: { type: "string", desc: "Notes or additional information about the contact" },
+    },
+  },
+  {
+    name: "list_contacts",
+    description: "List contacts from Google Contacts.",
+    params: {
+      max_results: { type: "number", desc: "Maximum contacts to return (default 20)" },
+    },
+  },
+  {
+    name: "search_contacts",
+    description: "Search Google Contacts by name, email, or phone number.",
+    params: {
+      query: { type: "string", desc: "Search query string", required: true },
+    },
+  },
+  {
+    name: "update_contact",
+    description: "Update an existing Google Contact's details.",
+    params: {
+      resource_name: { type: "string", desc: "Contact resource name (e.g. people/c12345)", required: true },
+      name: { type: "string", desc: "Updated full name" },
+      email: { type: "string", desc: "Updated email address" },
+      phone: { type: "string", desc: "Updated phone number" },
+      notes: { type: "string", desc: "Updated notes" },
+      etag: { type: "string", desc: "Contact etag for optimistic locking", required: true },
+    },
+  },
+  {
+    name: "delete_contact",
+    description: "Delete a contact from Google Contacts.",
+    params: {
+      resource_name: { type: "string", desc: "Contact resource name (e.g. people/c12345)", required: true },
+    },
+  },
+  // ── Google Business Profile ────────────────────────────────────────────
+  {
+    name: "get_gbp_reviews",
+    description: "Fetch reviews from Google Business Profile. Use when user asks about their business reviews or what customers are saying.",
+    params: {
+      account_id: { type: "string", desc: "GBP account ID", required: true },
+      location_id: { type: "string", desc: "GBP location ID", required: true },
+      max_results: { type: "number", desc: "Maximum reviews to return (default 10)" },
+    },
+  },
+  {
+    name: "respond_to_review",
+    description: "Post a reply to a Google Business Profile review.",
+    params: {
+      account_id: { type: "string", desc: "GBP account ID", required: true },
+      location_id: { type: "string", desc: "GBP location ID", required: true },
+      review_id: { type: "string", desc: "Review ID to reply to", required: true },
+      comment: { type: "string", desc: "Reply text to post", required: true },
+    },
+  },
+  {
+    name: "create_gbp_post",
+    description: "Create a Google Business Profile post (What's New, Event, Offer, etc.).",
+    params: {
+      account_id: { type: "string", desc: "GBP account ID", required: true },
+      location_id: { type: "string", desc: "GBP location ID", required: true },
+      summary: { type: "string", desc: "Post text content", required: true },
+      topic_type: { type: "string", desc: "Post type", enum: ["STANDARD", "EVENT", "OFFER", "PRODUCT"], required: true },
+      call_to_action_type: { type: "string", desc: "CTA button type", enum: ["LEARN_MORE", "SIGN_UP", "SHOP", "ORDER", "GET_OFFER", "BOOK", "CALL"] },
+      call_to_action_url: { type: "string", desc: "URL for the CTA button" },
+    },
+  },
 ];
 
 function toGeminiFunctions(defs: MavToolDef[]): object[] {
@@ -1000,6 +1332,17 @@ function hasActionIntent(text: string): boolean {
     "vault entry","journal entry","council member",
     "award xp","give xp","add xp",
     "generate image","create image","forge persona","create persona",
+    // Google Workspace
+    "check my email","read my email","my inbox","unread email","email from","send email","send an email",
+    "my calendar","my schedule","upcoming event","calendar event","schedule a","book a meeting","create event",
+    "google drive","my drive","find file","search drive","share file","move file","rename file",
+    "google doc","read document","open doc",
+    "spreadsheet","google sheet","read sheet","update sheet",
+    "presentation","google slide",
+    "my contacts","add contact","find contact","search contact",
+    "business review","gbp review","google review","respond to review","business post",
+    "google tasks","my tasks","mark task",
+    "my emails","new emails","latest email",
   ];
   return kws.some(kw => lower.includes(kw));
 }
