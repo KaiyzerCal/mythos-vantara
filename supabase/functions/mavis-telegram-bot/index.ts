@@ -1277,6 +1277,86 @@ async function queryMavisForContext(question: string, target: string, uid: strin
   }
 }
 
+// ── A2A: detect if user wants MAVIS to consult another entity ────────────────
+const A2A_PATTERNS = [
+  /\b(?:ask|consult|check\s+with|run\s+(?:this|it)\s+by|get\s+input\s+from)\s+([A-Za-z][A-Za-z0-9_'-]{1,})\b/i,
+  /\bwhat\s+(?:does|would|did|do)\s+([A-Za-z][A-Za-z0-9_'-]{1,})\s+(?:think|say|know|recommend|suggest|feel)/i,
+  /\b([A-Za-z][A-Za-z0-9_'-]{1,})'s\s+(?:thoughts|take|opinion|input|perspective|view|insights?|read)\b/i,
+  /\bget\s+([A-Za-z][A-Za-z0-9_'-]{1,})'s\s+(?:thoughts|take|opinion|input|perspective|view|insights?)/i,
+  /\b(?:have|let|get)\s+([A-Za-z][A-Za-z0-9_'-]{1,})\s+(?:weigh\s+in|respond|reply|answer)\b/i,
+];
+const A2A_SKIP = new Set(["me","you","him","her","them","us","it","this","that","the","a","an","my","your","their","our","its","mavis"]);
+
+async function resolveA2AForTelegram(text: string, uid: string): Promise<string> {
+  let targetName: string | null = null;
+  for (const pat of A2A_PATTERNS) {
+    const m = text.match(pat);
+    if (m?.[1] && !A2A_SKIP.has(m[1].toLowerCase()) && m[1].length >= 2) {
+      targetName = m[1];
+      break;
+    }
+  }
+  if (!targetName) return "";
+
+  // Resolve name to persona or council entity
+  const [pRes, cRes] = await Promise.all([
+    sb.from("personas").select("id, name, role, system_prompt, bio, archetype, model").eq("user_id", uid).ilike("name", targetName).maybeSingle(),
+    sb.from("councils").select("id, name, role, specialty, personality_prompt, notes, model").eq("user_id", uid).ilike("name", targetName).maybeSingle(),
+  ]);
+
+  const persona  = pRes.data as any;
+  const council  = cRes.data as any;
+  if (!persona && !council) return "";
+
+  const entityName = persona?.name ?? council?.name;
+
+  // Build a minimal system prompt for the entity
+  let entitySystem: string;
+  if (persona) {
+    const p: string[] = [`You are ${persona.name}${persona.role ? `, ${persona.role}` : ""}.`];
+    if (persona.archetype?.trim()) p.push(`Archetype: ${persona.archetype.trim()}`);
+    if (persona.bio?.trim())       p.push(`Background: ${persona.bio.trim()}`);
+    if (persona.system_prompt?.trim()) p.push(persona.system_prompt.trim());
+    p.push(`Stay in character as ${persona.name}. Be direct and concise — Telegram format, under 200 words.`);
+    entitySystem = p.join("\n");
+  } else {
+    const c: string[] = [`You are ${council.name}${council.role ? `, ${council.role}` : ""}${council.specialty ? ` specialising in ${council.specialty}` : ""}.`];
+    if (council.notes?.trim())              c.push(`Background: ${council.notes.trim()}`);
+    if (council.personality_prompt?.trim()) c.push(council.personality_prompt.trim());
+    c.push(`Speak from your expertise, directly and concisely. Under 200 words.`);
+    entitySystem = c.join("\n");
+  }
+
+  // Pull last few turns of convo with this entity for context
+  let entityHistory: ChatMessage[] = [];
+  if (persona) {
+    const { data: hist } = await sb.from("persona_conversations")
+      .select("role, content").eq("persona_id", persona.id).eq("user_id", uid)
+      .order("created_at", { ascending: false }).limit(8);
+    entityHistory = ((hist ?? []) as any[]).reverse().map((m: any) => ({ role: m.role, content: String(m.content ?? "") }));
+  } else {
+    const { data: hist } = await sb.from("council_chat_messages")
+      .select("role, content").eq("council_member_id", council.id).eq("user_id", uid)
+      .order("created_at", { ascending: false }).limit(8);
+    entityHistory = ((hist ?? []) as any[]).reverse().map((m: any) => ({ role: m.role, content: String(m.content ?? "") }));
+  }
+
+  const entityModel = persona?.model ?? council?.model ?? "gemini-2.0-flash";
+  const entityMessages: ChatMessage[] = [
+    ...entityHistory,
+    { role: "user", content: text },
+  ];
+
+  const response = await Promise.race([
+    callLLM(entityModel, entitySystem, entityMessages, 400),
+    new Promise<string>(r => setTimeout(() => r(""), 8_000)),
+  ]);
+
+  if (!response?.trim()) return "";
+
+  return `\n\n═══ LIVE A2A CONSULTATION — ${entityName.toUpperCase()} RESPONDED ═══\n${response.trim()}\n═══ END A2A — relay this perspective in your reply ═══`;
+}
+
 // Parse PROPOSE_ACTION and PROPOSE_MAVIS blocks from a raw LLM reply.
 // Returns the stripped visible text + confirmation lines to append.
 async function parseAndHandleProposals(
@@ -1889,6 +1969,17 @@ async function handleChat(
 ) {
   await typing(chatId);
 
+  // ── A2A pre-pass: if operator asks to consult another entity, invoke its LLM ─
+  let a2aBlock = "";
+  if (text.length > 5) {
+    try {
+      a2aBlock = await Promise.race([
+        resolveA2AForTelegram(text, uid),
+        new Promise<string>(r => setTimeout(() => r(""), 12_000)),
+      ]);
+    } catch { /* non-critical */ }
+  }
+
   // ── Council member mode ────────────────────────────────────────────────────
   const activeCouncil = await getActiveCouncil(uid);
   if (activeCouncil) {
@@ -1909,7 +2000,8 @@ async function handleChat(
         role:    m.role as "user" | "assistant",
         content: String(m.content ?? ""),
       }));
-      const msgs: ChatMessage[] = [...recentHistory, { role: "user", content: text }];
+      const userContent = a2aBlock ? `${text}${a2aBlock}` : text;
+      const msgs: ChatMessage[] = [...recentHistory, { role: "user", content: userContent }];
       const rawReply = await callLLM(activeCouncil.model || "claude-haiku-4-5-20251001", councilSystem, msgs, 1200);
 
       if (rawReply) {
@@ -1950,7 +2042,8 @@ async function handleChat(
         content: String(m.content ?? ""),
       }));
 
-      const msgs: ChatMessage[] = [...recentHistory, { role: "user", content: text }];
+      const userContent = a2aBlock ? `${text}${a2aBlock}` : text;
+      const msgs: ChatMessage[] = [...recentHistory, { role: "user", content: userContent }];
       const rawReply = await callLLM(activePersona.model || "claude-haiku-4-5-20251001", personaSystem, msgs, 1200);
 
       if (rawReply) {
@@ -1980,7 +2073,8 @@ async function handleChat(
       role:    m.role === "assistant" ? "assistant" : "user",
       content: String(m.content ?? ""),
     }));
-    const messages = [...recentHistory, { role: "user", content: text }];
+    const finalUserText = a2aBlock ? `${text}${a2aBlock}` : text;
+    const messages = [...recentHistory, { role: "user", content: finalUserText }];
 
     const res = await fetch(`${SUPABASE_URL}/functions/v1/mavis-agent`, {
       method: "POST",
