@@ -225,11 +225,12 @@ serve(async (req) => {
   const url = new URL(req.url);
 
   // A2A Agent Discovery — must be publicly accessible, no auth required
-  if (req.method === "GET" && (url.pathname.endsWith("/.well-known/agent.json") || url.pathname === "/")) {
+  if (req.method === "GET") {
     return new Response(JSON.stringify(MAVIS_AGENT_CARD), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }
+
 
   // JSON-RPC endpoint — POST /
   if (req.method !== "POST") {
