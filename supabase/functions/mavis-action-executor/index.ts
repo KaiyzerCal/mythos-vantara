@@ -653,6 +653,481 @@ async function executePostSocial(
   };
 }
 
+// ── Shared Google token helper ────────────────────────────────────────────────
+async function getGoogleToken(
+  provider: string,
+  userId: string,
+  adminSb: ReturnType<typeof createClient>,
+): Promise<string> {
+  const { data: int, error } = await adminSb
+    .from("mavis_user_integrations")
+    .select("config")
+    .eq("user_id", userId)
+    .eq("provider", provider)
+    .maybeSingle();
+  if (error || !int?.config) {
+    throw new Error(`${provider} not connected. Go to Settings → Integrations to connect.`);
+  }
+  return refreshGoogleToken(int.config as Record<string, unknown>, adminSb, userId, provider);
+}
+
+function decodeGmailBody(data: string): string {
+  try { return atob(data.replace(/-/g, "+").replace(/_/g, "/")); } catch { return ""; }
+}
+function extractEmailBody(payload: any): string {
+  if (!payload) return "";
+  if (payload.body?.data) return decodeGmailBody(payload.body.data);
+  if (payload.parts) {
+    for (const p of payload.parts) if (p.mimeType === "text/plain" && p.body?.data) return decodeGmailBody(p.body.data);
+    for (const p of payload.parts) if (p.body?.data) return decodeGmailBody(p.body.data);
+  }
+  return "";
+}
+
+// ── GMAIL: GET EMAILS ─────────────────────────────────────────────────────────
+async function executeGetEmails(p: Record<string, unknown>, uid: string, sb: ReturnType<typeof createClient>) {
+  const token = await getGoogleToken("gmail", uid, sb);
+  const q = encodeURIComponent(String(p.query ?? "is:inbox"));
+  const max = Number(p.max_results ?? 15);
+  const list = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages?q=${q}&maxResults=${max}`,
+    { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(15_000) }).then(r => r.json());
+  if (!list.messages?.length) return { emails: [], total: 0 };
+  const emails = await Promise.all((list.messages as any[]).map(async (m: any) => {
+    const msg = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${m.id}?format=metadata&metadataHeaders=From&metadataHeaders=To&metadataHeaders=Subject&metadataHeaders=Date`,
+      { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(10_000) }).then(r => r.json());
+    const h = (msg.payload?.headers ?? []) as any[];
+    const hv = (n: string) => h.find((x: any) => x.name === n)?.value ?? "";
+    return { id: m.id, thread_id: msg.threadId, from: hv("From"), to: hv("To"), subject: hv("Subject") || "(no subject)", date: hv("Date"), snippet: msg.snippet ?? "", is_unread: (msg.labelIds ?? []).includes("UNREAD") };
+  }));
+  return { emails, total: list.resultSizeEstimate ?? emails.length };
+}
+
+// ── GMAIL: GET EMAIL THREAD ───────────────────────────────────────────────────
+async function executeGetEmailThread(p: Record<string, unknown>, uid: string, sb: ReturnType<typeof createClient>) {
+  const token = await getGoogleToken("gmail", uid, sb);
+  const threadId = String(p.thread_id ?? ""); if (!threadId) throw new Error("thread_id required");
+  const data = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/threads/${threadId}?format=full`,
+    { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(15_000) }).then(r => r.json());
+  const messages = ((data.messages ?? []) as any[]).map((msg: any) => {
+    const h = (msg.payload?.headers ?? []) as any[];
+    const hv = (n: string) => h.find((x: any) => x.name === n)?.value ?? "";
+    return { id: msg.id, from: hv("From"), to: hv("To"), subject: hv("Subject"), date: hv("Date"), body: extractEmailBody(msg.payload).slice(0, 4000), is_unread: (msg.labelIds ?? []).includes("UNREAD") };
+  });
+  return { thread_id: threadId, message_count: messages.length, messages };
+}
+
+// ── GMAIL: LIST LABELS ────────────────────────────────────────────────────────
+async function executeListGmailLabels(_p: Record<string, unknown>, uid: string, sb: ReturnType<typeof createClient>) {
+  const token = await getGoogleToken("gmail", uid, sb);
+  const data = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/labels",
+    { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(10_000) }).then(r => r.json());
+  return { labels: ((data.labels ?? []) as any[]).map((l: any) => ({ id: l.id, name: l.name, type: l.type })) };
+}
+
+// ── GMAIL: CREATE LABEL ───────────────────────────────────────────────────────
+async function executeCreateGmailLabel(p: Record<string, unknown>, uid: string, sb: ReturnType<typeof createClient>) {
+  const token = await getGoogleToken("gmail", uid, sb);
+  const name = String(p.name ?? ""); if (!name) throw new Error("name required");
+  const data = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/labels",
+    { method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, body: JSON.stringify({ name, labelListVisibility: "labelShow", messageListVisibility: "show" }), signal: AbortSignal.timeout(10_000) }).then(r => r.json());
+  return { label_id: data.id, name: data.name, timestamp: new Date().toISOString() };
+}
+
+// ── GMAIL: APPLY LABEL ────────────────────────────────────────────────────────
+async function executeApplyGmailLabel(p: Record<string, unknown>, uid: string, sb: ReturnType<typeof createClient>) {
+  const token = await getGoogleToken("gmail", uid, sb);
+  const { thread_id: tid, label_id: lid } = p;
+  if (!tid || !lid) throw new Error("thread_id and label_id required");
+  await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/threads/${tid}/modify`,
+    { method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, body: JSON.stringify({ addLabelIds: [lid] }), signal: AbortSignal.timeout(10_000) });
+  return { ok: true, thread_id: tid, label_applied: lid, timestamp: new Date().toISOString() };
+}
+
+// ── GMAIL: ARCHIVE ────────────────────────────────────────────────────────────
+async function executeArchiveEmail(p: Record<string, unknown>, uid: string, sb: ReturnType<typeof createClient>) {
+  const token = await getGoogleToken("gmail", uid, sb);
+  const tid = String(p.thread_id ?? ""); if (!tid) throw new Error("thread_id required");
+  await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/threads/${tid}/modify`,
+    { method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, body: JSON.stringify({ removeLabelIds: ["INBOX"] }), signal: AbortSignal.timeout(10_000) });
+  return { ok: true, thread_id: tid, archived: true, timestamp: new Date().toISOString() };
+}
+
+// ── GMAIL: DELETE ─────────────────────────────────────────────────────────────
+async function executeDeleteEmail(p: Record<string, unknown>, uid: string, sb: ReturnType<typeof createClient>) {
+  const token = await getGoogleToken("gmail", uid, sb);
+  const mid = String(p.message_id ?? ""); if (!mid) throw new Error("message_id required");
+  await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${mid}/trash`,
+    { method: "POST", headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(10_000) });
+  return { ok: true, message_id: mid, trashed: true, timestamp: new Date().toISOString() };
+}
+
+// ── GMAIL: MARK READ / UNREAD ─────────────────────────────────────────────────
+async function executeMarkEmail(p: Record<string, unknown>, uid: string, sb: ReturnType<typeof createClient>) {
+  const token = await getGoogleToken("gmail", uid, sb);
+  const tid = String(p.thread_id ?? ""); if (!tid) throw new Error("thread_id required");
+  const markRead = p.mark_read !== false;
+  await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/threads/${tid}/modify`,
+    { method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, body: JSON.stringify(markRead ? { removeLabelIds: ["UNREAD"] } : { addLabelIds: ["UNREAD"] }), signal: AbortSignal.timeout(10_000) });
+  return { ok: true, thread_id: tid, mark_read: markRead, timestamp: new Date().toISOString() };
+}
+
+// ── CALENDAR: GET EVENTS ──────────────────────────────────────────────────────
+async function executeGetCalendarEvents(p: Record<string, unknown>, uid: string, sb: ReturnType<typeof createClient>) {
+  const token = await getGoogleToken("google_calendar", uid, sb);
+  const tMin = encodeURIComponent(String(p.time_min ?? new Date().toISOString()));
+  const tMax = encodeURIComponent(String(p.time_max ?? new Date(Date.now() + 7 * 86400000).toISOString()));
+  const max = Number(p.max_results ?? 20);
+  const data = await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events?timeMin=${tMin}&timeMax=${tMax}&maxResults=${max}&singleEvents=true&orderBy=startTime`,
+    { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(15_000) }).then(r => r.json());
+  const events = ((data.items ?? []) as any[]).map((e: any) => ({
+    id: e.id, summary: e.summary ?? "(no title)", start: e.start?.dateTime ?? e.start?.date ?? "", end: e.end?.dateTime ?? e.end?.date ?? "",
+    location: e.location ?? null, description: e.description ?? null, attendees: ((e.attendees ?? []) as any[]).map((a: any) => a.email),
+    html_link: e.htmlLink, meet_link: (e.conferenceData?.entryPoints ?? []).find((ep: any) => ep.entryPointType === "video")?.uri ?? null,
+  }));
+  return { events, count: events.length };
+}
+
+// ── CALENDAR: FREE/BUSY ───────────────────────────────────────────────────────
+async function executeGetAvailability(p: Record<string, unknown>, uid: string, sb: ReturnType<typeof createClient>) {
+  const token = await getGoogleToken("google_calendar", uid, sb);
+  const timeMin = String(p.time_min ?? new Date().toISOString());
+  const timeMax = String(p.time_max ?? new Date(Date.now() + 7 * 86400000).toISOString());
+  const data = await fetch("https://www.googleapis.com/calendar/v3/freeBusy",
+    { method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, body: JSON.stringify({ timeMin, timeMax, items: [{ id: "primary" }] }), signal: AbortSignal.timeout(10_000) }).then(r => r.json());
+  return { time_min: timeMin, time_max: timeMax, busy_slots: data.calendars?.primary?.busy ?? [] };
+}
+
+// ── CALENDAR: UPDATE EVENT ────────────────────────────────────────────────────
+async function executeUpdateCalendarEvent(p: Record<string, unknown>, uid: string, sb: ReturnType<typeof createClient>) {
+  const token = await getGoogleToken("google_calendar", uid, sb);
+  const eventId = String(p.event_id ?? ""); if (!eventId) throw new Error("event_id required");
+  const existing = await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events/${eventId}`,
+    { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(10_000) }).then(r => r.json());
+  const updated: any = { ...existing };
+  if (p.title) updated.summary = p.title;
+  if (p.start) updated.start = { dateTime: p.start, timeZone: "UTC" };
+  if (p.end) updated.end = { dateTime: p.end, timeZone: "UTC" };
+  if (p.description) updated.description = p.description;
+  if (p.location) updated.location = p.location;
+  const data = await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events/${eventId}`,
+    { method: "PUT", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, body: JSON.stringify(updated), signal: AbortSignal.timeout(10_000) }).then(r => r.json());
+  return { event_id: eventId, summary: data.summary, html_link: data.htmlLink, timestamp: new Date().toISOString() };
+}
+
+// ── CALENDAR: DELETE EVENT ────────────────────────────────────────────────────
+async function executeDeleteCalendarEvent(p: Record<string, unknown>, uid: string, sb: ReturnType<typeof createClient>) {
+  const token = await getGoogleToken("google_calendar", uid, sb);
+  const eventId = String(p.event_id ?? ""); if (!eventId) throw new Error("event_id required");
+  await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events/${eventId}`,
+    { method: "DELETE", headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(10_000) });
+  return { ok: true, event_id: eventId, deleted: true, timestamp: new Date().toISOString() };
+}
+
+// ── CALENDAR: SCHEDULE GOOGLE MEET ────────────────────────────────────────────
+async function executeScheduleMeet(p: Record<string, unknown>, uid: string, sb: ReturnType<typeof createClient>) {
+  const token = await getGoogleToken("google_calendar", uid, sb);
+  const { title = "Meeting", start, end, description, attendees: att } = p;
+  if (!start || !end) throw new Error("start and end required");
+  const body: any = {
+    summary: title, start: { dateTime: start, timeZone: "UTC" }, end: { dateTime: end, timeZone: "UTC" },
+    attendees: Array.isArray(att) ? (att as string[]).map(e => ({ email: e })) : [],
+    conferenceData: { createRequest: { requestId: `meet-${Date.now()}`, conferenceSolutionKey: { type: "hangoutsMeet" } } },
+  };
+  if (description) body.description = description;
+  const data = await fetch("https://www.googleapis.com/calendar/v3/calendars/primary/events?conferenceDataVersion=1",
+    { method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, body: JSON.stringify(body), signal: AbortSignal.timeout(15_000) }).then(r => r.json());
+  const meetLink = (data.conferenceData?.entryPoints ?? []).find((ep: any) => ep.entryPointType === "video")?.uri ?? null;
+  return { event_id: data.id, summary: data.summary, meet_link: meetLink, html_link: data.htmlLink, timestamp: new Date().toISOString() };
+}
+
+// ── GOOGLE TASKS: LIST ────────────────────────────────────────────────────────
+async function executeListGoogleTasks(p: Record<string, unknown>, uid: string, sb: ReturnType<typeof createClient>) {
+  const token = await getGoogleToken("google_tasks", uid, sb);
+  const listId = String(p.tasklist_id ?? "@default");
+  const data = await fetch(`https://tasks.googleapis.com/tasks/v1/lists/${listId}/tasks?showCompleted=false&maxResults=50`,
+    { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(10_000) }).then(r => r.json());
+  const tasks = ((data.items ?? []) as any[]).map((t: any) => ({ id: t.id, title: t.title, notes: t.notes ?? null, due: t.due ?? null, status: t.status }));
+  return { tasks, count: tasks.length };
+}
+
+// ── GOOGLE TASKS: COMPLETE ────────────────────────────────────────────────────
+async function executeCompleteGoogleTask(p: Record<string, unknown>, uid: string, sb: ReturnType<typeof createClient>) {
+  const token = await getGoogleToken("google_tasks", uid, sb);
+  const taskId = String(p.task_id ?? ""); if (!taskId) throw new Error("task_id required");
+  const listId = String(p.tasklist_id ?? "@default");
+  const data = await fetch(`https://tasks.googleapis.com/tasks/v1/lists/${listId}/tasks/${taskId}`,
+    { method: "PATCH", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, body: JSON.stringify({ status: "completed" }), signal: AbortSignal.timeout(10_000) }).then(r => r.json());
+  return { ok: true, task_id: taskId, title: data.title, status: data.status, timestamp: new Date().toISOString() };
+}
+
+// ── GOOGLE TASKS: UPDATE ──────────────────────────────────────────────────────
+async function executeUpdateGoogleTask(p: Record<string, unknown>, uid: string, sb: ReturnType<typeof createClient>) {
+  const token = await getGoogleToken("google_tasks", uid, sb);
+  const taskId = String(p.task_id ?? ""); if (!taskId) throw new Error("task_id required");
+  const listId = String(p.tasklist_id ?? "@default");
+  const patch: any = {};
+  if (p.title) patch.title = p.title;
+  if (p.notes) patch.notes = p.notes;
+  if (p.due) patch.due = p.due;
+  const data = await fetch(`https://tasks.googleapis.com/tasks/v1/lists/${listId}/tasks/${taskId}`,
+    { method: "PATCH", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, body: JSON.stringify(patch), signal: AbortSignal.timeout(10_000) }).then(r => r.json());
+  return { ok: true, task_id: taskId, title: data.title, timestamp: new Date().toISOString() };
+}
+
+// ── DRIVE: LIST FILES ─────────────────────────────────────────────────────────
+async function executeListDriveFiles(p: Record<string, unknown>, uid: string, sb: ReturnType<typeof createClient>) {
+  const token = await getGoogleToken("gdrive", uid, sb);
+  const parts = [p.folder_id ? `'${p.folder_id}' in parents` : "", "trashed=false"].filter(Boolean);
+  const max = Number(p.max_results ?? 20);
+  const data = await fetch(`https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(parts.join(" and "))}&fields=files(id,name,mimeType,size,modifiedTime,webViewLink,thumbnailLink)&pageSize=${max}&orderBy=modifiedTime+desc`,
+    { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(15_000) }).then(r => r.json());
+  const files = ((data.files ?? []) as any[]).map((f: any) => {
+    const thumb = f.thumbnailLink ? f.thumbnailLink.replace(/=s\d+$/, "=s1200") : null;
+    return { id: f.id, name: f.name, mime_type: f.mimeType, size: f.size ?? null, modified: f.modifiedTime, web_view_link: f.webViewLink, thumbnail: thumb, inline_image: (thumb && f.mimeType?.startsWith("image/")) ? `![${f.name}](${thumb})` : null };
+  });
+  return { files, count: files.length };
+}
+
+// ── DRIVE: SEARCH FILES ───────────────────────────────────────────────────────
+async function executeSearchDriveFiles(p: Record<string, unknown>, uid: string, sb: ReturnType<typeof createClient>) {
+  const token = await getGoogleToken("gdrive", uid, sb);
+  const parts = [p.name ? `name contains '${p.name}'` : "", p.text ? `fullText contains '${p.text}'` : "", "trashed=false"].filter(Boolean);
+  const data = await fetch(`https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(parts.join(" and "))}&fields=files(id,name,mimeType,size,modifiedTime,webViewLink,thumbnailLink)&pageSize=20`,
+    { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(15_000) }).then(r => r.json());
+  const files = ((data.files ?? []) as any[]).map((f: any) => ({ id: f.id, name: f.name, mime_type: f.mimeType, modified: f.modifiedTime, web_view_link: f.webViewLink, thumbnail: f.thumbnailLink?.replace(/=s\d+$/, "=s800") ?? null }));
+  return { files, count: files.length };
+}
+
+// ── DRIVE: GET FILE INFO ──────────────────────────────────────────────────────
+async function executeGetFileInfo(p: Record<string, unknown>, uid: string, sb: ReturnType<typeof createClient>) {
+  const token = await getGoogleToken("gdrive", uid, sb);
+  const fileId = String(p.file_id ?? ""); if (!fileId) throw new Error("file_id required");
+  const f = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?fields=id,name,mimeType,size,createdTime,modifiedTime,webViewLink,thumbnailLink,owners`,
+    { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(10_000) }).then(r => r.json());
+  const thumb = f.thumbnailLink ? f.thumbnailLink.replace(/=s\d+$/, "=s1600") : null;
+  return { id: f.id, name: f.name, mime_type: f.mimeType, size: f.size ?? null, created: f.createdTime, modified: f.modifiedTime, web_view_link: f.webViewLink, thumbnail: thumb, inline_image: (thumb && f.mimeType?.startsWith("image/")) ? `![${f.name}](${thumb})` : null, owners: ((f.owners ?? []) as any[]).map((o: any) => o.emailAddress) };
+}
+
+// ── DRIVE: READ FILE CONTENT ──────────────────────────────────────────────────
+async function executeReadDriveFile(p: Record<string, unknown>, uid: string, sb: ReturnType<typeof createClient>) {
+  const token = await getGoogleToken("gdrive", uid, sb);
+  const fileId = String(p.file_id ?? ""); if (!fileId) throw new Error("file_id required");
+  const meta = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?fields=id,name,mimeType,webViewLink,thumbnailLink`,
+    { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(10_000) }).then(r => r.json());
+  let content = "";
+  if (meta.mimeType === "application/vnd.google-apps.document") {
+    content = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}/export?mimeType=text/plain`, { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(15_000) }).then(r => r.text());
+  } else if (meta.mimeType === "application/vnd.google-apps.spreadsheet") {
+    content = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}/export?mimeType=text/csv`, { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(15_000) }).then(r => r.text());
+  } else if (meta.mimeType?.startsWith("text/")) {
+    content = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(15_000) }).then(r => r.text());
+  } else if (meta.mimeType?.startsWith("image/")) {
+    const thumb = meta.thumbnailLink ? meta.thumbnailLink.replace(/=s\d+$/, "=s1600") : null;
+    return { id: fileId, name: meta.name, mime_type: meta.mimeType, web_view_link: meta.webViewLink, inline_image: thumb ? `![${meta.name}](${thumb})` : null };
+  }
+  return { id: fileId, name: meta.name, mime_type: meta.mimeType, content: content.slice(0, 20000), web_view_link: meta.webViewLink };
+}
+
+// ── DRIVE: CREATE FOLDER ──────────────────────────────────────────────────────
+async function executeCreateDriveFolder(p: Record<string, unknown>, uid: string, sb: ReturnType<typeof createClient>) {
+  const token = await getGoogleToken("gdrive", uid, sb);
+  const body: any = { name: String(p.name ?? "New Folder"), mimeType: "application/vnd.google-apps.folder" };
+  if (p.parent_id) body.parents = [p.parent_id];
+  const data = await fetch("https://www.googleapis.com/drive/v3/files?fields=id,name,webViewLink",
+    { method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, body: JSON.stringify(body), signal: AbortSignal.timeout(10_000) }).then(r => r.json());
+  return { folder_id: data.id, name: data.name, web_view_link: data.webViewLink, timestamp: new Date().toISOString() };
+}
+
+// ── DRIVE: MOVE FILE ──────────────────────────────────────────────────────────
+async function executeMoveFile(p: Record<string, unknown>, uid: string, sb: ReturnType<typeof createClient>) {
+  const token = await getGoogleToken("gdrive", uid, sb);
+  const { file_id: fid, new_parent_id: npid } = p; if (!fid || !npid) throw new Error("file_id and new_parent_id required");
+  const meta = await fetch(`https://www.googleapis.com/drive/v3/files/${fid}?fields=parents`, { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(10_000) }).then(r => r.json());
+  const oldParents = ((meta.parents ?? []) as string[]).join(",");
+  const data = await fetch(`https://www.googleapis.com/drive/v3/files/${fid}?addParents=${npid}&removeParents=${oldParents}&fields=id,name`,
+    { method: "PATCH", headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(10_000) }).then(r => r.json());
+  return { ok: true, file_id: fid, name: data.name, new_parent: npid, timestamp: new Date().toISOString() };
+}
+
+// ── DRIVE: DELETE / TRASH FILE ────────────────────────────────────────────────
+async function executeDeleteFile(p: Record<string, unknown>, uid: string, sb: ReturnType<typeof createClient>) {
+  const token = await getGoogleToken("gdrive", uid, sb);
+  const fid = String(p.file_id ?? ""); if (!fid) throw new Error("file_id required");
+  await fetch(`https://www.googleapis.com/drive/v3/files/${fid}/trash`, { method: "POST", headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(10_000) });
+  return { ok: true, file_id: fid, trashed: true, timestamp: new Date().toISOString() };
+}
+
+// ── DRIVE: RENAME FILE ────────────────────────────────────────────────────────
+async function executeRenameFile(p: Record<string, unknown>, uid: string, sb: ReturnType<typeof createClient>) {
+  const token = await getGoogleToken("gdrive", uid, sb);
+  const fid = String(p.file_id ?? ""); const newName = String(p.new_name ?? ""); if (!fid || !newName) throw new Error("file_id and new_name required");
+  const data = await fetch(`https://www.googleapis.com/drive/v3/files/${fid}?fields=id,name`,
+    { method: "PATCH", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, body: JSON.stringify({ name: newName }), signal: AbortSignal.timeout(10_000) }).then(r => r.json());
+  return { ok: true, file_id: fid, new_name: data.name, timestamp: new Date().toISOString() };
+}
+
+// ── DRIVE: SHARE FILE ─────────────────────────────────────────────────────────
+async function executeShareFile(p: Record<string, unknown>, uid: string, sb: ReturnType<typeof createClient>) {
+  const token = await getGoogleToken("gdrive", uid, sb);
+  const { file_id: fid, email, role = "reader" } = p; if (!fid || !email) throw new Error("file_id and email required");
+  const data = await fetch(`https://www.googleapis.com/drive/v3/files/${fid}/permissions`,
+    { method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, body: JSON.stringify({ type: "user", role, emailAddress: email }), signal: AbortSignal.timeout(10_000) }).then(r => r.json());
+  return { ok: true, file_id: fid, shared_with: email, role, permission_id: data.id, timestamp: new Date().toISOString() };
+}
+
+// ── DOCS: READ ────────────────────────────────────────────────────────────────
+async function executeReadDocument(p: Record<string, unknown>, uid: string, sb: ReturnType<typeof createClient>) {
+  const token = await getGoogleToken("gdrive", uid, sb);
+  const docId = String(p.document_id ?? ""); if (!docId) throw new Error("document_id required");
+  const doc = await fetch(`https://docs.googleapis.com/v1/documents/${docId}`, { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(15_000) }).then(r => r.json());
+  let text = "";
+  for (const el of (doc.body?.content ?? []) as any[]) for (const te of el.paragraph?.elements ?? []) text += te.textRun?.content ?? "";
+  return { document_id: docId, title: doc.title ?? "(untitled)", content: text.slice(0, 20000), revision_id: doc.revisionId, web_view_link: `https://docs.google.com/document/d/${docId}/edit` };
+}
+
+async function executeDeleteDocument(p: Record<string, unknown>, uid: string, sb: ReturnType<typeof createClient>) {
+  return executeDeleteFile({ file_id: p.document_id }, uid, sb);
+}
+
+// ── SHEETS: CREATE ────────────────────────────────────────────────────────────
+async function executeCreateSheet(p: Record<string, unknown>, uid: string, sb: ReturnType<typeof createClient>) {
+  const token = await getGoogleToken("gdrive", uid, sb);
+  const data = await fetch("https://www.googleapis.com/drive/v3/files?fields=id,name,webViewLink",
+    { method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, body: JSON.stringify({ name: String(p.title ?? "New Spreadsheet"), mimeType: "application/vnd.google-apps.spreadsheet" }), signal: AbortSignal.timeout(10_000) }).then(r => r.json());
+  return { spreadsheet_id: data.id, title: data.name, web_view_link: data.webViewLink, timestamp: new Date().toISOString() };
+}
+
+// ── SHEETS: READ ──────────────────────────────────────────────────────────────
+async function executeReadSheet(p: Record<string, unknown>, uid: string, sb: ReturnType<typeof createClient>) {
+  const token = await getGoogleToken("gdrive", uid, sb);
+  const sid = String(p.spreadsheet_id ?? ""); if (!sid) throw new Error("spreadsheet_id required");
+  const range = encodeSheetRange(String(p.range ?? "A1:Z100"));
+  const data = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${sid}/values/${range}`,
+    { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(15_000) }).then(r => r.json());
+  return { spreadsheet_id: sid, range: data.range, values: data.values ?? [], row_count: (data.values ?? []).length };
+}
+
+// ── SLIDES: CREATE ────────────────────────────────────────────────────────────
+async function executeCreatePresentation(p: Record<string, unknown>, uid: string, sb: ReturnType<typeof createClient>) {
+  const token = await getGoogleToken("gdrive", uid, sb);
+  const data = await fetch("https://www.googleapis.com/drive/v3/files?fields=id,name,webViewLink",
+    { method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, body: JSON.stringify({ name: String(p.title ?? "New Presentation"), mimeType: "application/vnd.google-apps.presentation" }), signal: AbortSignal.timeout(10_000) }).then(r => r.json());
+  return { presentation_id: data.id, title: data.name, web_view_link: data.webViewLink, timestamp: new Date().toISOString() };
+}
+
+// ── SLIDES: READ ──────────────────────────────────────────────────────────────
+async function executeReadPresentation(p: Record<string, unknown>, uid: string, sb: ReturnType<typeof createClient>) {
+  const token = await getGoogleToken("gdrive", uid, sb);
+  const pid = String(p.presentation_id ?? ""); if (!pid) throw new Error("presentation_id required");
+  const data = await fetch(`https://slides.googleapis.com/v1/presentations/${pid}`, { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(15_000) }).then(r => r.json());
+  const slides = ((data.slides ?? []) as any[]).map((s: any, i: number) => {
+    const texts: string[] = [];
+    for (const el of s.pageElements ?? []) { const t = (el.shape?.text?.textElements ?? []).map((te: any) => te.textRun?.content ?? "").join(""); if (t.trim()) texts.push(t.trim()); }
+    return { slide_number: i + 1, slide_id: s.objectId, text: texts.join(" | ") };
+  });
+  return { presentation_id: pid, title: data.title, slide_count: slides.length, slides };
+}
+
+// ── CONTACTS: CREATE ──────────────────────────────────────────────────────────
+async function executeCreateContact(p: Record<string, unknown>, uid: string, sb: ReturnType<typeof createClient>) {
+  const token = await getGoogleToken("google_contacts", uid, sb);
+  const name = String(p.name ?? ""); if (!name) throw new Error("name required");
+  const parts = name.split(" ");
+  const person: any = { names: [{ givenName: parts[0], familyName: parts.slice(1).join(" ") }] };
+  if (p.email) person.emailAddresses = [{ value: p.email, type: "work" }];
+  if (p.phone) person.phoneNumbers = [{ value: p.phone, type: "mobile" }];
+  if (p.company) person.organizations = [{ name: p.company }];
+  if (p.notes) person.biographies = [{ value: p.notes }];
+  const data = await fetch("https://people.googleapis.com/v1/people:createContact",
+    { method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, body: JSON.stringify(person), signal: AbortSignal.timeout(10_000) }).then(r => r.json());
+  return { resource_name: data.resourceName, name, timestamp: new Date().toISOString() };
+}
+
+// ── CONTACTS: LIST ────────────────────────────────────────────────────────────
+async function executeListContacts(p: Record<string, unknown>, uid: string, sb: ReturnType<typeof createClient>) {
+  const token = await getGoogleToken("google_contacts", uid, sb);
+  const max = Number(p.max_results ?? 25);
+  const data = await fetch(`https://people.googleapis.com/v1/people/me/connections?personFields=names,emailAddresses,phoneNumbers,organizations&pageSize=${max}&sortOrder=LAST_MODIFIED_DESCENDING`,
+    { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(15_000) }).then(r => r.json());
+  const contacts = ((data.connections ?? []) as any[]).map((p: any) => ({ resource_name: p.resourceName, name: p.names?.[0]?.displayName ?? "(no name)", email: p.emailAddresses?.[0]?.value ?? null, phone: p.phoneNumbers?.[0]?.value ?? null, company: p.organizations?.[0]?.name ?? null }));
+  return { contacts, count: contacts.length };
+}
+
+// ── CONTACTS: SEARCH ──────────────────────────────────────────────────────────
+async function executeSearchContacts(p: Record<string, unknown>, uid: string, sb: ReturnType<typeof createClient>) {
+  const token = await getGoogleToken("google_contacts", uid, sb);
+  const data = await fetch(`https://people.googleapis.com/v1/people:searchContacts?query=${encodeURIComponent(String(p.query ?? ""))}&readMask=names,emailAddresses,phoneNumbers,organizations&pageSize=10`,
+    { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(15_000) }).then(r => r.json());
+  const contacts = ((data.results ?? []) as any[]).map((r: any) => {
+    const c = r.person ?? {};
+    return { resource_name: c.resourceName, name: c.names?.[0]?.displayName ?? "(no name)", email: c.emailAddresses?.[0]?.value ?? null, phone: c.phoneNumbers?.[0]?.value ?? null, company: c.organizations?.[0]?.name ?? null };
+  });
+  return { contacts, count: contacts.length };
+}
+
+// ── CONTACTS: UPDATE ──────────────────────────────────────────────────────────
+async function executeUpdateContact(p: Record<string, unknown>, uid: string, sb: ReturnType<typeof createClient>) {
+  const token = await getGoogleToken("google_contacts", uid, sb);
+  const rn = String(p.resource_name ?? ""); if (!rn) throw new Error("resource_name required");
+  const current = await fetch(`https://people.googleapis.com/v1/${rn}?personFields=names,emailAddresses,phoneNumbers,organizations,biographies`,
+    { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(10_000) }).then(r => r.json());
+  const updated: any = { ...current };
+  const mask: string[] = [];
+  if (p.name) { const pts = String(p.name).split(" "); updated.names = [{ givenName: pts[0], familyName: pts.slice(1).join(" ") }]; mask.push("names"); }
+  if (p.email) { updated.emailAddresses = [{ value: p.email }]; mask.push("emailAddresses"); }
+  if (p.phone) { updated.phoneNumbers = [{ value: p.phone }]; mask.push("phoneNumbers"); }
+  if (p.notes) { updated.biographies = [{ value: p.notes }]; mask.push("biographies"); }
+  if (!mask.length) return { ok: true, note: "No fields to update" };
+  const data = await fetch(`https://people.googleapis.com/v1/${rn}:updateContact?updatePersonFields=${mask.join(",")}`,
+    { method: "PATCH", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, body: JSON.stringify(updated), signal: AbortSignal.timeout(10_000) }).then(r => r.json());
+  return { ok: true, resource_name: data.resourceName, name: data.names?.[0]?.displayName, timestamp: new Date().toISOString() };
+}
+
+// ── CONTACTS: DELETE ──────────────────────────────────────────────────────────
+async function executeDeleteContact(p: Record<string, unknown>, uid: string, sb: ReturnType<typeof createClient>) {
+  const token = await getGoogleToken("google_contacts", uid, sb);
+  const rn = String(p.resource_name ?? ""); if (!rn) throw new Error("resource_name required");
+  await fetch(`https://people.googleapis.com/v1/${rn}:deleteContact`, { method: "DELETE", headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(10_000) });
+  return { ok: true, resource_name: rn, deleted: true, timestamp: new Date().toISOString() };
+}
+
+// ── GOOGLE BUSINESS PROFILE: GET REVIEWS ─────────────────────────────────────
+async function executeGetGBPReviews(p: Record<string, unknown>, uid: string, sb: ReturnType<typeof createClient>) {
+  const token = await getGoogleToken("google_business", uid, sb);
+  const accounts = await fetch("https://mybusinessaccountmanagement.googleapis.com/v1/accounts",
+    { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(10_000) }).then(r => r.json());
+  const accountName = p.account_name ?? accounts.accounts?.[0]?.name;
+  if (!accountName) return { reviews: [], note: "No Google Business Profile account found" };
+  const locs = await fetch(`https://mybusinessbusinessinformation.googleapis.com/v1/${accountName}/locations`,
+    { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(10_000) }).then(r => r.json());
+  const locationName = p.location_name ?? locs.locations?.[0]?.name;
+  if (!locationName) return { reviews: [], note: "No locations found" };
+  const data = await fetch(`https://mybusiness.googleapis.com/v4/${locationName}/reviews?pageSize=20`,
+    { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(15_000) }).then(r => r.json());
+  const reviews = ((data.reviews ?? []) as any[]).map((r: any) => ({ review_id: r.reviewId, reviewer: r.reviewer?.displayName ?? "Anonymous", rating: r.starRating, comment: r.comment ?? "", create_time: r.createTime, reply: r.reviewReply?.comment ?? null }));
+  return { location: locationName, reviews, count: reviews.length };
+}
+
+// ── GOOGLE BUSINESS PROFILE: RESPOND TO REVIEW ───────────────────────────────
+async function executeRespondToReview(p: Record<string, unknown>, uid: string, sb: ReturnType<typeof createClient>) {
+  const token = await getGoogleToken("google_business", uid, sb);
+  const { location_name: loc, review_id: rid, reply } = p; if (!loc || !rid || !reply) throw new Error("location_name, review_id, reply required");
+  await fetch(`https://mybusiness.googleapis.com/v4/${loc}/reviews/${rid}/reply`,
+    { method: "PUT", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, body: JSON.stringify({ comment: reply }), signal: AbortSignal.timeout(10_000) });
+  return { ok: true, review_id: rid, reply_posted: true, timestamp: new Date().toISOString() };
+}
+
+// ── GOOGLE BUSINESS PROFILE: CREATE POST ─────────────────────────────────────
+async function executeCreateGBPPost(p: Record<string, unknown>, uid: string, sb: ReturnType<typeof createClient>) {
+  const token = await getGoogleToken("google_business", uid, sb);
+  const { location_name: loc, content, topic_type = "STANDARD" } = p; if (!loc || !content) throw new Error("location_name and content required");
+  const body: any = { topicType: topic_type, languageCode: "en", summary: String(content).slice(0, 1500) };
+  if (p.call_to_action_url) body.callToAction = { actionType: "LEARN_MORE", url: p.call_to_action_url };
+  const data = await fetch(`https://mybusiness.googleapis.com/v4/${loc}/localPosts`,
+    { method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, body: JSON.stringify(body), signal: AbortSignal.timeout(10_000) }).then(r => r.json());
+  return { post_name: data.name, topic_type, timestamp: new Date().toISOString() };
+}
+
 // ── Route action_type ─────────────────────────────────────────────────────────
 
 async function routeActionType(
@@ -662,22 +1137,75 @@ async function routeActionType(
   adminSb: ReturnType<typeof createClient>,
 ): Promise<Record<string, unknown>> {
   switch (actionType) {
+    // ── Existing ──────────────────────────────────────────────────────────────
     case "draft_email":
-      return await executeDraftEmail(actionPayload, userId, adminSb);
+    case "send_email":             return await executeDraftEmail(actionPayload, userId, adminSb);
     case "schedule_event":
-      return await executeScheduleEvent(actionPayload, userId, adminSb);
-    case "create_task":
-      return await executeCreateTask(actionPayload, userId, adminSb);
-    case "post_social":
-      return await executePostSocial(actionPayload);
-    case "create_drive_file":
-      return await executeCreateDriveFile(actionPayload, userId, adminSb);
-    case "update_drive_file":
-      return await executeUpdateDriveFile(actionPayload, userId, adminSb);
-    case "update_sheet":
-      return await executeUpdateSheet(actionPayload, userId, adminSb);
-    case "create_google_task":
-      return await executeCreateGoogleTask(actionPayload, userId, adminSb);
+    case "create_event":           return await executeScheduleEvent(actionPayload, userId, adminSb);
+    case "create_task":            return await executeCreateTask(actionPayload, userId, adminSb);
+    case "post_social":            return await executePostSocial(actionPayload);
+    case "create_drive_file":      return await executeCreateDriveFile(actionPayload, userId, adminSb);
+    case "update_drive_file":      return await executeUpdateDriveFile(actionPayload, userId, adminSb);
+    case "update_sheet":           return await executeUpdateSheet(actionPayload, userId, adminSb);
+    case "create_google_task":     return await executeCreateGoogleTask(actionPayload, userId, adminSb);
+    // ── Gmail ─────────────────────────────────────────────────────────────────
+    case "get_emails":             return await executeGetEmails(actionPayload, userId, adminSb);
+    case "get_email_thread":       return await executeGetEmailThread(actionPayload, userId, adminSb);
+    case "list_gmail_labels":      return await executeListGmailLabels(actionPayload, userId, adminSb);
+    case "create_gmail_label":     return await executeCreateGmailLabel(actionPayload, userId, adminSb);
+    case "apply_gmail_label":      return await executeApplyGmailLabel(actionPayload, userId, adminSb);
+    case "archive_email":          return await executeArchiveEmail(actionPayload, userId, adminSb);
+    case "delete_email":           return await executeDeleteEmail(actionPayload, userId, adminSb);
+    case "mark_email":             return await executeMarkEmail(actionPayload, userId, adminSb);
+    // ── Google Calendar ───────────────────────────────────────────────────────
+    case "get_calendar_events":    return await executeGetCalendarEvents(actionPayload, userId, adminSb);
+    case "get_availability":       return await executeGetAvailability(actionPayload, userId, adminSb);
+    case "update_calendar_event":
+    case "update_event":           return await executeUpdateCalendarEvent(actionPayload, userId, adminSb);
+    case "delete_calendar_event":
+    case "delete_event":           return await executeDeleteCalendarEvent(actionPayload, userId, adminSb);
+    case "schedule_meet":
+    case "create_meet":            return await executeScheduleMeet(actionPayload, userId, adminSb);
+    // ── Google Tasks ──────────────────────────────────────────────────────────
+    case "list_google_tasks":      return await executeListGoogleTasks(actionPayload, userId, adminSb);
+    case "complete_google_task":   return await executeCompleteGoogleTask(actionPayload, userId, adminSb);
+    case "update_google_task":     return await executeUpdateGoogleTask(actionPayload, userId, adminSb);
+    // ── Google Drive ──────────────────────────────────────────────────────────
+    case "list_drive_files":       return await executeListDriveFiles(actionPayload, userId, adminSb);
+    case "search_drive_files":     return await executeSearchDriveFiles(actionPayload, userId, adminSb);
+    case "get_file_info":          return await executeGetFileInfo(actionPayload, userId, adminSb);
+    case "read_drive_file":
+    case "read_file":              return await executeReadDriveFile(actionPayload, userId, adminSb);
+    case "create_drive_folder":    return await executeCreateDriveFolder(actionPayload, userId, adminSb);
+    case "move_file":              return await executeMoveFile(actionPayload, userId, adminSb);
+    case "delete_file":
+    case "trash_file":             return await executeDeleteFile(actionPayload, userId, adminSb);
+    case "rename_file":            return await executeRenameFile(actionPayload, userId, adminSb);
+    case "share_file":             return await executeShareFile(actionPayload, userId, adminSb);
+    // ── Google Docs ───────────────────────────────────────────────────────────
+    case "read_document":
+    case "read_doc":               return await executeReadDocument(actionPayload, userId, adminSb);
+    case "delete_document":        return await executeDeleteDocument(actionPayload, userId, adminSb);
+    // ── Google Sheets ─────────────────────────────────────────────────────────
+    case "create_sheet":
+    case "create_spreadsheet":     return await executeCreateSheet(actionPayload, userId, adminSb);
+    case "read_sheet":             return await executeReadSheet(actionPayload, userId, adminSb);
+    // ── Google Slides ─────────────────────────────────────────────────────────
+    case "create_presentation":
+    case "create_slides":          return await executeCreatePresentation(actionPayload, userId, adminSb);
+    case "read_presentation":      return await executeReadPresentation(actionPayload, userId, adminSb);
+    // ── Google Contacts ───────────────────────────────────────────────────────
+    case "create_contact":         return await executeCreateContact(actionPayload, userId, adminSb);
+    case "list_contacts":          return await executeListContacts(actionPayload, userId, adminSb);
+    case "search_contacts":        return await executeSearchContacts(actionPayload, userId, adminSb);
+    case "update_contact":         return await executeUpdateContact(actionPayload, userId, adminSb);
+    case "delete_contact":         return await executeDeleteContact(actionPayload, userId, adminSb);
+    // ── Google Business Profile ───────────────────────────────────────────────
+    case "get_gbp_reviews":
+    case "get_reviews":            return await executeGetGBPReviews(actionPayload, userId, adminSb);
+    case "respond_to_review":      return await executeRespondToReview(actionPayload, userId, adminSb);
+    case "create_gbp_post":
+    case "create_business_post":   return await executeCreateGBPPost(actionPayload, userId, adminSb);
     default:
       return {
         note: `Action type '${actionType}' requires manual handling.`,
