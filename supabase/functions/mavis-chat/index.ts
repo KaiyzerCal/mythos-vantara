@@ -56,13 +56,15 @@ function estimateLlmCost(provider: string, inputChars: number, outputChars: numb
   const inTok  = inputChars  / 4;
   const outTok = outputChars / 4;
   const RATES: Record<string, [number, number]> = {
-    "gemini-2.5-flash":   [0.075,  0.30],
-    "gemini-2.5-thinking":[3.5,   10.50],
-    "openai-mini":        [0.15,   0.60],
-    "claude-haiku":       [0.25,   1.25],
-    "claude-sonnet":      [3.0,   15.0],
-    "claude-sonnet-thinking": [3.0, 15.0],
-    "grok":               [0.30,   0.50],
+    "gemini-2.0-flash":       [0.0,    0.0  ],  // free tier
+    "gemini-2.0-flash-lite":  [0.0,    0.0  ],  // free tier
+    "gemini-2.5-flash":       [0.075,  0.30 ],
+    "gemini-2.5-thinking":    [3.5,   10.50 ],
+    "openai-mini":            [0.15,   0.60 ],
+    "claude-haiku":           [0.25,   1.25 ],
+    "claude-sonnet":          [3.0,   15.0  ],
+    "claude-sonnet-thinking": [3.0,   15.0  ],
+    "grok":                   [0.30,   0.50 ],
   };
   const [inRate, outRate] = RATES[provider] ?? [0.15, 0.60];
   return Math.round(((inTok * inRate + outTok * outRate) / 1_000_000) * 1_000_000) / 1_000_000;
@@ -267,11 +269,15 @@ async function callGrok(messages: any[], system: string, key: string): Promise<s
   return d.choices?.[0]?.message?.content ?? "";
 }
 
-async function callGemini(messages: any[], system: string, key: string, opts: { thinking?: boolean; grounding?: boolean; codeExec?: boolean } = {}): Promise<string> {
+async function callGemini(messages: any[], system: string, key: string, opts: { model?: string; thinking?: boolean; grounding?: boolean; codeExec?: boolean } = {}): Promise<string> {
   const contents = messages.map((m: any) => ({
     role: m.role === "user" ? "user" : "model",
     parts: [{ text: typeof m.content === "string" ? m.content : JSON.stringify(m.content) }],
   }));
+  // Use opts.model if provided; thinking requires the 2.5 preview model.
+  const geminiModel = opts.thinking
+    ? "gemini-2.5-flash-preview-05-20"
+    : (opts.model ?? "gemini-2.5-flash-preview-05-20");
   const body: any = {
     systemInstruction: { parts: [{ text: system }] },
     contents,
@@ -280,7 +286,7 @@ async function callGemini(messages: any[], system: string, key: string, opts: { 
   if (opts.thinking) body.generationConfig.thinkingConfig = { thinkingBudget: 8192 };
   if (opts.grounding && !opts.thinking) body.tools = [{ googleSearch: {} }];
   else if (opts.codeExec && !opts.thinking) body.tools = [{ codeExecution: {} }];
-  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${key}`, {
+  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${geminiModel}:generateContent?key=${key}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
@@ -296,14 +302,15 @@ async function callGemini(messages: any[], system: string, key: string, opts: { 
   return parts.filter((p: any) => p.text && !p.thought).map((p: any) => p.text).join("") || "";
 }
 
-// Cascade order (cheapest/free → premium):
-//   1. Gemini Flash (free quota)
-//   2. OpenAI gpt-4o-mini
-//   3. Claude Haiku
-//   4. Claude Sonnet
-//   5. Grok (last resort, real-time persona-routed default)
-// If `primary` explicitly requests claude/grok (mode-routed), try that first,
-// then fall through the standard cascade.
+// Cascade order (free → cheapest → premium):
+//   0a. Gemini 2.0 Flash      (free tier, 15 RPM)
+//   0b. Gemini 2.0 Flash Lite (free tier, 30 RPM, separate quota)
+//   1.  Gemini 2.5 Flash preview (paid, mode-specific tools)
+//   2.  Mode-designated provider (Claude Sonnet for ARCH/CODEX, Grok for WATCHTOWER)
+//   3.  OpenAI gpt-4o-mini
+//   4.  Claude Haiku
+//   5.  Claude Sonnet
+//   6.  Grok (last resort)
 async function callWithFallback(
   primary: Provider,
   messages: any[],
@@ -312,14 +319,40 @@ async function callWithFallback(
   useThinking = false,
   mode = "PRIME",
 ): Promise<{ content: string; provider: string }> {
-  // Tier 0 — Free Gemini (always attempted first)
+  const mU = mode.toUpperCase();
+
+  // Tier 0a — Free Gemini 2.0 Flash (no per-token cost, 15 RPM limit)
+  // Skip for DEEP (thinking) mode — only 2.5 supports thinkingConfig.
+  if (keys.gemini && mU !== "DEEP" && !isProviderUnhealthy("gemini-2.0-flash")) {
+    try {
+      return { content: await callGemini(messages, system, keys.gemini, { model: "gemini-2.0-flash" }), provider: "gemini-2.0-flash" };
+    } catch (err: any) {
+      if (err instanceof ProviderUnavailableError) {
+        markProviderUnhealthy("gemini-2.0-flash", err.status === 429 ? 60_000 : 120_000);
+      }
+      console.warn(`[fallback] gemini-2.0-flash failed (${err.message}) → trying flash-lite`);
+    }
+  }
+
+  // Tier 0b — Free Gemini 2.0 Flash Lite (separate rate-limit pool, 30 RPM)
+  if (keys.gemini && mU !== "DEEP" && !isProviderUnhealthy("gemini-2.0-flash-lite")) {
+    try {
+      return { content: await callGemini(messages, system, keys.gemini, { model: "gemini-2.0-flash-lite" }), provider: "gemini-2.0-flash-lite" };
+    } catch (err: any) {
+      if (err instanceof ProviderUnavailableError) {
+        markProviderUnhealthy("gemini-2.0-flash-lite", err.status === 429 ? 60_000 : 120_000);
+      }
+      console.warn(`[fallback] gemini-2.0-flash-lite failed (${err.message}) → escalating to paid tier`);
+    }
+  }
+
+  // Tier 1 — Gemini 2.5 Flash (paid; supports thinking, grounding, code-exec)
   if (keys.gemini && !isProviderUnhealthy("gemini")) {
     try {
-      const mU = mode.toUpperCase();
       const geminiOpts = {
-        thinking: mU === "DEEP",
+        thinking:  mU === "DEEP",
         grounding: ["WATCHTOWER", "GROUNDED"].includes(mU),
-        codeExec: ["DATA", "CODEX", "RESEARCH"].includes(mU),
+        codeExec:  ["DATA", "CODEX", "RESEARCH"].includes(mU),
       };
       return { content: await callGemini(messages, system, keys.gemini, geminiOpts), provider: geminiOpts.thinking ? "gemini-2.5-thinking" : "gemini-2.5-flash" };
     } catch (err: any) {
@@ -727,6 +760,692 @@ function formatToolResults(results: Array<{ type: string; ok: boolean; result: u
       `[ACTION ${i + 1}: ${r.type}]\nStatus: ${r.ok ? "success" : "error"}\n${JSON.stringify(r.result, null, 2).slice(0, 2000)}`
     )
     .join("\n\n");
+}
+
+// ============================================================
+// NATIVE TOOL-USE — Gemini function calling + Claude tool_use
+// Prymal pattern: validated JSON schemas → no regex parsing errors
+// ============================================================
+
+interface MavToolParam { type: string; desc: string; required?: boolean; enum?: string[] }
+interface MavToolDef { name: string; description: string; params: Record<string, MavToolParam> }
+
+const MAVIS_TOOL_DEFS: MavToolDef[] = [
+  {
+    name: "create_quest",
+    description: "Create a new quest or task for the operator to track and complete",
+    params: {
+      title:       { type: "string", desc: "Quest title",                                 required: true },
+      description: { type: "string", desc: "What needs to be done" },
+      type:        { type: "string", desc: "Quest type",                                  enum: ["daily","side","main","epic"] },
+      xp_reward:   { type: "number", desc: "XP to award on completion (default 50)" },
+    },
+  },
+  {
+    name: "complete_quest",
+    description: "Mark a quest or task as completed",
+    params: {
+      title: { type: "string", desc: "Title of the quest to complete", required: true },
+    },
+  },
+  {
+    name: "create_journal",
+    description: "Create a journal entry in the operator's second brain",
+    params: {
+      title:    { type: "string", desc: "Entry title",          required: true },
+      content:  { type: "string", desc: "Full journal content", required: true },
+      category: { type: "string", desc: "Entry category",       enum: ["general","reflection","gratitude","focus","dream"] },
+      mood:     { type: "string", desc: "Operator mood (optional)" },
+    },
+  },
+  {
+    name: "create_vault",
+    description: "Save important information to the operator's secure vault",
+    params: {
+      title:    { type: "string", desc: "Vault entry title", required: true },
+      content:  { type: "string", desc: "Content to save",   required: true },
+      category: { type: "string", desc: "Vault category",    required: true, enum: ["legal","business","personal","evidence","achievement"] },
+    },
+  },
+  {
+    name: "create_note",
+    description: "Create a note in the operator's knowledge base",
+    params: {
+      title:   { type: "string", desc: "Note title",   required: true },
+      content: { type: "string", desc: "Note content", required: true },
+    },
+  },
+  {
+    name: "log_expense",
+    description: "Log a financial expense for the operator",
+    params: {
+      description: { type: "string", desc: "What was spent on", required: true },
+      amount:      { type: "number", desc: "Amount in dollars",  required: true },
+      category:    { type: "string", desc: "Expense category",   enum: ["food","transport","entertainment","business","health","other"] },
+      date:        { type: "string", desc: "Date (YYYY-MM-DD), defaults to today" },
+    },
+  },
+  {
+    name: "create_goal",
+    description: "Create a high-level strategic goal for MAVIS to decompose and track",
+    params: {
+      objective: { type: "string", desc: "The goal objective",             required: true },
+      context:   { type: "string", desc: "Background context for the goal" },
+    },
+  },
+  {
+    name: "award_xp",
+    description: "Award experience points to the operator",
+    params: {
+      amount: { type: "number", desc: "XP amount to award", required: true },
+      reason: { type: "string", desc: "Why XP is being awarded" },
+    },
+  },
+  {
+    name: "create_skill",
+    description: "Add a new skill to the operator's skill tree",
+    params: {
+      name:     { type: "string", desc: "Skill name",     required: true },
+      category: { type: "string", desc: "Skill category" },
+      tier:     { type: "number", desc: "Skill tier 1-5" },
+    },
+  },
+  {
+    name: "create_ally",
+    description: "Add a person as an ally in the operator's network",
+    params: {
+      name:         { type: "string", desc: "Ally name",           required: true },
+      relationship: { type: "string", desc: "Relationship type",   enum: ["ally","council","rival","contact","mentor","partner"] },
+      notes:        { type: "string", desc: "Notes about this person" },
+    },
+  },
+  {
+    name: "complete_ritual",
+    description: "Mark a ritual or habit as completed for today, incrementing its streak",
+    params: {
+      name: { type: "string", desc: "Name of the ritual to complete", required: true },
+    },
+  },
+  {
+    name: "create_council_member",
+    description: "Add a new member to the operator's AI council",
+    params: {
+      name:      { type: "string", desc: "Council member name",  required: true },
+      role:      { type: "string", desc: "Their role or title" },
+      specialty: { type: "string", desc: "Area of expertise" },
+      class:     { type: "string", desc: "Council class",        enum: ["core","advisory","think-tank","shadows"] },
+      notes:     { type: "string", desc: "Personality or background notes" },
+    },
+  },
+  {
+    name: "generate_image",
+    description: "Generate an AI image based on a description",
+    params: {
+      prompt:       { type: "string", desc: "Image description / prompt", required: true },
+      aspect_ratio: { type: "string", desc: "Aspect ratio",               enum: ["1:1","16:9","9:16"] },
+    },
+  },
+  {
+    name: "forge_persona",
+    description: "Create a new AI persona for the operator to chat with",
+    params: {
+      description: { type: "string", desc: "Full description of the persona — name, personality, role, backstory", required: true },
+    },
+  },
+  // ── Gmail ──────────────────────────────────────────────────────────────
+  {
+    name: "get_emails",
+    description: "Fetch recent emails from Gmail inbox. Use when the user wants to read, check, or review their email.",
+    params: {
+      max_results: { type: "number", desc: "Maximum number of emails to return (default 10)" },
+      label_ids: { type: "string", desc: "Comma-separated Gmail label IDs to filter by (e.g. INBOX, SENT, UNREAD)" },
+      query: { type: "string", desc: "Gmail search query string (e.g. 'from:boss@co.com is:unread')" },
+    },
+  },
+  {
+    name: "send_email",
+    description: "Send an email via Gmail. Use when the user explicitly asks to send or draft an email.",
+    params: {
+      to: { type: "string", desc: "Recipient email address", required: true },
+      subject: { type: "string", desc: "Email subject line", required: true },
+      body: { type: "string", desc: "Plain-text email body", required: true },
+      cc: { type: "string", desc: "CC email addresses (comma-separated)" },
+      bcc: { type: "string", desc: "BCC email addresses (comma-separated)" },
+    },
+  },
+  {
+    name: "get_email_thread",
+    description: "Fetch the full conversation thread for a specific Gmail message ID.",
+    params: {
+      message_id: { type: "string", desc: "Gmail message ID", required: true },
+    },
+  },
+  {
+    name: "archive_email",
+    description: "Archive (remove from inbox) a Gmail message.",
+    params: {
+      message_id: { type: "string", desc: "Gmail message ID to archive", required: true },
+    },
+  },
+  {
+    name: "delete_email",
+    description: "Permanently delete or trash a Gmail message.",
+    params: {
+      message_id: { type: "string", desc: "Gmail message ID to delete", required: true },
+    },
+  },
+  {
+    name: "mark_email",
+    description: "Mark a Gmail message as read or unread.",
+    params: {
+      message_id: { type: "string", desc: "Gmail message ID", required: true },
+      read: { type: "string", desc: "Set to 'true' to mark as read, 'false' to mark as unread", enum: ["true", "false"], required: true },
+    },
+  },
+  // ── Google Calendar ────────────────────────────────────────────────────
+  {
+    name: "get_calendar_events",
+    description: "Fetch upcoming events from Google Calendar. Use when user asks about their schedule, upcoming meetings, or what's on their calendar.",
+    params: {
+      max_results: { type: "number", desc: "Maximum events to return (default 10)" },
+      time_min: { type: "string", desc: "Start of time range in ISO 8601 format (default: now)" },
+      time_max: { type: "string", desc: "End of time range in ISO 8601 format" },
+      calendar_id: { type: "string", desc: "Calendar ID (default: primary)" },
+    },
+  },
+  {
+    name: "get_availability",
+    description: "Check free/busy availability in Google Calendar for scheduling.",
+    params: {
+      time_min: { type: "string", desc: "Start of window in ISO 8601 format", required: true },
+      time_max: { type: "string", desc: "End of window in ISO 8601 format", required: true },
+    },
+  },
+  {
+    name: "create_event",
+    description: "Create or schedule an event in Google Calendar.",
+    params: {
+      title: { type: "string", desc: "Event title/summary", required: true },
+      start: { type: "string", desc: "Start time in ISO 8601 format", required: true },
+      end: { type: "string", desc: "End time in ISO 8601 format", required: true },
+      description: { type: "string", desc: "Event description or notes" },
+      location: { type: "string", desc: "Physical or virtual location" },
+      attendees: { type: "string", desc: "Comma-separated attendee email addresses" },
+      calendar_id: { type: "string", desc: "Calendar ID (default: primary)" },
+    },
+  },
+  {
+    name: "update_calendar_event",
+    description: "Update an existing Google Calendar event.",
+    params: {
+      event_id: { type: "string", desc: "Google Calendar event ID", required: true },
+      title: { type: "string", desc: "New event title" },
+      start: { type: "string", desc: "New start time in ISO 8601 format" },
+      end: { type: "string", desc: "New end time in ISO 8601 format" },
+      description: { type: "string", desc: "New event description" },
+      location: { type: "string", desc: "New event location" },
+      calendar_id: { type: "string", desc: "Calendar ID (default: primary)" },
+    },
+  },
+  {
+    name: "delete_calendar_event",
+    description: "Delete or cancel an event from Google Calendar.",
+    params: {
+      event_id: { type: "string", desc: "Google Calendar event ID to delete", required: true },
+      calendar_id: { type: "string", desc: "Calendar ID (default: primary)" },
+    },
+  },
+  {
+    name: "schedule_meet",
+    description: "Create a Google Calendar event with an auto-generated Google Meet video link.",
+    params: {
+      title: { type: "string", desc: "Meeting title", required: true },
+      start: { type: "string", desc: "Start time in ISO 8601 format", required: true },
+      end: { type: "string", desc: "End time in ISO 8601 format", required: true },
+      attendees: { type: "string", desc: "Comma-separated attendee email addresses" },
+      description: { type: "string", desc: "Meeting agenda or description" },
+    },
+  },
+  // ── Google Tasks ───────────────────────────────────────────────────────
+  {
+    name: "list_google_tasks",
+    description: "List tasks from Google Tasks. Use when user asks about their to-do list or Google Tasks.",
+    params: {
+      tasklist_id: { type: "string", desc: "Task list ID (default: @default)" },
+      show_completed: { type: "string", desc: "Include completed tasks: true or false", enum: ["true", "false"] },
+    },
+  },
+  {
+    name: "complete_google_task",
+    description: "Mark a Google Task as completed.",
+    params: {
+      task_id: { type: "string", desc: "Task ID to mark complete", required: true },
+      tasklist_id: { type: "string", desc: "Task list ID (default: @default)" },
+    },
+  },
+  {
+    name: "update_google_task",
+    description: "Update the title or due date of a Google Task.",
+    params: {
+      task_id: { type: "string", desc: "Task ID to update", required: true },
+      title: { type: "string", desc: "New task title" },
+      due: { type: "string", desc: "New due date in ISO 8601 format" },
+      tasklist_id: { type: "string", desc: "Task list ID (default: @default)" },
+    },
+  },
+  // ── Google Drive ───────────────────────────────────────────────────────
+  {
+    name: "list_drive_files",
+    description: "List files and folders in Google Drive. Use when user asks what's in their Drive or wants to browse files.",
+    params: {
+      folder_id: { type: "string", desc: "Folder ID to list (default: root)" },
+      max_results: { type: "number", desc: "Maximum files to return (default 20)" },
+    },
+  },
+  {
+    name: "search_drive_files",
+    description: "Search for files in Google Drive by name or content.",
+    params: {
+      query: { type: "string", desc: "Search query (e.g. 'name contains budget')", required: true },
+      max_results: { type: "number", desc: "Maximum files to return (default 10)" },
+    },
+  },
+  {
+    name: "get_file_info",
+    description: "Get metadata and details for a specific Google Drive file.",
+    params: {
+      file_id: { type: "string", desc: "Google Drive file ID", required: true },
+    },
+  },
+  {
+    name: "read_drive_file",
+    description: "Read the text content of a Google Drive file (Docs, plain text, etc.).",
+    params: {
+      file_id: { type: "string", desc: "Google Drive file ID", required: true },
+    },
+  },
+  {
+    name: "create_drive_folder",
+    description: "Create a new folder in Google Drive.",
+    params: {
+      name: { type: "string", desc: "Folder name", required: true },
+      parent_id: { type: "string", desc: "Parent folder ID (default: root)" },
+    },
+  },
+  {
+    name: "move_file",
+    description: "Move a file or folder to a different location in Google Drive.",
+    params: {
+      file_id: { type: "string", desc: "File or folder ID to move", required: true },
+      new_parent_id: { type: "string", desc: "Destination folder ID", required: true },
+    },
+  },
+  {
+    name: "rename_file",
+    description: "Rename a file or folder in Google Drive.",
+    params: {
+      file_id: { type: "string", desc: "File or folder ID to rename", required: true },
+      new_name: { type: "string", desc: "New name for the file/folder", required: true },
+    },
+  },
+  {
+    name: "share_file",
+    description: "Share a Google Drive file with another person or set sharing permissions.",
+    params: {
+      file_id: { type: "string", desc: "File or folder ID to share", required: true },
+      email: { type: "string", desc: "Email address of the person to share with" },
+      role: { type: "string", desc: "Permission role", enum: ["reader", "commenter", "writer", "owner"] },
+      type: { type: "string", desc: "Share type", enum: ["user", "group", "domain", "anyone"] },
+    },
+  },
+  // ── Google Docs ────────────────────────────────────────────────────────
+  {
+    name: "read_document",
+    description: "Read the full text content of a Google Docs document.",
+    params: {
+      document_id: { type: "string", desc: "Google Docs document ID", required: true },
+    },
+  },
+  // ── Google Sheets ──────────────────────────────────────────────────────
+  {
+    name: "create_sheet",
+    description: "Create a new Google Spreadsheet with an optional header row.",
+    params: {
+      title: { type: "string", desc: "Spreadsheet title", required: true },
+      headers: { type: "string", desc: "Comma-separated column headers for the first row" },
+    },
+  },
+  {
+    name: "read_sheet",
+    description: "Read cell data from a Google Spreadsheet.",
+    params: {
+      spreadsheet_id: { type: "string", desc: "Google Sheets spreadsheet ID", required: true },
+      range: { type: "string", desc: "A1 notation range (e.g. Sheet1!A1:D10, default: Sheet1!A1:Z100)" },
+    },
+  },
+  {
+    name: "update_sheet",
+    description: "Write or update cell values in a Google Spreadsheet.",
+    params: {
+      spreadsheet_id: { type: "string", desc: "Google Sheets spreadsheet ID", required: true },
+      range: { type: "string", desc: "A1 notation range to write to", required: true },
+      values: { type: "string", desc: "JSON array of rows (e.g. [[\"a\",\"b\"],[\"c\",\"d\"]])", required: true },
+    },
+  },
+  // ── Google Slides ──────────────────────────────────────────────────────
+  {
+    name: "create_presentation",
+    description: "Create a new Google Slides presentation with a title slide.",
+    params: {
+      title: { type: "string", desc: "Presentation title", required: true },
+      subtitle: { type: "string", desc: "Optional subtitle text for the title slide" },
+    },
+  },
+  {
+    name: "read_presentation",
+    description: "Read the text content of all slides in a Google Slides presentation.",
+    params: {
+      presentation_id: { type: "string", desc: "Google Slides presentation ID", required: true },
+    },
+  },
+  // ── Google Contacts ────────────────────────────────────────────────────
+  {
+    name: "create_contact",
+    description: "Create a new contact in Google Contacts.",
+    params: {
+      name: { type: "string", desc: "Contact full name", required: true },
+      email: { type: "string", desc: "Contact email address" },
+      phone: { type: "string", desc: "Contact phone number" },
+      notes: { type: "string", desc: "Notes or additional information about the contact" },
+    },
+  },
+  {
+    name: "list_contacts",
+    description: "List contacts from Google Contacts.",
+    params: {
+      max_results: { type: "number", desc: "Maximum contacts to return (default 20)" },
+    },
+  },
+  {
+    name: "search_contacts",
+    description: "Search Google Contacts by name, email, or phone number.",
+    params: {
+      query: { type: "string", desc: "Search query string", required: true },
+    },
+  },
+  {
+    name: "update_contact",
+    description: "Update an existing Google Contact's details.",
+    params: {
+      resource_name: { type: "string", desc: "Contact resource name (e.g. people/c12345)", required: true },
+      name: { type: "string", desc: "Updated full name" },
+      email: { type: "string", desc: "Updated email address" },
+      phone: { type: "string", desc: "Updated phone number" },
+      notes: { type: "string", desc: "Updated notes" },
+      etag: { type: "string", desc: "Contact etag for optimistic locking", required: true },
+    },
+  },
+  {
+    name: "delete_contact",
+    description: "Delete a contact from Google Contacts.",
+    params: {
+      resource_name: { type: "string", desc: "Contact resource name (e.g. people/c12345)", required: true },
+    },
+  },
+  // ── A2A: consult another entity ───────────────────────────────────────────
+  {
+    name: "consult_entity",
+    description: "Invoke another AI persona or council member's LLM in real-time to get their actual perspective on a topic. Use when you genuinely need another entity's unique view — not for simple questions MAVIS can answer directly.",
+    params: {
+      name:     { type: "string", desc: "Exact name of the persona or council member to consult", required: true },
+      question: { type: "string", desc: "The specific question or topic to ask them about",         required: true },
+    },
+  },
+  // ── Google Business Profile ────────────────────────────────────────────
+  {
+    name: "get_gbp_reviews",
+    description: "Fetch reviews from Google Business Profile. Use when user asks about their business reviews or what customers are saying.",
+    params: {
+      account_id: { type: "string", desc: "GBP account ID", required: true },
+      location_id: { type: "string", desc: "GBP location ID", required: true },
+      max_results: { type: "number", desc: "Maximum reviews to return (default 10)" },
+    },
+  },
+  {
+    name: "respond_to_review",
+    description: "Post a reply to a Google Business Profile review.",
+    params: {
+      account_id: { type: "string", desc: "GBP account ID", required: true },
+      location_id: { type: "string", desc: "GBP location ID", required: true },
+      review_id: { type: "string", desc: "Review ID to reply to", required: true },
+      comment: { type: "string", desc: "Reply text to post", required: true },
+    },
+  },
+  {
+    name: "create_gbp_post",
+    description: "Create a Google Business Profile post (What's New, Event, Offer, etc.).",
+    params: {
+      account_id: { type: "string", desc: "GBP account ID", required: true },
+      location_id: { type: "string", desc: "GBP location ID", required: true },
+      summary: { type: "string", desc: "Post text content", required: true },
+      topic_type: { type: "string", desc: "Post type", enum: ["STANDARD", "EVENT", "OFFER", "PRODUCT"], required: true },
+      call_to_action_type: { type: "string", desc: "CTA button type", enum: ["LEARN_MORE", "SIGN_UP", "SHOP", "ORDER", "GET_OFFER", "BOOK", "CALL"] },
+      call_to_action_url: { type: "string", desc: "URL for the CTA button" },
+    },
+  },
+];
+
+function toGeminiFunctions(defs: MavToolDef[]): object[] {
+  return [{
+    functionDeclarations: defs.map(d => ({
+      name: d.name,
+      description: d.description,
+      parameters: {
+        type: "OBJECT",
+        properties: Object.fromEntries(
+          Object.entries(d.params).map(([k, v]) => [k, {
+            type: v.type === "number" ? "NUMBER" : "STRING",
+            description: v.desc,
+            ...(v.enum ? { enum: v.enum } : {}),
+          }])
+        ),
+        required: Object.entries(d.params).filter(([, v]) => v.required).map(([k]) => k),
+      },
+    })),
+  }];
+}
+
+function toClaudeTools(defs: MavToolDef[]): object[] {
+  return defs.map(d => ({
+    name: d.name,
+    description: d.description,
+    input_schema: {
+      type: "object",
+      properties: Object.fromEntries(
+        Object.entries(d.params).map(([k, v]) => [k, {
+          type: v.type,
+          description: v.desc,
+          ...(v.enum ? { enum: v.enum } : {}),
+        }])
+      ),
+      required: Object.entries(d.params).filter(([, v]) => v.required).map(([k]) => k),
+    },
+  }));
+}
+
+async function callGeminiForTools(
+  messages: any[], system: string, key: string,
+): Promise<Array<{ name: string; args: Record<string, unknown> }>> {
+  const contents = messages.slice(-8).map((m: any) => ({
+    role: m.role === "user" ? "user" : "model",
+    parts: [{ text: (typeof m.content === "string" ? m.content : JSON.stringify(m.content)).slice(0, 2000) }],
+  }));
+  try {
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${key}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          systemInstruction: { parts: [{ text: system.slice(0, 4000) }] },
+          contents,
+          tools: toGeminiFunctions(MAVIS_TOOL_DEFS),
+          toolConfig: { functionCallingConfig: { mode: "AUTO" } },
+          generationConfig: { maxOutputTokens: 256 },
+        }),
+        signal: AbortSignal.timeout(10_000),
+      }
+    );
+    if (!res.ok) return [];
+    const d = await res.json();
+    const parts: any[] = d.candidates?.[0]?.content?.parts ?? [];
+    return parts
+      .filter((p: any) => p.functionCall)
+      .map((p: any) => ({ name: String(p.functionCall.name), args: (p.functionCall.args ?? {}) as Record<string, unknown> }));
+  } catch { return []; }
+}
+
+async function callClaudeForTools(
+  messages: any[], system: string, key: string,
+): Promise<Array<{ name: string; args: Record<string, unknown> }>> {
+  try {
+    const res = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-api-key": key, "anthropic-version": "2023-06-01" },
+      body: JSON.stringify({
+        model: "claude-haiku-4-5-20251001",
+        max_tokens: 256,
+        system: system.slice(0, 4000),
+        messages: messages.slice(-8).map((m: any) => ({
+          role: m.role,
+          content: (typeof m.content === "string" ? m.content : JSON.stringify(m.content)).slice(0, 2000),
+        })),
+        tools: toClaudeTools(MAVIS_TOOL_DEFS),
+      }),
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!res.ok) return [];
+    const d = await res.json();
+    return (d.content ?? [])
+      .filter((b: any) => b.type === "tool_use")
+      .map((b: any) => ({ name: String(b.name), args: (b.input ?? {}) as Record<string, unknown> }));
+  } catch { return []; }
+}
+
+function hasActionIntent(text: string): boolean {
+  const lower = text.toLowerCase();
+  const kws = [
+    "create ","add a ","make a ","log ","track ","record ","save to ",
+    "complete ","finish ","mark as done","done with",
+    "new quest","new note","new journal","new goal","new skill","new ally",
+    "vault entry","journal entry","council member",
+    "award xp","give xp","add xp",
+    "generate image","create image","forge persona","create persona",
+    // A2A / cross-entity
+    "ask ","consult ","what does","what would","'s thoughts","'s take","'s opinion","'s perspective",
+    "have them discuss","get their take","what do they think","let them weigh in",
+    // Google Workspace
+    "check my email","read my email","my inbox","unread email","email from","send email","send an email",
+    "my calendar","my schedule","upcoming event","calendar event","schedule a","book a meeting","create event",
+    "google drive","my drive","find file","search drive","share file","move file","rename file",
+    "google doc","read document","open doc",
+    "spreadsheet","google sheet","read sheet","update sheet",
+    "presentation","google slide",
+    "my contacts","add contact","find contact","search contact",
+    "business review","gbp review","google review","respond to review","business post",
+    "google tasks","my tasks","mark task",
+    "my emails","new emails","latest email",
+  ];
+  return kws.some(kw => lower.includes(kw));
+}
+
+async function resolveActionsNative(
+  messages: any[],
+  system: string,
+  aiKeys: { gemini: string; claude: string; openai: string; grok: string },
+  supabaseUrl: string,
+  serviceKey: string,
+  userId: string,
+): Promise<string> {
+  let calls: Array<{ name: string; args: Record<string, unknown> }> = [];
+
+  if (aiKeys.gemini && !isProviderUnhealthy("gemini-2.0-flash")) {
+    calls = await callGeminiForTools(messages, system, aiKeys.gemini);
+  }
+  if (calls.length === 0 && aiKeys.claude) {
+    calls = await callClaudeForTools(messages, system, aiKeys.claude);
+  }
+  if (calls.length === 0) return "";
+
+  const lines: string[] = [];
+  for (const call of calls.slice(0, 6)) {
+    try {
+      // consult_entity is handled inline — calls the entity's LLM, never reaches executor
+      if (call.name === "consult_entity") {
+        const entityName = String(call.args.name ?? "");
+        const question   = String(call.args.question ?? "");
+        if (!entityName || !question) continue;
+        const adminSb = createClient(supabaseUrl, serviceKey);
+        const [pRes, cRes] = await Promise.all([
+          adminSb.from("personas").select("id,name,role,system_prompt,bio,archetype,model").eq("user_id",userId).ilike("name",`%${entityName}%`).limit(1),
+          adminSb.from("councils").select("id,name,role,specialty,personality_prompt,notes,model").eq("user_id",userId).ilike("name",`%${entityName}%`).limit(1),
+        ]);
+        const persona = pRes.data?.[0] as any;
+        const council = cRes.data?.[0] as any;
+        const entity  = persona ?? council;
+        if (!entity) {
+          lines.push(`✗ consult_entity(${entityName}): Entity not found`);
+          continue;
+        }
+        const label = entity.name as string;
+        const entitySystem = persona
+          ? `You are ${label}${entity.role ? `, ${entity.role}` : ""}. ${entity.archetype ? `Archetype: ${entity.archetype}.` : ""} ${entity.bio ? `Background: ${entity.bio}.` : ""} ${entity.system_prompt ?? ""} Respond in 3-6 sentences — in character, direct, specific.`.trim()
+          : `You are ${label}${entity.role ? `, ${entity.role}` : ""}${entity.specialty ? ` specialising in ${entity.specialty}` : ""}. ${entity.notes ?? ""} ${entity.personality_prompt ?? ""} 3-6 sentences — direct, from your expertise.`.trim();
+
+        let entityHistory: { role: string; content: string }[] = [];
+        try {
+          if (persona) {
+            const { data: eh } = await adminSb.from("persona_conversations").select("role,content").eq("user_id",userId).eq("persona_id",entity.id).order("created_at",{ascending:false}).limit(10);
+            entityHistory = ((eh ?? []) as any[]).reverse();
+          } else {
+            const { data: eh } = await adminSb.from("council_chat_messages").select("role,content").eq("user_id",userId).eq("council_member_id",entity.id).order("created_at",{ascending:false}).limit(10);
+            entityHistory = ((eh ?? []) as any[]).reverse();
+          }
+        } catch { /* non-critical */ }
+
+        const entityMsgs = [
+          ...entityHistory.slice(-8).map((m: any) => ({ role: m.role as "user"|"assistant", content: String(m.content ?? "").slice(0,300) })),
+          { role: "user" as const, content: `MAVIS is consulting you on behalf of the operator. Question: ${question}` },
+        ];
+        const entityModel = entity.model ?? "gemini-2.0-flash";
+        const entityResp = await Promise.race([
+          (entityModel.includes("claude")
+            ? callClaude(entityMsgs, entitySystem, (await (async () => {
+                const { data } = await adminSb.from("mavis_user_integrations").select("key_value").eq("user_id",userId).eq("provider","anthropic").eq("key_name","API Key").maybeSingle();
+                return data?.key_value ?? "";
+              })()))
+            : callGemini(entityMsgs, entitySystem, (await (async () => {
+                const { data } = await adminSb.from("mavis_user_integrations").select("key_value").eq("user_id",userId).eq("provider","gemini").eq("key_name","API Key").maybeSingle();
+                return data?.key_value ?? "";
+              })()))),
+          new Promise<string>(r => setTimeout(() => r(""), 8_000)),
+        ]);
+        if (entityResp?.trim()) {
+          lines.push(`✓ consult_entity(${label}): "${entityResp.trim().slice(0, 400)}"`);
+        }
+        continue;
+      }
+      // All other tools go through the executor
+      const { ok, result } = await executeAgentAction(supabaseUrl, serviceKey, userId, call.name, call.args);
+      lines.push(ok
+        ? `✓ ${call.name}(${Object.entries(call.args).map(([k,v]) => `${k}=${JSON.stringify(v)}`).join(", ")}): ${JSON.stringify(result).slice(0, 200)}`
+        : `✗ ${call.name}: ${JSON.stringify(result).slice(0, 100)}`
+      );
+    } catch { /* non-critical */ }
+  }
+  if (lines.length === 0) return "";
+
+  return `\n\n═══ PRE-RESOLVED TOOL CALLS (already executed — reference these naturally) ═══\n${lines.join("\n")}\nDo NOT emit :::ACTION::: blocks for these — they are already complete.\n═══ END PRE-RESOLVED ═══`;
 }
 
 // ============================================================
@@ -2652,6 +3371,209 @@ ${fmtGoals}
       } catch { /* non-critical */ }
     }
 
+    // ── Targeted persona/council deep-fetch ────────────────
+    // When the user's message names a specific persona or council member,
+    // pull their FULL recent conversation (both sides) so MAVIS can
+    // accurately relay what was said — not just 3-sentence snippets.
+    let targetedPersonaBlock = "";
+    if (!isCouncilMode && lastUserText.length > 10) {
+      try {
+        // 1. Load all known entity names in one shot
+        const [pRes, cRes] = await Promise.all([
+          sb.from("personas").select("id, name").eq("user_id", user.id),
+          sb.from("councils").select("id, name").eq("user_id", user.id),
+        ]);
+        const personaMap = new Map<string, { id: string; kind: "persona" | "council" }>();
+        for (const p of (pRes.data ?? []) as any[]) {
+          if (p.name) personaMap.set(p.name.toLowerCase(), { id: p.id, kind: "persona" });
+        }
+        for (const c of (cRes.data ?? []) as any[]) {
+          if (c.name) personaMap.set(c.name.toLowerCase(), { id: c.id, kind: "council" });
+        }
+
+        // 2. Detect which entity names appear in the message
+        const msgLower = lastUserText.toLowerCase();
+        const hits: { name: string; id: string; kind: "persona" | "council" }[] = [];
+        for (const [nameLower, meta] of personaMap.entries()) {
+          if (nameLower.length >= 3 && msgLower.includes(nameLower)) {
+            const displayName = [...personaMap.entries()]
+              .find(([k]) => k === nameLower)?.[0] ?? nameLower;
+            hits.push({ name: displayName, ...meta });
+          }
+        }
+
+        // 3. For each hit, fetch the full conversation (user + assistant)
+        if (hits.length > 0) {
+          const sections: string[] = [];
+          for (const hit of hits.slice(0, 2)) { // cap at 2 entities
+            let msgs: { role: string; content: string; created_at: string }[] = [];
+            if (hit.kind === "persona") {
+              const { data } = await sb.from("persona_conversations")
+                .select("role, content, created_at")
+                .eq("user_id", user.id)
+                .eq("persona_id", hit.id)
+                .order("created_at", { ascending: false })
+                .limit(80);
+              msgs = ((data ?? []) as any[]).reverse();
+            } else {
+              const { data } = await sb.from("council_chat_messages")
+                .select("role, content, created_at")
+                .eq("user_id", user.id)
+                .eq("council_member_id", hit.id)
+                .order("created_at", { ascending: false })
+                .limit(80);
+              msgs = ((data ?? []) as any[]).reverse();
+            }
+            if (msgs.length === 0) continue;
+            const displayName = hit.name.charAt(0).toUpperCase() + hit.name.slice(1);
+            const convoLines = msgs.map((m: any) =>
+              `${m.role === "user" ? "OPERATOR" : displayName}: ${String(m.content ?? "").slice(0, 500)}`
+            ).join("\n");
+            sections.push(`--- Full conversation with ${displayName} (${msgs.length} messages) ---\n${convoLines}`);
+          }
+          if (sections.length > 0) {
+            targetedPersonaBlock = `\n\n═══ TARGETED CONVERSATION LOOKUP ═══\nThe operator asked about a specific entity. Here is their FULL recent conversation history — use this to answer accurately rather than guessing.\n\n${sections.join("\n\n")}\n═══ END LOOKUP ═══`;
+          }
+        }
+      } catch { /* non-critical */ }
+    }
+
+    // ── A2A: synchronous agent-to-agent consultation + multi-entity dialogue ──
+    let a2aBlock = "";
+    if (!isCouncilMode && lastUserText.length > 5) {
+
+      // ── Multi-entity directed dialogue ─────────────────────────────────────
+      // "have X and Y discuss Z" → orchestrate a real 2-turn exchange, stream as dialogue
+      const MULTI_ENT_PATTERNS = [
+        /\b(?:have|get|let|make)\s+([A-Za-z][A-Za-z0-9_'-]+)\s+and\s+([A-Za-z][A-Za-z0-9_'-]+)\s+(?:discuss|talk\s+about|debate|explore|share\s+thoughts\s+on|weigh\s+in\s+on)(.*)/i,
+        /\b(?:start|run|set\s*up)\s+(?:a\s+)?(?:conversation|discussion|debate|dialogue)\s+between\s+([A-Za-z][A-Za-z0-9_'-]+)\s+and\s+([A-Za-z][A-Za-z0-9_'-]+)(.*)/i,
+        /\b([A-Za-z][A-Za-z0-9_'-]+)\s+and\s+([A-Za-z][A-Za-z0-9_'-]+)\s+(?:should|need\s+to)\s+(?:discuss|talk\s+about|debate)(.*)/i,
+      ];
+      const SKIP_WORDS_MULTI = new Set(["me","you","him","her","them","us","it","this","that","the","a","an","my","your","their","our","its","mavis"]);
+      let multiA: string|null = null, multiB: string|null = null, multiTopic = lastUserText;
+      for (const pat of MULTI_ENT_PATTERNS) {
+        const m = lastUserText.match(pat);
+        if (m?.[1] && m?.[2] && !SKIP_WORDS_MULTI.has(m[1].toLowerCase()) && !SKIP_WORDS_MULTI.has(m[2].toLowerCase())) {
+          multiA = m[1]; multiB = m[2]; multiTopic = (m[3] ?? "").trim() || lastUserText;
+          break;
+        }
+      }
+      if (multiA && multiB) {
+        try { await Promise.race([ (async () => {
+          const [pA, cA, pB, cB] = await Promise.all([
+            sb.from("personas").select("id,name,role,system_prompt,bio,archetype,model").eq("user_id",user.id).ilike("name",`%${multiA}%`).limit(1),
+            sb.from("councils").select("id,name,role,specialty,personality_prompt,notes,model").eq("user_id",user.id).ilike("name",`%${multiA}%`).limit(1),
+            sb.from("personas").select("id,name,role,system_prompt,bio,archetype,model").eq("user_id",user.id).ilike("name",`%${multiB}%`).limit(1),
+            sb.from("councils").select("id,name,role,specialty,personality_prompt,notes,model").eq("user_id",user.id).ilike("name",`%${multiB}%`).limit(1),
+          ]);
+          const entA = pA.data?.[0] as any ?? cA.data?.[0] as any;
+          const entB = pB.data?.[0] as any ?? cB.data?.[0] as any;
+          if (!entA || !entB) return;
+          const lblA = entA.name as string, lblB = entB.name as string;
+          const mkSys = (e: any, isP: boolean) => isP
+            ? `You are ${e.name}${e.role?`, ${e.role}`:""}.${e.archetype?` Archetype: ${e.archetype}.`:""}${e.bio?` Background: ${e.bio}.`:""}${e.system_prompt?` ${e.system_prompt}`:""} Be direct, in-character, 3-5 sentences.`
+            : `You are ${e.name}${e.role?`, ${e.role}`:""}${e.specialty?` specialising in ${e.specialty}`:""}.${e.notes?` ${e.notes}`:""}${e.personality_prompt?` ${e.personality_prompt}`:""} 3-5 sentences, from expertise.`;
+          const sysA = mkSys(entA, !!pA.data?.[0]);
+          const sysB = mkSys(entB, !!pB.data?.[0]);
+          const keysObj = { openai: openaiKey, claude: claudeKey, grok: grokKey, gemini: geminiKey };
+          const turn1Res = await Promise.race([
+            callWithFallback("gemini", [{ role:"user" as const, content:`Topic: ${multiTopic}. Share your thoughts directly.` }], sysA, keysObj, false, "PRIME"),
+            new Promise<null>(r => setTimeout(() => r(null), 8_000)),
+          ]);
+          const turn1 = (turn1Res as any)?.content?.trim() ?? "";
+          if (!turn1) return;
+          const turn2Res = await Promise.race([
+            callWithFallback("gemini", [{ role:"user" as const, content:`Topic: ${multiTopic}\n\n${lblA} just said: "${turn1}"\n\nWhat's your take? Respond to ${lblA} directly.` }], sysB, keysObj, false, "PRIME"),
+            new Promise<null>(r => setTimeout(() => r(null), 8_000)),
+          ]);
+          const turn2 = (turn2Res as any)?.content?.trim() ?? "";
+          const dialogue = `═══ DIALOGUE: ${lblA.toUpperCase()} × ${lblB.toUpperCase()} ═══\n\n**${lblA}:** ${turn1}\n\n**${lblB}:** ${turn2 || "[unavailable]"}\n═══ END DIALOGUE ═══`;
+          a2aBlock = `\n\n${dialogue}\n\nInstructions for MAVIS: The above is the live exchange between ${lblA} and ${lblB}. Present it to the operator clearly and offer to continue the dialogue or dig deeper into any point raised.`;
+        })(), new Promise<void>(r => setTimeout(r, 20_000)) ]); } catch { /* non-critical */ }
+      }
+
+      // ── Single A2A ─────────────────────────────────────────────────────────
+      if (!a2aBlock) { try { await Promise.race([ (async () => {
+        const A2A_PATTERNS = [
+          /\b(?:ask|consult|check\s+with|run\s+(?:this|it)\s+by|get\s+input\s+from)\s+([A-Za-z][A-Za-z0-9_'-]{1,})\b/i,
+          /\bwhat\s+(?:does|would|did|do)\s+([A-Za-z][A-Za-z0-9_'-]{1,})\s+(?:think|say|know|recommend|suggest|feel)/i,
+          /\b([A-Za-z][A-Za-z0-9_'-]{1,})'s\s+(?:thoughts|take|opinion|input|perspective|view|insights?|read)\b/i,
+          /\bget\s+([A-Za-z][A-Za-z0-9_'-]{1,})'s\s+(?:thoughts|take|opinion|input|perspective|view|insights?)/i,
+          /\b(?:have|let|get)\s+([A-Za-z][A-Za-z0-9_'-]{1,})\s+(?:weigh\s+in|respond|reply|answer)\b/i,
+        ];
+        // Skip common non-name words that pattern-match above
+        const SKIP_WORDS = new Set(["me","you","him","her","them","us","it","this","that","the","a","an","my","your","their","our","its"]);
+        let a2aTargetName: string | null = null;
+        for (const pat of A2A_PATTERNS) {
+          const m = lastUserText.match(pat);
+          if (m?.[1] && !SKIP_WORDS.has(m[1].toLowerCase()) && m[1].length >= 2) {
+            a2aTargetName = m[1];
+            break;
+          }
+        }
+        if (a2aTargetName) {
+          const nameLower = a2aTargetName.toLowerCase();
+          const [pRes, cRes] = await Promise.all([
+            sb.from("personas")
+              .select("id, name, system_prompt, model, role, archetype")
+              .eq("user_id", user.id)
+              .ilike("name", `%${nameLower}%`)
+              .limit(1),
+            sb.from("councils")
+              .select("id, name, personality_prompt, role, class, specialty, notes")
+              .eq("user_id", user.id)
+              .ilike("name", `%${nameLower}%`)
+              .limit(1),
+          ]);
+          const persona = (pRes.data?.[0] as any) ?? null;
+          const council = (cRes.data?.[0] as any) ?? null;
+          const entity  = persona ?? council;
+          if (entity) {
+            const entityName = entity.name as string;
+            const entitySystem = persona
+              ? (String(entity.system_prompt ?? `You are ${entityName}, a ${entity.archetype ?? "advisor"} (${entity.role ?? "advisor"}).`))
+              : `${entity.personality_prompt ?? ""} You are ${entityName}, a ${entity.class ?? "council"} member. Specialty: ${entity.specialty ?? entity.role ?? "general"}. ${entity.notes ?? ""}`.trim();
+
+            // Fetch last 20 messages from that entity's conversation to ground their response
+            let entityHistory: { role: string; content: string }[] = [];
+            try {
+              if (persona) {
+                const { data: ehRows } = await sb.from("persona_conversations")
+                  .select("role, content").eq("user_id", user.id).eq("persona_id", entity.id)
+                  .order("created_at", { ascending: false }).limit(20);
+                entityHistory = ((ehRows ?? []) as any[]).reverse();
+              } else {
+                const { data: ehRows } = await sb.from("council_chat_messages")
+                  .select("role, content").eq("user_id", user.id).eq("council_member_id", entity.id)
+                  .order("created_at", { ascending: false }).limit(20);
+                entityHistory = ((ehRows ?? []) as any[]).reverse();
+              }
+            } catch { /* non-critical */ }
+
+            const a2aQuestion = `MAVIS is consulting you directly on behalf of the operator right now. The operator asked: "${lastUserText.slice(0, 500)}"\n\nRespond as ${entityName} in 3-6 sentences — in character, with your genuine perspective, insight, or information. Be direct and specific.`;
+            const a2aMessages = [
+              ...entityHistory.slice(-10).map((m: any) => ({ role: m.role, content: String(m.content ?? "").slice(0, 300) })),
+              { role: "user" as const, content: a2aQuestion },
+            ];
+            try {
+              const a2aKeys = { openai: openaiKey, claude: claudeKey, grok: grokKey, gemini: geminiKey };
+              // Hard 8-second timeout — A2A must not block the main response
+              const A2A_TIMEOUT = new Promise<null>((resolve) => setTimeout(() => resolve(null), 8000));
+              const a2aResult = await Promise.race([
+                callWithFallback("gemini", a2aMessages, entitySystem, a2aKeys, false, "PRIME"),
+                A2A_TIMEOUT,
+              ]);
+              if (a2aResult && (a2aResult as any).content && (a2aResult as any).content.trim().length > 10) {
+                const entityResp = (a2aResult as any).content as string;
+                a2aBlock = `\n\n═══ LIVE A2A CONSULTATION — ${entityName.toUpperCase()} RESPONDED ═══\nMAVIS just consulted ${entityName} in real-time. Their actual response:\n\n"${entityResp.trim()}"\n\nInstructions: Relay ${entityName}'s response to the operator, attributing it directly to ${entityName}. Quote or closely paraphrase what they said. Do not fabricate or add claims beyond what they provided above.\n═══ END A2A ═══`;
+              }
+            } catch { /* non-critical — MAVIS will fall back naturally */ }
+          }
+        }
+      })(), new Promise<void>((resolve) => setTimeout(resolve, 12000)) ]); } catch { /* non-critical */ }
+      } // end if (!a2aBlock)
+    }
+
     // ── Attachments uploaded to this thread ────────────────
     let attachmentsBlock = "";
     const visionImages: { url: string; mime: string }[] = [];
@@ -2825,12 +3747,16 @@ You always know the current date and time without being told. Reference it natur
       compressBlock(naviBlock),
       compressBlock(knowledgeBlock),
       crossRelationshipBlock,
+      targetedPersonaBlock,
+      a2aBlock,
       semanticMemoryBlock,
       attachmentsBlock,
       proactiveBlock,
       plansBlock,
       urlContent,
       webSearchResults ? `\n---\nWEB SEARCH:\n${webSearchResults}\n---` : "",
+      // Inline image rendering directive (Prymal pattern)
+      `\n═══ INLINE MEDIA RENDERING ═══\nWhen tool results contain file_url, thumbnail_url, image_url, or drive links pointing to images, render them inline as markdown: ![description](url). The chat interface renders these as <img> tags — always show images directly rather than describing them separately.\n═══ END MEDIA ═══`,
     ].filter(Boolean).join("\n\n");
 
     // ── Vision: inject image URLs into last user message ────
@@ -2879,6 +3805,21 @@ You always know the current date and time without being told. Reference it natur
     const provider = routeToProvider(mode ?? "PRIME", lastUserMsg?.content ?? "");
     const aiKeys = { openai: openaiKey, claude: claudeKey, grok: grokKey, gemini: geminiKey };
 
+    // ── Native tool-use pre-pass (Prymal pattern) ──────────
+    // Run a lightweight tool-detection call BEFORE streaming so MAVIS can
+    // reference executed actions in its live response rather than after-the-fact.
+    // Falls back gracefully — if this returns nothing, fullPromptFinal === fullPrompt.
+    let fullPromptFinal = fullPrompt;
+    if (!isCouncilMode && hasActionIntent(lastUserText) && (geminiKey || claudeKey)) {
+      try {
+        const nativeBlock = await Promise.race([
+          resolveActionsNative(callMessages, systemWithPersonaMemory, aiKeys, supabaseUrl, serviceKey, user.id),
+          new Promise<string>((resolve) => setTimeout(() => resolve(""), 12_000)),
+        ]);
+        if (nativeBlock) fullPromptFinal = fullPrompt + nativeBlock;
+      } catch { /* non-critical */ }
+    }
+
     // ── Streaming path (SSE) ────────────────────────────────
     if (isStreaming === true) {
       const enc = new TextEncoder();
@@ -2888,7 +3829,7 @@ You always know the current date and time without being told. Reference it natur
           let accumulated = "";
           try {
             const { stream: aiStream, provider: streamProv } = await callWithFallbackStream(
-              provider, callMessages, fullPrompt, aiKeys, useThinking, modeUpper,
+              provider, callMessages, fullPromptFinal, aiKeys, useThinking, modeUpper,
             );
             const reader = aiStream.getReader();
             while (true) {
@@ -2939,7 +3880,7 @@ You always know the current date and time without being told. Reference it natur
                 ];
 
                 const { stream: synthStream } = await callWithFallbackStream(
-                  provider, reactMessages, fullPrompt, aiKeys, useThinking, modeUpper,
+                  provider, reactMessages, fullPromptFinal, aiKeys, useThinking, modeUpper,
                 );
                 const synthReader = synthStream.getReader();
                 accumulated = "";
@@ -3236,7 +4177,7 @@ You always know the current date and time without being told. Reference it natur
     let { content, provider: usedProvider } = await callWithFallback(
       provider,
       callMessages,
-      fullPrompt,
+      fullPromptFinal,
       aiKeys,
       useThinking,
       modeUpper,
@@ -3276,7 +4217,7 @@ You always know the current date and time without being told. Reference it natur
         ];
 
         const { content: nextContent } = await callWithFallback(
-          provider, reactMessages, fullPrompt, aiKeys, useThinking, modeUpper,
+          provider, reactMessages, fullPromptFinal, aiKeys, useThinking, modeUpper,
         );
         content = nextContent;
         reactIter++;
