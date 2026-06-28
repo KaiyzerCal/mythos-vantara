@@ -115,7 +115,7 @@ async function handleTasksSend(
   // Determine user_id: prefer explicit user_id in metadata, else fallback to service account
   const userId = requestUserId ?? (params.metadata?.user_id as string) ?? null;
   if (!userId) {
-    return rpcError(null, -32600, "user_id required in task metadata");
+    throw new Error("user_id required in task metadata or via Bearer auth");
   }
 
   const now = new Date().toISOString();
@@ -136,8 +136,9 @@ async function handleTasksSend(
 
   if (dbErr) {
     console.error("[a2a-gateway] DB insert error:", dbErr.message);
-    return rpcError(null, -32603, "Failed to create task", dbErr.message);
+    throw new Error(`Failed to create task: ${dbErr.message}`);
   }
+
 
   return {
     id: inserted.id,
@@ -224,11 +225,12 @@ serve(async (req) => {
   const url = new URL(req.url);
 
   // A2A Agent Discovery — must be publicly accessible, no auth required
-  if (req.method === "GET" && (url.pathname.endsWith("/.well-known/agent.json") || url.pathname === "/")) {
+  if (req.method === "GET") {
     return new Response(JSON.stringify(MAVIS_AGENT_CARD), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }
+
 
   // JSON-RPC endpoint — POST /
   if (req.method !== "POST") {
@@ -294,14 +296,15 @@ serve(async (req) => {
         );
     }
 
-    // If result itself contains an error key (from our handlers), wrap as RPC error
-    if (result && typeof result === "object" && "error" in (result as object)) {
+    // If a handler returned a soft error payload, surface as JSON-RPC error
+    if (result && typeof result === "object" && "error" in (result as object) && typeof (result as { error: unknown }).error === "string") {
       const r = result as { error: string };
       return new Response(
-        JSON.stringify(rpcError(rpcId, -32603, r.error)),
+        JSON.stringify(rpcError(rpcId, -32602, r.error)),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     }
+
 
     return new Response(
       JSON.stringify(rpcSuccess(rpcId, result)),
