@@ -868,13 +868,19 @@ Supported types:
   create_note        — params: title, content
   create_ally        — params: name, relationship, notes
 
+QUERY MAVIS — when you need information from MAVIS's memory, the operator's history, or what was discussed with a specific entity:
+:::QUERY_MAVIS{"question":"<specific question>","target":"mavis|<persona name>|<council member name>"}:::
+MAVIS will look up the answer and replace this block with the actual information inline in your response.
+Use this when the operator asks you to check something, recall a past discussion, or get context from another entity.
+
 ESCALATE TO MAVIS — for anything requiring external services (email, calendar, image gen, strategy docs):
 :::PROPOSE_MAVIS{"type":"<category>","summary":"<one sentence>","details":"<full description>","payload":{}}:::
 
 Valid categories: propose_product, forge_persona, nora_tweet, autonomous_goal, generate_image, create_website, business_strategy, social_campaign, custom_skill_definition, other
 
 Rules:
-- Embed blocks BEFORE your visible reply text
+- Embed blocks BEFORE or WITHIN your visible reply text at the natural point where the info would appear
+- QUERY_MAVIS is replaced inline — put it where you want the answer to appear
 - Never show the raw block syntax to the user
 - Act naturally as your character — these are background operations
 - Only use PROPOSE_MAVIS for things requiring MAVIS's external tools`;
@@ -1091,6 +1097,89 @@ async function executeDirectAction(type: string, params: Record<string, any>, ui
   }
 }
 
+// ── MAVIS context lookup for QUERY_MAVIS blocks ──────────────────────────────
+// Called when a persona/council member embeds :::QUERY_MAVIS{...}::: in their reply.
+// Searches MAVIS memory, notes, tacit knowledge, and entity conversation histories.
+// Returns a 2-4 sentence answer synthesized from retrieved context.
+async function queryMavisForContext(question: string, target: string, uid: string): Promise<string> {
+  try {
+    const targetLower = (target ?? "mavis").toLowerCase().trim();
+
+    // If target is a named persona/council member, fetch their conversation history
+    let targetConvoLines = "";
+    if (targetLower && targetLower !== "mavis") {
+      const [pRes, cRes] = await Promise.all([
+        sb.from("personas").select("id, name").eq("user_id", uid).ilike("name", targetLower),
+        sb.from("councils").select("id, name").eq("user_id", uid).ilike("name", targetLower),
+      ]);
+      const personaMatch = (pRes.data ?? []) as any[];
+      const councilMatch = (cRes.data ?? []) as any[];
+
+      if (personaMatch.length > 0) {
+        const { data: msgs } = await sb.from("persona_conversations")
+          .select("role, content, created_at")
+          .eq("user_id", uid)
+          .eq("persona_id", personaMatch[0].id)
+          .order("created_at", { ascending: false })
+          .limit(60);
+        const reversed = ((msgs ?? []) as any[]).reverse();
+        targetConvoLines = `CONVERSATION WITH ${personaMatch[0].name.toUpperCase()} (${reversed.length} messages):\n` +
+          reversed.map((m: any) => `${m.role === "user" ? "OPERATOR" : personaMatch[0].name}: ${String(m.content ?? "").slice(0, 400)}`).join("\n");
+      } else if (councilMatch.length > 0) {
+        const { data: msgs } = await sb.from("council_chat_messages")
+          .select("role, content, created_at")
+          .eq("user_id", uid)
+          .eq("council_member_id", councilMatch[0].id)
+          .order("created_at", { ascending: false })
+          .limit(60);
+        const reversed = ((msgs ?? []) as any[]).reverse();
+        targetConvoLines = `CONVERSATION WITH ${councilMatch[0].name.toUpperCase()} (${reversed.length} messages):\n` +
+          reversed.map((m: any) => `${m.role === "user" ? "OPERATOR" : councilMatch[0].name}: ${String(m.content ?? "").slice(0, 400)}`).join("\n");
+      }
+    }
+
+    // Always pull MAVIS memory + notes + tacit for full context
+    const [memRes, notesRes, tacitRes] = await Promise.all([
+      sb.from("mavis_memory").select("role, content, importance_score")
+        .eq("user_id", uid)
+        .order("importance_score", { ascending: false })
+        .limit(20),
+      sb.from("mavis_notes").select("title, content")
+        .eq("user_id", uid)
+        .order("created_at", { ascending: false })
+        .limit(10),
+      sb.from("mavis_tacit").select("category, key, value")
+        .eq("user_id", uid)
+        .limit(15),
+    ]);
+
+    const parts: string[] = [];
+    if (targetConvoLines) parts.push(targetConvoLines);
+    if ((memRes.data ?? []).length > 0) {
+      parts.push("MAVIS MEMORY:\n" + (memRes.data as any[]).map((m: any) => `[${m.role}] ${String(m.content ?? "").slice(0, 300)}`).join("\n"));
+    }
+    if ((notesRes.data ?? []).length > 0) {
+      parts.push("NOTES:\n" + (notesRes.data as any[]).map((n: any) => `${n.title}: ${String(n.content ?? "").slice(0, 200)}`).join("\n"));
+    }
+    if ((tacitRes.data ?? []).length > 0) {
+      parts.push("OPERATOR PREFERENCES:\n" + (tacitRes.data as any[]).map((t: any) => `${t.key}: ${t.value}`).join("\n"));
+    }
+
+    if (parts.length === 0) return "[MAVIS: No relevant information found in memory.]";
+
+    const context = parts.join("\n\n").slice(0, 5000);
+    const answer = await callLLM(
+      "gemini-2.0-flash",
+      "You are MAVIS's internal retrieval system. Answer the question in 2-4 sentences using ONLY the provided context. If the answer isn't in the context, say so briefly. Be direct and factual.",
+      [{ role: "user", content: `CONTEXT:\n${context}\n\nQUESTION: ${question}` }],
+      250,
+    );
+    return `[MAVIS: ${(answer ?? "No relevant information found.").trim()}]`;
+  } catch {
+    return "[MAVIS: Unable to retrieve information at this time.]";
+  }
+}
+
 // Parse PROPOSE_ACTION and PROPOSE_MAVIS blocks from a raw LLM reply.
 // Returns the stripped visible text + confirmation lines to append.
 async function parseAndHandleProposals(
@@ -1101,13 +1190,33 @@ async function parseAndHandleProposals(
 ): Promise<string> {
   const ACTION_RE = /:::PROPOSE_ACTION(\{[\s\S]*?\}):::/g;
   const MAVIS_RE  = /:::PROPOSE_MAVIS(\{[\s\S]*?\}):::/g;
+  const QUERY_RE  = /:::QUERY_MAVIS(\{[\s\S]*?\}):::/g;
 
   const actionResults: string[] = [];
   const mavisProposals: Array<{ type: string; summary: string; details: string; payload: Record<string, any> }> = [];
 
-  // Collect direct actions
+  // ── Resolve QUERY_MAVIS blocks inline ───────────────────────────────────────
+  // Replace each :::QUERY_MAVIS{...}::: with the actual MAVIS answer so it
+  // appears naturally in the persona's text instead of a raw block.
   let match: RegExpExecArray | null;
-  while ((match = ACTION_RE.exec(rawReply)) !== null) {
+  let workingReply = rawReply;
+  const queryBlocks: Array<{ full: string; answer: string }> = [];
+  QUERY_RE.lastIndex = 0;
+  while ((match = QUERY_RE.exec(rawReply)) !== null) {
+    try {
+      const { question, target } = JSON.parse(match[1]);
+      if (question) {
+        const answer = await queryMavisForContext(String(question), String(target ?? "mavis"), uid);
+        queryBlocks.push({ full: match[0], answer });
+      }
+    } catch { /* malformed block — skip */ }
+  }
+  for (const { full, answer } of queryBlocks) {
+    workingReply = workingReply.replace(full, answer);
+  }
+
+  // Collect direct actions
+  while ((match = ACTION_RE.exec(workingReply)) !== null) {
     try {
       const { type, params } = JSON.parse(match[1]);
       if (type && params) {
@@ -1120,7 +1229,8 @@ async function parseAndHandleProposals(
   }
 
   // Collect MAVIS proposals
-  while ((match = MAVIS_RE.exec(rawReply)) !== null) {
+  MAVIS_RE.lastIndex = 0;
+  while ((match = MAVIS_RE.exec(workingReply)) !== null) {
     try {
       const prop = JSON.parse(match[1]);
       mavisProposals.push({
@@ -1134,8 +1244,10 @@ async function parseAndHandleProposals(
     }
   }
 
-  // Strip all blocks from visible text
-  let visible = rawReply
+  // Strip action/proposal blocks from visible text (QUERY_MAVIS already replaced inline)
+  ACTION_RE.lastIndex = 0;
+  MAVIS_RE.lastIndex = 0;
+  let visible = workingReply
     .replace(ACTION_RE, "")
     .replace(MAVIS_RE, "")
     .trim();

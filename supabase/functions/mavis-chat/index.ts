@@ -2685,6 +2685,73 @@ ${fmtGoals}
       } catch { /* non-critical */ }
     }
 
+    // ── Targeted persona/council deep-fetch ────────────────
+    // When the user's message names a specific persona or council member,
+    // pull their FULL recent conversation (both sides) so MAVIS can
+    // accurately relay what was said — not just 3-sentence snippets.
+    let targetedPersonaBlock = "";
+    if (!isCouncilMode && lastUserText.length > 10) {
+      try {
+        // 1. Load all known entity names in one shot
+        const [pRes, cRes] = await Promise.all([
+          sb.from("personas").select("id, name").eq("user_id", user.id),
+          sb.from("councils").select("id, name").eq("user_id", user.id),
+        ]);
+        const personaMap = new Map<string, { id: string; kind: "persona" | "council" }>();
+        for (const p of (pRes.data ?? []) as any[]) {
+          if (p.name) personaMap.set(p.name.toLowerCase(), { id: p.id, kind: "persona" });
+        }
+        for (const c of (cRes.data ?? []) as any[]) {
+          if (c.name) personaMap.set(c.name.toLowerCase(), { id: c.id, kind: "council" });
+        }
+
+        // 2. Detect which entity names appear in the message
+        const msgLower = lastUserText.toLowerCase();
+        const hits: { name: string; id: string; kind: "persona" | "council" }[] = [];
+        for (const [nameLower, meta] of personaMap.entries()) {
+          if (nameLower.length >= 3 && msgLower.includes(nameLower)) {
+            const displayName = [...personaMap.entries()]
+              .find(([k]) => k === nameLower)?.[0] ?? nameLower;
+            hits.push({ name: displayName, ...meta });
+          }
+        }
+
+        // 3. For each hit, fetch the full conversation (user + assistant)
+        if (hits.length > 0) {
+          const sections: string[] = [];
+          for (const hit of hits.slice(0, 2)) { // cap at 2 entities
+            let msgs: { role: string; content: string; created_at: string }[] = [];
+            if (hit.kind === "persona") {
+              const { data } = await sb.from("persona_conversations")
+                .select("role, content, created_at")
+                .eq("user_id", user.id)
+                .eq("persona_id", hit.id)
+                .order("created_at", { ascending: false })
+                .limit(80);
+              msgs = ((data ?? []) as any[]).reverse();
+            } else {
+              const { data } = await sb.from("council_chat_messages")
+                .select("role, content, created_at")
+                .eq("user_id", user.id)
+                .eq("council_member_id", hit.id)
+                .order("created_at", { ascending: false })
+                .limit(80);
+              msgs = ((data ?? []) as any[]).reverse();
+            }
+            if (msgs.length === 0) continue;
+            const displayName = hit.name.charAt(0).toUpperCase() + hit.name.slice(1);
+            const convoLines = msgs.map((m: any) =>
+              `${m.role === "user" ? "OPERATOR" : displayName}: ${String(m.content ?? "").slice(0, 500)}`
+            ).join("\n");
+            sections.push(`--- Full conversation with ${displayName} (${msgs.length} messages) ---\n${convoLines}`);
+          }
+          if (sections.length > 0) {
+            targetedPersonaBlock = `\n\n═══ TARGETED CONVERSATION LOOKUP ═══\nThe operator asked about a specific entity. Here is their FULL recent conversation history — use this to answer accurately rather than guessing.\n\n${sections.join("\n\n")}\n═══ END LOOKUP ═══`;
+          }
+        }
+      } catch { /* non-critical */ }
+    }
+
     // ── Attachments uploaded to this thread ────────────────
     let attachmentsBlock = "";
     const visionImages: { url: string; mime: string }[] = [];
@@ -2858,6 +2925,7 @@ You always know the current date and time without being told. Reference it natur
       compressBlock(naviBlock),
       compressBlock(knowledgeBlock),
       crossRelationshipBlock,
+      targetedPersonaBlock,
       semanticMemoryBlock,
       attachmentsBlock,
       proactiveBlock,
