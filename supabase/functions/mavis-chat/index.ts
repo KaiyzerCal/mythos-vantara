@@ -763,6 +763,281 @@ function formatToolResults(results: Array<{ type: string; ok: boolean; result: u
 }
 
 // ============================================================
+// NATIVE TOOL-USE — Gemini function calling + Claude tool_use
+// Prymal pattern: validated JSON schemas → no regex parsing errors
+// ============================================================
+
+interface MavToolParam { type: string; desc: string; required?: boolean; enum?: string[] }
+interface MavToolDef { name: string; description: string; params: Record<string, MavToolParam> }
+
+const MAVIS_TOOL_DEFS: MavToolDef[] = [
+  {
+    name: "create_quest",
+    description: "Create a new quest or task for the operator to track and complete",
+    params: {
+      title:       { type: "string", desc: "Quest title",                                 required: true },
+      description: { type: "string", desc: "What needs to be done" },
+      type:        { type: "string", desc: "Quest type",                                  enum: ["daily","side","main","epic"] },
+      xp_reward:   { type: "number", desc: "XP to award on completion (default 50)" },
+    },
+  },
+  {
+    name: "complete_quest",
+    description: "Mark a quest or task as completed",
+    params: {
+      title: { type: "string", desc: "Title of the quest to complete", required: true },
+    },
+  },
+  {
+    name: "create_journal",
+    description: "Create a journal entry in the operator's second brain",
+    params: {
+      title:    { type: "string", desc: "Entry title",          required: true },
+      content:  { type: "string", desc: "Full journal content", required: true },
+      category: { type: "string", desc: "Entry category",       enum: ["general","reflection","gratitude","focus","dream"] },
+      mood:     { type: "string", desc: "Operator mood (optional)" },
+    },
+  },
+  {
+    name: "create_vault",
+    description: "Save important information to the operator's secure vault",
+    params: {
+      title:    { type: "string", desc: "Vault entry title", required: true },
+      content:  { type: "string", desc: "Content to save",   required: true },
+      category: { type: "string", desc: "Vault category",    required: true, enum: ["legal","business","personal","evidence","achievement"] },
+    },
+  },
+  {
+    name: "create_note",
+    description: "Create a note in the operator's knowledge base",
+    params: {
+      title:   { type: "string", desc: "Note title",   required: true },
+      content: { type: "string", desc: "Note content", required: true },
+    },
+  },
+  {
+    name: "log_expense",
+    description: "Log a financial expense for the operator",
+    params: {
+      description: { type: "string", desc: "What was spent on", required: true },
+      amount:      { type: "number", desc: "Amount in dollars",  required: true },
+      category:    { type: "string", desc: "Expense category",   enum: ["food","transport","entertainment","business","health","other"] },
+      date:        { type: "string", desc: "Date (YYYY-MM-DD), defaults to today" },
+    },
+  },
+  {
+    name: "create_goal",
+    description: "Create a high-level strategic goal for MAVIS to decompose and track",
+    params: {
+      objective: { type: "string", desc: "The goal objective",             required: true },
+      context:   { type: "string", desc: "Background context for the goal" },
+    },
+  },
+  {
+    name: "award_xp",
+    description: "Award experience points to the operator",
+    params: {
+      amount: { type: "number", desc: "XP amount to award", required: true },
+      reason: { type: "string", desc: "Why XP is being awarded" },
+    },
+  },
+  {
+    name: "create_skill",
+    description: "Add a new skill to the operator's skill tree",
+    params: {
+      name:     { type: "string", desc: "Skill name",     required: true },
+      category: { type: "string", desc: "Skill category" },
+      tier:     { type: "number", desc: "Skill tier 1-5" },
+    },
+  },
+  {
+    name: "create_ally",
+    description: "Add a person as an ally in the operator's network",
+    params: {
+      name:         { type: "string", desc: "Ally name",           required: true },
+      relationship: { type: "string", desc: "Relationship type",   enum: ["ally","council","rival","contact","mentor","partner"] },
+      notes:        { type: "string", desc: "Notes about this person" },
+    },
+  },
+  {
+    name: "complete_ritual",
+    description: "Mark a ritual or habit as completed for today, incrementing its streak",
+    params: {
+      name: { type: "string", desc: "Name of the ritual to complete", required: true },
+    },
+  },
+  {
+    name: "create_council_member",
+    description: "Add a new member to the operator's AI council",
+    params: {
+      name:      { type: "string", desc: "Council member name",  required: true },
+      role:      { type: "string", desc: "Their role or title" },
+      specialty: { type: "string", desc: "Area of expertise" },
+      class:     { type: "string", desc: "Council class",        enum: ["core","advisory","think-tank","shadows"] },
+      notes:     { type: "string", desc: "Personality or background notes" },
+    },
+  },
+  {
+    name: "generate_image",
+    description: "Generate an AI image based on a description",
+    params: {
+      prompt:       { type: "string", desc: "Image description / prompt", required: true },
+      aspect_ratio: { type: "string", desc: "Aspect ratio",               enum: ["1:1","16:9","9:16"] },
+    },
+  },
+  {
+    name: "forge_persona",
+    description: "Create a new AI persona for the operator to chat with",
+    params: {
+      description: { type: "string", desc: "Full description of the persona — name, personality, role, backstory", required: true },
+    },
+  },
+];
+
+function toGeminiFunctions(defs: MavToolDef[]): object[] {
+  return [{
+    functionDeclarations: defs.map(d => ({
+      name: d.name,
+      description: d.description,
+      parameters: {
+        type: "OBJECT",
+        properties: Object.fromEntries(
+          Object.entries(d.params).map(([k, v]) => [k, {
+            type: v.type === "number" ? "NUMBER" : "STRING",
+            description: v.desc,
+            ...(v.enum ? { enum: v.enum } : {}),
+          }])
+        ),
+        required: Object.entries(d.params).filter(([, v]) => v.required).map(([k]) => k),
+      },
+    })),
+  }];
+}
+
+function toClaudeTools(defs: MavToolDef[]): object[] {
+  return defs.map(d => ({
+    name: d.name,
+    description: d.description,
+    input_schema: {
+      type: "object",
+      properties: Object.fromEntries(
+        Object.entries(d.params).map(([k, v]) => [k, {
+          type: v.type,
+          description: v.desc,
+          ...(v.enum ? { enum: v.enum } : {}),
+        }])
+      ),
+      required: Object.entries(d.params).filter(([, v]) => v.required).map(([k]) => k),
+    },
+  }));
+}
+
+async function callGeminiForTools(
+  messages: any[], system: string, key: string,
+): Promise<Array<{ name: string; args: Record<string, unknown> }>> {
+  const contents = messages.slice(-8).map((m: any) => ({
+    role: m.role === "user" ? "user" : "model",
+    parts: [{ text: (typeof m.content === "string" ? m.content : JSON.stringify(m.content)).slice(0, 2000) }],
+  }));
+  try {
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${key}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          systemInstruction: { parts: [{ text: system.slice(0, 4000) }] },
+          contents,
+          tools: toGeminiFunctions(MAVIS_TOOL_DEFS),
+          toolConfig: { functionCallingConfig: { mode: "AUTO" } },
+          generationConfig: { maxOutputTokens: 256 },
+        }),
+        signal: AbortSignal.timeout(10_000),
+      }
+    );
+    if (!res.ok) return [];
+    const d = await res.json();
+    const parts: any[] = d.candidates?.[0]?.content?.parts ?? [];
+    return parts
+      .filter((p: any) => p.functionCall)
+      .map((p: any) => ({ name: String(p.functionCall.name), args: (p.functionCall.args ?? {}) as Record<string, unknown> }));
+  } catch { return []; }
+}
+
+async function callClaudeForTools(
+  messages: any[], system: string, key: string,
+): Promise<Array<{ name: string; args: Record<string, unknown> }>> {
+  try {
+    const res = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-api-key": key, "anthropic-version": "2023-06-01" },
+      body: JSON.stringify({
+        model: "claude-haiku-4-5-20251001",
+        max_tokens: 256,
+        system: system.slice(0, 4000),
+        messages: messages.slice(-8).map((m: any) => ({
+          role: m.role,
+          content: (typeof m.content === "string" ? m.content : JSON.stringify(m.content)).slice(0, 2000),
+        })),
+        tools: toClaudeTools(MAVIS_TOOL_DEFS),
+      }),
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!res.ok) return [];
+    const d = await res.json();
+    return (d.content ?? [])
+      .filter((b: any) => b.type === "tool_use")
+      .map((b: any) => ({ name: String(b.name), args: (b.input ?? {}) as Record<string, unknown> }));
+  } catch { return []; }
+}
+
+function hasActionIntent(text: string): boolean {
+  const lower = text.toLowerCase();
+  const kws = [
+    "create ","add a ","make a ","log ","track ","record ","save to ",
+    "complete ","finish ","mark as done","done with",
+    "new quest","new note","new journal","new goal","new skill","new ally",
+    "vault entry","journal entry","council member",
+    "award xp","give xp","add xp",
+    "generate image","create image","forge persona","create persona",
+  ];
+  return kws.some(kw => lower.includes(kw));
+}
+
+async function resolveActionsNative(
+  messages: any[],
+  system: string,
+  aiKeys: { gemini: string; claude: string; openai: string; grok: string },
+  supabaseUrl: string,
+  serviceKey: string,
+  userId: string,
+): Promise<string> {
+  let calls: Array<{ name: string; args: Record<string, unknown> }> = [];
+
+  if (aiKeys.gemini && !isProviderUnhealthy("gemini-2.0-flash")) {
+    calls = await callGeminiForTools(messages, system, aiKeys.gemini);
+  }
+  if (calls.length === 0 && aiKeys.claude) {
+    calls = await callClaudeForTools(messages, system, aiKeys.claude);
+  }
+  if (calls.length === 0) return "";
+
+  const lines: string[] = [];
+  for (const call of calls.slice(0, 6)) {
+    try {
+      const { ok, result } = await executeAgentAction(supabaseUrl, serviceKey, userId, call.name, call.args);
+      lines.push(ok
+        ? `✓ ${call.name}(${Object.entries(call.args).map(([k,v]) => `${k}=${JSON.stringify(v)}`).join(", ")}): ${JSON.stringify(result).slice(0, 200)}`
+        : `✗ ${call.name}: ${JSON.stringify(result).slice(0, 100)}`
+      );
+    } catch { /* non-critical */ }
+  }
+  if (lines.length === 0) return "";
+
+  return `\n\n═══ PRE-RESOLVED TOOL CALLS (already executed — reference these naturally) ═══\n${lines.join("\n")}\nDo NOT emit :::ACTION::: blocks for these — they are already complete.\n═══ END PRE-RESOLVED ═══`;
+}
+
+// ============================================================
 // TAVILY WEB SEARCH
 // ============================================================
 async function tavilySearch(query: string, key: string): Promise<string> {
@@ -3019,6 +3294,8 @@ You always know the current date and time without being told. Reference it natur
       plansBlock,
       urlContent,
       webSearchResults ? `\n---\nWEB SEARCH:\n${webSearchResults}\n---` : "",
+      // Inline image rendering directive (Prymal pattern)
+      `\n═══ INLINE MEDIA RENDERING ═══\nWhen tool results contain file_url, thumbnail_url, image_url, or drive links pointing to images, render them inline as markdown: ![description](url). The chat interface renders these as <img> tags — always show images directly rather than describing them separately.\n═══ END MEDIA ═══`,
     ].filter(Boolean).join("\n\n");
 
     // ── Vision: inject image URLs into last user message ────
@@ -3067,6 +3344,21 @@ You always know the current date and time without being told. Reference it natur
     const provider = routeToProvider(mode ?? "PRIME", lastUserMsg?.content ?? "");
     const aiKeys = { openai: openaiKey, claude: claudeKey, grok: grokKey, gemini: geminiKey };
 
+    // ── Native tool-use pre-pass (Prymal pattern) ──────────
+    // Run a lightweight tool-detection call BEFORE streaming so MAVIS can
+    // reference executed actions in its live response rather than after-the-fact.
+    // Falls back gracefully — if this returns nothing, fullPromptFinal === fullPrompt.
+    let fullPromptFinal = fullPrompt;
+    if (!isCouncilMode && hasActionIntent(lastUserText) && (geminiKey || claudeKey)) {
+      try {
+        const nativeBlock = await Promise.race([
+          resolveActionsNative(callMessages, systemWithPersonaMemory, aiKeys, supabaseUrl, serviceKey, user.id),
+          new Promise<string>((resolve) => setTimeout(() => resolve(""), 12_000)),
+        ]);
+        if (nativeBlock) fullPromptFinal = fullPrompt + nativeBlock;
+      } catch { /* non-critical */ }
+    }
+
     // ── Streaming path (SSE) ────────────────────────────────
     if (isStreaming === true) {
       const enc = new TextEncoder();
@@ -3076,7 +3368,7 @@ You always know the current date and time without being told. Reference it natur
           let accumulated = "";
           try {
             const { stream: aiStream, provider: streamProv } = await callWithFallbackStream(
-              provider, callMessages, fullPrompt, aiKeys, useThinking, modeUpper,
+              provider, callMessages, fullPromptFinal, aiKeys, useThinking, modeUpper,
             );
             const reader = aiStream.getReader();
             while (true) {
@@ -3127,7 +3419,7 @@ You always know the current date and time without being told. Reference it natur
                 ];
 
                 const { stream: synthStream } = await callWithFallbackStream(
-                  provider, reactMessages, fullPrompt, aiKeys, useThinking, modeUpper,
+                  provider, reactMessages, fullPromptFinal, aiKeys, useThinking, modeUpper,
                 );
                 const synthReader = synthStream.getReader();
                 accumulated = "";
@@ -3424,7 +3716,7 @@ You always know the current date and time without being told. Reference it natur
     let { content, provider: usedProvider } = await callWithFallback(
       provider,
       callMessages,
-      fullPrompt,
+      fullPromptFinal,
       aiKeys,
       useThinking,
       modeUpper,
@@ -3464,7 +3756,7 @@ You always know the current date and time without being told. Reference it natur
         ];
 
         const { content: nextContent } = await callWithFallback(
-          provider, reactMessages, fullPrompt, aiKeys, useThinking, modeUpper,
+          provider, reactMessages, fullPromptFinal, aiKeys, useThinking, modeUpper,
         );
         content = nextContent;
         reactIter++;
