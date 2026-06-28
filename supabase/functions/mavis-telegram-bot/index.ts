@@ -816,6 +816,7 @@ function buildPersonaSystemPrompt(p: PersonaSession, appCtx = ""): string {
   if (p.topics?.length)        parts.push(`\nYour natural topics: ${p.topics.join(", ")}`);
   if (p.system_prompt?.trim()) parts.push(`\n${p.system_prompt.trim()}`);
   parts.push(`\nStay fully in character as ${p.name}. Do not refer to yourself as MAVIS or as an AI unless directly asked.`);
+  parts.push(`\n\nYou exist alongside other AI personas and council members in the operator's ecosystem. When you genuinely need another entity's perspective to give a better answer, you may consult them using :::CONSULT_ENTITY::: (see ACTION MECHANICS below). Only use this when it meaningfully improves your response — not as a reflex.`);
   if (appCtx) parts.push(`\n\n${appCtx}`);
   parts.push(`\n\n${ACTION_MECHANIC_PROMPT}`);
   return parts.join("");
@@ -882,6 +883,7 @@ function buildCouncilSystemPrompt(c: CouncilSession, appCtx = ""): string {
   if (c.notes?.trim())              parts.push(`\nBackground: ${c.notes.trim()}`);
   if (c.personality_prompt?.trim()) parts.push(`\n${c.personality_prompt.trim()}`);
   parts.push(`\nYou are a council member advising the operator. Speak directly from your expertise. Be concise and strategic. Do not refer to yourself as MAVIS or as a generic AI.`);
+  parts.push(`\n\nYou exist alongside other AI personas and council members. When you need another entity's unique expertise to give a stronger answer, use :::CONSULT_ENTITY::: (see ACTION MECHANICS below). Use this sparingly and only when it genuinely adds value.`);
   if (appCtx) parts.push(`\n\n${appCtx}`);
   parts.push(`\n\n${ACTION_MECHANIC_PROMPT}`);
   return parts.join("");
@@ -909,10 +911,15 @@ Supported types:
   create_note        — params: title, content
   create_ally        — params: name, relationship, notes
 
-QUERY MAVIS — when you need information from MAVIS's memory, the operator's history, or what was discussed with a specific entity:
+CONSULT ENTITY — call another persona or council member's LLM in real-time to get their actual perspective:
+:::CONSULT_ENTITY{"name":"<entity name>","question":"<specific question to ask them>"}:::
+The named entity's AI will be invoked and their live response will replace this block inline.
+Use this when you genuinely need another entity's unique expertise, personality, or knowledge — not for simple facts.
+Example: :::CONSULT_ENTITY{"name":"Tao","question":"What's your read on this business model?"}:::
+
+QUERY MAVIS — when you need factual lookups from MAVIS's memory or the operator's history (not a live entity response):
 :::QUERY_MAVIS{"question":"<specific question>","target":"mavis|<persona name>|<council member name>"}:::
-MAVIS will look up the answer and replace this block with the actual information inline in your response.
-Use this when the operator asks you to check something, recall a past discussion, or get context from another entity.
+MAVIS will search memory and past conversations to answer. Use for factual recall, not opinions or live reasoning.
 
 ESCALATE TO MAVIS — for anything requiring external services (email, calendar, Drive, contacts, image gen, etc.):
 :::PROPOSE_MAVIS{"type":"<action_type>","summary":"<one sentence>","details":"<full description>","payload":{<fields>}}:::
@@ -1365,21 +1372,42 @@ async function parseAndHandleProposals(
   chatId: string | number,
   charName: string,
 ): Promise<string> {
-  const ACTION_RE = /:::PROPOSE_ACTION(\{[\s\S]*?\}):::/g;
-  const MAVIS_RE  = /:::PROPOSE_MAVIS(\{[\s\S]*?\}):::/g;
-  const QUERY_RE  = /:::QUERY_MAVIS(\{[\s\S]*?\}):::/g;
+  const ACTION_RE   = /:::PROPOSE_ACTION(\{[\s\S]*?\}):::/g;
+  const MAVIS_RE    = /:::PROPOSE_MAVIS(\{[\s\S]*?\}):::/g;
+  const QUERY_RE    = /:::QUERY_MAVIS(\{[\s\S]*?\}):::/g;
+  const CONSULT_RE  = /:::CONSULT_ENTITY(\{[\s\S]*?\}):::/g;
 
   const actionResults: string[] = [];
   const mavisProposals: Array<{ type: string; summary: string; details: string; payload: Record<string, any> }> = [];
 
-  // ── Resolve QUERY_MAVIS blocks inline ───────────────────────────────────────
-  // Replace each :::QUERY_MAVIS{...}::: with the actual MAVIS answer so it
-  // appears naturally in the persona's text instead of a raw block.
   let match: RegExpExecArray | null;
   let workingReply = rawReply;
+
+  // ── Resolve CONSULT_ENTITY blocks: call the entity's LLM live ──────────────
+  const consultBlocks: Array<{ full: string; answer: string }> = [];
+  CONSULT_RE.lastIndex = 0;
+  while ((match = CONSULT_RE.exec(workingReply)) !== null) {
+    try {
+      const { name, question } = JSON.parse(match[1]);
+      if (name && question) {
+        const live = await Promise.race([
+          resolveA2AForTelegram(String(question), uid),
+          new Promise<string>(r => setTimeout(() => r(""), 8_000)),
+        ]);
+        // Extract just the entity response text from the A2A block
+        const inner = live.replace(/═══[^═]*═══/g, "").trim();
+        consultBlocks.push({ full: match[0], answer: inner || `[${name} was unavailable]` });
+      }
+    } catch { /* malformed — skip */ }
+  }
+  for (const { full, answer } of consultBlocks) {
+    workingReply = workingReply.replace(full, answer);
+  }
+
+  // ── Resolve QUERY_MAVIS blocks inline (memory lookup — not live LLM) ────────
   const queryBlocks: Array<{ full: string; answer: string }> = [];
   QUERY_RE.lastIndex = 0;
-  while ((match = QUERY_RE.exec(rawReply)) !== null) {
+  while ((match = QUERY_RE.exec(workingReply)) !== null) {
     try {
       const { question, target } = JSON.parse(match[1]);
       if (question) {
@@ -1960,6 +1988,89 @@ async function sendPendingActionButtons(chatId: string | number, uid: string): P
   }
 }
 
+// ── Multi-entity directed dialogue detection ──────────────────────────────────
+const MULTI_ENTITY_PATTERNS = [
+  /\b(?:have|get|let|make)\s+([A-Za-z][A-Za-z0-9_'-]+)\s+and\s+([A-Za-z][A-Za-z0-9_'-]+)\s+(?:discuss|talk\s+about|debate|explore|share\s+thoughts\s+on|weigh\s+in\s+on)(.*)/i,
+  /\b(?:start|run|set\s*up)\s+(?:a\s+)?(?:conversation|discussion|debate|dialogue)\s+between\s+([A-Za-z][A-Za-z0-9_'-]+)\s+and\s+([A-Za-z][A-Za-z0-9_'-]+)(.*)/i,
+  /\b([A-Za-z][A-Za-z0-9_'-]+)\s+and\s+([A-Za-z][A-Za-z0-9_'-]+)\s+(?:should|need\s+to)\s+(?:discuss|talk\s+about|debate)(.*)/i,
+];
+
+async function resolveMultiEntityDialogue(text: string, uid: string): Promise<string> {
+  let nameA: string | null = null;
+  let nameB: string | null = null;
+  let topic = text;
+
+  for (const pat of MULTI_ENTITY_PATTERNS) {
+    const m = text.match(pat);
+    if (m?.[1] && m?.[2]) {
+      nameA  = m[1];
+      nameB  = m[2];
+      topic  = (m[3] ?? "").trim() || text;
+      break;
+    }
+  }
+  if (!nameA || !nameB) return "";
+  if (A2A_SKIP.has(nameA.toLowerCase()) || A2A_SKIP.has(nameB.toLowerCase())) return "";
+
+  // Look up both entities in parallel
+  const [pA, cA, pB, cB] = await Promise.all([
+    sb.from("personas").select("id,name,role,system_prompt,bio,archetype,model").eq("user_id",uid).ilike("name",nameA).maybeSingle(),
+    sb.from("councils").select("id,name,role,specialty,personality_prompt,notes,model").eq("user_id",uid).ilike("name",nameA).maybeSingle(),
+    sb.from("personas").select("id,name,role,system_prompt,bio,archetype,model").eq("user_id",uid).ilike("name",nameB).maybeSingle(),
+    sb.from("councils").select("id,name,role,specialty,personality_prompt,notes,model").eq("user_id",uid).ilike("name",nameB).maybeSingle(),
+  ]);
+
+  const entityA = (pA.data ?? cA.data) as any;
+  const entityB = (pB.data ?? cB.data) as any;
+  if (!entityA || !entityB) return "";
+
+  const labelA = entityA.name as string;
+  const labelB = entityB.name as string;
+
+  function buildSystem(e: any, isPers: boolean): string {
+    if (isPers) {
+      const parts = [`You are ${e.name}${e.role ? `, ${e.role}` : ""}.`];
+      if (e.archetype?.trim()) parts.push(`Archetype: ${e.archetype.trim()}`);
+      if (e.bio?.trim())       parts.push(`Background: ${e.bio.trim()}`);
+      if (e.system_prompt?.trim()) parts.push(e.system_prompt.trim());
+      parts.push(`Stay in character. Respond in 3-5 sentences — direct, opinionated, authentic.`);
+      return parts.join("\n");
+    }
+    const parts = [`You are ${e.name}${e.role ? `, ${e.role}` : ""}${e.specialty ? ` specialising in ${e.specialty}` : ""}.`];
+    if (e.notes?.trim()) parts.push(`Background: ${e.notes.trim()}`);
+    if (e.personality_prompt?.trim()) parts.push(e.personality_prompt.trim());
+    parts.push(`Speak from your expertise. 3-5 sentences — direct, strategic, authentic.`);
+    return parts.join("\n");
+  }
+
+  const sysA = buildSystem(entityA, !!pA.data);
+  const sysB = buildSystem(entityB, !!pB.data);
+  const modelA = entityA.model ?? "gemini-2.0-flash";
+  const modelB = entityB.model ?? "gemini-2.0-flash";
+
+  // Turn 1: A responds to the topic
+  const turn1Prompt = `The operator wants to hear your thoughts on: ${topic || text}. Speak naturally and directly.`;
+  const turn1 = await Promise.race([
+    callLLM(modelA, sysA, [{ role: "user", content: turn1Prompt }], 350),
+    new Promise<string>(r => setTimeout(() => r(""), 8_000)),
+  ]);
+  if (!turn1?.trim()) return "";
+
+  // Turn 2: B responds to A
+  const turn2Prompt = `The operator wants to discuss: ${topic || text}\n\n${labelA} just said: "${turn1.trim()}"\n\nWhat's your take? Respond to ${labelA}'s points directly.`;
+  const turn2 = await Promise.race([
+    callLLM(modelB, sysB, [{ role: "user", content: turn2Prompt }], 350),
+    new Promise<string>(r => setTimeout(() => r(""), 8_000)),
+  ]);
+
+  const lines: string[] = [`═══ DIALOGUE: ${labelA.toUpperCase()} × ${labelB.toUpperCase()} ═══`];
+  lines.push(`\n*${labelA}:* ${turn1.trim()}`);
+  if (turn2?.trim()) lines.push(`\n*${labelB}:* ${turn2.trim()}`);
+  lines.push(`\n═══ END DIALOGUE ═══`);
+
+  return lines.join("\n");
+}
+
 async function handleChat(
   chatId: string | number,
   uid: string,
@@ -1969,10 +2080,21 @@ async function handleChat(
 ) {
   await typing(chatId);
 
-  // ── A2A pre-pass: if operator asks to consult another entity, invoke its LLM ─
+  // ── Multi-entity / single A2A pre-pass ────────────────────────────────────
   let a2aBlock = "";
   if (text.length > 5) {
     try {
+      // Multi-entity dialogue takes priority over single A2A
+      const multiBlock = await Promise.race([
+        resolveMultiEntityDialogue(text, uid),
+        new Promise<string>(r => setTimeout(() => r(""), 18_000)),
+      ]);
+      if (multiBlock) {
+        // For directed dialogues: send the exchange directly and return
+        await send(chatId, multiBlock);
+        if (sessionId) await saveExchange(sessionId, uid, text, multiBlock);
+        return;
+      }
       a2aBlock = await Promise.race([
         resolveA2AForTelegram(text, uid),
         new Promise<string>(r => setTimeout(() => r(""), 12_000)),
