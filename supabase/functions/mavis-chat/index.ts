@@ -2752,6 +2752,86 @@ ${fmtGoals}
       } catch { /* non-critical */ }
     }
 
+    // ── A2A: synchronous agent-to-agent consultation ───────
+    // When the user asks MAVIS to "ask [Name]" or "consult [Name]", detect the
+    // intent, invoke that entity's LLM right now using their stored system prompt,
+    // and inject their real response so MAVIS can relay it accurately in one turn.
+    let a2aBlock = "";
+    if (!isCouncilMode && lastUserText.length > 5) {
+      try {
+        const A2A_PATTERNS = [
+          /\b(?:ask|consult|check\s+with|run\s+(?:this|it)\s+by|get\s+input\s+from)\s+([A-Za-z][A-Za-z0-9_'-]{1,})\b/i,
+          /\bwhat\s+(?:does|would|did|do)\s+([A-Za-z][A-Za-z0-9_'-]{1,})\s+(?:think|say|know|recommend|suggest|feel)/i,
+          /\b([A-Za-z][A-Za-z0-9_'-]{1,})'s\s+(?:thoughts|take|opinion|input|perspective|view|insights?|read)\b/i,
+          /\bget\s+([A-Za-z][A-Za-z0-9_'-]{1,})'s\s+(?:thoughts|take|opinion|input|perspective|view|insights?)/i,
+          /\b(?:have|let|get)\s+([A-Za-z][A-Za-z0-9_'-]{1,})\s+(?:weigh\s+in|respond|reply|answer)\b/i,
+        ];
+        // Skip common non-name words that pattern-match above
+        const SKIP_WORDS = new Set(["me","you","him","her","them","us","it","this","that","the","a","an","my","your","their","our","its"]);
+        let a2aTargetName: string | null = null;
+        for (const pat of A2A_PATTERNS) {
+          const m = lastUserText.match(pat);
+          if (m?.[1] && !SKIP_WORDS.has(m[1].toLowerCase()) && m[1].length >= 2) {
+            a2aTargetName = m[1];
+            break;
+          }
+        }
+        if (a2aTargetName) {
+          const nameLower = a2aTargetName.toLowerCase();
+          const [pRes, cRes] = await Promise.all([
+            sb.from("personas")
+              .select("id, name, system_prompt, model, role, archetype")
+              .eq("user_id", user.id)
+              .ilike("name", `%${nameLower}%`)
+              .limit(1),
+            sb.from("councils")
+              .select("id, name, personality_prompt, role, class, specialty, notes")
+              .eq("user_id", user.id)
+              .ilike("name", `%${nameLower}%`)
+              .limit(1),
+          ]);
+          const persona = (pRes.data?.[0] as any) ?? null;
+          const council = (cRes.data?.[0] as any) ?? null;
+          const entity  = persona ?? council;
+          if (entity) {
+            const entityName = entity.name as string;
+            const entitySystem = persona
+              ? (String(entity.system_prompt ?? `You are ${entityName}, a ${entity.archetype ?? "advisor"} (${entity.role ?? "advisor"}).`))
+              : `${entity.personality_prompt ?? ""} You are ${entityName}, a ${entity.class ?? "council"} member. Specialty: ${entity.specialty ?? entity.role ?? "general"}. ${entity.notes ?? ""}`.trim();
+
+            // Fetch last 20 messages from that entity's conversation to ground their response
+            let entityHistory: { role: string; content: string }[] = [];
+            try {
+              if (persona) {
+                const { data: ehRows } = await sb.from("persona_conversations")
+                  .select("role, content").eq("user_id", user.id).eq("persona_id", entity.id)
+                  .order("created_at", { ascending: false }).limit(20);
+                entityHistory = ((ehRows ?? []) as any[]).reverse();
+              } else {
+                const { data: ehRows } = await sb.from("council_chat_messages")
+                  .select("role, content").eq("user_id", user.id).eq("council_member_id", entity.id)
+                  .order("created_at", { ascending: false }).limit(20);
+                entityHistory = ((ehRows ?? []) as any[]).reverse();
+              }
+            } catch { /* non-critical */ }
+
+            const a2aQuestion = `MAVIS is consulting you directly on behalf of the operator right now. The operator asked: "${lastUserText.slice(0, 500)}"\n\nRespond as ${entityName} in 3-6 sentences — in character, with your genuine perspective, insight, or information. Be direct and specific.`;
+            const a2aMessages = [
+              ...entityHistory.slice(-10).map((m: any) => ({ role: m.role, content: String(m.content ?? "").slice(0, 300) })),
+              { role: "user" as const, content: a2aQuestion },
+            ];
+            try {
+              const a2aKeys = { openai: openaiKey, claude: claudeKey, grok: grokKey, gemini: geminiKey };
+              const { content: entityResp } = await callWithFallback("gemini", a2aMessages, entitySystem, a2aKeys, false, "PRIME");
+              if (entityResp && entityResp.trim().length > 10) {
+                a2aBlock = `\n\n═══ LIVE A2A CONSULTATION — ${entityName.toUpperCase()} RESPONDED ═══\nMAVIS just consulted ${entityName} in real-time. Their actual response:\n\n"${entityResp.trim()}"\n\nInstructions: Relay ${entityName}'s response to the operator, attributing it directly to ${entityName}. Quote or closely paraphrase what they said. Do not fabricate or add claims beyond what they provided above.\n═══ END A2A ═══`;
+              }
+            } catch { /* non-critical — MAVIS will fall back naturally */ }
+          }
+        }
+      } catch { /* non-critical */ }
+    }
+
     // ── Attachments uploaded to this thread ────────────────
     let attachmentsBlock = "";
     const visionImages: { url: string; mime: string }[] = [];
@@ -2926,6 +3006,7 @@ You always know the current date and time without being told. Reference it natur
       compressBlock(knowledgeBlock),
       crossRelationshipBlock,
       targetedPersonaBlock,
+      a2aBlock,
       semanticMemoryBlock,
       attachmentsBlock,
       proactiveBlock,
