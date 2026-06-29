@@ -732,6 +732,7 @@ export type Database = {
       }
       councils: {
         Row: {
+          agent_folders: Json
           avatar: string | null
           can_be_summoned: boolean | null
           class: string
@@ -746,6 +747,7 @@ export type Database = {
           specialty: string | null
           tactic_state: string
           telegram_enabled: boolean | null
+          timezone: string | null
           updated_at: string
           user_id: string
           voice_id: string | null
@@ -753,6 +755,7 @@ export type Database = {
           voice_style: string | null
         }
         Insert: {
+          agent_folders?: Json
           avatar?: string | null
           can_be_summoned?: boolean | null
           class?: string
@@ -767,6 +770,7 @@ export type Database = {
           specialty?: string | null
           tactic_state?: string
           telegram_enabled?: boolean | null
+          timezone?: string | null
           updated_at?: string
           user_id: string
           voice_id?: string | null
@@ -774,6 +778,7 @@ export type Database = {
           voice_style?: string | null
         }
         Update: {
+          agent_folders?: Json
           avatar?: string | null
           can_be_summoned?: boolean | null
           class?: string
@@ -788,6 +793,7 @@ export type Database = {
           specialty?: string | null
           tactic_state?: string
           telegram_enabled?: boolean | null
+          timezone?: string | null
           updated_at?: string
           user_id?: string
           voice_id?: string | null
@@ -4858,6 +4864,7 @@ export type Database = {
       }
       personas: {
         Row: {
+          agent_folders: Json
           archetype: string
           avatar_key: string | null
           can_join_council: boolean | null
@@ -4873,6 +4880,7 @@ export type Database = {
           role: string
           system_prompt: string
           telegram_enabled: boolean | null
+          timezone: string | null
           updated_at: string
           user_id: string
           voice_id: string | null
@@ -4880,6 +4888,7 @@ export type Database = {
           voice_style: string | null
         }
         Insert: {
+          agent_folders?: Json
           archetype: string
           avatar_key?: string | null
           can_join_council?: boolean | null
@@ -4895,6 +4904,7 @@ export type Database = {
           role: string
           system_prompt: string
           telegram_enabled?: boolean | null
+          timezone?: string | null
           updated_at?: string
           user_id: string
           voice_id?: string | null
@@ -4902,6 +4912,7 @@ export type Database = {
           voice_style?: string | null
         }
         Update: {
+          agent_folders?: Json
           archetype?: string
           avatar_key?: string | null
           can_join_council?: boolean | null
@@ -4917,6 +4928,7 @@ export type Database = {
           role?: string
           system_prompt?: string
           telegram_enabled?: boolean | null
+          timezone?: string | null
           updated_at?: string
           user_id?: string
           voice_id?: string | null
@@ -5119,6 +5131,7 @@ export type Database = {
           stat_agi: number
           stat_cha: number
           stat_int: number
+          timezone: string
           stat_lck: number
           stat_str: number
           stat_vit: number
@@ -5163,6 +5176,7 @@ export type Database = {
           stat_wis?: number
           territory_class?: string
           territory_floors?: string
+          timezone?: string
           titles?: string[]
           true_name?: string | null
           xp?: number
@@ -5198,6 +5212,7 @@ export type Database = {
           stat_lck?: number
           stat_str?: number
           stat_vit?: number
+          timezone?: string
           stat_wis?: number
           territory_class?: string
           territory_floors?: string
