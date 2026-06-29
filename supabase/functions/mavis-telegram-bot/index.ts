@@ -753,16 +753,18 @@ async function handleApprovalCallback(
 // ─────────────────────────────────────────────────────────────
 
 interface PersonaSession {
-  id:          string;
-  name:        string;
-  role:        string;
-  archetype:   string;
+  id:            string;
+  name:          string;
+  role:          string;
+  archetype:     string;
   system_prompt: string;
-  bio:         string;
-  lore:        string[];
-  adjectives:  string[];
-  topics:      string[];
-  model:       string;
+  bio:           string;
+  lore:          string[];
+  adjectives:    string[];
+  topics:        string[];
+  model:         string;
+  timezone?:     string;  // persona's own timezone (if they "live" somewhere specific)
+  agent_folders?: Record<string, string>;  // 7-folder framework content
 }
 
 const PERSONA_STATE_PREFIX = "telegram-persona-state-";
@@ -806,7 +808,30 @@ async function setActivePersona(uid: string, persona: PersonaSession | null): Pr
   } catch { /* non-fatal */ }
 }
 
-function buildPersonaSystemPrompt(p: PersonaSession, appCtx = ""): string {
+// ── Temporal block — timezone-aware, used by all entity prompt builders ──
+function buildTemporalBlock(operatorTz = "UTC", entityTz?: string): string {
+  const now = new Date();
+  function fmt(tz: string): string {
+    try {
+      const d = now.toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric", timeZone: tz });
+      const t = now.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", second: "2-digit", timeZoneName: "short", timeZone: tz });
+      return `${d}, ${t} [${tz}]`;
+    } catch {
+      return now.toUTCString();
+    }
+  }
+  const lines: string[] = [];
+  if (entityTz && entityTz !== operatorTz) {
+    lines.push(`YOUR LOCAL TIME: ${fmt(entityTz)}`);
+    lines.push(`OPERATOR LOCAL: ${fmt(operatorTz)}`);
+  } else {
+    lines.push(`LOCAL: ${fmt(operatorTz)}`);
+  }
+  lines.push(`ISO/UTC: ${now.toISOString()}`);
+  return `═══ TEMPORAL CONTEXT ═══\n${lines.join("\n")}\nAlways reference the local time above when dates/times come up. Never show UTC unless asked.\n═══ END TEMPORAL CONTEXT ═══`;
+}
+
+function buildPersonaSystemPrompt(p: PersonaSession, appCtx = "", operatorTz = "UTC"): string {
   const parts: string[] = [];
   parts.push(`You are ${p.name}${p.role ? `, a ${p.role}` : ""}.`);
   if (p.archetype?.trim())     parts.push(`\nArchetype: ${p.archetype.trim()}`);
@@ -815,8 +840,15 @@ function buildPersonaSystemPrompt(p: PersonaSession, appCtx = ""): string {
   if (p.adjectives?.length)    parts.push(`\nYour personality: ${p.adjectives.join(", ")}`);
   if (p.topics?.length)        parts.push(`\nYour natural topics: ${p.topics.join(", ")}`);
   if (p.system_prompt?.trim()) parts.push(`\n${p.system_prompt.trim()}`);
+  // 7-folder agent framework content
+  const af = p.agent_folders ?? {};
+  if (af.identity)    parts.push(`\n\n═══ IDENTITY ═══\n${af.identity}\n═══ END IDENTITY ═══`);
+  if (af.operations)  parts.push(`\n\n═══ OPERATIONS ═══\n${af.operations}\n═══ END OPERATIONS ═══`);
+  if (af.references)  parts.push(`\n\n═══ REFERENCES ═══\n${af.references}\n═══ END REFERENCES ═══`);
   parts.push(`\nStay fully in character as ${p.name}. Do not refer to yourself as MAVIS or as an AI unless directly asked.`);
   parts.push(`\n\nYou exist alongside other AI personas and council members in the operator's ecosystem. When you genuinely need another entity's perspective to give a better answer, you may consult them using :::CONSULT_ENTITY::: (see ACTION MECHANICS below). Only use this when it meaningfully improves your response — not as a reflex.`);
+  // Temporal context — uses persona's own timezone if set
+  parts.push(`\n\n${buildTemporalBlock(operatorTz, p.timezone)}`);
   if (appCtx) parts.push(`\n\n${appCtx}`);
   parts.push(`\n\n${ACTION_MECHANIC_PROMPT}`);
   return parts.join("");
@@ -834,6 +866,8 @@ interface CouncilSession {
   personality_prompt: string;
   notes:            string;
   model:            string;
+  timezone?:        string;
+  agent_folders?:   Record<string, string>;
 }
 
 const COUNCIL_STATE_PREFIX = "telegram-council-state-";
@@ -877,13 +911,20 @@ async function setActiveCouncil(uid: string, council: CouncilSession | null): Pr
   } catch { /* non-fatal */ }
 }
 
-function buildCouncilSystemPrompt(c: CouncilSession, appCtx = ""): string {
+function buildCouncilSystemPrompt(c: CouncilSession, appCtx = "", operatorTz = "UTC"): string {
   const parts: string[] = [];
   parts.push(`You are ${c.name}${c.role ? `, ${c.role}` : ""}${c.specialty ? ` specialising in ${c.specialty}` : ""}.`);
   if (c.notes?.trim())              parts.push(`\nBackground: ${c.notes.trim()}`);
   if (c.personality_prompt?.trim()) parts.push(`\n${c.personality_prompt.trim()}`);
+  // 7-folder agent framework content
+  const af = c.agent_folders ?? {};
+  if (af.identity)    parts.push(`\n\n═══ IDENTITY ═══\n${af.identity}\n═══ END IDENTITY ═══`);
+  if (af.operations)  parts.push(`\n\n═══ OPERATIONS ═══\n${af.operations}\n═══ END OPERATIONS ═══`);
+  if (af.references)  parts.push(`\n\n═══ REFERENCES ═══\n${af.references}\n═══ END REFERENCES ═══`);
   parts.push(`\nYou are a council member advising the operator. Speak directly from your expertise. Be concise and strategic. Do not refer to yourself as MAVIS or as a generic AI.`);
   parts.push(`\n\nYou exist alongside other AI personas and council members. When you need another entity's unique expertise to give a stronger answer, use :::CONSULT_ENTITY::: (see ACTION MECHANICS below). Use this sparingly and only when it genuinely adds value.`);
+  // Temporal context — uses council member's own timezone if set
+  parts.push(`\n\n${buildTemporalBlock(operatorTz, c.timezone)}`);
   if (appCtx) parts.push(`\n\n${appCtx}`);
   parts.push(`\n\n${ACTION_MECHANIC_PROMPT}`);
   return parts.join("");
@@ -1645,7 +1686,7 @@ async function handleSwitchPersona(chatId: string | number, uid: string, name: s
   const effectiveUid = await resolvePersonaOwnerUid(uid);
   const { data: personas } = await sb
     .from("personas")
-    .select("id, name, role, archetype, personality, system_prompt, model")
+    .select("id, name, role, archetype, personality, system_prompt, model, timezone, agent_folders")
     .eq("user_id", effectiveUid)
     .eq("is_active", true)
     .ilike("name", `%${name}%`)
@@ -1683,6 +1724,8 @@ async function handleSwitchPersona(chatId: string | number, uid: string, name: s
     adjectives,
     topics:        Array.isArray(personality.topics) ? personality.topics.map(String) : [],
     model:         String(p.model ?? "claude-haiku-4-5-20251001") || "claude-haiku-4-5-20251001",
+    timezone:      p.timezone ? String(p.timezone) : undefined,
+    agent_folders: p.agent_folders && typeof p.agent_folders === "object" ? p.agent_folders as Record<string, string> : undefined,
   };
 
   await setActivePersona(uid, session);
@@ -1738,7 +1781,7 @@ async function handleSwitchCouncil(chatId: string | number, uid: string, name: s
   // NOTE: councils table has no "model" column — omit it to avoid PostgREST errors
   const { data: members } = await sb
     .from("councils")
-    .select("id, name, role, specialty, personality_prompt, notes")
+    .select("id, name, role, specialty, personality_prompt, notes, timezone, agent_folders")
     .eq("user_id", effectiveUid)
     .ilike("name", `%${name}%`)
     .limit(5);
@@ -1757,6 +1800,8 @@ async function handleSwitchCouncil(chatId: string | number, uid: string, name: s
     personality_prompt: String(m.personality_prompt ?? ""),
     notes:            String(m.notes ?? ""),
     model:            "claude-haiku-4-5-20251001",
+    timezone:         m.timezone ? String(m.timezone) : undefined,
+    agent_folders:    m.agent_folders && typeof m.agent_folders === "object" ? m.agent_folders as Record<string, string> : undefined,
   };
 
   await setActiveCouncil(uid, session);
@@ -2106,8 +2151,8 @@ async function handleChat(
   const activeCouncil = await getActiveCouncil(uid);
   if (activeCouncil) {
     try {
-      // Load app context and conversation history in parallel
-      const [appCtx, councilHistRes] = await Promise.all([
+      // Load app context, conversation history, and operator timezone in parallel
+      const [appCtx, councilHistRes, profileRes] = await Promise.all([
         loadAppContext(uid),
         sb.from("council_chat_messages")
           .select("role, content")
@@ -2115,9 +2160,11 @@ async function handleChat(
           .eq("user_id", uid)
           .order("created_at", { ascending: false })
           .limit(16),
+        sb.from("profiles").select("timezone").eq("id", uid).maybeSingle(),
       ]);
+      const operatorTz: string = (profileRes.data as any)?.timezone || "UTC";
 
-      const councilSystem = buildCouncilSystemPrompt(activeCouncil, appCtx);
+      const councilSystem = buildCouncilSystemPrompt(activeCouncil, appCtx, operatorTz);
       const recentHistory: ChatMessage[] = ((councilHistRes.data ?? []).reverse() as any[]).map((m: any) => ({
         role:    m.role as "user" | "assistant",
         content: String(m.content ?? ""),
@@ -2147,8 +2194,8 @@ async function handleChat(
   const activePersona = await getActivePersona(uid);
   if (activePersona) {
     try {
-      // Load app context and conversation history in parallel
-      const [appCtx, personaHistRes] = await Promise.all([
+      // Load app context, conversation history, and operator timezone in parallel
+      const [appCtx, personaHistRes, personaProfileRes] = await Promise.all([
         loadAppContext(uid),
         sb.from("persona_conversations")
           .select("role, content")
@@ -2156,9 +2203,11 @@ async function handleChat(
           .eq("user_id", uid)
           .order("created_at", { ascending: false })
           .limit(16),
+        sb.from("profiles").select("timezone").eq("id", uid).maybeSingle(),
       ]);
+      const operatorTz: string = (personaProfileRes.data as any)?.timezone || "UTC";
 
-      const personaSystem = buildPersonaSystemPrompt(activePersona, appCtx);
+      const personaSystem = buildPersonaSystemPrompt(activePersona, appCtx, operatorTz);
       const recentHistory: ChatMessage[] = ((personaHistRes.data ?? []).reverse() as any[]).map((m: any) => ({
         role:    m.role as "user" | "assistant",
         content: String(m.content ?? ""),

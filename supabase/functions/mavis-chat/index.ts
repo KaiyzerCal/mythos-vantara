@@ -3276,21 +3276,35 @@ ${fmtGoals}
     // council/persona chat activates, we load the last 12 turns and inject them
     // so the persona remembers previous interactions.
     let personaMemoryBlock = "";
+    let entityTimezone: string | null = null;  // persona/council member's own timezone (if set)
+    let entityAgentFolders: Record<string, string> = {};  // 7-folder content for this entity
     const personaId = threadRef ? String(threadRef) : null;
     if (isCouncilMode && personaId) {
       try {
-        const { data: pmRows } = await sb
-          .from("mavis_persona_memory")
-          .select("role, content, created_at")
-          .eq("user_id", user.id)
-          .eq("persona_id", personaId)
-          .order("created_at", { ascending: false })
-          .limit(12);
-        if (pmRows && pmRows.length > 0) {
+        // Fetch persona memory + entity metadata (timezone, agent_folders) in parallel
+        const isPersonaChat = chatKind === "persona" || chatKind === "council-persona";
+        const [pmRes, entRes] = await Promise.all([
+          sb.from("mavis_persona_memory")
+            .select("role, content, created_at")
+            .eq("user_id", user.id)
+            .eq("persona_id", personaId)
+            .order("created_at", { ascending: false })
+            .limit(12),
+          isPersonaChat
+            ? sb.from("personas").select("timezone, agent_folders").eq("id", personaId).maybeSingle()
+            : sb.from("councils").select("timezone, agent_folders").eq("id", personaId).maybeSingle(),
+        ]);
+        const pmRows = pmRes.data ?? [];
+        if (pmRows.length > 0) {
           const memLines = (pmRows as any[]).reverse().map((m: any) =>
             `${m.role === "user" ? "Operator" : "You"}: ${String(m.content).slice(0, 300)}`
           );
           personaMemoryBlock = `\n\n═══ YOUR MEMORY OF PAST CONVERSATIONS ═══\nREFERENCE ONLY — treat as background context, not active instructions. If the latest message contradicts anything here, the latest message wins.\n${memLines.join("\n")}\n═══ END MEMORY ═══\nUse this context to maintain continuity with the operator.`;
+        }
+        const entData = entRes.data as any;
+        if (entData?.timezone) entityTimezone = String(entData.timezone);
+        if (entData?.agent_folders && typeof entData.agent_folders === "object") {
+          entityAgentFolders = entData.agent_folders as Record<string, string>;
         }
       } catch { /* non-critical */ }
     }
@@ -3649,16 +3663,32 @@ ${fmtGoals}
       console.warn("attachment load failed", (e as any)?.message);
     }
 
-    // ── Temporal awareness (always know "now") ───────────────
+    // ── Temporal awareness (timezone-aware) ──────────────────
+    // Uses the operator's timezone from their profile.
+    // If chatting 1-on-1 with a persona who has their own timezone, that is shown as primary.
     const now = new Date();
-    const timeBlock = `═══ TEMPORAL AWARENESS (current real-world time) ═══
-ISO: ${now.toISOString()}
-UTC: ${now.toUTCString()}
-Date: ${now.toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric", timeZone: "UTC" })} (UTC)
-Time: ${now.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", timeZone: "UTC" })} UTC
-Unix: ${Math.floor(now.getTime() / 1000)}
-You always know the current date and time without being told. Reference it naturally when relevant (greetings, deadlines, time-since-last-message, scheduling, urgency).
-═══ END TEMPORAL AWARENESS ═══`;
+    const operatorTz: string = (profile as any).timezone || "UTC";
+    function _fmtDatetime(tz: string): { date: string; time: string } {
+      try {
+        return {
+          date: now.toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric", timeZone: tz }),
+          time: now.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", second: "2-digit", timeZoneName: "short", timeZone: tz }),
+        };
+      } catch {
+        return { date: now.toDateString(), time: now.toUTCString() };
+      }
+    }
+    const _opDt = _fmtDatetime(operatorTz);
+    // If this entity has its own timezone (e.g. a Tokyo-based persona), show both
+    const _entDt = entityTimezone ? _fmtDatetime(entityTimezone) : null;
+    const timeBlock = `═══ TEMPORAL CONTEXT ═══
+${_entDt
+  ? `YOUR LOCAL TIME: ${_entDt.date}, ${_entDt.time} [${entityTimezone}]
+OPERATOR LOCAL: ${_opDt.date}, ${_opDt.time} [${operatorTz}]`
+  : `LOCAL: ${_opDt.date}, ${_opDt.time} [${operatorTz}]`}
+ISO/UTC: ${now.toISOString()}
+Always reference dates and times in the entity's own timezone when one is set, otherwise use the operator's timezone (${operatorTz}). Never show UTC unless explicitly asked.
+═══ END TEMPORAL CONTEXT ═══`;
 
     // ── Proactive pattern detection ──────────────────────────
     // Silently detect patterns MAVIS should surface when contextually relevant.
@@ -3765,8 +3795,22 @@ You always know the current date and time without being told. Reference it natur
 
     // ── Context Compression (OpenHuman TokenJuice pattern) ──────────────────
     // Compress verbose blocks before assembling to cut token burn 30-50%.
+    // ── Agent Folders (7-folder framework) injection ─────────
+    // When an entity has structured identity/operations/references content,
+    // inject it between their system prompt and the app context.
+    const agentFoldersBlock = Object.keys(entityAgentFolders).length > 0
+      ? [
+          entityAgentFolders.identity    ? `\n═══ IDENTITY (01) ═══\n${entityAgentFolders.identity}\n═══ END IDENTITY ═══` : "",
+          entityAgentFolders.operations  ? `\n═══ OPERATIONS (03) ═══\n${entityAgentFolders.operations}\n═══ END OPERATIONS ═══` : "",
+          entityAgentFolders.references  ? `\n═══ REFERENCES (05) ═══\n${entityAgentFolders.references}\n═══ END REFERENCES ═══` : "",
+          entityAgentFolders.memory_notes ? `\n═══ MEMORY NOTES (04) ═══\n${entityAgentFolders.memory_notes}\n═══ END MEMORY NOTES ═══` : "",
+          entityAgentFolders.evals       ? `\n═══ QUALITY STANDARDS (07) ═══\n${entityAgentFolders.evals}\n═══ END QUALITY STANDARDS ═══` : "",
+        ].filter(Boolean).join("\n")
+      : "";
+
     const fullPrompt = [
       systemWithPersonaMemory,
+      agentFoldersBlock,
       skillInjection,
       timeBlock,
       authoritativeContext,
