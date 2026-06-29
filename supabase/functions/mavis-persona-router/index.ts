@@ -200,7 +200,14 @@ YOUR IDENTITY:
 - Role in this person's life: ${persona.role}
 - Archetype: ${persona.archetype}
 - Who you are: ${persona.system_prompt}
-
+${(() => {
+  const af = (persona.agent_folders ?? {}) as Record<string, string>;
+  const parts: string[] = [];
+  if (af.identity) parts.push(`\nIDENTITY FRAMEWORK:\n${af.identity}`);
+  if (af.memory_notes) parts.push(`\nMEMORY NOTES:\n${af.memory_notes}`);
+  if (af.prompts) parts.push(`\nBEHAVIOR DIRECTIVES:\n${af.prompts}`);
+  return parts.join("\n");
+})()}
 YOUR PERSONALITY:
 ${personalityStr}
 

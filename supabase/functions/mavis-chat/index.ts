@@ -1387,8 +1387,8 @@ async function resolveActionsNative(
         if (!entityName || !question) continue;
         const adminSb = createClient(supabaseUrl, serviceKey);
         const [pRes, cRes] = await Promise.all([
-          adminSb.from("personas").select("id,name,role,system_prompt,bio,archetype,model").eq("user_id",userId).ilike("name",`%${entityName}%`).limit(1),
-          adminSb.from("councils").select("id,name,role,specialty,personality_prompt,notes,model").eq("user_id",userId).ilike("name",`%${entityName}%`).limit(1),
+          adminSb.from("personas").select("id,name,role,system_prompt,bio,archetype,model,agent_folders").eq("user_id",userId).ilike("name",`%${entityName}%`).limit(1),
+          adminSb.from("councils").select("id,name,role,specialty,personality_prompt,notes,model,agent_folders").eq("user_id",userId).ilike("name",`%${entityName}%`).limit(1),
         ]);
         const persona = pRes.data?.[0] as any;
         const council = cRes.data?.[0] as any;
@@ -1398,9 +1398,11 @@ async function resolveActionsNative(
           continue;
         }
         const label = entity.name as string;
+        const af = (entity.agent_folders ?? {}) as Record<string,string>;
+        const afBlock = [af.identity, af.memory_notes, af.prompts].filter(Boolean).join("\n\n");
         const entitySystem = persona
-          ? `You are ${label}${entity.role ? `, ${entity.role}` : ""}. ${entity.archetype ? `Archetype: ${entity.archetype}.` : ""} ${entity.bio ? `Background: ${entity.bio}.` : ""} ${entity.system_prompt ?? ""} Respond in 3-6 sentences — in character, direct, specific.`.trim()
-          : `You are ${label}${entity.role ? `, ${entity.role}` : ""}${entity.specialty ? ` specialising in ${entity.specialty}` : ""}. ${entity.notes ?? ""} ${entity.personality_prompt ?? ""} 3-6 sentences — direct, from your expertise.`.trim();
+          ? `You are ${label}${entity.role ? `, ${entity.role}` : ""}. ${entity.archetype ? `Archetype: ${entity.archetype}.` : ""} ${entity.bio ? `Background: ${entity.bio}.` : ""} ${entity.system_prompt ?? ""}${afBlock ? `\n\n${afBlock}` : ""} Respond in 3-6 sentences — in character, direct, specific.`.trim()
+          : `You are ${label}${entity.role ? `, ${entity.role}` : ""}${entity.specialty ? ` specialising in ${entity.specialty}` : ""}. ${entity.notes ?? ""} ${entity.personality_prompt ?? ""}${afBlock ? `\n\n${afBlock}` : ""} 3-6 sentences — direct, from your expertise.`.trim();
 
         let entityHistory: { role: string; content: string }[] = [];
         try {
@@ -3506,18 +3508,22 @@ ${fmtGoals}
       if (multiA && multiB) {
         try { await Promise.race([ (async () => {
           const [pA, cA, pB, cB] = await Promise.all([
-            sb.from("personas").select("id,name,role,system_prompt,bio,archetype,model").eq("user_id",user.id).ilike("name",`%${multiA}%`).limit(1),
-            sb.from("councils").select("id,name,role,specialty,personality_prompt,notes,model").eq("user_id",user.id).ilike("name",`%${multiA}%`).limit(1),
-            sb.from("personas").select("id,name,role,system_prompt,bio,archetype,model").eq("user_id",user.id).ilike("name",`%${multiB}%`).limit(1),
-            sb.from("councils").select("id,name,role,specialty,personality_prompt,notes,model").eq("user_id",user.id).ilike("name",`%${multiB}%`).limit(1),
+            sb.from("personas").select("id,name,role,system_prompt,bio,archetype,model,agent_folders").eq("user_id",user.id).ilike("name",`%${multiA}%`).limit(1),
+            sb.from("councils").select("id,name,role,specialty,personality_prompt,notes,model,agent_folders").eq("user_id",user.id).ilike("name",`%${multiA}%`).limit(1),
+            sb.from("personas").select("id,name,role,system_prompt,bio,archetype,model,agent_folders").eq("user_id",user.id).ilike("name",`%${multiB}%`).limit(1),
+            sb.from("councils").select("id,name,role,specialty,personality_prompt,notes,model,agent_folders").eq("user_id",user.id).ilike("name",`%${multiB}%`).limit(1),
           ]);
           const entA = pA.data?.[0] as any ?? cA.data?.[0] as any;
           const entB = pB.data?.[0] as any ?? cB.data?.[0] as any;
           if (!entA || !entB) return;
           const lblA = entA.name as string, lblB = entB.name as string;
-          const mkSys = (e: any, isP: boolean) => isP
-            ? `You are ${e.name}${e.role?`, ${e.role}`:""}.${e.archetype?` Archetype: ${e.archetype}.`:""}${e.bio?` Background: ${e.bio}.`:""}${e.system_prompt?` ${e.system_prompt}`:""} Be direct, in-character, 3-5 sentences.`
-            : `You are ${e.name}${e.role?`, ${e.role}`:""}${e.specialty?` specialising in ${e.specialty}`:""}.${e.notes?` ${e.notes}`:""}${e.personality_prompt?` ${e.personality_prompt}`:""} 3-5 sentences, from expertise.`;
+          const mkSys = (e: any, isP: boolean) => {
+            const eaf = (e.agent_folders ?? {}) as Record<string,string>;
+            const eafBlock = [eaf.identity, eaf.memory_notes, eaf.prompts].filter(Boolean).join("\n\n");
+            return isP
+              ? `You are ${e.name}${e.role?`, ${e.role}`:""}.${e.archetype?` Archetype: ${e.archetype}.`:""}${e.bio?` Background: ${e.bio}.`:""}${e.system_prompt?` ${e.system_prompt}`:""}${eafBlock?`\n\n${eafBlock}`:""} Be direct, in-character, 3-5 sentences.`
+              : `You are ${e.name}${e.role?`, ${e.role}`:""}${e.specialty?` specialising in ${e.specialty}`:""}.${e.notes?` ${e.notes}`:""}${e.personality_prompt?` ${e.personality_prompt}`:""}${eafBlock?`\n\n${eafBlock}`:""} 3-5 sentences, from expertise.`;
+          };
           const sysA = mkSys(entA, !!pA.data?.[0]);
           const sysB = mkSys(entB, !!pB.data?.[0]);
           const keysObj = { openai: openaiKey, claude: claudeKey, grok: grokKey, gemini: geminiKey };
@@ -3560,12 +3566,12 @@ ${fmtGoals}
           const nameLower = a2aTargetName.toLowerCase();
           const [pRes, cRes] = await Promise.all([
             sb.from("personas")
-              .select("id, name, system_prompt, model, role, archetype")
+              .select("id, name, system_prompt, model, role, archetype, agent_folders")
               .eq("user_id", user.id)
               .ilike("name", `%${nameLower}%`)
               .limit(1),
             sb.from("councils")
-              .select("id, name, personality_prompt, role, class, specialty, notes")
+              .select("id, name, personality_prompt, role, class, specialty, notes, agent_folders")
               .eq("user_id", user.id)
               .ilike("name", `%${nameLower}%`)
               .limit(1),
@@ -3575,9 +3581,11 @@ ${fmtGoals}
           const entity  = persona ?? council;
           if (entity) {
             const entityName = entity.name as string;
+            const saf = (entity.agent_folders ?? {}) as Record<string,string>;
+            const safBlock = [saf.identity, saf.memory_notes, saf.prompts].filter(Boolean).join("\n\n");
             const entitySystem = persona
-              ? (String(entity.system_prompt ?? `You are ${entityName}, a ${entity.archetype ?? "advisor"} (${entity.role ?? "advisor"}).`))
-              : `${entity.personality_prompt ?? ""} You are ${entityName}, a ${entity.class ?? "council"} member. Specialty: ${entity.specialty ?? entity.role ?? "general"}. ${entity.notes ?? ""}`.trim();
+              ? `${String(entity.system_prompt ?? `You are ${entityName}, a ${entity.archetype ?? "advisor"} (${entity.role ?? "advisor"}).`)}${safBlock ? `\n\n${safBlock}` : ""}`
+              : `${entity.personality_prompt ?? ""} You are ${entityName}, a ${entity.class ?? "council"} member. Specialty: ${entity.specialty ?? entity.role ?? "general"}. ${entity.notes ?? ""}${safBlock ? `\n\n${safBlock}` : ""}`.trim();
 
             // Fetch last 20 messages from that entity's conversation to ground their response
             let entityHistory: { role: string; content: string }[] = [];

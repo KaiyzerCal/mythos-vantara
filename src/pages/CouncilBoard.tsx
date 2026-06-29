@@ -729,7 +729,7 @@ export default function CouncilBoard() {
                         {p.name} ×
                       </button>
                       <button
-                        onClick={() => setVoiceTarget({ name: p.name, role: p.role, systemPrompt: buildPersonaVoiceSystemPrompt({ name: p.name, role: p.role, archetype: p.archetype, system_prompt: p.systemPrompt }), entityId: p.id, entityType: "persona", userId: userId ?? undefined, avatarUrl: (p as any).avatar_key ?? undefined })}
+                        onClick={() => setVoiceTarget({ name: p.name, role: p.role, systemPrompt: buildPersonaVoiceSystemPrompt({ name: p.name, role: p.role, archetype: p.archetype, system_prompt: p.systemPrompt, agent_folders: (p as any).agent_folders ?? null }), entityId: p.id, entityType: "persona", userId: userId ?? undefined, avatarUrl: (p as any).avatar_key ?? undefined })}
                         className="flex items-center px-1.5 py-1 text-amber-400 border border-amber-500/40 bg-amber-800/30 hover:bg-amber-700/40 hover:text-amber-200 rounded-r border-l-0 transition-all"
                         title={`Voice call ${p.name}`}
                       >

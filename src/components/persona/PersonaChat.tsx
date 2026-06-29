@@ -557,6 +557,7 @@ export function PersonaChat({ persona, userId, onBack }: PersonaChatProps) {
                 archetype: persona.archetype,
                 personality: persona.personality as Record<string, unknown> | string | null | undefined,
                 system_prompt: persona.system_prompt,
+                agent_folders: (persona as any).agent_folders as Record<string, string> | null,
               }),
               voiceId: voiceId,
               entityId: persona.id,
