@@ -1,48 +1,116 @@
-# .agents/ — Vantara Agent Framework
+# .agents/ — Vantara Agent Nervous System
 
-Organized using the 7-Folders framework. Each agent (MAVIS, personas, council members) has the same folder structure, ensuring consistent identity, memory, operations, and quality standards across the entire ecosystem.
+The folder structure is not documentation. It is the nervous system.
 
-## Structure
+MAVIS's filesystem is where her identity, memory governance, operational patterns, and reference material physically live. A messy filesystem produces a confused agent — not metaphorically, literally. The model reads paths. The model picks files by name. The model writes based on patterns it sees in old ones.
+
+This directory follows the **numbered-gap convention**: two-digit prefixes, intentional gaps as reserved insertion points. Folders that don't have numbers (EVALS/) are meta-structural — they exist outside the operational flow.
+
+---
+
+## MAVIS's Structure
 
 ```
 .agents/
-├── MAVIS/                    ← Core system agent (hardcoded in edge functions)
-│   ├── 01_IDENTITY/SOUL.md   ← Who MAVIS is at the constitutional level
-│   ├── 02_USER/OPERATOR.md   ← Template for what MAVIS knows about the operator
-│   ├── 03_OPERATIONS/        ← SOPs, decision rules, formatting guidelines
-│   ├── 04_MEMORY/            ← Memory strategy docs (data lives in DB)
-│   ├── 05_REFERENCES/        ← Knowledge base, domain refs MAVIS draws from
-│   ├── 06_OUTPUT/            ← Output standards and examples
-│   └── 07_EVALS/QUALITY.md  ← Quality gate: what a good MAVIS response looks like
+├── MAVIS/
+│   ├── 01_IDENTITY/        ← Constitutional layer (who she is, how she speaks)
+│   │   ├── SOUL.md          — Identity, principles, relationship to ecosystem
+│   │   └── VOICE.md         — Tone, forbidden phrases, format rules
+│   │
+│   ├── 02_MEMORY/          ← Memory GOVERNANCE (HOW to remember, not the memories)
+│   │   └── GOVERNANCE.md    — Memory types, scoring, naming, contradiction protocol
+│   │
+│   │   [03_, 05_ reserved]
+│   │
+│   ├── 04_PROMPTS/         ← Reusable named prompt templates
+│   │   └── LIBRARY.md       — Morning brief, quest review, content machine, etc.
+│   │
+│   │   [05_ reserved]
+│   │
+│   ├── 06_KNOWLEDGE/       ← What MAVIS learned about the operator (agent-produced)
+│   │   └── OPERATOR.md      — Operator profile, live data sources, behavioral patterns
+│   │
+│   ├── 07_LIBRARY/         ← External material MAVIS did NOT produce (read-only)
+│   │   └── SOURCES.md       — Frameworks, science, philosophy, strategy references
+│   │
+│   │   [08_, 10_ reserved]
+│   │
+│   ├── 09_OPERATIONS/      ← SOPs and recurring procedures
+│   │   ├── WORKFLOW.md      — Per-interaction: Inbox model, decision tree
+│   │   ├── INBOX.md         — How to classify and clear every operator message
+│   │   └── SOPS.md          — Scheduled/recurring: morning brief, retro, memory consolidation
+│   │
+│   │   [10_ reserved]
+│   │
+│   ├── 11_SESSIONS/        ← Session archive protocol
+│   │   └── ARCHIVE.md       — How sessions are stored, retrieved, consolidated
+│   │
+│   │   [12_–98_ reserved]
+│   │
+│   ├── 99_ARCHIVE/         ← Cold storage (moved here, not deleted)
+│   │   └── README.md        — What gets archived, retrieval protocol
+│   │
+│   └── EVALS/              ← Quality gate (no number — meta-structural)
+│       └── QUALITY.md       — What a good MAVIS response looks like
 │
-├── _PERSONA_TEMPLATE/        ← Starter template for new personas
-│   └── ...same 7 folders...
+├── _PERSONA_TEMPLATE/      ← Starter files for new personas
+│   └── (simplified 5-folder structure)
 │
-└── _COUNCIL_TEMPLATE/        ← Starter template for new council members
-    └── ...same 7 folders...
+└── _COUNCIL_TEMPLATE/      ← Starter files for council members
+    └── (simplified 3-folder structure)
 ```
 
-## How it maps to the database
+---
 
-For MAVIS: The content of these files is loaded directly into the edge function system prompts via the `buildContextSummary` and `fullPrompt` assembly pipeline.
+## The Two Distinctions That Matter Most
 
-For personas and council members: The 7-folder content is stored in the `agent_folders` JSONB column on the `personas` and `councils` tables respectively. Keys:
+**06_KNOWLEDGE vs 07_LIBRARY:**
+- `06_KNOWLEDGE/` = what MAVIS produced by learning. Her inferences, operator profile, patterns she detected.
+- `07_LIBRARY/` = external material she cites but didn't create. Frameworks, research, references.
+
+Keeping them separate prevents MAVIS from confusing her own inferences with cited sources — a hallucination class that compounds over time.
+
+**02_MEMORY vs `.auto-memory/`:**
+- The actual memories live in `mavis_memory` (Supabase table) — MAVIS's hot memory.
+- `02_MEMORY/GOVERNANCE.md` holds the rules for HOW to write memories. Constitution, not data.
+
+Without governance, every memory write is improvised. With it, the memory index stays useful as it grows.
+
+---
+
+## How This Maps to the Database
+
+For **MAVIS**: content from these files informs her system prompt via `buildMavisPrompt()`. Governance rules from `02_MEMORY/GOVERNANCE.md` are injected directly. SOPs from `09_OPERATIONS/` are encoded in her action decision tree.
+
+For **personas and council members**: content is stored in the `agent_folders` JSONB column on `personas` / `councils` tables:
 
 | Folder | DB key | Purpose |
 |---|---|---|
-| 01_IDENTITY | `identity` | Constitutional identity — who they are |
-| 02_USER | `user_context` | Context about the operator they serve |
-| 03_OPERATIONS | `operations` | Behavior rules, SOPs, decision logic |
-| 04_MEMORY | `memory_notes` | Long-running memory notes (indexed logs live in DB) |
-| 05_REFERENCES | `references` | Domain knowledge, style guides, data they draw from |
-| 06_OUTPUT | `output` | Output standards, recent deliverables |
-| 07_EVALS | `evals` | Quality criteria, what "good" looks like for this entity |
+| 01_IDENTITY | `identity` | Constitutional identity |
+| 02_MEMORY governance | `memory_notes` | Long-running memory notes |
+| 04_PROMPTS | `prompts` | Entity-specific prompt templates |
+| 06_KNOWLEDGE | `knowledge` | What this entity knows about the operator |
+| 07_LIBRARY | `library` | External sources this entity draws from |
+| 09_OPERATIONS | `operations` | Behavior rules, decision patterns |
+| EVALS | `evals` | Quality criteria |
+
+---
 
 ## Timezone
 
 Every entity can have its own timezone:
-- Operator timezone: `profiles.timezone` (e.g. `"America/Sao_Paulo"`)
-- Persona timezone: `personas.timezone` (optional — only set if the persona canonically "lives" in a different timezone or era, e.g. a Tokyo-based street trader persona uses `"Asia/Tokyo"`)
-- Council member timezone: `councils.timezone` (optional, same logic)
+- Operator: `profiles.timezone` (e.g. `"America/Sao_Paulo"`)
+- Persona: `personas.timezone` (only if the persona canonically lives in a different timezone)
+- Council member: `councils.timezone` (same logic)
 
-When a persona or council member has a timezone set, ALL temporal context injected into their system prompt uses their local time. The operator's local time is shown as a secondary reference.
+When set, all temporal context uses the entity's local time. Operator's local time is the secondary reference.
+
+---
+
+## The Numbered Gap Convention
+
+Gaps are intentional. They are reserved insertion points. When a new domain emerges in MAVIS's architecture, it slots in without renaming everything.
+
+Current reserved slots: 03_, 05_, 08_, 10_, 12_–98_ (except 99_ which is Archive)
+
+Do NOT create a `MISC/` folder. If something doesn't fit, the structure needs a new home — not a junk drawer.

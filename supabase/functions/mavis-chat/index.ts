@@ -2599,7 +2599,36 @@ Add a signal:
 Remove a signal:
 :::ACTION{"type":"delete_signal_config","params":{"id":"<uuid>"}}:::
 
-Use get_signal_configs to show the operator what MAVIS is watching. Use upsert_signal_config when the operator says "watch for X", "alert me when Y", "monitor this RSS feed", or "notify me if BTC moves more than Z%". Signals are the foundation of MAVIS's situational awareness — the more signals configured, the more proactively MAVIS operates.`;
+Use get_signal_configs to show the operator what MAVIS is watching. Use upsert_signal_config when the operator says "watch for X", "alert me when Y", "monitor this RSS feed", or "notify me if BTC moves more than Z%". Signals are the foundation of MAVIS's situational awareness — the more signals configured, the more proactively MAVIS operates.
+
+---
+
+MEMORY GOVERNANCE — HOW MAVIS WRITES MEMORY
+
+Every memory entry is one topic. Never bundle. Never concatenate a session into one blob.
+
+Memory types and importance scores:
+• Fact (verified truth about the operator or their world): 7–10
+• Pattern (behavioral signal observed ≥2 times): 6–9
+• Preference (stated or inferred): 5–8
+• Context (current project/arc state that changes): 3–6
+• Ephemeral (single-session relevance): DO NOT WRITE — 1–3
+
+WRITE when: the operator corrects MAVIS (correction becomes truth), a new durable fact is stated, a behavioral pattern repeats for ≥2nd time, a decision is made that future sessions need context for.
+
+DO NOT WRITE when: the operator is venting (emotion, not fact), the same fact already exists, the content is one-session context that will be stale tomorrow.
+
+Contradiction protocol: new information overwrites old. Set old entry importance to 1 (stale). Write fresh. Never accumulate contradictions.
+
+INBOX MODEL — every operator message is classified before responding:
+• WRITE request → emit ACTION block + confirm in 1 sentence
+• READ/ANALYSIS → pull from injected context, answer with real data
+• A2A request → relay result if in context; trigger lookup if not
+• DIRECTION request → one clear move, not a menu
+• STRATEGY request → full depth when earned
+• CONVERSATION → natural response in character
+
+Nothing stays unclassified. Nothing is deferred without a schedule. Inbox zero is the default state.`;
 }
 
 // ============================================================
@@ -3800,11 +3829,14 @@ Always reference dates and times in the entity's own timezone when one is set, o
     // inject it between their system prompt and the app context.
     const agentFoldersBlock = Object.keys(entityAgentFolders).length > 0
       ? [
-          entityAgentFolders.identity    ? `\n═══ IDENTITY (01) ═══\n${entityAgentFolders.identity}\n═══ END IDENTITY ═══` : "",
-          entityAgentFolders.operations  ? `\n═══ OPERATIONS (03) ═══\n${entityAgentFolders.operations}\n═══ END OPERATIONS ═══` : "",
-          entityAgentFolders.references  ? `\n═══ REFERENCES (05) ═══\n${entityAgentFolders.references}\n═══ END REFERENCES ═══` : "",
-          entityAgentFolders.memory_notes ? `\n═══ MEMORY NOTES (04) ═══\n${entityAgentFolders.memory_notes}\n═══ END MEMORY NOTES ═══` : "",
-          entityAgentFolders.evals       ? `\n═══ QUALITY STANDARDS (07) ═══\n${entityAgentFolders.evals}\n═══ END QUALITY STANDARDS ═══` : "",
+          entityAgentFolders.identity      ? `\n═══ IDENTITY (01) ═══\n${entityAgentFolders.identity}\n═══ END IDENTITY ═══` : "",
+          entityAgentFolders.memory_notes  ? `\n═══ MEMORY NOTES (02) ═══\n${entityAgentFolders.memory_notes}\n═══ END MEMORY NOTES ═══` : "",
+          entityAgentFolders.prompts       ? `\n═══ PROMPT LIBRARY (04) ═══\n${entityAgentFolders.prompts}\n═══ END PROMPT LIBRARY ═══` : "",
+          entityAgentFolders.knowledge     ? `\n═══ KNOWLEDGE (06) ═══\n${entityAgentFolders.knowledge}\n═══ END KNOWLEDGE ═══` : "",
+          entityAgentFolders.references    ? `\n═══ REFERENCES (06) ═══\n${entityAgentFolders.references}\n═══ END REFERENCES ═══` : "",
+          entityAgentFolders.library       ? `\n═══ LIBRARY (07) ═══\n${entityAgentFolders.library}\n═══ END LIBRARY ═══` : "",
+          entityAgentFolders.operations    ? `\n═══ OPERATIONS (09) ═══\n${entityAgentFolders.operations}\n═══ END OPERATIONS ═══` : "",
+          entityAgentFolders.evals         ? `\n═══ QUALITY STANDARDS ═══\n${entityAgentFolders.evals}\n═══ END QUALITY STANDARDS ═══` : "",
         ].filter(Boolean).join("\n")
       : "";
 
