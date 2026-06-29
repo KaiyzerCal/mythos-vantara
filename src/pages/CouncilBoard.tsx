@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { Send, ArrowLeft, Users, Database, Square, Mic, MicOff, Zap, ChevronDown, ChevronUp, PhoneCall } from "lucide-react";
+import { Send, ArrowLeft, Users, Database, Square, Mic, MicOff, Zap, ChevronDown, ChevronUp, PhoneCall, MessageSquare, Loader2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { loadFullAppContext } from "@/mavis/appContextLoader";
 import {
@@ -77,6 +77,15 @@ export default function CouncilBoard() {
   const [voiceTarget,      setVoiceTarget]      = useState<VoicePersona | null>(null);
   const [groupVoiceOpen,   setGroupVoiceOpen]   = useState(false);
   const [confirmClear,     setConfirmClear]     = useState(false);
+  // ── Discourse mode (MoltBook-style structured AI debate) ──────────────
+  const [discourseOpen,    setDiscourseOpen]    = useState(false);
+  const [discourseTopic,   setDiscourseTopic]   = useState("");
+  const [discourseRunning, setDiscourseRunning] = useState(false);
+  const [discourseResult,  setDiscourseResult]  = useState<{
+    id?: string; topic: string;
+    rounds: Array<{ speaker_name: string; speaker_role: string; content: string; stage: string }>;
+    synthesis: string;
+  } | null>(null);
 
   // ── Realtime streaming state ──────────────────────────────────────
   // Keyed by `${speakerId}:${round}` so Round 1 and deliberation cards coexist.
@@ -340,6 +349,55 @@ export default function CouncilBoard() {
       toast.error("OmniSync failed: " + (e?.message ?? "unknown"));
     } finally { setIsSyncing(false); }
   }, [isSyncing, userId, messages, councilMembers]);
+
+  // ── Discourse mode ────────────────────────────────────────────────
+  // MoltBook-style: positions → challenges → MAVIS synthesis
+  const handleDiscourse = useCallback(async () => {
+    if (!discourseTopic.trim() || !userId || discourseRunning) return;
+    if (councilMembers.length + summonedIds.length === 0) {
+      toast.error("Summon council members or personas before starting a discourse.");
+      return;
+    }
+    setDiscourseRunning(true);
+    setDiscourseResult(null);
+    try {
+      const summonedPersonas = personas.filter(p => summonedIds.includes(p.id));
+      const participants = [
+        ...councilMembers.map(m => ({ id: m.id, name: m.name, role: m.role, specialty: m.specialty, notes: m.notes, speakerType: "council" as const })),
+        ...summonedPersonas.map(p => ({ id: p.id, name: p.name, role: p.role, bio: (p as any).bio, adjectives: (p as any).adjectives, topics: (p as any).topics, speakerType: "persona" as const })),
+      ];
+
+      const { data: { session } } = await supabase.auth.getSession();
+      const res = await supabase.functions.invoke("mavis-discourse-runner", {
+        body: { user_id: userId, topic: discourseTopic.trim(), participants },
+      });
+
+      if (res.error) throw new Error(res.error.message ?? "Discourse failed");
+      setDiscourseResult(res.data);
+
+      // Post synthesis as a message in the board thread
+      const cid = await ensureConversation(userId);
+      const synthMsg: CouncilBoardMessage = {
+        id:          makeId(),
+        speakerId:   "mavis",
+        speakerName: "MAVIS",
+        speakerRole: "Discourse Synthesis",
+        speakerType: "mavis",
+        content:     `**Discourse: ${discourseTopic.trim()}**\n\n${res.data.synthesis}`,
+        timestamp:   Date.now(),
+        isUser:      false,
+      };
+      setMessages(prev => [...prev, synthMsg]);
+      if (cid) await persist(cid, userId, synthMsg);
+      setDiscourseOpen(false);
+      setDiscourseTopic("");
+      toast.success("Discourse complete — synthesis added to thread");
+    } catch (e: any) {
+      toast.error("Discourse error: " + (e?.message ?? "unknown"));
+    } finally {
+      setDiscourseRunning(false);
+    }
+  }, [discourseTopic, userId, discourseRunning, councilMembers, personas, summonedIds, ensureConversation, persist]);
 
   // ── Clear: archive then wipe ──────────────────────────────────────
   const handleClear = useCallback(async () => {
@@ -611,6 +669,13 @@ export default function CouncilBoard() {
           </button>
         )}
         <button
+          onClick={() => setDiscourseOpen(v => !v)}
+          className={`flex items-center gap-1 text-xs font-mono border rounded px-2 py-1 transition-all ${discourseOpen ? "text-violet-300 border-violet-500/50 bg-violet-900/20" : "text-violet-400 hover:text-violet-300 border-violet-900/40 hover:border-violet-400/40"}`}
+          title="Start structured discourse"
+        >
+          <MessageSquare size={10} /> Discourse
+        </button>
+        <button
           onClick={handleOmniSync}
           disabled={isSyncing}
           className="flex items-center gap-1 text-xs font-mono text-cyan-400 hover:text-cyan-300 border border-cyan-900/40 hover:border-cyan-400/40 rounded px-2 py-1 transition-all disabled:opacity-40"
@@ -664,12 +729,74 @@ export default function CouncilBoard() {
                         {p.name} ×
                       </button>
                       <button
-                        onClick={() => setVoiceTarget({ name: p.name, role: p.role, systemPrompt: buildPersonaVoiceSystemPrompt({ name: p.name, role: p.role, archetype: p.archetype, system_prompt: p.systemPrompt }), entityId: p.id, entityType: "persona", userId: userId ?? undefined, avatarUrl: (p as any).avatar_key ?? undefined })}
+                        onClick={() => setVoiceTarget({ name: p.name, role: p.role, systemPrompt: buildPersonaVoiceSystemPrompt({ name: p.name, role: p.role, archetype: p.archetype, system_prompt: p.systemPrompt, agent_folders: (p as any).agent_folders ?? null }), entityId: p.id, entityType: "persona", userId: userId ?? undefined, avatarUrl: (p as any).avatar_key ?? undefined })}
                         className="flex items-center px-1.5 py-1 text-amber-400 border border-amber-500/40 bg-amber-800/30 hover:bg-amber-700/40 hover:text-amber-200 rounded-r border-l-0 transition-all"
                         title={`Voice call ${p.name}`}
                       >
                         <PhoneCall size={9} />
                       </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ── Discourse panel (MoltBook-style) ────────────────────────── */}
+      <AnimatePresence>
+        {discourseOpen && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            className="overflow-hidden border-b border-violet-900/40 bg-violet-950/10"
+          >
+            <div className="px-4 py-3 space-y-2.5">
+              <div className="flex items-center justify-between">
+                <p className="text-xs font-mono text-violet-400 uppercase tracking-wider flex items-center gap-1.5">
+                  <MessageSquare size={10} /> Structured Discourse
+                </p>
+                <span className="text-xs font-mono text-muted-foreground">
+                  {councilMembers.length + summonedIds.length} participant{(councilMembers.length + summonedIds.length) !== 1 ? "s" : ""}
+                  {" · positions → challenges → MAVIS synthesis"}
+                </span>
+              </div>
+              <div className="flex gap-2">
+                <input
+                  value={discourseTopic}
+                  onChange={e => setDiscourseTopic(e.target.value)}
+                  onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleDiscourse(); } }}
+                  placeholder='Topic to debate, e.g. "Should we pivot to B2B?" or "What is the biggest risk to our Q3 goal?"'
+                  className="flex-1 bg-muted/30 border border-violet-800/40 focus:border-violet-500/60 rounded px-3 py-2 text-sm font-body text-foreground placeholder:text-muted-foreground focus:outline-none transition-colors"
+                />
+                <button
+                  onClick={handleDiscourse}
+                  disabled={discourseRunning || !discourseTopic.trim()}
+                  className="flex items-center gap-1.5 px-3 py-2 rounded border border-violet-500/40 bg-violet-900/30 text-violet-300 text-xs font-mono hover:bg-violet-800/40 transition-colors disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap"
+                >
+                  {discourseRunning ? (
+                    <><Loader2 size={11} className="animate-spin" /> Running…</>
+                  ) : (
+                    <><MessageSquare size={11} /> Start Discourse</>
+                  )}
+                </button>
+              </div>
+              {discourseRunning && (
+                <p className="text-xs font-mono text-violet-400/60 animate-pulse">
+                  Stage 1/3: Gathering positions… Stage 2/3: Challenge round… Stage 3/3: MAVIS synthesis…
+                </p>
+              )}
+              {discourseResult && (
+                <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
+                  <p className="text-xs font-mono text-violet-400 uppercase tracking-wider">
+                    Last discourse: {discourseResult.topic}
+                  </p>
+                  {discourseResult.rounds.filter(r => r.stage !== "synthesis").map((r, i) => (
+                    <div key={i} className={`text-xs font-body rounded px-2.5 py-1.5 border ${r.stage === "challenge" ? "border-orange-900/30 bg-orange-950/10 text-orange-200/80" : "border-violet-900/30 bg-violet-950/10 text-violet-200/80"}`}>
+                      <span className="font-mono text-[10px] uppercase tracking-wider opacity-60 mr-1">[{r.speaker_name} · {r.stage}]</span>
+                      {r.content.slice(0, 200)}{r.content.length > 200 ? "…" : ""}
                     </div>
                   ))}
                 </div>

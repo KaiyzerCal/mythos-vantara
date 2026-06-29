@@ -30,7 +30,14 @@ WHO YOU ARE:
 - Class: ${member.class ?? "advisor"}
 - Expertise: ${member.specialty ?? "General advisory"}
 - About you: ${member.notes || "A trusted individual in this person's inner circle — you know them well and speak frankly."}
-
+${(() => {
+  const af = ((member as any).agent_folders ?? {}) as Record<string, string>;
+  const parts: string[] = [];
+  if (af.identity) parts.push(`\nIDENTITY FRAMEWORK:\n${af.identity}`);
+  if (af.memory_notes) parts.push(`\nMEMORY NOTES:\n${af.memory_notes}`);
+  if (af.prompts) parts.push(`\nBEHAVIOR DIRECTIVES:\n${af.prompts}`);
+  return parts.join("\n");
+})()}
 ═══ CONTEXT YOU HAVE ACCESS TO ═══
 ${contextSummary}
 ═══ END CONTEXT ═══
@@ -152,6 +159,7 @@ export function buildPersonaVoiceSystemPrompt(persona: {
   personality?: Record<string, unknown> | string | null;
   system_prompt?: string;
   notes?: string;
+  agent_folders?: Record<string, string> | null;
 }): string {
   const personalityStr = persona.personality && typeof persona.personality === "object"
     ? Object.entries(persona.personality as Record<string, unknown>)
@@ -170,7 +178,14 @@ WHO YOU ARE:
 ${persona.archetype ? `- Archetype: ${persona.archetype}` : ""}
 ${personalityStr ? `\nYOUR PERSONALITY:\n${personalityStr}` : ""}
 ${persona.system_prompt ? `\nYOUR CORE SELF:\n${persona.system_prompt}` : ""}
-
+${(() => {
+  const af = (persona.agent_folders ?? {}) as Record<string, string>;
+  const parts: string[] = [];
+  if (af.identity) parts.push(`\nIDENTITY FRAMEWORK:\n${af.identity}`);
+  if (af.memory_notes) parts.push(`\nMEMORY NOTES:\n${af.memory_notes}`);
+  if (af.prompts) parts.push(`\nBEHAVIOR DIRECTIVES:\n${af.prompts}`);
+  return parts.join("\n");
+})()}
 HOW YOU SPEAK:
 - Talk the way YOU naturally talk — your own cadence, humor, bluntness, warmth, whatever fits who you are
 - You can be short or long, playful or serious, depending on the moment

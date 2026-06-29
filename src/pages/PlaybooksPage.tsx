@@ -7,12 +7,13 @@ import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   BookOpen, ChevronDown, ChevronRight, Play, Zap, Search,
-  DollarSign, FlaskConical, Palette, Heart, Plus, Copy, Check,
+  DollarSign, FlaskConical, Palette, Heart, Plus, Copy, Check, Trash2,
 } from "lucide-react";
 import { supabase as _supabase } from "@/integrations/supabase/client";
 const supabase = _supabase as any;
 import { useAuth } from "@/contexts/AuthContext";
 import { PageHeader, HudCard } from "@/components/SharedUI";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { toast } from "sonner";
 
 // ─── Types ──────────────────────────────────────────────────
@@ -123,7 +124,15 @@ function ProcedureCard({ proc, onActivate }: { proc: Procedure; onActivate: (pro
   );
 }
 
-function PlaybookCard({ playbook, onActivate }: { playbook: Playbook; onActivate: (proc: Procedure, playbook: Playbook) => void }) {
+function PlaybookCard({
+  playbook,
+  onActivate,
+  onDelete,
+}: {
+  playbook: Playbook;
+  onActivate: (proc: Procedure, playbook: Playbook) => void;
+  onDelete: (playbook: Playbook) => void;
+}) {
   const [expanded, setExpanded] = useState(false);
   const colorClass = DOMAIN_COLORS[playbook.domain] ?? DOMAIN_COLORS.custom;
 
@@ -149,6 +158,18 @@ function PlaybookCard({ playbook, onActivate }: { playbook: Playbook; onActivate
         </div>
         <div className="flex items-center gap-2 ml-4 flex-shrink-0">
           <span className="text-xs text-white/40">{playbook.procedures.length} procedures</span>
+          {!playbook.is_system && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onDelete(playbook);
+              }}
+              className="p-1 text-white/30 hover:text-red-400 transition-colors rounded"
+              title="Delete playbook"
+            >
+              <Trash2 size={13} />
+            </button>
+          )}
           {expanded ? <ChevronDown size={14} className="text-white/40" /> : <ChevronRight size={14} className="text-white/40" />}
         </div>
       </button>
@@ -173,6 +194,8 @@ function PlaybookCard({ playbook, onActivate }: { playbook: Playbook; onActivate
   );
 }
 
+const DOMAIN_FILTERS = ["all", "finance", "research", "creative", "health", "custom"];
+
 export function PlaybooksPage() {
   const { user } = useAuth();
   const [playbooks, setPlaybooks] = useState<Playbook[]>([]);
@@ -180,6 +203,17 @@ export function PlaybooksPage() {
   const [filter, setFilter] = useState<string>("all");
   const [activatingProc, setActivatingProc] = useState<{ proc: Procedure; playbook: Playbook } | null>(null);
   const [filledTemplate, setFilledTemplate] = useState("");
+
+  // New Playbook form state
+  const [showCreateForm, setShowCreateForm] = useState(false);
+  const [newName, setNewName] = useState("");
+  const [newDomain, setNewDomain] = useState("custom");
+  const [newDescription, setNewDescription] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  // Delete confirmation state
+  const [deleteTarget, setDeleteTarget] = useState<Playbook | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     if (!user) return;
@@ -224,7 +258,57 @@ export function PlaybooksPage() {
     window.location.href = "/mavis";
   }
 
-  const DOMAIN_FILTERS = ["all", "finance", "research", "creative", "health", "custom"];
+  async function handleCreate() {
+    if (!newName.trim()) {
+      toast.error("Playbook name is required.");
+      return;
+    }
+    setSaving(true);
+    try {
+      const slug = newName.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-");
+      const { error } = await supabase.from("mavis_playbooks").insert({
+        name: newName.trim(),
+        slug,
+        domain: newDomain,
+        description: newDescription.trim() || null,
+        procedures: [],
+        is_system: false,
+        is_active: true,
+        usage_count: 0,
+        tags: [],
+      });
+      if (error) throw error;
+      toast.success("Playbook created!");
+      setShowCreateForm(false);
+      setNewName("");
+      setNewDomain("custom");
+      setNewDescription("");
+      await loadPlaybooks();
+    } catch (e: any) {
+      toast.error("Failed to create playbook: " + e.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleDelete() {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    try {
+      const { error } = await supabase
+        .from("mavis_playbooks")
+        .delete()
+        .eq("id", deleteTarget.id);
+      if (error) throw error;
+      toast.success(`"${deleteTarget.name}" deleted.`);
+      setDeleteTarget(null);
+      await loadPlaybooks();
+    } catch (e: any) {
+      toast.error("Failed to delete playbook: " + e.message);
+    } finally {
+      setDeleting(false);
+    }
+  }
 
   const filtered = filter === "all"
     ? playbooks
@@ -232,11 +316,96 @@ export function PlaybooksPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        title="Domain Playbooks"
-        subtitle="Structured procedure libraries for Finance, Research, Creative, and Health domains."
-        icon={<BookOpen size={20} />}
-      />
+      <div className="flex items-start justify-between gap-4">
+        <PageHeader
+          title="Domain Playbooks"
+          subtitle="Structured procedure libraries for Finance, Research, Creative, and Health domains."
+          icon={<BookOpen size={20} />}
+        />
+        <button
+          onClick={() => setShowCreateForm(true)}
+          className="flex items-center gap-1.5 text-xs font-semibold text-black bg-primary hover:bg-primary/80 px-3 py-2 rounded-lg transition-colors whitespace-nowrap mt-1"
+        >
+          <Plus size={14} />
+          New Playbook
+        </button>
+      </div>
+
+      {/* Create playbook inline form */}
+      <AnimatePresence>
+        {showCreateForm && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            className="overflow-hidden"
+          >
+            <div className="border border-primary/30 bg-primary/5 rounded-xl p-5 space-y-4">
+              <p className="text-sm font-semibold text-white">Create New Playbook</p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="space-y-1">
+                  <label className="text-xs text-white/50">Name <span className="text-primary">*</span></label>
+                  <input
+                    type="text"
+                    value={newName}
+                    onChange={e => setNewName(e.target.value)}
+                    placeholder="e.g. Investment Research"
+                    className="w-full bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder-white/30 focus:outline-none focus:border-primary/40"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs text-white/50">Domain</label>
+                  <select
+                    value={newDomain}
+                    onChange={e => setNewDomain(e.target.value)}
+                    className="w-full bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-primary/40"
+                  >
+                    {DOMAIN_FILTERS.filter(d => d !== "all").map(d => (
+                      <option key={d} value={d} className="bg-[#0d1025] capitalize">{d}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs text-white/50">Description <span className="text-white/30">(optional)</span></label>
+                <textarea
+                  value={newDescription}
+                  onChange={e => setNewDescription(e.target.value)}
+                  placeholder="Brief description of this playbook's purpose…"
+                  rows={2}
+                  className="w-full bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder-white/30 focus:outline-none focus:border-primary/40 resize-none"
+                />
+              </div>
+              <div className="flex justify-end gap-2">
+                <button
+                  onClick={() => {
+                    setShowCreateForm(false);
+                    setNewName("");
+                    setNewDomain("custom");
+                    setNewDescription("");
+                  }}
+                  className="text-xs text-white/50 hover:text-white px-4 py-2 rounded border border-white/10 hover:border-white/30 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleCreate}
+                  disabled={saving}
+                  className="flex items-center gap-1.5 text-xs text-black font-semibold bg-primary hover:bg-primary/80 disabled:opacity-50 px-4 py-2 rounded transition-colors"
+                >
+                  {saving ? (
+                    <div className="w-3 h-3 border-2 border-black/30 border-t-black rounded-full animate-spin" />
+                  ) : (
+                    <Plus size={12} />
+                  )}
+                  {saving ? "Saving…" : "Create Playbook"}
+                </button>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Domain filter */}
       <div className="flex items-center gap-2 flex-wrap">
@@ -270,10 +439,25 @@ export function PlaybooksPage() {
             <div className="text-center py-12 text-white/40">
               <BookOpen size={32} className="mx-auto mb-2 opacity-30" />
               <p>No playbooks in this domain yet.</p>
+              <button
+                onClick={() => {
+                  setNewDomain(filter !== "all" ? filter : "custom");
+                  setShowCreateForm(true);
+                }}
+                className="mt-4 inline-flex items-center gap-1.5 text-xs font-semibold text-black bg-primary hover:bg-primary/80 px-4 py-2 rounded-lg transition-colors"
+              >
+                <Plus size={13} />
+                Create Playbook
+              </button>
             </div>
           ) : (
             filtered.map(pb => (
-              <PlaybookCard key={pb.id} playbook={pb} onActivate={activatePlaybook} />
+              <PlaybookCard
+                key={pb.id}
+                playbook={pb}
+                onActivate={activatePlaybook}
+                onDelete={(pb) => setDeleteTarget(pb)}
+              />
             ))
           )}
         </div>
@@ -326,6 +510,18 @@ export function PlaybooksPage() {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Delete confirmation dialog */}
+      <ConfirmDialog
+        open={!!deleteTarget}
+        title={`Delete "${deleteTarget?.name}"?`}
+        description="This playbook and all its procedures will be permanently removed. This action cannot be undone."
+        confirmLabel={deleting ? "Deleting…" : "Delete"}
+        cancelLabel="Cancel"
+        onConfirm={handleDelete}
+        onCancel={() => setDeleteTarget(null)}
+        danger
+      />
     </div>
   );
 }

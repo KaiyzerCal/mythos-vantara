@@ -1394,8 +1394,8 @@ async function resolveActionsNative(
         if (!entityName || !question) continue;
         const adminSb = createClient(supabaseUrl, serviceKey);
         const [pRes, cRes] = await Promise.all([
-          adminSb.from("personas").select("id,name,role,system_prompt,bio,archetype,model").eq("user_id",userId).ilike("name",`%${entityName}%`).limit(1),
-          adminSb.from("councils").select("id,name,role,specialty,personality_prompt,notes,model").eq("user_id",userId).ilike("name",`%${entityName}%`).limit(1),
+          adminSb.from("personas").select("id,name,role,system_prompt,bio,archetype,model,agent_folders").eq("user_id",userId).ilike("name",`%${entityName}%`).limit(1),
+          adminSb.from("councils").select("id,name,role,specialty,personality_prompt,notes,model,agent_folders").eq("user_id",userId).ilike("name",`%${entityName}%`).limit(1),
         ]);
         const persona = pRes.data?.[0] as any;
         const council = cRes.data?.[0] as any;
@@ -1405,9 +1405,11 @@ async function resolveActionsNative(
           continue;
         }
         const label = entity.name as string;
+        const af = (entity.agent_folders ?? {}) as Record<string,string>;
+        const afBlock = [af.identity, af.memory_notes, af.prompts].filter(Boolean).join("\n\n");
         const entitySystem = persona
-          ? `You are ${label}${entity.role ? `, ${entity.role}` : ""}. ${entity.archetype ? `Archetype: ${entity.archetype}.` : ""} ${entity.bio ? `Background: ${entity.bio}.` : ""} ${entity.system_prompt ?? ""} Respond in 3-6 sentences — in character, direct, specific.`.trim()
-          : `You are ${label}${entity.role ? `, ${entity.role}` : ""}${entity.specialty ? ` specialising in ${entity.specialty}` : ""}. ${entity.notes ?? ""} ${entity.personality_prompt ?? ""} 3-6 sentences — direct, from your expertise.`.trim();
+          ? `You are ${label}${entity.role ? `, ${entity.role}` : ""}. ${entity.archetype ? `Archetype: ${entity.archetype}.` : ""} ${entity.bio ? `Background: ${entity.bio}.` : ""} ${entity.system_prompt ?? ""}${afBlock ? `\n\n${afBlock}` : ""} Respond in 3-6 sentences — in character, direct, specific.`.trim()
+          : `You are ${label}${entity.role ? `, ${entity.role}` : ""}${entity.specialty ? ` specialising in ${entity.specialty}` : ""}. ${entity.notes ?? ""} ${entity.personality_prompt ?? ""}${afBlock ? `\n\n${afBlock}` : ""} 3-6 sentences — direct, from your expertise.`.trim();
 
         let entityHistory: { role: string; content: string }[] = [];
         try {
@@ -2045,12 +2047,24 @@ LONG-TERM MEMORY AGENT — save, retrieve, and deliver memories from mavis_memor
 :::ACTION{"type":"memory_agent","params":{"action":"send_to_telegram","telegram_chat_id":"","min_importance":3,"limit":30,"title":"MAVIS Weekly Memories"}}:::
 :::ACTION{"type":"memory_agent","params":{"action":"send_to_email","send_to":"user@example.com","subject":"MAVIS Memory Export","min_importance":3,"days_back":7}}:::
 Use memory_agent when the operator wants to explicitly save a memory, recall stored memories, or deliver a memory summary to Telegram or email. save_memory writes to mavis_memory with Claude-extracted tags (or supply tags[] explicitly) and importance 1-5 (default 4). retrieve_memories queries with optional filters: min_importance, limit, query (keyword search), tags[] (must all match), days_back. send_to_telegram: fetches memories → Claude formats as a clean plain-text list → splits into ≤4000-char messages → sends to telegram_chat_id. send_to_email: fetches memories → Claude formats as a styled HTML table (max 800px wide) → sends via mavis-google-agent (requires provider='google' linked). All delivery actions support the same memory filters: min_importance, limit, tags, days_back. Mirrors n8n "Long Term Memory Tools Router" — four-route dispatcher (save/retrieve/Telegram/Gmail) with LLM-formatted delivery. Requires ANTHROPIC_API_KEY + TELEGRAM_BOT_TOKEN; email requires Google OAuth.
-HEYGEN AI AVATAR VIDEO — generate photorealistic AI avatar videos from a text script:
-:::ACTION{"type":"heygen_agent","params":{"action":"generate_video","avatar_id":"7895d2d9f4f9453899e1d80e5accb6be","voice_id":"PBgwoAVFZIC0UB6sU914","text":"Your script here...","avatar_style":"normal","width":1080,"height":1920,"caption":true,"speed":1}}:::
+HEYGEN DIGITAL CLONE — generate videos of the operator's trained digital clone speaking any script:
+:::ACTION{"type":"heygen_agent","params":{"action":"generate_video","avatar_id":"YOUR_AVATAR_ID","voice_id":"YOUR_VOICE_ID","text":"Your script here...","avatar_style":"normal","width":1080,"height":1920,"caption":true,"speed":1}}:::
 :::ACTION{"type":"heygen_agent","params":{"action":"get_video_status","video_id":"..."}}:::
 :::ACTION{"type":"heygen_agent","params":{"action":"list_avatars"}}:::
 :::ACTION{"type":"heygen_agent","params":{"action":"list_voices"}}:::
-Use heygen_agent when the operator wants to create an AI avatar video with a photorealistic presenter speaking a script. generate_video requires avatar_id (the AI presenter), voice_id (the voice to use), and text (the script to speak). Optional: avatar_style ("normal"/"circle"/"closeUp"), width/height (default 1080×1920 portrait), caption (true adds auto-captions), speed (voice speed, default 1.0), background_color (hex, e.g. "#FFFFFF"). The action polls HeyGen up to 12× at 10-second intervals (~120 s); if still processing it returns {video_id, status:"processing"} — follow up with get_video_status. Use list_avatars / list_voices to browse available options and find IDs. Requires HEYGEN_API_KEY env var (purchase API credits at heygen.com).
+Use heygen_agent when the operator wants to generate a video of themselves (or any avatar) speaking a script. generate_video requires avatar_id (use list_avatars to find the operator's trained clone ID), voice_id (use list_voices to find their cloned voice), and text (the script). Optional: avatar_style ("normal"/"circle"/"closeUp"), width/height (default 1080×1920 portrait), caption (true adds auto-captions), speed (default 1.0), background_color (hex). Polls HeyGen up to 12× at 10s intervals (~120 s max); returns {video_id, status:"processing"} if still rendering — follow up with get_video_status. DIGITAL CLONE SETUP (one-time): operator goes to heygen.com → Studio → Avatars → Create Avatar → Instant Avatar (record 2+ min of clean footage) or Custom Avatar (higher fidelity, longer training). After approval, list_avatars returns their clone ID. Requires HEYGEN_API_KEY.
+
+PHOTO AVATAR (lip-sync any face image to a script):
+:::ACTION{"type":"avatar_video","params":{"action":"generate","source_image_url":"https://...","text":"Script to speak","voice_id":"ELEVENLABS_VOICE_ID","still_mode":false,"use_enhancer":true}}:::
+:::ACTION{"type":"avatar_video","params":{"action":"poll","request_id":"..."}}:::
+Use avatar_video to animate any still photo to speak. Requires source_image_url (face-forward image URL) and either text (uses ElevenLabs TTS with voice_id) or audio_url (pre-made audio). still_mode:true keeps head more stable; use_enhancer:true improves quality. Returns request_id immediately — poll for video_url. Use for: animating a profile photo, talking headshot from still, quick lip-sync prototypes. Powered by fal.ai SadTalker. Requires FAL_API_KEY + ELEVENLABS_API_KEY.
+
+HIGGSFIELD CINEMATIC VIDEO — AI video with fine-grained camera motion and character consistency:
+:::ACTION{"type":"higgsfield_agent","params":{"action":"generate_video","prompt":"A confident founder walks into a sleek office, cinematic lighting","camera_motion":"push_in","aspect_ratio":"9:16","duration":4}}:::
+:::ACTION{"type":"higgsfield_agent","params":{"action":"generate_video","image_url":"https://...","prompt":"Character looks directly at camera, slight confident smile","camera_motion":"zoom_in","duration":3}}:::
+:::ACTION{"type":"higgsfield_agent","params":{"action":"get_video_status","video_id":"..."}}:::
+:::ACTION{"type":"higgsfield_agent","params":{"action":"list_models"}}:::
+Use higgsfield_agent for cinematic short-form content where camera control matters — this is Higgsfield's differentiator. Camera motion options: static, zoom_in, zoom_out, pan_left, pan_right, tilt_up, tilt_down, push_in, pull_out, orbit_left, orbit_right, crane_up, crane_down, handheld, dolly_zoom. Pass image_url for image-to-video (animate a still), or prompt-only for text-to-video. aspect_ratio: "9:16" (TikTok/Reels), "16:9" (YouTube), "1:1" (feed). duration: 2-8 seconds. Polls up to 24× at 5s intervals (~120 s max). Use for: B-roll, cinematic intros, product reveals, character transitions. Requires HIGGSFIELD_API_KEY.
 GOOGLE CALENDAR AGENT — full CRUD on any Google Calendar: get, list, check availability, create, update, delete events:
 :::ACTION{"type":"calendar_agent","params":{"action":"get_all_events","calendar_id":"primary","time_min":"2026-06-17T00:00:00-03:00","time_max":"2026-06-17T23:59:59-03:00"}}:::
 :::ACTION{"type":"calendar_agent","params":{"action":"check_availability","calendar_id":"primary","start_time":"2026-06-17T14:00:00-03:00","end_time":"2026-06-17T15:00:00-03:00"}}:::
@@ -3118,7 +3132,8 @@ ${fmtGoals}
     }
 
     // ── URL full-content extraction ─────────────────────────
-    // YouTube URLs → real transcript via mavis-youtube-ingest (captions + Claude summary).
+    // YouTube       → mavis-youtube-ingest (captions + Claude summary)
+    // TikTok/IG/X   → mavis-shortform-ingest (Whisper transcription + Claude summary)
     // All other URLs → Jina Reader markdown extraction.
     let urlContent = "";
     {
@@ -3126,11 +3141,13 @@ ${fmtGoals}
       const foundUrls = lastUserText.match(URL_RE);
       if (foundUrls?.length) {
         const target = foundUrls[0].replace(/[.,;!?)]+$/, "");
-        const isYouTube = /(?:youtube\.com\/watch|youtu\.be\/)/.test(target);
+        const isYouTube   = /(?:youtube\.com\/watch|youtu\.be\/)/.test(target);
+        const isShortForm = /tiktok\.com|vm\.tiktok\.com|vt\.tiktok\.com|instagram\.com\/(reel|p)\/|twitter\.com|x\.com\/\w+\/status\//i.test(target);
+        const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+        const serviceKey  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
         try {
           if (isYouTube) {
             // Call the real YouTube ingest — extracts captions, summarises with Claude
-            const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
             const ytRes = await fetch(`${supabaseUrl}/functions/v1/mavis-youtube-ingest`, {
               method: "POST",
               headers: {
@@ -3148,6 +3165,36 @@ ${fmtGoals}
               urlContent = `\n═══ YOUTUBE VIDEO: ${title} ═══\nURL: ${target}\n\nSUMMARY:\n${summary}\n\nTRANSCRIPT EXCERPT:\n${excerpt}\n═══ END YOUTUBE CONTENT ═══`;
             } else {
               // Fallback to Jina if ingest fails
+              const jinaRes = await fetch(`https://r.jina.ai/${target}`, {
+                headers: { Accept: "text/plain", "X-No-Cache": "true", "X-Timeout": "15" },
+                signal: AbortSignal.timeout(18000),
+              });
+              if (jinaRes.ok) {
+                const text = await jinaRes.text();
+                if (text.length > 100) urlContent = `\n═══ URL CONTENT: ${target} ═══\n${text.slice(0, 14000)}\n═══ END URL CONTENT ═══`;
+              }
+            }
+          } else if (isShortForm) {
+            // Short-form video: Whisper transcription via mavis-shortform-ingest
+            const sfRes = await fetch(`${supabaseUrl}/functions/v1/mavis-shortform-ingest`, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${serviceKey}`,
+              },
+              body: JSON.stringify({ url: target, save_as: "note", _preview: true }),
+              signal: AbortSignal.timeout(55000),
+            });
+            if (sfRes.ok) {
+              const sfData = await sfRes.json();
+              const title    = sfData.title    ?? "Video";
+              const platform = sfData.platform ?? "short-form";
+              const summary  = sfData.summary  ?? "";
+              const excerpt  = sfData.transcript ? String(sfData.transcript).slice(0, 8000) : "";
+              const label    = platform === "tiktok" ? "TIKTOK" : platform === "instagram" ? "INSTAGRAM REEL" : "TWITTER/X VIDEO";
+              urlContent = `\n═══ ${label}: ${title} ═══\nURL: ${target}\n\nSUMMARY:\n${summary}\n\nTRANSCRIPT:\n${excerpt}\n═══ END VIDEO CONTENT ═══`;
+            } else {
+              // Fallback to Jina for metadata
               const jinaRes = await fetch(`https://r.jina.ai/${target}`, {
                 headers: { Accept: "text/plain", "X-No-Cache": "true", "X-Timeout": "15" },
                 signal: AbortSignal.timeout(18000),
@@ -3511,18 +3558,22 @@ ${fmtGoals}
       if (multiA && multiB) {
         try { await Promise.race([ (async () => {
           const [pA, cA, pB, cB] = await Promise.all([
-            sb.from("personas").select("id,name,role,system_prompt,bio,archetype,model").eq("user_id",user.id).ilike("name",`%${multiA}%`).limit(1),
-            sb.from("councils").select("id,name,role,specialty,personality_prompt,notes,model").eq("user_id",user.id).ilike("name",`%${multiA}%`).limit(1),
-            sb.from("personas").select("id,name,role,system_prompt,bio,archetype,model").eq("user_id",user.id).ilike("name",`%${multiB}%`).limit(1),
-            sb.from("councils").select("id,name,role,specialty,personality_prompt,notes,model").eq("user_id",user.id).ilike("name",`%${multiB}%`).limit(1),
+            sb.from("personas").select("id,name,role,system_prompt,bio,archetype,model,agent_folders").eq("user_id",user.id).ilike("name",`%${multiA}%`).limit(1),
+            sb.from("councils").select("id,name,role,specialty,personality_prompt,notes,model,agent_folders").eq("user_id",user.id).ilike("name",`%${multiA}%`).limit(1),
+            sb.from("personas").select("id,name,role,system_prompt,bio,archetype,model,agent_folders").eq("user_id",user.id).ilike("name",`%${multiB}%`).limit(1),
+            sb.from("councils").select("id,name,role,specialty,personality_prompt,notes,model,agent_folders").eq("user_id",user.id).ilike("name",`%${multiB}%`).limit(1),
           ]);
           const entA = pA.data?.[0] as any ?? cA.data?.[0] as any;
           const entB = pB.data?.[0] as any ?? cB.data?.[0] as any;
           if (!entA || !entB) return;
           const lblA = entA.name as string, lblB = entB.name as string;
-          const mkSys = (e: any, isP: boolean) => isP
-            ? `You are ${e.name}${e.role?`, ${e.role}`:""}.${e.archetype?` Archetype: ${e.archetype}.`:""}${e.bio?` Background: ${e.bio}.`:""}${e.system_prompt?` ${e.system_prompt}`:""} Be direct, in-character, 3-5 sentences.`
-            : `You are ${e.name}${e.role?`, ${e.role}`:""}${e.specialty?` specialising in ${e.specialty}`:""}.${e.notes?` ${e.notes}`:""}${e.personality_prompt?` ${e.personality_prompt}`:""} 3-5 sentences, from expertise.`;
+          const mkSys = (e: any, isP: boolean) => {
+            const eaf = (e.agent_folders ?? {}) as Record<string,string>;
+            const eafBlock = [eaf.identity, eaf.memory_notes, eaf.prompts].filter(Boolean).join("\n\n");
+            return isP
+              ? `You are ${e.name}${e.role?`, ${e.role}`:""}.${e.archetype?` Archetype: ${e.archetype}.`:""}${e.bio?` Background: ${e.bio}.`:""}${e.system_prompt?` ${e.system_prompt}`:""}${eafBlock?`\n\n${eafBlock}`:""} Be direct, in-character, 3-5 sentences.`
+              : `You are ${e.name}${e.role?`, ${e.role}`:""}${e.specialty?` specialising in ${e.specialty}`:""}.${e.notes?` ${e.notes}`:""}${e.personality_prompt?` ${e.personality_prompt}`:""}${eafBlock?`\n\n${eafBlock}`:""} 3-5 sentences, from expertise.`;
+          };
           const sysA = mkSys(entA, !!pA.data?.[0]);
           const sysB = mkSys(entB, !!pB.data?.[0]);
           const keysObj = { openai: openaiKey, claude: claudeKey, grok: grokKey, gemini: geminiKey };
@@ -3583,16 +3634,17 @@ ${fmtGoals}
           }
         }
 
+
         if (a2aTargetName) {
           const nameLower = a2aTargetName.toLowerCase();
           const [pRes, cRes] = await Promise.all([
             sb.from("personas")
-              .select("id, name, system_prompt, model, role, archetype")
+              .select("id, name, system_prompt, model, role, archetype, agent_folders")
               .eq("user_id", user.id)
               .ilike("name", `%${nameLower}%`)
               .limit(1),
             sb.from("councils")
-              .select("id, name, personality_prompt, role, class, specialty, notes")
+              .select("id, name, personality_prompt, role, class, specialty, notes, agent_folders")
               .eq("user_id", user.id)
               .ilike("name", `%${nameLower}%`)
               .limit(1),
@@ -3602,9 +3654,11 @@ ${fmtGoals}
           const entity  = persona ?? council;
           if (entity) {
             const entityName = entity.name as string;
+            const saf = (entity.agent_folders ?? {}) as Record<string,string>;
+            const safBlock = [saf.identity, saf.memory_notes, saf.prompts].filter(Boolean).join("\n\n");
             const entitySystem = persona
-              ? (String(entity.system_prompt ?? `You are ${entityName}, a ${entity.archetype ?? "advisor"} (${entity.role ?? "advisor"}).`))
-              : `${entity.personality_prompt ?? ""} You are ${entityName}, a ${entity.class ?? "council"} member. Specialty: ${entity.specialty ?? entity.role ?? "general"}. ${entity.notes ?? ""}`.trim();
+              ? `${String(entity.system_prompt ?? `You are ${entityName}, a ${entity.archetype ?? "advisor"} (${entity.role ?? "advisor"}).`)}${safBlock ? `\n\n${safBlock}` : ""}`
+              : `${entity.personality_prompt ?? ""} You are ${entityName}, a ${entity.class ?? "council"} member. Specialty: ${entity.specialty ?? entity.role ?? "general"}. ${entity.notes ?? ""}${safBlock ? `\n\n${safBlock}` : ""}`.trim();
 
             // Fetch last 20 messages from that entity's conversation to ground their response
             let entityHistory: { role: string; content: string }[] = [];

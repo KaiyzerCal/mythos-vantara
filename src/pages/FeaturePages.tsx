@@ -1328,7 +1328,7 @@ export function CouncilsPage() {
   const [activeChat, setActiveChat] = useState<any | null>(null);
   const [voiceTarget, setVoiceTarget] = useState<VoicePersona | null>(null);
   const [appCtx, setAppCtx] = useState<AppContextSnapshot | null>(null);
-  const [form, setForm] = useState({ name: "", role: "", specialty: "", class: "advisory", notes: "" });
+  const [form, setForm] = useState({ name: "", role: "", specialty: "", class: "advisory", notes: "", timezone: "", identity: "" });
   const [confirmDelete, setConfirmDelete] = useState<{ id: string; label: string } | null>(null);
 
   // Pre-load app context for voice calls (60s cache shared with MAVIS)
@@ -1339,24 +1339,45 @@ export function CouncilsPage() {
   }, [(profile as unknown as Record<string, unknown>)?.id]);
 
   const resetForm = () => {
-    setForm({ name: "", role: "", specialty: "", class: "advisory", notes: "" });
+    setForm({ name: "", role: "", specialty: "", class: "advisory", notes: "", timezone: "", identity: "" });
     setEditingId(null);
     setShowCreate(false);
   };
 
   const handleEdit = (m: any, e: React.MouseEvent) => {
     e.stopPropagation();
-    setForm({ name: m.name, role: m.role, specialty: m.specialty || "", class: m.class, notes: m.notes });
+    setForm({
+      name: m.name,
+      role: m.role,
+      specialty: m.specialty || "",
+      class: m.class,
+      notes: m.notes,
+      timezone: m.timezone || "",
+      identity: (m.agent_folders as Record<string, string> | null)?.identity ?? "",
+    });
     setEditingId(m.id);
     setShowCreate(true);
   };
 
   const handleSave = async () => {
     if (!form.name.trim()) return;
+    const { identity, timezone, ...rest } = form;
+    const agentFolders = identity ? { identity } : undefined;
     if (editingId) {
-      await updateCouncilMember(editingId, { ...form, specialty: form.specialty || null });
+      await updateCouncilMember(editingId, {
+        ...rest,
+        specialty: rest.specialty || null,
+        timezone: timezone || null,
+        ...(agentFolders ? { agent_folders: agentFolders } : {}),
+      } as any);
     } else {
-      await createCouncilMember({ ...form, specialty: form.specialty || null, avatar: null });
+      await createCouncilMember({
+        ...rest,
+        specialty: rest.specialty || null,
+        avatar: null,
+        timezone: timezone || null,
+        ...(agentFolders ? { agent_folders: agentFolders } : {}),
+      } as any);
     }
     resetForm();
   };
@@ -1437,6 +1458,8 @@ export function CouncilsPage() {
                 </select>
               </div>
               <textarea value={form.notes} onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))} placeholder="Character essence / how they speak / their worldview..." rows={2} className="w-full bg-muted/30 border border-border rounded px-3 py-1.5 text-sm resize-none focus:outline-none" />
+              <input value={form.timezone} onChange={(e) => setForm((f) => ({ ...f, timezone: e.target.value }))} placeholder="Timezone (e.g. America/New_York)" className="w-full bg-muted/30 border border-border rounded px-3 py-1.5 text-sm font-mono focus:outline-none focus:border-primary/40" />
+              <textarea value={form.identity} onChange={(e) => setForm((f) => ({ ...f, identity: e.target.value }))} placeholder="Identity notes (01_IDENTITY) — who they are, their posture, what they push back on..." rows={2} className="w-full bg-muted/30 border border-border rounded px-3 py-1.5 text-sm resize-none focus:outline-none" />
               <div className="flex gap-2 justify-end">
                 <button onClick={resetForm} className="px-3 py-1.5 text-xs font-mono text-muted-foreground border border-border rounded">Cancel</button>
                 <button onClick={handleSave} className="px-3 py-1.5 text-xs font-mono bg-primary/10 border border-primary/30 text-primary rounded">

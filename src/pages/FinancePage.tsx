@@ -2,9 +2,9 @@
 // VANTARA.EXE — FinancePage
 // Financial analytics dashboard — expenses, charts, categories
 // ============================================================
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { motion } from "framer-motion";
-import { DollarSign, TrendingDown, Plus, Trash2, Loader2, X, TrendingUp, Activity, RefreshCw, Sparkles } from "lucide-react";
+import { DollarSign, TrendingDown, Plus, Trash2, Loader2, X, TrendingUp, Activity, RefreshCw, Sparkles, Building2, RefreshCcw } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { useAppData } from "@/contexts/AppDataContext";
@@ -34,7 +34,7 @@ interface AddForm {
 }
 
 // ─── Helpers ────────────────────────────────────────────────
-const CATEGORIES = ["general", "food", "tech", "travel", "marketing", "software", "fitness", "health", "other"];
+const CATEGORIES = ["general", "food", "tech", "travel", "marketing", "advertising", "software", "fitness", "health", "education", "entertainment", "utilities", "office_supplies", "professional_services", "subscriptions", "other"];
 const CURRENCIES = ["USD", "EUR", "GBP"];
 
 const MONTH_LABELS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -101,6 +101,12 @@ export function FinancePage() {
   const [perfInsights, setPerfInsights] = useState<any>(null);
   const [loadingMarket, setLoadingMarket] = useState(false);
   const [loadingPerf, setLoadingPerf] = useState(false);
+  const [autoDetecting, setAutoDetecting] = useState(false);
+  const [plaidAccounts, setPlaidAccounts] = useState<any[]>([]);
+  const [plaidItems, setPlaidItems] = useState<any[]>([]);
+  const [connectingBank, setConnectingBank] = useState(false);
+  const [syncingBank, setSyncingBank] = useState(false);
+  const autoDetectRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [addForm, setAddForm] = useState<AddForm>({
     description: "",
     amount: "",
@@ -128,6 +134,119 @@ export function FinancePage() {
 
   useEffect(() => { fetchExpenses(); }, [fetchExpenses]);
   useEffect(() => { if (lastActionTs) fetchExpenses(); }, [lastActionTs]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ─── Plaid accounts ────────────────────────────────────────
+  const fetchPlaidAccounts = useCallback(async () => {
+    if (!token) return;
+    try {
+      const { data, error } = await supabase.functions.invoke("mavis-plaid", {
+        body: { action: "get_accounts" },
+      });
+      if (!error && data) {
+        setPlaidItems(data.items ?? []);
+        setPlaidAccounts(data.accounts ?? []);
+      }
+    } catch { /* non-fatal */ }
+  }, [token]);
+  useEffect(() => { fetchPlaidAccounts(); }, [fetchPlaidAccounts]);
+
+  // ─── Auto-detect category ──────────────────────────────────
+  async function handleAutoDetect() {
+    if (!addForm.description.trim()) return;
+    setAutoDetecting(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("mavis-expense-categorize", {
+        body: {
+          description: addForm.description.trim(),
+          amount: addForm.amount ? parseFloat(addForm.amount) : undefined,
+          currency: addForm.currency,
+        },
+      });
+      if (error) throw error;
+      if (data?.category) {
+        setAddForm((f) => ({ ...f, category: data.category }));
+        toast.success(`Auto-detected: ${data.category}${data.tax_deductible ? " (tax-deductible)" : ""}`);
+      }
+    } catch {
+      toast.error("Auto-detect failed");
+    } finally {
+      setAutoDetecting(false);
+    }
+  }
+
+  // Debounce auto-detect on description change
+  function handleDescriptionChange(value: string) {
+    setAddForm((f) => ({ ...f, description: value }));
+    if (autoDetectRef.current) clearTimeout(autoDetectRef.current);
+    if (value.trim().length > 4) {
+      autoDetectRef.current = setTimeout(async () => {
+        setAutoDetecting(true);
+        try {
+          const { data } = await supabase.functions.invoke("mavis-expense-categorize", {
+            body: { description: value.trim() },
+          });
+          if (data?.category) setAddForm((f) => ({ ...f, category: data.category }));
+        } catch { /* silent */ } finally {
+          setAutoDetecting(false);
+        }
+      }, 900);
+    }
+  }
+
+  // ─── Plaid connect ─────────────────────────────────────────
+  async function handleConnectBank() {
+    setConnectingBank(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("mavis-plaid", {
+        body: { action: "create_link_token" },
+      });
+      if (error || !data?.link_token) throw new Error(error?.message ?? "No link token");
+
+      // Dynamically load Plaid Link script
+      const script = document.createElement("script");
+      script.src = "https://cdn.plaid.com/link/v2/stable/link-initialize.js";
+      script.onload = () => {
+        const handler = (window as any).Plaid.create({
+          token: data.link_token,
+          onSuccess: async (publicToken: string, metadata: any) => {
+            const { error: exchErr } = await supabase.functions.invoke("mavis-plaid", {
+              body: {
+                action: "exchange_token",
+                public_token: publicToken,
+                institution_name: metadata?.institution?.name ?? "Bank",
+              },
+            });
+            if (exchErr) { toast.error("Failed to connect bank"); return; }
+            toast.success(`${metadata?.institution?.name ?? "Bank"} connected!`);
+            fetchPlaidAccounts();
+            handleSyncBank();
+          },
+          onExit: () => setConnectingBank(false),
+        });
+        handler.open();
+      };
+      document.body.appendChild(script);
+    } catch (err: any) {
+      toast.error(err?.message ?? "Failed to start bank connection");
+      setConnectingBank(false);
+    }
+  }
+
+  async function handleSyncBank() {
+    setSyncingBank(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("mavis-plaid", {
+        body: { action: "sync_transactions" },
+      });
+      if (error) throw error;
+      toast.success(`Synced ${data?.synced ?? 0} transactions`);
+      fetchExpenses();
+    } catch {
+      toast.error("Bank sync failed");
+    } finally {
+      setSyncingBank(false);
+    }
+  }
 
   // ─── Computed stats ────────────────────────────────────────
   const totalSpend = expenses.reduce((s, e) => s + Number(e.amount), 0);
@@ -244,12 +363,32 @@ export function FinancePage() {
         subtitle="Expense tracking and financial analytics"
         icon={<DollarSign size={18} />}
         actions={
-          <button
-            onClick={() => setShowAddForm((v) => !v)}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono bg-primary/10 border border-primary/30 text-primary rounded hover:bg-primary/20 transition-colors"
-          >
-            <Plus size={12} /> Add Expense
-          </button>
+          <div className="flex items-center gap-2">
+            {plaidItems.length > 0 && (
+              <button
+                onClick={handleSyncBank}
+                disabled={syncingBank}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono bg-cyan-500/10 border border-cyan-500/30 text-cyan-400 rounded hover:bg-cyan-500/20 disabled:opacity-50 transition-colors"
+              >
+                {syncingBank ? <Loader2 size={12} className="animate-spin" /> : <RefreshCcw size={12} />}
+                Sync Bank
+              </button>
+            )}
+            <button
+              onClick={handleConnectBank}
+              disabled={connectingBank}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 rounded hover:bg-emerald-500/20 disabled:opacity-50 transition-colors"
+            >
+              {connectingBank ? <Loader2 size={12} className="animate-spin" /> : <Building2 size={12} />}
+              Connect Bank
+            </button>
+            <button
+              onClick={() => setShowAddForm((v) => !v)}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono bg-primary/10 border border-primary/30 text-primary rounded hover:bg-primary/20 transition-colors"
+            >
+              <Plus size={12} /> Add Expense
+            </button>
+          </div>
         }
       />
 
@@ -273,6 +412,34 @@ export function FinancePage() {
         ))}
       </motion.div>
 
+      {/* ── Connected Bank Accounts ──────────────────────────── */}
+      {plaidAccounts.length > 0 && (
+        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3, delay: 0.04 }}>
+          <h2 className="text-xs font-mono text-primary uppercase tracking-widest mb-2">Connected Accounts</h2>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+            {plaidAccounts.map((acct) => {
+              const item = plaidItems.find((i) => i.item_id === acct.item_id);
+              return (
+                <HudCard key={acct.account_id} className="py-2 px-3">
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <p className="text-xs font-mono text-foreground">{acct.name}</p>
+                      <p className="text-xs font-mono text-muted-foreground capitalize">{item?.institution_name ?? acct.type}</p>
+                    </div>
+                    <div className="text-right">
+                      {acct.current_bal != null && (
+                        <p className="text-sm font-mono font-bold text-emerald-400">{fmtCurrency(acct.current_bal, acct.currency)}</p>
+                      )}
+                      {acct.mask && <p className="text-xs font-mono text-muted-foreground">••{acct.mask}</p>}
+                    </div>
+                  </div>
+                </HudCard>
+              );
+            })}
+          </div>
+        </motion.div>
+      )}
+
       {/* ── Add Expense Form ──────────────────────────────────── */}
       {showAddForm && (
         <motion.div
@@ -293,7 +460,7 @@ export function FinancePage() {
                 <input
                   type="text"
                   value={addForm.description}
-                  onChange={(e) => setAddForm((f) => ({ ...f, description: e.target.value }))}
+                  onChange={(e) => handleDescriptionChange(e.target.value)}
                   placeholder="e.g. AWS hosting..."
                   className="w-full bg-muted/30 border border-border rounded px-2 py-1.5 text-xs font-mono focus:outline-none focus:border-primary/40"
                 />
@@ -321,7 +488,18 @@ export function FinancePage() {
                 </select>
               </div>
               <div>
-                <label className="text-xs font-mono text-muted-foreground block mb-0.5">Category</label>
+                <div className="flex items-center justify-between mb-0.5">
+                  <label className="text-xs font-mono text-muted-foreground">Category</label>
+                  <button
+                    type="button"
+                    onClick={handleAutoDetect}
+                    disabled={autoDetecting || !addForm.description.trim()}
+                    className="flex items-center gap-0.5 text-xs font-mono text-primary/70 hover:text-primary disabled:opacity-40 transition-colors"
+                  >
+                    {autoDetecting ? <Loader2 size={9} className="animate-spin" /> : <Sparkles size={9} />}
+                    Auto-detect
+                  </button>
+                </div>
                 <select
                   value={addForm.category}
                   onChange={(e) => setAddForm((f) => ({ ...f, category: e.target.value }))}

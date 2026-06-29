@@ -183,8 +183,8 @@ export default function AppSidebar() {
               <NotificationBell />
               <button
                 onClick={() => setOpen(false)}
-                className="p-1 text-muted-foreground hover:text-primary transition-colors shrink-0"
                 title="Hide navigation"
+                className="w-7 h-7 rounded border border-border/50 text-muted-foreground hover:text-primary hover:border-primary/30 transition-colors flex items-center justify-center shrink-0"
               >
                 <PanelLeftClose size={14} />
               </button>

@@ -96,6 +96,12 @@ serve(async (req: Request) => {
     const confirmThreshold = new Date(now.getTime() - 4 * 60 * 60 * 1000);
 
     // ── Run all queries in parallel ───────────────────────────────────────────
+    const fiveDaysAgo  = new Date(now.getTime() -  5 * 86400000);
+    const tenDaysAgo   = new Date(now.getTime() - 10 * 86400000);
+    const sevenDaysAgo = new Date(now.getTime() -  7 * 86400000);
+    const thirtyDaysAgo= new Date(now.getTime() - 30 * 86400000);
+    const threeDaysAgo = new Date(now.getTime() - 72 * 3600000);
+
     const [
       nearDeadlineResult,
       stalledHabitsResult,
@@ -103,6 +109,11 @@ serve(async (req: Request) => {
       revenueLastWeekResult,
       stalledQuestsResult,
       pendingConfirmResult,
+      recentJournalResult,
+      staleGoalsResult,
+      last7ExpensesResult,
+      last30ExpensesResult,
+      recentChatResult,
     ] = await Promise.all([
       // 1. Quests with deadline in next 48h
       supabase
@@ -148,6 +159,32 @@ serve(async (req: Request) => {
         .select("id, title, created_at")
         .eq("status", "requires_confirmation")
         .lt("created_at", confirmThreshold.toISOString()),
+
+      // 7. Journal silence check
+      supabase.from("journal_entries")
+        .select("id, created_at").eq("user_id", uid)
+        .gte("created_at", fiveDaysAgo.toISOString()).limit(1),
+
+      // 8. Goals not updated in 10+ days
+      supabase.from("mavis_goals")
+        .select("id, objective, updated_at").eq("user_id", uid)
+        .eq("status", "active")
+        .lt("updated_at", tenDaysAgo.toISOString()).limit(3),
+
+      // 9. Last 7 days expenses
+      supabase.from("mavis_expenses")
+        .select("amount").eq("user_id", uid)
+        .gte("expense_date", sevenDaysAgo.toISOString().slice(0, 10)),
+
+      // 10. Last 30 days expenses (for weekly avg)
+      supabase.from("mavis_expenses")
+        .select("amount").eq("user_id", uid)
+        .gte("expense_date", thirtyDaysAgo.toISOString().slice(0, 10)),
+
+      // 11. Recent MAVIS chat activity
+      supabase.from("chat_messages")
+        .select("id").eq("user_id", uid).eq("role", "user")
+        .gte("created_at", threeDaysAgo.toISOString()).limit(1),
     ]);
 
     // ── Analyse results ───────────────────────────────────────────────────────
@@ -227,6 +264,38 @@ serve(async (req: Request) => {
       const names = pendingConfirm.map((t) => `"${t.title}"`).join(", ");
       urgencies.push(`${pendingConfirm.length} task(s) awaiting confirmation >4h`);
       contextParts.push(`AWAITING CONFIRMATION: ${names}`);
+    }
+
+    // Journal silence
+    if (!recentJournalResult.data?.length) {
+      urgencies.push("No journal entry in 5+ days");
+      contextParts.push("JOURNAL SILENCE: User hasn't reflected in 5+ days — system calibration degrading");
+    }
+
+    // Stale goals
+    const staleGoals = staleGoalsResult.data ?? [];
+    if (staleGoals.length > 0) {
+      const names = staleGoals.map((g: any) => {
+        const days = Math.round((now.getTime() - new Date(g.updated_at).getTime()) / 86400000);
+        return `"${g.objective.slice(0, 50)}" (${days}d without update)`;
+      }).join(", ");
+      urgencies.push(`${staleGoals.length} goal(s) need check-in`);
+      contextParts.push(`STALE GOALS: ${names}`);
+    }
+
+    // Budget spike
+    const total7d  = (last7ExpensesResult.data  ?? []).reduce((s: number, e: any) => s + Number(e.amount), 0);
+    const total30d = (last30ExpensesResult.data ?? []).reduce((s: number, e: any) => s + Number(e.amount), 0);
+    const avgWeekly = total30d / 4;
+    if (avgWeekly > 10 && total7d > avgWeekly * 2) {
+      urgencies.push(`Spending spike: $${total7d.toFixed(0)} this week vs $${avgWeekly.toFixed(0)} avg`);
+      contextParts.push(`BUDGET SPIKE: This week $${total7d.toFixed(2)} vs weekly avg $${avgWeekly.toFixed(2)} (${Math.round(total7d / avgWeekly)}× normal)`);
+    }
+
+    // Idle user
+    if (!recentChatResult.data?.length) {
+      urgencies.push("No MAVIS interaction in 72+ hours");
+      contextParts.push("IDLE: User hasn't engaged with MAVIS in 3+ days");
     }
 
     // ── Nothing urgent — skip nudge ───────────────────────────────────────────

@@ -5,6 +5,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { useAppData } from "@/contexts/AppDataContext";
 import { PageHeader, HudCard } from "@/components/SharedUI";
+import { EmptyState } from "@/components/EmptyState";
 
 interface ActivityEntry {
   id: string;
@@ -60,30 +61,38 @@ const FILTERS = [
   "buff", "debuff", "loot", "codex",
 ];
 
+const PAGE_SIZE = 50;
+
 export default function ActivityLogPage() {
   const { user } = useAuth();
   const { lastActionTs } = useAppData();
   const [entries, setEntries] = useState<ActivityEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState("all");
+  const [page, setPage] = useState(0);
+  const [totalCount, setTotalCount] = useState(0);
 
   const fetchEntries = useCallback(async () => {
     if (!user) return;
     let query = supabase
       .from("activity_log")
-      .select("*")
+      .select("*", { count: "exact" })
       .eq("user_id", user.id)
       .order("created_at", { ascending: false })
-      .limit(200);
+      .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);
 
     if (filter !== "all") {
       query = query.eq("event_type", filter);
     }
 
-    const { data } = await query;
+    const { data, count } = await query;
     if (data) setEntries(data as ActivityEntry[]);
+    if (count !== null) setTotalCount(count);
     setLoading(false);
-  }, [user, filter]);
+  }, [user, filter, page]);
+
+  // Reset to page 0 whenever the filter changes
+  useEffect(() => { setPage(0); }, [filter]);
 
   useEffect(() => { fetchEntries(); }, [fetchEntries]);
   useEffect(() => { if (lastActionTs) fetchEntries(); }, [lastActionTs]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -121,9 +130,14 @@ export default function ActivityLogPage() {
         <p className="text-xs font-mono text-muted-foreground animate-pulse">Loading activity...</p>
       ) : entries.length === 0 ? (
         <HudCard>
-          <p className="text-xs font-mono text-muted-foreground text-center py-8">No activity recorded yet. Complete quests to generate events.</p>
+          <EmptyState
+            icon={ScrollText}
+            title="No activity recorded yet"
+            description="Complete quests to generate events."
+          />
         </HudCard>
       ) : (
+        <>
         <div className="space-y-6">
           {Object.entries(grouped).map(([day, items]) => (
             <div key={day}>
@@ -167,6 +181,26 @@ export default function ActivityLogPage() {
             </div>
           ))}
         </div>
+
+        {/* Pagination */}
+        <div className="flex items-center gap-3 mt-4 justify-center">
+          <button
+            disabled={page === 0}
+            onClick={() => setPage((p) => p - 1)}
+            className="px-3 py-1 text-xs font-mono border border-border text-muted-foreground rounded hover:border-border/80 hover:text-foreground disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+          >
+            Previous
+          </button>
+          <span className="text-xs font-mono text-muted-foreground">Page {page + 1}</span>
+          <button
+            disabled={(page + 1) * PAGE_SIZE >= totalCount}
+            onClick={() => setPage((p) => p + 1)}
+            className="px-3 py-1 text-xs font-mono border border-border text-muted-foreground rounded hover:border-border/80 hover:text-foreground disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+          >
+            Next
+          </button>
+        </div>
+        </>
       )}
     </div>
   );

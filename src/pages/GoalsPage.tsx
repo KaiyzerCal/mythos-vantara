@@ -10,12 +10,14 @@ import {
 } from "lucide-react";
 import { supabase as _supabase } from "@/integrations/supabase/client";
 const supabase = _supabase as any;
+import { recordAutoMemory } from "@/mavis/autoMemory";
 import { useAuth } from "@/contexts/AuthContext";
 import { useAppData } from "@/contexts/AppDataContext";
 import { PageHeader, HudCard, ProgressBar, FieldError, fieldClass } from "@/components/SharedUI";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { EmptyState } from "@/components/EmptyState";
 
 // ─── Types ──────────────────────────────────────────────────
 type GoalStatus = "active" | "completed" | "abandoned";
@@ -182,7 +184,18 @@ export function GoalsPage() {
       .update({ status, updated_at: new Date().toISOString() })
       .eq("id", id);
     if (error) { toast.error("Failed to update goal"); fetchGoals(); }
-    else toast.success(`Goal marked as ${status}`);
+    else {
+      toast.success(`Goal marked as ${status}`);
+      if (status === "completed") {
+        const goal = goals.find(g => g.id === id);
+        recordAutoMemory("goal_achieved", {
+          title: `Goal Achieved: ${goal?.objective ?? "Goal"}`,
+          content: `Achieved goal: "${goal?.objective ?? id}"${goal?.context ? `. ${goal.context}` : ""}`,
+          tags: ["goal"],
+          metadata: { goal_id: id },
+        }).catch(() => {});
+      }
+    }
     setActionLoading(null);
   }
 
@@ -334,11 +347,12 @@ export function GoalsPage() {
         </div>
       ) : filteredGoals.length === 0 ? (
         <HudCard>
-          <div className="text-center py-10">
-            <Target size={32} className="text-muted-foreground mx-auto mb-3" />
-            <p className="text-sm font-mono text-muted-foreground">No goals found.</p>
-            <p className="text-xs font-mono text-muted-foreground mt-1">Create your first goal to get started.</p>
-          </div>
+          <EmptyState
+            icon={Target}
+            title="No goals found"
+            description="Create your first goal to get started."
+            action={{ label: "+ New Goal", onClick: () => setShowCreate(true) }}
+          />
         </HudCard>
       ) : (
         <div className="space-y-3">
