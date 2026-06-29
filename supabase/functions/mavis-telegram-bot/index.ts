@@ -840,11 +840,15 @@ function buildPersonaSystemPrompt(p: PersonaSession, appCtx = "", operatorTz = "
   if (p.adjectives?.length)    parts.push(`\nYour personality: ${p.adjectives.join(", ")}`);
   if (p.topics?.length)        parts.push(`\nYour natural topics: ${p.topics.join(", ")}`);
   if (p.system_prompt?.trim()) parts.push(`\n${p.system_prompt.trim()}`);
-  // 7-folder agent framework content
+  // Agent framework content (all supported folder keys)
   const af = p.agent_folders ?? {};
-  if (af.identity)    parts.push(`\n\n═══ IDENTITY ═══\n${af.identity}\n═══ END IDENTITY ═══`);
-  if (af.operations)  parts.push(`\n\n═══ OPERATIONS ═══\n${af.operations}\n═══ END OPERATIONS ═══`);
-  if (af.references)  parts.push(`\n\n═══ REFERENCES ═══\n${af.references}\n═══ END REFERENCES ═══`);
+  if (af.identity)      parts.push(`\n\n═══ IDENTITY (01) ═══\n${af.identity}\n═══ END IDENTITY ═══`);
+  if (af.memory_notes)  parts.push(`\n\n═══ MEMORY NOTES (02) ═══\n${af.memory_notes}\n═══ END MEMORY NOTES ═══`);
+  if (af.prompts)       parts.push(`\n\n═══ PROMPT LIBRARY (04) ═══\n${af.prompts}\n═══ END PROMPT LIBRARY ═══`);
+  if (af.knowledge)     parts.push(`\n\n═══ KNOWLEDGE (06) ═══\n${af.knowledge}\n═══ END KNOWLEDGE ═══`);
+  if (af.references)    parts.push(`\n\n═══ REFERENCES (06) ═══\n${af.references}\n═══ END REFERENCES ═══`);
+  if (af.library)       parts.push(`\n\n═══ LIBRARY (07) ═══\n${af.library}\n═══ END LIBRARY ═══`);
+  if (af.operations)    parts.push(`\n\n═══ OPERATIONS (09) ═══\n${af.operations}\n═══ END OPERATIONS ═══`);
   parts.push(`\nStay fully in character as ${p.name}. Do not refer to yourself as MAVIS or as an AI unless directly asked.`);
   parts.push(`\n\nYou exist alongside other AI personas and council members in the operator's ecosystem. When you genuinely need another entity's perspective to give a better answer, you may consult them using :::CONSULT_ENTITY::: (see ACTION MECHANICS below). Only use this when it meaningfully improves your response — not as a reflex.`);
   // Temporal context — uses persona's own timezone if set
@@ -916,11 +920,15 @@ function buildCouncilSystemPrompt(c: CouncilSession, appCtx = "", operatorTz = "
   parts.push(`You are ${c.name}${c.role ? `, ${c.role}` : ""}${c.specialty ? ` specialising in ${c.specialty}` : ""}.`);
   if (c.notes?.trim())              parts.push(`\nBackground: ${c.notes.trim()}`);
   if (c.personality_prompt?.trim()) parts.push(`\n${c.personality_prompt.trim()}`);
-  // 7-folder agent framework content
+  // Agent framework content (all supported folder keys)
   const af = c.agent_folders ?? {};
-  if (af.identity)    parts.push(`\n\n═══ IDENTITY ═══\n${af.identity}\n═══ END IDENTITY ═══`);
-  if (af.operations)  parts.push(`\n\n═══ OPERATIONS ═══\n${af.operations}\n═══ END OPERATIONS ═══`);
-  if (af.references)  parts.push(`\n\n═══ REFERENCES ═══\n${af.references}\n═══ END REFERENCES ═══`);
+  if (af.identity)      parts.push(`\n\n═══ IDENTITY (01) ═══\n${af.identity}\n═══ END IDENTITY ═══`);
+  if (af.memory_notes)  parts.push(`\n\n═══ MEMORY NOTES (02) ═══\n${af.memory_notes}\n═══ END MEMORY NOTES ═══`);
+  if (af.prompts)       parts.push(`\n\n═══ PROMPT LIBRARY (04) ═══\n${af.prompts}\n═══ END PROMPT LIBRARY ═══`);
+  if (af.knowledge)     parts.push(`\n\n═══ KNOWLEDGE (06) ═══\n${af.knowledge}\n═══ END KNOWLEDGE ═══`);
+  if (af.references)    parts.push(`\n\n═══ REFERENCES (06) ═══\n${af.references}\n═══ END REFERENCES ═══`);
+  if (af.library)       parts.push(`\n\n═══ LIBRARY (07) ═══\n${af.library}\n═══ END LIBRARY ═══`);
+  if (af.operations)    parts.push(`\n\n═══ OPERATIONS (09) ═══\n${af.operations}\n═══ END OPERATIONS ═══`);
   parts.push(`\nYou are a council member advising the operator. Speak directly from your expertise. Be concise and strategic. Do not refer to yourself as MAVIS or as a generic AI.`);
   parts.push(`\n\nYou exist alongside other AI personas and council members. When you need another entity's unique expertise to give a stronger answer, use :::CONSULT_ENTITY::: (see ACTION MECHANICS below). Use this sparingly and only when it genuinely adds value.`);
   // Temporal context — uses council member's own timezone if set
