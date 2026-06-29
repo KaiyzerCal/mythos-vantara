@@ -1,10 +1,11 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { MessageCircle, Trash2, Clock, Bell, ChevronDown, ChevronUp, Cpu } from "lucide-react";
 import { HudCard, ProgressBar } from "@/components/SharedUI";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { AvatarUploader } from "@/components/AvatarUploader";
 import { cn } from "@/lib/utils";
 import { usePersona } from "@/hooks/usePersona";
+import { usePersonaForge } from "@/hooks/usePersonaForge";
 import { supabase } from "@/integrations/supabase/client";
 import type { ForgedPersona } from "@/hooks/usePersonaForge";
 import type { RelationshipState } from "@/hooks/usePersona";
@@ -46,7 +47,11 @@ export function PersonaCard({ persona, userId, onChat, onDelete, notification, o
   const [cardExpanded, setCardExpanded] = useState(false);
   const [msgCount, setMsgCount] = useState<number>(0);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
+  const [tzDraft, setTzDraft] = useState<string>(persona.timezone ?? "");
+  const [identityDraft, setIdentityDraft] = useState<string>(persona.agent_folders?.identity ?? "");
   const { loadRelationshipState, loadConversationCount } = usePersona(persona.id, userId);
+  const { updatePersonaFramework } = usePersonaForge();
+  const saveTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Initial fetch
   useEffect(() => {
@@ -202,6 +207,33 @@ export function PersonaCard({ persona, userId, onChat, onDelete, notification, o
               <p className="text-xs font-body text-foreground whitespace-pre-wrap">{persona.system_prompt}</p>
             </div>
           )}
+          <div>
+            <p className="text-xs font-mono text-muted-foreground uppercase mb-0.5">Timezone</p>
+            <input
+              value={tzDraft}
+              onChange={(e) => setTzDraft(e.target.value)}
+              onBlur={() => {
+                const val = tzDraft.trim() || null;
+                updatePersonaFramework(persona.id, { timezone: val });
+              }}
+              placeholder="e.g. America/New_York"
+              className="w-full bg-muted/30 border border-border rounded px-2 py-1 text-xs font-mono focus:outline-none focus:border-primary/40"
+            />
+          </div>
+          <div>
+            <p className="text-xs font-mono text-muted-foreground uppercase mb-0.5">Identity Notes (01_IDENTITY)</p>
+            <textarea
+              value={identityDraft}
+              onChange={(e) => setIdentityDraft(e.target.value)}
+              onBlur={() => {
+                const folders = { ...(persona.agent_folders ?? {}), identity: identityDraft };
+                updatePersonaFramework(persona.id, { agent_folders: folders });
+              }}
+              placeholder="Who this persona is, their voice, what they push back on..."
+              rows={3}
+              className="w-full bg-muted/30 border border-border rounded px-2 py-1 text-xs font-mono resize-none focus:outline-none focus:border-primary/40"
+            />
+          </div>
           <div>
             <p className="text-xs font-mono text-muted-foreground uppercase mb-0.5">Forged</p>
             <p className="text-xs font-mono text-foreground">{new Date(persona.created_at).toLocaleString()}</p>

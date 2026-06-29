@@ -41,6 +41,7 @@ export interface ProfileData {
   operator_level: number;
   operator_xp: number;
   onboarding_done: boolean;
+  timezone: string;
   notification_settings: {
     questReminders: boolean;
     streakWarnings: boolean;
@@ -83,6 +84,7 @@ const defaults: ProfileData = {
   operator_level: 1,
   operator_xp: 0,
   onboarding_done: false,
+  timezone: "UTC",
   notification_settings: {
     questReminders: true,
     streakWarnings: true,
@@ -107,7 +109,19 @@ export function useProfile() {
     )
       .then(({ data, error }) => {
         if (error) console.error("[useProfile] Failed to load profile:", error.message);
-        if (data) setProfile(data as any);
+        if (data) {
+          setProfile(data as any);
+          // Auto-set timezone on first load if still default
+          const stored = (data as any).timezone as string | undefined;
+          if (!stored || stored === "UTC") {
+            const detected = Intl.DateTimeFormat().resolvedOptions().timeZone;
+            if (detected && detected !== "UTC") {
+              supabase.from("profiles").update({ timezone: detected } as any).eq("id", user.id).then(() => {
+                setProfile((p) => ({ ...p, timezone: detected }));
+              });
+            }
+          }
+        }
         setLoading(false);
       })
       .catch((err) => {

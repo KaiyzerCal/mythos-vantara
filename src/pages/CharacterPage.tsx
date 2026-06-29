@@ -205,6 +205,16 @@ export default function CharacterPage() {
               <p className="text-xs font-mono text-muted-foreground mt-0.5">
                 Territory: {profile.territory_class} | {profile.territory_floors}
               </p>
+              <div className="flex items-center gap-1.5 mt-1">
+                <span className="text-xs font-mono text-muted-foreground">TZ:</span>
+                <input
+                  value={(profile as any).timezone ?? "UTC"}
+                  onChange={(e) => updateProfile({ timezone: e.target.value } as any)}
+                  onBlur={(e) => updateProfile({ timezone: e.target.value.trim() || "UTC" } as any)}
+                  className="text-xs font-mono text-foreground bg-transparent border-b border-border/50 focus:border-primary/40 focus:outline-none w-40"
+                  placeholder="America/New_York"
+                />
+              </div>
             </div>
             <div className="text-right shrink-0">
               <p className="text-3xl font-display font-bold" style={{ color: rankColor }}>
