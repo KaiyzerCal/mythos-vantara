@@ -1,6 +1,8 @@
 // Standing orders — permanent behavioral directives injected into every system prompt.
 // Source of truth is MAVIS_STANDING_ORDERS.md; this module provides the runtime string.
 
+import { supabase } from "@/integrations/supabase/client";
+
 const STANDING_ORDERS = `STANDING ORDERS (always active — Black Sun Monarch Protocol):
 
 IDENTITY:
@@ -50,7 +52,7 @@ export function getStandingOrders(): string {
 }
 
 export function addStandingOrder(order: string): void {
-  _customOrders = [..._customOrders, order];
+  if (!_customOrders.includes(order)) _customOrders = [..._customOrders, order];
 }
 
 export function removeStandingOrder(order: string): void {
@@ -59,4 +61,41 @@ export function removeStandingOrder(order: string): void {
 
 export function getCustomOrders(): string[] {
   return [..._customOrders];
+}
+
+/** Load persisted custom orders from DB — call on session start */
+export async function loadCustomOrders(userId: string): Promise<void> {
+  const { data } = await (supabase as any)
+    .from("mavis_standing_orders")
+    .select("order_text")
+    .eq("user_id", userId)
+    .eq("enabled", true)
+    .order("created_at", { ascending: true })
+    .catch(() => ({ data: null }));
+
+  if (!data) return;
+  _customOrders = data.map((r: { order_text: string }) => r.order_text);
+}
+
+/** Persist a new custom order and add it to the in-memory list */
+export async function saveCustomOrder(userId: string, order: string): Promise<void> {
+  addStandingOrder(order);
+  await (supabase as any)
+    .from("mavis_standing_orders")
+    .upsert(
+      { user_id: userId, order_text: order, enabled: true },
+      { onConflict: "user_id,order_text" }
+    )
+    .catch(() => {/* non-fatal */});
+}
+
+/** Disable a custom order in the DB and remove from memory */
+export async function deleteCustomOrder(userId: string, order: string): Promise<void> {
+  removeStandingOrder(order);
+  await (supabase as any)
+    .from("mavis_standing_orders")
+    .update({ enabled: false })
+    .eq("user_id", userId)
+    .eq("order_text", order)
+    .catch(() => {/* non-fatal */});
 }

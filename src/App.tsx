@@ -13,17 +13,20 @@ import { Loader2 } from "lucide-react";
 import { useMavisNotifications } from "@/hooks/useMavisNotifications";
 
 
-/** Sync the mobile browser chrome (status bar) color with the active theme.
- *  Critical for Android — Chrome reads <meta name="theme-color"> dynamically. */
+/** Sync browser chrome color + ensure <html> has the correct class on every theme change. */
 function ThemeColorSync() {
   const { resolvedTheme } = useTheme();
   useEffect(() => {
-    const color = resolvedTheme === "light" ? "#ffffff" : "#0a0d1f";
-    document.querySelectorAll('meta[name="theme-color"]').forEach((el) => el.remove());
-    const meta = document.createElement("meta");
-    meta.name = "theme-color";
-    meta.content = color;
-    document.head.appendChild(meta);
+    const isDark = resolvedTheme !== "light";
+    const color = isDark ? "#0a0d1f" : "#f5f5f7";
+    // Update theme-color metas (media-query specific ones in index.html)
+    const darkMeta = document.querySelector('meta[name="theme-color"][media*="dark"]') as HTMLMetaElement | null;
+    const lightMeta = document.querySelector('meta[name="theme-color"][media*="light"]') as HTMLMetaElement | null;
+    if (darkMeta) darkMeta.content = isDark ? color : "#0a0d1f";
+    if (lightMeta) lightMeta.content = isDark ? "#ffffff" : color;
+    // Belt-and-suspenders: ensure html class is in sync (next-themes handles this, but needed for Android WebView)
+    document.documentElement.classList.toggle("dark", isDark);
+    document.documentElement.classList.toggle("light", !isDark);
   }, [resolvedTheme]);
   return null;
 }
