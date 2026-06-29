@@ -26,4 +26,6 @@ dist-ssr
 # Supabase CLI cache
 supabase/.temp/
 .playwright/
-.claude/
+# Claude Code internal files (session data, local settings) — skills are committed
+.claude/settings.local.json
+.claude/todos.json

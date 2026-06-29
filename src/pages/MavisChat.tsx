@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { Send, Square, Cpu, Copy, Check, ChevronDown, Zap, Brain, Target, Crown, Flame, Database, Mic, MicOff, Users, Search, FileCode, X, Download, Gamepad2, Layers, Globe, ThumbsUp, ThumbsDown, AlertTriangle } from "lucide-react";
+import { Send, Square, Cpu, Copy, Check, ChevronDown, Zap, Brain, Target, Crown, Flame, Database, Mic, MicOff, Users, Search, FileCode, X, Download, Gamepad2, Layers, Globe, ThumbsUp, ThumbsDown, AlertTriangle, RefreshCw, Pencil } from "lucide-react";
 import { useAppData } from "@/contexts/AppDataContext";
 import { supabase as _supabase } from "@/integrations/supabase/client";
 const supabase = _supabase as any;
@@ -11,7 +11,9 @@ import { toast } from "sonner";
 import { useElevenLabsTts } from "@/hooks/useElevenLabsTts";
 import { useChatAttachments } from "@/hooks/useChatAttachments";
 import { VoicePicker } from "@/components/chat/VoicePicker";
+import { MarkdownRenderer } from "@/components/chat/MarkdownRenderer";
 import { AttachmentTray, AttachButton } from "@/components/chat/AttachmentTray";
+import { ChatMediaPreview } from "@/components/chat/ChatMediaPreview";
 import { DEFAULT_VOICE_BY_GENDER, findVoice } from "@/lib/voiceCatalog";
 import { ScrollProgressBar, BackToTopButton, ScrollToBottomButton, EndOfFeed } from "@/components/chat/ScrollKit";
 import { SessionBlock, groupMessagesIntoSessions } from "@/components/chat/SessionBlock";
@@ -21,7 +23,7 @@ import { MavisRealtimeVoice } from "@/components/MavisRealtimeVoice";
 // ── MAVIS modules ───────────────────────────────────────────
 import { buildSystemPromptFromSnapshot } from "@/mavis/buildSystemPrompt";
 import { setDefaultHandler, registerActionHandler } from "@/mavis/actionExecutor";
-import { streamChatMessage, streamAgentMessage, streamResearchMessage } from "@/mavis/chatService";
+import { streamChatMessage, streamAgentMessage, streamResearchMessage, invokeAI } from "@/mavis/chatService";
 import { loadFullAppContext } from "@/mavis/appContextLoader";
 import { initSession } from "@/mavis/memoryEngine";
 import { loadRuntimeSkills } from "@/mavis/skills/_registry";
@@ -53,6 +55,7 @@ const MAVIS_MODES = [
   { id: "DEEP",        label: "DEEP",        icon: Layers,    color: "text-indigo-400",  desc: "Gemini 2.5 Flash · Extended thinking (8K budget)" },
   { id: "GAME_MASTER", label: "GAME MASTER", icon: Gamepad2,  color: "text-violet-400",  desc: "Gemini 2.5 · Narrative arcs & consequence engine" },
   { id: "WEBMASTER",  label: "WEBMASTER",  icon: Globe,     color: "text-cyan-400",    desc: "Build complete client websites — AI copy, Gutenberg blocks, WordPress publishing" },
+  { id: "AUTO",       label: "AUTO",       icon: Cpu,       color: "text-emerald-300",  desc: "Auto-routing · MAVIS selects the optimal mode based on your message" },
 ];
 
 const QUICK_PROMPTS = [
@@ -101,15 +104,26 @@ export default function MavisChat() {
   // messages can be skipped — prevents duplicates when we receive our own writes.
   const recentWebWrites = useRef<Map<string, number>>(new Map());
 
+  // ── SuperContext scout (OpenHuman pattern) ──
+  // Assembled at session start; injected as standing context in system prompt
+  const [superContext, setSuperContext] = useState<string | null>(null);
+  const superContextLoaded = useRef(false);
+
   // ── Agent Mode (Action Queue integration) ──
   const [agentModeOn, setAgentModeOn] = useState(false);
   const [lastAgentMeta, setLastAgentMeta] = useState<{ toolsUsed: string[]; actionsQueued: number } | null>(null);
 
   // ── Crew coordinator state ──
-  const [agentPanelTab, setAgentPanelTab] = useState<"specialist" | "crew">("specialist");
+  const [agentPanelTab, setAgentPanelTab] = useState<"specialist" | "crew" | "delegate">("specialist");
   const [crewGoal, setCrewGoal] = useState("");
   const [crewRunning, setCrewRunning] = useState(false);
   const [crewResult, setCrewResult] = useState("");
+
+  // ── Delegate (goal-loop) state ──
+  const [delegateGoal, setDelegateGoal] = useState("");
+  const [delegateRunning, setDelegateRunning] = useState(false);
+  const [delegateSteps, setDelegateSteps] = useState<Array<{ iteration: number; thought: string; action: string; result: string; done: boolean }>>([]);
+  const [delegateResult, setDelegateResult] = useState("");
 
   // ── Standing orders panel ──
   const [showOrdersPanel, setShowOrdersPanel] = useState(false);
@@ -123,9 +137,19 @@ export default function MavisChat() {
   const [showPersonaPicker, setShowPersonaPicker] = useState(false);
   const [pickerPersonas, setPickerPersonas] = useState<{ id: string; name: string; system_prompt: string }[]>([]);
 
+  // ── Edit & Regenerate ──
+  const [editingMsgId, setEditingMsgId] = useState<string | null>(null);
+
+  // ── Suggested follow-ups ──
+  const [suggestions, setSuggestions] = useState<Map<string, string[]>>(new Map());
+
+  // ── Response length control ──
+  const [responseLength, setResponseLength] = useState<"concise" | "normal" | "detailed">("normal");
+
   // ElevenLabs TTS + chat attachments
   const { speak, stop: stopSpeaking, isSpeaking, isLoading: isVoiceLoading } = useElevenLabsTts();
-  const { attachments, isUploading, upload, remove } = useChatAttachments("mavis", "main");
+  const { attachments, isUploading, upload, remove, clearStaged } = useChatAttachments("mavis", "main");
+  const [isDragging, setIsDragging] = useState(false);
 
   // ── Register the mavis-actions edge function as default action handler ──
   useEffect(() => {
@@ -371,6 +395,26 @@ export default function MavisChat() {
     };
   }, [dbLoaded]);
 
+  // ── SuperContext scout — runs once after auth + DB load ─────────────
+  // Calls mavis-context-scout to assemble a rich context block (quests, goals,
+  // tasks, journal, memories, user profile) that MAVIS uses as standing context.
+  useEffect(() => {
+    if (!dbLoaded || superContextLoaded.current) return;
+    superContextLoaded.current = true;
+    (async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session?.user) return;
+        const res = await supabase.functions.invoke("mavis-context-scout", {
+          body: { user_id: session.user.id },
+        });
+        if (res.data?.context_block) {
+          setSuperContext(res.data.context_block);
+        }
+      } catch { /* non-critical */ }
+    })();
+  }, [dbLoaded]);
+
   // ── Persist a single message to DB ───────────────────────
   const persistMessage = useCallback(async (msg: { role: string; content: string; mode?: string }, convoId: string) => {
     try {
@@ -500,6 +544,10 @@ export default function MavisChat() {
     return "";
   }, [chatMessages]);
   const nonInitCount = useMemo(() => chatMessages.filter((m) => m.id !== "init").length, [chatMessages]);
+  const lastAssistantMsgId = useMemo(() => {
+    const assistantMsgs = chatMessages.filter((m) => m.role === "assistant" && !m.id.startsWith("streaming-") && m.content);
+    return assistantMsgs.at(-1)?.id ?? null;
+  }, [chatMessages]);
   const lastMessageTime = useMemo(() => {
     const last = [...chatMessages].reverse().find((m) => m.id !== "init");
     return last?.timestamp;
@@ -589,21 +637,35 @@ export default function MavisChat() {
 
     const convoId = await ensureConversation();
 
+    // ── Edit mode: truncate history to before the edited message ──
+    let effectiveMessages = chatMessages;
+    if (editingMsgId) {
+      const editIdx = chatMessages.findIndex((m) => m.id === editingMsgId);
+      if (editIdx !== -1) {
+        effectiveMessages = chatMessages.slice(0, editIdx);
+        setChatMessages(effectiveMessages);
+      }
+      setEditingMsgId(null);
+    }
+
+    const stagedAttachments = [...attachments];
     const userMsg = {
       id: `u-${Date.now()}`,
       role: "user" as const,
       content,
       mode: chatMode,
       timestamp: new Date(),
+      stagedAttachments,
     };
     setChatMessages((prev) => [...prev, userMsg]);
+    clearStaged();
     setIsLoading(true);
 
     if (convoId) {
       persistMessage({ role: "user", content, mode: chatMode }, convoId).catch(() => {});
     }
 
-    const history = chatMessages
+    const history = effectiveMessages
       .filter((m) => m.id !== "init")
       .slice(-18)
       .map((m) => ({ role: m.role, content: m.content }));
@@ -729,6 +791,10 @@ export default function MavisChat() {
             rituals: rituals as any[], pendingApprovals: [], loadedAt: new Date().toISOString(),
           } as any), archivedMemories, vaultMedia));
       if (recallCtxRaw) systemPrompt += `\n\n${recallCtxRaw}`;
+      // SuperContext — assembled by mavis-context-scout at session start (OpenHuman pattern)
+      if (superContext) systemPrompt += `\n\n${superContext}`;
+      if (responseLength === "concise") systemPrompt += "\n\n[RESPONSE LENGTH: Be concise — 2-4 sentences unless more is genuinely needed.]";
+      else if (responseLength === "detailed") systemPrompt += "\n\n[RESPONSE LENGTH: Be thorough and detailed — elaborate with examples where useful.]";
       if (selectedPersonaPrompt) systemPrompt += `\n\n--- ACTIVE PERSONA ---\n${selectedPersonaPrompt}\n---`;
       const attachmentIds = attachments.map((a) => a.id);
 
@@ -864,6 +930,27 @@ export default function MavisChat() {
         await persistMessage({ role: "assistant", content: cleanText, mode: chatMode }, convoId);
       }
       saveMemoriesFromResponse(content, cleanText);
+
+      // Fire-and-forget: generate suggested follow-ups
+      if (cleanText.length > 80) {
+        const msgId = assistantMsg.id;
+        (async () => {
+          try {
+            const suggestSys = "You are a suggestion engine. Based on the assistant's last response, suggest 3 short follow-up questions or actions the user might want to take next. Reply with ONLY a JSON array of 3 strings, e.g. [\"Question 1\", \"Question 2\", \"Question 3\"]. No other text.";
+            const suggestMsgs = [
+              { role: "user", content: `User asked: ${content}\n\nAssistant replied: ${cleanText.slice(0, 800)}` },
+            ];
+            const result = await invokeAI(suggestSys, suggestMsgs, "PRIME");
+            const match = result.match(/\[[\s\S]*?\]/);
+            if (match) {
+              const parsed = JSON.parse(match[0]);
+              if (Array.isArray(parsed)) {
+                setSuggestions((prev) => new Map(prev).set(msgId, parsed.slice(0, 3)));
+              }
+            }
+          } catch { /* non-critical */ }
+        })();
+      }
     } catch (err: any) {
       if (cancelledRef.current || err?.name === "AbortError") {
         if (streamingId) setChatMessages((prev) => prev.filter((m) => m.id !== streamingId));
@@ -886,7 +973,7 @@ export default function MavisChat() {
       setAgentSteps([]);
       abortRef.current = null;
     }
-  }, [input, chatMessages, isLoading, chatMode, agentModeOn, agentThinking, profile, quests, tasks, skills, journalEntries, vaultEntries, conversationId, setChatMessages, setConversationId, refetchAll, ensureConversation, persistMessage, saveMemoriesFromResponse, speakText, attachments]);
+  }, [input, chatMessages, isLoading, chatMode, agentModeOn, agentThinking, profile, quests, tasks, skills, journalEntries, vaultEntries, conversationId, setChatMessages, setConversationId, refetchAll, ensureConversation, persistMessage, saveMemoriesFromResponse, speakText, attachments, clearStaged, editingMsgId, responseLength]);
 
   const sendFeedback = useCallback(async (msg: any, rating: 1 | -1) => {
     if (feedbackGiven[msg.id]) return;
@@ -909,6 +996,23 @@ export default function MavisChat() {
     setCopiedId(id);
     setTimeout(() => setCopiedId(null), 2000);
   };
+
+  // ── Regenerate last assistant response ──
+  const regenerate = useCallback(() => {
+    const msgs = chatMessages.filter((m) => m.id !== "init");
+    // Find the last user message
+    const lastUserMsg = [...msgs].reverse().find((m) => m.role === "user");
+    if (!lastUserMsg) return;
+    // Remove the last assistant message
+    const lastAssistantIdx = msgs.map((m) => m.role).lastIndexOf("assistant");
+    if (lastAssistantIdx === -1) return;
+    const withoutLast = chatMessages.filter((_, i) => {
+      const filtered = chatMessages.filter((m) => m.id !== "init");
+      return chatMessages[i].id !== filtered[lastAssistantIdx].id;
+    });
+    setChatMessages(withoutLast);
+    sendMessage(lastUserMsg.content);
+  }, [chatMessages, setChatMessages, sendMessage]);
 
   // ── Pending action helpers ──────────────────────────────────
   function getActionLabel(action: ParsedAction): string {
@@ -995,7 +1099,24 @@ export default function MavisChat() {
   return (
     <>
     <div className="flex gap-3 h-[calc(100dvh-4rem)]">
-    <div className="flex flex-col flex-1 min-w-0 gap-2 pb-0">
+    <div
+      className={`flex flex-col flex-1 min-w-0 gap-2 pb-0 relative transition-colors ${isDragging ? "bg-primary/5 ring-1 ring-inset ring-primary/20 rounded-lg" : ""}`}
+      onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
+      onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setIsDragging(false); }}
+      onDrop={(e) => {
+        e.preventDefault();
+        setIsDragging(false);
+        const files = Array.from(e.dataTransfer.files);
+        if (files.length) upload(files);
+      }}
+    >
+      {isDragging && (
+        <div className="absolute inset-0 z-20 flex items-center justify-center pointer-events-none">
+          <div className="border-2 border-dashed border-primary/50 rounded-xl px-8 py-4 bg-background/80">
+            <p className="text-sm font-mono text-primary">Drop files to attach</p>
+          </div>
+        </div>
+      )}
       <PageHeader
         title="MAVIS"
         subtitle={`Mode: ${currentMode.label} // Supreme Intelligence`}
@@ -1334,22 +1455,12 @@ export default function MavisChat() {
                             </div>
                           ) : (
                             <div className="mavis-prose">
-                              <ReactMarkdown>{msg.content}</ReactMarkdown>
+                              <MarkdownRenderer
+                                content={msg.content}
+                                onOpenArtifact={(code, lang) => { setArtifactContent(code); setArtifactLang(lang); }}
+                              />
                             </div>
                           )}
-                          {(() => {
-                            const codeMatch = msg.content.match(/```(\w*)\n([\s\S]{200,}?)```/);
-                            if (!codeMatch) return null;
-                            const [, lang, code] = codeMatch;
-                            return (
-                              <button
-                                onClick={() => { setArtifactContent(code.trim()); setArtifactLang(lang || "text"); }}
-                                className="mt-2 flex items-center gap-1.5 text-xs font-mono text-cyan-400 border border-cyan-900/40 rounded px-2 py-1 hover:bg-cyan-900/20 transition-colors"
-                              >
-                                <FileCode size={10} /> Open Artifact
-                              </button>
-                            );
-                          })()}
                           {(msg as any).imageUrl && (
                             <div className="mt-2">
                               <img
@@ -1377,7 +1488,12 @@ export default function MavisChat() {
                           )}
                         </>
                       ) : (
-                        <p className="text-xs font-body leading-relaxed">{msg.content}</p>
+                        <>
+                          {(msg as any).stagedAttachments?.length > 0 && (
+                            <ChatMediaPreview attachments={(msg as any).stagedAttachments} />
+                          )}
+                          <p className="text-xs font-body leading-relaxed">{msg.content}</p>
+                        </>
                       )}
                       <div className="flex items-center justify-between mt-1.5 gap-2 flex-wrap">
                         {(msg as any).searched && (
@@ -1395,21 +1511,59 @@ export default function MavisChat() {
                             ⚡ {(msg as any).actionsExecuted} action{(msg as any).actionsExecuted > 1 ? "s" : ""} executed
                           </span>
                         )}
-                        {msg.mode && msg.role === "assistant" && !(msg as any).searched && !(msg as any).actionsExecuted && (msg as any).iterations == null && (
+                        {msg.mode === "TELEGRAM" && (
+                          <span className="text-xs font-mono text-sky-400/70 border border-sky-400/20 rounded px-1.5 py-0.5">
+                            📱 Telegram
+                          </span>
+                        )}
+                        {msg.mode && msg.mode !== "TELEGRAM" && msg.role === "assistant" && !(msg as any).searched && !(msg as any).actionsExecuted && (msg as any).iterations == null && (
                           <span className="text-xs font-mono text-muted-foreground">[{msg.mode}]{(msg as any).model ? ` · ${(msg as any).model}` : ""}</span>
                         )}
                         <span className="text-xs font-mono text-muted-foreground ml-auto">
                           {msg.timestamp.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                         </span>
                       </div>
+                      {/* Suggested follow-ups — only on the last assistant message */}
+                      {msg.role === "assistant" && msg.id === lastAssistantMsgId && suggestions.has(msg.id) && (
+                        <div className="flex flex-wrap gap-1.5 mt-2">
+                          {(suggestions.get(msg.id) ?? []).map((s, i) => (
+                            <button
+                              key={i}
+                              onClick={() => sendMessage(s)}
+                              className="text-xs font-mono text-muted-foreground hover:text-primary border border-border/50 hover:border-primary/30 rounded-full px-2.5 py-1 transition-all"
+                            >
+                              {s}
+                            </button>
+                          ))}
+                        </div>
+                      )}
                       <button
-                        onClick={() => copyMessage(msg.id, msg.content)}
+                        onClick={() => {
+                          if (msg.role === "user") {
+                            setEditingMsgId(msg.id);
+                            setInput(msg.content);
+                          } else {
+                            copyMessage(msg.id, msg.content);
+                          }
+                        }}
                         className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-primary"
                       >
-                        {copiedId === msg.id ? <Check size={10} /> : <Copy size={10} />}
+                        {msg.role === "user"
+                          ? <Pencil size={10} />
+                          : (copiedId === msg.id ? <Check size={10} /> : <Copy size={10} />)
+                        }
                       </button>
                       {msg.role === "assistant" && !msg.id.startsWith("streaming-") && msg.content && (
                         <div className="absolute bottom-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1">
+                          {msg.id === lastAssistantMsgId && (
+                            <button
+                              onClick={regenerate}
+                              title="Regenerate response"
+                              className="p-0.5 rounded transition-colors text-muted-foreground hover:text-primary"
+                            >
+                              <RefreshCw size={9} />
+                            </button>
+                          )}
                           <button
                             onClick={() => sendFeedback(msg, 1)}
                             title="Good response"
@@ -1475,7 +1629,7 @@ export default function MavisChat() {
             {/* Tab toggle */}
             <div className="flex items-center gap-2">
               <Cpu size={11} className="text-violet-400" />
-              {(["specialist", "crew"] as const).map((tab) => (
+              {(["specialist", "crew", "delegate"] as const).map((tab) => (
                 <button key={tab} onClick={() => setAgentPanelTab(tab)}
                   className={`text-xs font-mono px-2 py-0.5 rounded border transition-colors ${agentPanelTab === tab ? "bg-violet-500/20 border-violet-500/40 text-violet-300" : "border-border/40 text-muted-foreground hover:text-foreground"}`}
                 >{tab.toUpperCase()}</button>
@@ -1492,7 +1646,8 @@ export default function MavisChat() {
                 </div>
                 <p className="text-xs font-mono text-muted-foreground">Type your task in the input above and send — AGENT mode routes to the specialist automatically.</p>
               </>
-            ) : (
+            ) : agentPanelTab === "crew" ? (
+
               <>
                 <div className="flex gap-2">
                   <input value={crewGoal} onChange={(e) => setCrewGoal(e.target.value)}
@@ -1531,13 +1686,87 @@ export default function MavisChat() {
                   </div>
                 )}
               </>
-            )}
+            ) : agentPanelTab === "delegate" ? (
+              <>
+                <p className="text-xs font-mono text-muted-foreground mb-2">Give MAVIS a goal. It will autonomously think, plan, and act until done.</p>
+                <div className="flex gap-2">
+                  <input value={delegateGoal} onChange={(e) => setDelegateGoal(e.target.value)}
+                    onKeyDown={async (e) => {
+                      if (e.key === "Enter" && delegateGoal.trim() && !delegateRunning) {
+                        setDelegateRunning(true); setDelegateSteps([]); setDelegateResult("");
+                        const { data: { session: s } } = await (supabase as any).auth.getSession();
+                        if (!s) { setDelegateRunning(false); return; }
+                        const { data, error } = await (supabase as any).functions.invoke("mavis-goal-loop", { body: { goal: delegateGoal.trim(), max_iterations: 6 } });
+                        if (!error && data) {
+                          setDelegateSteps(data.steps ?? []);
+                          setDelegateResult(data.final_result ?? "");
+                          setChatMessages((prev) => [...prev, { id: `delegate-${Date.now()}`, role: "assistant" as const, content: `**[DELEGATE COMPLETE — ${data.iterations} steps]**\n\n${data.final_result}`, mode: "AGENT", timestamp: new Date() }]);
+                        }
+                        setDelegateRunning(false);
+                      }
+                    }}
+                    placeholder="e.g. Research top 3 competitors and create tasks for each gap..."
+                    className="flex-1 bg-card border border-border rounded px-2.5 py-1.5 text-xs font-body focus:outline-none focus:border-violet-500/50 placeholder:text-muted-foreground placeholder:text-xs"
+                  />
+                  <button onClick={async () => {
+                    if (!delegateGoal.trim() || delegateRunning) return;
+                    setDelegateRunning(true); setDelegateSteps([]); setDelegateResult("");
+                    const { data: { session: s } } = await (supabase as any).auth.getSession();
+                    if (!s) { setDelegateRunning(false); return; }
+                    const { data, error } = await (supabase as any).functions.invoke("mavis-goal-loop", { body: { goal: delegateGoal.trim(), max_iterations: 6 } });
+                    if (!error && data) {
+                      setDelegateSteps(data.steps ?? []);
+                      setDelegateResult(data.final_result ?? "");
+                      setChatMessages((prev) => [...prev, { id: `delegate-${Date.now()}`, role: "assistant" as const, content: `**[DELEGATE COMPLETE — ${data.iterations} steps]**\n\n${data.final_result}`, mode: "AGENT", timestamp: new Date() }]);
+                    }
+                    setDelegateRunning(false);
+                  }} disabled={delegateRunning || !delegateGoal.trim()}
+                    className="px-3 py-1.5 rounded border border-emerald-500/30 bg-emerald-500/10 text-emerald-300 text-xs font-mono hover:bg-emerald-500/20 disabled:opacity-40 transition-colors flex items-center gap-1.5"
+                  >
+                    {delegateRunning ? <><span className="w-2 h-2 rounded-full border border-emerald-400 border-t-transparent animate-spin" /> Running</> : <><Cpu size={10} /> Delegate</>}
+                  </button>
+                </div>
+                {delegateSteps.length > 0 && (
+                  <div className="border border-border/50 rounded bg-muted/20 p-2 max-h-36 overflow-y-auto space-y-1.5">
+                    {delegateSteps.map((s) => (
+                      <div key={s.iteration} className="flex gap-1.5 text-xs font-mono">
+                        <span className="text-muted-foreground shrink-0">{s.iteration}.</span>
+                        <span className="text-violet-300">[{s.action}]</span>
+                        <span className="text-foreground/70 truncate">{s.thought}</span>
+                      </div>
+                    ))}
+                    {delegateResult && (
+                      <div className="mt-1 pt-1 border-t border-border/30 text-xs font-mono text-emerald-300">{delegateResult.slice(0, 200)}</div>
+                    )}
+                  </div>
+                )}
+              </>
+            ) : null}
           </motion.div>
         )}
       </AnimatePresence>
 
       {/* Voice controls */}
       <div className="flex items-center gap-2 justify-end flex-wrap">
+        {/* Response length chips */}
+        {(["concise", "normal", "detailed"] as const).map((len, i) => {
+          const label = ["S", "M", "L"][i];
+          const active = responseLength === len;
+          return (
+            <button
+              key={len}
+              onClick={() => setResponseLength(len)}
+              title={len.charAt(0).toUpperCase() + len.slice(1)}
+              className={`text-xs font-mono px-2 py-0.5 rounded border transition-colors ${
+                active
+                  ? "bg-primary/20 border-primary/40 text-primary"
+                  : "border-border text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              {label}
+            </button>
+          );
+        })}
         <VoicePicker
           enabled={ttsEnabled}
           onToggle={() => {
@@ -1562,6 +1791,21 @@ export default function MavisChat() {
             onRemove={remove}
             compact
           />
+        </div>
+      )}
+
+      {/* Editing pill */}
+      {editingMsgId && (
+        <div className="flex items-center gap-2 px-1">
+          <span className="text-xs font-mono text-amber-400 border border-amber-900/40 rounded px-2 py-0.5 flex items-center gap-1">
+            <Pencil size={9} /> Editing…
+          </span>
+          <button
+            onClick={() => { setEditingMsgId(null); setInput(""); }}
+            className="text-xs font-mono text-muted-foreground hover:text-foreground"
+          >
+            <X size={12} />
+          </button>
         </div>
       )}
 
@@ -1597,6 +1841,15 @@ export default function MavisChat() {
           onChange={(e) => setInput(e.target.value)}
           onCompositionStart={() => setIsComposing(true)}
           onCompositionEnd={() => setIsComposing(false)}
+          onPaste={(e) => {
+            const items = Array.from(e.clipboardData.items);
+            const fileItems = items.filter((i) => i.kind === "file");
+            if (fileItems.length) {
+              e.preventDefault();
+              const files = fileItems.map((i) => i.getAsFile()).filter((f): f is File => f !== null);
+              if (files.length) upload(files);
+            }
+          }}
           onKeyDown={(e) => {
             if (e.key === "Enter" && !e.shiftKey && !isComposing) {
               e.preventDefault();

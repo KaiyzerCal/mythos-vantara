@@ -124,6 +124,95 @@ const MCP_TOOLS = [
       required: ["goal"],
     },
   },
+  {
+    name: "complete_quest",
+    description: "Mark a quest as completed by its ID.",
+    inputSchema: {
+      type: "object",
+      properties: { quest_id: { type: "string", description: "Quest UUID" } },
+      required: ["quest_id"],
+    },
+  },
+  {
+    name: "list_tasks",
+    description: "List the user's tasks with optional status filter.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        status: { type: "string", enum: ["pending", "in_progress", "done"], description: "Filter by status" },
+        limit:  { type: "number", description: "Max results (default 20)" },
+      },
+    },
+  },
+  {
+    name: "list_goals",
+    description: "Retrieve the user's goals (active by default).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        status: { type: "string", enum: ["active", "completed", "paused"], description: "Default: active" },
+      },
+    },
+  },
+  {
+    name: "log_expense",
+    description: "Log a new expense to the finance ledger.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        description:  { type: "string" },
+        amount:       { type: "number" },
+        currency:     { type: "string", description: "Default: USD" },
+        category:     { type: "string", description: "e.g. software, food, travel" },
+        expense_date: { type: "string", description: "YYYY-MM-DD, defaults to today" },
+      },
+      required: ["description", "amount"],
+    },
+  },
+  {
+    name: "get_revenue_summary",
+    description: "Get a combined revenue summary from Stripe and Gumroad.",
+    inputSchema: { type: "object", properties: {} },
+  },
+  {
+    name: "list_journal",
+    description: "Retrieve recent journal entries.",
+    inputSchema: {
+      type: "object",
+      properties: { limit: { type: "number", description: "Default 10" } },
+    },
+  },
+  {
+    name: "create_journal",
+    description: "Create a new journal entry.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        content: { type: "string" },
+        mood:    { type: "string", description: "e.g. focused, anxious, energized" },
+        tags:    { type: "array", items: { type: "string" } },
+      },
+      required: ["content"],
+    },
+  },
+  {
+    name: "get_user_profile",
+    description: "Return the synthesized MAVIS user profile (personality overview, communication style, key context, preferences).",
+    inputSchema: { type: "object", properties: {} },
+  },
+  {
+    name: "post_to_social",
+    description: "Post or schedule content to a social platform via MAVIS NORA.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        content:     { type: "string", description: "The post text" },
+        platform:    { type: "string", enum: ["twitter", "linkedin", "instagram", "discord"] },
+        schedule_at: { type: "string", description: "ISO datetime to schedule (omit to post now)" },
+      },
+      required: ["content", "platform"],
+    },
+  },
 ];
 
 // ── Auth: SHA-256 API key lookup ──────────────────────────────────────────────
@@ -311,6 +400,104 @@ async function execRunAgent(userId: string, goal: string): Promise<string> {
   }
 }
 
+// ── Extended tool executors ───────────────────────────────────────────────────
+
+async function execCompleteQuest(userId: string, questId: string): Promise<string> {
+  const { error } = await sb().from("quests")
+    .update({ status: "completed", updated_at: new Date().toISOString() })
+    .eq("id", questId).eq("user_id", userId);
+  if (error) return `Failed: ${error.message}`;
+  return `Quest ${questId} marked completed.`;
+}
+
+async function execListTasks(userId: string, status?: string, limit = 20): Promise<string> {
+  let q = sb().from("tasks").select("id,title,status,priority,due_date,tags").eq("user_id", userId);
+  if (status) q = q.eq("status", status);
+  q = q.order("created_at", { ascending: false }).limit(limit);
+  const { data, error } = await q;
+  if (error) return `Failed: ${error.message}`;
+  if (!data?.length) return "No tasks found.";
+  return data.map((t: any) =>
+    `• [${t.status}] ${t.title}${t.priority ? ` (${t.priority})` : ""}${t.due_date ? ` — due ${t.due_date.slice(0,10)}` : ""}`
+  ).join("\n");
+}
+
+async function execListGoals(userId: string, status = "active"): Promise<string> {
+  const { data, error } = await sb().from("mavis_goals")
+    .select("id,objective,context,status").eq("user_id", userId).eq("status", status);
+  if (error) return `Failed: ${error.message}`;
+  if (!data?.length) return `No ${status} goals.`;
+  return data.map((g: any) => `• ${g.objective}${g.context ? `: ${String(g.context).slice(0, 100)}` : ""}`).join("\n");
+}
+
+async function execLogExpense(userId: string, description: string, amount: number, currency = "USD", category = "other", expenseDate?: string): Promise<string> {
+  const today = new Date().toISOString().slice(0, 10);
+  const { data, error } = await sb().from("mavis_expenses").insert({
+    user_id: userId, description, amount, currency, category,
+    expense_date: expenseDate ?? today, source: "mcp",
+  }).select("id").single();
+  if (error) return `Failed: ${error.message}`;
+  return `Expense logged (ID: ${data.id}): ${currency} ${amount} — ${description}`;
+}
+
+async function execGetRevenueSummary(userId: string): Promise<string> {
+  const [stripeRes, gumroadRes] = await Promise.all([
+    sb().from("stripe_revenue").select("amount").eq("user_id", userId).limit(100),
+    sb().from("gumroad_sales").select("price").eq("user_id", userId).limit(100),
+  ]);
+  const stripeTotal  = (stripeRes.data  ?? []).reduce((s: number, r: any) => s + Number(r.amount), 0);
+  const gumroadTotal = (gumroadRes.data ?? []).reduce((s: number, r: any) => s + Number(r.price),  0);
+  return `Revenue summary:\n• Stripe: $${stripeTotal.toFixed(2)}\n• Gumroad: $${gumroadTotal.toFixed(2)}\n• Combined: $${(stripeTotal + gumroadTotal).toFixed(2)}`;
+}
+
+async function execListJournal(userId: string, limit = 10): Promise<string> {
+  const { data, error } = await sb().from("journal_entries")
+    .select("id,content,mood,tags,created_at").eq("user_id", userId)
+    .order("created_at", { ascending: false }).limit(limit);
+  if (error) return `Failed: ${error.message}`;
+  if (!data?.length) return "No journal entries.";
+  return data.map((j: any) =>
+    `[${j.created_at?.slice(0,10)}${j.mood ? ` • ${j.mood}` : ""}]\n${String(j.content).slice(0, 200)}`
+  ).join("\n\n");
+}
+
+async function execCreateJournal(userId: string, content: string, mood?: string, tags?: string[]): Promise<string> {
+  const { data, error } = await sb().from("journal_entries").insert({
+    user_id: userId, content, mood: mood ?? null, tags: tags ?? [],
+  }).select("id").single();
+  if (error) return `Failed: ${error.message}`;
+  return `Journal entry created (ID: ${data.id}).`;
+}
+
+async function execGetUserProfile(userId: string): Promise<string> {
+  const { data, error } = await sb().from("mavis_user_profile")
+    .select("profile_md,communication_style,key_context,preferences,topics_of_interest,updated_at")
+    .eq("user_id", userId).maybeSingle();
+  if (error) return `Failed: ${error.message}`;
+  if (!data) return "No profile synthesized yet. Send the user to MAVIS chat to generate one.";
+  return [
+    `## MAVIS User Profile (updated ${data.updated_at?.slice(0,10)})`,
+    data.profile_md,
+    `**Communication style:** ${data.communication_style}`,
+    `**Key context:**\n${data.key_context}`,
+    data.topics_of_interest?.length ? `**Topics:** ${(data.topics_of_interest as string[]).join(", ")}` : "",
+  ].filter(Boolean).join("\n\n");
+}
+
+async function execPostToSocial(userId: string, content: string, platform: string, scheduleAt?: string): Promise<string> {
+  const fnMap: Record<string, string> = {
+    twitter: "mavis-nora-post", linkedin: "mavis-nora-linkedin",
+    instagram: "mavis-nora-instagram", discord: "mavis-nora-discord",
+  };
+  const fn = fnMap[platform];
+  if (!fn) return `Unknown platform: ${platform}`;
+  const { data, error } = await sb().functions.invoke(fn, {
+    body: { user_id: userId, content, schedule_at: scheduleAt },
+  });
+  if (error) return `Failed: ${String(error)}`;
+  return `Posted to ${platform}: ${JSON.stringify(data)}`;
+}
+
 // ── MCP JSON-RPC handler ──────────────────────────────────────────────────────
 
 function jsonrpc(id: unknown, result: unknown) {
@@ -406,6 +593,33 @@ serve(async (req) => {
           break;
         case "run_agent":
           resultText = await execRunAgent(userId, String(args.goal ?? ""));
+          break;
+        case "complete_quest":
+          resultText = await execCompleteQuest(userId, String(args.quest_id ?? ""));
+          break;
+        case "list_tasks":
+          resultText = await execListTasks(userId, args.status ? String(args.status) : undefined, Number(args.limit ?? 20));
+          break;
+        case "list_goals":
+          resultText = await execListGoals(userId, args.status ? String(args.status) : "active");
+          break;
+        case "log_expense":
+          resultText = await execLogExpense(userId, String(args.description ?? ""), Number(args.amount ?? 0), args.currency ? String(args.currency) : "USD", args.category ? String(args.category) : "other", args.expense_date ? String(args.expense_date) : undefined);
+          break;
+        case "get_revenue_summary":
+          resultText = await execGetRevenueSummary(userId);
+          break;
+        case "list_journal":
+          resultText = await execListJournal(userId, Number(args.limit ?? 10));
+          break;
+        case "create_journal":
+          resultText = await execCreateJournal(userId, String(args.content ?? ""), args.mood ? String(args.mood) : undefined, Array.isArray(args.tags) ? args.tags.map(String) : undefined);
+          break;
+        case "get_user_profile":
+          resultText = await execGetUserProfile(userId);
+          break;
+        case "post_to_social":
+          resultText = await execPostToSocial(userId, String(args.content ?? ""), String(args.platform ?? ""), args.schedule_at ? String(args.schedule_at) : undefined);
           break;
         default:
           return jsonrpcError(id, -32601, `Tool not found: ${toolName}`);

@@ -237,7 +237,9 @@ export function IntegrationsPage() {
         body: JSON.stringify({ action: "get_status", user_id: user.id }),
       });
       if (res.ok) setGoogleStatus(await res.json());
-    } catch { /* non-fatal */ }
+    } catch {
+      toast.error("Failed to load integration status");
+    }
   }, [user, SUPABASE_URL]);
 
   // ── Handle Google OAuth callback ──────────────────────────

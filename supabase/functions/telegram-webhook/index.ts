@@ -1317,6 +1317,69 @@ const STATE_PREFIX = "telegram-state-";
 interface PersonaState {
   persona_id: string;
   persona_name: string;
+  user_id?: string;
+}
+
+function normalizePersonaName(value: string): string {
+  return value.trim().toLowerCase().replace(/^\/+/, "").replace(/[_\-]+/g, " ").replace(/\s+/g, " ");
+}
+
+async function resolvePersonaOwnerUid(uid: string): Promise<string> {
+  if (uid) {
+    const { data: own } = await supabase
+      .from("personas")
+      .select("user_id")
+      .eq("user_id", uid)
+      .eq("is_active", true)
+      .limit(1);
+    if (own?.length) return uid;
+  }
+
+  const fallbackUid = Deno.env.get("MAVIS_OPERATOR_MAIN_ID") ?? "";
+  if (fallbackUid && fallbackUid !== uid) {
+    const { data: fallback } = await supabase
+      .from("personas")
+      .select("user_id")
+      .eq("user_id", fallbackUid)
+      .eq("is_active", true)
+      .limit(1);
+    if (fallback?.length) return fallbackUid;
+  }
+
+  const { data: anyOwner } = await supabase
+    .from("personas")
+    .select("user_id")
+    .eq("is_active", true)
+    .limit(1);
+  return anyOwner?.[0]?.user_id ? String(anyOwner[0].user_id) : uid;
+}
+
+async function listTelegramPersonas(): Promise<any[]> {
+  const effectiveUid = await resolvePersonaOwnerUid(OPERATOR_USER_ID);
+  const { data } = await supabase
+    .from("personas")
+    .select("id, user_id, name, role, archetype")
+    .eq("user_id", effectiveUid)
+    .eq("is_active", true)
+    .order("created_at", { ascending: false })
+    .limit(50);
+  return data ?? [];
+}
+
+async function findTelegramPersona(nameQuery: string): Promise<any | null> {
+  const effectiveUid = await resolvePersonaOwnerUid(OPERATOR_USER_ID);
+  const { data } = await supabase
+    .from("personas")
+    .select("id, user_id, name, role, archetype")
+    .eq("user_id", effectiveUid)
+    .eq("is_active", true)
+    .ilike("name", `%${nameQuery}%`)
+    .limit(10);
+
+  const personas = data ?? [];
+  if (!personas.length) return null;
+  const wanted = normalizePersonaName(nameQuery);
+  return personas.find((p: any) => normalizePersonaName(String(p.name ?? "")) === wanted) ?? personas[0];
 }
 
 async function getActivePersona(chatId: string): Promise<PersonaState | null> {
@@ -1363,7 +1426,7 @@ async function setActivePersona(chatId: string, state: PersonaState | null): Pro
 // semantic memory, bond/trust/mood, and app context.
 // ─────────────────────────────────────────────────────────────
 
-async function callPersona(personaId: string, message: string, chatId: string): Promise<string> {
+async function callPersona(personaId: string, message: string, chatId: string, userId = OPERATOR_USER_ID): Promise<string> {
   const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
   const serviceKey  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
@@ -1375,7 +1438,7 @@ async function callPersona(personaId: string, message: string, chatId: string): 
     },
     body: JSON.stringify({
       persona_id: personaId,
-      user_id: OPERATOR_USER_ID,
+      user_id: userId,
       message,
       chat_id: chatId,
     }),
@@ -1901,15 +1964,9 @@ async function handleCommand(command: string, chatId: string, fullText: string):
     }
 
     case "/personas": {
-      const { data } = await supabase
-        .from("personas")
-        .select("name, role, archetype")
-        .eq("user_id", OPERATOR_USER_ID)
-        .eq("is_active", true)
-        .order("created_at", { ascending: false })
-        .limit(15);
-      if (!data?.length) return "No personas forged yet. Ask MAVIS to create one.";
-      return `Your Personas\n${data.map((p: any) => `• ${p.name} — ${p.role}${p.archetype ? ` (${p.archetype})` : ""}`).join("\n")}\n\nUse /switch [name] to talk to one.`;
+      const data = await listTelegramPersonas();
+      if (!data.length) return `No personas forged yet. Searched UID: ${await resolvePersonaOwnerUid(OPERATOR_USER_ID)}`;
+      return `Your Personas\n${data.map((p: any) => `• ${p.name} — ${p.role}${p.archetype ? ` (${p.archetype})` : ""}`).join("\n")}\n\nUse /switch [name] or /[name] to talk to one.`;
     }
 
     case "/daily": {
@@ -2086,18 +2143,11 @@ async function handleCommand(command: string, chatId: string, fullText: string):
       const nameQuery = fullText.replace(/^\/switch\s*/i, "").trim();
       if (!nameQuery) return "Usage: /switch [persona name]";
 
-      const { data } = await supabase
-        .from("personas")
-        .select("id, name, role")
-        .eq("user_id", OPERATOR_USER_ID)
-        .eq("is_active", true)
-        .ilike("name", `%${nameQuery}%`)
-        .limit(1)
-        .single();
+      const data = await findTelegramPersona(nameQuery);
 
       if (!data) return `No persona found matching "${nameQuery}". Use /personas to see your roster.`;
 
-      await setActivePersona(chatId, { persona_id: data.id, persona_name: data.name });
+      await setActivePersona(chatId, { persona_id: data.id, persona_name: data.name, user_id: data.user_id });
       return `Switching to ${data.name} (${data.role}). Say hi — they remember everything.`;
     }
 
@@ -2338,6 +2388,25 @@ Deno.serve(async (req) => {
   if (message.text?.startsWith("/")) {
     let rawText = message.text;
 
+    const barePersonaMatch = rawText.match(/^\/([a-zA-Z][a-zA-Z0-9_\- ]{1,40})(?:@\w+)?$/);
+    if (barePersonaMatch) {
+      const reserved = new Set([
+        "start", "help", "brief", "quests", "energy", "revenue", "goals", "orders", "approve", "reject",
+        "preview", "expense", "tasks", "scan", "daily", "weekly", "monthly", "search", "note", "addnote",
+        "review", "ingest", "personas", "switch", "council", "council-mode", "council-on", "council-off",
+        "mavis", "imagine",
+      ]);
+      const shortcut = barePersonaMatch[1].trim();
+      if (!reserved.has(shortcut.toLowerCase())) {
+        const persona = await findTelegramPersona(shortcut);
+        if (persona) {
+          await setActivePersona(chatId, { persona_id: persona.id, persona_name: persona.name, user_id: persona.user_id });
+          await sendPlain(chatId, `Switching to ${persona.name} (${persona.role}). Say hi — they remember everything.`);
+          return new Response("OK");
+        }
+      }
+    }
+
     // ── Backward-compat aliases from ambient-monitor nudges ───
     // /approve_outreach_<id>  →  /approve <id>
     // /skip_<id>              →  /reject <id>
@@ -2377,7 +2446,7 @@ Deno.serve(async (req) => {
       // Do NOT write to chat_messages here — that would pollute MAVIS thread.
       const sourcedInput = `[Telegram] ${inputText}`;
       const personaMessage = mediaContext ? `${mediaContext}${sourcedInput}` : sourcedInput;
-      const reply = await callPersona(activePersona.persona_id, personaMessage, chatId);
+      const reply = await callPersona(activePersona.persona_id, personaMessage, chatId, activePersona.user_id ?? OPERATOR_USER_ID);
       await sendPlain(chatId, reply);
       return new Response("OK");
     }

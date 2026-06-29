@@ -68,10 +68,10 @@ export function OnboardingWidget({ userId }: { userId: string }) {
     async function load() {
       const sb = supabase as any;
       const [{ count: goalCount }, { count: questCount }, { data: profile }, { count: integCount }] = await Promise.all([
-        sb.from("goals").select("*", { count: "exact", head: true }).eq("user_id", userId),
+        sb.from("mavis_goals").select("*", { count: "exact", head: true }).eq("user_id", userId),
         sb.from("quests").select("*", { count: "exact", head: true }).eq("user_id", userId),
         sb.from("profiles").select("inscribed_name").eq("id", userId).single(),
-        sb.from("user_integrations").select("*", { count: "exact", head: true }).eq("user_id", userId),
+        sb.from("mavis_user_integrations").select("*", { count: "exact", head: true }).eq("user_id", userId),
       ]);
       setSnapshot({
         hasProfile: !!(profile?.inscribed_name && profile.inscribed_name !== "Operator"),

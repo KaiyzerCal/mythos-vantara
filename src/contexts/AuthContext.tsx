@@ -30,12 +30,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setLoading(false);
     });
 
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      setLoading(false);
-    });
+    // Failsafe: never get stuck on the init screen if the auth backend is
+    // unreachable (network error, refresh-token failure, 504, etc.).
+    const failsafe = setTimeout(() => setLoading(false), 4000);
 
-    return () => subscription.unsubscribe();
+    supabase.auth
+      .getSession()
+      .then(({ data: { session } }) => {
+        setSession(session);
+        setLoading(false);
+      })
+      .catch((err) => {
+        console.warn("[Auth] getSession failed, continuing unauthenticated:", err);
+        setLoading(false);
+      })
+      .finally(() => clearTimeout(failsafe));
+
+    return () => {
+      subscription.unsubscribe();
+      clearTimeout(failsafe);
+    };
   }, []);
 
   const signOut = async () => {

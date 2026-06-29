@@ -1319,6 +1319,49 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
       return { command_id: commandId, status: "queued" };
     }
 
+    // ── HeyGen AI Avatar Video ────────────────────────────────────────────────
+    // generate_video | get_video_status | list_avatars | list_voices
+    case "heygen_agent": {
+      const hgRes = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-heygen-agent`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
+        body: JSON.stringify({ userId, action: p.action ?? (action as any).params?.action, ...p }),
+        signal: AbortSignal.timeout(150_000), // 2.5 min — polling can take ~120 s
+      });
+      const hgData = await hgRes.json().catch(() => ({}));
+      if (!hgRes.ok) throw new Error((hgData as any).error ?? `mavis-heygen-agent returned ${hgRes.status}`);
+      return hgData;
+    }
+
+    // ── Avatar Video (Photo → Lip-Sync via fal.ai SadTalker) ─────────────────
+    // generate (source_image_url + text/audio_url + voice_id) | poll (request_id)
+    case "avatar_video": {
+      const avRes = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-avatar-video`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
+        body: JSON.stringify({ action: p.action ?? "generate", user_id: userId, ...p }),
+        signal: AbortSignal.timeout(120_000),
+      });
+      const avData = await avRes.json().catch(() => ({}));
+      if (!avRes.ok) throw new Error((avData as any).error ?? `mavis-avatar-video returned ${avRes.status}`);
+      return avData;
+    }
+
+    // ── Higgsfield Cinematic Video ────────────────────────────────────────────
+    // generate_video | get_video_status | list_models
+    // Specialties: image animation, camera motion, character consistency
+    case "higgsfield_agent": {
+      const hfRes = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-higgsfield`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
+        body: JSON.stringify({ userId, action: p.action ?? (action as any).params?.action, ...p }),
+        signal: AbortSignal.timeout(150_000),
+      });
+      const hfData = await hfRes.json().catch(() => ({}));
+      if (!hfRes.ok) throw new Error((hfData as any).error ?? `mavis-higgsfield returned ${hfRes.status}`);
+      return hfData;
+    }
+
     default:
       throw new Error(`Unknown MAVIS action: ${action.type}`);
   }

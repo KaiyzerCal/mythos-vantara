@@ -5,7 +5,7 @@ import {
   Target, Flame, Zap, Sparkles, Package, BookLock, ShoppingBag,
   Medal, TowerControl, Activity, Users, CheckSquare, BookOpen,
   Shield, Cpu, Crown, Copy, TrendingUp, CalendarDays, Radio,
-  BookMarked, Brain,
+  BookMarked, Brain, Loader2, RefreshCw,
 } from "lucide-react";
 import { useAppData } from "@/contexts/AppDataContext";
 import { useAuth } from "@/contexts/AuthContext";
@@ -19,6 +19,7 @@ import { MavisActivityFeed } from "@/components/MavisActivityFeed";
 import { ApprovalQueue } from "@/components/ApprovalQueue";
 import { CausalInsights } from "@/components/CausalInsights";
 import { StandingOrdersWidget } from "@/components/StandingOrdersWidget";
+import { toast } from "sonner";
 
 const fadeIn = (delay = 0) => ({
   initial: { opacity: 0, y: 12 },
@@ -70,17 +71,29 @@ export default function Dashboard() {
     brief_date: string;
     brief_text: string;
   } | null>(null);
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [briefExpanded, setBriefExpanded] = useState(false);
 
-  useEffect(() => {
-    const today = new Date().toISOString().slice(0, 10);
-    (supabase as any)
-      .from("mavis_daily_briefs")
-      .select("brief_date, brief_text")
-      .eq("brief_date", today)
-      .maybeSingle()
-      .then(({ data }: any) => setMorningBrief(data ?? null))
-      .catch(() => {});
-  }, []);
+  const generateBrief = async () => {
+    setIsGenerating(true);
+    try {
+      await supabase.functions.invoke("mavis-morning-brief", {});
+      // Re-fetch the brief after generation
+      const today = new Date().toISOString().slice(0, 10);
+      const { data } = await (supabase as any)
+        .from("mavis_daily_briefs")
+        .select("brief_date, brief_text")
+        .eq("brief_date", today)
+        .maybeSingle();
+      setMorningBrief(data ?? null);
+      toast.success("Brief generated!");
+    } catch (e) {
+      console.error("Failed to generate brief", e);
+      toast.error("Failed to generate brief");
+    } finally {
+      setIsGenerating(false);
+    }
+  };
 
   // ── Market Intel ──
   const [marketIntel, setMarketIntel] = useState<Array<{
@@ -91,42 +104,11 @@ export default function Dashboard() {
     signal_type: string;
   }>>([]);
 
-  useEffect(() => {
-    const yesterday = new Date(Date.now() - 86400000).toISOString();
-    Promise.resolve(
-      supabase
-        .from("mavis_market_intel")
-        .select("topic, headline, summary, relevance_score, signal_type")
-        .gte("relevance_score", 0.6)
-        .gte("created_at", yesterday)
-        .order("relevance_score", { ascending: false })
-        .limit(3)
-    )
-      .then(({ data }) => setMarketIntel(data ?? []))
-      .catch(() => {});
-  }, []);
-
   // ── Action Queue ──
   const [approvalCount, setApprovalCount] = useState(0);
 
   // ── Outcome Accuracy ──
   const [outcomeAccuracy, setOutcomeAccuracy] = useState<number | null>(null);
-
-  useEffect(() => {
-    Promise.resolve(
-      supabase
-        .from("mavis_outcome_events")
-        .select("outcome_status")
-        .not("outcome_status", "eq", "pending")
-        .limit(50)
-    )
-      .then(({ data }) => {
-        if (!data || data.length === 0) return;
-        const confirmed = data.filter(e => e.outcome_status === "confirmed").length;
-        setOutcomeAccuracy(Math.round((confirmed / data.length) * 100));
-      })
-      .catch(() => {});
-  }, []);
 
   // ── Evolution Log ──
   const [lastEvolution, setLastEvolution] = useState<{
@@ -134,19 +116,6 @@ export default function Dashboard() {
     affected_key: string;
     reason: string;
   } | null>(null);
-
-  useEffect(() => {
-    Promise.resolve(
-      supabase
-        .from("mavis_evolution_log")
-        .select("evolution_type, affected_key, reason")
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle()
-    )
-      .then(({ data }) => setLastEvolution(data ?? null))
-      .catch(() => {});
-  }, []);
 
   // ── Performance Score ──
   const [perfScore, setPerfScore] = useState<{
@@ -156,15 +125,72 @@ export default function Dashboard() {
     recommendation: string;
   } | null>(null);
 
+  // ── Loading State ──
+  const [isLoading, setIsLoading] = useState(true);
+
   useEffect(() => {
     const today = new Date().toISOString().slice(0, 10);
-    (supabase as any)
-      .from("mavis_daily_scores")
-      .select("score, trend, optimal_window, recommendation")
-      .eq("score_date", today)
-      .maybeSingle()
-      .then(({ data }: any) => setPerfScore(data ?? null))
-      .catch(() => {});
+    const yesterday = new Date(Date.now() - 86400000).toISOString();
+
+    Promise.all([
+      // Morning Brief
+      (supabase as any)
+        .from("mavis_daily_briefs")
+        .select("brief_date, brief_text")
+        .eq("brief_date", today)
+        .maybeSingle()
+        .then(({ data }: any) => setMorningBrief(data ?? null))
+        .catch((e: unknown) => { console.error("Failed to load morning brief", e); toast.error("Failed to load Morning Brief"); }),
+
+      // Market Intel
+      supabase
+        .from("mavis_market_intel")
+        .select("topic, headline, summary, relevance_score, signal_type")
+        .gte("relevance_score", 0.6)
+        .gte("created_at", yesterday)
+        .order("relevance_score", { ascending: false })
+        .limit(3)
+        .then(
+          ({ data }) => setMarketIntel(data ?? []),
+          (e: unknown) => { console.error("Failed to load market intel", e); toast.error("Failed to load Market Radar"); },
+        ),
+
+      // Outcome Accuracy
+      supabase
+        .from("mavis_outcome_events")
+        .select("outcome_status")
+        .not("outcome_status", "eq", "pending")
+        .limit(50)
+        .then(
+          ({ data }) => {
+            if (!data || data.length === 0) return;
+            const confirmed = data.filter((ev) => ev.outcome_status === "confirmed").length;
+            setOutcomeAccuracy(Math.round((confirmed / data.length) * 100));
+          },
+          (e: unknown) => { console.error("Failed to load outcome accuracy", e); toast.error("Failed to load Prediction Accuracy"); },
+        ),
+
+      // Evolution Log
+      supabase
+        .from("mavis_evolution_log")
+        .select("evolution_type, affected_key, reason")
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle()
+        .then(
+          ({ data }) => setLastEvolution(data ?? null),
+          (e: unknown) => { console.error("Failed to load evolution log", e); toast.error("Failed to load Self-Evolution"); },
+        ),
+
+      // Performance Score
+      (supabase as any)
+        .from("mavis_daily_scores")
+        .select("score, trend, optimal_window, recommendation")
+        .eq("score_date", today)
+        .maybeSingle()
+        .then(({ data }: any) => setPerfScore(data ?? null))
+        .catch((e: unknown) => { console.error("Failed to load performance score", e); toast.error("Failed to load Performance Score"); }),
+    ]).finally(() => setIsLoading(false));
   }, []);
 
   const scoreColor =
@@ -312,21 +338,54 @@ export default function Dashboard() {
               <CalendarDays size={14} className="text-primary shrink-0" />
               <h3 className="text-sm font-display text-foreground">Morning Brief</h3>
               {morningBrief && (
-                <span className="ml-auto text-xs font-mono text-muted-foreground">
-                  {morningBrief.brief_date}
-                </span>
+                <>
+                  <span className="ml-auto text-xs font-mono text-muted-foreground">
+                    {morningBrief.brief_date}
+                  </span>
+                  <button
+                    onClick={generateBrief}
+                    disabled={isGenerating}
+                    className="ml-2 p-0.5 text-muted-foreground hover:text-primary transition-colors disabled:opacity-40"
+                    title="Regenerate brief"
+                  >
+                    {isGenerating ? <Loader2 size={11} className="animate-spin" /> : <RefreshCw size={11} />}
+                  </button>
+                </>
               )}
             </div>
-            {morningBrief ? (
-              <p className="text-xs font-body text-foreground leading-relaxed">
-                {morningBrief.brief_text.length > 400
-                  ? morningBrief.brief_text.slice(0, 400) + "..."
-                  : morningBrief.brief_text}
-              </p>
+            {isLoading ? (
+              <div className="animate-pulse space-y-2">
+                <div className="h-3 bg-muted/40 rounded w-3/4" />
+                <div className="h-3 bg-muted/40 rounded w-1/2" />
+              </div>
+            ) : morningBrief ? (
+              <div>
+                <p className="text-xs font-body text-foreground leading-relaxed whitespace-pre-wrap">
+                  {briefExpanded || morningBrief.brief_text.length <= 400
+                    ? morningBrief.brief_text
+                    : morningBrief.brief_text.slice(0, 400) + "..."}
+                </p>
+                {morningBrief.brief_text.length > 400 && (
+                  <button
+                    onClick={() => setBriefExpanded(v => !v)}
+                    className="mt-1 text-xs font-mono text-primary/70 hover:text-primary transition-colors"
+                  >
+                    {briefExpanded ? "Show less" : "Read more"}
+                  </button>
+                )}
+              </div>
             ) : (
-              <p className="text-xs font-mono text-muted-foreground text-center py-3">
-                Brief generates at 6am daily
-              </p>
+              <div className="flex flex-col items-center gap-2 py-3">
+                <p className="text-xs font-mono text-muted-foreground">Brief generates at 6am daily</p>
+                <button
+                  onClick={generateBrief}
+                  disabled={isGenerating}
+                  className="flex items-center gap-1.5 text-xs font-mono px-3 py-1.5 rounded border border-primary/30 bg-primary/10 text-primary hover:bg-primary/20 transition-colors disabled:opacity-40"
+                >
+                  {isGenerating ? <Loader2 size={10} className="animate-spin" /> : <RefreshCw size={10} />}
+                  {isGenerating ? "Generating..." : "Generate Now"}
+                </button>
+              </div>
             )}
           </HudCard>
 
@@ -336,7 +395,12 @@ export default function Dashboard() {
               <Activity size={14} className="text-primary shrink-0" />
               <h3 className="text-sm font-display text-foreground">Today's Performance</h3>
             </div>
-            {perfScore ? (
+            {isLoading ? (
+              <div className="animate-pulse space-y-2">
+                <div className="h-3 bg-muted/40 rounded w-3/4" />
+                <div className="h-3 bg-muted/40 rounded w-1/2" />
+              </div>
+            ) : perfScore ? (
               <div className="space-y-2">
                 <div className="flex items-center gap-3">
                   <span className={`text-3xl font-display font-bold ${scoreColor}`}>
@@ -461,7 +525,12 @@ export default function Dashboard() {
             <TrendingUp size={14} className="text-primary shrink-0" />
             <h3 className="text-sm font-display text-foreground">Prediction Accuracy</h3>
           </div>
-          {outcomeAccuracy !== null ? (
+          {isLoading ? (
+            <div className="animate-pulse space-y-2">
+              <div className="h-3 bg-muted/40 rounded w-3/4" />
+              <div className="h-3 bg-muted/40 rounded w-1/2" />
+            </div>
+          ) : outcomeAccuracy !== null ? (
             <div className="flex flex-col items-center justify-center py-2">
               <span className={`text-4xl font-display font-bold ${outcomeAccuracy >= 70 ? "text-green-400" : outcomeAccuracy >= 50 ? "text-amber-400" : "text-red-400"}`}>
                 {outcomeAccuracy}%
@@ -479,7 +548,12 @@ export default function Dashboard() {
             <Sparkles size={14} className="text-primary shrink-0" />
             <h3 className="text-sm font-display text-foreground">Self-Evolution</h3>
           </div>
-          {lastEvolution ? (
+          {isLoading ? (
+            <div className="animate-pulse space-y-2">
+              <div className="h-3 bg-muted/40 rounded w-3/4" />
+              <div className="h-3 bg-muted/40 rounded w-1/2" />
+            </div>
+          ) : lastEvolution ? (
             <div className="space-y-1">
               <span className={`text-xs font-mono px-1 py-0.5 rounded ${lastEvolution.evolution_type.includes("added") || lastEvolution.evolution_type.includes("strengthened") ? "bg-green-400/20 text-green-400" : "bg-amber-400/20 text-amber-400"}`}>
                 {lastEvolution.evolution_type.replace(/_/g, " ")}
@@ -567,7 +641,7 @@ export default function Dashboard() {
         <h3 className="text-xs font-mono text-muted-foreground uppercase tracking-widest mb-2">
           Quick Access
         </h3>
-        <div className="grid grid-cols-5 sm:grid-cols-8 lg:grid-cols-15 gap-2">
+        <div className="grid grid-cols-4 sm:grid-cols-8 lg:grid-cols-12 gap-2">
           {QUICK_ACCESS.map(({ name, icon: Icon, to, color }) => (
             <button
               key={to}

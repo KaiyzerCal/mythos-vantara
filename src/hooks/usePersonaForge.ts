@@ -12,6 +12,8 @@ export interface ForgedPersona {
   avatar_key: string | null;
   is_active: boolean;
   created_at: string;
+  timezone: string | null;
+  agent_folders: Record<string, string>;
   // Fine-tuning lifecycle
   finetune_status: "none" | "training" | "deployed" | "failed";
   finetune_model: string | null;
@@ -55,5 +57,12 @@ export function usePersonaForge() {
     await supabase.from("personas").update({ is_active: false }).eq("id", personaId);
   }, []);
 
-  return { forgePersona, listPersonas, deletePersona, isForging, error };
+  const updatePersonaFramework = useCallback(async (
+    personaId: string,
+    updates: { timezone?: string | null; agent_folders?: Record<string, string> }
+  ): Promise<void> => {
+    await supabase.from("personas").update(updates as any).eq("id", personaId);
+  }, []);
+
+  return { forgePersona, listPersonas, deletePersona, updatePersonaFramework, isForging, error };
 }

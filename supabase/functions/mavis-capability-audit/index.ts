@@ -65,7 +65,6 @@ const GOOGLE_API_PROBES: Array<{ key: string; label: string; url: string }> = [
 ];
 
 async function probeGoogleAPIs(sb: ReturnType<typeof createClient>, uid: string): Promise<Array<{ key: string; label: string; accessible: boolean; note: string }>> {
-  // Get a valid Google token from any connected provider (they all share the same grant)
   let token: string | null = null;
   const PROVIDERS_TO_TRY = ["gdrive", "gmail", "google_calendar", "google_tasks", "gcontacts"];
   for (const p of PROVIDERS_TO_TRY) {
@@ -89,7 +88,6 @@ async function probeGoogleAPIs(sb: ReturnType<typeof createClient>, uid: string)
         const reason = (body?.error?.message ?? String(res.status)).slice(0, 80);
         return { ...probe, accessible: false, note: `❌ Auth error — ${reason}. Re-authenticate with expanded scopes.` };
       }
-      // 4xx other than auth (e.g. 404 not found) still means API is accessible
       if (res.status >= 400 && res.status < 500) return { ...probe, accessible: true, note: `✅ Accessible (${res.status})` };
       return { ...probe, accessible: false, note: `⚠️ HTTP ${res.status}` };
     } catch (err) {
@@ -97,6 +95,7 @@ async function probeGoogleAPIs(sb: ReturnType<typeof createClient>, uid: string)
     }
   }));
 }
+
 
 // ── Integration display labels ────────────────────────────────────────────────
 
@@ -232,7 +231,7 @@ Deno.serve(async (req) => {
           .join("\n")
       : "## ACTIVE BACKGROUND JOBS\nNone registered — run mavis-cron-setup to activate.";
 
-      const staticCaps = buildStaticCapabilities();
+    const staticCaps = buildStaticCapabilities();
 
     // ── Google API live probe ─────────────────────────────────────────────────
     const googleProbeResults = await probeGoogleAPIs(sb, OPERATOR_UID);
