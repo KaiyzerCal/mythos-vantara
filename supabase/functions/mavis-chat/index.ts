@@ -3082,7 +3082,8 @@ ${fmtGoals}
     }
 
     // ── URL full-content extraction ─────────────────────────
-    // YouTube URLs → real transcript via mavis-youtube-ingest (captions + Claude summary).
+    // YouTube       → mavis-youtube-ingest (captions + Claude summary)
+    // TikTok/IG/X   → mavis-shortform-ingest (Whisper transcription + Claude summary)
     // All other URLs → Jina Reader markdown extraction.
     let urlContent = "";
     {
@@ -3090,11 +3091,13 @@ ${fmtGoals}
       const foundUrls = lastUserText.match(URL_RE);
       if (foundUrls?.length) {
         const target = foundUrls[0].replace(/[.,;!?)]+$/, "");
-        const isYouTube = /(?:youtube\.com\/watch|youtu\.be\/)/.test(target);
+        const isYouTube   = /(?:youtube\.com\/watch|youtu\.be\/)/.test(target);
+        const isShortForm = /tiktok\.com|vm\.tiktok\.com|vt\.tiktok\.com|instagram\.com\/(reel|p)\/|twitter\.com|x\.com\/\w+\/status\//i.test(target);
+        const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+        const serviceKey  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
         try {
           if (isYouTube) {
             // Call the real YouTube ingest — extracts captions, summarises with Claude
-            const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
             const ytRes = await fetch(`${supabaseUrl}/functions/v1/mavis-youtube-ingest`, {
               method: "POST",
               headers: {
@@ -3112,6 +3115,36 @@ ${fmtGoals}
               urlContent = `\n═══ YOUTUBE VIDEO: ${title} ═══\nURL: ${target}\n\nSUMMARY:\n${summary}\n\nTRANSCRIPT EXCERPT:\n${excerpt}\n═══ END YOUTUBE CONTENT ═══`;
             } else {
               // Fallback to Jina if ingest fails
+              const jinaRes = await fetch(`https://r.jina.ai/${target}`, {
+                headers: { Accept: "text/plain", "X-No-Cache": "true", "X-Timeout": "15" },
+                signal: AbortSignal.timeout(18000),
+              });
+              if (jinaRes.ok) {
+                const text = await jinaRes.text();
+                if (text.length > 100) urlContent = `\n═══ URL CONTENT: ${target} ═══\n${text.slice(0, 14000)}\n═══ END URL CONTENT ═══`;
+              }
+            }
+          } else if (isShortForm) {
+            // Short-form video: Whisper transcription via mavis-shortform-ingest
+            const sfRes = await fetch(`${supabaseUrl}/functions/v1/mavis-shortform-ingest`, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${serviceKey}`,
+              },
+              body: JSON.stringify({ url: target, save_as: "note", _preview: true }),
+              signal: AbortSignal.timeout(55000),
+            });
+            if (sfRes.ok) {
+              const sfData = await sfRes.json();
+              const title    = sfData.title    ?? "Video";
+              const platform = sfData.platform ?? "short-form";
+              const summary  = sfData.summary  ?? "";
+              const excerpt  = sfData.transcript ? String(sfData.transcript).slice(0, 8000) : "";
+              const label    = platform === "tiktok" ? "TIKTOK" : platform === "instagram" ? "INSTAGRAM REEL" : "TWITTER/X VIDEO";
+              urlContent = `\n═══ ${label}: ${title} ═══\nURL: ${target}\n\nSUMMARY:\n${summary}\n\nTRANSCRIPT:\n${excerpt}\n═══ END VIDEO CONTENT ═══`;
+            } else {
+              // Fallback to Jina for metadata
               const jinaRes = await fetch(`https://r.jina.ai/${target}`, {
                 headers: { Accept: "text/plain", "X-No-Cache": "true", "X-Timeout": "15" },
                 signal: AbortSignal.timeout(18000),
