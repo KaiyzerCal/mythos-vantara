@@ -1362,6 +1362,136 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
       return hfData;
     }
 
+    case "get_biometric_state": {
+      const { data } = await sb
+        .from("mavis_biometric_state")
+        .select("*")
+        .eq("user_id", userId)
+        .order("updated_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      return data ?? { message: "No biometric state recorded yet. Start MediaPipe vision tracking in the app." };
+    }
+
+    case "list_gestures": {
+      const { data } = await sb
+        .from("mavis_gesture_commands")
+        .select("gesture, action_type, action_payload, enabled, hold_ms")
+        .eq("user_id", userId)
+        .order("gesture", { ascending: true });
+      return { gestures: data ?? [] };
+    }
+
+    case "map_gesture": {
+      const p = params as any;
+      if (!p.gesture || !p.action_type) throw new Error("map_gesture requires gesture and action_type");
+      const { data, error } = await sb
+        .from("mavis_gesture_commands")
+        .upsert(
+          { user_id: userId, gesture: p.gesture, action_type: p.action_type, action_payload: p.action_payload ?? {}, hold_ms: p.hold_ms ?? 500, enabled: true },
+          { onConflict: "user_id,gesture" }
+        )
+        .select("gesture, action_type, hold_ms")
+        .single();
+      if (error) throw error;
+      return { ok: true, mapping: data };
+    }
+
+    case "get_standing_orders": {
+      const { data } = await sb
+        .from("mavis_standing_orders")
+        .select("id, order_text, enabled, created_at")
+        .eq("user_id", userId)
+        .eq("enabled", true)
+        .order("created_at", { ascending: true });
+      return { standing_orders: data ?? [] };
+    }
+
+    case "add_standing_order": {
+      const p = params as any;
+      if (!p.order_text) throw new Error("add_standing_order requires order_text");
+      const { data, error } = await sb
+        .from("mavis_standing_orders")
+        .upsert(
+          { user_id: userId, order_text: p.order_text, enabled: true },
+          { onConflict: "user_id,order_text" }
+        )
+        .select("id, order_text")
+        .single();
+      if (error) throw error;
+      return { ok: true, added: data };
+    }
+
+    case "remove_standing_order": {
+      const p = params as any;
+      if (!p.order_text && !p.order_id) throw new Error("remove_standing_order requires order_text or order_id");
+      const q = sb.from("mavis_standing_orders").update({ enabled: false }).eq("user_id", userId);
+      if (p.order_id) q.eq("id", p.order_id);
+      else q.eq("order_text", p.order_text);
+      const { error } = await q;
+      if (error) throw error;
+      return { ok: true };
+    }
+
+    case "list_skills": {
+      const { data } = await sb
+        .from("mavis_skill_definitions")
+        .select("name, description, trigger_keywords, enabled, created_at")
+        .eq("user_id", userId)
+        .eq("enabled", true)
+        .order("name", { ascending: true });
+      return { skills: data ?? [], count: (data ?? []).length };
+    }
+
+    case "get_pending_reviews": {
+      const { data } = await sb
+        .from("mavis_notes")
+        .select("id, title, tags, next_review_at, review_interval_days")
+        .eq("user_id", userId)
+        .lte("next_review_at", new Date().toISOString())
+        .not("tags", "cs", '["daily-log"]')
+        .order("next_review_at", { ascending: true })
+        .limit((params as any).limit ?? 10);
+      return { pending_reviews: data ?? [], count: (data ?? []).length };
+    }
+
+    case "recall_memory": {
+      const p = params as any;
+      if (!p.query) throw new Error("recall_memory requires query string");
+      const queryLower = (p.query as string).toLowerCase();
+      const limit = p.limit ?? 8;
+
+      const [memoriesRes, sessionRes, tacitRes] = await Promise.all([
+        sb.from("mavis_agent_memories")
+          .select("content, summary, importance, tags, created_at")
+          .eq("user_id", userId)
+          .eq("status", "active")
+          .ilike("content", `%${p.query}%`)
+          .order("importance", { ascending: false })
+          .limit(Math.ceil(limit / 2)),
+        sb.from("mavis_memory")
+          .select("content, role, importance_score, created_at")
+          .eq("user_id", userId)
+          .ilike("content", `%${p.query}%`)
+          .gte("importance_score", 5)
+          .order("created_at", { ascending: false })
+          .limit(Math.floor(limit / 3)),
+        sb.from("mavis_tacit")
+          .select("key, value, category, created_at")
+          .eq("user_id", userId)
+          .ilike("value", `%${queryLower}%`)
+          .limit(3),
+      ]);
+
+      const results = [
+        ...(memoriesRes.data ?? []).map((r: any) => ({ source: "agent_memory", content: r.content, summary: r.summary, importance: r.importance, tags: r.tags, createdAt: r.created_at })),
+        ...(sessionRes.data ?? []).map((r: any) => ({ source: "session_log", content: `[${r.role}] ${r.content}`, importance: r.importance_score ?? 5, createdAt: r.created_at })),
+        ...(tacitRes.data ?? []).map((r: any) => ({ source: "tacit", content: `${r.key}: ${r.value}`, importance: 8, tags: [r.category] })),
+      ].sort((a, b) => (b.importance ?? 0) - (a.importance ?? 0)).slice(0, limit);
+
+      return { query: p.query, results, count: results.length };
+    }
+
     default:
       throw new Error(`Unknown MAVIS action: ${action.type}`);
   }
