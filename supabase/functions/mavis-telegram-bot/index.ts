@@ -2102,6 +2102,62 @@ async function handleChat(
     } catch { /* non-critical */ }
   }
 
+  // ── URL content extraction ─────────────────────────────────────────────────
+  // YouTube → mavis-youtube-ingest (real captions + Claude summary)
+  // All other URLs → Jina Reader markdown extraction
+  let urlContent = "";
+  {
+    const URL_RE = /https?:\/\/[^\s<>"',;)]+/g;
+    const foundUrls = text.match(URL_RE);
+    if (foundUrls?.length) {
+      const target = foundUrls[0].replace(/[.,;!?)]+$/, "");
+      const isYouTube = /(?:youtube\.com\/watch|youtu\.be\/)/.test(target);
+      try {
+        if (isYouTube) {
+          const ytRes = await fetch(`${SUPABASE_URL}/functions/v1/mavis-youtube-ingest`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "Authorization": `Bearer ${SERVICE_KEY}` },
+            body: JSON.stringify({ url: target, save_as: "note", _preview: true }),
+            signal: AbortSignal.timeout(25000),
+          });
+          if (ytRes.ok) {
+            const ytData = await ytRes.json();
+            const title   = ytData.title   ?? "YouTube Video";
+            const summary = ytData.summary  ?? "";
+            const excerpt = ytData.transcript ? String(ytData.transcript).slice(0, 8000) : "";
+            urlContent = `\n═══ YOUTUBE VIDEO: ${title} ═══\nURL: ${target}\n\nSUMMARY:\n${summary}\n\nTRANSCRIPT EXCERPT:\n${excerpt}\n═══ END YOUTUBE CONTENT ═══`;
+          } else {
+            // Fallback to Jina if ingest fails
+            const jinaRes = await fetch(`https://r.jina.ai/${target}`, {
+              headers: { Accept: "text/plain", "X-No-Cache": "true", "X-Timeout": "15" },
+              signal: AbortSignal.timeout(18000),
+            });
+            if (jinaRes.ok) {
+              const jinaText = await jinaRes.text();
+              if (jinaText.length > 100) urlContent = `\n═══ URL CONTENT: ${target} ═══\n${jinaText.slice(0, 14000)}\n═══ END URL CONTENT ═══`;
+            }
+          }
+        } else {
+          const jinaKey = Deno.env.get("JINA_API_KEY") ?? "";
+          const jinaHeaders: Record<string, string> = {
+            Accept: "text/plain",
+            "X-No-Cache": "true",
+            "X-Timeout": "15",
+          };
+          if (jinaKey) jinaHeaders["Authorization"] = `Bearer ${jinaKey}`;
+          const jinaRes = await fetch(`https://r.jina.ai/${target}`, {
+            headers: jinaHeaders,
+            signal: AbortSignal.timeout(18000),
+          });
+          if (jinaRes.ok) {
+            const jinaText = await jinaRes.text();
+            if (jinaText.length > 100) urlContent = `\n═══ URL CONTENT: ${target} ═══\n${jinaText.slice(0, 14000)}\n═══ END URL CONTENT ═══`;
+          }
+        }
+      } catch { /* non-critical — continue without URL content */ }
+    }
+  }
+
   // ── Council member mode ────────────────────────────────────────────────────
   const activeCouncil = await getActiveCouncil(uid);
   if (activeCouncil) {
@@ -2122,7 +2178,7 @@ async function handleChat(
         role:    m.role as "user" | "assistant",
         content: String(m.content ?? ""),
       }));
-      const userContent = a2aBlock ? `${text}${a2aBlock}` : text;
+      const userContent = `${text}${a2aBlock}${urlContent}`;
       const msgs: ChatMessage[] = [...recentHistory, { role: "user", content: userContent }];
       const rawReply = await callLLM(activeCouncil.model || "claude-haiku-4-5-20251001", councilSystem, msgs, 1200);
 
@@ -2164,7 +2220,7 @@ async function handleChat(
         content: String(m.content ?? ""),
       }));
 
-      const userContent = a2aBlock ? `${text}${a2aBlock}` : text;
+      const userContent = `${text}${a2aBlock}${urlContent}`;
       const msgs: ChatMessage[] = [...recentHistory, { role: "user", content: userContent }];
       const rawReply = await callLLM(activePersona.model || "claude-haiku-4-5-20251001", personaSystem, msgs, 1200);
 
@@ -2195,7 +2251,7 @@ async function handleChat(
       role:    m.role === "assistant" ? "assistant" : "user",
       content: String(m.content ?? ""),
     }));
-    const finalUserText = a2aBlock ? `${text}${a2aBlock}` : text;
+    const finalUserText = `${text}${a2aBlock}${urlContent}`;
     const messages = [...recentHistory, { role: "user", content: finalUserText }];
 
     const res = await fetch(`${SUPABASE_URL}/functions/v1/mavis-agent`, {
