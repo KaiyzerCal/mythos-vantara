@@ -1440,6 +1440,34 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
       return data ?? { message: "No RuView data yet. Configure a RuView WiFi sensor node and point it at the mavis-ruview-bridge webhook." };
     }
 
+    case "notion_agent": {
+      const notionUrl = `${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-notion-agent`;
+      const notionRes = await fetch(notionUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+        },
+        body: JSON.stringify({ ...(params as Record<string, unknown>), user_id: userId }),
+      });
+      if (!notionRes.ok) throw new Error(`mavis-notion-agent error: ${notionRes.status}`);
+      return await notionRes.json();
+    }
+
+    case "notion_sync": {
+      const syncUrl = `${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-notion-sync`;
+      const syncRes = await fetch(syncUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+        },
+        body: JSON.stringify({ user_id: userId, ...(params as Record<string, unknown>) }),
+      });
+      if (!syncRes.ok) throw new Error(`mavis-notion-sync error: ${syncRes.status}`);
+      return await syncRes.json();
+    }
+
     case "get_standing_orders": {
       const { data } = await sb
         .from("mavis_standing_orders")
