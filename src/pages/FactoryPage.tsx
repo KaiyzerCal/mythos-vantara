@@ -1,672 +1,1213 @@
 // ============================================================
-// VANTARA.EXE — FactoryPage
-// Factorio-style factory floor: MAVIS AI ecosystem visualized
-// as a production facility using React Flow v12.
+// VANTARA.EXE — FactoryPage (Canvas Edition)
+// Factorio-style full-screen HTML5 Canvas factory floor.
+// MAVIS AI ecosystem visualized as a Factorio production network.
+// No React Flow. One <canvas>, requestAnimationFrame game loop.
 // ============================================================
 
-import { useState, useEffect, useCallback, memo } from "react";
-import {
-  ReactFlow,
-  Background,
-  Controls,
-  MiniMap,
-  useNodesState,
-  useEdgesState,
-  Handle,
-  Position,
-  type NodeProps,
-  type Node,
-  type Edge,
-} from "@xyflow/react";
-import "@xyflow/react/dist/style.css";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
-import { motion } from "framer-motion";
-import { RefreshCw, Loader2, X, ExternalLink } from "lucide-react";
 import { useNavigate } from "react-router-dom";
+import { RefreshCw } from "lucide-react";
+
+// ─── Canvas constants ─────────────────────────────────────────
+const TILE = 48;
+const FLOOR_COLOR = "#111208";
+const GRID_COLOR = "#1c1c0f";
+const BELT_COLOR = "#c8a800";
+const BELT_DARK = "#8a7200";
 
 // ─── Types ───────────────────────────────────────────────────
 
-type LedStatus = "green" | "yellow" | "grey";
+type MachineStatus = "active" | "warm" | "idle";
 
-interface FactoryNodeData {
-  label: string;
-  sublabel?: string;
-  badge?: string;
-  nodeType: "hub" | "persona" | "council" | "integration" | "action";
-  status: LedStatus;
-  updatedAt?: string;
-  [key: string]: unknown;
-}
-
-interface InspectedNode {
+interface MachineEntry {
   id: string;
+  name: string;
+  role: string;
+  status: MachineStatus;
+}
+
+interface MachineState {
+  mavis: MachineStatus;
+  memory: MachineStatus;
+  ruview: MachineStatus;
+  orders: MachineStatus;
+  journal: MachineStatus;
+  quest: MachineStatus;
+  personas: MachineEntry[];
+  councils: MachineEntry[];
+  activeQuests: number;
+  activeOrders: number;
+}
+
+interface BeltItem {
+  x: number;
+  y: number;
+  targetPath: { x: number; y: number }[];
+  pathIndex: number;
+  color: string;
+  speed: number;
   label: string;
-  nodeType: string;
-  sublabel?: string;
-  updatedAt?: string;
-  status: LedStatus;
+  opacity: number;
+  fading: boolean;
+  fadeTimer: number;
 }
 
-// ─── Helpers ────────────────────────────────────────────────
-
-function getLedStatus(updatedAt?: string | null): LedStatus {
-  if (!updatedAt) return "grey";
-  const diff = Date.now() - new Date(updatedAt).getTime();
-  const hours = diff / (1000 * 60 * 60);
-  if (hours <= 24) return "green";
-  if (hours <= 168) return "yellow"; // 7 days
-  return "grey";
+interface Particle {
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  life: number;
+  size: number;
 }
 
-function fmtRelative(iso?: string | null): string {
-  if (!iso) return "never";
-  const diff = Date.now() - new Date(iso).getTime();
-  const mins = Math.floor(diff / 60000);
-  if (mins < 1) return "just now";
-  if (mins < 60) return `${mins}m ago`;
-  const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `${hrs}h ago`;
-  return `${Math.floor(hrs / 24)}d ago`;
+interface Worker {
+  x: number;
+  y: number;
+  path: { x: number; y: number }[];
+  pathIndex: number;
+  speed: number;
+  trail: { x: number; y: number; a: number }[];
 }
 
-const LED_COLORS: Record<LedStatus, string> = {
-  green: "bg-green-400 shadow-[0_0_6px_2px_rgba(74,222,128,0.6)]",
-  yellow: "bg-yellow-400 shadow-[0_0_6px_2px_rgba(250,204,21,0.6)]",
-  grey: "bg-zinc-600",
+// ─── Item colors ──────────────────────────────────────────────
+const ITEM_COLORS: Record<string, string> = {
+  memory: "#4488ff",
+  journal: "#aa44ff",
+  quest: "#ffaa00",
+  ruview: "#00ffcc",
+  order: "#ff8800",
+  persona: "#44ff88",
+  processed: "#ffffff",
 };
 
-const BORDER_COLORS: Record<string, string> = {
-  hub: "border-violet-500 shadow-[0_0_12px_2px_rgba(139,92,246,0.3)]",
-  persona: "border-cyan-500 shadow-[0_0_8px_1px_rgba(6,182,212,0.2)]",
-  council: "border-amber-500 shadow-[0_0_8px_1px_rgba(245,158,11,0.2)]",
-  integration: "border-green-600 shadow-[0_0_8px_1px_rgba(22,163,74,0.2)]",
-  "integration-grey": "border-zinc-700",
-  action: "border-orange-500 shadow-[0_0_8px_1px_rgba(249,115,22,0.2)]",
+// ─── Belt paths (pixel waypoints) ────────────────────────────
+// Each source feeds down to the main belt row, then east to MAVIS (col 9, row 5)
+// MAVIS center is around x=9.5*TILE, y=5.5*TILE
+const MAVIS_ENTRY_X = 9 * TILE;
+const MAVIS_ENTRY_Y = 5 * TILE;
+const MAIN_BELT_Y = 5 * TILE + TILE / 2;
+
+const BELT_PATHS: Record<string, { x: number; y: number }[]> = {
+  memory: [
+    { x: 1 * TILE + TILE / 2, y: 3 * TILE },
+    { x: 1 * TILE + TILE / 2, y: MAIN_BELT_Y },
+    { x: MAVIS_ENTRY_X, y: MAIN_BELT_Y },
+    { x: MAVIS_ENTRY_X, y: MAVIS_ENTRY_Y },
+  ],
+  journal: [
+    { x: 4 * TILE + TILE / 2, y: 3 * TILE },
+    { x: 4 * TILE + TILE / 2, y: MAIN_BELT_Y },
+    { x: MAVIS_ENTRY_X, y: MAIN_BELT_Y },
+    { x: MAVIS_ENTRY_X, y: MAVIS_ENTRY_Y },
+  ],
+  quest: [
+    { x: 7 * TILE + TILE / 2, y: 3 * TILE },
+    { x: 7 * TILE + TILE / 2, y: MAIN_BELT_Y },
+    { x: MAVIS_ENTRY_X, y: MAIN_BELT_Y },
+    { x: MAVIS_ENTRY_X, y: MAVIS_ENTRY_Y },
+  ],
+  ruview: [
+    { x: 10 * TILE + TILE / 2, y: 3 * TILE },
+    { x: 10 * TILE + TILE / 2, y: MAIN_BELT_Y },
+    { x: MAVIS_ENTRY_X, y: MAIN_BELT_Y },
+    { x: MAVIS_ENTRY_X, y: MAVIS_ENTRY_Y },
+  ],
+  order: [
+    { x: 13 * TILE + TILE / 2, y: 3 * TILE },
+    { x: 13 * TILE + TILE / 2, y: MAIN_BELT_Y },
+    { x: MAVIS_ENTRY_X, y: MAIN_BELT_Y },
+    { x: MAVIS_ENTRY_X, y: MAVIS_ENTRY_Y },
+  ],
+  persona: [
+    { x: 16 * TILE + TILE / 2, y: 3 * TILE },
+    { x: 16 * TILE + TILE / 2, y: MAIN_BELT_Y },
+    { x: MAVIS_ENTRY_X, y: MAIN_BELT_Y },
+    { x: MAVIS_ENTRY_X, y: MAVIS_ENTRY_Y },
+  ],
 };
 
-const LABEL_COLORS: Record<string, string> = {
-  hub: "text-violet-300",
-  persona: "text-cyan-300",
-  council: "text-amber-300",
-  integration: "text-green-300",
-  "integration-grey": "text-zinc-500",
-  action: "text-orange-300",
-};
-
-// ─── FactoryNode Component ───────────────────────────────────
-
-const FactoryNode = memo(function FactoryNode({ data, selected }: NodeProps) {
-  const d = data as FactoryNodeData;
-  const borderKey =
-    d.nodeType === "integration" && d.status === "grey"
-      ? "integration-grey"
-      : d.nodeType;
-
-  const borderClass = BORDER_COLORS[borderKey] ?? "border-zinc-700";
-  const labelClass = LABEL_COLORS[borderKey] ?? "text-zinc-400";
-
-  return (
-    <div
-      className={`
-        relative min-w-[160px] max-w-[200px]
-        bg-[#0f0f0a] border rounded-sm px-3 py-2
-        font-mono text-[11px]
-        transition-all duration-150
-        ${borderClass}
-        ${selected ? "ring-1 ring-white/20" : ""}
-      `}
-    >
-      {/* Top handle (target) */}
-      <Handle
-        type="target"
-        position={Position.Top}
-        style={{ background: "#555", border: "none", width: 8, height: 8 }}
-      />
-
-      {/* Top row: LED + label + badge */}
-      <div className="flex items-center gap-1.5 mb-0.5">
-        <span
-          className={`shrink-0 w-2 h-2 rounded-full ${LED_COLORS[d.status]}`}
-        />
-        <span className={`font-bold truncate leading-tight ${labelClass}`}>
-          {d.label}
-        </span>
-        {d.badge && (
-          <span className="ml-auto shrink-0 text-[8px] font-mono uppercase tracking-widest px-1 py-0.5 rounded border border-violet-500/40 bg-violet-900/30 text-violet-300">
-            {d.badge}
-          </span>
-        )}
-      </div>
-
-      {/* Sublabel */}
-      {d.sublabel && (
-        <div className="text-[10px] text-zinc-500 truncate pl-3.5 leading-tight">
-          {d.sublabel}
-        </div>
-      )}
-
-      {/* Status line */}
-      <div className="mt-1 pl-3.5 text-[9px] text-zinc-600 uppercase tracking-widest">
-        {d.status === "green"
-          ? "ACTIVE"
-          : d.status === "yellow"
-          ? "IDLE"
-          : "OFFLINE"}
-      </div>
-
-      {/* Bottom handle (source) */}
-      <Handle
-        type="source"
-        position={Position.Bottom}
-        style={{ background: "#555", border: "none", width: 8, height: 8 }}
-      />
-    </div>
-  );
-});
-
-// Must be defined OUTSIDE the main component to avoid re-registration on each render
-const NODE_TYPES = { factory: FactoryNode };
-
-// ─── Fixed integration definitions ──────────────────────────
-
-const INTEGRATION_DEFS = [
-  { id: "int-google", label: "Google Workspace", provider: "google" },
-  { id: "int-telegram", label: "Telegram", provider: "telegram" },
-  { id: "int-ruview", label: "RuView Sensor", provider: "ruview" },
-  { id: "int-mediapipe", label: "MediaPipe", provider: "mediapipe" },
-  { id: "int-elevenlabs", label: "ElevenLabs", provider: "elevenlabs" },
+// Output belt path (from MAVIS output going east)
+const OUTPUT_BELT_START_X = 12 * TILE;
+const OUTPUT_BELT_Y = 8 * TILE + TILE / 2;
+const OUTPUT_PATH: { x: number; y: number }[] = [
+  { x: OUTPUT_BELT_START_X, y: OUTPUT_BELT_Y },
+  { x: 18 * TILE, y: OUTPUT_BELT_Y },
 ];
 
-// Integration → action category mapping (target node IDs)
-const INT_TO_ACTION: Record<string, string> = {
-  "int-google": "act-productivity",
-  "int-telegram": "act-communication",
-  "int-ruview": "act-vision",
-  "int-mediapipe": "act-vision",
-  "int-elevenlabs": "act-communication",
-};
-
-const ACTION_DEFS = [
-  { id: "act-memory", label: "Memory" },
-  { id: "act-vision", label: "Vision" },
-  { id: "act-communication", label: "Communication" },
-  { id: "act-productivity", label: "Productivity" },
-  { id: "act-content", label: "Content" },
-  { id: "act-health", label: "Health" },
+// ─── Resource patches ─────────────────────────────────────────
+const RESOURCE_PATCHES = [
+  { col: 0, row: 0, color: "#1a3a6b", label: "Memory" },
+  { col: 3, row: 0, color: "#3b1a5c", label: "Journal" },
+  { col: 6, row: 0, color: "#5c3a00", label: "Quest" },
+  { col: 9, row: 0, color: "#004d4d", label: "RuView" },
+  { col: 12, row: 0, color: "#4d3a00", label: "Orders" },
+  { col: 15, row: 0, color: "#1a4d1a", label: "Persona" },
 ];
 
-// ─── Edge builder helpers ────────────────────────────────────
+// ─── Drill positions (2×2, one per resource) ──────────────────
+const DRILL_POSITIONS = [
+  { col: 0, row: 1 },
+  { col: 3, row: 1 },
+  { col: 6, row: 1 },
+  { col: 9, row: 1 },
+  { col: 12, row: 1 },
+  { col: 15, row: 1 },
+];
 
-function makeEdge(
-  id: string,
-  source: string,
-  target: string,
-  color: string,
-  opts: Partial<Edge> = {}
-): Edge {
-  return {
-    id,
-    source,
-    target,
-    animated: true,
-    style: { stroke: color, strokeWidth: 1.5, strokeDasharray: "6 3" },
-    type: "default",
-    ...opts,
-  };
+// ─── Worker patrol paths ──────────────────────────────────────
+const WORKER_PATHS = [
+  [
+    { x: 100, y: 400 },
+    { x: 100, y: 580 },
+    { x: 320, y: 580 },
+    { x: 320, y: 400 },
+  ],
+  [
+    { x: 900, y: 400 },
+    { x: 900, y: 580 },
+    { x: 700, y: 580 },
+    { x: 700, y: 400 },
+  ],
+  [
+    { x: 420, y: 340 },
+    { x: 620, y: 340 },
+    { x: 620, y: 500 },
+    { x: 420, y: 500 },
+  ],
+];
+
+// ─── Initial machine state ────────────────────────────────────
+const INITIAL_MACHINE_STATE: MachineState = {
+  mavis: "active",
+  memory: "idle",
+  ruview: "idle",
+  orders: "idle",
+  journal: "idle",
+  quest: "idle",
+  personas: [],
+  councils: [],
+  activeQuests: 0,
+  activeOrders: 0,
+};
+
+// ─── Drawing helpers ──────────────────────────────────────────
+
+function drawGrid(ctx: CanvasRenderingContext2D, w: number, h: number) {
+  ctx.strokeStyle = GRID_COLOR;
+  ctx.lineWidth = 0.5;
+  for (let x = 0; x < w; x += TILE) {
+    ctx.beginPath();
+    ctx.moveTo(x, 0);
+    ctx.lineTo(x, h);
+    ctx.stroke();
+  }
+  for (let y = 0; y < h; y += TILE) {
+    ctx.beginPath();
+    ctx.moveTo(0, y);
+    ctx.lineTo(w, y);
+    ctx.stroke();
+  }
 }
 
-function makeSolidEdge(
-  id: string,
-  source: string,
-  target: string,
-  color: string
-): Edge {
-  return {
-    id,
-    source,
-    target,
-    animated: false,
-    style: { stroke: color, strokeWidth: 2 },
-    type: "default",
-  };
+function drawResourcePatches(ctx: CanvasRenderingContext2D) {
+  RESOURCE_PATCHES.forEach((p) => {
+    const x = p.col * TILE;
+    const y = p.row * TILE;
+    // 2×2 tile patch
+    ctx.fillStyle = p.color;
+    ctx.fillRect(x + 2, y + 2, TILE * 2 - 4, TILE - 4);
+    // Ore dots
+    ctx.fillStyle = "rgba(255,255,255,0.12)";
+    for (let i = 0; i < 6; i++) {
+      const dx = 6 + (i % 3) * 20 + (i % 2 === 0 ? 5 : 0);
+      const dy = 8 + Math.floor(i / 3) * 14;
+      ctx.beginPath();
+      ctx.arc(x + dx, y + dy, 4, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  });
 }
 
-// ─── Graph builder ───────────────────────────────────────────
+function drawBeltTile(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  beltOffset: number,
+  horizontal = true
+) {
+  ctx.fillStyle = BELT_COLOR;
+  ctx.fillRect(x, y, TILE, TILE);
 
-interface BuildInput {
-  personas: Array<{ id: string; name: string; role: string; archetype?: string; updated_at?: string }>;
-  councils: Array<{ id: string; name: string; role: string; specialty?: string; updated_at?: string }>;
-  connectedProviders: Set<string>;
+  ctx.strokeStyle = BELT_DARK;
+  ctx.lineWidth = 3;
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(x, y, TILE, TILE);
+  ctx.clip();
+
+  if (horizontal) {
+    // Horizontal belt: diagonal stripes going right
+    for (let i = -TILE; i < TILE * 2; i += 14) {
+      const off = ((beltOffset + i) % (TILE + 14)) - 14;
+      ctx.beginPath();
+      ctx.moveTo(x + off, y);
+      ctx.lineTo(x + off + TILE, y + TILE);
+      ctx.stroke();
+    }
+  } else {
+    // Vertical belt: stripes going down
+    for (let i = -TILE; i < TILE * 2; i += 14) {
+      const off = ((beltOffset + i) % (TILE + 14)) - 14;
+      ctx.beginPath();
+      ctx.moveTo(x, y + off);
+      ctx.lineTo(x + TILE, y + off + TILE);
+      ctx.stroke();
+    }
+  }
+  ctx.restore();
+
+  // Belt edge highlight
+  ctx.strokeStyle = "rgba(255,200,0,0.2)";
+  ctx.lineWidth = 1;
+  ctx.strokeRect(x, y, TILE, TILE);
 }
 
-function buildGraph(input: BuildInput): { nodes: Node[]; edges: Edge[] } {
-  const nodes: Node[] = [];
-  const edges: Edge[] = [];
-
-  // ── MAVIS HUB ──
-  nodes.push({
-    id: "mavis-hub",
-    type: "factory",
-    position: { x: 550, y: 350 },
-    data: {
-      label: "MAVIS PRIME",
-      badge: "PRIME",
-      nodeType: "hub",
-      status: "green",
-    } satisfies FactoryNodeData,
-  });
-
-  // ── PERSONA nodes ──
-  input.personas.forEach((p, i) => {
-    const status = getLedStatus(p.updated_at);
-    nodes.push({
-      id: `persona-${p.id}`,
-      type: "factory",
-      position: { x: 80, y: 80 + i * 160 },
-      data: {
-        label: p.name,
-        sublabel: p.role,
-        nodeType: "persona",
-        status,
-        updatedAt: p.updated_at,
-      } satisfies FactoryNodeData,
-    });
-    edges.push(
-      makeEdge(
-        `e-persona-${p.id}`,
-        `persona-${p.id}`,
-        "mavis-hub",
-        "#06b6d4"
-      )
-    );
-  });
-
-  // ── COUNCIL nodes ──
-  input.councils.forEach((c, i) => {
-    const status = getLedStatus(c.updated_at);
-    nodes.push({
-      id: `council-${c.id}`,
-      type: "factory",
-      position: { x: 1020, y: 80 + i * 160 },
-      data: {
-        label: c.name,
-        sublabel: c.specialty ?? c.role,
-        nodeType: "council",
-        status,
-        updatedAt: c.updated_at,
-      } satisfies FactoryNodeData,
-    });
-    edges.push(
-      makeEdge(
-        `e-council-${c.id}`,
-        `council-${c.id}`,
-        "mavis-hub",
-        "#f59e0b"
-      )
-    );
-  });
-
-  // ── INTEGRATION nodes ──
-  INTEGRATION_DEFS.forEach((intDef, i) => {
-    const connected = input.connectedProviders.has(intDef.provider);
-    const status: LedStatus = connected ? "green" : "grey";
-    nodes.push({
-      id: intDef.id,
-      type: "factory",
-      position: { x: 100 + i * 200, y: -80 },
-      data: {
-        label: intDef.label,
-        nodeType: "integration",
-        status,
-      } satisfies FactoryNodeData,
-    });
-
-    // Integration → action category edge
-    const targetAction = INT_TO_ACTION[intDef.id];
-    if (targetAction) {
-      edges.push(
-        makeEdge(
-          `e-${intDef.id}-${targetAction}`,
-          intDef.id,
-          targetAction,
-          connected ? "#22c55e" : "#3f3f46",
-          { animated: connected }
-        )
-      );
+function drawBelts(
+  ctx: CanvasRenderingContext2D,
+  beltOffset: number,
+  canvasWidth: number
+) {
+  // Vertical feeder belts (rows 3-4)
+  const FEEDER_COLS = [1, 4, 7, 10, 13, 16];
+  FEEDER_COLS.forEach((col) => {
+    for (let row = 3; row <= 4; row++) {
+      drawBeltTile(ctx, col * TILE, row * TILE, beltOffset, false);
     }
   });
 
-  // ── ACTION CATEGORY nodes ──
-  ACTION_DEFS.forEach((actDef, i) => {
-    nodes.push({
-      id: actDef.id,
-      type: "factory",
-      position: { x: 100 + i * 190, y: 750 },
-      data: {
-        label: actDef.label,
-        nodeType: "action",
-        status: "green",
-      } satisfies FactoryNodeData,
-    });
-    edges.push(
-      makeSolidEdge(`e-${actDef.id}-hub`, actDef.id, "mavis-hub", "#f97316")
-    );
-  });
+  // Main horizontal belt (row 5, full width)
+  const cols = Math.ceil(canvasWidth / TILE) + 1;
+  for (let col = 0; col < cols; col++) {
+    drawBeltTile(ctx, col * TILE, 5 * TILE, beltOffset, true);
+  }
 
-  return { nodes, edges };
+  // Output belt (row 8)
+  for (let col = 12; col < 19; col++) {
+    drawBeltTile(ctx, col * TILE, 8 * TILE, beltOffset, true);
+  }
 }
 
-// ─── FactoryPage ─────────────────────────────────────────────
+function drawGear(
+  ctx: CanvasRenderingContext2D,
+  cx: number,
+  cy: number,
+  radius: number,
+  teeth: number,
+  rotation: number,
+  color = "#888"
+) {
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.rotate(rotation);
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 2.5;
+  ctx.beginPath();
+  ctx.arc(0, 0, radius, 0, Math.PI * 2);
+  ctx.stroke();
+  // Inner circle
+  ctx.beginPath();
+  ctx.arc(0, 0, radius * 0.35, 0, Math.PI * 2);
+  ctx.stroke();
+  // Spokes / teeth
+  for (let i = 0; i < teeth; i++) {
+    const angle = (i / teeth) * Math.PI * 2;
+    ctx.beginPath();
+    ctx.moveTo(Math.cos(angle) * radius * 0.4, Math.sin(angle) * radius * 0.4);
+    ctx.lineTo(
+      Math.cos(angle) * (radius + 4),
+      Math.sin(angle) * (radius + 4)
+    );
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function getStatusBrightness(status: MachineStatus): number {
+  if (status === "active") return 1.0;
+  if (status === "warm") return 0.65;
+  return 0.35;
+}
+
+function applyBrightness(
+  ctx: CanvasRenderingContext2D,
+  status: MachineStatus
+) {
+  const b = getStatusBrightness(status);
+  ctx.globalAlpha = b;
+}
+
+function drawMiners(
+  ctx: CanvasRenderingContext2D,
+  frame: number,
+  machineStates: MachineState
+) {
+  const patchKeys: Array<keyof MachineState> = [
+    "memory",
+    "journal",
+    "quest",
+    "ruview",
+    "orders",
+    "persona",
+  ] as any;
+
+  DRILL_POSITIONS.forEach((pos, i) => {
+    const statusKey = patchKeys[i] ?? "idle";
+    const status: MachineStatus =
+      i < 5
+        ? (machineStates[statusKey as keyof MachineState] as MachineStatus) ??
+          "idle"
+        : "active";
+    const x = pos.col * TILE;
+    const y = pos.row * TILE;
+    const w = TILE * 2;
+    const h = TILE * 2;
+    const alpha = getStatusBrightness(status);
+
+    ctx.globalAlpha = alpha;
+
+    // Frame
+    ctx.fillStyle = "#333";
+    ctx.fillRect(x + 2, y + 2, w - 4, h - 4);
+    ctx.strokeStyle = "#555";
+    ctx.lineWidth = 2;
+    ctx.strokeRect(x + 2, y + 2, w - 4, h - 4);
+
+    // Corner bolts
+    ctx.fillStyle = "#666";
+    [[x + 6, y + 6], [x + w - 10, y + 6], [x + 6, y + h - 10], [x + w - 10, y + h - 10]].forEach(([bx, by]) => {
+      ctx.beginPath();
+      ctx.arc(bx, by, 3, 0, Math.PI * 2);
+      ctx.fill();
+    });
+
+    // Piston (animated bob)
+    const piston = status !== "idle" ? Math.sin(frame * 0.12 + i) * 5 : 0;
+    const px = x + w / 2 - 5;
+    const py = y + 6 + piston;
+    ctx.fillStyle = "#777";
+    ctx.fillRect(px, py, 10, h - 12);
+
+    // Drill head
+    ctx.fillStyle = status === "active" ? "#aaa" : "#555";
+    ctx.fillRect(px - 4, py + h - 22, 18, 12);
+
+    ctx.globalAlpha = 1;
+  });
+}
+
+function drawMAVIS(
+  ctx: CanvasRenderingContext2D,
+  gearRotation: number,
+  machineStates: MachineState,
+  frame: number
+) {
+  const x = 8 * TILE;
+  const y = 4 * TILE;
+  const w = 3 * TILE;
+  const h = 3 * TILE;
+  const cx = x + w / 2;
+  const cy = y + h / 2;
+
+  // Outer glow
+  const glowGrad = ctx.createRadialGradient(cx, cy, 0, cx, cy, w * 0.8);
+  glowGrad.addColorStop(0, "rgba(100,50,200,0.25)");
+  glowGrad.addColorStop(1, "transparent");
+  ctx.fillStyle = glowGrad;
+  ctx.fillRect(x - 20, y - 20, w + 40, h + 40);
+
+  // Body
+  ctx.fillStyle = "#130d2a";
+  ctx.fillRect(x + 2, y + 2, w - 4, h - 4);
+  ctx.strokeStyle = "#6b21d8";
+  ctx.lineWidth = 3;
+  ctx.strokeRect(x + 2, y + 2, w - 4, h - 4);
+
+  // Corner accent lines
+  ctx.strokeStyle = "#9b59f0";
+  ctx.lineWidth = 1.5;
+  const cs = 10;
+  // TL
+  ctx.beginPath(); ctx.moveTo(x + 2, y + 2 + cs); ctx.lineTo(x + 2, y + 2); ctx.lineTo(x + 2 + cs, y + 2); ctx.stroke();
+  // TR
+  ctx.beginPath(); ctx.moveTo(x + w - 2 - cs, y + 2); ctx.lineTo(x + w - 2, y + 2); ctx.lineTo(x + w - 2, y + 2 + cs); ctx.stroke();
+  // BL
+  ctx.beginPath(); ctx.moveTo(x + 2, y + h - 2 - cs); ctx.lineTo(x + 2, y + h - 2); ctx.lineTo(x + 2 + cs, y + h - 2); ctx.stroke();
+  // BR
+  ctx.beginPath(); ctx.moveTo(x + w - 2 - cs, y + h - 2); ctx.lineTo(x + w - 2, y + h - 2); ctx.lineTo(x + w - 2, y + h - 2 - cs); ctx.stroke();
+
+  // Inner panel
+  ctx.fillStyle = "#0d0921";
+  ctx.fillRect(x + 10, y + 10, w - 20, h - 20);
+
+  // Spinning gear
+  const gearSpeed = machineStates.mavis === "active" ? 0.05 : machineStates.mavis === "warm" ? 0.015 : 0;
+  drawGear(ctx, cx, cy, 28, 8, gearRotation * gearSpeed * 20, "#9b59f0");
+  // Inner faster counter-rotating gear
+  drawGear(ctx, cx, cy, 14, 6, -gearRotation * gearSpeed * 35, "#6b21d8");
+
+  // Pulse ring when active
+  if (machineStates.mavis === "active") {
+    const pulseR = 32 + Math.sin(frame * 0.08) * 6;
+    ctx.strokeStyle = `rgba(155,89,240,${0.3 + Math.sin(frame * 0.08) * 0.2})`;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.arc(cx, cy, pulseR, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+
+  // Label below
+  ctx.fillStyle = "#9b59f0";
+  ctx.font = "bold 10px monospace";
+  ctx.textAlign = "center";
+  ctx.fillText("MAVIS PRIME", cx, y + h + 14);
+  ctx.fillStyle = "#6b21d8";
+  ctx.font = "8px monospace";
+  ctx.fillText("CORE SYSTEM", cx, y + h + 24);
+}
+
+function drawPersonaMachines(
+  ctx: CanvasRenderingContext2D,
+  personas: MachineEntry[],
+  gearRotation: number
+) {
+  personas.forEach((p, i) => {
+    const col = 0;
+    const row = 9 + i * 3;
+    const x = col * TILE;
+    const y = row * TILE;
+    const w = 2 * TILE;
+    const h = 2 * TILE;
+    const cx = x + w / 2;
+    const cy = y + h / 2;
+    const alpha = getStatusBrightness(p.status);
+
+    ctx.globalAlpha = alpha;
+
+    ctx.fillStyle = "#061515";
+    ctx.fillRect(x + 2, y + 2, w - 4, h - 4);
+    ctx.strokeStyle = "#0d5c5c";
+    ctx.lineWidth = 2;
+    ctx.strokeRect(x + 2, y + 2, w - 4, h - 4);
+
+    // Gear
+    const gSpeed = p.status === "active" ? 0.03 : p.status === "warm" ? 0.008 : 0;
+    drawGear(ctx, cx, cy, 16, 6, gearRotation * gSpeed * 20, "#1a8080");
+
+    // Label
+    ctx.fillStyle = "#1a8080";
+    ctx.font = "8px monospace";
+    ctx.textAlign = "center";
+    const labelText = p.name.length > 10 ? p.name.substring(0, 10) + "…" : p.name;
+    ctx.fillText(labelText, cx, y + h + 12);
+
+    ctx.globalAlpha = 1;
+  });
+}
+
+function drawCouncilMachines(
+  ctx: CanvasRenderingContext2D,
+  councils: MachineEntry[],
+  gearRotation: number,
+  canvasWidth: number
+) {
+  councils.forEach((c, i) => {
+    const x = canvasWidth - 2 * TILE - 8;
+    const y = (9 + i * 3) * TILE;
+    const w = 2 * TILE;
+    const h = 2 * TILE;
+    const cx = x + w / 2;
+    const cy = y + h / 2;
+    const alpha = getStatusBrightness(c.status);
+
+    ctx.globalAlpha = alpha;
+
+    ctx.fillStyle = "#150a00";
+    ctx.fillRect(x + 2, y + 2, w - 4, h - 4);
+    ctx.strokeStyle = "#7a4a00";
+    ctx.lineWidth = 2;
+    ctx.strokeRect(x + 2, y + 2, w - 4, h - 4);
+
+    // Flask/beaker shape inside
+    ctx.strokeStyle = "#c87800";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(cx - 6, cy - 14);
+    ctx.lineTo(cx - 6, cy - 4);
+    ctx.lineTo(cx - 14, cy + 10);
+    ctx.lineTo(cx + 14, cy + 10);
+    ctx.lineTo(cx + 6, cy - 4);
+    ctx.lineTo(cx + 6, cy - 14);
+    ctx.closePath();
+    ctx.stroke();
+    // Liquid
+    ctx.fillStyle = `rgba(200,120,0,0.3)`;
+    ctx.fill();
+    // Bubbles
+    const bOff = (gearRotation * 0.5) % 1;
+    ctx.fillStyle = "rgba(255,160,0,0.5)";
+    ctx.beginPath();
+    ctx.arc(cx - 4, cy + 4 - bOff * 8, 2, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Label
+    ctx.fillStyle = "#c87800";
+    ctx.font = "8px monospace";
+    ctx.textAlign = "center";
+    const labelText = c.name.length > 10 ? c.name.substring(0, 10) + "…" : c.name;
+    ctx.fillText(labelText, cx, y + h + 12);
+
+    ctx.globalAlpha = 1;
+  });
+}
+
+function drawStorageChests(
+  ctx: CanvasRenderingContext2D,
+  machineStates: MachineState
+) {
+  const row = 9;
+  const y = row * TILE;
+  const fillLevel = Math.min(
+    1,
+    (machineStates.activeOrders + machineStates.activeQuests) / 20
+  );
+
+  for (let col = 13; col <= 18; col += 3) {
+    const x = col * TILE;
+    ctx.fillStyle = "#222";
+    ctx.fillRect(x + 4, y + 4, TILE - 8, TILE - 8);
+    ctx.strokeStyle = "#444";
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(x + 4, y + 4, TILE - 8, TILE - 8);
+
+    // Fill level bar
+    const barH = (TILE - 16) * fillLevel;
+    ctx.fillStyle = "#c8a800";
+    ctx.fillRect(x + 8, y + 4 + (TILE - 16) - barH, TILE - 16, barH);
+
+    // Chest cross
+    ctx.strokeStyle = "#555";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(x + TILE / 2, y + 8);
+    ctx.lineTo(x + TILE / 2, y + TILE - 8);
+    ctx.moveTo(x + 8, y + TILE / 2);
+    ctx.lineTo(x + TILE - 8, y + TILE / 2);
+    ctx.stroke();
+  }
+}
+
+function drawInserters(
+  ctx: CanvasRenderingContext2D,
+  frame: number,
+  machineStates: MachineState
+) {
+  const patchStatusKeys = [
+    "memory",
+    "journal",
+    "quest",
+    "ruview",
+    "orders",
+    "persona",
+  ] as const;
+
+  DRILL_POSITIONS.forEach((pos, i) => {
+    const statusKey = patchStatusKeys[i];
+    const status: MachineStatus =
+      (machineStates[statusKey] as MachineStatus) ?? "idle";
+    const isActive = status !== "idle";
+    const pivotX = (pos.col + 1) * TILE + TILE / 2;
+    const pivotY = (pos.row + 2) * TILE + TILE / 4;
+
+    const armAngle =
+      -Math.PI / 2 + Math.sin(frame * 0.08 + i * 1.2) * 0.7;
+    const armLen = TILE * 1.2;
+    const tipX = pivotX + Math.cos(armAngle) * armLen;
+    const tipY = pivotY + Math.sin(armAngle) * armLen;
+
+    ctx.strokeStyle = isActive ? "#aaa" : "#555";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(pivotX, pivotY);
+    ctx.lineTo(tipX, tipY);
+    ctx.stroke();
+
+    // Pivot
+    ctx.fillStyle = isActive ? "#888" : "#444";
+    ctx.beginPath();
+    ctx.arc(pivotX, pivotY, 4, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Tip (holding item)
+    if (isActive) {
+      const itemColor = ITEM_COLORS[patchStatusKeys[i]] ?? "#888";
+      ctx.fillStyle = itemColor;
+      ctx.fillRect(tipX - 4, tipY - 4, 8, 8);
+    } else {
+      ctx.fillStyle = "#555";
+      ctx.beginPath();
+      ctx.arc(tipX, tipY, 3, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  });
+}
+
+function updateAndDrawItems(
+  ctx: CanvasRenderingContext2D,
+  items: BeltItem[]
+): void {
+  for (let i = items.length - 1; i >= 0; i--) {
+    const item = items[i];
+
+    if (item.fading) {
+      item.opacity -= 0.025;
+      if (item.opacity <= 0) {
+        items.splice(i, 1);
+        continue;
+      }
+    } else if (item.pathIndex < item.targetPath.length) {
+      const target = item.targetPath[item.pathIndex];
+      const dx = target.x - item.x;
+      const dy = target.y - item.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      if (dist < item.speed) {
+        item.x = target.x;
+        item.y = target.y;
+        item.pathIndex++;
+      } else {
+        item.x += (dx / dist) * item.speed;
+        item.y += (dy / dist) * item.speed;
+      }
+    } else {
+      // Reached end — start fading
+      item.fading = true;
+    }
+
+    // Draw
+    ctx.globalAlpha = item.opacity;
+    ctx.fillStyle = item.color;
+    ctx.fillRect(item.x - 5, item.y - 5, 10, 10);
+    // Glow
+    ctx.shadowColor = item.color;
+    ctx.shadowBlur = 6;
+    ctx.fillRect(item.x - 5, item.y - 5, 10, 10);
+    ctx.shadowBlur = 0;
+    ctx.globalAlpha = 1;
+  }
+}
+
+function updateAndDrawParticles(
+  ctx: CanvasRenderingContext2D,
+  particles: Particle[],
+  machineStates: MachineState,
+  frame: number
+): void {
+  // Spawn from MAVIS when active
+  if (machineStates.mavis === "active" && frame % 25 === 0) {
+    const cx = 8 * TILE + 1.5 * TILE;
+    const cy = 4 * TILE;
+    for (let k = 0; k < 2; k++) {
+      particles.push({
+        x: cx + (Math.random() - 0.5) * 20,
+        y: cy,
+        vx: (Math.random() - 0.5) * 0.5,
+        vy: -0.9 - Math.random() * 0.4,
+        life: 1,
+        size: 4 + Math.random() * 4,
+      });
+    }
+  }
+
+  // Spawn from active drills
+  DRILL_POSITIONS.forEach((pos, i) => {
+    const patchStatusKeys = ["memory", "journal", "quest", "ruview", "orders", "persona"] as const;
+    const status: MachineStatus = (machineStates[patchStatusKeys[i]] as MachineStatus) ?? "idle";
+    if (status === "active" && frame % 35 === i * 5 % 35) {
+      particles.push({
+        x: pos.col * TILE + TILE,
+        y: pos.row * TILE,
+        vx: (Math.random() - 0.5) * 0.3,
+        vy: -0.6,
+        life: 0.7,
+        size: 3 + Math.random() * 2,
+      });
+    }
+  });
+
+  for (let i = particles.length - 1; i >= 0; i--) {
+    const p = particles[i];
+    p.x += p.vx;
+    p.y += p.vy;
+    p.vx *= 0.99;
+    p.life -= 0.012;
+    if (p.life <= 0) {
+      particles.splice(i, 1);
+      continue;
+    }
+    ctx.globalAlpha = p.life * 0.5;
+    ctx.fillStyle = "#666";
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, p.size * (1 - p.life * 0.3), 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalAlpha = 1;
+  }
+}
+
+function updateAndDrawWorkers(
+  ctx: CanvasRenderingContext2D,
+  workers: Worker[]
+): void {
+  workers.forEach((w) => {
+    const target = w.path[w.pathIndex % w.path.length];
+    const dx = target.x - w.x;
+    const dy = target.y - w.y;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    if (dist < w.speed) {
+      w.x = target.x;
+      w.y = target.y;
+      w.pathIndex = (w.pathIndex + 1) % w.path.length;
+    } else {
+      w.x += (dx / dist) * w.speed;
+      w.y += (dy / dist) * w.speed;
+    }
+
+    // Trail
+    w.trail.push({ x: w.x, y: w.y, a: 0.35 });
+    if (w.trail.length > 20) w.trail.shift();
+
+    w.trail.forEach((t, i) => {
+      const alpha = (i / w.trail.length) * t.a;
+      ctx.globalAlpha = alpha;
+      ctx.fillStyle = "#c8a030";
+      ctx.beginPath();
+      ctx.arc(t.x, t.y, 2, 0, Math.PI * 2);
+      ctx.fill();
+    });
+    ctx.globalAlpha = 1;
+
+    // Worker body
+    ctx.fillStyle = "#e8d080";
+    ctx.beginPath();
+    ctx.arc(w.x, w.y, 7, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = "#a09050";
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+
+    // Direction dot
+    ctx.fillStyle = "#fff";
+    const dotAngle = Math.atan2(dy, dx);
+    ctx.beginPath();
+    ctx.arc(w.x + Math.cos(dotAngle) * 3, w.y + Math.sin(dotAngle) * 3, 2, 0, Math.PI * 2);
+    ctx.fill();
+  });
+}
+
+function drawLabels(
+  ctx: CanvasRenderingContext2D,
+  machineStates: MachineState
+) {
+  ctx.textAlign = "center";
+  ctx.font = "8px monospace";
+
+  // Resource patch labels
+  RESOURCE_PATCHES.forEach((p) => {
+    ctx.fillStyle = "rgba(255,255,255,0.5)";
+    ctx.fillText(p.label.toUpperCase(), p.col * TILE + TILE, p.row * TILE - 4);
+  });
+
+  // Status labels on drills
+  const patchKeys = ["memory", "journal", "quest", "ruview", "orders", "persona"] as const;
+  DRILL_POSITIONS.forEach((pos, i) => {
+    const status: MachineStatus = (machineStates[patchKeys[i]] as MachineStatus) ?? "idle";
+    const color =
+      status === "active" ? "#44ff44" : status === "warm" ? "#ffcc00" : "#555";
+    ctx.fillStyle = color;
+    ctx.fillText("●", pos.col * TILE + TILE, pos.row * TILE - 2);
+  });
+}
+
+// ─── FactoryPage component ────────────────────────────────────
 
 export default function FactoryPage() {
   const { user } = useAuth();
   const navigate = useNavigate();
 
-  const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
-  const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
-  const [loading, setLoading] = useState(true);
-  const [inspected, setInspected] = useState<InspectedNode | null>(null);
+  // ── Refs for animation (no re-renders) ──
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const animRef = useRef<number>(0);
+  const beltOffsetRef = useRef(0);
+  const gearRotationRef = useRef(0);
+  const frameRef = useRef(0);
+  const itemsRef = useRef<BeltItem[]>([]);
+  const particlesRef = useRef<Particle[]>([]);
+  const workersRef = useRef<Worker[]>([]);
+  const machineStatesRef = useRef<MachineState>(INITIAL_MACHINE_STATE);
 
-  // Stat counters
-  const totalCount = nodes.length;
-  const activeCount = nodes.filter(
-    (n) => (n.data as FactoryNodeData).status === "green"
-  ).length;
-  const idleCount = nodes.filter(
-    (n) => (n.data as FactoryNodeData).status === "grey"
-  ).length;
+  // ── State for HUD (re-renders allowed) ──
+  const [machineStates, setMachineStates] = useState<MachineState>(INITIAL_MACHINE_STATE);
+  const [loading, setLoading] = useState(false);
 
-  const load = useCallback(async () => {
+  // Derived HUD counts
+  const allStatuses: MachineStatus[] = [
+    machineStates.mavis,
+    machineStates.memory,
+    machineStates.ruview,
+    machineStates.orders,
+    machineStates.journal,
+    machineStates.quest,
+    ...machineStates.personas.map((p) => p.status),
+    ...machineStates.councils.map((c) => c.status),
+  ];
+  const activeCount = allStatuses.filter((s) => s === "active").length;
+  const warmCount = allStatuses.filter((s) => s === "warm").length;
+  const idleCount = allStatuses.filter((s) => s === "idle").length;
+
+  // Items per minute estimate (rough)
+  const [itemsPerMin, setItemsPerMin] = useState(0);
+
+  // ── Spawn belt item ──
+  const spawnItem = useCallback((type: keyof typeof BELT_PATHS) => {
+    const path = BELT_PATHS[type];
+    if (!path) return;
+    itemsRef.current.push({
+      x: path[0].x,
+      y: path[0].y,
+      targetPath: path,
+      pathIndex: 1,
+      color: ITEM_COLORS[type] ?? "#888",
+      speed: 1.2 + Math.random() * 0.4,
+      label: type,
+      opacity: 1,
+      fading: false,
+      fadeTimer: 0,
+    });
+  }, []);
+
+  // ── Load factory state from DB ──
+  const loadFactoryState = useCallback(async () => {
     if (!user) return;
     setLoading(true);
     try {
-      const [personasRes, councilsRes, integrationsRes] = await Promise.all([
-        (supabase as any)
-          .from("personas")
-          .select("id,name,role,archetype,updated_at")
-          .eq("user_id", user.id)
-          .limit(12),
-        (supabase as any)
-          .from("councils")
-          .select("id,name,role,specialty,updated_at")
-          .eq("user_id", user.id)
-          .limit(12),
-        (supabase as any)
-          .from("mavis_user_integrations")
-          .select("provider")
-          .eq("user_id", user.id),
-      ]);
+      const now = new Date();
 
-      const personas = personasRes.data ?? [];
-      const councils = councilsRes.data ?? [];
-      const connectedProviders = new Set<string>(
-        (integrationsRes.data ?? []).map((r: { provider: string }) => r.provider)
-      );
+      const [personasRes, councilsRes, memoriesRes, ordersRes, ruviewRes, questsRes] =
+        await Promise.all([
+          (supabase as any)
+            .from("personas")
+            .select("id,name,role,updated_at")
+            .eq("user_id", user.id)
+            .limit(6),
+          (supabase as any)
+            .from("councils")
+            .select("id,name,role,specialty,updated_at")
+            .eq("user_id", user.id)
+            .limit(6),
+          (supabase as any)
+            .from("mavis_agent_memories")
+            .select("created_at")
+            .eq("user_id", user.id)
+            .order("created_at", { ascending: false })
+            .limit(1),
+          (supabase as any)
+            .from("standing_order_templates")
+            .select("id")
+            .eq("user_id", user.id)
+            .in("status", ["active", "pinned"]),
+          (supabase as any)
+            .from("mavis_ruview_state")
+            .select("updated_at,present,heart_rate_bpm")
+            .eq("user_id", user.id)
+            .maybeSingle(),
+          (supabase as any)
+            .from("quests")
+            .select("id")
+            .eq("user_id", user.id)
+            .eq("status", "active")
+            .limit(10),
+        ]);
 
-      const { nodes: builtNodes, edges: builtEdges } = buildGraph({
-        personas,
-        councils,
-        connectedProviders,
-      });
+      const getStatus = (dateStr?: string | null): MachineStatus => {
+        if (!dateStr) return "idle";
+        const d = new Date(dateStr).getTime();
+        const diff = now.getTime() - d;
+        if (diff < 3_600_000) return "active";
+        if (diff < 86_400_000) return "warm";
+        return "idle";
+      };
 
-      setNodes(builtNodes);
-      setEdges(builtEdges);
+      const nextState: MachineState = {
+        mavis: "active",
+        memory: getStatus(memoriesRes.data?.[0]?.created_at),
+        ruview: ruviewRes.data ? getStatus(ruviewRes.data.updated_at) : "idle",
+        orders: (ordersRes.data?.length ?? 0) > 0 ? "active" : "idle",
+        journal: "warm", // journals are always somewhat warm
+        quest: (questsRes.data?.length ?? 0) > 0 ? "active" : "idle",
+        personas: (personasRes.data ?? []).map(
+          (p: { id: string; name: string; role: string; updated_at?: string }) => ({
+            id: p.id,
+            name: p.name,
+            role: p.role,
+            status: getStatus(p.updated_at),
+          })
+        ),
+        councils: (councilsRes.data ?? []).map(
+          (c: { id: string; name: string; role?: string; specialty?: string; updated_at?: string }) => ({
+            id: c.id,
+            name: c.name,
+            role: c.specialty ?? c.role ?? "",
+            status: getStatus(c.updated_at),
+          })
+        ),
+        activeQuests: questsRes.data?.length ?? 0,
+        activeOrders: ordersRes.data?.length ?? 0,
+      };
+
+      // Update ref immediately (used by animation loop)
+      machineStatesRef.current = nextState;
+      // Update state for HUD re-render
+      setMachineStates(nextState);
+
+      // Estimate items/min from active sources
+      const activeSources = [
+        nextState.memory,
+        nextState.ruview,
+        nextState.orders,
+        nextState.quest,
+        nextState.journal,
+      ].filter((s) => s === "active").length;
+      setItemsPerMin(activeSources * 5);
+
+      // Spawn items for active sources
+      if (nextState.memory === "active") spawnItem("memory");
+      if (nextState.ruview === "active") spawnItem("ruview");
+      if (nextState.orders === "active") spawnItem("order");
+      if (nextState.quest === "active") spawnItem("quest");
+      if (nextState.journal !== "idle") spawnItem("journal");
+      if ((personasRes.data?.length ?? 0) > 0) spawnItem("persona");
     } catch (err) {
-      console.error("[FactoryPage] load error:", err);
+      console.error("[FactoryPage] DB error:", err);
     } finally {
       setLoading(false);
     }
-  }, [user, setNodes, setEdges]);
+  }, [user, spawnItem]);
 
+  // ── Canvas resize ──
   useEffect(() => {
-    load();
-  }, [load]);
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const resize = () => {
+      canvas.width = canvas.offsetWidth;
+      canvas.height = canvas.offsetHeight;
+    };
+    resize();
+    window.addEventListener("resize", resize);
+    return () => window.removeEventListener("resize", resize);
+  }, []);
 
-  const handleNodeClick = useCallback(
-    (_: React.MouseEvent, node: Node) => {
-      const d = node.data as FactoryNodeData;
-      setInspected({
-        id: node.id,
-        label: d.label,
-        nodeType: d.nodeType,
-        sublabel: d.sublabel,
-        updatedAt: d.updatedAt,
-        status: d.status,
-      });
-    },
-    []
-  );
+  // ── Initialize workers ──
+  useEffect(() => {
+    workersRef.current = WORKER_PATHS.map((path) => ({
+      x: path[0].x,
+      y: path[0].y,
+      path,
+      pathIndex: 1,
+      speed: 1.1 + Math.random() * 0.3,
+      trail: [],
+    }));
+  }, []);
+
+  // ── Spawn initial items so belts look active from start ──
+  useEffect(() => {
+    spawnItem("memory");
+    spawnItem("journal");
+    spawnItem("quest");
+  }, [spawnItem]);
+
+  // ── Game loop ──
+  const gameLoop = useCallback(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    const W = canvas.width;
+    const H = canvas.height;
+    const states = machineStatesRef.current;
+
+    // Clear
+    ctx.fillStyle = FLOOR_COLOR;
+    ctx.fillRect(0, 0, W, H);
+
+    // Grid
+    drawGrid(ctx, W, H);
+
+    // Resource patches
+    drawResourcePatches(ctx);
+
+    // Belts (must happen before machines so machines draw on top)
+    drawBelts(ctx, beltOffsetRef.current, W);
+    beltOffsetRef.current = (beltOffsetRef.current + 0.45) % TILE;
+
+    // Miners (drills)
+    drawMiners(ctx, frameRef.current, states);
+
+    // Inserter arms
+    drawInserters(ctx, frameRef.current, states);
+
+    // MAVIS central machine
+    drawMAVIS(ctx, gearRotationRef.current, states, frameRef.current);
+    gearRotationRef.current += 1;
+
+    // Persona machines (left side, below main area)
+    drawPersonaMachines(ctx, states.personas, gearRotationRef.current);
+
+    // Council machines (right side)
+    drawCouncilMachines(ctx, states.councils, gearRotationRef.current, W);
+
+    // Storage chests
+    drawStorageChests(ctx, states);
+
+    // Smoke / particles
+    updateAndDrawParticles(ctx, particlesRef.current, states, frameRef.current);
+
+    // Belt items
+    updateAndDrawItems(ctx, itemsRef.current);
+
+    // Workers
+    updateAndDrawWorkers(ctx, workersRef.current);
+
+    // Labels
+    drawLabels(ctx, states);
+
+    frameRef.current++;
+    animRef.current = requestAnimationFrame(gameLoop);
+  }, []);
+
+  // ── Start game loop + DB polling ──
+  useEffect(() => {
+    animRef.current = requestAnimationFrame(gameLoop);
+    loadFactoryState();
+    const poll = setInterval(loadFactoryState, 12_000);
+    return () => {
+      cancelAnimationFrame(animRef.current);
+      clearInterval(poll);
+    };
+  }, [gameLoop, loadFactoryState]);
 
   // ── Render ──
   return (
-    <div className="flex flex-col" style={{ height: "calc(100vh - 64px)" }}>
-      {/* ── Toolbar ── */}
-      <div className="shrink-0 flex items-center gap-4 px-4 py-2.5 border-b border-zinc-800 bg-[#0a0a06]">
-        {/* Title */}
-        <div className="flex flex-col leading-tight">
-          <span className="font-mono text-sm font-bold text-amber-400 tracking-widest uppercase">
-            Factory Floor
-          </span>
-          <span className="font-mono text-[10px] text-zinc-500 uppercase tracking-widest">
-            MAVIS Production Network
-          </span>
-        </div>
+    <div className="relative w-full h-full bg-[#111208] overflow-hidden" style={{ height: "calc(100vh - 64px)" }}>
+      {/* Canvas */}
+      <canvas ref={canvasRef} className="w-full h-full" />
 
-        <div className="w-px h-8 bg-zinc-800 mx-1" />
+      {/* HUD overlay */}
+      <div className="absolute inset-0 pointer-events-none">
+        {/* Top bar */}
+        <div className="absolute top-0 left-0 right-0 p-3 flex items-center justify-between bg-gradient-to-b from-black/60 to-transparent">
+          {/* Left: title */}
+          <div className="flex flex-col leading-tight">
+            <span className="font-mono text-amber-400 text-sm font-bold tracking-widest">
+              FACTORY FLOOR
+            </span>
+            <span className="font-mono text-xs text-amber-400/50">
+              MAVIS Production Network
+            </span>
+          </div>
 
-        {/* Stat chips */}
-        <div className="flex items-center gap-2">
-          <StatChip label="NODES" value={totalCount} color="text-zinc-300" />
-          <StatChip
-            label="ACTIVE"
-            value={activeCount}
-            color="text-green-400"
-            led="green"
-          />
-          <StatChip
-            label="IDLE"
-            value={idleCount}
-            color="text-zinc-500"
-            led="grey"
-          />
-        </div>
+          {/* Center: stats */}
+          <div className="flex gap-4 font-mono text-xs text-zinc-300">
+            <span>
+              <span className="text-green-400">●</span>{" "}
+              <span className="text-green-400 font-bold">{activeCount}</span>{" "}
+              <span className="text-zinc-500">ACTIVE</span>
+            </span>
+            <span>
+              <span className="text-yellow-400">●</span>{" "}
+              <span className="text-yellow-400 font-bold">{warmCount}</span>{" "}
+              <span className="text-zinc-500">WARM</span>
+            </span>
+            <span>
+              <span className="text-zinc-600">●</span>{" "}
+              <span className="text-zinc-500 font-bold">{idleCount}</span>{" "}
+              <span className="text-zinc-600">IDLE</span>
+            </span>
+            <span className="text-amber-400/60">
+              ITEMS/MIN:{" "}
+              <span className="text-amber-400 font-bold">{itemsPerMin}</span>
+            </span>
+            <span className="text-cyan-400/60">
+              QUESTS:{" "}
+              <span className="text-cyan-400 font-bold">
+                {machineStates.activeQuests}
+              </span>
+            </span>
+            <span className="text-amber-400/60">
+              ORDERS:{" "}
+              <span className="text-amber-400 font-bold">
+                {machineStates.activeOrders}
+              </span>
+            </span>
+          </div>
 
-        <div className="ml-auto flex items-center gap-2">
-          {loading && (
-            <Loader2 size={12} className="animate-spin text-zinc-500" />
-          )}
+          {/* Right: refresh button */}
           <button
-            onClick={load}
+            className="pointer-events-auto flex items-center gap-1.5 px-3 py-1.5 rounded border border-zinc-700 bg-zinc-900/80 text-zinc-400 hover:text-amber-400 hover:border-amber-500/40 font-mono text-xs transition-colors"
+            onClick={loadFactoryState}
             disabled={loading}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded border border-zinc-700 bg-zinc-900 text-zinc-400 hover:text-amber-400 hover:border-amber-500/40 font-mono text-xs transition-colors disabled:opacity-40"
           >
-            <RefreshCw size={11} className={loading ? "animate-spin" : ""} />
-            Refresh
+            <RefreshCw
+              size={11}
+              className={loading ? "animate-spin" : ""}
+            />
+            {loading ? "Syncing…" : "Refresh"}
+          </button>
+        </div>
+
+        {/* Bottom legend */}
+        <div className="absolute bottom-0 left-0 right-0 p-3 flex items-center justify-between bg-gradient-to-t from-black/60 to-transparent">
+          <div className="flex gap-4 font-mono text-[10px] text-zinc-500">
+            {(
+              [
+                { color: ITEM_COLORS.memory, label: "Memory" },
+                { color: ITEM_COLORS.journal, label: "Journal" },
+                { color: ITEM_COLORS.quest, label: "Quest" },
+                { color: ITEM_COLORS.ruview, label: "RuView" },
+                { color: ITEM_COLORS.order, label: "Orders" },
+                { color: ITEM_COLORS.persona, label: "Persona" },
+              ] as const
+            ).map((item) => (
+              <span key={item.label} className="flex items-center gap-1">
+                <span
+                  className="inline-block w-2.5 h-2.5 rounded-sm"
+                  style={{ backgroundColor: item.color }}
+                />
+                {item.label}
+              </span>
+            ))}
+          </div>
+
+          <button
+            className="pointer-events-auto font-mono text-[10px] text-violet-400/60 hover:text-violet-300 transition-colors"
+            onClick={() => navigate("/mavis")}
+          >
+            → Chat with MAVIS
           </button>
         </div>
       </div>
-
-      {/* ── Flow canvas ── */}
-      <div className="flex-1 relative">
-        <ReactFlow
-          nodes={nodes}
-          edges={edges}
-          onNodesChange={onNodesChange}
-          onEdgesChange={onEdgesChange}
-          onNodeClick={handleNodeClick}
-          nodeTypes={NODE_TYPES}
-          colorMode="dark"
-          fitView
-          fitViewOptions={{ padding: 0.15 }}
-          minZoom={0.2}
-          maxZoom={2}
-          style={{ background: "#0d0d08" }}
-          proOptions={{ hideAttribution: true }}
-        >
-          <Background
-            style={{
-              backgroundImage:
-                "radial-gradient(circle, #ffffff08 1px, transparent 1px)",
-              backgroundSize: "32px 32px",
-            }}
-            gap={32}
-            color="transparent"
-          />
-          <Controls
-            style={{
-              background: "#111109",
-              border: "1px solid #27272a",
-              borderRadius: 4,
-            }}
-          />
-          <MiniMap
-            style={{
-              background: "#111109",
-              border: "1px solid #27272a",
-              borderRadius: 4,
-            }}
-            nodeColor={(n) => {
-              const d = n.data as FactoryNodeData;
-              if (d.nodeType === "hub") return "#8b5cf6";
-              if (d.nodeType === "persona") return "#06b6d4";
-              if (d.nodeType === "council") return "#f59e0b";
-              if (d.nodeType === "action") return "#f97316";
-              return d.status === "green" ? "#22c55e" : "#3f3f46";
-            }}
-            maskColor="#0d0d0888"
-          />
-        </ReactFlow>
-
-        {/* Loading overlay */}
-        {loading && (
-          <div className="absolute inset-0 flex items-center justify-center bg-[#0d0d08]/70 z-10">
-            <div className="flex flex-col items-center gap-3">
-              <Loader2 size={28} className="animate-spin text-amber-400" />
-              <span className="font-mono text-xs text-zinc-500 uppercase tracking-widest">
-                Initializing production network…
-              </span>
-            </div>
-          </div>
-        )}
-
-        {/* ── Inspect Panel ── */}
-        {inspected && (
-          <motion.div
-            initial={{ opacity: 0, y: 8 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: 8 }}
-            className="absolute bottom-4 left-4 z-50 w-64 bg-[#0f0f0a] border border-zinc-700 rounded-sm shadow-2xl font-mono text-xs"
-          >
-            {/* Header */}
-            <div className="flex items-center justify-between px-3 py-2 border-b border-zinc-800">
-              <div className="flex items-center gap-1.5">
-                <span
-                  className={`w-2 h-2 rounded-full shrink-0 ${LED_COLORS[inspected.status]}`}
-                />
-                <span className="font-bold text-zinc-200 truncate">
-                  {inspected.label}
-                </span>
-              </div>
-              <button
-                onClick={() => setInspected(null)}
-                className="text-zinc-600 hover:text-zinc-300 transition-colors"
-              >
-                <X size={12} />
-              </button>
-            </div>
-
-            {/* Body */}
-            <div className="px-3 py-2.5 space-y-1.5">
-              <div className="flex items-center justify-between">
-                <span className="text-zinc-600 uppercase tracking-widest text-[9px]">
-                  Type
-                </span>
-                <span className="text-zinc-400 capitalize">
-                  {inspected.nodeType}
-                </span>
-              </div>
-              {inspected.sublabel && (
-                <div className="flex items-center justify-between">
-                  <span className="text-zinc-600 uppercase tracking-widest text-[9px]">
-                    Role
-                  </span>
-                  <span className="text-zinc-400 truncate max-w-[140px] text-right">
-                    {inspected.sublabel}
-                  </span>
-                </div>
-              )}
-              <div className="flex items-center justify-between">
-                <span className="text-zinc-600 uppercase tracking-widest text-[9px]">
-                  Status
-                </span>
-                <span
-                  className={
-                    inspected.status === "green"
-                      ? "text-green-400"
-                      : inspected.status === "yellow"
-                      ? "text-yellow-400"
-                      : "text-zinc-500"
-                  }
-                >
-                  {inspected.status === "green"
-                    ? "ACTIVE"
-                    : inspected.status === "yellow"
-                    ? "IDLE"
-                    : "OFFLINE"}
-                </span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-zinc-600 uppercase tracking-widest text-[9px]">
-                  Last activity
-                </span>
-                <span className="text-zinc-400">
-                  {fmtRelative(inspected.updatedAt)}
-                </span>
-              </div>
-            </div>
-
-            {/* Footer: Chat link */}
-            <div className="px-3 py-2 border-t border-zinc-800">
-              <button
-                onClick={() => navigate("/mavis")}
-                className="flex items-center gap-1.5 w-full justify-center px-2 py-1.5 rounded border border-violet-700/40 bg-violet-900/20 text-violet-300 hover:bg-violet-900/40 transition-colors text-[10px] uppercase tracking-widest"
-              >
-                <ExternalLink size={10} />
-                Chat with MAVIS
-              </button>
-            </div>
-          </motion.div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-// ─── StatChip helper ─────────────────────────────────────────
-
-function StatChip({
-  label,
-  value,
-  color,
-  led,
-}: {
-  label: string;
-  value: number;
-  color: string;
-  led?: LedStatus;
-}) {
-  return (
-    <div className="flex items-center gap-1.5 px-2.5 py-1 rounded border border-zinc-800 bg-zinc-900/60">
-      {led && (
-        <span className={`w-1.5 h-1.5 rounded-full ${LED_COLORS[led]}`} />
-      )}
-      <span className={`font-mono text-xs font-bold tabular-nums ${color}`}>
-        {value}
-      </span>
-      <span className="font-mono text-[9px] text-zinc-600 uppercase tracking-widest">
-        {label}
-      </span>
     </div>
   );
 }
