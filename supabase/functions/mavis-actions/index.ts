@@ -1454,6 +1454,20 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
       return await notionRes.json();
     }
 
+    case "brain_consolidate": {
+      const bcUrl = `${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-brain-consolidate`;
+      const bcRes = await fetch(bcUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+        },
+        body: JSON.stringify({ user_id: userId }),
+      });
+      if (!bcRes.ok) throw new Error(`mavis-brain-consolidate error: ${bcRes.status}`);
+      return await bcRes.json();
+    }
+
     case "notion_sync": {
       const syncUrl = `${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-notion-sync`;
       const syncRes = await fetch(syncUrl, {
