@@ -18,6 +18,17 @@ const COLS = 60;
 // ─── Types ───────────────────────────────────────────────────
 type MachineStatus = "active" | "warm" | "idle";
 
+interface ClickableEntity {
+  type: "drill" | "mavis" | "persona" | "council" | "storage" | "train" | "ore"
+  id?: string
+  name: string
+  source?: string
+  col: number
+  row: number
+  tileW: number
+  tileH: number
+}
+
 interface MachineEntry {
   id: string;
   name: string;
@@ -1325,6 +1336,293 @@ function spawnSmoke(smokes: Smoke[], x: number, y: number, color: string = "#667
   }
 }
 
+// ─── Relative timestamp helper ────────────────────────────────
+function relativeTime(dateStr: string | null | undefined): string {
+  if (!dateStr) return "never";
+  const diff = Date.now() - new Date(dateStr).getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  return `${Math.floor(hrs / 24)}d ago`;
+}
+
+// ─── EntityDetailPanel ────────────────────────────────────────
+function EntityDetailPanel({
+  entity,
+  details,
+  loading,
+  onClose,
+  onNavigate,
+}: {
+  entity: ClickableEntity;
+  details: any;
+  loading: boolean;
+  onClose: () => void;
+  onNavigate: () => void;
+}) {
+  const icon = {
+    drill: "⛏️",
+    mavis: "🧠",
+    persona: "🎭",
+    council: "🏛️",
+    storage: "📦",
+    train: "🚂",
+    ore: "💎",
+  }[entity.type] ?? "📌";
+
+  return (
+    <div className="fixed right-4 top-16 bottom-4 w-80 max-w-sm bg-zinc-900 border border-zinc-700 rounded-lg overflow-y-auto flex flex-col shadow-2xl z-50 transition-all">
+      {/* Header */}
+      <div className="flex items-center gap-2 px-4 py-3 border-b border-zinc-700 sticky top-0 bg-zinc-900">
+        <span className="text-xl">{icon}</span>
+        <div className="flex-1 min-w-0">
+          <div className="font-mono text-sm font-bold text-amber-400 truncate">{entity.name}</div>
+          <div className="font-mono text-[10px] text-zinc-500 uppercase">{entity.type}{entity.source ? ` · ${entity.source}` : ""}</div>
+        </div>
+        <button onClick={onClose} className="text-zinc-500 hover:text-white text-lg leading-none">✕</button>
+      </div>
+
+      {/* Body */}
+      <div className="flex-1 px-4 py-3 font-mono text-xs text-zinc-300 space-y-3">
+        {loading && (
+          <div className="flex items-center justify-center py-8 text-zinc-500">
+            <span className="animate-spin mr-2">⟳</span> Loading…
+          </div>
+        )}
+
+        {!loading && details && (() => {
+          const src = details.source;
+
+          if ((src === "memory" || src === "journal" || src === "quest") && details.records) {
+            return (
+              <>
+                <div className="text-zinc-500 text-[10px] uppercase tracking-wider">DATA SOURCE · {src.toUpperCase()}</div>
+                {details.records.length === 0 && <div className="text-zinc-600">No records found.</div>}
+                {details.records.map((r: any, i: number) => (
+                  <div key={i} className="border border-zinc-800 rounded p-2 space-y-1">
+                    {r.title && <div className="text-amber-300 truncate">{r.title}</div>}
+                    {r.summary && <div className="text-zinc-400 text-[11px] line-clamp-2">{r.summary}</div>}
+                    {r.content && !r.summary && <div className="text-zinc-400 text-[11px] line-clamp-2">{r.content}</div>}
+                    {r.mood && <span className="text-violet-400">mood: {r.mood}</span>}
+                    {r.status && <span className="text-green-400 ml-2">{r.status}</span>}
+                    <div className="text-zinc-600 text-[10px]">{relativeTime(r.created_at ?? r.updated_at)}</div>
+                  </div>
+                ))}
+              </>
+            );
+          }
+
+          if (src === "orders" && details.templates !== undefined) {
+            return (
+              <>
+                <div className="text-zinc-500 text-[10px] uppercase tracking-wider">STANDING ORDERS</div>
+                {[...(details.templates ?? []), ...(details.orders ?? [])].map((r: any, i: number) => (
+                  <div key={i} className="border border-zinc-800 rounded p-2">
+                    <div className="text-amber-300 truncate">{r.title ?? r.order_text ?? "Order"}</div>
+                    <div className="text-zinc-600 text-[10px]">{relativeTime(r.last_triggered_at ?? r.created_at)}</div>
+                  </div>
+                ))}
+                {(details.templates?.length ?? 0) + (details.orders?.length ?? 0) === 0 && (
+                  <div className="text-zinc-600">No active orders.</div>
+                )}
+              </>
+            );
+          }
+
+          if (src === "ruview" && details.record !== undefined) {
+            const r = details.record;
+            if (!r) return <div className="text-zinc-600">No RuView data.</div>;
+            return (
+              <>
+                <div className="text-zinc-500 text-[10px] uppercase tracking-wider">BIOMETRIC FEED</div>
+                <div className="grid grid-cols-2 gap-2">
+                  {[
+                    { label: "PRESENT", val: r.present ? "YES" : "NO", color: r.present ? "text-green-400" : "text-red-400" },
+                    { label: "HEART RATE", val: r.heart_rate_bpm ? `${r.heart_rate_bpm} bpm` : "—", color: "text-rose-400" },
+                    { label: "BREATHING", val: r.breathing_rate ? `${r.breathing_rate}/min` : "—", color: "text-cyan-400" },
+                    { label: "STRESS", val: r.stress_level ?? "—", color: "text-orange-400" },
+                  ].map((m) => (
+                    <div key={m.label} className="border border-zinc-800 rounded p-2">
+                      <div className="text-zinc-500 text-[9px]">{m.label}</div>
+                      <div className={`font-bold ${m.color}`}>{m.val}</div>
+                    </div>
+                  ))}
+                </div>
+                <div className="text-zinc-600 text-[10px]">Updated {relativeTime(r.updated_at)}</div>
+              </>
+            );
+          }
+
+          if (src === "mavis") {
+            const filledConfig = (details.config ?? []).filter((c: any) => c.content && !c.content.includes("[TO BE FILLED]"));
+            return (
+              <>
+                <div className="text-zinc-500 text-[10px] uppercase tracking-wider">MAVIS BRAIN</div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="border border-zinc-800 rounded p-2">
+                    <div className="text-zinc-500 text-[9px]">MEMORIES</div>
+                    <div className="text-blue-400 font-bold">{details.memoriesCount}</div>
+                  </div>
+                  <div className="border border-zinc-800 rounded p-2">
+                    <div className="text-zinc-500 text-[9px]">QUESTS</div>
+                    <div className="text-amber-400 font-bold">{details.questsCount}</div>
+                  </div>
+                  <div className="border border-zinc-800 rounded p-2">
+                    <div className="text-zinc-500 text-[9px]">ORDERS</div>
+                    <div className="text-orange-400 font-bold">{details.ordersCount}</div>
+                  </div>
+                  <div className="border border-zinc-800 rounded p-2">
+                    <div className="text-zinc-500 text-[9px]">CONFIG</div>
+                    <div className="text-green-400 font-bold">{filledConfig.length}/{(details.config ?? []).length}</div>
+                  </div>
+                </div>
+                {details.lastConsolidation && (
+                  <div className="text-zinc-500 text-[10px]">Brain last consolidated: {relativeTime(details.lastConsolidation)}</div>
+                )}
+                {(details.notionSync ?? []).length > 0 && (
+                  <>
+                    <div className="text-zinc-500 text-[10px] uppercase tracking-wider mt-2">LAST NOTION SYNC</div>
+                    {details.notionSync.map((n: any, i: number) => (
+                      <div key={i} className="text-zinc-400 text-[11px] truncate">{n.page_title} <span className="text-zinc-600">{relativeTime(n.synced_at)}</span></div>
+                    ))}
+                  </>
+                )}
+              </>
+            );
+          }
+
+          if (src === "persona") {
+            const p = details.persona;
+            return (
+              <>
+                <div className="text-zinc-500 text-[10px] uppercase tracking-wider">PERSONA</div>
+                {p && (
+                  <div className="flex items-center gap-3 border border-zinc-800 rounded p-3">
+                    <div className="w-8 h-8 rounded-full bg-green-900 flex items-center justify-center text-green-300 font-bold text-sm">
+                      {p.name?.[0] ?? "?"}
+                    </div>
+                    <div>
+                      <div className="text-amber-300 font-bold">{p.name}</div>
+                      <div className="text-zinc-500 text-[10px]">{p.role ?? ""}</div>
+                    </div>
+                  </div>
+                )}
+                {(details.memories ?? []).length > 0 && (
+                  <>
+                    <div className="text-zinc-500 text-[10px] uppercase tracking-wider mt-1">RECENT MEMORIES</div>
+                    {details.memories.map((m: any, i: number) => (
+                      <div key={i} className="border border-zinc-800 rounded p-2">
+                        <div className="text-zinc-400 text-[11px] line-clamp-2">{m.summary ?? m.content}</div>
+                        <div className="text-zinc-600 text-[10px]">{relativeTime(m.created_at)}</div>
+                      </div>
+                    ))}
+                  </>
+                )}
+              </>
+            );
+          }
+
+          if (src === "council") {
+            const c = details.council;
+            return (
+              <>
+                <div className="text-zinc-500 text-[10px] uppercase tracking-wider">COUNCIL</div>
+                {c && (
+                  <div className="border border-zinc-800 rounded p-3">
+                    <div className="text-amber-300 font-bold">{c.name}</div>
+                    <div className="text-zinc-500 text-[10px]">{c.specialty ?? c.role ?? ""}</div>
+                    {c.domain && <div className="text-violet-400 text-[10px] mt-1">Domain: {c.domain}</div>}
+                  </div>
+                )}
+                {(details.memories ?? []).length > 0 && (
+                  <>
+                    <div className="text-zinc-500 text-[10px] uppercase tracking-wider mt-1">RECENT MEMORIES</div>
+                    {details.memories.map((m: any, i: number) => (
+                      <div key={i} className="border border-zinc-800 rounded p-2">
+                        <div className="text-zinc-400 text-[11px] line-clamp-2">{m.summary ?? m.content}</div>
+                        <div className="text-zinc-600 text-[10px]">{relativeTime(m.created_at)}</div>
+                      </div>
+                    ))}
+                  </>
+                )}
+              </>
+            );
+          }
+
+          if (src === "storage") {
+            return (
+              <>
+                <div className="text-zinc-500 text-[10px] uppercase tracking-wider">VAULT STATUS</div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="border border-zinc-800 rounded p-2">
+                    <div className="text-zinc-500 text-[9px]">MEMORIES</div>
+                    <div className="text-blue-400 font-bold">{details.memoriesCount}</div>
+                  </div>
+                  <div className="border border-zinc-800 rounded p-2">
+                    <div className="text-zinc-500 text-[9px]">NOTION PAGES</div>
+                    <div className="text-violet-400 font-bold">{details.notionCount}</div>
+                  </div>
+                </div>
+                {(details.topTags ?? []).length > 0 && (
+                  <>
+                    <div className="text-zinc-500 text-[10px] uppercase tracking-wider mt-1">TOP TAGS</div>
+                    <div className="flex flex-wrap gap-1">
+                      {details.topTags.map((tag: string) => (
+                        <span key={tag} className="px-2 py-0.5 bg-zinc-800 rounded text-zinc-400 text-[10px]">{tag}</span>
+                      ))}
+                    </div>
+                  </>
+                )}
+              </>
+            );
+          }
+
+          if (src === "train") {
+            return (
+              <>
+                <div className="text-zinc-500 text-[10px] uppercase tracking-wider">BATCH JOBS</div>
+                {(details.consolidations ?? []).length > 0 && (
+                  <>
+                    <div className="text-zinc-500 text-[10px] uppercase tracking-wider mt-1">BRAIN CONSOLIDATIONS</div>
+                    {details.consolidations.map((c: any, i: number) => (
+                      <div key={i} className="border border-zinc-800 rounded p-2">
+                        <div className="text-zinc-400 text-[11px] line-clamp-2">{c.summary ?? "Consolidation run"}</div>
+                        <div className="text-zinc-600 text-[10px]">{relativeTime(c.created_at)}</div>
+                      </div>
+                    ))}
+                  </>
+                )}
+                {(details.notionPages ?? []).length > 0 && (
+                  <>
+                    <div className="text-zinc-500 text-[10px] uppercase tracking-wider mt-1">NOTION SYNCED</div>
+                    {details.notionPages.map((n: any, i: number) => (
+                      <div key={i} className="text-zinc-400 text-[11px] truncate">{n.page_title} <span className="text-zinc-600">{relativeTime(n.synced_at)}</span></div>
+                    ))}
+                  </>
+                )}
+              </>
+            );
+          }
+
+          return null;
+        })()}
+      </div>
+
+      {/* Footer */}
+      <div className="px-4 py-3 border-t border-zinc-700">
+        <button
+          onClick={onNavigate}
+          className="w-full py-2 bg-violet-900/50 hover:bg-violet-800/60 border border-violet-700/50 rounded font-mono text-xs text-violet-300 transition-colors"
+        >
+          Open in MAVIS →
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ─── Main Component ───────────────────────────────────────────
 export default function FactoryPage() {
   const { user } = useAuth();
@@ -1340,10 +1638,15 @@ export default function FactoryPage() {
   const workersRef = useRef<Worker[]>([]);
   const trainsRef = useRef<Train[]>([]);
   const machineStatesRef = useRef<MachineState>(INITIAL_MACHINE_STATE);
+  const entityMapRef = useRef<Map<string, ClickableEntity>>(new Map());
+  const selectedEntityRef = useRef<ClickableEntity | null>(null);
 
   const [machineStates, setMachineStates] = useState<MachineState>(INITIAL_MACHINE_STATE);
   const [loading, setLoading] = useState(false);
   const [itemsPerMin, setItemsPerMin] = useState(0);
+  const [selectedEntity, setSelectedEntity] = useState<ClickableEntity | null>(null);
+  const [entityDetails, setEntityDetails] = useState<any>(null);
+  const [detailsLoading, setDetailsLoading] = useState(false);
 
   const allStatuses: MachineStatus[] = [
     machineStates.mavis,
@@ -1480,6 +1783,213 @@ export default function FactoryPage() {
     }
   }, [user, spawnBeltItem]);
 
+  // Sync selectedEntity state → ref (for gameLoop access without re-renders)
+  useEffect(() => {
+    selectedEntityRef.current = selectedEntity;
+  }, [selectedEntity]);
+
+  // Fetch entity details on selection change
+  useEffect(() => {
+    if (!selectedEntity || !user?.id) return;
+    const userId = user.id;
+
+    const fetchDetails = async () => {
+      setDetailsLoading(true);
+      try {
+        let details: any = {};
+
+        if (selectedEntity.type === "drill" || selectedEntity.type === "ore") {
+          const src = selectedEntity.source;
+          if (src === "memory") {
+            const { data } = await (supabase as any)
+              .from("mavis_agent_memories")
+              .select("content,summary,importance,tags,created_at")
+              .eq("user_id", userId)
+              .eq("status", "active")
+              .order("created_at", { ascending: false })
+              .limit(5);
+            details = { records: data ?? [], source: "memory" };
+          } else if (src === "journal") {
+            const { data } = await (supabase as any)
+              .from("journal_entries")
+              .select("title,content,mood,created_at")
+              .eq("user_id", userId)
+              .order("created_at", { ascending: false })
+              .limit(5);
+            details = { records: data ?? [], source: "journal" };
+          } else if (src === "quest") {
+            const { data } = await (supabase as any)
+              .from("quests")
+              .select("title,description,status,progress,updated_at")
+              .eq("user_id", userId)
+              .eq("status", "active")
+              .limit(8);
+            details = { records: data ?? [], source: "quest" };
+          } else if (src === "ruview") {
+            const { data } = await (supabase as any)
+              .from("mavis_ruview_state")
+              .select("*")
+              .eq("user_id", userId)
+              .maybeSingle();
+            details = { record: data, source: "ruview" };
+          } else if (src === "orders") {
+            const [{ data: templates }, { data: orders }] = await Promise.all([
+              (supabase as any)
+                .from("standing_order_templates")
+                .select("title,description,status,trigger_type,last_triggered_at")
+                .eq("user_id", userId)
+                .in("status", ["active", "pinned"])
+                .limit(8),
+              (supabase as any)
+                .from("mavis_standing_orders")
+                .select("order_text,enabled,created_at")
+                .eq("user_id", userId)
+                .eq("enabled", true)
+                .limit(5),
+            ]);
+            details = { templates: templates ?? [], orders: orders ?? [], source: "orders" };
+          }
+        } else if (selectedEntity.type === "mavis") {
+          const [memoriesCount, config, ordersCount, notionSync, questsCount] = await Promise.all([
+            (supabase as any)
+              .from("mavis_agent_memories")
+              .select("id", { count: "exact", head: true })
+              .eq("user_id", userId)
+              .eq("status", "active"),
+            (supabase as any)
+              .from("mavis_agent_config")
+              .select("section,content,updated_at")
+              .eq("user_id", userId)
+              .order("sort_order"),
+            (supabase as any)
+              .from("mavis_standing_orders")
+              .select("id", { count: "exact", head: true })
+              .eq("user_id", userId)
+              .eq("enabled", true),
+            (supabase as any)
+              .from("mavis_notion_sync_log")
+              .select("page_title,synced_at")
+              .eq("user_id", userId)
+              .order("synced_at", { ascending: false })
+              .limit(3),
+            (supabase as any)
+              .from("quests")
+              .select("id", { count: "exact", head: true })
+              .eq("user_id", userId)
+              .eq("status", "active"),
+          ]);
+          const { data: lastConsolidation } = await (supabase as any)
+            .from("mavis_agent_memories")
+            .select("created_at")
+            .eq("user_id", userId)
+            .contains("tags", ["daily-consolidation"])
+            .order("created_at", { ascending: false })
+            .limit(1)
+            .maybeSingle();
+          details = {
+            source: "mavis",
+            memoriesCount: memoriesCount.count ?? 0,
+            config: config.data ?? [],
+            ordersCount: ordersCount.count ?? 0,
+            notionSync: notionSync.data ?? [],
+            questsCount: questsCount.count ?? 0,
+            lastConsolidation: lastConsolidation?.created_at ?? null,
+          };
+        } else if (selectedEntity.type === "persona" && selectedEntity.id) {
+          const [personaRes, memoriesRes] = await Promise.all([
+            (supabase as any)
+              .from("personas")
+              .select("*")
+              .eq("id", selectedEntity.id)
+              .maybeSingle(),
+            (supabase as any)
+              .from("mavis_agent_memories")
+              .select("content,summary,tags,created_at")
+              .eq("user_id", userId)
+              .like("agent_id", "persona/%")
+              .order("created_at", { ascending: false })
+              .limit(5),
+          ]);
+          details = { source: "persona", persona: personaRes.data, memories: memoriesRes.data ?? [] };
+        } else if (selectedEntity.type === "council" && selectedEntity.id) {
+          const [councilRes, memoriesRes] = await Promise.all([
+            (supabase as any)
+              .from("councils")
+              .select("*")
+              .eq("id", selectedEntity.id)
+              .maybeSingle(),
+            (supabase as any)
+              .from("mavis_agent_memories")
+              .select("content,summary,created_at")
+              .eq("user_id", userId)
+              .like("agent_id", "council/%")
+              .order("created_at", { ascending: false })
+              .limit(5),
+          ]);
+          details = { source: "council", council: councilRes.data, memories: memoriesRes.data ?? [] };
+        } else if (selectedEntity.type === "storage") {
+          const [countRes, tagsRes, notionRes] = await Promise.all([
+            (supabase as any)
+              .from("mavis_agent_memories")
+              .select("id", { count: "exact", head: true })
+              .eq("user_id", userId)
+              .eq("status", "active"),
+            (supabase as any)
+              .from("mavis_agent_memories")
+              .select("tags")
+              .eq("user_id", userId)
+              .limit(20),
+            (supabase as any)
+              .from("mavis_notion_sync_log")
+              .select("id", { count: "exact", head: true })
+              .eq("user_id", userId),
+          ]);
+          const tagCounts: Record<string, number> = {};
+          (tagsRes.data ?? []).forEach((r: any) => {
+            (r.tags ?? []).forEach((t: string) => { tagCounts[t] = (tagCounts[t] ?? 0) + 1; });
+          });
+          const topTags = Object.entries(tagCounts).sort((a, b) => b[1] - a[1]).slice(0, 10).map(([tag]) => tag);
+          details = {
+            source: "storage",
+            memoriesCount: countRes.count ?? 0,
+            notionCount: notionRes.count ?? 0,
+            topTags,
+          };
+        } else if (selectedEntity.type === "train") {
+          const [notionRes, consolidationRes] = await Promise.all([
+            (supabase as any)
+              .from("mavis_notion_sync_log")
+              .select("page_title,page_url,synced_at")
+              .eq("user_id", userId)
+              .order("synced_at", { ascending: false })
+              .limit(5),
+            (supabase as any)
+              .from("mavis_agent_memories")
+              .select("summary,tags,created_at")
+              .eq("user_id", userId)
+              .contains("tags", ["daily-consolidation"])
+              .order("created_at", { ascending: false })
+              .limit(3),
+          ]);
+          details = {
+            source: "train",
+            notionPages: notionRes.data ?? [],
+            consolidations: consolidationRes.data ?? [],
+          };
+        }
+
+        setEntityDetails(details);
+      } catch (err) {
+        console.error("[FactoryPage] detail fetch error:", err);
+        setEntityDetails(null);
+      } finally {
+        setDetailsLoading(false);
+      }
+    };
+
+    fetchDetails();
+  }, [selectedEntity, user?.id]);
+
   // Canvas resize
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -1523,6 +2033,40 @@ export default function FactoryPage() {
     spawnBeltItem("processed");
   }, [spawnBeltItem]);
 
+  // Canvas click handler
+  const handleCanvasClick = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    const canvasX = (e.clientX - rect.left) * (canvas.width / rect.width);
+    const canvasY = (e.clientY - rect.top) * (canvas.height / rect.height);
+    const col = Math.floor(canvasX / TILE);
+    const row = Math.floor(canvasY / TILE);
+    const key = `${col},${row}`;
+    const entity = entityMapRef.current.get(key);
+    if (entity) {
+      if (selectedEntityRef.current && selectedEntityRef.current.col === entity.col && selectedEntityRef.current.row === entity.row && selectedEntityRef.current.type === entity.type) return;
+      setSelectedEntity(entity);
+    } else {
+      setSelectedEntity(null);
+      setEntityDetails(null);
+    }
+  }, []);
+
+  // Canvas mousemove handler for cursor changes
+  const handleCanvasMouseMove = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    const canvasX = (e.clientX - rect.left) * (canvas.width / rect.width);
+    const canvasY = (e.clientY - rect.top) * (canvas.height / rect.height);
+    const col = Math.floor(canvasX / TILE);
+    const row = Math.floor(canvasY / TILE);
+    const key = `${col},${row}`;
+    const entity = entityMapRef.current.get(key);
+    canvas.style.cursor = entity ? "pointer" : "default";
+  }, []);
+
   // Game loop
   const gameLoop = useCallback(() => {
     const canvas = canvasRef.current;
@@ -1539,6 +2083,9 @@ export default function FactoryPage() {
       "memory", "memory", "quest", "quest", "orders", "ruview",
     ];
 
+    // Clear entity map each frame
+    entityMapRef.current.clear();
+
     // 1. Terrain
     drawTerrain(ctx, W, H);
 
@@ -1551,7 +2098,23 @@ export default function FactoryPage() {
     drawPowerWires(ctx, POWER_POLES);
 
     // 4. Ore patches
-    ORE_PATCHES.forEach((p) => drawOrePatch(ctx, p));
+    // Register ore patches
+    ORE_PATCHES.forEach((p) => {
+      for (let dc = 0; dc < p.w; dc++) {
+        for (let dr = 0; dr < p.h; dr++) {
+          entityMapRef.current.set(`${p.col + dc},${p.row + dr}`, {
+            type: "ore",
+            name: p.label,
+            source: p.type === "iron" ? "memory" : p.type === "copper" ? "quest" : p.type === "coal" ? "orders" : p.type === "stone" ? "ruview" : p.type === "memory" ? "memory" : "quest",
+            col: p.col,
+            row: p.row,
+            tileW: p.w,
+            tileH: p.h,
+          });
+        }
+      }
+      drawOrePatch(ctx, p);
+    });
 
     // 5. Belt network
     BELT_NETWORK.forEach((seg) => drawBeltSegment(ctx, seg, beltOffsetRef.current));
@@ -1560,7 +2123,23 @@ export default function FactoryPage() {
     POWER_POLES.forEach((p) => drawPowerPole(ctx, p));
 
     // 7. Mining drills
+    // Register mining drills
     MINING_DRILLS.forEach((drill, i) => {
+      const sk = patchStatusKeys[i] ?? "memory";
+      const src = sk as string;
+      for (let dc = 0; dc < 2; dc++) {
+        for (let dr = 0; dr < 2; dr++) {
+          entityMapRef.current.set(`${drill.col + dc},${drill.row + dr}`, {
+            type: "drill",
+            name: `DRILL (${src.toUpperCase()})`,
+            source: src,
+            col: drill.col,
+            row: drill.row,
+            tileW: 2,
+            tileH: 2,
+          });
+        }
+      }
       const statusKey = patchStatusKeys[i] ?? "memory";
       const status = (states[statusKey] as MachineStatus) ?? "idle";
       drawMiningDrill(ctx, drill, frame, status);
@@ -1573,7 +2152,26 @@ export default function FactoryPage() {
     });
 
     // 9. Static assembly machines
+    // Register MAVIS hub and assembly machines
     ASSEMBLY_MACHINES.forEach((machine) => {
+      const entityType: ClickableEntity["type"] = machine.isMAVIS ? "mavis" : "drill";
+      const srcMap: Record<string, ClickableEntity["source"]> = {
+        memory: "memory", journal: "journal", quest: "quest",
+        ruview: "ruview", orders: "orders",
+      };
+      for (let dc = 0; dc < machine.w; dc++) {
+        for (let dr = 0; dr < machine.h; dr++) {
+          entityMapRef.current.set(`${machine.col + dc},${machine.row + dr}`, {
+            type: entityType,
+            name: machine.label,
+            source: machine.isMAVIS ? undefined : (srcMap[machine.statusKey as string] ?? machine.statusKey as string),
+            col: machine.col,
+            row: machine.row,
+            tileW: machine.w,
+            tileH: machine.h,
+          });
+        }
+      }
       const status = (states[machine.statusKey] as MachineStatus) ?? "idle";
       drawAssemblyMachine(ctx, machine, status, frame, gearRotRef.current);
     });
@@ -1582,19 +2180,69 @@ export default function FactoryPage() {
     const personaList = states.personas.length > 0
       ? states.personas
       : [{ id: "0", name: "IDLE", role: "", status: "idle" as MachineStatus }];
+    // Register persona machines
     personaList.slice(0, 6).forEach((p, i) => {
-      drawDynamicMachine(ctx, 5, 10 + i * 4, p.name, p.status, frame, gearRotRef.current, true);
+      const pCol = 5;
+      const pRow = 10 + i * 4;
+      for (let dc = 0; dc < 3; dc++) {
+        for (let dr = 0; dr < 3; dr++) {
+          entityMapRef.current.set(`${pCol + dc},${pRow + dr}`, {
+            type: "persona",
+            id: p.id,
+            name: p.name,
+            col: pCol,
+            row: pRow,
+            tileW: 3,
+            tileH: 3,
+          });
+        }
+      }
+      drawDynamicMachine(ctx, pCol, pRow, p.name, p.status, frame, gearRotRef.current, true);
     });
 
     // 11. Council machines (right side, dynamic)
     const councilList = states.councils.length > 0
       ? states.councils
       : [{ id: "0", name: "IDLE", role: "", status: "idle" as MachineStatus }];
+    // Register council machines
     councilList.slice(0, 6).forEach((c, i) => {
-      drawDynamicMachine(ctx, 49, 10 + i * 4, c.name, c.status, frame, gearRotRef.current, false);
+      const cCol = 49;
+      const cRow = 10 + i * 4;
+      for (let dc = 0; dc < 3; dc++) {
+        for (let dr = 0; dr < 3; dr++) {
+          entityMapRef.current.set(`${cCol + dc},${cRow + dr}`, {
+            type: "council",
+            id: c.id,
+            name: c.name,
+            col: cCol,
+            row: cRow,
+            tileW: 3,
+            tileH: 3,
+          });
+        }
+      }
+      drawDynamicMachine(ctx, cCol, cRow, c.name, c.status, frame, gearRotRef.current, false);
     });
 
     // 12. Storage chests
+    // Register storage chests
+    const chestPositions2 = [
+      { col: 46, row: 16 },
+      { col: 50, row: 16 },
+      { col: 54, row: 16 },
+      { col: 48, row: 19 },
+      { col: 52, row: 19 },
+    ];
+    chestPositions2.forEach((pos, i) => {
+      entityMapRef.current.set(`${pos.col},${pos.row}`, {
+        type: "storage",
+        name: ["MEM VAULT", "QUEST STORE", "ORDER CACHE", "PERSONA CORE", "KNOWLEDGE"][i] ?? "STORAGE",
+        col: pos.col,
+        row: pos.row,
+        tileW: 1,
+        tileH: 1,
+      });
+    });
     drawStorageChests(ctx, states);
 
     // 13. Smoke/steam particles
@@ -1625,7 +2273,20 @@ export default function FactoryPage() {
     updateAndDrawBeltItems(ctx, beltItemsRef.current);
 
     // 15. Trains
+    // Register trains near station
     trainsRef.current.forEach((train) => {
+      const tCol = Math.floor(train.x / TILE);
+      const tRow = train.trackRow;
+      if (tCol >= 0 && tCol < COLS) {
+        entityMapRef.current.set(`${tCol},${tRow}`, {
+          type: "train",
+          name: "BATCH RUNNER",
+          col: tCol,
+          row: tRow,
+          tileW: 2,
+          tileH: 1,
+        });
+      }
       train.x += train.speed * train.direction;
       const maxX = W + TILE * 10;
       if (train.direction > 0 && train.x > maxX) train.x = -TILE * 8;
@@ -1652,6 +2313,28 @@ export default function FactoryPage() {
       drawWorker(ctx, w);
     });
 
+    // 17. Selection highlight
+    if (selectedEntityRef.current) {
+      const ent = selectedEntityRef.current;
+      const sx = ent.col * TILE;
+      const sy = ent.row * TILE;
+      const sw = ent.tileW * TILE;
+      const sh = ent.tileH * TILE;
+      const pulse = 0.6 + Math.sin(frame * 0.1) * 0.4;
+      ctx.save();
+      ctx.strokeStyle = `rgba(0,255,255,${pulse})`;
+      ctx.lineWidth = 2;
+      ctx.shadowColor = "#00ffff";
+      ctx.shadowBlur = 12 * pulse;
+      ctx.strokeRect(sx - 2, sy - 2, sw + 4, sh + 4);
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = `rgba(0,255,255,${pulse})`;
+      ctx.font = "bold 10px monospace";
+      ctx.textAlign = "center";
+      ctx.fillText("▼", sx + sw / 2, sy - 6);
+      ctx.restore();
+    }
+
     // Advance state
     beltOffsetRef.current = (beltOffsetRef.current + 0.5) % 18;
     gearRotRef.current += 1;
@@ -1677,7 +2360,23 @@ export default function FactoryPage() {
       className="relative w-full overflow-hidden bg-[#222210]"
       style={{ height: "calc(100vh - 64px)" }}
     >
-      <canvas ref={canvasRef} className="w-full h-full" />
+      <canvas
+        ref={canvasRef}
+        className="w-full h-full"
+        onClick={handleCanvasClick}
+        onMouseMove={handleCanvasMouseMove}
+      />
+
+      {/* Entity detail panel */}
+      {selectedEntity && (
+        <EntityDetailPanel
+          entity={selectedEntity}
+          details={entityDetails}
+          loading={detailsLoading}
+          onClose={() => { setSelectedEntity(null); setEntityDetails(null); }}
+          onNavigate={() => navigate(`/mavis?entity=${encodeURIComponent(selectedEntity.name)}`)}
+        />
+      )}
 
       {/* HUD overlay */}
       <div className="absolute inset-0 pointer-events-none">
