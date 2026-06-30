@@ -2506,10 +2506,16 @@ When real-time data is needed (news, prices, events, current info), web search r
 
 NEVER say: "I can't browse the web", "I don't have internet access", "I can't access URLs", "my knowledge has a cutoff", or any variant of this. You have access. Use it. If no URL content block appears in context for a shared URL, acknowledge the page and ask the operator to confirm the link — do not claim inability.
 
-YOUTUBE VIDEOS: When the operator shares a YouTube URL, the full transcript and AI summary are automatically extracted and injected into your context under ═══ YOUTUBE VIDEO ═══. You already have the content — do not say you can't watch videos or access YouTube. When this block appears:
+YOUTUBE VIDEOS: When the operator shares a YouTube URL, two things happen automatically and are injected under ═══ YOUTUBE VIDEO ═══:
+1. CAPTION SUMMARY — the spoken transcript, extracted and summarised by Claude
+2. GEMINI VISUAL ANALYSIS — Gemini 2.5 Flash actually watches the video: it sees slides, whiteboards, charts, on-screen text, demonstrations, and body language that captions miss
+
+You have BOTH. Do not say you can't watch videos or access YouTube. When this block appears:
 - If the operator hasn't given specific instructions, proactively offer 3 options: (1) full summary, (2) deep teaching session with key lessons, (3) save to Vault Codex for later
-- If asked to "summarize" — deliver the bullet-point summary and 2-paragraph overview
-- If asked to "teach me" or "explain" — break down the content into digestible lessons, use examples, ask comprehension questions
+- If asked to "summarize" — deliver the bullet-point summary and 2-paragraph overview covering both spoken content and visual content
+- If asked to "teach me" or "explain" — break down ALL content (spoken + visual) into digestible lessons, use examples, ask comprehension questions
+- Reference specific visual moments when relevant ("at the 3:45 mark he shows a diagram of...")
+- The GEMINI VISUAL ANALYSIS section captures what was shown on screen — always check it for frameworks, formulas, and visual models the speaker drew or displayed
 - If asked to "save it" — emit :::ACTION{"type":"create_note","params":{"title":"[video title]","content":"[summary + key points]","tags":["video","learning"]}}::: or vault variant
 - Always reference the actual content from the transcript block, not generic knowledge about the topic
 
@@ -3214,24 +3220,43 @@ ${fmtGoals}
         const serviceKey  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
         try {
           if (isYouTube) {
-            // Call the real YouTube ingest — extracts captions, summarises with Claude
-            const ytRes = await fetch(`${supabaseUrl}/functions/v1/mavis-youtube-ingest`, {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-                Authorization: req.headers.get("Authorization") ?? "",
-              },
-              body: JSON.stringify({ url: target, save_as: "note", _preview: true }),
-              signal: AbortSignal.timeout(25000),
-            });
-            if (ytRes.ok) {
-              const ytData = await ytRes.json();
+            // Run caption extraction and Gemini visual analysis in parallel
+            const [ytRes, geminiRes] = await Promise.allSettled([
+              fetch(`${supabaseUrl}/functions/v1/mavis-youtube-ingest`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json", Authorization: req.headers.get("Authorization") ?? "" },
+                body: JSON.stringify({ url: target, save_as: "note", _preview: true }),
+                signal: AbortSignal.timeout(25000),
+              }),
+              fetch(`${supabaseUrl}/functions/v1/mavis-vision-agent`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json", Authorization: `Bearer ${serviceKey}` },
+                body: JSON.stringify({ action: "analyze_youtube", url: target }),
+                signal: AbortSignal.timeout(90000),
+              }),
+            ]);
+
+            const parts: string[] = [`\n═══ YOUTUBE VIDEO ═══\nURL: ${target}`];
+
+            if (ytRes.status === "fulfilled" && ytRes.value.ok) {
+              const ytData = await ytRes.value.json();
               const title   = ytData.title   ?? "YouTube Video";
               const summary = ytData.summary  ?? "";
-              const excerpt = ytData.transcript ? String(ytData.transcript).slice(0, 8000) : "";
-              urlContent = `\n═══ YOUTUBE VIDEO: ${title} ═══\nURL: ${target}\n\nSUMMARY:\n${summary}\n\nTRANSCRIPT EXCERPT:\n${excerpt}\n═══ END YOUTUBE CONTENT ═══`;
+              const excerpt = ytData.transcript ? String(ytData.transcript).slice(0, 6000) : "";
+              parts.push(`TITLE: ${title}`);
+              if (summary) parts.push(`CAPTION SUMMARY:\n${summary}`);
+              if (excerpt) parts.push(`TRANSCRIPT EXCERPT:\n${excerpt}`);
+            }
+
+            if (geminiRes.status === "fulfilled" && geminiRes.value.ok) {
+              const gData = await geminiRes.value.json();
+              if (gData.analysis) parts.push(`GEMINI VISUAL ANALYSIS (watched the video):\n${gData.analysis}`);
+            }
+
+            if (parts.length > 1) {
+              urlContent = parts.join("\n\n") + `\n═══ END YOUTUBE CONTENT ═══`;
             } else {
-              // Fallback to Jina if ingest fails
+              // Both failed — fall back to Jina
               const jinaRes = await fetch(`https://r.jina.ai/${target}`, {
                 headers: { Accept: "text/plain", "X-No-Cache": "true", "X-Timeout": "15" },
                 signal: AbortSignal.timeout(18000),
