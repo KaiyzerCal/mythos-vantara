@@ -3448,6 +3448,46 @@ ${fmtGoals}
               sort_order: 5,
               content: `Every response must:\n1. Respond to what was actually said, not a paraphrase of it\n2. Use real data from the injected context (names, IDs, numbers, dates) — not generalities\n3. Emit :::ACTION{...}::: blocks for any database write; never narrate an action without executing it\n4. Stay in length lane — conversational gets conversational; analysis gets depth\n5. End with one thing: a move or a genuine question\n\nNever:\n• Explain what she is about to do (just do it)\n• Summarise a response at the end of itself\n• Give advice that could apply to anyone — give advice that applies to this operator, right now\n• Break character because the operator is testing, upset, or tired`,
             },
+            {
+              section: "identity",
+              sort_order: 6,
+              content: `[TO BE FILLED] Brand identity, public positioning, business identity. What Calvin stands for publicly. His content angles, the audiences he serves, the transformation he delivers. How he wants to be perceived across platforms.`,
+            },
+            {
+              section: "key_people",
+              sort_order: 7,
+              content: `[TO BE FILLED] Key people in Calvin's life and network. For each person: name, relationship type, context, how to treat interactions involving them, what they mean to the mission. Populated and updated by MAVIS daily brain consolidation.`,
+            },
+            {
+              section: "active_projects",
+              sort_order: 8,
+              content: `[TO BE FILLED] Current live initiatives — name, status, next milestone, who's involved, what's at stake. Updated by daily brain consolidation as quests and goals progress.`,
+            },
+            {
+              section: "standing_decisions",
+              sort_order: 9,
+              content: `[TO BE FILLED] Decisions already made — no need to re-litigate. Principles Calvin has settled. Commitments locked in. Things MAVIS should never bring back for debate.`,
+            },
+            {
+              section: "network_companies",
+              sort_order: 10,
+              content: `[TO BE FILLED] Companies in Calvin's orbit — what they do, relationship to Calvin, key contacts inside them, current status of the relationship.`,
+            },
+            {
+              section: "recurring_meetings",
+              sort_order: 11,
+              content: `[TO BE FILLED] Recurring meetings and their purpose — who attends, cadence, what decisions come out of them, what MAVIS should prep or track for each one.`,
+            },
+            {
+              section: "crystallized_knowledge",
+              sort_order: 12,
+              content: `[TO BE FILLED] Facts and patterns that MAVIS should always have top-of-mind. Lessons learned. Things that took time to figure out and shouldn't be re-learned. Updated by daily brain consolidation.`,
+            },
+            {
+              section: "maps_of_content",
+              sort_order: 13,
+              content: `[TO BE FILLED] How Calvin's domains connect — the meta-structure of his knowledge, business, and life. Which projects feed which goals. Which relationships connect which companies. The big picture topology.`,
+            },
           ];
           try {
             await adminSb.from("mavis_agent_config").insert(
