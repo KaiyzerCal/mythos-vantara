@@ -764,9 +764,62 @@ Reply ONLY with JSON: {"action": "click|type|navigate|scroll|done|error", "selec
         return json({ analysis, image_count: images.length, model: "gemini-2.5-flash" });
       }
 
+      // ── analyze_youtube ───────────────────────────────────────────────────────
+      // Pass a YouTube URL directly to Gemini — it watches the video natively.
+      // No download required. Captures visual content, slides, demos, on-screen
+      // text — everything a transcript misses.
+      // Input: { url: string, prompt?: string }
+      case "analyze_youtube": {
+        if (!GEMINI_KEY) return json({ error: "GEMINI_API_KEY required for YouTube visual analysis" }, 400);
+
+        const ytUrl = String(body.url ?? "");
+        if (!ytUrl || !/(?:youtube\.com\/watch|youtu\.be\/)/.test(ytUrl))
+          return json({ error: "url must be a valid YouTube URL" }, 400);
+
+        const ytPrompt = String(body.prompt ?? `You are watching a YouTube video. Provide a comprehensive analysis:
+
+1. VISUAL ANALYSIS: Describe what appears on screen — slides, whiteboards, charts, demonstrations, body language, graphics. Note any on-screen text or visuals that add meaning beyond the spoken words.
+
+2. KEY TEACHINGS: What are the 3-7 core ideas, frameworks, or lessons being communicated? Be specific with names, numbers, and formulas shown.
+
+3. ACTIONABLE TAKEAWAYS: What can someone DO with what they learned? List concrete steps or strategies.
+
+4. TIMESTAMPS: Call out 3-5 key moments with approximate timestamps and what makes each important.
+
+5. SUMMARY: One paragraph that captures the full value of this video — what it's about, who it's for, and the most important thing to remember.`);
+
+        const geminiRes = await fetch(`${GEMINI_URL}?key=${GEMINI_KEY}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            contents: [{
+              role: "user",
+              parts: [
+                { file_data: { mime_type: "video/mp4", file_uri: ytUrl } },
+                { text: ytPrompt },
+              ],
+            }],
+            generationConfig: { maxOutputTokens: 8192 },
+          }),
+          signal: AbortSignal.timeout(120_000),
+        });
+
+        if (!geminiRes.ok) {
+          const err = await geminiRes.text();
+          throw new Error(`Gemini YouTube analysis failed ${geminiRes.status}: ${err.slice(0, 300)}`);
+        }
+
+        const gj = await geminiRes.json();
+        const gParts: any[] = gj.candidates?.[0]?.content?.parts ?? [];
+        const analysis = gParts.filter((p: any) => p.text && !p.thought).map((p: any) => p.text).join("").trim();
+        if (!analysis) throw new Error("Gemini returned empty analysis for YouTube URL");
+
+        return json({ analysis, url: ytUrl, model: "gemini-2.5-flash", mode: "youtube_native" });
+      }
+
       default:
         return json({
-          error: `Unknown action: ${action}. Use: analyze | ocr | describe | classify | extract_license_plate | extract_receipt | extract_document | extract_table | compare | analyze_video | analyze_multi | vision_loop | vision_analyze`,
+          error: `Unknown action: ${action}. Use: analyze | ocr | describe | classify | extract_license_plate | extract_receipt | extract_document | extract_table | compare | analyze_video | analyze_multi | analyze_youtube | vision_loop | vision_analyze`,
         }, 400);
     }
   } catch (err: unknown) {
