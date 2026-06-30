@@ -1363,14 +1363,30 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
     }
 
     case "get_biometric_state": {
-      const { data } = await sb
-        .from("mavis_biometric_state")
-        .select("*")
-        .eq("user_id", userId)
-        .order("updated_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      return data ?? { message: "No biometric state recorded yet. Start MediaPipe vision tracking in the app." };
+      const [{ data: camData }, { data: wifiData }] = await Promise.all([
+        sb.from("mavis_biometric_state").select("*").eq("user_id", userId)
+          .order("updated_at", { ascending: false }).limit(1).maybeSingle(),
+        sb.from("mavis_ruview_state").select("*").eq("user_id", userId).maybeSingle(),
+      ]);
+      if (!camData && !wifiData) {
+        return { message: "No biometric state recorded yet. Start MediaPipe vision tracking or configure a RuView WiFi sensor." };
+      }
+      return {
+        camera: camData ?? null,
+        wifi_sensing: wifiData ?? null,
+        summary: {
+          present: wifiData?.present ?? null,
+          n_persons: wifiData?.n_persons ?? null,
+          heart_rate_bpm: wifiData?.heart_rate_bpm ?? null,
+          breathing_rate_bpm: wifiData?.breathing_rate_bpm ?? null,
+          stress_score: wifiData?.stress_score ?? null,
+          sleep_stage: wifiData?.sleep_stage ?? null,
+          fall_detected: wifiData?.fall_detected ?? false,
+          pose_confidence: wifiData?.pose_confidence ?? camData?.pose_confidence ?? null,
+          room_id: wifiData?.room_id ?? null,
+          updated_at: wifiData?.updated_at ?? camData?.updated_at ?? null,
+        },
+      };
     }
 
     case "list_gestures": {
@@ -1395,6 +1411,33 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
         .single();
       if (error) throw error;
       return { ok: true, mapping: data };
+    }
+
+    case "ruview_get_presence": {
+      const { data } = await sb
+        .from("mavis_ruview_state")
+        .select("present, n_persons, presence_confidence, room_id, node_id, updated_at")
+        .eq("user_id", userId)
+        .maybeSingle();
+      return data ?? { message: "No RuView presence data yet. Configure a RuView WiFi sensor node." };
+    }
+
+    case "ruview_get_vitals": {
+      const { data } = await sb
+        .from("mavis_ruview_state")
+        .select("heart_rate_bpm, breathing_rate_bpm, hrv_ms, stress_score, sleep_stage, apnea_events, updated_at")
+        .eq("user_id", userId)
+        .maybeSingle();
+      return data ?? { message: "No RuView vitals data yet. Configure a RuView WiFi sensor node." };
+    }
+
+    case "ruview_get_all": {
+      const { data } = await sb
+        .from("mavis_ruview_state")
+        .select("*")
+        .eq("user_id", userId)
+        .maybeSingle();
+      return data ?? { message: "No RuView data yet. Configure a RuView WiFi sensor node and point it at the mavis-ruview-bridge webhook." };
     }
 
     case "get_standing_orders": {
