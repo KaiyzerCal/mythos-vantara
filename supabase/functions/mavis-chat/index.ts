@@ -2419,11 +2419,22 @@ SCREENPIPE — search or pull context from the operator's local screen activity 
 screenpipe_search: full-text search over OCR + audio transcripts. screenpipe_context: pull recent screen context for MAVIS memory. screenpipe_recent: last N captured items chronologically. Use when operator asks "what was I working on?", "find what I saw earlier about X", or when MAVIS needs recent screen context to answer accurately.
 
 VISION & GESTURE SYSTEM — real-time biometric awareness and gesture control:
-The operator's browser runs MediaPipe (webcam-based) which detects hand gestures, face presence, expression, and body engagement in real time. TouchDesigner receives this state over WebSocket for reactive VFX. MAVIS can query the current biometric state, read and remap gesture bindings, and signal the TouchDesigner bridge.
+The operator's browser runs MediaPipe (webcam-based) which detects hand gestures, face presence, expression, and body engagement in real time. TouchDesigner receives this state over WebSocket for reactive VFX. A RuView WiFi sensing node (ESP32-S3, ~$9) provides through-wall presence detection, contactless vitals (heart rate, breathing rate, HRV, stress), fall detection, and sleep monitoring — no camera required. MAVIS unifies both data sources automatically.
 
-Query operator biometric state (presence, expression, engagement, last gesture):
+Query unified biometric state (MediaPipe camera + RuView WiFi merged):
 :::ACTION{"type":"get_biometric_state","params":{}}:::
-Returns: { presence: "close|medium|far|none", expression: "smile|tired|focused|surprised|neutral", engagement: "engaged|distracted|away|resting", last_gesture: "Open_Palm|Thumb_Up|...", updated_at }
+Returns: { camera: {...MediaPipe data}, wifi_sensing: {...RuView data}, summary: { present, n_persons, heart_rate_bpm, breathing_rate_bpm, stress_score, sleep_stage, fall_detected, room_id, pose_confidence, updated_at } }
+
+Query RuView WiFi presence only (through-wall, no camera needed):
+:::ACTION{"type":"ruview_get_presence","params":{}}:::
+Returns: { present, n_persons, presence_confidence, room_id, node_id, updated_at }
+
+Query RuView contactless vitals (heart rate, breathing, HRV, stress, sleep stage):
+:::ACTION{"type":"ruview_get_vitals","params":{}}:::
+Returns: { heart_rate_bpm, breathing_rate_bpm, hrv_ms, stress_score, sleep_stage, apnea_events, updated_at }
+
+Query all RuView data including fall detection and full pose confidence:
+:::ACTION{"type":"ruview_get_all","params":{}}:::
 
 List current gesture → action mappings:
 :::ACTION{"type":"list_gestures","params":{}}:::
@@ -2434,7 +2445,7 @@ Remap a gesture to a different action:
 gesture options: Open_Palm, Thumb_Up, Thumb_Down, Closed_Fist, Victory, Pointing_Up, ILoveYou, None
 action_type options: voice:toggle, voice:stop, approve:pending_op, deny:pending_op, persona:cycle_next, mavis:summon, skill:run, custom
 Default bindings: Open_Palm→voice:toggle, Thumb_Up→approve pending op, Thumb_Down→deny pending op, Closed_Fist→voice:stop, Victory→persona:cycle, Pointing_Up→mavis:summon, ILoveYou→skill:run(calm)
-Use get_biometric_state proactively when the operator seems distracted, tired, or disengaged — you can SEE them. Reference their expression and presence naturally in conversation.
+Use get_biometric_state proactively when the operator seems distracted, tired, or disengaged — you can SEE and SENSE them. If fall_detected=true in the summary, alert immediately. If stress_score > 0.7 or heart_rate_bpm is elevated without activity context, check in. If sleep_stage is present in the morning, offer a sleep quality summary.
 
 LOCAL AI INFERENCE — run text through the operator's local LLM (no cloud API cost):
 The operator runs LocalMesh — a local AI bridge (Ollama or llama-cpp-python) at a configured host. Use for: drafting content privately, running sensitive data through a local model, offline inference, or testing fine-tuned models.
@@ -3897,10 +3908,11 @@ Always reference dates and times in the entity's own timezone when one is set, o
     try {
       const sevenDaysAgo = new Date(Date.now() - 7 * 86400000).toISOString();
       const twoDaysAgo   = new Date(Date.now() - 2 * 86400000).toISOString();
-      const [stalledRes, streakRes, revenueRes] = await Promise.all([
+      const [stalledRes, streakRes, revenueRes, ruviewRes] = await Promise.all([
         sb.from("quests").select("title").eq("user_id", user.id).eq("status", "active").lt("updated_at", sevenDaysAgo).limit(5),
         sb.from("tasks").select("title,streak").eq("user_id", user.id).eq("type", "habit").gt("streak", 2).lt("updated_at", twoDaysAgo).limit(5),
         sb.from("mavis_revenue").select("id").eq("user_id", user.id).gte("created_at", sevenDaysAgo).limit(1),
+        sb.from("mavis_ruview_state").select("present,heart_rate_bpm,breathing_rate_bpm,stress_score,sleep_stage,fall_detected,last_fall_at,updated_at").eq("user_id", user.id).maybeSingle(),
       ]);
       const alerts: string[] = [];
       if (stalledRes.data?.length) {
@@ -3912,6 +3924,23 @@ Always reference dates and times in the entity's own timezone when one is set, o
       }
       if (!revenueRes.data?.length) {
         alerts.push("No revenue logged in the past 7 days.");
+      }
+      // RuView biometric alerts
+      const rv = ruviewRes.data as any;
+      if (rv) {
+        if (rv.fall_detected && rv.last_fall_at) {
+          const fallMinsAgo = Math.round((Date.now() - new Date(rv.last_fall_at).getTime()) / 60000);
+          alerts.push(`⚠️ FALL DETECTED by RuView sensor ${fallMinsAgo} minutes ago. Check on the operator immediately.`);
+        }
+        if (rv.heart_rate_bpm && (rv.heart_rate_bpm > 110 || rv.heart_rate_bpm < 45)) {
+          alerts.push(`Heart rate out of normal range: ${rv.heart_rate_bpm.toFixed(0)} BPM (RuView WiFi sensor).`);
+        }
+        if (rv.stress_score && rv.stress_score > 0.75) {
+          alerts.push(`High stress detected: ${Math.round(rv.stress_score * 100)}% (HRV-based, RuView sensor).`);
+        }
+        if (rv.sleep_stage && rv.sleep_stage !== "awake") {
+          alerts.push(`Operator appears to be sleeping (stage: ${rv.sleep_stage}). Consider whether this message warrants a reply now.`);
+        }
       }
       if (alerts.length) {
         proactiveBlock = `\n═══ PATTERN ALERTS (surface unprompted when contextually relevant) ═══\n${alerts.map(a => `• ${a}`).join("\n")}\n═══ END ALERTS ═══`;

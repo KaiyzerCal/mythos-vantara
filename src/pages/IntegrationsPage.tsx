@@ -173,6 +173,13 @@ const INTEGRATION_GROUPS: GroupDef[] = [
         keys: [],
         docsUrl: null,
       },
+      {
+        id: "ruview",
+        name: "RuView WiFi Sensing",
+        description: "Through-wall presence detection, contactless vitals (heart rate, breathing, HRV, stress), fall detection, pose estimation, and sleep monitoring via ESP32-S3 WiFi CSI nodes (~$9 each). No camera required. Point the webhook at /functions/v1/mavis-ruview-bridge.",
+        keys: ["Webhook Secret"],
+        docsUrl: null,
+      },
     ],
   },
   {
