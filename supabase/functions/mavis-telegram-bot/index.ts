@@ -281,6 +281,117 @@ async function analyzePhoto(
 }
 
 // ─────────────────────────────────────────────────────────────
+// VIDEO ANALYSIS (Gemini 2.5 Flash — full visual + audio)
+// ─────────────────────────────────────────────────────────────
+
+async function analyzeVideoWithGemini(
+  fileId: string,
+  mimeType: string,
+  fileName: string,
+  caption?: string,
+): Promise<string> {
+  const geminiKey = GEMINI_KEY;
+  if (!geminiKey) throw new Error("GEMINI_API_KEY not configured");
+  const botToken = BOT_TOKEN;
+
+  // 1. Get file path from Telegram
+  const fileRes = await fetch(`https://api.telegram.org/bot${botToken}/getFile?file_id=${fileId}`, {
+    signal: AbortSignal.timeout(15_000),
+  });
+  if (!fileRes.ok) throw new Error(`getFile failed: ${fileRes.status}`);
+  const fileData = await fileRes.json();
+  const filePath = fileData.result?.file_path;
+  if (!filePath) throw new Error("No file_path from Telegram");
+
+  // 2. Download video bytes
+  const dlRes = await fetch(`https://api.telegram.org/file/bot${botToken}/${filePath}`, {
+    signal: AbortSignal.timeout(120_000),
+  });
+  if (!dlRes.ok) throw new Error(`Download failed: ${dlRes.status}`);
+  const videoData = new Uint8Array(await dlRes.arrayBuffer());
+
+  // 3. Upload to Gemini Files API (multipart)
+  const boundary = "tg_video_boundary";
+  const displayName = fileName || filePath.split("/").pop() || "video.mp4";
+  const metaJson = JSON.stringify({ file: { display_name: displayName } });
+  const metaPart  = `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${metaJson}\r\n`;
+  const dataPart  = `--${boundary}\r\nContent-Type: ${mimeType}\r\n\r\n`;
+  const closing   = `\r\n--${boundary}--`;
+  const enc = new TextEncoder();
+  const metaBytes  = enc.encode(metaPart);
+  const dataHeader = enc.encode(dataPart);
+  const closeBytes = enc.encode(closing);
+  const uploadBody = new Uint8Array(metaBytes.length + dataHeader.length + videoData.length + closeBytes.length);
+  uploadBody.set(metaBytes, 0);
+  uploadBody.set(dataHeader, metaBytes.length);
+  uploadBody.set(videoData, metaBytes.length + dataHeader.length);
+  uploadBody.set(closeBytes, metaBytes.length + dataHeader.length + videoData.length);
+
+  const uploadRes = await fetch(
+    `https://generativelanguage.googleapis.com/upload/v1beta/files?uploadType=multipart&key=${geminiKey}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": `multipart/related; boundary=${boundary}` },
+      body: uploadBody,
+      signal: AbortSignal.timeout(120_000),
+    },
+  );
+  if (!uploadRes.ok) throw new Error(`Gemini upload ${uploadRes.status}: ${(await uploadRes.text()).slice(0, 200)}`);
+  const uploaded = await uploadRes.json();
+  const fileUri        = String(uploaded.file?.uri ?? "");
+  const geminiFileName = String(uploaded.file?.name ?? "");
+
+  // 4. Poll until file state is ACTIVE (Gemini processes video server-side)
+  for (let i = 0; i < 40; i++) {
+    await new Promise(r => setTimeout(r, 3000));
+    const statusRes = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/${geminiFileName}?key=${geminiKey}`,
+      { signal: AbortSignal.timeout(10_000) },
+    );
+    if (statusRes.ok) {
+      const s = await statusRes.json();
+      if (s.state === "ACTIVE") break;
+      if (s.state === "FAILED") throw new Error("Gemini video processing failed");
+    }
+    if (i === 39) throw new Error("Gemini video processing timed out");
+  }
+
+  // 5. Analyze with Gemini 2.5 Flash
+  const prompt = caption
+    ? `The user says: "${caption}"\n\nAnalyze this video with that context. Also provide a general description of what's happening visually and any audio/speech you can detect.`
+    : `Analyze this video completely:\n\n1. VISUAL (with timestamps MM:SS): What is happening scene by scene? People, actions, text on screen, objects.\n2. AUDIO: Transcribe any speech verbatim. Note [music], [silence], etc.\n3. KEY MOMENTS: 3-5 most notable moments with timestamps.\n4. SUMMARY: One paragraph overview.`;
+
+  const analyzeRes = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${geminiKey}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contents: [{ role: "user", parts: [
+          { file_data: { mime_type: mimeType, file_uri: fileUri } },
+          { text: prompt },
+        ]}],
+        generationConfig: { maxOutputTokens: 8192 },
+      }),
+      signal: AbortSignal.timeout(180_000),
+    },
+  );
+
+  // Cleanup uploaded file from Gemini (fire and forget)
+  fetch(
+    `https://generativelanguage.googleapis.com/v1beta/${geminiFileName}?key=${geminiKey}`,
+    { method: "DELETE" },
+  ).catch(() => {});
+
+  if (!analyzeRes.ok) throw new Error(`Gemini analysis ${analyzeRes.status}: ${(await analyzeRes.text()).slice(0, 200)}`);
+  const result = await analyzeRes.json();
+  const analysisParts: any[] = result.candidates?.[0]?.content?.parts ?? [];
+  const analysisText = analysisParts.filter((p: any) => p.text && !p.thought).map((p: any) => p.text).join("").trim();
+  if (!analysisText) throw new Error("Gemini returned empty analysis");
+  return analysisText;
+}
+
+// ─────────────────────────────────────────────────────────────
 // CONVERSATION MEMORY (chat_conversations + chat_messages)
 // ─────────────────────────────────────────────────────────────
 
@@ -2512,11 +2623,56 @@ serve(async (req) => {
       return;
     }
 
+    // Video / animation / video_note — Gemini full visual analysis
+    const videoObj = (message.video ?? message.animation ?? message.video_note) as Record<string, unknown> | undefined;
+    if (!wasVoice && !wasPhoto && videoObj?.file_id) {
+      const videoFileId  = String(videoObj.file_id ?? "");
+      const videoMime    = String((videoObj as any).mime_type ?? "video/mp4");
+      const videoCaption = message.caption ? String(message.caption) : undefined;
+      const videoName    = String((videoObj as any).file_name ?? "video.mp4");
+
+      await send(chatId, "🎬 Analyzing video... this may take 15-30 seconds.");
+      await typing(chatId);
+
+      try {
+        const analysis = await analyzeVideoWithGemini(videoFileId, videoMime, videoName, videoCaption);
+        // Inject Gemini's analysis as the user's message so it flows through the
+        // normal MAVIS / persona / council routing (same pattern as photo captions).
+        const sessionId = await getOrCreateSession(uid);
+        const history   = sessionId ? await loadHistory(sessionId) : [];
+        const userPrompt = `[Video uploaded — Gemini visual analysis below]\n\n${analysis}`;
+        await handleChat(chatId, uid, userPrompt, history, sessionId);
+      } catch (err: any) {
+        console.error("[telegram-video]", err.message);
+        await send(chatId, `❌ Video analysis failed: ${err.message.slice(0, 200)}`);
+      }
+      return;
+    }
+
     // Document / audio file — text extraction or image routing
     const doc = (message.document ?? (!wasVoice && message.audio)) as Record<string, unknown> | undefined;
     if (!wasVoice && !wasPhoto && doc?.file_id) {
       await typing(chatId);
       const fileName = String(doc.file_name ?? "file");
+
+      // Documents that are videos → route to Gemini visual analysis
+      const docMime = String((doc as any).mime_type ?? "");
+      if (docMime.startsWith("video/")) {
+        const videoCaption = message.caption ? String(message.caption) : undefined;
+        await send(chatId, "🎬 Analyzing video... this may take 15-30 seconds.");
+        try {
+          const analysis = await analyzeVideoWithGemini(String(doc.file_id), docMime, fileName, videoCaption);
+          const sessionId = await getOrCreateSession(uid);
+          const history   = sessionId ? await loadHistory(sessionId) : [];
+          const userPrompt = `[Video uploaded — Gemini visual analysis below]\n\n${analysis}`;
+          await handleChat(chatId, uid, userPrompt, history, sessionId);
+        } catch (err: any) {
+          console.error("[telegram-video-doc]", err.message);
+          await send(chatId, `❌ Video analysis failed: ${err.message.slice(0, 200)}`);
+        }
+        return;
+      }
+
       const result = await downloadFileContent(String(doc.file_id), fileName);
       if (result.error) {
         await send(chatId, `⚠️ ${result.error}`);

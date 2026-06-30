@@ -59,6 +59,119 @@ async function transcribeWithScribe(file: Blob, fileName: string): Promise<strin
   return String(json.text ?? "").slice(0, 60000);
 }
 
+async function uploadToGeminiFiles(
+  data: Uint8Array,
+  mimeType: string,
+  displayName: string,
+  geminiKey: string,
+): Promise<{ uri: string; name: string }> {
+  const boundary = "mavis_upload_boundary";
+  const metaJson = JSON.stringify({ file: { display_name: displayName } });
+
+  const metaPart = `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${metaJson}\r\n`;
+  const dataPart = `--${boundary}\r\nContent-Type: ${mimeType}\r\n\r\n`;
+  const closing  = `\r\n--${boundary}--`;
+
+  const encoder = new TextEncoder();
+  const metaBytes  = encoder.encode(metaPart);
+  const dataHeader = encoder.encode(dataPart);
+  const closeBytes = encoder.encode(closing);
+
+  const body = new Uint8Array(metaBytes.length + dataHeader.length + data.length + closeBytes.length);
+  body.set(metaBytes,   0);
+  body.set(dataHeader,  metaBytes.length);
+  body.set(data,        metaBytes.length + dataHeader.length);
+  body.set(closeBytes,  metaBytes.length + dataHeader.length + data.length);
+
+  const uploadRes = await fetch(
+    `https://generativelanguage.googleapis.com/upload/v1beta/files?uploadType=multipart&key=${geminiKey}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": `multipart/related; boundary=${boundary}` },
+      body,
+      signal: AbortSignal.timeout(120_000),
+    },
+  );
+  if (!uploadRes.ok) {
+    const err = await uploadRes.text();
+    throw new Error(`Gemini upload failed ${uploadRes.status}: ${err.slice(0, 300)}`);
+  }
+  const uploaded = await uploadRes.json();
+  return { uri: String(uploaded.file?.uri ?? ""), name: String(uploaded.file?.name ?? "") };
+}
+
+async function analyzeVideoWithGemini(blob: Blob, fileName: string, mime: string): Promise<string> {
+  const geminiKey = Deno.env.get("GEMINI_API_KEY");
+  if (!geminiKey) throw new Error("GEMINI_API_KEY not configured");
+
+  const data = new Uint8Array(await blob.arrayBuffer());
+  const { uri, name } = await uploadToGeminiFiles(data, mime, fileName, geminiKey);
+
+  // Poll until ACTIVE
+  for (let i = 0; i < 40; i++) {
+    await new Promise(r => setTimeout(r, 3000));
+    const statusRes = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/${name}?key=${geminiKey}`,
+      { signal: AbortSignal.timeout(10_000) },
+    );
+    if (statusRes.ok) {
+      const s = await statusRes.json();
+      if (s.state === "ACTIVE") break;
+      if (s.state === "FAILED") throw new Error("Gemini file processing failed");
+    }
+    if (i === 39) throw new Error("Gemini file processing timed out after 120s");
+  }
+
+  // Analyze
+  const prompt = `Analyze this video completely. Provide:
+
+1. VISUAL ANALYSIS (with timestamps):
+   Describe what is happening visually, scene by scene. Format as "MM:SS – MM:SS — [description]". Note people, expressions, actions, objects, text on screen, graphics.
+
+2. AUDIO TRANSCRIPT:
+   Transcribe all spoken words verbatim. Note speaker changes if multiple people. Include non-speech audio events in brackets like [music], [applause], [background noise].
+
+3. KEY MOMENTS:
+   List the 3-5 most important moments with timestamps.
+
+4. SUMMARY:
+   One paragraph overview of the entire video's content and purpose.
+
+Be thorough — this analysis is the only way the AI system can "see" this video.`;
+
+  const analyzeRes = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${geminiKey}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contents: [{ role: "user", parts: [
+          { file_data: { mime_type: mime, file_uri: uri } },
+          { text: prompt },
+        ]}],
+        generationConfig: { maxOutputTokens: 16384 },
+      }),
+      signal: AbortSignal.timeout(180_000),
+    },
+  );
+
+  // Cleanup (fire and forget)
+  fetch(
+    `https://generativelanguage.googleapis.com/v1beta/${name}?key=${geminiKey}`,
+    { method: "DELETE" },
+  ).catch(() => {});
+
+  if (!analyzeRes.ok) {
+    const err = await analyzeRes.text();
+    throw new Error(`Gemini analysis failed ${analyzeRes.status}: ${err.slice(0, 300)}`);
+  }
+  const result = await analyzeRes.json();
+  const parts: any[] = result.candidates?.[0]?.content?.parts ?? [];
+  const text = parts.filter((p: any) => p.text && !p.thought).map((p: any) => p.text).join("").trim();
+  if (!text) throw new Error("Gemini returned empty analysis");
+  return text.slice(0, 60000);
+}
+
 // Cascading multimodal description:
 //   1. Gemini (inline base64 — handles images + PDFs natively)
 //   2. Claude Haiku (images only — vision)
@@ -238,10 +351,31 @@ Deno.serve(async (req) => {
       // Plain text, CSV, JSON, code — read directly, no AI needed
       extracted = (await blob.text()).slice(0, 60000);
     } else if (kind === "audio" || kind === "video") {
-      if (size > 100 * 1024 * 1024) {
-        extracted = `[File too large for transcription — ${(size / 1024 / 1024).toFixed(1)} MB]`;
+      const videoSizeLimit = 500 * 1024 * 1024; // 500MB for Gemini
+      const audioSizeLimit = 100 * 1024 * 1024; // 100MB for Scribe
+
+      if (kind === "video") {
+        if (size > videoSizeLimit) {
+          extracted = `[Video too large for analysis — ${(size / 1024 / 1024).toFixed(1)} MB. Max 500 MB.]`;
+        } else {
+          try {
+            extracted = await analyzeVideoWithGemini(blob, attachment.file_name, attachment.mime_type);
+          } catch (geminiErr: any) {
+            console.warn("[video] Gemini analysis failed, falling back to Scribe:", geminiErr.message);
+            try {
+              extracted = await transcribeWithScribe(blob, attachment.file_name);
+            } catch (scribeErr: any) {
+              extracted = `[Video analysis failed: ${geminiErr.message}. Scribe fallback also failed: ${scribeErr.message}]`;
+            }
+          }
+        }
       } else {
-        extracted = await transcribeWithScribe(blob, attachment.file_name);
+        // Audio — Scribe handles this well, no need for Gemini Files
+        if (size > audioSizeLimit) {
+          extracted = `[Audio too large for transcription — ${(size / 1024 / 1024).toFixed(1)} MB. Max 100 MB.]`;
+        } else {
+          extracted = await transcribeWithScribe(blob, attachment.file_name);
+        }
       }
     } else if (kind === "image") {
       if (size > MAX_BYTES_FOR_INLINE) {
@@ -303,7 +437,7 @@ Deno.serve(async (req) => {
           const tagMap: Record<string, string[]> = {
             image: ["attachment", "image"],
             audio: ["attachment", "audio", "transcript"],
-            video: ["attachment", "video", "transcript"],
+            video: ["attachment", "video", "analysis"],
             pdf:   ["attachment", "document"],
             text:  ["attachment", "document"],
           };

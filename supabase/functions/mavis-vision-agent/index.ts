@@ -1,11 +1,11 @@
 // mavis-vision-agent
-// Image analysis using Claude's native vision (no external API key required —
-// uses the project's ANTHROPIC_API_KEY). Accepts images as public URLs,
-// base64 data, or Supabase Storage paths.
+// Image and video analysis using Gemini 2.5 Flash (primary) with Claude fallback.
+// Accepts images as public URLs, base64 data, or Supabase Storage paths.
+// Video analysis uses Gemini Files API (requires GEMINI_API_KEY).
 //
 // Actions: analyze | ocr | describe | extract_license_plate | extract_receipt
 //          extract_document | extract_table | classify | compare
-//          vision_loop | vision_analyze
+//          analyze_video | analyze_multi | vision_loop | vision_analyze
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
@@ -19,6 +19,8 @@ const SB_URL       = Deno.env.get("SUPABASE_URL")!;
 const SB_SRK       = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const ANTHROPIC_KEY = Deno.env.get("ANTHROPIC_API_KEY")!;
 const CLAUDE_API    = "https://api.anthropic.com/v1/messages";
+const GEMINI_KEY = Deno.env.get("GEMINI_API_KEY") ?? "";
+const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent`;
 
 // ── Image source builder ────────────────────────────────────────
 
@@ -104,6 +106,83 @@ async function callVisionJSON(
   return JSON.parse(match[0]);
 }
 
+async function callGeminiVision(
+  imageSource: ImageSource,
+  prompt: string,
+  maxTokens = 4096,
+): Promise<string> {
+  if (!GEMINI_KEY) throw new Error("GEMINI_API_KEY not configured");
+
+  // Resolve base64 from URL if needed
+  let part: Record<string, unknown>;
+  if (imageSource.type === "base64") {
+    part = { inline_data: { mime_type: imageSource.media_type, data: imageSource.data } };
+  } else {
+    // Download URL to base64 for Gemini
+    const res = await fetch(imageSource.url, { signal: AbortSignal.timeout(15_000) });
+    if (!res.ok) throw new Error(`Failed to fetch image: ${res.status}`);
+    const buf = await res.arrayBuffer();
+    const b64 = btoa(String.fromCharCode(...new Uint8Array(buf)));
+    const ct  = res.headers.get("content-type") ?? "image/jpeg";
+    part = { inline_data: { mime_type: ct, data: b64 } };
+  }
+
+  const res = await fetch(`${GEMINI_URL}?key=${GEMINI_KEY}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      contents: [{ role: "user", parts: [part, { text: prompt }] }],
+      generationConfig: { maxOutputTokens: maxTokens },
+    }),
+    signal: AbortSignal.timeout(30_000),
+  });
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(`Gemini vision failed ${res.status}: ${err.slice(0, 200)}`);
+  }
+  const j = await res.json();
+  const parts: any[] = j.candidates?.[0]?.content?.parts ?? [];
+  const text = parts.filter((p: any) => p.text && !p.thought).map((p: any) => p.text).join("").trim();
+  if (!text) throw new Error("Gemini returned empty response");
+  return text;
+}
+
+// Upload a video/audio file to Gemini Files API and return { uri, name }
+async function uploadToGeminiFiles(
+  data: Uint8Array,
+  mimeType: string,
+  displayName: string,
+): Promise<{ uri: string; name: string }> {
+  if (!GEMINI_KEY) throw new Error("GEMINI_API_KEY not configured");
+  const boundary = "mavis_va_boundary";
+  const metaJson = JSON.stringify({ file: { display_name: displayName } });
+  const metaPart  = `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${metaJson}\r\n`;
+  const dataPart  = `--${boundary}\r\nContent-Type: ${mimeType}\r\n\r\n`;
+  const closing   = `\r\n--${boundary}--`;
+  const enc = new TextEncoder();
+  const metaBytes  = enc.encode(metaPart);
+  const dataHeader = enc.encode(dataPart);
+  const closeBytes = enc.encode(closing);
+  const body = new Uint8Array(metaBytes.length + dataHeader.length + data.length + closeBytes.length);
+  body.set(metaBytes, 0);
+  body.set(dataHeader, metaBytes.length);
+  body.set(data, metaBytes.length + dataHeader.length);
+  body.set(closeBytes, metaBytes.length + dataHeader.length + data.length);
+
+  const uploadRes = await fetch(
+    `https://generativelanguage.googleapis.com/upload/v1beta/files?uploadType=multipart&key=${GEMINI_KEY}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": `multipart/related; boundary=${boundary}` },
+      body,
+      signal: AbortSignal.timeout(120_000),
+    },
+  );
+  if (!uploadRes.ok) throw new Error(`Gemini upload ${uploadRes.status}: ${(await uploadRes.text()).slice(0, 200)}`);
+  const uploaded = await uploadRes.json();
+  return { uri: String(uploaded.file?.uri ?? ""), name: String(uploaded.file?.name ?? "") };
+}
+
 // ── Main ───────────────────────────────────────────────────────
 
 serve(async (req) => {
@@ -142,9 +221,18 @@ serve(async (req) => {
     switch (action) {
 
       case "analyze": {
-        const prompt = String(body.prompt ?? "Analyze this image and describe what you see.");
-        const text   = await callVision(imageSource, prompt, model);
-        return json({ result: text });
+        const prompt = String(body.prompt ?? "Analyze this image in detail. Describe the subject, context, any text visible, colors, mood, people, objects, and anything notable.");
+        // Try Gemini first (better quality), fall back to Claude
+        if (GEMINI_KEY && model === "claude-haiku-4-5-20251001") {
+          try {
+            const text = await callGeminiVision(imageSource, prompt, 4096);
+            return json({ result: text, model: "gemini-2.5-flash" });
+          } catch (e: any) {
+            console.warn("[analyze] Gemini failed, falling back to Claude:", e.message);
+          }
+        }
+        const text = await callVision(imageSource, prompt, model);
+        return json({ result: text, model });
       }
 
       case "ocr": {
@@ -164,8 +252,17 @@ serve(async (req) => {
           detailed: "Provide a detailed description of this image: subject, background, colors, text, objects, people, actions, mood, and anything else notable.",
           alt_text: "Write accessible alt text for this image suitable for screen readers. Be concise and descriptive.",
         };
-        const text = await callVision(imageSource, prompts[detail] ?? prompts.standard, model);
-        return json({ description: text, detail });
+        const prompt = prompts[detail] ?? prompts.standard;
+        if (GEMINI_KEY && model === "claude-haiku-4-5-20251001") {
+          try {
+            const text = await callGeminiVision(imageSource, prompt, 2048);
+            return json({ description: text, detail, model: "gemini-2.5-flash" });
+          } catch (e: any) {
+            console.warn("[describe] Gemini failed, falling back to Claude:", e.message);
+          }
+        }
+        const text = await callVision(imageSource, prompt, model);
+        return json({ description: text, detail, model });
       }
 
       case "classify": {
@@ -527,9 +624,149 @@ Reply ONLY with JSON: {"action": "click|type|navigate|scroll|done|error", "selec
         });
       }
 
+      // ── analyze_video ──────────────────────────────────────────────────────────
+      // Full visual analysis of a video using Gemini Files API
+      // Input: { video_url?, video_base64?, mime_type?, prompt? }
+      case "analyze_video": {
+        if (!GEMINI_KEY) return json({ error: "GEMINI_API_KEY required for video analysis" }, 400);
+
+        const videoPrompt = String(body.prompt ?? `Analyze this video completely. Provide:
+
+1. VISUAL ANALYSIS (with timestamps):
+   Describe what is happening visually, scene by scene. Format as "MM:SS – MM:SS — [description]". Note people, expressions, actions, objects, on-screen text, graphics, UI elements.
+
+2. AUDIO TRANSCRIPT:
+   Transcribe all spoken words verbatim. Note speaker changes. Include non-speech events in brackets like [music], [laughter], [silence].
+
+3. KEY MOMENTS:
+   List the 3-5 most important or interesting moments with timestamps.
+
+4. SUMMARY:
+   One paragraph overview of the video's content, purpose, and context.`);
+
+        // Get video bytes
+        let videoData: Uint8Array;
+        let videoMime: string;
+        let videoName: string;
+
+        if (body.video_base64) {
+          const raw = String(body.video_base64).replace(/^data:[^;]+;base64,/, "");
+          videoData = Uint8Array.from(atob(raw), c => c.charCodeAt(0));
+          videoMime = String(body.mime_type ?? "video/mp4");
+          videoName = String(body.file_name ?? "video.mp4");
+        } else if (body.video_url) {
+          const res = await fetch(String(body.video_url), { signal: AbortSignal.timeout(60_000) });
+          if (!res.ok) throw new Error(`Failed to fetch video: ${res.status}`);
+          videoData = new Uint8Array(await res.arrayBuffer());
+          videoMime = res.headers.get("content-type") ?? String(body.mime_type ?? "video/mp4");
+          videoName = String(body.file_name ?? "video.mp4");
+        } else {
+          return json({ error: "video_url or video_base64 required for analyze_video" }, 400);
+        }
+
+        const { uri, name: fileName } = await uploadToGeminiFiles(videoData, videoMime, videoName);
+
+        // Poll for ACTIVE state
+        for (let i = 0; i < 40; i++) {
+          await new Promise(r => setTimeout(r, 3000));
+          const statusRes = await fetch(
+            `https://generativelanguage.googleapis.com/v1beta/${fileName}?key=${GEMINI_KEY}`,
+            { signal: AbortSignal.timeout(10_000) },
+          );
+          if (statusRes.ok) {
+            const s = await statusRes.json();
+            if (s.state === "ACTIVE") break;
+            if (s.state === "FAILED") throw new Error("Gemini file processing failed");
+          }
+          if (i === 39) throw new Error("Gemini file processing timed out");
+        }
+
+        // Analyze
+        const analyzeRes = await fetch(`${GEMINI_URL}?key=${GEMINI_KEY}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            contents: [{ role: "user", parts: [
+              { file_data: { mime_type: videoMime, file_uri: uri } },
+              { text: videoPrompt },
+            ]}],
+            generationConfig: { maxOutputTokens: 16384 },
+          }),
+          signal: AbortSignal.timeout(180_000),
+        });
+
+        // Cleanup (fire and forget)
+        fetch(
+          `https://generativelanguage.googleapis.com/v1beta/${fileName}?key=${GEMINI_KEY}`,
+          { method: "DELETE" },
+        ).catch(() => {});
+
+        if (!analyzeRes.ok) {
+          const err = await analyzeRes.text();
+          throw new Error(`Gemini video analysis failed ${analyzeRes.status}: ${err.slice(0, 300)}`);
+        }
+        const result = await analyzeRes.json();
+        const vParts: any[] = result.candidates?.[0]?.content?.parts ?? [];
+        const analysis = vParts.filter((p: any) => p.text && !p.thought).map((p: any) => p.text).join("").trim();
+
+        return json({ analysis, model: "gemini-2.5-flash", file: videoName });
+      }
+
+      // ── analyze_multi ──────────────────────────────────────────────────────────
+      // Analyze multiple images together in one Gemini call
+      // Input: { images: Array<{ url?, base64?, media_type?, label? }>, prompt? }
+      case "analyze_multi": {
+        if (!GEMINI_KEY) return json({ error: "GEMINI_API_KEY required for multi-image analysis" }, 400);
+
+        const images: any[] = Array.isArray(body.images) ? body.images : [];
+        if (images.length === 0) return json({ error: "images array required (at least 1)" }, 400);
+        if (images.length > 16) return json({ error: "max 16 images per request" }, 400);
+
+        const multiPrompt = String(body.prompt ?? "Analyze all these images together. Describe each one and note any relationships, patterns, or comparisons between them.");
+
+        const parts: Record<string, unknown>[] = [];
+        for (let i = 0; i < images.length; i++) {
+          const img = images[i];
+          if (img.label) parts.push({ text: `Image ${i + 1}${img.label ? ` (${img.label})` : ""}:` });
+
+          if (img.base64) {
+            const raw = String(img.base64).replace(/^data:[^;]+;base64,/, "");
+            parts.push({ inline_data: { mime_type: String(img.media_type ?? "image/jpeg"), data: raw } });
+          } else if (img.url) {
+            const res = await fetch(String(img.url), { signal: AbortSignal.timeout(15_000) });
+            if (!res.ok) throw new Error(`Failed to fetch image ${i + 1}: ${res.status}`);
+            const buf = await res.arrayBuffer();
+            const b64 = btoa(String.fromCharCode(...new Uint8Array(buf)));
+            const ct  = res.headers.get("content-type") ?? "image/jpeg";
+            parts.push({ inline_data: { mime_type: ct, data: b64 } });
+          }
+        }
+        parts.push({ text: multiPrompt });
+
+        const res = await fetch(`${GEMINI_URL}?key=${GEMINI_KEY}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            contents: [{ role: "user", parts }],
+            generationConfig: { maxOutputTokens: 8192 },
+          }),
+          signal: AbortSignal.timeout(60_000),
+        });
+
+        if (!res.ok) {
+          const err = await res.text();
+          throw new Error(`Gemini multi-image failed ${res.status}: ${err.slice(0, 300)}`);
+        }
+        const j = await res.json();
+        const rParts: any[] = j.candidates?.[0]?.content?.parts ?? [];
+        const analysis = rParts.filter((p: any) => p.text && !p.thought).map((p: any) => p.text).join("").trim();
+
+        return json({ analysis, image_count: images.length, model: "gemini-2.5-flash" });
+      }
+
       default:
         return json({
-          error: `Unknown action: ${action}. Use: analyze | ocr | describe | classify | extract_license_plate | extract_receipt | extract_document | extract_table | compare | vision_loop | vision_analyze`,
+          error: `Unknown action: ${action}. Use: analyze | ocr | describe | classify | extract_license_plate | extract_receipt | extract_document | extract_table | compare | analyze_video | analyze_multi | vision_loop | vision_analyze`,
         }, 400);
     }
   } catch (err: unknown) {
