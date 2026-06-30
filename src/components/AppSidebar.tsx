@@ -11,6 +11,7 @@ import {
   Users2, LayoutGrid, Trophy, Gauge, Bell, CreditCard, Upload,
   BrainCircuit, Brain, SlidersHorizontal, Phone, MessageSquare, Key, Users2 as UserGroup, Shield as ShieldIcon, PhoneCall,
   PanelLeftClose,
+  Factory,
 } from "lucide-react";
 import { useState, useContext } from "react";
 import { motion, AnimatePresence } from "framer-motion";
@@ -92,6 +93,7 @@ const UTILITY_NAV = [
   { to: "/rankings", icon: Medal, label: "Rankings" },
   { to: "/tower", icon: TowerControl, label: "Tower" },
   { to: "/scouter", icon: Shield, label: "Scouter" },
+  { to: "/factory", icon: Factory, label: "Factory Floor" },
   { to: "/bpm", icon: Activity, label: "BPM" },
   { to: "/store", icon: ShoppingBag, label: "Store" },
   { to: "/activity", icon: CheckSquare, label: "Activity Log" },
