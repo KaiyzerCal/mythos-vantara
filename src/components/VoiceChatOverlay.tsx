@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { X, Mic } from "lucide-react";
+import { X, Mic, Pause, Play, Square } from "lucide-react";
 import { streamChatMessage } from "@/mavis/chatService";
 import { supabase } from "@/integrations/supabase/client";
 
@@ -39,6 +39,7 @@ export function VoiceChatOverlay({
   onExchange,
 }: VoiceChatOverlayProps) {
   const [phase, setPhase] = useState<Phase>("idle");
+  const [isPaused, setIsPaused] = useState(false);
   const [transcript, setTranscript] = useState("");
   const [interimTranscript, setInterimTranscript] = useState("");
 
@@ -857,12 +858,15 @@ export function VoiceChatOverlay({
     ttsConsecFailuresRef.current = 0;
   }, []);
 
-  const handleOrbOrMicTap = useCallback(() => {
-    // Unlock iOS audio session on every tap so async speakReply() can play sound.
-    // On other platforms this is a harmless no-op after the first call.
+  // Reset pause state whenever speech ends for any reason
+  useEffect(() => {
+    if (phase !== "speaking") setIsPaused(false);
+  }, [phase]);
+
+  // Orb (top) — pause/resume during speaking; normal tap-to-speak otherwise
+  const handleOrbTap = useCallback(() => {
     unlockAudio();
     if (liveMode) {
-      // In live mode, tapping sends an interrupt signal
       if (liveWsRef.current?.readyState === WebSocket.OPEN) {
         liveWsRef.current.send(JSON.stringify({ type: "interrupt" }));
       }
@@ -872,13 +876,54 @@ export function VoiceChatOverlay({
     else if (phase === "listening") {
       if (recognitionRef.current) recognitionRef.current.stop();
     } else if (phase === "thinking") {
-      // Cancel the in-flight request by bumping the request ID, then return to idle
-      // so the user isn't permanently stuck waiting for a slow/hung edge function.
       requestIdRef.current++;
       setPersonaLoading(false);
       setPhase("idle");
     } else if (phase === "speaking") {
+      if (isPaused) {
+        // Resume
+        if (elevenAudioElRef.current) {
+          elevenAudioElRef.current.play().catch(() => {});
+        } else if (window.speechSynthesis) {
+          window.speechSynthesis.resume();
+        }
+        setIsPaused(false);
+      } else {
+        // Pause
+        if (elevenAudioElRef.current) {
+          elevenAudioElRef.current.pause();
+        } else if (window.speechSynthesis) {
+          window.speechSynthesis.pause();
+        }
+        setIsPaused(true);
+      }
+    }
+  }, [phase, liveMode, isPaused, startListening, unlockAudio]);
+
+  // Bottom button — stop (cancel) during speaking; tap-to-speak otherwise
+  const handleStopTap = useCallback(() => {
+    unlockAudio();
+    if (liveMode) {
+      if (liveWsRef.current?.readyState === WebSocket.OPEN) {
+        liveWsRef.current.send(JSON.stringify({ type: "interrupt" }));
+      }
+      return;
+    }
+    if (phase === "idle") startListening();
+    else if (phase === "listening") {
+      if (recognitionRef.current) recognitionRef.current.stop();
+    } else if (phase === "thinking") {
+      requestIdRef.current++;
+      setPersonaLoading(false);
+      setPhase("idle");
+    } else if (phase === "speaking") {
+      if (elevenAudioElRef.current) {
+        try { elevenAudioElRef.current.pause(); } catch { /* ignore */ }
+        elevenAudioElRef.current.src = "";
+        elevenAudioElRef.current = null;
+      }
       if (window.speechSynthesis) window.speechSynthesis.cancel();
+      setIsPaused(false);
       setPhase("idle");
     }
   }, [phase, liveMode, startListening, unlockAudio]);
@@ -887,7 +932,7 @@ export function VoiceChatOverlay({
     idle: "TAP TO SPEAK",
     listening: "LISTENING — pause ~10s to send",
     thinking: "THINKING... — TAP TO CANCEL",
-    speaking: "TAP ORB TO INTERRUPT",
+    speaking: isPaused ? "PAUSED — TAP ORB TO RESUME" : "TAP ORB TO PAUSE",
   };
 
   const speakerName = persona?.name ?? "MAVIS";
@@ -945,15 +990,17 @@ export function VoiceChatOverlay({
         </button>
       </div>
 
-      {/* Orb */}
+      {/* Orb — pause/resume during speaking */}
       <button
-        onClick={handleOrbOrMicTap}
+        onClick={handleOrbTap}
         className={[
           "relative w-20 h-20 rounded-full flex items-center justify-center transition-all duration-300 shrink-0 overflow-hidden",
           "bg-primary/20 border-2 border-primary/40",
           phase === "listening" ? "animate-pulse scale-110" : "",
-          phase === "speaking"  ? "shadow-[0_0_40px_rgba(139,92,246,0.5)] scale-105" : "",
+          phase === "speaking" && !isPaused ? "shadow-[0_0_40px_rgba(139,92,246,0.5)] scale-105" : "",
+          phase === "speaking" && isPaused  ? "shadow-[0_0_20px_rgba(139,92,246,0.3)] opacity-70" : "",
         ].filter(Boolean).join(" ")}
+        aria-label={phase === "speaking" ? (isPaused ? "Resume" : "Pause") : undefined}
       >
         <span className={[
           "absolute inset-1 rounded-full border-2 border-transparent border-t-primary/70 z-10",
@@ -962,6 +1009,13 @@ export function VoiceChatOverlay({
         {persona?.avatarUrl ? (
           <>
             <img src={persona.avatarUrl} alt={speakerName} className="absolute inset-0 w-full h-full object-cover" />
+            {phase === "speaking" && (
+              <div className="absolute inset-0 flex items-center justify-center bg-black/50 z-10">
+                {isPaused
+                  ? <Play size={28} className="text-primary" />
+                  : <Pause size={28} className="text-primary" />}
+              </div>
+            )}
             {phase === "listening" && (
               <div className="absolute inset-0 flex items-center justify-center bg-black/40 z-10">
                 <Mic size={28} className="text-primary" />
@@ -969,7 +1023,11 @@ export function VoiceChatOverlay({
             )}
           </>
         ) : (
-          <Mic size={28} className={phase === "listening" ? "text-primary" : "text-primary/60"} />
+          phase === "speaking"
+            ? (isPaused
+                ? <Play size={28} className="text-primary" />
+                : <Pause size={28} className="text-primary" />)
+            : <Mic size={28} className={phase === "listening" ? "text-primary" : "text-primary/60"} />
         )}
       </button>
 
@@ -1028,18 +1086,20 @@ export function VoiceChatOverlay({
         </div>
       ) : null}
 
-      {/* Bottom mic button */}
+      {/* Bottom mic button — stop during speaking, tap-to-speak otherwise */}
       <button
-        onClick={handleOrbOrMicTap}
+        onClick={handleStopTap}
         className={[
           "absolute bottom-12 w-20 h-20 rounded-full flex items-center justify-center transition-all duration-300 border-2",
           phase === "listening"
             ? "bg-destructive/20 border-destructive/50 text-destructive animate-pulse"
+            : phase === "speaking"
+            ? "bg-destructive/20 border-destructive/50 text-destructive hover:bg-destructive/30"
             : "bg-primary/10 border-primary/30 text-primary/70 hover:bg-primary/20 hover:text-primary",
         ].join(" ")}
-        aria-label={phase === "listening" ? "Stop" : "Speak"}
+        aria-label={phase === "speaking" ? "Stop" : phase === "listening" ? "Stop" : "Speak"}
       >
-        <Mic size={32} />
+        {phase === "speaking" ? <Square size={28} /> : <Mic size={32} />}
       </button>
     </motion.div>
   );
