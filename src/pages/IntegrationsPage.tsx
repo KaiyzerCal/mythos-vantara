@@ -136,6 +136,13 @@ const INTEGRATION_GROUPS: GroupDef[] = [
     label: "Productivity & Automation",
     icon: "Share2",
     providers: [
+      {
+        id: "notion",
+        name: "Notion",
+        description: "Read and write your Notion workspace — MAVIS can search pages, create entries, update databases, and append content. Pages are also auto-synced into MAVIS memory so she can answer questions from your knowledge base. Requires an Internal Integration Token (create at notion.so/my-integrations, then share the pages/databases you want MAVIS to see).",
+        keys: ["API Key (Internal Integration Token)"],
+        docsUrl: null,
+      },
       { id: "reclaim", name: "Reclaim.ai", description: "Intelligent calendar defense and schedule optimization", keys: ["API Key"], docsUrl: null },
       { id: "n8n", name: "n8n", description: "Workflow automation — local or cloud instance", keys: ["API Key", "Base URL"], docsUrl: null },
     ],
