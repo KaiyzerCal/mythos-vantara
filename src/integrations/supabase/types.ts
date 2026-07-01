@@ -1356,6 +1356,36 @@ export type Database = {
         }
         Relationships: []
       }
+      mavis_agent_config: {
+        Row: {
+          content: string
+          enabled: boolean | null
+          id: string
+          section: string
+          sort_order: number | null
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          content: string
+          enabled?: boolean | null
+          id?: string
+          section: string
+          sort_order?: number | null
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          content?: string
+          enabled?: boolean | null
+          id?: string
+          section?: string
+          sort_order?: number | null
+          updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
       mavis_agent_karma: {
         Row: {
           agent_id: string
@@ -3182,6 +3212,47 @@ export type Database = {
         }
         Relationships: []
       }
+      mavis_notion_sync_log: {
+        Row: {
+          id: string
+          last_edited: string | null
+          memory_id: string | null
+          notion_page_id: string
+          page_title: string | null
+          page_url: string | null
+          synced_at: string | null
+          user_id: string
+        }
+        Insert: {
+          id?: string
+          last_edited?: string | null
+          memory_id?: string | null
+          notion_page_id: string
+          page_title?: string | null
+          page_url?: string | null
+          synced_at?: string | null
+          user_id: string
+        }
+        Update: {
+          id?: string
+          last_edited?: string | null
+          memory_id?: string | null
+          notion_page_id?: string
+          page_title?: string | null
+          page_url?: string | null
+          synced_at?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "mavis_notion_sync_log_memory_id_fkey"
+            columns: ["memory_id"]
+            isOneToOne: false
+            referencedRelation: "mavis_agent_memories"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       mavis_oauth_tokens: {
         Row: {
           access_token: string
@@ -3701,6 +3772,66 @@ export type Database = {
           last_error?: string | null
           last_fetched_at?: string | null
           name?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      mavis_ruview_state: {
+        Row: {
+          apnea_events: number | null
+          breathing_rate_bpm: number | null
+          fall_detected: boolean | null
+          heart_rate_bpm: number | null
+          hrv_ms: number | null
+          id: string
+          last_fall_at: string | null
+          n_persons: number | null
+          node_id: string | null
+          pose_confidence: number | null
+          presence_confidence: number | null
+          present: boolean | null
+          room_id: string | null
+          sleep_stage: string | null
+          stress_score: number | null
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          apnea_events?: number | null
+          breathing_rate_bpm?: number | null
+          fall_detected?: boolean | null
+          heart_rate_bpm?: number | null
+          hrv_ms?: number | null
+          id?: string
+          last_fall_at?: string | null
+          n_persons?: number | null
+          node_id?: string | null
+          pose_confidence?: number | null
+          presence_confidence?: number | null
+          present?: boolean | null
+          room_id?: string | null
+          sleep_stage?: string | null
+          stress_score?: number | null
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          apnea_events?: number | null
+          breathing_rate_bpm?: number | null
+          fall_detected?: boolean | null
+          heart_rate_bpm?: number | null
+          hrv_ms?: number | null
+          id?: string
+          last_fall_at?: string | null
+          n_persons?: number | null
+          node_id?: string | null
+          pose_confidence?: number | null
+          presence_confidence?: number | null
+          present?: boolean | null
+          room_id?: string | null
+          sleep_stage?: string | null
+          stress_score?: number | null
+          updated_at?: string | null
           user_id?: string
         }
         Relationships: []
@@ -4495,6 +4626,30 @@ export type Database = {
         }
         Relationships: []
       }
+      mavis_worldmonitor_cache: {
+        Row: {
+          cache_key: string
+          data: Json
+          expires_at: string
+          fetched_at: string | null
+          id: string
+        }
+        Insert: {
+          cache_key: string
+          data?: Json
+          expires_at: string
+          fetched_at?: string | null
+          id?: string
+        }
+        Update: {
+          cache_key?: string
+          data?: Json
+          expires_at?: string
+          fetched_at?: string | null
+          id?: string
+        }
+        Relationships: []
+      }
       memories: {
         Row: {
           content: string
@@ -5131,13 +5286,13 @@ export type Database = {
           stat_agi: number
           stat_cha: number
           stat_int: number
-          timezone: string
           stat_lck: number
           stat_str: number
           stat_vit: number
           stat_wis: number
           territory_class: string
           territory_floors: string
+          timezone: string
           titles: string[]
           true_name: string | null
           xp: number
@@ -5212,10 +5367,10 @@ export type Database = {
           stat_lck?: number
           stat_str?: number
           stat_vit?: number
-          timezone?: string
           stat_wis?: number
           territory_class?: string
           territory_floors?: string
+          timezone?: string
           titles?: string[]
           true_name?: string | null
           xp?: number
