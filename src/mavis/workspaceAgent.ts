@@ -19,7 +19,8 @@
  * local environment (Ollama companion service exposes /terminal, /fs).
  */
 
-import { supabase } from "@/integrations/supabase/client";
+import { supabase as _sb } from "@/integrations/supabase/client";
+const supabase: any = _sb;
 import { storeMemory } from "@/mavis/agentMemoryEngine";
 import { sendMessage, broadcastToAll } from "@/mavis/interAgentBus";
 import { dispatchAgent, type AgentSpecialization } from "@/mavis/dynamicAgentFactory";

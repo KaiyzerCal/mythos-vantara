@@ -23,7 +23,8 @@
  *   { event: "osc", address: "/hand/gesture", args: ["Thumb_Up", 0.98] }
  */
 
-import { supabase } from "@/integrations/supabase/client";
+import { supabase as _sb } from "@/integrations/supabase/client";
+const supabase: any = _sb;
 import { systemMonitor } from "@/mavis/systemMonitor";
 import { mediaPipeEngine, type BiometricState } from "@/mavis/mediaPipeEngine";
 
