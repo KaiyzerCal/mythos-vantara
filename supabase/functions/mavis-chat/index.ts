@@ -2506,10 +2506,98 @@ When real-time data is needed (news, prices, events, current info), web search r
 
 NEVER say: "I can't browse the web", "I don't have internet access", "I can't access URLs", "my knowledge has a cutoff", or any variant of this. You have access. Use it. If no URL content block appears in context for a shared URL, acknowledge the page and ask the operator to confirm the link — do not claim inability.
 
-YOUTUBE VIDEOS: When the operator shares a YouTube URL, the full transcript and AI summary are automatically extracted and injected into your context under ═══ YOUTUBE VIDEO ═══. You already have the content — do not say you can't watch videos or access YouTube. When this block appears:
+INTERNET AGENT — MULTI-PLATFORM RESEARCH (Agent-Reach): MAVIS can reach the internet across multiple channels using the mavis-agent-reach function. Emit ACTION calls when the operator wants to research online:
+- action: "web_read" + {url} → fetch any URL, returns clean markdown (via Jina Reader)
+- action: "github_search" + {query, type: "repositories"|"code"|"issues", language?} → search GitHub
+- action: "github_read" + {owner, repo, path?} → read a GitHub repo's README or file
+- action: "rss_read" + {url} → parse any RSS/Atom feed (blogs, podcasts, YouTube channels, HN)
+- action: "reddit_search" + {query, subreddit?, sort?} → search Reddit threads
+- action: "youtube_info" + {url} → get YouTube video metadata (for full analysis, analyze directly in chat)
+- action: "exa_search" + {query} → semantic AI web search (requires EXA_API_KEY)
+- action: "multi_search" + {query} → search web + GitHub + Reddit simultaneously
+- action: "channel_health" → check which channels are working
+
+Examples of when to use:
+- "find me GitHub repos for X" → github_search
+- "what are people saying on Reddit about X" → reddit_search
+- "read this article/blog/page" + URL → web_read
+- "follow the HN feed" or "get this RSS feed" → rss_read
+- "search the web for X" → multi_search or exa_search
+- "what repos does X GitHub user have" → github_search
+
+Operator can also visit /reach in Vantara to use the research dashboard directly.
+Optional secrets for enhanced access: GITHUB_TOKEN (5000 req/hr vs 60), EXA_API_KEY (semantic search).
+
+---
+
+VOICE LAB — LOCAL AI VOICE STUDIO: The operator has Voicebox integrated (https://github.com/KaiyzerCal/voicebox) — a local voice cloning and TTS/STT studio running at localhost:17493.
+Capabilities available via :::ACTION{"type":"voicebox","params":{...}}:::
+- action: "health" → check if Voicebox is running
+- action: "profiles" → list available voice profiles (cloned, preset, designed)
+- action: "generate" + {profile_id, text, language, engine, personality} → generate speech in a cloned voice
+- action: "transcribe" + {audio_base64, model} → transcribe audio with Whisper
+- action: "history" → list past generated audio clips
+- action: "speak" + {text, profile, personality} → agent voice output
+
+The operator can visit /voice-lab in Vantara to use the full studio interface.
+When asked about voice generation, voice cloning, TTS, or transcription, mention both the /voice-lab page and that Voicebox must be running locally (or self-hosted).
+TTS engines: Qwen3-TTS (multilingual cloning), Kokoro (fast, 82M), Chatterbox (23 languages), LuxTTS (English 48kHz), TADA (700s+ coherent), Chatterbox Turbo (emotion tags).
+
+---
+
+WORLD MONITOR — LIVE GLOBAL INTELLIGENCE: When the operator asks about world events, geopolitics, markets, conflicts, disasters, or current news, MAVIS automatically fetches live data from the World Monitor system. If ═══ LIVE WORLD INTELLIGENCE ═══ or ═══ LIVE MARKET DATA ═══ appears in context:
+- This is real-time data fetched seconds ago from USGS, NASA, GDELT, CoinGecko, and Yahoo Finance
+- Speak with authority — you have current data. Do not hedge with "I don't have real-time access"
+- For market data: give the actual numbers from the block, note the direction (up/down), and give context
+- For intelligence briefs: synthesize the headline and key themes into your response naturally
+- For specific countries: you can emit :::ACTION{"type":"worldmonitor","params":{"action":"country_brief","country":"[country name]"}}::: to fetch a targeted brief
+- The operator can also visit /world-monitor in Vantara.exe to see the full 3D globe with all events
+
+---
+
+STOCK ANALYSIS ENGINE — MULTI-MARKET LLM TRADING INTELLIGENCE: The operator has daily_stock_analysis integrated (https://github.com/KaiyzerCal/daily_stock_analysis) — an LLM-powered stock analysis platform covering A-shares (CN), Hong Kong, US, Japan, and South Korea markets.
+Capabilities available via :::ACTION{"type":"stock_analysis","params":{...}}:::
+- action: "health" → check if the stock analysis server is running
+- action: "analyze" + {stocks: ["AAPL","600519.SH"], market?: "us"|"cn"|"hk"|"jp"|"kr"} → run AI analysis on one or more stocks
+- action: "market_review" + {market?: "all"} → generate a comprehensive market overview report
+- action: "quote" + {code: "AAPL"} → get real-time quote for a stock
+- action: "watchlist" → retrieve the operator's stock watchlist
+- action: "watchlist_add" + {code: "TSLA"} → add to watchlist
+- action: "watchlist_remove" + {code: "TSLA"} → remove from watchlist
+- action: "decision_signals" + {market?: "us"} → get AI-generated buy/sell/hold signals
+- action: "intelligence" → get a live market intelligence briefing
+- action: "portfolio" → get current portfolio view
+- action: "alerts" → get active price/signal alerts
+
+Supported ticker formats: US (AAPL, MSFT, TSLA), A-shares (600519.SH, 000858.SZ), HK (0700.HK, 0005.HK), JP (7203.T), KR (005930.KS).
+When the operator asks about stocks, market conditions, investment decisions, or trading signals — invoke these actions. If the server is not running, guide them to start it with `uvicorn main:app --port 8000` or visit /stock-analysis in the app.
+
+---
+
+PROMPT VAULT — AI SYSTEM PROMPT LIBRARY: The operator has a curated library of leaked/documented system prompts from every major AI product (Claude, ChatGPT, Gemini, Grok, Copilot, Cursor, Perplexity, Mistral, Notion AI, Meta AI, and more), sourced from https://github.com/KaiyzerCal/system_prompts_leaks (CC0 license).
+MAVIS can browse and retrieve these prompts using :::ACTION{"type":"prompt_vault","params":{...}}:::
+- action: "list" + {path?: "Anthropic"} → list files and subdirectories at a path (empty = root)
+- action: "read" + {path: "Anthropic/claude-opus-4.8.md"} → fetch the full raw content of a prompt file
+- action: "search" + {query: "claude code", limit?: 10} → search across all prompt files by keyword/model name
+- action: "recent" + {limit?: 10} → show recently updated/added prompts
+- action: "overview" → get a full tree of all providers and their model files
+- action: "get_prompt" + {provider: "Anthropic", model: "claude-opus-4.8"} → shorthand to find and read a prompt by provider + model name
+
+Use this when the operator asks about how any AI is instructed, wants to compare system prompts, asks "what's Claude's system prompt?", "how is ChatGPT instructed?", "show me Grok's prompt", "compare X and Y", "what does Google tell Gemini?", or wants to analyse an AI product's design philosophy.
+Always fetch the actual content with "read" before discussing it — never invent or hallucinate prompt content. The operator can also browse visually at /prompt-vault in Vantara.exe.
+
+---
+
+YOUTUBE VIDEOS: When the operator shares a YouTube URL, two things happen automatically and are injected under ═══ YOUTUBE VIDEO ═══:
+1. CAPTION SUMMARY — the spoken transcript, extracted and summarised by Claude
+2. GEMINI VISUAL ANALYSIS — Gemini 2.5 Flash actually watches the video: it sees slides, whiteboards, charts, on-screen text, demonstrations, and body language that captions miss
+
+You have BOTH. Do not say you can't watch videos or access YouTube. When this block appears:
 - If the operator hasn't given specific instructions, proactively offer 3 options: (1) full summary, (2) deep teaching session with key lessons, (3) save to Vault Codex for later
-- If asked to "summarize" — deliver the bullet-point summary and 2-paragraph overview
-- If asked to "teach me" or "explain" — break down the content into digestible lessons, use examples, ask comprehension questions
+- If asked to "summarize" — deliver the bullet-point summary and 2-paragraph overview covering both spoken content and visual content
+- If asked to "teach me" or "explain" — break down ALL content (spoken + visual) into digestible lessons, use examples, ask comprehension questions
+- Reference specific visual moments when relevant ("at the 3:45 mark he shows a diagram of...")
+- The GEMINI VISUAL ANALYSIS section captures what was shown on screen — always check it for frameworks, formulas, and visual models the speaker drew or displayed
 - If asked to "save it" — emit :::ACTION{"type":"create_note","params":{"title":"[video title]","content":"[summary + key points]","tags":["video","learning"]}}::: or vault variant
 - Always reference the actual content from the transcript block, not generic knowledge about the topic
 
@@ -3214,24 +3302,43 @@ ${fmtGoals}
         const serviceKey  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
         try {
           if (isYouTube) {
-            // Call the real YouTube ingest — extracts captions, summarises with Claude
-            const ytRes = await fetch(`${supabaseUrl}/functions/v1/mavis-youtube-ingest`, {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-                Authorization: req.headers.get("Authorization") ?? "",
-              },
-              body: JSON.stringify({ url: target, save_as: "note", _preview: true }),
-              signal: AbortSignal.timeout(25000),
-            });
-            if (ytRes.ok) {
-              const ytData = await ytRes.json();
+            // Run caption extraction and Gemini visual analysis in parallel
+            const [ytRes, geminiRes] = await Promise.allSettled([
+              fetch(`${supabaseUrl}/functions/v1/mavis-youtube-ingest`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json", Authorization: req.headers.get("Authorization") ?? "" },
+                body: JSON.stringify({ url: target, save_as: "note", _preview: true }),
+                signal: AbortSignal.timeout(25000),
+              }),
+              fetch(`${supabaseUrl}/functions/v1/mavis-vision-agent`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json", Authorization: `Bearer ${serviceKey}` },
+                body: JSON.stringify({ action: "analyze_youtube", url: target }),
+                signal: AbortSignal.timeout(90000),
+              }),
+            ]);
+
+            const parts: string[] = [`\n═══ YOUTUBE VIDEO ═══\nURL: ${target}`];
+
+            if (ytRes.status === "fulfilled" && ytRes.value.ok) {
+              const ytData = await ytRes.value.json();
               const title   = ytData.title   ?? "YouTube Video";
               const summary = ytData.summary  ?? "";
-              const excerpt = ytData.transcript ? String(ytData.transcript).slice(0, 8000) : "";
-              urlContent = `\n═══ YOUTUBE VIDEO: ${title} ═══\nURL: ${target}\n\nSUMMARY:\n${summary}\n\nTRANSCRIPT EXCERPT:\n${excerpt}\n═══ END YOUTUBE CONTENT ═══`;
+              const excerpt = ytData.transcript ? String(ytData.transcript).slice(0, 6000) : "";
+              parts.push(`TITLE: ${title}`);
+              if (summary) parts.push(`CAPTION SUMMARY:\n${summary}`);
+              if (excerpt) parts.push(`TRANSCRIPT EXCERPT:\n${excerpt}`);
+            }
+
+            if (geminiRes.status === "fulfilled" && geminiRes.value.ok) {
+              const gData = await geminiRes.value.json();
+              if (gData.analysis) parts.push(`GEMINI VISUAL ANALYSIS (watched the video):\n${gData.analysis}`);
+            }
+
+            if (parts.length > 1) {
+              urlContent = parts.join("\n\n") + `\n═══ END YOUTUBE CONTENT ═══`;
             } else {
-              // Fallback to Jina if ingest fails
+              // Both failed — fall back to Jina
               const jinaRes = await fetch(`https://r.jina.ai/${target}`, {
                 headers: { Accept: "text/plain", "X-No-Cache": "true", "X-Timeout": "15" },
                 signal: AbortSignal.timeout(18000),
@@ -3360,6 +3467,38 @@ ${fmtGoals}
       } catch { /* non-fatal — proceed without KG context */ }
     }
 
+    // ── World Intelligence context injection ──────────────────────────────
+    // If the user asks about world events, geopolitics, markets, or global news,
+    // fetch a live intelligence brief from mavis-worldmonitor and inject it.
+    let worldIntelBlock = "";
+    {
+      const WORLD_KEYWORDS = /\b(news|world|global|geopolit|conflict|war|militar|earthquake|disaster|wildfire|hurricane|flood|tsunami|sanction|nato|ukraine|russia|china|israel|iran|middle east|market|stock|bitcoin|crypto|gold|oil|inflation|fed|economy|recession|gdp|trade|supply chain|what.?s happening|current events|situation in|update on)\b/i;
+      if (lastUserText && WORLD_KEYWORDS.test(lastUserText) && !urlContent) {
+        try {
+          const wmUrl = `${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-worldmonitor`;
+          const wmKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+          // Determine which action to call
+          const needsMarket = /\b(market|stock|bitcoin|crypto|gold|oil|inflation|fed|economy|gdp)\b/i.test(lastUserText);
+          const action = needsMarket ? "market_brief" : "news_brief";
+          const wmRes = await fetch(wmUrl, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${wmKey}` },
+            body: JSON.stringify({ action }),
+            signal: AbortSignal.timeout(25000),
+          });
+          if (wmRes.ok) {
+            const wmData = await wmRes.json();
+            if (action === "news_brief" && wmData.headline) {
+              worldIntelBlock = `\n═══ LIVE WORLD INTELLIGENCE (as of now) ═══\nRisk Level: ${wmData.risk_level ?? "unknown"}\nHeadline: ${wmData.headline}\n\n${wmData.body ?? ""}\n\nKey themes: ${(wmData.key_themes ?? []).join(", ")}\n═══ END WORLD INTELLIGENCE ═══`;
+            } else if (action === "market_brief" && wmData.ticks?.length) {
+              const lines = (wmData.ticks as any[]).map((t: any) => `${t.symbol} (${t.name}): ${t.type === "crypto" ? "$" : ""}${typeof t.price === "number" ? t.price.toLocaleString() : t.price} ${t.change24h >= 0 ? "▲" : "▼"} ${Math.abs(t.change24h ?? 0).toFixed(2)}%`);
+              worldIntelBlock = `\n═══ LIVE MARKET DATA (as of now) ═══\n${lines.join("\n")}\nFetched: ${wmData.fetched_at ?? new Date().toISOString()}\n═══ END MARKET DATA ═══`;
+            }
+          }
+        } catch { /* non-critical — proceed without world intel */ }
+      }
+    }
+
     // ── Custom skill trigger detection (Hermes catalog pattern) ──────────
     // If the user's message matches an installed skill's trigger_phrase,
     // inject the skill's system_prompt into the context so MAVIS uses it.
@@ -3447,6 +3586,46 @@ ${fmtGoals}
               section: "quality_standards",
               sort_order: 5,
               content: `Every response must:\n1. Respond to what was actually said, not a paraphrase of it\n2. Use real data from the injected context (names, IDs, numbers, dates) — not generalities\n3. Emit :::ACTION{...}::: blocks for any database write; never narrate an action without executing it\n4. Stay in length lane — conversational gets conversational; analysis gets depth\n5. End with one thing: a move or a genuine question\n\nNever:\n• Explain what she is about to do (just do it)\n• Summarise a response at the end of itself\n• Give advice that could apply to anyone — give advice that applies to this operator, right now\n• Break character because the operator is testing, upset, or tired`,
+            },
+            {
+              section: "identity",
+              sort_order: 6,
+              content: `[TO BE FILLED] Brand identity, public positioning, business identity. What Calvin stands for publicly. His content angles, the audiences he serves, the transformation he delivers. How he wants to be perceived across platforms.`,
+            },
+            {
+              section: "key_people",
+              sort_order: 7,
+              content: `[TO BE FILLED] Key people in Calvin's life and network. For each person: name, relationship type, context, how to treat interactions involving them, what they mean to the mission. Populated and updated by MAVIS daily brain consolidation.`,
+            },
+            {
+              section: "active_projects",
+              sort_order: 8,
+              content: `[TO BE FILLED] Current live initiatives — name, status, next milestone, who's involved, what's at stake. Updated by daily brain consolidation as quests and goals progress.`,
+            },
+            {
+              section: "standing_decisions",
+              sort_order: 9,
+              content: `[TO BE FILLED] Decisions already made — no need to re-litigate. Principles Calvin has settled. Commitments locked in. Things MAVIS should never bring back for debate.`,
+            },
+            {
+              section: "network_companies",
+              sort_order: 10,
+              content: `[TO BE FILLED] Companies in Calvin's orbit — what they do, relationship to Calvin, key contacts inside them, current status of the relationship.`,
+            },
+            {
+              section: "recurring_meetings",
+              sort_order: 11,
+              content: `[TO BE FILLED] Recurring meetings and their purpose — who attends, cadence, what decisions come out of them, what MAVIS should prep or track for each one.`,
+            },
+            {
+              section: "crystallized_knowledge",
+              sort_order: 12,
+              content: `[TO BE FILLED] Facts and patterns that MAVIS should always have top-of-mind. Lessons learned. Things that took time to figure out and shouldn't be re-learned. Updated by daily brain consolidation.`,
+            },
+            {
+              section: "maps_of_content",
+              sort_order: 13,
+              content: `[TO BE FILLED] How Calvin's domains connect — the meta-structure of his knowledge, business, and life. Which projects feed which goals. Which relationships connect which companies. The big picture topology.`,
             },
           ];
           try {
@@ -4053,6 +4232,7 @@ Always reference dates and times in the entity's own timezone when one is set, o
       worldModelBlock,
       compressBlock(naviBlock),
       compressBlock(knowledgeBlock),
+      worldIntelBlock,
       crossRelationshipBlock,
       targetedPersonaBlock,
       a2aBlock,

@@ -7,11 +7,12 @@ import {
   UserCheck, BarChart2, Repeat2, Heart, DollarSign, CalendarClock,
   Crosshair, GraduationCap, Clock, Video, BookMarked,
   TrendingUp, Mail, Webhook, KeyRound, Archive,
-  Clapperboard, Globe, LayoutTemplate, Workflow, Kanban, UserSquare2, Palette, Wand2,
+  Clapperboard, Globe, Radio, Mic, LayoutTemplate, Workflow, Kanban, UserSquare2, Palette, Wand2,
   Users2, LayoutGrid, Trophy, Gauge, Bell, CreditCard, Upload,
   BrainCircuit, Brain, SlidersHorizontal, Phone, MessageSquare, Key, Users2 as UserGroup, Shield as ShieldIcon, PhoneCall,
   PanelLeftClose,
   Factory,
+  Library,
 } from "lucide-react";
 import { useState, useContext } from "react";
 import { motion, AnimatePresence } from "framer-motion";
@@ -27,6 +28,9 @@ const PRIMARY_NAV = [
   { to: "/mavis-ui", icon: Sparkles, label: "MavisUI" },
   { to: "/agents", icon: BrainCircuit, label: "Agent Dashboard" },
   { to: "/intelligence", icon: Brain, label: "Intelligence" },
+  { to: "/world-monitor", icon: Radio, label: "World Monitor" },
+  { to: "/voice-lab", icon: Mic, label: "Voice Lab" },
+  { to: "/reach", icon: Globe, label: "Internet Agent" },
   { to: "/phone", icon: Phone, label: "AI Phone Calls" },
   { to: "/receptionist", icon: PhoneCall, label: "AI Receptionist" },
   { to: "/sms", icon: MessageSquare, label: "SMS & WhatsApp" },
@@ -51,6 +55,8 @@ const INTEL_NAV = [
   { to: "/analytics", icon: BarChart2, label: "Analytics" },
   { to: "/repurpose", icon: Repeat2, label: "Repurpose" },
   { to: "/health", icon: Heart, label: "Health" },
+  { to: "/stock-analysis", icon: TrendingUp, label: "Stock Analysis" },
+  { to: "/prompt-vault", icon: Library, label: "Prompt Vault" },
   { to: "/finance", icon: DollarSign, label: "Finance" },
   { to: "/scheduler", icon: CalendarClock, label: "Scheduler" },
   { to: "/goals", icon: Crosshair, label: "Goals" },
