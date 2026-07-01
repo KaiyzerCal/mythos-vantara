@@ -1,8 +1,7 @@
 // ============================================================
-// VANTARA.EXE — FactoryPage (Authentic Factorio Visual Style)
-// Dense factory floor with terrain, proper belts, inserters,
-// assembly machines, power poles, trains, and ore patches.
-// MAVIS AI ecosystem mapped to Factorio production network.
+// VANTARA.EXE — FactoryPage v2 (MAVIS Command Floor)
+// 12 production zones · 276 edge functions · live telemetry
+// MAVIS directs signal packets across all systems in real-time
 // ============================================================
 
 import { useEffect, useRef, useState, useCallback } from "react";
@@ -11,483 +10,335 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useNavigate } from "react-router-dom";
 import { RefreshCw } from "lucide-react";
 
-// ─── Canvas constants ─────────────────────────────────────────
+// ── Canvas constants ────────────────────────────────────────
 const TILE = 32;
-const COLS = 60;
+const V_COLS = 110;  // virtual canvas width in tiles
+const V_ROWS = 73;   // virtual canvas height in tiles
 
-// ─── Types ───────────────────────────────────────────────────
-type MachineStatus = "active" | "warm" | "idle";
+// ── Types ───────────────────────────────────────────────────
+type NodeStatus = "active" | "warm" | "idle";
 
-interface ClickableEntity {
-  type: "drill" | "mavis" | "persona" | "council" | "storage" | "train" | "ore"
-  id?: string
-  name: string
-  source?: string
-  col: number
-  row: number
-  tileW: number
-  tileH: number
+interface ZoneNode {
+  label: string;
+  sub?: string;
+  dc: number; dr: number;  // relative to zone top-left
+  w: number; h: number;
+  color: string;
+  accent: string;
+  light: string;
+  cron?: string;
+  route?: string;
 }
 
-interface MachineEntry {
+interface ZoneDef {
   id: string;
-  name: string;
-  role: string;
-  status: MachineStatus;
+  label: string;
+  description: string;
+  col: number; row: number;
+  w: number; h: number;
+  color: string;
+  border: string;
+  accent: string;
+  light: string;
+  nodes: ZoneNode[];
+  route?: string;
+  statKey?: string;
 }
 
-interface MachineState {
-  mavis: MachineStatus;
-  memory: MachineStatus;
-  ruview: MachineStatus;
-  orders: MachineStatus;
-  journal: MachineStatus;
-  quest: MachineStatus;
-  personas: MachineEntry[];
-  councils: MachineEntry[];
-  activeQuests: number;
-  activeOrders: number;
-}
-
-const INITIAL_MACHINE_STATE: MachineState = {
-  mavis: "active",
-  memory: "idle",
-  ruview: "idle",
-  orders: "idle",
-  journal: "idle",
-  quest: "idle",
-  personas: [],
-  councils: [],
-  activeQuests: 0,
-  activeOrders: 0,
-};
-
-// ─── Item colors for belt items ───────────────────────────────
-const ITEM_COLORS: Record<string, string> = {
-  memory: "#4488ff",
-  journal: "#aa44ff",
-  quest: "#ffaa00",
-  ruview: "#00ffcc",
-  order: "#ff8800",
-  persona: "#44ff88",
-  council: "#ff4466",
-  processed: "#ffffff",
-  iron: "#8899aa",
-  copper: "#cc7744",
-  coal: "#334455",
-  stone: "#998877",
-};
-
-// ─── Seeded pseudo-random for terrain variation ───────────────
-function seededRand(seed: number): number {
-  const x = Math.sin(seed + 1) * 43758.5453123;
-  return x - Math.floor(x);
-}
-
-// ─── Terrain tile color (dark brown/olive with variation) ─────
-function terrainColor(col: number, row: number): string {
-  const n1 = seededRand(col * 137 + row * 251);
-  const n2 = seededRand(col * 79 + row * 317 + 1000);
-  const n3 = seededRand(col * 199 + row * 53 + 2000);
-  const r = Math.floor(33 + n1 * 14 + n2 * 5);
-  const g = Math.floor(30 + n1 * 10 + n3 * 6);
-  const b = Math.floor(16 + n2 * 10);
-  return `rgb(${r},${g},${b})`;
-}
-
-// ─── Belt segment types ───────────────────────────────────────
-type BeltType =
-  | "h-right"
-  | "h-left"
-  | "v-down"
-  | "v-up"
-  | "corner-ne"
-  | "corner-nw"
-  | "corner-se"
-  | "corner-sw";
-
-interface BeltSegment {
-  col: number;
-  row: number;
-  type: BeltType;
-  speed: "yellow" | "red" | "blue";
-}
-
-// ─── Power poles ──────────────────────────────────────────────
-interface PowerPole {
-  col: number;
-  row: number;
-}
-
-// ─── Train ───────────────────────────────────────────────────
-interface Train {
-  x: number;
-  direction: 1 | -1;
-  speed: number;
-  wagons: number;
-  trackRow: number;
-}
-
-// ─── Belt item on canvas ──────────────────────────────────────
-interface BeltItem {
-  x: number;
-  y: number;
+interface SignalPacket {
+  x: number; y: number;
   path: { x: number; y: number }[];
   pathIdx: number;
   color: string;
   speed: number;
   opacity: number;
   fading: boolean;
-  label: string;
-  size: number;
+  zoneId: string;
 }
 
-// ─── Smoke particle ───────────────────────────────────────────
 interface Smoke {
-  x: number;
-  y: number;
-  vx: number;
-  vy: number;
-  life: number;
-  maxLife: number;
-  size: number;
-  color: string;
+  x: number; y: number;
+  vx: number; vy: number;
+  life: number; maxLife: number;
+  size: number; color: string;
 }
 
-// ─── Worker ──────────────────────────────────────────────────
-interface Worker {
-  x: number;
-  y: number;
-  path: { x: number; y: number }[];
-  pathIdx: number;
-  speed: number;
-  frame: number;
-  facingRight: boolean;
+interface LiveStats {
+  activeTasks: number;
+  pendingActions: number;
+  recentActivity: number;
+  personas: number;
+  councils: number;
+  goals: number;
+  quests: number;
+  orders: number;
+  memories: number;
+  journals: number;
+  leads: number;
+  zoneActivity: Record<string, number>;
 }
 
-// ─── Inserter ────────────────────────────────────────────────
-interface InserterDef {
-  pivotCol: number;
-  pivotRow: number;
-  sourceAngle: number;
-  destAngle: number;
-  itemColor: string;
-  statusKey: keyof MachineState;
-}
+// ── Zone layout ─────────────────────────────────────────────
+// Cols: Z0@2, Z1@29, Z2@56, Z3@83   (width=24, gap=3)
+// Rows: Top@3, Mid@26, Bot@49         (height=20, gap=3)
+const ZONE_W = 24;
+const ZONE_H = 20;
+const COL0 = 2; const COL1 = 29; const COL2 = 56; const COL3 = 83;
+const ROW0 = 3; const ROW1 = 26; const ROW2 = 49;
 
-// ─── Assembly machine definition ─────────────────────────────
-interface AssemblyMachine {
-  col: number;
-  row: number;
-  w: number;
-  h: number;
-  label: string;
-  bodyColor: string;
-  accentColor: string;
-  lightColor: string;
-  statusKey: keyof MachineState;
-  isMAVIS?: boolean;
-}
+const ZONES: ZoneDef[] = [
+  // ── Row 0 ───────────────────────────────────────────────
+  {
+    id: "memory",
+    label: "MEMORY COMPLEX",
+    description: "16 functions · consolidation · embedding · learning",
+    col: COL0, row: ROW0, w: ZONE_W, h: ZONE_H,
+    color: "#0a1222", border: "#1a3060", accent: "#2255aa", light: "#4488ff",
+    route: "/memory",
+    nodes: [
+      { label: "MEM·CONSOLIDATE", sub: "daily", dc: 1, dr: 2, w: 5, h: 4, color: "#0d1a2a", accent: "#2255aa", light: "#4488ff", cron: "daily" },
+      { label: "BRAIN·CORE",      sub: "weekly", dc: 7, dr: 2, w: 7, h: 6, color: "#0a1525", accent: "#1a4488", light: "#2266cc", cron: "weekly" },
+      { label: "LEARN·ENGINE",    sub: "midnight", dc: 15, dr: 2, w: 5, h: 4, color: "#0d1a2a", accent: "#2255aa", light: "#4488ff", cron: "midnight" },
+      { label: "KNOWLEDGE",       sub: "on-demand", dc: 1, dr: 11, w: 5, h: 4, color: "#0d1a2a", accent: "#2255aa", light: "#4488ff" },
+      { label: "SPACED·REP",      sub: "daily", dc: 8, dr: 12, w: 4, h: 3, color: "#0d1a2a", accent: "#2255aa", light: "#4488ff" },
+      { label: "MEM0·SYNC",       sub: "on-demand", dc: 15, dr: 11, w: 5, h: 4, color: "#0d1a2a", accent: "#2255aa", light: "#4488ff" },
+    ],
+  },
+  {
+    id: "aicore",
+    label: "AI CORE — MAVIS PRIME",
+    description: "Orchestrator · Planner · Director · Crew · Actions",
+    col: COL1, row: ROW0, w: ZONE_W, h: ZONE_H,
+    color: "#0d0820", border: "#4a1090", accent: "#6b21d8", light: "#a855f7",
+    route: "/mavis",
+    nodes: [
+      { label: "PLANNER",  sub: "on-demand", dc: 1,  dr: 2,  w: 4, h: 3, color: "#130d2a", accent: "#5a19b8", light: "#9845e7" },
+      { label: "DIRECTOR", sub: "on-demand", dc: 18, dr: 2,  w: 4, h: 3, color: "#130d2a", accent: "#5a19b8", light: "#9845e7" },
+      { label: "CREW·ORCH",sub: "on-demand", dc: 1,  dr: 14, w: 4, h: 4, color: "#130d2a", accent: "#5a19b8", light: "#9845e7" },
+      { label: "ACTIONS",  sub: "on-demand", dc: 18, dr: 14, w: 4, h: 4, color: "#130d2a", accent: "#5a19b8", light: "#9845e7" },
+    ],
+    // MAVIS PRIME machine drawn separately at dc=7,dr=4,w=9,h=11
+  },
+  {
+    id: "intel",
+    label: "INTELLIGENCE OPS",
+    description: "14 functions · world model · market · research",
+    col: COL2, row: ROW0, w: ZONE_W, h: ZONE_H,
+    color: "#0a1a0a", border: "#1a4a20", accent: "#1a7a30", light: "#22cc44",
+    route: "/intelligence",
+    nodes: [
+      { label: "WORLD·MODEL",  sub: "weekly",  dc: 1, dr: 2, w: 5, h: 5, color: "#0a1a0a", accent: "#1a5a22", light: "#22aa44" },
+      { label: "MARKET·RADAR", sub: "6:30am",  dc: 8, dr: 2, w: 5, h: 4, color: "#0a1a0a", accent: "#1a5a22", light: "#22aa44", cron: "daily" },
+      { label: "WORLD·MONITOR",sub: "live",    dc: 15,dr: 2, w: 6, h: 4, color: "#0a1a0a", accent: "#1a5a22", light: "#22aa44" },
+      { label: "DEEP·RESEARCH",sub: "on-demand",dc:1, dr: 11, w: 5, h: 5, color: "#0a1a0a", accent: "#1a5a22", light: "#22aa44" },
+      { label: "COMP·INTEL",   sub: "weekly",  dc: 8, dr: 12, w: 5, h: 4, color: "#0a1a0a", accent: "#1a5a22", light: "#22aa44" },
+      { label: "PREDICTIVE",   sub: "pg_cron", dc: 15,dr: 11, w: 6, h: 5, color: "#0a1a0a", accent: "#1a5a22", light: "#22aa44", cron: "cron" },
+    ],
+  },
+  {
+    id: "health",
+    label: "HEALTH STATION",
+    description: "10 functions · biometrics · wearables · wellness",
+    col: COL3, row: ROW0, w: ZONE_W, h: ZONE_H,
+    color: "#0f0a1a", border: "#3a1060", accent: "#7c3aed", light: "#00ffcc",
+    route: "/health",
+    nodes: [
+      { label: "HEALTH·MON", sub: "hourly",  dc: 1, dr: 2, w: 5, h: 5, color: "#0f0a1a", accent: "#5a1a90", light: "#00eecc", cron: "hourly" },
+      { label: "BIO·STATE",  sub: "live",    dc: 8, dr: 2, w: 5, h: 4, color: "#0f0a1a", accent: "#5a1a90", light: "#00eecc" },
+      { label: "GALAXY·RING",sub: "sync",    dc: 15,dr: 2, w: 6, h: 4, color: "#0f0a1a", accent: "#5a1a90", light: "#00eecc" },
+      { label: "SLEEP·COACH",sub: "daily",   dc: 1, dr: 12, w: 5, h: 5, color: "#0f0a1a", accent: "#5a1a90", light: "#00eecc" },
+      { label: "WHOOP·SYNC", sub: "sync",    dc: 8, dr: 12, w: 5, h: 4, color: "#0f0a1a", accent: "#5a1a90", light: "#00eecc" },
+      { label: "OURA·SYNC",  sub: "sync",    dc: 15,dr: 12, w: 6, h: 4, color: "#0f0a1a", accent: "#5a1a90", light: "#00eecc" },
+    ],
+  },
 
-// ─── Mining drill ─────────────────────────────────────────────
-interface MiningDrill {
-  col: number;
-  row: number;
-  orePatch: OreType;
-}
+  // ── Row 1 ───────────────────────────────────────────────
+  {
+    id: "comm",
+    label: "COMMUNICATION HUB",
+    description: "18 functions · email · SMS · phone · Telegram · voice",
+    col: COL0, row: ROW1, w: ZONE_W, h: ZONE_H,
+    color: "#1a0a08", border: "#6a2010", accent: "#cc4422", light: "#ff6644",
+    route: "/inbox",
+    nodes: [
+      { label: "EMAIL·SEND",  sub: "on-demand",dc: 1,  dr: 2,  w: 5, h: 4, color: "#1a0a08", accent: "#aa3311", light: "#ff5533" },
+      { label: "SMS·WHATSAPP",sub: "on-demand",dc: 8,  dr: 2,  w: 5, h: 4, color: "#1a0a08", accent: "#aa3311", light: "#ff5533" },
+      { label: "PHONE·CALL",  sub: "VAPI",    dc: 15, dr: 2,  w: 6, h: 4, color: "#1a0a08", accent: "#aa3311", light: "#ff5533" },
+      { label: "TELEGRAM·BOT",sub: "live",    dc: 1,  dr: 11, w: 5, h: 5, color: "#1a0a08", accent: "#aa3311", light: "#ff5533" },
+      { label: "VOICEBOX",    sub: "on-demand",dc: 8,  dr: 12, w: 5, h: 4, color: "#1a0a08", accent: "#aa3311", light: "#ff5533" },
+      { label: "PUSH·NOTIFY", sub: "on-demand",dc:15,  dr: 12, w: 6, h: 4, color: "#1a0a08", accent: "#aa3311", light: "#ff5533" },
+    ],
+  },
+  {
+    id: "autonomous",
+    label: "AUTONOMOUS SYSTEMS",
+    description: "10 functions · goal-agent · campaign · trigger engine",
+    col: COL1, row: ROW1, w: ZONE_W, h: ZONE_H,
+    color: "#0a100a", border: "#1a5a1a", accent: "#22aa44", light: "#44ff88",
+    route: "/agents",
+    nodes: [
+      { label: "AUTO·ENGINE",  sub: "live",  dc: 1, dr: 2, w: 6, h: 5, color: "#0a100a", accent: "#1a8833", light: "#33dd66" },
+      { label: "GOAL·AGENT",   sub: "4h",    dc: 9, dr: 2, w: 5, h: 4, color: "#0a100a", accent: "#1a8833", light: "#33dd66", cron: "4h" },
+      { label: "CAMPAIGN·RUN", sub: "4h",    dc: 16,dr: 2, w: 5, h: 4, color: "#0a100a", accent: "#1a8833", light: "#33dd66", cron: "4h" },
+      { label: "TRIGGER·ENG",  sub: "5min",  dc: 1, dr: 12, w: 5, h: 4, color: "#0a100a", accent: "#1a8833", light: "#33dd66", cron: "5min" },
+      { label: "PROACTIVE",    sub: "live",  dc: 8, dr: 12, w: 5, h: 4, color: "#0a100a", accent: "#1a8833", light: "#33dd66" },
+      { label: "OUTCOME·TRACK",sub: "daily", dc: 15,dr: 12, w: 6, h: 4, color: "#0a100a", accent: "#1a8833", light: "#33dd66", cron: "daily" },
+    ],
+  },
+  {
+    id: "integration",
+    label: "INTEGRATION GRID",
+    description: "25 functions · Gmail · Drive · Notion · Calendar · Spotify",
+    col: COL2, row: ROW1, w: ZONE_W, h: ZONE_H,
+    color: "#0a0a1a", border: "#1a1a6a", accent: "#2244cc", light: "#4477ff",
+    route: "/integrations",
+    nodes: [
+      { label: "GMAIL·SYNC",    sub: "daily",  dc: 1, dr: 2,  w: 5, h: 4, color: "#0a0a1a", accent: "#1a33aa", light: "#3366ff", cron: "daily" },
+      { label: "GDRIVE·SYNC",   sub: "6:00am", dc: 8, dr: 2,  w: 5, h: 4, color: "#0a0a1a", accent: "#1a33aa", light: "#3366ff", cron: "daily" },
+      { label: "NOTION·SYNC",   sub: "on-demand",dc:15,dr: 2, w: 6, h: 4, color: "#0a0a1a", accent: "#1a33aa", light: "#3366ff" },
+      { label: "CALENDAR·SYNC", sub: "on-demand",dc: 1,dr: 11, w: 5, h: 5, color: "#0a0a1a", accent: "#1a33aa", light: "#3366ff" },
+      { label: "SPOTIFY·SYNC",  sub: "on-demand",dc: 8,dr: 12, w: 5, h: 4, color: "#0a0a1a", accent: "#1a33aa", light: "#3366ff" },
+      { label: "G·CONTACTS",    sub: "on-demand",dc:15,dr: 12, w: 6, h: 4, color: "#0a0a1a", accent: "#1a33aa", light: "#3366ff" },
+    ],
+  },
+  {
+    id: "social",
+    label: "SOCIAL ENGINE",
+    description: "20 functions · Nora · Instagram · Twitter · LinkedIn · TikTok",
+    col: COL3, row: ROW1, w: ZONE_W, h: ZONE_H,
+    color: "#1a0a00", border: "#5a2a00", accent: "#cc7700", light: "#ffaa00",
+    route: "/analytics",
+    nodes: [
+      { label: "NORA·POST",    sub: "scheduled",dc: 1, dr: 2,  w: 5, h: 4, color: "#1a0a00", accent: "#aa6600", light: "#ff9900" },
+      { label: "SOCIAL·SCHED", sub: "hourly",   dc: 8, dr: 2,  w: 5, h: 4, color: "#1a0a00", accent: "#aa6600", light: "#ff9900", cron: "hourly" },
+      { label: "CONTENT·PIPE", sub: "on-demand",dc: 15,dr: 2,  w: 6, h: 4, color: "#1a0a00", accent: "#aa6600", light: "#ff9900" },
+      { label: "MORN·DIGEST",  sub: "7:00am",   dc: 1, dr: 11, w: 5, h: 5, color: "#1a0a00", accent: "#aa6600", light: "#ff9900", cron: "daily" },
+      { label: "INSTAGRAM",    sub: "on-demand",dc: 8, dr: 12, w: 5, h: 4, color: "#1a0a00", accent: "#aa6600", light: "#ff9900" },
+      { label: "TWITTER·AGENT",sub: "on-demand",dc: 15,dr: 12, w: 6, h: 4, color: "#1a0a00", accent: "#aa6600", light: "#ff9900" },
+    ],
+  },
 
-type OreType = "iron" | "copper" | "coal" | "stone" | "memory" | "quest";
+  // ── Row 2 ───────────────────────────────────────────────
+  {
+    id: "code",
+    label: "CODE & WEB LAB",
+    description: "12 functions · code-agent · browser · GitHub · web-builder",
+    col: COL0, row: ROW2, w: ZONE_W, h: ZONE_H,
+    color: "#0a0a00", border: "#3a3a00", accent: "#888800", light: "#cccc00",
+    route: "/workflows",
+    nodes: [
+      { label: "CODE·AGENT",  sub: "on-demand",dc: 1, dr: 2,  w: 6, h: 5, color: "#0a0a00", accent: "#666600", light: "#aaaa00" },
+      { label: "BROWSER·AGENT",sub:"on-demand",dc: 9, dr: 2,  w: 5, h: 4, color: "#0a0a00", accent: "#666600", light: "#aaaa00" },
+      { label: "GITHUB·SYNC", sub: "on-demand",dc: 16,dr: 2,  w: 5, h: 4, color: "#0a0a00", accent: "#666600", light: "#aaaa00" },
+      { label: "WEB·BUILDER", sub: "on-demand",dc: 1, dr: 12, w: 5, h: 4, color: "#0a0a00", accent: "#666600", light: "#aaaa00", route: "/websites" },
+      { label: "PYTHON·EXEC", sub: "on-demand",dc: 8, dr: 12, w: 5, h: 4, color: "#0a0a00", accent: "#666600", light: "#aaaa00" },
+      { label: "WEB·SCRAPER", sub: "on-demand",dc: 15,dr: 12, w: 6, h: 4, color: "#0a0a00", accent: "#666600", light: "#aaaa00" },
+    ],
+  },
+  {
+    id: "analytics",
+    label: "ANALYTICS CORE",
+    description: "12 functions · scoring · eval · stock · finance · patterns",
+    col: COL1, row: ROW2, w: ZONE_W, h: ZONE_H,
+    color: "#100808", border: "#501020", accent: "#aa2244", light: "#ff4466",
+    route: "/analytics",
+    nodes: [
+      { label: "DAILY·SCORES", sub: "daily",  dc: 1, dr: 2,  w: 5, h: 4, color: "#100808", accent: "#881133", light: "#ee3355", cron: "daily" },
+      { label: "EVAL·SCORES",  sub: "weekly", dc: 8, dr: 2,  w: 5, h: 4, color: "#100808", accent: "#881133", light: "#ee3355", cron: "weekly" },
+      { label: "STOCK·ANALYSIS",sub:"on-demand",dc:15,dr: 2, w: 6, h: 4, color: "#100808", accent: "#881133", light: "#ee3355" },
+      { label: "PATTERN·INSGHT",sub:"weekly", dc: 1, dr: 11, w: 5, h: 5, color: "#100808", accent: "#881133", light: "#ee3355", cron: "weekly" },
+      { label: "FINANCE",      sub: "on-demand",dc: 8,dr: 12, w: 5, h: 4, color: "#100808", accent: "#881133", light: "#ee3355", route: "/finance" },
+      { label: "MARKET·DATA",  sub: "live",   dc: 15,dr: 12, w: 6, h: 4, color: "#100808", accent: "#881133", light: "#ee3355" },
+    ],
+  },
+  {
+    id: "media",
+    label: "MEDIA STUDIO",
+    description: "14 functions · image-gen · video · HeyGen · design · YouTube",
+    col: COL2, row: ROW2, w: ZONE_W, h: ZONE_H,
+    color: "#0a0a18", border: "#2a2a60", accent: "#4444cc", light: "#8888ff",
+    route: "/creator",
+    nodes: [
+      { label: "IMAGE·GEN",   sub: "on-demand",dc: 1, dr: 2,  w: 5, h: 4, color: "#0a0a18", accent: "#3333aa", light: "#7777ee" },
+      { label: "VIDEO·GEN",   sub: "on-demand",dc: 8, dr: 2,  w: 5, h: 5, color: "#0a0a18", accent: "#3333aa", light: "#7777ee" },
+      { label: "HEYGEN·AGENT",sub: "on-demand",dc: 15,dr: 2,  w: 6, h: 4, color: "#0a0a18", accent: "#3333aa", light: "#7777ee" },
+      { label: "DESIGN·ENGINE",sub:"on-demand",dc: 1, dr: 12, w: 5, h: 5, color: "#0a0a18", accent: "#3333aa", light: "#7777ee", route: "/design-studio" },
+      { label: "YOUTUBE·AGENT",sub:"on-demand",dc: 8, dr: 12, w: 5, h: 4, color: "#0a0a18", accent: "#3333aa", light: "#7777ee" },
+      { label: "PDF·GEN",     sub: "on-demand",dc: 15,dr: 12, w: 6, h: 4, color: "#0a0a18", accent: "#3333aa", light: "#7777ee" },
+    ],
+  },
+  {
+    id: "persona",
+    label: "PERSONA LAB",
+    description: "12 functions · forge · router · emotion · brand voice · identity",
+    col: COL3, row: ROW2, w: ZONE_W, h: ZONE_H,
+    color: "#0a1208", border: "#224422", accent: "#448833", light: "#88ee44",
+    route: "/personas",
+    nodes: [
+      { label: "PERSONA·FORGE", sub: "on-demand",dc: 1, dr: 2,  w: 6, h: 5, color: "#0a1208", accent: "#336622", light: "#77dd33" },
+      { label: "PERSONA·ROUTER",sub: "live",    dc: 9, dr: 2,  w: 5, h: 4, color: "#0a1208", accent: "#336622", light: "#77dd33" },
+      { label: "EMOTION·ENGINE",sub: "on-demand",dc:16,dr: 2,  w: 5, h: 4, color: "#0a1208", accent: "#336622", light: "#77dd33" },
+      { label: "BRAND·VOICE",  sub: "on-demand",dc: 1, dr: 12, w: 5, h: 4, color: "#0a1208", accent: "#336622", light: "#77dd33" },
+      { label: "AGENT·IDENTITY",sub:"on-demand",dc: 8, dr: 12, w: 5, h: 4, color: "#0a1208", accent: "#336622", light: "#77dd33" },
+      { label: "GOAL·JUDGE",   sub: "pg_cron", dc: 15,dr: 12, w: 6, h: 4, color: "#0a1208", accent: "#336622", light: "#77dd33", cron: "cron" },
+    ],
+  },
+];
 
-const ORE_COLORS: Record<OreType, string> = {
-  iron: "#6688aa",
-  copper: "#cc7744",
-  coal: "#222233",
-  stone: "#888877",
-  memory: "#1a3a6b",
-  quest: "#5c3a00",
+// ── Signal packet paths from MAVIS (tile coords → pixel coords) ─
+// MAVIS center: col=41, row=13 (center of AI CORE zone)
+const T = (c: number, r: number) => ({ x: c * TILE + TILE / 2, y: r * TILE + TILE / 2 });
+const SIGNAL_PATHS: Record<string, { x: number; y: number }[]> = {
+  memory:      [T(41,13), T(27,13), T(27,5),  T(14,5)],
+  intel:       [T(41,13), T(55,13), T(68,13)],
+  health:      [T(41,13), T(82,13), T(95,13)],
+  comm:        [T(41,13), T(27,13), T(27,24), T(14,24), T(14,35)],
+  autonomous:  [T(41,13), T(41,24), T(41,35)],
+  integration: [T(41,13), T(55,13), T(55,24), T(68,35)],
+  social:      [T(41,13), T(82,13), T(82,24), T(95,35)],
+  code:        [T(41,13), T(27,13), T(27,47), T(14,47), T(14,58)],
+  analytics:   [T(41,13), T(41,47), T(41,58)],
+  media:       [T(41,13), T(55,13), T(55,47), T(68,58)],
+  persona:     [T(41,13), T(82,13), T(82,47), T(95,58)],
 };
 
-const ORE_ROCK_COLORS: Record<OreType, string> = {
-  iron: "#8899bb",
-  copper: "#dd8855",
-  coal: "#334455",
-  stone: "#aaa999",
-  memory: "#2255aa",
-  quest: "#885500",
+const ZONE_LIGHT_MAP: Record<string, string> = {
+  memory: "#4488ff", aicore: "#a855f7", intel: "#22cc44", health: "#00ffcc",
+  comm: "#ff6644", autonomous: "#44ff88", integration: "#4477ff", social: "#ffaa00",
+  code: "#cccc00", analytics: "#ff4466", media: "#8888ff", persona: "#88ee44",
 };
 
-// ─── Ore patches ──────────────────────────────────────────────
-interface OrePatch {
-  col: number;
-  row: number;
-  w: number;
-  h: number;
-  type: OreType;
-  label: string;
-}
-
-const ORE_PATCHES: OrePatch[] = [
-  { col: 0, row: 1, w: 4, h: 3, type: "iron", label: "Memory/Journal" },
-  { col: 6, row: 0, w: 4, h: 3, type: "copper", label: "Quests/Goals" },
-  { col: 12, row: 1, w: 3, h: 3, type: "coal", label: "Standing Orders" },
-  { col: 17, row: 0, w: 3, h: 3, type: "stone", label: "RuView Data" },
-  { col: 0, row: 6, w: 3, h: 2, type: "memory", label: "Deep Memory" },
-  { col: 6, row: 6, w: 3, h: 2, type: "quest", label: "Active Quests" },
-];
-
-// ─── Mining drill positions ───────────────────────────────────
-const MINING_DRILLS: MiningDrill[] = [
-  { col: 0, row: 1, orePatch: "iron" },
-  { col: 2, row: 1, orePatch: "iron" },
-  { col: 6, row: 0, orePatch: "copper" },
-  { col: 8, row: 0, orePatch: "copper" },
-  { col: 12, row: 1, orePatch: "coal" },
-  { col: 17, row: 0, orePatch: "stone" },
-];
-
-// ─── Belt network builder ─────────────────────────────────────
-function buildBeltNetwork(): BeltSegment[] {
-  const belts: BeltSegment[] = [];
-
-  // Feeder belts (vertical, rows 4-5)
-  const feeders = [1, 3, 7, 9, 13, 18];
-  feeders.forEach((col) => {
-    for (let row = 4; row <= 5; row++) {
-      belts.push({ col, row, type: "v-down", speed: "yellow" });
-    }
-    belts.push({ col, row: 6, type: "corner-se", speed: "yellow" });
-  });
-
-  // Main horizontal spine at row 6 (going east toward MAVIS, col 2-23)
-  for (let col = 2; col <= 23; col++) {
-    if (!feeders.includes(col)) {
-      belts.push({ col, row: 6, type: "h-right", speed: "red" });
-    }
-  }
-  belts.push({ col: 24, row: 6, type: "h-right", speed: "red" });
-
-  // Main belt continues east of MAVIS (col 31-52)
-  for (let col = 31; col <= 52; col++) {
-    belts.push({ col, row: 6, type: "h-right", speed: "blue" });
-  }
-
-  // Return belt going west at row 8
-  for (let col = 5; col <= 22; col++) {
-    belts.push({ col, row: 8, type: "h-left", speed: "yellow" });
-  }
-  belts.push({ col: 4, row: 8, type: "corner-sw", speed: "yellow" });
-
-  // Persona side belt (col 3, rows 7-27, going south)
-  for (let row = 7; row <= 27; row++) {
-    belts.push({ col: 3, row, type: "v-down", speed: "yellow" });
-  }
-
-  // Council side belt connector (row 8, col 32-47 going east, then corner south at col 48)
-  for (let col = 32; col <= 47; col++) {
-    belts.push({ col, row: 8, type: "h-right", speed: "yellow" });
-  }
-  belts.push({ col: 48, row: 8, type: "corner-se", speed: "yellow" });
-  for (let row = 9; row <= 27; row++) {
-    belts.push({ col: 48, row, type: "v-down", speed: "yellow" });
-  }
-
-  // Output belt from MAVIS going east (row 12)
-  for (let col = 27; col <= 55; col++) {
-    belts.push({ col, row: 12, type: "h-right", speed: "blue" });
-  }
-
-  // Storage feeder belts going south from output belt
-  for (const col of [46, 50, 54]) {
-    for (let row = 13; row <= 15; row++) {
-      belts.push({ col, row, type: "v-down", speed: "yellow" });
-    }
-  }
-
-  // Second horizontal belt at row 15 (east side)
-  for (let col = 27; col <= 44; col++) {
-    belts.push({ col, row: 15, type: "h-right", speed: "yellow" });
-  }
-
-  return belts;
-}
-
-const BELT_NETWORK = buildBeltNetwork();
-
-// ─── Power poles ──────────────────────────────────────────────
-const POWER_POLES: PowerPole[] = [];
-for (let col = 0; col <= 55; col += 10) {
-  for (let row = 0; row <= 40; row += 10) {
-    POWER_POLES.push({ col, row });
-  }
-}
-
-// ─── Assembly machines ────────────────────────────────────────
-const ASSEMBLY_MACHINES: AssemblyMachine[] = [
-  {
-    col: 24, row: 3, w: 5, h: 5,
-    label: "MAVIS PRIME",
-    bodyColor: "#130d2a",
-    accentColor: "#6b21d8",
-    lightColor: "#a855f7",
-    statusKey: "mavis",
-    isMAVIS: true,
-  },
-  {
-    col: 20, row: 3, w: 3, h: 3,
-    label: "MEM PROC",
-    bodyColor: "#0d1a2a",
-    accentColor: "#2255aa",
-    lightColor: "#4488ff",
-    statusKey: "memory",
-  },
-  {
-    col: 20, row: 7, w: 3, h: 3,
-    label: "JOURNAL",
-    bodyColor: "#100820",
-    accentColor: "#5522aa",
-    lightColor: "#aa44ff",
-    statusKey: "journal",
-  },
-  {
-    col: 29, row: 3, w: 3, h: 3,
-    label: "QUEST HUB",
-    bodyColor: "#1a1000",
-    accentColor: "#885500",
-    lightColor: "#ffaa00",
-    statusKey: "quest",
-  },
-  {
-    col: 29, row: 7, w: 3, h: 3,
-    label: "RUVIEW",
-    bodyColor: "#001a1a",
-    accentColor: "#007766",
-    lightColor: "#00ffcc",
-    statusKey: "ruview",
-  },
-  {
-    col: 33, row: 3, w: 3, h: 3,
-    label: "ORDERS",
-    bodyColor: "#1a0a00",
-    accentColor: "#884400",
-    lightColor: "#ff8800",
-    statusKey: "orders",
-  },
-  {
-    col: 36, row: 3, w: 3, h: 3,
-    label: "PERSONA CORE",
-    bodyColor: "#001a08",
-    accentColor: "#117733",
-    lightColor: "#44ff88",
-    statusKey: "mavis",
-  },
-  {
-    col: 36, row: 7, w: 3, h: 3,
-    label: "COUNCIL CORE",
-    bodyColor: "#1a0008",
-    accentColor: "#882233",
-    lightColor: "#ff4466",
-    statusKey: "mavis",
-  },
-];
-
-// ─── Inserter definitions ─────────────────────────────────────
-const INSERTER_DEFS: InserterDef[] = [
-  { pivotCol: 23, pivotRow: 5, sourceAngle: Math.PI, destAngle: 0, itemColor: "#4488ff", statusKey: "memory" },
-  { pivotCol: 23, pivotRow: 6, sourceAngle: Math.PI, destAngle: 0, itemColor: "#aa44ff", statusKey: "journal" },
-  { pivotCol: 29, pivotRow: 5, sourceAngle: 0, destAngle: Math.PI, itemColor: "#ffaa00", statusKey: "quest" },
-  { pivotCol: 29, pivotRow: 6, sourceAngle: 0, destAngle: Math.PI, itemColor: "#00ffcc", statusKey: "ruview" },
-  { pivotCol: 26, pivotRow: 9, sourceAngle: -Math.PI / 2, destAngle: Math.PI / 2, itemColor: "#ffffff", statusKey: "mavis" },
-  { pivotCol: 1, pivotRow: 3, sourceAngle: Math.PI / 2, destAngle: -Math.PI / 2, itemColor: "#8899aa", statusKey: "memory" },
-  { pivotCol: 7, pivotRow: 3, sourceAngle: Math.PI / 2, destAngle: -Math.PI / 2, itemColor: "#cc7744", statusKey: "quest" },
-  { pivotCol: 13, pivotRow: 3, sourceAngle: Math.PI / 2, destAngle: -Math.PI / 2, itemColor: "#333344", statusKey: "orders" },
-];
-
-// ─── Worker patrol paths ──────────────────────────────────────
-const WORKER_PATROL_PATHS = [
-  [
-    { x: 5 * TILE, y: 9 * TILE },
-    { x: 5 * TILE, y: 20 * TILE },
-    { x: 20 * TILE, y: 20 * TILE },
-    { x: 20 * TILE, y: 9 * TILE },
-  ],
-  [
-    { x: 30 * TILE, y: 10 * TILE },
-    { x: 45 * TILE, y: 10 * TILE },
-    { x: 45 * TILE, y: 20 * TILE },
-    { x: 30 * TILE, y: 20 * TILE },
-  ],
-  [
-    { x: 15 * TILE, y: 25 * TILE },
-    { x: 35 * TILE, y: 25 * TILE },
-    { x: 35 * TILE, y: 35 * TILE },
-    { x: 15 * TILE, y: 35 * TILE },
-  ],
-  [
-    { x: 50 * TILE, y: 15 * TILE },
-    { x: 55 * TILE, y: 15 * TILE },
-    { x: 55 * TILE, y: 25 * TILE },
-    { x: 50 * TILE, y: 25 * TILE },
-  ],
-];
-
-// ─── Belt item paths ──────────────────────────────────────────
-const BELT_ITEM_PATHS: Record<string, { x: number; y: number }[]> = {
-  memory: [
-    { x: 1 * TILE + TILE / 2, y: 2 * TILE },
-    { x: 1 * TILE + TILE / 2, y: 6 * TILE + TILE / 2 },
-    { x: 24 * TILE, y: 6 * TILE + TILE / 2 },
-    { x: 24 * TILE, y: 5 * TILE + TILE / 2 },
-  ],
-  journal: [
-    { x: 3 * TILE + TILE / 2, y: 2 * TILE },
-    { x: 3 * TILE + TILE / 2, y: 6 * TILE + TILE / 2 },
-    { x: 24 * TILE, y: 6 * TILE + TILE / 2 },
-    { x: 24 * TILE, y: 7 * TILE + TILE / 2 },
-  ],
-  quest: [
-    { x: 7 * TILE + TILE / 2, y: 2 * TILE },
-    { x: 7 * TILE + TILE / 2, y: 6 * TILE + TILE / 2 },
-    { x: 24 * TILE, y: 6 * TILE + TILE / 2 },
-    { x: 26 * TILE, y: 6 * TILE + TILE / 2 },
-    { x: 26 * TILE, y: 5 * TILE },
-  ],
-  ruview: [
-    { x: 18 * TILE + TILE / 2, y: 2 * TILE },
-    { x: 18 * TILE + TILE / 2, y: 6 * TILE + TILE / 2 },
-    { x: 26 * TILE, y: 6 * TILE + TILE / 2 },
-    { x: 26 * TILE, y: 7 * TILE },
-  ],
-  order: [
-    { x: 13 * TILE + TILE / 2, y: 2 * TILE },
-    { x: 13 * TILE + TILE / 2, y: 6 * TILE + TILE / 2 },
-    { x: 26 * TILE, y: 6 * TILE + TILE / 2 },
-  ],
-  persona: [
-    { x: 3 * TILE + TILE / 2, y: 9 * TILE },
-    { x: 3 * TILE + TILE / 2, y: 20 * TILE },
-    { x: 24 * TILE, y: 20 * TILE },
-    { x: 24 * TILE, y: 8 * TILE },
-  ],
-  processed: [
-    { x: 29 * TILE, y: 8 * TILE + TILE / 2 },
-    { x: 52 * TILE, y: 8 * TILE + TILE / 2 },
-    { x: 52 * TILE, y: 12 * TILE + TILE / 2 },
-    { x: 55 * TILE, y: 12 * TILE + TILE / 2 },
-  ],
+const MAVIS_DIRECTIVES: Record<string, string[]> = {
+  memory:      ["Consolidating 47 embeddings…", "Pruning stale memories…", "Distilling behavioral patterns…"],
+  intel:       ["Updating world model…", "Scanning market signals…", "Deep-researching competitor moves…"],
+  health:      ["Syncing biometric state…", "Analyzing sleep score…", "Querying Galaxy Ring data…"],
+  comm:        ["Dispatching email queue…", "Routing Telegram messages…", "Triggering VAPI call…"],
+  autonomous:  ["Running goal-agent cycle…", "Firing campaign batch…", "Evaluating trigger conditions…"],
+  integration: ["Syncing Gmail labels…", "Pulling Notion updates…", "Refreshing calendar feed…"],
+  social:      ["Scheduling Nora posts…", "Publishing content batch…", "Queuing morning digest…"],
+  code:        ["Running browser agent task…", "Committing GitHub changes…", "Executing Python script…"],
+  analytics:   ["Computing daily scores…", "Running eval suite…", "Scanning pattern insights…"],
+  media:       ["Generating DALL-E image…", "Queuing HeyGen avatar…", "Exporting design bundle…"],
+  persona:     ["Forging Nora persona update…", "Routing emotion state…", "Auditing brand voice…"],
 };
 
-// ─── Color helpers ─────────────────────────────────────────────
+// ── Seeded pseudo-random ────────────────────────────────────
+function seededRand(seed: number): number {
+  const x = Math.sin(seed + 1) * 43758.5453123;
+  return x - Math.floor(x);
+}
+
+// ── Color helpers ────────────────────────────────────────────
 function lightenColor(hex: string, amount: number): string {
-  if (hex.startsWith("rgb")) return hex;
+  if (!hex.startsWith("#")) return hex;
   const num = parseInt(hex.replace("#", ""), 16);
   const r = Math.min(255, (num >> 16) + amount);
   const g = Math.min(255, ((num >> 8) & 0xff) + amount);
   const b = Math.min(255, (num & 0xff) + amount);
   return `rgb(${r},${g},${b})`;
 }
-
 function darkenColor(hex: string, amount: number): string {
-  if (hex.startsWith("rgb")) return hex;
+  if (!hex.startsWith("#")) return hex;
   const num = parseInt(hex.replace("#", ""), 16);
   const r = Math.max(0, (num >> 16) - amount);
   const g = Math.max(0, ((num >> 8) & 0xff) - amount);
@@ -495,1985 +346,896 @@ function darkenColor(hex: string, amount: number): string {
   return `rgb(${r},${g},${b})`;
 }
 
-function hexToRgb(hex: string): string {
-  if (hex.startsWith("rgb")) return "168,85,247";
-  const num = parseInt(hex.replace("#", ""), 16);
-  const r = (num >> 16) & 0xff;
-  const g = (num >> 8) & 0xff;
-  const b = num & 0xff;
-  return `${r},${g},${b}`;
-}
-
-// ─── Drawing functions ────────────────────────────────────────
-
-function drawTerrain(ctx: CanvasRenderingContext2D, W: number, H: number) {
-  const numCols = Math.ceil(W / TILE) + 1;
-  const numRows = Math.ceil(H / TILE) + 1;
-  for (let r = 0; r < numRows; r++) {
-    for (let c = 0; c < numCols; c++) {
-      ctx.fillStyle = terrainColor(c, r);
-      ctx.fillRect(c * TILE, r * TILE, TILE, TILE);
-      // Subtle grain dots
-      const n = seededRand(c * 311 + r * 127 + 5555);
-      if (n > 0.85) {
-        const gn = seededRand(c * 211 + r * 97 + 9999);
-        ctx.fillStyle = `rgba(${Math.floor(40 + gn * 20)},${Math.floor(50 + gn * 20)},${Math.floor(20 + gn * 10)},0.4)`;
-        ctx.fillRect(c * TILE + Math.floor(n * TILE), r * TILE + Math.floor(gn * TILE), 2, 2);
+// ── Terrain ──────────────────────────────────────────────────
+function drawTerrain(ctx: CanvasRenderingContext2D, panX: number, panY: number, vw: number, vh: number) {
+  const startC = Math.max(0, Math.floor(panX / TILE));
+  const startR = Math.max(0, Math.floor(panY / TILE));
+  const endC   = Math.min(V_COLS, startC + Math.ceil(vw / TILE) + 2);
+  const endR   = Math.min(V_ROWS, startR + Math.ceil(vh / TILE) + 2);
+  for (let r = startR; r < endR; r++) {
+    for (let c = startC; c < endC; c++) {
+      const n1 = seededRand(c * 137 + r * 251);
+      const n2 = seededRand(c * 79  + r * 317 + 1000);
+      const n3 = seededRand(c * 199 + r * 53  + 2000);
+      const tr = Math.floor(30 + n1 * 12 + n2 * 4);
+      const tg = Math.floor(27 + n1 * 8  + n3 * 4);
+      const tb = Math.floor(14 + n2 * 8);
+      ctx.fillStyle = `rgb(${tr},${tg},${tb})`;
+      ctx.fillRect(c * TILE - panX, r * TILE - panY, TILE, TILE);
+      // grain dots
+      if (seededRand(c * 311 + r * 127 + 5555) > 0.88) {
+        ctx.fillStyle = `rgba(80,70,40,${0.3 + seededRand(c * 211 + r * 97 + 9999) * 0.3})`;
+        ctx.fillRect(c * TILE - panX + 12, r * TILE - panY + 12, 3, 3);
       }
     }
   }
 }
 
-function drawOrePatch(ctx: CanvasRenderingContext2D, patch: OrePatch) {
-  const x = patch.col * TILE;
-  const y = patch.row * TILE;
-  const w = patch.w * TILE;
-  const h = patch.h * TILE;
-
-  ctx.fillStyle = ORE_COLORS[patch.type];
-  ctx.globalAlpha = 0.55;
-  ctx.fillRect(x, y, w, h);
-  ctx.globalAlpha = 1;
-
-  const rocks = patch.w * patch.h * 8;
-  for (let i = 0; i < rocks; i++) {
-    const rx = seededRand(i * 137 + patch.col * 31);
-    const ry = seededRand(i * 241 + patch.row * 53);
-    const rr = 2 + seededRand(i * 97 + 7) * 4;
-    ctx.fillStyle = ORE_ROCK_COLORS[patch.type];
-    ctx.globalAlpha = 0.7 + seededRand(i * 53) * 0.3;
-    ctx.beginPath();
-    ctx.ellipse(x + rx * w, y + ry * h, rr, rr * 0.65, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = "rgba(255,255,255,0.25)";
-    ctx.beginPath();
-    ctx.ellipse(x + rx * w - rr * 0.2, y + ry * h - rr * 0.2, rr * 0.4, rr * 0.3, 0, 0, Math.PI * 2);
-    ctx.fill();
-  }
-  ctx.globalAlpha = 1;
-
-  ctx.font = "bold 9px monospace";
-  ctx.textAlign = "center";
-  ctx.fillStyle = "rgba(255,255,255,0.7)";
-  ctx.fillText(patch.label.toUpperCase(), x + w / 2, y - 3);
-}
-
-function drawBeltSegment(
-  ctx: CanvasRenderingContext2D,
-  seg: BeltSegment,
-  beltOffset: number
+// ── Zone background ──────────────────────────────────────────
+function drawZoneBg(
+  ctx: CanvasRenderingContext2D, z: ZoneDef,
+  panX: number, panY: number, tickCounter: number
 ) {
-  const x = seg.col * TILE;
-  const y = seg.row * TILE;
-  const T = TILE;
+  const px = z.col * TILE - panX;
+  const py = z.row * TILE - panY;
+  const w  = z.w * TILE;
+  const h  = z.h * TILE;
 
-  const bodyColor = seg.speed === "blue" ? "#1a3a8a" : seg.speed === "red" ? "#6a1a1a" : "#6a5a1a";
-  const stripeColor = seg.speed === "blue" ? "#3366cc" : seg.speed === "red" ? "#cc3333" : "#c8a800";
-  const edgeColor = seg.speed === "blue" ? "#335599" : seg.speed === "red" ? "#993333" : "#998800";
+  // Zone fill
+  ctx.fillStyle = z.color;
+  ctx.fillRect(px, py, w, h);
 
-  ctx.fillStyle = bodyColor;
-  ctx.fillRect(x, y, T, T);
+  // Subtle grid
+  ctx.strokeStyle = `${z.accent}18`;
+  ctx.lineWidth = 0.5;
+  for (let dc = 0; dc <= z.w; dc++) {
+    ctx.beginPath(); ctx.moveTo(px + dc * TILE, py); ctx.lineTo(px + dc * TILE, py + h); ctx.stroke();
+  }
+  for (let dr = 0; dr <= z.h; dr++) {
+    ctx.beginPath(); ctx.moveTo(px, py + dr * TILE); ctx.lineTo(px + w, py + dr * TILE); ctx.stroke();
+  }
 
-  ctx.save();
+  // Border glow
+  ctx.shadowColor = z.accent;
+  ctx.shadowBlur = 6;
+  ctx.strokeStyle = z.border;
+  ctx.lineWidth = 2;
+  ctx.strokeRect(px + 1, py + 1, w - 2, h - 2);
+  ctx.shadowBlur = 0;
+
+  // Header bar
+  ctx.fillStyle = `${z.accent}33`;
+  ctx.fillRect(px, py, w, 22);
+
+  // Zone label
+  ctx.fillStyle = z.light;
+  ctx.font = "bold 9px monospace";
+  ctx.textAlign = "left";
+  ctx.fillText(z.label, px + 8, py + 15);
+
+  // Corner accent dots (pulsing)
+  const pulse = 0.4 + 0.4 * Math.sin(tickCounter * 0.04 + z.col * 0.5);
+  ctx.globalAlpha = pulse;
+  ctx.fillStyle = z.light;
+  for (const [cx, cy] of [[px,py],[px+w-4,py],[px,py+h-4],[px+w-4,py+h-4]]) {
+    ctx.fillRect(cx, cy, 4, 4);
+  }
+  ctx.globalAlpha = 1;
+}
+
+// ── Zone machine node ────────────────────────────────────────
+function drawNode(
+  ctx: CanvasRenderingContext2D, node: ZoneNode,
+  zoneCol: number, zoneRow: number,
+  panX: number, panY: number,
+  status: NodeStatus, tickCounter: number
+) {
+  const px = (zoneCol + node.dc) * TILE - panX;
+  const py = (zoneRow + node.dr) * TILE - panY;
+  const w  = node.w * TILE;
+  const h  = node.h * TILE;
+
+  // Shadow
+  ctx.fillStyle = "rgba(0,0,0,0.45)";
+  ctx.fillRect(px + 3, py + 3, w, h);
+
+  // Body
+  const grad = ctx.createLinearGradient(px, py, px, py + h);
+  grad.addColorStop(0, lightenColor(node.color, 12));
+  grad.addColorStop(1, node.color);
+  ctx.fillStyle = grad;
+  ctx.fillRect(px, py, w, h);
+
+  // Accent border
+  ctx.strokeStyle = node.accent;
+  ctx.lineWidth = 1.5;
+  ctx.strokeRect(px + 0.75, py + 0.75, w - 1.5, h - 1.5);
+
+  // Top accent stripe
+  ctx.fillStyle = node.accent;
+  ctx.fillRect(px, py, w, 4);
+
+  // Status light
+  const lightOn = status === "active"
+    ? 0.65 + 0.35 * Math.sin(tickCounter * 0.09 + node.dc)
+    : status === "warm" ? 0.45 : 0.18;
+  ctx.globalAlpha = lightOn;
+  ctx.fillStyle = node.light;
+  ctx.shadowColor = node.light;
+  ctx.shadowBlur = status === "active" ? 8 : 0;
   ctx.beginPath();
-  ctx.rect(x, y, T, T);
-  ctx.clip();
+  ctx.arc(px + w - 8, py + 12, 4, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.shadowBlur = 0;
+  ctx.globalAlpha = 1;
 
-  const isH = seg.type === "h-right" || seg.type === "h-left";
-  const isV = seg.type === "v-down" || seg.type === "v-up";
+  // Cron badge
+  if (node.cron) {
+    ctx.fillStyle = "rgba(200,180,80,0.2)";
+    ctx.fillRect(px + 3, py + 6, node.cron.length * 5 + 6, 11);
+    ctx.fillStyle = "#ccaa44";
+    ctx.font = "6px monospace";
+    ctx.textAlign = "left";
+    ctx.fillText(`⏱ ${node.cron}`, px + 6, py + 14);
+  }
 
-  if (isH) {
-    const dir = seg.type === "h-right" ? 1 : -1;
-    ctx.fillStyle = edgeColor;
-    ctx.fillRect(x, y, T, 3);
-    ctx.fillRect(x, y + T - 3, T, 3);
-    ctx.fillRect(x, y + T / 2 - 1, T, 2);
+  // Label
+  ctx.fillStyle = "rgba(255,255,230,0.88)";
+  ctx.font = "bold 7px monospace";
+  ctx.textAlign = "center";
+  const mid = py + (node.cron ? h / 2 + 2 : h / 2);
+  ctx.fillText(node.label, px + w / 2, mid);
 
-    for (let lane = 0; lane < 2; lane++) {
-      const laneY = y + (lane === 0 ? T / 4 : 3 * T / 4);
-      for (let i = -1; i <= 2; i++) {
-        const offset = ((beltOffset * dir + i * 18) % 18 + 18) % 18;
-        const cx2 = x + offset + (dir < 0 ? T - offset * 2 : 0);
-        ctx.strokeStyle = stripeColor;
-        ctx.lineWidth = 1.5;
-        ctx.beginPath();
-        ctx.moveTo(cx2 + dir * 4, laneY - 3);
-        ctx.lineTo(cx2 + dir * 8, laneY);
-        ctx.lineTo(cx2 + dir * 4, laneY + 3);
-        ctx.stroke();
-      }
-    }
-  } else if (isV) {
-    const dir = seg.type === "v-down" ? 1 : -1;
-    ctx.fillStyle = edgeColor;
-    ctx.fillRect(x, y, 3, T);
-    ctx.fillRect(x + T - 3, y, 3, T);
-    ctx.fillRect(x + T / 2 - 1, y, 2, T);
+  if (node.sub && !node.cron) {
+    ctx.fillStyle = "rgba(200,200,180,0.45)";
+    ctx.font = "6px monospace";
+    ctx.fillText(node.sub, px + w / 2, mid + 9);
+  }
 
-    for (let lane = 0; lane < 2; lane++) {
-      const laneX = x + (lane === 0 ? T / 4 : 3 * T / 4);
-      for (let i = -1; i <= 2; i++) {
-        const offset = ((beltOffset * dir + i * 18) % 18 + 18) % 18;
-        const cy2 = y + offset;
-        ctx.strokeStyle = stripeColor;
-        ctx.lineWidth = 1.5;
-        ctx.beginPath();
-        ctx.moveTo(laneX - 3, cy2 + dir * 4);
-        ctx.lineTo(laneX, cy2 + dir * 8);
-        ctx.lineTo(laneX + 3, cy2 + dir * 4);
-        ctx.stroke();
-      }
-    }
-  } else {
-    // Corner pieces
-    ctx.fillStyle = bodyColor;
-    ctx.fillRect(x, y, T, T);
-
-    const drawArc = (ox: number, oy: number, r1: number, r2: number, startA: number, endA: number) => {
-      ctx.strokeStyle = edgeColor;
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.arc(ox, oy, r1, startA, endA);
-      ctx.stroke();
-      ctx.beginPath();
-      ctx.arc(ox, oy, r2, startA, endA);
-      ctx.stroke();
-      ctx.strokeStyle = stripeColor + "88";
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      ctx.arc(ox, oy, (r1 + r2) / 2, startA, endA);
-      ctx.stroke();
-    };
-
-    const r1 = T * 0.3;
-    const r2 = T * 0.7;
-    if (seg.type === "corner-se") drawArc(x, y, r1, r2, 0, Math.PI / 2);
-    else if (seg.type === "corner-sw") drawArc(x + T, y, r1, r2, Math.PI / 2, Math.PI);
-    else if (seg.type === "corner-ne") drawArc(x, y + T, r1, r2, -Math.PI / 2, 0);
-    else if (seg.type === "corner-nw") drawArc(x + T, y + T, r1, r2, Math.PI, 3 * Math.PI / 2);
-
-    ctx.fillStyle = edgeColor;
-    ctx.globalAlpha = 0.5;
-    ctx.beginPath();
-    ctx.arc(x + T / 2, y + T / 2, 3, 0, Math.PI * 2);
-    ctx.fill();
+  // Activity scanline
+  if (status === "active") {
+    const scanY = (tickCounter * 0.4 + node.dc * 7) % h;
+    ctx.globalAlpha = 0.08;
+    ctx.fillStyle = node.light;
+    ctx.fillRect(px, py + scanY, w, 3);
     ctx.globalAlpha = 1;
   }
-
-  ctx.restore();
-  ctx.strokeStyle = "rgba(0,0,0,0.3)";
-  ctx.lineWidth = 0.5;
-  ctx.strokeRect(x, y, T, T);
 }
 
+// ── MAVIS PRIME machine ──────────────────────────────────────
 function drawGear(
-  ctx: CanvasRenderingContext2D,
-  cx: number,
-  cy: number,
-  radius: number,
-  teeth: number,
-  rotation: number,
-  color: string
+  ctx: CanvasRenderingContext2D, cx: number, cy: number,
+  r: number, angle: number, fill: string
 ) {
-  ctx.save();
-  ctx.translate(cx, cy);
-  ctx.rotate(rotation);
-
-  ctx.fillStyle = color;
+  const teeth = 10; const innerR = r * 0.6; const toothW = (Math.PI * 2 / teeth) * 0.38;
+  ctx.save(); ctx.translate(cx, cy); ctx.rotate(angle);
+  ctx.fillStyle = fill;
   ctx.beginPath();
   for (let i = 0; i < teeth; i++) {
-    const a1 = (i / teeth) * Math.PI * 2 - 0.15;
-    const a2 = (i / teeth) * Math.PI * 2 + 0.15;
-    const a3 = ((i + 0.5) / teeth) * Math.PI * 2 - 0.1;
-    const a4 = ((i + 0.5) / teeth) * Math.PI * 2 + 0.1;
-    ctx.moveTo(Math.cos(a1) * radius, Math.sin(a1) * radius);
-    ctx.lineTo(Math.cos(a3) * (radius + 4), Math.sin(a3) * (radius + 4));
-    ctx.lineTo(Math.cos(a4) * (radius + 4), Math.sin(a4) * (radius + 4));
-    ctx.lineTo(Math.cos(a2) * radius, Math.sin(a2) * radius);
+    const a = (i / teeth) * Math.PI * 2;
+    ctx.moveTo(Math.cos(a - toothW) * innerR, Math.sin(a - toothW) * innerR);
+    ctx.lineTo(Math.cos(a - toothW) * (r + r * 0.25), Math.sin(a - toothW) * (r + r * 0.25));
+    ctx.lineTo(Math.cos(a + toothW) * (r + r * 0.25), Math.sin(a + toothW) * (r + r * 0.25));
+    ctx.lineTo(Math.cos(a + toothW) * innerR, Math.sin(a + toothW) * innerR);
+    ctx.arc(0, 0, innerR, a + toothW, (i + 1) / teeth * Math.PI * 2 - toothW);
   }
-  ctx.closePath();
-  ctx.fill();
-
-  ctx.beginPath();
-  ctx.arc(0, 0, radius, 0, Math.PI * 2);
-  ctx.fill();
-
-  ctx.fillStyle = "#111";
-  ctx.beginPath();
-  ctx.arc(0, 0, radius * 0.38, 0, Math.PI * 2);
-  ctx.fill();
-
-  ctx.strokeStyle = color;
-  ctx.lineWidth = 1.5;
-  for (let i = 0; i < 4; i++) {
-    const a = (i / 4) * Math.PI * 2;
-    ctx.beginPath();
-    ctx.moveTo(Math.cos(a) * radius * 0.42, Math.sin(a) * radius * 0.42);
-    ctx.lineTo(Math.cos(a) * radius * 0.78, Math.sin(a) * radius * 0.78);
-    ctx.stroke();
-  }
-
+  ctx.closePath(); ctx.fill();
+  ctx.fillStyle = lightenColor(fill, 30);
+  ctx.beginPath(); ctx.arc(0, 0, r * 0.3, 0, Math.PI * 2); ctx.fill();
   ctx.restore();
 }
 
-function drawMiningDrill(
-  ctx: CanvasRenderingContext2D,
-  drill: MiningDrill,
-  frame: number,
-  status: MachineStatus
+function drawMAVISPrime(
+  ctx: CanvasRenderingContext2D, panX: number, panY: number, tickCounter: number
 ) {
-  const x = drill.col * TILE;
-  const y = drill.row * TILE;
-  const W = 2 * TILE;
-  const H = 2 * TILE;
-  const alpha = status === "active" ? 1 : status === "warm" ? 0.7 : 0.45;
-  ctx.globalAlpha = alpha;
+  // Position: col=35, row=5 within zone (zone col=COL1=29, row=ROW0=3)
+  const px = (COL1 + 6) * TILE - panX;
+  const py = (ROW0 + 3) * TILE - panY;
+  const w  = 10 * TILE;
+  const h  = 13 * TILE;
+  const cx = px + w / 2;
+  const cy = py + h / 2 - 20;
 
-  ctx.fillStyle = "rgba(0,0,0,0.4)";
-  ctx.fillRect(x + 3, y + 3, W, H);
+  // Shadow
+  ctx.fillStyle = "rgba(0,0,0,0.6)";
+  ctx.fillRect(px + 6, py + 6, w, h);
 
-  const bodyGrad = ctx.createLinearGradient(x, y, x + W, y + H);
-  bodyGrad.addColorStop(0, "#b89a28");
-  bodyGrad.addColorStop(0.5, "#d4b030");
-  bodyGrad.addColorStop(1, "#9a7e1a");
-  ctx.fillStyle = bodyGrad;
-  ctx.fillRect(x + 2, y + 2, W - 4, H - 4);
+  // Body gradient
+  const grad = ctx.createLinearGradient(px, py, px, py + h);
+  grad.addColorStop(0, "#1a0d3a");
+  grad.addColorStop(0.5, "#130d2a");
+  grad.addColorStop(1, "#0d0820");
+  ctx.fillStyle = grad;
+  ctx.fillRect(px, py, w, h);
 
-  ctx.fillStyle = "#2a2410";
-  ctx.fillRect(x + 8, y + 8, W - 16, H / 2 - 4);
+  // Glowing border
+  const glow = 0.6 + 0.4 * Math.sin(tickCounter * 0.07);
+  ctx.shadowColor = "#8b5cf6";
+  ctx.shadowBlur = 16 * glow;
+  ctx.strokeStyle = "#6b21d8";
+  ctx.lineWidth = 2.5;
+  ctx.strokeRect(px + 1, py + 1, w - 2, h - 2);
+  ctx.shadowBlur = 0;
 
-  ctx.fillStyle = "#887722";
-  [[x + 5, y + 5], [x + W - 7, y + 5], [x + 5, y + H - 7], [x + W - 7, y + H - 7]].forEach(([bx, by]) => {
-    ctx.beginPath();
-    ctx.arc(bx, by, 3, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.strokeStyle = "#aa9933";
-    ctx.lineWidth = 1;
-    ctx.stroke();
-  });
+  // Top stripe
+  const headerGrad = ctx.createLinearGradient(px, py, px + w, py);
+  headerGrad.addColorStop(0, "#6b21d8");
+  headerGrad.addColorStop(0.5, "#9333ea");
+  headerGrad.addColorStop(1, "#6b21d8");
+  ctx.fillStyle = headerGrad;
+  ctx.fillRect(px, py, w, 5);
 
-  const pistonOffset = status !== "idle" ? Math.sin(frame * 0.15) * 4 : 0;
-  ctx.fillStyle = "#555533";
-  ctx.fillRect(x + W / 2 - 4, y + H / 2 + 2 + pistonOffset, 8, H / 2 - 4 - pistonOffset);
+  // Gears
+  const gAngle = (tickCounter * 0.04) % (Math.PI * 2);
+  drawGear(ctx, cx, cy, 26, gAngle,       "#4a1090");
+  drawGear(ctx, cx, cy, 18, -gAngle * 1.4,"#6b21d8");
 
-  ctx.fillStyle = status === "active" ? "#666644" : "#333322";
-  ctx.beginPath();
-  ctx.moveTo(x + W / 2 - 8, y + H - 4);
-  ctx.lineTo(x + W / 2 + 8, y + H - 4);
-  ctx.lineTo(x + W / 2, y + H + 6);
-  ctx.closePath();
-  ctx.fill();
-
-  const gSpeed = status === "active" ? frame * 0.08 : status === "warm" ? frame * 0.025 : 0;
-  drawGear(ctx, x + W / 2, y + H / 4, 8, 6, gSpeed, "#aa9933");
-
-  const ledColor = status === "active" ? "#44ff44" : status === "warm" ? "#ffcc00" : "#882222";
-  ctx.fillStyle = ledColor;
-  ctx.shadowColor = ledColor;
-  ctx.shadowBlur = status === "active" ? 6 : 2;
-  ctx.beginPath();
-  ctx.arc(x + W - 8, y + 8, 3, 0, Math.PI * 2);
-  ctx.fill();
+  // Core crystal
+  ctx.globalAlpha = glow;
+  ctx.fillStyle = "#a855f7";
+  ctx.shadowColor = "#a855f7";
+  ctx.shadowBlur = 14;
+  ctx.beginPath(); ctx.arc(cx, cy, 7, 0, Math.PI * 2); ctx.fill();
   ctx.shadowBlur = 0;
   ctx.globalAlpha = 1;
-}
 
-function drawAssemblyMachine(
-  ctx: CanvasRenderingContext2D,
-  machine: AssemblyMachine,
-  status: MachineStatus,
-  frame: number,
-  gearRot: number,
-  labelOverride?: string
-) {
-  const x = machine.col * TILE;
-  const y = machine.row * TILE;
-  const W = machine.w * TILE;
-  const H = machine.h * TILE;
-  const cx = x + W / 2;
-  const cy = y + H / 2;
-  const alpha = status === "active" ? 1 : status === "warm" ? 0.75 : 0.5;
-
-  ctx.globalAlpha = alpha;
-
-  if (machine.isMAVIS) {
-    const glowGrad = ctx.createRadialGradient(cx, cy, 0, cx, cy, W * 0.7);
-    glowGrad.addColorStop(0, "rgba(100,50,200,0.35)");
-    glowGrad.addColorStop(0.5, "rgba(80,20,160,0.15)");
-    glowGrad.addColorStop(1, "transparent");
-    ctx.fillStyle = glowGrad;
-    ctx.fillRect(x - W * 0.3, y - H * 0.3, W * 1.6, H * 1.6);
+  // Brain wave rings
+  for (let i = 0; i < 3; i++) {
+    const age = (tickCounter + i * 20) % 60;
+    const r = age * 3 + 30;
+    const alpha = Math.max(0, 0.35 - age / 60 * 0.35);
     ctx.globalAlpha = alpha;
-  }
-
-  ctx.fillStyle = "rgba(0,0,0,0.5)";
-  ctx.fillRect(x + 4, y + 4, W, H);
-
-  const bodyGrad = ctx.createLinearGradient(x, y, x, y + H);
-  bodyGrad.addColorStop(0, lightenColor(machine.bodyColor, 20));
-  bodyGrad.addColorStop(0.5, machine.bodyColor);
-  bodyGrad.addColorStop(1, darkenColor(machine.bodyColor, 20));
-  ctx.fillStyle = bodyGrad;
-  ctx.fillRect(x + 2, y + 2, W - 4, H - 4);
-
-  ctx.strokeStyle = machine.accentColor;
-  ctx.lineWidth = 2;
-  ctx.strokeRect(x + 2, y + 2, W - 4, H - 4);
-
-  const panelPad = machine.isMAVIS ? 8 : 5;
-  ctx.fillStyle = darkenColor(machine.bodyColor, 30);
-  ctx.fillRect(x + panelPad, y + panelPad, W - panelPad * 2, H - panelPad * 2);
-
-  const boltSize = machine.isMAVIS ? 4 : 3;
-  const boltPad = machine.isMAVIS ? 7 : 5;
-  ctx.fillStyle = machine.accentColor;
-  [[x + boltPad, y + boltPad], [x + W - boltPad, y + boltPad], [x + boltPad, y + H - boltPad], [x + W - boltPad, y + H - boltPad]].forEach(([bx, by]) => {
-    ctx.beginPath();
-    ctx.arc(bx, by, boltSize, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.strokeStyle = lightenColor(machine.accentColor, 30);
-    ctx.lineWidth = 0.5;
-    ctx.stroke();
-    ctx.strokeStyle = lightenColor(machine.accentColor, 20);
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.moveTo(bx - boltSize * 0.6, by);
-    ctx.lineTo(bx + boltSize * 0.6, by);
-    ctx.moveTo(bx, by - boltSize * 0.6);
-    ctx.lineTo(bx, by + boltSize * 0.6);
-    ctx.stroke();
-  });
-
-  const gRadius = machine.isMAVIS ? 22 : Math.min(W, H) / 4;
-  const gSpeed = status === "active" ? 0.04 : status === "warm" ? 0.012 : 0;
-  drawGear(ctx, cx, cy, gRadius, machine.isMAVIS ? 10 : 6, gearRot * gSpeed, machine.accentColor);
-
-  if (machine.isMAVIS) {
-    drawGear(ctx, cx, cy, 11, 7, -gearRot * gSpeed * 1.8, machine.lightColor);
-    if (status === "active") {
-      const pr = 28 + Math.sin(frame * 0.07) * 5;
-      ctx.strokeStyle = `rgba(${hexToRgb(machine.lightColor)},${0.3 + Math.sin(frame * 0.07) * 0.2})`;
-      ctx.lineWidth = 1.5;
-      ctx.beginPath();
-      ctx.arc(cx, cy, pr, 0, Math.PI * 2);
-      ctx.stroke();
-    }
-    ctx.strokeStyle = machine.lightColor;
+    ctx.strokeStyle = "#8b5cf6";
     ctx.lineWidth = 1.5;
-    const cs = 12;
-    [[x + 4, y + 4, 1, 1], [x + W - 4, y + 4, -1, 1], [x + 4, y + H - 4, 1, -1], [x + W - 4, y + H - 4, -1, -1]].forEach(([px, py, sx, sy]) => {
-      ctx.beginPath();
-      ctx.moveTo(px, py + sy * cs);
-      ctx.lineTo(px, py);
-      ctx.lineTo(px + sx * cs, py);
-      ctx.stroke();
-    });
+    ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.stroke();
   }
-
-  if (machine.w >= 3) {
-    const pipeColor = "#445555";
-    const pipeH = machine.isMAVIS ? 14 : 10;
-    ctx.fillStyle = pipeColor;
-    ctx.fillRect(x - 4, cy - pipeH / 2, 6, pipeH);
-    ctx.strokeStyle = "#667788";
-    ctx.lineWidth = 1;
-    ctx.strokeRect(x - 4, cy - pipeH / 2, 6, pipeH);
-    ctx.fillStyle = pipeColor;
-    ctx.fillRect(x + W - 2, cy - pipeH / 2, 6, pipeH);
-    ctx.strokeRect(x + W - 2, cy - pipeH / 2, 6, pipeH);
-  }
-
-  const lightR = machine.isMAVIS ? 5 : 3;
-  const lightX = x + W - (machine.isMAVIS ? 12 : 8);
-  const lightY = y + (machine.isMAVIS ? 12 : 8);
-  const ledColor = status === "active" ? machine.lightColor : status === "warm" ? "#ffcc00" : "#552222";
-  ctx.fillStyle = ledColor;
-  ctx.shadowColor = ledColor;
-  ctx.shadowBlur = status === "active" ? (machine.isMAVIS ? 12 : 8) : 2;
-  ctx.beginPath();
-  ctx.arc(lightX, lightY, lightR, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.shadowBlur = 0;
-
-  if (status === "active" && machine.w >= 3) {
-    ctx.fillStyle = "#445566";
-    ctx.fillRect(cx - 3, y - 6, 6, 8);
-  }
-
-  const displayLabel = labelOverride ?? machine.label;
-  ctx.fillStyle = machine.accentColor;
-  ctx.font = `bold ${machine.isMAVIS ? 10 : 8}px monospace`;
-  ctx.textAlign = "center";
-  ctx.fillText(displayLabel, cx, y + H + 12);
-
   ctx.globalAlpha = 1;
+
+  // Scan line
+  const scanY = (tickCounter * 0.5 % h);
+  ctx.globalAlpha = 0.07;
+  ctx.fillStyle = "#a855f7";
+  ctx.fillRect(px, py + scanY, w, 4);
+  ctx.globalAlpha = 1;
+
+  // Labels
+  ctx.fillStyle = "#c084fc";
+  ctx.font = "bold 11px monospace";
+  ctx.textAlign = "center";
+  ctx.fillText("MAVIS PRIME", cx, py + h - 30);
+  ctx.fillStyle = "#7c3aed";
+  ctx.font = "8px monospace";
+  ctx.fillText("CODEXOS CORE", cx, py + h - 18);
+
+  // Status indicator
+  ctx.fillStyle = `rgba(168,85,247,${glow})`;
+  ctx.font = "7px monospace";
+  ctx.fillText("● ACTIVE", cx, py + h - 7);
 }
 
-function drawDynamicMachine(
-  ctx: CanvasRenderingContext2D,
-  col: number,
-  row: number,
-  name: string,
-  status: MachineStatus,
-  frame: number,
-  gearRot: number,
-  isPersona: boolean
-) {
-  drawAssemblyMachine(
-    ctx,
-    {
-      col, row, w: 3, h: 3,
-      label: name,
-      bodyColor: isPersona ? "#061a12" : "#1a0608",
-      accentColor: isPersona ? "#117733" : "#882233",
-      lightColor: isPersona ? "#44ff88" : "#ff4466",
-      statusKey: "mavis",
-    },
-    status,
-    frame,
-    gearRot,
-    name.slice(0, 10)
-  );
-}
+// ── Corridor belts (static visual) ──────────────────────────
+function drawCorridors(ctx: CanvasRenderingContext2D, panX: number, panY: number, tickCounter: number) {
+  const stripeOffset = (tickCounter * 0.6) % (TILE * 2);
 
-function drawInserter(
-  ctx: CanvasRenderingContext2D,
-  ins: InserterDef,
-  frame: number,
-  status: MachineStatus
-) {
-  const pivotX = ins.pivotCol * TILE + TILE / 2;
-  const pivotY = ins.pivotRow * TILE + TILE / 2;
-  const armLen = TILE * 1.0;
-  const isActive = status !== "idle";
-
-  const t = (Math.sin(frame * (isActive ? 0.06 : 0.02)) + 1) / 2;
-  const currentAngle = ins.sourceAngle + (ins.destAngle - ins.sourceAngle) * t;
-  const tipX = pivotX + Math.cos(currentAngle) * armLen;
-  const tipY = pivotY + Math.sin(currentAngle) * armLen;
-
-  const baseColor = isActive ? "#c87822" : "#664422";
-  const armColor = isActive ? "#d4883a" : "#774433";
-
-  ctx.fillStyle = darkenColor(baseColor, 10);
-  ctx.beginPath();
-  ctx.arc(pivotX, pivotY, 7, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.strokeStyle = baseColor;
-  ctx.lineWidth = 1.5;
-  ctx.stroke();
-
-  ctx.fillStyle = lightenColor(baseColor, 30);
-  ctx.beginPath();
-  ctx.arc(pivotX, pivotY, 3, 0, Math.PI * 2);
-  ctx.fill();
-
-  ctx.strokeStyle = armColor;
-  ctx.lineWidth = 3;
-  ctx.lineCap = "round";
-  ctx.beginPath();
-  ctx.moveTo(pivotX, pivotY);
-  ctx.lineTo(tipX, tipY);
-  ctx.stroke();
-  ctx.lineCap = "butt";
-
-  const clawSize = 4;
-  ctx.fillStyle = isActive ? ins.itemColor : "#555544";
-  ctx.strokeStyle = isActive ? lightenColor(ins.itemColor, 20) : "#666655";
-  ctx.lineWidth = 1;
-  ctx.fillRect(tipX - clawSize, tipY - clawSize, clawSize * 2, clawSize * 2);
-  ctx.strokeRect(tipX - clawSize, tipY - clawSize, clawSize * 2, clawSize * 2);
-}
-
-function drawPowerPole(ctx: CanvasRenderingContext2D, pole: PowerPole) {
-  const x = pole.col * TILE + TILE / 2;
-  const y = pole.row * TILE + TILE / 2;
-
-  ctx.fillStyle = "rgba(0,0,0,0.3)";
-  ctx.fillRect(x - 1, y - 2, 6, TILE + 4);
-
-  ctx.fillStyle = "#6b4a20";
-  ctx.fillRect(x - 2, y - TILE / 2, 4, TILE + TILE / 4);
-
-  ctx.fillStyle = "#7a5525";
-  ctx.fillRect(x - 10, y - TILE / 2, 20, 3);
-
-  ctx.fillStyle = "#888";
-  [-8, 8].forEach((dx) => {
-    ctx.beginPath();
-    ctx.arc(x + dx, y - TILE / 2, 2, 0, Math.PI * 2);
-    ctx.fill();
-  });
-}
-
-function drawPowerWires(ctx: CanvasRenderingContext2D, poles: PowerPole[]) {
-  for (let i = 0; i < poles.length; i++) {
-    for (let j = i + 1; j < poles.length; j++) {
-      const a = poles[i];
-      const b = poles[j];
-      const dx = Math.abs(a.col - b.col);
-      const dy = Math.abs(a.row - b.row);
-      if ((dx === 10 && dy === 0) || (dx === 0 && dy === 10)) {
-        const ax = a.col * TILE + TILE / 2 - 8;
-        const ay = a.row * TILE + TILE / 2 - TILE / 2;
-        const bx = b.col * TILE + TILE / 2 - 8;
-        const by2 = b.row * TILE + TILE / 2 - TILE / 2;
-        const midX = (ax + bx) / 2;
-        const midY = (ay + by2) / 2 + (dx === 10 ? 12 : 0);
-
-        ctx.strokeStyle = "#cc8800";
-        ctx.lineWidth = 1.5;
-        ctx.globalAlpha = 0.65;
-        ctx.beginPath();
-        ctx.moveTo(ax, ay);
-        ctx.quadraticCurveTo(midX, midY, bx, by2);
-        ctx.stroke();
-
-        const ax2 = a.col * TILE + TILE / 2 + 8;
-        const bx2 = b.col * TILE + TILE / 2 + 8;
-        const mid2X = (ax2 + bx2) / 2;
-        ctx.beginPath();
-        ctx.moveTo(ax2, ay);
-        ctx.quadraticCurveTo(mid2X, midY, bx2, by2);
-        ctx.stroke();
-        ctx.globalAlpha = 1;
-      }
+  // Vertical corridors at cols 26-28, 53-55, 80-82
+  for (const startCol of [26, 53, 80]) {
+    const x = startCol * TILE - panX;
+    const y1 = ROW0 * TILE - panY;
+    const y2 = (ROW2 + ZONE_H) * TILE - panY;
+    const cw = 3 * TILE;
+    ctx.fillStyle = "#111108";
+    ctx.fillRect(x, y1, cw, y2 - y1);
+    for (let sy = y1 - stripeOffset; sy < y2; sy += TILE * 2) {
+      ctx.fillStyle = "rgba(180,160,50,0.12)";
+      ctx.fillRect(x + 4, sy, cw - 8, TILE);
     }
-  }
-}
-
-function drawRailTrack(ctx: CanvasRenderingContext2D, row: number, W: number) {
-  const y = row * TILE;
-
-  ctx.fillStyle = "#3a3530";
-  ctx.fillRect(0, y - 2, W, TILE + 4);
-
-  for (let x = 0; x < W; x += 16) {
-    ctx.fillStyle = "#4a3a28";
-    ctx.fillRect(x, y + 2, 12, TILE - 4);
-    ctx.fillStyle = "#3a2a18";
-    ctx.fillRect(x, y + 3, 12, 2);
-  }
-
-  ctx.strokeStyle = "#888880";
-  ctx.lineWidth = 3;
-  [6, TILE - 8].forEach((ro) => {
-    ctx.beginPath();
-    ctx.moveTo(0, y + ro);
-    ctx.lineTo(W, y + ro);
-    ctx.stroke();
-    ctx.strokeStyle = "#aaaaa8";
+    ctx.strokeStyle = "#333320";
     ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.moveTo(0, y + ro - 1);
-    ctx.lineTo(W, y + ro - 1);
-    ctx.stroke();
-    ctx.strokeStyle = "#888880";
-    ctx.lineWidth = 3;
-  });
-}
+    ctx.strokeRect(x, y1, cw, y2 - y1);
+  }
 
-function drawTrain(ctx: CanvasRenderingContext2D, train: Train, frame: number) {
-  const y = train.trackRow * TILE;
-  const dir = train.direction;
-  const locoW = TILE * 2;
-  const locoH = TILE - 6;
-  const locoX = dir > 0 ? train.x : train.x - locoW;
-
-  ctx.fillStyle = "rgba(0,0,0,0.4)";
-  ctx.fillRect(locoX + 3, y + 4, locoW, locoH);
-
-  const locoGrad = ctx.createLinearGradient(locoX, y, locoX, y + locoH);
-  locoGrad.addColorStop(0, "#3a3a3a");
-  locoGrad.addColorStop(0.4, "#555555");
-  locoGrad.addColorStop(1, "#222222");
-  ctx.fillStyle = locoGrad;
-  ctx.fillRect(locoX, y + 3, locoW, locoH);
-
-  ctx.fillStyle = "#cc2222";
-  const frontX = dir > 0 ? locoX + locoW - 4 : locoX;
-  ctx.fillRect(frontX, y + 3, 4, locoH);
-
-  ctx.fillStyle = "#222";
-  const chimneyX = dir > 0 ? locoX + 4 : locoX + locoW - 8;
-  ctx.fillRect(chimneyX, y, 6, 6);
-
-  const wheelPositions = [locoX + 4, locoX + locoW / 2 - 2, locoX + locoW - 10];
-  wheelPositions.forEach((wx) => {
-    ctx.fillStyle = "#333";
-    ctx.beginPath();
-    ctx.arc(wx + 4, y + locoH + 1, 4, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.strokeStyle = "#666";
+  // Horizontal corridors at rows 23-25, 46-48
+  for (const startRow of [23, 46]) {
+    const x1 = COL0 * TILE - panX;
+    const y  = startRow * TILE - panY;
+    const x2 = (COL3 + ZONE_W) * TILE - panX;
+    const ch = 3 * TILE;
+    ctx.fillStyle = "#111108";
+    ctx.fillRect(x1, y, x2 - x1, ch);
+    for (let sx = x1 - stripeOffset * 1.2; sx < x2; sx += TILE * 2) {
+      ctx.fillStyle = "rgba(180,160,50,0.12)";
+      ctx.fillRect(sx, y + 4, TILE, ch - 8);
+    }
+    ctx.strokeStyle = "#333320";
     ctx.lineWidth = 1;
-    ctx.stroke();
-  });
-
-  for (let i = 0; i < train.wagons; i++) {
-    const wagonW = TILE * 2;
-    const gapW = 4;
-    const wagonX = dir > 0
-      ? locoX - (i + 1) * (wagonW + gapW)
-      : locoX + locoW + (i + 1) * (wagonW + gapW) - wagonW;
-
-    ctx.fillStyle = "rgba(0,0,0,0.3)";
-    ctx.fillRect(wagonX + 3, y + 4, wagonW, locoH);
-
-    const wGrad = ctx.createLinearGradient(wagonX, y, wagonX, y + locoH);
-    wGrad.addColorStop(0, "#444444");
-    wGrad.addColorStop(1, "#222222");
-    ctx.fillStyle = wGrad;
-    ctx.fillRect(wagonX + 2, y + 3, wagonW - 4, locoH);
-
-    const stripeColors = ["#c87800", "#4488cc", "#44aa44"];
-    ctx.fillStyle = stripeColors[i % stripeColors.length];
-    ctx.fillRect(wagonX + 2, y + 5, wagonW - 4, 4);
-
-    ctx.strokeStyle = "#333";
-    ctx.lineWidth = 1;
-    ctx.strokeRect(wagonX + 2, y + 3, wagonW - 4, locoH);
-
-    [wagonX + 6, wagonX + wagonW - 10].forEach((wx) => {
-      ctx.fillStyle = "#333";
-      ctx.beginPath();
-      ctx.arc(wx, y + locoH + 1, 3, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.strokeStyle = "#555";
-      ctx.lineWidth = 1;
-      ctx.stroke();
-    });
-  }
-
-  if (frame % 20 < 10) {
-    ctx.fillStyle = `rgba(150,150,140,${0.25 + Math.sin(frame * 0.2) * 0.1})`;
-    ctx.beginPath();
-    ctx.arc(chimneyX + 3, y - 4 - (frame % 20) * 0.4, 4, 0, Math.PI * 2);
-    ctx.fill();
+    ctx.strokeRect(x1, y, x2 - x1, ch);
   }
 }
 
-function drawWorker(ctx: CanvasRenderingContext2D, worker: Worker) {
-  const x = worker.x;
-  const y = worker.y;
-  const legSwing = Math.sin(worker.frame * 0.3) * 3;
-
-  ctx.save();
-  if (!worker.facingRight) {
-    ctx.translate(x * 2, 0);
-    ctx.scale(-1, 1);
-  }
-
-  ctx.fillStyle = "rgba(0,0,0,0.3)";
-  ctx.beginPath();
-  ctx.ellipse(x, y + 9, 6, 2, 0, 0, Math.PI * 2);
-  ctx.fill();
-
-  ctx.fillStyle = "#2244aa";
-  ctx.fillRect(x - 3, y + 4, 3, 5 + legSwing);
-  ctx.fillRect(x + 1, y + 4, 3, 5 - legSwing);
-
-  const bodyGrad = ctx.createLinearGradient(x - 4, y - 2, x + 4, y + 5);
-  bodyGrad.addColorStop(0, "#3355cc");
-  bodyGrad.addColorStop(1, "#1a3388");
-  ctx.fillStyle = bodyGrad;
-  ctx.fillRect(x - 4, y - 2, 8, 7);
-
-  ctx.fillStyle = "#2244aa";
-  ctx.fillRect(x - 6, y - 1 + legSwing * 0.5, 3, 5);
-  ctx.fillRect(x + 4, y - 1 - legSwing * 0.5, 3, 5);
-
-  ctx.fillStyle = "#ffcc88";
-  ctx.beginPath();
-  ctx.arc(x, y - 4, 4, 0, Math.PI * 2);
-  ctx.fill();
-
-  ctx.fillStyle = "#ff8800";
-  ctx.beginPath();
-  ctx.arc(x, y - 5, 4, Math.PI, Math.PI * 2);
-  ctx.fill();
-  ctx.fillRect(x - 5, y - 5, 10, 2);
-
-  ctx.fillStyle = "#333";
-  ctx.beginPath();
-  ctx.arc(x + 2, y - 4, 1, 0, Math.PI * 2);
-  ctx.fill();
-
-  ctx.restore();
-}
-
-function drawStorageChests(ctx: CanvasRenderingContext2D, machineStates: MachineState) {
-  const chestPositions = [
-    { col: 46, row: 16 },
-    { col: 50, row: 16 },
-    { col: 54, row: 16 },
-    { col: 48, row: 19 },
-    { col: 52, row: 19 },
+// ── Power poles ──────────────────────────────────────────────
+function drawPowerPoles(ctx: CanvasRenderingContext2D, panX: number, panY: number) {
+  const polePositions = [
+    { c: 14, r: 13 }, { c: 41, r: 3  }, { c: 68, r: 13 }, { c: 95, r: 13 },
+    { c: 14, r: 36 }, { c: 41, r: 36 }, { c: 68, r: 36 }, { c: 95, r: 36 },
+    { c: 14, r: 59 }, { c: 41, r: 59 }, { c: 68, r: 59 }, { c: 95, r: 59 },
   ];
-  const fillLevel = Math.min(1, (machineStates.activeOrders + machineStates.activeQuests) / 20);
-  const labels = ["MEM", "QST", "ORD", "PCR", "KNW"];
+  ctx.strokeStyle = "#cc9944";
+  ctx.lineWidth = 1;
 
-  chestPositions.forEach((pos, i) => {
-    const x = pos.col * TILE;
-    const y = pos.row * TILE;
-    const W = TILE;
-    const H = TILE;
-
-    ctx.fillStyle = "rgba(0,0,0,0.3)";
-    ctx.fillRect(x + 3, y + 3, W, H);
-
-    const chestGrad = ctx.createLinearGradient(x, y, x, y + H);
-    chestGrad.addColorStop(0, "#555533");
-    chestGrad.addColorStop(0.5, "#444422");
-    chestGrad.addColorStop(1, "#333311");
-    ctx.fillStyle = chestGrad;
-    ctx.fillRect(x + 2, y + 2, W - 4, H - 4);
-
-    ctx.strokeStyle = "#777755";
-    ctx.lineWidth = 1.5;
-    ctx.strokeRect(x + 2, y + 2, W - 4, H - 4);
-
-    ctx.fillStyle = "#666644";
-    ctx.fillRect(x + 2, y + 2, W - 4, H / 3);
-    ctx.fillStyle = "#888866";
-    ctx.fillRect(x + 3, y + 3, W - 6, 3);
-
-    ctx.fillStyle = "#888";
-    ctx.beginPath();
-    ctx.arc(x + W / 2, y + H / 3 + 1, 3, 0, Math.PI * 2);
-    ctx.fill();
-
-    const barH = (H * 0.5) * fillLevel;
-    ctx.fillStyle = `rgba(200,160,0,${0.3 + fillLevel * 0.4})`;
-    ctx.fillRect(x + 4, y + H / 2 + (H * 0.5 - barH), W - 8, barH);
-
-    ctx.fillStyle = "rgba(255,255,200,0.7)";
-    ctx.font = "7px monospace";
-    ctx.textAlign = "center";
-    ctx.fillText(labels[i % 5], x + W / 2, y + H + 10);
+  polePositions.forEach(({ c, r }) => {
+    const px = c * TILE - panX + TILE / 2;
+    const py = r * TILE - panY;
+    ctx.fillStyle = "#556655";
+    ctx.fillRect(px - 2, py, 4, TILE + 4);
+    ctx.fillStyle = "#334433";
+    ctx.fillRect(px - 6, py + 4, 12, 4);
+    // Wire dots
+    ctx.fillStyle = "#cc8833";
+    ctx.beginPath(); ctx.arc(px - 5, py + 6, 2, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(px + 5, py + 6, 2, 0, Math.PI * 2); ctx.fill();
   });
 }
 
-function updateAndDrawBeltItems(ctx: CanvasRenderingContext2D, items: BeltItem[]) {
-  for (let i = items.length - 1; i >= 0; i--) {
-    const item = items[i];
-
-    if (item.fading) {
-      item.opacity -= 0.02;
-      if (item.opacity <= 0) {
-        items.splice(i, 1);
-        continue;
-      }
-    } else if (item.pathIdx < item.path.length) {
-      const target = item.path[item.pathIdx];
-      const dx = target.x - item.x;
-      const dy = target.y - item.y;
+// ── Signal packets ────────────────────────────────────────────
+function updateAndDrawSignals(
+  ctx: CanvasRenderingContext2D, packets: SignalPacket[], panX: number, panY: number
+) {
+  for (let i = packets.length - 1; i >= 0; i--) {
+    const p = packets[i];
+    if (p.fading) {
+      p.opacity -= 0.025;
+      if (p.opacity <= 0) { packets.splice(i, 1); continue; }
+    } else if (p.pathIdx < p.path.length) {
+      const target = p.path[p.pathIdx];
+      const dx = target.x - p.x; const dy = target.y - p.y;
       const dist = Math.sqrt(dx * dx + dy * dy);
-      if (dist < item.speed) {
-        item.x = target.x;
-        item.y = target.y;
-        item.pathIdx++;
-      } else {
-        item.x += (dx / dist) * item.speed;
-        item.y += (dy / dist) * item.speed;
-      }
+      if (dist < p.speed) { p.x = target.x; p.y = target.y; p.pathIdx++; }
+      else { p.x += (dx / dist) * p.speed; p.y += (dy / dist) * p.speed; }
     } else {
-      item.fading = true;
+      p.fading = true;
     }
 
-    const S = item.size;
-    ctx.globalAlpha = item.opacity;
-
-    // 3D-ish cube look: side shadow face
-    ctx.fillStyle = darkenColor(item.color, 30);
-    ctx.fillRect(item.x - S / 2 + 2, item.y - S / 2 + 2, S, S);
-
-    // Top face
-    ctx.fillStyle = item.color;
-    ctx.fillRect(item.x - S / 2, item.y - S / 2, S, S);
-
-    // Highlight
-    ctx.fillStyle = lightenColor(item.color, 40);
-    ctx.fillRect(item.x - S / 2, item.y - S / 2, S * 0.35, S * 0.35);
-
-    ctx.globalAlpha = 1;
+    const sx = p.x - panX; const sy = p.y - panY;
+    const S = 9;
+    ctx.globalAlpha = p.opacity;
+    ctx.shadowColor = p.color; ctx.shadowBlur = 10;
+    ctx.fillStyle = darkenColor(p.color, 40);
+    ctx.fillRect(sx - S / 2 + 2, sy - S / 2 + 2, S, S);
+    ctx.fillStyle = p.color;
+    ctx.fillRect(sx - S / 2, sy - S / 2, S, S);
+    ctx.fillStyle = lightenColor(p.color, 60);
+    ctx.fillRect(sx - S / 2, sy - S / 2, S * 0.4, S * 0.4);
+    ctx.shadowBlur = 0; ctx.globalAlpha = 1;
   }
 }
 
-function updateAndDrawSmoke(ctx: CanvasRenderingContext2D, smokes: Smoke[]) {
+// ── Smoke ────────────────────────────────────────────────────
+function updateAndDrawSmoke(ctx: CanvasRenderingContext2D, smokes: Smoke[], panX: number, panY: number) {
   for (let i = smokes.length - 1; i >= 0; i--) {
     const s = smokes[i];
-    s.x += s.vx;
-    s.y += s.vy;
-    s.vx *= 0.98;
-    s.vy *= 0.98;
-    s.life -= 0.008;
-    if (s.life <= 0) {
-      smokes.splice(i, 1);
-      continue;
-    }
-    ctx.globalAlpha = (s.life / s.maxLife) * 0.45;
+    s.x += s.vx; s.y += s.vy; s.vx *= 0.97; s.vy *= 0.97;
+    s.life -= 0.007;
+    if (s.life <= 0) { smokes.splice(i, 1); continue; }
+    ctx.globalAlpha = (s.life / s.maxLife) * 0.4;
     ctx.fillStyle = s.color;
     const r = s.size * (1 + (1 - s.life / s.maxLife) * 1.5);
-    ctx.beginPath();
-    ctx.arc(s.x, s.y, r, 0, Math.PI * 2);
-    ctx.fill();
+    ctx.beginPath(); ctx.arc(s.x - panX, s.y - panY, r, 0, Math.PI * 2); ctx.fill();
     ctx.globalAlpha = 1;
   }
 }
 
-function spawnSmoke(smokes: Smoke[], x: number, y: number, color: string = "#667788") {
+function spawnSmoke(smokes: Smoke[], x: number, y: number, color: string) {
   for (let i = 0; i < 2; i++) {
     smokes.push({
-      x: x + (Math.random() - 0.5) * 8,
+      x: x + (seededRand(x + i) - 0.5) * 8,
       y,
-      vx: (Math.random() - 0.5) * 0.4,
-      vy: -0.5 - Math.random() * 0.5,
-      life: 1,
-      maxLife: 1,
-      size: 4 + Math.random() * 5,
+      vx: (seededRand(y + i) - 0.5) * 0.35,
+      vy: -0.45 - seededRand(x * y + i) * 0.45,
+      life: 1, maxLife: 1,
+      size: 4 + seededRand(x + y + i) * 5,
       color,
     });
   }
 }
 
-// ─── Relative timestamp helper ────────────────────────────────
-function relativeTime(dateStr: string | null | undefined): string {
-  if (!dateStr) return "never";
-  const diff = Date.now() - new Date(dateStr).getTime();
-  const mins = Math.floor(diff / 60000);
-  if (mins < 1) return "just now";
-  if (mins < 60) return `${mins}m ago`;
-  const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `${hrs}h ago`;
-  return `${Math.floor(hrs / 24)}d ago`;
+// ── Minimap ──────────────────────────────────────────────────
+function drawMinimap(
+  ctx: CanvasRenderingContext2D, vw: number, vh: number,
+  panX: number, panY: number, zones: ZoneDef[]
+) {
+  const MM_W = 160; const MM_H = 110;
+  const MM_X = vw - MM_W - 12;
+  const MM_Y = vh - MM_H - 12;
+  const scaleX = MM_W / (V_COLS * TILE);
+  const scaleY = MM_H / (V_ROWS * TILE);
+
+  // Background
+  ctx.fillStyle = "rgba(0,0,0,0.85)";
+  ctx.fillRect(MM_X - 2, MM_Y - 2, MM_W + 4, MM_H + 4);
+  ctx.strokeStyle = "#333322";
+  ctx.lineWidth = 1;
+  ctx.strokeRect(MM_X - 2, MM_Y - 2, MM_W + 4, MM_H + 4);
+
+  // Zones
+  zones.forEach(z => {
+    const zx = MM_X + z.col * TILE * scaleX;
+    const zy = MM_Y + z.row * TILE * scaleY;
+    const zw = z.w * TILE * scaleX;
+    const zh = z.h * TILE * scaleY;
+    ctx.fillStyle = z.accent + "66";
+    ctx.fillRect(zx, zy, zw, zh);
+    ctx.strokeStyle = z.accent;
+    ctx.lineWidth = 0.5;
+    ctx.strokeRect(zx, zy, zw, zh);
+  });
+
+  // Viewport rect
+  ctx.strokeStyle = "#ffee44";
+  ctx.lineWidth = 1.5;
+  ctx.strokeRect(
+    MM_X + panX * scaleX,
+    MM_Y + panY * scaleY,
+    vw * scaleX,
+    vh * scaleY
+  );
+
+  // Label
+  ctx.fillStyle = "rgba(200,180,80,0.6)";
+  ctx.font = "7px monospace";
+  ctx.textAlign = "left";
+  ctx.fillText("SYSTEM MAP", MM_X, MM_Y - 4);
 }
 
-// ─── EntityDetailPanel ────────────────────────────────────────
+// ── Zone stats overlay ────────────────────────────────────────
+function drawZoneStatBadge(
+  ctx: CanvasRenderingContext2D, z: ZoneDef,
+  panX: number, panY: number, stat: number | undefined
+) {
+  if (stat === undefined) return;
+  const px = (z.col + z.w) * TILE - panX - 4;
+  const py = z.row * TILE - panY + 4;
+  const label = String(stat);
+  ctx.fillStyle = "rgba(0,0,0,0.7)";
+  ctx.fillRect(px - label.length * 6 - 6, py, label.length * 6 + 8, 14);
+  ctx.fillStyle = z.light;
+  ctx.font = "bold 8px monospace";
+  ctx.textAlign = "right";
+  ctx.fillText(label, px, py + 10);
+}
+
+// ── MAVIS directive log ───────────────────────────────────────
+const MAX_LOG = 6;
+type LogEntry = { ts: number; msg: string; color: string };
+
+// ── Relative time helper ─────────────────────────────────────
+function relativeTime(ms: number): string {
+  const diff = Date.now() - ms;
+  const s = Math.floor(diff / 1000);
+  if (s < 60) return `${s}s ago`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m ago`;
+  return `${Math.floor(m / 60)}h ago`;
+}
+
+// ── EntityDetailPanel ─────────────────────────────────────────
 function EntityDetailPanel({
-  entity,
-  details,
-  loading,
-  onClose,
-  onNavigate,
+  zone, onClose, onNavigate, stats,
 }: {
-  entity: ClickableEntity;
-  details: any;
-  loading: boolean;
-  onClose: () => void;
-  onNavigate: () => void;
+  zone: ZoneDef; onClose: () => void; onNavigate: () => void; stats: LiveStats;
 }) {
-  const icon = {
-    drill: "⛏️",
-    mavis: "🧠",
-    persona: "🎭",
-    council: "🏛️",
-    storage: "📦",
-    train: "🚂",
-    ore: "💎",
-  }[entity.type] ?? "📌";
-
+  const stat = zone.statKey ? (stats as any)[zone.statKey] : undefined;
   return (
-    <div className="fixed right-4 top-16 bottom-4 w-80 max-w-sm bg-zinc-900 border border-zinc-700 rounded-lg overflow-y-auto flex flex-col shadow-2xl z-50 transition-all">
-      {/* Header */}
+    <div className="fixed right-4 top-16 bottom-4 w-72 bg-zinc-900 border border-zinc-700 rounded-lg overflow-y-auto flex flex-col shadow-2xl z-50">
       <div className="flex items-center gap-2 px-4 py-3 border-b border-zinc-700 sticky top-0 bg-zinc-900">
-        <span className="text-xl">{icon}</span>
-        <div className="flex-1 min-w-0">
-          <div className="font-mono text-sm font-bold text-amber-400 truncate">{entity.name}</div>
-          <div className="font-mono text-[10px] text-zinc-500 uppercase">{entity.type}{entity.source ? ` · ${entity.source}` : ""}</div>
-        </div>
-        <button onClick={onClose} className="text-zinc-500 hover:text-white text-lg leading-none">✕</button>
+        <span className="font-mono text-sm font-bold truncate" style={{ color: zone.light }}>{zone.label}</span>
+        <button onClick={onClose} className="ml-auto text-zinc-500 hover:text-white text-lg leading-none">✕</button>
       </div>
-
-      {/* Body */}
-      <div className="flex-1 px-4 py-3 font-mono text-xs text-zinc-300 space-y-3">
-        {loading && (
-          <div className="flex items-center justify-center py-8 text-zinc-500">
-            <span className="animate-spin mr-2">⟳</span> Loading…
+      <div className="px-4 py-3 space-y-3 font-mono text-xs text-zinc-300">
+        <p className="text-zinc-500">{zone.description}</p>
+        {stat !== undefined && (
+          <div className="flex items-center gap-2">
+            <span className="text-zinc-500">Active:</span>
+            <span className="font-bold" style={{ color: zone.light }}>{stat}</span>
           </div>
         )}
-
-        {!loading && details && (() => {
-          const src = details.source;
-
-          if ((src === "memory" || src === "journal" || src === "quest") && details.records) {
-            return (
-              <>
-                <div className="text-zinc-500 text-[10px] uppercase tracking-wider">DATA SOURCE · {src.toUpperCase()}</div>
-                {details.records.length === 0 && <div className="text-zinc-600">No records found.</div>}
-                {details.records.map((r: any, i: number) => (
-                  <div key={i} className="border border-zinc-800 rounded p-2 space-y-1">
-                    {r.title && <div className="text-amber-300 truncate">{r.title}</div>}
-                    {r.summary && <div className="text-zinc-400 text-[11px] line-clamp-2">{r.summary}</div>}
-                    {r.content && !r.summary && <div className="text-zinc-400 text-[11px] line-clamp-2">{r.content}</div>}
-                    {r.mood && <span className="text-violet-400">mood: {r.mood}</span>}
-                    {r.status && <span className="text-green-400 ml-2">{r.status}</span>}
-                    <div className="text-zinc-600 text-[10px]">{relativeTime(r.created_at ?? r.updated_at)}</div>
-                  </div>
-                ))}
-              </>
-            );
-          }
-
-          if (src === "orders" && details.templates !== undefined) {
-            return (
-              <>
-                <div className="text-zinc-500 text-[10px] uppercase tracking-wider">STANDING ORDERS</div>
-                {[...(details.templates ?? []), ...(details.orders ?? [])].map((r: any, i: number) => (
-                  <div key={i} className="border border-zinc-800 rounded p-2">
-                    <div className="text-amber-300 truncate">{r.title ?? r.order_text ?? "Order"}</div>
-                    <div className="text-zinc-600 text-[10px]">{relativeTime(r.last_triggered_at ?? r.created_at)}</div>
-                  </div>
-                ))}
-                {(details.templates?.length ?? 0) + (details.orders?.length ?? 0) === 0 && (
-                  <div className="text-zinc-600">No active orders.</div>
-                )}
-              </>
-            );
-          }
-
-          if (src === "ruview" && details.record !== undefined) {
-            const r = details.record;
-            if (!r) return <div className="text-zinc-600">No RuView data.</div>;
-            return (
-              <>
-                <div className="text-zinc-500 text-[10px] uppercase tracking-wider">BIOMETRIC FEED</div>
-                <div className="grid grid-cols-2 gap-2">
-                  {[
-                    { label: "PRESENT", val: r.present ? "YES" : "NO", color: r.present ? "text-green-400" : "text-red-400" },
-                    { label: "HEART RATE", val: r.heart_rate_bpm ? `${r.heart_rate_bpm} bpm` : "—", color: "text-rose-400" },
-                    { label: "BREATHING", val: r.breathing_rate ? `${r.breathing_rate}/min` : "—", color: "text-cyan-400" },
-                    { label: "STRESS", val: r.stress_level ?? "—", color: "text-orange-400" },
-                  ].map((m) => (
-                    <div key={m.label} className="border border-zinc-800 rounded p-2">
-                      <div className="text-zinc-500 text-[9px]">{m.label}</div>
-                      <div className={`font-bold ${m.color}`}>{m.val}</div>
-                    </div>
-                  ))}
-                </div>
-                <div className="text-zinc-600 text-[10px]">Updated {relativeTime(r.updated_at)}</div>
-              </>
-            );
-          }
-
-          if (src === "mavis") {
-            const filledConfig = (details.config ?? []).filter((c: any) => c.content && !c.content.includes("[TO BE FILLED]"));
-            return (
-              <>
-                <div className="text-zinc-500 text-[10px] uppercase tracking-wider">MAVIS BRAIN</div>
-                <div className="grid grid-cols-2 gap-2">
-                  <div className="border border-zinc-800 rounded p-2">
-                    <div className="text-zinc-500 text-[9px]">MEMORIES</div>
-                    <div className="text-blue-400 font-bold">{details.memoriesCount}</div>
-                  </div>
-                  <div className="border border-zinc-800 rounded p-2">
-                    <div className="text-zinc-500 text-[9px]">QUESTS</div>
-                    <div className="text-amber-400 font-bold">{details.questsCount}</div>
-                  </div>
-                  <div className="border border-zinc-800 rounded p-2">
-                    <div className="text-zinc-500 text-[9px]">ORDERS</div>
-                    <div className="text-orange-400 font-bold">{details.ordersCount}</div>
-                  </div>
-                  <div className="border border-zinc-800 rounded p-2">
-                    <div className="text-zinc-500 text-[9px]">CONFIG</div>
-                    <div className="text-green-400 font-bold">{filledConfig.length}/{(details.config ?? []).length}</div>
-                  </div>
-                </div>
-                {details.lastConsolidation && (
-                  <div className="text-zinc-500 text-[10px]">Brain last consolidated: {relativeTime(details.lastConsolidation)}</div>
-                )}
-                {(details.notionSync ?? []).length > 0 && (
-                  <>
-                    <div className="text-zinc-500 text-[10px] uppercase tracking-wider mt-2">LAST NOTION SYNC</div>
-                    {details.notionSync.map((n: any, i: number) => (
-                      <div key={i} className="text-zinc-400 text-[11px] truncate">{n.page_title} <span className="text-zinc-600">{relativeTime(n.synced_at)}</span></div>
-                    ))}
-                  </>
-                )}
-              </>
-            );
-          }
-
-          if (src === "persona") {
-            const p = details.persona;
-            return (
-              <>
-                <div className="text-zinc-500 text-[10px] uppercase tracking-wider">PERSONA</div>
-                {p && (
-                  <div className="flex items-center gap-3 border border-zinc-800 rounded p-3">
-                    <div className="w-8 h-8 rounded-full bg-green-900 flex items-center justify-center text-green-300 font-bold text-sm">
-                      {p.name?.[0] ?? "?"}
-                    </div>
-                    <div>
-                      <div className="text-amber-300 font-bold">{p.name}</div>
-                      <div className="text-zinc-500 text-[10px]">{p.role ?? ""}</div>
-                    </div>
-                  </div>
-                )}
-                {(details.memories ?? []).length > 0 && (
-                  <>
-                    <div className="text-zinc-500 text-[10px] uppercase tracking-wider mt-1">RECENT MEMORIES</div>
-                    {details.memories.map((m: any, i: number) => (
-                      <div key={i} className="border border-zinc-800 rounded p-2">
-                        <div className="text-zinc-400 text-[11px] line-clamp-2">{m.summary ?? m.content}</div>
-                        <div className="text-zinc-600 text-[10px]">{relativeTime(m.created_at)}</div>
-                      </div>
-                    ))}
-                  </>
-                )}
-              </>
-            );
-          }
-
-          if (src === "council") {
-            const c = details.council;
-            return (
-              <>
-                <div className="text-zinc-500 text-[10px] uppercase tracking-wider">COUNCIL</div>
-                {c && (
-                  <div className="border border-zinc-800 rounded p-3">
-                    <div className="text-amber-300 font-bold">{c.name}</div>
-                    <div className="text-zinc-500 text-[10px]">{c.specialty ?? c.role ?? ""}</div>
-                    {c.domain && <div className="text-violet-400 text-[10px] mt-1">Domain: {c.domain}</div>}
-                  </div>
-                )}
-                {(details.memories ?? []).length > 0 && (
-                  <>
-                    <div className="text-zinc-500 text-[10px] uppercase tracking-wider mt-1">RECENT MEMORIES</div>
-                    {details.memories.map((m: any, i: number) => (
-                      <div key={i} className="border border-zinc-800 rounded p-2">
-                        <div className="text-zinc-400 text-[11px] line-clamp-2">{m.summary ?? m.content}</div>
-                        <div className="text-zinc-600 text-[10px]">{relativeTime(m.created_at)}</div>
-                      </div>
-                    ))}
-                  </>
-                )}
-              </>
-            );
-          }
-
-          if (src === "storage") {
-            return (
-              <>
-                <div className="text-zinc-500 text-[10px] uppercase tracking-wider">VAULT STATUS</div>
-                <div className="grid grid-cols-2 gap-2">
-                  <div className="border border-zinc-800 rounded p-2">
-                    <div className="text-zinc-500 text-[9px]">MEMORIES</div>
-                    <div className="text-blue-400 font-bold">{details.memoriesCount}</div>
-                  </div>
-                  <div className="border border-zinc-800 rounded p-2">
-                    <div className="text-zinc-500 text-[9px]">NOTION PAGES</div>
-                    <div className="text-violet-400 font-bold">{details.notionCount}</div>
-                  </div>
-                </div>
-                {(details.topTags ?? []).length > 0 && (
-                  <>
-                    <div className="text-zinc-500 text-[10px] uppercase tracking-wider mt-1">TOP TAGS</div>
-                    <div className="flex flex-wrap gap-1">
-                      {details.topTags.map((tag: string) => (
-                        <span key={tag} className="px-2 py-0.5 bg-zinc-800 rounded text-zinc-400 text-[10px]">{tag}</span>
-                      ))}
-                    </div>
-                  </>
-                )}
-              </>
-            );
-          }
-
-          if (src === "train") {
-            return (
-              <>
-                <div className="text-zinc-500 text-[10px] uppercase tracking-wider">BATCH JOBS</div>
-                {(details.consolidations ?? []).length > 0 && (
-                  <>
-                    <div className="text-zinc-500 text-[10px] uppercase tracking-wider mt-1">BRAIN CONSOLIDATIONS</div>
-                    {details.consolidations.map((c: any, i: number) => (
-                      <div key={i} className="border border-zinc-800 rounded p-2">
-                        <div className="text-zinc-400 text-[11px] line-clamp-2">{c.summary ?? "Consolidation run"}</div>
-                        <div className="text-zinc-600 text-[10px]">{relativeTime(c.created_at)}</div>
-                      </div>
-                    ))}
-                  </>
-                )}
-                {(details.notionPages ?? []).length > 0 && (
-                  <>
-                    <div className="text-zinc-500 text-[10px] uppercase tracking-wider mt-1">NOTION SYNCED</div>
-                    {details.notionPages.map((n: any, i: number) => (
-                      <div key={i} className="text-zinc-400 text-[11px] truncate">{n.page_title} <span className="text-zinc-600">{relativeTime(n.synced_at)}</span></div>
-                    ))}
-                  </>
-                )}
-              </>
-            );
-          }
-
-          return null;
-        })()}
-      </div>
-
-      {/* Footer */}
-      <div className="px-4 py-3 border-t border-zinc-700">
-        <button
-          onClick={onNavigate}
-          className="w-full py-2 bg-violet-900/50 hover:bg-violet-800/60 border border-violet-700/50 rounded font-mono text-xs text-violet-300 transition-colors"
-        >
-          Open in MAVIS →
-        </button>
+        <div className="border-t border-zinc-800 pt-3">
+          <p className="text-zinc-500 mb-2 uppercase tracking-wider text-[9px]">Machines</p>
+          {zone.nodes.map(n => (
+            <div key={n.label} className="flex items-center gap-2 py-1 border-b border-zinc-800/50">
+              <span className="w-2 h-2 rounded-full" style={{ backgroundColor: n.light }} />
+              <span className="text-zinc-300 text-[10px]">{n.label}</span>
+              {n.cron && <span className="text-zinc-600 text-[9px] ml-auto">⏱ {n.cron}</span>}
+              {n.sub && !n.cron && <span className="text-zinc-600 text-[9px] ml-auto">{n.sub}</span>}
+            </div>
+          ))}
+        </div>
+        {zone.route && (
+          <button
+            onClick={onNavigate}
+            className="w-full mt-2 py-2 rounded border font-mono text-xs transition-colors"
+            style={{ borderColor: zone.accent + "80", color: zone.light }}
+          >
+            Open {zone.label.split(" ")[0]} →
+          </button>
+        )}
       </div>
     </div>
   );
 }
 
-// ─── Main Component ───────────────────────────────────────────
+// ════════════════════════════════════════════════════════════
+// ─ MAIN COMPONENT ───────────────────────────────────────────
+// ════════════════════════════════════════════════════════════
 export default function FactoryPage() {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const animRef   = useRef<number>(0);
+  const tickRef   = useRef(0);
+
+  // Pan state
+  const panRef = useRef({ x: 0, y: 0, startX: 0, startY: 0, dragging: false });
+  const [panXY, setPanXY] = useState({ x: 0, y: 0 });
+
+  // Mutable animation data
+  const signalsRef = useRef<SignalPacket[]>([]);
+  const smokesRef  = useRef<Smoke[]>([]);
+
+  // Dispatch timer
+  const lastDispatchRef = useRef(0);
+  const dispatchZoneIdxRef = useRef(0);
+
+  // MAVIS log
+  const [mavisLog, setMavisLog] = useState<LogEntry[]>([
+    { ts: Date.now() - 5000, msg: "MAVIS PRIME → ONLINE · all systems nominal", color: "#a855f7" },
+  ]);
+  const mavisLogRef = useRef<LogEntry[]>(mavisLog);
+
+  // Clickable selection
+  const [selectedZone, setSelectedZone] = useState<ZoneDef | null>(null);
+
+  // Live stats
+  const [stats, setStats] = useState<LiveStats>({
+    activeTasks: 0, pendingActions: 0, recentActivity: 0,
+    personas: 0, councils: 0, goals: 0, quests: 0,
+    orders: 0, memories: 0, journals: 0, leads: 0,
+    zoneActivity: {},
+  });
+  const [loading, setLoading] = useState(false);
   const { user } = useAuth();
   const navigate = useNavigate();
 
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const animRef = useRef<number>(0);
-  const beltOffsetRef = useRef(0);
-  const gearRotRef = useRef(0);
-  const frameRef = useRef(0);
-  const beltItemsRef = useRef<BeltItem[]>([]);
-  const smokesRef = useRef<Smoke[]>([]);
-  const workersRef = useRef<Worker[]>([]);
-  const trainsRef = useRef<Train[]>([]);
-  const machineStatesRef = useRef<MachineState>(INITIAL_MACHINE_STATE);
-  const entityMapRef = useRef<Map<string, ClickableEntity>>(new Map());
-  const selectedEntityRef = useRef<ClickableEntity | null>(null);
+  // Node status derived from stats
+  const nodeStatusRef = useRef<NodeStatus>("active");
 
-  const [machineStates, setMachineStates] = useState<MachineState>(INITIAL_MACHINE_STATE);
-  const [loading, setLoading] = useState(false);
-  const [itemsPerMin, setItemsPerMin] = useState(0);
-  const [selectedEntity, setSelectedEntity] = useState<ClickableEntity | null>(null);
-  const [entityDetails, setEntityDetails] = useState<any>(null);
-  const [detailsLoading, setDetailsLoading] = useState(false);
-
-  const allStatuses: MachineStatus[] = [
-    machineStates.mavis,
-    machineStates.memory,
-    machineStates.ruview,
-    machineStates.orders,
-    machineStates.journal,
-    machineStates.quest,
-    ...machineStates.personas.map((p) => p.status),
-    ...machineStates.councils.map((c) => c.status),
-  ];
-  const activeCount = allStatuses.filter((s) => s === "active").length;
-  const warmCount = allStatuses.filter((s) => s === "warm").length;
-  const idleCount = allStatuses.filter((s) => s === "idle").length;
-
-  const spawnBeltItem = useCallback((type: keyof typeof BELT_ITEM_PATHS) => {
-    const path = BELT_ITEM_PATHS[type];
-    if (!path || path.length < 2) return;
-    beltItemsRef.current.push({
-      x: path[0].x,
-      y: path[0].y,
-      path,
-      pathIdx: 1,
-      color: ITEM_COLORS[type] ?? "#888",
-      speed: 1.5 + Math.random() * 0.6,
-      opacity: 1,
-      fading: false,
-      label: type,
-      size: 7,
-    });
-  }, []);
-
-  const loadFactoryState = useCallback(async () => {
+  // ── Data fetch ─────────────────────────────────────────────
+  const loadStats = useCallback(async () => {
     if (!user) return;
     setLoading(true);
     try {
-      const now = new Date();
+      const [
+        tasksRes, actRes, personasRes, councilsRes,
+        goalsRes, questsRes, ordersRes, memRes, journalRes,
+      ] = await Promise.allSettled([
+        supabase.from("tasks").select("*", { count: "exact", head: true }).neq("status", "done"),
+        supabase.from("activity_log").select("*", { count: "exact", head: true }),
+        supabase.from("personas").select("*", { count: "exact", head: true }),
+        supabase.from("councils").select("*", { count: "exact", head: true }),
+        supabase.from("mavis_goals").select("*", { count: "exact", head: true }),
+        supabase.from("quests").select("*", { count: "exact", head: true }),
+        supabase.from("standup_order_templates").select("*", { count: "exact", head: true }),
+        supabase.from("mavis_notes").select("*", { count: "exact", head: true }),
+        supabase.from("journal_entries").select("*", { count: "exact", head: true }),
+      ]);
 
-      const [personasRes, councilsRes, memoriesRes, ordersRes, ruviewRes, questsRes] =
-        await Promise.all([
-          (supabase as any)
-            .from("personas")
-            .select("id,name,role,updated_at")
-            .eq("user_id", user.id)
-            .limit(6),
-          (supabase as any)
-            .from("councils")
-            .select("id,name,role,specialty,updated_at")
-            .eq("user_id", user.id)
-            .limit(6),
-          (supabase as any)
-            .from("mavis_agent_memories")
-            .select("created_at")
-            .eq("user_id", user.id)
-            .order("created_at", { ascending: false })
-            .limit(1),
-          (supabase as any)
-            .from("standing_order_templates")
-            .select("id")
-            .eq("user_id", user.id)
-            .in("status", ["active", "pinned"]),
-          (supabase as any)
-            .from("mavis_ruview_state")
-            .select("updated_at,present,heart_rate_bpm")
-            .eq("user_id", user.id)
-            .maybeSingle(),
-          (supabase as any)
-            .from("quests")
-            .select("id")
-            .eq("user_id", user.id)
-            .eq("status", "active")
-            .limit(10),
-        ]);
+      const get = (res: PromiseSettledResult<any>) =>
+        res.status === "fulfilled" ? (res.value.count ?? 0) : 0;
 
-      const getStatus = (dateStr?: string | null): MachineStatus => {
-        if (!dateStr) return "idle";
-        const d = new Date(dateStr).getTime();
-        const diff = now.getTime() - d;
-        if (diff < 3_600_000) return "active";
-        if (diff < 86_400_000) return "warm";
-        return "idle";
-      };
-
-      const nextState: MachineState = {
-        mavis: "active",
-        memory: getStatus(memoriesRes.data?.[0]?.created_at),
-        ruview: ruviewRes.data ? getStatus(ruviewRes.data.updated_at) : "idle",
-        orders: (ordersRes.data?.length ?? 0) > 0 ? "active" : "idle",
-        journal: "warm",
-        quest: (questsRes.data?.length ?? 0) > 0 ? "active" : "idle",
-        personas: (personasRes.data ?? []).map(
-          (p: { id: string; name: string; role: string; updated_at?: string }) => ({
-            id: p.id,
-            name: p.name,
-            role: p.role,
-            status: getStatus(p.updated_at),
-          })
-        ),
-        councils: (councilsRes.data ?? []).map(
-          (c: { id: string; name: string; role?: string; specialty?: string; updated_at?: string }) => ({
-            id: c.id,
-            name: c.name,
-            role: c.specialty ?? c.role ?? "",
-            status: getStatus(c.updated_at),
-          })
-        ),
-        activeQuests: questsRes.data?.length ?? 0,
-        activeOrders: ordersRes.data?.length ?? 0,
-      };
-
-      machineStatesRef.current = nextState;
-      setMachineStates(nextState);
-
-      const activeSources = [
-        nextState.memory,
-        nextState.ruview,
-        nextState.orders,
-        nextState.quest,
-        nextState.journal,
-      ].filter((s) => s === "active").length;
-      setItemsPerMin(activeSources * 5);
-
-      if (nextState.memory === "active") spawnBeltItem("memory");
-      if (nextState.ruview === "active") spawnBeltItem("ruview");
-      if (nextState.orders === "active") spawnBeltItem("order");
-      if (nextState.quest === "active") spawnBeltItem("quest");
-      if (nextState.journal !== "idle") spawnBeltItem("journal");
-      if ((personasRes.data?.length ?? 0) > 0) spawnBeltItem("persona");
-      if (nextState.mavis === "active") spawnBeltItem("processed");
-    } catch (err) {
-      console.error("[FactoryPage] DB error:", err);
+      setStats(prev => ({
+        ...prev,
+        activeTasks:    get(tasksRes),
+        recentActivity: get(actRes),
+        personas:       get(personasRes),
+        councils:       get(councilsRes),
+        goals:          get(goalsRes),
+        quests:         get(questsRes),
+        orders:         get(ordersRes),
+        memories:       get(memRes),
+        journals:       get(journalRes),
+        zoneActivity: {
+          memory:      get(memRes),
+          aicore:      get(tasksRes),
+          intel:       get(actRes),
+          comm:        0,
+          autonomous:  get(goalsRes),
+          integration: 0,
+          social:      get(personasRes),
+          analytics:   0,
+          persona:     get(personasRes),
+          health:      0,
+          code:        0,
+          media:       0,
+        },
+      }));
     } finally {
       setLoading(false);
     }
-  }, [user, spawnBeltItem]);
+  }, [user]);
 
-  // Sync selectedEntity state → ref (for gameLoop access without re-renders)
-  useEffect(() => {
-    selectedEntityRef.current = selectedEntity;
-  }, [selectedEntity]);
+  useEffect(() => { loadStats(); }, [loadStats]);
 
-  // Fetch entity details on selection change
-  useEffect(() => {
-    if (!selectedEntity || !user?.id) return;
-    const userId = user.id;
+  // ── MAVIS dispatch ──────────────────────────────────────────
+  const dispatchSignal = useCallback((zoneId: string) => {
+    const path = SIGNAL_PATHS[zoneId];
+    if (!path || path.length === 0) return;
+    const color = ZONE_LIGHT_MAP[zoneId] ?? "#a855f7";
 
-    const fetchDetails = async () => {
-      setDetailsLoading(true);
-      try {
-        let details: any = {};
+    signalsRef.current.push({
+      x: path[0].x, y: path[0].y,
+      path, pathIdx: 1,
+      color, speed: 3.5,
+      opacity: 1, fading: false,
+      zoneId,
+    });
 
-        if (selectedEntity.type === "drill" || selectedEntity.type === "ore") {
-          const src = selectedEntity.source;
-          if (src === "memory") {
-            const { data } = await (supabase as any)
-              .from("mavis_agent_memories")
-              .select("content,summary,importance,tags,created_at")
-              .eq("user_id", userId)
-              .eq("status", "active")
-              .order("created_at", { ascending: false })
-              .limit(5);
-            details = { records: data ?? [], source: "memory" };
-          } else if (src === "journal") {
-            const { data } = await (supabase as any)
-              .from("journal_entries")
-              .select("title,content,mood,created_at")
-              .eq("user_id", userId)
-              .order("created_at", { ascending: false })
-              .limit(5);
-            details = { records: data ?? [], source: "journal" };
-          } else if (src === "quest") {
-            const { data } = await (supabase as any)
-              .from("quests")
-              .select("title,description,status,progress,updated_at")
-              .eq("user_id", userId)
-              .eq("status", "active")
-              .limit(8);
-            details = { records: data ?? [], source: "quest" };
-          } else if (src === "ruview") {
-            const { data } = await (supabase as any)
-              .from("mavis_ruview_state")
-              .select("*")
-              .eq("user_id", userId)
-              .maybeSingle();
-            details = { record: data, source: "ruview" };
-          } else if (src === "orders") {
-            const [{ data: templates }, { data: orders }] = await Promise.all([
-              (supabase as any)
-                .from("standing_order_templates")
-                .select("title,description,status,trigger_type,last_triggered_at")
-                .eq("user_id", userId)
-                .in("status", ["active", "pinned"])
-                .limit(8),
-              (supabase as any)
-                .from("mavis_standing_orders")
-                .select("order_text,enabled,created_at")
-                .eq("user_id", userId)
-                .eq("enabled", true)
-                .limit(5),
-            ]);
-            details = { templates: templates ?? [], orders: orders ?? [], source: "orders" };
-          }
-        } else if (selectedEntity.type === "mavis") {
-          const [memoriesCount, config, ordersCount, notionSync, questsCount] = await Promise.all([
-            (supabase as any)
-              .from("mavis_agent_memories")
-              .select("id", { count: "exact", head: true })
-              .eq("user_id", userId)
-              .eq("status", "active"),
-            (supabase as any)
-              .from("mavis_agent_config")
-              .select("section,content,updated_at")
-              .eq("user_id", userId)
-              .order("sort_order"),
-            (supabase as any)
-              .from("mavis_standing_orders")
-              .select("id", { count: "exact", head: true })
-              .eq("user_id", userId)
-              .eq("enabled", true),
-            (supabase as any)
-              .from("mavis_notion_sync_log")
-              .select("page_title,synced_at")
-              .eq("user_id", userId)
-              .order("synced_at", { ascending: false })
-              .limit(3),
-            (supabase as any)
-              .from("quests")
-              .select("id", { count: "exact", head: true })
-              .eq("user_id", userId)
-              .eq("status", "active"),
-          ]);
-          const { data: lastConsolidation } = await (supabase as any)
-            .from("mavis_agent_memories")
-            .select("created_at")
-            .eq("user_id", userId)
-            .contains("tags", ["daily-consolidation"])
-            .order("created_at", { ascending: false })
-            .limit(1)
-            .maybeSingle();
-          details = {
-            source: "mavis",
-            memoriesCount: memoriesCount.count ?? 0,
-            config: config.data ?? [],
-            ordersCount: ordersCount.count ?? 0,
-            notionSync: notionSync.data ?? [],
-            questsCount: questsCount.count ?? 0,
-            lastConsolidation: lastConsolidation?.created_at ?? null,
-          };
-        } else if (selectedEntity.type === "persona" && selectedEntity.id) {
-          const [personaRes, memoriesRes] = await Promise.all([
-            (supabase as any)
-              .from("personas")
-              .select("*")
-              .eq("id", selectedEntity.id)
-              .maybeSingle(),
-            (supabase as any)
-              .from("mavis_agent_memories")
-              .select("content,summary,tags,created_at")
-              .eq("user_id", userId)
-              .like("agent_id", "persona/%")
-              .order("created_at", { ascending: false })
-              .limit(5),
-          ]);
-          details = { source: "persona", persona: personaRes.data, memories: memoriesRes.data ?? [] };
-        } else if (selectedEntity.type === "council" && selectedEntity.id) {
-          const [councilRes, memoriesRes] = await Promise.all([
-            (supabase as any)
-              .from("councils")
-              .select("*")
-              .eq("id", selectedEntity.id)
-              .maybeSingle(),
-            (supabase as any)
-              .from("mavis_agent_memories")
-              .select("content,summary,created_at")
-              .eq("user_id", userId)
-              .like("agent_id", "council/%")
-              .order("created_at", { ascending: false })
-              .limit(5),
-          ]);
-          details = { source: "council", council: councilRes.data, memories: memoriesRes.data ?? [] };
-        } else if (selectedEntity.type === "storage") {
-          const [countRes, tagsRes, notionRes] = await Promise.all([
-            (supabase as any)
-              .from("mavis_agent_memories")
-              .select("id", { count: "exact", head: true })
-              .eq("user_id", userId)
-              .eq("status", "active"),
-            (supabase as any)
-              .from("mavis_agent_memories")
-              .select("tags")
-              .eq("user_id", userId)
-              .limit(20),
-            (supabase as any)
-              .from("mavis_notion_sync_log")
-              .select("id", { count: "exact", head: true })
-              .eq("user_id", userId),
-          ]);
-          const tagCounts: Record<string, number> = {};
-          (tagsRes.data ?? []).forEach((r: any) => {
-            (r.tags ?? []).forEach((t: string) => { tagCounts[t] = (tagCounts[t] ?? 0) + 1; });
-          });
-          const topTags = Object.entries(tagCounts).sort((a, b) => b[1] - a[1]).slice(0, 10).map(([tag]) => tag);
-          details = {
-            source: "storage",
-            memoriesCount: countRes.count ?? 0,
-            notionCount: notionRes.count ?? 0,
-            topTags,
-          };
-        } else if (selectedEntity.type === "train") {
-          const [notionRes, consolidationRes] = await Promise.all([
-            (supabase as any)
-              .from("mavis_notion_sync_log")
-              .select("page_title,page_url,synced_at")
-              .eq("user_id", userId)
-              .order("synced_at", { ascending: false })
-              .limit(5),
-            (supabase as any)
-              .from("mavis_agent_memories")
-              .select("summary,tags,created_at")
-              .eq("user_id", userId)
-              .contains("tags", ["daily-consolidation"])
-              .order("created_at", { ascending: false })
-              .limit(3),
-          ]);
-          details = {
-            source: "train",
-            notionPages: notionRes.data ?? [],
-            consolidations: consolidationRes.data ?? [],
-          };
-        }
-
-        setEntityDetails(details);
-      } catch (err) {
-        console.error("[FactoryPage] detail fetch error:", err);
-        setEntityDetails(null);
-      } finally {
-        setDetailsLoading(false);
-      }
-    };
-
-    fetchDetails();
-  }, [selectedEntity, user?.id]);
-
-  // Canvas resize
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const resize = () => {
-      canvas.width = canvas.offsetWidth;
-      canvas.height = canvas.offsetHeight;
-    };
-    resize();
-    window.addEventListener("resize", resize);
-    return () => window.removeEventListener("resize", resize);
-  }, []);
-
-  // Initialize workers
-  useEffect(() => {
-    workersRef.current = WORKER_PATROL_PATHS.map((path, i) => ({
-      x: path[0].x,
-      y: path[0].y,
-      path,
-      pathIdx: 1,
-      speed: 0.8 + i * 0.1,
-      frame: i * 10,
-      facingRight: true,
-    }));
-  }, []);
-
-  // Initialize trains
-  useEffect(() => {
-    trainsRef.current = [
-      { x: 0, direction: 1, speed: 0.8, wagons: 3, trackRow: 34 },
-      { x: COLS * TILE, direction: -1, speed: 0.6, wagons: 2, trackRow: 37 },
-      { x: 10 * TILE, direction: 1, speed: 1.0, wagons: 2, trackRow: 40 },
-    ];
-  }, []);
-
-  // Spawn initial belt items
-  useEffect(() => {
-    spawnBeltItem("memory");
-    spawnBeltItem("journal");
-    spawnBeltItem("quest");
-    spawnBeltItem("processed");
-  }, [spawnBeltItem]);
-
-  // Canvas click handler
-  const handleCanvasClick = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const rect = canvas.getBoundingClientRect();
-    const canvasX = (e.clientX - rect.left) * (canvas.width / rect.width);
-    const canvasY = (e.clientY - rect.top) * (canvas.height / rect.height);
-    const col = Math.floor(canvasX / TILE);
-    const row = Math.floor(canvasY / TILE);
-    const key = `${col},${row}`;
-    const entity = entityMapRef.current.get(key);
-    if (entity) {
-      if (selectedEntityRef.current && selectedEntityRef.current.col === entity.col && selectedEntityRef.current.row === entity.row && selectedEntityRef.current.type === entity.type) return;
-      setSelectedEntity(entity);
-    } else {
-      setSelectedEntity(null);
-      setEntityDetails(null);
+    const zone = ZONES.find(z => z.id === zoneId);
+    if (zone) {
+      const msgs = MAVIS_DIRECTIVES[zoneId] ?? ["Processing…"];
+      const msg  = `MAVIS → ${zone.label.split("—")[0].trim()}: ${msgs[Math.floor(msgs.length * ((Date.now() % 1000) / 1000))]}`;
+      const entry: LogEntry = { ts: Date.now(), msg, color };
+      mavisLogRef.current = [entry, ...mavisLogRef.current].slice(0, MAX_LOG);
+      setMavisLog([...mavisLogRef.current]);
     }
   }, []);
 
-  // Canvas mousemove handler for cursor changes
-  const handleCanvasMouseMove = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
+  // ── Canvas pan ──────────────────────────────────────────────
+  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    panRef.current.dragging = true;
+    panRef.current.startX = e.clientX + panRef.current.x;
+    panRef.current.startY = e.clientY + panRef.current.y;
+  }, []);
+
+  const handleMouseMove = useCallback((e: React.MouseEvent) => {
+    if (!panRef.current.dragging) return;
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const maxPanX = Math.max(0, V_COLS * TILE - canvas.clientWidth);
+    const maxPanY = Math.max(0, V_ROWS * TILE - canvas.clientHeight);
+    const nx = Math.max(0, Math.min(maxPanX, panRef.current.startX - e.clientX));
+    const ny = Math.max(0, Math.min(maxPanY, panRef.current.startY - e.clientY));
+    panRef.current.x = nx;
+    panRef.current.y = ny;
+    setPanXY({ x: nx, y: ny });
+  }, []);
+
+  const handleMouseUp = useCallback((e: React.MouseEvent) => {
+    panRef.current.dragging = false;
+  }, []);
+
+  // ── Click detection ─────────────────────────────────────────
+  const handleCanvasClick = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
+    if (panRef.current.dragging) return;
     const canvas = canvasRef.current;
     if (!canvas) return;
     const rect = canvas.getBoundingClientRect();
-    const canvasX = (e.clientX - rect.left) * (canvas.width / rect.width);
-    const canvasY = (e.clientY - rect.top) * (canvas.height / rect.height);
-    const col = Math.floor(canvasX / TILE);
-    const row = Math.floor(canvasY / TILE);
-    const key = `${col},${row}`;
-    const entity = entityMapRef.current.get(key);
-    canvas.style.cursor = entity ? "pointer" : "default";
-  }, []);
+    const mx = e.clientX - rect.left + panRef.current.x;
+    const my = e.clientY - rect.top  + panRef.current.y;
+    const clickC = mx / TILE;
+    const clickR = my / TILE;
 
-  // Game loop
+    for (const z of ZONES) {
+      if (clickC >= z.col && clickC < z.col + z.w &&
+          clickR >= z.row && clickR < z.row + z.h) {
+        setSelectedZone(z);
+        dispatchSignal(z.id);
+        return;
+      }
+    }
+    setSelectedZone(null);
+  }, [dispatchSignal]);
+
+  // ── Game loop ───────────────────────────────────────────────
   const gameLoop = useCallback(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
-    const W = canvas.width;
-    const H = canvas.height;
-    const states = machineStatesRef.current;
-    const frame = frameRef.current;
+    const vw = canvas.width;
+    const vh = canvas.height;
+    const panX = panRef.current.x;
+    const panY = panRef.current.y;
+    const tick = tickRef.current++;
 
-    const patchStatusKeys: (keyof MachineState)[] = [
-      "memory", "memory", "quest", "quest", "orders", "ruview",
-    ];
+    // ── Terrain ──────────────────────────────────────────────
+    drawTerrain(ctx, panX, panY, vw, vh);
 
-    // Clear entity map each frame
-    entityMapRef.current.clear();
+    // ── Corridors ────────────────────────────────────────────
+    drawCorridors(ctx, panX, panY, tick);
 
-    // 1. Terrain
-    drawTerrain(ctx, W, H);
-
-    // 2. Rail tracks (below everything else)
-    drawRailTrack(ctx, 34, W);
-    drawRailTrack(ctx, 37, W);
-    drawRailTrack(ctx, 40, W);
-
-    // 3. Power wires (above terrain, under entities)
-    drawPowerWires(ctx, POWER_POLES);
-
-    // 4. Ore patches
-    // Register ore patches
-    ORE_PATCHES.forEach((p) => {
-      for (let dc = 0; dc < p.w; dc++) {
-        for (let dr = 0; dr < p.h; dr++) {
-          entityMapRef.current.set(`${p.col + dc},${p.row + dr}`, {
-            type: "ore",
-            name: p.label,
-            source: p.type === "iron" ? "memory" : p.type === "copper" ? "quest" : p.type === "coal" ? "orders" : p.type === "stone" ? "ruview" : p.type === "memory" ? "memory" : "quest",
-            col: p.col,
-            row: p.row,
-            tileW: p.w,
-            tileH: p.h,
-          });
-        }
+    // ── Zones ────────────────────────────────────────────────
+    for (const z of ZONES) {
+      drawZoneBg(ctx, z, panX, panY, tick);
+      // Draw nodes
+      for (const node of z.nodes) {
+        const status: NodeStatus = node.cron ? "active" : "warm";
+        drawNode(ctx, node, z.col, z.row, panX, panY, status, tick);
       }
-      drawOrePatch(ctx, p);
-    });
-
-    // 5. Belt network
-    BELT_NETWORK.forEach((seg) => drawBeltSegment(ctx, seg, beltOffsetRef.current));
-
-    // 6. Power poles
-    POWER_POLES.forEach((p) => drawPowerPole(ctx, p));
-
-    // 7. Mining drills
-    // Register mining drills
-    MINING_DRILLS.forEach((drill, i) => {
-      const sk = patchStatusKeys[i] ?? "memory";
-      const src = sk as string;
-      for (let dc = 0; dc < 2; dc++) {
-        for (let dr = 0; dr < 2; dr++) {
-          entityMapRef.current.set(`${drill.col + dc},${drill.row + dr}`, {
-            type: "drill",
-            name: `DRILL (${src.toUpperCase()})`,
-            source: src,
-            col: drill.col,
-            row: drill.row,
-            tileW: 2,
-            tileH: 2,
-          });
-        }
+      // MAVIS PRIME special rendering
+      if (z.id === "aicore") {
+        drawMAVISPrime(ctx, panX, panY, tick);
       }
-      const statusKey = patchStatusKeys[i] ?? "memory";
-      const status = (states[statusKey] as MachineStatus) ?? "idle";
-      drawMiningDrill(ctx, drill, frame, status);
-    });
-
-    // 8. Inserter arms
-    INSERTER_DEFS.forEach((ins) => {
-      const status = (states[ins.statusKey] as MachineStatus) ?? "idle";
-      drawInserter(ctx, ins, frame, status);
-    });
-
-    // 9. Static assembly machines
-    // Register MAVIS hub and assembly machines
-    ASSEMBLY_MACHINES.forEach((machine) => {
-      const entityType: ClickableEntity["type"] = machine.isMAVIS ? "mavis" : "drill";
-      const srcMap: Record<string, ClickableEntity["source"]> = {
-        memory: "memory", journal: "journal", quest: "quest",
-        ruview: "ruview", orders: "orders",
-      };
-      for (let dc = 0; dc < machine.w; dc++) {
-        for (let dr = 0; dr < machine.h; dr++) {
-          entityMapRef.current.set(`${machine.col + dc},${machine.row + dr}`, {
-            type: entityType,
-            name: machine.label,
-            source: machine.isMAVIS ? undefined : (srcMap[machine.statusKey as string] ?? machine.statusKey as string),
-            col: machine.col,
-            row: machine.row,
-            tileW: machine.w,
-            tileH: machine.h,
-          });
-        }
-      }
-      const status = (states[machine.statusKey] as MachineStatus) ?? "idle";
-      drawAssemblyMachine(ctx, machine, status, frame, gearRotRef.current);
-    });
-
-    // 10. Persona machines (left side, dynamic)
-    const personaList = states.personas.length > 0
-      ? states.personas
-      : [{ id: "0", name: "IDLE", role: "", status: "idle" as MachineStatus }];
-    // Register persona machines
-    personaList.slice(0, 6).forEach((p, i) => {
-      const pCol = 5;
-      const pRow = 10 + i * 4;
-      for (let dc = 0; dc < 3; dc++) {
-        for (let dr = 0; dr < 3; dr++) {
-          entityMapRef.current.set(`${pCol + dc},${pRow + dr}`, {
-            type: "persona",
-            id: p.id,
-            name: p.name,
-            col: pCol,
-            row: pRow,
-            tileW: 3,
-            tileH: 3,
-          });
-        }
-      }
-      drawDynamicMachine(ctx, pCol, pRow, p.name, p.status, frame, gearRotRef.current, true);
-    });
-
-    // 11. Council machines (right side, dynamic)
-    const councilList = states.councils.length > 0
-      ? states.councils
-      : [{ id: "0", name: "IDLE", role: "", status: "idle" as MachineStatus }];
-    // Register council machines
-    councilList.slice(0, 6).forEach((c, i) => {
-      const cCol = 49;
-      const cRow = 10 + i * 4;
-      for (let dc = 0; dc < 3; dc++) {
-        for (let dr = 0; dr < 3; dr++) {
-          entityMapRef.current.set(`${cCol + dc},${cRow + dr}`, {
-            type: "council",
-            id: c.id,
-            name: c.name,
-            col: cCol,
-            row: cRow,
-            tileW: 3,
-            tileH: 3,
-          });
-        }
-      }
-      drawDynamicMachine(ctx, cCol, cRow, c.name, c.status, frame, gearRotRef.current, false);
-    });
-
-    // 12. Storage chests
-    // Register storage chests
-    const chestPositions2 = [
-      { col: 46, row: 16 },
-      { col: 50, row: 16 },
-      { col: 54, row: 16 },
-      { col: 48, row: 19 },
-      { col: 52, row: 19 },
-    ];
-    chestPositions2.forEach((pos, i) => {
-      entityMapRef.current.set(`${pos.col},${pos.row}`, {
-        type: "storage",
-        name: ["MEM VAULT", "QUEST STORE", "ORDER CACHE", "PERSONA CORE", "KNOWLEDGE"][i] ?? "STORAGE",
-        col: pos.col,
-        row: pos.row,
-        tileW: 1,
-        tileH: 1,
-      });
-    });
-    drawStorageChests(ctx, states);
-
-    // 13. Smoke/steam particles
-    if (frame % 18 === 0) {
-      ASSEMBLY_MACHINES.forEach((m) => {
-        const status = (states[m.statusKey] as MachineStatus) ?? "idle";
-        if (status === "active" && m.w >= 3) {
-          spawnSmoke(smokesRef.current, m.col * TILE + (m.w * TILE) / 2, m.row * TILE - 4, m.isMAVIS ? "#8866aa" : "#667788");
-        }
-      });
-      MINING_DRILLS.forEach((drill, i) => {
-        const sk = patchStatusKeys[i] ?? "memory";
-        const status = (states[sk] as MachineStatus) ?? "idle";
-        if (status === "active") {
-          spawnSmoke(smokesRef.current, drill.col * TILE + TILE, drill.row * TILE, "#887766");
-        }
-      });
-    }
-    updateAndDrawSmoke(ctx, smokesRef.current);
-
-    // 14. Belt items
-    if (frame % 90 === 0) {
-      if (states.memory !== "idle") spawnBeltItem("memory");
-      if (states.quest !== "idle") spawnBeltItem("quest");
-      if (states.journal !== "idle") spawnBeltItem("journal");
-    }
-    if (frame % 60 === 0 && states.mavis === "active") spawnBeltItem("processed");
-    updateAndDrawBeltItems(ctx, beltItemsRef.current);
-
-    // 15. Trains
-    // Register trains near station
-    trainsRef.current.forEach((train) => {
-      const tCol = Math.floor(train.x / TILE);
-      const tRow = train.trackRow;
-      if (tCol >= 0 && tCol < COLS) {
-        entityMapRef.current.set(`${tCol},${tRow}`, {
-          type: "train",
-          name: "BATCH RUNNER",
-          col: tCol,
-          row: tRow,
-          tileW: 2,
-          tileH: 1,
-        });
-      }
-      train.x += train.speed * train.direction;
-      const maxX = W + TILE * 10;
-      if (train.direction > 0 && train.x > maxX) train.x = -TILE * 8;
-      if (train.direction < 0 && train.x < -TILE * 10) train.x = maxX;
-      drawTrain(ctx, train, frame);
-    });
-
-    // 16. Workers
-    workersRef.current.forEach((w) => {
-      const target = w.path[w.pathIdx % w.path.length];
-      const dx = target.x - w.x;
-      const dy = target.y - w.y;
-      const dist = Math.sqrt(dx * dx + dy * dy);
-      if (dist < w.speed) {
-        w.x = target.x;
-        w.y = target.y;
-        w.pathIdx = (w.pathIdx + 1) % w.path.length;
-      } else {
-        w.x += (dx / dist) * w.speed;
-        w.y += (dy / dist) * w.speed;
-        w.facingRight = dx > 0;
-      }
-      w.frame++;
-      drawWorker(ctx, w);
-    });
-
-    // 17. Selection highlight
-    if (selectedEntityRef.current) {
-      const ent = selectedEntityRef.current;
-      const sx = ent.col * TILE;
-      const sy = ent.row * TILE;
-      const sw = ent.tileW * TILE;
-      const sh = ent.tileH * TILE;
-      const pulse = 0.6 + Math.sin(frame * 0.1) * 0.4;
-      ctx.save();
-      ctx.strokeStyle = `rgba(0,255,255,${pulse})`;
-      ctx.lineWidth = 2;
-      ctx.shadowColor = "#00ffff";
-      ctx.shadowBlur = 12 * pulse;
-      ctx.strokeRect(sx - 2, sy - 2, sw + 4, sh + 4);
-      ctx.shadowBlur = 0;
-      ctx.fillStyle = `rgba(0,255,255,${pulse})`;
-      ctx.font = "bold 10px monospace";
-      ctx.textAlign = "center";
-      ctx.fillText("▼", sx + sw / 2, sy - 6);
-      ctx.restore();
+      // Zone stat badge
+      drawZoneStatBadge(ctx, z, panX, panY, (stats.zoneActivity)[z.id]);
     }
 
-    // Advance state
-    beltOffsetRef.current = (beltOffsetRef.current + 0.5) % 18;
-    gearRotRef.current += 1;
-    frameRef.current++;
+    // ── Power poles ──────────────────────────────────────────
+    drawPowerPoles(ctx, panX, panY);
+
+    // ── Smoke from active nodes ──────────────────────────────
+    if (tick % 12 === 0) {
+      // Emit from MAVIS
+      const mx = (COL1 + 11) * TILE;
+      const my = (ROW0 + 4) * TILE;
+      spawnSmoke(smokesRef.current, mx, my, "#5522aa");
+      spawnSmoke(smokesRef.current, mx + 20, my, "#330077");
+      // Random zone machines
+      const rz = ZONES[tick % ZONES.length];
+      if (rz.nodes.length > 0) {
+        const rn = rz.nodes[tick % rz.nodes.length];
+        spawnSmoke(smokesRef.current, (rz.col + rn.dc + rn.w / 2) * TILE, (rz.row + rn.dr) * TILE, rz.accent);
+      }
+    }
+    updateAndDrawSmoke(ctx, smokesRef.current, panX, panY);
+
+    // ── Signal packets ───────────────────────────────────────
+    updateAndDrawSignals(ctx, signalsRef.current, panX, panY);
+
+    // ── Auto dispatch ────────────────────────────────────────
+    const now = Date.now();
+    if (now - lastDispatchRef.current > 4000) {
+      lastDispatchRef.current = now;
+      const zoneIds = Object.keys(SIGNAL_PATHS);
+      const zId = zoneIds[dispatchZoneIdxRef.current % zoneIds.length];
+      dispatchZoneIdxRef.current++;
+      dispatchSignal(zId);
+    }
+
+    // ── Minimap ──────────────────────────────────────────────
+    drawMinimap(ctx, vw, vh, panX, panY, ZONES);
 
     animRef.current = requestAnimationFrame(gameLoop);
-  }, [spawnBeltItem]);
+  }, [stats, dispatchSignal]);
 
-  // Start game loop + DB polling
+  // ── Canvas resize observer ──────────────────────────────────
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ro = new ResizeObserver(() => {
+      canvas.width  = canvas.clientWidth;
+      canvas.height = canvas.clientHeight;
+      // Set initial pan to center on MAVIS
+      const mx = COL1 * TILE + (ZONE_W / 2) * TILE - canvas.clientWidth / 2;
+      const my = ROW0 * TILE + (ZONE_H / 2) * TILE - canvas.clientHeight / 2;
+      const cx = Math.max(0, Math.min(V_COLS * TILE - canvas.clientWidth, mx));
+      const cy = Math.max(0, Math.min(V_ROWS * TILE - canvas.clientHeight, my));
+      panRef.current.x = cx;
+      panRef.current.y = cy;
+      setPanXY({ x: cx, y: cy });
+    });
+    ro.observe(canvas);
+    return () => ro.disconnect();
+  }, []);
+
   useEffect(() => {
     animRef.current = requestAnimationFrame(gameLoop);
-    loadFactoryState();
-    const poll = setInterval(loadFactoryState, 12_000);
+    const poll = setInterval(loadStats, 30_000);
     return () => {
       cancelAnimationFrame(animRef.current);
       clearInterval(poll);
     };
-  }, [gameLoop, loadFactoryState]);
+  }, [gameLoop, loadStats]);
 
-  // ── Render ──
+  // ── Totals for HUD ──────────────────────────────────────────
+  const totalFunctions  = 276;
+  const totalTables     = 203;
+  const activeCronCount = 99;
+
   return (
     <div
-      className="relative w-full overflow-hidden bg-[#222210]"
-      style={{ height: "calc(100vh - 64px)" }}
+      className="relative w-full overflow-hidden bg-[#1a1a0a]"
+      style={{ height: "calc(100vh - 64px)", cursor: panRef.current.dragging ? "grabbing" : "grab" }}
     >
       <canvas
         ref={canvasRef}
         className="w-full h-full"
+        onMouseDown={handleMouseDown}
+        onMouseMove={handleMouseMove}
+        onMouseUp={handleMouseUp}
+        onMouseLeave={handleMouseUp}
         onClick={handleCanvasClick}
-        onMouseMove={handleCanvasMouseMove}
+        style={{ cursor: "inherit" }}
       />
 
-      {/* Entity detail panel */}
-      {selectedEntity && (
+      {/* ── Entity detail panel ─────────────────────────────── */}
+      {selectedZone && (
         <EntityDetailPanel
-          entity={selectedEntity}
-          details={entityDetails}
-          loading={detailsLoading}
-          onClose={() => { setSelectedEntity(null); setEntityDetails(null); }}
-          onNavigate={() => navigate(`/mavis?entity=${encodeURIComponent(selectedEntity.name)}`)}
+          zone={selectedZone}
+          onClose={() => setSelectedZone(null)}
+          onNavigate={() => { if (selectedZone.route) navigate(selectedZone.route); setSelectedZone(null); }}
+          stats={stats}
         />
       )}
 
-      {/* HUD overlay */}
+      {/* ── HUD overlay ────────────────────────────────────── */}
       <div className="absolute inset-0 pointer-events-none">
+
         {/* Top bar */}
-        <div className="absolute top-0 left-0 right-0 px-4 py-2 flex items-center justify-between bg-gradient-to-b from-black/70 to-transparent">
-          <div className="flex flex-col leading-tight">
-            <span className="font-mono text-amber-400 text-sm font-bold tracking-widest uppercase">
-              Factory Floor
-            </span>
-            <span className="font-mono text-[10px] text-amber-400/50">
-              MAVIS Production Network — CODEXOS
-            </span>
+        <div className="absolute top-0 left-0 right-0 px-4 py-2 flex items-center justify-between bg-gradient-to-b from-black/80 to-transparent">
+          <div>
+            <span className="font-mono text-amber-400 text-sm font-bold tracking-widest">FACTORY FLOOR</span>
+            <span className="font-mono text-[9px] text-amber-400/40 ml-3">MAVIS COMMAND — {totalFunctions} FUNCTIONS · {totalTables} TABLES · {activeCronCount} CRONS</span>
           </div>
 
-          <div className="flex gap-5 font-mono text-xs text-zinc-300">
-            <span className="flex items-center gap-1.5">
-              <span className="w-2 h-2 rounded-full bg-green-400 shadow-[0_0_6px_#22ff44]" />
-              <span className="text-green-400 font-bold">{activeCount}</span>
-              <span className="text-zinc-500 text-[10px]">ACTIVE</span>
+          <div className="flex gap-4 font-mono text-xs">
+            <span className="text-purple-400/80 text-[10px]">
+              TASKS <span className="text-purple-300 font-bold ml-1">{stats.activeTasks}</span>
             </span>
-            <span className="flex items-center gap-1.5">
-              <span className="w-2 h-2 rounded-full bg-yellow-400 shadow-[0_0_6px_#ffcc00]" />
-              <span className="text-yellow-400 font-bold">{warmCount}</span>
-              <span className="text-zinc-500 text-[10px]">WARM</span>
+            <span className="text-blue-400/80 text-[10px]">
+              MEMORIES <span className="text-blue-300 font-bold ml-1">{stats.memories}</span>
             </span>
-            <span className="flex items-center gap-1.5">
-              <span className="w-2 h-2 rounded-full bg-zinc-600" />
-              <span className="text-zinc-500 font-bold">{idleCount}</span>
-              <span className="text-zinc-600 text-[10px]">IDLE</span>
+            <span className="text-green-400/80 text-[10px]">
+              GOALS <span className="text-green-300 font-bold ml-1">{stats.goals}</span>
             </span>
-            <span className="text-amber-400/70 text-[10px] flex items-center gap-1">
-              ITEMS/MIN: <span className="text-amber-400 font-bold ml-1">{itemsPerMin}</span>
+            <span className="text-yellow-400/80 text-[10px]">
+              PERSONAS <span className="text-yellow-300 font-bold ml-1">{stats.personas}</span>
             </span>
-            <span className="text-cyan-400/70 text-[10px] flex items-center gap-1">
-              QUESTS: <span className="text-cyan-400 font-bold ml-1">{machineStates.activeQuests}</span>
+            <span className="text-red-400/80 text-[10px]">
+              QUESTS <span className="text-red-300 font-bold ml-1">{stats.quests}</span>
             </span>
-            <span className="text-orange-400/70 text-[10px] flex items-center gap-1">
-              ORDERS: <span className="text-orange-400 font-bold ml-1">{machineStates.activeOrders}</span>
+            <span className="text-cyan-400/80 text-[10px]">
+              ACTIVITY <span className="text-cyan-300 font-bold ml-1">{stats.recentActivity}</span>
             </span>
           </div>
 
           <button
             className="pointer-events-auto flex items-center gap-1.5 px-3 py-1.5 rounded border border-zinc-700 bg-zinc-900/90 text-zinc-400 hover:text-amber-400 hover:border-amber-500/40 font-mono text-xs transition-colors"
-            onClick={loadFactoryState}
+            onClick={loadStats}
             disabled={loading}
           >
             <RefreshCw size={11} className={loading ? "animate-spin" : ""} />
-            {loading ? "Syncing…" : "Refresh"}
+            {loading ? "Syncing…" : "Sync"}
           </button>
         </div>
 
-        {/* Bottom bar */}
-        <div className="absolute bottom-0 left-0 right-0 px-4 py-2 flex items-center justify-between bg-gradient-to-t from-black/70 to-transparent">
-          <div className="flex flex-wrap gap-3 font-mono text-[9px] text-zinc-500">
-            {([
-              { color: ITEM_COLORS.memory, label: "Memory" },
-              { color: ITEM_COLORS.journal, label: "Journal" },
-              { color: ITEM_COLORS.quest, label: "Quest" },
-              { color: ITEM_COLORS.ruview, label: "RuView" },
-              { color: ITEM_COLORS.order, label: "Orders" },
-              { color: ITEM_COLORS.persona, label: "Persona" },
-              { color: ITEM_COLORS.council, label: "Council" },
-              { color: ITEM_COLORS.processed, label: "Processed" },
-            ] as const).map((item) => (
-              <span key={item.label} className="flex items-center gap-1">
-                <span
-                  className="inline-block w-3 h-3 rounded-sm border border-white/10"
-                  style={{ backgroundColor: item.color }}
-                />
-                {item.label}
-              </span>
-            ))}
-          </div>
-
-          <div className="flex items-center gap-4">
-            <div className="flex gap-2 text-[9px] font-mono">
-              <span className="flex items-center gap-1">
-                <span className="w-5 h-2 rounded-sm" style={{ background: "#c8a800" }} />
-                <span className="text-yellow-600">Normal belt</span>
-              </span>
-              <span className="flex items-center gap-1">
-                <span className="w-5 h-2 rounded-sm" style={{ background: "#cc3333" }} />
-                <span className="text-red-600">Fast belt</span>
-              </span>
-              <span className="flex items-center gap-1">
-                <span className="w-5 h-2 rounded-sm" style={{ background: "#3366cc" }} />
-                <span className="text-blue-500">Express belt</span>
-              </span>
-            </div>
-
-            <button
-              className="pointer-events-auto font-mono text-[10px] text-violet-400/60 hover:text-violet-300 transition-colors"
-              onClick={() => navigate("/mavis")}
+        {/* MAVIS Directive log — bottom-left */}
+        <div className="absolute bottom-3 left-3 w-80 space-y-1">
+          <p className="font-mono text-[9px] text-purple-400/50 tracking-widest uppercase mb-1">
+            ▸ MAVIS DIRECTIVE LOG
+          </p>
+          {mavisLog.slice(0, 5).map((entry, i) => (
+            <div
+              key={entry.ts + i}
+              className="font-mono text-[9px] px-2 py-1 rounded bg-black/60 border-l-2 truncate"
+              style={{ borderColor: entry.color, color: i === 0 ? entry.color : "rgba(200,200,180,0.5)" }}
             >
-              Chat with MAVIS
-            </button>
-          </div>
+              {entry.msg}
+              <span className="ml-2 opacity-40">{relativeTime(entry.ts)}</span>
+            </div>
+          ))}
+        </div>
+
+        {/* Zone legend — top-right corner (above minimap) */}
+        <div className="absolute bottom-32 right-3 space-y-0.5">
+          {ZONES.slice(0, 6).map(z => (
+            <div key={z.id} className="flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-sm" style={{ backgroundColor: z.light }} />
+              <span className="font-mono text-[8px]" style={{ color: z.light + "99" }}>{z.label.split("—")[0].trim()}</span>
+            </div>
+          ))}
+        </div>
+
+        {/* Pan hint */}
+        <div className="absolute top-12 left-1/2 -translate-x-1/2 pointer-events-none">
+          <span className="font-mono text-[9px] text-zinc-600">drag to pan · click zone for details</span>
         </div>
       </div>
     </div>
