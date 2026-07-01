@@ -705,11 +705,12 @@ class WorkspaceCoordinator {
 
       // For workflows, run synchronously by waiting for completion signal
       // (in real async env this would subscribe to bus completion events)
-      const result = await dispatchAgent(
+      const rawResult = await dispatchAgent(
         `${fullInstructions}\n\nUser input: ${input}`,
         step.agentSpecialization,
         userId
       ).catch(err => `Error: ${(err as Error).message}`);
+      const result: string = typeof rawResult === "string" ? rawResult : ((rawResult as any)?.output ?? JSON.stringify(rawResult));
 
       stepResults.set(step.id, result);
       slot.status = "complete";
