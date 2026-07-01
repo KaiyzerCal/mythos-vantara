@@ -61,6 +61,16 @@ async function safeFetch(url: string, opts: RequestInit = {}): Promise<any | nul
   }
 }
 
+async function safeText(url: string, opts: RequestInit = {}): Promise<string | null> {
+  try {
+    const res = await fetch(url, { ...opts, signal: AbortSignal.timeout(12000) });
+    if (!res.ok) return null;
+    return await res.text();
+  } catch {
+    return null;
+  }
+}
+
 function parseGdeltDate(s: string): string {
   // format: 20240101T120000Z
   try {
@@ -224,52 +234,130 @@ async function handleMarketBrief(sb: any): Promise<any> {
   const cached = await getCache(sb, "market_brief");
   if (cached) return json(cached);
 
-  const yahooSymbols: Array<{ encoded: string; symbol: string; name: string; type: "index" | "commodity" }> = [
-    { encoded: "%5EGSPC", symbol: "SPX",  name: "S&P 500",  type: "index" },
-    { encoded: "%5EIXIC", symbol: "NDX",  name: "NASDAQ",   type: "index" },
-    { encoded: "%5EDJI",  symbol: "DJIA", name: "Dow Jones", type: "index" },
-    { encoded: "GC%3DF",  symbol: "GOLD", name: "Gold",     type: "commodity" },
-    { encoded: "CL%3DF",  symbol: "OIL",  name: "Oil",      type: "commodity" },
+  const yahooSymbols: Array<{ encoded: string; symbol: string; name: string; type: "index" | "commodity" | "forex" }> = [
+    { encoded: "%5EGSPC",  symbol: "SPX",   name: "S&P 500",    type: "index" },
+    { encoded: "%5EIXIC",  symbol: "NDX",   name: "NASDAQ",     type: "index" },
+    { encoded: "%5EDJI",   symbol: "DJIA",  name: "Dow Jones",  type: "index" },
+    { encoded: "%5ERUT",   symbol: "RUT",   name: "Russell 2000", type: "index" },
+    { encoded: "%5EVIX",   symbol: "VIX",   name: "VIX Fear",   type: "index" },
+    { encoded: "GC%3DF",   symbol: "GOLD",  name: "Gold",       type: "commodity" },
+    { encoded: "CL%3DF",   symbol: "OIL",   name: "Oil (WTI)",  type: "commodity" },
+    { encoded: "SI%3DF",   symbol: "SILVER",name: "Silver",     type: "commodity" },
+    { encoded: "EURUSD%3DX", symbol: "EUR/USD", name: "Euro/USD",    type: "forex" },
+    { encoded: "GBPUSD%3DX", symbol: "GBP/USD", name: "GBP/USD",    type: "forex" },
+    { encoded: "JPY%3DX",    symbol: "USD/JPY", name: "USD/JPY",    type: "forex" },
+    { encoded: "BTC-USD",    symbol: "BTC.Y",   name: "BTC Yahoo",  type: "crypto" },
   ];
 
-  const [geckoRes, ...yahooResults] = await Promise.allSettled([
-    safeFetch("https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum,solana,ripple&vs_currencies=usd&include_24hr_change=true"),
+  const coinIds = "bitcoin,ethereum,solana,ripple,dogecoin,cardano,avalanche-2,polkadot,chainlink,matic-network,binancecoin,shiba-inu";
+  const [geckoRes, fgRes, ...yahooResults] = await Promise.allSettled([
+    safeFetch(`https://api.coingecko.com/api/v3/simple/price?ids=${coinIds}&vs_currencies=usd&include_24hr_change=true&include_market_cap=true`),
+    safeFetch("https://api.alternative.me/fng/?limit=3"),
     ...yahooSymbols.map(s => safeFetch(`https://query1.finance.yahoo.com/v8/finance/chart/${s.encoded}?interval=1d&range=1d`, { headers: { "User-Agent": "Mozilla/5.0" } })),
   ]);
 
   const ticks: any[] = [];
 
-  // Crypto
+  // Crypto from CoinGecko
   if (geckoRes.status === "fulfilled" && geckoRes.value) {
     const g = geckoRes.value;
     const coins = [
-      { id: "bitcoin",  symbol: "BTC", name: "Bitcoin"  },
-      { id: "ethereum", symbol: "ETH", name: "Ethereum" },
-      { id: "solana",   symbol: "SOL", name: "Solana"   },
-      { id: "ripple",   symbol: "XRP", name: "XRP"      },
+      { id: "bitcoin",        symbol: "BTC",   name: "Bitcoin"    },
+      { id: "ethereum",       symbol: "ETH",   name: "Ethereum"   },
+      { id: "solana",         symbol: "SOL",   name: "Solana"     },
+      { id: "ripple",         symbol: "XRP",   name: "XRP"        },
+      { id: "dogecoin",       symbol: "DOGE",  name: "Dogecoin"   },
+      { id: "cardano",        symbol: "ADA",   name: "Cardano"    },
+      { id: "avalanche-2",    symbol: "AVAX",  name: "Avalanche"  },
+      { id: "polkadot",       symbol: "DOT",   name: "Polkadot"   },
+      { id: "chainlink",      symbol: "LINK",  name: "Chainlink"  },
+      { id: "matic-network",  symbol: "MATIC", name: "Polygon"    },
+      { id: "binancecoin",    symbol: "BNB",   name: "BNB"        },
+      { id: "shiba-inu",      symbol: "SHIB",  name: "Shiba Inu"  },
     ];
     for (const c of coins) {
       const d = g[c.id];
       if (!d) continue;
-      ticks.push({ symbol: c.symbol, name: c.name, price: d.usd, change24h: d.usd_24h_change ?? null, currency: "USD", type: "crypto" });
+      ticks.push({ symbol: c.symbol, name: c.name, price: d.usd, change24h: d.usd_24h_change ?? null, marketCap: d.usd_market_cap ?? null, currency: "USD", type: "crypto" });
     }
   }
 
-  // Yahoo Finance
+  // Yahoo Finance (indices, commodities, forex)
   for (let i = 0; i < yahooResults.length; i++) {
     const r = yahooResults[i];
     if (r.status !== "fulfilled" || !r.value) continue;
     const meta = r.value?.chart?.result?.[0]?.meta;
     if (!meta) continue;
     const price = meta.regularMarketPrice;
-    const prev = meta.chartPreviousClose;
+    const prev  = meta.chartPreviousClose;
     const change = prev && price ? ((price - prev) / prev) * 100 : null;
     const s = yahooSymbols[i];
+    if (s.type === "crypto") continue; // skip BTC.Y duplicate
     ticks.push({ symbol: s.symbol, name: s.name, price, change24h: change, currency: "USD", type: s.type });
   }
 
-  const result = { ticks, fetched_at: new Date().toISOString() };
+  // Fear & Greed Index
+  let fearGreed: any = null;
+  if (fgRes.status === "fulfilled" && fgRes.value?.data) {
+    const d = fgRes.value.data[0];
+    fearGreed = { value: parseInt(d.value), label: d.value_classification, timestamp: d.timestamp };
+  }
+
+  const result = { ticks, fearGreed, fetched_at: new Date().toISOString() };
   await setCache(sb, "market_brief", result, 300);
+  return json(result);
+}
+
+// --- tech_pulse ---
+async function handleTechPulse(sb: any): Promise<any> {
+  const cached = await getCache(sb, "tech_pulse");
+  if (cached) return json(cached);
+
+  const [hnRes, ghTrendRes, aiNewsRes, businessRes] = await Promise.allSettled([
+    safeFetch("https://hacker-news.firebaseio.com/v0/topstories.json"),
+    safeText("https://r.jina.ai/https://github.com/trending"),
+    safeText("https://r.jina.ai/https://techcrunch.com/artificial-intelligence/"),
+    safeFetch("https://api.gdeltproject.org/api/v2/doc/doc?mode=artlist&format=json&query=startup+founder+entrepreneur+VC+funding+IPO&maxrecords=15&sort=DateDesc&language=English"),
+  ]);
+
+  // Hacker News top 15 stories
+  const hnStories: any[] = [];
+  if (hnRes.status === "fulfilled" && Array.isArray(hnRes.value)) {
+    const ids = hnRes.value.slice(0, 20);
+    const storyResults = await Promise.allSettled(
+      ids.map((id: number) => safeFetch(`https://hacker-news.firebaseio.com/v0/item/${id}.json`))
+    );
+    for (const r of storyResults) {
+      if (r.status !== "fulfilled" || !r.value) continue;
+      const s = r.value;
+      if (!s.title) continue;
+      hnStories.push({ title: s.title, url: s.url ?? `https://news.ycombinator.com/item?id=${s.id}`, score: s.score ?? 0, comments: s.descendants ?? 0, by: s.by, time: s.time * 1000 });
+    }
+    hnStories.sort((a, b) => b.score - a.score);
+  }
+
+  // GitHub trending parse (extract repo names from Jina text)
+  const ghRepos: { name: string; desc: string; lang: string; stars: string }[] = [];
+  if (ghTrendRes.status === "fulfilled" && ghTrendRes.value) {
+    const text = ghTrendRes.value as string;
+    const lines = text.split("\n").filter((l: string) => l.includes("/") && l.trim().length > 5);
+    for (const line of lines.slice(0, 20)) {
+      const m = line.match(/([a-zA-Z0-9_-]+\/[a-zA-Z0-9_-]+)/);
+      if (m) ghRepos.push({ name: m[1], desc: line.slice(0, 80), lang: "", stars: "" });
+      if (ghRepos.length >= 10) break;
+    }
+  }
+
+  // Business / startup news
+  const bizNews: any[] = [];
+  if (businessRes.status === "fulfilled" && businessRes.value?.articles) {
+    for (const a of businessRes.value.articles.slice(0, 12)) {
+      bizNews.push({ title: a.title, url: a.url, domain: a.domain, country: a.sourcecountry });
+    }
+  }
+
+  const result = { hn: hnStories.slice(0, 15), github: ghRepos, bizNews, fetched_at: new Date().toISOString() };
+  await setCache(sb, "tech_pulse", result, 1800);
   return json(result);
 }
 
@@ -342,6 +430,7 @@ serve(async (req) => {
       const country = url.searchParams.get("country") ?? body.country ?? "";
       return await handleCountryBrief(sb, country);
     }
+    if (action === "tech_pulse") return await handleTechPulse(sb);
     return err(`Unknown action: ${action}`);
   } catch (e: any) {
     return err(`Internal error: ${e?.message ?? "unknown"}`, 500);
