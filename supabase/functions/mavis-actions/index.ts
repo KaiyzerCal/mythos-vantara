@@ -1482,6 +1482,21 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
       return await syncRes.json();
     }
 
+    case "worldmonitor": {
+      const wmUrl = `${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-worldmonitor`;
+      const wmRes = await fetch(wmUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+        },
+        body: JSON.stringify({ ...(params as Record<string, unknown>) }),
+        signal: AbortSignal.timeout(30000),
+      });
+      if (!wmRes.ok) throw new Error(`mavis-worldmonitor error: ${wmRes.status}`);
+      return await wmRes.json();
+    }
+
     case "get_standing_orders": {
       const { data } = await sb
         .from("mavis_standing_orders")
