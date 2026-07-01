@@ -556,9 +556,9 @@ class WorkspaceCoordinator {
 
       // Notify operator via inter-agent bus
       await broadcastToAll({
-        fromId: agentId,
-        fromName: agentName,
-        fromType: "plugin",
+        id: agentId,
+        name: agentName,
+        type: "plugin",
       }, {
         intent: "SIGNAL",
         payload: {
