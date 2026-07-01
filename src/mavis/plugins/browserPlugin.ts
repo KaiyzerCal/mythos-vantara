@@ -12,7 +12,8 @@
  * DuckDuckGo instant answers for search, and structured cache for session reuse.
  */
 
-import { supabase } from "@/integrations/supabase/client";
+import { supabase as _sb } from "@/integrations/supabase/client";
+const supabase: any = _sb;
 import { storeMemory } from "@/mavis/agentMemoryEngine";
 import { toolRegistry } from "@/mavis/toolRegistry";
 import type { MavisPlugin, MavisAction, MavisProvider, PluginContext, ActionResult } from "@/mavis/pluginSystem";
