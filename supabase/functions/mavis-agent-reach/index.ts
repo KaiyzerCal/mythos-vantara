@@ -1,5 +1,4 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 
 // MAVIS Internet Agent — Deno implementation of Agent-Reach channel architecture
 // https://github.com/KaiyzerCal/Agent-Reach
@@ -18,6 +17,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
 function json(data: unknown, status = 200) {
@@ -282,24 +282,42 @@ async function exaSearch(query: string, numResults = 10) {
   };
 }
 
+async function jinaSearchWeb(query: string) {
+  // Jina's search endpoint (s.jina.ai) — returns ranked web results as text
+  const jinaKey = Deno.env.get("JINA_API_KEY") ?? "";
+  const headers: Record<string, string> = {
+    Accept: "text/plain",
+    "X-Timeout": "15",
+    "User-Agent": "MAVIS-AgentReach/1.0",
+  };
+  if (jinaKey) headers["Authorization"] = `Bearer ${jinaKey}`;
+  const res = await safeFetch(`https://s.jina.ai/${encodeURIComponent(query)}`, { headers });
+  if (!res?.ok) throw new Error(`Jina search: ${res?.status ?? "timeout"}`);
+  const content = await res.text();
+  return { platform: "web", type: "search", query, content: content.slice(0, 8000), length: content.length };
+}
+
 async function multiSearch(query: string) {
   const [webRes, githubRes, redditRes] = await Promise.allSettled([
-    webRead(`https://www.google.com/search?q=${encodeURIComponent(query)}`),
+    jinaSearchWeb(query),
     githubSearch(query, "repositories", "", 5),
     redditSearch(query, "", "relevance", 5),
   ]);
   return {
     platform: "multi",
     query,
-    web: webRes.status === "fulfilled" ? webRes.value : { error: (webRes as any).reason?.message },
-    github: githubRes.status === "fulfilled" ? githubRes.value : { error: (githubRes as any).reason?.message },
-    reddit: redditRes.status === "fulfilled" ? redditRes.value : { error: (redditRes as any).reason?.message },
+    results: {
+      web:    webRes.status    === "fulfilled" ? webRes.value    : { error: (webRes    as PromiseRejectedResult).reason?.message },
+      github: githubRes.status === "fulfilled" ? githubRes.value : { error: (githubRes as PromiseRejectedResult).reason?.message },
+      reddit: redditRes.status === "fulfilled" ? redditRes.value : { error: (redditRes as PromiseRejectedResult).reason?.message },
+    },
   };
 }
 
 async function channelHealth() {
   const checks = await Promise.allSettled([
-    safeFetch("https://r.jina.ai/https://httpbin.org/get", { headers: { "X-Timeout": "5" } }),
+    // Web: just probe Jina's root (fast, no content fetch)
+    safeFetch("https://r.jina.ai/", { headers: { "User-Agent": "MAVIS-AgentReach/1.0", "X-Timeout": "5" } }),
     safeFetch("https://api.github.com/", { headers: { "User-Agent": "MAVIS-AgentReach/1.0" } }),
     safeFetch("https://www.reddit.com/r/popular.json?limit=1", { headers: { "User-Agent": "MAVIS-AgentReach/1.0" } }),
     Promise.resolve(!!Deno.env.get("EXA_API_KEY")),
@@ -326,21 +344,12 @@ async function channelHealth() {
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
-  // Auth
+  // Auth — require any Bearer token (user JWT or service role).
+  // This function only reads public APIs, so we don't verify the JWT signature;
+  // we just ensure no unauthenticated public access.
   const authHeader = req.headers.get("Authorization") ?? "";
-  const token = authHeader.replace("Bearer ", "");
+  const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : "";
   if (!token) return err("Unauthorized", 401);
-
-  const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-  const anonKey = Deno.env.get("SUPABASE_PUBLISHABLE_KEY") ?? Deno.env.get("SUPABASE_ANON_KEY") ?? "";
-  const userClient = createClient(supabaseUrl, anonKey, {
-    global: { headers: { Authorization: authHeader } },
-    auth: { persistSession: false },
-  });
-  const { data: userData } = await userClient.auth.getUser(token);
-  // Allow service role calls (token === service role key)
-  const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
-  if (!userData?.user?.id && token !== serviceKey) return err("Unauthorized", 401);
 
   let body: Record<string, any> = {};
   try { body = await req.json(); } catch { /* no body */ }

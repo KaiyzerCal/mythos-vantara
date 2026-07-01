@@ -513,9 +513,18 @@ export default function AgentReachPage() {
         {error && (
           <div className="flex items-start gap-3 bg-red-500/10 border border-red-500/20 rounded-xl p-4 mb-4">
             <AlertCircle size={16} className="text-red-400 shrink-0 mt-0.5" />
-            <div>
-              <p className="text-sm font-medium text-red-300">Fetch failed</p>
+            <div className="min-w-0">
+              <p className="text-sm font-medium text-red-300">
+                {error === "Failed to fetch" || error.includes("NetworkError") ? "Edge function unreachable" : "Fetch failed"}
+              </p>
               <p className="text-xs text-red-400/80 mt-1">{error}</p>
+              {(error === "Failed to fetch" || error.includes("NetworkError")) && (
+                <p className="text-xs text-zinc-500 mt-2">
+                  The <code className="text-zinc-400">mavis-agent-reach</code> function may not be deployed yet.
+                  Merge the branch to main to trigger the GitHub Actions deploy, or run:{" "}
+                  <code className="text-zinc-400 block mt-1">supabase functions deploy mavis-agent-reach --project-ref YOUR_REF</code>
+                </p>
+              )}
             </div>
           </div>
         )}
