@@ -12,6 +12,7 @@ import {
   BrainCircuit, Brain, SlidersHorizontal, Phone, MessageSquare, Key, Users2 as UserGroup, Shield as ShieldIcon, PhoneCall,
   PanelLeftClose,
   Factory,
+  Library,
 } from "lucide-react";
 import { useState, useContext } from "react";
 import { motion, AnimatePresence } from "framer-motion";
@@ -55,6 +56,7 @@ const INTEL_NAV = [
   { to: "/repurpose", icon: Repeat2, label: "Repurpose" },
   { to: "/health", icon: Heart, label: "Health" },
   { to: "/stock-analysis", icon: TrendingUp, label: "Stock Analysis" },
+  { to: "/prompt-vault", icon: Library, label: "Prompt Vault" },
   { to: "/finance", icon: DollarSign, label: "Finance" },
   { to: "/scheduler", icon: CalendarClock, label: "Scheduler" },
   { to: "/goals", icon: Crosshair, label: "Goals" },
