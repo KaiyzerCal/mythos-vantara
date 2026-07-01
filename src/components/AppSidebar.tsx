@@ -54,6 +54,7 @@ const INTEL_NAV = [
   { to: "/analytics", icon: BarChart2, label: "Analytics" },
   { to: "/repurpose", icon: Repeat2, label: "Repurpose" },
   { to: "/health", icon: Heart, label: "Health" },
+  { to: "/stock-analysis", icon: TrendingUp, label: "Stock Analysis" },
   { to: "/finance", icon: DollarSign, label: "Finance" },
   { to: "/scheduler", icon: CalendarClock, label: "Scheduler" },
   { to: "/goals", icon: Crosshair, label: "Goals" },

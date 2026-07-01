@@ -95,6 +95,10 @@ jobs:
       - name: Deploy mavis-heygen-agent
         run: supabase functions deploy mavis-heygen-agent --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
 
+      # ── Stock analysis ──────────────────────────────────────────────────────
+      - name: Deploy mavis-stock-analysis
+        run: supabase functions deploy mavis-stock-analysis --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
+
       # ── Content ingest ──────────────────────────────────────────────────────
       - name: Deploy mavis-shortform-ingest
         run: supabase functions deploy mavis-shortform-ingest --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}

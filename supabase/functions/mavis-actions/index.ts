@@ -1530,6 +1530,21 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
       return await wmRes.json();
     }
 
+    case "stock_analysis": {
+      const saUrl = `${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-stock-analysis`;
+      const saRes = await fetch(saUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+        },
+        body: JSON.stringify({ ...(params as Record<string, unknown>) }),
+        signal: AbortSignal.timeout(180000),
+      });
+      if (!saRes.ok) throw new Error(`mavis-stock-analysis error: ${saRes.status}`);
+      return await saRes.json();
+    }
+
     case "get_standing_orders": {
       const { data } = await sb
         .from("mavis_standing_orders")
