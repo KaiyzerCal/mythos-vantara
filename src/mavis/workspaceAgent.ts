@@ -19,7 +19,8 @@
  * local environment (Ollama companion service exposes /terminal, /fs).
  */
 
-import { supabase } from "@/integrations/supabase/client";
+import { supabase as _sb } from "@/integrations/supabase/client";
+const supabase: any = _sb;
 import { storeMemory } from "@/mavis/agentMemoryEngine";
 import { sendMessage, broadcastToAll } from "@/mavis/interAgentBus";
 import { dispatchAgent, type AgentSpecialization } from "@/mavis/dynamicAgentFactory";
@@ -554,21 +555,18 @@ class WorkspaceCoordinator {
       session.pendingOps.push(op);
 
       // Notify operator via inter-agent bus
-      await broadcastToAll({
-        fromId: agentId,
-        fromName: agentName,
-        fromType: "plugin",
-      }, {
-        intent: "SIGNAL",
-        payload: {
+      await broadcastToAll(
+        { id: agentId, name: agentName, type: "plugin" },
+        "SIGNAL" as any,
+        `APPROVAL_REQUIRED: terminal command`,
+        {
           signal: "APPROVAL_REQUIRED",
           opId: op.id,
           sessionId: session.id,
           type: "terminal",
           command,
-        },
-        ttl: 300,
-      }, session.userId).catch(() => {/* non-fatal */});
+        }
+      ).catch(() => {/* non-fatal */});
 
       return { approved: false, result: `Queued for operator review (op: ${op.id})` };
     }
@@ -704,11 +702,12 @@ class WorkspaceCoordinator {
 
       // For workflows, run synchronously by waiting for completion signal
       // (in real async env this would subscribe to bus completion events)
-      const result = await dispatchAgent(
+      const rawResult = await dispatchAgent(
         `${fullInstructions}\n\nUser input: ${input}`,
         step.agentSpecialization,
         userId
       ).catch(err => `Error: ${(err as Error).message}`);
+      const result: string = typeof rawResult === "string" ? rawResult : ((rawResult as any)?.output ?? JSON.stringify(rawResult));
 
       stepResults.set(step.id, result);
       slot.status = "complete";
@@ -835,11 +834,12 @@ class WorkspaceCoordinator {
     skillContext: string
   ): Promise<void> {
     try {
-      const result = await dispatchAgent(
+      const rawResult = await dispatchAgent(
         `${task}${skillContext}`,
         slot.specialization,
         session.userId
       );
+      const result: string = typeof rawResult === "string" ? rawResult : ((rawResult as any)?.output ?? JSON.stringify(rawResult));
 
       const artifact = recordArtifact(session.id, {
         type: "report",
