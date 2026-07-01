@@ -837,11 +837,12 @@ class WorkspaceCoordinator {
     skillContext: string
   ): Promise<void> {
     try {
-      const result = await dispatchAgent(
+      const rawResult = await dispatchAgent(
         `${task}${skillContext}`,
         slot.specialization,
         session.userId
       );
+      const result: string = typeof rawResult === "string" ? rawResult : ((rawResult as any)?.output ?? JSON.stringify(rawResult));
 
       const artifact = recordArtifact(session.id, {
         type: "report",
