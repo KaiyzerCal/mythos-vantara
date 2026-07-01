@@ -103,6 +103,7 @@ const SystemSettingsPage = lazy(() => import("@/pages/SystemSettingsPage").then(
 const FactoryPage = lazy(() => import("@/pages/FactoryPage"));
 const WorldMonitorPage = lazy(() => import("@/pages/WorldMonitorPage"));
 const VoiceLabPage = lazy(() => import("@/pages/VoiceLabPage"));
+const AgentReachPage = lazy(() => import("@/pages/AgentReachPage"));
 // Public demo — no auth required
 const MavisDemo = lazy(() => import("@/pages/MavisDemo"));
 
@@ -181,6 +182,7 @@ function AppContent() {
               <Route path="/factory" element={<FactoryPage />} />
               <Route path="/world-monitor" element={<WorldMonitorPage />} />
               <Route path="/voice-lab" element={<VoiceLabPage />} />
+              <Route path="/reach" element={<AgentReachPage />} />
               <Route path="/bpm" element={<BpmPage />} />
               <Route path="/store" element={<StorePage />} />
               <Route path="/activity" element={<ActivityLogPage />} />
