@@ -1482,6 +1482,24 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
       return await syncRes.json();
     }
 
+    case "voicebox": {
+      const vbProxyUrl = `${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-voicebox`;
+      const vbRes = await fetch(vbProxyUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+        },
+        body: JSON.stringify({ ...(params as Record<string, unknown>) }),
+        signal: AbortSignal.timeout(60000),
+      });
+      if (!vbRes.ok) throw new Error(`mavis-voicebox error: ${vbRes.status}`);
+      // If response is audio, return audio info rather than binary
+      const ct = vbRes.headers.get("content-type") ?? "";
+      if (ct.includes("audio")) return { audio_ready: true, content_type: ct };
+      return await vbRes.json();
+    }
+
     case "worldmonitor": {
       const wmUrl = `${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-worldmonitor`;
       const wmRes = await fetch(wmUrl, {
