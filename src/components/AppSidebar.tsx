@@ -14,7 +14,7 @@ import {
   Factory,
   Library,
 } from "lucide-react";
-import { useState, useContext } from "react";
+import { useState, useContext, useRef, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useAuth } from "@/contexts/AuthContext";
 import { AppDataContext } from "@/contexts/AppDataContext";
@@ -136,10 +136,70 @@ function SectionLabel({ label }: { label: string }) {
   );
 }
 
+const TOGGLE_Y_KEY = "vantara-sidebar-toggle-y";
+const TOGGLE_SIZE = 32; // px — matches w-8 h-8
+
+function useDraggableY(storageKey: string, defaultY: number) {
+  const [y, setY] = useState<number>(() => {
+    const stored = localStorage.getItem(storageKey);
+    return stored !== null ? Number(stored) : defaultY;
+  });
+
+  const dragging = useRef(false);
+  const didMove = useRef(false);
+  const startPointerY = useRef(0);
+  const startY = useRef(0);
+
+  const clamp = useCallback((val: number) =>
+    Math.max(8, Math.min(val, window.innerHeight - TOGGLE_SIZE - 8)), []);
+
+  const onPointerDown = useCallback((e: React.PointerEvent) => {
+    dragging.current = true;
+    didMove.current = false;
+    startPointerY.current = e.clientY;
+    startY.current = y;
+    (e.target as HTMLElement).setPointerCapture(e.pointerId);
+    e.preventDefault();
+  }, [y]);
+
+  const onPointerMove = useCallback((e: React.PointerEvent) => {
+    if (!dragging.current) return;
+    const delta = e.clientY - startPointerY.current;
+    if (Math.abs(delta) > 4) didMove.current = true;
+    const next = clamp(startY.current + delta);
+    setY(next);
+  }, [clamp]);
+
+  const onPointerUp = useCallback((e: React.PointerEvent) => {
+    if (!dragging.current) return;
+    dragging.current = false;
+    const delta = e.clientY - startPointerY.current;
+    const next = clamp(startY.current + delta);
+    localStorage.setItem(storageKey, String(next));
+  }, [clamp, storageKey]);
+
+  // Keep within bounds on window resize
+  useEffect(() => {
+    const onResize = () => {
+      setY(prev => {
+        const clamped = Math.max(8, Math.min(prev, window.innerHeight - TOGGLE_SIZE - 8));
+        localStorage.setItem(storageKey, String(clamped));
+        return clamped;
+      });
+    };
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, [storageKey]);
+
+  return { y, didMove, onPointerDown, onPointerMove, onPointerUp };
+}
+
 export default function AppSidebar() {
   const [open, setOpen] = useState(true);
   const { signOut } = useAuth();
   const appData = useContext(AppDataContext);
+  const { y, didMove, onPointerDown, onPointerMove, onPointerUp } = useDraggableY(TOGGLE_Y_KEY, 64);
+
   if (!appData) return null;
   const { profile } = appData;
 
@@ -147,7 +207,7 @@ export default function AppSidebar() {
 
   return (
     <>
-      {/* Floating open button — only visible when sidebar is hidden */}
+      {/* Floating open button — draggable vertically, only visible when sidebar is hidden */}
       <AnimatePresence>
         {!open && (
           <motion.button
@@ -155,9 +215,13 @@ export default function AppSidebar() {
             animate={{ opacity: 1, x: 0 }}
             exit={{ opacity: 0, x: -16 }}
             transition={{ duration: 0.18 }}
-            onClick={() => setOpen(true)}
-            className="fixed top-16 left-4 z-50 w-8 h-8 rounded border border-border bg-sidebar shadow-lg flex items-center justify-center text-muted-foreground hover:text-primary hover:border-primary/30 transition-colors"
-            title="Open navigation"
+            style={{ top: y, touchAction: "none" }}
+            onPointerDown={onPointerDown}
+            onPointerMove={onPointerMove}
+            onPointerUp={onPointerUp}
+            onClick={() => { if (!didMove.current) setOpen(true); }}
+            className="fixed left-4 z-50 w-8 h-8 rounded border border-border bg-sidebar shadow-lg flex items-center justify-center text-muted-foreground hover:text-primary hover:border-primary/30 transition-colors cursor-grab active:cursor-grabbing select-none"
+            title="Drag to reposition · Click to open"
           >
             <ChevronRight size={14} />
           </motion.button>
