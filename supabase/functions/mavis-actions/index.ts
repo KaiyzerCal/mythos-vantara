@@ -1482,6 +1482,21 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
       return await syncRes.json();
     }
 
+    case "agent_reach": {
+      const arUrl = `${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-agent-reach`;
+      const arRes = await fetch(arUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+        },
+        body: JSON.stringify({ ...(params as Record<string, unknown>) }),
+        signal: AbortSignal.timeout(30000),
+      });
+      if (!arRes.ok) throw new Error(`mavis-agent-reach error: ${arRes.status}`);
+      return await arRes.json();
+    }
+
     case "voicebox": {
       const vbProxyUrl = `${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-voicebox`;
       const vbRes = await fetch(vbProxyUrl, {

@@ -76,6 +76,8 @@ jobs:
         run: supabase functions deploy mavis-worldmonitor --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
       - name: Deploy mavis-voicebox
         run: supabase functions deploy mavis-voicebox --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
+      - name: Deploy mavis-agent-reach
+        run: supabase functions deploy mavis-agent-reach --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
 
       # ── Google integrations ─────────────────────────────────────────────────
       - name: Deploy mavis-gcontacts-sync

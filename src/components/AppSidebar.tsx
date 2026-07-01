@@ -29,6 +29,7 @@ const PRIMARY_NAV = [
   { to: "/intelligence", icon: Brain, label: "Intelligence" },
   { to: "/world-monitor", icon: Radio, label: "World Monitor" },
   { to: "/voice-lab", icon: Mic, label: "Voice Lab" },
+  { to: "/reach", icon: Globe, label: "Internet Agent" },
   { to: "/phone", icon: Phone, label: "AI Phone Calls" },
   { to: "/receptionist", icon: PhoneCall, label: "AI Receptionist" },
   { to: "/sms", icon: MessageSquare, label: "SMS & WhatsApp" },
