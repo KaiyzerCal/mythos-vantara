@@ -19,7 +19,8 @@
  * loaded on start via `loadUserMappings()`.
  */
 
-import { supabase } from "@/integrations/supabase/client";
+import { supabase as _sb } from "@/integrations/supabase/client";
+const supabase: any = _sb;
 import { systemMonitor } from "@/mavis/systemMonitor";
 import { touchDesignerBridge } from "@/mavis/touchDesignerBridge";
 import type { GestureName } from "@/mavis/mediaPipeEngine";
