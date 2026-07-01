@@ -221,7 +221,7 @@ async function redditSearch(query: string, subreddit = "", sort = "relevance", l
     ? `https://www.reddit.com/r/${subreddit}/search.json?q=${encodeURIComponent(query)}&restrict_sr=1`
     : `https://www.reddit.com/search.json?q=${encodeURIComponent(query)}`;
   const url = `${base}&sort=${sort}&limit=${Math.min(limit, 25)}&t=month`;
-  const res = await safeFetch(url, { headers: { "User-Agent": "MAVIS-AgentReach/1.0" } });
+  const res = await safeFetch(url, { headers: { "User-Agent": "Mozilla/5.0 MAVIS-AgentReach research bot" } });
   if (!res?.ok) throw new Error(`Reddit: ${res?.status ?? "timeout"}`);
   const data = await res.json();
   return {
@@ -316,10 +316,12 @@ async function multiSearch(query: string) {
 
 async function channelHealth() {
   const checks = await Promise.allSettled([
-    // Web: just probe Jina's root (fast, no content fetch)
-    safeFetch("https://r.jina.ai/", { headers: { "User-Agent": "MAVIS-AgentReach/1.0", "X-Timeout": "5" } }),
-    safeFetch("https://api.github.com/", { headers: { "User-Agent": "MAVIS-AgentReach/1.0" } }),
-    safeFetch("https://www.reddit.com/r/popular.json?limit=1", { headers: { "User-Agent": "MAVIS-AgentReach/1.0" } }),
+    // Jina: probe with actual content fetch of a known simple URL
+    safeFetch("https://r.jina.ai/https://example.com", { headers: { Accept: "text/plain", "X-Timeout": "8", "User-Agent": "MAVIS-AgentReach/1.0" } }),
+    // GitHub: rate_limit endpoint always returns 200
+    safeFetch("https://api.github.com/rate_limit", { headers: { "User-Agent": "MAVIS-AgentReach/1.0", Accept: "application/vnd.github.v3+json" } }),
+    // Reddit: use old.reddit.com JSON which is more reliable
+    safeFetch("https://old.reddit.com/r/worldnews.json?limit=1", { headers: { "User-Agent": "MAVIS-AgentReach/1.0 (test)" } }),
     Promise.resolve(!!Deno.env.get("EXA_API_KEY")),
     Promise.resolve(true), // RSS always available
   ]);
