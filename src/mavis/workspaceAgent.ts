@@ -555,21 +555,18 @@ class WorkspaceCoordinator {
       session.pendingOps.push(op);
 
       // Notify operator via inter-agent bus
-      await broadcastToAll({
-        id: agentId,
-        name: agentName,
-        type: "plugin",
-      }, {
-        intent: "SIGNAL",
-        payload: {
+      await broadcastToAll(
+        { id: agentId, name: agentName, type: "plugin" },
+        "SIGNAL" as any,
+        `APPROVAL_REQUIRED: terminal command`,
+        {
           signal: "APPROVAL_REQUIRED",
           opId: op.id,
           sessionId: session.id,
           type: "terminal",
           command,
-        },
-        ttl: 300,
-      }, session.userId).catch(() => {/* non-fatal */});
+        }
+      ).catch(() => {/* non-fatal */});
 
       return { approved: false, result: `Queued for operator review (op: ${op.id})` };
     }
