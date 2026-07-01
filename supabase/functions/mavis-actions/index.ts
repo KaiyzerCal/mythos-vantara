@@ -1530,6 +1530,21 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
       return await wmRes.json();
     }
 
+    case "prompt_vault": {
+      const pvUrl = `${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-prompt-vault`;
+      const pvRes = await fetch(pvUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+        },
+        body: JSON.stringify({ ...(params as Record<string, unknown>) }),
+        signal: AbortSignal.timeout(30000),
+      });
+      if (!pvRes.ok) throw new Error(`mavis-prompt-vault error: ${pvRes.status}`);
+      return await pvRes.json();
+    }
+
     case "stock_analysis": {
       const saUrl = `${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-stock-analysis`;
       const saRes = await fetch(saUrl, {

@@ -105,6 +105,7 @@ const WorldMonitorPage = lazy(() => import("@/pages/WorldMonitorPage"));
 const VoiceLabPage = lazy(() => import("@/pages/VoiceLabPage"));
 const AgentReachPage = lazy(() => import("@/pages/AgentReachPage"));
 const StockAnalysisPage = lazy(() => import("@/pages/StockAnalysisPage"));
+const PromptVaultPage = lazy(() => import("@/pages/PromptVaultPage"));
 // Public demo — no auth required
 const MavisDemo = lazy(() => import("@/pages/MavisDemo"));
 
@@ -157,7 +158,7 @@ function AppContent() {
       <div className="h-screen flex overflow-hidden bg-background">
         <AppSidebar />
 
-        <main className={`flex-1 min-w-0 h-full ${["/mavis-ui", "/demo", "/factory", "/world-monitor", "/voice-lab"].includes(location.pathname) ? "overflow-hidden" : "overflow-y-auto p-5"}`}>
+        <main className={`flex-1 min-w-0 h-full ${["/mavis-ui", "/demo", "/factory", "/world-monitor", "/voice-lab", "/prompt-vault"].includes(location.pathname) ? "overflow-hidden" : "overflow-y-auto p-5"}`}>
           <Suspense fallback={Spinner}>
             <Routes>
               <Route path="/" element={<Dashboard />} />
@@ -233,6 +234,7 @@ function AppContent() {
               <Route path="/import" element={<ImportPage />} />
               <Route path="/creator" element={<VideoEditorPage />} />
               <Route path="/stock-analysis" element={<StockAnalysisPage />} />
+              <Route path="/prompt-vault" element={<PromptVaultPage />} />
               <Route path="/agents" element={<AgentDashboardPage />} />
               <Route path="/system-settings" element={<SystemSettingsPage />} />
               <Route path="*" element={<NotFound />} />

@@ -99,6 +99,10 @@ jobs:
       - name: Deploy mavis-stock-analysis
         run: supabase functions deploy mavis-stock-analysis --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
 
+      # ── Prompt vault ────────────────────────────────────────────────────────
+      - name: Deploy mavis-prompt-vault
+        run: supabase functions deploy mavis-prompt-vault --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
+
       # ── Content ingest ──────────────────────────────────────────────────────
       - name: Deploy mavis-shortform-ingest
         run: supabase functions deploy mavis-shortform-ingest --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
