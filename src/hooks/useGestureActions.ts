@@ -50,7 +50,7 @@ export function useGestureActions({
 
   useEffect(() => {
     const unsub = systemMonitor.on("gesture:action", async (event: MonitorEvent) => {
-      const p = (event.payload ?? {}) as GestureActionPayload;
+      const p = (event.payload ?? {}) as unknown as GestureActionPayload;
 
       switch (p.action) {
         case "voice:toggle":
