@@ -2570,7 +2570,7 @@ Capabilities available via :::ACTION{"type":"stock_analysis","params":{...}}:::
 - action: "alerts" → get active price/signal alerts
 
 Supported ticker formats: US (AAPL, MSFT, TSLA), A-shares (600519.SH, 000858.SZ), HK (0700.HK, 0005.HK), JP (7203.T), KR (005930.KS).
-When the operator asks about stocks, market conditions, investment decisions, or trading signals — invoke these actions. If the server is not running, guide them to start it with `uvicorn main:app --port 8000` or visit /stock-analysis in the app.
+When the operator asks about stocks, market conditions, investment decisions, or trading signals — invoke these actions. If the server is not running, guide them to start it with \`uvicorn main:app --port 8000\` or visit /stock-analysis in the app.
 
 ---
 
