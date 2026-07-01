@@ -75,7 +75,8 @@ function jitter(): number { return (Math.random() - 0.5) * 2; }
 // --- globe_events ---
 async function handleGlobeEvents(sb: any): Promise<any> {
   const cached = await getCache(sb, "globe_events");
-  if (cached) return json(cached);
+  // Normalise: old cache entries stored the raw array; new ones store { events }
+  if (cached) return json(Array.isArray(cached) ? { events: cached } : cached);
 
   const [usgsRes, eonetRes, gdeltRes] = await Promise.allSettled([
     safeFetch("https://earthquake.usgs.gov/fdsnws/event/1/query?format=geojson&minmagnitude=4.5&limit=50&orderby=time"),
@@ -156,8 +157,9 @@ async function handleGlobeEvents(sb: any): Promise<any> {
     }
   }
 
-  await setCache(sb, "globe_events", events, 900);
-  return json(events);
+  const payload = { events };
+  await setCache(sb, "globe_events", payload, 900);
+  return json(payload);
 }
 
 // --- news_brief ---
@@ -222,17 +224,17 @@ async function handleMarketBrief(sb: any): Promise<any> {
   const cached = await getCache(sb, "market_brief");
   if (cached) return json(cached);
 
-  const yahooSymbols: Record<string, string> = {
-    "%5EGSPC": "S&P 500",
-    "%5EIXIC": "NASDAQ",
-    "%5EDJI": "Dow Jones",
-    "GC%3DF": "Gold",
-    "CL%3DF": "Oil",
-  };
+  const yahooSymbols: Array<{ encoded: string; symbol: string; name: string; type: "index" | "commodity" }> = [
+    { encoded: "%5EGSPC", symbol: "SPX",  name: "S&P 500",  type: "index" },
+    { encoded: "%5EIXIC", symbol: "NDX",  name: "NASDAQ",   type: "index" },
+    { encoded: "%5EDJI",  symbol: "DJIA", name: "Dow Jones", type: "index" },
+    { encoded: "GC%3DF",  symbol: "GOLD", name: "Gold",     type: "commodity" },
+    { encoded: "CL%3DF",  symbol: "OIL",  name: "Oil",      type: "commodity" },
+  ];
 
   const [geckoRes, ...yahooResults] = await Promise.allSettled([
     safeFetch("https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum,solana,ripple&vs_currencies=usd&include_24hr_change=true"),
-    ...Object.keys(yahooSymbols).map(sym => safeFetch(`https://query1.finance.yahoo.com/v8/finance/chart/${sym}?interval=1d&range=1d`, { headers: { "User-Agent": "Mozilla/5.0" } })),
+    ...yahooSymbols.map(s => safeFetch(`https://query1.finance.yahoo.com/v8/finance/chart/${s.encoded}?interval=1d&range=1d`, { headers: { "User-Agent": "Mozilla/5.0" } })),
   ]);
 
   const ticks: any[] = [];
@@ -240,16 +242,20 @@ async function handleMarketBrief(sb: any): Promise<any> {
   // Crypto
   if (geckoRes.status === "fulfilled" && geckoRes.value) {
     const g = geckoRes.value;
-    const names: Record<string, string> = { bitcoin: "Bitcoin", ethereum: "Ethereum", solana: "Solana", ripple: "XRP" };
-    for (const [id, name] of Object.entries(names)) {
-      const d = g[id];
+    const coins = [
+      { id: "bitcoin",  symbol: "BTC", name: "Bitcoin"  },
+      { id: "ethereum", symbol: "ETH", name: "Ethereum" },
+      { id: "solana",   symbol: "SOL", name: "Solana"   },
+      { id: "ripple",   symbol: "XRP", name: "XRP"      },
+    ];
+    for (const c of coins) {
+      const d = g[c.id];
       if (!d) continue;
-      ticks.push({ symbol: id.toUpperCase(), name, price: d.usd, change24h: d.usd_24h_change ?? null, currency: "USD", type: "crypto" });
+      ticks.push({ symbol: c.symbol, name: c.name, price: d.usd, change24h: d.usd_24h_change ?? null, currency: "USD", type: "crypto" });
     }
   }
 
   // Yahoo Finance
-  const yahooKeys = Object.keys(yahooSymbols);
   for (let i = 0; i < yahooResults.length; i++) {
     const r = yahooResults[i];
     if (r.status !== "fulfilled" || !r.value) continue;
@@ -258,14 +264,8 @@ async function handleMarketBrief(sb: any): Promise<any> {
     const price = meta.regularMarketPrice;
     const prev = meta.chartPreviousClose;
     const change = prev && price ? ((price - prev) / prev) * 100 : null;
-    ticks.push({
-      symbol: yahooKeys[i],
-      name: yahooSymbols[yahooKeys[i]],
-      price,
-      change24h: change,
-      currency: "USD",
-      type: "equity",
-    });
+    const s = yahooSymbols[i];
+    ticks.push({ symbol: s.symbol, name: s.name, price, change24h: change, currency: "USD", type: s.type });
   }
 
   const result = { ticks, fetched_at: new Date().toISOString() };
