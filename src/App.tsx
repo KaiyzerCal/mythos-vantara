@@ -101,6 +101,7 @@ const ImportPage = lazy(() => import("@/pages/ImportPage").then(m => ({ default:
 const AgentDashboardPage = lazy(() => import("@/pages/AgentDashboardPage").then(m => ({ default: m.AgentDashboardPage })));
 const SystemSettingsPage = lazy(() => import("@/pages/SystemSettingsPage").then(m => ({ default: m.SystemSettingsPage })));
 const FactoryPage = lazy(() => import("@/pages/FactoryPage"));
+const WorldMonitorPage = lazy(() => import("@/pages/WorldMonitorPage"));
 // Public demo — no auth required
 const MavisDemo = lazy(() => import("@/pages/MavisDemo"));
 
@@ -153,7 +154,7 @@ function AppContent() {
       <div className="h-screen flex overflow-hidden bg-background">
         <AppSidebar />
 
-        <main className={`flex-1 min-w-0 h-full ${["/mavis-ui", "/demo", "/factory"].includes(location.pathname) ? "overflow-hidden" : "overflow-y-auto p-5"}`}>
+        <main className={`flex-1 min-w-0 h-full ${["/mavis-ui", "/demo", "/factory", "/world-monitor"].includes(location.pathname) ? "overflow-hidden" : "overflow-y-auto p-5"}`}>
           <Suspense fallback={Spinner}>
             <Routes>
               <Route path="/" element={<Dashboard />} />
@@ -177,6 +178,7 @@ function AppContent() {
               <Route path="/allies" element={<AlliesPage />} />
               <Route path="/scouter" element={<ScouterPage />} />
               <Route path="/factory" element={<FactoryPage />} />
+              <Route path="/world-monitor" element={<WorldMonitorPage />} />
               <Route path="/bpm" element={<BpmPage />} />
               <Route path="/store" element={<StorePage />} />
               <Route path="/activity" element={<ActivityLogPage />} />
