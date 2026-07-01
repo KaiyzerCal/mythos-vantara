@@ -1454,6 +1454,20 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
       return await notionRes.json();
     }
 
+    case "brain_consolidate": {
+      const bcUrl = `${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-brain-consolidate`;
+      const bcRes = await fetch(bcUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+        },
+        body: JSON.stringify({ user_id: userId }),
+      });
+      if (!bcRes.ok) throw new Error(`mavis-brain-consolidate error: ${bcRes.status}`);
+      return await bcRes.json();
+    }
+
     case "notion_sync": {
       const syncUrl = `${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-notion-sync`;
       const syncRes = await fetch(syncUrl, {
@@ -1466,6 +1480,84 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
       });
       if (!syncRes.ok) throw new Error(`mavis-notion-sync error: ${syncRes.status}`);
       return await syncRes.json();
+    }
+
+    case "agent_reach": {
+      const arUrl = `${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-agent-reach`;
+      const arRes = await fetch(arUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+        },
+        body: JSON.stringify({ ...(params as Record<string, unknown>) }),
+        signal: AbortSignal.timeout(30000),
+      });
+      if (!arRes.ok) throw new Error(`mavis-agent-reach error: ${arRes.status}`);
+      return await arRes.json();
+    }
+
+    case "voicebox": {
+      const vbProxyUrl = `${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-voicebox`;
+      const vbRes = await fetch(vbProxyUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+        },
+        body: JSON.stringify({ ...(params as Record<string, unknown>) }),
+        signal: AbortSignal.timeout(60000),
+      });
+      if (!vbRes.ok) throw new Error(`mavis-voicebox error: ${vbRes.status}`);
+      // If response is audio, return audio info rather than binary
+      const ct = vbRes.headers.get("content-type") ?? "";
+      if (ct.includes("audio")) return { audio_ready: true, content_type: ct };
+      return await vbRes.json();
+    }
+
+    case "worldmonitor": {
+      const wmUrl = `${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-worldmonitor`;
+      const wmRes = await fetch(wmUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+        },
+        body: JSON.stringify({ ...(params as Record<string, unknown>) }),
+        signal: AbortSignal.timeout(30000),
+      });
+      if (!wmRes.ok) throw new Error(`mavis-worldmonitor error: ${wmRes.status}`);
+      return await wmRes.json();
+    }
+
+    case "prompt_vault": {
+      const pvUrl = `${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-prompt-vault`;
+      const pvRes = await fetch(pvUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+        },
+        body: JSON.stringify({ ...(params as Record<string, unknown>) }),
+        signal: AbortSignal.timeout(30000),
+      });
+      if (!pvRes.ok) throw new Error(`mavis-prompt-vault error: ${pvRes.status}`);
+      return await pvRes.json();
+    }
+
+    case "stock_analysis": {
+      const saUrl = `${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-stock-analysis`;
+      const saRes = await fetch(saUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+        },
+        body: JSON.stringify({ ...(params as Record<string, unknown>) }),
+        signal: AbortSignal.timeout(180000),
+      });
+      if (!saRes.ok) throw new Error(`mavis-stock-analysis error: ${saRes.status}`);
+      return await saRes.json();
     }
 
     case "get_standing_orders": {

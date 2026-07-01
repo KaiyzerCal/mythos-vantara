@@ -2282,20 +2282,42 @@ async function handleChat(
       const isShortForm  = /tiktok\.com|vm\.tiktok\.com|vt\.tiktok\.com|instagram\.com\/(reel|p)\/|twitter\.com|x\.com\/\w+\/status\//i.test(target);
       try {
         if (isYouTube) {
-          const ytRes = await fetch(`${SUPABASE_URL}/functions/v1/mavis-youtube-ingest`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json", "Authorization": `Bearer ${SERVICE_KEY}` },
-            body: JSON.stringify({ url: target, save_as: "note", _preview: true }),
-            signal: AbortSignal.timeout(25000),
-          });
-          if (ytRes.ok) {
-            const ytData = await ytRes.json();
+          // Run caption extraction + Gemini visual analysis in parallel
+          const [ytRes, geminiRes] = await Promise.allSettled([
+            fetch(`${SUPABASE_URL}/functions/v1/mavis-youtube-ingest`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json", "Authorization": `Bearer ${SERVICE_KEY}` },
+              body: JSON.stringify({ url: target, save_as: "note", _preview: true }),
+              signal: AbortSignal.timeout(25000),
+            }),
+            fetch(`${SUPABASE_URL}/functions/v1/mavis-vision-agent`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json", "Authorization": `Bearer ${SERVICE_KEY}` },
+              body: JSON.stringify({ action: "analyze_youtube", url: target }),
+              signal: AbortSignal.timeout(90000),
+            }),
+          ]);
+
+          const parts: string[] = [`\n═══ YOUTUBE VIDEO ═══\nURL: ${target}`];
+
+          if (ytRes.status === "fulfilled" && ytRes.value.ok) {
+            const ytData = await ytRes.value.json();
             const title   = ytData.title   ?? "YouTube Video";
             const summary = ytData.summary  ?? "";
-            const excerpt = ytData.transcript ? String(ytData.transcript).slice(0, 8000) : "";
-            urlContent = `\n═══ YOUTUBE VIDEO: ${title} ═══\nURL: ${target}\n\nSUMMARY:\n${summary}\n\nTRANSCRIPT EXCERPT:\n${excerpt}\n═══ END YOUTUBE CONTENT ═══`;
+            const excerpt = ytData.transcript ? String(ytData.transcript).slice(0, 6000) : "";
+            parts.push(`TITLE: ${title}`);
+            if (summary) parts.push(`CAPTION SUMMARY:\n${summary}`);
+            if (excerpt) parts.push(`TRANSCRIPT EXCERPT:\n${excerpt}`);
+          }
+
+          if (geminiRes.status === "fulfilled" && geminiRes.value.ok) {
+            const gData = await geminiRes.value.json();
+            if (gData.analysis) parts.push(`GEMINI VISUAL ANALYSIS (watched the video):\n${gData.analysis}`);
+          }
+
+          if (parts.length > 1) {
+            urlContent = parts.join("\n\n") + `\n═══ END YOUTUBE CONTENT ═══`;
           } else {
-            // Fallback to Jina if ingest fails
             const jinaRes = await fetch(`https://r.jina.ai/${target}`, {
               headers: { Accept: "text/plain", "X-No-Cache": "true", "X-Timeout": "15" },
               signal: AbortSignal.timeout(18000),

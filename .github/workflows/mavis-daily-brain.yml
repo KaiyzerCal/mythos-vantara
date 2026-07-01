@@ -1,0 +1,20 @@
+name: MAVIS Daily Brain Consolidation
+on:
+  schedule:
+    # 3 AM UTC daily — runs after most of the world's day is done
+    - cron: "0 3 * * *"
+  workflow_dispatch:
+    # Allow manual trigger from GitHub Actions UI
+
+jobs:
+  consolidate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger brain consolidation
+        run: |
+          curl -sf -X POST \
+            "${{ secrets.SUPABASE_URL }}/functions/v1/mavis-brain-consolidate" \
+            -H "Authorization: Bearer ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}" \
+            -H "Content-Type: application/json" \
+            -d '{"scheduled": true}' \
+            | jq .
