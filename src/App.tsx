@@ -104,6 +104,7 @@ const FactoryPage = lazy(() => import("@/pages/FactoryPage"));
 const WorldMonitorPage = lazy(() => import("@/pages/WorldMonitorPage"));
 const VoiceLabPage = lazy(() => import("@/pages/VoiceLabPage"));
 const AgentReachPage = lazy(() => import("@/pages/AgentReachPage"));
+const StockAnalysisPage = lazy(() => import("@/pages/StockAnalysisPage"));
 // Public demo — no auth required
 const MavisDemo = lazy(() => import("@/pages/MavisDemo"));
 
@@ -231,6 +232,7 @@ function AppContent() {
               <Route path="/workflows" element={<WorkflowsPage />} />
               <Route path="/import" element={<ImportPage />} />
               <Route path="/creator" element={<VideoEditorPage />} />
+              <Route path="/stock-analysis" element={<StockAnalysisPage />} />
               <Route path="/agents" element={<AgentDashboardPage />} />
               <Route path="/system-settings" element={<SystemSettingsPage />} />
               <Route path="*" element={<NotFound />} />
