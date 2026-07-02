@@ -109,6 +109,11 @@ export default function MavisChat() {
   const [superContext, setSuperContext] = useState<string | null>(null);
   const superContextLoaded = useRef(false);
 
+  // ── Active Agency Specialist ──
+  const [activeSpecialist, setActiveSpecialist] = useState<{
+    agent_id: string; agent_name: string; division: string; spec_content: string;
+  } | null>(null);
+
   // ── Agent Mode (Action Queue integration) ──
   const [agentModeOn, setAgentModeOn] = useState(false);
   const [lastAgentMeta, setLastAgentMeta] = useState<{ toolsUsed: string[]; actionsQueued: number } | null>(null);
@@ -334,6 +339,14 @@ export default function MavisChat() {
         // Pre-load personas for picker
         supabase.from("personas").select("id, name, system_prompt").eq("is_active", true).eq("user_id", userId)
           .then(({ data }: any) => { if (!cancelled && data) setPickerPersonas(data as any); })
+          .catch(() => {});
+
+        // Load active agency specialist
+        supabase.from("mavis_active_agency_specialists")
+          .select("agent_id, agent_name, division, spec_content")
+          .eq("user_id", userId)
+          .maybeSingle()
+          .then(({ data }: any) => { if (!cancelled && data) setActiveSpecialist(data); })
           .catch(() => {});
 
         const { data: convos } = await supabase
@@ -796,6 +809,19 @@ export default function MavisChat() {
       if (responseLength === "concise") systemPrompt += "\n\n[RESPONSE LENGTH: Be concise — 2-4 sentences unless more is genuinely needed.]";
       else if (responseLength === "detailed") systemPrompt += "\n\n[RESPONSE LENGTH: Be thorough and detailed — elaborate with examples where useful.]";
       if (selectedPersonaPrompt) systemPrompt += `\n\n--- ACTIVE PERSONA ---\n${selectedPersonaPrompt}\n---`;
+      if (activeSpecialist) {
+        const divLabel = activeSpecialist.division.replace(/-/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase());
+        systemPrompt +=
+          `\n\n═══════════════════════════════════════════\n` +
+          `ACTIVE AGENCY SPECIALIST: ${activeSpecialist.agent_name} [${divLabel}]\n` +
+          `═══════════════════════════════════════════\n` +
+          `You are currently operating as ${activeSpecialist.agent_name}, a specialist from The Agency. ` +
+          `Adopt their expertise, frameworks, terminology, and professional voice in every response. ` +
+          `Start every response with a bold specialist tag: **[${activeSpecialist.agent_name}]** on its own line, then your response. ` +
+          `You still have all MAVIS tools and memory — but think, reason, and communicate as this specialist.\n\n` +
+          activeSpecialist.spec_content.slice(0, 8000) +
+          `\n═══ END SPECIALIST OVERLAY ═══`;
+      }
       const attachmentIds = attachments.map((a) => a.id);
 
       // Add a streaming placeholder bubble so the user sees tokens as they arrive
@@ -1162,6 +1188,40 @@ export default function MavisChat() {
           </div>
         }
       />
+
+      {/* Active Agency Specialist banner */}
+      <AnimatePresence>
+        {activeSpecialist && (
+          <motion.div
+            initial={{ opacity: 0, y: -4 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -4 }}
+            className="flex items-center justify-between px-4 py-2 bg-violet-500/10 border-b border-violet-500/20 shrink-0"
+          >
+            <div className="flex items-center gap-2">
+              <div className="w-1.5 h-1.5 rounded-full bg-violet-400 animate-pulse" />
+              <span className="text-[11px] font-mono text-violet-300">
+                SPECIALIST ACTIVE —{" "}
+                <strong className="text-violet-200">{activeSpecialist.agent_name}</strong>
+                <span className="text-violet-500 ml-1">
+                  [{activeSpecialist.division.replace(/-/g, " ").toUpperCase()}]
+                </span>
+              </span>
+            </div>
+            <button
+              onClick={async () => {
+                const { data: { user } } = await (supabase as any).auth.getUser();
+                if (!user) return;
+                await (supabase as any).from("mavis_active_agency_specialists").delete().eq("user_id", user.id);
+                setActiveSpecialist(null);
+              }}
+              className="text-[10px] font-mono text-violet-600 hover:text-violet-400 transition-colors"
+            >
+              Deactivate ×
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Action status bar */}
       <AnimatePresence>
