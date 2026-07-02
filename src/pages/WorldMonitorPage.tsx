@@ -73,6 +73,86 @@ async function callWorldMonitor(action: string, params: Record<string, any> = {}
   return res.json();
 }
 
+const CATEGORY_COLORS_MAP: Record<string, string> = {
+  earthquake:"#f97316", disaster:"#ef4444", conflict:"#dc2626",
+  climate:"#3b82f6", news:"#eab308", market:"#22c55e",
+};
+const LOCATION_KW: [string, [number,number]][] = [
+  ["ukraine",[48.38,31.17]],["russia",[61.52,105.32]],["china",[35.86,104.19]],
+  ["gaza",[31.35,34.31]],["israel",[31.05,34.85]],["iran",[32.43,53.69]],
+  ["iraq",[33.22,43.68]],["syria",[34.80,38.99]],["yemen",[15.55,48.52]],
+  ["north korea",[40.34,127.51]],["pakistan",[30.38,69.35]],["india",[20.59,78.96]],
+  ["sudan",[15.55,32.53]],["ethiopia",[9.15,40.49]],["somalia",[5.15,46.20]],
+  ["venezuela",[6.42,-66.59]],["turkey",[38.96,35.24]],["saudi",[23.89,45.08]],
+  ["egypt",[26.82,30.80]],["nato",[50.85,4.35]],["myanmar",[21.91,95.96]],
+  ["afghanistan",[33.93,67.71]],["lebanon",[33.85,35.86]],
+];
+function kwCoords(title: string): [number,number]|null {
+  const l = title.toLowerCase();
+  for (const [kw,c] of LOCATION_KW) if (l.includes(kw)) return c;
+  return null;
+}
+
+// EONET (CORS-enabled) — fills Disaster + Climate when edge fn is old
+async function fetchEonetFallback(): Promise<GlobeEvent[]> {
+  try {
+    const res = await fetch("https://eonet.gsfc.nasa.gov/api/v3/events?status=open&limit=30&days=14", { signal: AbortSignal.timeout(10000) });
+    if (!res.ok) return [];
+    const data = await res.json();
+    const out: GlobeEvent[] = [];
+    for (const e of (data.events ?? [])) {
+      const geo = e.geometries?.[0];
+      if (!geo?.coordinates) continue;
+      let lng: number, lat: number;
+      if (geo.type === "Point") { [lng, lat] = geo.coordinates; }
+      else if (geo.type === "Polygon") { const r = geo.coordinates[0]; [lng,lat] = Array.isArray(r[0]) ? r[0] : r; }
+      else continue;
+      if (isNaN(lng) || isNaN(lat)) continue;
+      const ct = (e.categories?.[0]?.title ?? "").toLowerCase();
+      const category: EventCategory = (ct.includes("storm") || ct.includes("drought") || ct.includes("temperature")) ? "climate" : "disaster";
+      out.push({ id:`eonet-${e.id}`, lat, lng, category, title:e.title, description:e.categories?.[0]?.title, severity:"medium", url:e.sources?.[0]?.url, timestamp:geo.date??new Date().toISOString(), color:CATEGORY_COLORS_MAP[category], size:0.5 });
+    }
+    return out;
+  } catch { return []; }
+}
+
+// GDELT (may fail CORS in browser — caught silently) — fills Conflict + Intel
+async function fetchGdeltFallback(): Promise<GlobeEvent[]> {
+  const FIPS: Record<string,[number,number]> = {
+    US:[37.09,-95.71],UK:[55.38,-3.44],RS:[61.52,105.32],CH:[35.86,104.19],
+    FR:[46.23,2.21],GM:[51.17,10.45],JA:[36.20,138.25],IN:[20.59,78.96],
+    BR:[-14.24,-51.93],AU:[-25.27,133.78],UA:[48.38,31.17],IL:[31.05,34.85],
+    IR:[32.43,53.69],IZ:[33.22,43.68],TR:[38.96,35.24],PK:[30.38,69.35],
+    ET:[9.15,40.49],SO:[5.15,46.20],YE:[15.55,48.52],SY:[34.80,38.99],
+    AF:[33.93,67.71],EG:[26.82,30.80],SA:[23.89,45.08],LE:[33.85,35.86],
+    GZ:[31.35,34.31],WE:[31.95,35.23],SP:[40.46,-3.75],KS:[35.91,127.77],
+  };
+  function jitter() { return (Math.random()-0.5)*2; }
+  function parseDate(s: string) {
+    try { return `${s.slice(0,4)}-${s.slice(4,6)}-${s.slice(6,8)}T${s.slice(9,11)}:${s.slice(11,13)}:${s.slice(13,15)}Z`; }
+    catch { return new Date().toISOString(); }
+  }
+  const out: GlobeEvent[] = [];
+  try {
+    const [r1,r2] = await Promise.allSettled([
+      fetch("https://api.gdeltproject.org/api/v2/doc/doc?mode=artlist&format=json&query=conflict+war+military+strike+attack&maxrecords=20&sort=DateDesc&language=English", {signal:AbortSignal.timeout(12000)}),
+      fetch("https://api.gdeltproject.org/api/v2/doc/doc?mode=artlist&format=json&query=election+diplomacy+trade+economy+sanctions&maxrecords=15&sort=DateDesc&language=English", {signal:AbortSignal.timeout(12000)}),
+    ]);
+    for (const [r, cat, prefix] of [[r1,"conflict","gc"],[r2,"news","gn"]] as const) {
+      if (r.status !== "fulfilled" || !r.value.ok) continue;
+      const d = await r.value.json().catch(()=>null);
+      for (const a of (d?.articles ?? [])) {
+        const cc = (a.sourcecountry ?? "").toUpperCase();
+        const coords = FIPS[cc] ?? kwCoords(a.title ?? "");
+        if (!coords) continue;
+        const [lat,lng] = coords;
+        out.push({ id:`${prefix}-${encodeURIComponent((a.url??a.title??"x").slice(0,60))}`, lat:lat+jitter(), lng:lng+jitter(), category:cat as EventCategory, title:a.title, description:a.domain, severity:"medium", url:a.url, timestamp:a.seendate?parseDate(a.seendate):new Date().toISOString(), color:CATEGORY_COLORS_MAP[cat], size:0.5 });
+      }
+    }
+  } catch { /* CORS may block — silent fallback */ }
+  return out;
+}
+
 function relativeTime(iso: string | number) {
   const diff = Date.now() - (typeof iso === "number" ? iso : new Date(iso).getTime());
   const m = Math.floor(diff / 60000);
@@ -201,7 +281,26 @@ export default function WorldMonitorPage() {
         callWorldMonitor("market_brief"),
         callWorldMonitor("tech_pulse"),
       ]);
-      if (evRes.status    === "fulfilled") setEvents(evRes.value.events ?? []);
+      if (evRes.status    === "fulfilled") {
+        const edgeEvents: GlobeEvent[] = evRes.value.events ?? [];
+        setEvents(edgeEvents);
+        // If deployed edge fn is old (only earthquakes), supplement with direct public API calls
+        const hasOtherCategories = edgeEvents.some(e => e.category !== "earthquake");
+        if (!hasOtherCategories) {
+          Promise.allSettled([fetchEonetFallback(), fetchGdeltFallback()]).then(([eoR, gdR]) => {
+            const extra: GlobeEvent[] = [
+              ...(eoR.status === "fulfilled" ? eoR.value : []),
+              ...(gdR.status === "fulfilled" ? gdR.value : []),
+            ];
+            if (extra.length > 0) {
+              setEvents(prev => {
+                const existingIds = new Set(prev.map(e => e.id));
+                return [...prev, ...extra.filter(e => !existingIds.has(e.id))];
+              });
+            }
+          });
+        }
+      }
       if (briefRes.status === "fulfilled") setBrief(briefRes.value);
       if (mktRes.status   === "fulfilled") {
         setTicks(mktRes.value.ticks ?? []);
