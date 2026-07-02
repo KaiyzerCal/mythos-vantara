@@ -1287,6 +1287,39 @@ export type Database = {
         }
         Relationships: []
       }
+      mavis_active_agency_specialists: {
+        Row: {
+          activated_at: string | null
+          agent_id: string
+          agent_name: string
+          division: string
+          id: string
+          raw_url: string
+          spec_content: string
+          user_id: string
+        }
+        Insert: {
+          activated_at?: string | null
+          agent_id: string
+          agent_name: string
+          division: string
+          id?: string
+          raw_url: string
+          spec_content: string
+          user_id: string
+        }
+        Update: {
+          activated_at?: string | null
+          agent_id?: string
+          agent_name?: string
+          division?: string
+          id?: string
+          raw_url?: string
+          spec_content?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       mavis_activities: {
         Row: {
           created_at: string
@@ -1317,6 +1350,33 @@ export type Database = {
           type?: string
           user_id?: string
           xp_earned?: number
+        }
+        Relationships: []
+      }
+      mavis_agency_conversations: {
+        Row: {
+          agent_id: string
+          content: string
+          created_at: string | null
+          id: string
+          role: string
+          user_id: string
+        }
+        Insert: {
+          agent_id: string
+          content: string
+          created_at?: string | null
+          id?: string
+          role: string
+          user_id: string
+        }
+        Update: {
+          agent_id?: string
+          content?: string
+          created_at?: string | null
+          id?: string
+          role?: string
+          user_id?: string
         }
         Relationships: []
       }
