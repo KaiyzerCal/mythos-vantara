@@ -952,7 +952,7 @@ export default function FactoryPage() {
     // ── Assembly machines ─────────────────────────────────
     for (const m of ASSEMBLY_MACHINES) {
       const status = state[m.statusKey as keyof FactoryState] as MachineStatus | any;
-      const resolved: MachineStatus = typeof status === "string" ? status : "active";
+      const resolved: MachineStatus = (typeof status === "string" ? status : "active") as MachineStatus;
       drawAssemblyMachine(ctx, m, resolved, tick, panX, panY);
     }
 

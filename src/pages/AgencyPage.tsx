@@ -265,7 +265,7 @@ export default function AgencyPage() {
     setRoutedAgent(agent);
     setActiveDivision(divId);
     setSelectedAgent(agent);
-    toast.success(`Routed to ${agent.label} in ${getDivision(divId)?.label ?? divId}`);
+    toast.success(`Routed to ${agent.name} in ${getDivision(divId)?.label ?? divId}`);
   }
 
   const filtered = useMemo(() => {
@@ -375,7 +375,7 @@ export default function AgencyPage() {
           )}
           {routedAgent && !showRouter && (
             <p className="text-[9px] font-mono text-violet-400/70 mt-0.5">
-              Last routed → {routedAgent.label}
+              Last routed → {routedAgent.name}
             </p>
           )}
         </div>
