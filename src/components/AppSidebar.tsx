@@ -43,6 +43,7 @@ const PRIMARY_NAV = [
 ];
 
 const SECONDARY_NAV = [
+  { to: "/notebook", icon: Library, label: "Open Notebook" },
   { to: "/knowledge", icon: Network, label: "Knowledge" },
   { to: "/forms", icon: Flame, label: "Forms" },
   { to: "/energy", icon: Zap, label: "Energy" },
