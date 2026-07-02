@@ -353,7 +353,7 @@ export function findBestAgent(task: string): AgencyAgent | null {
   const lower = task.toLowerCase();
   const scored = divAgents.map(a => ({
     agent: a,
-    score: [a.name, a.label].join(" ").toLowerCase()
+    score: a.name.toLowerCase()
       .split(/[\s-_]+/)
       .filter(w => w.length > 3 && lower.includes(w)).length,
   }));
