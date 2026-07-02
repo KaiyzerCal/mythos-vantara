@@ -12,9 +12,11 @@ import {
   Upload, Link, Play, Download, Share2, Scissors, Zap,
   Sparkles, Clock, TrendingUp, Eye, Copy, Check, Loader2,
   Video, ChevronRight, Star, Instagram, Twitter,
-  Youtube, AlertCircle, FileVideo, Send, BarChart3, Trash2, RefreshCw, Film, ListChecks
+  Youtube, AlertCircle, FileVideo, Send, BarChart3, Trash2, RefreshCw, Film, ListChecks,
+  Layers, ZoomIn, ZoomOut, Type, X as XIcon, Minus, Plus as PlusIcon,
 } from "lucide-react";
 import { toast } from "sonner";
+import VideoTimeline from "@/components/editor/VideoTimeline";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -432,6 +434,16 @@ export default function VideoEditorPage() {
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
+
+  // ── Timeline state ────────────────────────────────────────────────────────
+  const [timelineZoom, setTimelineZoom] = useState(6); // px per second
+  const [inPoint, setInPoint] = useState<number | null>(null);
+  const [outPoint, setOutPoint] = useState<number | null>(null);
+  const [customClips, setCustomClips] = useState<any[]>([]);
+  const [overlayTargetKey, setOverlayTargetKey] = useState<string | null>(null);
+  const [overlayText, setOverlayText] = useState("");
+  const [overlayPos, setOverlayPos] = useState<"top" | "center" | "bottom">("bottom");
+  const [textOverlays, setTextOverlays] = useState<Record<string, { text: string; pos: string }[]>>({});
 
   // ── Load projects from DB on mount ───────────────────────────────────────
   const loadProjects = useCallback(async () => {
@@ -1347,6 +1359,59 @@ export default function VideoEditorPage() {
     selectVideoFile(file, setSelectedFile);
   }, []);
 
+  // ── Timeline helpers ──────────────────────────────────────────────────────
+
+  function setInPointNow() {
+    setInPoint(currentVideoTime);
+    if (outPoint !== null && currentVideoTime >= outPoint) setOutPoint(null);
+  }
+
+  function setOutPointNow() {
+    setOutPoint(currentVideoTime);
+    if (inPoint !== null && currentVideoTime <= inPoint) setInPoint(null);
+  }
+
+  function createClipFromInOut() {
+    if (inPoint === null || outPoint === null) return;
+    const start = Math.min(inPoint, outPoint);
+    const end = Math.max(inPoint, outPoint);
+    if (end - start < 1) { toast.error("Clip must be at least 1 second long."); return; }
+    const custom: any = {
+      id: `custom-${Date.now()}`,
+      start,
+      end,
+      title: `Custom clip ${formatTimestamp(start)}–${formatTimestamp(end)}`,
+      viral_score: 0,
+      format: "shorts",
+      _isCustom: true,
+    };
+    setCustomClips(prev => [...prev, custom]);
+    setCompilationSelected(prev => new Set([...prev, clipKey(custom)]));
+    setInPoint(null);
+    setOutPoint(null);
+    toast.success(`Custom clip created: ${formatDuration(end - start)}`);
+  }
+
+  function handleAddOverlay(key: string) {
+    setOverlayTargetKey(key);
+    const existing = textOverlays[key];
+    setOverlayText(existing?.[0]?.text ?? "");
+    setOverlayPos((existing?.[0]?.pos as any) ?? "bottom");
+  }
+
+  function saveOverlay() {
+    if (!overlayTargetKey) return;
+    const text = overlayText.trim();
+    if (!text) {
+      setTextOverlays(prev => { const n = { ...prev }; delete n[overlayTargetKey]; return n; });
+    } else {
+      setTextOverlays(prev => ({ ...prev, [overlayTargetKey]: [{ text, pos: overlayPos }] }));
+    }
+    setOverlayTargetKey(null);
+    setOverlayText("");
+    toast.success(text ? "Text overlay saved." : "Overlay removed.");
+  }
+
   // ── Stats helpers ─────────────────────────────────────────────────────────
 
   function hasTimeOverlap(
@@ -1363,6 +1428,7 @@ export default function VideoEditorPage() {
     ...clips.reels,
     ...clips.highlight,
     ...clips.long_form,
+    ...customClips,
   ];
   // Deduplicate by id to prevent the same clip appearing twice
   const allClips = Array.from(new Map(allClipsRaw.map((c: any) => [c.id ?? clipKey(c), c])).values());
@@ -2052,6 +2118,9 @@ export default function VideoEditorPage() {
                 <TabsTrigger value="compilation" className="data-[state=active]:bg-purple-600 data-[state=active]:text-white">
                   <Film className="w-4 h-4 mr-1.5" /> Compilation
                 </TabsTrigger>
+                <TabsTrigger value="timeline" className="data-[state=active]:bg-purple-600 data-[state=active]:text-white">
+                  <Layers className="w-4 h-4 mr-1.5" /> Timeline
+                </TabsTrigger>
               </TabsList>
 
               {/* ── Tab: Clips ─────────────────────────────────────────── */}
@@ -2599,6 +2668,219 @@ export default function VideoEditorPage() {
                   </div>
                 )}
               </TabsContent>
+
+              {/* ── Tab: Timeline ──────────────────────────────────────── */}
+              <TabsContent value="timeline" className="mt-4 space-y-4">
+
+                {/* Controls bar */}
+                <div className="flex items-center gap-2 flex-wrap">
+                  {/* In/Out controls */}
+                  <div className="flex items-center gap-1 border border-gray-700 rounded-lg px-2 py-1 bg-gray-800/60">
+                    <button
+                      onClick={setInPointNow}
+                      className="text-xs font-mono px-2 py-0.5 rounded text-emerald-400 hover:bg-emerald-500/10 transition-colors"
+                      title={`Set In point at ${formatTimestamp(currentVideoTime)}`}
+                    >
+                      [I] {inPoint !== null ? formatTimestamp(inPoint) : "Set In"}
+                    </button>
+                    <span className="text-gray-700">·</span>
+                    <button
+                      onClick={setOutPointNow}
+                      className="text-xs font-mono px-2 py-0.5 rounded text-rose-400 hover:bg-rose-500/10 transition-colors"
+                      title={`Set Out point at ${formatTimestamp(currentVideoTime)}`}
+                    >
+                      [O] {outPoint !== null ? formatTimestamp(outPoint) : "Set Out"}
+                    </button>
+                    {inPoint !== null && outPoint !== null && (
+                      <>
+                        <span className="text-gray-700 mx-1">·</span>
+                        <span className="text-xs font-mono text-gray-400">
+                          {formatDuration(Math.abs(outPoint - inPoint))}
+                        </span>
+                        <button
+                          onClick={createClipFromInOut}
+                          className="ml-1 text-xs font-mono px-2 py-0.5 rounded bg-purple-600/20 text-purple-300 border border-purple-600/30 hover:bg-purple-600/30 transition-colors"
+                        >
+                          + Create Clip
+                        </button>
+                        <button
+                          onClick={() => { setInPoint(null); setOutPoint(null); }}
+                          className="ml-1 text-gray-600 hover:text-gray-400"
+                        >
+                          <XIcon size={10} />
+                        </button>
+                      </>
+                    )}
+                  </div>
+
+                  {/* Zoom */}
+                  <div className="flex items-center gap-1 ml-auto border border-gray-700 rounded-lg px-2 py-1 bg-gray-800/60">
+                    <button
+                      onClick={() => setTimelineZoom(z => Math.max(2, z - 2))}
+                      className="text-gray-400 hover:text-white p-0.5"
+                      title="Zoom out"
+                    >
+                      <ZoomOut size={13} />
+                    </button>
+                    <span className="text-[10px] font-mono text-gray-500 w-10 text-center">{timelineZoom}px/s</span>
+                    <button
+                      onClick={() => setTimelineZoom(z => Math.min(40, z + 2))}
+                      className="text-gray-400 hover:text-white p-0.5"
+                      title="Zoom in"
+                    >
+                      <ZoomIn size={13} />
+                    </button>
+                  </div>
+
+                  {/* Legend */}
+                  <div className="flex items-center gap-2 text-[9px] font-mono text-gray-500">
+                    {[
+                      { label: "Shorts", color: "#7c3aed" },
+                      { label: "Reels", color: "#be185d" },
+                      { label: "Highlight", color: "#b45309" },
+                      { label: "Long", color: "#1d4ed8" },
+                    ].map(({ label, color }) => (
+                      <span key={label} className="flex items-center gap-1">
+                        <span className="w-2 h-2 rounded-sm inline-block" style={{ background: color }} />
+                        {label}
+                      </span>
+                    ))}
+                    <span className="text-gray-700">·</span>
+                    <span>click clip = add to compilation</span>
+                  </div>
+                </div>
+
+                {/* Timeline */}
+                {allClips.length > 0 || segments.length > 0 ? (
+                  <VideoTimeline
+                    clips={allClips}
+                    segments={segments}
+                    duration={selectedProject?.duration ?? selectedProject?.duration_seconds ?? 0}
+                    currentTime={currentVideoTime}
+                    selectedKeys={compilationSelected}
+                    inPoint={inPoint}
+                    outPoint={outPoint}
+                    zoom={timelineZoom}
+                    clipKeyFn={clipKey}
+                    onSeek={t => {
+                      const vid = videoRef.current;
+                      if (!vid) return;
+                      vid.currentTime = t;
+                    }}
+                    onToggleClip={key => {
+                      setCompilationSelected(prev => {
+                        const next = new Set(prev);
+                        if (next.has(key)) { next.delete(key); } else { next.add(key); }
+                        return next;
+                      });
+                    }}
+                    onAddOverlay={handleAddOverlay}
+                  />
+                ) : (
+                  <div className="flex items-center justify-center h-36 text-gray-600 text-sm border border-gray-800 rounded-xl">
+                    Analyze a video first to see the timeline.
+                  </div>
+                )}
+
+                {/* Tip */}
+                <p className="text-[10px] text-gray-600 font-mono">
+                  Click anywhere on the timeline to seek · Click clips to select for compilation · Use [I] / [O] to mark in/out points then create a custom clip
+                </p>
+
+                {/* Text overlay editor */}
+                {overlayTargetKey && (
+                  <div className="border border-purple-500/30 bg-purple-500/5 rounded-xl p-4 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Type size={14} className="text-purple-400" />
+                        <span className="text-sm font-medium text-white">Add Text Overlay</span>
+                      </div>
+                      <button
+                        onClick={() => { setOverlayTargetKey(null); setOverlayText(""); }}
+                        className="text-gray-500 hover:text-gray-300"
+                      >
+                        <XIcon size={14} />
+                      </button>
+                    </div>
+
+                    <Input
+                      autoFocus
+                      value={overlayText}
+                      onChange={e => setOverlayText(e.target.value)}
+                      placeholder="Caption text, title, watermark…"
+                      className="bg-gray-900 border-gray-600 text-white placeholder:text-gray-500"
+                      onKeyDown={e => { if (e.key === "Enter") saveOverlay(); }}
+                    />
+
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-gray-400">Position:</span>
+                      {(["top", "center", "bottom"] as const).map(p => (
+                        <button
+                          key={p}
+                          onClick={() => setOverlayPos(p)}
+                          className={`text-xs px-2 py-0.5 rounded border transition-colors font-mono ${
+                            overlayPos === p
+                              ? "bg-purple-500/20 border-purple-500/50 text-purple-300"
+                              : "border-gray-600 text-gray-400 hover:border-gray-500"
+                          }`}
+                        >
+                          {p}
+                        </button>
+                      ))}
+                      <Button size="sm" className="ml-auto bg-purple-600 hover:bg-purple-700 h-7 text-xs" onClick={saveOverlay}>
+                        Save
+                      </Button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Overlay summary */}
+                {Object.keys(textOverlays).length > 0 && (
+                  <div className="space-y-1.5">
+                    <p className="text-[10px] font-mono text-gray-500 uppercase tracking-wider">Text Overlays</p>
+                    {Object.entries(textOverlays).map(([key, overlays]) => (
+                      <div key={key} className="flex items-center gap-2 bg-gray-800/40 rounded-lg px-3 py-1.5">
+                        <Type size={11} className="text-purple-400 shrink-0" />
+                        <span className="text-xs text-gray-300 flex-1 truncate">
+                          {overlays[0]?.text} <span className="text-gray-600">({overlays[0]?.pos})</span>
+                        </span>
+                        <button
+                          onClick={() => setTextOverlays(prev => { const n = { ...prev }; delete n[key]; return n; })}
+                          className="text-gray-600 hover:text-red-400 shrink-0"
+                        >
+                          <XIcon size={11} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Custom clips created via In/Out */}
+                {customClips.length > 0 && (
+                  <div className="space-y-1.5">
+                    <p className="text-[10px] font-mono text-gray-500 uppercase tracking-wider">Custom Clips</p>
+                    {customClips.map(c => (
+                      <div key={c.id} className="flex items-center gap-2 bg-gray-800/40 rounded-lg px-3 py-1.5">
+                        <Scissors size={11} className="text-green-400 shrink-0" />
+                        <span className="text-xs text-gray-300 flex-1 font-mono">
+                          {formatTimestamp(c.start)} → {formatTimestamp(c.end)}
+                          <span className="text-gray-600 ml-2">{formatDuration(c.end - c.start)}</span>
+                        </span>
+                        <button
+                          onClick={() => {
+                            setCustomClips(prev => prev.filter(x => x.id !== c.id));
+                            setCompilationSelected(prev => { const n = new Set(prev); n.delete(clipKey(c)); return n; });
+                          }}
+                          className="text-gray-600 hover:text-red-400 shrink-0"
+                        >
+                          <XIcon size={11} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </TabsContent>
+
             </Tabs>
           </div>
         )}
