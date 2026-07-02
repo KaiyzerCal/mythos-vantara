@@ -3,10 +3,11 @@ import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Search, X, ChevronRight, ExternalLink, Loader2,
-  Zap, Users2, Copy, Check,
+  Zap, Users2, Copy, Check, Power, PowerOff,
 } from "lucide-react";
 import { AGENTS, DIVISIONS, getDivision, classifyTaskToDivision, findBestAgent, type AgencyAgent } from "@/data/agencyAgents";
 import { toast } from "sonner";
+import { supabase } from "@/integrations/supabase/client";
 
 // ── Markdown → plain preview (strip # headers + ** bold + bullets) ───
 function mdPreview(md: string, chars = 280): string {
@@ -22,13 +23,22 @@ function mdPreview(md: string, chars = 280): string {
 
 // ── Agent detail panel ───────────────────────────────────────────────
 function AgentPanel({
-  agent, onClose,
-}: { agent: AgencyAgent; onClose: () => void }) {
+  agent, onClose, activeAgentId, onActivationChange,
+}: {
+  agent: AgencyAgent;
+  onClose: () => void;
+  activeAgentId: string | null;
+  onActivationChange: (id: string | null) => void;
+}) {
   const navigate = useNavigate();
   const div = getDivision(agent.division);
   const [content, setContent] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [copied, setCopied] = useState(false);
+  const [activating, setActivating] = useState(false);
+
+  const agentId = `${agent.division}/${agent.file}`;
+  const isActive = activeAgentId === agentId;
 
   useEffect(() => {
     setContent(null);
@@ -39,11 +49,45 @@ function AgentPanel({
       .catch(() => { setContent(null); setLoading(false); });
   }, [agent.rawUrl]);
 
-  function activateWithMavis() {
-    const q = encodeURIComponent(
-      `Activate as ${agent.name} specialist. Read and fully embody the following agent definition, then confirm you're ready:\n\n${content?.slice(0, 3000) ?? ""}`
-    );
-    navigate(`/mavis?q=${q}`);
+  async function activateAgent() {
+    if (!content) return;
+    setActivating(true);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) { toast.error("Not signed in"); return; }
+      const { error } = await supabase.from("mavis_active_agency_specialists").upsert({
+        user_id:      user.id,
+        agent_id:     agentId,
+        agent_name:   agent.name,
+        division:     agent.division,
+        raw_url:      agent.rawUrl,
+        spec_content: content,
+        activated_at: new Date().toISOString(),
+      }, { onConflict: "user_id" });
+      if (error) throw error;
+      onActivationChange(agentId);
+      toast.success(`${agent.name} is now active — MAVIS will operate as this specialist`);
+      navigate("/mavis");
+    } catch (err: any) {
+      toast.error(`Activation failed: ${err?.message ?? "unknown error"}`);
+    } finally {
+      setActivating(false);
+    }
+  }
+
+  async function deactivateAgent() {
+    setActivating(true);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+      await supabase.from("mavis_active_agency_specialists").delete().eq("user_id", user.id);
+      onActivationChange(null);
+      toast.success("Specialist deactivated — MAVIS returned to standard mode");
+    } catch (err: any) {
+      toast.error(`Deactivation failed: ${err?.message ?? "unknown error"}`);
+    } finally {
+      setActivating(false);
+    }
   }
 
   function copyPrompt() {
@@ -70,6 +114,11 @@ function AgentPanel({
             <span className={`text-[10px] font-mono uppercase tracking-wider ${div?.color ?? "text-zinc-400"}`}>
               {div?.label}
             </span>
+            {isActive && (
+              <span className="text-[9px] font-mono bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 px-1.5 py-0.5 rounded-full">
+                ACTIVE
+              </span>
+            )}
           </div>
           <h2 className="text-base font-semibold text-white leading-tight">{agent.name}</h2>
         </div>
@@ -83,14 +132,25 @@ function AgentPanel({
 
       {/* Actions */}
       <div className="flex gap-2 px-5 py-3 border-b border-zinc-800/40">
-        <button
-          onClick={activateWithMavis}
-          disabled={!content}
-          className="flex items-center gap-2 px-4 py-2 rounded-lg bg-violet-600 hover:bg-violet-500 disabled:opacity-40 text-white text-xs font-medium transition-colors flex-1 justify-center"
-        >
-          <Zap size={13} />
-          Activate with MAVIS
-        </button>
+        {isActive ? (
+          <button
+            onClick={deactivateAgent}
+            disabled={activating}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-zinc-700 hover:bg-zinc-600 disabled:opacity-40 text-white text-xs font-medium transition-colors flex-1 justify-center"
+          >
+            {activating ? <Loader2 size={13} className="animate-spin" /> : <PowerOff size={13} />}
+            Deactivate
+          </button>
+        ) : (
+          <button
+            onClick={activateAgent}
+            disabled={!content || activating}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-violet-600 hover:bg-violet-500 disabled:opacity-40 text-white text-xs font-medium transition-colors flex-1 justify-center"
+          >
+            {activating ? <Loader2 size={13} className="animate-spin" /> : <Power size={13} />}
+            Activate Specialist
+          </button>
+        )}
         <button
           onClick={copyPrompt}
           disabled={!content}
@@ -108,6 +168,13 @@ function AgentPanel({
           <ExternalLink size={13} />
         </a>
       </div>
+
+      {/* Active notice */}
+      {isActive && (
+        <div className="mx-5 mt-3 px-3 py-2 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-[11px] font-mono">
+          ✓ MAVIS is currently operating as this specialist. All chats — app and Telegram — use this specialist's expertise and voice.
+        </div>
+      )}
 
       {/* Content */}
       <div className="flex-1 overflow-y-auto px-5 py-4">
@@ -135,14 +202,16 @@ function AgentPanel({
 
 // ── Agent card ───────────────────────────────────────────────────────
 function AgentCard({
-  agent, selected, onClick,
-}: { agent: AgencyAgent; selected: boolean; onClick: () => void }) {
+  agent, selected, isActive, onClick,
+}: { agent: AgencyAgent; selected: boolean; isActive: boolean; onClick: () => void }) {
   const div = getDivision(agent.division);
   return (
     <button
       onClick={onClick}
       className={`w-full text-left p-3 rounded-xl border transition-all ${
-        selected
+        isActive
+          ? "border-emerald-500/40 bg-emerald-500/8"
+          : selected
           ? `${div?.bgColor ?? "bg-zinc-800/50"} ${div?.borderColor ?? "border-zinc-600"}`
           : "border-zinc-800/50 hover:border-zinc-700 hover:bg-zinc-800/30 bg-zinc-900/40"
       }`}
@@ -150,7 +219,10 @@ function AgentCard({
       <div className="flex items-start gap-2.5">
         <span className="text-base mt-0.5 shrink-0">{div?.emoji}</span>
         <div className="min-w-0 flex-1">
-          <p className="text-xs font-medium text-zinc-200 leading-tight line-clamp-1">{agent.name}</p>
+          <div className="flex items-center gap-1.5">
+            <p className="text-xs font-medium text-zinc-200 leading-tight line-clamp-1">{agent.name}</p>
+            {isActive && <span className="text-[8px] font-mono bg-emerald-500/20 text-emerald-400 px-1 rounded shrink-0">ON</span>}
+          </div>
           <p className={`text-[10px] mt-0.5 ${div?.color ?? "text-zinc-500"}`}>{div?.label}</p>
         </div>
         <ChevronRight size={12} className={`shrink-0 mt-0.5 ${selected ? (div?.color ?? "text-zinc-400") : "text-zinc-700"}`} />
@@ -167,7 +239,23 @@ export default function AgencyPage() {
   const [taskQuery, setTaskQuery] = useState("");
   const [routedAgent, setRoutedAgent] = useState<AgencyAgent | null>(null);
   const [showRouter, setShowRouter] = useState(false);
+  const [activeAgentId, setActiveAgentId] = useState<string | null>(null);
   const navigate = useNavigate();
+
+  // Load current active specialist on mount
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      if (!user) return;
+      supabase
+        .from("mavis_active_agency_specialists")
+        .select("agent_id")
+        .eq("user_id", user.id)
+        .maybeSingle()
+        .then(({ data }) => {
+          if (data?.agent_id) setActiveAgentId(data.agent_id);
+        });
+    });
+  }, []);
 
   function routeTask() {
     if (!taskQuery.trim()) return;
@@ -208,6 +296,29 @@ export default function AgencyPage() {
     <div className="flex h-full bg-zinc-950 text-white overflow-hidden">
       {/* Left nav + grid */}
       <div className="flex-1 flex flex-col min-w-0">
+        {/* Active specialist banner */}
+        {activeAgentId && (
+          <div className="flex items-center justify-between px-5 py-2 bg-emerald-500/10 border-b border-emerald-500/20 shrink-0">
+            <div className="flex items-center gap-2">
+              <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+              <span className="text-[11px] font-mono text-emerald-400">
+                MAVIS operating as: <strong>{AGENTS.find(a => `${a.division}/${a.file}` === activeAgentId)?.name ?? activeAgentId}</strong>
+              </span>
+            </div>
+            <button
+              onClick={async () => {
+                const { data: { user } } = await supabase.auth.getUser();
+                if (!user) return;
+                await supabase.from("mavis_active_agency_specialists").delete().eq("user_id", user.id);
+                setActiveAgentId(null);
+              }}
+              className="text-[10px] font-mono text-emerald-600 hover:text-emerald-400 transition-colors"
+            >
+              Deactivate ×
+            </button>
+          </div>
+        )}
+
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-3 border-b border-zinc-800/50 bg-zinc-950/70 shrink-0">
           <div className="flex items-center gap-3">
@@ -324,6 +435,7 @@ export default function AgencyPage() {
                         key={a.id}
                         agent={a}
                         selected={selectedAgent?.id === a.id}
+                        isActive={activeAgentId === `${a.division}/${a.file}`}
                         onClick={() => setSelectedAgent(prev => prev?.id === a.id ? null : a)}
                       />
                     ))}
@@ -339,6 +451,7 @@ export default function AgencyPage() {
                   key={a.id}
                   agent={a}
                   selected={selectedAgent?.id === a.id}
+                  isActive={activeAgentId === `${a.division}/${a.file}`}
                   onClick={() => setSelectedAgent(prev => prev?.id === a.id ? null : a)}
                 />
               ))}
@@ -354,6 +467,8 @@ export default function AgencyPage() {
             key={selectedAgent.id}
             agent={selectedAgent}
             onClose={() => setSelectedAgent(null)}
+            activeAgentId={activeAgentId}
+            onActivationChange={setActiveAgentId}
           />
         )}
       </AnimatePresence>
