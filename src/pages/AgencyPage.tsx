@@ -265,7 +265,7 @@ export default function AgencyPage() {
     setRoutedAgent(agent);
     setActiveDivision(divId);
     setSelectedAgent(agent);
-    toast.success(`Routed to ${agent.label} in ${getDivision(divId)?.label ?? divId}`);
+    toast.success(`Routed to ${agent.name} in ${getDivision(divId)?.label ?? divId}`);
   }
 
   const filtered = useMemo(() => {
