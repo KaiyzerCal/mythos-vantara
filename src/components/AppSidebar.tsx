@@ -14,6 +14,7 @@ import {
   Factory,
   Library,
   Building2,
+  Database,
 } from "lucide-react";
 import { useState, useContext, useRef, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
@@ -79,6 +80,7 @@ const INTEL_NAV = [
   { to: "/webhooks", icon: Webhook, label: "Webhooks" },
   { to: "/integrations", icon: KeyRound, label: "Integrations" },
   { to: "/export", icon: Archive, label: "Export Data" },
+  { to: "/airtable", icon: Database, label: "Airtable" },
 ];
 
 const CREATOR_NAV = [
