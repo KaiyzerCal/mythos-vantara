@@ -13,6 +13,7 @@ import {
   PanelLeftClose,
   Factory,
   Library,
+  Building2,
 } from "lucide-react";
 import { useState, useContext, useRef, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
@@ -27,6 +28,7 @@ const PRIMARY_NAV = [
   { to: "/mavis", icon: Cpu, label: "MAVIS" },
   { to: "/mavis-ui", icon: Sparkles, label: "MavisUI" },
   { to: "/agents", icon: BrainCircuit, label: "Agent Dashboard" },
+  { to: "/agency", icon: Building2, label: "The Agency" },
   { to: "/intelligence", icon: Brain, label: "Intelligence" },
   { to: "/world-monitor", icon: Radio, label: "World Monitor" },
   { to: "/voice-lab", icon: Mic, label: "Voice Lab" },
