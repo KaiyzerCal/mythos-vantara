@@ -64,6 +64,15 @@ const QUICK_PROMPTS = [
   "Log a journal entry for this session",
 ];
 
+const AGENCY_BASE = "https://raw.githubusercontent.com/KaiyzerCal/agency-agents/main";
+const QUICK_SPECIALISTS = [
+  { label: "researcher", agentId: "specialized/business-strategist.md",                        name: "Business Strategist", division: "specialized" },
+  { label: "analyst",    agentId: "finance/finance-financial-analyst.md",                      name: "Financial Analyst",   division: "finance" },
+  { label: "executor",   agentId: "specialized/specialized-chief-of-staff.md",                 name: "Chief of Staff",      division: "specialized" },
+  { label: "planner",    agentId: "project-management/project-management-project-shepherd.md", name: "Project Shepherd",    division: "project-management" },
+  { label: "writer",     agentId: "marketing/marketing-content-creator.md",                   name: "Content Creator",     division: "marketing" },
+] as const;
+
 export default function MavisChat() {
   const navigate = useNavigate();
   const _appData = useAppData() as any;
@@ -155,6 +164,35 @@ export default function MavisChat() {
   const { speak, stop: stopSpeaking, isSpeaking, isLoading: isVoiceLoading } = useElevenLabsTts();
   const { attachments, isUploading, upload, remove, clearStaged } = useChatAttachments("mavis", "main");
   const [isDragging, setIsDragging] = useState(false);
+
+  // ── Activate a quick-specialist from the Agent Mode panel ──
+  async function activateSpecialistFromPanel(spec: (typeof QUICK_SPECIALISTS)[number]) {
+    const rawUrl = `${AGENCY_BASE}/${spec.agentId}`;
+    try {
+      const [specRes, { data: { user } }] = await Promise.all([
+        fetch(rawUrl, { signal: AbortSignal.timeout(15000) }),
+        supabase.auth.getUser(),
+      ]);
+      if (!user) { toast.error("Not signed in"); return; }
+      if (!specRes.ok) throw new Error(`Could not fetch spec (${specRes.status})`);
+      const specContent = await specRes.text();
+      const { error } = await supabase.from("mavis_active_agency_specialists").upsert({
+        user_id:      user.id,
+        agent_id:     spec.agentId,
+        agent_name:   spec.name,
+        division:     spec.division,
+        raw_url:      rawUrl,
+        spec_content: specContent,
+        activated_at: new Date().toISOString(),
+      }, { onConflict: "user_id" });
+      if (error) throw error;
+      setActiveSpecialist({ agent_id: spec.agentId, agent_name: spec.name, division: spec.division, spec_content: specContent });
+      setAgentModeOn(true);
+      toast.success(`${spec.name} activated — AGENT mode enabled`);
+    } catch (err: any) {
+      toast.error(`Activation failed: ${err?.message ?? "unknown error"}`);
+    }
+  }
 
   // ── Register the mavis-actions edge function as default action handler ──
   useEffect(() => {
@@ -761,7 +799,7 @@ export default function MavisChat() {
             },
           });
           if (agentErr) throw agentErr;
-          const agentText = agentData?.response ?? agentData?.result ?? agentData?.output ?? JSON.stringify(agentData);
+          const agentText = agentData?.content ?? agentData?.response ?? agentData?.result ?? agentData?.output ?? JSON.stringify(agentData);
           const toolsUsed: string[] = agentData?.toolsUsed ?? agentData?.tools_used ?? [];
           const actionsQueued: number = agentData?.actionsQueued ?? agentData?.actions_queued ?? 0;
           setLastAgentMeta({ toolsUsed, actionsQueued });
@@ -1698,13 +1736,48 @@ export default function MavisChat() {
 
             {agentPanelTab === "specialist" ? (
               <>
+                {activeSpecialist ? (
+                  <div className="flex items-center justify-between px-2 py-1.5 rounded border border-violet-500/30 bg-violet-500/10">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <div className="w-1.5 h-1.5 rounded-full bg-violet-400 animate-pulse shrink-0" />
+                      <span className="text-xs font-mono text-violet-300 truncate">{activeSpecialist.agent_name}</span>
+                    </div>
+                    <button
+                      onClick={async () => {
+                        const { data: { user } } = await supabase.auth.getUser();
+                        if (!user) return;
+                        await supabase.from("mavis_active_agency_specialists").delete().eq("user_id", user.id);
+                        setActiveSpecialist(null);
+                        toast.success("Specialist deactivated");
+                      }}
+                      className="text-[10px] font-mono text-muted-foreground hover:text-rose-400 transition-colors shrink-0 ml-2"
+                    >deactivate ×</button>
+                  </div>
+                ) : (
+                  <p className="text-[10px] font-mono text-muted-foreground">
+                    No specialist active — quick-pick below or{" "}
+                    <button onClick={() => navigate("/agency")} className="text-violet-400 hover:underline">browse all 182 →</button>
+                  </p>
+                )}
                 <div className="flex gap-2 flex-wrap">
-                  {(["researcher", "analyst", "executor", "planner", "writer"] as const).map((s) => (
-                    <button key={s} onClick={() => {}}
-                      className="text-xs font-mono px-2 py-1 rounded border border-border/50 text-muted-foreground hover:text-foreground transition-colors">{s}</button>
-                  ))}
+                  {QUICK_SPECIALISTS.map((s) => {
+                    const isActive = activeSpecialist?.agent_id === s.agentId;
+                    return (
+                      <button key={s.label}
+                        onClick={() => activateSpecialistFromPanel(s)}
+                        title={s.name}
+                        className={`text-xs font-mono px-2 py-1 rounded border transition-colors ${
+                          isActive
+                            ? "bg-violet-500/20 border-violet-500/40 text-violet-300"
+                            : "border-border/50 text-muted-foreground hover:text-foreground hover:border-violet-500/30"
+                        }`}
+                      >{isActive ? `✓ ${s.label}` : s.label}</button>
+                    );
+                  })}
                 </div>
-                <p className="text-xs font-mono text-muted-foreground">Type your task in the input above and send — AGENT mode routes to the specialist automatically.</p>
+                {!activeSpecialist && (
+                  <p className="text-xs font-mono text-muted-foreground">Activating a specialist injects their full expertise into MAVIS and enables AGENT mode.</p>
+                )}
               </>
             ) : agentPanelTab === "crew" ? (
 
