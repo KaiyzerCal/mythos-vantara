@@ -109,6 +109,7 @@ const PromptVaultPage = lazy(() => import("@/pages/PromptVaultPage"));
 const AgencyPage = lazy(() => import("@/pages/AgencyPage"));
 const ProvidersPage = lazy(() => import("@/pages/ProvidersPage"));
 const NotebookPage = lazy(() => import("@/pages/NotebookPage"));
+const AirtablePage = lazy(() => import("@/pages/AirtablePage"));
 // Public demo — no auth required
 const MavisDemo = lazy(() => import("@/pages/MavisDemo"));
 
@@ -242,6 +243,7 @@ function AppContent() {
               <Route path="/agency" element={<AgencyPage />} />
               <Route path="/providers" element={<ProvidersPage />} />
               <Route path="/notebook" element={<NotebookPage />} />
+              <Route path="/airtable" element={<AirtablePage />} />
               <Route path="/system-settings" element={<SystemSettingsPage />} />
               <Route path="*" element={<NotFound />} />
             </Routes>
