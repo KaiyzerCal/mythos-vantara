@@ -6,6 +6,7 @@ on:
       - "supabase/functions/**"
       - "supabase/config.toml"
       - ".github/workflows/deploy-mavis-functions.yml"
+  workflow_dispatch:
 jobs:
   deploy:
     runs-on: ubuntu-latest
