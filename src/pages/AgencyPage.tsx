@@ -375,7 +375,7 @@ export default function AgencyPage() {
           )}
           {routedAgent && !showRouter && (
             <p className="text-[9px] font-mono text-violet-400/70 mt-0.5">
-              Last routed → {routedAgent.label}
+              Last routed → {routedAgent.name}
             </p>
           )}
         </div>
