@@ -5,7 +5,8 @@ import {
   Search, X, ChevronRight, ExternalLink, Loader2,
   Zap, Users2, Copy, Check,
 } from "lucide-react";
-import { AGENTS, DIVISIONS, getDivision, type AgencyAgent } from "@/data/agencyAgents";
+import { AGENTS, DIVISIONS, getDivision, classifyTaskToDivision, findBestAgent, type AgencyAgent } from "@/data/agencyAgents";
+import { toast } from "sonner";
 
 // ── Markdown → plain preview (strip # headers + ** bold + bullets) ───
 function mdPreview(md: string, chars = 280): string {
@@ -163,6 +164,21 @@ export default function AgencyPage() {
   const [search, setSearch] = useState("");
   const [activeDivision, setActiveDivision] = useState<string>("all");
   const [selectedAgent, setSelectedAgent] = useState<AgencyAgent | null>(null);
+  const [taskQuery, setTaskQuery] = useState("");
+  const [routedAgent, setRoutedAgent] = useState<AgencyAgent | null>(null);
+  const [showRouter, setShowRouter] = useState(false);
+  const navigate = useNavigate();
+
+  function routeTask() {
+    if (!taskQuery.trim()) return;
+    const agent = findBestAgent(taskQuery);
+    if (!agent) { toast.error("No matching agent found — try different keywords"); return; }
+    const divId = classifyTaskToDivision(taskQuery);
+    setRoutedAgent(agent);
+    setActiveDivision(divId);
+    setSelectedAgent(agent);
+    toast.success(`Routed to ${agent.label} in ${getDivision(divId)?.label ?? divId}`);
+  }
 
   const filtered = useMemo(() => {
     let list = AGENTS;
@@ -215,6 +231,42 @@ export default function AgencyPage() {
               </button>
             )}
           </div>
+        </div>
+
+        {/* Task Router */}
+        <div className="px-4 py-2 border-b border-zinc-800/40 bg-zinc-900/30">
+          <button
+            onClick={() => setShowRouter(v => !v)}
+            className={`w-full text-left flex items-center gap-2 text-[10px] font-mono transition-colors ${showRouter ? "text-violet-400" : "text-zinc-500 hover:text-zinc-300"}`}
+          >
+            <Zap size={10} />
+            AUTO-ROUTE TASK TO BEST AGENT
+            <span className={`ml-auto transition-transform ${showRouter ? "rotate-180" : ""}`}>▾</span>
+          </button>
+          {showRouter && (
+            <div className="mt-2 flex gap-2">
+              <input
+                autoFocus
+                value={taskQuery}
+                onChange={e => setTaskQuery(e.target.value)}
+                onKeyDown={e => { if (e.key === "Enter") routeTask(); }}
+                placeholder="Describe your task… e.g. 'build a REST API with auth'"
+                className="flex-1 bg-zinc-900 border border-zinc-700/60 rounded text-xs font-body text-white px-3 py-1.5 focus:outline-none focus:border-violet-500/40 placeholder:text-zinc-600"
+              />
+              <button
+                onClick={routeTask}
+                disabled={!taskQuery.trim()}
+                className="px-3 py-1.5 rounded bg-violet-500/20 border border-violet-500/30 text-violet-400 text-xs font-mono hover:bg-violet-500/30 transition-colors disabled:opacity-40"
+              >
+                Route →
+              </button>
+            </div>
+          )}
+          {routedAgent && !showRouter && (
+            <p className="text-[9px] font-mono text-violet-400/70 mt-0.5">
+              Last routed → {routedAgent.label}
+            </p>
+          )}
         </div>
 
         {/* Division tabs */}
