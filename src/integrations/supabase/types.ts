@@ -4734,6 +4734,194 @@ export type Database = {
         }
         Relationships: []
       }
+      notebook_chats: {
+        Row: {
+          created_at: string | null
+          id: string
+          notebook_id: string
+          title: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string | null
+          id?: string
+          notebook_id: string
+          title?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string | null
+          id?: string
+          notebook_id?: string
+          title?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "notebook_chats_notebook_id_fkey"
+            columns: ["notebook_id"]
+            isOneToOne: false
+            referencedRelation: "notebooks"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      notebook_messages: {
+        Row: {
+          chat_id: string
+          content: string
+          created_at: string | null
+          id: string
+          role: string
+        }
+        Insert: {
+          chat_id: string
+          content: string
+          created_at?: string | null
+          id?: string
+          role: string
+        }
+        Update: {
+          chat_id?: string
+          content?: string
+          created_at?: string | null
+          id?: string
+          role?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "notebook_messages_chat_id_fkey"
+            columns: ["chat_id"]
+            isOneToOne: false
+            referencedRelation: "notebook_chats"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      notebook_notes: {
+        Row: {
+          content: string
+          created_at: string | null
+          id: string
+          is_ai: boolean | null
+          notebook_id: string
+          source_ids: string[] | null
+          title: string | null
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          content: string
+          created_at?: string | null
+          id?: string
+          is_ai?: boolean | null
+          notebook_id: string
+          source_ids?: string[] | null
+          title?: string | null
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          content?: string
+          created_at?: string | null
+          id?: string
+          is_ai?: boolean | null
+          notebook_id?: string
+          source_ids?: string[] | null
+          title?: string | null
+          updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "notebook_notes_notebook_id_fkey"
+            columns: ["notebook_id"]
+            isOneToOne: false
+            referencedRelation: "notebooks"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      notebook_sources: {
+        Row: {
+          content: string | null
+          created_at: string | null
+          embedding: string | null
+          id: string
+          metadata: Json | null
+          notebook_id: string
+          source_type: string
+          title: string
+          url: string | null
+          user_id: string
+          word_count: number | null
+        }
+        Insert: {
+          content?: string | null
+          created_at?: string | null
+          embedding?: string | null
+          id?: string
+          metadata?: Json | null
+          notebook_id: string
+          source_type: string
+          title: string
+          url?: string | null
+          user_id: string
+          word_count?: number | null
+        }
+        Update: {
+          content?: string | null
+          created_at?: string | null
+          embedding?: string | null
+          id?: string
+          metadata?: Json | null
+          notebook_id?: string
+          source_type?: string
+          title?: string
+          url?: string | null
+          user_id?: string
+          word_count?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "notebook_sources_notebook_id_fkey"
+            columns: ["notebook_id"]
+            isOneToOne: false
+            referencedRelation: "notebooks"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      notebooks: {
+        Row: {
+          created_at: string | null
+          description: string | null
+          emoji: string
+          id: string
+          title: string
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          created_at?: string | null
+          description?: string | null
+          emoji?: string
+          id?: string
+          title?: string
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          created_at?: string | null
+          description?: string | null
+          emoji?: string
+          id?: string
+          title?: string
+          updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
       notification_budget: {
         Row: {
           created_at: string | null
@@ -7721,6 +7909,23 @@ export type Database = {
           similarity: number
           tags: string[]
           title: string
+        }[]
+      }
+      match_notebook_sources: {
+        Args: {
+          match_count?: number
+          match_notebook_id: string
+          match_threshold?: number
+          query_embedding: string
+        }
+        Returns: {
+          content: string
+          id: string
+          similarity: number
+          source_type: string
+          title: string
+          url: string
+          word_count: number
         }[]
       }
       match_persona_memory: {
