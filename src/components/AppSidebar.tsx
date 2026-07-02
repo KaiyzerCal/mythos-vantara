@@ -29,6 +29,7 @@ const PRIMARY_NAV = [
   { to: "/mavis-ui", icon: Sparkles, label: "MavisUI" },
   { to: "/agents", icon: BrainCircuit, label: "Agent Dashboard" },
   { to: "/agency", icon: Building2, label: "The Agency" },
+  { to: "/providers", icon: Cpu, label: "AI Providers" },
   { to: "/intelligence", icon: Brain, label: "Intelligence" },
   { to: "/world-monitor", icon: Radio, label: "World Monitor" },
   { to: "/voice-lab", icon: Mic, label: "Voice Lab" },
