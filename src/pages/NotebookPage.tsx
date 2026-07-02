@@ -2,7 +2,8 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import {
   BookOpen, Plus, Trash2, Link, FileText, Loader2, Send,
   Sparkles, ChevronRight, X, MessageSquare, Edit2, Check,
-  Youtube, Copy, RefreshCw, PanelRight,
+  Youtube, Copy, RefreshCw, PanelRight, Mic, Play, Pause,
+  SkipForward, Volume2, Wand2,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
@@ -101,6 +102,26 @@ const SOURCE_TYPE_COLOR: Record<string, string> = {
   url: "text-blue-400 bg-blue-500/10 border-blue-500/30",
   youtube: "text-red-400 bg-red-500/10 border-red-500/30",
   file: "text-orange-400 bg-orange-500/10 border-orange-500/30",
+};
+
+// ─── Content transformations ──────────────────────────────────────────────────
+
+const TRANSFORMS = [
+  { id: "summarize",    label: "Summarize",    prompt: "Write a concise 2-3 paragraph summary of this source content." },
+  { id: "key-points",  label: "Key Points",   prompt: "Extract the 5-10 most important key points as a numbered list." },
+  { id: "questions",   label: "Questions",    prompt: "Generate 8 insightful questions this source raises or answers." },
+  { id: "action-items",label: "Actions",      prompt: "Extract all actionable items, tasks, or next steps from this source." },
+  { id: "critique",    label: "Critique",     prompt: "Give a balanced critique: what's strong, what's weak, what's missing." },
+  { id: "eli5",        label: "Simplify",     prompt: "Explain this content simply using everyday language and analogies." },
+] as const;
+
+// ─── Podcast speaker → voice mapping ─────────────────────────────────────────
+
+const PODCAST_VOICE_MAP: Record<number, string> = {
+  0: "George",
+  1: "Sarah",
+  2: "Liam",
+  3: "Charlotte",
 };
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
@@ -203,6 +224,20 @@ export default function NotebookPage() {
   const [chatInput, setChatInput] = useState("");
   const [chatLoading, setChatLoading] = useState(false);
   const [showChatPanel, setShowChatPanel] = useState(true);
+
+  // Transformations
+  const [transformingId, setTransformingId] = useState<string | null>(null);
+  const [transformType, setTransformType] = useState<string | null>(null);
+
+  // Podcast
+  const [podcastOpen, setPodcastOpen] = useState(false);
+  const [podcastLoading, setPodcastLoading] = useState(false);
+  const [podcastFocus, setPodcastFocus] = useState("");
+  const [podcastSpeakers, setPodcastSpeakers] = useState(2);
+  const [podcast, setPodcast] = useState<{ title: string; speakers: any[]; segments: { speaker_index: number; speaker_name: string; text: string }[] } | null>(null);
+  const [playingSegIdx, setPlayingSegIdx] = useState<number | null>(null);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const chatInputRef = useRef<HTMLTextAreaElement>(null);
@@ -308,6 +343,7 @@ export default function NotebookPage() {
     }).select().single();
     if (data) {
       setSources(prev => [data, ...prev]);
+      embedSourceBackground(data.id);
       setAddContent("");
       setAddTitle("");
       setAddMode(null);
@@ -340,6 +376,7 @@ export default function NotebookPage() {
       }).select().single();
       if (data) {
         setSources(prev => [data, ...prev]);
+        embedSourceBackground(data.id);
         setAddUrl("");
         setAddTitle("");
         setAddMode(null);
@@ -366,6 +403,7 @@ export default function NotebookPage() {
     }).select().single();
     if (data) {
       setSources(prev => [data, ...prev]);
+      // YouTube sources have no extractable content yet; skip embedding
       setAddUrl("");
       setAddTitle("");
       setAddMode(null);
@@ -377,6 +415,131 @@ export default function NotebookPage() {
   async function deleteSource(id: string) {
     await db.from("notebook_sources").delete().eq("id", id);
     setSources(prev => prev.filter(s => s.id !== id));
+  }
+
+  // ── Background embedding (fire-and-forget) ────────────────────────────────
+
+  function embedSourceBackground(sourceId: string) {
+    getAuthHeader().then(auth =>
+      fetch(`${SB_URL}/functions/v1/mavis-notebook-embed`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: auth },
+        body: JSON.stringify({ action: "embed_source", source_id: sourceId }),
+      }).catch(() => {}) // silent — embedding is best-effort
+    );
+  }
+
+  // ── Semantic source retrieval for chat ────────────────────────────────────
+
+  async function getRelevantSources(query: string): Promise<Source[]> {
+    if (!selectedId || sources.length === 0) return sources;
+    // Only use vector search if sources have embeddings
+    const embeddedSrcs = sources.filter(s => (s as any).embedding);
+    if (embeddedSrcs.length < 2) return sources; // fallback to all
+    try {
+      const auth = await getAuthHeader();
+      const res = await fetch(`${SB_URL}/functions/v1/mavis-notebook-embed`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: auth },
+        body: JSON.stringify({ action: "search", notebook_id: selectedId, query, count: 5 }),
+      });
+      if (!res.ok) return sources;
+      const data = await res.json();
+      const matched: Source[] = (data.sources ?? []).map((m: any) => ({
+        id: m.id, notebook_id: selectedId!, title: m.title, source_type: m.source_type,
+        content: m.content, url: m.url, word_count: m.word_count, created_at: "",
+      }));
+      return matched.length > 0 ? matched : sources.slice(0, 4);
+    } catch { return sources; }
+  }
+
+  // ── Content transformations ───────────────────────────────────────────────
+
+  async function runTransform(source: Source, txId: string) {
+    if (!selectedId || !user) return;
+    const tx = TRANSFORMS.find(t => t.id === txId);
+    if (!tx) return;
+    setTransformingId(source.id);
+    setTransformType(txId);
+    try {
+      const content = await callLLM(
+        `You are a research assistant. ${tx.prompt}`,
+        [{ role: "user", content: `Title: ${source.title}\n\nContent:\n${(source.content ?? "").slice(0, 4000)}` }],
+        "complex"
+      );
+      const { data } = await db.from("notebook_notes").insert({
+        notebook_id: selectedId,
+        user_id: user.id,
+        title: `${tx.label}: ${source.title}`,
+        content,
+        is_ai: true,
+        source_ids: [source.id],
+      }).select().single();
+      if (data) {
+        setNotes(prev => [data, ...prev]);
+        setActiveTab("notes");
+        toast.success(`${tx.label} complete → saved as note`);
+      }
+    } catch (e: any) {
+      toast.error(e.message ?? "Transform failed");
+    }
+    setTransformingId(null);
+    setTransformType(null);
+  }
+
+  // ── Podcast generation ────────────────────────────────────────────────────
+
+  async function generatePodcast() {
+    if (!selectedId || sources.length === 0) { toast.error("Add sources first"); return; }
+    setPodcastLoading(true);
+    try {
+      const auth = await getAuthHeader();
+      const res = await fetch(`${SB_URL}/functions/v1/mavis-notebook-podcast`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: auth },
+        body: JSON.stringify({ notebook_id: selectedId, focus_topic: podcastFocus, num_speakers: podcastSpeakers, max_exchanges: 12 }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Podcast generation failed");
+      setPodcast(data);
+    } catch (e: any) {
+      toast.error(e.message ?? "Failed to generate podcast");
+    }
+    setPodcastLoading(false);
+  }
+
+  async function playSegment(idx: number) {
+    if (!podcast) return;
+    const seg = podcast.segments[idx];
+    if (!seg) return;
+    setPlayingSegIdx(idx);
+    setIsPlaying(true);
+    try {
+      const auth = await getAuthHeader();
+      const voice = PODCAST_VOICE_MAP[seg.speaker_index] ?? "George";
+      const res = await fetch(`${SB_URL}/functions/v1/mavis-tts`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: auth },
+        body: JSON.stringify({ text: seg.text, voice }),
+      });
+      const { audio } = await res.json();
+      if (audio) {
+        if (audioRef.current) { audioRef.current.pause(); audioRef.current.src = ""; }
+        const el = new Audio(`data:audio/mpeg;base64,${audio}`);
+        audioRef.current = el;
+        el.onended = () => {
+          if (idx + 1 < podcast.segments.length) playSegment(idx + 1);
+          else { setPlayingSegIdx(null); setIsPlaying(false); }
+        };
+        await el.play();
+      }
+    } catch { setPlayingSegIdx(null); setIsPlaying(false); toast.error("TTS failed for this segment"); }
+  }
+
+  function stopPlayback() {
+    if (audioRef.current) { audioRef.current.pause(); audioRef.current.src = ""; }
+    setPlayingSegIdx(null);
+    setIsPlaying(false);
   }
 
   // ── Notes ──────────────────────────────────────────────────────────────────
@@ -463,12 +626,14 @@ export default function NotebookPage() {
     db.from("notebook_messages").insert({ chat_id: selectedChatId, role: "user", content: text });
 
     setChatLoading(true);
-    const context = buildSourceContext(sources);
+    // Use vector search to find the most relevant sources for this query
+    const relevantSources = await getRelevantSources(text);
+    const context = buildSourceContext(relevantSources);
     const history = messages.slice(-10).map(m => ({ role: m.role, content: m.content }));
 
     try {
       const system = sources.length > 0
-        ? `You are MAVIS, a research assistant. Answer questions grounded in the following notebook sources. Cite specific sources when relevant.\n\n${context}`
+        ? `You are MAVIS, a research assistant. Answer questions grounded in the following notebook sources${relevantSources.length < sources.length ? ` (${relevantSources.length} most relevant of ${sources.length} total)` : ""}. Cite specific sources when relevant.\n\n${context}`
         : `You are MAVIS, a research assistant. No sources have been added to this notebook yet. Help the user and suggest they add sources for context.`;
 
       const reply = await callLLM(system, [...history, { role: "user", content: text }], "chat");
@@ -583,6 +748,13 @@ export default function NotebookPage() {
                 </div>
                 <div className="ml-auto flex items-center gap-2">
                   <button
+                    onClick={() => { setPodcastOpen(v => !v); setPodcast(null); }}
+                    className={`h-7 px-2 rounded border flex items-center gap-1.5 transition-colors text-xs font-mono ${podcastOpen ? "border-primary/30 text-primary bg-primary/10" : "border-border text-muted-foreground hover:text-primary hover:border-primary/30"}`}
+                    title="Generate podcast from sources"
+                  >
+                    <Mic size={11} /> Podcast
+                  </button>
+                  <button
                     onClick={() => setShowChatPanel(v => !v)}
                     className={`w-7 h-7 rounded border flex items-center justify-center transition-colors ${showChatPanel ? "border-primary/30 text-primary bg-primary/10" : "border-border text-muted-foreground hover:text-primary hover:border-primary/30"}`}
                     title="Toggle chat panel"
@@ -592,6 +764,83 @@ export default function NotebookPage() {
                 </div>
               </div>
             </div>
+
+            {/* Podcast panel */}
+            {podcastOpen && (
+              <div className="border-b border-border bg-card/20 p-4 space-y-3">
+                {!podcast ? (
+                  <>
+                    <div className="flex items-center gap-2 mb-2">
+                      <Mic size={12} className="text-primary" />
+                      <span className="text-xs font-mono text-primary tracking-wider">GENERATE PODCAST</span>
+                    </div>
+                    <input
+                      value={podcastFocus}
+                      onChange={e => setPodcastFocus(e.target.value)}
+                      placeholder="Focus topic (optional) — leave blank for full notebook overview"
+                      className="w-full bg-sidebar/60 text-xs font-body text-foreground rounded border border-border/60 focus:outline-none focus:border-primary/30 px-3 py-1.5 placeholder:text-muted-foreground"
+                    />
+                    <div className="flex items-center gap-3">
+                      <span className="text-[10px] font-mono text-muted-foreground">SPEAKERS:</span>
+                      {[2, 3, 4].map(n => (
+                        <button
+                          key={n}
+                          onClick={() => setPodcastSpeakers(n)}
+                          className={`text-[10px] font-mono px-2 py-0.5 rounded border transition-colors ${podcastSpeakers === n ? "bg-primary/15 border-primary/30 text-primary" : "border-border text-muted-foreground hover:border-border"}`}
+                        >
+                          {n}
+                        </button>
+                      ))}
+                      <button
+                        onClick={generatePodcast}
+                        disabled={podcastLoading || sources.length === 0}
+                        className="ml-auto px-3 py-1 rounded border border-primary/30 bg-primary/10 text-primary text-xs font-mono hover:bg-primary/20 disabled:opacity-40 flex items-center gap-1.5"
+                      >
+                        {podcastLoading ? <Loader2 size={10} className="animate-spin" /> : <Sparkles size={10} />}
+                        {podcastLoading ? "Writing script..." : "Generate"}
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="flex items-center gap-2">
+                      <Mic size={12} className="text-primary" />
+                      <span className="text-xs font-display text-foreground">{podcast.title}</span>
+                      <div className="ml-auto flex gap-2">
+                        {!isPlaying ? (
+                          <button onClick={() => playSegment(0)} className="text-xs font-mono text-primary flex items-center gap-1 px-2 py-0.5 rounded border border-primary/30 bg-primary/10 hover:bg-primary/20">
+                            <Play size={10} /> Play All
+                          </button>
+                        ) : (
+                          <button onClick={stopPlayback} className="text-xs font-mono text-muted-foreground flex items-center gap-1 px-2 py-0.5 rounded border border-border hover:text-foreground">
+                            <Pause size={10} /> Stop
+                          </button>
+                        )}
+                        <button onClick={() => { setPodcast(null); stopPlayback(); }} className="text-[10px] font-mono text-muted-foreground hover:text-foreground">
+                          <RefreshCw size={10} />
+                        </button>
+                      </div>
+                    </div>
+                    <div className="max-h-48 overflow-y-auto space-y-1.5 pr-1">
+                      {podcast.segments.map((seg, idx) => (
+                        <div
+                          key={idx}
+                          className={`flex gap-2 p-2 rounded text-[10px] font-body transition-colors cursor-pointer ${playingSegIdx === idx ? "bg-primary/10 border border-primary/20" : "hover:bg-card/50 border border-transparent"}`}
+                          onClick={() => playSegment(idx)}
+                        >
+                          <div className="flex items-center gap-1 shrink-0 w-16">
+                            <Volume2 size={8} className={playingSegIdx === idx ? "text-primary" : "text-muted-foreground"} />
+                            <span className={`font-mono ${playingSegIdx === idx ? "text-primary" : "text-muted-foreground"}`}>{seg.speaker_name}</span>
+                          </div>
+                          <p className="text-foreground/80 leading-relaxed">{seg.text}</p>
+                        </div>
+                      ))}
+                    </div>
+                    <p className="text-[9px] font-mono text-muted-foreground">{podcast.segments.length} segments · click any line to play from there · uses MAVIS TTS</p>
+                  </>
+                )}
+              </div>
+            )}
 
             {/* Tabs */}
             <div className="flex border-b border-border px-4">
@@ -706,22 +955,46 @@ export default function NotebookPage() {
                 ) : (
                   <div className="space-y-2">
                     {sources.map(src => (
-                      <div key={src.id} className="flex items-start gap-2 p-3 rounded border border-border bg-card/30 hover:bg-card/50 transition-colors group">
-                        <SourceBadge type={src.source_type} />
-                        <div className="flex-1 min-w-0">
-                          <p className="text-xs font-display text-foreground line-clamp-1">{src.title}</p>
-                          {src.url && <p className="text-[10px] text-muted-foreground font-mono truncate mt-0.5">{src.url}</p>}
-                          <p className="text-[10px] text-muted-foreground font-mono mt-0.5">{src.word_count} words</p>
-                          {src.content && (
-                            <p className="text-[10px] text-muted-foreground/60 line-clamp-2 mt-1 font-body">{src.content.slice(0, 120)}...</p>
-                          )}
+                      <div key={src.id} className="rounded border border-border bg-card/30 hover:bg-card/50 transition-colors group">
+                        <div className="flex items-start gap-2 p-3">
+                          <SourceBadge type={src.source_type} />
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs font-display text-foreground line-clamp-1">{src.title}</p>
+                            {src.url && <p className="text-[10px] text-muted-foreground font-mono truncate mt-0.5">{src.url}</p>}
+                            <p className="text-[10px] text-muted-foreground font-mono mt-0.5">{src.word_count} words</p>
+                            {src.content && (
+                              <p className="text-[10px] text-muted-foreground/60 line-clamp-2 mt-1 font-body">{src.content.slice(0, 120)}...</p>
+                            )}
+                          </div>
+                          <button
+                            onClick={() => deleteSource(src.id)}
+                            className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition-opacity shrink-0 mt-0.5"
+                          >
+                            <Trash2 size={11} />
+                          </button>
                         </div>
-                        <button
-                          onClick={() => deleteSource(src.id)}
-                          className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition-opacity shrink-0"
-                        >
-                          <Trash2 size={11} />
-                        </button>
+                        {/* Transform buttons */}
+                        {src.content && (
+                          <div className="px-3 pb-2 flex flex-wrap gap-1 border-t border-border/40 pt-2">
+                            {TRANSFORMS.map(tx => (
+                              <button
+                                key={tx.id}
+                                onClick={() => runTransform(src, tx.id)}
+                                disabled={transformingId === src.id}
+                                className={`inline-flex items-center gap-1 text-[9px] font-mono px-1.5 py-0.5 rounded border transition-colors disabled:opacity-40 ${
+                                  transformingId === src.id && transformType === tx.id
+                                    ? "bg-primary/20 border-primary/30 text-primary"
+                                    : "border-border/50 text-muted-foreground hover:border-primary/30 hover:text-primary"
+                                }`}
+                              >
+                                {transformingId === src.id && transformType === tx.id
+                                  ? <Loader2 size={8} className="animate-spin" />
+                                  : <Wand2 size={8} />}
+                                {tx.label}
+                              </button>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>

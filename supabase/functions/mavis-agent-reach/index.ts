@@ -11,7 +11,8 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 //  reddit_search — Reddit JSON API
 //  youtube_info  — YouTube oEmbed metadata
 //  exa_search    — Exa AI semantic search (EXA_API_KEY required)
-//  multi_search  — web + github + reddit in parallel
+//  searxng_search — Self-hosted SearXNG metasearch (SEARXNG_URL required)
+//  multi_search  — web + github + reddit + searxng in parallel
 //  channel_health — probe all channels
 
 const corsHeaders = {
@@ -297,40 +298,77 @@ async function jinaSearchWeb(query: string) {
   return { platform: "web", type: "search", query, content: content.slice(0, 8000), length: content.length };
 }
 
-async function multiSearch(query: string) {
-  const [webRes, githubRes, redditRes] = await Promise.allSettled([
-    jinaSearchWeb(query),
-    githubSearch(query, "repositories", "", 5),
-    redditSearch(query, "", "relevance", 5),
-  ]);
+async function searxngSearch(query: string, numResults = 10, engines = "") {
+  const base = Deno.env.get("SEARXNG_URL");
+  if (!base) throw new Error("SEARXNG_URL not configured — add your SearXNG instance URL to Supabase secrets");
+  const url = new URL(`${base.replace(/\/$/, "")}/search`);
+  url.searchParams.set("q", query);
+  url.searchParams.set("format", "json");
+  url.searchParams.set("language", "auto");
+  url.searchParams.set("safesearch", "0");
+  if (engines) url.searchParams.set("engines", engines);
+
+  const res = await safeFetch(url.toString(), {
+    headers: { "User-Agent": "MAVIS-AgentReach/1.0", Accept: "application/json" },
+  });
+  if (!res?.ok) throw new Error(`SearXNG: ${res?.status ?? "timeout"}`);
+  const data = await res.json();
   return {
-    platform: "multi",
+    platform: "searxng",
     query,
-    results: {
-      web:    webRes.status    === "fulfilled" ? webRes.value    : { error: (webRes    as PromiseRejectedResult).reason?.message },
-      github: githubRes.status === "fulfilled" ? githubRes.value : { error: (githubRes as PromiseRejectedResult).reason?.message },
-      reddit: redditRes.status === "fulfilled" ? redditRes.value : { error: (redditRes as PromiseRejectedResult).reason?.message },
-    },
+    items: ((data.results ?? []) as any[]).slice(0, numResults).map((r: any) => ({
+      title: r.title,
+      url: r.url,
+      content: (r.content ?? "").slice(0, 500),
+      engine: r.engine,
+      score: r.score,
+      category: r.category,
+    })),
+    number_of_results: data.number_of_results,
+    suggestions: (data.suggestions ?? []).slice(0, 5),
   };
 }
 
+async function multiSearch(query: string) {
+  const searxngAvailable = !!Deno.env.get("SEARXNG_URL");
+  const tasks: Promise<any>[] = [
+    jinaSearchWeb(query),
+    githubSearch(query, "repositories", "", 5),
+    redditSearch(query, "", "relevance", 5),
+  ];
+  if (searxngAvailable) tasks.push(searxngSearch(query, 8));
+
+  const [webRes, githubRes, redditRes, searxRes] = await Promise.allSettled(tasks);
+  const results: Record<string, any> = {
+    web:    webRes.status    === "fulfilled" ? webRes.value    : { error: (webRes    as PromiseRejectedResult).reason?.message },
+    github: githubRes.status === "fulfilled" ? githubRes.value : { error: (githubRes as PromiseRejectedResult).reason?.message },
+    reddit: redditRes.status === "fulfilled" ? redditRes.value : { error: (redditRes as PromiseRejectedResult).reason?.message },
+  };
+  if (searxRes) {
+    results.searxng = searxRes.status === "fulfilled" ? searxRes.value : { error: (searxRes as PromiseRejectedResult).reason?.message };
+  }
+  return { platform: "multi", query, results };
+}
+
 async function channelHealth() {
+  const searxngUrl = Deno.env.get("SEARXNG_URL");
   const checks = await Promise.allSettled([
-    // Jina: probe with actual content fetch of a known simple URL
     safeFetch("https://r.jina.ai/https://example.com", { headers: { Accept: "text/plain", "X-Timeout": "8", "User-Agent": "MAVIS-AgentReach/1.0" } }),
-    // GitHub: rate_limit endpoint always returns 200
     safeFetch("https://api.github.com/rate_limit", { headers: { "User-Agent": "MAVIS-AgentReach/1.0", Accept: "application/vnd.github.v3+json" } }),
-    // Reddit: use old.reddit.com JSON which is more reliable
     safeFetch("https://old.reddit.com/r/worldnews.json?limit=1", { headers: { "User-Agent": "MAVIS-AgentReach/1.0 (test)" } }),
     Promise.resolve(!!Deno.env.get("EXA_API_KEY")),
     Promise.resolve(true), // RSS always available
+    searxngUrl
+      ? safeFetch(`${searxngUrl.replace(/\/$/, "")}/search?q=test&format=json`, { headers: { "User-Agent": "MAVIS-AgentReach/1.0" } })
+      : Promise.resolve(false),
   ]);
   const LABELS = [
-    { name: "web", label: "Web (Jina Reader)" },
-    { name: "github", label: "GitHub API" },
-    { name: "reddit", label: "Reddit JSON" },
-    { name: "exa", label: "Exa Search" },
-    { name: "rss", label: "RSS Reader" },
+    { name: "web",     label: "Web (Jina Reader)" },
+    { name: "github",  label: "GitHub API" },
+    { name: "reddit",  label: "Reddit JSON" },
+    { name: "exa",     label: "Exa Search" },
+    { name: "rss",     label: "RSS Reader" },
+    { name: "searxng", label: "SearXNG (Private)" },
   ];
   return {
     channels: LABELS.map((l, i) => {
@@ -387,6 +425,10 @@ serve(async (req) => {
       case "exa_search":
         if (!params.query) return err("query required");
         return json(await exaSearch(String(params.query), Number(params.num_results ?? 10)));
+
+      case "searxng_search":
+        if (!params.query) return err("query required");
+        return json(await searxngSearch(String(params.query), Number(params.num_results ?? 10), String(params.engines ?? "")));
 
       case "multi_search":
         if (!params.query) return err("query required");

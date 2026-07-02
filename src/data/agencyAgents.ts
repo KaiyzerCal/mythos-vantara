@@ -314,3 +314,49 @@ export function getDivision(id: string): AgencyDivision | undefined {
 export function getAgentsByDivision(divId: string): AgencyAgent[] {
   return AGENTS.filter(a => a.division === divId);
 }
+
+// ── Auto-routing: keyword-based division classifier ───────────────────────────
+
+const DIVISION_KEYWORDS: Record<string, string[]> = {
+  engineering:          ["code", "build", "develop", "api", "backend", "frontend", "database", "server", "deploy", "docker", "kubernetes", "microservice", "architecture", "algorithm", "bug", "debug", "typescript", "python", "javascript", "rust", "go", "java", "sql", "git", "devops", "pipeline", "infrastructure", "cloud", "aws", "azure", "gcp", "terraform", "ci/cd"],
+  design:               ["design", "ui", "ux", "interface", "wireframe", "prototype", "figma", "sketch", "color", "typography", "layout", "visual", "branding", "logo", "icon", "mockup", "aesthetic", "illustration", "graphic", "user experience", "accessibility"],
+  marketing:            ["market", "campaign", "seo", "content", "social media", "email marketing", "brand", "growth", "conversion", "funnel", "audience", "engagement", "viral", "copywriting", "ad", "influencer", "ppc", "analytics", "newsletter", "launch", "pr", "positioning"],
+  sales:                ["sales", "prospect", "lead", "deal", "close", "crm", "outreach", "pitch", "proposal", "negotiation", "quota", "revenue", "customer acquisition", "discovery call", "follow up", "cold email", "pipeline", "objection"],
+  product:              ["product", "roadmap", "feature", "user story", "backlog", "sprint", "mvp", "requirement", "specification", "prioritize", "stakeholder", "release", "launch", "prd", "product manager"],
+  "project-management": ["project", "timeline", "milestone", "deadline", "resource", "planning", "schedule", "risk", "scope", "budget", "gantt", "kanban", "agile", "scrum", "task management", "deliverable", "stakeholder management"],
+  testing:              ["test", "qa", "quality assurance", "bug report", "automation", "selenium", "jest", "unit test", "integration test", "e2e", "regression", "performance test", "load test", "cypress", "playwright", "testing strategy"],
+  security:             ["security", "vulnerability", "penetration test", "exploit", "threat", "authentication", "authorization", "encryption", "firewall", "audit", "compliance", "hack", "malware", "phishing", "zero day", "cve", "soc", "siem", "red team", "blue team", "incident response"],
+  support:              ["support", "help", "customer service", "ticket", "documentation", "faq", "troubleshoot", "onboard", "tutorial", "user guide", "knowledge base", "helpdesk", "sla"],
+  "spatial-computing":  ["ar", "vr", "xr", "augmented reality", "virtual reality", "mixed reality", "spatial", "immersive", "metaverse", "unity", "unreal", "3d", "avatar", "haptic", "hololens", "vision pro", "webxr"],
+  "game-development":   ["game", "gameplay", "level design", "character", "mechanic", "unity", "unreal engine", "sprite", "animation", "physics", "shader", "multiplayer", "loot", "inventory", "quest design", "game design", "rpg", "indie game"],
+  academic:             ["research", "paper", "study", "thesis", "dissertation", "citation", "academic", "literature review", "methodology", "hypothesis", "peer review", "journal", "bibliography", "experiment", "scholarly"],
+  gis:                  ["gis", "geospatial", "map", "coordinate", "latitude", "longitude", "spatial analysis", "shapefile", "satellite", "terrain", "geography", "cartography", "gdal", "qgis", "arcgis", "mapping", "remote sensing"],
+  finance:              ["finance", "investment", "portfolio", "stock", "crypto", "budget", "revenue", "profit", "loss", "valuation", "financial model", "dcf", "roi", "cash flow", "accounting", "tax", "hedge", "trading", "ipo", "venture capital", "excel model"],
+  specialized:          ["intelligence", "analyst", "strategy", "consulting", "innovation", "ai", "machine learning", "nlp", "data science", "neural network", "model training", "automation", "workflow", "integration", "mcp", "agent"],
+};
+
+export function classifyTaskToDivision(task: string): string {
+  const lower = task.toLowerCase();
+  let bestDiv = "specialized";
+  let bestScore = 0;
+  for (const [divId, keywords] of Object.entries(DIVISION_KEYWORDS)) {
+    const score = keywords.filter(kw => lower.includes(kw)).length;
+    if (score > bestScore) { bestScore = score; bestDiv = divId; }
+  }
+  return bestDiv;
+}
+
+export function findBestAgent(task: string): AgencyAgent | null {
+  const divId = classifyTaskToDivision(task);
+  const divAgents = AGENTS.filter(a => a.division === divId);
+  if (!divAgents.length) return null;
+  const lower = task.toLowerCase();
+  const scored = divAgents.map(a => ({
+    agent: a,
+    score: [a.name, a.label].join(" ").toLowerCase()
+      .split(/[\s-_]+/)
+      .filter(w => w.length > 3 && lower.includes(w)).length,
+  }));
+  scored.sort((a, b) => b.score - a.score);
+  return scored[0]?.agent ?? divAgents[0] ?? null;
+}
