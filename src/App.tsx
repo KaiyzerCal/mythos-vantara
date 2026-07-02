@@ -107,6 +107,7 @@ const AgentReachPage = lazy(() => import("@/pages/AgentReachPage"));
 const StockAnalysisPage = lazy(() => import("@/pages/StockAnalysisPage"));
 const PromptVaultPage = lazy(() => import("@/pages/PromptVaultPage"));
 const AgencyPage = lazy(() => import("@/pages/AgencyPage"));
+const ProvidersPage = lazy(() => import("@/pages/ProvidersPage"));
 // Public demo — no auth required
 const MavisDemo = lazy(() => import("@/pages/MavisDemo"));
 
@@ -238,6 +239,7 @@ function AppContent() {
               <Route path="/prompt-vault" element={<PromptVaultPage />} />
               <Route path="/agents" element={<AgentDashboardPage />} />
               <Route path="/agency" element={<AgencyPage />} />
+              <Route path="/providers" element={<ProvidersPage />} />
               <Route path="/system-settings" element={<SystemSettingsPage />} />
               <Route path="*" element={<NotFound />} />
             </Routes>

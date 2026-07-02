@@ -107,3 +107,7 @@ jobs:
       # ── Content ingest ──────────────────────────────────────────────────────
       - name: Deploy mavis-shortform-ingest
         run: supabase functions deploy mavis-shortform-ingest --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
+
+      # ── Multi-provider gateway (OpenClaude) ─────────────────────────────────
+      - name: Deploy mavis-multi-provider
+        run: supabase functions deploy mavis-multi-provider --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
