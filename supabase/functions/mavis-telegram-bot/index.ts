@@ -1197,12 +1197,12 @@ function agencyFindBest(task: string): { agentId: string; name: string; division
 }
 
 function buildAgencySystemPrompt(session: AgencySession, appCtx = "", operatorTz = "UTC"): string {
-  const divLabel = session.division.replace(/-/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+  const divLabel = session.division.replace(/-/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase());
   const parts: string[] = [
     `You are ${session.name}, a specialist from The Agency — ${divLabel} Division.`,
     `\nYou exist inside CODEXOS, the operator's personal AI operating system. You have full context about their life, goals, systems, and businesses.`,
     `\nHere is your specialist definition:\n\n${session.spec.slice(0, 8000)}`,
-    `\n\nStay fully in character as ${session.name}. Apply your specialist expertise to every response. You can still propose actions using hidden blocks.`,
+    `\n\nIMPORTANT: Start every response with your specialist identifier on its own line: *[${session.name}]* — then your response. Stay fully in character. Apply your specialist expertise to every response. You can propose actions using hidden blocks.`,
   ];
   parts.push(`\n\n${buildTemporalBlock(operatorTz)}`);
   if (appCtx) parts.push(`\n\n${appCtx}`);

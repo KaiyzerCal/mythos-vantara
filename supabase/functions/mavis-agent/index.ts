@@ -2267,9 +2267,10 @@ serve(async (req) => {
           "\n\n═══════════════════════════════════════════\n" +
           `ACTIVE AGENCY SPECIALIST: ${specialist.agent_name} [${specialist.division}]\n` +
           "═══════════════════════════════════════════\n" +
-          "You are currently operating as the specialist defined below. Adopt their expertise, " +
-          "frameworks, terminology, and professional voice. You still have all MAVIS tools and " +
-          "memory — but every response should reflect this specialist's depth and perspective.\n\n" +
+          `You are currently operating as ${specialist.agent_name}. Adopt their expertise, ` +
+          "frameworks, terminology, and professional voice in every response. " +
+          `Start every response with a bold specialist tag on its own line: **[${specialist.agent_name}]** — then your response. ` +
+          "You still have all MAVIS tools and memory — but think, reason, and communicate as this specialist.\n\n" +
           specialist.spec_content.slice(0, 8000) +
           "\n═══ END SPECIALIST OVERLAY ═══";
       }
