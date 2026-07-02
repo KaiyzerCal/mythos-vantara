@@ -2251,6 +2251,30 @@ serve(async (req) => {
       }
     } catch { /* non-critical — proceed without behavioral context */ }
 
+    // ── Active Agency Specialist overlay ─────────────────────────────────────
+    // If the operator has activated a specialist from The Agency, prepend their
+    // full spec so MAVIS responds through that specialist's expertise and voice
+    // while keeping all MAVIS tools and memory intact.
+    try {
+      const { data: specialist } = await supabase
+        .from("mavis_active_agency_specialists")
+        .select("agent_name, division, spec_content")
+        .eq("user_id", userId)
+        .maybeSingle();
+
+      if (specialist?.spec_content) {
+        systemWithContext +=
+          "\n\n═══════════════════════════════════════════\n" +
+          `ACTIVE AGENCY SPECIALIST: ${specialist.agent_name} [${specialist.division}]\n` +
+          "═══════════════════════════════════════════\n" +
+          "You are currently operating as the specialist defined below. Adopt their expertise, " +
+          "frameworks, terminology, and professional voice. You still have all MAVIS tools and " +
+          "memory — but every response should reflect this specialist's depth and perspective.\n\n" +
+          specialist.spec_content.slice(0, 8000) +
+          "\n═══ END SPECIALIST OVERLAY ═══";
+      }
+    } catch { /* non-critical */ }
+
     // Log message_received signal (fire-and-forget)
     if (userId) {
       const _now = new Date();
