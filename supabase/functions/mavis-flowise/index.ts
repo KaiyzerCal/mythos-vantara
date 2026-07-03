@@ -27,6 +27,32 @@ function json(data: unknown, status = 200): Response {
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
+  const flowiseBase = Deno.env.get("FLOWISE_BASE_URL");
+  const flowiseKey  = Deno.env.get("FLOWISE_API_KEY");
+
+  // GET /mavis-flowise/chatflows — return catalog of available flows for the UI picker
+  const url = new URL(req.url);
+  if (req.method === "GET" && url.pathname.endsWith("/chatflows")) {
+    if (!flowiseBase) return json({ chatflows: [], error: "FLOWISE_BASE_URL not configured" });
+    try {
+      const headers: Record<string, string> = {};
+      if (flowiseKey) headers["Authorization"] = `Bearer ${flowiseKey}`;
+      const res = await fetch(`${flowiseBase}/api/v1/chatflows`, { headers, signal: AbortSignal.timeout(10000) });
+      if (!res.ok) throw new Error(`Flowise ${res.status}`);
+      const data = await res.json();
+      const chatflows = (Array.isArray(data) ? data : data?.chatflows ?? []).map((f: any) => ({
+        id: f.id,
+        name: f.name,
+        description: f.description ?? "",
+        type: f.type ?? "chatflow",
+        deployed: f.deployed ?? false,
+      }));
+      return json({ chatflows });
+    } catch (err) {
+      return json({ chatflows: [], error: err instanceof Error ? err.message : String(err) });
+    }
+  }
+
   try {
     const body = await req.json();
     const { question, chatId, history = [], overrideConfig } = body;

@@ -208,6 +208,22 @@ function normalizePayload(
     case "google-calendar":
     case "gcal":
       return normalizeCalendar(payload);
+    case "activepieces":
+    case "ap": {
+      // Activepieces flows POST here after completing so MAVIS can react to external events.
+      // The flow payload should include: flowName, triggerEvent, data, summary (optional).
+      const flowName = String(payload.flowName ?? payload.flow_name ?? "Activepieces flow");
+      const triggerEvent = String(payload.triggerEvent ?? payload.trigger_event ?? payload.event ?? "completed");
+      const summary = String(payload.summary ?? payload.result ?? "").slice(0, 400);
+      const goal = summary
+        ? `Activepieces: "${flowName}" completed (${triggerEvent}). Result: ${summary}. Log this and take any follow-up actions.`
+        : `Activepieces: "${flowName}" completed (${triggerEvent}). Log this event and notify me with any relevant follow-ups.`;
+      return {
+        goal,
+        event_type: `activepieces.${triggerEvent}`,
+        metadata: { flowName, triggerEvent, summary },
+      };
+    }
     default:
       return normalizeGeneric(payload, source);
   }
