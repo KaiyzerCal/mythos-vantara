@@ -1851,14 +1851,14 @@ async function runAgentLoop(
           {
             const _t = new Date();
             const _hasError = result !== null && typeof result === "object" && !!(result as Record<string, unknown>).error;
-            supabase.from("mavis_behavioral_signals").insert({
+            Promise.resolve(supabase.from("mavis_behavioral_signals").insert({
               user_id:     userId,
               signal_type: "tool_used",
               tool_name:   toolName,
               outcome:     _hasError ? "failure" : "success",
               hour_of_day: _t.getUTCHours(),
               day_of_week: _t.getUTCDay(),
-            }).catch(() => {});
+            })).catch(() => {});
           }
 
           return {
@@ -2278,13 +2278,13 @@ Deno.serve(async (req) => {
     // Log message_received signal (fire-and-forget)
     if (userId) {
       const _now = new Date();
-      supabase.from("mavis_behavioral_signals").insert({
+      Promise.resolve(supabase.from("mavis_behavioral_signals").insert({
         user_id:     userId,
         signal_type: "message_received",
         hour_of_day: _now.getUTCHours(),
         day_of_week: _now.getUTCDay(),
         metadata:    { mode },
-      }).catch(() => {});
+      })).catch(() => {});
     }
 
     // Prepend channel-specific formatting instructions for Telegram

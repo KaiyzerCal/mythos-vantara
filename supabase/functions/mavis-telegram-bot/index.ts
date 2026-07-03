@@ -1036,7 +1036,7 @@ async function setActiveAgency(uid: string, session: AgencySession | null): Prom
         consolidated:     true,
       });
       // Also sync to persistent DB table so the app reflects Telegram activations
-      await sb.from("mavis_active_agency_specialists").upsert({
+      await Promise.resolve(sb.from("mavis_active_agency_specialists").upsert({
         user_id:      uid,
         agent_id:     session.agent_id,
         agent_name:   session.name,
@@ -1044,9 +1044,9 @@ async function setActiveAgency(uid: string, session: AgencySession | null): Prom
         raw_url:      session.raw_url,
         spec_content: session.spec,
         activated_at: new Date().toISOString(),
-      }, { onConflict: "user_id" }).catch(() => null);
+      }, { onConflict: "user_id" })).catch(() => null);
     } else {
-      await sb.from("mavis_active_agency_specialists").delete().eq("user_id", uid).catch(() => null);
+      await Promise.resolve(sb.from("mavis_active_agency_specialists").delete().eq("user_id", uid)).catch(() => null);
     }
   } catch { /* non-fatal */ }
 }
@@ -1549,32 +1549,32 @@ async function executeDirectAction(type: string, params: Record<string, any>, ui
         return `Expense logged: ${params.description} ($${params.amount})`;
       }
       case "create_note": {
-        await sb.from("mavis_notes").insert({
+        await Promise.resolve(sb.from("mavis_notes").insert({
           user_id: uid,
           title:   params.title ?? "Note",
           content: params.content ?? "",
           tags:    params.tags ?? [],
-        }).catch(() => null);
+        })).catch(() => null);
         return `Note created: "${params.title}"`;
       }
       case "create_ally": {
-        await sb.from("allies").insert({
+        await Promise.resolve(sb.from("allies").insert({
           user_id:      uid,
           name:         params.name ?? "Ally",
           relationship: params.relationship ?? "contact",
           notes:        params.notes ?? "",
-        }).catch(() => null);
+        })).catch(() => null);
         return `Ally added: ${params.name}`;
       }
       default: {
         // Unrecognized type → queue to approvals for manual review
-        await sb.from("approvals").insert({
+        await Promise.resolve(sb.from("approvals").insert({
           user_id:        uid,
           action_type:    type,
           action_summary: `Action from persona/council: ${type}`.slice(0, 255),
           action_payload: params,
           status:         "pending",
-        }).catch(() => null);
+        })).catch(() => null);
         return `Action "${type}" queued`;
       }
     }
@@ -1850,7 +1850,7 @@ async function parseAndHandleProposals(
       status:         "pending",
       proposed_by:    charName,
     }));
-    await sb.from("approvals").insert(rows).catch(() => null);
+    await Promise.resolve(sb.from("approvals").insert(rows)).catch(() => null);
   }
 
   // Append action confirmations to the visible reply
@@ -2742,10 +2742,10 @@ async function handleChat(
       if (rawReply) {
         const reply = await parseAndHandleProposals(rawReply, uid, chatId, activeAgency.name);
         await send(chatId, reply);
-        await sb.from("mavis_agency_conversations").insert([
+        await Promise.resolve(sb.from("mavis_agency_conversations").insert([
           { user_id: uid, agent_id: activeAgency.agent_id, role: "user",      content: text     },
           { user_id: uid, agent_id: activeAgency.agent_id, role: "assistant", content: rawReply },
-        ]).catch((err) => console.warn("[telegram-bot] agency_conversations write failed", err));
+        ])).catch((err) => console.warn("[telegram-bot] agency_conversations write failed", err));
       } else {
         await send(chatId, `⚠️ ${activeAgency.name} is unavailable right now. Try again.`);
       }
