@@ -62,10 +62,9 @@ registerSkill(
 
     if (data?.status === "processing" && data?.request_id) {
       return (
-        `Music is being generated (${data.provider ?? "musicgen"}). ` +
-        `Request ID: \`${data.request_id}\`\n\n` +
-        `Poll for completion: call \`mavis-music-gen\` with ` +
-        `\`{ action: "poll", request_id: "${data.request_id}" }\`.`
+        `Music is being generated via ${data.provider ?? "musicgen"}. Polling automatically in the background...\n\n` +
+        `Request ID: \`${data.request_id}\`` +
+        `\n<!-- MAVIS_POLL:${JSON.stringify({ fn: "mavis-music-gen", request_id: data.request_id, provider: data.provider ?? "musicgen" })} -->`
       );
     }
 
