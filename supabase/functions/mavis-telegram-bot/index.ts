@@ -1910,7 +1910,7 @@ function classify(text: string): Classified {
     return { intent: "switch_persona", params: { name: personaMatch[2].trim() } };
 
   // Agency commands
-  if (/^\/?(agencies?|agency\s+list|the\s+agency)$/i.test(lower))
+  if (/^\/?(agency|agencies|agency\s+list|the\s+agency)$/i.test(lower))
     return { intent: "list_agency", params: {} };
   const agencyMatch = text.match(/^\/?(agency)\s+(.+)$/i);
   if (agencyMatch)

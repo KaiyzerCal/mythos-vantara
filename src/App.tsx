@@ -110,6 +110,8 @@ const AgencyPage = lazy(() => import("@/pages/AgencyPage"));
 const ProvidersPage = lazy(() => import("@/pages/ProvidersPage"));
 const NotebookPage = lazy(() => import("@/pages/NotebookPage"));
 const AirtablePage = lazy(() => import("@/pages/AirtablePage"));
+const CampaignsPage = lazy(() => import("@/pages/CampaignsPage").then(m => ({ default: m.CampaignsPage })));
+const GalleryPage = lazy(() => import("@/pages/GalleryPage").then(m => ({ default: m.GalleryPage })));
 // Public demo — no auth required
 const MavisDemo = lazy(() => import("@/pages/MavisDemo"));
 
@@ -244,6 +246,8 @@ function AppContent() {
               <Route path="/providers" element={<ProvidersPage />} />
               <Route path="/notebook" element={<NotebookPage />} />
               <Route path="/airtable" element={<AirtablePage />} />
+              <Route path="/campaigns" element={<CampaignsPage />} />
+              <Route path="/gallery" element={<GalleryPage />} />
               <Route path="/system-settings" element={<SystemSettingsPage />} />
               <Route path="*" element={<NotFound />} />
             </Routes>

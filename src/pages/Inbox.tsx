@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import ReactMarkdown from "react-markdown";
 import { supabase } from "@/integrations/supabase/client";
 import { PageHeader } from "@/components/SharedUI";
-import { Inbox as InboxIcon, Eye, CheckCircle, Clock, AlertCircle, BookOpen, ListTodo, XCircle, Loader2 } from "lucide-react";
+import { Inbox as InboxIcon, Eye, CheckCircle, Clock, AlertCircle, BookOpen, ListTodo, XCircle, Loader2, Mail, MailX, MailCheck } from "lucide-react";
 import { toast } from "sonner";
 import { motion, AnimatePresence } from "framer-motion";
 
@@ -43,7 +43,16 @@ interface MavisTask {
   created_at: string;
 }
 
-type InboxTab = "approvals" | "briefs" | "tasks";
+interface EmailWatch {
+  id: string;
+  contact_email: string;
+  context: string | null;
+  active: boolean;
+  created_at: string;
+  triggered_at: string | null;
+}
+
+type InboxTab = "approvals" | "briefs" | "tasks" | "email-watches";
 
 function timeAgo(iso: string): string {
   const diff = Date.now() - new Date(iso).getTime();
@@ -82,6 +91,7 @@ export default function Inbox() {
   const [approvals, setApprovals] = useState<Approval[]>([]);
   const [briefs, setBriefs] = useState<WatchtowerBrief[]>([]);
   const [tasks, setTasks] = useState<MavisTask[]>([]);
+  const [emailWatches, setEmailWatches] = useState<EmailWatch[]>([]);
   const [loading, setLoading] = useState(true);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [cancellingId, setCancellingId] = useState<string | null>(null);
@@ -96,7 +106,7 @@ export default function Inbox() {
       if (!session?.user) return;
       const uid = session.user.id;
 
-      const [approvalsRes, briefsRes, tasksRes] = await Promise.all([
+      const [approvalsRes, briefsRes, tasksRes, watchesRes] = await Promise.all([
         supabase
           .from("approvals")
           .select("*")
@@ -115,6 +125,12 @@ export default function Inbox() {
           .eq("user_id", uid)
           .order("created_at", { ascending: false })
           .limit(100),
+        (supabase as any)
+          .from("mavis_email_watches")
+          .select("*")
+          .eq("user_id", uid)
+          .order("created_at", { ascending: false })
+          .limit(50),
       ]);
 
       if (approvalsRes.error) console.warn("[Inbox] approvals:", approvalsRes.error.message);
@@ -125,6 +141,8 @@ export default function Inbox() {
 
       if (tasksRes.error) console.warn("[Inbox] tasks:", tasksRes.error.message);
       else setTasks((tasksRes.data ?? []) as MavisTask[]);
+
+      if (!watchesRes.error) setEmailWatches((watchesRes.data ?? []) as EmailWatch[]);
     } catch (err) {
       console.error("[Inbox] load error:", err);
     } finally {
@@ -327,6 +345,17 @@ export default function Inbox() {
           {activeTasks > 0 && (
             <span className="ml-2 px-1.5 py-0.5 rounded-full bg-primary/20 text-primary text-xs">
               {activeTasks}
+            </span>
+          )}
+        </button>
+        <button
+          onClick={() => setTab("email-watches")}
+          className={`px-4 py-2 text-xs font-mono border-b-2 transition-colors ${tab === "email-watches" ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"}`}
+        >
+          Email Watches
+          {emailWatches.filter(w => w.active).length > 0 && (
+            <span className="ml-2 px-1.5 py-0.5 rounded-full bg-cyan-500/20 text-cyan-400 text-xs">
+              {emailWatches.filter(w => w.active).length}
             </span>
           )}
         </button>
@@ -600,6 +629,62 @@ export default function Inbox() {
                 );})}
                 </>;
               })()}
+            </motion.div>
+          )}
+          {tab === "email-watches" && (
+            <motion.div key="email-watches" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="flex flex-col gap-2">
+              {emailWatches.length === 0 ? (
+                <div className="text-center py-12">
+                  <Mail size={20} className="text-muted-foreground mx-auto mb-2" />
+                  <p className="text-xs font-mono text-muted-foreground">No email watches active.</p>
+                  <p className="text-[10px] font-mono text-muted-foreground mt-1">
+                    Tell MAVIS "watch for a reply from [email]" to create one.
+                  </p>
+                </div>
+              ) : (
+                emailWatches.map((w) => (
+                  <motion.div key={w.id} layout className="border border-border rounded-lg px-4 py-3 flex items-start gap-3 hover:bg-muted/10 transition-colors">
+                    {w.active ? (
+                      <MailCheck size={14} className="text-cyan-400 shrink-0 mt-0.5" />
+                    ) : (
+                      <MailX size={14} className="text-muted-foreground shrink-0 mt-0.5" />
+                    )}
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-mono font-medium truncate">{w.contact_email}</p>
+                      {w.context && (
+                        <p className="text-[10px] font-mono text-muted-foreground mt-0.5 line-clamp-2">{w.context}</p>
+                      )}
+                      <div className="flex items-center gap-3 mt-1">
+                        <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded border ${w.active ? "text-cyan-400 border-cyan-500/30 bg-cyan-500/5" : "text-muted-foreground border-border bg-muted/10"}`}>
+                          {w.active ? "Watching" : "Stopped"}
+                        </span>
+                        {w.triggered_at && (
+                          <span className="text-[10px] font-mono text-green-400">
+                            Triggered {timeAgo(w.triggered_at)}
+                          </span>
+                        )}
+                        <span className="text-[10px] font-mono text-muted-foreground">Created {timeAgo(w.created_at)}</span>
+                      </div>
+                    </div>
+                    {w.active && (
+                      <button
+                        onClick={async () => {
+                          try {
+                            await (supabase as any).from("mavis_email_watches").update({ active: false }).eq("id", w.id);
+                            setEmailWatches((prev) => prev.map((x) => x.id === w.id ? { ...x, active: false } : x));
+                            toast.success("Email watch stopped");
+                          } catch {
+                            toast.error("Failed to stop watch");
+                          }
+                        }}
+                        className="shrink-0 text-[10px] font-mono text-muted-foreground hover:text-destructive border border-border/50 hover:border-destructive/30 rounded px-2 py-1 transition-colors"
+                      >
+                        Stop
+                      </button>
+                    )}
+                  </motion.div>
+                ))
+              )}
             </motion.div>
           )}
         </AnimatePresence>
