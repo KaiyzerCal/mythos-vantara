@@ -2091,7 +2091,7 @@ You are not a feature. You are the operator's autonomous agent. You learn. You a
 
 
 // ── Main handler ──────────────────────────────────────────────────────────────
-serve(async (req) => {
+Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
