@@ -22,6 +22,8 @@ import { useAuth } from "@/contexts/AuthContext";
 import { AppDataContext } from "@/contexts/AppDataContext";
 import { RANK_COLORS } from "@/types/rpg";
 import { NotificationBell } from "@/components/NotificationBell";
+import { useIsMobile } from "@/hooks/use-mobile";
+import { SpotifyWidget } from "@/components/SpotifyWidget";
 
 const PRIMARY_NAV = [
   { to: "/", icon: LayoutDashboard, label: "Dashboard" },
@@ -86,6 +88,8 @@ const INTEL_NAV = [
 const CREATOR_NAV = [
   { to: "/creator", icon: Clapperboard, label: "Video Editor" },
   { to: "/avatar-studio", icon: UserSquare2, label: "Avatar Studio" },
+  { to: "/gallery", icon: LayoutGrid, label: "Creative Gallery" },
+  { to: "/campaigns", icon: Zap, label: "Campaigns" },
   { to: "/production-intel", icon: Wand2, label: "Production Intel" },
   { to: "/websites", icon: Globe, label: "Website Builder" },
   { to: "/widgets", icon: LayoutTemplate, label: "Widgets" },
@@ -201,8 +205,14 @@ function useDraggableY(storageKey: string, defaultY: number) {
 }
 
 export default function AppSidebar() {
+  const isMobile = useIsMobile();
   const [open, setOpen] = useState(true);
   const { signOut } = useAuth();
+
+  // Auto-collapse on mobile screens
+  useEffect(() => {
+    if (isMobile) setOpen(false);
+  }, [isMobile]);
   const appData = useContext(AppDataContext);
   const { y, didMove, onPointerDown, onPointerMove, onPointerUp } = useDraggableY(TOGGLE_Y_KEY, 64);
 
@@ -319,6 +329,9 @@ export default function AppSidebar() {
               <SectionLabel label="Utilities" />
               {UTILITY_NAV.map((item) => <NavItem key={item.to} {...item} />)}
             </nav>
+
+            {/* Spotify now-playing */}
+            <SpotifyWidget />
 
             {/* Sign out */}
             <button
