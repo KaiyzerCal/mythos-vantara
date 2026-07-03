@@ -2871,7 +2871,7 @@ The agent backend is momentarily unreachable, so you cannot execute tools in THI
 // MAIN
 // ─────────────────────────────────────────────────────────────
 
-serve(async (req) => {
+Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: { "Access-Control-Allow-Origin": "*" } });
   }
