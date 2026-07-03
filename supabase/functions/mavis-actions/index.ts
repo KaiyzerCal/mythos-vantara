@@ -1655,8 +1655,35 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
       return { query: p.query, results, count: results.length };
     }
 
-    default:
+    default: {
+      // Activepieces fallback — dispatch to a configured flow for any action type
+      // not handled natively. Set ACTIVEPIECES_BASE_URL and ACTIVEPIECES_FLOWS (JSON
+      // map of actionType → flow ID) in Supabase secrets to enable.
+      const apBase    = Deno.env.get("ACTIVEPIECES_BASE_URL");
+      const apFlowsRaw = Deno.env.get("ACTIVEPIECES_FLOWS");
+      if (apBase && apFlowsRaw) {
+        try {
+          const flowMap: Record<string, string> = JSON.parse(apFlowsRaw);
+          const flowId = flowMap[actionType];
+          if (flowId) {
+            const res = await fetch(`${apBase}/api/v1/webhooks/${flowId}/sync`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ actionType, params: p, userId }),
+              signal: AbortSignal.timeout(30000),
+            });
+            if (!res.ok) throw new Error(`Activepieces returned ${res.status}: ${await res.text()}`);
+            const data = await res.json();
+            return { dispatched_to: "activepieces", flowId, result: data };
+          }
+        } catch (apErr) {
+          throw new Error(
+            `Activepieces dispatch failed for "${actionType}": ${apErr instanceof Error ? apErr.message : String(apErr)}`
+          );
+        }
+      }
       throw new Error(`Unknown MAVIS action: ${action.type}`);
+    }
   }
 }
 
