@@ -44,3 +44,4 @@ import "./debate/index";
 import "./resume-screen/index";
 import "./proposal-gen/index";
 import "./github-triage/index";
+import "./capability-manifest/index";
