@@ -51,3 +51,5 @@ import "./web-scrape/index";
 import "./youtube-intel/index";
 import "./influencer-research/index";
 import "./poster-gen/index";
+import "./music-gen/index";
+import "./logo-gen/index";
