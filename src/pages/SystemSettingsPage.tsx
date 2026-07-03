@@ -1137,10 +1137,19 @@ function AnalyticsSummaryCard({
   );
 }
 
+interface FeedbackRow {
+  id: string;
+  message_id: string;
+  rating: number;
+  mode: string | null;
+  created_at: string;
+}
+
 function LlmAnalyticsTab() {
   const { user } = useAuth();
 
   const [rows, setRows] = useState<LlmCall[]>([]);
+  const [feedback, setFeedback] = useState<FeedbackRow[]>([]);
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
@@ -1150,18 +1159,28 @@ function LlmAnalyticsTab() {
     const since = new Date();
     since.setDate(since.getDate() - 7);
 
-    const { data, error } = await (supabase as any)
-      .from("mavis_llm_calls")
-      .select("id, provider, mode, latency_ms, cost_usd, success, created_at")
-      .eq("user_id", user.id)
-      .gte("created_at", since.toISOString())
-      .order("created_at", { ascending: false });
+    const [llmRes, fbRes] = await Promise.all([
+      (supabase as any)
+        .from("mavis_llm_calls")
+        .select("id, provider, mode, latency_ms, cost_usd, success, created_at")
+        .eq("user_id", user.id)
+        .gte("created_at", since.toISOString())
+        .order("created_at", { ascending: false }),
+      (supabase as any)
+        .from("mavis_response_feedback")
+        .select("id, message_id, rating, mode, created_at")
+        .eq("user_id", user.id)
+        .gte("created_at", since.toISOString())
+        .order("created_at", { ascending: false })
+        .limit(200),
+    ]);
 
-    if (error) {
+    if (llmRes.error) {
       toast.error("Failed to load analytics");
     } else {
-      setRows((data ?? []) as LlmCall[]);
+      setRows((llmRes.data ?? []) as LlmCall[]);
     }
+    if (!fbRes.error) setFeedback((fbRes.data ?? []) as FeedbackRow[]);
     setLoading(false);
   }, [user]);
 
@@ -1343,6 +1362,66 @@ function LlmAnalyticsTab() {
               </table>
             </div>
           </div>
+        {/* Response Quality Feedback */}
+        {feedback.length > 0 && (() => {
+          const thumbsUp   = feedback.filter(f => f.rating === 1).length;
+          const thumbsDown = feedback.filter(f => f.rating === -1).length;
+          const total = feedback.length;
+
+          // Mode breakdown
+          const modeMap: Record<string, { up: number; down: number }> = {};
+          for (const f of feedback) {
+            const m = f.mode ?? "UNKNOWN";
+            if (!modeMap[m]) modeMap[m] = { up: 0, down: 0 };
+            if (f.rating === 1) modeMap[m].up++;
+            else if (f.rating === -1) modeMap[m].down++;
+          }
+          const modeRows = Object.entries(modeMap)
+            .map(([mode, counts]) => ({ mode, ...counts, pct: Math.round((counts.up / (counts.up + counts.down)) * 100) }))
+            .sort((a, b) => (b.up + b.down) - (a.up + a.down));
+
+          return (
+            <div className="border border-border rounded-lg p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <h3 className="text-xs font-mono text-primary uppercase tracking-widest">Response Quality (7d)</h3>
+                <div className="flex items-center gap-4 text-xs font-mono">
+                  <span className="text-emerald-400">👍 {thumbsUp}</span>
+                  <span className="text-red-400">👎 {thumbsDown}</span>
+                  <span className="text-muted-foreground">{total} rated</span>
+                  <span className={`font-bold ${thumbsUp / total > 0.7 ? "text-emerald-400" : thumbsUp / total > 0.4 ? "text-amber-400" : "text-red-400"}`}>
+                    {Math.round((thumbsUp / total) * 100)}% approval
+                  </span>
+                </div>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs font-mono">
+                  <thead>
+                    <tr className="text-muted-foreground border-b border-border">
+                      <th className="px-2 py-1.5 text-left">Mode</th>
+                      <th className="px-2 py-1.5 text-right">👍</th>
+                      <th className="px-2 py-1.5 text-right">👎</th>
+                      <th className="px-2 py-1.5 text-right">Approval</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {modeRows.map(row => (
+                      <tr key={row.mode} className="border-b border-border/30 hover:bg-muted/10">
+                        <td className="px-2 py-1.5 text-primary/80">{row.mode}</td>
+                        <td className="px-2 py-1.5 text-right text-emerald-400">{row.up}</td>
+                        <td className="px-2 py-1.5 text-right text-red-400">{row.down}</td>
+                        <td className="px-2 py-1.5 text-right">
+                          <span className={row.pct >= 70 ? "text-emerald-400" : row.pct >= 40 ? "text-amber-400" : "text-red-400"}>
+                            {row.pct}%
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          );
+        })()}
         </>
       )}
     </div>

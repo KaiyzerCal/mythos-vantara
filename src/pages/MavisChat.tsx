@@ -68,6 +68,29 @@ const QUICK_PROMPTS = [
   "Log a journal entry for this session",
 ];
 
+// Skill suggestions per mode — shown as one-click chips below quick prompts
+const MODE_SKILL_SUGGESTIONS: Record<string, string[]> = {
+  PRIME:      ["daily brief", "energy check", "goal review"],
+  ARCH:       ["comprehensive review", "knowledge extract", "doc gen"],
+  QUEST:      ["quest review", "habit check", "weekly retro"],
+  FORGE:      ["health protocol", "energy check", "habit check"],
+  CODEX:      ["knowledge extract", "doc gen", "pdf qa"],
+  SOVEREIGN:  ["opportunity scan", "revenue report", "competitor analysis"],
+  ENRYU:      ["daily brief", "goal review", "reflection prompt"],
+  WATCHTOWER: ["news brief", "market research", "crypto intel"],
+  AGENT:      ["company research", "web scrape", "youtube intel"],
+  RESEARCH:   ["market research", "news brief", "influencer research"],
+  REFLECT:    ["comprehensive review", "weekly retro", "reflection prompt"],
+  SALES:      ["lead gen", "outreach prep", "proposal gen"],
+  MARKET:     ["social content", "poster gen", "content brief"],
+  DATA:       ["data analysis", "revenue report", "finance brief"],
+  DEEP:       ["competitive intelligence", "market research", "data analysis"],
+  GAME_MASTER:["reflection prompt", "knowledge extract", "debate"],
+  WEBMASTER:  ["doc gen", "image gen", "content brief"],
+  FLOW:       ["doc gen", "data analysis", "enterprise search"],
+  AUTO:       ["daily brief", "image gen", "social content"],
+};
+
 const AGENCY_BASE = "https://raw.githubusercontent.com/KaiyzerCal/agency-agents/main";
 const QUICK_SPECIALISTS = [
   { label: "researcher", agentId: "specialized/business-strategist.md",                        name: "Business Strategist", division: "specialized" },
@@ -1769,7 +1792,7 @@ export default function MavisChat() {
         <ScrollToBottomButton visible={showScrollBtn} onClick={scrollToBottom} />
       </div>
 
-      {/* Quick prompts */}
+      {/* Quick prompts + mode-aware skill suggestions */}
       <div className="flex gap-1.5 flex-wrap">
         {QUICK_PROMPTS.map((p) => (
           <button
@@ -1778,6 +1801,16 @@ export default function MavisChat() {
             className="text-xs font-mono text-muted-foreground hover:text-primary border border-border/50 hover:border-primary/30 rounded px-2 py-1 transition-all"
           >
             {p}
+          </button>
+        ))}
+        {(MODE_SKILL_SUGGESTIONS[chatMode] ?? MODE_SKILL_SUGGESTIONS.AUTO).map((skill) => (
+          <button
+            key={skill}
+            onClick={() => setInput(skill)}
+            className="text-xs font-mono text-primary/50 hover:text-primary border border-primary/20 hover:border-primary/40 rounded px-2 py-1 transition-all"
+            title={`Quick-start: ${skill}`}
+          >
+            ⚡ {skill}
           </button>
         ))}
       </div>
