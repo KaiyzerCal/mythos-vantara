@@ -7,6 +7,7 @@ const corsHeaders = {
 
 const GEMINI_KEY = Deno.env.get("GEMINI_API_KEY") ?? "";
 const OPENAI_KEY = Deno.env.get("OPENAI_API") ?? Deno.env.get("OPENAI_API_KEY") ?? "";
+const FAL_KEY    = Deno.env.get("FAL_API_KEY") ?? "";
 // Self-hosted Stable Diffusion (AUTOMATIC1111 WebUI or Forge).
 // Deploy: docker run -d -p 7860:7860 --gpus all abhinavsingh/stable-diffusion-webui
 // Set: STABLE_DIFFUSION_URL=http://your-server:7860
@@ -43,6 +44,31 @@ async function generateWithStableDiffusion(prompt: string, width = 512, height =
 function parseDimensions(size = "1024x1024"): [number, number] {
   const [w, h] = size.split("x").map(Number);
   return [w || 512, h || 512];
+}
+
+// FLUX 1.1 Pro — highest-quality photorealistic image generation via fal.ai
+// Inserted between Imagen 4 and DALL-E 3 so it catches failures from either.
+async function generateWithFluxPro(prompt: string, size = "square_hd"): Promise<string | null> {
+  if (!FAL_KEY) return null;
+  try {
+    const sizeMap: Record<string, string> = {
+      "1024x1024": "square_hd",
+      "1792x1024": "landscape_16_9",
+      "1024x1792": "portrait_16_9",
+    };
+    const imageSize = sizeMap[size] ?? size;
+    const res = await fetch("https://fal.run/fal-ai/flux-pro/v1.1", {
+      method: "POST",
+      headers: { "Authorization": `Key ${FAL_KEY}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ prompt: prompt.trim().slice(0, 2000), image_size: imageSize, num_images: 1, safety_tolerance: "2" }),
+      signal: AbortSignal.timeout(60_000),
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data?.images?.[0]?.url ?? null;
+  } catch {
+    return null;
+  }
 }
 
 async function generateWithImagen4(prompt: string, aspectRatio = "1:1"): Promise<string> {
@@ -119,6 +145,16 @@ serve(async (req) => {
         provider = "imagen-4";
       } catch (e: any) {
         console.warn("Imagen 4 failed, falling back to DALL-E:", e.message);
+      }
+    }
+
+    // Tier 1.5 — FLUX 1.1 Pro (fal.ai, higher quality than DALL-E 3)
+    if (!imageData && FAL_KEY) {
+      try {
+        const fluxUrl = await generateWithFluxPro(prompt, size ?? "1024x1024");
+        if (fluxUrl) { imageData = fluxUrl; provider = "flux-pro"; }
+      } catch (e: any) {
+        console.warn("FLUX Pro failed, falling back to DALL-E 3:", e.message);
       }
     }
 
