@@ -50,3 +50,4 @@ import "./company-research/index";
 import "./web-scrape/index";
 import "./youtube-intel/index";
 import "./influencer-research/index";
+import "./poster-gen/index";
