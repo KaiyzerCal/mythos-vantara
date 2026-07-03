@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { Send, Square, Cpu, Copy, Check, ChevronDown, Zap, Brain, Target, Crown, Flame, Database, Mic, MicOff, Users, Search, FileCode, X, Download, Gamepad2, Layers, Globe, ThumbsUp, ThumbsDown, AlertTriangle, RefreshCw, Pencil } from "lucide-react";
+import { Send, Square, Cpu, Copy, Check, ChevronDown, Zap, Brain, Target, Crown, Flame, Database, Mic, MicOff, Users, Search, FileCode, X, Download, Gamepad2, Layers, Globe, ThumbsUp, ThumbsDown, AlertTriangle, RefreshCw, Pencil, BookOpen, Plus } from "lucide-react";
 import { useAppData } from "@/contexts/AppDataContext";
 import { supabase as _supabase } from "@/integrations/supabase/client";
 const supabase = _supabase as any;
@@ -19,6 +19,8 @@ import { ScrollProgressBar, BackToTopButton, ScrollToBottomButton, EndOfFeed } f
 import { SessionBlock, groupMessagesIntoSessions } from "@/components/chat/SessionBlock";
 import { VoiceChatOverlay } from "@/components/VoiceChatOverlay";
 import { MavisRealtimeVoice } from "@/components/MavisRealtimeVoice";
+import { InlineMediaPlayer } from "@/components/chat/InlineMediaPlayer";
+import { SkillCatalogDrawer } from "@/components/chat/SkillCatalogDrawer";
 
 // ── MAVIS modules ───────────────────────────────────────────
 import { buildSystemPromptFromSnapshot } from "@/mavis/buildSystemPrompt";
@@ -160,6 +162,9 @@ export default function MavisChat() {
 
   // ── Response length control ──
   const [responseLength, setResponseLength] = useState<"concise" | "normal" | "detailed">("normal");
+
+  // ── Skill catalog drawer ──
+  const [showSkillCatalog, setShowSkillCatalog] = useState(false);
 
   // ElevenLabs TTS + chat attachments
   const { speak, stop: stopSpeaking, isSpeaking, isLoading: isVoiceLoading } = useElevenLabsTts();
@@ -1255,8 +1260,21 @@ export default function MavisChat() {
               )}
               OmniSync
             </button>
-            <button onClick={clearChat} className="text-xs font-mono text-muted-foreground hover:text-destructive transition-colors">
-              Clear
+            <button
+              onClick={() => setShowSkillCatalog(true)}
+              className="flex items-center gap-1.5 text-xs font-mono text-muted-foreground hover:text-primary border border-border/60 hover:border-primary/40 rounded px-2 py-1 transition-all"
+              title="Browse all 44 skills"
+            >
+              <BookOpen size={12} />
+              Skills
+            </button>
+            <button
+              onClick={clearChat}
+              className="flex items-center gap-1 text-xs font-mono text-muted-foreground hover:text-primary border border-border/60 hover:border-primary/40 rounded px-2 py-1 transition-all"
+              title="New conversation"
+            >
+              <Plus size={12} />
+              New Chat
             </button>
           </div>
         }
@@ -1604,6 +1622,13 @@ export default function MavisChat() {
                               />
                             </div>
                           )}
+                          {/* Auto-detect audio / video / HTML poster URLs in message text */}
+                          {msg.role === "assistant" && (
+                            <InlineMediaPlayer
+                              content={msg.content}
+                              imageUrl={(msg as any).imageUrl}
+                            />
+                          )}
                           {(msg as any).sources?.length > 0 && (
                             <div className="mt-2 flex flex-col gap-0.5">
                               {(msg as any).sources.map((s: { title: string; url: string }, i: number) => (
@@ -1916,6 +1941,14 @@ export default function MavisChat() {
 
       {/* Voice controls */}
       <div className="flex items-center gap-2 justify-end flex-wrap">
+        {/* Skill catalog shortcut */}
+        <button
+          onClick={() => setShowSkillCatalog(true)}
+          className="flex items-center gap-1 text-xs font-mono text-muted-foreground hover:text-primary border border-border/50 hover:border-primary/30 rounded px-2 py-0.5 transition-all"
+          title="Browse all skills"
+        >
+          <BookOpen size={10} /> Skills
+        </button>
         {/* Response length chips */}
         {(["concise", "normal", "detailed"] as const).map((len, i) => {
           const label = ["S", "M", "L"][i];
@@ -2149,6 +2182,14 @@ export default function MavisChat() {
         setConfirmRemoveOrder(null);
       }}
       onCancel={() => setConfirmRemoveOrder(null)}
+    />
+    <SkillCatalogDrawer
+      open={showSkillCatalog}
+      onClose={() => setShowSkillCatalog(false)}
+      onUseSkill={(trigger) => {
+        setInput(trigger);
+        setTimeout(() => inputRef.current?.focus(), 50);
+      }}
     />
     </>
   );
