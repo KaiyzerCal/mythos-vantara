@@ -55,6 +55,7 @@ const MAVIS_MODES = [
   { id: "DEEP",        label: "DEEP",        icon: Layers,    color: "text-indigo-400",  desc: "Gemini 2.5 Flash · Extended thinking (8K budget)" },
   { id: "GAME_MASTER", label: "GAME MASTER", icon: Gamepad2,  color: "text-violet-400",  desc: "Gemini 2.5 · Narrative arcs & consequence engine" },
   { id: "WEBMASTER",  label: "WEBMASTER",  icon: Globe,     color: "text-cyan-400",    desc: "Build complete client websites — AI copy, Gutenberg blocks, WordPress publishing" },
+  { id: "FLOW",       label: "FLOW",       icon: Layers,    color: "text-indigo-300",   desc: "Flowise · Visual agent chains, RAG pipelines & custom LLM flows" },
   { id: "AUTO",       label: "AUTO",       icon: Cpu,       color: "text-emerald-300",  desc: "Auto-routing · MAVIS selects the optimal mode based on your message" },
 ];
 
@@ -824,6 +825,40 @@ export default function MavisChat() {
         } finally {
           setIsLoading(false);
           setAgentThinking(null);
+        }
+        return;
+      }
+
+      // ── FLOW mode (Flowise visual agent chains) ──────────────
+      if (chatMode === "FLOW") {
+        streamingId = `flow-${Date.now()}`;
+        setChatMessages((prev) => [...prev, {
+          id: streamingId, role: "assistant" as const,
+          content: "", mode: chatMode, timestamp: new Date(),
+        }]);
+        try {
+          const { data: flowData, error: flowErr } = await supabase.functions.invoke("mavis-flowise", {
+            body: { question: content, chatId: userId, history },
+          });
+          if (flowErr) throw flowErr;
+          const flowText = flowData?.content ?? JSON.stringify(flowData);
+          const flowMsg = {
+            id: `f-${Date.now()}`,
+            role: "assistant" as const,
+            content: flowText,
+            mode: chatMode,
+            timestamp: new Date(),
+          };
+          setChatMessages((prev) => prev.filter((m) => m.id !== streamingId).concat(flowMsg));
+          if (convoId) persistMessage({ role: "assistant", content: flowText, mode: chatMode }, convoId);
+        } catch (err: any) {
+          setChatMessages((prev) => prev.filter((m) => m.id !== streamingId).concat({
+            id: `err-${Date.now()}`, role: "assistant" as const,
+            content: `[FLOW ERROR] ${err?.message ?? "unknown"} — check that FLOWISE_BASE_URL is set in Supabase secrets`,
+            mode: chatMode, timestamp: new Date(),
+          }));
+        } finally {
+          setIsLoading(false);
         }
         return;
       }

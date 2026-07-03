@@ -23,3 +23,7 @@ import "./enterprise-search/index";
 import "./outreach-prep/index";
 import "./content-brief/index";
 import "./design-generate/index";
+import "./competitive-intelligence/index";
+import "./meeting-brief/index";
+import "./social-content/index";
+import "./market-research/index";
