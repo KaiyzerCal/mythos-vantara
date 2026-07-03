@@ -45,3 +45,8 @@ import "./resume-screen/index";
 import "./proposal-gen/index";
 import "./github-triage/index";
 import "./capability-manifest/index";
+import "./crypto-intel/index";
+import "./company-research/index";
+import "./web-scrape/index";
+import "./youtube-intel/index";
+import "./influencer-research/index";

@@ -16,6 +16,7 @@ context/
   user.md          ← who Calvin is, how he works
   soul.md          ← agent posture, cadence, what to push back on
   brand/           ← single source of truth for voice and business
+  api-catalog.md   ← curated Apify actors, MCP servers, and rtk setup
 Team/
   ROSTER.md        ← who's on the team, skills, routing keywords
   Researcher/      ← investigation, benchmarking, source gathering
@@ -35,6 +36,23 @@ journal.md         ← audit trail; every dispatch appended; read tail on start
 supabase/          ← edge functions; treat as production code
 src/               ← React frontend; treat as production code
 ```
+
+## RTK — Token Saver (60-90% reduction)
+
+Calvin's `KaiyzerCal/rtk` repo is a Rust CLI that compresses command outputs before they hit LLM context. Run `rtk init -g` once (after building/installing it) to set up Claude Code hooks. After setup, prefer:
+
+- `rtk git status` over `git status`
+- `rtk ls src/` over `ls src/`
+- `rtk grep "..." .` over grep
+- `rtk pnpm build` over pnpm build
+
+See `context/api-catalog.md` → RTK section for full setup instructions.
+
+## Apify Integration
+
+`supabase/functions/mavis-apify/index.ts` — proxies any Apify actor call. 
+Requires `APIFY_API_KEY` in Supabase secrets vault.
+`context/api-catalog.md` lists all 20+ curated actors and 131 MCP servers from `KaiyzerCal/API-mega-list`.
 
 ## Routing
 
