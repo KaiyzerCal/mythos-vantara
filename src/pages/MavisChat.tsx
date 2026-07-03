@@ -55,6 +55,7 @@ const MAVIS_MODES = [
   { id: "DEEP",        label: "DEEP",        icon: Layers,    color: "text-indigo-400",  desc: "Gemini 2.5 Flash · Extended thinking (8K budget)" },
   { id: "GAME_MASTER", label: "GAME MASTER", icon: Gamepad2,  color: "text-violet-400",  desc: "Gemini 2.5 · Narrative arcs & consequence engine" },
   { id: "WEBMASTER",  label: "WEBMASTER",  icon: Globe,     color: "text-cyan-400",    desc: "Build complete client websites — AI copy, Gutenberg blocks, WordPress publishing" },
+  { id: "FLOW",       label: "FLOW",       icon: Layers,    color: "text-indigo-300",   desc: "Flowise · Visual agent chains, RAG pipelines & custom LLM flows" },
   { id: "AUTO",       label: "AUTO",       icon: Cpu,       color: "text-emerald-300",  desc: "Auto-routing · MAVIS selects the optimal mode based on your message" },
 ];
 
@@ -63,6 +64,15 @@ const QUICK_PROMPTS = [
   "Status check across all arcs",
   "Log a journal entry for this session",
 ];
+
+const AGENCY_BASE = "https://raw.githubusercontent.com/KaiyzerCal/agency-agents/main";
+const QUICK_SPECIALISTS = [
+  { label: "researcher", agentId: "specialized/business-strategist.md",                        name: "Business Strategist", division: "specialized" },
+  { label: "analyst",    agentId: "finance/finance-financial-analyst.md",                      name: "Financial Analyst",   division: "finance" },
+  { label: "executor",   agentId: "specialized/specialized-chief-of-staff.md",                 name: "Chief of Staff",      division: "specialized" },
+  { label: "planner",    agentId: "project-management/project-management-project-shepherd.md", name: "Project Shepherd",    division: "project-management" },
+  { label: "writer",     agentId: "marketing/marketing-content-creator.md",                   name: "Content Creator",     division: "marketing" },
+] as const;
 
 export default function MavisChat() {
   const navigate = useNavigate();
@@ -109,6 +119,11 @@ export default function MavisChat() {
   const [superContext, setSuperContext] = useState<string | null>(null);
   const superContextLoaded = useRef(false);
 
+  // ── Active Agency Specialist ──
+  const [activeSpecialist, setActiveSpecialist] = useState<{
+    agent_id: string; agent_name: string; division: string; spec_content: string;
+  } | null>(null);
+
   // ── Agent Mode (Action Queue integration) ──
   const [agentModeOn, setAgentModeOn] = useState(false);
   const [lastAgentMeta, setLastAgentMeta] = useState<{ toolsUsed: string[]; actionsQueued: number } | null>(null);
@@ -150,6 +165,35 @@ export default function MavisChat() {
   const { speak, stop: stopSpeaking, isSpeaking, isLoading: isVoiceLoading } = useElevenLabsTts();
   const { attachments, isUploading, upload, remove, clearStaged } = useChatAttachments("mavis", "main");
   const [isDragging, setIsDragging] = useState(false);
+
+  // ── Activate a quick-specialist from the Agent Mode panel ──
+  async function activateSpecialistFromPanel(spec: (typeof QUICK_SPECIALISTS)[number]) {
+    const rawUrl = `${AGENCY_BASE}/${spec.agentId}`;
+    try {
+      const [specRes, { data: { user } }] = await Promise.all([
+        fetch(rawUrl, { signal: AbortSignal.timeout(15000) }),
+        supabase.auth.getUser(),
+      ]);
+      if (!user) { toast.error("Not signed in"); return; }
+      if (!specRes.ok) throw new Error(`Could not fetch spec (${specRes.status})`);
+      const specContent = await specRes.text();
+      const { error } = await supabase.from("mavis_active_agency_specialists").upsert({
+        user_id:      user.id,
+        agent_id:     spec.agentId,
+        agent_name:   spec.name,
+        division:     spec.division,
+        raw_url:      rawUrl,
+        spec_content: specContent,
+        activated_at: new Date().toISOString(),
+      }, { onConflict: "user_id" });
+      if (error) throw error;
+      setActiveSpecialist({ agent_id: spec.agentId, agent_name: spec.name, division: spec.division, spec_content: specContent });
+      setAgentModeOn(true);
+      toast.success(`${spec.name} activated — AGENT mode enabled`);
+    } catch (err: any) {
+      toast.error(`Activation failed: ${err?.message ?? "unknown error"}`);
+    }
+  }
 
   // ── Register the mavis-actions edge function as default action handler ──
   useEffect(() => {
@@ -334,6 +378,14 @@ export default function MavisChat() {
         // Pre-load personas for picker
         supabase.from("personas").select("id, name, system_prompt").eq("is_active", true).eq("user_id", userId)
           .then(({ data }: any) => { if (!cancelled && data) setPickerPersonas(data as any); })
+          .catch(() => {});
+
+        // Load active agency specialist
+        supabase.from("mavis_active_agency_specialists")
+          .select("agent_id, agent_name, division, spec_content")
+          .eq("user_id", userId)
+          .maybeSingle()
+          .then(({ data }: any) => { if (!cancelled && data) setActiveSpecialist(data); })
           .catch(() => {});
 
         const { data: convos } = await supabase
@@ -748,7 +800,7 @@ export default function MavisChat() {
             },
           });
           if (agentErr) throw agentErr;
-          const agentText = agentData?.response ?? agentData?.result ?? agentData?.output ?? JSON.stringify(agentData);
+          const agentText = agentData?.content ?? agentData?.response ?? agentData?.result ?? agentData?.output ?? JSON.stringify(agentData);
           const toolsUsed: string[] = agentData?.toolsUsed ?? agentData?.tools_used ?? [];
           const actionsQueued: number = agentData?.actionsQueued ?? agentData?.actions_queued ?? 0;
           setLastAgentMeta({ toolsUsed, actionsQueued });
@@ -777,6 +829,40 @@ export default function MavisChat() {
         return;
       }
 
+      // ── FLOW mode (Flowise visual agent chains) ──────────────
+      if (chatMode === "FLOW") {
+        streamingId = `flow-${Date.now()}`;
+        setChatMessages((prev) => [...prev, {
+          id: streamingId, role: "assistant" as const,
+          content: "", mode: chatMode, timestamp: new Date(),
+        }]);
+        try {
+          const { data: flowData, error: flowErr } = await supabase.functions.invoke("mavis-flowise", {
+            body: { question: content, chatId: userId, history },
+          });
+          if (flowErr) throw flowErr;
+          const flowText = flowData?.content ?? JSON.stringify(flowData);
+          const flowMsg = {
+            id: `f-${Date.now()}`,
+            role: "assistant" as const,
+            content: flowText,
+            mode: chatMode,
+            timestamp: new Date(),
+          };
+          setChatMessages((prev) => prev.filter((m) => m.id !== streamingId).concat(flowMsg));
+          if (convoId) persistMessage({ role: "assistant", content: flowText, mode: chatMode }, convoId);
+        } catch (err: any) {
+          setChatMessages((prev) => prev.filter((m) => m.id !== streamingId).concat({
+            id: `err-${Date.now()}`, role: "assistant" as const,
+            content: `[FLOW ERROR] ${err?.message ?? "unknown"} — check that FLOWISE_BASE_URL is set in Supabase secrets`,
+            mode: chatMode, timestamp: new Date(),
+          }));
+        } finally {
+          setIsLoading(false);
+        }
+        return;
+      }
+
       // Use fresh Supabase context if available, else fall back to useAppData() data
       let systemPrompt = await (fullCtx
         ? buildSystemPromptFromSnapshot(chatMode, fullCtx, archivedMemories, vaultMedia)
@@ -796,6 +882,19 @@ export default function MavisChat() {
       if (responseLength === "concise") systemPrompt += "\n\n[RESPONSE LENGTH: Be concise — 2-4 sentences unless more is genuinely needed.]";
       else if (responseLength === "detailed") systemPrompt += "\n\n[RESPONSE LENGTH: Be thorough and detailed — elaborate with examples where useful.]";
       if (selectedPersonaPrompt) systemPrompt += `\n\n--- ACTIVE PERSONA ---\n${selectedPersonaPrompt}\n---`;
+      if (activeSpecialist) {
+        const divLabel = activeSpecialist.division.replace(/-/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase());
+        systemPrompt +=
+          `\n\n═══════════════════════════════════════════\n` +
+          `ACTIVE AGENCY SPECIALIST: ${activeSpecialist.agent_name} [${divLabel}]\n` +
+          `═══════════════════════════════════════════\n` +
+          `You are currently operating as ${activeSpecialist.agent_name}, a specialist from The Agency. ` +
+          `Adopt their expertise, frameworks, terminology, and professional voice in every response. ` +
+          `Start every response with a bold specialist tag: **[${activeSpecialist.agent_name}]** on its own line, then your response. ` +
+          `You still have all MAVIS tools and memory — but think, reason, and communicate as this specialist.\n\n` +
+          activeSpecialist.spec_content.slice(0, 8000) +
+          `\n═══ END SPECIALIST OVERLAY ═══`;
+      }
       const attachmentIds = attachments.map((a) => a.id);
 
       // Add a streaming placeholder bubble so the user sees tokens as they arrive
@@ -1162,6 +1261,40 @@ export default function MavisChat() {
           </div>
         }
       />
+
+      {/* Active Agency Specialist banner */}
+      <AnimatePresence>
+        {activeSpecialist && (
+          <motion.div
+            initial={{ opacity: 0, y: -4 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -4 }}
+            className="flex items-center justify-between px-4 py-2 bg-violet-500/10 border-b border-violet-500/20 shrink-0"
+          >
+            <div className="flex items-center gap-2">
+              <div className="w-1.5 h-1.5 rounded-full bg-violet-400 animate-pulse" />
+              <span className="text-[11px] font-mono text-violet-300">
+                SPECIALIST ACTIVE —{" "}
+                <strong className="text-violet-200">{activeSpecialist.agent_name}</strong>
+                <span className="text-violet-500 ml-1">
+                  [{activeSpecialist.division.replace(/-/g, " ").toUpperCase()}]
+                </span>
+              </span>
+            </div>
+            <button
+              onClick={async () => {
+                const { data: { user } } = await (supabase as any).auth.getUser();
+                if (!user) return;
+                await (supabase as any).from("mavis_active_agency_specialists").delete().eq("user_id", user.id);
+                setActiveSpecialist(null);
+              }}
+              className="text-[10px] font-mono text-violet-600 hover:text-violet-400 transition-colors"
+            >
+              Deactivate ×
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Action status bar */}
       <AnimatePresence>
@@ -1638,13 +1771,48 @@ export default function MavisChat() {
 
             {agentPanelTab === "specialist" ? (
               <>
+                {activeSpecialist ? (
+                  <div className="flex items-center justify-between px-2 py-1.5 rounded border border-violet-500/30 bg-violet-500/10">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <div className="w-1.5 h-1.5 rounded-full bg-violet-400 animate-pulse shrink-0" />
+                      <span className="text-xs font-mono text-violet-300 truncate">{activeSpecialist.agent_name}</span>
+                    </div>
+                    <button
+                      onClick={async () => {
+                        const { data: { user } } = await supabase.auth.getUser();
+                        if (!user) return;
+                        await supabase.from("mavis_active_agency_specialists").delete().eq("user_id", user.id);
+                        setActiveSpecialist(null);
+                        toast.success("Specialist deactivated");
+                      }}
+                      className="text-[10px] font-mono text-muted-foreground hover:text-rose-400 transition-colors shrink-0 ml-2"
+                    >deactivate ×</button>
+                  </div>
+                ) : (
+                  <p className="text-[10px] font-mono text-muted-foreground">
+                    No specialist active — quick-pick below or{" "}
+                    <button onClick={() => navigate("/agency")} className="text-violet-400 hover:underline">browse all 182 →</button>
+                  </p>
+                )}
                 <div className="flex gap-2 flex-wrap">
-                  {(["researcher", "analyst", "executor", "planner", "writer"] as const).map((s) => (
-                    <button key={s} onClick={() => {}}
-                      className="text-xs font-mono px-2 py-1 rounded border border-border/50 text-muted-foreground hover:text-foreground transition-colors">{s}</button>
-                  ))}
+                  {QUICK_SPECIALISTS.map((s) => {
+                    const isActive = activeSpecialist?.agent_id === s.agentId;
+                    return (
+                      <button key={s.label}
+                        onClick={() => activateSpecialistFromPanel(s)}
+                        title={s.name}
+                        className={`text-xs font-mono px-2 py-1 rounded border transition-colors ${
+                          isActive
+                            ? "bg-violet-500/20 border-violet-500/40 text-violet-300"
+                            : "border-border/50 text-muted-foreground hover:text-foreground hover:border-violet-500/30"
+                        }`}
+                      >{isActive ? `✓ ${s.label}` : s.label}</button>
+                    );
+                  })}
                 </div>
-                <p className="text-xs font-mono text-muted-foreground">Type your task in the input above and send — AGENT mode routes to the specialist automatically.</p>
+                {!activeSpecialist && (
+                  <p className="text-xs font-mono text-muted-foreground">Activating a specialist injects their full expertise into MAVIS and enables AGENT mode.</p>
+                )}
               </>
             ) : agentPanelTab === "crew" ? (
 

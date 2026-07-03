@@ -829,6 +829,7 @@ export default function FactoryPage() {
   // React state for HUD only
   const [hudStats, setHudStats] = useState({ personas: 0, councils: 0, tasks: 0, goals: 0, memories: 0 });
   const [loading, setLoading] = useState(false);
+  const [cursor, setCursor] = useState<"grab" | "grabbing">("grab");
 
   const { user } = useAuth();
   const navigate = useNavigate();
@@ -878,35 +879,52 @@ export default function FactoryPage() {
 
   useEffect(() => { loadData(); }, [loadData]);
 
-  // ── Pan ────────────────────────────────────────────────────
-  const handleMouseDown = useCallback((e: React.MouseEvent) => {
-    panRef.current.dragging = true;
-    panRef.current.startX = e.clientX + panRef.current.x;
-    panRef.current.startY = e.clientY + panRef.current.y;
-  }, []);
-  const handleMouseMove = useCallback((e: React.MouseEvent) => {
-    if (!panRef.current.dragging) return;
-    const canvas = canvasRef.current; if (!canvas) return;
-    const maxX = Math.max(0, V_COLS * TILE - canvas.clientWidth);
-    const maxY = Math.max(0, V_ROWS * TILE - canvas.clientHeight);
-    panRef.current.x = Math.max(0, Math.min(maxX, panRef.current.startX - e.clientX));
-    panRef.current.y = Math.max(0, Math.min(maxY, panRef.current.startY - e.clientY));
-  }, []);
-  const handleMouseUp = useCallback(() => { panRef.current.dragging = false; }, []);
+  // ── Pan & click via window-level events ─────────────────────────
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    let downX = 0, downY = 0;
 
-  // ── Click ──────────────────────────────────────────────────
-  const handleClick = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
-    if (panRef.current.dragging) return;
-    const canvas = canvasRef.current; if (!canvas) return;
-    const rect = canvas.getBoundingClientRect();
-    const mx = (e.clientX - rect.left + panRef.current.x) / TILE;
-    const my = (e.clientY - rect.top  + panRef.current.y) / TILE;
-    for (const m of ASSEMBLY_MACHINES) {
-      if (mx >= m.col && mx < m.col + m.w && my >= m.row && my < m.row + m.h) {
-        setSelectedMachine(m); return;
+    function onDown(e: MouseEvent) {
+      panRef.current.dragging = true;
+      panRef.current.startX = e.clientX + panRef.current.x;
+      panRef.current.startY = e.clientY + panRef.current.y;
+      downX = e.clientX; downY = e.clientY;
+      setCursor("grabbing");
+      e.preventDefault();
+    }
+    function onMove(e: MouseEvent) {
+      if (!panRef.current.dragging) return;
+      const maxX = Math.max(0, V_COLS * TILE - canvas.clientWidth);
+      const maxY = Math.max(0, V_ROWS * TILE - canvas.clientHeight);
+      panRef.current.x = Math.max(0, Math.min(maxX, panRef.current.startX - e.clientX));
+      panRef.current.y = Math.max(0, Math.min(maxY, panRef.current.startY - e.clientY));
+    }
+    function onUp(e: MouseEvent) {
+      if (!panRef.current.dragging) return;
+      panRef.current.dragging = false;
+      setCursor("grab");
+      const dx = e.clientX - downX, dy = e.clientY - downY;
+      if (Math.sqrt(dx * dx + dy * dy) < 5) {
+        const rect = canvas.getBoundingClientRect();
+        const mx = (e.clientX - rect.left + panRef.current.x) / TILE;
+        const my = (e.clientY - rect.top + panRef.current.y) / TILE;
+        for (const m of ASSEMBLY_MACHINES) {
+          if (mx >= m.col && mx < m.col + m.w && my >= m.row && my < m.row + m.h) {
+            setSelectedMachine(m); return;
+          }
+        }
+        setSelectedMachine(null);
       }
     }
-    setSelectedMachine(null);
+    canvas.addEventListener("mousedown", onDown);
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    return () => {
+      canvas.removeEventListener("mousedown", onDown);
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
   }, []);
 
   // ── Game loop ──────────────────────────────────────────────
@@ -934,7 +952,7 @@ export default function FactoryPage() {
     // ── Assembly machines ─────────────────────────────────
     for (const m of ASSEMBLY_MACHINES) {
       const status = state[m.statusKey as keyof FactoryState] as MachineStatus | any;
-      const resolved: MachineStatus = typeof status === "string" ? status : "active";
+      const resolved: MachineStatus = (typeof status === "string" ? status : "active") as MachineStatus;
       drawAssemblyMachine(ctx, m, resolved, tick, panX, panY);
     }
 
@@ -1042,16 +1060,11 @@ export default function FactoryPage() {
   return (
     <div
       className="relative w-full overflow-hidden bg-[#1e1c0e]"
-      style={{ height: "calc(100vh - 64px)", cursor: panRef.current.dragging ? "grabbing" : "grab" }}
+      style={{ height: "calc(100vh - 64px)", cursor }}
     >
       <canvas
         ref={canvasRef}
         className="w-full h-full"
-        onMouseDown={handleMouseDown}
-        onMouseMove={handleMouseMove}
-        onMouseUp={handleMouseUp}
-        onMouseLeave={handleMouseUp}
-        onClick={handleClick}
         style={{ cursor: "inherit" }}
       />
 

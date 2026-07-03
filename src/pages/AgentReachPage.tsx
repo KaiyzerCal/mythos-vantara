@@ -24,14 +24,15 @@ const supabase: any = supabaseTyped;
 const SB_URL = import.meta.env.VITE_SUPABASE_URL ?? "";
 
 const PLATFORMS = [
-  { id: "auto",    label: "Auto",    icon: Zap,         color: "#a78bfa", desc: "Detect from URL/query" },
-  { id: "web",     label: "Web",     icon: Globe,       color: "#3b82f6", desc: "Jina Reader — any URL" },
-  { id: "github",  label: "GitHub",  icon: Github,      color: "#6b7280", desc: "Repos, code, issues" },
+  { id: "auto",    label: "Auto",    icon: Zap,           color: "#a78bfa", desc: "Detect from URL/query" },
+  { id: "web",     label: "Web",     icon: Globe,         color: "#3b82f6", desc: "Jina Reader — any URL" },
+  { id: "github",  label: "GitHub",  icon: Github,        color: "#6b7280", desc: "Repos, code, issues" },
   { id: "reddit",  label: "Reddit",  icon: MessageSquare, color: "#f97316", desc: "Search threads" },
-  { id: "rss",     label: "RSS",     icon: Rss,         color: "#eab308", desc: "Any RSS/Atom feed" },
-  { id: "youtube", label: "YouTube", icon: Play,        color: "#ef4444", desc: "Video info & transcript" },
-  { id: "exa",     label: "Exa AI",  icon: Search,      color: "#8b5cf6", desc: "Semantic search" },
-  { id: "multi",   label: "Multi",   icon: Database,    color: "#22c55e", desc: "Search all at once" },
+  { id: "rss",     label: "RSS",     icon: Rss,           color: "#eab308", desc: "Any RSS/Atom feed" },
+  { id: "youtube", label: "YouTube", icon: Play,          color: "#ef4444", desc: "Video info & transcript" },
+  { id: "exa",     label: "Exa AI",  icon: Search,        color: "#8b5cf6", desc: "Semantic search" },
+  { id: "searxng", label: "SearXNG", icon: TrendingUp,    color: "#10b981", desc: "Private metasearch engine" },
+  { id: "multi",   label: "Multi",   icon: Database,      color: "#22c55e", desc: "Search all at once" },
 ] as const;
 
 type PlatformId = typeof PLATFORMS[number]["id"];
@@ -42,6 +43,7 @@ const CHANNEL_HEALTH_LABELS: Record<string, string> = {
   reddit: "Reddit JSON",
   rss: "RSS Reader",
   exa: "Exa Search",
+  searxng: "SearXNG (Private)",
 };
 
 // ─── Types ────────────────────────────────────────────────────
@@ -274,6 +276,44 @@ function MultiResult({ data }: { data: SearchResult }) {
   );
 }
 
+function SearXNGResult({ data }: { data: SearchResult }) {
+  const items: any[] = (data as any).items ?? [];
+  return (
+    <div className="space-y-2">
+      <p className="text-[10px] text-zinc-500 font-mono px-1">
+        {(data as any).number_of_results ? `~${(data as any).number_of_results?.toLocaleString()} results` : `${items.length} results`} via SearXNG
+      </p>
+      {items.map((item: any, i: number) => (
+        <div key={i} className="border border-zinc-800 rounded-xl p-3 bg-zinc-900/50 hover:bg-zinc-900 transition-colors">
+          <div className="flex items-start gap-2">
+            <div className="flex-1 min-w-0">
+              <a href={item.url} target="_blank" rel="noopener noreferrer"
+                className="text-sm text-emerald-400 hover:text-emerald-300 font-medium line-clamp-1 block">
+                {item.title}
+              </a>
+              <p className="text-[10px] text-zinc-600 font-mono truncate mt-0.5">{item.url}</p>
+              {item.content && <p className="text-xs text-zinc-400 mt-1 line-clamp-3">{item.content}</p>}
+            </div>
+            {item.engine && (
+              <span className="text-[9px] font-mono text-zinc-600 border border-zinc-800 px-1 py-0.5 rounded shrink-0">{item.engine}</span>
+            )}
+          </div>
+        </div>
+      ))}
+      {(data as any).suggestions?.length > 0 && (
+        <div className="pt-2">
+          <p className="text-[9px] font-mono text-zinc-600 mb-1">SUGGESTIONS</p>
+          <div className="flex flex-wrap gap-1">
+            {(data as any).suggestions.map((s: string, i: number) => (
+              <span key={i} className="text-[9px] font-mono text-zinc-500 border border-zinc-800 px-1.5 py-0.5 rounded">{s}</span>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ResultDisplay({ data }: { data: SearchResult }) {
   if (data.platform === "web") return <WebResult data={data} />;
   if (data.platform === "github" && data.type === "file") return <GithubFileResult data={data} />;
@@ -281,6 +321,7 @@ function ResultDisplay({ data }: { data: SearchResult }) {
   if (data.platform === "reddit") return <RedditResult data={data} />;
   if (data.platform === "rss") return <RSSResult data={data} />;
   if (data.platform === "youtube") return <YouTubeResult data={data} />;
+  if (data.platform === "searxng") return <SearXNGResult data={data} />;
   if (data.platform === "multi") return <MultiResult data={data} />;
   // Unknown: JSON preview
   return (
@@ -345,6 +386,9 @@ export default function AgentReachPage() {
         params = { url: query };
       } else if (platform === "exa") {
         action = "exa_search";
+        params = { query };
+      } else if (platform === "searxng") {
+        action = "searxng_search";
         params = { query };
       } else {
         action = "multi_search";

@@ -13,6 +13,8 @@ import {
   PanelLeftClose,
   Factory,
   Library,
+  Building2,
+  Database,
 } from "lucide-react";
 import { useState, useContext, useRef, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
@@ -27,6 +29,8 @@ const PRIMARY_NAV = [
   { to: "/mavis", icon: Cpu, label: "MAVIS" },
   { to: "/mavis-ui", icon: Sparkles, label: "MavisUI" },
   { to: "/agents", icon: BrainCircuit, label: "Agent Dashboard" },
+  { to: "/agency", icon: Building2, label: "The Agency" },
+  { to: "/providers", icon: Cpu, label: "AI Providers" },
   { to: "/intelligence", icon: Brain, label: "Intelligence" },
   { to: "/world-monitor", icon: Radio, label: "World Monitor" },
   { to: "/voice-lab", icon: Mic, label: "Voice Lab" },
@@ -40,6 +44,7 @@ const PRIMARY_NAV = [
 ];
 
 const SECONDARY_NAV = [
+  { to: "/notebook", icon: Library, label: "Open Notebook" },
   { to: "/knowledge", icon: Network, label: "Knowledge" },
   { to: "/forms", icon: Flame, label: "Forms" },
   { to: "/energy", icon: Zap, label: "Energy" },
@@ -75,6 +80,7 @@ const INTEL_NAV = [
   { to: "/webhooks", icon: Webhook, label: "Webhooks" },
   { to: "/integrations", icon: KeyRound, label: "Integrations" },
   { to: "/export", icon: Archive, label: "Export Data" },
+  { to: "/airtable", icon: Database, label: "Airtable" },
 ];
 
 const CREATOR_NAV = [
