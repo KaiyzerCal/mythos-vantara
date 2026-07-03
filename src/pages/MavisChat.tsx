@@ -21,6 +21,7 @@ import { VoiceChatOverlay } from "@/components/VoiceChatOverlay";
 import { MavisRealtimeVoice } from "@/components/MavisRealtimeVoice";
 import { InlineMediaPlayer } from "@/components/chat/InlineMediaPlayer";
 import { SkillCatalogDrawer } from "@/components/chat/SkillCatalogDrawer";
+import { useMediaPoller } from "@/hooks/useMediaPoller";
 
 // ── MAVIS modules ───────────────────────────────────────────
 import { buildSystemPromptFromSnapshot } from "@/mavis/buildSystemPrompt";
@@ -169,6 +170,9 @@ export default function MavisChat() {
   // ElevenLabs TTS + chat attachments
   const { speak, stop: stopSpeaking, isSpeaking, isLoading: isVoiceLoading } = useElevenLabsTts();
   const { attachments, isUploading, upload, remove, clearStaged } = useChatAttachments("mavis", "main");
+
+  // Auto-poll async media generation jobs (music, video) and update messages on completion
+  useMediaPoller(chatMessages as any, setChatMessages as any);
   const [isDragging, setIsDragging] = useState(false);
 
   // ── Activate a quick-specialist from the Agent Mode panel ──
