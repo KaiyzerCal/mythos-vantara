@@ -5,11 +5,11 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-const FAL_KEY = Deno.env.get("FAL_API_KEY") ?? "";
+const FAL_KEY    = Deno.env.get("FAL_API_KEY")    ?? "";
 const GEMINI_KEY = Deno.env.get("GEMINI_API_KEY") ?? "";
 
 type AspectRatio = "16:9" | "9:16" | "1:1";
-type Provider = "fal" | "veo" | "omni" | "auto";
+type Provider = "fal" | "veo" | "omni" | "kling" | "runway" | "auto";
 
 interface VideoRequest {
   prompt: string;
@@ -77,6 +77,92 @@ async function pollFalJob(
   return { status: "processing", provider: "fal" };
 }
 
+// ── Kling AI 2.1 (cinematic, Higgsfield-competitive) ─────────────────────────
+
+async function submitKlingJob(
+  prompt: string,
+  duration: number,
+  aspect_ratio: AspectRatio,
+): Promise<{ status: string; request_id: string; provider: string }> {
+  const endpoint = "https://queue.fal.run/fal-ai/kling-video/v2.1/standard/text-to-video";
+  const res = await fetch(endpoint, {
+    method: "POST",
+    headers: { "Authorization": `Key ${FAL_KEY}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      prompt: prompt.slice(0, 2500),
+      duration: String(Math.min(duration, 10)),
+      aspect_ratio,
+      negative_prompt: "blurry, low quality, watermark, text overlay, distorted",
+    }),
+    signal: AbortSignal.timeout(20_000),
+  });
+  if (!res.ok) throw new Error(`Kling submit ${res.status}: ${await res.text().then(t => t.slice(0, 300))}`);
+  const data = await res.json();
+  if (!data.request_id) throw new Error("Kling returned no request_id");
+  return { status: "processing", request_id: data.request_id, provider: "kling" };
+}
+
+async function pollKlingJob(request_id: string): Promise<{ status: string; url?: string; provider: string }> {
+  const res = await fetch(
+    `https://queue.fal.run/fal-ai/kling-video/v2.1/standard/text-to-video/${request_id}`,
+    { headers: { "Authorization": `Key ${FAL_KEY}` }, signal: AbortSignal.timeout(10_000) },
+  );
+  if (!res.ok) throw new Error(`Kling poll ${res.status}`);
+  const data = await res.json();
+  if (data.status === "COMPLETED" || data.video?.url) {
+    const url = data.video?.url ?? data.output?.video?.url;
+    if (!url) throw new Error("Kling complete but no video URL");
+    return { status: "complete", url, provider: "kling" };
+  }
+  if (data.status === "FAILED") throw new Error(`Kling job failed: ${data.error ?? "unknown"}`);
+  return { status: "processing", provider: "kling" };
+}
+
+// ── Runway Gen-4 Turbo (cinematic controls, via fal.ai) ──────────────────────
+
+const RUNWAY_RATIO_MAP: Record<string, string> = {
+  "16:9": "1280:720",
+  "9:16": "720:1280",
+  "1:1":  "960:960",
+};
+
+async function submitRunwayJob(
+  prompt: string,
+  aspect_ratio: AspectRatio,
+  image_url?: string,
+): Promise<{ status: string; request_id: string; provider: string }> {
+  const res = await fetch("https://queue.fal.run/fal-ai/runway-gen4-turbo", {
+    method: "POST",
+    headers: { "Authorization": `Key ${FAL_KEY}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      prompt: prompt.slice(0, 1000),
+      ratio: RUNWAY_RATIO_MAP[aspect_ratio] ?? "1280:720",
+      ...(image_url ? { image_url } : {}),
+    }),
+    signal: AbortSignal.timeout(20_000),
+  });
+  if (!res.ok) throw new Error(`Runway submit ${res.status}: ${await res.text().then(t => t.slice(0, 300))}`);
+  const data = await res.json();
+  if (!data.request_id) throw new Error("Runway returned no request_id");
+  return { status: "processing", request_id: data.request_id, provider: "runway" };
+}
+
+async function pollRunwayJob(request_id: string): Promise<{ status: string; url?: string; provider: string }> {
+  const res = await fetch(
+    `https://queue.fal.run/fal-ai/runway-gen4-turbo/${request_id}`,
+    { headers: { "Authorization": `Key ${FAL_KEY}` }, signal: AbortSignal.timeout(10_000) },
+  );
+  if (!res.ok) throw new Error(`Runway poll ${res.status}`);
+  const data = await res.json();
+  if (data.status === "COMPLETED" || data.video?.url) {
+    const url = data.video?.url ?? data.output?.url;
+    if (!url) throw new Error("Runway complete but no video URL");
+    return { status: "complete", url, provider: "runway" };
+  }
+  if (data.status === "FAILED") throw new Error(`Runway job failed: ${data.error ?? "unknown"}`);
+  return { status: "processing", provider: "runway" };
+}
+
 // ── Veo 3.1 via Gemini API ──────────────────────────────────────────────────
 
 async function submitVeoJob(
@@ -129,8 +215,8 @@ async function pollVeoOperation(
 
 // ── Resolve provider ────────────────────────────────────────────────────────
 
-function resolveProvider(requested?: Provider): "fal" | "veo" | "omni" {
-  if (requested && requested !== "auto") return requested;
+function resolveProvider(requested?: Provider): "fal" | "veo" | "omni" | "kling" | "runway" {
+  if (requested && requested !== "auto") return requested as "fal" | "veo" | "omni" | "kling" | "runway";
   if (FAL_KEY) return "fal";
   if (GEMINI_KEY) return "veo";
   throw new Error("No video generation API key configured (FAL_API_KEY or GEMINI_API_KEY required)");
@@ -156,6 +242,12 @@ serve(async (req) => {
       if (requestedProvider === "fal") {
         if (!request_id) return new Response(JSON.stringify({ error: "request_id required for fal poll" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
         result = await pollFalJob(request_id, model);
+      } else if (requestedProvider === "kling") {
+        if (!request_id) return new Response(JSON.stringify({ error: "request_id required for kling poll" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        result = await pollKlingJob(request_id);
+      } else if (requestedProvider === "runway") {
+        if (!request_id) return new Response(JSON.stringify({ error: "request_id required for runway poll" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        result = await pollRunwayJob(request_id);
       } else if (requestedProvider === "veo") {
         if (!operation_name) return new Response(JSON.stringify({ error: "operation_name required for veo poll" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
         result = await pollVeoOperation(operation_name);
@@ -182,12 +274,15 @@ serve(async (req) => {
 
     let result: Record<string, unknown>;
 
-    if (resolvedProvider === "fal") {
+    if (resolvedProvider === "kling") {
+      result = await submitKlingJob(prompt.trim(), resolvedDuration, resolvedAspect);
+    } else if (resolvedProvider === "runway") {
+      result = await submitRunwayJob(prompt.trim(), resolvedAspect, body.image_url as string | undefined);
+    } else if (resolvedProvider === "fal") {
       result = await submitFalJob(prompt.trim(), resolvedDuration, resolvedAspect, model);
     } else if (resolvedProvider === "veo") {
       result = await submitVeoJob(prompt.trim(), resolvedAspect);
     } else {
-      // omni — stub for future Gemini Omni Flash capability
       result = { status: "queued", message: "Gemini Omni Flash coming soon", provider: "omni" };
     }
 
