@@ -6,6 +6,7 @@ on:
       - "supabase/functions/**"
       - "supabase/config.toml"
       - ".github/workflows/deploy-mavis-functions.yml"
+  workflow_dispatch:
 jobs:
   deploy:
     runs-on: ubuntu-latest
@@ -106,3 +107,13 @@ jobs:
       # ── Content ingest ──────────────────────────────────────────────────────
       - name: Deploy mavis-shortform-ingest
         run: supabase functions deploy mavis-shortform-ingest --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
+
+      # ── Multi-provider gateway (OpenClaude) ─────────────────────────────────
+      - name: Deploy mavis-multi-provider
+        run: supabase functions deploy mavis-multi-provider --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
+
+      # ── Open Notebook (research workspace) ──────────────────────────────────
+      - name: Deploy mavis-notebook-embed
+        run: supabase functions deploy mavis-notebook-embed --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
+      - name: Deploy mavis-notebook-podcast
+        run: supabase functions deploy mavis-notebook-podcast --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}

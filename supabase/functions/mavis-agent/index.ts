@@ -1,5 +1,4 @@
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
+import { createClient } from "npm:@supabase/supabase-js@2";
 
 // ── CORS headers ──────────────────────────────────────────────────────────────
 const corsHeaders = {
@@ -350,6 +349,40 @@ const MAVIS_TOOLS = [
     },
   },
   {
+    name: "save_to_notebook",
+    description:
+      "Save research findings, web sources, or analysis notes to the operator's Open Notebook for permanent knowledge retention. " +
+      "Use this proactively after web searches, deep-research runs, or any time you surface information worth keeping. " +
+      "Creates the notebook if it doesn't exist. Saved sources are automatically embedded for semantic search.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        notebook_title: {
+          type: "string",
+          description: "Name of the notebook to save to (e.g. 'AI Research', 'Competitor Analysis', 'Project Alpha'). Created automatically if it doesn't exist.",
+        },
+        content_type: {
+          type: "string",
+          enum: ["source", "note"],
+          description: "source = external article, web result, or reference material; note = MAVIS's own analysis, observations, or synthesis.",
+        },
+        title: {
+          type: "string",
+          description: "Short descriptive title for the item being saved.",
+        },
+        content: {
+          type: "string",
+          description: "Full content to save. Markdown is supported. Aim for complete, self-contained notes — not just headlines.",
+        },
+        url: {
+          type: "string",
+          description: "(optional) Source URL for web articles or external references.",
+        },
+      },
+      required: ["notebook_title", "content_type", "title", "content"],
+    },
+  },
+  {
     name: "google_api",
     description:
       "Call ANY Google Cloud Console API using the operator's OAuth credentials. " +
@@ -447,6 +480,36 @@ const MAVIS_TOOLS = [
         context:       { type: "string", description: "Brief note on why you're watching (e.g. 'Sent Primal Agent pitch')" },
       },
       required: ["contact_email"],
+    },
+  },
+  {
+    name: "airtable",
+    description:
+      "Read and write Airtable bases. Use to look up CRM data, project records, content calendars, task trackers, or any structured dataset the operator stores in Airtable. " +
+      "Requires AIRTABLE_API_KEY to be configured in Supabase secrets. " +
+      "Always call list_bases first if you don't know the base_id.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        action: {
+          type: "string",
+          enum: ["list_bases", "list_records", "get_record", "search_records", "create_record", "update_record", "delete_record", "enrich_record"],
+          description: "list_bases: discover all accessible bases. list_records: fetch up to 100 records from a table. search_records: filter records by text. create_record / update_record / delete_record: CRUD. enrich_record: AI-analyze a record and write result back.",
+        },
+        base_id: { type: "string", description: "Airtable base ID (starts with 'app'). Required for all record actions." },
+        table:   { type: "string", description: "Table name (exact, case-sensitive). Required for all record actions." },
+        record_id:    { type: "string", description: "Record ID (starts with 'rec'). Required for get/update/delete/enrich." },
+        fields:       { type: "object", description: "Field key-value pairs. For create/update actions." },
+        formula:      { type: "string", description: "Airtable filterByFormula expression for list_records." },
+        term:         { type: "string", description: "Text search term for search_records." },
+        field:        { type: "string", description: "Specific field to search within for search_records." },
+        prompt:       { type: "string", description: "AI enrichment instruction for enrich_record (e.g. 'Summarize this lead and score their buying intent 1-10')." },
+        output_field: { type: "string", description: "Field name to write AI output to in enrich_record (default: AI_Output)." },
+        max_records:  { type: "number", description: "Max records to return from list_records (default 100, max 100)." },
+        sort_field:   { type: "string", description: "Field to sort by for list_records." },
+        sort_dir:     { type: "string", description: "Sort direction: asc | desc." },
+      },
+      required: ["action"],
     },
   },
 ];
@@ -1518,6 +1581,112 @@ async function handleTool(
         return { executed: true, type: actionType, result: data };
       }
 
+      // ── save_to_notebook ───────────────────────────────────────────────────
+      case "save_to_notebook": {
+        const {
+          notebook_title, content_type, title, content, url,
+        } = input as {
+          notebook_title: string; content_type: "source" | "note";
+          title: string; content: string; url?: string;
+        };
+
+        // 1. Find or create notebook
+        const { data: existing } = await supabase
+          .from("notebooks")
+          .select("id")
+          .eq("user_id", userId)
+          .ilike("title", notebook_title)
+          .maybeSingle();
+
+        let notebookId: string;
+        if (existing?.id) {
+          notebookId = existing.id;
+        } else {
+          const { data: created, error: createErr } = await supabase
+            .from("notebooks")
+            .insert({
+              user_id: userId,
+              title: notebook_title,
+              description: "Auto-created by MAVIS",
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+            })
+            .select("id")
+            .single();
+          if (createErr || !created) {
+            return { error: `Failed to create notebook: ${createErr?.message ?? "unknown"}` };
+          }
+          notebookId = created.id;
+        }
+
+        // 2. Save source or note
+        if (content_type === "source") {
+          const { data: src, error: srcErr } = await supabase
+            .from("notebook_sources")
+            .insert({
+              notebook_id: notebookId,
+              user_id: userId,
+              title,
+              content,
+              url: url ?? null,
+              source_type: url ? "url" : "text",
+              word_count: content.split(/\s+/).length,
+              created_at: new Date().toISOString(),
+            })
+            .select("id")
+            .single();
+          if (srcErr || !src) {
+            return { error: `Failed to save source: ${srcErr?.message ?? "unknown"}` };
+          }
+          // Fire-and-forget embedding
+          fetch(`${env.supabaseUrl}/functions/v1/mavis-notebook-embed`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${env.serviceKey}` },
+            body: JSON.stringify({ action: "embed_source", source_id: src.id }),
+          }).catch(() => null);
+
+          return { saved: true, notebook: notebook_title, type: "source", source_id: src.id, notebook_id: notebookId };
+        } else {
+          const { data: note, error: noteErr } = await supabase
+            .from("notebook_notes")
+            .insert({
+              notebook_id: notebookId,
+              user_id: userId,
+              title,
+              content,
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+            })
+            .select("id")
+            .single();
+          if (noteErr || !note) {
+            return { error: `Failed to save note: ${noteErr?.message ?? "unknown"}` };
+          }
+          return { saved: true, notebook: notebook_title, type: "note", note_id: note.id, notebook_id: notebookId };
+        }
+      }
+
+      // ── airtable ───────────────────────────────────────────────────────────
+      case "airtable": {
+        const res = await fetch(
+          `${env.supabaseUrl}/functions/v1/mavis-airtable-agent`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${env.serviceKey}`,
+            },
+            body: JSON.stringify(input),
+            signal: AbortSignal.timeout(30_000),
+          },
+        );
+        const text = await res.text();
+        if (!res.ok) {
+          return { error: `Airtable error ${res.status}: ${text.slice(0, 300)}` };
+        }
+        try { return JSON.parse(text); } catch { return { raw: text }; }
+      }
+
       default:
         return { error: `Unknown tool: ${name}` };
     }
@@ -1682,14 +1851,14 @@ async function runAgentLoop(
           {
             const _t = new Date();
             const _hasError = result !== null && typeof result === "object" && !!(result as Record<string, unknown>).error;
-            supabase.from("mavis_behavioral_signals").insert({
+            Promise.resolve(supabase.from("mavis_behavioral_signals").insert({
               user_id:     userId,
               signal_type: "tool_used",
               tool_name:   toolName,
               outcome:     _hasError ? "failure" : "success",
               hour_of_day: _t.getUTCHours(),
               day_of_week: _t.getUTCDay(),
-            }).catch(() => {});
+            })).catch(() => {});
           }
 
           return {
@@ -1922,7 +2091,7 @@ You are not a feature. You are the operator's autonomous agent. You learn. You a
 
 
 // ── Main handler ──────────────────────────────────────────────────────────────
-serve(async (req) => {
+Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
@@ -2081,16 +2250,41 @@ serve(async (req) => {
       }
     } catch { /* non-critical — proceed without behavioral context */ }
 
+    // ── Active Agency Specialist overlay ─────────────────────────────────────
+    // If the operator has activated a specialist from The Agency, prepend their
+    // full spec so MAVIS responds through that specialist's expertise and voice
+    // while keeping all MAVIS tools and memory intact.
+    try {
+      const { data: specialist } = await supabase
+        .from("mavis_active_agency_specialists")
+        .select("agent_name, division, spec_content")
+        .eq("user_id", userId)
+        .maybeSingle();
+
+      if (specialist?.spec_content) {
+        systemWithContext +=
+          "\n\n═══════════════════════════════════════════\n" +
+          `ACTIVE AGENCY SPECIALIST: ${specialist.agent_name} [${specialist.division}]\n` +
+          "═══════════════════════════════════════════\n" +
+          `You are currently operating as ${specialist.agent_name}. Adopt their expertise, ` +
+          "frameworks, terminology, and professional voice in every response. " +
+          `Start every response with a bold specialist tag on its own line: **[${specialist.agent_name}]** — then your response. ` +
+          "You still have all MAVIS tools and memory — but think, reason, and communicate as this specialist.\n\n" +
+          specialist.spec_content.slice(0, 8000) +
+          "\n═══ END SPECIALIST OVERLAY ═══";
+      }
+    } catch { /* non-critical */ }
+
     // Log message_received signal (fire-and-forget)
     if (userId) {
       const _now = new Date();
-      supabase.from("mavis_behavioral_signals").insert({
+      Promise.resolve(supabase.from("mavis_behavioral_signals").insert({
         user_id:     userId,
         signal_type: "message_received",
         hour_of_day: _now.getUTCHours(),
         day_of_week: _now.getUTCDay(),
         metadata:    { mode },
-      }).catch(() => {});
+      })).catch(() => {});
     }
 
     // Prepend channel-specific formatting instructions for Telegram

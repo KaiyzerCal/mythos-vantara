@@ -29,7 +29,56 @@ const COUNTRY_COORDS: Record<string, [number, number]> = {
   GR:[39.07,21.82],NZ:[-40.90,174.89],PS:[31.95,35.23],LB:[33.85,35.86],
   KZ:[48.02,66.92],UZ:[41.38,64.59],GE:[42.31,43.36],AZ:[40.14,47.58],
   BY:[53.71,27.95],RS:[44.02,21.01],RO:[45.94,24.97],HU:[47.16,19.50],
+  // FIPS 10-4 codes used by GDELT (differ from ISO)
+  // RS entry above is Serbia (ISO); GDELT RS = Russia — add as separate key below
+  // Note: GDELT sourcecountry uses FIPS 10-4 codes
+  GM:[51.17,10.45],   // Germany (FIPS GM ≠ ISO DE)
+  JA:[36.20,138.25],  // Japan (FIPS JA ≠ ISO JP)
+  SP:[40.46,-3.75],   // Spain (FIPS SP ≠ ISO ES)
+  IZ:[33.22,43.68],   // Iraq (FIPS IZ ≠ ISO IQ)
+  KS:[35.91,127.77],  // South Korea (FIPS KS ≠ ISO KR)
+  DA:[56.26,9.50],    // Denmark (FIPS DA ≠ ISO DK)
+  EI:[53.41,-8.24],   // Ireland (FIPS EI ≠ ISO IE)
+  SW:[60.13,18.64],   // Sweden (FIPS SW ≠ ISO SE)
+  PO:[39.40,-8.22],   // Portugal (FIPS PO ≠ ISO PT)
+  LE:[33.85,35.86],   // Lebanon (FIPS LE ≠ ISO LB)
+  WE:[31.95,35.23],   // West Bank (FIPS WE)
+  GZ:[31.35,34.31],   // Gaza (FIPS GZ)
+  IC:[64.96,-19.02],  // Iceland (FIPS IC ≠ ISO IS)
+  CG:[-4.04,21.76],   // DR Congo (FIPS CG ≠ ISO CD)
+  SU:[15.55,32.53],   // Sudan (FIPS SU ≠ ISO SD)
+  BL:[-16.29,-63.59], // Bolivia (FIPS BL ≠ ISO BO)
+  CI:[-35.68,-71.54], // Chile (FIPS CI ≠ ISO CL)
+  CF:[2.21,12.84],    // Central African Republic
 };
+
+// Keyword → coords for title-based fallback when country code is missing/unknown
+const LOCATION_KEYWORDS: [string, [number,number]][] = [
+  ["ukraine",   [48.38, 31.17]], ["russia",    [61.52,105.32]], ["moscow",    [55.75, 37.62]],
+  ["china",     [35.86,104.19]], ["beijing",   [39.91,116.39]], ["taiwan",    [23.55,121.00]],
+  ["gaza",      [31.35, 34.31]], ["israel",    [31.05, 34.85]], ["palestine", [31.95, 35.23]],
+  ["iran",      [32.43, 53.69]], ["tehran",    [35.69, 51.42]], ["iraq",      [33.22, 43.68]],
+  ["syria",     [34.80, 38.99]], ["lebanon",   [33.85, 35.86]], ["yemen",     [15.55, 48.52]],
+  ["north korea",[40.34,127.51]],["kim jong",  [40.34,127.51]], ["pyongyang", [39.02,125.75]],
+  ["afghanistan",[33.93, 67.71]],["kabul",     [34.52, 69.18]], ["pakistan",  [30.38, 69.35]],
+  ["india",     [20.59, 78.96]], ["myanmar",   [21.91, 95.96]],
+  ["sudan",     [15.55, 32.53]], ["ethiopia",  [ 9.15, 40.49]], ["somalia",   [ 5.15, 46.20]],
+  ["venezuela", [ 6.42,-66.59]], ["colombia",  [ 4.57,-74.30]], ["mexico",    [23.63,-102.55]],
+  ["turkey",    [38.96, 35.24]], ["ankara",    [39.92, 32.85]], ["erdogan",   [38.96, 35.24]],
+  ["saudi",     [23.89, 45.08]], ["riyadh",    [24.69, 46.72]], ["egypt",     [26.82, 30.80]],
+  ["europe",    [54.53, 25.32]], ["nato",      [50.85,  4.35]], ["brussels",  [50.85,  4.35]],
+  ["washington",[ 38.91,-77.04]],["biden",     [38.91,-77.04]], ["trump",     [38.91,-77.04]],
+  ["market",    [40.71,-74.01]], ["fed ",      [38.91,-77.04]], ["wall street",[40.71,-74.01]],
+  ["crypto",    [37.77,-122.42]],["bitcoin",   [37.77,-122.42]],["silicon valley",[37.39,-122.08]],
+];
+
+function inferCoordsFromTitle(title: string): [number, number] | null {
+  const lower = (title ?? "").toLowerCase();
+  for (const [kw, coords] of LOCATION_KEYWORDS) {
+    if (lower.includes(kw)) return coords;
+  }
+  return null;
+}
 
 const CATEGORY_COLORS: Record<string, string> = {
   earthquake:"#f97316",disaster:"#ef4444",conflict:"#dc2626",climate:"#3b82f6",
@@ -88,10 +137,11 @@ async function handleGlobeEvents(sb: any): Promise<any> {
   // Normalise: old cache entries stored the raw array; new ones store { events }
   if (cached) return json(Array.isArray(cached) ? { events: cached } : cached);
 
-  const [usgsRes, eonetRes, gdeltRes] = await Promise.allSettled([
+  const [usgsRes, eonetRes, gdeltConflictRes, gdeltNewsRes] = await Promise.allSettled([
     safeFetch("https://earthquake.usgs.gov/fdsnws/event/1/query?format=geojson&minmagnitude=4.5&limit=50&orderby=time"),
     safeFetch("https://eonet.gsfc.nasa.gov/api/v3/events?status=open&limit=30&days=14"),
-    safeFetch("https://api.gdeltproject.org/api/v2/doc/doc?mode=artlist&format=json&query=conflict+war+geopolitics+military+sanctions&maxrecords=20&sort=DateDesc&language=English"),
+    safeFetch("https://api.gdeltproject.org/api/v2/doc/doc?mode=artlist&format=json&query=conflict+war+military+strike+attack+explosion&maxrecords=25&sort=DateDesc&language=English"),
+    safeFetch("https://api.gdeltproject.org/api/v2/doc/doc?mode=artlist&format=json&query=election+diplomacy+trade+economy+sanctions+treaty&maxrecords=20&sort=DateDesc&language=English"),
   ]);
 
   const events: any[] = [];
@@ -124,7 +174,17 @@ async function handleGlobeEvents(sb: any): Promise<any> {
     for (const e of eonetRes.value.events) {
       const geo = e.geometries?.[0];
       if (!geo?.coordinates) continue;
-      const [lng, lat] = geo.coordinates;
+      let lng: number, lat: number;
+      if (geo.type === "Point") {
+        [lng, lat] = geo.coordinates;
+      } else if (geo.type === "Polygon") {
+        // Use first vertex of first ring
+        const ring = geo.coordinates[0];
+        [lng, lat] = Array.isArray(ring[0]) ? ring[0] : ring;
+      } else {
+        continue; // Skip unknown geometry types
+      }
+      if (typeof lng !== "number" || typeof lat !== "number" || isNaN(lng) || isNaN(lat)) continue;
       const catTitle = (e.categories?.[0]?.title ?? "").toLowerCase();
       let category = "disaster";
       if (catTitle.includes("wildfire") || catTitle.includes("volcano")) category = "disaster";
@@ -144,17 +204,38 @@ async function handleGlobeEvents(sb: any): Promise<any> {
     }
   }
 
-  // GDELT
-  if (gdeltRes.status === "fulfilled" && gdeltRes.value?.articles) {
-    for (const a of gdeltRes.value.articles) {
+  // GDELT conflict events
+  if (gdeltConflictRes.status === "fulfilled" && gdeltConflictRes.value?.articles) {
+    for (const a of gdeltConflictRes.value.articles) {
       const cc = (a.sourcecountry ?? "").toUpperCase();
-      const coords = COUNTRY_COORDS[cc];
+      const coords = COUNTRY_COORDS[cc] ?? (a.title ? inferCoordsFromTitle(a.title) : null);
       if (!coords) continue;
       const [lat, lng] = coords;
       events.push({
-        id: `gdelt-${encodeURIComponent(a.url ?? a.title ?? Math.random())}`,
-        lat: lat + jitter(),
-        lng: lng + jitter(),
+        id: `gdelt-c-${encodeURIComponent((a.url ?? a.title ?? String(Math.random())).slice(0, 80))}`,
+        lat: lat + jitter(), lng: lng + jitter(),
+        category: "conflict",
+        title: a.title,
+        description: a.domain,
+        severity: "medium",
+        url: a.url,
+        timestamp: a.seendate ? parseGdeltDate(a.seendate) : new Date().toISOString(),
+        color: CATEGORY_COLORS.conflict,
+        size: SEVERITY_SIZE.medium,
+      });
+    }
+  }
+
+  // GDELT news/politics events
+  if (gdeltNewsRes.status === "fulfilled" && gdeltNewsRes.value?.articles) {
+    for (const a of gdeltNewsRes.value.articles) {
+      const cc = (a.sourcecountry ?? "").toUpperCase();
+      const coords = COUNTRY_COORDS[cc] ?? (a.title ? inferCoordsFromTitle(a.title) : null);
+      if (!coords) continue;
+      const [lat, lng] = coords;
+      events.push({
+        id: `gdelt-n-${encodeURIComponent((a.url ?? a.title ?? String(Math.random())).slice(0, 80))}`,
+        lat: lat + jitter(), lng: lng + jitter(),
         category: "news",
         title: a.title,
         description: a.domain,
@@ -168,7 +249,7 @@ async function handleGlobeEvents(sb: any): Promise<any> {
   }
 
   const payload = { events };
-  await setCache(sb, "globe_events", payload, 900);
+  await setCache(sb, "globe_events", payload, 600);
   return json(payload);
 }
 

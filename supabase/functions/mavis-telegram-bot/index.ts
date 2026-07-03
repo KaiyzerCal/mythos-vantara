@@ -21,8 +21,7 @@
 //   MAVIS_OPERATOR_CALIYAH_ID         — Supabase user UUID for Caliyah
 //   OPENAI_API / OPENAI_API_KEY       — enables voice transcription via Whisper
 
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { createClient } from "npm:@supabase/supabase-js@2";
 
 const BOT_TOKEN      = Deno.env.get("TELEGRAM_BOT_TOKEN") ?? "";
 const OPERATOR_CHAT  = Deno.env.get("TELEGRAM_OPERATOR_CHAT_ID") ?? "";
@@ -988,6 +987,228 @@ interface CouncilSession {
 
 const COUNCIL_STATE_PREFIX = "telegram-council-state-";
 
+// ─────────────────────────────────────────────────────────────
+// AGENCY SESSION  (active specialist from The Agency)
+// ─────────────────────────────────────────────────────────────
+
+interface AgencySession {
+  agent_id:   string;   // "division/file.md"
+  name:       string;   // display name
+  division:   string;
+  raw_url:    string;
+  spec:       string;   // full markdown spec
+}
+
+const AGENCY_STATE_PREFIX = "telegram-agency-state-";
+
+async function getActiveAgency(uid: string): Promise<AgencySession | null> {
+  try {
+    const { data } = await sb.from("mavis_memory")
+      .select("content")
+      .eq("user_id", uid)
+      .eq("session_id", `${AGENCY_STATE_PREFIX}${uid}`)
+      .eq("role", "system")
+      .order("timestamp", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (!data?.content) return null;
+    return JSON.parse(String(data.content)) as AgencySession;
+  } catch {
+    return null;
+  }
+}
+
+async function setActiveAgency(uid: string, session: AgencySession | null): Promise<void> {
+  try {
+    await sb.from("mavis_memory")
+      .delete()
+      .eq("user_id", uid)
+      .eq("session_id", `${AGENCY_STATE_PREFIX}${uid}`)
+      .eq("role", "system");
+    if (session) {
+      await sb.from("mavis_memory").insert({
+        user_id:          uid,
+        session_id:       `${AGENCY_STATE_PREFIX}${uid}`,
+        role:             "system",
+        content:          JSON.stringify(session),
+        timestamp:        Date.now(),
+        importance_score: 1,
+        consolidated:     true,
+      });
+      // Also sync to persistent DB table so the app reflects Telegram activations
+      await Promise.resolve(sb.from("mavis_active_agency_specialists").upsert({
+        user_id:      uid,
+        agent_id:     session.agent_id,
+        agent_name:   session.name,
+        division:     session.division,
+        raw_url:      session.raw_url,
+        spec_content: session.spec,
+        activated_at: new Date().toISOString(),
+      }, { onConflict: "user_id" })).catch(() => null);
+    } else {
+      await Promise.resolve(sb.from("mavis_active_agency_specialists").delete().eq("user_id", uid)).catch(() => null);
+    }
+  } catch { /* non-fatal */ }
+}
+
+// ── Compact agent manifest for routing (division → [file, ...]) ──────────────
+const AGENCY_BASE_URL = "https://raw.githubusercontent.com/KaiyzerCal/agency-agents/main";
+
+const AGENCY_MANIFEST: Record<string, string[]> = {
+  "engineering": [
+    "engineering-ai-data-remediation-engineer","engineering-ai-engineer","engineering-autonomous-optimization-architect",
+    "engineering-backend-architect","engineering-cms-developer","engineering-code-reviewer","engineering-codebase-onboarding-engineer",
+    "engineering-data-engineer","engineering-database-optimizer","engineering-devops-automator","engineering-drupal-shopping-cart",
+    "engineering-email-intelligence-engineer","engineering-embedded-firmware-engineer","engineering-feishu-integration-developer",
+    "engineering-filament-optimization-specialist","engineering-frontend-developer","engineering-git-workflow-master",
+    "engineering-incident-response-commander","engineering-it-service-manager","engineering-minimal-change-engineer",
+    "engineering-mobile-app-builder","engineering-multi-agent-systems-architect","engineering-network-engineer",
+    "engineering-orgscript-engineer","engineering-prompt-engineer","engineering-rapid-prototyper","engineering-senior-developer",
+    "engineering-software-architect","engineering-solidity-smart-contract-engineer","engineering-sre","engineering-technical-writer",
+    "engineering-voice-ai-integration-engineer","engineering-wechat-mini-program-developer","engineering-wordpress-shopping-cart",
+  ],
+  "design": [
+    "design-brand-guardian","design-image-prompt-engineer","design-inclusive-visuals-specialist","design-persona-walkthrough",
+    "design-ui-designer","design-ux-architect","design-ux-researcher","design-visual-storyteller","design-whimsy-injector",
+  ],
+  "marketing": [
+    "marketing-aeo-foundations","marketing-agentic-search-optimizer","marketing-ai-citation-strategist","marketing-app-store-optimizer",
+    "marketing-baidu-seo-specialist","marketing-bilibili-content-strategist","marketing-book-co-author","marketing-carousel-growth-engine",
+    "marketing-china-ecommerce-operator","marketing-china-market-localization-strategist","marketing-content-creator",
+    "marketing-cross-border-ecommerce","marketing-douyin-strategist","marketing-email-strategist","marketing-global-podcast-strategist",
+    "marketing-growth-hacker","marketing-instagram-curator","marketing-kuaishou-strategist","marketing-linkedin-content-creator",
+    "marketing-livestream-commerce-coach","marketing-multi-platform-publisher","marketing-podcast-strategist",
+    "marketing-pr-communications-manager","marketing-private-domain-operator","marketing-reddit-community-builder",
+    "marketing-seo-specialist","marketing-short-video-editing-coach","marketing-social-media-strategist","marketing-tiktok-strategist",
+    "marketing-twitter-engager","marketing-video-optimization-specialist","marketing-wechat-official-account","marketing-weibo-strategist",
+    "marketing-x-twitter-intelligence-analyst","marketing-xiaohongshu-specialist","marketing-zhihu-strategist",
+  ],
+  "sales": [
+    "sales-account-strategist","sales-coach","sales-deal-strategist","sales-discovery-coach","sales-engineer",
+    "sales-offer-lead-gen-strategist","sales-outbound-strategist","sales-pipeline-analyst","sales-proposal-strategist",
+  ],
+  "product": [
+    "product-behavioral-nudge-engine","product-feedback-synthesizer","product-manager","product-sprint-prioritizer","product-trend-researcher",
+  ],
+  "project-management": [
+    "project-management-experiment-tracker","project-management-jira-workflow-steward","project-management-meeting-notes-specialist",
+    "project-management-project-shepherd","project-management-studio-operations","project-management-studio-producer","project-manager-senior",
+  ],
+  "testing": [
+    "testing-accessibility-auditor","testing-api-tester","testing-evidence-collector","testing-performance-benchmarker",
+    "testing-reality-checker","testing-test-results-analyzer","testing-tool-evaluator","testing-workflow-optimizer",
+  ],
+  "security": [
+    "security-appsec-engineer","security-architect","security-blockchain-security-auditor","security-cloud-security-architect",
+    "security-compliance-auditor","security-incident-responder","security-penetration-tester","security-senior-secops",
+    "security-threat-detection-engineer","security-threat-intelligence-analyst",
+  ],
+  "support": [
+    "support-analytics-reporter","support-executive-summary-generator","support-finance-tracker",
+    "support-infrastructure-maintainer","support-legal-compliance-checker","support-support-responder",
+  ],
+  "spatial-computing": [
+    "macos-spatial-metal-engineer","terminal-integration-specialist","visionos-spatial-engineer",
+    "xr-cockpit-interaction-specialist","xr-immersive-developer","xr-interface-architect",
+  ],
+  "game-development": [
+    "game-audio-engineer","game-designer","level-designer","narrative-designer","technical-artist",
+  ],
+  "academic": [
+    "academic-anthropologist","academic-geographer","academic-historian","academic-narratologist","academic-psychologist",
+  ],
+  "gis": [
+    "gis-3d-scene-developer","gis-analyst","gis-bim-specialist","gis-cartography-designer","gis-drone-reality-mapping",
+    "gis-geoai-ml-engineer","gis-geoprocessing-specialist","gis-qa-engineer","gis-solution-engineer",
+    "gis-spatial-data-engineer","gis-spatial-data-scientist","gis-technical-consultant","gis-web-gis-developer",
+  ],
+  "finance": [
+    "finance-bookkeeper-controller","finance-financial-analyst","finance-fpa-analyst","finance-investment-researcher","finance-tax-strategist",
+  ],
+  "specialized": [
+    "accounts-payable-agent","agentic-identity-trust","agents-orchestrator","automation-governance-architect","business-strategist",
+    "change-management-consultant","chief-financial-officer","corporate-training-designer","customer-service","customer-success-manager",
+    "data-consolidation-agent","data-privacy-officer","esg-sustainability-officer","government-digital-presales-consultant","grant-writer",
+    "healthcare-customer-service","healthcare-marketing-compliance","hospitality-guest-services","hr-onboarding","identity-graph-operator",
+    "language-translator","legal-billing-time-tracking","legal-client-intake","legal-document-review","loan-officer-assistant",
+    "lsp-index-engineer","ma-integration-manager","medical-billing-coding-specialist","operations-manager","organizational-psychologist",
+    "personal-growth-mentor","real-estate-buyer-seller","recruitment-specialist","report-distribution-agent","retail-customer-returns",
+    "sales-data-extraction-agent","sales-outreach","specialized-chief-of-staff","specialized-civil-engineer",
+    "specialized-cultural-intelligence-strategist","specialized-developer-advocate","specialized-document-generator",
+    "specialized-french-consulting-market","specialized-korean-business-navigator","specialized-mcp-builder","specialized-model-qa",
+    "specialized-pricing-analyst","specialized-salesforce-architect","specialized-strategy-duel-agent","specialized-workflow-architect",
+    "study-abroad-advisor","supply-chain-strategist","zk-steward",
+  ],
+};
+
+const AGENCY_DIV_KEYWORDS: Record<string, string[]> = {
+  "engineering":         ["code","build","develop","api","backend","frontend","database","server","deploy","docker","kubernetes","architecture","algorithm","bug","debug","typescript","python","javascript","rust","go","java","sql","git","devops","pipeline","infrastructure","cloud","aws","azure","gcp","terraform","cicd","engineer","developer","programmer"],
+  "design":              ["design","ui","ux","interface","wireframe","prototype","figma","color","typography","layout","visual","branding","logo","icon","mockup","aesthetic","illustration","graphic","accessibility","designer"],
+  "marketing":           ["market","campaign","seo","content","social media","email marketing","brand","growth","conversion","funnel","audience","engagement","viral","copywriting","ad","influencer","ppc","newsletter","launch","pr","positioning","tiktok","instagram","linkedin","twitter","youtube","podcast"],
+  "sales":               ["sales","prospect","lead","deal","close","crm","outreach","pitch","proposal","negotiation","quota","revenue","customer acquisition","discovery","cold email","pipeline","objection","close deals"],
+  "product":             ["product","roadmap","feature","user story","backlog","sprint","mvp","requirement","specification","prioritize","stakeholder","release","prd","product manager"],
+  "project-management":  ["project","timeline","milestone","deadline","resource","planning","schedule","risk","scope","budget","gantt","kanban","agile","scrum","task management","deliverable","project manager"],
+  "testing":             ["test","qa","quality assurance","bug report","automation","selenium","jest","unit test","integration test","e2e","regression","performance test","load test","cypress","playwright"],
+  "security":            ["security","vulnerability","penetration test","exploit","threat","authentication","authorization","encryption","firewall","audit","compliance","hack","malware","phishing","soc","siem","red team","blue team","incident response","cybersecurity"],
+  "support":             ["support","help","customer service","ticket","documentation","faq","troubleshoot","onboard","tutorial","user guide","knowledge base","helpdesk","sla"],
+  "spatial-computing":   ["ar","vr","xr","augmented reality","virtual reality","mixed reality","spatial","immersive","metaverse","unity","unreal","3d","avatar","haptic","hololens","vision pro","webxr"],
+  "game-development":    ["game","gameplay","level design","character","mechanic","sprite","animation","physics","shader","multiplayer","loot","inventory","quest design","game design","rpg","indie game"],
+  "academic":            ["research","paper","study","thesis","dissertation","citation","academic","literature review","methodology","hypothesis","peer review","journal","bibliography","scholarly"],
+  "gis":                 ["gis","geospatial","map","coordinate","latitude","longitude","spatial analysis","shapefile","satellite","terrain","geography","cartography","gdal","qgis","arcgis","mapping","remote sensing"],
+  "finance":             ["finance","investment","portfolio","stock","crypto","budget","profit","loss","valuation","financial model","dcf","roi","cash flow","accounting","tax","hedge","trading","ipo","venture capital"],
+  "specialized":         ["strategy","consulting","innovation","ai","machine learning","nlp","data science","neural network","automation","workflow","integration","mcp","agent","cfo","chief","operations","hr","legal","compliance","healthcare","hospitality"],
+};
+
+function agentToName(slug: string): string {
+  const ACRONYMS = new Set(["ai","ml","ui","ux","xr","gis","bim","sre","cms","seo","pr","hr","iot","sdk","api","qa","ma","fpa","esg","lsp","zk","mcp","cfo","crm","ar","vr","visionos","wechat","tiktok"]);
+  return slug.split("-").map(w => ACRONYMS.has(w.toLowerCase()) ? w.toUpperCase() : w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
+}
+
+function agencyClassifyDivision(task: string): string {
+  const lower = task.toLowerCase();
+  let bestDiv = "specialized";
+  let bestScore = 0;
+  for (const [divId, keywords] of Object.entries(AGENCY_DIV_KEYWORDS)) {
+    const score = keywords.filter(kw => lower.includes(kw)).length;
+    if (score > bestScore) { bestScore = score; bestDiv = divId; }
+  }
+  return bestDiv;
+}
+
+function agencyFindBest(task: string): { agentId: string; name: string; division: string; rawUrl: string } | null {
+  const divId = agencyClassifyDivision(task);
+  const files = AGENCY_MANIFEST[divId] ?? [];
+  if (!files.length) return null;
+  const lower = task.toLowerCase();
+  const scored = files.map(slug => ({
+    slug,
+    score: slug.split("-").filter(w => w.length > 3 && lower.includes(w)).length,
+  }));
+  scored.sort((a, b) => b.score - a.score);
+  const slug = scored[0]?.slug ?? files[0];
+  const file = `${slug}.md`;
+  return {
+    agentId:  `${divId}/${file}`,
+    name:     agentToName(slug),
+    division: divId,
+    rawUrl:   `${AGENCY_BASE_URL}/${divId}/${file}`,
+  };
+}
+
+function buildAgencySystemPrompt(session: AgencySession, appCtx = "", operatorTz = "UTC"): string {
+  const divLabel = session.division.replace(/-/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase());
+  const parts: string[] = [
+    `You are ${session.name}, a specialist from The Agency — ${divLabel} Division.`,
+    `\nYou exist inside CODEXOS, the operator's personal AI operating system. You have full context about their life, goals, systems, and businesses.`,
+    `\nHere is your specialist definition:\n\n${session.spec.slice(0, 8000)}`,
+    `\n\nIMPORTANT: Start every response with your specialist identifier on its own line: *[${session.name}]* — then your response. Stay fully in character. Apply your specialist expertise to every response. You can propose actions using hidden blocks.`,
+  ];
+  parts.push(`\n\n${buildTemporalBlock(operatorTz)}`);
+  if (appCtx) parts.push(`\n\n${appCtx}`);
+  parts.push(`\n\n${ACTION_MECHANIC_PROMPT}`);
+  return parts.join("");
+}
+
 async function getActiveCouncil(uid: string): Promise<CouncilSession | null> {
   try {
     const { data } = await sb.from("mavis_memory")
@@ -1328,32 +1549,32 @@ async function executeDirectAction(type: string, params: Record<string, any>, ui
         return `Expense logged: ${params.description} ($${params.amount})`;
       }
       case "create_note": {
-        await sb.from("mavis_notes").insert({
+        await Promise.resolve(sb.from("mavis_notes").insert({
           user_id: uid,
           title:   params.title ?? "Note",
           content: params.content ?? "",
           tags:    params.tags ?? [],
-        }).catch(() => null);
+        })).catch(() => null);
         return `Note created: "${params.title}"`;
       }
       case "create_ally": {
-        await sb.from("allies").insert({
+        await Promise.resolve(sb.from("allies").insert({
           user_id:      uid,
           name:         params.name ?? "Ally",
           relationship: params.relationship ?? "contact",
           notes:        params.notes ?? "",
-        }).catch(() => null);
+        })).catch(() => null);
         return `Ally added: ${params.name}`;
       }
       default: {
         // Unrecognized type → queue to approvals for manual review
-        await sb.from("approvals").insert({
+        await Promise.resolve(sb.from("approvals").insert({
           user_id:        uid,
           action_type:    type,
           action_summary: `Action from persona/council: ${type}`.slice(0, 255),
           action_payload: params,
           status:         "pending",
-        }).catch(() => null);
+        })).catch(() => null);
         return `Action "${type}" queued`;
       }
     }
@@ -1629,7 +1850,7 @@ async function parseAndHandleProposals(
       status:         "pending",
       proposed_by:    charName,
     }));
-    await sb.from("approvals").insert(rows).catch(() => null);
+    await Promise.resolve(sb.from("approvals").insert(rows)).catch(() => null);
   }
 
   // Append action confirmations to the visible reply
@@ -1660,7 +1881,7 @@ async function resolveCouncilOwnerUid(uid: string): Promise<string> {
 
 type Intent = "help" | "quests" | "revenue" | "tasks" | "actions" | "content_machine" | "speak"
             | "list_personas" | "switch_persona" | "reset_persona"
-            | "list_council" | "chat";
+            | "list_council" | "list_agency" | "switch_agency" | "chat";
 interface Classified { intent: Intent; params: Record<string, string>; }
 
 function classify(text: string): Classified {
@@ -1687,6 +1908,13 @@ function classify(text: string): Classified {
   const personaMatch = text.match(/^\/?(persona|as|speak[- ]as|be|character|council\s+member)\s+(.+)$/i);
   if (personaMatch)
     return { intent: "switch_persona", params: { name: personaMatch[2].trim() } };
+
+  // Agency commands
+  if (/^\/?(agencies?|agency\s+list|the\s+agency)$/i.test(lower))
+    return { intent: "list_agency", params: {} };
+  const agencyMatch = text.match(/^\/?(agency)\s+(.+)$/i);
+  if (agencyMatch)
+    return { intent: "switch_agency", params: { query: agencyMatch[2].trim() } };
 
   // Bare /name shortcut — e.g. /lilu, /marcus (tries persona then council)
   const bareSlash = text.match(/^\/([a-zA-Z][a-zA-Z0-9_\- ]{1,40})$/);
@@ -1720,11 +1948,13 @@ async function handleHelp(chatId: string | number) {
     `📌 \`tasks\` — pending task queue\n` +
     `📬 \`actions\` — recent Google Workspace approvals/executions\n` +
     `🎬 \`content <topic>\` — Nora content pipeline\n\n` +
-    `*Personas & Council:*\n` +
+    `*Personas, Council & Agency:*\n` +
     `🎭 \`/personas\` — list your personas\n` +
     `🏛️ \`/council\` — list your council members\n` +
+    `🏢 \`/agency\` — browse 182 Agency specialists\n` +
+    `🏢 \`/agency [task]\` — auto-route to best specialist\n` +
     `🎭 \`/as [name]\` or \`/[name]\` — switch to a persona or council member\n` +
-    `✨ \`/mavis\` — return to MAVIS\n\n` +
+    `✨ \`/mavis\` — return to MAVIS (deactivates all)\n\n` +
     `📸 _Send a photo to analyze it_\n` +
     `📄 _Send any file (.md, .txt, .csv, .json, .py, .ts, etc.) to analyze it_\n` +
     voiceLine,
@@ -1861,7 +2091,75 @@ async function handleSwitchPersona(chatId: string | number, uid: string, name: s
 async function handleResetPersona(chatId: string | number, uid: string) {
   await setActivePersona(uid, null);
   await setActiveCouncil(uid, null);
+  await setActiveAgency(uid, null);
   await send(chatId, `✨ *MAVIS online.* Session ended.`);
+}
+
+// ─────────────────────────────────────────────────────────────
+// AGENCY HANDLERS
+// ─────────────────────────────────────────────────────────────
+
+async function handleListAgency(chatId: string | number, uid: string) {
+  const active = await getActiveAgency(uid);
+  const divLines = Object.entries(AGENCY_MANIFEST).map(([div, agents]) => {
+    const label = div.replace(/-/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+    return `${label} (${agents.length})`;
+  });
+  const activeLine = active
+    ? `\n\n✅ *Active specialist:* ${active.name} [${active.division}]\nSend \`/mavis\` to deactivate.`
+    : "";
+  await send(chatId,
+    `🏢 *The Agency — 182 specialists*\n\n` +
+    divLines.join(" · ") +
+    `${activeLine}\n\n` +
+    `*Activate by task:* \`/agency [describe your task]\`\n` +
+    `_Example: /agency I need to optimize my SEO strategy_\n` +
+    `_Example: /agency build a REST API with auth_\n` +
+    `_Example: /agency close this sales deal_`,
+  );
+}
+
+async function handleSwitchAgency(chatId: string | number, uid: string, query: string) {
+  await send(chatId, `🔍 _Routing to best specialist for: "${query.slice(0, 80)}"…_`);
+
+  const match = agencyFindBest(query);
+  if (!match) {
+    await send(chatId, `⚠️ Couldn't find a matching specialist. Try \`/agency\` to see divisions.`);
+    return;
+  }
+
+  // Fetch the spec from GitHub
+  let spec = "";
+  try {
+    const res = await fetch(match.rawUrl, { signal: AbortSignal.timeout(10000) });
+    if (res.ok) spec = await res.text();
+  } catch { /* use empty spec — still activates */ }
+
+  if (!spec) {
+    await send(chatId,
+      `⚠️ Found specialist *${match.name}* but couldn't load their spec from GitHub.\n` +
+      `Try again in a moment or activate from the Agency tab in the app.`,
+    );
+    return;
+  }
+
+  const session: AgencySession = {
+    agent_id: match.agentId,
+    name:     match.name,
+    division: match.division,
+    raw_url:  match.rawUrl,
+    spec,
+  };
+
+  await setActiveAgency(uid, session);
+
+  const divLabel = match.division.replace(/-/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+  await send(chatId,
+    `🏢 *Now operating as ${match.name}*\n` +
+    `Division: ${divLabel}\n\n` +
+    `Send your message and I'll respond as this specialist.\n` +
+    `Send \`/mavis\` to return to MAVIS.`,
+  );
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -2418,6 +2716,46 @@ async function handleChat(
     return;
   }
 
+  // ── Agency specialist mode ────────────────────────────────────────────────
+  const activeAgency = await getActiveAgency(uid);
+  if (activeAgency) {
+    try {
+      const [appCtx, histRes, profileRes] = await Promise.all([
+        loadAppContext(uid),
+        sb.from("mavis_agency_conversations")
+          .select("role, content")
+          .eq("user_id", uid)
+          .eq("agent_id", activeAgency.agent_id)
+          .order("created_at", { ascending: false })
+          .limit(16),
+        sb.from("profiles").select("timezone").eq("id", uid).maybeSingle(),
+      ]);
+      const operatorTz: string = (profileRes.data as any)?.timezone || "UTC";
+      const agencySystem = buildAgencySystemPrompt(activeAgency, appCtx, operatorTz);
+      const recentHistory: ChatMessage[] = ((histRes.data ?? []).reverse() as any[]).map((m: any) => ({
+        role:    m.role as "user" | "assistant",
+        content: String(m.content ?? ""),
+      }));
+      const userContent = `${text}${a2aBlock}${urlContent}`;
+      const msgs: ChatMessage[] = [...recentHistory, { role: "user", content: userContent }];
+      const rawReply = await callLLM("claude-haiku-4-5-20251001", agencySystem, msgs, 1500);
+      if (rawReply) {
+        const reply = await parseAndHandleProposals(rawReply, uid, chatId, activeAgency.name);
+        await send(chatId, reply);
+        await Promise.resolve(sb.from("mavis_agency_conversations").insert([
+          { user_id: uid, agent_id: activeAgency.agent_id, role: "user",      content: text     },
+          { user_id: uid, agent_id: activeAgency.agent_id, role: "assistant", content: rawReply },
+        ])).catch((err) => console.warn("[telegram-bot] agency_conversations write failed", err));
+      } else {
+        await send(chatId, `⚠️ ${activeAgency.name} is unavailable right now. Try again.`);
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      await send(chatId, `⚠️ Agency specialist error: ${msg.slice(0, 200)}`);
+    }
+    return;
+  }
+
   // ── Persona mode: bypass mavis-agent, talk directly as the character ──────
   const activePersona = await getActivePersona(uid);
   if (activePersona) {
@@ -2533,7 +2871,7 @@ The agent backend is momentarily unreachable, so you cannot execute tools in THI
 // MAIN
 // ─────────────────────────────────────────────────────────────
 
-serve(async (req) => {
+Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: { "Access-Control-Allow-Origin": "*" } });
   }
@@ -2759,7 +3097,9 @@ serve(async (req) => {
         case "content_machine": await handleContentMachine(chatId, uid, params.topic ?? text); break;
         case "list_personas":   await handleListPersonas(chatId, uid); break;
         case "list_council":    await handleListCouncil(chatId, uid); break;
+        case "list_agency":     await handleListAgency(chatId, uid); break;
         case "switch_persona":  await handleSwitchPersona(chatId, uid, params.name ?? ""); break;
+        case "switch_agency":   await handleSwitchAgency(chatId, uid, params.query ?? ""); break;
         case "reset_persona":   await handleResetPersona(chatId, uid); break;
         default:                await handleChat(chatId, uid, text, history, sessionId); break;
       }
