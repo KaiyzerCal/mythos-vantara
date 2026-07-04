@@ -112,6 +112,11 @@ const NotebookPage = lazy(() => import("@/pages/NotebookPage"));
 const AirtablePage = lazy(() => import("@/pages/AirtablePage"));
 const CampaignsPage = lazy(() => import("@/pages/CampaignsPage").then(m => ({ default: m.CampaignsPage })));
 const GalleryPage = lazy(() => import("@/pages/GalleryPage").then(m => ({ default: m.GalleryPage })));
+const BehavioralModelPage = lazy(() => import("@/pages/BehavioralModelPage").then(m => ({ default: m.BehavioralModelPage })));
+const MyAgents = lazy(() => import("@/pages/MyAgents"));
+const RSSReaderPage = lazy(() => import("@/pages/RSSReaderPage").then(m => ({ default: m.RSSReaderPage })));
+const SystemHealthPage = lazy(() => import("@/pages/SystemHealthPage").then(m => ({ default: m.SystemHealthPage })));
+const WpcomCallbackPage = lazy(() => import("@/pages/WpcomCallbackPage"));
 // Public demo — no auth required
 const MavisDemo = lazy(() => import("@/pages/MavisDemo"));
 
@@ -164,7 +169,7 @@ function AppContent() {
       <div className="h-screen flex overflow-hidden bg-background">
         <AppSidebar />
 
-        <main className={`flex-1 min-w-0 h-full ${["/mavis-ui", "/demo", "/factory", "/world-monitor", "/voice-lab", "/prompt-vault", "/agency", "/notebook"].includes(location.pathname) ? "overflow-hidden" : "overflow-y-auto p-5"}`}>
+        <main className={`flex-1 min-w-0 h-full ${["/mavis", "/mavis-ui", "/demo", "/factory", "/world-monitor", "/voice-lab", "/prompt-vault", "/agency", "/notebook"].includes(location.pathname) ? "overflow-hidden" : "overflow-y-auto p-5"}`}>
           <Suspense fallback={Spinner}>
             <Routes>
               <Route path="/" element={<Dashboard />} />
@@ -249,6 +254,11 @@ function AppContent() {
               <Route path="/campaigns" element={<CampaignsPage />} />
               <Route path="/gallery" element={<GalleryPage />} />
               <Route path="/system-settings" element={<SystemSettingsPage />} />
+              <Route path="/system-health" element={<SystemHealthPage />} />
+              <Route path="/behavioral-model" element={<BehavioralModelPage />} />
+              <Route path="/my-agents" element={<MyAgents />} />
+              <Route path="/rss-reader" element={<RSSReaderPage />} />
+              <Route path="/wpcom-callback" element={<WpcomCallbackPage />} />
               <Route path="*" element={<NotFound />} />
             </Routes>
           </Suspense>
