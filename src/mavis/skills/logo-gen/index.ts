@@ -1,4 +1,6 @@
 import { registerSkill } from "../_registry";
+import { supabase as _supabase } from "@/integrations/supabase/client";
+const supabaseClient = _supabase as any;
 
 registerSkill(
   {
@@ -31,8 +33,9 @@ registerSkill(
       "logo generator",
     ],
   },
-  async (input, { supabaseClient, userId }) => {
-    const lines = input.trim().split("\n");
+  async (_ctx, input) => {
+    const text = (input ?? "").trim();
+    const lines = text.split("\n");
 
     function extract(label: string): string {
       const line = lines.find((l) => l.toLowerCase().startsWith(`${label}:`));
