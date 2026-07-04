@@ -39,6 +39,8 @@ interface RequestBody {
   base_branch?: string;
   create_pr?: boolean;
   max_turns?: number;
+  specialist_name?: string;
+  specialist_context?: string;
 }
 
 interface AgentResponse {
@@ -249,13 +251,14 @@ async function getGitHubToken(
 
 // ── GitHub API helpers ────────────────────────────────────────────────────────
 
-function ghHeaders(token: string): HeadersInit {
-  return {
-    Authorization: `token ${token}`,
+function ghHeaders(token: string | null): HeadersInit {
+  const headers: Record<string, string> = {
     Accept: "application/vnd.github.v3+json",
     "Content-Type": "application/json",
     "User-Agent": "mavis-code-agent/1.0",
   };
+  if (token) headers["Authorization"] = `token ${token}`;
+  return headers;
 }
 
 /** Classify GitHub error response and throw an appropriate error. */
@@ -502,7 +505,7 @@ async function runInE2B(code: string, language = "python3"): Promise<string> {
 // ── Tool dispatcher ───────────────────────────────────────────────────────────
 
 interface ToolContext {
-  token: string;
+  token: string | null;  // null = anonymous read-only access (public repos only)
   owner: string;
   repo: string;
   branch: string;
@@ -544,6 +547,7 @@ async function dispatchTool(
     }
 
     case "write_file": {
+      if (!ctx.token) return { done: false, output: "write_file requires a GitHub PAT (read-only anonymous session). Add your PAT in Settings → API Keys → GitHub to enable write operations." };
       const path = String(input.path ?? "");
       const content = String(input.content ?? "");
       const message = String(input.message ?? `Update ${path}`);
@@ -554,6 +558,7 @@ async function dispatchTool(
     }
 
     case "delete_file": {
+      if (!ctx.token) return { done: false, output: "delete_file requires a GitHub PAT (read-only anonymous session)." };
       const path = String(input.path ?? "");
       const message = String(input.message ?? `Delete ${path}`);
       const output = await ghDeleteFile(ctx.token, ctx.owner, ctx.repo, path, message, branch);
@@ -562,6 +567,7 @@ async function dispatchTool(
     }
 
     case "search_code": {
+      if (!ctx.token) return { done: false, output: "search_code requires a GitHub PAT (not available in anonymous read-only session). Try listing files and reading them directly." };
       const query = String(input.query ?? "");
       const output = await ghSearchCode(ctx.token, ctx.owner, ctx.repo, query);
       return { done: false, output };
@@ -575,6 +581,7 @@ async function dispatchTool(
     }
 
     case "create_branch": {
+      if (!ctx.token) return { done: false, output: "create_branch requires a GitHub PAT (read-only anonymous session)." };
       const newBranch = String(input.branch ?? ctx.branch);
       const fromBranch = String(input.from_branch ?? ctx.baseBranch);
       const output = await ghCreateBranch(ctx.token, ctx.owner, ctx.repo, newBranch, fromBranch);
@@ -582,6 +589,7 @@ async function dispatchTool(
     }
 
     case "create_pull_request": {
+      if (!ctx.token) return { done: false, output: "create_pull_request requires a GitHub PAT (read-only anonymous session)." };
       const title = String(input.title ?? "MAVIS Code Agent changes");
       const body = String(input.body ?? "");
       const head = String(input.head ?? ctx.branch);
@@ -618,8 +626,18 @@ async function runAgentLoop(
   task: string,
   ctx: ToolContext,
   maxTurns: number,
+  specialistName?: string,
+  specialistContext?: string,
 ): Promise<{ summary: string; filesChanged: string[]; prUrl?: string; turnsUsed: number }> {
   if (!ANTHROPIC_KEY) throw new Error("ANTHROPIC_API_KEY is not configured");
+
+  const accessNote = ctx.token
+    ? ""
+    : "\n⚠️ ANONYMOUS ACCESS: No GitHub PAT configured. You have READ-ONLY access to this public repository. Skip write_file, delete_file, create_branch, create_pull_request — focus on reading and analysis only.";
+
+  const specialistNote = specialistName && specialistContext
+    ? `\n\nACTIVE SPECIALIST: ${specialistName}\nYou are operating as this specialist. Apply their frameworks and expertise to the code review.\n\n${specialistContext.slice(0, 3000)}\n— END SPECIALIST OVERLAY —`
+    : "";
 
   const messages: ClaudeMessage[] = [
     {
@@ -630,7 +648,9 @@ async function runAgentLoop(
         `Working branch: ${ctx.branch}\n` +
         `Base branch: ${ctx.baseBranch}\n` +
         (ctx.createPr ? "When done, create a pull request.\n" : "") +
-        "\nStart by exploring the repository structure, then plan and execute the task.",
+        accessNote +
+        specialistNote +
+        "\n\nStart by exploring the repository structure, then plan and execute the task.",
     },
   ];
 
@@ -786,14 +806,9 @@ serve(async (req: Request): Promise<Response> => {
   // ── Supabase service-role client ─────────────────────────────────────────
   const supabase = createClient(SB_URL, SB_KEY, { auth: { persistSession: false } });
 
-  // ── Read GitHub PAT ───────────────────────────────────────────────────────
+  // ── Read GitHub PAT (optional — public repos work without one) ───────────
   const githubToken = await getGitHubToken(supabase, userId);
-  if (!githubToken) {
-    return json(
-      { error: "GitHub not connected. Add your PAT in Settings → Integrations → GitHub." },
-      400,
-    );
-  }
+  // Not a hard fail — anonymous access works for public repos (read-only, 60 req/hr)
 
   // ── Parse request body ────────────────────────────────────────────────────
   let body: RequestBody;
@@ -808,9 +823,12 @@ serve(async (req: Request): Promise<Response> => {
     return json({ error: '"task" is required' }, 400);
   }
 
-  // ── Resolve owner from GitHub /user if not provided ───────────────────────
+  // ── Resolve owner from GitHub /user if not provided (requires PAT) ────────
   let owner = String(body.owner ?? "").trim();
   if (!owner) {
+    if (!githubToken) {
+      return json({ error: '"owner" is required when no GitHub PAT is configured (cannot auto-resolve username anonymously).' }, 400);
+    }
     try {
       const userRes = await fetch(`${GITHUB_API}/user`, {
         headers: ghHeaders(githubToken),
@@ -850,9 +868,11 @@ serve(async (req: Request): Promise<Response> => {
     HARD_CAP_TURNS,
     Math.max(1, isNaN(rawMax) ? DEFAULT_MAX_TURNS : rawMax),
   );
+  const specialistName = body.specialist_name ? String(body.specialist_name) : undefined;
+  const specialistContext = body.specialist_context ? String(body.specialist_context) : undefined;
 
   console.log(
-    `[mavis-code-agent] Starting: user=${userId} repo=${owner}/${repo} branch=${branch} maxTurns=${maxTurns}`,
+    `[mavis-code-agent] Starting: user=${userId} repo=${owner}/${repo} branch=${branch} maxTurns=${maxTurns} anonymous=${!githubToken} specialist=${specialistName ?? "none"}`,
   );
 
   // ── Build tool context ────────────────────────────────────────────────────
@@ -868,7 +888,7 @@ serve(async (req: Request): Promise<Response> => {
 
   // ── Run the agent loop ────────────────────────────────────────────────────
   try {
-    const result = await runAgentLoop(task, ctx, maxTurns);
+    const result = await runAgentLoop(task, ctx, maxTurns, specialistName, specialistContext);
 
     const response: AgentResponse = {
       summary: result.summary,

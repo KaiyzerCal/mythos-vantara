@@ -813,7 +813,61 @@ export default function MavisChat() {
 
     let streamingId = "";
     try {
-      // ── Agent Mode: route to mavis-agent edge function ──────
+      // ── GitHub Repo Analysis (runs FIRST — before agentModeOn) ───────────────
+      // Detects github.com/owner/repo in any mode and routes to mavis-code-agent.
+      // This must be before the agentModeOn check so engineering specialists can
+      // trigger the SE agent loop even when Agent Mode is active.
+      const githubMatch = content.match(/github\.com\/([a-zA-Z0-9_.-]+)\/([a-zA-Z0-9_.-]+)/i);
+      if (githubMatch && userId) {
+        const [, owner, repo] = githubMatch;
+        const task = content.replace(/https?:\/\/github\.com\/[^\s]+/gi, "").trim() ||
+          "Provide a comprehensive analysis: architecture overview, key patterns, file structure, dependencies, security considerations, and technical assessment.";
+        streamingId = `gh-${Date.now()}`;
+        const specialistTag = activeSpecialist ? `**[${activeSpecialist.agent_name}]**` : "**[CODE AGENT]**";
+        setChatMessages((prev) => [...prev, {
+          id: streamingId,
+          role: "assistant" as const,
+          content: `${specialistTag} Routing to mavis-code-agent for analysis of **${owner}/${repo}**…\n\n_Task: ${task}_`,
+          mode: chatMode,
+          timestamp: new Date(),
+        }]);
+        try {
+          const { data: codeData, error: codeErr } = await supabase.functions.invoke("mavis-code-agent", {
+            body: {
+              task,
+              owner,
+              repo,
+              branch: "main",
+              specialist_name: activeSpecialist?.agent_name,
+              specialist_context: activeSpecialist?.spec_content?.slice(0, 4000),
+            },
+          });
+          if (codeErr) throw codeErr;
+          const codeText = codeData?.error
+            ? `**[CODE AGENT ERROR]** ${codeData.error}`
+            : (codeData?.summary ?? codeData?.content ?? codeData?.response ?? codeData?.result ?? JSON.stringify(codeData));
+          const codeMsg = { id: `ca-${Date.now()}`, role: "assistant" as const, content: codeText, mode: chatMode, timestamp: new Date() };
+          setChatMessages((prev) => prev.filter((m) => m.id !== streamingId).concat(codeMsg));
+          if (convoId) persistMessage({ role: "assistant", content: codeText, mode: chatMode }, convoId);
+        } catch (err: any) {
+          const errMsg = err?.message ?? "unknown error";
+          const isAuthErr = /auth|token|PAT|github not connected/i.test(errMsg);
+          setChatMessages((prev) => prev.filter((m) => m.id !== streamingId).concat({
+            id: `err-${Date.now()}`,
+            role: "assistant" as const,
+            content: isAuthErr
+              ? `**[CODE AGENT]** GitHub PAT required for private repos.\n\n**Fix:** Go to **API Keys** (/api-keys) → GitHub section → paste your Personal Access Token. Public repos work without a PAT after today's update.\n\n_${errMsg}_`
+              : `**[CODE AGENT ERROR]** ${errMsg}\n\nFor private repos, add your GitHub PAT in **API Keys** (/api-keys). Alternatively, try **Code Studio** (/code-studio) for a direct analysis view.`,
+            mode: chatMode,
+            timestamp: new Date(),
+          }));
+        } finally {
+          setIsLoading(false);
+        }
+        return;
+      }
+
+      // ── Agent Mode: route to mavis-agent with full specialist context ─────────
       if (agentModeOn && userId) {
         streamingId = `streaming-${Date.now()}`;
         setChatMessages((prev) => [...prev, {
@@ -829,6 +883,10 @@ export default function MavisChat() {
               goal: content,
               userId,
               messages: history,
+              // Specialist context so mavis-agent adopts the persona in its tool-use loop
+              specialistName: activeSpecialist?.agent_name ?? undefined,
+              specialistContext: activeSpecialist?.spec_content?.slice(0, 6000) ?? undefined,
+              specialistDivision: activeSpecialist?.division ?? undefined,
             },
           });
           if (agentErr) throw agentErr;
@@ -888,44 +946,6 @@ export default function MavisChat() {
             id: `err-${Date.now()}`, role: "assistant" as const,
             content: `[FLOW ERROR] ${err?.message ?? "unknown"} — check that FLOWISE_BASE_URL is set in Supabase secrets`,
             mode: chatMode, timestamp: new Date(),
-          }));
-        } finally {
-          setIsLoading(false);
-        }
-        return;
-      }
-
-      // ── GitHub Repo Analysis: detect github.com/owner/repo and route to mavis-code-agent ──
-      const githubMatch = content.match(/github\.com\/([a-zA-Z0-9_.-]+)\/([a-zA-Z0-9_.-]+)/i);
-      if (githubMatch && (chatMode === "CODEX" || chatMode === "ARCH" || chatMode === "AGENT") && userId) {
-        const [, owner, repo] = githubMatch;
-        const task = content.replace(/https?:\/\/github\.com\/[^\s]+/gi, "").trim() ||
-          "Provide a comprehensive analysis: architecture overview, key patterns, file structure, dependencies, security considerations, and technical assessment.";
-        setChatMessages((prev) => prev.map((m) =>
-          m.id === streamingId ? { ...m, content: `**[CODEX]** Routing to mavis-code-agent for deep analysis of **${owner}/${repo}**...\n\nTask: _${task}_` } : m
-        ));
-        try {
-          const { data: codeData, error: codeErr } = await supabase.functions.invoke("mavis-code-agent", {
-            body: { task, owner, repo, branch: "main" },
-          });
-          if (codeErr) throw codeErr;
-          const codeText = codeData?.content ?? codeData?.response ?? codeData?.result ?? codeData?.output ?? JSON.stringify(codeData);
-          const codeMsg = {
-            id: `ca-${Date.now()}`,
-            role: "assistant" as const,
-            content: codeText,
-            mode: chatMode,
-            timestamp: new Date(),
-          };
-          setChatMessages((prev) => prev.filter((m) => m.id !== streamingId).concat(codeMsg));
-          if (convoId) persistMessage({ role: "assistant", content: codeText, mode: chatMode }, convoId);
-        } catch (err: any) {
-          setChatMessages((prev) => prev.filter((m) => m.id !== streamingId).concat({
-            id: `err-${Date.now()}`,
-            role: "assistant" as const,
-            content: `**[CODEX ERROR]** GitHub repo analysis failed: ${err?.message ?? "unknown error"}.\n\nMake sure the repo is public and the \`mavis-code-agent\` edge function is deployed.\n\nAlternatively, open **Code Studio** (/code-studio) and paste the repo URL there for direct analysis.`,
-            mode: chatMode,
-            timestamp: new Date(),
           }));
         } finally {
           setIsLoading(false);
