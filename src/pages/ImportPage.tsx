@@ -8,6 +8,7 @@ import { FileText, Upload, CheckCircle2, ChevronRight, Loader2, RotateCcw } from
 import { useAuth } from "@/contexts/AuthContext";
 import { PageHeader, HudCard } from "@/components/SharedUI";
 import { toast } from "sonner";
+import { supabase } from "@/integrations/supabase/client";
 
 // ─── Types ──────────────────────────────────────────────────
 type ImportSource = "notion" | "obsidian" | "markdown";

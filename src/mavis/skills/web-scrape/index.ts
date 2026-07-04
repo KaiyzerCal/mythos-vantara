@@ -31,7 +31,7 @@ const handler: SkillHandler = async (_ctx, input) => {
         actorId: "janbuchar/crawl4ai",
         input: {
           startUrls: [{ url: targetUrl }],
-          extractionGoal,
+          extractionGoal: extractGoal,
           maxCrawlPages: 3,
           outputFormat: "markdown",
         },
