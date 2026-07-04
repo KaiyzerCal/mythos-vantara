@@ -5,10 +5,12 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-// ── Self-hosted Python sandbox (optional) ─────────────────────────────────────
-// Set PYTHON_SANDBOX_URL in edge function secrets to enable Python execution.
+// ── Self-hosted multi-language sandbox (optional) ─────────────────────────────
+// Set PYTHON_SANDBOX_URL in edge function secrets to enable execution.
 // Deploy sandbox/Dockerfile on any $4.50/mo VPS to self-host.
 const PYTHON_SANDBOX_URL = Deno.env.get("PYTHON_SANDBOX_URL"); // e.g. "http://your-server:8080"
+
+type SandboxLang = "python" | "node" | "typescript" | "bash";
 
 function looksLikePython(code: string): boolean {
   return (
@@ -21,15 +23,15 @@ function looksLikePython(code: string): boolean {
   );
 }
 
-async function runPython(code: string): Promise<{ result?: string; output: string[]; error?: string; provider: string }> {
+async function runSandbox(code: string, language: SandboxLang): Promise<{ result?: string; output: string[]; error?: string; provider: string }> {
   if (!PYTHON_SANDBOX_URL) {
-    return { output: [], error: "Python execution requires PYTHON_SANDBOX_URL to be configured. See sandbox/README.md.", provider: "none" };
+    return { output: [], error: `${language} execution requires PYTHON_SANDBOX_URL to be configured. See sandbox/README.md.`, provider: "none" };
   }
   try {
     const res = await fetch(`${PYTHON_SANDBOX_URL}/execute`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ code, language: "python", timeout: 25 }),
+      body: JSON.stringify({ code, language, timeout: 25 }),
       signal: AbortSignal.timeout(30000),
     });
     if (!res.ok) throw new Error(`Sandbox returned ${res.status}`);
@@ -39,10 +41,10 @@ async function runPython(code: string): Promise<{ result?: string; output: strin
       result: d.returncode === 0 ? (d.stdout?.trim() || "(no output)") : undefined,
       output: combined ? combined.split("\n") : [],
       error: d.returncode !== 0 ? (d.error || d.stderr || "Execution failed") : d.error || undefined,
-      provider: "python-sandbox",
+      provider: `${language}-sandbox`,
     };
   } catch (e: any) {
-    return { output: [], error: `Sandbox error: ${e.message}`, provider: "python-sandbox" };
+    return { output: [], error: `Sandbox error: ${e.message}`, provider: `${language}-sandbox` };
   }
 }
 
@@ -64,12 +66,17 @@ serve(async (req) => {
       });
     }
 
-    // ── Route to Python sandbox if code is Python ─────────────────────────────
-    const isPython = language === "python" || looksLikePython(code);
-    if (isPython) {
-      const pyResult = await runPython(code);
+    // ── Route to sandbox for Python, Node, TypeScript, Bash ──────────────────
+    const SANDBOX_LANGS: Record<string, SandboxLang> = {
+      python: "python", node: "node", typescript: "typescript", bash: "bash",
+    };
+    const explicitSandboxLang = language ? SANDBOX_LANGS[language] : undefined;
+    const isPython = explicitSandboxLang === "python" || (!explicitSandboxLang && looksLikePython(code));
+    if (isPython || explicitSandboxLang) {
+      const lang: SandboxLang = explicitSandboxLang ?? "python";
+      const sandboxResult = await runSandbox(code, lang);
       return new Response(
-        JSON.stringify(pyResult),
+        JSON.stringify(sandboxResult),
         { headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     }

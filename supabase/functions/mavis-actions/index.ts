@@ -1655,6 +1655,132 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
       return { query: p.query, results, count: results.length };
     }
 
+    // ── Sandbox: multi-language code execution ────────────────
+    case "execute_in_sandbox": {
+      const code = String(p.code ?? "").trim();
+      if (!code) throw new Error("execute_in_sandbox requires a 'code' parameter");
+
+      const language = String(p.language ?? "python");
+      const sessionId = p.session_id ? String(p.session_id) : undefined;
+      const timeout = typeof p.timeout === "number" ? p.timeout : 30;
+
+      const sandboxUrl = Deno.env.get("PYTHON_SANDBOX_URL");
+      if (!sandboxUrl) {
+        // Fall back to mavis-code-exec which handles Python
+        const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+        const serviceKey  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+        const res = await fetch(`${supabaseUrl}/functions/v1/mavis-code-exec`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${serviceKey}` },
+          body: JSON.stringify({ code }),
+        });
+        if (!res.ok) throw new Error(`Code exec error (${res.status})`);
+        return await res.json();
+      }
+
+      const res = await fetch(`${sandboxUrl}/execute`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code, language, session_id: sessionId, timeout }),
+        signal: AbortSignal.timeout(60000),
+      });
+      if (!res.ok) throw new Error(`Sandbox error (${res.status}): ${await res.text()}`);
+      const data = await res.json();
+
+      // Persist result as a note
+      const ts = new Date().toISOString().slice(0, 16).replace("T", " ");
+      await sb.from("mavis_notes").insert({
+        user_id: userId,
+        title: `[${language.toUpperCase()}] ${ts}`,
+        content: `\`\`\`${language}\n${code.slice(0, 2000)}\n\`\`\`\n\n**Output:**\n\`\`\`\n${data.stdout ?? ""}${data.error ? `\nError: ${data.error}` : ""}\n\`\`\``,
+        tags: ["code-execution", language, "auto"],
+        aliases: [],
+        properties: { skip_sr: true, source: "sandbox", language, session_id: data.session_id },
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      }).catch(() => {});
+
+      return data;
+    }
+
+    // ── Edit file: queue for confirmation, never auto-execute ─
+    case "edit_file": {
+      const path = String(p.path ?? "").trim();
+      const description = String(p.description ?? "").trim();
+      const newContent = String(p.new_content ?? "").trim();
+      if (!path || !newContent) throw new Error("edit_file requires 'path' and 'new_content'");
+
+      await sb.from("mavis_tasks").insert({
+        user_id: userId,
+        type: "edit_file",
+        title: `Edit: ${path}`,
+        description: description || `Proposed edit to ${path}`,
+        status: "pending",
+        requires_confirmation: true,
+        params: { path, description, old_content: p.old_content ?? "", new_content: newContent },
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      }).catch(() => {});
+
+      await logActivity(sb, userId, "edit_file_proposed", `Proposed edit to ${path}`, 5);
+      return { queued: true, path, message: "Edit queued for confirmation in Inbox" };
+    }
+
+    // ── Git operation: read-only auto; write ops queued ───────
+    case "git_operation": {
+      const operation = String(p.operation ?? "status");
+      const readOnly = ["status", "diff", "log"].includes(operation);
+
+      if (!readOnly) {
+        // Commit/push: queue for confirmation
+        await sb.from("mavis_tasks").insert({
+          user_id: userId,
+          type: "git_operation",
+          title: `Git ${operation}`,
+          description: p.message ? `Commit: ${p.message}` : `Git ${operation}`,
+          status: "pending",
+          requires_confirmation: true,
+          params: p,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        }).catch(() => {});
+        return { queued: true, operation, message: `Git ${operation} queued for confirmation` };
+      }
+
+      // Read-only: run via sandbox bash if available
+      const sandboxUrl = Deno.env.get("PYTHON_SANDBOX_URL");
+      if (!sandboxUrl) return { operation, message: "Sandbox not configured — cannot run git commands" };
+      const cmd = operation === "diff" ? "git diff HEAD --stat" :
+                  operation === "log"  ? "git log --oneline -10" : "git status";
+      const res = await fetch(`${sandboxUrl}/execute`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code: cmd, language: "bash", timeout: 15 }),
+        signal: AbortSignal.timeout(20000),
+      });
+      if (!res.ok) return { operation, error: `Sandbox error (${res.status})` };
+      return await res.json();
+    }
+
+    // ── Browse page: delegate to internet agent ───────────────
+    case "browse_page": {
+      const url = String(p.url ?? "").trim();
+      if (!url) throw new Error("browse_page requires a 'url' parameter");
+      const task = String(p.task ?? "Extract the main content and key information from this page.");
+
+      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+      const serviceKey  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+      const res = await fetch(`${supabaseUrl}/functions/v1/mavis-agent-reach`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${serviceKey}` },
+        body: JSON.stringify({ task: `${task}\n\nURL: ${url}`, userId }),
+        signal: AbortSignal.timeout(60000),
+      });
+      if (!res.ok) throw new Error(`Agent reach error (${res.status}): ${await res.text()}`);
+      const data = await res.json();
+      return { url, content: data.content ?? data.result ?? data, task };
+    }
+
     default: {
       // Activepieces fallback — dispatch to a configured flow for any action type
       // not handled natively. Set ACTIVEPIECES_BASE_URL and ACTIVEPIECES_FLOWS (JSON
