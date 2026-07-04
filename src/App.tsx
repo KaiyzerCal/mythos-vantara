@@ -117,6 +117,9 @@ const MyAgents = lazy(() => import("@/pages/MyAgents"));
 const RSSReaderPage = lazy(() => import("@/pages/RSSReaderPage").then(m => ({ default: m.RSSReaderPage })));
 const SystemHealthPage = lazy(() => import("@/pages/SystemHealthPage").then(m => ({ default: m.SystemHealthPage })));
 const WpcomCallbackPage = lazy(() => import("@/pages/WpcomCallbackPage"));
+const CodeStudioPage = lazy(() => import("@/pages/CodeStudioPage"));
+const AgentConsolePage = lazy(() => import("@/pages/AgentConsolePage"));
+const SelfEvolvePage = lazy(() => import("@/pages/SelfEvolvePage"));
 // Public demo — no auth required
 const MavisDemo = lazy(() => import("@/pages/MavisDemo"));
 
@@ -169,7 +172,7 @@ function AppContent() {
       <div className="h-screen flex overflow-hidden bg-background">
         <AppSidebar />
 
-        <main className={`flex-1 min-w-0 h-full ${["/mavis", "/mavis-ui", "/demo", "/factory", "/world-monitor", "/voice-lab", "/prompt-vault", "/agency", "/notebook"].includes(location.pathname) ? "overflow-hidden" : "overflow-y-auto p-5"}`}>
+        <main className={`flex-1 min-w-0 h-full ${["/mavis", "/mavis-ui", "/demo", "/factory", "/world-monitor", "/voice-lab", "/prompt-vault", "/agency", "/notebook", "/code-studio", "/agent-console"].includes(location.pathname) ? "overflow-hidden" : "overflow-y-auto p-5"}`}>
           <Suspense fallback={Spinner}>
             <Routes>
               <Route path="/" element={<Dashboard />} />
@@ -259,6 +262,9 @@ function AppContent() {
               <Route path="/my-agents" element={<MyAgents />} />
               <Route path="/rss-reader" element={<RSSReaderPage />} />
               <Route path="/wpcom-callback" element={<WpcomCallbackPage />} />
+              <Route path="/code-studio" element={<CodeStudioPage />} />
+              <Route path="/agent-console" element={<AgentConsolePage />} />
+              <Route path="/self-evolve" element={<SelfEvolvePage />} />
               <Route path="*" element={<NotFound />} />
             </Routes>
           </Suspense>

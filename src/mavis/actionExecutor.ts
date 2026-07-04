@@ -6,6 +6,8 @@ const ALWAYS_CONFIRM = new Set([
   "delete_vault", "delete_council_member", "delete_inventory_item",
   "delete_ally", "delete_transformation",
   "delete_ranking", "delete_store_item",
+  // Filesystem and git mutations always need explicit approval
+  "edit_file",
 ]);
 
 const IDENTITY_FIELDS = ["codex_name", "title"];
@@ -18,6 +20,8 @@ function classifyAction(action: ParsedAction): ActionClassification {
   if (type === "update_profile" && IDENTITY_FIELDS.some((f) => f in payload)) return "CONFIRM";
   if (type === "update_vault" || type === "delete_vault") return "CONFIRM";
   if (type === "update_ranking" && "tier" in payload) return "CONFIRM";
+  // Git write operations require confirmation; read-only ops (status, diff, log) do not
+  if (type === "git_operation" && ["commit", "push"].includes(String(payload.operation))) return "CONFIRM";
   return "AUTO";
 }
 

@@ -34,6 +34,7 @@ import { gatherProviderContext } from "@/mavis/contextProviders";
 import { buildRecallContext } from "@/mavis/proactiveRecall";
 import { captureProceduralMemory } from "@/mavis/proceduralMemory";
 import { autoCrewDispatch } from "@/mavis/crewCoordinator";
+import { dispatchToSpecialist } from "@/mavis/specialistDispatcher";
 import { getCustomOrders, addStandingOrder, removeStandingOrder } from "@/mavis/standingOrders";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import type { ExecutionResult, ParsedAction } from "@/mavis/types";
@@ -813,7 +814,61 @@ export default function MavisChat() {
 
     let streamingId = "";
     try {
-      // ── Agent Mode: route to mavis-agent edge function ──────
+      // ── GitHub Repo Analysis (runs FIRST — before agentModeOn) ───────────────
+      // Detects github.com/owner/repo in any mode and routes to mavis-code-agent.
+      // This must be before the agentModeOn check so engineering specialists can
+      // trigger the SE agent loop even when Agent Mode is active.
+      const githubMatch = content.match(/github\.com\/([a-zA-Z0-9_.-]+)\/([a-zA-Z0-9_.-]+)/i);
+      if (githubMatch && userId) {
+        const [, owner, repo] = githubMatch;
+        const task = content.replace(/https?:\/\/github\.com\/[^\s]+/gi, "").trim() ||
+          "Provide a comprehensive analysis: architecture overview, key patterns, file structure, dependencies, security considerations, and technical assessment.";
+        streamingId = `gh-${Date.now()}`;
+        const specialistTag = activeSpecialist ? `**[${activeSpecialist.agent_name}]**` : "**[CODE AGENT]**";
+        setChatMessages((prev) => [...prev, {
+          id: streamingId,
+          role: "assistant" as const,
+          content: `${specialistTag} Routing to mavis-code-agent for analysis of **${owner}/${repo}**…\n\n_Task: ${task}_`,
+          mode: chatMode,
+          timestamp: new Date(),
+        }]);
+        try {
+          const { data: codeData, error: codeErr } = await supabase.functions.invoke("mavis-code-agent", {
+            body: {
+              task,
+              owner,
+              repo,
+              branch: "main",
+              specialist_name: activeSpecialist?.agent_name,
+              specialist_context: activeSpecialist?.spec_content?.slice(0, 4000),
+            },
+          });
+          if (codeErr) throw codeErr;
+          const codeText = codeData?.error
+            ? `**[CODE AGENT ERROR]** ${codeData.error}`
+            : (codeData?.summary ?? codeData?.content ?? codeData?.response ?? codeData?.result ?? JSON.stringify(codeData));
+          const codeMsg = { id: `ca-${Date.now()}`, role: "assistant" as const, content: codeText, mode: chatMode, timestamp: new Date() };
+          setChatMessages((prev) => prev.filter((m) => m.id !== streamingId).concat(codeMsg));
+          if (convoId) persistMessage({ role: "assistant", content: codeText, mode: chatMode }, convoId);
+        } catch (err: any) {
+          const errMsg = err?.message ?? "unknown error";
+          const isAuthErr = /auth|token|PAT|github not connected/i.test(errMsg);
+          setChatMessages((prev) => prev.filter((m) => m.id !== streamingId).concat({
+            id: `err-${Date.now()}`,
+            role: "assistant" as const,
+            content: isAuthErr
+              ? `**[CODE AGENT]** GitHub PAT required for private repos.\n\n**Fix:** Go to **API Keys** (/api-keys) → GitHub section → paste your Personal Access Token. Public repos work without a PAT after today's update.\n\n_${errMsg}_`
+              : `**[CODE AGENT ERROR]** ${errMsg}\n\nFor private repos, add your GitHub PAT in **API Keys** (/api-keys). Alternatively, try **Code Studio** (/code-studio) for a direct analysis view.`,
+            mode: chatMode,
+            timestamp: new Date(),
+          }));
+        } finally {
+          setIsLoading(false);
+        }
+        return;
+      }
+
+      // ── Agent Mode: route to mavis-agent with full specialist context ─────────
       if (agentModeOn && userId) {
         streamingId = `streaming-${Date.now()}`;
         setChatMessages((prev) => [...prev, {
@@ -824,11 +879,40 @@ export default function MavisChat() {
           timestamp: new Date(),
         }]);
         try {
+          // ── Specialist Dispatcher: try division-specific tool routes first ────────
+          if (activeSpecialist) {
+            const dispatchResult = await dispatchToSpecialist(
+              content,
+              activeSpecialist,
+              userId,
+              supabase,
+              (label) => setAgentThinking(`${activeSpecialist.agent_name}: ${label}…`),
+            );
+            if (dispatchResult.handled) {
+              const dispatchMsg = {
+                id: `d-${Date.now()}`,
+                role: "assistant" as const,
+                content: dispatchResult.response ?? "",
+                mode: chatMode,
+                timestamp: new Date(),
+              };
+              setChatMessages((prev) => prev.filter((m) => m.id !== streamingId).concat(dispatchMsg));
+              if (convoId) persistMessage({ role: "assistant", content: dispatchResult.response ?? "", mode: chatMode }, convoId);
+              setIsLoading(false);
+              setAgentThinking(null);
+              return;
+            }
+          }
+          // ── Fallback: generic mavis-agent with specialist overlay ─────────────────
           const { data: agentData, error: agentErr } = await supabase.functions.invoke("mavis-agent", {
             body: {
               goal: content,
               userId,
               messages: history,
+              // Specialist context so mavis-agent adopts the persona in its tool-use loop
+              specialistName: activeSpecialist?.agent_name ?? undefined,
+              specialistContext: activeSpecialist?.spec_content?.slice(0, 6000) ?? undefined,
+              specialistDivision: activeSpecialist?.division ?? undefined,
             },
           });
           if (agentErr) throw agentErr;
