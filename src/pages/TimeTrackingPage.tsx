@@ -161,6 +161,7 @@ export function TimeTrackingPage() {
       project: activeTimer.project || null,
       started_at: activeTimer.startedAt.toISOString(),
       ended_at: endedAt.toISOString(),
+      duration_seconds: Math.round((endedAt.getTime() - activeTimer.startedAt.getTime()) / 1000),
       tags: tagsArray.length > 0 ? tagsArray : null,
     });
 
