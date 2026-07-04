@@ -81,8 +81,8 @@ export function NotificationsPage() {
         .order("generated_at", { ascending: false })
         .limit(50),
       (supabase as any)
-        .from("mavis_activity_log")
-        .select("id, event_type, description, xp_awarded, created_at")
+        .from("activity_log")
+        .select("id, event_type, description, xp_amount, created_at")
         .order("created_at", { ascending: false })
         .limit(20),
       (supabase as any)

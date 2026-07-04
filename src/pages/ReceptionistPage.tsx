@@ -558,6 +558,7 @@ export default function ReceptionistPage() {
       const { data } = await (supabase as any)
         .from("receptionist_calls")
         .select("*")
+        .eq("user_id", session.user.id)
         .order("created_at", { ascending: false })
         .limit(50);
       setCalls((data ?? []) as Call[]);
@@ -573,6 +574,7 @@ export default function ReceptionistPage() {
       const { data } = await (supabase as any)
         .from("receptionist_messages")
         .select("*")
+        .eq("user_id", session.user.id)
         .order("created_at", { ascending: false })
         .limit(50);
       setMessages((data ?? []) as Message[]);

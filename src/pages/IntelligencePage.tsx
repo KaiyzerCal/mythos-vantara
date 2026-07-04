@@ -66,10 +66,10 @@ function IntelFeedPanel() {
     try {
       const [preds, actions, briefs, causal] = await Promise.all([
         supabase.from("mavis_predictions")
-          .select("id,type,prediction_text,description,confidence,created_at")
+          .select("id,prediction_type,title,content,confidence,created_at")
           .eq("acted_on", false).order("created_at", { ascending: false }).limit(12),
         supabase.from("mavis_action_queue")
-          .select("id,action_type,title,description,executed_at,created_at")
+          .select("id,action_type,source_context,executed_at,created_at")
           .eq("status", "executed").eq("autonomy_tier", "auto")
           .order("executed_at", { ascending: false }).limit(12),
         supabase.from("mavis_daily_briefs")
@@ -84,8 +84,8 @@ function IntelFeedPanel() {
         ...(preds.data ?? []).map((p: any) => ({
           id: `pred_${p.id}`,
           type: "prediction" as const,
-          title: (p.type ?? "prediction").replace(/_/g, " "),
-          body: p.prediction_text ?? p.description ?? "",
+          title: (p.prediction_type ?? "prediction").replace(/_/g, " "),
+          body: p.content ?? p.title ?? "",
           confidence: p.confidence,
           timestamp: p.created_at,
           raw_id: p.id,
@@ -93,8 +93,8 @@ function IntelFeedPanel() {
         ...(actions.data ?? []).map((a: any) => ({
           id: `action_${a.id}`,
           type: "action" as const,
-          title: a.title ?? (a.action_type ?? "action").replace(/_/g, " "),
-          body: a.description ?? "",
+          title: (a.action_type ?? "action").replace(/_/g, " "),
+          body: a.source_context ?? "",
           timestamp: a.executed_at ?? a.created_at,
           raw_id: a.id,
         })),

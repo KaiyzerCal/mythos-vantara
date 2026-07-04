@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Cpu, ChevronDown, ChevronUp, ExternalLink, Check,
@@ -15,9 +15,11 @@ import {
 const supabase: any = supabaseTyped;
 const SB_URL = import.meta.env.VITE_SUPABASE_URL ?? "";
 
-// ── Storage: provider config in Supabase user_preferences or localStorage ───
+// ── Storage: provider config in localStorage (fast) + Supabase (durable) ────
 
 const LS_KEY = "vantara_provider_config";
+const DB_PROVIDER = "vantara_providers";
+const DB_KEY      = "config";
 
 interface ProviderConfig {
   apiKey?: string;
@@ -31,8 +33,16 @@ type ConfigMap = Record<string, ProviderConfig>;
 function loadConfig(): ConfigMap {
   try { return JSON.parse(localStorage.getItem(LS_KEY) ?? "{}"); } catch { return {}; }
 }
-function saveConfig(cfg: ConfigMap) {
+function saveLocal(cfg: ConfigMap) {
   localStorage.setItem(LS_KEY, JSON.stringify(cfg));
+}
+async function saveRemote(userId: string, cfg: ConfigMap) {
+  await (supabase as any)
+    .from("mavis_user_integrations")
+    .upsert(
+      { user_id: userId, provider: DB_PROVIDER, key_name: DB_KEY, key_value: JSON.stringify(cfg), verified: true },
+      { onConflict: "user_id,provider,key_name" }
+    );
 }
 
 // ── Test connection ──────────────────────────────────────────────────────────
@@ -311,7 +321,7 @@ function ProviderCard({
 // ── Main page ────────────────────────────────────────────────────────────────
 
 export default function ProvidersPage() {
-  useAuth();
+  const { user } = useAuth();
   const [configs, setConfigs] = useState<ConfigMap>(loadConfig);
   const [defaultProvider, setDefaultProvider] = useState<string>(
     () => {
@@ -320,10 +330,40 @@ export default function ProvidersPage() {
     }
   );
 
+  // Load persisted config from Supabase on mount (remote wins, merged over local cache)
+  useEffect(() => {
+    if (!user) return;
+    (supabase as any)
+      .from("mavis_user_integrations")
+      .select("key_value")
+      .eq("user_id", user.id)
+      .eq("provider", DB_PROVIDER)
+      .eq("key_name", DB_KEY)
+      .maybeSingle()
+      .then(({ data }: { data: { key_value: string } | null }) => {
+        if (!data?.key_value) return;
+        try {
+          const remote = JSON.parse(data.key_value) as ConfigMap;
+          setConfigs(prev => {
+            const merged = { ...prev, ...remote };
+            saveLocal(merged);
+            return merged;
+          });
+          const def = Object.entries(remote).find(([, v]) => v.isDefault)?.[0];
+          if (def) setDefaultProvider(def);
+        } catch { /* malformed — ignore */ }
+      });
+  }, [user]);
+
+  const persist = useCallback((cfg: ConfigMap) => {
+    saveLocal(cfg);
+    if (user) saveRemote(user.id, cfg);
+  }, [user]);
+
   function handleSave(providerId: string, updated: ProviderConfig) {
     setConfigs(prev => {
       const next = { ...prev, [providerId]: { ...prev[providerId], ...updated } };
-      saveConfig(next);
+      persist(next);
       return next;
     });
   }
@@ -337,7 +377,7 @@ export default function ProvidersPage() {
       }
       if (!next[providerId]) next[providerId] = { isDefault: true };
       else next[providerId].isDefault = true;
-      saveConfig(next);
+      persist(next);
       return next;
     });
     toast.success(`${PROVIDERS.find(p => p.id === providerId)?.label} set as MAVIS default`);

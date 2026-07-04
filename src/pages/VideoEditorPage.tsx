@@ -836,8 +836,8 @@ export default function VideoEditorPage() {
       });
       if (error) throw error;
       toast.success("Pushed to NORA's queue! She'll post it at the optimal time.");
-    } catch (_err: any) {
-      toast.success("Queued for NORA — check your Inbox to approve.");
+    } catch (err: any) {
+      toast.error("Failed to queue for NORA: " + (err?.message ?? "unknown error"));
     }
   }
 
@@ -978,7 +978,7 @@ export default function VideoEditorPage() {
 
     try {
       const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-      const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+      const { data: { session: compileSession } } = await supabase.auth.getSession();
 
       const clipsPayload = selectedClips.map(clip => ({
         id: clip.id,
@@ -996,7 +996,7 @@ export default function VideoEditorPage() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${supabaseKey}`,
+          'Authorization': `Bearer ${compileSession?.access_token ?? ""}`,
         },
         body: JSON.stringify({
           action: 'compile',
@@ -1077,11 +1077,11 @@ export default function VideoEditorPage() {
     setImportError('');
     try {
       const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-      const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+      const { data: { session: importSession } } = await supabase.auth.getSession();
 
       const res = await fetch(`${supabaseUrl}/functions/v1/mavis-video-download`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${supabaseKey}` },
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${importSession?.access_token ?? ""}` },
         body: JSON.stringify({ url: importUrl.trim(), project_id: selectedProject.id, user_id: user.id }),
       });
 
