@@ -1160,7 +1160,7 @@ export default function MavisChat() {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session?.access_token) return;
       await supabase.functions.invoke("mavis-actions", {
-        body: { actions: [result.action.payload] },
+        body: { actions: [{ type: result.action.type, params: result.action.payload }] },
         headers: { Authorization: `Bearer ${session.access_token}` },
       });
       setPendingActions(prev => prev.filter((_, i) => i !== index));
