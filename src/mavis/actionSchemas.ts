@@ -196,6 +196,40 @@ export const RenderClipSchema = z.object({
   push_to_nora: z.boolean().optional(),
 });
 
+// EXECUTE IN SANDBOX — multi-language code execution via the MAVIS sandbox server
+export const ExecuteInSandboxSchema = z.object({
+  type: z.literal("execute_in_sandbox"),
+  code: z.string().min(1),
+  language: z.enum(["python", "node", "typescript", "bash"]).default("python"),
+  session_id: z.string().optional(),
+  timeout: z.number().int().min(1).max(60).optional(),
+});
+
+// EDIT FILE — propose a file edit (always requires confirmation before execution)
+export const EditFileSchema = z.object({
+  type: z.literal("edit_file"),
+  path: z.string().min(1),
+  description: z.string().min(1),
+  old_content: z.string(),
+  new_content: z.string().min(1),
+});
+
+// GIT OPERATION — read-only git ops run directly; write ops require confirmation
+export const GitOperationSchema = z.object({
+  type: z.literal("git_operation"),
+  operation: z.enum(["status", "diff", "log", "commit", "push"]),
+  message: z.string().optional(),   // for commit
+  files: z.array(z.string()).optional(),
+});
+
+// BROWSE PAGE — fetch and analyse a web page via the internet agent
+export const BrowsePageSchema = z.object({
+  type: z.literal("browse_page"),
+  url: z.string().url(),
+  task: z.string().optional(),   // what to extract / do
+  selector: z.string().optional(),
+});
+
 // UNION — ALL SCHEMAS
 export const ActionSchema = z.discriminatedUnion("type", [
   CreateQuestSchema, UpdateQuestSchema, DeleteQuestSchema,
@@ -226,6 +260,10 @@ export const ActionSchema = z.discriminatedUnion("type", [
   AnalyzeVideoSchema,
   GenerateClipsSchema,
   RenderClipSchema,
+  ExecuteInSandboxSchema,
+  EditFileSchema,
+  GitOperationSchema,
+  BrowsePageSchema,
 ]);
 
 export type ValidatedAction = z.infer<typeof ActionSchema>;
