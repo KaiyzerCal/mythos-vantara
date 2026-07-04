@@ -495,7 +495,7 @@ export function AgentConsole() {
 
       {/* Three-panel layout */}
       <div className="flex-1 overflow-hidden">
-        <PanelGroup direction="horizontal">
+        <PanelGroup {...({ direction: "horizontal" } as any)}>
 
           {/* Left: Input + history */}
           <Panel defaultSize={28} minSize={18}>

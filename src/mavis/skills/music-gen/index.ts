@@ -1,4 +1,6 @@
 import { registerSkill } from "../_registry";
+import { supabase as _supabase } from "@/integrations/supabase/client";
+const supabaseClient = _supabase as any;
 
 registerSkill(
   {
@@ -30,14 +32,15 @@ registerSkill(
       "audio track",
     ],
   },
-  async (input, { supabaseClient, userId }) => {
-    const lines = input.trim().split("\n");
+  async (_ctx, input) => {
+    const text = (input ?? "").trim();
+    const lines = text.split("\n");
     const promptLine = lines.find((l) => l.toLowerCase().startsWith("prompt:")) ?? "";
     const styleLine  = lines.find((l) => l.toLowerCase().startsWith("style:"))  ?? "";
     const durLine    = lines.find((l) => l.toLowerCase().startsWith("duration:")) ?? "";
     const modelLine  = lines.find((l) => l.toLowerCase().startsWith("model:"))  ?? "";
 
-    const prompt   = promptLine ? promptLine.replace(/^prompt:\s*/i, "").trim() : input.trim();
+    const prompt   = promptLine ? promptLine.replace(/^prompt:\s*/i, "").trim() : text;
     const style    = styleLine  ? styleLine.replace(/^style:\s*/i, "").trim()   : "";
     const duration = durLine    ? parseInt(durLine.replace(/^duration:\s*/i, "").trim(), 10) : 30;
     const model    = modelLine  ? modelLine.replace(/^model:\s*/i, "").trim()   : "stable-audio";
