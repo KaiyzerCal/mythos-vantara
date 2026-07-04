@@ -20,6 +20,7 @@ import {
   Stethoscope,
   Code2,
   Terminal,
+  Dna,
 } from "lucide-react";
 import { useState, useContext, useRef, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
@@ -96,6 +97,7 @@ const INTEL_NAV = [
 const CREATOR_NAV = [
   { to: "/agent-console", icon: Terminal, label: "Agent Console" },
   { to: "/code-studio", icon: Code2, label: "Code Studio" },
+  { to: "/self-evolve", icon: Dna, label: "Self-Evolution" },
   { to: "/creator", icon: Clapperboard, label: "Video Editor" },
   { to: "/avatar-studio", icon: UserSquare2, label: "Avatar Studio" },
   { to: "/gallery", icon: LayoutGrid, label: "Creative Gallery" },

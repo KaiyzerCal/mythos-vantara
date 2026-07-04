@@ -119,6 +119,7 @@ const SystemHealthPage = lazy(() => import("@/pages/SystemHealthPage").then(m =>
 const WpcomCallbackPage = lazy(() => import("@/pages/WpcomCallbackPage"));
 const CodeStudioPage = lazy(() => import("@/pages/CodeStudioPage"));
 const AgentConsolePage = lazy(() => import("@/pages/AgentConsolePage"));
+const SelfEvolvePage = lazy(() => import("@/pages/SelfEvolvePage"));
 // Public demo — no auth required
 const MavisDemo = lazy(() => import("@/pages/MavisDemo"));
 
@@ -263,6 +264,7 @@ function AppContent() {
               <Route path="/wpcom-callback" element={<WpcomCallbackPage />} />
               <Route path="/code-studio" element={<CodeStudioPage />} />
               <Route path="/agent-console" element={<AgentConsolePage />} />
+              <Route path="/self-evolve" element={<SelfEvolvePage />} />
               <Route path="*" element={<NotFound />} />
             </Routes>
           </Suspense>
