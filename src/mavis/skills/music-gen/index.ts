@@ -32,7 +32,7 @@ registerSkill(
       "audio track",
     ],
   },
-  async (_ctx, input) => {
+  async (_ctx, input) => ({ skillName: "music-gen", output: await (async (): Promise<string> => {
     const text = (input ?? "").trim();
     const lines = text.split("\n");
     const promptLine = lines.find((l) => l.toLowerCase().startsWith("prompt:")) ?? "";
@@ -72,5 +72,5 @@ registerSkill(
     }
 
     return `Unexpected response from music generator: ${JSON.stringify(data)}`;
-  },
+  })() }),
 );
