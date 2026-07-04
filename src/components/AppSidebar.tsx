@@ -15,6 +15,9 @@ import {
   Library,
   Building2,
   Database,
+  Rss,
+  Bot,
+  Stethoscope,
 } from "lucide-react";
 import { useState, useContext, useRef, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
@@ -31,6 +34,7 @@ const PRIMARY_NAV = [
   { to: "/mavis", icon: Cpu, label: "MAVIS" },
   { to: "/mavis-ui", icon: Sparkles, label: "MavisUI" },
   { to: "/agents", icon: BrainCircuit, label: "Agent Dashboard" },
+  { to: "/my-agents", icon: Bot, label: "My Agents" },
   { to: "/agency", icon: Building2, label: "The Agency" },
   { to: "/providers", icon: Cpu, label: "AI Providers" },
   { to: "/intelligence", icon: Brain, label: "Intelligence" },
@@ -55,6 +59,8 @@ const SECONDARY_NAV = [
   { to: "/domain", icon: Shield, label: "Domain Effects" },
   { to: "/journal", icon: BookOpen, label: "Journal" },
   { to: "/vault", icon: BookLock, label: "Vault Codex" },
+  { to: "/rss-reader", icon: Rss, label: "RSS Reader" },
+  { to: "/behavioral-model", icon: Brain, label: "Behavioral Model" },
 ];
 
 const INTEL_NAV = [
@@ -115,6 +121,7 @@ const UTILITY_NAV = [
   { to: "/activity", icon: CheckSquare, label: "Activity Log" },
   { to: "/stripe", icon: CreditCard, label: "Stripe" },
   { to: "/import", icon: Upload, label: "Import Data" },
+  { to: "/system-health", icon: Stethoscope, label: "System Health" },
   { to: "/system-settings", icon: SlidersHorizontal, label: "System Settings" },
   { to: "/settings", icon: Settings, label: "Settings" },
 ];
