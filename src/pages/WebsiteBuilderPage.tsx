@@ -748,9 +748,13 @@ export default function WebsiteBuilderPage() {
       }
       // railway / hostinger: no credentials needed — returns base64 ZIP
 
+      const { data: { session: deploySession } } = await supabase.auth.getSession();
       const deployRes = await fetch(`${SUPABASE_URL}/functions/v1/mavis-deploy`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${deploySession?.access_token ?? ""}`,
+        },
         body: JSON.stringify(providerPayload),
       });
 

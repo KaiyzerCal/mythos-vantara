@@ -57,7 +57,7 @@ interface AgentMemory {
 
 interface ResponseFeedback {
   id: string;
-  rating: "up" | "down";
+  rating: number; // 1 = thumbs up, -1 = thumbs down (matches mavis_response_feedback DB schema)
   response_preview: string | null;
   provider: string | null;
   mode: string | null;
@@ -486,7 +486,7 @@ function ResponseQualityTab({ userId }: { userId: string }) {
   }, [userId]);
 
   const total = feedback.length;
-  const ups = feedback.filter((f) => f.rating === "up").length;
+  const ups = feedback.filter((f) => f.rating === 1).length;
   const downs = total - ups;
   const satisfactionPct = total > 0 ? Math.round((ups / total) * 100) : 0;
 
@@ -570,7 +570,7 @@ function ResponseQualityTab({ userId }: { userId: string }) {
             <HudCard key={fb.id}>
               <div className="flex items-start gap-3">
                 <div className="shrink-0 mt-0.5">
-                  {fb.rating === "up" ? (
+                  {fb.rating === 1 ? (
                     <ThumbsUp size={14} className="text-green-400" />
                   ) : (
                     <ThumbsDown size={14} className="text-red-400" />

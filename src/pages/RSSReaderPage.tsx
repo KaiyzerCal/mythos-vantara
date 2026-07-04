@@ -145,14 +145,13 @@ export function RSSReaderPage() {
   async function fetchAll() {
     setFetchingAll(true);
     try {
-      // heartbeat calls fetch_all with service-role key; we call heartbeat directly
-      const res = await fetch(`${SB_URL}/functions/v1/mavis-heartbeat`, {
+      const res = await fetch(`${SB_URL}/functions/v1/mavis-rss-monitor`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ trigger: "manual" }),
+        body: JSON.stringify({ action: "fetch_all" }),
       });
       const data = await res.json().catch(() => ({}));
-      toast.success(`Poll complete — ${data.rss_new_articles ?? 0} new article(s) across all feeds`);
+      toast.success(`Poll complete — ${data.new_articles ?? data.rss_new_articles ?? 0} new article(s) across all feeds`);
       loadFeeds(); loadArticles();
     } catch (e: any) {
       toast.error(e.message);
