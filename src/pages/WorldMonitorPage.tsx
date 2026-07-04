@@ -284,21 +284,19 @@ export default function WorldMonitorPage() {
       if (evRes.status    === "fulfilled") {
         const edgeEvents: GlobeEvent[] = evRes.value.events ?? [];
         setEvents(edgeEvents);
-        // If deployed edge fn is old (only earthquakes), supplement with direct public API calls
+        // If edge fn is stale (only earthquakes), supplement with EONET public API
+        // Note: GDELT is fetched server-side by mavis-worldmonitor; browser GDELT calls
+        // fail due to CORS and are intentionally excluded here.
         const hasOtherCategories = edgeEvents.some(e => e.category !== "earthquake");
         if (!hasOtherCategories) {
-          Promise.allSettled([fetchEonetFallback(), fetchGdeltFallback()]).then(([eoR, gdR]) => {
-            const extra: GlobeEvent[] = [
-              ...(eoR.status === "fulfilled" ? eoR.value : []),
-              ...(gdR.status === "fulfilled" ? gdR.value : []),
-            ];
+          fetchEonetFallback().then(extra => {
             if (extra.length > 0) {
               setEvents(prev => {
                 const existingIds = new Set(prev.map(e => e.id));
                 return [...prev, ...extra.filter(e => !existingIds.has(e.id))];
               });
             }
-          });
+          }).catch(() => { /* EONET unreachable — globe still shows edge data */ });
         }
       }
       if (briefRes.status === "fulfilled") setBrief(briefRes.value);
