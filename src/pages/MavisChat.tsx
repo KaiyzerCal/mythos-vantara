@@ -34,6 +34,7 @@ import { gatherProviderContext } from "@/mavis/contextProviders";
 import { buildRecallContext } from "@/mavis/proactiveRecall";
 import { captureProceduralMemory } from "@/mavis/proceduralMemory";
 import { autoCrewDispatch } from "@/mavis/crewCoordinator";
+import { dispatchToSpecialist } from "@/mavis/specialistDispatcher";
 import { getCustomOrders, addStandingOrder, removeStandingOrder } from "@/mavis/standingOrders";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import type { ExecutionResult, ParsedAction } from "@/mavis/types";
@@ -878,6 +879,31 @@ export default function MavisChat() {
           timestamp: new Date(),
         }]);
         try {
+          // ── Specialist Dispatcher: try division-specific tool routes first ────────
+          if (activeSpecialist) {
+            const dispatchResult = await dispatchToSpecialist(
+              content,
+              activeSpecialist,
+              userId,
+              supabase,
+              (label) => setAgentThinking(`${activeSpecialist.agent_name}: ${label}…`),
+            );
+            if (dispatchResult.handled) {
+              const dispatchMsg = {
+                id: `d-${Date.now()}`,
+                role: "assistant" as const,
+                content: dispatchResult.response ?? "",
+                mode: chatMode,
+                timestamp: new Date(),
+              };
+              setChatMessages((prev) => prev.filter((m) => m.id !== streamingId).concat(dispatchMsg));
+              if (convoId) persistMessage({ role: "assistant", content: dispatchResult.response ?? "", mode: chatMode }, convoId);
+              setIsLoading(false);
+              setAgentThinking(null);
+              return;
+            }
+          }
+          // ── Fallback: generic mavis-agent with specialist overlay ─────────────────
           const { data: agentData, error: agentErr } = await supabase.functions.invoke("mavis-agent", {
             body: {
               goal: content,
