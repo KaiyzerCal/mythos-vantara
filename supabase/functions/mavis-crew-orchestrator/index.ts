@@ -1,6 +1,6 @@
-// MAVIS Crew Orchestrator — parallel multi-agent synthesis engine
-// Accepts a complex goal, decomposes into 2-5 specialized sub-tasks,
-// runs all agents in parallel via Claude, then synthesizes a unified response.
+// MAVIS Crew Orchestrator — AI swarm engine
+// PLANNER decomposes goal → specialists run in parallel → synthesizer integrates → VALIDATOR reviews.
+// task_type presets bypass decomposition for known workflows (permit_roadmap, company_analysis, etc.).
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
@@ -39,8 +39,16 @@ interface AgentResult {
   duration_ms: number;
 }
 
+interface ValidationResult {
+  approved: boolean;
+  score: number;           // 0–10
+  suggestions: string[];
+  validated_output: string; // refined synthesis incorporating suggestions
+}
+
 interface OrchestratorResponse {
   synthesis: string;
+  validation: ValidationResult;
   agents: AgentResult[];
   agent_count: number;
   duration_ms: number;
@@ -58,6 +66,100 @@ const AGENT_PERSONAS: Record<AgentRole, string> = {
     "You are JUDGE, a critical reviewer. Your output: risks, blind spots, alternative perspectives, quality assessment.",
   executor:
     "You are FORGE, an executor. Your output: concrete action steps, tool recommendations, implementation details.",
+};
+
+// ── Task-type presets: bypass AI decomposition for known workflow types ────────
+// Maps task_type strings to a fixed agent set and goal template.
+// Add new workflow types here as the swarm expands.
+const TASK_TYPE_PRESETS: Record<string, (input: Record<string, string>) => SubTask[]> = {
+  permit_roadmap: (inp) => [
+    {
+      agent: "researcher",
+      task: `Research local permitting rules, zoning codes, and regulatory requirements for: ${inp.description ?? inp.location ?? "the project"}`,
+      focus: "Jurisdiction-specific rules, required documents, typical timelines, fees.",
+    },
+    {
+      agent: "analyst",
+      task: `Identify rejection risks and compliance gaps for: ${inp.description ?? "the project"}`,
+      focus: "Common rejection reasons, setback issues, missing reviews, mitigation strategies.",
+    },
+    {
+      agent: "executor",
+      task: `Draft professional permit application narrative for: ${inp.description ?? "the project"}`,
+      focus: "First-person permit narrative, project justification, public benefit, compliance statement.",
+    },
+    {
+      agent: "planner",
+      task: `Create a step-by-step submission roadmap for: ${inp.description ?? "the project"} in ${inp.location ?? "the jurisdiction"}`,
+      focus: "Ordered steps, dependencies, deadlines, contact offices, required forms.",
+    },
+  ],
+  company_analysis: (inp) => [
+    {
+      agent: "researcher",
+      task: `Research company background, products, leadership, and market position for: ${inp.company ?? inp.target ?? "the company"}`,
+      focus: "Founding, revenue signals, key people, recent news, competitive landscape.",
+    },
+    {
+      agent: "analyst",
+      task: `Analyze strengths, weaknesses, opportunities, and threats for: ${inp.company ?? "the company"}`,
+      focus: "SWOT breakdown, market share, growth signals, risk factors.",
+    },
+    {
+      agent: "critic",
+      task: `Identify red flags and risks when engaging with: ${inp.company ?? "the company"}`,
+      focus: "Legal issues, financial instability, reputational risks, deal-breakers.",
+    },
+    {
+      agent: "planner",
+      task: `Recommend an engagement or partnership strategy for: ${inp.company ?? "the company"}`,
+      focus: "Recommended approach, talking points, deal structure, next steps.",
+    },
+  ],
+  content_strategy: (inp) => [
+    {
+      agent: "researcher",
+      task: `Research audience, competitors, and trending content for: ${inp.topic ?? inp.brand ?? "the brand"}`,
+      focus: "Audience demographics, competitor content gaps, trending angles, platform behavior.",
+    },
+    {
+      agent: "analyst",
+      task: `Identify highest-leverage content opportunities for: ${inp.topic ?? "the brand"}`,
+      focus: "Content gaps, SEO opportunities, engagement drivers, format recommendations.",
+    },
+    {
+      agent: "executor",
+      task: `Draft a 30-day content calendar for: ${inp.topic ?? "the brand"}`,
+      focus: "Post titles, formats, platforms, posting cadence, CTAs.",
+    },
+    {
+      agent: "critic",
+      task: `Review and challenge the content strategy for: ${inp.topic ?? "the brand"}`,
+      focus: "Blind spots, audience misalignment, oversaturation risks, differentiation gaps.",
+    },
+  ],
+  risk_assessment: (inp) => [
+    {
+      agent: "researcher",
+      task: `Research known risks and historical failures related to: ${inp.subject ?? "the subject"}`,
+      focus: "Prior incidents, failure modes, industry benchmarks, regulatory history.",
+    },
+    {
+      agent: "analyst",
+      task: `Quantify and rank risks for: ${inp.subject ?? "the subject"}`,
+      focus: "Risk matrix (likelihood × impact), probability estimates, severity levels.",
+    },
+    {
+      agent: "planner",
+      task: `Develop mitigation strategies for the top risks in: ${inp.subject ?? "the subject"}`,
+      focus: "Specific mitigations per risk, owners, monitoring triggers, contingency plans.",
+    },
+    {
+      agent: "critic",
+      task: `Challenge the risk assessment: what's being missed for: ${inp.subject ?? "the subject"}`,
+      focus: "Unknown unknowns, systemic risks, tail risks, cognitive biases in the analysis.",
+    },
+  ],
 };
 
 // ── Default fallback tasks when decomposition fails ──────────────────────────
@@ -357,6 +459,49 @@ function persistRun(
   })();
 }
 
+// ── Step 4: Validator — reviews synthesis, returns score + refined output ─────
+async function validate(
+  goal: string,
+  synthesis: string,
+  agentResults: AgentResult[],
+): Promise<ValidationResult> {
+  const system =
+    "You are VANTARA VALIDATOR, the final quality gate of the MAVIS swarm. " +
+    "You receive a synthesized answer produced by a multi-agent crew and evaluate it " +
+    "for completeness, accuracy, actionability, and internal consistency. " +
+    "Return JSON only — no prose outside the JSON object: " +
+    '{ "approved": boolean, "score": 0-10, "suggestions": ["..."], "validated_output": "refined answer here" }. ' +
+    "If approved (score >= 7), validated_output should be the synthesis with any small improvements inline. " +
+    "If not approved (score < 7), validated_output should be a clearly improved rewrite.";
+
+  const agentSummary = agentResults
+    .filter((a) => a.success)
+    .map((a) => `[${a.role.toUpperCase()}]: ${a.output.slice(0, 400)}`)
+    .join("\n\n");
+
+  const userMsg =
+    `GOAL: ${goal}\n\n` +
+    `AGENT OUTPUTS (summary):\n${agentSummary}\n\n` +
+    `SYNTHESIZED ANSWER:\n${synthesis}\n\n` +
+    "Evaluate and return JSON.";
+
+  try {
+    const raw = await claudeCall(system, userMsg, "claude-haiku-4-5-20251001", 2048);
+    const match = raw.match(/\{[\s\S]*\}/);
+    if (!match) throw new Error("No JSON in validator response");
+    const parsed = JSON.parse(match[0]);
+    return {
+      approved: Boolean(parsed.approved),
+      score: Math.min(10, Math.max(0, Number(parsed.score ?? 7))),
+      suggestions: Array.isArray(parsed.suggestions) ? parsed.suggestions.slice(0, 5) : [],
+      validated_output: String(parsed.validated_output ?? synthesis),
+    };
+  } catch (err) {
+    console.warn("[crew-orchestrator] Validator failed, using synthesis as-is:", err);
+    return { approved: true, score: 7, suggestions: [], validated_output: synthesis };
+  }
+}
+
 // ── Main handler ──────────────────────────────────────────────────────────────
 serve(async (req: Request): Promise<Response> => {
   // CORS preflight
@@ -420,22 +565,36 @@ serve(async (req: Request): Promise<Response> => {
   const context = String(body.context ?? "").trim();
   const rawMax = Number(body.max_agents ?? 5);
   const maxAgents = Math.max(2, Math.min(5, isNaN(rawMax) ? 5 : rawMax));
+  // task_type triggers a preset agent set rather than AI decomposition
+  const taskType = String(body.task_type ?? "").trim().toLowerCase().replace(/\s+/g, "_");
+  // input object for preset templates (mirrors the Node.js script's task.input shape)
+  const taskInput: Record<string, string> = typeof body.input === "object" && body.input !== null
+    ? Object.fromEntries(Object.entries(body.input as Record<string, unknown>).map(([k, v]) => [k, String(v)]))
+    : {};
 
   const overallStart = Date.now();
   // Stable run ID for progress streaming — clients subscribe by run_id
   const runId = crypto.randomUUID();
 
-  // ── Step 1: Decompose ───────────────────────────────────────────────────────
+  // ── Step 1: Decompose (or use preset) ──────────────────────────────────────
   let subTasks: SubTask[];
-  try {
-    subTasks = await decomposeGoal(goal, context, maxAgents);
-  } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : String(err);
-    console.error("[crew-orchestrator] Fatal decomposition error:", message);
-    return new Response(JSON.stringify({ error: `Goal decomposition failed: ${message}` }), {
-      status: 500,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+  const presetFn = TASK_TYPE_PRESETS[taskType];
+  if (presetFn) {
+    // Known workflow: use preset agent set — skip AI decomposition
+    subTasks = presetFn({ ...taskInput, _goal: goal });
+    emitProgress(runId, userId, "planner", "start", `Using preset: ${taskType}`);
+    emitProgress(runId, userId, "planner", "complete", `${subTasks.length} agents assigned`);
+  } else {
+    try {
+      subTasks = await decomposeGoal(goal, context, maxAgents);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error("[crew-orchestrator] Fatal decomposition error:", message);
+      return new Response(JSON.stringify({ error: `Goal decomposition failed: ${message}` }), {
+        status: 500,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
   }
 
   // ── Step 2: Parallel agent execution ────────────────────────────────────────
@@ -464,7 +623,6 @@ serve(async (req: Request): Promise<Response> => {
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
     console.error("[crew-orchestrator] Synthesis failed:", message);
-    // Degrade gracefully: return raw agent outputs without synthesis
     synthesis =
       `⚠️ Synthesis step failed (${message}). Raw agent outputs are included below.\n\n` +
       agentResults
@@ -473,23 +631,32 @@ serve(async (req: Request): Promise<Response> => {
         .join("\n\n---\n\n");
   }
 
-  const totalDurationMs = Date.now() - overallStart;
-
   // Emit synthesis progress event
   emitProgress(runId, userId, "synthesizer", "synthesis", synthesis);
 
+  // ── Step 4: Validate ─────────────────────────────────────────────────────────
+  emitProgress(runId, userId, "validator", "start", "Running quality validation");
+  const validation = await validate(goal, synthesis, agentResults);
+  emitProgress(runId, userId, "validator", "complete",
+    `Score: ${validation.score}/10 — ${validation.approved ? "APPROVED" : "NEEDS WORK"}`);
+
+  const totalDurationMs = Date.now() - overallStart;
+
   // ── Persist run (fire-and-forget) ────────────────────────────────────────────
-  persistRun(userId, goal, agentResults, synthesis, totalDurationMs);
+  persistRun(userId, goal, agentResults, validation.validated_output, totalDurationMs);
 
   // ── Build response ───────────────────────────────────────────────────────────
-  const response: OrchestratorResponse & { run_id: string } = {
+  const response: OrchestratorResponse & { run_id: string; task_type: string } = {
     run_id: runId,
-    synthesis,
+    task_type: taskType || "auto",
+    synthesis: validation.validated_output,  // use validator-refined output
+    validation,
     agents: agentResults.map((r) => ({
       role: r.role,
       task: r.task,
       output: r.output,
       success: r.success,
+      duration_ms: r.duration_ms,
       ...(r.error ? { error: r.error } : {}),
     })) as AgentResult[],
     agent_count: agentResults.length,

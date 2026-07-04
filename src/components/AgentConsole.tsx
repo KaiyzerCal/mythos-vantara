@@ -89,6 +89,14 @@ const QUICK_TASKS: Record<ConsoleMode, { label: string; prompt: string }[]> = {
   ],
 };
 
+// ── Swarm preset workflows (map to backend TASK_TYPE_PRESETS) ─────────────────
+const SWARM_PRESETS = [
+  { key: "permit_roadmap",   label: "Permit Roadmap",    desc: "PLANNER + RESEARCHER + RISK + NARRATIVE" },
+  { key: "company_analysis", label: "Company Analysis",  desc: "RESEARCHER + ANALYST + CRITIC + PLANNER" },
+  { key: "content_strategy", label: "Content Strategy",  desc: "RESEARCHER + ANALYST + EXECUTOR + CRITIC" },
+  { key: "risk_assessment",  label: "Risk Assessment",   desc: "RESEARCHER + ANALYST + PLANNER + CRITIC" },
+] as const;
+
 // ── Terminal session panel ────────────────────────────────────
 
 function TerminalPanel({
@@ -174,7 +182,7 @@ function TerminalPanel({
 
 function CrewAgentCard({ step }: { step: AgentStep }) {
   const [expanded, setExpanded] = useState(false);
-  const roleIcon: Record<string, string> = { researcher: "🔬", analyst: "📊", planner: "🗺", critic: "⚖️", executor: "⚡", synthesizer: "🧬" };
+  const roleIcon: Record<string, string> = { researcher: "🔬", analyst: "📊", planner: "🗺", critic: "⚖️", executor: "⚡", synthesizer: "🧬", validator: "✅" };
 
   return (
     <motion.div
@@ -216,6 +224,7 @@ export function AgentConsole() {
 
   const [mode, setMode] = useState<ConsoleMode>("single");
   const [taskInput, setTaskInput] = useState("");
+  const [swarmPreset, setSwarmPreset] = useState<string>("");
   const [agentMessages, setAgentMessages] = useState<AgentMessage[]>([]);
   const [agentRunning, setAgentRunning] = useState(false);
   const [evolving, setEvolving] = useState(false);
@@ -278,9 +287,16 @@ export function AgentConsole() {
       }
 
       else if (mode === "crew") {
-        addStep({ type: "thinking", label: "Decomposing goal into specialist tasks...", ts: new Date() });
+        const hasPreset = Boolean(swarmPreset);
+        addStep({
+          type: "thinking",
+          label: hasPreset ? `Running ${swarmPreset} preset swarm…` : "PLANNER decomposing goal into specialist tasks…",
+          ts: new Date(),
+        });
         const t0 = Date.now();
-        const data = await invoke("mavis-crew-orchestrator", { goal: task, max_agents: 5 });
+        const body: Record<string, any> = { goal: task, max_agents: 5 };
+        if (hasPreset) { body.task_type = swarmPreset; body.input = { _goal: task }; }
+        const data = await invoke("mavis-crew-orchestrator", body);
         const agents: any[] = data.agents ?? [];
         agents.forEach(a => {
           addStep({
@@ -294,7 +310,25 @@ export function AgentConsole() {
             ts: new Date(),
           });
         });
-        addStep({ type: "result", label: `Synthesis complete`, detail: `${agents.length} agents · ${((Date.now()-t0)/1000).toFixed(1)}s`, ts: new Date() });
+        // Show validator result
+        const v = data.validation;
+        if (v) {
+          addStep({
+            type: v.approved ? "result" : "error",
+            role: "validator",
+            label: `VALIDATOR — ${v.approved ? "✅ APPROVED" : "⚠️ NEEDS WORK"} · Score ${v.score}/10`,
+            detail: v.suggestions?.join(" · ") ?? "",
+            output: v.suggestions?.length ? v.suggestions.map((s: string) => `• ${s}`).join("\n") : "No suggestions.",
+            success: v.approved,
+            ts: new Date(),
+          });
+        }
+        addStep({
+          type: "result",
+          label: `Swarm complete`,
+          detail: `${agents.length} agents · ${((Date.now()-t0)/1000).toFixed(1)}s${hasPreset ? ` · ${swarmPreset}` : ""}`,
+          ts: new Date(),
+        });
         setContent(data.synthesis ?? JSON.stringify(data));
       }
 
@@ -481,6 +515,23 @@ export function AgentConsole() {
                     </button>
                   ))}
                 </div>
+                {/* Swarm preset selector — only shown in CREW mode */}
+                {mode === "crew" && (
+                  <div className="mt-1.5 flex flex-wrap items-center gap-1">
+                    <span className="text-[9px] text-zinc-600 font-mono">PRESET:</span>
+                    <button
+                      onClick={() => setSwarmPreset("")}
+                      className={`text-[9px] px-1.5 py-0.5 rounded border transition-colors ${!swarmPreset ? "border-cyan-500/50 bg-cyan-500/10 text-cyan-300" : "border-zinc-700 text-zinc-500 hover:text-zinc-300"}`}
+                    >auto</button>
+                    {SWARM_PRESETS.map(p => (
+                      <button key={p.key}
+                        onClick={() => setSwarmPreset(swarmPreset === p.key ? "" : p.key)}
+                        title={p.desc}
+                        className={`text-[9px] px-1.5 py-0.5 rounded border transition-colors ${swarmPreset === p.key ? "border-cyan-500/50 bg-cyan-500/10 text-cyan-300" : "border-zinc-700 text-zinc-500 hover:text-zinc-300"}`}
+                      >{p.label}</button>
+                    ))}
+                  </div>
+                )}
               </div>
 
               {/* Message history */}
