@@ -33,7 +33,7 @@ registerSkill(
       "logo generator",
     ],
   },
-  async (_ctx, input) => {
+  async (_ctx, input) => ({ skillName: "logo-gen", output: await (async (): Promise<string> => {
     const text = (input ?? "").trim();
     const lines = text.split("\n");
 
@@ -85,5 +85,5 @@ registerSkill(
       `**Logo URL:** ${data.url}\n\n` +
       `_Prompt used: ${data.prompt_used}_`
     );
-  },
+  })() }),
 );
