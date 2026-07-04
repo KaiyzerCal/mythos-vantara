@@ -895,6 +895,44 @@ export default function MavisChat() {
         return;
       }
 
+      // ── GitHub Repo Analysis: detect github.com/owner/repo and route to mavis-code-agent ──
+      const githubMatch = content.match(/github\.com\/([a-zA-Z0-9_.-]+)\/([a-zA-Z0-9_.-]+)/i);
+      if (githubMatch && (chatMode === "CODEX" || chatMode === "ARCH" || chatMode === "AGENT") && userId) {
+        const [, owner, repo] = githubMatch;
+        const task = content.replace(/https?:\/\/github\.com\/[^\s]+/gi, "").trim() ||
+          "Provide a comprehensive analysis: architecture overview, key patterns, file structure, dependencies, security considerations, and technical assessment.";
+        setChatMessages((prev) => prev.map((m) =>
+          m.id === streamingId ? { ...m, content: `**[CODEX]** Routing to mavis-code-agent for deep analysis of **${owner}/${repo}**...\n\nTask: _${task}_` } : m
+        ));
+        try {
+          const { data: codeData, error: codeErr } = await supabase.functions.invoke("mavis-code-agent", {
+            body: { task, owner, repo, branch: "main" },
+          });
+          if (codeErr) throw codeErr;
+          const codeText = codeData?.content ?? codeData?.response ?? codeData?.result ?? codeData?.output ?? JSON.stringify(codeData);
+          const codeMsg = {
+            id: `ca-${Date.now()}`,
+            role: "assistant" as const,
+            content: codeText,
+            mode: chatMode,
+            timestamp: new Date(),
+          };
+          setChatMessages((prev) => prev.filter((m) => m.id !== streamingId).concat(codeMsg));
+          if (convoId) persistMessage({ role: "assistant", content: codeText, mode: chatMode }, convoId);
+        } catch (err: any) {
+          setChatMessages((prev) => prev.filter((m) => m.id !== streamingId).concat({
+            id: `err-${Date.now()}`,
+            role: "assistant" as const,
+            content: `**[CODEX ERROR]** GitHub repo analysis failed: ${err?.message ?? "unknown error"}.\n\nMake sure the repo is public and the \`mavis-code-agent\` edge function is deployed.\n\nAlternatively, open **Code Studio** (/code-studio) and paste the repo URL there for direct analysis.`,
+            mode: chatMode,
+            timestamp: new Date(),
+          }));
+        } finally {
+          setIsLoading(false);
+        }
+        return;
+      }
+
       // Use fresh Supabase context if available, else fall back to useAppData() data
       let systemPrompt = await (fullCtx
         ? buildSystemPromptFromSnapshot(chatMode, fullCtx, archivedMemories, vaultMedia)
