@@ -995,7 +995,8 @@ export default function MavisChat() {
             },
           });
           if (agentErr) throw agentErr;
-          const agentText = agentData?.content ?? agentData?.response ?? agentData?.result ?? agentData?.output ?? JSON.stringify(agentData);
+          const _rawText = agentData?.content ?? agentData?.response ?? agentData?.result ?? agentData?.output ?? (agentData != null ? JSON.stringify(agentData) : "");
+          const agentText: string = (_rawText && _rawText !== "null" && _rawText !== "{}") ? _rawText : "MAVIS returned an empty response. Please try again.";
           const toolsUsed: string[] = agentData?.toolsUsed ?? agentData?.tools_used ?? [];
           const actionsQueued: number = agentData?.actionsQueued ?? agentData?.actions_queued ?? 0;
           setLastAgentMeta({ toolsUsed, actionsQueued });
@@ -1284,7 +1285,7 @@ export default function MavisChat() {
       setAgentSteps([]);
       abortRef.current = null;
     }
-  }, [input, chatMessages, isLoading, chatMode, agentModeOn, agentThinking, profile, quests, tasks, skills, journalEntries, vaultEntries, conversationId, setChatMessages, setConversationId, refetchAll, ensureConversation, persistMessage, saveMemoriesFromResponse, speakText, attachments, clearStaged, editingMsgId, responseLength]);
+  }, [input, chatMessages, isLoading, chatMode, agentModeOn, agentThinking, profile, quests, tasks, skills, journalEntries, vaultEntries, conversationId, setChatMessages, setConversationId, refetchAll, ensureConversation, persistMessage, saveMemoriesFromResponse, speakText, attachments, clearStaged, editingMsgId, responseLength, activeSpecialist]);
 
   const sendFeedback = useCallback(async (msg: any, rating: 1 | -1) => {
     if (feedbackGiven[msg.id]) return;
