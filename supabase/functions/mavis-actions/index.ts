@@ -129,6 +129,17 @@ const ACTION_ALIASES: Record<string, string> = {
   "set_arc": "update_profile", "change_arc": "update_profile",
   "give_xp": "award_xp", "add_xp": "award_xp",
   "add_bpm": "log_bpm_session", "create_bpm": "log_bpm_session", "log_bpm": "log_bpm_session",
+  // Domain / curse / terrain / aura / zone effects
+  "add_domain_effect": "create_domain_effect", "new_domain_effect": "create_domain_effect",
+  "apply_domain": "create_domain_effect", "apply_curse": "create_domain_effect",
+  "apply_buff_domain": "create_domain_effect", "apply_debuff_domain": "create_domain_effect",
+  "apply_aura": "create_domain_effect", "apply_terrain": "create_domain_effect",
+  "apply_zone": "create_domain_effect", "apply_environmental": "create_domain_effect",
+  "edit_domain_effect": "update_domain_effect", "modify_domain_effect": "update_domain_effect",
+  "deactivate_domain_effect": "update_domain_effect", "activate_domain_effect": "update_domain_effect",
+  "remove_domain_effect": "delete_domain_effect", "clear_domain_effect": "delete_domain_effect",
+  "lift_curse": "delete_domain_effect", "remove_curse": "delete_domain_effect",
+  "remove_aura": "delete_domain_effect", "clear_aura": "delete_domain_effect",
 };
 
 function normalizeActionType(type: string): string {
@@ -1779,6 +1790,44 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
       if (!res.ok) throw new Error(`Agent reach error (${res.status}): ${await res.text()}`);
       const data = await res.json();
       return { url, content: data.content ?? data.result ?? data, task };
+    }
+
+    // ── DOMAIN / CURSE / TERRAIN / AURA / ZONE EFFECTS ─────────────────────
+    case "create_domain_effect": {
+      const { error } = await sb.from("mavis_domain_effects").insert({
+        user_id: userId,
+        name: String(p.name || "Unknown Effect"),
+        description: p.description ? String(p.description) : null,
+        effect_type: String(p.effect_type || "domain"),
+        stat_modifiers: Array.isArray(p.stat_modifiers) ? p.stat_modifiers : [],
+        area_effects: Array.isArray(p.area_effects) ? p.area_effects : [],
+        is_active: p.is_active !== undefined ? Boolean(p.is_active) : true,
+        expires_at: p.expires_at ? String(p.expires_at) : null,
+        source: p.source ? String(p.source) : null,
+      });
+      if (error) throw error;
+      await logActivity(sb, userId, "domain_effect_created", `Domain effect applied: ${String(p.name || "Unknown Effect")}`, 0);
+      return;
+    }
+
+    case "update_domain_effect": {
+      const effectId = await resolveId(sb, userId, "mavis_domain_effects", (p.effect_id || p.id) as string, (p.effect_name || p.name) as string);
+      if (!effectId) return;
+      const updates: Record<string, unknown> = {};
+      for (const key of ["name", "description", "effect_type", "stat_modifiers", "area_effects", "is_active", "expires_at", "source"]) {
+        if (p[key] !== undefined) updates[key] = p[key];
+      }
+      await sb.from("mavis_domain_effects").update(updates).eq("id", effectId).eq("user_id", userId);
+      await logActivity(sb, userId, "domain_effect_updated", `Domain effect updated: ${String(p.name || effectId)}`, 0);
+      return;
+    }
+
+    case "delete_domain_effect": {
+      const effectId = await resolveId(sb, userId, "mavis_domain_effects", (p.effect_id || p.id) as string, (p.effect_name || p.name) as string);
+      if (!effectId) return;
+      await sb.from("mavis_domain_effects").delete().eq("id", effectId).eq("user_id", userId);
+      await logActivity(sb, userId, "domain_effect_deleted", `Domain effect removed: ${String(p.name || effectId)}`, 0);
+      return;
     }
 
     default: {
