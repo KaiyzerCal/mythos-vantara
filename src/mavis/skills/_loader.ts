@@ -151,3 +151,81 @@ import "./spaced-repetition/index";
 import "./web-builder/index";
 import "./computer-use/index";
 import "./booking/index";
+
+// ── Research & Intelligence ────────────────────────────────────────────────────
+import "./hn-digest/index";
+import "./reddit/index";
+import "./rss-monitor/index";
+import "./instagram-trends/index";
+import "./market-radar/index";
+import "./sec-filings/index";
+import "./world-monitor/index";
+import "./website-qa/index";
+import "./media-analyst/index";
+import "./entity-graph/index";
+import "./knowledge-base/index";
+import "./context-scout/index";
+import "./readwise/index";
+import "./ingest-url/index";
+import "./youtube-ingest/index";
+
+// ── Productivity & Workflow ────────────────────────────────────────────────────
+import "./meeting-notes/index";
+import "./meeting-prep/index";
+import "./cron-setup/index";
+import "./workflow-run/index";
+import "./periodic-review/index";
+import "./outcome-tracker/index";
+import "./gmail-sync/index";
+import "./gcontacts-sync/index";
+import "./google-workspace/index";
+import "./obsidian-export/index";
+import "./reclaim-ai/index";
+import "./linear-agent/index";
+import "./goal-judge/index";
+import "./learning-engine/index";
+import "./auto-journal/index";
+
+// ── Business & Developer ───────────────────────────────────────────────────────
+import "./netlify-deploy/index";
+import "./vercel-deploy/index";
+import "./terminal/index";
+import "./python-run/index";
+import "./code-deploy/index";
+import "./salesforce/index";
+import "./bank-connect/index";
+import "./strategy-council/index";
+import "./sentry/index";
+import "./so-curator/index";
+import "./e2b-sandbox/index";
+import "./critic-agent/index";
+import "./form-submit/index";
+import "./gmb-agent/index";
+import "./prompt-vault/index";
+
+// ── Creative & Media ───────────────────────────────────────────────────────────
+import "./video-edit/index";
+import "./video-download/index";
+import "./tts/index";
+import "./voicebox/index";
+import "./transcribe-memo/index";
+import "./repurpose-content/index";
+import "./pdf-gen/index";
+import "./widget-gen/index";
+import "./wordpress/index";
+import "./blotato/index";
+
+// ── Health & Life ──────────────────────────────────────────────────────────────
+import "./wearable-data/index";
+import "./health-monitor/index";
+import "./performance-science/index";
+import "./polymarket/index";
+import "./predict/index";
+
+// ── AI & Memory ────────────────────────────────────────────────────────────────
+import "./ai-tutor/index";
+import "./mem0/index";
+import "./autonomous-task/index";
+import "./emotion-analysis/index";
+import "./emotion-tag/index";
+import "./screenpipe/index";
