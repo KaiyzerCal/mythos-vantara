@@ -1062,27 +1062,34 @@ export default function MavisChat() {
                 rituals: rituals as any[], pendingApprovals: [], loadedAt: new Date().toISOString(),
               } as any), archivedMemories, vaultMedia));
 
-          // ── Fallback: generic mavis-agent with specialist overlay ─────────────────
+          // ── Stream via mavis-agent with live SSE progress updates ────────────────
           setAgentThinking("Executing…");
-          const { data: agentData, error: agentErr } = await supabase.functions.invoke("mavis-agent", {
-            body: {
-              goal: content,
-              userId,
-              messages: history,
-              systemPrompt: agentSystemPrompt,
-              chatMode,
-              // Specialist context so mavis-agent adopts the persona in its tool-use loop
-              specialistName: activeSpecialist?.agent_name ?? undefined,
-              specialistContext: activeSpecialist?.spec_content?.slice(0, 6000) ?? undefined,
-              specialistDivision: activeSpecialist?.division ?? undefined,
-            },
-          });
-          if (agentErr) throw agentErr;
-          const _rawText = agentData?.content ?? agentData?.response ?? agentData?.result ?? agentData?.output ?? (agentData != null ? JSON.stringify(agentData) : "");
-          const agentText: string = (_rawText && _rawText !== "null" && _rawText !== "{}") ? _rawText : "MAVIS returned an empty response. Please try again.";
-          const toolsUsed: string[] = agentData?.toolsUsed ?? agentData?.tools_used ?? [];
-          const actionsQueued: number = agentData?.actionsQueued ?? agentData?.actions_queued ?? 0;
+          const onAgentToken = (_tok: string, accumulated: string) => {
+            if (cancelledRef.current) return;
+            setAgentThinking(null);
+            setChatMessages((prev) => prev.map((m) =>
+              m.id === streamingId ? { ...m, content: accumulated } : m
+            ));
+          };
+          const agentResult = await streamAgentMessage(
+            content,
+            agentSystemPrompt,
+            history,
+            { mode: chatMode, conversationId, appState: compactState, chatKind: "mavis", threadRef: "main", attachmentIds: [] },
+            onAgentToken,
+            (toolInfo) => { if (!cancelledRef.current) setAgentThinking(toolInfo); },
+            abortController.signal,
+          );
+          const agentText = agentResult.cleanText || agentResult.rawText || "MAVIS returned an empty response. Please try again.";
+          const toolsUsed: string[] = (agentResult.fnData as any)?.toolsUsed ?? [];
+          const actionsQueued: number = (agentResult.fnData as any)?.actionsQueued ?? 0;
           setLastAgentMeta({ toolsUsed, actionsQueued });
+          const agentExecConfirmed = (agentResult.executionResults ?? []).filter((r) => r.status === "success");
+          if (agentExecConfirmed.length > 0) {
+            await new Promise((r) => setTimeout(r, 500));
+            await refetchAll();
+            if (userId) captureProceduralMemory(userId, content, agentExecConfirmed).catch(() => {});
+          }
           const agentMsg = {
             id: `a-${Date.now()}`,
             role: "assistant" as const,
@@ -1092,7 +1099,9 @@ export default function MavisChat() {
             _agentMeta: { toolsUsed, actionsQueued },
           };
           setChatMessages((prev) => prev.filter((m) => m.id !== streamingId).concat(agentMsg));
+          if (agentResult.conversationId) setConversationId(agentResult.conversationId);
           if (convoId) persistMessage({ role: "assistant", content: agentText, mode: chatMode }, convoId);
+          speakText(agentText);
         } catch (err: any) {
           setChatMessages((prev) => prev.filter((m) => m.id !== streamingId).concat({
             id: `err-${Date.now()}`,
@@ -1493,7 +1502,7 @@ export default function MavisChat() {
 
   return (
     <>
-    <div className="flex gap-3 h-[calc(100dvh-4rem)]">
+    <div className="flex gap-3 h-full">
     <div
       className={`flex flex-col flex-1 min-w-0 gap-2 pb-0 relative transition-colors ${isDragging ? "bg-primary/5 ring-1 ring-inset ring-primary/20 rounded-lg" : ""}`}
       onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
@@ -1517,7 +1526,7 @@ export default function MavisChat() {
         subtitle={`Mode: ${currentMode.label} // Supreme Intelligence`}
         icon={<Cpu size={18} />}
         actions={
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-1.5 sm:gap-3">
             <button
               onClick={() => { setAgentModeOn((v) => !v); setLastAgentMeta(null); agentAutoActivated.current = false; }}
               className={`flex items-center gap-1.5 text-xs font-mono rounded px-2 py-1 border transition-all ${
@@ -1528,12 +1537,12 @@ export default function MavisChat() {
               title={agentModeOn ? "Agent Mode ON — click to disable" : "Agent Mode OFF — click to enable (default: ON)"}
             >
               <Cpu size={12} />
-              {agentModeOn ? "Agent: ON" : "Agent: OFF"}
+              <span className="hidden sm:inline">{agentModeOn ? "Agent: ON" : "Agent: OFF"}</span>
               {agentModeOn && <span className="w-1.5 h-1.5 rounded-full bg-violet-400 animate-pulse ml-0.5" />}
             </button>
             <button
               onClick={() => navigate("/council-board")}
-              className="flex items-center gap-1.5 text-xs font-mono text-amber-400 hover:text-amber-300 border border-amber-900/40 hover:border-amber-400/40 rounded px-2 py-1 transition-all"
+              className="hidden sm:flex items-center gap-1.5 text-xs font-mono text-amber-400 hover:text-amber-300 border border-amber-900/40 hover:border-amber-400/40 rounded px-2 py-1 transition-all"
               title="Open Council Board"
             >
               <Users size={12} />
@@ -1542,7 +1551,8 @@ export default function MavisChat() {
             <button
               onClick={handleOmniSync}
               disabled={isSyncing}
-              className="flex items-center gap-1.5 text-xs font-mono text-cyan-400 hover:text-cyan-300 border border-cyan-900/40 hover:border-cyan-400/40 rounded px-2 py-1 transition-all disabled:opacity-40"
+              className="hidden sm:flex items-center gap-1.5 text-xs font-mono text-cyan-400 hover:text-cyan-300 border border-cyan-900/40 hover:border-cyan-400/40 rounded px-2 py-1 transition-all disabled:opacity-40"
+              title="Sync context"
             >
               {isSyncing ? (
                 <span className="w-3 h-3 rounded-full border-2 border-cyan-400 border-t-transparent animate-spin block" />
@@ -1553,7 +1563,7 @@ export default function MavisChat() {
             </button>
             <button
               onClick={() => setShowSkillCatalog(true)}
-              className="flex items-center gap-1.5 text-xs font-mono text-muted-foreground hover:text-primary border border-border/60 hover:border-primary/40 rounded px-2 py-1 transition-all"
+              className="hidden sm:flex items-center gap-1.5 text-xs font-mono text-muted-foreground hover:text-primary border border-border/60 hover:border-primary/40 rounded px-2 py-1 transition-all"
               title="Browse all 44 skills"
             >
               <BookOpen size={12} />
@@ -1565,7 +1575,7 @@ export default function MavisChat() {
               title="New conversation"
             >
               <Plus size={12} />
-              New Chat
+              <span className="hidden sm:inline">New Chat</span>
             </button>
           </div>
         }
@@ -2402,7 +2412,7 @@ export default function MavisChat() {
           exit={{ opacity: 0, x: 24, width: 0 }}
           transition={{ duration: 0.2 }}
           className="shrink-0 flex flex-col border border-border rounded-lg bg-card overflow-hidden"
-          style={{ maxHeight: "calc(100dvh - 4rem)" }}
+          style={{ maxHeight: "100%" }}
         >
           {/* Header */}
           <div className="flex items-center justify-between px-3 py-2 border-b border-border bg-muted/20">
