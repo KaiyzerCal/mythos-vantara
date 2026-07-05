@@ -165,10 +165,14 @@ serve(async (req) => {
       provider = "dall-e-3";
     }
 
+    // Tier 3 — Pollinations.ai (completely free, no API key required)
+    // Runs when none of the above keys are configured; great for dev/demo.
     if (!imageData) {
-      return new Response(JSON.stringify({ error: "No image generation API available" }), {
-        status: 503, headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      const [w, h] = parseDimensions(size ?? "1024x1024");
+      const encoded = encodeURIComponent(prompt.trim().slice(0, 500));
+      const seed = Math.floor(Date.now() % 100000);
+      imageData = `https://image.pollinations.ai/prompt/${encoded}?width=${w}&height=${h}&model=flux&nologo=true&seed=${seed}`;
+      provider = "pollinations-flux";
     }
 
     return new Response(
