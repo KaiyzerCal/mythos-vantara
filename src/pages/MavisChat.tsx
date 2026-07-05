@@ -948,15 +948,17 @@ export default function MavisChat() {
       const autoAgent = !agentModeOn && userId && AUTO_AGENT_TRIGGERS.some(p => p.test(content));
 
       // ── Agent Mode: route to mavis-agent with full specialist context ─────────
-      if ((agentModeOn || autoAgent) && userId) {
+      // chatMode === "FLOW" always routes to Flowise below, even when agentModeOn is on.
+      if ((agentModeOn || autoAgent) && chatMode !== "FLOW" && userId) {
         streamingId = `streaming-${Date.now()}`;
         setChatMessages((prev) => [...prev, {
           id: streamingId,
           role: "assistant" as const,
-          content: "",
+          content: "⚙ Thinking…",
           mode: chatMode,
           timestamp: new Date(),
         }]);
+        setAgentThinking("Engaging agent loop…");
         try {
           // ── Specialist Dispatcher: try division-specific tool routes first ────────
           if (activeSpecialist) {
@@ -982,12 +984,30 @@ export default function MavisChat() {
               return;
             }
           }
+          // ── Build full MAVIS context for the agent loop ───────────────────────────
+          setAgentThinking("Building context…");
+          const agentSystemPrompt = await (fullCtx
+            ? buildSystemPromptFromSnapshot(chatMode, fullCtx, archivedMemories, vaultMedia)
+            : buildSystemPromptFromSnapshot(chatMode, ({
+                profile: profile as any,
+                quests: quests as any[], tasks: tasks as any[], skills: skills as any[],
+                rankings: [], transformations: transformations as any[],
+                journalEntries: journalEntries as any[], vaultEntries: vaultEntries as any[],
+                councilMembers: councils as any[], inventory: inventory as any[],
+                storeItems: storeItems as any[], energySystems: energySystems as any[],
+                bpmSessions: bpmSessions as any[], allies: allies as any[],
+                rituals: rituals as any[], pendingApprovals: [], loadedAt: new Date().toISOString(),
+              } as any), archivedMemories, vaultMedia));
+
           // ── Fallback: generic mavis-agent with specialist overlay ─────────────────
+          setAgentThinking("Executing…");
           const { data: agentData, error: agentErr } = await supabase.functions.invoke("mavis-agent", {
             body: {
               goal: content,
               userId,
               messages: history,
+              systemPrompt: agentSystemPrompt,
+              chatMode,
               // Specialist context so mavis-agent adopts the persona in its tool-use loop
               specialistName: activeSpecialist?.agent_name ?? undefined,
               specialistContext: activeSpecialist?.spec_content?.slice(0, 6000) ?? undefined,
