@@ -204,6 +204,26 @@ export async function streamAgentMessage(
     throw new Error(`Agent request failed (${res.status}): ${errText}`);
   }
 
+  // mavis-agent returns plain JSON (not SSE) — detect and handle both response types.
+  const agentContentType = res.headers.get("content-type") ?? "";
+  if (!agentContentType.includes("text/event-stream")) {
+    const jsonData = await res.json().catch(() => null);
+    const text: string = jsonData?.content ?? jsonData?.response ?? jsonData?.result ?? jsonData?.output
+      ?? (jsonData ? JSON.stringify(jsonData) : "MAVIS returned no response.");
+    if (text) onToken(text, text);
+    const { cleanText, actions: parsedActions } = parseActions(text);
+    const executionResults: ExecutionResult[] = parsedActions.length > 0 ? await executeActions(parsedActions) : [];
+    return {
+      rawText: text,
+      cleanText,
+      executionResults,
+      conversationId: (jsonData?.conversationId as string | null) ?? options.conversationId ?? null,
+      searched: false,
+      imageUrl: null,
+      fnData: jsonData as Record<string, unknown> | null,
+    };
+  }
+
   const reader = res.body!.getReader();
   const decoder = new TextDecoder();
   let accumulated = "";
