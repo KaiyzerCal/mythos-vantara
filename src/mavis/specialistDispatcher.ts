@@ -277,7 +277,7 @@ const ROUTES: Route[] = [
       const localAvailable = await isLocalServerAvailable();
       if (localAvailable) {
         const data = await localWebSearch(query, 8);
-        if (data?.items?.length) {
+        if ((data?.items as any[])?.length) {
           const lines = (data.items as any[]).slice(0, 5).map((i: any) =>
             `- [${i.title}](${i.url})\n  ${(i.description ?? "").slice(0, 200)}`
           );

@@ -11,8 +11,8 @@ const handler: SkillHandler = async (ctx, input) => {
     return { skillName: "backlink-build", output: "Build backlinks for a site. Example: 'build backlinks for prymal.com in coffee niche' or 'backlink opportunities for mysite.com'" };
   }
   const website = input.match(/https?:\/\/[^\s]+/)?.[0] ?? input.match(/[\w-]+\.\w{2,}/)?.[0] ?? "";
-  const niche = input.replace(/^(build backlinks for|backlink opportunities for|backlinks)\s*/i, "").replace(website, "").replace(/\s*(in|for)\s+([\w\s]+)\s*(niche)?/i, "").trim() ||
-    input.match(/in\s+([\w\s]+)\s*(niche)?/i)?.[1] ?? "general";
+    const niche = (input.replace(/^(build backlinks for|backlink opportunities for|backlinks)\s*/i, "").replace(website, "").replace(/\s*(in|for)\s+([\w\s]+)\s*(niche)?/i, "").trim() ||
+      input.match(/in\s+([\w\s]+)\s*(niche)?/i)?.[1]) ?? "general";
   try {
     const { data, error } = await supabase.functions.invoke("mavis-apify", {
       body: { actorId: "daniil.poletaev/backlink-building-agent", input: { website, niche }, timeout: 120 },
