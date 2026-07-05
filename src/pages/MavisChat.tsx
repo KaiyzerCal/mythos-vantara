@@ -152,7 +152,7 @@ export default function MavisChat() {
   } | null>(null);
 
   // ── Agent Mode (Action Queue integration) ──
-  const [agentModeOn, setAgentModeOn] = useState(false);
+  const [agentModeOn, setAgentModeOn] = useState(true);
   const [lastAgentMeta, setLastAgentMeta] = useState<{ toolsUsed: string[]; actionsQueued: number } | null>(null);
 
   // ── Crew coordinator state ──
@@ -946,7 +946,6 @@ export default function MavisChat() {
         /\b(deploy|publish|push) (it|this|the|to)\b/i,
       ];
       const autoAgent = !agentModeOn && userId && AUTO_AGENT_TRIGGERS.some(p => p.test(content));
-      if (autoAgent) toast.info("Agent Mode — routing to tool-use engine", { duration: 2000 });
 
       // ── Agent Mode: route to mavis-agent with full specialist context ─────────
       if ((agentModeOn || autoAgent) && userId) {
@@ -1442,10 +1441,10 @@ export default function MavisChat() {
                   ? "border-violet-500/60 bg-violet-500/15 text-violet-300"
                   : "border-border/60 text-muted-foreground hover:text-violet-300 hover:border-violet-500/40"
               }`}
-              title={agentModeOn ? "Agent Mode ON — click to turn off" : "Agent Mode OFF — click to turn on"}
+              title={agentModeOn ? "Agent Mode ON — click to disable" : "Agent Mode OFF — click to enable (default: ON)"}
             >
               <Cpu size={12} />
-              Agent Mode
+              {agentModeOn ? "Agent: ON" : "Agent: OFF"}
               {agentModeOn && <span className="w-1.5 h-1.5 rounded-full bg-violet-400 animate-pulse ml-0.5" />}
             </button>
             <button
