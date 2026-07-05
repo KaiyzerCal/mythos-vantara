@@ -121,3 +121,33 @@ import "./weather/index";
 import "./maps/index";
 import "./pattern-insights/index";
 import "./self-reflect/index";
+
+// ── VANTARA App-Native ─────────────────────────────────────────────────────────
+import "./goal-engine/index";
+import "./daily-notes/index";
+import "./vault-save/index";
+import "./achievement-check/index";
+import "./brain-consolidate/index";
+import "./data-export/index";
+
+// ── Advanced Research & Intelligence ──────────────────────────────────────────
+import "./exa-search/index";
+import "./firecrawl/index";
+import "./council-session/index";
+import "./vision-agent/index";
+import "./causal-engine/index";
+import "./demand-scan/index";
+
+// ── Marketing & Growth ─────────────────────────────────────────────────────────
+import "./social-scheduler/index";
+import "./campaign-runner/index";
+import "./beehiiv-agent/index";
+import "./calendly-agent/index";
+
+// ── Creation & Learning ────────────────────────────────────────────────────────
+import "./narrative-engine/index";
+import "./design-system/index";
+import "./spaced-repetition/index";
+import "./web-builder/index";
+import "./computer-use/index";
+import "./booking/index";
