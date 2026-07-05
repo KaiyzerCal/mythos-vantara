@@ -1062,27 +1062,34 @@ export default function MavisChat() {
                 rituals: rituals as any[], pendingApprovals: [], loadedAt: new Date().toISOString(),
               } as any), archivedMemories, vaultMedia));
 
-          // ── Fallback: generic mavis-agent with specialist overlay ─────────────────
+          // ── Stream via mavis-agent with live SSE progress updates ────────────────
           setAgentThinking("Executing…");
-          const { data: agentData, error: agentErr } = await supabase.functions.invoke("mavis-agent", {
-            body: {
-              goal: content,
-              userId,
-              messages: history,
-              systemPrompt: agentSystemPrompt,
-              chatMode,
-              // Specialist context so mavis-agent adopts the persona in its tool-use loop
-              specialistName: activeSpecialist?.agent_name ?? undefined,
-              specialistContext: activeSpecialist?.spec_content?.slice(0, 6000) ?? undefined,
-              specialistDivision: activeSpecialist?.division ?? undefined,
-            },
-          });
-          if (agentErr) throw agentErr;
-          const _rawText = agentData?.content ?? agentData?.response ?? agentData?.result ?? agentData?.output ?? (agentData != null ? JSON.stringify(agentData) : "");
-          const agentText: string = (_rawText && _rawText !== "null" && _rawText !== "{}") ? _rawText : "MAVIS returned an empty response. Please try again.";
-          const toolsUsed: string[] = agentData?.toolsUsed ?? agentData?.tools_used ?? [];
-          const actionsQueued: number = agentData?.actionsQueued ?? agentData?.actions_queued ?? 0;
+          const onAgentToken = (_tok: string, accumulated: string) => {
+            if (cancelledRef.current) return;
+            setAgentThinking(null);
+            setChatMessages((prev) => prev.map((m) =>
+              m.id === streamingId ? { ...m, content: accumulated } : m
+            ));
+          };
+          const agentResult = await streamAgentMessage(
+            content,
+            agentSystemPrompt,
+            history,
+            { mode: chatMode, conversationId, appState: compactState, chatKind: "mavis", threadRef: "main", attachmentIds: [] },
+            onAgentToken,
+            (toolInfo) => { if (!cancelledRef.current) setAgentThinking(toolInfo); },
+            abortController.signal,
+          );
+          const agentText = agentResult.cleanText || agentResult.rawText || "MAVIS returned an empty response. Please try again.";
+          const toolsUsed: string[] = (agentResult.fnData as any)?.toolsUsed ?? [];
+          const actionsQueued: number = (agentResult.fnData as any)?.actionsQueued ?? 0;
           setLastAgentMeta({ toolsUsed, actionsQueued });
+          const agentExecConfirmed = (agentResult.executionResults ?? []).filter((r) => r.status === "success");
+          if (agentExecConfirmed.length > 0) {
+            await new Promise((r) => setTimeout(r, 500));
+            await refetchAll();
+            if (userId) captureProceduralMemory(userId, content, agentExecConfirmed).catch(() => {});
+          }
           const agentMsg = {
             id: `a-${Date.now()}`,
             role: "assistant" as const,
@@ -1092,7 +1099,9 @@ export default function MavisChat() {
             _agentMeta: { toolsUsed, actionsQueued },
           };
           setChatMessages((prev) => prev.filter((m) => m.id !== streamingId).concat(agentMsg));
+          if (agentResult.conversationId) setConversationId(agentResult.conversationId);
           if (convoId) persistMessage({ role: "assistant", content: agentText, mode: chatMode }, convoId);
+          speakText(agentText);
         } catch (err: any) {
           setChatMessages((prev) => prev.filter((m) => m.id !== streamingId).concat({
             id: `err-${Date.now()}`,

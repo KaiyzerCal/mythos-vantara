@@ -128,6 +128,9 @@ const ACTION_ALIASES: Record<string, string> = {
   "set_aura": "update_profile", "change_aura": "update_profile",
   "set_arc": "update_profile", "change_arc": "update_profile",
   "give_xp": "award_xp", "add_xp": "award_xp",
+  // Web search and browse
+  "web_search": "search_web", "search": "search_web",
+  "browse": "browse_url", "scrape_url": "browse_url", "fetch_url": "browse_url", "read_url": "browse_url",
   "add_bpm": "log_bpm_session", "create_bpm": "log_bpm_session", "log_bpm": "log_bpm_session",
   // Domain / curse / terrain / aura / zone effects
   "add_domain_effect": "create_domain_effect", "new_domain_effect": "create_domain_effect",
@@ -1790,6 +1793,70 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
       if (!res.ok) throw new Error(`Agent reach error (${res.status}): ${await res.text()}`);
       const data = await res.json();
       return { url, content: data.content ?? data.result ?? data, task };
+    }
+
+    // ── WEB SEARCH ──────────────────────────────────────────────────────────
+    case "search_web": {
+      const query = String(p.query ?? p.q ?? "").trim();
+      if (!query) return { error: "query required" };
+      const maxResults = Number(p.max_results ?? p.num ?? 5);
+      const tavilyKey = Deno.env.get("Tavily_API") ?? Deno.env.get("TAVILY_API_KEY") ?? Deno.env.get("TAVILY_KEY") ?? "";
+      if (tavilyKey) {
+        const res = await fetch("https://api.tavily.com/search", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ api_key: tavilyKey, query, max_results: maxResults, include_answer: true }),
+          signal: AbortSignal.timeout(20_000),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          return { results: data.results ?? [], answer: data.answer ?? null, query };
+        }
+      }
+      const grokKey = Deno.env.get("GROK_API_KEY") ?? Deno.env.get("XAI_API_KEY") ?? "";
+      if (grokKey) {
+        const res = await fetch("https://api.x.ai/v1/chat/completions", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${grokKey}` },
+          body: JSON.stringify({ model: "grok-3-mini", messages: [{ role: "user", content: `Search the web for: ${query}. Return a concise answer with sources.` }] }),
+          signal: AbortSignal.timeout(20_000),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          return { answer: data.choices?.[0]?.message?.content ?? "", query };
+        }
+      }
+      return { error: "Search unavailable — set TAVILY_API_KEY or GROK_API_KEY in Supabase secrets", query };
+    }
+
+    // ── BROWSE URL ──────────────────────────────────────────────────────────
+    case "browse_url": {
+      const url = String(p.url ?? p.href ?? "").trim();
+      if (!url) return { error: "url required" };
+      const firecrawlKey = Deno.env.get("FIRECRAWL_API_KEY") ?? "";
+      if (firecrawlKey) {
+        const res = await fetch("https://api.firecrawl.dev/v1/scrape", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${firecrawlKey}` },
+          body: JSON.stringify({ url, formats: ["markdown"], onlyMainContent: true }),
+          signal: AbortSignal.timeout(25_000),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          const content = data.data?.markdown ?? data.data?.content ?? "";
+          return { url, content: content.slice(0, 10_000) };
+        }
+      }
+      const jinaKey = Deno.env.get("JINA_API_KEY") ?? "";
+      const jinaRes = await fetch(`https://r.jina.ai/${url}`, {
+        headers: { ...(jinaKey ? { "Authorization": `Bearer ${jinaKey}` } : {}), "Accept": "text/plain" },
+        signal: AbortSignal.timeout(20_000),
+      });
+      if (jinaRes.ok) {
+        const text = await jinaRes.text();
+        return { url, content: text.slice(0, 10_000) };
+      }
+      return { error: `Could not fetch ${url} — set FIRECRAWL_API_KEY or JINA_API_KEY in Supabase secrets` };
     }
 
     // ── DOMAIN / CURSE / TERRAIN / AURA / ZONE EFFECTS ─────────────────────
