@@ -140,6 +140,9 @@ export default function MavisChat() {
   // Tracks content written by the web chat so Realtime events for those
   // messages can be skipped — prevents duplicates when we receive our own writes.
   const recentWebWrites = useRef<Map<string, number>>(new Map());
+  // Tracks whether the current agentModeOn=true was set by auto-detection (not the user).
+  // If true, MAVIS is free to auto-deactivate when a conversational message follows.
+  const agentAutoActivated = useRef(false);
 
   // ── SuperContext scout (OpenHuman pattern) ──
   // Assembled at session start; injected as standing context in system prompt
@@ -931,25 +934,85 @@ export default function MavisChat() {
         return;
       }
 
-      // ── Auto-Agent detection ─────────────────────────────────────────────────
-      // When execution intent is detected in a non-agent mode, automatically route
-      // to mavis-agent for that single message rather than requiring the user to
-      // manually enable the toggle every time.
-      const AUTO_AGENT_TRIGGERS: RegExp[] = [
-        /\bsearch (the )?(web|internet|online)\b/i,
-        /\blook (this |it )?up online\b/i,
-        /\banalyze (my |the )?(current )?(setup|system|app|codebase|database|config|performance)\b/i,
+      // ── Smart mode detection: MAVIS self-manages the agent toggle ───────────────
+      // Intent is classified on every message. MAVIS activates agent mode when tools
+      // are needed and deactivates when the request is clearly conversational —
+      // so Calvin never has to manually flip the switch.
+
+      const AGENT_INTENT: RegExp[] = [
+        // Search / browse
+        /\bsearch (the )?(web|internet|online|for)\b/i,
+        /\blook (this |it |up )?up( online| on the web)?\b/i,
+        /\bfind (me |the |latest |current )?(news|article|result|price|listing|info|data|answer)\b/i,
+        /\bbrowse\b/i,
+        // Personal data: calendar, tasks, quests, memories, email
+        /\b(show|check|get|pull|list|see|what.?s|what are) (my |the )?(calendar|schedule|events?|meetings?|appointments?)\b/i,
+        /\bwhat.?s (on )?(my )?(calendar|agenda|schedule|plate|task list|todo)\b/i,
+        /\b(show|check|get|pull|list|see|what.?s|what are) (my )?(tasks?|todos?|quests?|reminders?|inbox|goals?)\b/i,
+        /\b(show|check|get|pull|list|see|what.?s|what are) (my )?(emails?|messages?|notifications?|slack)\b/i,
+        /\b(load|pull|show|get|access|read) (my |the )?(memories|notes|journal|vault|logs?|history)\b/i,
+        /\bwhat did (i|we|you) (do|work on|discuss|talk about|complete|accomplish)\b/i,
+        /\bwhat.?s (happening|trending|new|in the news|going on)\b/i,
+        // Named integrations — any mention = likely needs tools
+        /\b(google|gmail|gcal|google calendar|google drive|notion|slack|discord|spotify|shopify|stripe|airtable|linear|telegram|twilio|whoop|oura|strava|apify|gumroad|heygen|vapi)\b/i,
+        // Execute / run actions
+        /\b(run|execute|trigger|fire|invoke|call|activate) (the |a |this |that )?(code|script|test|function|command|workflow|automation)\b/i,
+        /\b(create|add|update|delete|remove|edit|change|set|mark|complete|archive|schedule)\b.{0,40}(task|quest|event|meeting|reminder|note|entry|item|goal|habit)\b/i,
+        /\b(send|reply to|forward|draft and send)\b.{0,40}(email|message|slack|text|dm)\b/i,
+        /\b(deploy|publish|push|release|ship)\b/i,
+        /\b(fetch|pull|access|get|retrieve)\b.*(data|api|live|latest|current|real.?time)\b/i,
+        // Analysis / metrics / live systems
+        /\banalyze (my |the )?(current )?(setup|system|app|data|performance|stats|metrics|portfolio|business|codebase|config)\b/i,
+        /\b(how.?s|what.?s) ?(my |the )?(performance|analytics?|stats?|metrics?|revenue|sales|traffic|ranking)\b/i,
+        /\b(report|dashboard|kpi|summary) (on|for|of|about)\b/i,
         /\bcheck (my |the )?(account|balance|analytics|stats|metrics|notifications|news)\b/i,
-        /\b(run|execute) (this|the|a) (code|script|test|command|function)\b/i,
-        /\b(fetch|pull|access) (my |the )?(live |latest |current )?(data|files?|records?|api results?)\b/i,
-        /\bwhat.?s (happening|trending|new|in the news)\b/i,
-        /\b(deploy|publish|push) (it|this|the|to)\b/i,
+        // Imperative / do-it commands
+        /\b(do it|do that|make it happen|carry (it|that) out|take care of (it|that)|handle (it|that))\b/i,
+        /\b(build me|make me|generate (me )?a)\b.{0,40}(app|website|script|tool|template|spreadsheet|report)\b/i,
+        /\b(today.?s|this week.?s|upcoming|recent|latest)\b.{0,30}(tasks?|events?|meetings?|emails?|deadlines?)\b/i,
       ];
-      const autoAgent = !agentModeOn && userId && AUTO_AGENT_TRIGGERS.some(p => p.test(content));
+
+      const CHAT_ONLY_INTENT: RegExp[] = [
+        // Pure conversation openers
+        /^(hi+|hey+|hello|good (morning|afternoon|evening|night)|howdy)\b/i,
+        /^(how are you|how.?s it going|how.?re you doing)\b/i,
+        // General knowledge (no personal/live data qualifiers)
+        /^(what (is|are|does|do|was|were)|explain|describe|define|clarify|elaborate)\b(?!.*(my |mine |latest |current |live |today|this week))/i,
+        // Opinion / reflection (not a request to act)
+        /\b(your (thoughts?|opinion|take|view|perspective))\b(?!.*(send|post|email|schedule))/i,
+        /\b(what do you think|what would you (say|recommend|suggest))\b/i,
+        // Pure creative with no publish intent
+        /^(write|draft|compose|brainstorm|outline)\b.*(poem|story|essay|creative|caption|tagline|slogan)\b(?!.*(send|publish|post|upload|submit))/i,
+        // Meta / help
+        /\b(how do i|how does (mavis|this|that) work|what can (you|mavis) (do|help))\b/i,
+      ];
+
+      const requiresAgent = AGENT_INTENT.some(p => p.test(content));
+      const isConversational = !requiresAgent && CHAT_ONLY_INTENT.some(p => p.test(content));
+
+      // Capture ref value before any mutation so routing stays consistent this tick
+      const wasAutoActivated = agentAutoActivated.current;
+
+      // Auto-activate: message needs tools and toggle is currently off
+      const autoAgent = requiresAgent && !agentModeOn && Boolean(userId);
+      if (autoAgent) {
+        setAgentModeOn(true);
+        agentAutoActivated.current = true;
+      }
+
+      // Auto-deactivate: clearly conversational + toggle was set by us, not the user
+      const autoDeactivate = isConversational && agentModeOn && wasAutoActivated;
+      if (autoDeactivate) {
+        setAgentModeOn(false);
+        agentAutoActivated.current = false;
+      }
+
+      // Effective routing for THIS message (state update is async; ref/local vars are not)
+      const routeToAgent = (agentModeOn && !autoDeactivate) || autoAgent;
 
       // ── Agent Mode: route to mavis-agent with full specialist context ─────────
       // chatMode === "FLOW" always routes to Flowise below, even when agentModeOn is on.
-      if ((agentModeOn || autoAgent) && chatMode !== "FLOW" && userId) {
+      if (routeToAgent && chatMode !== "FLOW" && userId) {
         streamingId = `streaming-${Date.now()}`;
         setChatMessages((prev) => [...prev, {
           id: streamingId,
@@ -1456,7 +1519,7 @@ export default function MavisChat() {
         actions={
           <div className="flex items-center gap-3">
             <button
-              onClick={() => { setAgentModeOn((v) => !v); setLastAgentMeta(null); }}
+              onClick={() => { setAgentModeOn((v) => !v); setLastAgentMeta(null); agentAutoActivated.current = false; }}
               className={`flex items-center gap-1.5 text-xs font-mono rounded px-2 py-1 border transition-all ${
                 agentModeOn
                   ? "border-violet-500/60 bg-violet-500/15 text-violet-300"
