@@ -513,6 +513,16 @@ const MAVIS_TOOLS = [
       required: ["action"],
     },
   },
+  {
+    name: "self_diagnose",
+    description: "Run a health check on MAVIS — checks which integrations are connected, which API keys are configured, and surfaces recent tool failures. Use when the operator asks 'are you working?', 'what can you do?', 'what's connected?', or reports something not working.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        focus: { type: "string", description: "Optional focus: 'google', 'search', 'telegram', 'integrations', 'tools', or 'all' (default: all)" },
+      },
+    },
+  },
 ];
 
 // ── Tool handler ──────────────────────────────────────────────────────────────
@@ -1688,6 +1698,46 @@ async function handleTool(
         try { return JSON.parse(text); } catch { return { raw: text }; }
       }
 
+      case "self_diagnose": {
+        const report: Record<string, unknown> = {};
+        const keys = {
+          anthropic: !!Deno.env.get("ANTHROPIC_API_KEY"),
+          tavily: !!(Deno.env.get("Tavily_API") ?? Deno.env.get("TAVILY_API_KEY")),
+          grok: !!(Deno.env.get("GROK_API_KEY") ?? Deno.env.get("XAI_API_KEY")),
+          telegram: !!(Deno.env.get("TELEGRAM_BOT_TOKEN")),
+          openai: !!(Deno.env.get("OPENAI_API") ?? Deno.env.get("OPENAI_API_KEY")),
+          gemini: !!Deno.env.get("GEMINI_API_KEY"),
+          firecrawl: !!Deno.env.get("FIRECRAWL_API_KEY"),
+          elevenlabs: !!Deno.env.get("ELEVENLABS_API_KEY"),
+          lovable: !!Deno.env.get("LOVABLE_API_KEY"),
+        };
+        report.api_keys = keys;
+        const { data: integrations } = await supabase
+          .from("mavis_user_integrations")
+          .select("provider, connected")
+          .eq("user_id", userId);
+        report.connected_integrations = (integrations ?? []).filter((i: any) => i.connected).map((i: any) => i.provider);
+        const since = new Date(Date.now() - 86_400_000).toISOString();
+        const { data: failures } = await supabase
+          .from("mavis_behavioral_signals")
+          .select("tool_name, outcome, created_at")
+          .eq("user_id", userId)
+          .eq("signal_type", "tool_used")
+          .eq("outcome", "failure")
+          .gte("created_at", since)
+          .order("created_at", { ascending: false })
+          .limit(10);
+        report.recent_tool_failures = failures ?? [];
+        report.summary = {
+          web_search: keys.tavily ? "Tavily (active)" : keys.grok ? "Grok (active)" : "unavailable — set TAVILY_API_KEY",
+          image_gen: keys.gemini ? "Gemini Imagen" : keys.openai ? "DALL-E" : "unavailable",
+          tts: keys.elevenlabs ? "ElevenLabs" : "unavailable",
+          ai_provider: keys.lovable ? "Lovable Gateway" : keys.anthropic ? "Anthropic Claude" : "NONE — agent broken",
+          telegram: keys.telegram ? "connected" : "not configured",
+        };
+        return report;
+      }
+
       default:
         return { error: `Unknown tool: ${name}` };
     }
@@ -1711,6 +1761,7 @@ async function runAgentLoop(
   userId: string,
   supabase: ReturnType<typeof createClient>,
   env: Env,
+  onEvent?: (event: Record<string, unknown>) => void,
 ): Promise<AgentLoopResult> {
   const anthropicModel = "claude-sonnet-4-6";
   const gatewayModel = "google/gemini-2.5-flash";
@@ -1816,6 +1867,7 @@ async function runAgentLoop(
         .filter((b) => b.type === "text")
         .map((b) => b.text ?? "")
         .join("");
+      if (onEvent && text) onEvent({ t: text });
       return { content: text, toolsUsed, actionsQueued };
     }
 
@@ -1825,6 +1877,11 @@ async function runAgentLoop(
 
       // Execute all tool calls in parallel
       const toolUseBlocks = content.filter((b) => b.type === "tool_use");
+
+      if (onEvent && toolUseBlocks.length > 0) {
+        const toolNames = toolUseBlocks.map((t) => t.name ?? "tool").join(", ");
+        onEvent({ thinking: `Using ${toolNames}…` });
+      }
 
       const toolResults = await Promise.all(
         toolUseBlocks.map(async (toolUse) => {
@@ -2379,6 +2436,12 @@ Deno.serve(async (req) => {
       }
     } catch { /* non-critical */ }
 
+    // Merge client-provided system prompt with MAVIS core context
+    const clientSystemPrompt = String(body.systemPrompt ?? "");
+    if (clientSystemPrompt) {
+      systemWithContext += "\n\n" + clientSystemPrompt;
+    }
+
     // Log message_received signal (fire-and-forget)
     if (userId) {
       const _now = new Date();
@@ -2399,16 +2462,52 @@ Deno.serve(async (req) => {
         systemWithContext;
     }
 
-    const result = await runAgentLoop(
+    const wantsStream = body.stream === true;
+
+    if (!wantsStream) {
+      const result = await runAgentLoop(
+        messages.map((m) => ({ ...m })),
+        systemWithContext,
+        claudeKey,
+        userId,
+        supabase,
+        env,
+      );
+      return json({ ok: true, mode, ...result });
+    }
+
+    // SSE streaming — emit tool thinking events and final text as they happen
+    const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>();
+    const sseWriter = writable.getWriter();
+    const sseEncoder = new TextEncoder();
+    const emitSSE = (event: Record<string, unknown>): void => {
+      sseWriter.write(sseEncoder.encode(`data: ${JSON.stringify(event)}\n\n`));
+    };
+
+    runAgentLoop(
       messages.map((m) => ({ ...m })),
       systemWithContext,
       claudeKey,
       userId,
       supabase,
       env,
-    );
+      emitSSE,
+    ).then((result) => {
+      emitSSE({ done: true, content: result.content, toolsUsed: result.toolsUsed, actionsQueued: result.actionsQueued });
+      sseWriter.close();
+    }).catch((err: unknown) => {
+      emitSSE({ error: err instanceof Error ? err.message : String(err) });
+      sseWriter.close();
+    });
 
-    return json({ ok: true, mode, ...result });
+    return new Response(readable, {
+      headers: {
+        ...corsHeaders,
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache",
+        "Connection": "keep-alive",
+      },
+    });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     return json({ error: msg }, 500);

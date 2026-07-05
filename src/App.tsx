@@ -169,7 +169,7 @@ function AppContent() {
   return (
     <AppDataProvider>
       <VoiceProvider>
-      <div className="h-screen flex overflow-hidden bg-background">
+      <div className="h-dvh flex overflow-hidden bg-background">
         <AppSidebar />
 
         <main className={`flex-1 min-w-0 h-full ${["/mavis", "/mavis-ui", "/demo", "/factory", "/world-monitor", "/voice-lab", "/prompt-vault", "/agency", "/notebook", "/code-studio", "/agent-console"].includes(location.pathname) ? "overflow-hidden" : "overflow-y-auto p-5"}`}>
