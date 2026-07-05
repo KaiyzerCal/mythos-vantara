@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/contexts/AuthContext";
 import { PageHeader } from "@/components/SharedUI";
-import { Loader2, Image, Music, Video, Globe, Download, ExternalLink, RefreshCw, Grid3X3 } from "lucide-react";
+import { Loader2, Image, Music, Video, Globe, Download, ExternalLink, RefreshCw, Grid3X3, Wand2, Send, Sparkles } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
 interface MediaItem {
@@ -124,6 +125,130 @@ function MediaCard({ item }: { item: MediaItem }) {
   );
 }
 
+const SIZE_OPTIONS = [
+  { key: "square",    label: "Square",   w: 1024, h: 1024, desc: "1:1 — profile, post" },
+  { key: "portrait",  label: "Story",    w: 768,  h: 1344, desc: "9:16 — Reels, Stories" },
+  { key: "landscape", label: "Wide",     w: 1344, h: 768,  desc: "16:9 — banner, thumbnail" },
+  { key: "poster",    label: "Poster",   w: 864,  h: 1152, desc: "3:4 — print poster, flyer" },
+] as const;
+
+function ImageGenPanel({ onGenerated }: { onGenerated: (item: MediaItem) => void }) {
+  const { session } = useAuth();
+  const [prompt, setPrompt] = useState("");
+  const [size, setSize] = useState<typeof SIZE_OPTIONS[number]["key"]>("square");
+  const [generating, setGenerating] = useState(false);
+  const [lastUrl, setLastUrl] = useState<string | null>(null);
+
+  const generate = async () => {
+    if (!prompt.trim() || generating) return;
+    setGenerating(true);
+    setLastUrl(null);
+    try {
+      const s = SIZE_OPTIONS.find(o => o.key === size)!;
+      const { data, error } = await (supabase as any).functions.invoke("mavis-image-gen", {
+        body: { prompt: `${prompt.trim()}. Professional quality, high resolution.`, width: s.w, height: s.h },
+      });
+      if (error) throw error;
+      if (!data?.url) throw new Error(data?.error ?? "No image URL returned");
+      setLastUrl(data.url);
+
+      // Persist to vault_media so it shows up in the gallery on next load
+      if (session?.user) {
+        await (supabase as any).from("vault_media").insert({
+          user_id: session.user.id,
+          file_name: prompt.trim().slice(0, 80),
+          file_type: "image/png",
+          storage_path: data.url,
+          metadata: { publicUrl: data.url, provider: data.provider ?? "ai", prompt: prompt.trim(), width: s.w, height: s.h },
+        });
+      }
+
+      onGenerated({
+        id: `gen-${Date.now()}`,
+        type: "image",
+        url: data.url,
+        title: prompt.trim().slice(0, 80),
+        provider: data.provider ?? "ai",
+        created_at: new Date().toISOString(),
+        extra: { prompt, width: s.w, height: s.h },
+      });
+    } catch (e: any) {
+      alert(`Image generation failed: ${e?.message ?? "unknown error"}\n\nEnsure an image provider key (OPENAI_API / FAL_API_KEY / GEMINI_API_KEY) is set in Supabase secrets.`);
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  return (
+    <div className="rounded-xl border border-border bg-card p-4 flex flex-col gap-3">
+      <div className="flex items-center gap-2">
+        <Wand2 size={14} className="text-primary" />
+        <span className="text-xs font-mono text-foreground font-medium">Generate Image</span>
+      </div>
+
+      {/* Prompt */}
+      <div className="flex gap-2">
+        <textarea
+          value={prompt}
+          onChange={e => setPrompt(e.target.value)}
+          onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); generate(); }}}
+          placeholder="Describe what you want to create… (e.g. a minimalist startup logo in dark blue)"
+          rows={2}
+          className="flex-1 text-xs font-mono bg-muted/30 border border-border rounded-lg px-3 py-2 resize-none outline-none placeholder:text-muted-foreground focus:border-primary/50 transition-colors"
+        />
+        <button
+          onClick={generate}
+          disabled={generating || !prompt.trim()}
+          className="w-10 h-full rounded-lg bg-primary/10 border border-primary/30 text-primary hover:bg-primary/20 disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex items-center justify-center shrink-0"
+        >
+          {generating ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
+        </button>
+      </div>
+
+      {/* Size selector */}
+      <div className="flex flex-wrap gap-1.5">
+        {SIZE_OPTIONS.map(o => (
+          <button
+            key={o.key}
+            onClick={() => setSize(o.key)}
+            title={o.desc}
+            className={`text-[10px] font-mono px-2 py-1 rounded border transition-colors ${
+              size === o.key
+                ? "border-primary/50 bg-primary/10 text-primary"
+                : "border-border text-muted-foreground hover:text-foreground hover:border-border/80"
+            }`}
+          >
+            {o.label} <span className="opacity-50">{o.desc.split("—")[0].trim()}</span>
+          </button>
+        ))}
+      </div>
+
+      {/* Preview of last result */}
+      {lastUrl && (
+        <div className="flex gap-3 items-start mt-1">
+          <img src={lastUrl} alt="Generated" className="w-20 h-20 rounded-lg object-cover border border-border shrink-0" />
+          <div className="flex flex-col gap-1.5 min-w-0">
+            <p className="text-[10px] font-mono text-muted-foreground truncate">{prompt}</p>
+            <div className="flex gap-1.5">
+              <a href={lastUrl} target="_blank" rel="noopener noreferrer"
+                className="text-[10px] font-mono px-2 py-0.5 rounded border border-border text-muted-foreground hover:text-primary hover:border-primary/30 transition-colors flex items-center gap-1">
+                <ExternalLink size={9} /> Open
+              </a>
+              <a href={lastUrl} download className="text-[10px] font-mono px-2 py-0.5 rounded border border-border text-muted-foreground hover:text-primary hover:border-primary/30 transition-colors flex items-center gap-1">
+                <Download size={9} /> Download
+              </a>
+              <button onClick={() => { setPrompt(""); setLastUrl(null); }}
+                className="text-[10px] font-mono px-2 py-0.5 rounded border border-border text-muted-foreground hover:text-primary hover:border-primary/30 transition-colors flex items-center gap-1">
+                <Sparkles size={9} /> New
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function GalleryPage() {
   const [items, setItems] = useState<MediaItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -216,18 +341,25 @@ export function GalleryPage() {
     poster: items.filter((i) => i.type === "poster").length,
   };
 
+  const prependItem = useCallback((item: MediaItem) => {
+    setItems(prev => [item, ...prev]);
+  }, []);
+
   return (
     <div className="flex flex-col gap-4">
       <PageHeader
-        title="Creative Gallery"
-        subtitle="All AI-generated assets"
-        icon={<Grid3X3 size={18} />}
+        title="Creative Studio"
+        subtitle="Generate and manage AI-created assets"
+        icon={<Wand2 size={18} />}
         actions={
           <button onClick={load} className="text-xs font-mono text-muted-foreground hover:text-primary transition-colors flex items-center gap-1">
             <RefreshCw size={12} /> Refresh
           </button>
         }
       />
+
+      {/* Image Generation Panel */}
+      <ImageGenPanel onGenerated={prependItem} />
 
       {/* Filter bar */}
       <div className="flex gap-1 border-b border-border pb-0">
