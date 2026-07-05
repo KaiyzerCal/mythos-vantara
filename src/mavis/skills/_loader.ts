@@ -53,3 +53,71 @@ import "./influencer-research/index";
 import "./poster-gen/index";
 import "./music-gen/index";
 import "./logo-gen/index";
+
+// ── Communication & Messaging ──────────────────────────────────────────────────
+import "./telegram-send/index";
+import "./sms-send/index";
+import "./phone-call/index";
+import "./slack-send/index";
+import "./discord-send/index";
+
+// ── Social Media ───────────────────────────────────────────────────────────────
+import "./linkedin-post/index";
+import "./twitter-post/index";
+import "./instagram-post/index";
+import "./tiktok-post/index";
+
+// ── Productivity & Files ───────────────────────────────────────────────────────
+import "./calendar-manage/index";
+import "./email-triage/index";
+import "./notion-sync/index";
+import "./gdrive-sync/index";
+import "./sheets-agent/index";
+import "./airtable-agent/index";
+import "./google-tasks/index";
+import "./planner/index";
+import "./morning-brief/index";
+
+// ── Research & Learning ────────────────────────────────────────────────────────
+import "./deep-research/index";
+import "./arxiv/index";
+import "./flashcard-gen/index";
+import "./translate/index";
+import "./browser-agent/index";
+
+// ── Media & Creative ───────────────────────────────────────────────────────────
+import "./video-gen/index";
+import "./video-narrator/index";
+import "./podcast-gen/index";
+import "./comic-gen/index";
+import "./heygen-video/index";
+import "./transcribe/index";
+
+// ── Health & Fitness ───────────────────────────────────────────────────────────
+import "./sleep-coach/index";
+import "./spotify-control/index";
+import "./whoop-stats/index";
+import "./oura-stats/index";
+import "./strava-activity/index";
+
+// ── Business & Commerce ────────────────────────────────────────────────────────
+import "./shopify-agent/index";
+import "./gumroad/index";
+import "./expense-track/index";
+import "./crm-lookup/index";
+import "./seo-audit/index";
+import "./competitor-track/index";
+import "./brand-identity/index";
+import "./product-creator/index";
+
+// ── Developer & System Tools ───────────────────────────────────────────────────
+import "./deploy-check/index";
+import "./self-improve/index";
+import "./letta-memory/index";
+import "./meeting-transcribe/index";
+
+// ── Personal Intelligence ──────────────────────────────────────────────────────
+import "./weather/index";
+import "./maps/index";
+import "./pattern-insights/index";
+import "./self-reflect/index";
