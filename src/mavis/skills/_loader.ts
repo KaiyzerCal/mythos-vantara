@@ -229,3 +229,161 @@ import "./autonomous-task/index";
 import "./emotion-analysis/index";
 import "./emotion-tag/index";
 import "./screenpipe/index";
+
+// ── Agent Architecture & Orchestration ────────────────────────────────────────
+import "./world-model/index";
+import "./goal-decompose/index";
+import "./goal-loop/index";
+import "./plans/index";
+import "./crew-orchestrate/index";
+import "./director/index";
+import "./agent-builder/index";
+import "./mini-agent/index";
+
+// ── Code & LLM Infrastructure ─────────────────────────────────────────────────
+import "./code-exec/index";
+import "./code-delegate/index";
+import "./llm-router/index";
+import "./multi-provider/index";
+import "./chain-builder/index";
+import "./openai-finetune/index";
+import "./finetune-export/index";
+
+// ── Persona & Social Agents ───────────────────────────────────────────────────
+import "./persona-forge/index";
+import "./persona-router/index";
+import "./flowise/index";
+import "./discourse-runner/index";
+import "./persona-social/index";
+import "./personaplex/index";
+import "./nora-discord/index";
+import "./nora-engage/index";
+
+// ── Memory & Self-Evolution ───────────────────────────────────────────────────
+import "./signal-watch/index";
+import "./relationship-intel/index";
+import "./memory-consolidate/index";
+import "./memory-agent/index";
+import "./user-model/index";
+import "./profile-update/index";
+import "./compound-learn/index";
+import "./reflection-agent/index";
+import "./capability-audit/index";
+import "./archivist/index";
+import "./tacit-prune/index";
+import "./self-evolve/index";
+
+// ── Video & Media Production ──────────────────────────────────────────────────
+import "./article-extract/index";
+import "./avatar-video/index";
+import "./higgsfield-video/index";
+import "./story-gen/index";
+import "./shortform-ingest/index";
+import "./video-render/index";
+import "./heygen-simple/index";
+import "./notebook-embed/index";
+
+// ── Publishing & Distribution ─────────────────────────────────────────────────
+import "./site-editor/index";
+import "./social-publish/index";
+import "./instagram-manage/index";
+
+// ── Notifications & Proactive Intelligence ────────────────────────────────────
+import "./push-notify/index";
+import "./proactive-brief/index";
+import "./proactive-nudge/index";
+import "./streak-alert/index";
+import "./quest-nudge/index";
+import "./quest-calendar/index";
+import "./announce/index";
+
+// ── Scheduling & Sync ──────────────────────────────────────────────────────────
+import "./calendar-sync/index";
+import "./standing-orders/index";
+import "./notion-sync-raw/index";
+import "./notes-import/index";
+import "./github-sync/index";
+
+// ── Evaluation & Quality ──────────────────────────────────────────────────────
+import "./quality-eval/index";
+import "./agent-eval/index";
+import "./security-scan/index";
+
+// ── System & Voice ─────────────────────────────────────────────────────────────
+import "./run-doctor/index";
+import "./live-voice/index";
+import "./realtime-v2/index";
+import "./voice-session/index";
+import "./skill-catalog-browse/index";
+
+// ── Media & Entertainment ──────────────────────────────────────────────────────
+import "./youtube-agent/index";
+import "./spotify-agent/index";
+import "./spotify-sync/index";
+
+// ── Web Intelligence ───────────────────────────────────────────────────────────
+import "./web-crawl/index";
+import "./web-scrape-deep/index";
+import "./cloud-browser/index";
+
+// ── Hardware & IoT ────────────────────────────────────────────────────────────
+import "./galaxy-ring/index";
+
+// ── AI Receptionist ───────────────────────────────────────────────────────────
+import "./receptionist-config/index";
+import "./receptionist-provision/index";
+
+// ── NAVI Agent ────────────────────────────────────────────────────────────────
+import "./navi-finetune-check/index";
+import "./navi-finetune/index";
+import "./navi-heartbeat/index";
+import "./navi-memory/index";
+
+// ── Prymal Brand ──────────────────────────────────────────────────────────────
+import "./prymal-approve/index";
+import "./prymal-brand/index";
+import "./prymal-google/index";
+import "./prymal-intel/index";
+import "./prymal-onboard/index";
+
+// ── Apify Actor Skills ─────────────────────────────────────────────────────────
+import "./backlink-build/index";
+import "./email-finder/index";
+import "./social-email-scrape/index";
+import "./job-search-agent/index";
+import "./newsletter-gen-actor/index";
+import "./insider-trading/index";
+import "./earnings-predict/index";
+import "./economics-calendar/index";
+import "./coinmarketcap-data/index";
+import "./funding-intel/index";
+import "./cot-report/index";
+import "./reddit-user/index";
+import "./audio-transcribe-actor/index";
+import "./content-processor/index";
+import "./global-markets/index";
+
+// ── MCP Server Skills via Apify ───────────────────────────────────────────────
+import "./hubspot-crm/index";
+import "./home-assistant/index";
+import "./slidespeak/index";
+import "./mindmap-gen/index";
+import "./invoice-collect/index";
+import "./explorium-intel/index";
+import "./zendesk-agent/index";
+import "./figma-export/index";
+import "./ga4-report/index";
+import "./gsc-report/index";
+import "./whatsapp-cloud/index";
+import "./financial-datasets-mcp/index";
+
+// ── Prompt-Only Skills via mavis-chat ─────────────────────────────────────────
+import "./content-machine/index";
+import "./deep-focus/index";
+import "./summarise/index";
+import "./pipeline-run/index";
+import "./hire-specialist/index";
+import "./bioneer-protocol/index";
+
+// ── Messaging ─────────────────────────────────────────────────────────────────
+import "./whatsapp-send/index";
