@@ -195,6 +195,8 @@ export async function streamAgentMessage(
       messages,
       systemPrompt,
       conversationId: options.conversationId ?? null,
+      chatMode: options.mode,
+      stream: true,
     }),
     signal,
   });
