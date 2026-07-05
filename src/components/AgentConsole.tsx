@@ -15,7 +15,7 @@ import { supabase as _supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
 import ReactMarkdown from "react-markdown";
-import { PanelGroup, Panel, PanelResizeHandle } from "react-resizable-panels";
+import { Group as PanelGroup, Panel, Separator as PanelResizeHandle } from "react-resizable-panels";
 
 const supabase = _supabase as any;
 const SB_URL = import.meta.env.VITE_SUPABASE_URL ?? "";
@@ -495,7 +495,7 @@ export function AgentConsole() {
 
       {/* Three-panel layout */}
       <div className="flex-1 overflow-hidden">
-        <PanelGroup direction="horizontal">
+        <PanelGroup {...({ direction: "horizontal" } as any)}>
 
           {/* Left: Input + history */}
           <Panel defaultSize={28} minSize={18}>

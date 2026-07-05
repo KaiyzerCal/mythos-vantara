@@ -820,7 +820,9 @@ export default function MavisChat() {
       // trigger the SE agent loop even when Agent Mode is active.
       const githubMatch = content.match(/github\.com\/([a-zA-Z0-9_.-]+)\/([a-zA-Z0-9_.-]+)/i);
       if (githubMatch && userId) {
-        const [, owner, repo] = githubMatch;
+        const [, owner, rawRepo] = githubMatch;
+        // Strip .git suffix so "repo.git" doesn't break the GitHub API call
+        const repo = rawRepo.replace(/\.git$/i, "");
         const task = content.replace(/https?:\/\/github\.com\/[^\s]+/gi, "").trim() ||
           "Provide a comprehensive analysis: architecture overview, key patterns, file structure, dependencies, security considerations, and technical assessment.";
         streamingId = `gh-${Date.now()}`;
@@ -844,21 +846,81 @@ export default function MavisChat() {
             },
           });
           if (codeErr) throw codeErr;
-          const codeText = codeData?.error
-            ? `**[CODE AGENT ERROR]** ${codeData.error}`
-            : (codeData?.summary ?? codeData?.content ?? codeData?.response ?? codeData?.result ?? JSON.stringify(codeData));
-          const codeMsg = { id: `ca-${Date.now()}`, role: "assistant" as const, content: codeText, mode: chatMode, timestamp: new Date() };
-          setChatMessages((prev) => prev.filter((m) => m.id !== streamingId).concat(codeMsg));
-          if (convoId) persistMessage({ role: "assistant", content: codeText, mode: chatMode }, convoId);
+          // Friendly message when the repo is private or doesn't exist
+          const isNotFound = /404|not found|repository not found/i.test(JSON.stringify(codeData));
+          if (isNotFound || codeData?.error) {
+            const notFoundMsg =
+              `**[CODE AGENT]** Could not access **${owner}/${repo}**.\n\n` +
+              `**Possible causes:**\n` +
+              `- The repository is **private** — add your GitHub Personal Access Token in **Settings → API Keys** to unlock private repos\n` +
+              `- The URL may be incorrect — double-check the owner and repo name\n` +
+              `- The repo may have been deleted or renamed\n\n` +
+              `_For a private repo audit, share the zip file in this chat and I can analyze it directly._`;
+            setChatMessages((prev) => prev.filter((m) => m.id !== streamingId).concat({
+              id: `ca-${Date.now()}`, role: "assistant" as const, content: notFoundMsg, mode: chatMode, timestamp: new Date(),
+            }));
+            if (convoId) persistMessage({ role: "assistant", content: notFoundMsg, mode: chatMode }, convoId);
+          } else {
+            const codeText = codeData?.summary ?? codeData?.content ?? codeData?.response ?? codeData?.result ?? JSON.stringify(codeData);
+            const codeMsg = { id: `ca-${Date.now()}`, role: "assistant" as const, content: codeText, mode: chatMode, timestamp: new Date() };
+            setChatMessages((prev) => prev.filter((m) => m.id !== streamingId).concat(codeMsg));
+            if (convoId) persistMessage({ role: "assistant", content: codeText, mode: chatMode }, convoId);
+          }
         } catch (err: any) {
           const errMsg = err?.message ?? "unknown error";
           const isAuthErr = /auth|token|PAT|github not connected/i.test(errMsg);
+          const is404 = /404|not found/i.test(errMsg);
           setChatMessages((prev) => prev.filter((m) => m.id !== streamingId).concat({
             id: `err-${Date.now()}`,
             role: "assistant" as const,
-            content: isAuthErr
-              ? `**[CODE AGENT]** GitHub PAT required for private repos.\n\n**Fix:** Go to **API Keys** (/api-keys) → GitHub section → paste your Personal Access Token. Public repos work without a PAT after today's update.\n\n_${errMsg}_`
-              : `**[CODE AGENT ERROR]** ${errMsg}\n\nFor private repos, add your GitHub PAT in **API Keys** (/api-keys). Alternatively, try **Code Studio** (/code-studio) for a direct analysis view.`,
+            content: (is404 || isAuthErr)
+              ? `**[CODE AGENT]** **${owner}/${repo}** is private or doesn't exist.\n\n**To audit a private repo:**\n1. Go to **Settings → API Keys** and add your GitHub Personal Access Token\n2. Or share the repo as a zip file in this chat\n\nPublic repos work without any setup — just paste the URL.`
+              : `**[CODE AGENT ERROR]** ${errMsg}`,
+            mode: chatMode,
+            timestamp: new Date(),
+          }));
+        } finally {
+          setIsLoading(false);
+        }
+        return;
+      }
+
+      // ── Direct Image Generation (any mode, no specialist required) ──────────────
+      // Fires when the user explicitly requests a visual — image, poster, logo, etc.
+      // Bypasses the LLM so the image actually gets generated rather than described.
+      const IMAGE_NOUNS = /\b(image|photo|illustration|logo|poster|banner|artwork|graphic|icon|thumbnail|mockup|flyer|picture|visual|infographic)\b/i;
+      const IMAGE_VERBS = /\b(generate|create|make|design|draw|render|produce|build|give me)\b/i;
+      const isImageRequest = IMAGE_VERBS.test(content) && IMAGE_NOUNS.test(content);
+      if (isImageRequest && !agentModeOn) {
+        const imagePrompt = content
+          .replace(/^(please\s+)?(generate|create|make|design|draw|render|produce|build|give me)\s+(an?\s+)?(image|photo|illustration|logo|poster|banner|artwork|graphic|icon|thumbnail|mockup|flyer|picture|visual|infographic)\s+(of\s+|for\s+)?/i, "")
+          .replace(/\bfor me\b|\bplease\b/gi, "")
+          .trim() || content;
+        streamingId = `img-${Date.now()}`;
+        setChatMessages((prev) => [...prev, {
+          id: streamingId,
+          role: "assistant" as const,
+          content: `🎨 Generating: _${imagePrompt.slice(0, 120)}_…`,
+          mode: chatMode,
+          timestamp: new Date(),
+        }]);
+        try {
+          const { data: imgData } = await supabase.functions.invoke("mavis-image-gen", {
+            body: { prompt: `${imagePrompt}. Professional quality, high resolution.` },
+          });
+          if (imgData?.error) throw new Error(imgData.error);
+          const imgUrl = imgData?.url;
+          if (!imgUrl) throw new Error("No image URL returned — check that an image provider (DALL-E / Flux / Stable Diffusion) is configured in Supabase secrets.");
+          const imgText = `![${imagePrompt.slice(0, 60)}](${imgUrl})\n\n_Generated by ${imgData.provider ?? "AI"} · Prompt: "${imagePrompt.slice(0, 100)}"_`;
+          const imgMsg = { id: `img-${Date.now()}`, role: "assistant" as const, content: imgText, mode: chatMode, timestamp: new Date() };
+          setChatMessages((prev) => prev.filter((m) => m.id !== streamingId).concat(imgMsg));
+          if (convoId) persistMessage({ role: "assistant", content: imgText, mode: chatMode }, convoId);
+        } catch (err: any) {
+          const errMsg = err?.message ?? "Image generation failed";
+          setChatMessages((prev) => prev.filter((m) => m.id !== streamingId).concat({
+            id: `err-${Date.now()}`,
+            role: "assistant" as const,
+            content: `**[IMAGE GEN]** ${errMsg}\n\nEnsure an image provider key (OPENAI_API for DALL-E, or FLUX_API_KEY / REPLICATE_API_KEY) is set in your Supabase project secrets.`,
             mode: chatMode,
             timestamp: new Date(),
           }));
@@ -998,6 +1060,23 @@ export default function MavisChat() {
       if (responseLength === "concise") systemPrompt += "\n\n[RESPONSE LENGTH: Be concise — 2-4 sentences unless more is genuinely needed.]";
       else if (responseLength === "detailed") systemPrompt += "\n\n[RESPONSE LENGTH: Be thorough and detailed — elaborate with examples where useful.]";
       if (selectedPersonaPrompt) systemPrompt += `\n\n--- ACTIVE PERSONA ---\n${selectedPersonaPrompt}\n---`;
+
+      // In text-only modes, stop MAVIS from promising executions it can't deliver
+      const NON_AGENT_MODES = ["PRIME", "ENRYU", "SOVEREIGN", "QUEST", "FORGE", "WATCHTOWER", "SALES", "MARKET", "GAME_MASTER", "WEBMASTER"];
+      const ACTION_KEYWORDS = /\b(execute|run|perform|analyze my (setup|system|app|account|data)|check my (setup|data|account|stats)|access|audit|search (the )?web|browse|fetch|build me|deploy|take action|do (that|this|it)|carry out|make it happen|generate and)\b/i;
+      if (NON_AGENT_MODES.includes(chatMode) && ACTION_KEYWORDS.test(content) && !agentModeOn) {
+        systemPrompt +=
+          `\n\n[EXECUTION LIMITS — IMPORTANT]\n` +
+          `You are in ${chatMode} mode, which is text-only. You CANNOT execute code, browse URLs, access APIs, query databases, or perform real actions.\n` +
+          `When the user asks you to "execute", "run", "analyze my setup", or do anything that requires system access:\n` +
+          `1. Clearly state you are in text-only ${chatMode} mode and cannot perform real executions.\n` +
+          `2. Direct them to enable **Agent Mode** (the AGENT toggle in the top bar) for tool-use execution.\n` +
+          `3. For images: tell them to say "generate image: [description]" — it fires directly without needing AGENT mode.\n` +
+          `4. For GitHub repo audits: paste the URL directly in the chat — it routes automatically.\n` +
+          `5. For code execution & deep analysis: suggest the **Agent Console** (/agent-console).\n` +
+          `DO NOT say "I'll proceed", "let me analyze", "hold on while I fetch", or "I'll execute" — these are false promises you cannot keep in ${chatMode} mode.`;
+      }
+
       if (activeSpecialist) {
         const divLabel = activeSpecialist.division.replace(/-/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase());
         systemPrompt +=
