@@ -930,8 +930,25 @@ export default function MavisChat() {
         return;
       }
 
+      // ── Auto-Agent detection ─────────────────────────────────────────────────
+      // When execution intent is detected in a non-agent mode, automatically route
+      // to mavis-agent for that single message rather than requiring the user to
+      // manually enable the toggle every time.
+      const AUTO_AGENT_TRIGGERS: RegExp[] = [
+        /\bsearch (the )?(web|internet|online)\b/i,
+        /\blook (this |it )?up online\b/i,
+        /\banalyze (my |the )?(current )?(setup|system|app|codebase|database|config|performance)\b/i,
+        /\bcheck (my |the )?(account|balance|analytics|stats|metrics|notifications|news)\b/i,
+        /\b(run|execute) (this|the|a) (code|script|test|command|function)\b/i,
+        /\b(fetch|pull|access) (my |the )?(live |latest |current )?(data|files?|records?|api results?)\b/i,
+        /\bwhat.?s (happening|trending|new|in the news)\b/i,
+        /\b(deploy|publish|push) (it|this|the|to)\b/i,
+      ];
+      const autoAgent = !agentModeOn && userId && AUTO_AGENT_TRIGGERS.some(p => p.test(content));
+      if (autoAgent) toast.info("Agent Mode — routing to tool-use engine", { duration: 2000 });
+
       // ── Agent Mode: route to mavis-agent with full specialist context ─────────
-      if (agentModeOn && userId) {
+      if ((agentModeOn || autoAgent) && userId) {
         streamingId = `streaming-${Date.now()}`;
         setChatMessages((prev) => [...prev, {
           id: streamingId,
