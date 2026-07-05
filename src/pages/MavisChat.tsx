@@ -891,7 +891,8 @@ export default function MavisChat() {
       const IMAGE_NOUNS = /\b(image|photo|illustration|logo|poster|banner|artwork|graphic|icon|thumbnail|mockup|flyer|picture|visual|infographic)\b/i;
       const IMAGE_VERBS = /\b(generate|create|make|design|draw|render|produce|build|give me)\b/i;
       const isImageRequest = IMAGE_VERBS.test(content) && IMAGE_NOUNS.test(content);
-      if (isImageRequest && !agentModeOn) {
+      // Image gen fires before any mode routing — agent mode ON does not bypass it
+      if (isImageRequest) {
         const imagePrompt = content
           .replace(/^(please\s+)?(generate|create|make|design|draw|render|produce|build|give me)\s+(an?\s+)?(image|photo|illustration|logo|poster|banner|artwork|graphic|icon|thumbnail|mockup|flyer|picture|visual|infographic)\s+(of\s+|for\s+)?/i, "")
           .replace(/\bfor me\b|\bplease\b/gi, "")
