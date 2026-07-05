@@ -1502,7 +1502,7 @@ export default function MavisChat() {
 
   return (
     <>
-    <div className="flex gap-3 h-[calc(100dvh-4rem)]">
+    <div className="flex gap-3 h-full">
     <div
       className={`flex flex-col flex-1 min-w-0 gap-2 pb-0 relative transition-colors ${isDragging ? "bg-primary/5 ring-1 ring-inset ring-primary/20 rounded-lg" : ""}`}
       onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
@@ -1526,7 +1526,7 @@ export default function MavisChat() {
         subtitle={`Mode: ${currentMode.label} // Supreme Intelligence`}
         icon={<Cpu size={18} />}
         actions={
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-1.5 sm:gap-3">
             <button
               onClick={() => { setAgentModeOn((v) => !v); setLastAgentMeta(null); agentAutoActivated.current = false; }}
               className={`flex items-center gap-1.5 text-xs font-mono rounded px-2 py-1 border transition-all ${
@@ -1537,12 +1537,12 @@ export default function MavisChat() {
               title={agentModeOn ? "Agent Mode ON — click to disable" : "Agent Mode OFF — click to enable (default: ON)"}
             >
               <Cpu size={12} />
-              {agentModeOn ? "Agent: ON" : "Agent: OFF"}
+              <span className="hidden sm:inline">{agentModeOn ? "Agent: ON" : "Agent: OFF"}</span>
               {agentModeOn && <span className="w-1.5 h-1.5 rounded-full bg-violet-400 animate-pulse ml-0.5" />}
             </button>
             <button
               onClick={() => navigate("/council-board")}
-              className="flex items-center gap-1.5 text-xs font-mono text-amber-400 hover:text-amber-300 border border-amber-900/40 hover:border-amber-400/40 rounded px-2 py-1 transition-all"
+              className="hidden sm:flex items-center gap-1.5 text-xs font-mono text-amber-400 hover:text-amber-300 border border-amber-900/40 hover:border-amber-400/40 rounded px-2 py-1 transition-all"
               title="Open Council Board"
             >
               <Users size={12} />
@@ -1551,7 +1551,8 @@ export default function MavisChat() {
             <button
               onClick={handleOmniSync}
               disabled={isSyncing}
-              className="flex items-center gap-1.5 text-xs font-mono text-cyan-400 hover:text-cyan-300 border border-cyan-900/40 hover:border-cyan-400/40 rounded px-2 py-1 transition-all disabled:opacity-40"
+              className="hidden sm:flex items-center gap-1.5 text-xs font-mono text-cyan-400 hover:text-cyan-300 border border-cyan-900/40 hover:border-cyan-400/40 rounded px-2 py-1 transition-all disabled:opacity-40"
+              title="Sync context"
             >
               {isSyncing ? (
                 <span className="w-3 h-3 rounded-full border-2 border-cyan-400 border-t-transparent animate-spin block" />
@@ -1562,7 +1563,7 @@ export default function MavisChat() {
             </button>
             <button
               onClick={() => setShowSkillCatalog(true)}
-              className="flex items-center gap-1.5 text-xs font-mono text-muted-foreground hover:text-primary border border-border/60 hover:border-primary/40 rounded px-2 py-1 transition-all"
+              className="hidden sm:flex items-center gap-1.5 text-xs font-mono text-muted-foreground hover:text-primary border border-border/60 hover:border-primary/40 rounded px-2 py-1 transition-all"
               title="Browse all 44 skills"
             >
               <BookOpen size={12} />
@@ -1574,7 +1575,7 @@ export default function MavisChat() {
               title="New conversation"
             >
               <Plus size={12} />
-              New Chat
+              <span className="hidden sm:inline">New Chat</span>
             </button>
           </div>
         }
@@ -2411,7 +2412,7 @@ export default function MavisChat() {
           exit={{ opacity: 0, x: 24, width: 0 }}
           transition={{ duration: 0.2 }}
           className="shrink-0 flex flex-col border border-border rounded-lg bg-card overflow-hidden"
-          style={{ maxHeight: "calc(100dvh - 4rem)" }}
+          style={{ maxHeight: "100%" }}
         >
           {/* Header */}
           <div className="flex items-center justify-between px-3 py-2 border-b border-border bg-muted/20">
