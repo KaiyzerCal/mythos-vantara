@@ -419,8 +419,9 @@ const MAVIS_TOOLS = [
   {
     name: "codexos_action",
     description:
-      "Execute a CODEXOS / VANTARA game-layer action — quests, tasks, skills, journal, vault, council, allies, inventory, energy systems, transformations, rankings, rituals, BPM sessions, profile/XP, personas (NAVI), knowledge graph notes, revenue proposals, autonomous goals, and store items. " +
-      "Use this any time the operator asks you to: create/update/complete/delete a quest or task, forge a persona, set a background goal, save a note to the knowledge graph, log a BPM session, award XP, or interact with any VANTARA RPG layer. " +
+      "Execute a CODEXOS / VANTARA game-layer action — quests, tasks, skills, journal, vault, council, allies, inventory, energy systems, transformations, domain/curse/terrain/aura/zone effects, rankings, rituals, BPM sessions, profile/XP, personas (NAVI), knowledge graph notes, revenue proposals, autonomous goals, and store items. " +
+      "Use this any time the operator asks you to: create/update/complete/delete a quest or task, forge a persona, set a background goal, save a note to the knowledge graph, log a BPM session, award XP, apply or remove a domain effect (curse, terrain aura, zone buff/debuff, environmental modifier), or interact with any VANTARA RPG layer. " +
+      "Domain effect actions: create_domain_effect(name, effect_type[domain|curse|terrain|environmental|aura|zone], stat_modifiers[{label,value,unit}], area_effects[], source, is_active, expires_at), update_domain_effect(effect_id, ...fields), delete_domain_effect(effect_id). " +
       "This runs through the same mavis-actions pipeline used by mavis-chat — nothing breaks.",
     input_schema: {
       type: "object" as const,
