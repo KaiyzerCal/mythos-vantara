@@ -2239,10 +2239,16 @@ Deno.serve(async (req) => {
       return json({ error: "userId required" }, 401);
     }
 
-    // Build initial messages array
+    // Build initial messages array — always append the current goal to history.
+    // When rawMessages is non-empty it represents previous conversation turns
+    // (history BEFORE the current message); goal is always the current message.
+    // Without this append Claude responds to the last message in history, not
+    // the current one — producing the "one message behind" symptom.
     const messages: Array<{ role: string; content: unknown }> =
       rawMessages.length > 0
-        ? rawMessages
+        ? goal
+          ? [...rawMessages, { role: "user", content: goal }]
+          : rawMessages
         : goal
         ? [{ role: "user", content: goal }]
         : [];
