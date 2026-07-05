@@ -98,7 +98,7 @@ const CREATOR_NAV = [
   { to: "/agent-console", icon: Terminal, label: "Agent Console" },
   { to: "/code-studio", icon: Code2, label: "Code Studio" },
   { to: "/self-evolve", icon: Dna, label: "Self-Evolution" },
-  { to: "/creator", icon: Clapperboard, label: "Video Editor" },
+  { to: "/creator", icon: Clapperboard, label: "Content Creator" },
   { to: "/avatar-studio", icon: UserSquare2, label: "Avatar Studio" },
   { to: "/gallery", icon: LayoutGrid, label: "Creative Gallery" },
   { to: "/campaigns", icon: Zap, label: "Campaigns" },

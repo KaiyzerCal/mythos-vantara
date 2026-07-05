@@ -329,22 +329,48 @@ async function searxngSearch(query: string, numResults = 10, engines = "") {
   };
 }
 
+// ── DuckDuckGo Instant Answers — free, no API key ────────────────────────────
+async function ddgSearch(query: string, limit = 6): Promise<Record<string, any>> {
+  const url = `https://api.duckduckgo.com/?q=${encodeURIComponent(query)}&format=json&no_redirect=1&no_html=1`;
+  const res = await safeFetch(url, { headers: { "User-Agent": "MAVIS-AgentReach/1.0" } });
+  if (!res?.ok) throw new Error(`DuckDuckGo: ${res?.status ?? "timeout"}`);
+  const data = await res.json();
+  const items = ((data.RelatedTopics ?? []) as any[])
+    .filter((t: any) => t.Text && t.FirstURL)
+    .slice(0, limit)
+    .map((t: any) => ({
+      title: (t.Text as string).split(" - ")[0]?.slice(0, 120) ?? (t.Text as string).slice(0, 120),
+      url: t.FirstURL,
+      description: (t.Text as string).slice(0, 300),
+    }));
+  return {
+    platform: "duckduckgo",
+    query,
+    abstract: (data.AbstractText as string) ?? "",
+    abstract_source: (data.AbstractSource as string) ?? "",
+    answer: (data.Answer as string) ?? "",
+    items,
+  };
+}
+
 async function multiSearch(query: string) {
   const searxngAvailable = !!Deno.env.get("SEARXNG_URL");
   const tasks: Promise<any>[] = [
     jinaSearchWeb(query),
     githubSearch(query, "repositories", "", 5),
     redditSearch(query, "", "relevance", 5),
+    ddgSearch(query, 6),    // always included — free, no key needed
   ];
   if (searxngAvailable) tasks.push(searxngSearch(query, 8));
 
-  const [webRes, githubRes, redditRes, searxRes] = await Promise.allSettled(tasks);
+  const [webRes, githubRes, redditRes, ddgRes, searxRes] = await Promise.allSettled(tasks);
   const results: Record<string, any> = {
     web:    webRes.status    === "fulfilled" ? webRes.value    : { error: (webRes    as PromiseRejectedResult).reason?.message },
     github: githubRes.status === "fulfilled" ? githubRes.value : { error: (githubRes as PromiseRejectedResult).reason?.message },
     reddit: redditRes.status === "fulfilled" ? redditRes.value : { error: (redditRes as PromiseRejectedResult).reason?.message },
+    duckduckgo: ddgRes.status === "fulfilled" ? ddgRes.value   : { error: (ddgRes   as PromiseRejectedResult).reason?.message },
   };
-  if (searxRes) {
+  if (searxRes !== undefined) {
     results.searxng = searxRes.status === "fulfilled" ? searxRes.value : { error: (searxRes as PromiseRejectedResult).reason?.message };
   }
   return { platform: "multi", query, results };
@@ -429,6 +455,10 @@ serve(async (req) => {
       case "searxng_search":
         if (!params.query) return err("query required");
         return json(await searxngSearch(String(params.query), Number(params.num_results ?? 10), String(params.engines ?? "")));
+
+      case "ddg_search":
+        if (!params.query) return err("query required");
+        return json(await ddgSearch(String(params.query), Number(params.limit ?? 6)));
 
       case "multi_search":
         if (!params.query) return err("query required");

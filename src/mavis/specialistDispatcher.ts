@@ -66,6 +66,11 @@ function persona(specialist: ActiveSpecialist, body: string): string {
   return `**[${specialist.agent_name}]**\n\n${body}`;
 }
 
+// ── Local server (optional) ────────────────────────────────────────────────────
+// When the VANTARA local Node.js server is running (node server/vantara-local.mjs),
+// web research and code execution use it directly — free, no API key required.
+import { isLocalServerAvailable, localWebSearch, localExecCode } from "@/mavis/localServerClient";
+
 // ── Route table ───────────────────────────────────────────────────────────────
 
 const ROUTES: Route[] = [
@@ -77,8 +82,19 @@ const ROUTES: Route[] = [
       extractCode(c) !== null &&
       has(c, /\b(run|execute|eval|test|check|compile|try this|bash|node|python|script)\b/i),
     loadingLabel: "Executing code",
-    invoke: async (content, specialist, userId, supabase) => {
+    invoke: async (content, specialist, _userId, supabase) => {
       const extracted = extractCode(content)!;
+
+      // Prefer local execution (no E2B cost) when local server is running
+      const localAvailable = await isLocalServerAvailable();
+      if (localAvailable) {
+        const result = await localExecCode(extracted.code, extracted.language as any);
+        const out = result?.output ?? result?.error ?? "No output";
+        const err = result?.success === false ? `\n\n⚠️ Error: ${result.error}` : "";
+        return persona(specialist, `Executed (${extracted.language}) — local sandbox:\n\`\`\`\n${out}${err}\n\`\`\``);
+      }
+
+      // Fallback: E2B via Supabase edge function
       const { data } = await supabase.functions.invoke("mavis-code-exec", {
         body: { code: extracted.code, language: extracted.language },
       });
@@ -256,13 +272,27 @@ const ROUTES: Route[] = [
       const query = content
         .replace(/^(please\s+)?(research|investigate|find out|look up|search for|tell me about)\s+/i, "")
         .trim();
+
+      // Prefer local DuckDuckGo (free, no API key) when local server is running
+      const localAvailable = await isLocalServerAvailable();
+      if (localAvailable) {
+        const data = await localWebSearch(query, 8);
+        if (data?.items?.length) {
+          const lines = (data.items as any[]).slice(0, 5).map((i: any) =>
+            `- [${i.title}](${i.url})\n  ${(i.description ?? "").slice(0, 200)}`
+          );
+          const abstract = data.abstract ? `\n\n${data.abstract}` : "";
+          return persona(specialist, `**Search: "${query}"**${abstract}\n\n${lines.join("\n")}`);
+        }
+      }
+
+      // Fallback: Supabase edge function (multi_search)
       const { data } = await supabase.functions.invoke("mavis-agent-reach", {
         body: { action: "multi_search", query },
       });
       if (data?.error) return persona(specialist, `Research failed: ${data.error}`);
-      // Collect results across platforms
       const parts: string[] = [];
-      for (const [platform, result] of Object.entries(data ?? {})) {
+      for (const [platform, result] of Object.entries(data?.results ?? data ?? {})) {
         if (!result || typeof result !== "object") continue;
         const r = result as any;
         if (r.items?.length) {
