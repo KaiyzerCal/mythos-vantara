@@ -1526,52 +1526,52 @@ export default function MavisChat() {
         subtitle={`Mode: ${currentMode.label} // Supreme Intelligence`}
         icon={<Cpu size={18} />}
         actions={
-          <div className="flex items-center gap-1.5 sm:gap-3">
+          <div className="flex items-center gap-1 sm:gap-3">
             <button
               onClick={() => { setAgentModeOn((v) => !v); setLastAgentMeta(null); agentAutoActivated.current = false; }}
-              className={`flex items-center gap-1.5 text-xs font-mono rounded px-2 py-1 border transition-all ${
+              className={`flex items-center gap-1 sm:gap-1.5 text-xs font-mono rounded px-1.5 sm:px-2 py-1 border transition-all ${
                 agentModeOn
                   ? "border-violet-500/60 bg-violet-500/15 text-violet-300"
                   : "border-border/60 text-muted-foreground hover:text-violet-300 hover:border-violet-500/40"
               }`}
-              title={agentModeOn ? "Agent Mode ON — click to disable" : "Agent Mode OFF — click to enable (default: ON)"}
+              title={agentModeOn ? "Agent Mode ON — click to disable" : "Agent Mode OFF — click to enable"}
             >
               <Cpu size={12} />
               <span className="hidden sm:inline">{agentModeOn ? "Agent: ON" : "Agent: OFF"}</span>
-              {agentModeOn && <span className="w-1.5 h-1.5 rounded-full bg-violet-400 animate-pulse ml-0.5" />}
+              {agentModeOn && <span className="w-1.5 h-1.5 rounded-full bg-violet-400 animate-pulse" />}
             </button>
             <button
               onClick={() => navigate("/council-board")}
-              className="hidden sm:flex items-center gap-1.5 text-xs font-mono text-amber-400 hover:text-amber-300 border border-amber-900/40 hover:border-amber-400/40 rounded px-2 py-1 transition-all"
+              className="flex items-center gap-1 sm:gap-1.5 text-xs font-mono text-amber-400 hover:text-amber-300 border border-amber-900/40 hover:border-amber-400/40 rounded px-1.5 sm:px-2 py-1 transition-all"
               title="Open Council Board"
             >
               <Users size={12} />
-              Council
+              <span className="hidden sm:inline">Council</span>
             </button>
             <button
               onClick={handleOmniSync}
               disabled={isSyncing}
-              className="hidden sm:flex items-center gap-1.5 text-xs font-mono text-cyan-400 hover:text-cyan-300 border border-cyan-900/40 hover:border-cyan-400/40 rounded px-2 py-1 transition-all disabled:opacity-40"
-              title="Sync context"
+              className="flex items-center gap-1 sm:gap-1.5 text-xs font-mono text-cyan-400 hover:text-cyan-300 border border-cyan-900/40 hover:border-cyan-400/40 rounded px-1.5 sm:px-2 py-1 transition-all disabled:opacity-40"
+              title="OmniSync — sync context"
             >
               {isSyncing ? (
                 <span className="w-3 h-3 rounded-full border-2 border-cyan-400 border-t-transparent animate-spin block" />
               ) : (
                 <Database size={12} />
               )}
-              OmniSync
+              <span className="hidden sm:inline">OmniSync</span>
             </button>
             <button
               onClick={() => setShowSkillCatalog(true)}
-              className="hidden sm:flex items-center gap-1.5 text-xs font-mono text-muted-foreground hover:text-primary border border-border/60 hover:border-primary/40 rounded px-2 py-1 transition-all"
-              title="Browse all 44 skills"
+              className="flex items-center gap-1 sm:gap-1.5 text-xs font-mono text-muted-foreground hover:text-primary border border-border/60 hover:border-primary/40 rounded px-1.5 sm:px-2 py-1 transition-all"
+              title="Browse skills"
             >
               <BookOpen size={12} />
-              Skills
+              <span className="hidden sm:inline">Skills</span>
             </button>
             <button
               onClick={clearChat}
-              className="flex items-center gap-1 text-xs font-mono text-muted-foreground hover:text-primary border border-border/60 hover:border-primary/40 rounded px-2 py-1 transition-all"
+              className="flex items-center gap-1 sm:gap-1.5 text-xs font-mono text-muted-foreground hover:text-primary border border-border/60 hover:border-primary/40 rounded px-1.5 sm:px-2 py-1 transition-all"
               title="New conversation"
             >
               <Plus size={12} />

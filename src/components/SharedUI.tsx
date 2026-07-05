@@ -52,7 +52,7 @@ export function PageHeader({ title, subtitle, icon, actions }: PageHeaderProps) 
           {subtitle && <p className="text-xs font-mono text-muted-foreground mt-0.5">{subtitle}</p>}
         </div>
       </div>
-      {actions && <div className="flex items-center gap-2">{actions}</div>}
+      {actions && <div className="flex items-center gap-2 shrink-0 ml-2">{actions}</div>}
     </div>
   );
 }
