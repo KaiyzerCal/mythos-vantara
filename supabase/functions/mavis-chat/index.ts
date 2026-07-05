@@ -191,7 +191,7 @@ async function callOpenAI(messages: any[], system: string, key: string, model = 
     body: JSON.stringify({
       model,
       messages: [{ role: "system", content: system }, ...messages],
-      max_tokens: 4096,
+      max_tokens: 16384,
       temperature: 0.85,
     }),
   });
@@ -226,7 +226,7 @@ async function callClaude(messages: any[], system: string, key: string, model = 
     },
     body: JSON.stringify({
       model,
-      max_tokens: useThinking ? 16000 : 4096,
+      max_tokens: useThinking ? 16000 : 8192,
       ...(useThinking ? { thinking: { type: "enabled", budget_tokens: 8000 } } : {}),
       system,
       messages: merged.map((m: any) => ({ role: m.role, content: m.content })),
@@ -254,7 +254,7 @@ async function callGrok(messages: any[], system: string, key: string): Promise<s
     body: JSON.stringify({
       model: "grok-3-mini",
       messages: [{ role: "system", content: system }, ...messages],
-      max_tokens: 4096,
+      max_tokens: 8192,
       temperature: 0.7,
     }),
   });
@@ -533,7 +533,7 @@ async function callOpenAIStream(messages: any[], system: string, key: string, mo
   const res = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
-    body: JSON.stringify({ model, messages: [{ role: "system", content: system }, ...messages], max_tokens: 4096, temperature: 0.85, stream: true }),
+    body: JSON.stringify({ model, messages: [{ role: "system", content: system }, ...messages], max_tokens: 16384, temperature: 0.85, stream: true }),
   });
   if (!res.ok) {
     const e = await res.text();
@@ -554,7 +554,7 @@ async function callClaudeStream(messages: any[], system: string, key: string, mo
     },
     body: JSON.stringify({
       model,
-      max_tokens: useThinking ? 16000 : 4096,
+      max_tokens: useThinking ? 16000 : 8192,
       ...(useThinking ? { thinking: { type: "enabled", budget_tokens: 8000 } } : {}),
       system,
       messages: messages.map((m: any) => ({ role: m.role, content: m.content })),
@@ -655,7 +655,7 @@ async function callGrokStream(messages: any[], system: string, key: string): Pro
   const res = await fetch("https://api.x.ai/v1/chat/completions", {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
-    body: JSON.stringify({ model: "grok-3-mini", messages: [{ role: "system", content: system }, ...messages], max_tokens: 4096, temperature: 0.7, stream: true }),
+    body: JSON.stringify({ model: "grok-3-mini", messages: [{ role: "system", content: system }, ...messages], max_tokens: 8192, temperature: 0.7, stream: true }),
   });
   if (!res.ok) {
     const e = await res.text();
