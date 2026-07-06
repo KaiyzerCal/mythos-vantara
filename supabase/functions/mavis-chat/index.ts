@@ -315,7 +315,7 @@ async function callWithFallback(
   primary: Provider,
   messages: any[],
   system: string,
-  keys: { openai: string; claude: string; grok: string; gemini: string },
+  keys: { openai: string; claude: string; grok: string; gemini: string; groq: string },
   useThinking = false,
   mode = "PRIME",
 ): Promise<{ content: string; provider: string }> {
@@ -346,6 +346,16 @@ async function callWithFallback(
     }
   }
 
+  // Tier 0c — Groq Llama 3.3 70B (~500 tok/s, generous free tier, no thinking overhead)
+  if (keys.groq && mU !== "DEEP" && !isProviderUnhealthy("groq-llama")) {
+    try {
+      return { content: await callGroq(messages, system, keys.groq), provider: "groq-llama-70b" };
+    } catch (err: any) {
+      if (err instanceof ProviderUnavailableError) markProviderUnhealthy("groq-llama", 60_000);
+      console.warn(`[fallback] Groq failed (${err.message}) → cascading`);
+    }
+  }
+
   // Tier 1 — Gemini 2.5 Flash (paid; supports thinking, grounding, code-exec)
   if (keys.gemini && !isProviderUnhealthy("gemini")) {
     try {
@@ -361,7 +371,7 @@ async function callWithFallback(
     }
   }
 
-  // Tier 1 — Mode-designated provider (Claude for deep reasoning, Grok for real-time)
+  // Tier 2 — Mode-designated provider (Claude for deep reasoning, Grok for real-time)
   if (primary === "claude" && keys.claude && !isProviderUnhealthy("claude")) {
     try {
       return { content: await callClaude(messages, system, keys.claude, "claude-sonnet-4-6", useThinking), provider: useThinking ? "claude-sonnet-thinking" : "claude-sonnet" };
@@ -381,7 +391,7 @@ async function callWithFallback(
     }
   }
 
-  // Tier 2 — OpenAI (gpt-4o-mini, cheap)
+  // Tier 3 — OpenAI (gpt-4o-mini, cheap)
   if (keys.openai && !isProviderUnhealthy("openai")) {
     try {
       return { content: await callOpenAI(messages, system, keys.openai, "gpt-4o-mini"), provider: "openai-mini" };
@@ -392,7 +402,7 @@ async function callWithFallback(
     }
   }
 
-  // Tier 3 — Claude Haiku (cheap)
+  // Tier 4 — Claude Haiku (cheap)
   if (keys.claude && !isProviderUnhealthy("claude")) {
     try {
       return { content: await callClaude(messages, system, keys.claude, "claude-haiku-4-5-20251001"), provider: "claude-haiku" };
@@ -403,7 +413,7 @@ async function callWithFallback(
     }
   }
 
-  // Tier 4 — Claude Sonnet (premium)
+  // Tier 5 — Claude Sonnet (premium)
   if (keys.claude && !isProviderUnhealthy("claude-sonnet")) {
     try {
       return { content: await callClaude(messages, system, keys.claude, "claude-sonnet-4-6"), provider: "claude-sonnet" };
@@ -414,7 +424,7 @@ async function callWithFallback(
     }
   }
 
-  // Tier 5 — Grok (last resort)
+  // Tier 6 — Grok (last resort)
   if (keys.grok && !isProviderUnhealthy("grok")) {
     try {
       return { content: await callGrok(messages, system, keys.grok), provider: "grok" };
@@ -665,18 +675,53 @@ async function callGrokStream(messages: any[], system: string, key: string): Pro
   return oaiSseToTextStream(res.body!);
 }
 
+// ── Groq (Llama 3.3 70B — ~500 tok/s, generous free tier) ─────────────────
+async function callGroq(messages: any[], system: string, key: string, model = "llama-3.3-70b-versatile"): Promise<string> {
+  const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
+    body: JSON.stringify({
+      model,
+      messages: [{ role: "system", content: system }, ...messages],
+      max_tokens: 8192,
+      temperature: 0.7,
+    }),
+  });
+  if (!res.ok) {
+    const e = await res.text();
+    if (isUnfundedStatus(res.status, e)) throw new ProviderUnavailableError("groq", e.slice(0, 200), res.status);
+    throw new Error(`Groq ${res.status}: ${e}`);
+  }
+  const d = await res.json();
+  return d.choices?.[0]?.message?.content ?? "";
+}
+
+async function callGroqStream(messages: any[], system: string, key: string, model = "llama-3.3-70b-versatile"): Promise<ReadableStream<string>> {
+  const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
+    body: JSON.stringify({ model, messages: [{ role: "system", content: system }, ...messages], max_tokens: 8192, temperature: 0.7, stream: true }),
+  });
+  if (!res.ok) {
+    const e = await res.text();
+    if (isUnfundedStatus(res.status, e)) throw new ProviderUnavailableError("groq", e.slice(0, 200), res.status);
+    throw new Error(`Groq ${res.status}: ${e}`);
+  }
+  return oaiSseToTextStream(res.body!);
+}
+
 async function callWithFallbackStream(
   primary: Provider,
   messages: any[],
   system: string,
-  keys: { openai: string; claude: string; grok: string; gemini: string },
+  keys: { openai: string; claude: string; grok: string; gemini: string; groq: string },
   useThinking = false,
   mode = "PRIME",
 ): Promise<{ stream: ReadableStream<string>; provider: string }> {
+  const mU = mode.toUpperCase();
   // Tier 0 — Free Gemini (always attempted first)
   if (keys.gemini) {
     try {
-      const mU = mode.toUpperCase();
       const geminiOpts = {
         thinking: mU === "DEEP",
         grounding: ["WATCHTOWER", "GROUNDED"].includes(mU),
@@ -684,7 +729,12 @@ async function callWithFallbackStream(
       };
       return { stream: await callGeminiStream(messages, system, keys.gemini, geminiOpts), provider: geminiOpts.thinking ? "gemini-2.5-thinking" : "gemini-2.5-flash" };
     }
-    catch (e: any) { console.warn(`[stream-fallback] Gemini 2.5 Flash: ${e.message} → cascading to mode provider`); }
+    catch (e: any) { console.warn(`[stream-fallback] Gemini 2.5 Flash: ${e.message} → cascading`); }
+  }
+  // Tier 0b — Groq (fast Llama 3.3 70B, ~500 tok/s)
+  if (keys.groq && mU !== "DEEP") {
+    try { return { stream: await callGroqStream(messages, system, keys.groq), provider: "groq-llama-70b" }; }
+    catch (e: any) { console.warn(`[stream-fallback] Groq: ${e.message} → cascading`); }
   }
   // Tier 1 — Mode-designated provider
   if (primary === "claude" && keys.claude) {
@@ -3269,6 +3319,7 @@ ${fmtGoals}
     const claudeKey  = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
     const grokKey    = Deno.env.get("GROK_API_KEY") ?? "";
     const geminiKey  = Deno.env.get("GEMINI_API_KEY") ?? "";
+    const groqKey    = Deno.env.get("GROQ_API_KEY") ?? "";
     const tavilyKey  = Deno.env.get("Tavily_API") ?? Deno.env.get("TAVILY_API_KEY") ?? "";
 
     // ── Web search if needed ────────────────────────────────
@@ -3884,7 +3935,7 @@ ${fmtGoals}
           };
           const sysA = mkSys(entA, !!pA.data?.[0]);
           const sysB = mkSys(entB, !!pB.data?.[0]);
-          const keysObj = { openai: openaiKey, claude: claudeKey, grok: grokKey, gemini: geminiKey };
+          const keysObj = { openai: openaiKey, claude: claudeKey, grok: grokKey, gemini: geminiKey, groq: groqKey };
           const turn1Res = await Promise.race([
             callWithFallback("gemini", [{ role:"user" as const, content:`Topic: ${multiTopic}. Share your thoughts directly.` }], sysA, keysObj, false, "PRIME"),
             new Promise<null>(r => setTimeout(() => r(null), 8_000)),
@@ -3990,7 +4041,7 @@ ${fmtGoals}
               { role: "user" as const, content: a2aQuestion },
             ];
             try {
-              const a2aKeys = { openai: openaiKey, claude: claudeKey, grok: grokKey, gemini: geminiKey };
+              const a2aKeys = { openai: openaiKey, claude: claudeKey, grok: grokKey, gemini: geminiKey, groq: groqKey };
               // Hard 8-second timeout — A2A must not block the main response
               const A2A_TIMEOUT = new Promise<null>((resolve) => setTimeout(() => resolve(null), 8000));
               const a2aResult = await Promise.race([
@@ -4292,7 +4343,7 @@ Always reference dates and times in the entity's own timezone when one is set, o
     const modeUpper = (mode ?? "PRIME").toUpperCase();
     const useThinking = ["ARCH", "SOVEREIGN"].includes(modeUpper);
     const provider = routeToProvider(mode ?? "PRIME", lastUserMsg?.content ?? "");
-    const aiKeys = { openai: openaiKey, claude: claudeKey, grok: grokKey, gemini: geminiKey };
+    const aiKeys = { openai: openaiKey, claude: claudeKey, grok: grokKey, gemini: geminiKey, groq: groqKey };
 
     // ── Native tool-use pre-pass (Prymal pattern) ──────────
     // Run a lightweight tool-detection call BEFORE streaming so MAVIS can
