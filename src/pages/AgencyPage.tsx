@@ -41,13 +41,18 @@ function AgentPanel({
   const isActive = activeAgentId === agentId;
 
   useEffect(() => {
+    if (agent.content) {
+      setContent(agent.content);
+      setLoading(false);
+      return;
+    }
     setContent(null);
     setLoading(true);
     fetch(agent.rawUrl, { signal: AbortSignal.timeout(15000) })
       .then(r => r.ok ? r.text() : null)
       .then(t => { setContent(t); setLoading(false); })
       .catch(() => { setContent(null); setLoading(false); });
-  }, [agent.rawUrl]);
+  }, [agent.rawUrl, agent.content]);
 
   async function activateAgent() {
     if (!content) return;
@@ -159,14 +164,16 @@ function AgentPanel({
           {copied ? <Check size={13} className="text-emerald-400" /> : <Copy size={13} />}
           {copied ? "Copied" : "Copy"}
         </button>
-        <a
-          href={`https://github.com/KaiyzerCal/agency-agents/blob/main/${agent.division}/${agent.file}`}
-          target="_blank"
-          rel="noreferrer"
-          className="flex items-center gap-2 px-3 py-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs font-medium transition-colors"
-        >
-          <ExternalLink size={13} />
-        </a>
+        {agent.rawUrl && (
+          <a
+            href={`https://github.com/KaiyzerCal/agency-agents/blob/main/${agent.division}/${agent.file}`}
+            target="_blank"
+            rel="noreferrer"
+            className="flex items-center gap-2 px-3 py-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs font-medium transition-colors"
+          >
+            <ExternalLink size={13} />
+          </a>
+        )}
       </div>
 
       {/* Active notice */}
@@ -189,10 +196,9 @@ function AgentPanel({
           </div>
         ) : (
           <div className="text-zinc-600 text-xs py-6 text-center">
-            Could not load agent spec.<br />
-            <a href={agent.rawUrl} target="_blank" rel="noreferrer" className="text-violet-400 hover:underline mt-1 inline-block">
-              View on GitHub ↗
-            </a>
+            Could not load agent spec.{agent.rawUrl && (
+              <><br /><a href={agent.rawUrl} target="_blank" rel="noreferrer" className="text-violet-400 hover:underline mt-1 inline-block">View on GitHub ↗</a></>
+            )}
           </div>
         )}
       </div>
