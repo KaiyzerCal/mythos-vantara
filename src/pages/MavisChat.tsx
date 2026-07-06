@@ -1080,7 +1080,9 @@ export default function MavisChat() {
             (toolInfo) => { if (!cancelledRef.current) setAgentThinking(toolInfo); },
             abortController.signal,
           );
-          const agentText = agentResult.cleanText || agentResult.rawText || "MAVIS returned an empty response. Please try again.";
+          const agentText = agentResult.cleanText || agentResult.rawText;
+          // Empty response from agent → fall through to chat fallback below
+          if (!agentText.trim()) throw new Error("empty");
           const toolsUsed: string[] = (agentResult.fnData as any)?.toolsUsed ?? [];
           const actionsQueued: number = (agentResult.fnData as any)?.actionsQueued ?? 0;
           setLastAgentMeta({ toolsUsed, actionsQueued });
@@ -1102,14 +1104,51 @@ export default function MavisChat() {
           if (agentResult.conversationId) setConversationId(agentResult.conversationId);
           if (convoId) persistMessage({ role: "assistant", content: agentText, mode: chatMode }, convoId);
           speakText(agentText);
-        } catch (err: any) {
-          setChatMessages((prev) => prev.filter((m) => m.id !== streamingId).concat({
-            id: `err-${Date.now()}`,
-            role: "assistant" as const,
-            content: `Agent error: ${err?.message ?? "unknown"}`,
-            mode: chatMode,
-            timestamp: new Date(),
-          }));
+        } catch (agentErr: any) {
+          // Abort: don't start fallback — user cancelled or connection dropped.
+          if (cancelledRef.current || agentErr?.name === "AbortError") {
+            setChatMessages((prev) => prev.filter((m) => m.id !== streamingId));
+            setIsLoading(false);
+            setAgentThinking(null);
+            return;
+          }
+          // Fallback: agent is unavailable or returned empty — retry via direct chat.
+          // Streams into the SAME bubble so there is no flicker or duplicate message.
+          console.warn("[MAVIS] Agent fallback →", agentErr?.message);
+          try {
+            setAgentThinking("↩ Direct mode…");
+            const fallbackSys = await buildSystemPromptFromSnapshot(chatMode, ({
+              profile: profile as any, quests: quests as any[], tasks: tasks as any[], skills: skills as any[],
+              rankings: [], transformations: transformations as any[], journalEntries: journalEntries as any[],
+              vaultEntries: vaultEntries as any[], councilMembers: councils as any[], inventory: inventory as any[],
+              storeItems: storeItems as any[], energySystems: energySystems as any[], bpmSessions: bpmSessions as any[],
+              allies: allies as any[], rituals: rituals as any[], pendingApprovals: [], loadedAt: new Date().toISOString(),
+            } as any), archivedMemories, vaultMedia);
+            const fallbackResult = await streamChatMessage(
+              content, fallbackSys, history,
+              { mode: chatMode, conversationId, appState: compactState, chatKind: "mavis", threadRef: "main", attachmentIds: attachments.map((a) => a.id) },
+              (_tok, accumulated) => {
+                if (cancelledRef.current) return;
+                setAgentThinking(null);
+                setChatMessages((prev) => prev.map((m) => m.id === streamingId ? { ...m, content: accumulated } : m));
+              },
+              undefined,
+              abortController.signal,
+            );
+            const fallbackText = fallbackResult.cleanText || fallbackResult.rawText || "Unable to respond right now.";
+            setChatMessages((prev) => prev.filter((m) => m.id !== streamingId).concat({
+              id: `fb-${Date.now()}`, role: "assistant" as const, content: fallbackText, mode: chatMode, timestamp: new Date(),
+            }));
+            if (fallbackResult.conversationId) setConversationId(fallbackResult.conversationId);
+            if (convoId) persistMessage({ role: "assistant", content: fallbackText, mode: chatMode }, convoId);
+            speakText(fallbackText);
+          } catch {
+            setChatMessages((prev) => prev.filter((m) => m.id !== streamingId).concat({
+              id: `err-${Date.now()}`, role: "assistant" as const,
+              content: "Connection error — unable to respond. Check your internet connection and try again.",
+              mode: chatMode, timestamp: new Date(),
+            }));
+          }
         } finally {
           setIsLoading(false);
           setAgentThinking(null);
@@ -1220,43 +1259,54 @@ export default function MavisChat() {
         ));
       };
 
-      const { cleanText, executionResults, conversationId: newConvoId, searched, imageUrl, fnData } =
-        chatMode === "AGENT"
-          ? await streamAgentMessage(
-              content,
-              systemPrompt,
-              history,
-              { mode: chatMode, conversationId, appState: compactState, chatKind: "mavis", threadRef: "main", attachmentIds },
-              onToken,
-              (toolInfo) => { if (!cancelledRef.current) setAgentThinking(toolInfo); },
-              abortController.signal,
-            )
-          : chatMode === "RESEARCH"
-          ? await streamResearchMessage(
-              content,
-              { mode: chatMode, conversationId, appState: compactState, chatKind: "mavis", threadRef: "main", attachmentIds },
-              onToken,
-              abortController.signal,
-            )
-          : await streamChatMessage(
-              content,
-              systemPrompt,
-              history,
-              { mode: chatMode, conversationId, appState: compactState, chatKind: "mavis", threadRef: "main", attachmentIds },
-              onToken,
-              (stepEvent) => {
-                if (!cancelledRef.current) {
-                  setAgentSteps(prev => {
-                    const label = stepEvent.type ? `${stepEvent.type}` : "";
-                    if (stepEvent.step === "result" && prev.length > 0 && prev[prev.length - 1].type === stepEvent.type) {
-                      return [...prev.slice(0, -1), { ...stepEvent, label }];
-                    }
-                    return [...prev, { ...stepEvent, label }];
-                  });
+      // AGENT chatMode: try streamAgentMessage, fall back to streamChatMessage if empty or error
+      let streamResult: Awaited<ReturnType<typeof streamChatMessage>>;
+      if (chatMode === "AGENT") {
+        try {
+          const agentAttempt = await streamAgentMessage(
+            content, systemPrompt, history,
+            { mode: chatMode, conversationId, appState: compactState, chatKind: "mavis", threadRef: "main", attachmentIds },
+            onToken,
+            (toolInfo) => { if (!cancelledRef.current) setAgentThinking(toolInfo); },
+            abortController.signal,
+          );
+          if (!agentAttempt.rawText?.trim()) throw new Error("empty");
+          streamResult = agentAttempt;
+        } catch {
+          // Fall back to direct chat in AGENT mode
+          streamResult = await streamChatMessage(
+            content, systemPrompt, history,
+            { mode: chatMode, conversationId, appState: compactState, chatKind: "mavis", threadRef: "main", attachmentIds },
+            onToken, undefined, abortController.signal,
+          );
+        }
+      } else if (chatMode === "RESEARCH") {
+        streamResult = await streamResearchMessage(
+          content,
+          { mode: chatMode, conversationId, appState: compactState, chatKind: "mavis", threadRef: "main", attachmentIds },
+          onToken,
+          abortController.signal,
+        );
+      } else {
+        streamResult = await streamChatMessage(
+          content, systemPrompt, history,
+          { mode: chatMode, conversationId, appState: compactState, chatKind: "mavis", threadRef: "main", attachmentIds },
+          onToken,
+          (stepEvent) => {
+            if (!cancelledRef.current) {
+              setAgentSteps(prev => {
+                const label = stepEvent.type ? `${stepEvent.type}` : "";
+                if (stepEvent.step === "result" && prev.length > 0 && prev[prev.length - 1].type === stepEvent.type) {
+                  return [...prev.slice(0, -1), { ...stepEvent, label }];
                 }
-              },
-              abortController.signal,
-            );
+                return [...prev, { ...stepEvent, label }];
+              });
+            }
+          },
+          abortController.signal,
+        );
+      }
+      const { cleanText, executionResults, conversationId: newConvoId, searched, imageUrl, fnData } = streamResult;
 
       if (cancelledRef.current) {
         setChatMessages((prev) => prev.filter((m) => m.id !== streamingId));
