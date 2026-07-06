@@ -9,6 +9,7 @@ import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import { AppDataProvider } from "@/contexts/AppDataContext";
 import { VoiceProvider, useVoice } from "@/contexts/VoiceContext";
 import AppSidebar from "@/components/AppSidebar";
+import { MavisPageControl } from "@/components/MavisPageControl";
 import { Loader2 } from "lucide-react";
 import { useMavisNotifications } from "@/hooks/useMavisNotifications";
 
@@ -269,6 +270,7 @@ function AppContent() {
             </Routes>
           </Suspense>
         </main>
+        <MavisPageControl />
       </div>
       </VoiceProvider>
     </AppDataProvider>
