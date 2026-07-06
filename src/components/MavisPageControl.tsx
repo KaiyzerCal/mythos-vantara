@@ -12,14 +12,98 @@ const SUGGESTIONS = [
   "Navigate to Knowledge Graph",
 ];
 
+// ── Draggable XY ──────────────────────────────────────────────────────────────
+const POS_KEY = "vantara-mavis-control-pos";
+const BTN_W = 108; // approx button width px
+const BTN_H = 36;  // approx button height px
+const GAP = 8;     // viewport margin
+
+function defaultPos() {
+  return {
+    x: (typeof window !== "undefined" ? window.innerWidth : 400) - BTN_W - GAP * 2,
+    y: (typeof window !== "undefined" ? window.innerHeight : 800) - BTN_H - GAP * 2,
+  };
+}
+
+function useDraggableXY() {
+  const [pos, setPos] = useState<{ x: number; y: number }>(() => {
+    try {
+      const stored = localStorage.getItem(POS_KEY);
+      if (stored) return JSON.parse(stored);
+    } catch { /* ignore */ }
+    return defaultPos();
+  });
+
+  const dragging = useRef(false);
+  const didMove = useRef(false);
+  const startPtr = useRef({ x: 0, y: 0 });
+  const startPos = useRef({ x: 0, y: 0 });
+
+  const clamp = useCallback((x: number, y: number) => ({
+    x: Math.max(GAP, Math.min(x, window.innerWidth  - BTN_W - GAP)),
+    y: Math.max(GAP, Math.min(y, window.innerHeight - BTN_H - GAP)),
+  }), []);
+
+  const onPointerDown = useCallback((e: React.PointerEvent) => {
+    dragging.current = true;
+    didMove.current = false;
+    startPtr.current = { x: e.clientX, y: e.clientY };
+    startPos.current = pos;
+    (e.target as HTMLElement).setPointerCapture(e.pointerId);
+    e.preventDefault();
+  }, [pos]);
+
+  const onPointerMove = useCallback((e: React.PointerEvent) => {
+    if (!dragging.current) return;
+    const dx = e.clientX - startPtr.current.x;
+    const dy = e.clientY - startPtr.current.y;
+    if (Math.abs(dx) > 4 || Math.abs(dy) > 4) didMove.current = true;
+    setPos(clamp(startPos.current.x + dx, startPos.current.y + dy));
+  }, [clamp]);
+
+  const onPointerUp = useCallback((e: React.PointerEvent) => {
+    if (!dragging.current) return;
+    dragging.current = false;
+    const dx = e.clientX - startPtr.current.x;
+    const dy = e.clientY - startPtr.current.y;
+    const next = clamp(startPos.current.x + dx, startPos.current.y + dy);
+    localStorage.setItem(POS_KEY, JSON.stringify(next));
+  }, [clamp]);
+
+  // Re-clamp on viewport resize
+  useEffect(() => {
+    const onResize = () => {
+      setPos(prev => {
+        const clamped = {
+          x: Math.max(GAP, Math.min(prev.x, window.innerWidth  - BTN_W - GAP)),
+          y: Math.max(GAP, Math.min(prev.y, window.innerHeight - BTN_H - GAP)),
+        };
+        localStorage.setItem(POS_KEY, JSON.stringify(clamped));
+        return clamped;
+      });
+    };
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+
+  return { pos, didMove, onPointerDown, onPointerMove, onPointerUp };
+}
+
+// ── Component ─────────────────────────────────────────────────────────────────
 export function MavisPageControl() {
   const [open, setOpen] = useState(false);
   const [command, setCommand] = useState("");
   const [history, setHistory] = useState<{ command: string; result: PageAction }[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
   const { execute, running } = usePageAgent();
+  const { pos, didMove, onPointerDown, onPointerMove, onPointerUp } = useDraggableXY();
 
-  // Open with keyboard shortcut Ctrl+Shift+M
+  // Determine whether panel should open above or below the button
+  const openAbove = pos.y > window.innerHeight / 2;
+  // Panel aligns left or right depending on button x position
+  const alignRight = pos.x > window.innerWidth / 2;
+
+  // Keyboard shortcuts
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (e.ctrlKey && e.shiftKey && e.key === "M") {
@@ -42,7 +126,6 @@ export function MavisPageControl() {
     setCommand("");
     const result = await execute(trimmed);
     setHistory(h => [{ command: trimmed, result }, ...h].slice(0, 10));
-    // Close panel after a successful navigation
     if (result.action === "navigate") setTimeout(() => setOpen(false), 300);
   }, [command, running, execute]);
 
@@ -53,20 +136,30 @@ export function MavisPageControl() {
     }
   };
 
+  // Panel position: float adjacent to button, staying in viewport
+  const panelStyle: React.CSSProperties = {
+    position: "fixed",
+    zIndex: 999,
+    width: 320,
+    left: alignRight ? undefined : pos.x,
+    right: alignRight ? window.innerWidth - pos.x - BTN_W : undefined,
+    ...(openAbove
+      ? { bottom: window.innerHeight - pos.y + 6 }
+      : { top: pos.y + BTN_H + 6 }),
+  };
+
   return (
     <>
       {/* Backdrop */}
       {open && (
-        <div
-          className="fixed inset-0 z-[998]"
-          onClick={() => setOpen(false)}
-        />
+        <div className="fixed inset-0 z-[998]" onClick={() => setOpen(false)} />
       )}
 
       {/* Panel */}
       <div
-        className={`fixed bottom-20 right-4 z-[999] w-80 transition-all duration-200 ${
-          open ? "opacity-100 translate-y-0 pointer-events-auto" : "opacity-0 translate-y-3 pointer-events-none"
+        style={panelStyle}
+        className={`transition-all duration-200 ${
+          open ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"
         }`}
       >
         <div className="rounded-xl border border-amber-500/30 bg-background/95 backdrop-blur-xl shadow-2xl shadow-amber-500/10 overflow-hidden">
@@ -136,20 +229,24 @@ export function MavisPageControl() {
           )}
 
           <div className="px-3 pb-2 text-[9px] text-muted-foreground/40 font-mono">
-            Ctrl+Shift+M to toggle · Enter to run · Esc to close
+            Drag button to reposition · Ctrl+Shift+M · Esc to close
           </div>
         </div>
       </div>
 
-      {/* Floating trigger button */}
+      {/* Floating trigger — draggable */}
       <button
-        onClick={() => setOpen(o => !o)}
-        className={`fixed bottom-4 right-4 z-[999] flex items-center gap-1.5 px-3 py-2 rounded-full shadow-lg transition-all duration-200 font-mono text-xs font-semibold ${
+        style={{ top: pos.y, left: pos.x, touchAction: "none" }}
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
+        onClick={() => { if (!didMove.current) setOpen(o => !o); }}
+        className={`fixed z-[999] flex items-center gap-1.5 px-3 py-2 rounded-full shadow-lg transition-colors duration-200 font-mono text-xs font-semibold cursor-grab active:cursor-grabbing select-none ${
           open
             ? "bg-amber-500 text-black shadow-amber-500/40"
             : "bg-background border border-amber-500/40 text-amber-400 hover:bg-amber-500/10 hover:border-amber-500/60 shadow-amber-500/10"
         }`}
-        title="MAVIS Page Control (Ctrl+Shift+M)"
+        title="Drag to reposition · Click to open (Ctrl+Shift+M)"
       >
         <Bot size={14} />
         <span>MAVIS ⌘</span>
