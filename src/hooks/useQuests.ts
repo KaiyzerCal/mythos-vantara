@@ -54,6 +54,34 @@ export function useQuests() {
 
   useEffect(() => { fetch(); }, [fetch]);
 
+  // Real-time: keep state in sync when quests are created/updated/deleted
+  // externally (e.g. from mavis-actions via Inbox approval).
+  useEffect(() => {
+    if (!user) return;
+    const channel = supabase
+      .channel("quests-realtime")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "quests", filter: `user_id=eq.${user.id}` },
+        (payload) => {
+          if (payload.eventType === "INSERT") {
+            setQuests((prev) => {
+              if (prev.some((q) => q.id === (payload.new as Quest).id)) return prev;
+              return [payload.new as Quest, ...prev];
+            });
+          } else if (payload.eventType === "UPDATE") {
+            setQuests((prev) =>
+              prev.map((q) => q.id === (payload.new as Quest).id ? payload.new as Quest : q)
+            );
+          } else if (payload.eventType === "DELETE") {
+            setQuests((prev) => prev.filter((q) => q.id !== (payload.old as Quest).id));
+          }
+        },
+      )
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [user]);
+
   const createQuest = useCallback(async (input: CreateQuestInput): Promise<Quest | null> => {
     if (!user) return null;
     const { data, error } = await (supabase as any)

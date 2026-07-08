@@ -159,20 +159,22 @@ export function QuestsPage() {
     }
   };
 
+  const questIds = useMemo(() => new Set(quests.map((q: any) => q.id)), [quests]);
   const parentQuests = useMemo(
-    () => quests.filter((q: any) => !q.parent_quest_id),
-    [quests]
+    // Include "orphaned" sub-quests whose parent no longer exists so they're never invisible.
+    () => quests.filter((q: any) => !q.parent_quest_id || !questIds.has(q.parent_quest_id)),
+    [quests, questIds]
   );
   const subQuestMap = useMemo(() => {
     const map: Record<string, any[]> = {};
     quests.forEach((q: any) => {
-      if (q.parent_quest_id) {
+      if (q.parent_quest_id && questIds.has(q.parent_quest_id)) {
         if (!map[q.parent_quest_id]) map[q.parent_quest_id] = [];
         map[q.parent_quest_id].push(q);
       }
     });
     return map;
-  }, [quests]);
+  }, [quests, questIds]);
 
   const filtered = parentQuests.filter((q: any) =>
     (typeFilter === "all" || q.type === typeFilter) &&
