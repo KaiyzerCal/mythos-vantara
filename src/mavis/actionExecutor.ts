@@ -8,6 +8,8 @@ const ALWAYS_CONFIRM = new Set([
   "delete_ranking", "delete_store_item",
   // Filesystem and git mutations always need explicit approval
   "edit_file",
+  // Journal creation requires verbal confirmation — never auto-create
+  "create_journal",
 ]);
 
 const IDENTITY_FIELDS = ["codex_name", "title"];
