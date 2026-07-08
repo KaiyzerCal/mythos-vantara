@@ -339,7 +339,7 @@ export function VaultCodexPage() {
     // Upsert links (delete old + re-insert)
     await supabase.from("mavis_note_links").delete().eq("source_note_id", entryId);
     if (resolved.length > 0) {
-      await supabase.from("mavis_note_links").insert(resolved.map((r: any) => ({ source_note_id: entryId, target_note_id: r.id, user_id: session.user.id })));
+      await supabase.from("mavis_note_links").insert(resolved.map((r: any) => ({ source_note_id: entryId, target_note_id: r.id, user_id: session.user.id })) as any);
     }
   }, [session?.user?.id]);
 
