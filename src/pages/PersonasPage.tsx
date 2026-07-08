@@ -133,7 +133,7 @@ function EditPersonaPanel({ persona, onSaved, onCancel }: EditPersonaPanelProps)
           adjectives: adjectives.split(",").map(s => s.trim()).filter(Boolean),
           topics: topics.split(",").map(s => s.trim()).filter(Boolean),
           message_examples: parsedMsgExamples,
-        })
+        } as any)
         .eq("id", persona.id)
         .select()
         .single();
