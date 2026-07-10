@@ -4459,7 +4459,7 @@ Always reference dates and times in the entity's own timezone when one is set, o
                   }
                   toolResults.push({ type: block.type, ok, result });
                   totalActions++;
-                  sb.from("mavis_agent_traces").insert({ user_id: user.id, session_id: conversationId ?? "streaming", iteration: reactIter + 1, action_type: block.type, params: block.params as any, result: result as any, ok, duration_ms: Date.now() - _traceStartStream }).catch(() => {});
+                  sb.from("mavis_agent_traces").insert({ user_id: user.id, session_id: conversationId ?? "streaming", iteration: reactIter + 1, action_type: block.type, params: block.params as any, result: result as any, ok, duration_ms: Date.now() - _traceStartStream }).then(() => {}, () => {});
                   controller.enqueue(enc.encode(`data: ${JSON.stringify({ step: "result", type: block.type, ok, preview: JSON.stringify(result).slice(0, 300) })}\n\n`));
                 }
 
@@ -4570,7 +4570,7 @@ Always reference dates and times in the entity's own timezone when one is set, o
             if (accumulated.length > 5) {
               const CORR_RE = /\b(no[,.]?\s+that'?s?\s+wrong|that'?s?\s+not\s+right|not\s+what\s+i\s+(said|meant|wanted)|stop\s+(doing|saying|using|calling)\s+\w|don'?t\s+(do|say|use|call)\s+\w|never\s+(do|say|use|call)\s+\w|i\s+(hate|dislike)\s+when\s+you|you'?re\s+wrong|wrong\s+answer|incorrect[,.]?\s+\w|that'?s?\s+incorrect)\b/i;
               if (lastUserText.length > 5 && CORR_RE.test(lastUserText)) {
-                sb.from("mavis_tacit").insert({ user_id: user.id, category: "correction", key: `correction_${Date.now()}`, value: `[OPERATOR CORRECTION] User said: "${lastUserText.slice(0, 300)}" | Context: "${accumulated.slice(0, 200)}"` }).catch(() => {});
+                sb.from("mavis_tacit").insert({ user_id: user.id, category: "correction", key: `correction_${Date.now()}`, value: `[OPERATOR CORRECTION] User said: "${lastUserText.slice(0, 300)}" | Context: "${accumulated.slice(0, 200)}"` }).then(() => {}, () => {});
               }
               (async () => {
                 try {
@@ -4832,7 +4832,7 @@ Always reference dates and times in the entity's own timezone when one is set, o
           }
           toolResults.push({ type: block.type, ok, result });
           totalActions++;
-          sb.from("mavis_agent_traces").insert({ user_id: user.id, session_id: conversationId ?? "non-stream", iteration: reactIter + 1, action_type: block.type, params: block.params as any, result: result as any, ok, duration_ms: Date.now() - _traceStartNS }).catch(() => {});
+          sb.from("mavis_agent_traces").insert({ user_id: user.id, session_id: conversationId ?? "non-stream", iteration: reactIter + 1, action_type: block.type, params: block.params as any, result: result as any, ok, duration_ms: Date.now() - _traceStartNS }).then(() => {}, () => {});
         }
 
         reactMessages = [
