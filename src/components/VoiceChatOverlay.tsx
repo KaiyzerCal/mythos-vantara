@@ -60,6 +60,7 @@ export function VoiceChatOverlay({
   const resumeKeepAliveRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const utteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
   const closingRef = useRef(false);
+  const wakeLockRef = useRef<any>(null);
   const replyScrollRef = useRef<HTMLDivElement>(null);
   const spokenWordRef = useRef<HTMLSpanElement>(null);
   // Monotonic request ID — bumped on every send and on user-tap cancel.
@@ -844,6 +845,35 @@ export function VoiceChatOverlay({
       } catch { /* non-critical — start fresh if load fails */ }
     })();
   }, [persona?.entityId, persona?.entityType, persona?.userId]);
+
+  // Keep screen awake while voice overlay is open so mid-reply screen timeouts
+  // don't cut off speech or kill the SpeechRecognition session.
+  useEffect(() => {
+    if (!('wakeLock' in navigator)) return;
+    let sentinel: any = null;
+
+    const acquire = async () => {
+      try {
+        sentinel = await (navigator as any).wakeLock.request('screen');
+        wakeLockRef.current = sentinel;
+        sentinel.onrelease = () => { wakeLockRef.current = null; };
+      } catch { /* permission denied or not supported — non-fatal */ }
+    };
+
+    acquire();
+
+    // Browser auto-releases the lock when the page is hidden; re-acquire on return.
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible' && !wakeLockRef.current) acquire();
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibility);
+      wakeLockRef.current?.release().catch(() => {});
+      wakeLockRef.current = null;
+    };
+  }, []);
 
   // Warm up voices list on mount (Chrome lazy-loads them)
   useEffect(() => {

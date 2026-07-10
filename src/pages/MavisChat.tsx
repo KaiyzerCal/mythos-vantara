@@ -194,6 +194,9 @@ export default function MavisChat() {
   // ── Skill catalog drawer ──
   const [showSkillCatalog, setShowSkillCatalog] = useState(false);
 
+  // ── Header collapse ──
+  const [headerCollapsed, setHeaderCollapsed] = useState(false);
+
   // ElevenLabs TTS + chat attachments
   const { speak, stop: stopSpeaking, isSpeaking, isLoading: isVoiceLoading } = useElevenLabsTts();
   const { attachments, isUploading, upload, remove, clearStaged } = useChatAttachments("mavis", "main");
@@ -1571,12 +1574,80 @@ export default function MavisChat() {
           </div>
         </div>
       )}
-      <PageHeader
-        title="MAVIS"
-        subtitle={`Mode: ${currentMode.label} // Supreme Intelligence`}
-        icon={<Cpu size={18} />}
-        actions={
-          <div className="flex items-center gap-1 sm:gap-3">
+      {/* ── Collapsible chat header ── */}
+      {headerCollapsed ? (
+        /* Slim bar — all buttons as icon-only, one line */
+        <div className="flex items-center justify-between px-1 py-1.5 mb-2 border-b border-border shrink-0">
+          <div className="flex items-center gap-2 min-w-0">
+            <div className="w-6 h-6 rounded bg-primary/10 border border-primary/20 flex items-center justify-center text-primary shrink-0">
+              <Cpu size={11} />
+            </div>
+            <span className="font-display text-xs font-bold text-glow-gold">MAVIS</span>
+            <span className="text-muted-foreground/40 text-xs select-none">·</span>
+            <span className={`text-[11px] font-mono ${currentMode.color}`}>{currentMode.label}</span>
+          </div>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => { setAgentModeOn((v) => !v); setLastAgentMeta(null); agentAutoActivated.current = false; }}
+              className={`flex items-center gap-1 text-xs font-mono rounded px-1.5 py-0.5 border transition-all ${
+                agentModeOn ? "border-violet-500/60 bg-violet-500/15 text-violet-300" : "border-border/60 text-muted-foreground hover:text-violet-300"
+              }`}
+              title={agentModeOn ? "Agent Mode ON — click to disable" : "Agent Mode OFF — click to enable"}
+            >
+              <Cpu size={10} />
+              {agentModeOn && <span className="w-1 h-1 rounded-full bg-violet-400 animate-pulse" />}
+            </button>
+            <button
+              onClick={() => navigate("/council-board")}
+              className="flex items-center text-xs font-mono text-amber-400 hover:text-amber-300 border border-amber-900/40 hover:border-amber-400/40 rounded px-1.5 py-0.5 transition-all"
+              title="Open Council Board"
+            >
+              <Users size={10} />
+            </button>
+            <button
+              onClick={handleOmniSync}
+              disabled={isSyncing}
+              className="flex items-center text-xs font-mono text-cyan-400 hover:text-cyan-300 border border-cyan-900/40 hover:border-cyan-400/40 rounded px-1.5 py-0.5 transition-all disabled:opacity-40"
+              title="OmniSync — sync context"
+            >
+              {isSyncing ? <span className="w-2.5 h-2.5 rounded-full border border-cyan-400 border-t-transparent animate-spin block" /> : <Database size={10} />}
+            </button>
+            <button
+              onClick={() => setShowSkillCatalog(true)}
+              className="flex items-center text-xs font-mono text-muted-foreground hover:text-primary border border-border/60 hover:border-primary/40 rounded px-1.5 py-0.5 transition-all"
+              title="Browse skills"
+            >
+              <BookOpen size={10} />
+            </button>
+            <button
+              onClick={clearChat}
+              className="flex items-center text-xs font-mono text-muted-foreground hover:text-primary border border-border/60 hover:border-primary/40 rounded px-1.5 py-0.5 transition-all"
+              title="New conversation"
+            >
+              <Plus size={10} />
+            </button>
+            <button
+              onClick={() => setHeaderCollapsed(false)}
+              className="flex items-center text-xs font-mono text-muted-foreground hover:text-primary border border-border/60 hover:border-primary/40 rounded px-1.5 py-0.5 transition-all ml-0.5"
+              title="Expand header"
+            >
+              <ChevronDown size={10} className="rotate-180" />
+            </button>
+          </div>
+        </div>
+      ) : (
+        /* Full header */
+        <div className="flex items-start justify-between mb-6 pb-4 border-b border-border shrink-0">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded bg-primary/10 border border-primary/20 flex items-center justify-center text-primary">
+              <Cpu size={18} />
+            </div>
+            <div>
+              <h1 className="font-display text-lg font-bold text-glow-gold">MAVIS</h1>
+              <p className="text-xs font-mono text-muted-foreground mt-0.5">Mode: {currentMode.label} // Supreme Intelligence</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-1 sm:gap-2">
             <button
               onClick={() => { setAgentModeOn((v) => !v); setLastAgentMeta(null); agentAutoActivated.current = false; }}
               className={`flex items-center gap-1 sm:gap-1.5 text-xs font-mono rounded px-1.5 sm:px-2 py-1 border transition-all ${
@@ -1627,9 +1698,16 @@ export default function MavisChat() {
               <Plus size={12} />
               <span className="hidden sm:inline">New Chat</span>
             </button>
+            <button
+              onClick={() => setHeaderCollapsed(true)}
+              className="flex items-center gap-1 sm:gap-1.5 text-xs font-mono text-muted-foreground hover:text-primary border border-border/60 hover:border-primary/40 rounded px-1.5 sm:px-2 py-1 transition-all"
+              title="Collapse header"
+            >
+              <ChevronDown size={12} />
+            </button>
           </div>
-        }
-      />
+        </div>
+      )}
 
       {/* Active Agency Specialist banner */}
       <AnimatePresence>
