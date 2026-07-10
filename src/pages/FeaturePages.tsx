@@ -100,6 +100,12 @@ export function QuestsPage() {
     buff_effects: [] as { label: string; value: number; unit: string; duration?: string }[],
     debuff_effects: [] as { label: string; value: number; unit: string; duration?: string }[],
     loot_rewards: [] as { itemName: string; quantity: number; rarity?: string }[],
+    // ISA schema (LifeOS)
+    current_state: "",
+    ideal_state: "",
+    effort_tier: "" as "" | "E1" | "E2" | "E3" | "E4" | "E5",
+    phase: "" as "" | "PLAN" | "BUILD" | "VERIFY" | "DONE",
+    completion_criteria: [] as string[],
   });
   const [formErrors, setFormErrors] = useState<{ title?: string }>({});
   const [newBuff, setNewBuff] = useState({ label: "", value: 0, unit: "%", duration: "" });
@@ -186,6 +192,7 @@ export function QuestsPage() {
       title: "", description: "", type: "daily", difficulty: "Normal", xp_reward: 100,
       real_world_mapping: "", linked_skill_ids: [], linked_stat: "", linked_energy_id: "",
       codex_points_reward: 0, buff_effects: [], debuff_effects: [], loot_rewards: [],
+      current_state: "", ideal_state: "", effort_tier: "", phase: "", completion_criteria: [],
     });
     setEditingId(null);
     setShowCreate(false);
@@ -202,6 +209,11 @@ export function QuestsPage() {
       buff_effects: q.buff_effects || [],
       debuff_effects: q.debuff_effects || [],
       loot_rewards: q.loot_rewards || [],
+      current_state: q.current_state || "",
+      ideal_state: q.ideal_state || "",
+      effort_tier: q.effort_tier || "",
+      phase: q.phase || "",
+      completion_criteria: Array.isArray(q.completion_criteria) ? q.completion_criteria : [],
     });
     setEditingId(q.id);
     setShowCreate(true);
@@ -225,6 +237,11 @@ export function QuestsPage() {
       buff_effects: form.buff_effects,
       debuff_effects: form.debuff_effects,
       loot_rewards: form.loot_rewards,
+      current_state: form.current_state || null,
+      ideal_state: form.ideal_state || null,
+      effort_tier: form.effort_tier || null,
+      phase: form.phase || null,
+      completion_criteria: form.completion_criteria,
     };
 
     if (editingId) {
@@ -568,6 +585,51 @@ export function QuestsPage() {
                     {["common", "rare", "epic", "legendary", "mythic"].map((r) => <option key={r}>{r}</option>)}
                   </select>
                   <button onClick={() => { if (newLoot.itemName) { setForm((f) => ({ ...f, loot_rewards: [...f.loot_rewards, { ...newLoot }] })); setNewLoot({ itemName: "", quantity: 1, rarity: "common" }); } }} className="px-2 py-1 text-xs font-mono text-amber-400 border border-amber-700/30 rounded hover:bg-amber-400/10">+</button>
+                </div>
+              </div>
+
+              {/* ISA Schema (LifeOS) */}
+              <div className="border-t border-border/30 pt-2 space-y-2">
+                <p className="text-xs font-mono text-cyan-400 uppercase tracking-widest">ISA Schema — Current → Ideal State</p>
+                <textarea value={form.current_state} onChange={(e) => setForm((f) => ({ ...f, current_state: e.target.value }))} placeholder="Current state: where are you NOW on this quest?" rows={2} className="w-full bg-muted/30 border border-border rounded px-3 py-1.5 text-xs font-body resize-none focus:outline-none focus:border-cyan-500/40" />
+                <textarea value={form.ideal_state} onChange={(e) => setForm((f) => ({ ...f, ideal_state: e.target.value }))} placeholder="Ideal state: what does DONE look like exactly?" rows={2} className="w-full bg-muted/30 border border-border rounded px-3 py-1.5 text-xs font-body resize-none focus:outline-none focus:border-cyan-500/40" />
+                <div className="grid grid-cols-2 gap-2">
+                  <select value={form.effort_tier} onChange={(e) => setForm((f) => ({ ...f, effort_tier: e.target.value as any }))} className="bg-muted/30 border border-border rounded px-2 py-1.5 text-xs font-mono focus:outline-none">
+                    <option value="">Effort tier...</option>
+                    {(["E1 — Trivial", "E2 — Light", "E3 — Moderate", "E4 — Heavy", "E5 — Life-changing"] as const).map((t, i) => <option key={t} value={`E${i + 1}`}>{t}</option>)}
+                  </select>
+                  <select value={form.phase} onChange={(e) => setForm((f) => ({ ...f, phase: e.target.value as any }))} className="bg-muted/30 border border-border rounded px-2 py-1.5 text-xs font-mono focus:outline-none">
+                    <option value="">Phase...</option>
+                    {(["PLAN", "BUILD", "VERIFY", "DONE"] as const).map((p) => <option key={p}>{p}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <p className="text-xs font-mono text-muted-foreground mb-1">Completion Criteria (binary — each must be DONE or NOT DONE)</p>
+                  <div className="flex flex-col gap-1 mb-1">
+                    {form.completion_criteria.map((c, i) => (
+                      <span key={i} className="text-xs font-mono text-cyan-300 border border-cyan-800/30 rounded px-2 py-0.5 flex items-center justify-between gap-2">
+                        <span>✓ {c}</span>
+                        <button onClick={() => setForm((f) => ({ ...f, completion_criteria: f.completion_criteria.filter((_, j) => j !== i) }))} className="text-destructive hover:text-destructive/80 shrink-0">×</button>
+                      </span>
+                    ))}
+                  </div>
+                  <div className="flex gap-1">
+                    <input
+                      id="new-criterion-input"
+                      placeholder='e.g. "Has the landing page gone live?"'
+                      className="flex-1 bg-muted/30 border border-border rounded px-2 py-1 text-xs font-mono focus:outline-none"
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          const val = (e.target as HTMLInputElement).value.trim();
+                          if (val) { setForm((f) => ({ ...f, completion_criteria: [...f.completion_criteria, val] })); (e.target as HTMLInputElement).value = ""; }
+                        }
+                      }}
+                    />
+                    <button onClick={() => {
+                      const el = document.getElementById("new-criterion-input") as HTMLInputElement;
+                      if (el?.value.trim()) { setForm((f) => ({ ...f, completion_criteria: [...f.completion_criteria, el.value.trim()] })); el.value = ""; }
+                    }} className="px-2 py-1 text-xs font-mono text-cyan-400 border border-cyan-700/30 rounded hover:bg-cyan-400/10">+</button>
+                  </div>
                 </div>
               </div>
 

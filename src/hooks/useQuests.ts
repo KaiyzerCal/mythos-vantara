@@ -29,6 +29,15 @@ export interface Quest {
   linked_skill_ids: string[];
   buff_effects: QuestBuffEffect[];
   debuff_effects: QuestBuffEffect[];
+  // ISA schema (LifeOS)
+  current_state: string | null;
+  ideal_state: string | null;
+  effort_tier: "E1" | "E2" | "E3" | "E4" | "E5" | null;
+  phase: "PLAN" | "BUILD" | "VERIFY" | "DONE" | null;
+  completion_criteria: string[];
+  decisions_log: { date: string; note: string }[];
+  // Freshness tracking
+  last_reviewed_at: string | null;
   created_at: string;
   updated_at: string;
 }
