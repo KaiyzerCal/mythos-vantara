@@ -2976,7 +2976,7 @@ serve(async (req) => {
     const lim = (key: keyof typeof wants, deep: number, shallow: number) => wants[key] ? deep : shallow;
 
     const _settled = await Promise.allSettled([
-      sb.from("quests").select("id,title,description,type,status,difficulty,xp_reward,progress_current,progress_target,deadline,real_world_mapping").eq("user_id", user.id).order("created_at", { ascending: false }).limit(lim("quest", 25, 10)),
+      sb.from("quests").select("id,title,description,type,status,difficulty,xp_reward,progress_current,progress_target,deadline,real_world_mapping,current_state,ideal_state,effort_tier,phase,completion_criteria,last_reviewed_at").eq("user_id", user.id).order("created_at", { ascending: false }).limit(lim("quest", 25, 10)),
       sb.from("tasks").select("id,title,description,type,status,recurrence,xp_reward,streak,completed_count").eq("user_id", user.id).order("created_at", { ascending: false }).limit(lim("task", 20, 8)),
       sb.from("skills").select("id,name,description,category,tier,proficiency,energy_type,unlocked,parent_skill_id,cost").eq("user_id", user.id).order("created_at", { ascending: false }).limit(lim("skill", 30, 12)),
       sb.from("journal_entries").select("id,title,content,category,importance,mood,tags,xp_earned").eq("user_id", user.id).order("created_at", { ascending: false }).limit(lim("journal", 15, 5)),
@@ -3000,7 +3000,7 @@ serve(async (req) => {
       sb.from("health_metrics").select("id,date,source,sleep_duration_minutes,sleep_efficiency,hrv_avg,resting_hr,readiness_score,raw_data,created_at").eq("user_id", user.id).order("date", { ascending: false }).limit(lim("health", 20, 8)),
       sb.from("mavis_expenses").select("id,amount,currency,category,description,date").eq("user_id", user.id).order("date", { ascending: false }).limit(lim("finance", 20, 8)),
       sb.from("mavis_competitors").select("id,name,url,notes,updated_at").eq("user_id", user.id).limit(lim("competitor", 20, 8)),
-      sb.from("mavis_goals").select("id,objective,context,status,decomposed,quest_ids,created_at").eq("user_id", user.id).order("created_at", { ascending: false }).limit(lim("goal", 15, 6)),
+      sb.from("mavis_goals").select("id,objective,context,status,decomposed,quest_ids,created_at,last_reviewed_at").eq("user_id", user.id).order("created_at", { ascending: false }).limit(lim("goal", 15, 6)),
     ]);
     const [
       questsRes, tasksRes, skillsRes, journalRes, vaultRes, councilsRes,
@@ -3021,6 +3021,18 @@ serve(async (req) => {
       healthMetrics: healthRes.data || [], expenses: expensesRes.data || [], competitors: competitorsRes.data || [],
       goals: goalsRes.data || [],
     };
+
+    // ── LifeOS: TELOS + DA Identity (non-critical; won't block main response) ──
+    let telosData: any = null;
+    let daIdentityData: any = null;
+    try {
+      const [telosRes, daRes] = await Promise.all([
+        sb.from("mavis_telos").select("*").eq("user_id", user.id).maybeSingle(),
+        sb.from("mavis_da_identity").select("*").eq("user_id", user.id).maybeSingle(),
+      ]);
+      telosData = telosRes.data ?? null;
+      daIdentityData = daRes.data ?? null;
+    } catch { /* non-critical */ }
 
     // ── Tacit memory injection ──────────────────────────────────────────────────
     // MAVIS's learned preferences, hard rules, and corrections — read back into
@@ -3052,6 +3064,19 @@ serve(async (req) => {
         if (lines.length) {
           tacitBlock = `\n═══ STANDING ORDERS & OPERATOR PREFERENCES ═══\n${lines.join("\n\n")}\n═══ END STANDING ORDERS ═══`;
         }
+      }
+    } catch { /* non-critical */ }
+
+    // ── DA Identity injection (LifeOS pattern) ──────────────────────────────────
+    // Calibrates MAVIS's personality traits to the operator's preference settings.
+    let daIdentityBlock = "";
+    try {
+      if (daIdentityData) {
+        const traits = (daIdentityData.traits ?? {}) as Record<string, number>;
+        const traitStr = Object.entries(traits)
+          .map(([k, v]) => `${k}:${v}`)
+          .join(" | ");
+        daIdentityBlock = `\n═══ DA IDENTITY (calibrated personality — 0=low, 100=high) ═══\nPreset: ${daIdentityData.preset}\nTraits: ${traitStr}\n\nCalibration rules:\n• directness:${traits.directness ?? 75} — ${(traits.directness ?? 75) >= 70 ? "be direct; don't bury the point" : "soften phrasing; ease into hard truths"}\n• brevity:${traits.brevity ?? 65} — ${(traits.brevity ?? 65) >= 70 ? "keep responses tight; avoid padding" : "take space to explain fully"}\n• challenge_tendency:${traits.challenge_tendency ?? 60} — ${(traits.challenge_tendency ?? 60) >= 65 ? "push back when the logic is weak" : "respect the operator's framing"}\n• warmth:${traits.warmth ?? 65} — ${(traits.warmth ?? 65) >= 70 ? "be warm; acknowledge the person behind the task" : "stay professional and task-focused"}\n• precision:${traits.precision ?? 80} — ${(traits.precision ?? 80) >= 75 ? "be specific; cite data and named examples" : "speak broadly; leave room for interpretation"}\n═══ END DA IDENTITY ═══`;
       }
     } catch { /* non-critical */ }
 
@@ -3151,9 +3176,25 @@ When relevant, acknowledge the user's companion network — the bonds they've bu
     const fmtVault = dbState.vaultEntries.map((v: any) =>
       `  • [${v.id}] "${v.title}" [${v.category}/${v.importance}]\n      ${(v.content || "(empty)").slice(0, vaultLen)}`
     ).join("\n").slice(0, 6000) || "  None";
-    const fmtQuests = dbState.quests.map((q: any) =>
-      `  • [${q.id}] "${q.title}" [${q.status}/${q.type}/${q.difficulty}] xp:${q.xp_reward} ${q.progress_current}/${q.progress_target}${q.description ? ` — ${q.description.slice(0, questDescLen)}` : ""}`
-    ).join("\n") || "  None";
+    const freshGrade = (reviewedAt: string | null, thresholds: number[]) => {
+      if (!reviewedAt) return "F";
+      const daysSince = (Date.now() - new Date(reviewedAt).getTime()) / 86400000;
+      const grades = ["A", "B", "C", "D", "E", "F"];
+      for (let i = 0; i < thresholds.length; i++) {
+        if (daysSince <= thresholds[i]) return grades[i];
+      }
+      return "F";
+    };
+    const fmtQuests = dbState.quests.map((q: any) => {
+      const freshness = freshGrade(q.last_reviewed_at, [7, 30, 90, 180, 365]);
+      const isaLine = q.current_state || q.ideal_state
+        ? `\n        ISA: ${q.current_state ? `now:"${String(q.current_state).slice(0, 80)}"` : ""} ${q.ideal_state ? `→ goal:"${String(q.ideal_state).slice(0, 80)}"` : ""}${q.effort_tier ? ` [${q.effort_tier}]` : ""}${q.phase ? ` phase:${q.phase}` : ""}`
+        : "";
+      const criteriaLine = Array.isArray(q.completion_criteria) && q.completion_criteria.length
+        ? `\n        Criteria: ${(q.completion_criteria as string[]).slice(0, 3).join(" | ")}`
+        : "";
+      return `  • [${q.id}] "${q.title}" [${q.status}/${q.type}/${q.difficulty}] xp:${q.xp_reward} ${q.progress_current}/${q.progress_target} freshness:${freshness}${q.description ? ` — ${q.description.slice(0, questDescLen)}` : ""}${isaLine}${criteriaLine}`;
+    }).join("\n") || "  None";
     const fmtTasks = dbState.tasks.map((t: any) =>
       `  • [${t.id}] "${t.title}" [${t.status}/${t.recurrence}] xp:${t.xp_reward} streak:${t.streak}`
     ).join("\n") || "  None";
@@ -3230,9 +3271,10 @@ When relevant, acknowledge the user's companion network — the bonds they've bu
     const fmtCompetitors = dbState.competitors.map((c: any) =>
       `  • [${c.id}] ${c.name}${c.url ? ` (${c.url})` : ""}${wants.competitor && c.notes ? ` — ${String(c.notes).slice(0, 150)}` : ""}`
     ).join("\n") || "  None";
-    const fmtGoals = dbState.goals.map((g: any) =>
-      `  • [${g.id}] [${g.status}] ${g.objective}${wants.goal && g.context ? ` — ${g.context.slice(0, 150)}` : ""}${g.decomposed ? " [decomposed]" : ""}`
-    ).join("\n") || "  None";
+    const fmtGoals = dbState.goals.map((g: any) => {
+      const gFresh = freshGrade(g.last_reviewed_at, [90, 180, 365, 730, 1095]);
+      return `  • [${g.id}] [${g.status}] [fresh:${gFresh}] ${g.objective}${wants.goal && g.context ? ` — ${g.context.slice(0, 150)}` : ""}${g.decomposed ? " [decomposed]" : ""}`;
+    }).join("\n") || "  None";
 
     const authoritativeContext = `
 ═══ LIVE BACKEND STATE (server-fetched) ═══
@@ -3313,6 +3355,14 @@ ${fmtCompetitors}
 
 GOALS (${dbState.goals.length}):
 ${fmtGoals}
+
+TELOS (${telosData ? "SET" : "not configured"}):
+${telosData
+  ? `  Mission: ${String(telosData.mission || "").slice(0, 250)}
+  Current State: ${String(telosData.current_state || "").slice(0, 200)}
+  Ideal State: ${String(telosData.ideal_state || "").slice(0, 200)}
+  Horizon: ${telosData.time_horizon || "?"}${Array.isArray(telosData.strategies) && telosData.strategies.length ? `\n  Strategies: ${(telosData.strategies as string[]).slice(0, 3).join(" | ")}` : ""}${Array.isArray(telosData.problems) && telosData.problems.length ? `\n  Known problems: ${(telosData.problems as string[]).slice(0, 3).join(" | ")}` : ""}`
+  : "  (not set — encourage operator to define their TELOS for richer guidance)"}
 ═══ END STATE ═══
 `;
 
@@ -4277,30 +4327,53 @@ Always reference dates and times in the entity's own timezone when one is set, o
         ].filter(Boolean).join("\n")
       : "";
 
+    // ── COUNCIL mode: slim context to avoid 60s non-streaming timeout ──────────
+    // Council chat is non-streaming (supabase.functions.invoke), so the full
+    // 40-80KB authoritative context + LLM call must complete within ~55s.
+    // Council members only need personality + a light profile summary + their
+    // own persona memory (already in systemWithPersonaMemory). Skip the heavy
+    // app-state blocks (agentConfig, full authoritativeContext, NAVI, KG, world
+    // intel) so the prompt is lean and the LLM call succeeds reliably.
+    const councilSlimContext = isCouncilMode
+      ? `\n═══ OPERATOR CONTEXT ═══\n${profile.inscribed_name} | Lv${profile.level}[${profile.rank}] | ${profile.current_form} | Arc: ${profile.arc_story}\nActive quests: ${dbState.quests.filter((q: any) => q.status === "active").length} | Skills: ${dbState.skills.length} | GPR: ${profile.gpr}${telosData?.mission ? `\nMission: ${String(telosData.mission).slice(0, 150)}` : ""}\n═══ END OPERATOR CONTEXT ═══`
+      : "";
+
+    // ── Council 3-round debate protocol (LifeOS pattern) ───────────────────────
+    // When in COUNCIL mode, each member structures their response in 3 phases:
+    // POSITION (your initial take) → CHALLENGE (the strongest counter) → SYNTHESIS (final call).
+    // For simple questions (status, quick facts), collapse to direct answer.
+    const councilDebateBlock = isCouncilMode
+      ? `\n═══ COUNCIL RESPONSE PROTOCOL (3-Round Debate Format) ═══\nFor any strategic question, decision, or trade-off, structure your response in exactly 3 labeled rounds:\n\n**[POSITION]** — Your initial stance. 1-3 sentences. State it directly; don't hedge.\n**[CHALLENGE]** — The strongest counter-argument to your own position. What would your sharpest critic say? Be honest — if your position has a real flaw, name it.\n**[SYNTHESIS]** — Your final recommendation after accounting for the challenge. Be decisive. End with a concrete action or verdict.\n\nFor simple questions (status updates, factual lookups, quick clarifications), skip the 3-round format entirely and answer directly — the format is for decisions and strategy only.\n═══ END PROTOCOL ═══`
+      : "";
+
     const fullPrompt = [
       systemWithPersonaMemory,
-      agentConfigBlock,
+      isCouncilMode ? "" : agentConfigBlock,
       agentFoldersBlock,
-      skillInjection,
+      isCouncilMode ? "" : skillInjection,
       timeBlock,
-      authoritativeContext,
-      compressBlock(userModelBlock),
+      isCouncilMode ? councilSlimContext : authoritativeContext,
+      councilDebateBlock,
+      isCouncilMode ? "" : compressBlock(userModelBlock),
       compressBlock(tacitBlock),
-      worldModelBlock,
-      compressBlock(naviBlock),
-      compressBlock(knowledgeBlock),
-      worldIntelBlock,
-      crossRelationshipBlock,
-      targetedPersonaBlock,
+      daIdentityBlock,
+      isCouncilMode ? "" : worldModelBlock,
+      isCouncilMode ? "" : compressBlock(naviBlock),
+      isCouncilMode ? "" : compressBlock(knowledgeBlock),
+      isCouncilMode ? "" : worldIntelBlock,
+      isCouncilMode ? "" : crossRelationshipBlock,
+      isCouncilMode ? "" : targetedPersonaBlock,
       a2aBlock,
       semanticMemoryBlock,
       attachmentsBlock,
-      proactiveBlock,
-      plansBlock,
+      isCouncilMode ? "" : proactiveBlock,
+      isCouncilMode ? "" : plansBlock,
       urlContent,
       webSearchResults ? `\n---\nWEB SEARCH:\n${webSearchResults}\n---` : "",
       // Inline image rendering directive (Prymal pattern)
       `\n═══ INLINE MEDIA RENDERING ═══\nWhen tool results contain file_url, thumbnail_url, image_url, or drive links pointing to images, render them inline as markdown: ![description](url). The chat interface renders these as <img> tags — always show images directly rather than describing them separately.\n═══ END MEDIA ═══`,
+      // Verification doctrine (LifeOS pattern)
+      `\n═══ VERIFICATION DOCTRINE ═══\n1. RE-READ: Before responding, confirm you understood the operator's exact request — don't answer the question you wished they asked.\n2. CITE: Ground factual claims in named sources from the context above ("Based on quest [id]...", "According to journal entry...", "Per memory from [date]..."). Never state facts without grounding.\n3. BINARY CRITERIA: Quest completion criteria must be binary and testable — DONE or NOT DONE. No vague criteria like "make progress" or "try harder".\n4. HONEST UNKNOWN: If you don't have the data to answer, say so explicitly. Don't extrapolate without flagging it as an inference.\n5. FRESHNESS: If referenced data has freshness grade D/E/F (stale), flag it — "Note: this was last reviewed [date]; may be outdated."\n═══ END DOCTRINE ═══`,
       // A2A awareness — every entity (MAVIS, persona, council member) sees this
       `\n═══ A2A ENTITY NETWORK ═══\nYou exist within an ecosystem of AI entities — personas and council members — each with their own knowledge, personality, and expertise.\n\nHOW A2A WORKS:\n• When the operator asks about another entity, the system fetches their LIVE response BEFORE you generate your reply. It appears in your context as ═══ LIVE A2A RESULT ═══.\n• If you SEE that block above: the entity's response is already there. You MUST share it immediately — do NOT say "I've sent the query" or "their response is coming" — it is already there. Just relay what they said.\n• If you do NOT see that block: the operator's message didn't trigger auto-detection. You can still ask naturally: "I'll loop in [name] on that — let me pull their take." The system will detect this intent on the next turn and inject their live response.\n\nENTITY AWARENESS:\n• You know the full roster of personas and council members from the LIVE BACKEND STATE block above.\n• When something falls squarely in another entity's domain and their perspective would add real value, proactively suggest the consultation — don't wait for the operator to ask.\n• Each entity has their own agent_folders (identity, memory notes, behavior directives, knowledge, references) that define their expertise and personality. They are not generic chatbots — they are fully realized specialists.\n\nCRITICAL:\n• NEVER emit :::CREATE_JOURNAL:::, :::CREATE_VAULT:::, :::CONSULT_ENTITY:::, :::PROPOSE_ACTION::: or any ::: block to simulate A2A. Those write to the database and will corrupt data.\n• NEVER roleplay "initiating protocol" or "transmitting query" — you either have the answer right now or you don't.\n═══ END A2A ═══`,
     ].filter(Boolean).join("\n\n");
@@ -4459,7 +4532,7 @@ Always reference dates and times in the entity's own timezone when one is set, o
                   }
                   toolResults.push({ type: block.type, ok, result });
                   totalActions++;
-                  sb.from("mavis_agent_traces").insert({ user_id: user.id, session_id: conversationId ?? "streaming", iteration: reactIter + 1, action_type: block.type, params: block.params as any, result: result as any, ok, duration_ms: Date.now() - _traceStartStream }).catch(() => {});
+                  sb.from("mavis_agent_traces").insert({ user_id: user.id, session_id: conversationId ?? "streaming", iteration: reactIter + 1, action_type: block.type, params: block.params as any, result: result as any, ok, duration_ms: Date.now() - _traceStartStream }).then(() => {}, () => {});
                   controller.enqueue(enc.encode(`data: ${JSON.stringify({ step: "result", type: block.type, ok, preview: JSON.stringify(result).slice(0, 300) })}\n\n`));
                 }
 
@@ -4570,7 +4643,7 @@ Always reference dates and times in the entity's own timezone when one is set, o
             if (accumulated.length > 5) {
               const CORR_RE = /\b(no[,.]?\s+that'?s?\s+wrong|that'?s?\s+not\s+right|not\s+what\s+i\s+(said|meant|wanted)|stop\s+(doing|saying|using|calling)\s+\w|don'?t\s+(do|say|use|call)\s+\w|never\s+(do|say|use|call)\s+\w|i\s+(hate|dislike)\s+when\s+you|you'?re\s+wrong|wrong\s+answer|incorrect[,.]?\s+\w|that'?s?\s+incorrect)\b/i;
               if (lastUserText.length > 5 && CORR_RE.test(lastUserText)) {
-                sb.from("mavis_tacit").insert({ user_id: user.id, category: "correction", key: `correction_${Date.now()}`, value: `[OPERATOR CORRECTION] User said: "${lastUserText.slice(0, 300)}" | Context: "${accumulated.slice(0, 200)}"` }).catch(() => {});
+                sb.from("mavis_tacit").insert({ user_id: user.id, category: "correction", key: `correction_${Date.now()}`, value: `[OPERATOR CORRECTION] User said: "${lastUserText.slice(0, 300)}" | Context: "${accumulated.slice(0, 200)}"` }).then(() => {}, () => {});
               }
               (async () => {
                 try {
@@ -4585,7 +4658,7 @@ Always reference dates and times in the entity's own timezone when one is set, o
               sb.from("mavis_memory").insert([
                 { user_id: user.id, session_id: sid, role: "user", content: lastUserText.slice(0, 4000), timestamp: ts, importance_score: scoreImportance(lastUserText), consolidated: false, ...(memTags.length ? { tags: memTags } : {}) },
                 { user_id: user.id, session_id: sid, role: "assistant", content: accumulated.slice(0, 4000), timestamp: ts + 1, importance_score: scoreImportance(accumulated), consolidated: false, ...(memTags.length ? { tags: memTags } : {}) },
-              ]).catch(() => {});
+              ]).then(() => {}, () => {});
 
               // AI-powered tacit extraction (same as non-streaming path)
               if (lastUserText.length > 20 && accumulated.length > 20) {
@@ -4832,7 +4905,7 @@ Always reference dates and times in the entity's own timezone when one is set, o
           }
           toolResults.push({ type: block.type, ok, result });
           totalActions++;
-          sb.from("mavis_agent_traces").insert({ user_id: user.id, session_id: conversationId ?? "non-stream", iteration: reactIter + 1, action_type: block.type, params: block.params as any, result: result as any, ok, duration_ms: Date.now() - _traceStartNS }).catch(() => {});
+          sb.from("mavis_agent_traces").insert({ user_id: user.id, session_id: conversationId ?? "non-stream", iteration: reactIter + 1, action_type: block.type, params: block.params as any, result: result as any, ok, duration_ms: Date.now() - _traceStartNS }).then(() => {}, () => {});
         }
 
         reactMessages = [

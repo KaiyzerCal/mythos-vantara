@@ -100,6 +100,12 @@ export function QuestsPage() {
     buff_effects: [] as { label: string; value: number; unit: string; duration?: string }[],
     debuff_effects: [] as { label: string; value: number; unit: string; duration?: string }[],
     loot_rewards: [] as { itemName: string; quantity: number; rarity?: string }[],
+    // ISA schema (LifeOS)
+    current_state: "",
+    ideal_state: "",
+    effort_tier: "" as "" | "E1" | "E2" | "E3" | "E4" | "E5",
+    phase: "" as "" | "PLAN" | "BUILD" | "VERIFY" | "DONE",
+    completion_criteria: [] as string[],
   });
   const [formErrors, setFormErrors] = useState<{ title?: string }>({});
   const [newBuff, setNewBuff] = useState({ label: "", value: 0, unit: "%", duration: "" });
@@ -186,6 +192,7 @@ export function QuestsPage() {
       title: "", description: "", type: "daily", difficulty: "Normal", xp_reward: 100,
       real_world_mapping: "", linked_skill_ids: [], linked_stat: "", linked_energy_id: "",
       codex_points_reward: 0, buff_effects: [], debuff_effects: [], loot_rewards: [],
+      current_state: "", ideal_state: "", effort_tier: "", phase: "", completion_criteria: [],
     });
     setEditingId(null);
     setShowCreate(false);
@@ -202,6 +209,11 @@ export function QuestsPage() {
       buff_effects: q.buff_effects || [],
       debuff_effects: q.debuff_effects || [],
       loot_rewards: q.loot_rewards || [],
+      current_state: q.current_state || "",
+      ideal_state: q.ideal_state || "",
+      effort_tier: q.effort_tier || "",
+      phase: q.phase || "",
+      completion_criteria: Array.isArray(q.completion_criteria) ? q.completion_criteria : [],
     });
     setEditingId(q.id);
     setShowCreate(true);
@@ -225,6 +237,11 @@ export function QuestsPage() {
       buff_effects: form.buff_effects,
       debuff_effects: form.debuff_effects,
       loot_rewards: form.loot_rewards,
+      current_state: form.current_state || null,
+      ideal_state: form.ideal_state || null,
+      effort_tier: form.effort_tier || null,
+      phase: form.phase || null,
+      completion_criteria: form.completion_criteria,
     };
 
     if (editingId) {
@@ -568,6 +585,51 @@ export function QuestsPage() {
                     {["common", "rare", "epic", "legendary", "mythic"].map((r) => <option key={r}>{r}</option>)}
                   </select>
                   <button onClick={() => { if (newLoot.itemName) { setForm((f) => ({ ...f, loot_rewards: [...f.loot_rewards, { ...newLoot }] })); setNewLoot({ itemName: "", quantity: 1, rarity: "common" }); } }} className="px-2 py-1 text-xs font-mono text-amber-400 border border-amber-700/30 rounded hover:bg-amber-400/10">+</button>
+                </div>
+              </div>
+
+              {/* ISA Schema (LifeOS) */}
+              <div className="border-t border-border/30 pt-2 space-y-2">
+                <p className="text-xs font-mono text-cyan-400 uppercase tracking-widest">ISA Schema — Current → Ideal State</p>
+                <textarea value={form.current_state} onChange={(e) => setForm((f) => ({ ...f, current_state: e.target.value }))} placeholder="Current state: where are you NOW on this quest?" rows={2} className="w-full bg-muted/30 border border-border rounded px-3 py-1.5 text-xs font-body resize-none focus:outline-none focus:border-cyan-500/40" />
+                <textarea value={form.ideal_state} onChange={(e) => setForm((f) => ({ ...f, ideal_state: e.target.value }))} placeholder="Ideal state: what does DONE look like exactly?" rows={2} className="w-full bg-muted/30 border border-border rounded px-3 py-1.5 text-xs font-body resize-none focus:outline-none focus:border-cyan-500/40" />
+                <div className="grid grid-cols-2 gap-2">
+                  <select value={form.effort_tier} onChange={(e) => setForm((f) => ({ ...f, effort_tier: e.target.value as any }))} className="bg-muted/30 border border-border rounded px-2 py-1.5 text-xs font-mono focus:outline-none">
+                    <option value="">Effort tier...</option>
+                    {(["E1 — Trivial", "E2 — Light", "E3 — Moderate", "E4 — Heavy", "E5 — Life-changing"] as const).map((t, i) => <option key={t} value={`E${i + 1}`}>{t}</option>)}
+                  </select>
+                  <select value={form.phase} onChange={(e) => setForm((f) => ({ ...f, phase: e.target.value as any }))} className="bg-muted/30 border border-border rounded px-2 py-1.5 text-xs font-mono focus:outline-none">
+                    <option value="">Phase...</option>
+                    {(["PLAN", "BUILD", "VERIFY", "DONE"] as const).map((p) => <option key={p}>{p}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <p className="text-xs font-mono text-muted-foreground mb-1">Completion Criteria (binary — each must be DONE or NOT DONE)</p>
+                  <div className="flex flex-col gap-1 mb-1">
+                    {form.completion_criteria.map((c, i) => (
+                      <span key={i} className="text-xs font-mono text-cyan-300 border border-cyan-800/30 rounded px-2 py-0.5 flex items-center justify-between gap-2">
+                        <span>✓ {c}</span>
+                        <button onClick={() => setForm((f) => ({ ...f, completion_criteria: f.completion_criteria.filter((_, j) => j !== i) }))} className="text-destructive hover:text-destructive/80 shrink-0">×</button>
+                      </span>
+                    ))}
+                  </div>
+                  <div className="flex gap-1">
+                    <input
+                      id="new-criterion-input"
+                      placeholder='e.g. "Has the landing page gone live?"'
+                      className="flex-1 bg-muted/30 border border-border rounded px-2 py-1 text-xs font-mono focus:outline-none"
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          const val = (e.target as HTMLInputElement).value.trim();
+                          if (val) { setForm((f) => ({ ...f, completion_criteria: [...f.completion_criteria, val] })); (e.target as HTMLInputElement).value = ""; }
+                        }
+                      }}
+                    />
+                    <button onClick={() => {
+                      const el = document.getElementById("new-criterion-input") as HTMLInputElement;
+                      if (el?.value.trim()) { setForm((f) => ({ ...f, completion_criteria: [...f.completion_criteria, el.value.trim()] })); el.value = ""; }
+                    }} className="px-2 py-1 text-xs font-mono text-cyan-400 border border-cyan-700/30 rounded hover:bg-cyan-400/10">+</button>
+                  </div>
                 </div>
               </div>
 
@@ -1159,32 +1221,96 @@ function CouncilChat({ member, profile, onClose }: { member: any; profile: any; 
     } catch {} // Non-critical
 
     try {
-      // Don't pass appContext — mavis-chat fetches authoritative app state server-side in
-      // COUNCIL mode and appends it. Sending it from the client doubles the context, inflates
-      // the payload, and can trigger token-limit or timeout failures.
+      // Use streaming fetch (same path as MAVIS chat) so we get the generous
+      // SSE timeout instead of the 60s non-streaming edge function deadline.
       const systemPrompt = buildMemberSystemPrompt(member, profile) + memoriesContext;
-      const { data, error } = await supabase.functions.invoke("mavis-chat", {
-        body: {
+      const { data: { session } } = await supabase.auth.getSession();
+      const accessToken = session?.access_token ?? "";
+      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string;
+      const anonKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string;
+
+      const res = await fetch(`${supabaseUrl}/functions/v1/mavis-chat`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${accessToken}`,
+          "apikey": anonKey,
+        },
+        body: JSON.stringify({
           messages: apiMessages,
           systemPrompt,
           mode: "COUNCIL",
           conversationId: null,
           chatKind: "council",
           threadRef: member.id,
-        },
+          stream: true,
+        }),
+        signal: cancelledRef.current ? AbortSignal.abort() : undefined,
       });
-      if (error) throw error;
+
+      if (!res.ok) {
+        const errText = await res.text().catch(() => `HTTP ${res.status}`);
+        let parsed: any = {};
+        try { parsed = JSON.parse(errText); } catch {}
+        throw new Error(parsed?.error ?? errText ?? `HTTP ${res.status}`);
+      }
+
+      // Stream SSE tokens into the message in real-time
+      const msgId = `a-${Date.now()}`;
+      setMessages((prev) => [...prev, { id: msgId, role: "assistant" as const, content: "", timestamp: new Date() }]);
+
+      const reader = res.body!.getReader();
+      const decoder = new TextDecoder();
+      let accumulated = "";
+      let buf = "";
+
+      function processLine(line: string) {
+        if (!line.startsWith("data: ")) return;
+        const raw = line.slice(6).trim();
+        if (!raw) return;
+        try {
+          const j = JSON.parse(raw);
+          if (j.t) {
+            accumulated += j.t;
+            setMessages((prev) => prev.map((m) => m.id === msgId ? { ...m, content: accumulated } : m));
+          }
+          if (j.error) throw new Error(j.error);
+        } catch (pe: any) {
+          if (pe.message && !pe.message.startsWith("Unexpected token")) throw pe;
+        }
+      }
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) {
+          buf += decoder.decode();
+          if (buf.trim()) processLine(buf.trim());
+          break;
+        }
+        buf += decoder.decode(value, { stream: true });
+        const lines = buf.split("\n");
+        buf = lines.pop() ?? "";
+        for (const line of lines) processLine(line);
+      }
+
       if (cancelledRef.current) return;
-      const reply = data?.content ?? "...";
-      setMessages((prev) => [...prev, { id: `a-${Date.now()}`, role: "assistant", content: reply, timestamp: new Date() }]);
+      const reply = accumulated || "...";
       // Persist assistant message
       await persistCouncilMessage("assistant", reply);
       // Speak the response if voice is enabled
       speakText(reply);
     } catch (err: any) {
       if (cancelledRef.current) return;
-      const errMsg = err?.error ?? err?.message ?? "Connection lost.";
-      console.error("[CouncilChat] sendMessage failed:", JSON.stringify(err), err);
+      // FunctionsHttpError from supabase.functions.invoke has a `context` Response
+      // that carries the actual JSON body from the edge function (e.g. the real error).
+      let errMsg = err?.error ?? err?.message ?? "Connection lost.";
+      try {
+        if (err?.context) {
+          const body = await err.context.json();
+          if (body?.error) errMsg = body.error;
+        }
+      } catch { /* ignore parse failure */ }
+      console.error("[CouncilChat] sendMessage failed:", errMsg, err);
       setMessages((prev) => [...prev, { id: `err-${Date.now()}`, role: "assistant", content: `⚠ ${errMsg}`, timestamp: new Date() }]);
     } finally {
       setIsLoading(false);
