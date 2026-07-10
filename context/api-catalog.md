@@ -164,3 +164,54 @@ Priority order based on MAVIS use cases:
 5. **Financial Datasets MCP** — real-time stock data for stock-research skill
 6. **Home Assistant MCP** — smart home control through MAVIS voice/Telegram
 7. **SlideSpeak MCP** — MAVIS can generate presentations on demand
+
+---
+
+## Standalone Tools & Frameworks
+
+Tools Calvin has forked / is tracking. Not Apify-hosted — direct install or API key required.
+
+### Developer Workflow
+
+| Tool | What it is | Skill |
+|---|---|---|
+| **no-mistakes** (`KaiyzerCal/no-mistakes`) | Git proxy that runs AI validation pipeline (review/test/docs/lint) in disposable worktree before push. Go binary, macOS/Linux/Windows. | `.claude/skills/no-mistakes.md` |
+| **orca** (`KaiyzerCal/orca`) | Desktop app for running multiple AI coding agents in parallel across isolated git worktrees, comparing and merging results. macOS/Windows/Linux + iOS/Android companion. | — |
+| **ponytail** (`KaiyzerCal/ponytail`) | Agent skill enforcing minimal-code decision ladder. Achieves ~54% less code, ~20% cheaper execution. 20+ agent integrations. | `.claude/skills/ponytail.md` |
+| **codebase-memory-mcp** (`KaiyzerCal/codebase-memory-mcp`) | Code intelligence MCP server. Builds persistent knowledge graphs (158 languages, 14 MCP tools, 120x token reduction vs. grep). Single C binary + SQLite, zero runtime deps. | — |
+
+### Web Scraping & Data
+
+| Tool | What it is | Notes |
+|---|---|---|
+| **firecrawl** (`KaiyzerCal/firecrawl`) | Standalone web scraping/crawling API — converts any URL to clean markdown or structured JSON. MCP integration, JS-heavy page support, batch processing, PDF parsing. AGPL-3.0. | Already available via `apify.com/agentify/firecrawl-mcp-server`; this is the self-hosted/direct API version |
+| **free-for-dev** (`KaiyzerCal/free-for-dev`) | Community-curated directory of 50+ categories of SaaS/PaaS/IaaS services with perpetual free tiers. Reference only — no integration needed. | Use as reference when evaluating new infrastructure choices |
+
+### AI Agent Builders
+
+| Tool | What it is | Notes |
+|---|---|---|
+| **Flowise** (`KaiyzerCal/Flowise`) | Visual no-code platform for building LLM agent workflows via drag-and-drop. Node.js + React/Vite, Docker/cloud deploy. Apache 2.0. | Alternative to writing pipeline code manually — useful for non-dev workflows |
+
+### Creative & Media
+
+| Tool | What it is | Skill |
+|---|---|---|
+| **remotion** (`KaiyzerCal/remotion`) | Programmatic video creation using React components as the source of truth. Batch rendering, AWS Lambda/Vercel, captions, data-driven. | `.claude/skills/remotion.md` |
+| **OpenMontage** (`KaiyzerCal/OpenMontage`) | Full AI video production pipeline: research → script → assets → edit → compose. 12 genres, 14 video providers (Kling, Runway, Veo, GPU), budget controls, approval gates. Python + Node.js + FFmpeg. AGPLv3. | `.claude/skills/video-production.md` |
+| **character-animation-creator-skill** (`KaiyzerCal/character-animation-creator-skill`) | Generates 64×64 pixel-art character spritesheets (8 directions, idle/walk/attack) from text prompts. Python 3.9+, Pillow, OpenAI/DALL-E backends. MIT. | `.claude/skills/character-animation.md` |
+
+### Productivity & Communication
+
+| Tool | What it is | Skill |
+|---|---|---|
+| **inbox-zero** (`KaiyzerCal/inbox-zero`) | Open-source AI email assistant: organizes inbox, drafts replies, AI plain-English rules, bulk unsubscriber, cold email blocker, Slack/Telegram integration. Next.js + Prisma. | `.claude/skills/inbox-zero.md` |
+| **simplex-chat** (`KaiyzerCal/simplex-chat`) | Privacy-first messaging with no permanent user identifiers — impossible to infer communication graphs. Post-quantum encryption, decentralized, Tor support. Haskell/Swift/Kotlin. | — |
+| **cli / gws** (`KaiyzerCal/cli`) | Unified CLI for all Google Workspace APIs (Drive, Gmail, Calendar, Sheets, Docs, Chat). Dynamic command surface from Google Discovery, 40+ agent skills, structured JSON output, Model Armor for prompt injection defense. Rust binary. | Use when Calvin needs Gmail/Calendar/Drive automation via MAVIS |
+
+### Design
+
+| Tool | What it is | Skill |
+|---|---|---|
+| **design.md** (`KaiyzerCal/design.md`) | File format spec (YAML tokens + Markdown rationale) for encoding design systems so agents can understand both exact values and designer intent. CLI: lint (WCAG), diff, export (Tailwind/DTCG). `@google/design.md`. | `.claude/skills/design-md.md` |
+| **ai-website-cloner-template** (`KaiyzerCal/ai-website-cloner-template`) | Next.js 16 template that reverse-engineers any website into clean code via AI pipeline: extract design tokens → download assets → spec components → parallel build. | `.claude/skills/clone-website.md` |
