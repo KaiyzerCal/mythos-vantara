@@ -159,20 +159,22 @@ export function QuestsPage() {
     }
   };
 
+  const questIds = useMemo(() => new Set(quests.map((q: any) => q.id)), [quests]);
   const parentQuests = useMemo(
-    () => quests.filter((q: any) => !q.parent_quest_id),
-    [quests]
+    // Include "orphaned" sub-quests whose parent no longer exists so they're never invisible.
+    () => quests.filter((q: any) => !q.parent_quest_id || !questIds.has(q.parent_quest_id)),
+    [quests, questIds]
   );
   const subQuestMap = useMemo(() => {
     const map: Record<string, any[]> = {};
     quests.forEach((q: any) => {
-      if (q.parent_quest_id) {
+      if (q.parent_quest_id && questIds.has(q.parent_quest_id)) {
         if (!map[q.parent_quest_id]) map[q.parent_quest_id] = [];
         map[q.parent_quest_id].push(q);
       }
     });
     return map;
-  }, [quests]);
+  }, [quests, questIds]);
 
   const filtered = parentQuests.filter((q: any) =>
     (typeFilter === "all" || q.type === typeFilter) &&
@@ -1157,7 +1159,10 @@ function CouncilChat({ member, profile, onClose }: { member: any; profile: any; 
     } catch {} // Non-critical
 
     try {
-      const systemPrompt = buildMemberSystemPrompt(member, profile, { quests, skills, journalEntries, vaultEntries, energySystems, allies, inventory, transformations, rankings, storeItems, bpmSessions, tasks, councils, profile }) + memoriesContext;
+      // Don't pass appContext — mavis-chat fetches authoritative app state server-side in
+      // COUNCIL mode and appends it. Sending it from the client doubles the context, inflates
+      // the payload, and can trigger token-limit or timeout failures.
+      const systemPrompt = buildMemberSystemPrompt(member, profile) + memoriesContext;
       const { data, error } = await supabase.functions.invoke("mavis-chat", {
         body: {
           messages: apiMessages,
@@ -1176,9 +1181,11 @@ function CouncilChat({ member, profile, onClose }: { member: any; profile: any; 
       await persistCouncilMessage("assistant", reply);
       // Speak the response if voice is enabled
       speakText(reply);
-    } catch {
+    } catch (err: any) {
       if (cancelledRef.current) return;
-      setMessages((prev) => [...prev, { id: `err-${Date.now()}`, role: "assistant", content: "Connection lost.", timestamp: new Date() }]);
+      const errMsg = err?.error ?? err?.message ?? "Connection lost.";
+      console.error("[CouncilChat] sendMessage failed:", JSON.stringify(err), err);
+      setMessages((prev) => [...prev, { id: `err-${Date.now()}`, role: "assistant", content: `⚠ ${errMsg}`, timestamp: new Date() }]);
     } finally {
       setIsLoading(false);
     }

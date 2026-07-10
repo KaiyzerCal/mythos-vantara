@@ -2925,14 +2925,16 @@ serve(async (req) => {
     // Trim conversation history to stay within token budget.
     // 1 token ≈ 4 chars. Keep last ~8K tokens of history so the large
     // system prompt + app context + response all fit comfortably.
-    function trimHistory(msgs: any[], charBudget = 32000): any[] {
+    // Hard floor: always keep at least minMessages so we never send an empty
+    // or single-turn history even if one message exceeds the budget.
+    function trimHistory(msgs: any[], charBudget = 32000, minMessages = 2): any[] {
       if (!Array.isArray(msgs)) return [];
       let total = 0;
       const result: any[] = [];
       for (let i = msgs.length - 1; i >= 0; i--) {
         const c = typeof msgs[i].content === "string" ? msgs[i].content : JSON.stringify(msgs[i].content ?? "");
         total += c.length;
-        if (total > charBudget && result.length > 0) break;
+        if (total > charBudget && result.length >= minMessages) break;
         result.unshift(msgs[i]);
       }
       return result;
@@ -4199,10 +4201,14 @@ Always reference dates and times in the entity's own timezone when one is set, o
               match_count:     8,
             });
             if (semMems?.length) {
-              // Exclude telegram-sourced memories from in-app chats to prevent channel bleed-in
+              // Exclude telegram-sourced memories from in-app chats to prevent channel bleed-in.
+              // Also exclude dream_archived memories (decayed by mavis-dream Deep phase).
               const filteredMems = isTelegramChannel
-                ? (semMems as any[])
-                : (semMems as any[]).filter((m: any) => !Array.isArray(m.tags) || !m.tags.includes("telegram"));
+                ? (semMems as any[]).filter((m: any) => !Array.isArray(m.tags) || !m.tags.includes("dream_archived"))
+                : (semMems as any[]).filter((m: any) => {
+                    const tags: string[] = Array.isArray(m.tags) ? m.tags : [];
+                    return !tags.includes("telegram") && !tags.includes("dream_archived");
+                  });
               if (filteredMems.length) {
                 const lines = filteredMems.map((m: any, i: number) => {
                   const ts = m.timestamp ? new Date(m.timestamp as number).toISOString().slice(0, 10) : "";

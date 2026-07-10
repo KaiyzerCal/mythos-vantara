@@ -1,3 +1,12 @@
+---
+name: repurpose
+version: "1.0"
+owner: Writer
+triggers: ["repurpose", "adapt", "convert", "reformat", "turn this into", "make a thread", "make an email", "social version"]
+requires: []
+primaryEnv: claude
+---
+
 # Skill: repurpose
 
 **Owner:** Writer

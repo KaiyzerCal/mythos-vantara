@@ -1,3 +1,12 @@
+---
+name: hire-specialist
+version: "1.0"
+owner: HR
+triggers: ["hire", "new specialist", "I need someone who", "add a role", "expand the team", "no one on the team handles"]
+requires: []
+primaryEnv: claude
+---
+
 # Skill: hire-specialist
 
 **Owner:** HR

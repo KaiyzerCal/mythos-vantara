@@ -1,3 +1,12 @@
+---
+name: inbox-scan
+version: "1.0"
+owner: Orchestrator
+triggers: ["inbox-scan", "what's in the outbox", "check outbox", "scan inbox", "what's queued"]
+requires: ["route"]
+primaryEnv: claude
+---
+
 # Skill: inbox-scan
 
 Scans `Outbox/` for queued briefs and routes them.

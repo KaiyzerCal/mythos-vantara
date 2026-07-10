@@ -1,3 +1,12 @@
+---
+name: pipeline-recurring
+version: "1.0"
+owner: Orchestrator
+triggers: ["newsletter", "weekly", "recurring", "every Monday", "on a schedule", "cadence", "regular output"]
+requires: ["draft", "review"]
+primaryEnv: claude
+---
+
 # Pipeline: Recurring Deliverable
 
 For cadence-driven outputs — newsletters, weekly briefs, anything on a schedule.

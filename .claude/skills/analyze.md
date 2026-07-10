@@ -1,3 +1,12 @@
+---
+name: analyze
+version: "1.0"
+owner: Analyst
+triggers: ["analyze", "report", "metrics", "KPIs", "data", "performance", "numbers", "what's the trend", "dashboard"]
+requires: []
+primaryEnv: claude
+---
+
 # Skill: analyze
 
 **Owner:** Analyst

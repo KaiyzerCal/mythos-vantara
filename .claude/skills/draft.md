@@ -1,3 +1,12 @@
+---
+name: draft
+version: "1.0"
+owner: Writer
+triggers: ["write", "draft", "post", "copy", "email", "article", "caption", "thread", "script"]
+requires: ["research"]
+primaryEnv: claude
+---
+
 # Skill: draft
 
 **Owner:** Writer
