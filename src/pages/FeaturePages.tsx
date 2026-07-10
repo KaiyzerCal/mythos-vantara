@@ -1159,32 +1159,96 @@ function CouncilChat({ member, profile, onClose }: { member: any; profile: any; 
     } catch {} // Non-critical
 
     try {
-      // Don't pass appContext — mavis-chat fetches authoritative app state server-side in
-      // COUNCIL mode and appends it. Sending it from the client doubles the context, inflates
-      // the payload, and can trigger token-limit or timeout failures.
+      // Use streaming fetch (same path as MAVIS chat) so we get the generous
+      // SSE timeout instead of the 60s non-streaming edge function deadline.
       const systemPrompt = buildMemberSystemPrompt(member, profile) + memoriesContext;
-      const { data, error } = await supabase.functions.invoke("mavis-chat", {
-        body: {
+      const { data: { session } } = await supabase.auth.getSession();
+      const accessToken = session?.access_token ?? "";
+      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string;
+      const anonKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string;
+
+      const res = await fetch(`${supabaseUrl}/functions/v1/mavis-chat`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${accessToken}`,
+          "apikey": anonKey,
+        },
+        body: JSON.stringify({
           messages: apiMessages,
           systemPrompt,
           mode: "COUNCIL",
           conversationId: null,
           chatKind: "council",
           threadRef: member.id,
-        },
+          stream: true,
+        }),
+        signal: cancelledRef.current ? AbortSignal.abort() : undefined,
       });
-      if (error) throw error;
+
+      if (!res.ok) {
+        const errText = await res.text().catch(() => `HTTP ${res.status}`);
+        let parsed: any = {};
+        try { parsed = JSON.parse(errText); } catch {}
+        throw new Error(parsed?.error ?? errText ?? `HTTP ${res.status}`);
+      }
+
+      // Stream SSE tokens into the message in real-time
+      const msgId = `a-${Date.now()}`;
+      setMessages((prev) => [...prev, { id: msgId, role: "assistant" as const, content: "", timestamp: new Date() }]);
+
+      const reader = res.body!.getReader();
+      const decoder = new TextDecoder();
+      let accumulated = "";
+      let buf = "";
+
+      function processLine(line: string) {
+        if (!line.startsWith("data: ")) return;
+        const raw = line.slice(6).trim();
+        if (!raw) return;
+        try {
+          const j = JSON.parse(raw);
+          if (j.t) {
+            accumulated += j.t;
+            setMessages((prev) => prev.map((m) => m.id === msgId ? { ...m, content: accumulated } : m));
+          }
+          if (j.error) throw new Error(j.error);
+        } catch (pe: any) {
+          if (pe.message && !pe.message.startsWith("Unexpected token")) throw pe;
+        }
+      }
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) {
+          buf += decoder.decode();
+          if (buf.trim()) processLine(buf.trim());
+          break;
+        }
+        buf += decoder.decode(value, { stream: true });
+        const lines = buf.split("\n");
+        buf = lines.pop() ?? "";
+        for (const line of lines) processLine(line);
+      }
+
       if (cancelledRef.current) return;
-      const reply = data?.content ?? "...";
-      setMessages((prev) => [...prev, { id: `a-${Date.now()}`, role: "assistant", content: reply, timestamp: new Date() }]);
+      const reply = accumulated || "...";
       // Persist assistant message
       await persistCouncilMessage("assistant", reply);
       // Speak the response if voice is enabled
       speakText(reply);
     } catch (err: any) {
       if (cancelledRef.current) return;
-      const errMsg = err?.error ?? err?.message ?? "Connection lost.";
-      console.error("[CouncilChat] sendMessage failed:", JSON.stringify(err), err);
+      // FunctionsHttpError from supabase.functions.invoke has a `context` Response
+      // that carries the actual JSON body from the edge function (e.g. the real error).
+      let errMsg = err?.error ?? err?.message ?? "Connection lost.";
+      try {
+        if (err?.context) {
+          const body = await err.context.json();
+          if (body?.error) errMsg = body.error;
+        }
+      } catch { /* ignore parse failure */ }
+      console.error("[CouncilChat] sendMessage failed:", errMsg, err);
       setMessages((prev) => [...prev, { id: `err-${Date.now()}`, role: "assistant", content: `⚠ ${errMsg}`, timestamp: new Date() }]);
     } finally {
       setIsLoading(false);
