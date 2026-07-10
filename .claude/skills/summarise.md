@@ -1,3 +1,12 @@
+---
+name: summarise
+version: "1.0"
+owner: Writer
+triggers: ["summarise", "summarize", "condense", "tldr", "short version", "key points", "recap"]
+requires: []
+primaryEnv: claude
+---
+
 # Skill: summarise
 
 **Owner:** Writer

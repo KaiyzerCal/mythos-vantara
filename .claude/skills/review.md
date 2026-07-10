@@ -1,3 +1,12 @@
+---
+name: review
+version: "1.0"
+owner: Editor
+triggers: ["review", "edit", "check voice", "QA", "proofread", "quality check", "does this sound right", "is this on-brand"]
+requires: ["draft"]
+primaryEnv: claude
+---
+
 # Skill: review
 
 **Owner:** Editor

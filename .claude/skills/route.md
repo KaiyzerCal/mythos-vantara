@@ -1,3 +1,12 @@
+---
+name: route
+version: "1.0"
+owner: Orchestrator
+triggers: ["route", "who should handle", "classify", "what specialist"]
+requires: []
+primaryEnv: claude
+---
+
 # Skill: route
 
 Routes an incoming request to the correct specialist based on keywords and context.

@@ -1,3 +1,12 @@
+---
+name: pipeline-deliverable
+version: "1.0"
+owner: Orchestrator
+triggers: ["pipeline", "standard deliverable", "publish", "content output", "full pipeline", "from research to draft"]
+requires: ["research", "draft", "review"]
+primaryEnv: claude
+---
+
 # Pipeline: Standard Deliverable
 
 The default chain for any content output that goes public or to a client.

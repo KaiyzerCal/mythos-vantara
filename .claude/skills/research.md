@@ -1,3 +1,12 @@
+---
+name: research
+version: "1.0"
+owner: Researcher
+triggers: ["research", "find", "benchmark", "what does X look like", "investigate", "look into", "source"]
+requires: []
+primaryEnv: claude
+---
+
 # Skill: research
 
 **Owner:** Researcher
