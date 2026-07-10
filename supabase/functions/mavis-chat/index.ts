@@ -4277,26 +4277,37 @@ Always reference dates and times in the entity's own timezone when one is set, o
         ].filter(Boolean).join("\n")
       : "";
 
+    // ── COUNCIL mode: slim context to avoid 60s non-streaming timeout ──────────
+    // Council chat is non-streaming (supabase.functions.invoke), so the full
+    // 40-80KB authoritative context + LLM call must complete within ~55s.
+    // Council members only need personality + a light profile summary + their
+    // own persona memory (already in systemWithPersonaMemory). Skip the heavy
+    // app-state blocks (agentConfig, full authoritativeContext, NAVI, KG, world
+    // intel) so the prompt is lean and the LLM call succeeds reliably.
+    const councilSlimContext = isCouncilMode
+      ? `\n═══ OPERATOR CONTEXT ═══\n${profile.inscribed_name} | Lv${profile.level}[${profile.rank}] | ${profile.current_form} | Arc: ${profile.arc_story}\nActive quests: ${dbState.quests.filter((q: any) => q.status === "active").length} | Skills: ${dbState.skills.length} | GPR: ${profile.gpr}\n═══ END OPERATOR CONTEXT ═══`
+      : "";
+
     const fullPrompt = [
       systemWithPersonaMemory,
-      agentConfigBlock,
+      isCouncilMode ? "" : agentConfigBlock,
       agentFoldersBlock,
-      skillInjection,
+      isCouncilMode ? "" : skillInjection,
       timeBlock,
-      authoritativeContext,
-      compressBlock(userModelBlock),
+      isCouncilMode ? councilSlimContext : authoritativeContext,
+      isCouncilMode ? "" : compressBlock(userModelBlock),
       compressBlock(tacitBlock),
-      worldModelBlock,
-      compressBlock(naviBlock),
-      compressBlock(knowledgeBlock),
-      worldIntelBlock,
-      crossRelationshipBlock,
-      targetedPersonaBlock,
+      isCouncilMode ? "" : worldModelBlock,
+      isCouncilMode ? "" : compressBlock(naviBlock),
+      isCouncilMode ? "" : compressBlock(knowledgeBlock),
+      isCouncilMode ? "" : worldIntelBlock,
+      isCouncilMode ? "" : crossRelationshipBlock,
+      isCouncilMode ? "" : targetedPersonaBlock,
       a2aBlock,
       semanticMemoryBlock,
       attachmentsBlock,
-      proactiveBlock,
-      plansBlock,
+      isCouncilMode ? "" : proactiveBlock,
+      isCouncilMode ? "" : plansBlock,
       urlContent,
       webSearchResults ? `\n---\nWEB SEARCH:\n${webSearchResults}\n---` : "",
       // Inline image rendering directive (Prymal pattern)
