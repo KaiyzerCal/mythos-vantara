@@ -70,6 +70,20 @@ Before acting on any request, read `Team/ROSTER.md` and classify the work.
 
 For pipelines: Researcher → Strategist → Writer → Editor. See `.claude/skills/pipeline-deliverable.md`.
 
+## Coding Principles — Ponytail Decision Ladder
+
+Before writing any new code, work through this ladder top-to-bottom. Stop at the first match:
+
+1. **Is code even needed?** Could a config option, env var, or existing flag handle this?
+2. **Does it already exist in the codebase?** Search before writing. Duplicate code is a bug.
+3. **Is it in the standard library?** Use what the runtime provides.
+4. **Is it a native platform feature?** Deno: fetch, Deno.cron, KV. Web: DOM, CSS, browser storage.
+5. **Is it in an already-installed dependency?** Check package.json first.
+6. **Only then: write new code.** Write the minimum. No scaffolding for hypothetical future use.
+
+Abstractions with one caller should be inlined. "We might need it later" is not a justification.
+See `.claude/skills/ponytail.md` for `/ponytail-review` and `/ponytail-audit` commands.
+
 ## Off-Limits
 
 - Never modify `supabase/migrations/` without explicit instruction — migrations touch live data.
