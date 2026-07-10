@@ -1,3 +1,12 @@
+---
+name: pipeline-research
+version: "1.0"
+owner: Orchestrator
+triggers: ["deep research", "deep dive", "landscape", "competitive analysis", "research only", "background on", "map the market"]
+requires: ["research"]
+primaryEnv: claude
+---
+
 # Pipeline: Deep Research
 
 Pure investigation. Researcher only, deeper scope than the standard deliverable's research step.
