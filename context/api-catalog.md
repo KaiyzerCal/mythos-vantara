@@ -179,6 +179,9 @@ Tools Calvin has forked / is tracking. Not Apify-hosted — direct install or AP
 | **orca** (`KaiyzerCal/orca`) | Desktop app for running multiple AI coding agents in parallel across isolated git worktrees, comparing and merging results. macOS/Windows/Linux + iOS/Android companion. | — |
 | **ponytail** (`KaiyzerCal/ponytail`) | Agent skill enforcing minimal-code decision ladder. Achieves ~54% less code, ~20% cheaper execution. 20+ agent integrations. | `.claude/skills/ponytail.md` |
 | **codebase-memory-mcp** (`KaiyzerCal/codebase-memory-mcp`) | Code intelligence MCP server. Builds persistent knowledge graphs (158 languages, 14 MCP tools, 120x token reduction vs. grep). Single C binary + SQLite, zero runtime deps. | — |
+| **AgentsMesh** (`KaiyzerCal/AgentsMesh`) | Orchestrates dozens-to-hundreds of Claude Code agents simultaneously in isolated Git worktree pods. Go/gRPC backend, BYOK, self-hostable Docker. First-class Claude Code + Codex CLI + Gemini CLI support. | `.claude/skills/agentsmesh.md` |
+| **openclaude** (`KaiyzerCal/openclaude`) | Claude Code fork with multi-provider support (OpenAI, Gemini, DeepSeek, Ollama, 200+ models), gRPC headless server for programmatic agent dispatch, session fork/resume. MIT. | `.claude/skills/openclaude.md` |
+| **page-agent** (`KaiyzerCal/page-agent`) | In-page JavaScript AI agent via single `<script>` tag — natural language DOM manipulation, no headless browser needed. MCP Server mode lets external agents (Claude) control browser sessions. Chrome extension for cross-tab automation. | Add to `browser-extension/` setup; use for VANTARA copilot features |
 
 ### Web Scraping & Data
 
@@ -192,6 +195,9 @@ Tools Calvin has forked / is tracking. Not Apify-hosted — direct install or AP
 | Tool | What it is | Notes |
 |---|---|---|
 | **Flowise** (`KaiyzerCal/Flowise`) | Visual no-code platform for building LLM agent workflows via drag-and-drop. Node.js + React/Vite, Docker/cloud deploy. Apache 2.0. | Alternative to writing pipeline code manually — useful for non-dev workflows |
+| **activepieces** (`KaiyzerCal/activepieces`) | Open-source Zapier alternative — 280+ service integrations, visual workflow builder, MCP server support, human-in-the-loop approvals, self-hosted Docker. MIT. Use as MAVIS automation backbone: rather than building custom webhook logic per third-party, self-host Activepieces and trigger flows via REST API or MCP. | REST API + MCP config: self-host via `docker compose up`, trigger flows at `POST /api/v1/flows/{id}/trigger` |
+| **open-notebook** (`KaiyzerCal/open-notebook`) | Self-hosted NotebookLM alternative — upload PDFs/video/audio/URLs, query with AI (18+ providers incl. Claude), generate multi-speaker podcasts. FastAPI + Next.js + SurrealDB, MCP server, full REST API. MIT. | `.claude/skills/open-notebook.md` |
+| **hermes-agent** (`KaiyzerCal/hermes-agent`) | Python/FastAPI agent framework with ACP (Agent Communication Protocol) for multi-agent delegation, Telegram/Discord/WhatsApp/Signal gateway, procedural memory, cron scheduling. Design patterns directly apply to MAVIS's Telegram bot and module orchestration. | `.claude/skills/hermes-patterns.md` |
 
 ### Creative & Media
 
@@ -215,3 +221,30 @@ Tools Calvin has forked / is tracking. Not Apify-hosted — direct install or AP
 |---|---|---|
 | **design.md** (`KaiyzerCal/design.md`) | File format spec (YAML tokens + Markdown rationale) for encoding design systems so agents can understand both exact values and designer intent. CLI: lint (WCAG), diff, export (Tailwind/DTCG). `@google/design.md`. | `.claude/skills/design-md.md` |
 | **ai-website-cloner-template** (`KaiyzerCal/ai-website-cloner-template`) | Next.js 16 template that reverse-engineers any website into clean code via AI pipeline: extract design tokens → download assets → spec components → parallel build. | `.claude/skills/clone-website.md` |
+
+### Ambient Intelligence & Physical Layer
+
+| Tool | What it is | Skill |
+|---|---|---|
+| **RuView** (`KaiyzerCal/RuView`) | WiFi-based ambient sensing — $8 ESP32 nodes detect presence, breathing (6–30 BPM), heart rate (40–120 BPM), 17-keypoint body pose, and falls through walls. No cameras. Ships MCP server (`npx @ruvnet/ruview`). Home Assistant MQTT + Matter protocol. MIT. | `.claude/skills/ruview-integration.md` |
+
+### Predecessor App Reference
+
+| Tool | What it is | Skill |
+|---|---|---|
+| **NAVI.EXE-lovable** (`KaiyzerCal/NAVI.EXE-lovable`) | Direct predecessor to VANTARA.EXE — same stack (React + Vite + Supabase + Tailwind + Capacitor), 439 commits. Working patterns: gamification, quests/journal/guild schemas, MavisChat, Stripe checkout, Sentry. Mine before building new features. | `.claude/skills/navi-patterns.md` |
+
+### Free API Directory (reference)
+
+**public-apis** (`KaiyzerCal/public-apis`) — Community-curated directory of hundreds of free public APIs across 40+ categories. Check before building any new data-fetching edge function.
+
+Key categories for MAVIS: Finance (Alpha Vantage, Polygon.io, Marketstack), Weather (Open-Meteo, WeatherAPI), News (NewsAPI, Currents), Geocoding (Nominatim, Google), Health, Transportation.
+
+Browse at: `https://github.com/public-apis/public-apis` (auth types, HTTPS support, CORS compatibility all pre-vetted).
+
+### Intelligence & Monitoring
+
+| Tool | What it is | Notes |
+|---|---|---|
+| **worldmonitor** (`KaiyzerCal/worldmonitor`) | Aggregates 500+ news feeds across geopolitics, finance, energy, aviation, and cyber into AI briefings with 3D globe visualization and a Country Instability Index for 31 nations. Connects to 65+ vetted external data providers. AGPL-3.0 (don't embed). | Mine its provider list: flight ADS-B (Wingbits), live commodities (29 exchanges), geopolitical signals — add high-signal ones to MAVIS's Apify/edge function pipeline. |
+| **Composio** (via `KaiyzerCal/openhuman`) | 118+ OAuth integrations (Gmail, Notion, GitHub, Slack, Linear, etc.) via single API key. Used as the integration backbone in openhuman. Available standalone at `composio.dev`. | Alternative to hand-building each OAuth flow — gives MAVIS 118 connections through one integration point. |
