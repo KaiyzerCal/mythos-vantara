@@ -2233,6 +2233,36 @@ export type Database = {
         }
         Relationships: []
       }
+      mavis_da_identity: {
+        Row: {
+          growth_diary: Json
+          id: string
+          opinion_log: Json
+          preset: string
+          traits: Json
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          growth_diary?: Json
+          id?: string
+          opinion_log?: Json
+          preset?: string
+          traits?: Json
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          growth_diary?: Json
+          id?: string
+          opinion_log?: Json
+          preset?: string
+          traits?: Json
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       mavis_daily_briefs: {
         Row: {
           brief_date: string
@@ -2727,6 +2757,7 @@ export type Database = {
           created_at: string | null
           decomposed: boolean | null
           id: string
+          last_reviewed_at: string | null
           objective: string
           quest_ids: string[] | null
           status: string | null
@@ -2738,6 +2769,7 @@ export type Database = {
           created_at?: string | null
           decomposed?: boolean | null
           id?: string
+          last_reviewed_at?: string | null
           objective: string
           quest_ids?: string[] | null
           status?: string | null
@@ -2749,6 +2781,7 @@ export type Database = {
           created_at?: string | null
           decomposed?: boolean | null
           id?: string
+          last_reviewed_at?: string | null
           objective?: string
           quest_ids?: string[] | null
           status?: string | null
@@ -3083,6 +3116,7 @@ export type Database = {
           embedding: string | null
           id: string
           importance_score: number | null
+          last_reviewed_at: string | null
           role: string
           session_id: string
           timestamp: number
@@ -3095,6 +3129,7 @@ export type Database = {
           embedding?: string | null
           id?: string
           importance_score?: number | null
+          last_reviewed_at?: string | null
           role: string
           session_id: string
           timestamp: number
@@ -3107,6 +3142,7 @@ export type Database = {
           embedding?: string | null
           id?: string
           importance_score?: number | null
+          last_reviewed_at?: string | null
           role?: string
           session_id?: string
           timestamp?: number
@@ -4307,6 +4343,48 @@ export type Database = {
           started_at?: string | null
           status?: string
           type?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      mavis_telos: {
+        Row: {
+          challenges: Json
+          current_state: string
+          id: string
+          ideal_state: string
+          mission: string
+          narratives: Json
+          problems: Json
+          strategies: Json
+          time_horizon: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          challenges?: Json
+          current_state?: string
+          id?: string
+          ideal_state?: string
+          mission?: string
+          narratives?: Json
+          problems?: Json
+          strategies?: Json
+          time_horizon?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          challenges?: Json
+          current_state?: string
+          id?: string
+          ideal_state?: string
+          mission?: string
+          narratives?: Json
+          problems?: Json
+          strategies?: Json
+          time_horizon?: string
+          updated_at?: string
           user_id?: string
         }
         Relationships: []
@@ -5631,19 +5709,26 @@ export type Database = {
           buff_effects: Json
           category: string | null
           codex_points_reward: number
+          completion_criteria: Json
           consequence_quest_id: string | null
           created_at: string
+          current_state: string | null
           deadline: string | null
           debuff_effects: Json
+          decisions_log: Json
           description: string
           difficulty: string
           difficulty_rating: number | null
+          effort_tier: string | null
           id: string
+          ideal_state: string | null
           is_consequence: boolean | null
+          last_reviewed_at: string | null
           linked_skill_ids: string[]
           loot_rewards: Json
           parent_quest_id: string | null
           parent_task_id: string | null
+          phase: string | null
           progress_current: number
           progress_target: number
           real_world_mapping: string | null
@@ -5658,19 +5743,26 @@ export type Database = {
           buff_effects?: Json
           category?: string | null
           codex_points_reward?: number
+          completion_criteria?: Json
           consequence_quest_id?: string | null
           created_at?: string
+          current_state?: string | null
           deadline?: string | null
           debuff_effects?: Json
+          decisions_log?: Json
           description?: string
           difficulty?: string
           difficulty_rating?: number | null
+          effort_tier?: string | null
           id?: string
+          ideal_state?: string | null
           is_consequence?: boolean | null
+          last_reviewed_at?: string | null
           linked_skill_ids?: string[]
           loot_rewards?: Json
           parent_quest_id?: string | null
           parent_task_id?: string | null
+          phase?: string | null
           progress_current?: number
           progress_target?: number
           real_world_mapping?: string | null
@@ -5685,19 +5777,26 @@ export type Database = {
           buff_effects?: Json
           category?: string | null
           codex_points_reward?: number
+          completion_criteria?: Json
           consequence_quest_id?: string | null
           created_at?: string
+          current_state?: string | null
           deadline?: string | null
           debuff_effects?: Json
+          decisions_log?: Json
           description?: string
           difficulty?: string
           difficulty_rating?: number | null
+          effort_tier?: string | null
           id?: string
+          ideal_state?: string | null
           is_consequence?: boolean | null
+          last_reviewed_at?: string | null
           linked_skill_ids?: string[]
           loot_rewards?: Json
           parent_quest_id?: string | null
           parent_task_id?: string | null
+          phase?: string | null
           progress_current?: number
           progress_target?: number
           real_world_mapping?: string | null
@@ -8056,6 +8155,10 @@ export type Database = {
           similarity: number
           tags: string[]
         }[]
+      }
+      seed_berkshire_council: {
+        Args: { p_user_id: string }
+        Returns: undefined
       }
     }
     Enums: {
