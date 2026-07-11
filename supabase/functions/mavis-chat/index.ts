@@ -793,7 +793,7 @@ async function executeAgentAction(
     const res = await fetch(`${supabaseUrl}/functions/v1/mavis-actions`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${serviceKey}` },
-      body: JSON.stringify({ userId, action: { type, params } }),
+      body: JSON.stringify({ userId, actions: [{ type, params }] }),
       signal: AbortSignal.timeout(120_000),
     });
     const data = await res.json().catch(() => ({})) as Record<string, unknown>;
