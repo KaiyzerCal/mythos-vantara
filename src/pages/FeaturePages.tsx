@@ -1284,7 +1284,7 @@ function CouncilChat({ member, profile, onClose }: { member: any; profile: any; 
         const { done, value } = await reader.read();
         if (done) {
           buf += decoder.decode();
-          if (buf.trim()) processLine(buf.trim());
+          for (const line of buf.split("\n")) processLine(line);
           break;
         }
         buf += decoder.decode(value, { stream: true });

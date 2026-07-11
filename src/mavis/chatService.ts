@@ -116,9 +116,8 @@ export async function streamChatMessage(
   while (true) {
     const { done, value } = await reader.read();
     if (done) {
-      // Flush decoder's internal buffer then process any remaining line
       buf += decoder.decode();
-      if (buf.trim()) processSSELine(buf.trim());
+      for (const line of buf.split("\n")) processSSELine(line);
       break;
     }
     buf += decoder.decode(value, { stream: true });
@@ -251,7 +250,7 @@ export async function streamAgentMessage(
     const { done, value } = await reader.read();
     if (done) {
       buf += decoder.decode();
-      if (buf.trim()) processAgentLine(buf.trim());
+      for (const line of buf.split("\n")) processAgentLine(line);
       break;
     }
     buf += decoder.decode(value, { stream: true });
