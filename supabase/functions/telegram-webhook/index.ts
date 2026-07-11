@@ -1022,6 +1022,7 @@ async function executeActions(actions: ParsedAction[], chatId: string, context =
         });
       } else {
         console.error("[Telegram] draft_email queue insert failed:", queueErr);
+        await tgPost("sendMessage", { chat_id: chatId, text: "Failed to queue email draft — please try again." });
       }
       queued++;
       continue;
@@ -1059,6 +1060,7 @@ async function executeActions(actions: ParsedAction[], chatId: string, context =
         });
       } else {
         console.error("[Telegram] schedule_event queue insert failed:", queueErr);
+        await tgPost("sendMessage", { chat_id: chatId, text: "Failed to queue calendar event — please try again." });
       }
       queued++;
       continue;
@@ -1068,8 +1070,6 @@ async function executeActions(actions: ParsedAction[], chatId: string, context =
     const GOOGLE_EXEC_TYPES = new Set(["create_drive_file", "update_drive_file", "update_sheet", "create_google_task"]);
     if (GOOGLE_EXEC_TYPES.has(type)) {
       const params     = (action.payload.params as Record<string, unknown>) ?? {};
-      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-      const serviceKey  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
       try {
         const res = await fetch(`${supabaseUrl}/functions/v1/mavis-action-executor`, {
           method:  "POST",

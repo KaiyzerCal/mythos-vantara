@@ -1,4 +1,5 @@
 name: Deploy VANTARA (Mavis) Edge Functions
+
 on:
   push:
     branches: ["main"]
@@ -7,121 +8,100 @@ on:
       - "supabase/config.toml"
       - ".github/workflows/deploy-mavis-functions.yml"
   workflow_dispatch:
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
     env:
       SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-      - name: Install Supabase CLI
-        uses: supabase/setup-cli@v1
+      - uses: actions/checkout@v4
+      - uses: supabase/setup-cli@v1
 
-      # ── Core agent + Telegram interface ────────────────────────────────────
-      - name: Deploy mavis-agent
-        run: supabase functions deploy mavis-agent --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
-      - name: Deploy mavis-telegram-bot
-        run: supabase functions deploy mavis-telegram-bot --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
+      # ── Core functions — deployed serially, fail-fast ─────────────────────────
+      # If any of these fail the entire workflow stops.
+      - name: Deploy core functions (fail-fast)
+        run: |
+          set -euo pipefail
+          CORE=(
+            mavis-chat
+            mavis-actions
+            mavis-agent
+            mavis-action-executor
+            mavis-telegram-bot
+            telegram-webhook
+            telegram-setup
+            mavis-heartbeat
+            mavis-dream
+            mavis-orchestrator
+            mavis-trigger-engine
+            mavis-consolidate
+            mavis-brain-consolidate
+            mavis-council-session
+            mavis-council-heartbeat
+            mavis-morning-brief
+            mavis-memory-embed
+            mavis-goal-engine
+            mavis-goal-loop
+            mavis-goal-agent
+            mavis-autonomous-runner
+            mavis-gmail-webhook
+            mavis-gmail-sync
+            mavis-gmail-watch
+            mavis-google-oauth
+            mavis-push-notify
+          )
+          for fn in "${CORE[@]}"; do
+            if [ -d "supabase/functions/$fn" ]; then
+              echo "→ $fn"
+              supabase functions deploy "$fn" --project-ref "$PROJECT_REF"
+            else
+              echo "::warning::Core function '$fn' directory not found — skipping"
+            fi
+          done
 
-      # ── Action execution + OAuth ────────────────────────────────────────────
-      - name: Deploy mavis-action-executor
-        run: supabase functions deploy mavis-action-executor --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
-      - name: Deploy mavis-google-oauth
-        run: supabase functions deploy mavis-google-oauth --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
+      # ── All remaining functions — 8 parallel workers, best-effort ────────────
+      # Failures are logged as warnings but do not fail the workflow.
+      - name: Deploy all remaining functions (parallel)
+        run: |
+          CORE=(
+            mavis-chat mavis-actions mavis-agent mavis-action-executor
+            mavis-telegram-bot telegram-webhook telegram-setup mavis-heartbeat
+            mavis-dream mavis-orchestrator mavis-trigger-engine mavis-consolidate
+            mavis-brain-consolidate mavis-council-session mavis-council-heartbeat
+            mavis-morning-brief mavis-memory-embed mavis-goal-engine mavis-goal-loop
+            mavis-goal-agent mavis-autonomous-runner mavis-gmail-webhook mavis-gmail-sync
+            mavis-gmail-watch mavis-google-oauth mavis-push-notify
+          )
+          printf '%s\n' "${CORE[@]}" > /tmp/core-fns.txt
 
-      # ── Autonomous systems ──────────────────────────────────────────────────
-      - name: Deploy mavis-orchestrator
-        run: supabase functions deploy mavis-orchestrator --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
-      - name: Deploy mavis-trigger-engine
-        run: supabase functions deploy mavis-trigger-engine --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
-      - name: Deploy mavis-goal-agent
-        run: supabase functions deploy mavis-goal-agent --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
-      - name: Deploy mavis-campaign-runner
-        run: supabase functions deploy mavis-campaign-runner --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
+          mapfile -t REMAINING < <(ls supabase/functions/ | grep -vxFf /tmp/core-fns.txt)
+          echo "Deploying ${#REMAINING[@]} non-core functions with 8 parallel workers..."
 
-      # ── Memory + Gmail ──────────────────────────────────────────────────────
-      - name: Deploy mavis-memory-embed
-        run: supabase functions deploy mavis-memory-embed --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
-      - name: Deploy mavis-gmail-webhook
-        run: supabase functions deploy mavis-gmail-webhook --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
-      - name: Deploy mavis-gmail-sync
-        run: supabase functions deploy mavis-gmail-sync --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
-      - name: Deploy mavis-gmail-watch
-        run: supabase functions deploy mavis-gmail-watch --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
+          FAILURES=/tmp/deploy-failures.txt
+          > "$FAILURES"
 
-      # ── Legacy functions (keep deployed) ───────────────────────────────────
-      - name: Deploy mavis-chat
-        run: supabase functions deploy mavis-chat --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
-      - name: Deploy mavis-morning-brief
-        run: supabase functions deploy mavis-morning-brief --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
-      - name: Deploy mavis-heartbeat
-        run: supabase functions deploy mavis-heartbeat --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
-      - name: Deploy mavis-vision-agent
-        run: supabase functions deploy mavis-vision-agent --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
-      - name: Deploy telegram-setup
-        run: supabase functions deploy telegram-setup --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
-      - name: Deploy telegram-webhook
-        run: supabase functions deploy telegram-webhook --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
-      - name: Deploy mavis-capability-audit
-        run: supabase functions deploy mavis-capability-audit --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
-      - name: Deploy mavis-ruview-bridge
-        run: supabase functions deploy mavis-ruview-bridge --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
-      - name: Deploy mavis-notion-agent
-        run: supabase functions deploy mavis-notion-agent --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
-      - name: Deploy mavis-notion-sync
-        run: supabase functions deploy mavis-notion-sync --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
-      - name: Deploy mavis-brain-consolidate
-        run: supabase functions deploy mavis-brain-consolidate --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
-      - name: Deploy mavis-worldmonitor
-        run: supabase functions deploy mavis-worldmonitor --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
-      - name: Deploy mavis-voicebox
-        run: supabase functions deploy mavis-voicebox --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
-      - name: Deploy mavis-agent-reach
-        run: supabase functions deploy mavis-agent-reach --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
+          deploy_fn() {
+            local fn="$1"
+            if supabase functions deploy "$fn" --project-ref "$PROJECT_REF" 2>&1; then
+              echo "✓ $fn"
+            else
+              echo "$fn" >> /tmp/deploy-failures.txt
+              echo "✗ $fn (non-critical)"
+            fi
+          }
+          export -f deploy_fn
 
-      # ── Google integrations ─────────────────────────────────────────────────
-      - name: Deploy mavis-gcontacts-sync
-        run: supabase functions deploy mavis-gcontacts-sync --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
+          printf '%s\n' "${REMAINING[@]}" | xargs -P 8 -I{} bash -c 'deploy_fn "$@"' _ {}
 
-      # ── Observability + learning ────────────────────────────────────────────
-      - name: Deploy mavis-health-monitor
-        run: supabase functions deploy mavis-health-monitor --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
-      - name: Deploy mavis-learning-engine
-        run: supabase functions deploy mavis-learning-engine --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
+          TOTAL=${#REMAINING[@]}
+          FAIL_COUNT=$(wc -l < "$FAILURES" 2>/dev/null | tr -d ' ')
+          SUCCESS=$((TOTAL - FAIL_COUNT))
+          echo ""
+          echo "Result: $SUCCESS/$TOTAL non-core functions deployed."
 
-      # ── Video generation ────────────────────────────────────────────────────
-      - name: Deploy mavis-higgsfield
-        run: supabase functions deploy mavis-higgsfield --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
-      - name: Deploy mavis-heygen-agent
-        run: supabase functions deploy mavis-heygen-agent --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
-
-      # ── Stock analysis ──────────────────────────────────────────────────────
-      - name: Deploy mavis-stock-analysis
-        run: supabase functions deploy mavis-stock-analysis --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
-
-      # ── Prompt vault ────────────────────────────────────────────────────────
-      - name: Deploy mavis-prompt-vault
-        run: supabase functions deploy mavis-prompt-vault --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
-
-      # ── Content ingest ──────────────────────────────────────────────────────
-      - name: Deploy mavis-shortform-ingest
-        run: supabase functions deploy mavis-shortform-ingest --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
-
-      # ── Multi-provider gateway (OpenClaude) ─────────────────────────────────
-      - name: Deploy mavis-multi-provider
-        run: supabase functions deploy mavis-multi-provider --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
-
-      # ── Open Notebook (research workspace) ──────────────────────────────────
-      - name: Deploy mavis-notebook-embed
-        run: supabase functions deploy mavis-notebook-embed --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
-      - name: Deploy mavis-notebook-podcast
-        run: supabase functions deploy mavis-notebook-podcast --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
-
-      # ── Skill catalog ────────────────────────────────────────────────────────
-      - name: Deploy mavis-skill-catalog
-        run: supabase functions deploy mavis-skill-catalog --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
-
-      # ── MAVIS Page Control (AI app navigation) ───────────────────────────────
-      - name: Deploy mavis-page-agent
-        run: supabase functions deploy mavis-page-agent --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
+          if [ -s "$FAILURES" ]; then
+            echo "::warning::$FAIL_COUNT non-core function(s) failed to deploy:"
+            cat "$FAILURES"
+          fi
