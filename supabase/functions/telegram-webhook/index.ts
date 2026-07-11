@@ -1315,9 +1315,14 @@ async function extractDocument(fileId: string, fileName: string, mimeType: strin
 const STATE_PREFIX = "telegram-state-";
 
 interface PersonaState {
-  persona_id: string;
+  // type: "persona" (default/omitted for backward-compat) | "council" (individual member)
+  type?: "persona" | "council";
+  persona_id: string;   // persona UUID  —OR—  council member UUID when type="council"
   persona_name: string;
   user_id?: string;
+  // council-member-specific fields (only present when type="council")
+  character_notes?: string;
+  role?: string;
 }
 
 function normalizePersonaName(value: string): string {
@@ -2141,14 +2146,39 @@ async function handleCommand(command: string, chatId: string, fullText: string):
 
     case "/switch": {
       const nameQuery = fullText.replace(/^\/switch\s*/i, "").trim();
-      if (!nameQuery) return "Usage: /switch [persona name]";
+      if (!nameQuery) return "Usage: /switch [persona name or council member name]";
 
-      const data = await findTelegramPersona(nameQuery);
+      // Search personas first
+      const persona = await findTelegramPersona(nameQuery);
+      if (persona) {
+        await setCouncilMode(chatId, false);
+        await setActivePersona(chatId, { type: "persona", persona_id: persona.id, persona_name: persona.name, user_id: persona.user_id });
+        return `Switching to ${persona.name} (${persona.role}). Say hi — they remember everything.`;
+      }
 
-      if (!data) return `No persona found matching "${nameQuery}". Use /personas to see your roster.`;
+      // Fallback: search individual council members
+      const normalized = normalizePersonaName(nameQuery);
+      const { data: members } = await supabase
+        .from("councils")
+        .select("id, name, role, specialty, character_notes")
+        .eq("user_id", OPERATOR_USER_ID)
+        .ilike("name", `%${nameQuery}%`)
+        .limit(5);
+      const member = (members ?? []).find((m: any) =>
+        normalizePersonaName(String(m.name ?? "")) === normalized
+      ) ?? (members ?? [])[0];
 
-      await setActivePersona(chatId, { persona_id: data.id, persona_name: data.name, user_id: data.user_id });
-      return `Switching to ${data.name} (${data.role}). Say hi — they remember everything.`;
+      if (!member) return `No persona or council member found matching "${nameQuery}". Use /personas to see your roster or /council for the full board.`;
+
+      await setCouncilMode(chatId, false);
+      await setActivePersona(chatId, {
+        type: "council",
+        persona_id: member.id,
+        persona_name: member.name,
+        role: member.role,
+        character_notes: member.character_notes ?? "",
+      });
+      return `Switching to ${member.name} [${member.role}]. They're listening.`;
     }
 
     default:
@@ -2400,7 +2430,8 @@ Deno.serve(async (req) => {
       if (!reserved.has(shortcut.toLowerCase())) {
         const persona = await findTelegramPersona(shortcut);
         if (persona) {
-          await setActivePersona(chatId, { persona_id: persona.id, persona_name: persona.name, user_id: persona.user_id });
+          await setCouncilMode(chatId, false);
+          await setActivePersona(chatId, { type: "persona", persona_id: persona.id, persona_name: persona.name, user_id: persona.user_id });
           await sendPlain(chatId, `Switching to ${persona.name} (${persona.role}). Say hi — they remember everything.`);
           return new Response("OK");
         }
@@ -2440,6 +2471,23 @@ Deno.serve(async (req) => {
     const activePersona = await getActivePersona(chatId);
 
     if (activePersona) {
+      if (activePersona.type === "council") {
+        // ── COUNCIL MEMBER MODE: route directly to the individual member ──
+        const memberName  = activePersona.persona_name;
+        const memberRole  = activePersona.role ?? "Council Member";
+        const charNotes   = activePersona.character_notes ?? "";
+        const memberSys   = `You are ${memberName}, ${memberRole}.${charNotes ? " " + charNotes : ""}
+You are speaking one-on-one with Calvin via Telegram. Be direct, in-character, and concise (2-4 sentences).
+No "As an AI" hedging. You have opinions — express them.`;
+        const history = await loadHistory(chatId);
+        const userContent = [mediaContext, inputText].filter(Boolean).join("");
+        await persistMessage(chatId, "user", inputText);
+        const memberReply = await callClaude(memberSys, [...history, { role: "user", content: userContent }]);
+        await persistMessage(chatId, "assistant", memberReply);
+        await sendPlain(chatId, memberReply);
+        return new Response("OK");
+      }
+
       // ── PERSONA MODE: route through mavis-persona-router ──
       // persona-router persists to persona_conversations (the persona's app
       // chat thread). We prefix with [Telegram] so the source is visible.
