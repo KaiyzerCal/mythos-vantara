@@ -91,7 +91,7 @@ All 19 invest-* skills belong to the Analyst role and power the 4-member Berkshi
 
 ## 2 · MAVIS EDGE FUNCTIONS  `supabase/functions/`
 
-280+ Deno edge functions. Core functions are fail-fast deployed on every `git push main`; all others deploy in parallel.
+303 Deno edge functions (verified against repo 2026-07-11). Core functions are fail-fast deployed on every `git push main`; all others deploy in parallel.
 
 ### Chat & Council
 | Function | Purpose |
@@ -418,6 +418,128 @@ All 19 invest-* skills belong to the Analyst role and power the 4-member Berkshi
 | `prymal-approval-flow` | Prymal content approval flow |
 | `prymal-onboard` | Prymal user onboarding |
 | `prymal-widget-loader` | Loads Prymal widget on client sites |
+
+---
+
+### Ingestion & Knowledge Intake
+| Function | Purpose |
+|---|---|
+| `mavis-ingest` | URL / text / clip intake pipeline into knowledge base |
+| `mavis-ingest-url` | Ingests a web article/page URL into the MAVIS knowledge base |
+| `mavis-youtube-ingest` | Extracts YouTube video transcript and ingests it |
+| `mavis-shortform-ingest` | Transcribes short-form video (TikTok, Reels, X) and ingests |
+| `mavis-doc-extract` | Extracts text from uploaded documents, creates knowledge embeddings |
+| `mavis-attachment-process` | Processes chat attachments — doc text extraction, audio/video transcription |
+| `mavis-import` | Bulk data import |
+| `mavis-data-export` | Exports key tables as JSON to Supabase storage for backup |
+| `mavis-entity-graph` | Builds entity relationship graph from knowledge |
+| `mavis-website-qa` | Live website crawl-and-answer without external APIs |
+| `mavis-context-scout` | SuperContext pattern — scouts relevant context for a task |
+| `mavis-prompt-vault` | Stores and retrieves reusable prompts |
+
+### Planning & Autonomous Execution
+| Function | Purpose |
+|---|---|
+| `mavis-planner` | Task/goal planning engine |
+| `mavis-plans` | Persistent multi-session goal planning |
+| `mavis-task-executor` | The autonomous worker — executes queued tasks |
+| `mavis-workflow-run` | Workflow runner |
+| `mavis-chain-builder` | AI-powered quest and skill chain linking |
+| `mavis-predictive-engine` | Predicts outcomes/needs from patterns |
+| `mavis-causal-engine` | Causal reasoning over events and decisions |
+| `mavis-world-model` | Maintains world-state model for planning |
+| `mavis-critic-agent` | Critiques plans/outputs before execution |
+| `mavis-opportunity-scanner` | Scans signals for opportunities |
+| `mavis-demand-scan` | Market/demand scanning |
+| `mavis-inbound-webhook` | Event-driven proactive trigger gateway |
+| `mavis-profile-updater` | Hermes-style user profile synthesis |
+
+### Content, Marketing & Commerce
+| Function | Purpose |
+|---|---|
+| `mavis-content-pipeline` | Autonomous NORA Vale content engine (Genviral/Outstand MCP) |
+| `mavis-campaign-runner` | Runs multi-step marketing campaigns |
+| `mavis-brand-voice` | Brand voice definition and enforcement |
+| `mavis-seo-engine` | SEO analysis and optimization |
+| `mavis-competitor-monitor` | Monitors competitors |
+| `mavis-repurpose` | Content repurposing across surfaces |
+| `mavis-beehiiv-agent` | Beehiiv newsletter management |
+| `mavis-product-creator` | Creates digital products |
+| `mavis-media-analyst` | Analyzes reference content from HeyGen/Higgsfield/Canva |
+
+### Platform Integrations (added)
+| Function | Purpose |
+|---|---|
+| `mavis-spotify-agent` | Spotify conversational agent |
+| `mavis-spotify-control` | Spotify playback control |
+| `mavis-spotify-sync` | Spotify listening data sync |
+| `mavis-slack-agent` | Slack workspace agent |
+| `mavis-slack-bot` | Slack bot with HMAC request verification |
+| `mavis-discord-agent` | Discord agent |
+| `mavis-reddit-agent` | Reddit agent |
+| `mavis-youtube-agent` | YouTube channel/content agent |
+| `mavis-linear-agent` | Linear issue tracking agent |
+| `mavis-shopify-agent` | Shopify store agent |
+| `mavis-wordpress` | WordPress publishing |
+| `mavis-wpcom-oauth` | WordPress.com OAuth flow |
+| `mavis-twilio-agent` | Twilio voice/SMS agent |
+| `mavis-sms` | SMS send/receive |
+| `mavis-apify` | Apify actor proxy |
+| `mavis-weather` | Weather data |
+| `mavis-translate` | Translation via LibreTranslate |
+| `mavis-hn-digest` | Hacker News digest |
+| `mavis-rss-monitor` | Proactive RSS/Atom feed monitoring → mavis_notes |
+
+### Devices, Vision & Ambient
+| Function | Purpose |
+|---|---|
+| `mavis-home` | Smart home / IoT integration |
+| `mavis-device-bridge` | Bridges local devices to MAVIS |
+| `mavis-galaxy-ring` | Samsung Galaxy Ring biometrics |
+| `mavis-screenpipe` | Local desktop lifelogging context capture |
+| `mavis-ambient-monitor` | Ambient signal monitoring |
+| `mavis-computer-use` | OpenAI Responses API with Computer Use tool |
+| `mavis-vision-agent` | Image/vision analysis agent |
+| `mavis-realtime-v2` | OpenAI Realtime API v2 WebSocket proxy |
+
+### Web Building & Design (added)
+| Function | Purpose |
+|---|---|
+| `mavis-web-builder` | Builds websites |
+| `mavis-site-editor` | Edits any uploaded HTML website file |
+| `mavis-page-agent` | Page-level content agent |
+| `mavis-design-engine` | Design generation engine |
+| `mavis-design-system-gen` | Generates design systems |
+| `mavis-pdf-gen` | Renders professional PDFs from templates or raw HTML |
+| `mavis-form-submit` | Handles form submissions |
+
+### Widgets
+| Function | Purpose |
+|---|---|
+| `mavis-widget-api` | Widget API with per-widget rate limiting |
+| `mavis-widget-gen` | Generates embeddable widgets |
+| `mavis-widget-plugin` | Widget plugin loader |
+| `stripe-widget-webhook` | Stripe webhook for widget payments |
+
+### Learning & Tutoring
+| Function | Purpose |
+|---|---|
+| `mavis-khanmigo` | Socratic tutoring engine |
+| `mavis-flashcard-agent` | Flashcard generation and review |
+| `mavis-story-agent` | Story generation agent |
+
+### Fine-Tuning
+| Function | Purpose |
+|---|---|
+| `mavis-fine-tune-export` | Exports MAVIS conversations for Ollama fine-tuning |
+| `mavis-openai-finetune` | OpenAI fine-tune job management |
+
+### Misc (added)
+| Function | Purpose |
+|---|---|
+| `mavis-demo` | Demo/response-type classification endpoint |
+| `mavis-team` | Manages teams and shared workspaces |
+| `mavis-skill-catalog` | Browseable, installable skill catalog (OpenClaw/Hermes pattern) |
 
 ---
 
