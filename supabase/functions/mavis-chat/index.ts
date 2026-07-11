@@ -793,7 +793,7 @@ async function executeAgentAction(
     const res = await fetch(`${supabaseUrl}/functions/v1/mavis-actions`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${serviceKey}` },
-      body: JSON.stringify({ userId, action: { type, params } }),
+      body: JSON.stringify({ userId, actions: [{ type, params }] }),
       signal: AbortSignal.timeout(120_000),
     });
     const data = await res.json().catch(() => ({})) as Record<string, unknown>;
@@ -3372,7 +3372,7 @@ ${telosData
     const grokKey    = Deno.env.get("GROK_API_KEY") ?? "";
     const geminiKey  = Deno.env.get("GEMINI_API_KEY") ?? "";
     const groqKey    = Deno.env.get("GROQ_API_KEY") ?? "";
-    const tavilyKey  = Deno.env.get("Tavily_API") ?? Deno.env.get("TAVILY_API_KEY") ?? "";
+    const tavilyKey  = Deno.env.get("TAVILY_API_KEY") ?? "";
 
     // ── Web search if needed ────────────────────────────────
     let webSearchResults = "";
