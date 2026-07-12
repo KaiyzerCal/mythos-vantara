@@ -141,10 +141,12 @@ Deno.serve(async (req) => {
   }
 
   // ── Process personas ──────────────────────────────────────────────────────
-  const { data: personas, error: pErr } = await db
+  let pq = db
     .from("personas")
     .select("id, name, role, archetype, system_prompt, personality, agent_folders")
     .limit(limit);
+  if (onlyIds.length) pq = pq.in("id", onlyIds);
+  const { data: personas, error: pErr } = await pq;
 
   if (pErr) {
     return new Response(JSON.stringify({ error: pErr.message }), { status: 500 });
