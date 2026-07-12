@@ -49,7 +49,7 @@ Write in second person (describing the character to the model embodying them). B
       "anthropic-version": "2023-06-01",
     },
     body: JSON.stringify({
-      model: "claude-haiku-4-5-20251101",
+      model: "claude-haiku-4-5",
       max_tokens: 1024,
       messages: [{ role: "user", content: userPrompt }],
     }),
