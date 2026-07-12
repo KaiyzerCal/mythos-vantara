@@ -161,7 +161,7 @@ Deno.serve(async (req) => {
         name: persona.name,
         role: persona.role,
         archetype: persona.archetype,
-        notes: persona.notes,
+        notes: undefined,
         personality: persona.system_prompt || personalityStr,
         existingIdentity: af.identity,
       });
