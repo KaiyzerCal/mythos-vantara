@@ -71,22 +71,18 @@ Deno.serve(async (req) => {
     return new Response("Method not allowed", { status: 405 });
   }
 
-  // Verify service-level auth (only callable by admin/dashboard)
+  // Parse body once
+  const body = await req.json().catch(() => ({}));
+
+  // Verify service-level auth
   const auth = req.headers.get("authorization") ?? "";
-  if (!auth.includes(SERVICE_KEY.slice(0, 20))) {
-    // Fall back: accept the service role key directly
-    const body = await req.json().catch(() => ({}));
-    if (body.key !== SERVICE_KEY && !auth.startsWith("Bearer ")) {
-      return new Response("Unauthorized", { status: 401 });
-    }
+  const bearerToken = auth.startsWith("Bearer ") ? auth.slice(7) : "";
+  if (bearerToken !== SERVICE_KEY && body.key !== SERVICE_KEY) {
+    return new Response("Unauthorized", { status: 401 });
   }
 
-  const body = await req.json().catch(() => ({}));
-  // dry_run=true → generate but don't write to DB
   const dryRun = body.dry_run === true;
-  // limit for testing
   const limit: number = body.limit ?? 999;
-  // optional: only process specific IDs
   const onlyIds: string[] = body.only_ids ?? [];
 
   const results: Array<{ id: string; name: string; table: string; status: string; preview?: string }> = [];
