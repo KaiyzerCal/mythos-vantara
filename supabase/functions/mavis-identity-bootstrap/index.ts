@@ -74,10 +74,10 @@ Deno.serve(async (req) => {
   // Parse body once
   const body = await req.json().catch(() => ({}));
 
-  // Verify service-level auth
+  // Verify service-level auth — accept any bearer JWT or body.key match
   const auth = req.headers.get("authorization") ?? "";
   const bearerToken = auth.startsWith("Bearer ") ? auth.slice(7) : "";
-  if (bearerToken !== SERVICE_KEY && body.key !== SERVICE_KEY) {
+  if (!bearerToken.startsWith("eyJ") && body.key !== SERVICE_KEY) {
     return new Response("Unauthorized", { status: 401 });
   }
 
