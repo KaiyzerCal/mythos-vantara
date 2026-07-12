@@ -141,7 +141,7 @@ Deno.serve(async (req) => {
   // ── Process personas ──────────────────────────────────────────────────────
   const { data: personas, error: pErr } = await db
     .from("personas")
-    .select("id, name, role, archetype, notes, system_prompt, personality, agent_folders")
+    .select("id, name, role, archetype, system_prompt, personality, agent_folders")
     .limit(limit);
 
   if (pErr) {
@@ -161,7 +161,7 @@ Deno.serve(async (req) => {
         name: persona.name,
         role: persona.role,
         archetype: persona.archetype,
-        notes: persona.notes,
+        notes: undefined,
         personality: persona.system_prompt || personalityStr,
         existingIdentity: af.identity,
       });
