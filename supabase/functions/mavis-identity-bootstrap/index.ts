@@ -92,10 +92,12 @@ Deno.serve(async (req) => {
   const results: Array<{ id: string; name: string; table: string; status: string; preview?: string }> = [];
 
   // ── Process councils ──────────────────────────────────────────────────────
-  const { data: councils, error: cErr } = await db
+  let cq = db
     .from("councils")
     .select("id, name, role, class, specialty, notes, personality_prompt, agent_folders")
     .limit(limit);
+  if (onlyIds.length) cq = cq.in("id", onlyIds);
+  const { data: councils, error: cErr } = await cq;
 
   if (cErr) {
     return new Response(JSON.stringify({ error: cErr.message }), { status: 500 });
