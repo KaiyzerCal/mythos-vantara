@@ -49,7 +49,7 @@ Write in second person (describing the character to the model embodying them). B
       "anthropic-version": "2023-06-01",
     },
     body: JSON.stringify({
-      model: "claude-opus-4-8",
+      model: "claude-haiku-4-5",
       max_tokens: 1024,
       messages: [{ role: "user", content: userPrompt }],
     }),
@@ -71,31 +71,29 @@ Deno.serve(async (req) => {
     return new Response("Method not allowed", { status: 405 });
   }
 
-  // Verify service-level auth (only callable by admin/dashboard)
+  // Parse body once
+  const body = await req.json().catch(() => ({}));
+
+  // Verify service-level auth — accept any bearer JWT or body.key match
   const auth = req.headers.get("authorization") ?? "";
-  if (!auth.includes(SERVICE_KEY.slice(0, 20))) {
-    // Fall back: accept the service role key directly
-    const body = await req.json().catch(() => ({}));
-    if (body.key !== SERVICE_KEY && !auth.startsWith("Bearer ")) {
-      return new Response("Unauthorized", { status: 401 });
-    }
+  const bearerToken = auth.startsWith("Bearer ") ? auth.slice(7) : "";
+  if (!bearerToken.startsWith("eyJ") && body.key !== SERVICE_KEY) {
+    return new Response("Unauthorized", { status: 401 });
   }
 
-  const body = await req.json().catch(() => ({}));
-  // dry_run=true → generate but don't write to DB
   const dryRun = body.dry_run === true;
-  // limit for testing
   const limit: number = body.limit ?? 999;
-  // optional: only process specific IDs
   const onlyIds: string[] = body.only_ids ?? [];
 
   const results: Array<{ id: string; name: string; table: string; status: string; preview?: string }> = [];
 
   // ── Process councils ──────────────────────────────────────────────────────
-  const { data: councils, error: cErr } = await db
+  let cq = db
     .from("councils")
     .select("id, name, role, class, specialty, notes, personality_prompt, agent_folders")
     .limit(limit);
+  if (onlyIds.length) cq = cq.in("id", onlyIds);
+  const { data: councils, error: cErr } = await cq;
 
   if (cErr) {
     return new Response(JSON.stringify({ error: cErr.message }), { status: 500 });
@@ -139,10 +137,12 @@ Deno.serve(async (req) => {
   }
 
   // ── Process personas ──────────────────────────────────────────────────────
-  const { data: personas, error: pErr } = await db
+  let pq = db
     .from("personas")
-    .select("id, name, role, archetype, notes, system_prompt, personality, agent_folders")
+    .select("id, name, role, archetype, system_prompt, personality, agent_folders")
     .limit(limit);
+  if (onlyIds.length) pq = pq.in("id", onlyIds);
+  const { data: personas, error: pErr } = await pq;
 
   if (pErr) {
     return new Response(JSON.stringify({ error: pErr.message }), { status: 500 });
@@ -161,7 +161,7 @@ Deno.serve(async (req) => {
         name: persona.name,
         role: persona.role,
         archetype: persona.archetype,
-        notes: persona.notes,
+        notes: undefined,
         personality: persona.system_prompt || personalityStr,
         existingIdentity: af.identity,
       });
