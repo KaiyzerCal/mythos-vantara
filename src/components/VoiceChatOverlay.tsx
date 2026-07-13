@@ -154,7 +154,7 @@ export function VoiceChatOverlay({
   const speakReply = useCallback((text: string) => {
     if (!text || closingRef.current) return;
     const synth = window.speechSynthesis;
-    if (!synth) return;
+    if (!synth) { setPhase("idle"); return; }
 
     // Chrome bug: if synth is in a "paused" or stalled state, speak() fires no
     // sound. Resume, then cancel any queued utterance, then defer the new one
@@ -252,7 +252,8 @@ export function VoiceChatOverlay({
   const speakWithElevenLabs = useCallback(async (text: string, voiceId: string) => {
     setDisplayedReply(text);
     setSpokenUpTo(0);
-    setPhase("speaking");
+    // Phase stays "thinking" until audio.play() actually resolves — prevents
+    // the UI showing "speaking" during the silent ElevenLabs network fetch.
 
     // Give up after 3 consecutive real ElevenLabs failures this session.
     if (ttsConsecFailuresRef.current >= 3) {
@@ -338,8 +339,9 @@ export function VoiceChatOverlay({
 
       try {
         await audio.play();
-        // Successful play — reset consecutive-failure counter.
+        // audio.play() resolved — audio is actually playing now. Safe to show speaking UI.
         ttsConsecFailuresRef.current = 0;
+        if (!closingRef.current) setPhase("speaking");
       } catch (playErr: any) {
         // NotAllowedError = browser autoplay policy blocked us; this is transient
         // (user just needs to interact) — don't count it as an ElevenLabs failure.
