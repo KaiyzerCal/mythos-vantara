@@ -1985,7 +1985,7 @@ export default function MavisChat() {
             >
               <div className="w-7 h-7 rounded shrink-0 flex items-center justify-center text-xs font-display font-bold border bg-primary/10 border-primary/30 text-primary">M</div>
               <div className="relative group max-w-[82%] rounded-lg px-3 py-2.5 hud-border text-foreground">
-                <div className="prose prose-sm prose-invert max-w-none text-xs font-body leading-relaxed">
+                <div className="prose prose-sm dark:prose-invert max-w-none text-xs font-body leading-relaxed">
                   <ReactMarkdown>{initMessage.content}</ReactMarkdown>
                 </div>
                 <span className="text-xs font-mono text-muted-foreground">

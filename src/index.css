@@ -19,7 +19,7 @@
     --secondary: 150 55% 30%;
     --secondary-foreground: 0 0% 100%;
     --muted: 220 14% 92%;
-    --muted-foreground: 220 12% 38%;
+    --muted-foreground: 220 15% 25%;
     --accent: 45 90% 44%;
     --accent-foreground: 220 25% 8%;
     --destructive: 0 68% 48%;
@@ -208,17 +208,26 @@
     @apply font-display;
     font-size: 0.9375rem;   /* 15px */
     font-weight: 700;
-    color: hsl(var(--primary));
+    color: hsl(var(--foreground));
     margin: 1.1em 0 0.35em;
     letter-spacing: 0.01em;
+  }
+
+  .dark .mavis-prose h1,
+  .dark .mavis-prose h2 {
+    color: hsl(var(--primary));
   }
 
   .mavis-prose h3 {
     @apply font-display;
     font-size: 0.8125rem;
     font-weight: 600;
-    color: hsl(var(--primary) / 0.8);
+    color: hsl(var(--foreground) / 0.75);
     margin: 0.9em 0 0.25em;
+  }
+
+  .dark .mavis-prose h3 {
+    color: hsl(var(--primary) / 0.8);
   }
 
   .mavis-prose p {
