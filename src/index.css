@@ -9,17 +9,17 @@
   :root {
     color-scheme: light;
     --background: 0 0% 100%;
-    --foreground: 220 25% 12%;
+    --foreground: 220 20% 5%;
     --card: 220 14% 97%;
-    --card-foreground: 220 25% 12%;
+    --card-foreground: 220 20% 5%;
     --popover: 0 0% 100%;
-    --popover-foreground: 220 25% 12%;
+    --popover-foreground: 220 20% 5%;
     --primary: 45 90% 44%;
     --primary-foreground: 220 25% 8%;
     --secondary: 150 55% 30%;
     --secondary-foreground: 0 0% 100%;
     --muted: 220 14% 92%;
-    --muted-foreground: 220 15% 25%;
+    --muted-foreground: 220 15% 18%;
     --accent: 45 90% 44%;
     --accent-foreground: 220 25% 8%;
     --destructive: 0 68% 48%;
@@ -29,7 +29,7 @@
     --ring: 45 90% 44%;
     --radius: 0.25rem;
     --sidebar-background: 220 16% 95%;
-    --sidebar-foreground: 220 18% 22%;
+    --sidebar-foreground: 220 18% 10%;
     --sidebar-primary: 45 90% 44%;
     --sidebar-primary-foreground: 220 25% 8%;
     --sidebar-accent: 220 14% 90%;
@@ -200,7 +200,7 @@
     @apply max-w-none font-body;
     font-size: 0.8125rem;   /* 13px — readable without competing with UI */
     line-height: 1.65;
-    color: hsl(var(--foreground) / 0.9);
+    color: hsl(var(--foreground));
   }
 
   .mavis-prose h1,
