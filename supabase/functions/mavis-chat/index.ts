@@ -223,6 +223,9 @@ async function callClaude(messages: any[], system: string, key: string, model = 
       "Content-Type": "application/json",
       "x-api-key": key,
       "anthropic-version": "2023-06-01",
+      "anthropic-beta": useThinking
+        ? "prompt-caching-2024-07-31,interleaved-thinking-2025-05-14"
+        : "prompt-caching-2024-07-31",
     },
     body: JSON.stringify({
       model,
@@ -560,13 +563,15 @@ async function callClaudeStream(messages: any[], system: string, key: string, mo
       "Content-Type": "application/json",
       "x-api-key": key,
       "anthropic-version": "2023-06-01",
-      ...(useThinking ? { "anthropic-beta": "interleaved-thinking-2025-05-14" } : {}),
+      "anthropic-beta": useThinking
+        ? "prompt-caching-2024-07-31,interleaved-thinking-2025-05-14"
+        : "prompt-caching-2024-07-31",
     },
     body: JSON.stringify({
       model,
       max_tokens: useThinking ? 16000 : 8192,
       ...(useThinking ? { thinking: { type: "enabled", budget_tokens: 8000 } } : {}),
-      system,
+      system: [{ type: "text", text: system, cache_control: { type: "ephemeral" } }],
       messages: messages.map((m: any) => ({ role: m.role, content: m.content })),
       stream: true,
     }),

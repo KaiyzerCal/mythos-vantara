@@ -331,6 +331,124 @@ export async function supersedeMemory(
   return newId;
 }
 
+// ── Unified recall across all three memory stores ────────────────────────────
+
+export interface UnifiedMemoryResult {
+  source: "agent_memories" | "session_log" | "tacit";
+  content: string;
+  summary?: string;
+  importance: number;
+  tags: string[];
+  createdAt?: string;
+  similarity?: number;
+}
+
+/**
+ * Searches all three memory systems (mavis_agent_memories, mavis_memory session
+ * logs, mavis_tacit) and returns ranked unified results. Keyword search only —
+ * pass a queryEmbedding for semantic boost on agent_memories.
+ */
+export async function recallContext(
+  query: string,
+  userId: string,
+  agentId?: string,
+  queryEmbedding?: number[],
+  topK = 12
+): Promise<UnifiedMemoryResult[]> {
+  const results: UnifiedMemoryResult[] = [];
+  const queryLower = query.toLowerCase();
+
+  // ── Source 1: mavis_agent_memories (pgvector semantic or keyword) ──────────
+  if (queryEmbedding && agentId) {
+    const semantic = await recallMemories(agentId, queryEmbedding, { topK: 6, threshold: 0.35 });
+    for (const m of semantic) {
+      results.push({
+        source: "agent_memories",
+        content: m.content,
+        summary: m.summary,
+        importance: m.importance,
+        tags: m.tags,
+        createdAt: m.createdAt,
+        similarity: m.similarity,
+      });
+    }
+  } else {
+    // Keyword fallback on agent_memories
+    const { data: kwData } = await supabase
+      .from("mavis_agent_memories")
+      .select("content, summary, importance, tags, created_at")
+      .eq("user_id", userId)
+      .eq("status", "active")
+      .ilike("content", `%${query}%`)
+      .order("importance", { ascending: false })
+      .limit(6)
+      .catch(() => ({ data: null }));
+    for (const row of kwData ?? []) {
+      results.push({
+        source: "agent_memories",
+        content: row.content as string,
+        summary: row.summary as string | undefined,
+        importance: row.importance as number,
+        tags: (row.tags as string[]) ?? [],
+        createdAt: row.created_at as string | undefined,
+      });
+    }
+  }
+
+  // ── Source 2: mavis_memory session log (conversation history) ─────────────
+  const { data: sessionData } = await supabase
+    .from("mavis_memory")
+    .select("content, role, importance_score, created_at")
+    .eq("user_id", userId)
+    .ilike("content", `%${query}%`)
+    .gte("importance_score", 5)
+    .order("created_at", { ascending: false })
+    .limit(4)
+    .catch(() => ({ data: null }));
+  for (const row of sessionData ?? []) {
+    results.push({
+      source: "session_log",
+      content: `[${row.role}] ${row.content}` as string,
+      importance: (row.importance_score as number) ?? 5,
+      tags: [],
+      createdAt: row.created_at as string | undefined,
+    });
+  }
+
+  // ── Source 3: mavis_tacit (operator rules and preferences) ────────────────
+  // Schema: key, value, category, source, confidence — no "rule" or "active" columns
+  const { data: tacitData } = await supabase
+    .from("mavis_tacit")
+    .select("key, value, category, created_at")
+    .eq("user_id", userId)
+    .ilike("value", `%${query}%`)
+    .limit(3)
+    .catch(() => ({ data: null }));
+  for (const row of tacitData ?? []) {
+    const ruleText = `${row.key}: ${row.value}`;
+    results.push({
+      source: "tacit",
+      content: ruleText,
+      importance: 8,
+      tags: [(row.category as string) ?? "rule"],
+      createdAt: row.created_at as string | undefined,
+    });
+  }
+
+  // ── Rank: semantic similarity first, then importance, then recency ─────────
+  results.sort((a, b) => {
+    if (a.similarity !== undefined && b.similarity !== undefined) return b.similarity - a.similarity;
+    if (a.similarity !== undefined) return -1;
+    if (b.similarity !== undefined) return 1;
+    if (b.importance !== a.importance) return b.importance - a.importance;
+    const dateA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+    const dateB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+    return dateB - dateA;
+  });
+
+  return results.slice(0, topK);
+}
+
 // ── Row → AgentMemory ─────────────────────────────────────────────────────────
 
 function _rowToMemory(row: Record<string, unknown>): AgentMemory {

@@ -216,6 +216,26 @@ const INTEGRATION_GROUPS: GroupDef[] = [
       },
     ],
   },
+  {
+    label: "Vision & VFX",
+    icon: "Eye",
+    providers: [
+      {
+        id: "touchdesigner",
+        name: "TouchDesigner",
+        description: "Real-time VFX bridge — connect TouchDesigner's Web Server DAT for reactive visuals driven by MAVIS state and operator biometrics",
+        keys: ["WS Host", "WS Port", "WS Path", "Auth Token"],
+        docsUrl: null,
+      },
+      {
+        id: "mediapipe",
+        name: "MediaPipe Vision",
+        description: "In-browser gesture recognition and biometric tracking via webcam — hand gestures, face presence, expression, and engagement detection",
+        keys: [],
+        docsUrl: null,
+      },
+    ],
+  },
 ];
 
 // ─── Icon map ───────────────────────────────────────────────

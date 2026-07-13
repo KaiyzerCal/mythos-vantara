@@ -234,6 +234,13 @@ export default function MavisChat() {
     }
   }
 
+  // Gesture → UI bridge (active whenever the page is mounted)
+  useGestureActions({
+    userId: profile?.id,
+    onVoiceToggle: () => setVoiceOverlayOpen(v => !v),
+    onVoiceStop: () => stopSpeaking(),
+  });
+
   // ── Register the mavis-actions edge function as default action handler ──
   useEffect(() => {
     setDefaultHandler(async (payload) => {
