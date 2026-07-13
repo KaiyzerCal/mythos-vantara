@@ -200,6 +200,10 @@
     @apply max-w-none font-body;
     font-size: 0.8125rem;   /* 13px — readable without competing with UI */
     line-height: 1.65;
+    color: hsl(var(--foreground));
+  }
+
+  .dark .mavis-prose {
     color: hsl(var(--foreground) / 0.9);
   }
 
@@ -323,6 +327,35 @@
     padding: 0.35em 0.75em;
     border-bottom: 1px solid hsl(var(--border) / 0.5);
     color: hsl(var(--foreground) / 0.85);
+  }
+
+  /* ── Tailwind Typography override — light-mode readability ──
+     Default prose colors render too light on theme-aware light surfaces.
+     Force non-inverted prose to use the semantic foreground while keeping
+     accent colors for links, code, and headings. */
+  .prose:not(.prose-invert) {
+    color: hsl(var(--foreground));
+  }
+  .prose:not(.prose-invert) :where(p, h1, h2, h3, h4, h5, h6, li, strong, em, th, td) {
+    color: hsl(var(--foreground));
+  }
+  .prose:not(.prose-invert) :where(h1, h2, h3, h4, h5, h6) {
+    color: hsl(var(--primary));
+  }
+  .prose:not(.prose-invert) :where(a) {
+    color: hsl(var(--neon-cyan));
+  }
+  .prose:not(.prose-invert) :where(a):hover {
+    text-decoration: underline;
+  }
+  .prose:not(.prose-invert) :where(code) {
+    color: hsl(var(--neon-purple));
+  }
+  .prose:not(.prose-invert) :where(blockquote) {
+    color: hsl(var(--muted-foreground));
+  }
+  .prose:not(.prose-invert) :where(thead th) {
+    color: hsl(var(--primary));
   }
 
   /* Energy bar colors */
