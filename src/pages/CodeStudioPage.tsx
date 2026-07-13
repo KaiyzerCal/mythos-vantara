@@ -529,7 +529,7 @@ export default function CodeStudioPage() {
                   </div>
                 )}
                 {mavisResponse && (
-                  <div className="prose prose-invert prose-sm max-w-none text-xs leading-relaxed">
+                  <div className="prose dark:prose-invert prose-sm max-w-none text-xs leading-relaxed">
                     <ReactMarkdown>{mavisResponse}</ReactMarkdown>
                   </div>
                 )}
@@ -603,7 +603,7 @@ export default function CodeStudioPage() {
                 )}
 
                 {githubResult && (
-                  <div className="prose prose-invert prose-sm max-w-none text-xs leading-relaxed">
+                  <div className="prose dark:prose-invert prose-sm max-w-none text-xs leading-relaxed">
                     {githubUrl && (
                       <div className="flex items-center gap-2 mb-3 px-3 py-2 bg-muted/20 rounded-lg border border-border/30">
                         <Github size={12} className="text-muted-foreground" />
