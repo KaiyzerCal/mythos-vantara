@@ -19,7 +19,7 @@ import { AttachmentTray, AttachButton } from "@/components/chat/AttachmentTray";
 import { DEFAULT_VOICE_BY_GENDER, findVoice, type VoiceGender } from "@/lib/voiceCatalog";
 import { VoiceChatOverlay } from "@/components/VoiceChatOverlay";
 import type { VoicePersona } from "@/components/VoiceChatOverlay";
-import { buildCouncilMemberPrompt, buildContextSummary } from "@/mavis/councilPersona";
+import { buildCouncilMemberPrompt, buildCouncilMemberVoicePrompt, buildContextSummary } from "@/mavis/councilPersona";
 import { loadFullAppContext } from "@/mavis/appContextLoader";
 import type { AppContextSnapshot } from "@/mavis/appContextLoader";
 

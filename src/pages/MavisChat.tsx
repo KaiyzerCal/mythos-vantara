@@ -38,6 +38,7 @@ import { dispatchToSpecialist } from "@/mavis/specialistDispatcher";
 import { getCustomOrders, addStandingOrder, removeStandingOrder } from "@/mavis/standingOrders";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import type { ExecutionResult, ParsedAction } from "@/mavis/types";
+import { useGestureActions } from "@/hooks/useGestureActions";
 // Trigger skill self-registration
 import "@/mavis/skills/_loader";
 
