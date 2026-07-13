@@ -207,7 +207,7 @@ function CrewAgentCard({ step }: { step: AgentStep }) {
         )}
       </div>
       {expanded && step.output && (
-        <div className="mt-2 pt-2 border-t border-zinc-700/50 text-zinc-300 prose prose-invert prose-xs max-w-none">
+        <div className="mt-2 pt-2 border-t border-zinc-700/50 text-foreground prose dark:prose-invert prose-xs max-w-none">
           <ReactMarkdown>{step.output.slice(0, 1500)}</ReactMarkdown>
         </div>
       )}
@@ -552,7 +552,7 @@ export function AgentConsole() {
                       {msg.role === "user" ? "▸ YOU" : `▸ ${MODE_META[msg.mode].label}`}
                     </div>
                     {msg.content ? (
-                      <div className="prose prose-invert prose-xs max-w-none leading-relaxed text-zinc-200">
+                      <div className="prose dark:prose-invert prose-xs max-w-none leading-relaxed text-foreground">
                         <ReactMarkdown>{msg.content.slice(0, 3000)}</ReactMarkdown>
                         {msg.content.length > 3000 && <p className="text-zinc-600 text-[10px]">…truncated</p>}
                       </div>

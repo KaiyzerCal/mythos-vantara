@@ -1375,7 +1375,7 @@ function CouncilChat({ member, profile, onClose }: { member: any; profile: any; 
                   : "bg-muted/30 border border-border text-foreground"
               }`}>
                 {msg.role === "assistant"
-                  ? <div className="prose prose-sm prose-invert max-w-none text-xs"><ReactMarkdown>{msg.content}</ReactMarkdown></div>
+                  ? <div className="prose prose-sm dark:prose-invert max-w-none text-xs text-foreground"><ReactMarkdown>{msg.content}</ReactMarkdown></div>
                   : msg.content
                 }
               </div>
