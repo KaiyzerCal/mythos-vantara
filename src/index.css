@@ -200,6 +200,10 @@
     @apply max-w-none font-body;
     font-size: 0.8125rem;   /* 13px — readable without competing with UI */
     line-height: 1.65;
+    color: hsl(var(--foreground));
+  }
+
+  .dark .mavis-prose {
     color: hsl(var(--foreground) / 0.9);
   }
 
