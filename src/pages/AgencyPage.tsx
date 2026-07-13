@@ -191,7 +191,7 @@ function AgentPanel({
             Loading agent spec…
           </div>
         ) : content ? (
-          <div className="prose prose-sm prose-invert max-w-none text-[13px] leading-relaxed text-zinc-300 whitespace-pre-wrap font-mono">
+          <div className="prose prose-sm dark:prose-invert max-w-none text-[13px] leading-relaxed text-zinc-300 whitespace-pre-wrap font-mono">
             {content}
           </div>
         ) : (
