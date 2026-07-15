@@ -126,13 +126,14 @@ RULES:
   if (agentData.content) {
     await adminSb.from("mavis_persona_memory").upsert(
       {
-        user_id:    userId,
-        key:        `goal_progress:${quest.id}`,
-        value:      `[${new Date().toISOString().slice(0, 10)}] ${agentData.content.slice(0, 500)}`,
-        category:   "goal",
-        importance: 7,
-        source:     "mavis-goal-agent",
-        role:       "summary",
+        user_id:      userId,
+        persona_name: "MAVIS",
+        key:          `goal_progress:${quest.id}`,
+        value:        `[${new Date().toISOString().slice(0, 10)}] ${agentData.content.slice(0, 500)}`,
+        category:     "goal",
+        importance:   7,
+        source:       "mavis-goal-agent",
+        role:         "summary",
       },
       { onConflict: "user_id,key" },
     );

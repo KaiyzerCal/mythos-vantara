@@ -231,14 +231,15 @@ Deno.serve(async (req) => {
     ].filter(Boolean).join(" ");
 
     await sb.from("mavis_persona_memory").upsert({
-      user_id:    uid,
-      key:        `learning:weekly:${now.toISOString().slice(0, 10)}`,
-      value:      digestValue,
-      category:   "learning",
-      importance: 6,
-      source:     "mavis-learning-engine",
-      role:       "system",
-      created_at: now.toISOString(),
+      user_id:      uid,
+      persona_name: "MAVIS",
+      key:          `learning:weekly:${now.toISOString().slice(0, 10)}`,
+      value:        digestValue,
+      category:     "learning",
+      importance:   6,
+      source:       "mavis-learning-engine",
+      role:         "system",
+      created_at:   now.toISOString(),
     }, { onConflict: "user_id,key" });
 
     // ── 5. Prune old signals (>90 days) ───────────────────────────────────────

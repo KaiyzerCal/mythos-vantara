@@ -1454,14 +1454,15 @@ async function handleTool(
         const { error } = await supabase
           .from("mavis_persona_memory")
           .upsert({
-            user_id:    userId,
+            user_id:      userId,
+            persona_name: "MAVIS",
             key,
             value,
             category,
             importance,
-            source:     "mavis-agent",
-            role:       "system",
-            created_at: new Date().toISOString(),
+            source:       "mavis-agent",
+            role:         "system",
+            created_at:   new Date().toISOString(),
           }, { onConflict: "user_id,key" });
 
         if (error) return { error: error.message };
