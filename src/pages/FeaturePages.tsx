@@ -4,7 +4,7 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { motion, AnimatePresence } from "framer-motion";
-import { Target, Plus, Trash2, CheckCircle2, Filter, Loader2, Users, MessageCircle, Send, Square, X, Edit2, ArrowDown, ArrowUp, Database, PhoneCall, Check, ChevronDown, ChevronRight, Wand2, ArrowRight } from "lucide-react";
+import { Target, Plus, Trash2, CheckCircle2, Filter, Loader2, Users, MessageCircle, Send, Square, X, Edit2, ArrowDown, ArrowUp, Database, PhoneCall, Check, ChevronDown, ChevronRight, Wand2, ArrowRight, Copy, BookOpen, Brain } from "lucide-react";
 import { useAppData } from "@/contexts/AppDataContext";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
@@ -804,7 +804,7 @@ export function QuestsPage() {
 
 interface CouncilChatMessage {
   id: string;
-  role: "user" | "assistant";
+  role: "user" | "assistant" | "system";
   content: string;
   timestamp: Date;
 }
@@ -1003,6 +1003,10 @@ function CouncilChat({ member, profile, onClose }: { member: any; profile: any; 
   const cancelledRef = useRef(false);
   const [dbLoaded, setDbLoaded] = useState(false);
   const [ttsEnabled, setTtsEnabled] = useState(false);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [mavisCtxOpen, setMavisCtxOpen] = useState(false);
+  const [mavisCtxQuery, setMavisCtxQuery] = useState("");
+  const [mavisCtxLoading, setMavisCtxLoading] = useState(false);
   const { speak, stop: stopSpeaking, isSpeaking, isLoading: isVoiceLoading } = useElevenLabsTts();
   const { attachments, isUploading, upload, remove } = useChatAttachments("council", member?.id ?? null);
 
@@ -1039,6 +1043,65 @@ function CouncilChat({ member, profile, onClose }: { member: any; profile: any; 
       .find((m) => m.role === "assistant")?.content;
     speak(text, { voiceId, gender, previousText });
   }, [ttsEnabled, voiceId, speak, messages]);
+
+  const handleCopy = useCallback((id: string, content: string) => {
+    navigator.clipboard.writeText(content).catch(() => {
+      const el = document.createElement("textarea");
+      el.value = content;
+      document.body.appendChild(el);
+      el.select();
+      document.execCommand("copy");
+      document.body.removeChild(el);
+    });
+    setCopiedId(id);
+    setTimeout(() => setCopiedId(null), 2000);
+  }, []);
+
+  const handleSaveJournal = useCallback(async (content: string) => {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.user) { toast.error("Not signed in"); return; }
+    const title = `${member.name} — ${new Date().toLocaleDateString()}`;
+    const { error } = await supabase.from("journal_entries").insert({
+      user_id: session.user.id,
+      title,
+      content,
+      category: "council",
+      tags: ["council", member.name.toLowerCase()],
+      importance: "medium",
+    });
+    if (error) toast.error("Failed to save to journal");
+    else toast.success("Saved to Journal");
+  }, [member.name]);
+
+  const handleAskMavis = useCallback(async () => {
+    const query = mavisCtxQuery.trim();
+    if (!query) return;
+    setMavisCtxLoading(true);
+    setMavisCtxOpen(false);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string;
+      const res = await fetch(`${supabaseUrl}/functions/v1/mavis-agent`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${session?.access_token}` },
+        body: JSON.stringify({ user_id: session?.user?.id, messages: [{ role: "user", content: query }], mode: "CONTEXT" }),
+        signal: AbortSignal.timeout(30_000),
+      });
+      const data = await res.json() as Record<string, unknown>;
+      const ctxContent = String(data.content ?? "No context available.");
+      setMessages(prev => [...prev, {
+        id: `ctx-${Date.now()}`,
+        role: "system" as const,
+        content: ctxContent,
+        timestamp: new Date(),
+      }]);
+    } catch {
+      toast.error("Failed to fetch MAVIS context");
+    } finally {
+      setMavisCtxLoading(false);
+      setMavisCtxQuery("");
+    }
+  }, [mavisCtxQuery]);
 
   // ── Load persisted council chat from DB ──────────────────
   useEffect(() => {
@@ -1362,25 +1425,59 @@ function CouncilChat({ member, profile, onClose }: { member: any; profile: any; 
 
         <div className="relative flex-1 min-h-0">
         <div ref={scrollRef} onScroll={handleScroll} className="absolute inset-0 overflow-y-auto p-4 space-y-3">
-          {messages.map((msg) => (
-            <div key={msg.id} className={`flex gap-2.5 ${msg.role === "user" ? "flex-row-reverse" : ""}`}>
-              {msg.role === "assistant" && (
-                <div className={`w-6 h-6 rounded border flex items-center justify-center text-xs font-display font-bold shrink-0 mt-0.5 ${classColors[member.class] ?? "text-primary border-primary/40"}`}>
-                  {member.name[0]}
+          {messages.map((msg) => {
+            if (msg.role === "system") {
+              return (
+                <div key={msg.id} className="flex items-start gap-2 px-1">
+                  <div className="w-5 h-5 rounded border border-cyan-500/40 bg-cyan-500/10 flex items-center justify-center shrink-0 mt-0.5">
+                    <Brain size={10} className="text-cyan-400" />
+                  </div>
+                  <div className="flex-1 rounded-lg px-3 py-2 text-xs font-body leading-relaxed bg-cyan-950/20 border border-cyan-500/20 text-cyan-200/80">
+                    <span className="text-[10px] font-mono text-cyan-500 uppercase tracking-widest block mb-1">MAVIS Context</span>
+                    <div className="prose prose-sm dark:prose-invert max-w-none text-xs text-cyan-100/90"><ReactMarkdown>{msg.content}</ReactMarkdown></div>
+                  </div>
                 </div>
-              )}
-              <div className={`max-w-[80%] rounded-lg px-3 py-2 text-xs font-body leading-relaxed ${
-                msg.role === "user"
-                  ? "bg-primary/10 border border-primary/20 text-foreground"
-                  : "bg-muted/30 border border-border text-foreground"
-              }`}>
-                {msg.role === "assistant"
-                  ? <div className="prose prose-sm dark:prose-invert max-w-none text-xs text-foreground"><ReactMarkdown>{msg.content}</ReactMarkdown></div>
-                  : msg.content
-                }
+              );
+            }
+            return (
+              <div key={msg.id} className={`group flex gap-2.5 ${msg.role === "user" ? "flex-row-reverse" : ""}`}>
+                {msg.role === "assistant" && (
+                  <div className={`w-6 h-6 rounded border flex items-center justify-center text-xs font-display font-bold shrink-0 mt-0.5 ${classColors[member.class] ?? "text-primary border-primary/40"}`}>
+                    {member.name[0]}
+                  </div>
+                )}
+                <div className={`relative max-w-[80%] rounded-lg px-3 py-2 text-xs font-body leading-relaxed ${
+                  msg.role === "user"
+                    ? "bg-primary/10 border border-primary/20 text-foreground"
+                    : "bg-muted/30 border border-border text-foreground"
+                }`}>
+                  {msg.role === "assistant"
+                    ? <div className="prose prose-sm dark:prose-invert max-w-none text-xs text-foreground"><ReactMarkdown>{msg.content}</ReactMarkdown></div>
+                    : msg.content
+                  }
+                  {/* Per-message action buttons — reveal on hover */}
+                  <div className={`absolute -top-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity ${msg.role === "user" ? "left-1" : "right-1"}`}>
+                    <button
+                      onClick={() => handleCopy(msg.id, msg.content)}
+                      className="w-5 h-5 rounded bg-card border border-border flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors"
+                      title="Copy"
+                    >
+                      {copiedId === msg.id ? <Check size={9} className="text-green-500" /> : <Copy size={9} />}
+                    </button>
+                    {msg.role === "assistant" && (
+                      <button
+                        onClick={() => handleSaveJournal(msg.content)}
+                        className="w-5 h-5 rounded bg-card border border-border flex items-center justify-center text-muted-foreground hover:text-primary transition-colors"
+                        title="Save to Journal"
+                      >
+                        <BookOpen size={9} />
+                      </button>
+                    )}
+                  </div>
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
           {isLoading && (
             <div className="flex gap-2.5">
               <div className={`w-6 h-6 rounded border flex items-center justify-center text-xs font-display font-bold shrink-0 ${classColors[member.class]}`}>{member.name[0]}</div>
@@ -1412,6 +1509,20 @@ function CouncilChat({ member, profile, onClose }: { member: any; profile: any; 
         </div>
 
         <div className="p-3 border-t border-border space-y-2">
+          {mavisCtxOpen && (
+            <div className="flex gap-2 items-center bg-cyan-950/20 border border-cyan-500/20 rounded-lg px-2 py-1.5">
+              <Brain size={12} className="text-cyan-400 shrink-0" />
+              <input
+                autoFocus
+                value={mavisCtxQuery}
+                onChange={(e) => setMavisCtxQuery(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") handleAskMavis(); if (e.key === "Escape") setMavisCtxOpen(false); }}
+                placeholder="What should MAVIS look up? (Enter to send)"
+                className="flex-1 bg-transparent text-xs font-mono text-cyan-200 placeholder:text-cyan-700 focus:outline-none"
+              />
+              <button onClick={() => setMavisCtxOpen(false)} className="text-muted-foreground hover:text-foreground"><X size={10} /></button>
+            </div>
+          )}
           {attachments.length > 0 && (
             <AttachmentTray
               attachments={attachments}
@@ -1422,6 +1533,14 @@ function CouncilChat({ member, profile, onClose }: { member: any; profile: any; 
             />
           )}
           <div className="flex gap-2">
+            <button
+              onClick={() => setMavisCtxOpen(v => !v)}
+              disabled={mavisCtxLoading}
+              className="flex items-center gap-1 text-xs font-mono text-cyan-400 hover:text-cyan-300 border border-cyan-900/40 hover:border-cyan-400/40 rounded px-1.5 py-1 transition-all disabled:opacity-40 shrink-0"
+              title="Ask MAVIS for context"
+            >
+              {mavisCtxLoading ? <Loader2 size={10} className="animate-spin" /> : <Brain size={10} />}
+            </button>
             <AttachButton isUploading={isUploading} onUpload={upload} />
             <input
               value={input}

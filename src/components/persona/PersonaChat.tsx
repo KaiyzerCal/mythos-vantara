@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { Send, ArrowLeft, Zap, RefreshCw, Brain, Loader2, Database, Square, PhoneCall } from "lucide-react";
+import { Send, ArrowLeft, Zap, RefreshCw, Brain, Loader2, Database, Square, PhoneCall, BookOpen, X } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { HudCard } from "@/components/SharedUI";
@@ -49,6 +49,9 @@ export function PersonaChat({ persona, userId, onBack }: PersonaChatProps) {
   const [isSyncing, setIsSyncing] = useState(false);
   const [voiceOpen, setVoiceOpen] = useState(false);
   const cancelledRef = useRef(false);
+  const [mavisCtxOpen, setMavisCtxOpen] = useState(false);
+  const [mavisCtxQuery, setMavisCtxQuery] = useState("");
+  const [mavisCtxLoading, setMavisCtxLoading] = useState(false);
   const { scrollRef, progress, showBackToTop, showBackToBottom, handleScroll, scrollToTop, scrollToBottom } = useScrollKit();
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -209,6 +212,47 @@ export function PersonaChat({ persona, userId, onBack }: PersonaChatProps) {
       toast.error(`Training failed: ${result.message}`);
     }
   }, [triggerFinetune, persona.name]);
+
+  const handleSaveJournal = useCallback(async (content: string) => {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.user) { toast.error("Not signed in"); return; }
+    const title = `${persona.name} — ${new Date().toLocaleDateString()}`;
+    const { error } = await supabase.from("journal_entries").insert({
+      user_id: session.user.id,
+      title,
+      content,
+      category: "persona",
+      tags: ["persona", persona.name.toLowerCase()],
+      importance: "medium",
+    });
+    if (error) toast.error("Failed to save to journal");
+    else toast.success("Saved to Journal");
+  }, [persona.name]);
+
+  const handleAskMavis = useCallback(async () => {
+    const query = mavisCtxQuery.trim();
+    if (!query) return;
+    setMavisCtxLoading(true);
+    setMavisCtxOpen(false);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string;
+      const res = await fetch(`${supabaseUrl}/functions/v1/mavis-agent`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${session?.access_token}` },
+        body: JSON.stringify({ user_id: session?.user?.id, messages: [{ role: "user", content: query }], mode: "CONTEXT" }),
+        signal: AbortSignal.timeout(30_000),
+      });
+      const data = await res.json() as Record<string, unknown>;
+      const ctxContent = String(data.content ?? "No context available.");
+      setMessages((prev) => [...prev, { role: "assistant", content: `**[MAVIS Context]** ${ctxContent}` }]);
+    } catch {
+      toast.error("Failed to fetch MAVIS context");
+    } finally {
+      setMavisCtxLoading(false);
+      setMavisCtxQuery("");
+    }
+  }, [mavisCtxQuery]);
 
   const handleCheckTraining = useCallback(async () => {
     const status = await checkFinetuneStatus();
@@ -460,10 +504,21 @@ export function PersonaChat({ persona, userId, onBack }: PersonaChatProps) {
                 )}
               >
                 {msg.content}
-                <CopyButton
-                  content={msg.content}
-                  className="absolute -top-2 -right-2 opacity-0 group-hover:opacity-100 focus:opacity-100 bg-card border border-border"
-                />
+                <div className={cn("absolute -top-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity", msg.role === "user" ? "left-0" : "right-0")}>
+                  <CopyButton
+                    content={msg.content}
+                    className="bg-card border border-border"
+                  />
+                  {msg.role === "assistant" && (
+                    <button
+                      onClick={() => handleSaveJournal(msg.content)}
+                      className="w-5 h-5 rounded bg-card border border-border flex items-center justify-center text-muted-foreground hover:text-primary transition-colors"
+                      title="Save to Journal"
+                    >
+                      <BookOpen size={9} />
+                    </button>
+                  )}
+                </div>
               </div>
             </div>
           ))}
@@ -492,6 +547,20 @@ export function PersonaChat({ persona, userId, onBack }: PersonaChatProps) {
 
       {/* Input */}
       <div className="pt-4 mt-4 border-t border-border space-y-2">
+        {mavisCtxOpen && (
+          <div className="flex gap-2 items-center bg-cyan-950/20 border border-cyan-500/20 rounded-lg px-2 py-1.5">
+            <Brain size={12} className="text-cyan-400 shrink-0" />
+            <input
+              autoFocus
+              value={mavisCtxQuery}
+              onChange={(e) => setMavisCtxQuery(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") handleAskMavis(); if (e.key === "Escape") setMavisCtxOpen(false); }}
+              placeholder="What should MAVIS look up for context? (Enter to send)"
+              className="flex-1 bg-transparent text-xs font-mono text-cyan-200 placeholder:text-cyan-700 focus:outline-none"
+            />
+            <button onClick={() => setMavisCtxOpen(false)} className="text-muted-foreground hover:text-foreground"><X size={10} /></button>
+          </div>
+        )}
         {(attachments.length > 0 || isUploading) && (
           <AttachmentTray
             attachments={attachments}
@@ -503,6 +572,14 @@ export function PersonaChat({ persona, userId, onBack }: PersonaChatProps) {
         )}
         <div className="flex items-end gap-2">
           <div className="flex flex-col items-center gap-1">
+            <button
+              onClick={() => setMavisCtxOpen(v => !v)}
+              disabled={mavisCtxLoading}
+              className="flex items-center justify-center w-7 h-7 rounded border border-cyan-900/40 hover:border-cyan-400/40 text-cyan-400 hover:text-cyan-300 transition-all disabled:opacity-40"
+              title="Ask MAVIS for context"
+            >
+              {mavisCtxLoading ? <Loader2 size={12} className="animate-spin" /> : <Brain size={12} />}
+            </button>
             <VoiceMemo inline />
             <AttachButton isUploading={isUploading} onUpload={upload} />
           </div>
