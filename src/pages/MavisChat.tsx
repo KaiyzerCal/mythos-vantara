@@ -972,7 +972,7 @@ export default function MavisChat() {
         /\b(google|gmail|gcal|google calendar|google drive|notion|slack|discord|spotify|shopify|stripe|airtable|linear|telegram|twilio|whoop|oura|strava|apify|gumroad|heygen|vapi)\b/i,
         // Execute / run actions
         /\b(run|execute|trigger|fire|invoke|call|activate) (the |a |this |that )?(code|script|test|function|command|workflow|automation)\b/i,
-        /\b(create|add|update|delete|remove|edit|change|set|mark|complete|archive|schedule)\b.{0,40}(task|quest|event|meeting|reminder|note|entry|item|goal|habit)\b/i,
+        /\b(create|add|update|delete|remove|edit|change|set|mark|complete|archive|schedule|forge)\b.{0,40}(task|quest|event|meeting|reminder|note|entry|item|goal|habit|persona|character|avatar)\b/i,
         /\b(send|reply to|forward|draft and send)\b.{0,40}(email|message|slack|text|dm)\b/i,
         /\b(deploy|publish|push|release|ship)\b/i,
         /\b(fetch|pull|access|get|retrieve)\b.*(data|api|live|latest|current|real.?time)\b/i,
