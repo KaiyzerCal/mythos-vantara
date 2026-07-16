@@ -35,11 +35,11 @@ function SubQuestRow({ sq, onComplete, onDelete }: { sq: any; onComplete: (id: s
       >
         {sq.status === 'completed' && <Check className="w-2.5 h-2.5 text-white" />}
       </button>
-      <span className={`text-sm flex-1 ${sq.status === 'completed' ? 'line-through text-gray-500' : 'text-gray-300'}`}>
+      <span className={`text-sm flex-1 ${sq.status === 'completed' ? 'line-through text-muted-foreground' : 'text-foreground'}`}>
         {sq.title}
       </span>
       <span className="text-xs text-purple-400 font-mono">{sq.xp_reward}xp</span>
-      <button onClick={() => onDelete(sq.id)} className="text-gray-600 hover:text-red-400 transition-colors ml-1">
+      <button onClick={() => onDelete(sq.id)} className="text-muted-foreground hover:text-red-400 transition-colors ml-1">
         <X className="w-3 h-3" />
       </button>
     </div>
@@ -54,7 +54,7 @@ function AddSubQuestRow({ parentId, onCreate }: { parentId: string; onCreate: (d
     return (
       <button
         onClick={() => setOpen(true)}
-        className="flex items-center gap-1.5 pl-4 py-1 text-xs text-gray-600 hover:text-purple-400 transition-colors border-l-2 border-transparent hover:border-purple-500/30 w-full"
+        className="flex items-center gap-1.5 pl-4 py-1 text-xs text-muted-foreground hover:text-purple-400 transition-colors border-l-2 border-transparent hover:border-purple-500/30 w-full"
       >
         <Plus className="w-3 h-3" /> Add sub-quest
       </button>
@@ -76,9 +76,9 @@ function AddSubQuestRow({ parentId, onCreate }: { parentId: string; onCreate: (d
           if (e.key === "Escape") { setTitle(""); setOpen(false); }
         }}
         placeholder="Sub-quest title... (Enter to save)"
-        className="flex-1 bg-transparent text-sm text-gray-200 placeholder:text-gray-600 outline-none py-1"
+        className="flex-1 bg-transparent text-sm text-foreground placeholder:text-muted-foreground/50 outline-none py-1"
       />
-      <button onClick={() => { setTitle(""); setOpen(false); }} className="text-gray-600 hover:text-gray-400">
+      <button onClick={() => { setTitle(""); setOpen(false); }} className="text-muted-foreground hover:text-foreground">
         <X className="w-3 h-3" />
       </button>
     </div>
@@ -759,7 +759,7 @@ export function QuestsPage() {
               <div className="mt-2 space-y-0.5">
                 {subQuestMap[q.id]?.length > 0 && (
                   <div className="mb-0.5">
-                    <span className="text-xs text-gray-500 pl-4">
+                    <span className="text-xs text-muted-foreground pl-4">
                       {subQuestMap[q.id].filter((s: any) => s.status === 'completed').length}/{subQuestMap[q.id].length} sub-quests
                     </span>
                   </div>

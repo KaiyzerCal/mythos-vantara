@@ -334,6 +334,35 @@
     color: hsl(var(--foreground) / 0.85);
   }
 
+  /* ── Tailwind Typography override — light-mode readability ──
+     Default prose colors render too light on theme-aware light surfaces.
+     Force non-inverted prose to use the semantic foreground while keeping
+     accent colors for links, code, and headings. */
+  .prose:not(.prose-invert) {
+    color: hsl(var(--foreground));
+  }
+  .prose:not(.prose-invert) :where(p, h1, h2, h3, h4, h5, h6, li, strong, em, th, td) {
+    color: hsl(var(--foreground));
+  }
+  .prose:not(.prose-invert) :where(h1, h2, h3, h4, h5, h6) {
+    color: hsl(var(--primary));
+  }
+  .prose:not(.prose-invert) :where(a) {
+    color: hsl(var(--neon-cyan));
+  }
+  .prose:not(.prose-invert) :where(a):hover {
+    text-decoration: underline;
+  }
+  .prose:not(.prose-invert) :where(code) {
+    color: hsl(var(--neon-purple));
+  }
+  .prose:not(.prose-invert) :where(blockquote) {
+    color: hsl(var(--muted-foreground));
+  }
+  .prose:not(.prose-invert) :where(thead th) {
+    color: hsl(var(--primary));
+  }
+
   /* Energy bar colors */
   .energy-ki { background: #FFD700; }
   .energy-aura { background: #00D9FF; }
