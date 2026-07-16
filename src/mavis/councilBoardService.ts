@@ -69,6 +69,7 @@ async function broadcastCouncilResponse(
         timestamp: Date.now(),
       },
     });
+    await supabase.removeChannel(channel);
   } catch { /* non-critical */ }
 }
 
@@ -81,6 +82,7 @@ async function runRound1(
   historyWithMavis: { role: "user" | "assistant"; content: string }[],
   contextSummary: string,
   sessionId: string | undefined,
+  appContext: AppContextSnapshot,
 ): Promise<{
   memberResponses: { member: CouncilMember; response: string }[];
   personaResponses: { persona: UnifiedPersona; response: string; summoned: boolean }[];
@@ -109,7 +111,7 @@ async function runRound1(
 
   const personaPromises = activePersonas.map(async (persona) => {
     const isSummoned = summonedPersonas.some(s => s.id === persona.id);
-    const prompt = buildPersonaCouncilPrompt(persona, {} as AppContextSnapshot);
+    const prompt = buildPersonaCouncilPrompt(persona, appContext);
     try {
       const response = await invokeAI(prompt, historyWithMavis, "COUNCIL", "council-persona");
       if (sessionId) {
@@ -320,7 +322,7 @@ export async function sendCouncilMessage(
   // ── Round 1: initial responses ────────────────────────────────────────────
   const round1 = await runRound1(
     councilMembers, activePersonas, summonedPersonas,
-    historyWithMavis, contextSummary, sessionId,
+    historyWithMavis, contextSummary, sessionId, appContext,
   );
 
   // ── Deliberation rounds ───────────────────────────────────────────────────

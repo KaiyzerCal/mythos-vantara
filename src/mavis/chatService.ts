@@ -146,6 +146,7 @@ export async function streamChatMessage(
             assistantResponse: accumulated.slice(0, 2000),
             mode: options.mode,
           }),
+          signal: AbortSignal.timeout(8_000),
         });
         if (refRes.ok) {
           const refData = await refRes.json();
@@ -164,6 +165,7 @@ export async function streamChatMessage(
     conversationId: (metadata.conversationId as string | null) ?? options.conversationId ?? null,
     searched: metadata.searched === true,
     imageUrl: (metadata.imageUrl as string | null) ?? null,
+    reflectionNote,
     fnData: { ...metadata as Record<string, unknown>, reflectionNote },
   };
 }

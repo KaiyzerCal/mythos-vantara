@@ -461,6 +461,7 @@ export default function MavisDemo() {
 
         const { data: convos } = await supabase
           .from("chat_conversations").select("id").eq("user_id", session.user.id)
+          .not("title", "ilike", "Council Board%")
           .order("updated_at", { ascending: false }).limit(1);
 
         if (!convos?.length) { setDbLoaded(true); return; }
