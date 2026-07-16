@@ -223,14 +223,18 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
       .on("postgres_changes", { event: "*", schema: "public", table: "skills" }, () => { refetchSkills().catch(() => {}); })
       .on("postgres_changes", { event: "*", schema: "public", table: "allies" }, () => { refetchAllies().catch(() => {}); })
       .on("postgres_changes", { event: "*", schema: "public", table: "inventory" }, () => { refetchInventory().catch(() => {}); })
-      .on("postgres_changes", { event: "*", schema: "public", table: "council_members" }, () => { refetchCouncils().catch(() => {}); })
+      .on("postgres_changes", { event: "*", schema: "public", table: "councils" }, () => { refetchCouncils().catch(() => {}); })
       .on("postgres_changes", { event: "*", schema: "public", table: "transformations" }, () => { refetchTransformations().catch(() => {}); })
       .on("postgres_changes", { event: "*", schema: "public", table: "rituals" }, () => { refetchRituals().catch(() => {}); })
       .on("postgres_changes", { event: "*", schema: "public", table: "mavis_domain_effects" }, () => { refetchDomainEffects().catch(() => {}); })
+      .on("postgres_changes", { event: "*", schema: "public", table: "vault_entries" }, () => { refetchVault().catch(() => {}); })
+      .on("postgres_changes", { event: "*", schema: "public", table: "store_items" }, () => { refetchStore().catch(() => {}); })
+      .on("postgres_changes", { event: "*", schema: "public", table: "profiles" }, () => { refetchProfile().catch(() => {}); })
+      .on("postgres_changes", { event: "*", schema: "public", table: "rankings_profiles" }, () => { refetchRankings().catch(() => {}); })
       .subscribe();
     realtimeRef.current = channel;
     return () => { (supabase as any).removeChannel(channel); };
-  }, [refetchQuests, refetchTasks, refetchEnergy, refetchJournal, refetchSkills, refetchAllies, refetchInventory, refetchCouncils, refetchTransformations, refetchRituals, refetchDomainEffects]);
+  }, [refetchQuests, refetchTasks, refetchEnergy, refetchJournal, refetchSkills, refetchAllies, refetchInventory, refetchCouncils, refetchTransformations, refetchRituals, refetchDomainEffects, refetchVault, refetchStore, refetchProfile, refetchRankings]);
 
   const [lastActionTs, setLastActionTs] = useState(0);
 

@@ -121,5 +121,5 @@ export function useMediaPoller(
     return () => {
       if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
     };
-  }, [setMessages]);
+  }, []);
 }
