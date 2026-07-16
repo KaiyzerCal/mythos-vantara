@@ -152,6 +152,18 @@ const DEV_MODE = Object.keys(BOUND_OPERATORS).length === 0;
 // ============================================================
 type Provider = "claude" | "grok" | "openai" | "gemini";
 
+// Safety net: drop oldest messages until estimated input fits within budget.
+// ~4 chars ≈ 1 token; 360k chars ≈ 90k tokens, leaves ample room for system + completion.
+function trimToFit(messages: any[], system: string, maxInputChars = 360_000, minKeep = 6): any[] {
+  const msgs = [...messages];
+  let totalLen = system.length + msgs.reduce((s: number, m: any) => s + JSON.stringify(m).length, 0);
+  while (msgs.length > minKeep && totalLen > maxInputChars) {
+    const dropped = msgs.shift()!;
+    totalLen -= JSON.stringify(dropped).length;
+  }
+  return msgs;
+}
+
 function routeToProvider(mode: string, message: string): Provider {
   const m = mode?.toUpperCase();
   if (["ARCH", "CODEX", "SOVEREIGN"].includes(m)) return "claude";
@@ -191,7 +203,7 @@ async function callOpenAI(messages: any[], system: string, key: string, model = 
     body: JSON.stringify({
       model,
       messages: [{ role: "system", content: system }, ...messages],
-      max_tokens: 16384,
+      max_tokens: 8192,
       temperature: 0.85,
     }),
   });
@@ -546,7 +558,7 @@ async function callOpenAIStream(messages: any[], system: string, key: string, mo
   const res = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
-    body: JSON.stringify({ model, messages: [{ role: "system", content: system }, ...messages], max_tokens: 16384, temperature: 0.85, stream: true }),
+    body: JSON.stringify({ model, messages: [{ role: "system", content: system }, ...messages], max_tokens: 8192, temperature: 0.85, stream: true }),
   });
   if (!res.ok) {
     const e = await res.text();
@@ -4453,6 +4465,9 @@ Always reference dates and times in the entity's own timezone when one is set, o
         if (nativeBlock) fullPromptFinal = fullPrompt + nativeBlock;
       } catch { /* non-critical */ }
     }
+
+    // Safety-net: trim oldest messages if total chars would exceed provider context limits
+    callMessages = trimToFit(callMessages, fullPromptFinal);
 
     // ── Streaming path (SSE) ────────────────────────────────
     if (isStreaming === true) {
