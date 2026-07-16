@@ -780,7 +780,12 @@ function parseActionBlocks(text: string): Array<{ type: string; params: Record<s
       const parsed = JSON.parse(m[1]) as Record<string, unknown>;
       const type = String(parsed.type ?? parsed.action ?? "");
       if (!type) continue;
-      const { type: _t, action: _a, ...params } = parsed;
+      // If the block has an explicit "params" key, use it directly.
+      // Otherwise fall back to spreading everything except type/action (flat format).
+      const params: Record<string, unknown> =
+        parsed.params && typeof parsed.params === "object"
+          ? parsed.params as Record<string, unknown>
+          : (({ type: _t, action: _a, ...rest }) => rest)(parsed);
       blocks.push({ type, params });
     } catch { /* malformed block — skip */ }
   }
