@@ -1751,7 +1751,7 @@ export function CouncilsPage() {
                       Chat
                     </button>
                     <button
-                      onClick={() => setVoiceTarget({ name: m.name, role: m.role, systemPrompt: buildCouncilMemberVoicePrompt(m, appCtx ? buildContextSummary(appCtx) : ""), voiceId: m.voice_id ?? undefined, avatarUrl: m.avatar ?? undefined })}
+                      onClick={() => setVoiceTarget({ name: m.name, role: m.role, systemPrompt: buildCouncilMemberVoicePrompt(m, appCtx ? buildContextSummary(appCtx) : ""), voiceId: m.voice_id ?? undefined, avatarUrl: m.avatar ?? undefined, entityId: m.id, entityType: "council", userId: (profile as unknown as Record<string, unknown>)?.id as string | undefined })}
                       className="flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 text-[10px] font-mono text-muted-foreground hover:text-green-400 hover:bg-green-400/8 rounded border border-transparent hover:border-green-400/25 transition-all"
                     >
                       <PhoneCall size={10} />
