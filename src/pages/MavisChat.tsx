@@ -1462,22 +1462,6 @@ export default function MavisChat() {
     setTimeout(() => setCopiedId(null), 2000);
   };
 
-  const saveToJournal = useCallback(async (content: string) => {
-    const uid = (profile as any)?.id as string | undefined;
-    if (!uid) { toast.error("Not signed in"); return; }
-    const title = `MAVIS — ${new Date().toLocaleDateString()}`;
-    const { error } = await supabase.from("journal_entries").insert({
-      user_id: uid,
-      title,
-      content,
-      category: "mavis",
-      tags: ["mavis", "chat"],
-      importance: "medium",
-    });
-    if (error) toast.error("Failed to save to journal");
-    else toast.success("Saved to Journal");
-  }, [profile]);
-
   // ── Regenerate last assistant response ──
   const regenerate = useCallback(() => {
     const msgs = chatMessages.filter((m) => m.id !== "init");
@@ -2175,13 +2159,6 @@ export default function MavisChat() {
                               <RefreshCw size={9} />
                             </button>
                           )}
-                          <button
-                            onClick={() => saveToJournal(msg.content)}
-                            title="Save to Journal"
-                            className="p-0.5 rounded transition-colors text-muted-foreground hover:text-primary"
-                          >
-                            <BookOpen size={9} />
-                          </button>
                           <button
                             onClick={() => sendFeedback(msg, 1)}
                             title="Good response"

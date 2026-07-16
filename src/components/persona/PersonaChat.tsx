@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { Send, ArrowLeft, Zap, RefreshCw, Brain, Loader2, Database, Square, PhoneCall, BookOpen, X } from "lucide-react";
+import { Send, ArrowLeft, Zap, RefreshCw, Brain, Loader2, Database, Square, PhoneCall, X } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { HudCard } from "@/components/SharedUI";
@@ -212,22 +212,6 @@ export function PersonaChat({ persona, userId, onBack }: PersonaChatProps) {
       toast.error(`Training failed: ${result.message}`);
     }
   }, [triggerFinetune, persona.name]);
-
-  const handleSaveJournal = useCallback(async (content: string) => {
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session?.user) { toast.error("Not signed in"); return; }
-    const title = `${persona.name} — ${new Date().toLocaleDateString()}`;
-    const { error } = await supabase.from("journal_entries").insert({
-      user_id: session.user.id,
-      title,
-      content,
-      category: "persona",
-      tags: ["persona", persona.name.toLowerCase()],
-      importance: "medium",
-    });
-    if (error) toast.error("Failed to save to journal");
-    else toast.success("Saved to Journal");
-  }, [persona.name]);
 
   const handleAskMavis = useCallback(async () => {
     const query = mavisCtxQuery.trim();
@@ -504,21 +488,10 @@ export function PersonaChat({ persona, userId, onBack }: PersonaChatProps) {
                 )}
               >
                 {msg.content}
-                <div className={cn("absolute -top-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity", msg.role === "user" ? "left-0" : "right-0")}>
-                  <CopyButton
-                    content={msg.content}
-                    className="bg-card border border-border"
-                  />
-                  {msg.role === "assistant" && (
-                    <button
-                      onClick={() => handleSaveJournal(msg.content)}
-                      className="w-5 h-5 rounded bg-card border border-border flex items-center justify-center text-muted-foreground hover:text-primary transition-colors"
-                      title="Save to Journal"
-                    >
-                      <BookOpen size={9} />
-                    </button>
-                  )}
-                </div>
+                <CopyButton
+                  content={msg.content}
+                  className="absolute -top-2 -right-2 opacity-0 group-hover:opacity-100 focus:opacity-100 bg-card border border-border"
+                />
               </div>
             </div>
           ))}

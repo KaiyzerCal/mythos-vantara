@@ -4,7 +4,7 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { motion, AnimatePresence } from "framer-motion";
-import { Target, Plus, Trash2, CheckCircle2, Filter, Loader2, Users, MessageCircle, Send, Square, X, Edit2, ArrowDown, ArrowUp, Database, PhoneCall, Check, ChevronDown, ChevronRight, Wand2, ArrowRight, Copy, BookOpen, Brain } from "lucide-react";
+import { Target, Plus, Trash2, CheckCircle2, Filter, Loader2, Users, MessageCircle, Send, Square, X, Edit2, ArrowDown, ArrowUp, Database, PhoneCall, Check, ChevronDown, ChevronRight, Wand2, ArrowRight, Copy, Brain } from "lucide-react";
 import { useAppData } from "@/contexts/AppDataContext";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
@@ -1057,22 +1057,6 @@ function CouncilChat({ member, profile, onClose }: { member: any; profile: any; 
     setTimeout(() => setCopiedId(null), 2000);
   }, []);
 
-  const handleSaveJournal = useCallback(async (content: string) => {
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session?.user) { toast.error("Not signed in"); return; }
-    const title = `${member.name} — ${new Date().toLocaleDateString()}`;
-    const { error } = await supabase.from("journal_entries").insert({
-      user_id: session.user.id,
-      title,
-      content,
-      category: "council",
-      tags: ["council", member.name.toLowerCase()],
-      importance: "medium",
-    });
-    if (error) toast.error("Failed to save to journal");
-    else toast.success("Saved to Journal");
-  }, [member.name]);
-
   const handleAskMavis = useCallback(async () => {
     const query = mavisCtxQuery.trim();
     if (!query) return;
@@ -1464,15 +1448,6 @@ function CouncilChat({ member, profile, onClose }: { member: any; profile: any; 
                     >
                       {copiedId === msg.id ? <Check size={9} className="text-green-500" /> : <Copy size={9} />}
                     </button>
-                    {msg.role === "assistant" && (
-                      <button
-                        onClick={() => handleSaveJournal(msg.content)}
-                        className="w-5 h-5 rounded bg-card border border-border flex items-center justify-center text-muted-foreground hover:text-primary transition-colors"
-                        title="Save to Journal"
-                      >
-                        <BookOpen size={9} />
-                      </button>
-                    )}
                   </div>
                 </div>
               </div>
