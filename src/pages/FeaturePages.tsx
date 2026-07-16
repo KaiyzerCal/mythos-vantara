@@ -969,7 +969,7 @@ HOW TO TALK:
 - End with something that moves the conversation forward — a question, a challenge, a provocation.`;
 }
 
-function CouncilChat({ member, profile, onClose }: { member: any; profile: any; onClose: () => void }) {
+function CouncilChat({ member, profile, appCtx, onClose }: { member: any; profile: any; appCtx?: AppContextSnapshot | null; onClose: () => void }) {
   const { quests, skills, journalEntries, vaultEntries, energySystems, allies, inventory, transformations, rankings, storeItems, bpmSessions, tasks, councils } = useAppData();
   // Build character-specific greeting
   const greetingMap: Record<string, string> = {
@@ -1000,7 +1000,7 @@ function CouncilChat({ member, profile, onClose }: { member: any; profile: any; 
   const [showScrollBtn, setShowScrollBtn] = useState(false);
   const [showBackToTop, setShowBackToTop] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
-  const cancelledRef = useRef(false);
+  const abortControllerRef = useRef<AbortController | null>(null);
   const [dbLoaded, setDbLoaded] = useState(false);
   const [ttsEnabled, setTtsEnabled] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
@@ -1238,7 +1238,7 @@ function CouncilChat({ member, profile, onClose }: { member: any; profile: any; 
     const userMsg: CouncilChatMessage = { id: `u-${Date.now()}`, role: "user", content, timestamp: new Date() };
     setMessages((prev) => [...prev, userMsg]);
     setIsLoading(true);
-    cancelledRef.current = false;
+    abortControllerRef.current = new AbortController();
 
     // Persist user message
     await persistCouncilMessage("user", content);
@@ -1270,7 +1270,7 @@ function CouncilChat({ member, profile, onClose }: { member: any; profile: any; 
     try {
       // Use streaming fetch (same path as MAVIS chat) so we get the generous
       // SSE timeout instead of the 60s non-streaming edge function deadline.
-      const systemPrompt = buildMemberSystemPrompt(member, profile) + memoriesContext;
+      const systemPrompt = buildMemberSystemPrompt(member, profile, appCtx ?? undefined) + memoriesContext;
       const { data: { session } } = await supabase.auth.getSession();
       const accessToken = session?.access_token ?? "";
       const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string;
@@ -1292,7 +1292,7 @@ function CouncilChat({ member, profile, onClose }: { member: any; profile: any; 
           threadRef: member.id,
           stream: true,
         }),
-        signal: cancelledRef.current ? AbortSignal.abort() : undefined,
+        signal: abortControllerRef.current?.signal,
       });
 
       if (!res.ok) {
@@ -1340,14 +1340,13 @@ function CouncilChat({ member, profile, onClose }: { member: any; profile: any; 
         for (const line of lines) processLine(line);
       }
 
-      if (cancelledRef.current) return;
       const reply = accumulated || "...";
       // Persist assistant message
       await persistCouncilMessage("assistant", reply);
       // Speak the response if voice is enabled
       speakText(reply);
     } catch (err: any) {
-      if (cancelledRef.current) return;
+      if (err?.name === "AbortError") return;
       // FunctionsHttpError from supabase.functions.invoke has a `context` Response
       // that carries the actual JSON body from the edge function (e.g. the real error).
       let errMsg = err?.error ?? err?.message ?? "Connection lost.";
@@ -1362,7 +1361,7 @@ function CouncilChat({ member, profile, onClose }: { member: any; profile: any; 
     } finally {
       setIsLoading(false);
     }
-  }, [input, messages, isLoading, member, profile, persistCouncilMessage, quests, skills, journalEntries, vaultEntries, energySystems, allies, inventory, transformations, rankings, storeItems, bpmSessions, tasks, councils, speakText]);
+  }, [input, messages, isLoading, member, profile, appCtx, persistCouncilMessage, quests, skills, journalEntries, vaultEntries, energySystems, allies, inventory, transformations, rankings, storeItems, bpmSessions, tasks, councils, speakText]);
 
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-background/80 backdrop-blur-sm p-4">
@@ -1526,7 +1525,7 @@ function CouncilChat({ member, profile, onClose }: { member: any; profile: any; 
             />
             {isLoading ? (
               <button
-                onClick={() => { cancelledRef.current = true; setIsLoading(false); }}
+                onClick={() => { abortControllerRef.current?.abort(); setIsLoading(false); }}
                 className="px-3 py-2 bg-destructive/10 border border-destructive/30 text-destructive rounded hover:bg-destructive/20 transition-all"
                 title="Stop generating"
               >
@@ -1767,7 +1766,7 @@ export function CouncilsPage() {
 
       <AnimatePresence>
         {activeChat && (
-          <CouncilChat member={activeChat} profile={profile} onClose={() => setActiveChat(null)} />
+          <CouncilChat member={activeChat} profile={profile} appCtx={appCtx} onClose={() => setActiveChat(null)} />
         )}
       </AnimatePresence>
       <AnimatePresence>

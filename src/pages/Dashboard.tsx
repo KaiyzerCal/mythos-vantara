@@ -59,6 +59,12 @@ export default function Dashboard() {
   const { user } = useAuth();
   const { profile, quests, questStats, journalEntries } = useAppData();
 
+  if (!profile) return (
+    <div className="flex items-center justify-center h-full">
+      <div className="animate-pulse text-muted-foreground font-mono text-sm">Loading...</div>
+    </div>
+  );
+
   const rankColor = RANK_COLORS[profile.rank as keyof typeof RANK_COLORS] ?? "#FFD700";
   const xpPct = profile.xp_to_next_level > 0
     ? Math.round((profile.xp / profile.xp_to_next_level) * 100)
@@ -262,7 +268,7 @@ export default function Dashboard() {
                 <RankBadge rank={profile.rank} size="md" />
               </div>
               <p className="text-xs font-mono text-muted-foreground mt-0.5">
-                {profile.titles[0]} • {profile.species_lineage[profile.species_lineage.length - 1]}
+                {profile.titles?.[0]} • {profile.species_lineage?.[profile.species_lineage.length - 1]}
               </p>
               <p className="text-xs font-mono text-muted-foreground">
                 {profile.territory_class} Territory • Floor {profile.current_floor}

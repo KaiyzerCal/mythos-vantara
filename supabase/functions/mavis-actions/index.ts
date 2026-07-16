@@ -692,6 +692,7 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
           "apikey": serviceRoleKey,
         },
         body: JSON.stringify({ user_id: userId, description }),
+        signal: AbortSignal.timeout(90_000),
       });
       if (!res.ok) {
         const txt = await res.text();
@@ -780,6 +781,7 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ chat_id: chatId, text: msg }),
+          signal: AbortSignal.timeout(15_000),
         });
         await logActivity(sb, userId, "council_notify", `Council alert: ${msg.slice(0, 80)}`, 1);
       }
@@ -1055,6 +1057,7 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
                 instances: [{ prompt }],
                 parameters: { sampleCount: 1, aspectRatio },
               }),
+              signal: AbortSignal.timeout(45_000),
             }
           );
           if (imgRes.ok) {
@@ -1079,7 +1082,6 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
             content: `**Prompt:** ${prompt}\n\n**Aspect Ratio:** ${aspectRatio}\n\n*Awaiting manual image generation.*`,
             category: "image-prompt",
             tags: ["image-prompt", "ai-generated"],
-            is_public: false,
           }).catch(() => {});
         }
         return { note, prompt, aspect_ratio: aspectRatio };
@@ -1118,6 +1120,7 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
         body: JSON.stringify({ ...action, user_id: userId }),
+        signal: AbortSignal.timeout(120_000),
       });
       if (!videoRes.ok) throw new Error(`mavis-video-gen error: ${videoRes.status}`);
       return await videoRes.json();
@@ -1129,6 +1132,7 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
         body: JSON.stringify({ action: "status", ...action, user_id: userId }),
+        signal: AbortSignal.timeout(30_000),
       });
       if (!vsRes.ok) throw new Error(`mavis-video-gen status error: ${vsRes.status}`);
       return await vsRes.json();
@@ -1140,6 +1144,7 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
         body: JSON.stringify({ ...action, user_id: userId }),
+        signal: AbortSignal.timeout(60_000),
       });
       if (!wbRes.ok) throw new Error(`mavis-web-builder error: ${wbRes.status}`);
       return await wbRes.json();
@@ -1151,6 +1156,7 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
         body: JSON.stringify({ action: "create_page", ...action, user_id: userId }),
+        signal: AbortSignal.timeout(60_000),
       });
       if (!pwRes.ok) throw new Error(`mavis-wordpress error: ${pwRes.status}`);
       return await pwRes.json();
@@ -1162,6 +1168,7 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
         body: JSON.stringify({ action: "generate", ...action, user_id: userId }),
+        signal: AbortSignal.timeout(30_000),
       });
       if (!wgRes.ok) throw new Error(`mavis-widget-gen error: ${wgRes.status}`);
       return await wgRes.json();
@@ -1173,6 +1180,7 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
         body: JSON.stringify({ user_id: userId, params: (action as any).params }),
+        signal: AbortSignal.timeout(60_000),
       });
       if (!planRes.ok) throw new Error(`mavis-planner error: ${planRes.status}`);
       return await planRes.json();
@@ -1184,6 +1192,7 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
         body: JSON.stringify({ action: "analyze", user_id: userId, ...action }),
+        signal: AbortSignal.timeout(60_000),
       });
       if (!avRes.ok) throw new Error(`mavis-video-editor error: ${avRes.status}`);
       return await avRes.json();
@@ -1195,6 +1204,7 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
         body: JSON.stringify({ action: "generate_clips", user_id: userId, ...action }),
+        signal: AbortSignal.timeout(90_000),
       });
       if (!gcRes.ok) throw new Error(`mavis-video-editor generate_clips error: ${gcRes.status}`);
       return await gcRes.json();
@@ -1206,6 +1216,7 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
         body: JSON.stringify({ action: "render", user_id: userId, ...action }),
+        signal: AbortSignal.timeout(120_000),
       });
       if (!rcRes.ok) throw new Error(`mavis-video-render error: ${rcRes.status}`);
       return await rcRes.json();
@@ -1417,7 +1428,6 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
     }
 
     case "map_gesture": {
-      const p = params as any;
       if (!p.gesture || !p.action_type) throw new Error("map_gesture requires gesture and action_type");
       const { data, error } = await sb
         .from("mavis_gesture_commands")
@@ -1467,6 +1477,7 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
           Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
         },
         body: JSON.stringify({ ...(params as Record<string, unknown>), user_id: userId }),
+        signal: AbortSignal.timeout(30_000),
       });
       if (!notionRes.ok) throw new Error(`mavis-notion-agent error: ${notionRes.status}`);
       return await notionRes.json();
@@ -1481,6 +1492,7 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
           Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
         },
         body: JSON.stringify({ user_id: userId }),
+        signal: AbortSignal.timeout(45_000),
       });
       if (!bcRes.ok) throw new Error(`mavis-brain-consolidate error: ${bcRes.status}`);
       return await bcRes.json();
@@ -1495,6 +1507,7 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
           Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
         },
         body: JSON.stringify({ user_id: userId, ...(params as Record<string, unknown>) }),
+        signal: AbortSignal.timeout(45_000),
       });
       if (!syncRes.ok) throw new Error(`mavis-notion-sync error: ${syncRes.status}`);
       return await syncRes.json();
@@ -1589,7 +1602,6 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
     }
 
     case "add_standing_order": {
-      const p = params as any;
       if (!p.order_text) throw new Error("add_standing_order requires order_text");
       const { data, error } = await sb
         .from("mavis_standing_orders")
@@ -1604,7 +1616,6 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
     }
 
     case "remove_standing_order": {
-      const p = params as any;
       if (!p.order_text && !p.order_id) throw new Error("remove_standing_order requires order_text or order_id");
       const q = sb.from("mavis_standing_orders").update({ enabled: false }).eq("user_id", userId);
       if (p.order_id) q.eq("id", p.order_id);
@@ -1632,12 +1643,11 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
         .lte("next_review_at", new Date().toISOString())
         .not("tags", "cs", '["daily-log"]')
         .order("next_review_at", { ascending: true })
-        .limit((params as any).limit ?? 10);
+        .limit(p.limit ?? 10);
       return { pending_reviews: data ?? [], count: (data ?? []).length };
     }
 
     case "recall_memory": {
-      const p = params as any;
       if (!p.query) throw new Error("recall_memory requires query string");
       const queryLower = (p.query as string).toLowerCase();
       const limit = p.limit ?? 8;

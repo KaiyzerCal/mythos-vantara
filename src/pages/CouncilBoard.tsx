@@ -191,6 +191,7 @@ export default function CouncilBoard() {
   const persist = useCallback(async (cid: string, uid: string, m: CouncilBoardMessage) => {
     try {
       await supabase.from("chat_messages").insert({
+        id: m.id,
         conversation_id: cid, user_id: uid,
         role:    m.isUser ? "user" : "assistant",
         content: m.content,
@@ -281,7 +282,7 @@ export default function CouncilBoard() {
       .subscribe();
     return () => { supabase.removeChannel(channel); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loading]);
+  }, []);
 
   // ── Summon / un-summon persona ────────────────────────────────────
   const handleSummon = useCallback((persona: UnifiedPersona) => {
@@ -374,7 +375,6 @@ export default function CouncilBoard() {
         ...summonedPersonas.map(p => ({ id: p.id, name: p.name, role: p.role, bio: (p as any).bio, adjectives: (p as any).adjectives, topics: (p as any).topics, speakerType: "persona" as const })),
       ];
 
-      const { data: { session } } = await supabase.auth.getSession();
       const res = await supabase.functions.invoke("mavis-discourse-runner", {
         body: { user_id: userId, topic: discourseTopic.trim(), participants },
       });

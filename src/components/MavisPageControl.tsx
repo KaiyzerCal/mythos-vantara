@@ -131,6 +131,7 @@ export function MavisPageControl() {
   const [messages, setMessages] = useState<Msg[]>([]);
   const [isTyping, setIsTyping] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
+  const accumulatedRef = useRef("");
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const historyRef = useRef<Array<{ role: string; content: string }>>([]);
@@ -215,6 +216,7 @@ export function MavisPageControl() {
         historyRef.current.slice(-10), // last 5 turns
         { mode: "PRIME", chatKind: "command-panel", threadRef: `panel-${deviceId.current}` },
         (_token, accumulated) => {
+          accumulatedRef.current = accumulated;
           updateMsg(msgId, accumulated, true);
         },
         undefined,
@@ -227,14 +229,7 @@ export function MavisPageControl() {
       ));
 
       // Update history with the final MAVIS response
-      const finalText = (await new Promise<string>(res => {
-        setMessages(m => {
-          const found = m.find(msg => msg.id === msgId);
-          res(found?.text ?? "");
-          return m;
-        });
-      }));
-      historyRef.current = [...historyRef.current, { role: "assistant", content: finalText }];
+      historyRef.current = [...historyRef.current, { role: "assistant", content: accumulatedRef.current }];
 
     } catch (e: unknown) {
       const cancelled = e instanceof Error && e.name === "AbortError";

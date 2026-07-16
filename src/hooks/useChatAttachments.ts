@@ -12,6 +12,7 @@ export interface ChatAttachment {
   mime_type: string;
   file_url: string;
   file_size: number;
+  storage_path: string | null;
   processing_status: "pending" | "processing" | "done" | "failed";
   extracted_text?: string;
   created_at: string;
@@ -32,7 +33,7 @@ export function useChatAttachments(chatKind: ChatKind, threadRef: string | null 
     if (!session?.user) return;
     const { data } = await supabase
       .from("chat_attachments")
-      .select("id,file_name,mime_type,file_url,file_size,processing_status,extracted_text,created_at")
+      .select("id,file_name,mime_type,file_url,file_size,storage_path,processing_status,extracted_text,created_at")
       .eq("user_id", session.user.id)
       .eq("chat_kind", chatKind)
       .eq("thread_ref", threadRef)
@@ -149,21 +150,11 @@ export function useChatAttachments(chatKind: ChatKind, threadRef: string | null 
     const target = attachments.find((a) => a.id === id);
     setAttachments((prev) => prev.filter((a) => a.id !== id));
     try {
+      // Delete from DB first, but capture storage_path from local state beforehand
       await supabase.from("chat_attachments").delete().eq("id", id);
-      // best-effort storage cleanup (ignore failures)
-      if (target) {
-        const { data: { session } } = await supabase.auth.getSession();
-        if (session?.user) {
-          // we don't have storage_path in the local row, so re-fetch quickly
-          const { data: row } = await supabase
-            .from("chat_attachments")
-            .select("storage_path")
-            .eq("id", id)
-            .maybeSingle();
-          if (row?.storage_path) {
-            await supabase.storage.from("chat-attachments").remove([row.storage_path]).catch(() => {});
-          }
-        }
+      // best-effort storage cleanup using the path already in local state
+      if (target?.storage_path) {
+        await supabase.storage.from("chat-attachments").remove([target.storage_path]).catch(() => {});
       }
     } catch (e) {
       console.error("delete attachment failed", e);
