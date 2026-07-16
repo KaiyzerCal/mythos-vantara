@@ -969,15 +969,17 @@ export default function MavisChat() {
         /\bwhat did (i|we|you) (do|work on|discuss|talk about|complete|accomplish)\b/i,
         /\bwhat.?s (happening|trending|new|in the news|going on)\b/i,
         // Named integrations — any mention = likely needs tools
-        /\b(google|gmail|gcal|google calendar|google drive|notion|slack|discord|spotify|shopify|stripe|airtable|linear|telegram|twilio|whoop|oura|strava|apify|gumroad|heygen|vapi)\b/i,
+        /\b(google|gmail|gcal|google calendar|google drive|notion|slack|discord|spotify|shopify|stripe|airtable|linear|telegram|twilio|whoop|oura|strava|apify|gumroad|heygen|vapi|salesforce|higgsfield|ruview)\b/i,
         // Execute / run actions
         /\b(run|execute|trigger|fire|invoke|call|activate) (the |a |this |that )?(code|script|test|function|command|workflow|automation)\b/i,
-        /\b(create|add|update|delete|remove|edit|change|set|mark|complete|archive|schedule)\b.{0,40}(task|quest|event|meeting|reminder|note|entry|item|goal|habit)\b/i,
+        /\b(create|add|update|delete|remove|edit|change|set|mark|complete|archive|schedule|forge|log|track|award|generate|apply|propose|consolidate|map)\b.{0,40}(task|quest|event|meeting|reminder|note|entry|item|goal|habit|persona|character|avatar|skill|subskill|journal|vault|council|ally|contact|transformation|energy|ranking|expense|image|picture|photo|video|widget|booking|post|xp|experience|bpm|biometric|domain|effect|aura|buff|debuff|curse|product|gesture|device|file|order)\b/i,
+        // Read / list operations for game-layer entities
+        /\b(show|list|get|check|view|see) (my |the )?(skills?|gestures?|standing orders?|pending reviews?|biometrics?|rankings?|allies|council|vault entries|journal entries?|domain effects?|transformations?|inventory)\b/i,
         /\b(send|reply to|forward|draft and send)\b.{0,40}(email|message|slack|text|dm)\b/i,
         /\b(deploy|publish|push|release|ship)\b/i,
         /\b(fetch|pull|access|get|retrieve)\b.*(data|api|live|latest|current|real.?time)\b/i,
         // Analysis / metrics / live systems
-        /\banalyze (my |the )?(current )?(setup|system|app|data|performance|stats|metrics|portfolio|business|codebase|config)\b/i,
+        /\banalyze (my |the )?(current )?(setup|system|app|data|performance|stats|metrics|portfolio|business|codebase|config|video)\b/i,
         /\b(how.?s|what.?s) ?(my |the )?(performance|analytics?|stats?|metrics?|revenue|sales|traffic|ranking)\b/i,
         /\b(report|dashboard|kpi|summary) (on|for|of|about)\b/i,
         /\bcheck (my |the )?(account|balance|analytics|stats|metrics|notifications|news)\b/i,
@@ -985,6 +987,24 @@ export default function MavisChat() {
         /\b(do it|do that|make it happen|carry (it|that) out|take care of (it|that)|handle (it|that))\b/i,
         /\b(build me|make me|generate (me )?a)\b.{0,40}(app|website|script|tool|template|spreadsheet|report)\b/i,
         /\b(today.?s|this week.?s|upcoming|recent|latest)\b.{0,30}(tasks?|events?|meetings?|emails?|deadlines?)\b/i,
+        // Social / media actions
+        /\b(schedule|post|publish|draft) (a |the )?(tweet|post|reel|clip|story|content)\b/i,
+        /\b(book|reserve|schedule|find) (a |the |me a )?(venue|room|session|appointment|slot|space)\b/i,
+        // Domain effects / buffs / game combat layer
+        /\b(apply|activate|cast|trigger)\b.{0,30}(buff|debuff|curse|aura|terrain|zone|domain|effect|ability)\b/i,
+        // Biometrics / health sensors
+        /\b(biometric|vitals?|bpm|heart.?rate|pulse|body scan|ruview)\b/i,
+        // Brain / memory consolidation
+        /\b(consolidate|sync|defrag) (my )?(memory|memories|brain|knowledge)\b/i,
+        // Git / file operations
+        /\bgit (status|diff|log|blame|show|branch|stash|commit|push)\b/i,
+        /\b(edit|modify|write to|read from) (a |the |my )?(file|document|config)\b/i,
+        // Standing orders & recurring directives
+        /\b(standing orders?|recurring (task|reminder|instruction|order))\b/i,
+        // Voice / audio output
+        /\bvoicebox\b|\bgenerate (a |my )?(voice|audio|speech|narration)\b/i,
+        // Pending / spaced-repetition reviews
+        /\b(pending|due) (reviews?|for review)\b/i,
       ];
 
       const CHAT_ONLY_INTENT: RegExp[] = [

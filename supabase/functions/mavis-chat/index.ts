@@ -808,6 +808,10 @@ async function executeAgentAction(
     });
     const data = await res.json().catch(() => ({})) as Record<string, unknown>;
     if (!res.ok) return { ok: false, result: { error: data.error ?? `HTTP ${res.status}` } };
+    const firstResult = Array.isArray(data.results) ? (data.results as Array<Record<string, unknown>>)[0] : null;
+    if (firstResult?.success === false) {
+      return { ok: false, result: { error: firstResult.error ?? "Action returned success=false" } };
+    }
     return { ok: true, result: data };
   } catch (e: any) {
     return { ok: false, result: { error: e.message ?? "Action execution failed" } };
