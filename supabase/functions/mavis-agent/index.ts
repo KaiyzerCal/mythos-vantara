@@ -1570,7 +1570,9 @@ async function handleTool(
       // telegram-webhook's :::ACTION::: grammar. Zero duplication; nothing breaks.
       case "codexos_action": {
         const actionType = String(input.type ?? "").trim();
-        const params = (input.params ?? {}) as Record<string, unknown>;
+        let rawP = input.params;
+        if (typeof rawP === "string") { try { rawP = JSON.parse(rawP); } catch { rawP = {}; } }
+        const params = (rawP && typeof rawP === "object" ? rawP : {}) as Record<string, unknown>;
 
         if (!actionType) return { error: "type required" };
 

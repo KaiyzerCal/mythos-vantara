@@ -152,10 +152,14 @@ function normalizeActionType(type: string): string {
 
 // ── Action executor ────────────────────────────────────────
 async function executeAction(sb: any, userId: string, action: MavisAction) {
-  // Support both nested { type, params: {...} } and flat { type, title, ... } formats.
-  // Telegram/Claude may send flat; frontend always sends nested.
-  const p: Record<string, unknown> = (action.params && typeof action.params === "object")
-    ? action.params as Record<string, unknown>
+  // Support nested { type, params: {...} }, flat { type, title, ... }, and
+  // double-encoded { type, params: "{\"description\":\"...\"}" } (GPT-4o-mini quirk).
+  let rawParams = action.params;
+  if (typeof rawParams === "string") {
+    try { rawParams = JSON.parse(rawParams); } catch { rawParams = undefined; }
+  }
+  const p: Record<string, unknown> = (rawParams && typeof rawParams === "object")
+    ? rawParams as Record<string, unknown>
     : (({ type: _t, params: _p, ...rest }) => rest)(action as any);
   const actionType = normalizeActionType(action.type);
 
