@@ -1592,6 +1592,10 @@ async function handleTool(
         }
 
         const data = await res.json();
+        const firstResult = Array.isArray(data.results) ? (data.results as Array<Record<string, unknown>>)[0] : null;
+        if (firstResult?.success === false) {
+          return { error: firstResult.error ?? "Action failed", type: actionType };
+        }
         return { executed: true, type: actionType, result: data };
       }
 
