@@ -69,11 +69,25 @@ Make the system_prompt rich, specific, and in-character. Make the persona feel l
     const data = await res.json();
     const rawText = data.content[0].text;
 
+    // Strip markdown code fences if Claude wraps the JSON
+    const cleaned = rawText
+      .trim()
+      .replace(/^```(?:json)?\s*/i, "")
+      .replace(/\s*```\s*$/i, "")
+      .trim();
     let personaSpec;
     try {
-      personaSpec = JSON.parse(rawText);
+      personaSpec = JSON.parse(cleaned);
     } catch {
-      return new Response(JSON.stringify({ error: "Failed to parse persona spec", raw: rawText }), { status: 500, headers: corsHeaders });
+      // Last resort: extract first {...} block
+      const match = cleaned.match(/\{[\s\S]*\}/);
+      if (match) {
+        try { personaSpec = JSON.parse(match[0]); } catch {
+          return new Response(JSON.stringify({ error: "Failed to parse persona spec", raw: rawText }), { status: 500, headers: corsHeaders });
+        }
+      } else {
+        return new Response(JSON.stringify({ error: "Failed to parse persona spec", raw: rawText }), { status: 500, headers: corsHeaders });
+      }
     }
 
     const { data: newPersona, error } = await supabase
