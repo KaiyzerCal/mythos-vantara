@@ -4,13 +4,13 @@ import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { Send, ArrowLeft, Users, Database, Square, Mic, MicOff, Zap, ChevronDown, ChevronUp, PhoneCall, MessageSquare, Loader2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
-import { loadFullAppContext } from "@/mavis/appContextLoader";
+import { loadFullAppContext, type AppContextSnapshot } from "@/mavis/appContextLoader";
 import {
   sendCouncilMessage,
   type CouncilBoardMessage,
 } from "@/mavis/councilBoardService";
 import type { CouncilMember } from "@/mavis/councilPersona";
-import { buildCouncilMemberPrompt, buildCouncilMemberVoicePrompt, buildPersonaVoiceSystemPrompt } from "@/mavis/councilPersona";
+import { buildCouncilMemberPrompt, buildCouncilMemberVoicePrompt, buildPersonaVoiceSystemPrompt, buildContextSummary } from "@/mavis/councilPersona";
 import { VoiceChatOverlay } from "@/components/VoiceChatOverlay";
 import type { VoicePersona } from "@/components/VoiceChatOverlay";
 import { CouncilGroupVoice } from "@/components/CouncilGroupVoice";
@@ -75,6 +75,7 @@ export default function CouncilBoard() {
   const [showBackToTop,    setShowBackToTop]    = useState(false);
   const [isListening,      setIsListening]      = useState(false);
   const [voiceTarget,      setVoiceTarget]      = useState<VoicePersona | null>(null);
+  const [appCtx,           setAppCtx]           = useState<AppContextSnapshot | null>(null);
   const [groupVoiceOpen,   setGroupVoiceOpen]   = useState(false);
   const [confirmClear,     setConfirmClear]     = useState(false);
   // ── Discourse mode (MoltBook-style structured AI debate) ──────────────
@@ -169,6 +170,12 @@ export default function CouncilBoard() {
       }
     })();
   }, []);
+
+  // Pre-load app context so voice calls have full user state in system prompt
+  useEffect(() => {
+    if (!userId) return;
+    loadFullAppContext(userId).then(setAppCtx).catch(() => {/* non-fatal */});
+  }, [userId]);
 
   const ensureConversation = useCallback(async (uid: string): Promise<string | null> => {
     if (conversationId) return conversationId;
@@ -626,7 +633,7 @@ export default function CouncilBoard() {
                   setVoiceTarget({
                     name: member.name,
                     role: member.role ?? member.specialty,
-                    systemPrompt: buildCouncilMemberVoicePrompt(member, ""),
+                    systemPrompt: buildCouncilMemberVoicePrompt(member, appCtx ? buildContextSummary(appCtx) : ""),
                     entityId: member.id,
                     entityType: "council",
                     userId: userId ?? undefined,
