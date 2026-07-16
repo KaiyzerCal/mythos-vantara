@@ -30,6 +30,7 @@ serve(async (req) => {
         "x-api-key": claudeKey,
         "anthropic-version": "2023-06-01",
       },
+      signal: AbortSignal.timeout(45_000),
       body: JSON.stringify({
         model: "claude-sonnet-4-6",
         max_tokens: 2000,
@@ -98,13 +99,14 @@ Make the system_prompt rich, specific, and in-character. Make the persona feel l
 
     if (error) return new Response(JSON.stringify({ error }), { status: 500, headers: corsHeaders });
 
-    await supabase.from("relationship_states").insert({
+    const { error: rsError } = await supabase.from("relationship_states").insert({
       persona_id: newPersona.id,
       user_id,
       trust_level: 50,
       bond_level: 0,
       current_mood: "neutral",
     });
+    if (rsError) console.error("relationship_states insert failed:", rsError.message);
 
     return new Response(JSON.stringify({ persona: newPersona }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
