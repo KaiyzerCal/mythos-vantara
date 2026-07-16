@@ -303,7 +303,7 @@ export function buildContextSummary(ctx: AppContextSnapshot): string {
   };
 
   block("QUESTS", ctx.quests, (q) => `[${q.id}] "${q.title}" [${q.status}/${q.type}] ${q.progress_current ?? 0}/${q.progress_target ?? 1}${q.description ? ` — ${String(q.description).slice(0, 200)}` : ""}`);
-  block("TASKS", ctx.tasks, (t) => `[${t.id}] "${t.title}" [${t.status}/${t.recurrence}]${t.description ? ` — ${String(t.description).slice(0, 150)}` : ""}`);
+  block("TASKS", ctx.tasks, (t) => `[${t.id}] "${t.title}" [${t.status}/${t.recurrence ?? ""}]${t.description ? ` — ${String(t.description).slice(0, 150)}` : ""}`);
   block("SKILLS", ctx.skills, (s) => `[${s.id}] ${s.name} (${s.category}, T${s.tier}, ${s.proficiency}%, ${s.energy_type})${s.description ? ` — ${String(s.description).slice(0, 150)}` : ""}`);
   block("FORMS / TRANSFORMATIONS", ctx.transformations, (f) => `[${f.id}] ${f.name} (T${f.form_order}, ${f.tier}, ${f.energy})${f.unlocked ? "" : " [locked]"}${f.description ? ` — ${String(f.description).slice(0, 150)}` : ""}`);
   block("INVENTORY", ctx.inventory, (i) => `[${i.id}] ${i.name} [${i.rarity}/${i.type}] x${i.quantity}${i.is_equipped ? " (equipped)" : ""}${i.effect ? ` — ${i.effect}` : ""}${i.description ? ` — ${String(i.description).slice(0, 120)}` : ""}`);
@@ -315,7 +315,7 @@ export function buildContextSummary(ctx: AppContextSnapshot): string {
   block("ALLIES", ctx.allies, (a) => `[${a.id}] ${a.name} (${a.relationship}, Lv${a.level}, aff:${a.affinity})${a.notes ? ` — ${String(a.notes).slice(0, 120)}` : ""}`);
   block("STORE", ctx.storeItems, (s) => `[${s.id}] ${s.name} (${s.rarity}/${s.category}) ${s.price} ${s.currency}${s.effect ? ` — ${s.effect}` : ""}`);
   block("BPM SESSIONS", ctx.bpmSessions, (b) => `${b.bpm} BPM · ${b.form} · ${b.duration}m${b.mood ? ` · ${b.mood}` : ""}`);
-  block("PENDING APPROVALS", ctx.pendingApprovals, (a) => `${a.action_type} — ${a.action_summary} [${a.status}]`);
+  block("PENDING APPROVALS", ctx.pendingApprovals, (a) => `${a.action_type} — ${a.draft_content ?? ""} [${a.status}]`);
 
   return lines.join("\n");
 }

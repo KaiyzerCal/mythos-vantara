@@ -1082,7 +1082,6 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
             content: `**Prompt:** ${prompt}\n\n**Aspect Ratio:** ${aspectRatio}\n\n*Awaiting manual image generation.*`,
             category: "image-prompt",
             tags: ["image-prompt", "ai-generated"],
-            is_public: false,
           }).catch(() => {});
         }
         return { note, prompt, aspect_ratio: aspectRatio };
@@ -1508,6 +1507,7 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
           Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
         },
         body: JSON.stringify({ user_id: userId, ...(params as Record<string, unknown>) }),
+        signal: AbortSignal.timeout(45_000),
       });
       if (!syncRes.ok) throw new Error(`mavis-notion-sync error: ${syncRes.status}`);
       return await syncRes.json();

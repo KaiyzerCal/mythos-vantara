@@ -23,7 +23,7 @@ export interface AppContextSnapshot {
 }
 
 async function safeQuery(table: string, userId: string, cols = "*"): Promise<unknown[]> {
-  const ALLOWED = new Set(["quests","tasks","skills","rankings_profiles","transformations","journal_entries","vault_entries","councils","inventory","store_items","energy_systems","bpm_sessions","allies","personas","mavis_tasks","approvals"]);
+  const ALLOWED = new Set(["quests","tasks","skills","rankings_profiles","transformations","journal_entries","vault_entries","councils","inventory","store_items","energy_systems","bpm_sessions","allies","personas","mavis_tasks","approvals","mavis_action_queue"]);
   if (!ALLOWED.has(table)) { console.warn(`[AppContext] Blocked query to unknown table: ${table}`); return []; }
   try {
     const { data, error } = await supabase
@@ -89,7 +89,7 @@ export async function loadFullAppContext(userId: string): Promise<AppContextSnap
   ] = await Promise.all([
     safeProfile(userId),
     safeQuery("quests", userId),
-    safeQuery("tasks", userId),
+    safeQuery("quests", userId),
     safeQuery("skills", userId),
     safeQuery("rankings_profiles", userId),
     safeQuery("transformations", userId),
@@ -101,7 +101,16 @@ export async function loadFullAppContext(userId: string): Promise<AppContextSnap
     safeQuery("energy_systems", userId),
     safeQuery("bpm_sessions", userId),
     safeQuery("allies", userId),
-    safeQuery("approvals", userId),
+    (async () => {
+      try {
+        const { data } = await supabase
+          .from("mavis_action_queue")
+          .select("id, action_type, draft_content, created_at, status")
+          .eq("user_id", userId)
+          .eq("status", "pending");
+        return data ?? [];
+      } catch { return []; }
+    })(),
     safeQuery("personas", userId),
   ]);
 
