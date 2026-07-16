@@ -74,7 +74,10 @@ export function CouncilGroupVoice({
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [turnCount, setTurnCount] = useState(0);
   const [history, setHistory] = useState<TurnEntry[]>([]);
+  const [sessionError, setSessionError] = useState<string | null>(null);
   const sessionIdRef = useRef<string | null>(null);
+  const membersRef = useRef<SessionMember[]>(members);
+  useEffect(() => { membersRef.current = members; }, [members]);
 
   // Directed-address state
   const [directedAt, setDirectedAt] = useState<SessionMember | null>(null);
@@ -582,8 +585,9 @@ export function CouncilGroupVoice({
         sessionIdRef.current = sid;
         setSessionId(sid);
         setMembers(mems);
-      } catch {
-        // Non-fatal — show empty member list
+      } catch (err) {
+        console.error("[CouncilGroupVoice] session start failed:", err);
+        setSessionError("Failed to start council session. Please try again.");
       }
     })();
 
@@ -893,6 +897,11 @@ export function CouncilGroupVoice({
           )}
         </AnimatePresence>
       </div>
+
+      {/* ── Session error ── */}
+      {sessionError && (
+        <p className="text-xs font-mono text-red-400/80 text-center px-5 py-1 shrink-0">{sessionError}</p>
+      )}
 
       {/* ── Session history ── */}
       <div className="flex-1 flex flex-col min-h-0 px-5 mt-4">

@@ -111,6 +111,10 @@ export default function MavisChat() {
     chatMode, setChatMode, refetchAll,
     rituals, councils, energySystems, inventory, allies, bpmSessions, storeItems, transformations,
   } = _appData;
+  const appDataRef = useRef({ councils, energySystems, inventory, allies, bpmSessions, storeItems, transformations, rituals });
+  useEffect(() => {
+    appDataRef.current = { councils, energySystems, inventory, allies, bpmSessions, storeItems, transformations, rituals };
+  }, [councils, energySystems, inventory, allies, bpmSessions, storeItems, transformations, rituals]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [actionStatus, setActionStatus] = useState<string | null>(null);
@@ -120,6 +124,7 @@ export default function MavisChat() {
   const [showModes, setShowModes] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const [dbLoaded, setDbLoaded] = useState(false);
+  const dbLoadedRef = useRef(false);
   const [showScrollBtn, setShowScrollBtn] = useState(false);
   const [scrollProgress, setScrollProgress] = useState(0);
   const [showBackToTop, setShowBackToTop] = useState(false);
@@ -444,7 +449,7 @@ export default function MavisChat() {
           .limit(1);
 
         if (cancelled) return;
-        if (!convos?.length) { setDbLoaded(true); return; }
+        if (!convos?.length) { setDbLoaded(true); dbLoadedRef.current = true; return; }
 
         const convoId = convos[0].id;
         setConversationId(convoId);
@@ -470,7 +475,7 @@ export default function MavisChat() {
       } catch (err) {
         console.error("Failed to restore chat:", err);
       } finally {
-        if (!cancelled) setDbLoaded(true);
+        if (!cancelled) { setDbLoaded(true); dbLoadedRef.current = true; }
       }
     };
 
@@ -483,7 +488,7 @@ export default function MavisChat() {
     })();
 
     const { data: sub } = supabase.auth.onAuthStateChange((_event: any, session: any) => {
-      if (session?.user && !dbLoaded && !cancelled) {
+      if (session?.user && !dbLoadedRef.current && !cancelled) {
         runLoad(session.user.id);
       }
     });
@@ -823,11 +828,11 @@ export default function MavisChat() {
       ...(skills || []).map((s: any) => `SKILL [${s.id}] "${s.name}"${s.parent_skill_id ? ` parent:${s.parent_skill_id}` : ""}`),
       ...(journalEntries || []).map((j: any) => `JOURNAL [${j.id}] "${j.title}"`),
       ...(vaultEntries || []).map((v: any) => `VAULT [${v.id}] "${v.title}"`),
-      ...(councils || []).map((c: any) => `COUNCIL [${c.id}] "${c.name}"`),
-      ...(allies || []).map((a: any) => `ALLY [${a.id}] "${a.name}"`),
-      ...(inventory || []).map((i: any) => `INVENTORY [${i.id}] "${i.name}"`),
-      ...(transformations || []).map((t: any) => `TRANSFORMATION [${t.id}] "${t.name}"`),
-      ...(storeItems || []).map((s: any) => `STORE [${s.id}] "${s.name}"`),
+      ...(appDataRef.current.councils || []).map((c: any) => `COUNCIL [${c.id}] "${c.name}"`),
+      ...(appDataRef.current.allies || []).map((a: any) => `ALLY [${a.id}] "${a.name}"`),
+      ...(appDataRef.current.inventory || []).map((i: any) => `INVENTORY [${i.id}] "${i.name}"`),
+      ...(appDataRef.current.transformations || []).map((t: any) => `TRANSFORMATION [${t.id}] "${t.name}"`),
+      ...(appDataRef.current.storeItems || []).map((s: any) => `STORE [${s.id}] "${s.name}"`),
     ].join("\n");
 
     let streamingId = "";
@@ -1089,12 +1094,12 @@ export default function MavisChat() {
             : buildSystemPromptFromSnapshot(chatMode, ({
                 profile: profile as any,
                 quests: quests as any[], tasks: tasks as any[], skills: skills as any[],
-                rankings: [], transformations: transformations as any[],
+                rankings: [], transformations: appDataRef.current.transformations as any[],
                 journalEntries: journalEntries as any[], vaultEntries: vaultEntries as any[],
-                councilMembers: councils as any[], inventory: inventory as any[],
-                storeItems: storeItems as any[], energySystems: energySystems as any[],
-                bpmSessions: bpmSessions as any[], allies: allies as any[],
-                rituals: rituals as any[], pendingApprovals: [], loadedAt: new Date().toISOString(),
+                councilMembers: appDataRef.current.councils as any[], inventory: appDataRef.current.inventory as any[],
+                storeItems: appDataRef.current.storeItems as any[], energySystems: appDataRef.current.energySystems as any[],
+                bpmSessions: appDataRef.current.bpmSessions as any[], allies: appDataRef.current.allies as any[],
+                rituals: appDataRef.current.rituals as any[], pendingApprovals: [], loadedAt: new Date().toISOString(),
               } as any), archivedMemories, vaultMedia));
 
           // ── Stream via mavis-agent with live SSE progress updates ────────────────
@@ -1154,10 +1159,10 @@ export default function MavisChat() {
             setAgentThinking("↩ Direct mode…");
             const fallbackSys = await buildSystemPromptFromSnapshot(chatMode, ({
               profile: profile as any, quests: quests as any[], tasks: tasks as any[], skills: skills as any[],
-              rankings: [], transformations: transformations as any[], journalEntries: journalEntries as any[],
-              vaultEntries: vaultEntries as any[], councilMembers: councils as any[], inventory: inventory as any[],
-              storeItems: storeItems as any[], energySystems: energySystems as any[], bpmSessions: bpmSessions as any[],
-              allies: allies as any[], rituals: rituals as any[], pendingApprovals: [], loadedAt: new Date().toISOString(),
+              rankings: [], transformations: appDataRef.current.transformations as any[], journalEntries: journalEntries as any[],
+              vaultEntries: vaultEntries as any[], councilMembers: appDataRef.current.councils as any[], inventory: appDataRef.current.inventory as any[],
+              storeItems: appDataRef.current.storeItems as any[], energySystems: appDataRef.current.energySystems as any[], bpmSessions: appDataRef.current.bpmSessions as any[],
+              allies: appDataRef.current.allies as any[], rituals: appDataRef.current.rituals as any[], pendingApprovals: [], loadedAt: new Date().toISOString(),
             } as any), archivedMemories, vaultMedia);
             const fallbackResult = await streamChatMessage(
               content, fallbackSys, history,
@@ -1231,12 +1236,12 @@ export default function MavisChat() {
         : buildSystemPromptFromSnapshot(chatMode, ({
             profile: profile as any,
             quests: quests as any[], tasks: tasks as any[], skills: skills as any[],
-            rankings: [], transformations: transformations as any[],
+            rankings: [], transformations: appDataRef.current.transformations as any[],
             journalEntries: journalEntries as any[], vaultEntries: vaultEntries as any[],
-            councilMembers: councils as any[], inventory: inventory as any[],
-            storeItems: storeItems as any[], energySystems: energySystems as any[],
-            bpmSessions: bpmSessions as any[], allies: allies as any[],
-            rituals: rituals as any[], pendingApprovals: [], loadedAt: new Date().toISOString(),
+            councilMembers: appDataRef.current.councils as any[], inventory: appDataRef.current.inventory as any[],
+            storeItems: appDataRef.current.storeItems as any[], energySystems: appDataRef.current.energySystems as any[],
+            bpmSessions: appDataRef.current.bpmSessions as any[], allies: appDataRef.current.allies as any[],
+            rituals: appDataRef.current.rituals as any[], pendingApprovals: [], loadedAt: new Date().toISOString(),
           } as any), archivedMemories, vaultMedia));
       if (recallCtxRaw) systemPrompt += `\n\n${recallCtxRaw}`;
       // SuperContext — assembled by mavis-context-scout at session start (OpenHuman pattern)
