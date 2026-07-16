@@ -518,7 +518,7 @@ export function VoiceChatOverlay({
       .replace("https://", "wss://")
       .replace("http://", "ws://");
 
-    const systemParam = encodeURIComponent("You are MAVIS, a sovereign AI life OS.");
+    const systemParam = encodeURIComponent(personaRef.current?.systemPrompt ?? "You are MAVIS, a sovereign AI life OS.");
     const ws = new WebSocket(
       `${wsUrl}/functions/v1/mavis-live-voice?system=${systemParam}`,
     );

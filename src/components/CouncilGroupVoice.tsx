@@ -387,7 +387,7 @@ export function CouncilGroupVoice({
 
       // Auto-detect directed member from text (fallback if not already pinned)
       const currentDirected = directedAtRef.current;
-      const autoDetected = !currentDirected ? detectDirectedMember(text, members) : null;
+      const autoDetected = !currentDirected ? detectDirectedMember(text, membersRef.current) : null;
       const effectiveDirected = currentDirected ?? autoDetected;
 
       if (autoDetected && !currentDirected) {
@@ -424,7 +424,7 @@ export function CouncilGroupVoice({
         if (!closingRef.current) setPhase("idle");
       }
     },
-    [userId, members, playResponseAtIndex],
+    [userId, playResponseAtIndex],
   );
 
   const startListening = useCallback(() => {
