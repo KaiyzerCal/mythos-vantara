@@ -4517,6 +4517,7 @@ Always reference dates and times in the entity's own timezone when one is set, o
               const REACT_MAX_ACTIONS = 15;
               let reactIter        = 0;
               let totalActions     = 0;
+              let actionsSucceeded = 0;
               let reactMessages    = [...callMessages];
 
               while (reactIter < REACT_MAX_ITER && totalActions < REACT_MAX_ACTIONS) {
@@ -4542,6 +4543,7 @@ Always reference dates and times in the entity's own timezone when one is set, o
                   }
                   toolResults.push({ type: block.type, ok, result });
                   totalActions++;
+                  if (ok) actionsSucceeded++;
                   sb.from("mavis_agent_traces").insert({ user_id: user.id, session_id: conversationId ?? "streaming", iteration: reactIter + 1, action_type: block.type, params: block.params as any, result: result as any, ok, duration_ms: Date.now() - _traceStartStream }).then(() => {}, () => {});
                   controller.enqueue(enc.encode(`data: ${JSON.stringify({ step: "result", type: block.type, ok, preview: JSON.stringify(result).slice(0, 300) })}\n\n`));
                 }
@@ -4645,7 +4647,7 @@ Always reference dates and times in the entity's own timezone when one is set, o
                 } catch { /* non-critical */ }
               }
             }
-            controller.enqueue(enc.encode(`data: ${JSON.stringify({ done: true, provider: streamProv, conversationId, searched: !!webSearchResults, imageUrl: imgUrl, imageMediaId })}\n\n`));
+            controller.enqueue(enc.encode(`data: ${JSON.stringify({ done: true, provider: streamProv, conversationId, searched: !!webSearchResults, imageUrl: imgUrl, imageMediaId, actionsRan: actionsSucceeded > 0 })}\n\n`));
           } catch (e: any) {
             controller.enqueue(enc.encode(`data: ${JSON.stringify({ error: e.message ?? "Stream error" })}\n\n`));
           } finally {
