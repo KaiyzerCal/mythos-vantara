@@ -523,13 +523,17 @@ export default function MavisChat() {
       const writeKey = `${msg.role}:${msg.content}`;
       recentWebWrites.current.set(writeKey, Date.now());
       setTimeout(() => recentWebWrites.current.delete(writeKey), 30_000);
-      await supabase.from("chat_messages").insert({
+      const { error: insertErr } = await supabase.from("chat_messages").insert({
         conversation_id: convoId,
         user_id: session.user.id,
         role: msg.role,
         content: msg.content,
         mode: msg.mode ?? "PRIME",
       });
+      if (insertErr) {
+        console.error("chat_messages insert failed:", insertErr.message, insertErr.code);
+        return;
+      }
       // Keep updated_at current so the mount-time query always finds this conversation first
       await supabase.from("chat_conversations")
         .update({ updated_at: new Date().toISOString() })
@@ -1299,12 +1303,14 @@ export default function MavisChat() {
           abortController.signal,
         );
       } else {
+        let reactActionsSucceeded = false;
         streamResult = await streamChatMessage(
           content, systemPrompt, history,
           { mode: chatMode, conversationId, appState: compactState, chatKind: "mavis", threadRef: "main", attachmentIds },
           onToken,
           (stepEvent) => {
             if (!cancelledRef.current) {
+              if (stepEvent.step === "result" && stepEvent.ok) reactActionsSucceeded = true;
               setAgentSteps(prev => {
                 const label = stepEvent.type ? `${stepEvent.type}` : "";
                 if (stepEvent.step === "result" && prev.length > 0 && prev[prev.length - 1].type === stepEvent.type) {
@@ -1316,6 +1322,16 @@ export default function MavisChat() {
           },
           abortController.signal,
         );
+        // Schedule data refetch if the mavis-chat ReAct loop executed any actions.
+        // Done after streamResult so the message is finalized first.
+        if (reactActionsSucceeded || (streamResult.fnData as any)?.actionsRan) {
+          setTimeout(async () => {
+            if (!cancelledRef.current) {
+              await refetchAll();
+              setTimeout(() => refetchAll(), 1500);
+            }
+          }, 600);
+        }
       }
       const { cleanText, executionResults, conversationId: newConvoId, searched, imageUrl, fnData } = streamResult;
 
