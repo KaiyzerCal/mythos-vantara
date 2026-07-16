@@ -443,7 +443,7 @@ export function VoiceChatOverlay({
         await streamChatMessage(
           text,
           p.systemPrompt,
-          personaHistoryRef.current,
+          personaHistoryRef.current.slice(-20),
           { mode: "COUNCIL" },
           (_, acc) => {
             if (!isStale()) { reply = acc; setPersonaReply(acc); }
