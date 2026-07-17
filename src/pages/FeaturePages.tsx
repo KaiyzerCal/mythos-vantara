@@ -1232,7 +1232,7 @@ function CouncilChat({ member, profile, appCtx, onClose }: { member: any; profil
 
   const sendMessage = useCallback(async (text?: string) => {
     const content = (text ?? input).trim();
-    if (!content || isLoading) return;
+    if (!content || isLoading || !dbLoaded) return;
     setInput("");
 
     const userMsg: CouncilChatMessage = { id: `u-${Date.now()}`, role: "user", content, timestamp: new Date() };
@@ -1243,9 +1243,19 @@ function CouncilChat({ member, profile, appCtx, onClose }: { member: any; profil
     // Persist user message
     await persistCouncilMessage("user", content);
 
+    // Build the history sent to the model: exclude ephemeral messages (init greeting,
+    // error bubbles, empty loading placeholders) so stale error text never poisons context.
     const apiMessages = [
-      ...messages.filter((m) => m.id !== "init").slice(-12).map((m) => ({ role: m.role, content: m.content })),
-      { role: "user", content },
+      ...messages
+        .filter((m) =>
+          m.id !== "init" &&
+          m.content.trim() !== "" &&
+          !m.content.startsWith("⚠") &&
+          (m.role === "user" || m.role === "assistant")
+        )
+        .slice(-20)
+        .map((m) => ({ role: m.role as "user" | "assistant", content: m.content })),
+      { role: "user" as const, content },
     ];
 
     // Load archived memories for this council member
@@ -1361,7 +1371,7 @@ function CouncilChat({ member, profile, appCtx, onClose }: { member: any; profil
     } finally {
       setIsLoading(false);
     }
-  }, [input, messages, isLoading, member, profile, appCtx, persistCouncilMessage, quests, skills, journalEntries, vaultEntries, energySystems, allies, inventory, transformations, rankings, storeItems, bpmSessions, tasks, councils, speakText]);
+  }, [input, messages, isLoading, dbLoaded, member, profile, appCtx, persistCouncilMessage, quests, skills, journalEntries, vaultEntries, energySystems, allies, inventory, transformations, rankings, storeItems, bpmSessions, tasks, councils, speakText]);
 
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-background/80 backdrop-blur-sm p-4">
