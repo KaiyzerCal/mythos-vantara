@@ -4503,6 +4503,7 @@ Always reference dates and times in the entity's own timezone when one is set, o
       const sseBody = new ReadableStream<Uint8Array>({
         async start(controller) {
           let accumulated = "";
+          let actionsSucceeded = 0; // top-level so try/catch/finally can all reach it
           // ── Hidden-block stream filter ──────────────────────────────────────
           // Buffers ::: sequences; passes :::ACTION{...}::: through, queues
           // :::CONSULT_ENTITY{...}::: for post-stream resolution, drops all others.
@@ -4558,7 +4559,6 @@ Always reference dates and times in the entity's own timezone when one is set, o
             }
             _flushFilter();
             // ── ReAct loop: execute ACTION blocks, observe results, synthesize ──
-            let actionsSucceeded = 0;  // hoisted so the `done` SSE event below can read it
             {
               const REACT_MAX_ITER    = 5;
               const REACT_MAX_ACTIONS = 15;
