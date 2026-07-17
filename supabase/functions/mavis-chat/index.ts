@@ -4558,12 +4558,12 @@ Always reference dates and times in the entity's own timezone when one is set, o
             }
             _flushFilter();
             // ── ReAct loop: execute ACTION blocks, observe results, synthesize ──
+            let actionsSucceeded = 0;  // hoisted so the `done` SSE event below can read it
             {
               const REACT_MAX_ITER    = 5;
               const REACT_MAX_ACTIONS = 15;
               let reactIter        = 0;
               let totalActions     = 0;
-              let actionsSucceeded = 0;
               let reactMessages    = [...callMessages];
 
               while (reactIter < REACT_MAX_ITER && totalActions < REACT_MAX_ACTIONS) {
