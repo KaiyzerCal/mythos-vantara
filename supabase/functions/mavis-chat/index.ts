@@ -286,13 +286,14 @@ function isUnfundedStatus(status: number, body: string): boolean {
 }
 
 async function callOpenAI(messages: any[], system: string, key: string, model = "gpt-4o-mini"): Promise<string> {
+  const fitted = fitOpenAIRequest(system, messages);
   const res = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
     body: JSON.stringify({
       model,
-      messages: [{ role: "system", content: system }, ...messages],
-      max_tokens: 8192,
+      messages: [{ role: "system", content: fitted.system }, ...fitted.messages],
+      max_tokens: fitted.maxTokens,
       temperature: 0.85,
     }),
   });
@@ -644,10 +645,11 @@ function claudeSseToTextStream(body: ReadableStream<Uint8Array>): ReadableStream
 }
 
 async function callOpenAIStream(messages: any[], system: string, key: string, model = "gpt-4o-mini"): Promise<ReadableStream<string>> {
+  const fitted = fitOpenAIRequest(system, messages);
   const res = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
-    body: JSON.stringify({ model, messages: [{ role: "system", content: system }, ...messages], max_tokens: 8192, temperature: 0.85, stream: true }),
+    body: JSON.stringify({ model, messages: [{ role: "system", content: fitted.system }, ...fitted.messages], max_tokens: fitted.maxTokens, temperature: 0.85, stream: true }),
   });
   if (!res.ok) {
     const e = await res.text();
