@@ -152,6 +152,95 @@ const DEV_MODE = Object.keys(BOUND_OPERATORS).length === 0;
 // ============================================================
 type Provider = "claude" | "grok" | "openai" | "gemini";
 
+const OPENAI_CONTEXT_WINDOW_TOKENS = 128_000;
+const OPENAI_MAX_COMPLETION_TOKENS = 2_048;
+const OPENAI_CONTEXT_SAFETY_TOKENS = 6_000;
+
+function estimateTokensFromChars(chars: number): number {
+  return Math.ceil(chars / 4);
+}
+
+function contentCharLength(content: unknown): number {
+  if (typeof content === "string") return content.length;
+  try { return JSON.stringify(content ?? "").length; } catch { return String(content ?? "").length; }
+}
+
+function shortenTextMiddle(text: string, maxChars: number): string {
+  if (text.length <= maxChars) return text;
+  if (maxChars <= 2000) return text.slice(-Math.max(500, maxChars));
+  const marker = "\n\n[Earlier context compressed to fit provider window]\n\n";
+  const head = Math.max(1000, Math.floor((maxChars - marker.length) * 0.55));
+  const tail = Math.max(1000, maxChars - marker.length - head);
+  return text.slice(0, head) + marker + text.slice(-tail);
+}
+
+function trimMessageContent(message: any, maxChars: number): any {
+  if (maxChars <= 0) return { ...message, content: "[Message omitted to fit provider context]" };
+  if (typeof message.content === "string") {
+    return { ...message, content: shortenTextMiddle(message.content, maxChars) };
+  }
+  const serialized = JSON.stringify(message.content ?? "");
+  if (serialized.length <= maxChars) return message;
+  return { ...message, content: shortenTextMiddle(serialized, maxChars) };
+}
+
+function fitOpenAIRequest(
+  system: string,
+  messages: any[],
+  requestedCompletionTokens = OPENAI_MAX_COMPLETION_TOKENS,
+): { system: string; messages: any[]; maxTokens: number } {
+  const maxTokens = Math.max(512, Math.min(requestedCompletionTokens, OPENAI_MAX_COMPLETION_TOKENS));
+  const inputBudgetChars = Math.max(
+    16_000,
+    (OPENAI_CONTEXT_WINDOW_TOKENS - maxTokens - OPENAI_CONTEXT_SAFETY_TOKENS) * 4,
+  );
+  const msgLen = (m: any) => contentCharLength(m?.content) + 32;
+
+  let fittedSystem = system;
+  let fittedMessages = [...messages];
+  let total = fittedSystem.length + fittedMessages.reduce((sum, m) => sum + msgLen(m), 0);
+  if (total <= inputBudgetChars) return { system: fittedSystem, messages: fittedMessages, maxTokens };
+
+  // Drop oldest history first; keep the latest exchange whenever possible.
+  while (fittedMessages.length > 2 && total > inputBudgetChars) {
+    const dropped = fittedMessages.shift();
+    total -= msgLen(dropped);
+  }
+
+  if (total > inputBudgetChars) {
+    const messageChars = fittedMessages.reduce((sum, m) => sum + msgLen(m), 0);
+    const systemBudget = Math.max(24_000, inputBudgetChars - messageChars);
+    if (fittedSystem.length > systemBudget) {
+      fittedSystem = shortenTextMiddle(fittedSystem, systemBudget);
+    }
+  }
+
+  total = fittedSystem.length + fittedMessages.reduce((sum, m) => sum + msgLen(m), 0);
+  if (total > inputBudgetChars && fittedMessages.length > 0) {
+    const systemChars = fittedSystem.length;
+    const availableForMessages = Math.max(2_000, inputBudgetChars - systemChars);
+    const perMessageBudget = Math.max(1_000, Math.floor(availableForMessages / fittedMessages.length));
+    fittedMessages = fittedMessages.map((m, idx) => {
+      const current = contentCharLength(m?.content);
+      const budget = idx === fittedMessages.length - 1 ? Math.max(perMessageBudget, availableForMessages - perMessageBudget * (fittedMessages.length - 1)) : perMessageBudget;
+      return current > budget ? trimMessageContent(m, budget) : m;
+    });
+  }
+
+  // Final emergency pass for pathological prompts where the system alone is huge.
+  total = fittedSystem.length + fittedMessages.reduce((sum, m) => sum + msgLen(m), 0);
+  if (total > inputBudgetChars) {
+    const spareForSystem = Math.max(8_000, inputBudgetChars - fittedMessages.reduce((sum, m) => sum + msgLen(m), 0));
+    fittedSystem = shortenTextMiddle(fittedSystem, spareForSystem);
+  }
+
+  const estimatedInputTokens = estimateTokensFromChars(fittedSystem.length + fittedMessages.reduce((sum, m) => sum + msgLen(m), 0));
+  if (estimatedInputTokens + maxTokens > OPENAI_CONTEXT_WINDOW_TOKENS - 1_000) {
+    console.warn(`[openai-context] request near limit after trimming: input≈${estimatedInputTokens}, completion=${maxTokens}`);
+  }
+  return { system: fittedSystem, messages: fittedMessages, maxTokens };
+}
+
 // Safety net: drop oldest messages until estimated input fits within budget.
 // ~4 chars ≈ 1 token; 360k chars ≈ 90k tokens, leaves ample room for system + completion.
 function trimToFit(messages: any[], system: string, maxInputChars = 360_000, minKeep = 6): any[] {
@@ -197,13 +286,14 @@ function isUnfundedStatus(status: number, body: string): boolean {
 }
 
 async function callOpenAI(messages: any[], system: string, key: string, model = "gpt-4o-mini"): Promise<string> {
+  const fitted = fitOpenAIRequest(system, messages);
   const res = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
     body: JSON.stringify({
       model,
-      messages: [{ role: "system", content: system }, ...messages],
-      max_tokens: 8192,
+      messages: [{ role: "system", content: fitted.system }, ...fitted.messages],
+      max_tokens: fitted.maxTokens,
       temperature: 0.85,
     }),
   });
@@ -555,10 +645,11 @@ function claudeSseToTextStream(body: ReadableStream<Uint8Array>): ReadableStream
 }
 
 async function callOpenAIStream(messages: any[], system: string, key: string, model = "gpt-4o-mini"): Promise<ReadableStream<string>> {
+  const fitted = fitOpenAIRequest(system, messages);
   const res = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
-    body: JSON.stringify({ model, messages: [{ role: "system", content: system }, ...messages], max_tokens: 8192, temperature: 0.85, stream: true }),
+    body: JSON.stringify({ model, messages: [{ role: "system", content: fitted.system }, ...fitted.messages], max_tokens: fitted.maxTokens, temperature: 0.85, stream: true }),
   });
   if (!res.ok) {
     const e = await res.text();
