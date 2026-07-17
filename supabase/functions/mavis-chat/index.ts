@@ -152,16 +152,38 @@ const DEV_MODE = Object.keys(BOUND_OPERATORS).length === 0;
 // ============================================================
 type Provider = "claude" | "grok" | "openai" | "gemini";
 
-// Safety net: drop oldest messages until estimated input fits within budget.
-// ~4 chars ≈ 1 token; 360k chars ≈ 90k tokens, leaves ample room for system + completion.
-function trimToFit(messages: any[], system: string, maxInputChars = 360_000, minKeep = 6): any[] {
+// Safety net: keep total input chars within the model's context budget.
+// ~4 chars ≈ 1 token; 460k chars ≈ 115k tokens, leaving safe headroom for 8192 completion
+// under gpt-4o-mini's 128k limit.  Two-pass: first drop old messages, then truncate the
+// system prompt if it alone blows the budget (large agent_folders / contextSummary).
+function trimToFit(
+  messages: any[],
+  system: string,
+  maxInputChars = 460_000,
+  minKeep = 4,
+): { messages: any[]; system: string } {
   const msgs = [...messages];
-  let totalLen = system.length + msgs.reduce((s: number, m: any) => s + JSON.stringify(m).length, 0);
+  let msgsLen = msgs.reduce((s: number, m: any) => s + JSON.stringify(m).length, 0);
+  let totalLen = system.length + msgsLen;
+
+  // Pass 1: drop oldest messages until under budget or at minKeep
   while (msgs.length > minKeep && totalLen > maxInputChars) {
     const dropped = msgs.shift()!;
-    totalLen -= JSON.stringify(dropped).length;
+    const dLen = JSON.stringify(dropped).length;
+    msgsLen -= dLen;
+    totalLen -= dLen;
   }
-  return msgs;
+
+  // Pass 2: if still over budget (system prompt is enormous), truncate system to fit
+  let trimmedSystem = system;
+  if (totalLen > maxInputChars && system.length > 500) {
+    const allowedSysLen = Math.max(500, maxInputChars - msgsLen - 300);
+    trimmedSystem =
+      system.slice(0, allowedSysLen) +
+      "\n\n[... system context truncated to fit model token limit ...]";
+  }
+
+  return { messages: msgs, system: trimmedSystem };
 }
 
 function routeToProvider(mode: string, message: string): Provider {
@@ -4466,8 +4488,13 @@ Always reference dates and times in the entity's own timezone when one is set, o
       } catch { /* non-critical */ }
     }
 
-    // Safety-net: trim oldest messages if total chars would exceed provider context limits
-    callMessages = trimToFit(callMessages, fullPromptFinal);
+    // Safety-net: trim oldest messages AND (if needed) the system prompt so the total
+    // stays under the provider's context limit.  Runs before every provider call.
+    {
+      const { messages: fittedMsgs, system: fittedSys } = trimToFit(callMessages, fullPromptFinal);
+      callMessages = fittedMsgs;
+      fullPromptFinal = fittedSys;
+    }
 
     // ── Streaming path (SSE) ────────────────────────────────
     if (isStreaming === true) {

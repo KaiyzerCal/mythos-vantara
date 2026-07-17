@@ -832,7 +832,7 @@ export function VoiceChatOverlay({
             .eq("persona_id", entityId)
             .eq("user_id", userId)
             .order("created_at", { ascending: true })
-            .limit(40);
+            .limit(20);
           if (data?.length) personaHistoryRef.current = data as unknown as { role: string; content: string }[];
         } else if (entityType === "council") {
           const { data } = await (supabase as any)
@@ -841,7 +841,7 @@ export function VoiceChatOverlay({
             .eq("council_member_id", entityId)
             .eq("user_id", userId)
             .order("created_at", { ascending: true })
-            .limit(40);
+            .limit(20);
           if (data?.length) personaHistoryRef.current = data as { role: string; content: string }[];
         }
       } catch { /* non-critical — start fresh if load fails */ }
