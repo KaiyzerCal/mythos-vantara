@@ -314,6 +314,40 @@ async function route(
   return { ...result, cost_usd };
 }
 
+// ── Context-window guard ────────────────────────────────────────────────────
+// Approximates 4 chars ≈ 1 token. Trims oldest messages (keeping the final
+// user turn) until total input fits inside the target context window.
+function fitMessagesToContext(
+  system: string,
+  messages: any[],
+  maxTokens: number,
+  ctxWindow = 128_000,
+): any[] {
+  const SAFETY = 2000;
+  const budgetTokens = Math.max(1000, ctxWindow - Math.min(maxTokens, ctxWindow / 2) - SAFETY);
+  const budgetChars  = budgetTokens * 4;
+  const sysChars     = system.length;
+
+  const msgChars = (m: any) => (typeof m.content === "string" ? m.content.length : JSON.stringify(m.content ?? "").length);
+  let total = sysChars + messages.reduce((n, m) => n + msgChars(m), 0);
+  if (total <= budgetChars) return messages;
+
+  // Always keep the last message; drop from the front until we fit.
+  const kept = [...messages];
+  while (kept.length > 1 && total > budgetChars) {
+    const dropped = kept.shift();
+    total -= msgChars(dropped);
+  }
+  // If the last message alone still overflows, truncate its content head.
+  if (total > budgetChars && kept.length === 1) {
+    const last = kept[0];
+    const allowed = Math.max(2000, budgetChars - sysChars);
+    const content = typeof last.content === "string" ? last.content : JSON.stringify(last.content ?? "");
+    kept[0] = { ...last, content: content.slice(-allowed) };
+  }
+  return kept;
+}
+
 // ── HTTP handler ─────────────────────────────────────────────────────────────
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: cors });
@@ -326,7 +360,11 @@ serve(async (req) => {
       });
     }
 
-    const result = await route(model, task_type, system, messages, max_tokens);
+    // Cap completion tokens and fit history to the tightest common ctx window (128k)
+    const cappedMax = Math.min(Number(max_tokens) || 1200, 4096);
+    const fitted    = fitMessagesToContext(system, messages, cappedMax, 128_000);
+
+    const result = await route(model, task_type, system, fitted, cappedMax);
     return new Response(JSON.stringify(result), {
       status: 200, headers: { ...cors, "Content-Type": "application/json" },
     });
