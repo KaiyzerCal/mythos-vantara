@@ -2706,6 +2706,14 @@ async function handleChat(
           { council_member_id: activeCouncil.id, user_id: uid, role: "user",      content: text     },
           { council_member_id: activeCouncil.id, user_id: uid, role: "assistant", content: rawReply },
         ])).catch((err) => console.warn("[telegram-bot] council_chat_messages write failed", err));
+        // Also write to mavis_persona_memory so council member remembers Telegram conversations
+        const sessionId = `telegram-council-${uid}-${activeCouncil.id}`;
+        await Promise.resolve(sb.from("mavis_persona_memory").insert([
+          { user_id: uid, persona_id: activeCouncil.id, persona_name: activeCouncil.name ?? "Council Member",
+            role: "user",      content: text.slice(0, 1000),     session_id: sessionId, importance: 1, source: "council" },
+          { user_id: uid, persona_id: activeCouncil.id, persona_name: activeCouncil.name ?? "Council Member",
+            role: "assistant", content: rawReply.slice(0, 1000), session_id: sessionId, importance: 1, source: "council" },
+        ])).catch((err: any) => console.warn("[telegram-bot] mavis_persona_memory write failed", err));
       } else {
         await send(chatId, `⚠️ ${activeCouncil.name} is unavailable right now. Try again.`);
       }

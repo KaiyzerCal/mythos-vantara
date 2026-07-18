@@ -1001,6 +1001,7 @@ function CouncilChat({ member, profile, appCtx, onClose }: { member: any; profil
   const [showBackToTop, setShowBackToTop] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const abortControllerRef = useRef<AbortController | null>(null);
+  const recentCouncilWrites = useRef<Map<string, number>>(new Map());
   const [dbLoaded, setDbLoaded] = useState(false);
   const [ttsEnabled, setTtsEnabled] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
@@ -1120,11 +1121,59 @@ function CouncilChat({ member, profile, appCtx, onClose }: { member: any; profil
     })();
   }, [member.id]);
 
+  // ── Realtime: pick up council messages from Telegram (or any external source) ──
+  useEffect(() => {
+    if (!dbLoaded) return;
+    const userId = (profile as any)?.id as string | undefined;
+    if (!userId) return;
+
+    const channel = (supabase as any)
+      .channel(`council-rt-${member.id}-${userId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "council_chat_messages",
+          filter: `council_member_id=eq.${member.id}`,
+        },
+        (payload: any) => {
+          const row = payload.new;
+          if (!row) return;
+          // Skip messages we wrote ourselves
+          const key = `${row.role}:${row.content}`;
+          const writtenAt = recentCouncilWrites.current.get(key);
+          if (writtenAt && Date.now() - writtenAt < 30_000) {
+            recentCouncilWrites.current.delete(key);
+            return;
+          }
+          // External message (Telegram, etc.) — append if not already present
+          setMessages((prev) => {
+            if (prev.some((m) => m.id === row.id)) return prev;
+            return [
+              ...prev,
+              {
+                id: row.id,
+                role: row.role as "user" | "assistant",
+                content: row.content,
+                timestamp: new Date(row.created_at),
+              },
+            ];
+          });
+        },
+      )
+      .subscribe();
+
+    return () => { (supabase as any).removeChannel(channel); };
+  }, [dbLoaded, member.id, profile]);
+
   // ── Persist a council message to DB ──────────────────────
   const persistCouncilMessage = useCallback(async (role: string, content: string) => {
     try {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session?.user) return;
+      // Track this write so the Realtime handler can skip the echo
+      recentCouncilWrites.current.set(`${role}:${content}`, Date.now());
       await supabase.from("council_chat_messages").insert({
         user_id: session.user.id,
         council_member_id: member.id,
