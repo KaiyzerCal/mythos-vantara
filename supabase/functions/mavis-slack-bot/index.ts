@@ -54,6 +54,32 @@ async function callMavis(query: string, context: string): Promise<string> {
   return data.content?.[0]?.text ?? "MAVIS is unavailable right now.";
 }
 
+// Create a Linear issue via mavis-linear-agent
+async function createLinearIssue(title: string, description?: string): Promise<{ url: string; identifier: string; teamName: string } | null> {
+  const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+  const serviceKey  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+  const agentUrl    = `${supabaseUrl}/functions/v1/mavis-linear-agent`;
+  const headers     = { "Content-Type": "application/json", "Authorization": `Bearer ${serviceKey}` };
+
+  // Get first available team
+  const teamsRes  = await fetch(agentUrl, { method: "POST", headers, body: JSON.stringify({ action: "get_teams" }) });
+  const teamsData = await teamsRes.json();
+  const team      = teamsData.teams?.[0];
+  if (!team) return null;
+
+  // Create the issue
+  const issueRes  = await fetch(agentUrl, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ action: "create_issue", title, description: description ?? "", team_id: team.id }),
+  });
+  const issueData = await issueRes.json();
+  const issue     = issueData.issue;
+  if (!issue) return null;
+
+  return { url: issue.url, identifier: issue.identifier, teamName: team.name };
+}
+
 // Post a message to Slack
 async function postSlackMessage(
   channel: string,
@@ -144,9 +170,45 @@ serve(async (req) => {
         return ackResponse;
       }
 
+      if (command === "/linear" && responseUrl) {
+        const ackResponse = new Response(
+          JSON.stringify({ text: ":linear: Creating Linear ticket..." }),
+          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+
+        (async () => {
+          try {
+            // First line becomes the title; rest becomes description
+            const [titleLine, ...rest] = text.trim().split("\n");
+            const title       = titleLine?.trim() || "Task from Slack";
+            const description = rest.join("\n").trim() || undefined;
+
+            const issue = await createLinearIssue(title, description);
+            const reply = issue
+              ? `:white_check_mark: *Linear ticket created*\n*${issue.identifier}* — ${issue.teamName}\n<${issue.url}|${title}>`
+              : ":x: Failed to create Linear ticket. Is LINEAR_API_KEY configured?";
+
+            await fetch(responseUrl, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ replace_original: true, text: reply }),
+            });
+          } catch (bgErr) {
+            console.error("Linear slash command error:", bgErr);
+            await fetch(responseUrl, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ replace_original: true, text: ":x: MAVIS encountered an error creating the Linear ticket." }),
+            });
+          }
+        })();
+
+        return ackResponse;
+      }
+
       // Unknown slash command
       return new Response(
-        JSON.stringify({ text: "Unknown command." }),
+        JSON.stringify({ text: "Unknown command. Try `/mavis [question]` or `/linear [task description]`." }),
         {
           status: 200,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
