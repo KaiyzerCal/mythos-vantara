@@ -534,13 +534,18 @@ export type Database = {
           company: string | null
           created_at: string
           email: string | null
+          enrichment: Json | null
           follow_up_date: string | null
           id: string
           interaction_count: number | null
           last_contact_at: string | null
+          last_enriched_at: string | null
           name: string
           notes: string | null
           phone: string | null
+          pipeline_name: string | null
+          pipeline_stage: string | null
+          pipeline_updated_at: string | null
           profile: Json | null
           relationship_type: string | null
           source: string | null
@@ -552,13 +557,18 @@ export type Database = {
           company?: string | null
           created_at?: string
           email?: string | null
+          enrichment?: Json | null
           follow_up_date?: string | null
           id?: string
           interaction_count?: number | null
           last_contact_at?: string | null
+          last_enriched_at?: string | null
           name: string
           notes?: string | null
           phone?: string | null
+          pipeline_name?: string | null
+          pipeline_stage?: string | null
+          pipeline_updated_at?: string | null
           profile?: Json | null
           relationship_type?: string | null
           source?: string | null
@@ -570,13 +580,18 @@ export type Database = {
           company?: string | null
           created_at?: string
           email?: string | null
+          enrichment?: Json | null
           follow_up_date?: string | null
           id?: string
           interaction_count?: number | null
           last_contact_at?: string | null
+          last_enriched_at?: string | null
           name?: string
           notes?: string | null
           phone?: string | null
+          pipeline_name?: string | null
+          pipeline_stage?: string | null
+          pipeline_updated_at?: string | null
           profile?: Json | null
           relationship_type?: string | null
           source?: string | null
@@ -1224,6 +1239,45 @@ export type Database = {
           updated_at?: string
           user_id?: string
           xp_earned?: number
+        }
+        Relationships: []
+      }
+      loose_threads: {
+        Row: {
+          context: string | null
+          created_at: string
+          due_at: string | null
+          id: string
+          source: string
+          source_ref: string | null
+          status: string
+          title: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          context?: string | null
+          created_at?: string
+          due_at?: string | null
+          id?: string
+          source?: string
+          source_ref?: string | null
+          status?: string
+          title: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          context?: string | null
+          created_at?: string
+          due_at?: string | null
+          id?: string
+          source?: string
+          source_ref?: string | null
+          status?: string
+          title?: string
+          updated_at?: string
+          user_id?: string
         }
         Relationships: []
       }
@@ -3039,6 +3093,30 @@ export type Database = {
           updated_at?: string
           user_id?: string
           width?: number | null
+        }
+        Relationships: []
+      }
+      mavis_meeting_briefs_sent: {
+        Row: {
+          created_at: string
+          event_ref: string
+          id: string
+          sent_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          event_ref: string
+          id?: string
+          sent_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          event_ref?: string
+          id?: string
+          sent_at?: string
+          user_id?: string
         }
         Relationships: []
       }
