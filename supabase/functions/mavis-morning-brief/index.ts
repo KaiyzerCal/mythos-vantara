@@ -183,6 +183,7 @@ Deno.serve(async (req) => {
       approvalsRes, questsRes, tasksRes, srRes,
       revenueRes, expensesRes, councilRes, bondRes, goalsRes,
       tacitRes, stalledRes, streakRiskRes, revenueGapRes,
+      crmFollowUpRes, openThreadsRes, stalledPipelinesRes,
     ] = await Promise.all([
       // Pending approvals
       supabase.from("mavis_tasks")
@@ -282,6 +283,32 @@ Deno.serve(async (req) => {
         .eq("user_id", uid)
         .gte("created_at", sevenDaysAgo)
         .limit(1),
+
+      // CRM: contacts due for follow-up today or overdue
+      supabase.from("contacts")
+        .select("name, company, follow_up_date, pipeline_name, pipeline_stage, last_contact_at")
+        .eq("user_id", uid)
+        .not("follow_up_date", "is", null)
+        .lte("follow_up_date", todayIso)
+        .order("follow_up_date", { ascending: true })
+        .limit(6),
+
+      // Loose threads: open unresolved items
+      supabase.from("loose_threads")
+        .select("title, source, due_at, created_at")
+        .eq("user_id", uid)
+        .eq("status", "open")
+        .order("due_at", { ascending: true, nullsFirst: false })
+        .order("created_at", { ascending: true })
+        .limit(8),
+
+      // Pipeline stalls: contacts in a pipeline with no stage update in 7+ days
+      supabase.from("contacts")
+        .select("name, pipeline_name, pipeline_stage, pipeline_updated_at")
+        .eq("user_id", uid)
+        .not("pipeline_name", "is", null)
+        .lt("pipeline_updated_at", sevenDaysAgo)
+        .limit(5),
     ]);
 
     const approvals   = (approvalsRes.data ?? []) as any[];
@@ -296,7 +323,10 @@ Deno.serve(async (req) => {
     const tacit       = (tacitRes.data ?? []) as any[];
     const stalled     = (stalledRes.data ?? []) as any[];
     const streakRisk  = (streakRiskRes.data ?? []) as any[];
-    const revenueGap  = (revenueGapRes.data ?? []) as any[];
+    const revenueGap      = (revenueGapRes.data ?? []) as any[];
+    const crmFollowUps    = (crmFollowUpRes.data ?? []) as any[];
+    const openThreads     = (openThreadsRes.data ?? []) as any[];
+    const stalledPipelines = (stalledPipelinesRes.data ?? []) as any[];
 
     const totalRevenue  = revenue.reduce((s: number, r: any) => s + Number(r.amount), 0);
     const totalExpenses = expenses.reduce((s: number, e: any) => s + Number(e.amount), 0);
@@ -404,6 +434,40 @@ Deno.serve(async (req) => {
         return `• ${g.objective.slice(0, 65)} — ${bar}${urgency}`;
       }));
       sections.push(`🎯 *ACTIVE GOALS* (${goals.length})\n${goalLines.join("\n")}\n→ /goals for full detail`);
+    }
+
+    // ── Loose Threads (Pally-style) ─────────────────────────────
+    if (openThreads.length > 0) {
+      const threadLines = openThreads.map((t: any) => {
+        const due = t.due_at ? ` ⏰ ${new Date(t.due_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}` : "";
+        return `• ${t.title.slice(0, 70)}${due}`;
+      });
+      sections.push(`🧵 *OPEN THREADS* (${openThreads.length})\n${threadLines.join("\n")}\n→ Say "threads" to manage · "done [thread]" to close`);
+    }
+
+    // ── CRM Follow-ups ───────────────────────────────────────────
+    if (crmFollowUps.length > 0) {
+      const followUpLines = crmFollowUps.map((c: any) => {
+        const overdueDays = c.follow_up_date
+          ? Math.round((Date.now() - new Date(c.follow_up_date).getTime()) / 86400000)
+          : 0;
+        const daysTag = overdueDays > 0 ? ` (${overdueDays}d overdue)` : " (today)";
+        const company = c.company ? ` · ${c.company}` : "";
+        const pipeline = c.pipeline_stage ? ` [${c.pipeline_name}: ${c.pipeline_stage}]` : "";
+        return `• ${c.name}${company}${pipeline}${daysTag}`;
+      });
+      sections.push(`🤝 *CRM FOLLOW-UPS* (${crmFollowUps.length})\n${followUpLines.join("\n")}\n→ Say "reach out to [name]" to draft a message`);
+    }
+
+    // ── Pipeline Stalls ──────────────────────────────────────────
+    if (stalledPipelines.length > 0) {
+      const stallLines = stalledPipelines.map((c: any) => {
+        const stalledDays = c.pipeline_updated_at
+          ? Math.round((Date.now() - new Date(c.pipeline_updated_at).getTime()) / 86400000)
+          : 0;
+        return `• ${c.name} — ${c.pipeline_name} / ${c.pipeline_stage} (${stalledDays}d stalled)`;
+      });
+      sections.push(`📊 *PIPELINE STALLS* (${stalledPipelines.length})\n${stallLines.join("\n")}\n→ Say "advance [name] to [stage]" to update`);
     }
 
     // Pattern alerts

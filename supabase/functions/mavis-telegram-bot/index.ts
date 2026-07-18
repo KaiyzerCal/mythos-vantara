@@ -1881,7 +1881,9 @@ async function resolveCouncilOwnerUid(uid: string): Promise<string> {
 
 type Intent = "help" | "quests" | "revenue" | "tasks" | "actions" | "content_machine" | "speak"
             | "list_personas" | "switch_persona" | "reset_persona"
-            | "list_council" | "list_agency" | "switch_agency" | "chat";
+            | "list_council" | "list_agency" | "switch_agency"
+            | "threads" | "close_thread" | "pipeline" | "advance_pipeline"
+            | "enrich_contact" | "chat";
 interface Classified { intent: Intent; params: Record<string, string>; }
 
 function classify(text: string): Classified {
@@ -1915,6 +1917,31 @@ function classify(text: string): Classified {
   const agencyMatch = text.match(/^\/?(agency)\s+(.+)$/i);
   if (agencyMatch)
     return { intent: "switch_agency", params: { query: agencyMatch[2].trim() } };
+
+  // Loose threads
+  if (/^\/?(threads?|open threads?|my threads?|show threads?)$/i.test(lower))
+    return { intent: "threads", params: {} };
+  const closeThread = text.match(/^\/?(done|close|finished?|resolve)\s+(.+)$/i);
+  if (closeThread)
+    return { intent: "close_thread", params: { title: closeThread[2].trim() } };
+  const threadCapture = text.match(/^\/?(thread|remember to|remind me to|track|log thread)\s*:?\s*(.+)$/i);
+  if (threadCapture)
+    return { intent: "close_thread", params: { title: threadCapture[2].trim(), save: "1" } };
+
+  // Pipeline management
+  if (/^\/?(pipeline|pipelines|my pipeline|show pipeline)$/i.test(lower))
+    return { intent: "pipeline", params: {} };
+  const advancePipeline = text.match(/^\/?(advance|move|update)\s+(.+?)\s+to\s+(.+)$/i);
+  if (advancePipeline)
+    return { intent: "advance_pipeline", params: { name: advancePipeline[2].trim(), stage: advancePipeline[3].trim() } };
+  const addPipeline = text.match(/^\/?(add|put)\s+(.+?)\s+(?:to|in(?:to)?)\s+(?:the\s+)?(.+?)\s+pipeline(?:\s+(?:as|in|at)\s+(.+))?$/i);
+  if (addPipeline)
+    return { intent: "advance_pipeline", params: { name: addPipeline[2].trim(), pipeline: addPipeline[3].trim(), stage: addPipeline[4]?.trim() ?? "intro" } };
+
+  // Contact enrichment
+  const enrichMatch = text.match(/^\/?(enrich|research)\s+(.+)$/i);
+  if (enrichMatch)
+    return { intent: "enrich_contact", params: { name: enrichMatch[2].trim() } };
 
   // Bare /name shortcut — e.g. /lilu, /marcus (tries persona then council)
   const bareSlash = text.match(/^\/([a-zA-Z][a-zA-Z0-9_\- ]{1,40})$/);
@@ -1957,8 +1984,208 @@ async function handleHelp(chatId: string | number) {
     `✨ \`/mavis\` — return to MAVIS (deactivates all)\n\n` +
     `📸 _Send a photo to analyze it_\n` +
     `📄 _Send any file (.md, .txt, .csv, .json, .py, .ts, etc.) to analyze it_\n` +
-    voiceLine,
+    voiceLine +
+    `\n\n*Relationships & Tasks:*\n` +
+    `🧵 \`threads\` — open loose threads\n` +
+    `🧵 \`thread: [item]\` — save a new thread\n` +
+    `✅ \`done [thread]\` — close a thread\n` +
+    `📊 \`pipeline\` — view engagement pipelines\n` +
+    `📊 \`advance [name] to [stage]\` — move contact forward\n` +
+    `🔍 \`enrich [name]\` — pull LinkedIn/X data for a contact`,
   );
+}
+
+// ── Loose Threads handlers ──────────────────────────────────────────────────
+
+async function handleThreads(chatId: string | number, uid: string) {
+  const { data: threads } = await sb
+    .from("loose_threads")
+    .select("id, title, source, due_at, created_at")
+    .eq("user_id", uid)
+    .eq("status", "open")
+    .order("due_at", { ascending: true, nullsFirst: false })
+    .order("created_at", { ascending: true })
+    .limit(15);
+
+  if (!threads?.length) {
+    await send(chatId, "🧵 *Open Threads*\n\nNo open threads. All clear.");
+    return;
+  }
+
+  const lines = (threads as any[]).map((t, i) => {
+    const due = t.due_at
+      ? ` ⏰ ${new Date(t.due_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}`
+      : "";
+    const src = t.source !== "chat" ? ` (${t.source})` : "";
+    return `${i + 1}. ${t.title.slice(0, 80)}${due}${src}`;
+  });
+
+  await send(chatId,
+    `🧵 *Open Threads* (${threads.length})\n\n${lines.join("\n")}\n\n` +
+    `→ "done [title]" to close · "thread: [new item]" to add`
+  );
+}
+
+async function handleCloseThread(chatId: string | number, uid: string, title: string, save = false) {
+  if (save) {
+    await sb.from("loose_threads").insert({
+      user_id: uid, title: title.slice(0, 200), source: "telegram", status: "open",
+    }).catch(() => {});
+    await send(chatId, `🧵 Thread saved: _${title.slice(0, 80)}_\n\nSay "threads" to view all open threads.`);
+    return;
+  }
+
+  // Find and close matching thread
+  const { data: threads } = await sb
+    .from("loose_threads")
+    .select("id, title")
+    .eq("user_id", uid)
+    .eq("status", "open")
+    .ilike("title", `%${title.slice(0, 50)}%`)
+    .limit(1);
+
+  if (!threads?.length) {
+    await send(chatId, `⚠️ No open thread matching "${title.slice(0, 50)}". Say "threads" to see all open threads.`);
+    return;
+  }
+
+  const thread = (threads as any[])[0];
+  await sb.from("loose_threads").update({ status: "done", updated_at: new Date().toISOString() })
+    .eq("id", thread.id).eq("user_id", uid);
+  await send(chatId, `✅ Thread closed: _${thread.title}_`);
+}
+
+// ── Pipeline handlers ───────────────────────────────────────────────────────
+
+async function handlePipeline(chatId: string | number, uid: string) {
+  const { data: contacts } = await sb
+    .from("contacts")
+    .select("name, company, pipeline_name, pipeline_stage, pipeline_updated_at, last_contact_at")
+    .eq("user_id", uid)
+    .not("pipeline_name", "is", null)
+    .order("pipeline_name", { ascending: true })
+    .order("pipeline_updated_at", { ascending: true })
+    .limit(20);
+
+  if (!contacts?.length) {
+    await send(chatId,
+      `📊 *Pipelines*\n\nNo contacts in any pipeline.\n\n→ "add [name] to [pipeline] pipeline" to get started\n` +
+      `Examples:\n• "add Sarah to fundraise pipeline"\n• "add Marcus to hiring pipeline in intro stage"`
+    );
+    return;
+  }
+
+  // Group by pipeline
+  const byPipeline: Record<string, any[]> = {};
+  for (const c of contacts as any[]) {
+    const p = c.pipeline_name ?? "General";
+    if (!byPipeline[p]) byPipeline[p] = [];
+    byPipeline[p].push(c);
+  }
+
+  const sections: string[] = [`📊 *Pipelines*\n`];
+  for (const [pipeline, members] of Object.entries(byPipeline)) {
+    const lines = members.map((c: any) => {
+      const stalledDays = c.pipeline_updated_at
+        ? Math.round((Date.now() - new Date(c.pipeline_updated_at).getTime()) / 86400000)
+        : null;
+      const stall = stalledDays && stalledDays > 5 ? ` ⚠️ ${stalledDays}d stalled` : "";
+      return `  • ${c.name}${c.company ? ` (${c.company})` : ""} — ${c.pipeline_stage ?? "no stage"}${stall}`;
+    });
+    sections.push(`*${pipeline.charAt(0).toUpperCase() + pipeline.slice(1)}*\n${lines.join("\n")}`);
+  }
+  sections.push(`\n→ "advance [name] to [stage]" to move someone forward`);
+  await send(chatId, sections.join("\n\n"));
+}
+
+async function handleAdvancePipeline(chatId: string | number, uid: string, params: Record<string, string>) {
+  const { name, stage, pipeline } = params;
+
+  // Find the contact
+  const { data: found } = await sb
+    .from("contacts")
+    .select("id, name, pipeline_name, pipeline_stage")
+    .eq("user_id", uid)
+    .ilike("name", `%${name}%`)
+    .limit(1)
+    .maybeSingle();
+
+  if (!found) {
+    await send(chatId, `⚠️ No contact found matching "${name}". Check your contacts and try again.`);
+    return;
+  }
+
+  const contact = found as any;
+  const newPipeline = pipeline ?? contact.pipeline_name ?? "general";
+  const newStage    = stage ?? "intro";
+
+  await sb.from("contacts").update({
+    pipeline_name:       newPipeline,
+    pipeline_stage:      newStage,
+    pipeline_updated_at: new Date().toISOString(),
+  }).eq("id", contact.id).eq("user_id", uid);
+
+  const previousStage = contact.pipeline_stage ? ` (was: ${contact.pipeline_stage})` : "";
+  await send(chatId,
+    `📊 *Pipeline updated*\n\n` +
+    `*${contact.name}* → ${newPipeline} / *${newStage}*${previousStage}\n\n` +
+    `→ "pipeline" to see all stages`
+  );
+}
+
+async function handleEnrichContact(chatId: string | number, uid: string, name: string) {
+  // Find the contact
+  const { data: found } = await sb
+    .from("contacts")
+    .select("id, name, email, company")
+    .eq("user_id", uid)
+    .ilike("name", `%${name}%`)
+    .limit(1)
+    .maybeSingle();
+
+  if (!found) {
+    await send(chatId, `⚠️ No contact found matching "${name}". Add them to your contacts first.`);
+    return;
+  }
+
+  await send(chatId, `🔍 Enriching ${(found as any).name} via LinkedIn... this takes ~30 seconds.`);
+
+  const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+  const enrichRes = await fetch(`${supabaseUrl}/functions/v1/mavis-contact-enrich`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+    },
+    body: JSON.stringify({ contactId: (found as any).id }),
+    signal: AbortSignal.timeout(90_000),
+  }).catch(() => null);
+
+  if (!enrichRes?.ok) {
+    await send(chatId, `⚠️ Enrichment failed. Check APIFY_API_KEY is configured.`);
+    return;
+  }
+
+  const result = await enrichRes.json().catch(() => ({}));
+  const contact = found as any;
+
+  if (result.enriched > 0) {
+    // Fetch updated enrichment
+    const { data: updated } = await sb.from("contacts")
+      .select("enrichment").eq("id", contact.id).maybeSingle();
+    const e = (updated as any)?.enrichment ?? {};
+
+    await send(chatId,
+      `✅ *${contact.name} — enriched*\n\n` +
+      (e.headline ? `📌 ${e.headline}\n` : "") +
+      (e.company ? `🏢 ${e.company}\n` : "") +
+      (e.location ? `📍 ${e.location}\n` : "") +
+      (e.recentPost ? `\n💬 Recent: _"${String(e.recentPost).slice(0, 150)}"_\n` : "") +
+      (e.linkedinUrl ? `\n🔗 ${e.linkedinUrl}` : "")
+    );
+  } else {
+    await send(chatId, `○ No enrichment data found for ${contact.name}. Try adding their email or company.`);
+  }
 }
 
 async function handleContentMachine(chatId: string | number, uid: string, topic: string) {
@@ -3108,8 +3335,13 @@ Deno.serve(async (req) => {
         case "list_agency":     await handleListAgency(chatId, uid); break;
         case "switch_persona":  await handleSwitchPersona(chatId, uid, params.name ?? ""); break;
         case "switch_agency":   await handleSwitchAgency(chatId, uid, params.query ?? ""); break;
-        case "reset_persona":   await handleResetPersona(chatId, uid); break;
-        default:                await handleChat(chatId, uid, text, history, sessionId); break;
+        case "reset_persona":    await handleResetPersona(chatId, uid); break;
+        case "threads":          await handleThreads(chatId, uid); break;
+        case "close_thread":     await handleCloseThread(chatId, uid, params.title ?? "", params.save === "1"); break;
+        case "pipeline":         await handlePipeline(chatId, uid); break;
+        case "advance_pipeline": await handleAdvancePipeline(chatId, uid, params); break;
+        case "enrich_contact":   await handleEnrichContact(chatId, uid, params.name ?? ""); break;
+        default:                 await handleChat(chatId, uid, text, history, sessionId); break;
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
