@@ -2304,7 +2304,7 @@ export default function MavisChat() {
                 ) : (
                   <p className="text-[10px] font-mono text-muted-foreground">
                     No specialist active — quick-pick below or{" "}
-                    <button onClick={() => navigate("/agency")} className="text-violet-400 hover:underline">browse all 182 →</button>
+                    <button onClick={() => navigate("/agency")} className="text-violet-400 hover:underline">browse all 211 →</button>
                   </p>
                 )}
                 <div className="flex gap-2 flex-wrap">

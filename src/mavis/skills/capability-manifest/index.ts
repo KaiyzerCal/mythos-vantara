@@ -59,9 +59,9 @@ const EDGE_FUNCTIONS = [
   "nora — social content automation agent",
 ];
 
-const AGENCY_INFO = `The Agency is a library of 182 specialist AI agents across 15 divisions.
-Divisions: business-strategy, creative, development, education, finance, hr, legal, marketing,
-media, operations, project-management, public-relations, research, sales, specialized.
+const AGENCY_INFO = `The Agency is a library of 211 specialist AI agents across 15 divisions.
+Divisions: engineering, design, marketing, sales, product, project-management, testing, security,
+support, spatial-computing, game-development, academic, gis, finance, specialized.
 Activate any specialist from the Agent Mode panel (quick-picks) or say "activate [specialist name]".
 When active, MAVIS thinks and responds through that specialist's expertise and voice.`;
 
@@ -121,12 +121,12 @@ const handler: SkillHandler = async (ctx: SkillContext, input?: string) => {
   }
 
   // Agency
-  lines.push("\n## THE AGENCY — 182 SPECIALISTS");
+  lines.push("\n## THE AGENCY — 211 SPECIALISTS");
   lines.push(AGENCY_INFO);
 
   // Summary
   lines.push(`\n---`);
-  lines.push(`**${allSkills.length} skills** | **${CHAT_MODES.length} chat modes** | **${INTEGRATIONS.length} integrations** | **${EDGE_FUNCTIONS.length} edge functions** | **182 Agency specialists**`);
+  lines.push(`**${allSkills.length} skills** | **${CHAT_MODES.length} chat modes** | **${INTEGRATIONS.length} integrations** | **${EDGE_FUNCTIONS.length} edge functions** | **211 Agency specialists**`);
 
   return {
     skillName: "capability-manifest",

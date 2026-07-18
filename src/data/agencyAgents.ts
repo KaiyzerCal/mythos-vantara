@@ -1,5 +1,5 @@
 // THE AGENCY — complete specialist roster from KaiyzerCal/agency-agents
-// 182 agents across 15 divisions. Content fetched on-demand from raw GitHub.
+// 211 agents across 15 divisions. Content fetched on-demand from raw GitHub.
 
 export interface AgencyDivision {
   id: string;

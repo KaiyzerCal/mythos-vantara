@@ -1978,7 +1978,7 @@ async function handleHelp(chatId: string | number) {
     `*Personas, Council & Agency:*\n` +
     `🎭 \`/personas\` — list your personas\n` +
     `🏛️ \`/council\` — list your council members\n` +
-    `🏢 \`/agency\` — browse 182 Agency specialists\n` +
+    `🏢 \`/agency\` — browse 211 Agency specialists\n` +
     `🏢 \`/agency [task]\` — auto-route to best specialist\n` +
     `🎭 \`/as [name]\` or \`/[name]\` — switch to a persona or council member\n` +
     `✨ \`/mavis\` — return to MAVIS (deactivates all)\n\n` +
@@ -2336,7 +2336,7 @@ async function handleListAgency(chatId: string | number, uid: string) {
     ? `\n\n✅ *Active specialist:* ${active.name} [${active.division}]\nSend \`/mavis\` to deactivate.`
     : "";
   await send(chatId,
-    `🏢 *The Agency — 182 specialists*\n\n` +
+    `🏢 *The Agency — 211 specialists*\n\n` +
     divLines.join(" · ") +
     `${activeLine}\n\n` +
     `*Activate by task:* \`/agency [describe your task]\`\n` +
