@@ -5,7 +5,7 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-const FAL_KEY    = Deno.env.get("FAL_API_KEY")    ?? "";
+const FAL_KEY    = Deno.env.get("FAL_API_KEY")    ?? Deno.env.get("FAL_AI_API_KEY") ?? "";
 const GEMINI_KEY = Deno.env.get("GEMINI_API_KEY") ?? "";
 const MODELSLAB_KEY = Deno.env.get("MODELSLAB_API_KEY") ?? "";
 
@@ -32,6 +32,7 @@ async function submitFalJob(
   aspect_ratio: AspectRatio,
   model?: string
 ): Promise<{ status: string; request_id: string; provider: string; poll_url: string }> {
+  if (!FAL_KEY) throw new Error("FAL_API_KEY or FAL_AI_API_KEY is required for fal.ai video generation");
   const falModel = model ?? "fal-ai/veo3";
   const endpoint = `https://queue.fal.run/${falModel}`;
   const res = await fetch(endpoint, {
@@ -85,6 +86,7 @@ async function submitKlingJob(
   duration: number,
   aspect_ratio: AspectRatio,
 ): Promise<{ status: string; request_id: string; provider: string }> {
+  if (!FAL_KEY) throw new Error("FAL_API_KEY or FAL_AI_API_KEY is required for Kling video generation");
   const endpoint = "https://queue.fal.run/fal-ai/kling-video/v2.1/standard/text-to-video";
   const res = await fetch(endpoint, {
     method: "POST",
@@ -132,6 +134,7 @@ async function submitRunwayJob(
   aspect_ratio: AspectRatio,
   image_url?: string,
 ): Promise<{ status: string; request_id: string; provider: string }> {
+  if (!FAL_KEY) throw new Error("FAL_API_KEY or FAL_AI_API_KEY is required for Runway video generation");
   const res = await fetch("https://queue.fal.run/fal-ai/runway-gen4-turbo", {
     method: "POST",
     headers: { "Authorization": `Key ${FAL_KEY}`, "Content-Type": "application/json" },
@@ -171,6 +174,7 @@ async function submitModelsLabJob(
   duration: number,
   aspect_ratio: AspectRatio,
 ): Promise<{ status: string; request_id?: string; url?: string; provider: string }> {
+  if (!MODELSLAB_KEY) throw new Error("MODELSLAB_API_KEY is required for ModelsLab video generation");
   const ratioMap: Record<AspectRatio, [number, number]> = {
     "16:9": [1024, 576],
     "9:16": [576, 1024],
@@ -231,6 +235,7 @@ async function submitVeoJob(
   prompt: string,
   aspect_ratio: AspectRatio
 ): Promise<{ status: string; operation_name: string; provider: string }> {
+  if (!GEMINI_KEY) throw new Error("GEMINI_API_KEY is required for Veo video generation");
   const res = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/veo-3.0-generate-preview:predictLongRunning?key=${GEMINI_KEY}`,
     {
