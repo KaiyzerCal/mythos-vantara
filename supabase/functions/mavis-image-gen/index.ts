@@ -13,6 +13,36 @@ const MODELSLAB_KEY = Deno.env.get("MODELSLAB_API_KEY") ?? "";
 // Deploy: docker run -d -p 7860:7860 --gpus all abhinavsingh/stable-diffusion-webui
 // Set: STABLE_DIFFUSION_URL=http://your-server:7860
 const SD_URL = Deno.env.get("STABLE_DIFFUSION_URL") ?? "";
+const LOVABLE_KEY = Deno.env.get("LOVABLE_API_KEY") ?? "";
+
+// Lovable AI Gateway — free via workspace credits, high-quality Gemini image gen.
+async function generateWithLovableAI(prompt: string): Promise<string | null> {
+  if (!LOVABLE_KEY) return null;
+  try {
+    const res = await fetch("https://ai.gateway.lovable.dev/v1/images/generations", {
+      method: "POST",
+      headers: { "Authorization": `Bearer ${LOVABLE_KEY}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: "google/gemini-3.1-flash-image",
+        messages: [{ role: "user", content: prompt.slice(0, 2000) }],
+        modalities: ["image", "text"],
+      }),
+      signal: AbortSignal.timeout(120000),
+    });
+    if (!res.ok) { console.warn("Lovable AI image failed:", res.status, await res.text().catch(() => "")); return null; }
+    const data = await res.json();
+    const b64 = data?.data?.[0]?.b64_json;
+    return b64 ? `data:image/png;base64,${b64}` : null;
+  } catch (e) { console.warn("Lovable AI image error:", e); return null; }
+}
+
+function pollinationsUrl(prompt: string, size: string): string {
+  const [w, h] = parseDimensions(size);
+  const encoded = encodeURIComponent(prompt.trim().slice(0, 500));
+  const seed = Math.floor(Date.now() % 100000);
+  return `https://image.pollinations.ai/prompt/${encoded}?width=${w}&height=${h}&model=flux&nologo=true&enhance=true&seed=${seed}`;
+}
+
 
 async function generateWithStableDiffusion(prompt: string, width = 512, height = 512): Promise<string | null> {
   if (!SD_URL) return null;
