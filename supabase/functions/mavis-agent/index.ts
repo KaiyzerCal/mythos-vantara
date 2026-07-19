@@ -1809,6 +1809,11 @@ interface AgentLoopResult {
   videoUrls?: string[];
 }
 
+// Model routing: Gemini (via Lovable gateway, free tier) handles general chat.
+// Requests that need image/video/NSFW generation are pinned to Claude, because
+// Gemini refuses generation regardless of the system-prompt permissions.
+const GENERATION_INTENT = /\b(generate|draw|render|imagine|make|create)\b[\s\S]{0,60}\b(image|picture|photo|pic|art|artwork|video|animation|avatar|portrait|wallpaper)\b|\b(image|picture|photo|video)\s+of\b|\b(nsfw|hentai|furry|lewd|nude|naked|sexy|erotic|porn)\b/i;
+
 async function runAgentLoop(
   messages: Array<{ role: string; content: unknown }>,
   system: string,
@@ -1817,6 +1822,7 @@ async function runAgentLoop(
   supabase: ReturnType<typeof createClient>,
   env: Env,
   onEvent?: (event: Record<string, unknown>) => void,
+  preferAnthropic = false,
 ): Promise<AgentLoopResult> {
   const anthropicModel = "claude-sonnet-4-6";
   const gatewayModel = "google/gemini-2.5-flash";
@@ -1853,10 +1859,9 @@ async function runAgentLoop(
       return { role: message.role, content: JSON.stringify(message.content) };
     });
 
-    // Claude is the primary provider — the gateway (Gemini) is a fallback only.
-    // Gemini ignores the NSFW/generation permissions in the system prompt and
-    // refuses, so it must never serve requests when a Claude key is available.
-    if (env.lovableKey && !claudeKey) {
+    // Gemini-first for general chat (free tier). Generation/NSFW-intent requests
+    // skip the gateway and go straight to Claude when a key is available.
+    if (env.lovableKey && !(preferAnthropic && claudeKey)) {
       const gatewayRes = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${env.lovableKey}` },
@@ -2536,6 +2541,12 @@ Deno.serve(async (req) => {
 
     const wantsStream = body.stream === true;
 
+    // Route generation/NSFW-intent requests to Claude; everything else stays
+    // on the Gemini gateway (free tier). Callers can also force a provider
+    // with body.provider = "anthropic" | "gateway".
+    const preferAnthropic = body.provider === "anthropic" ||
+      (body.provider !== "gateway" && GENERATION_INTENT.test(goalText));
+
     if (!wantsStream) {
       const result = await runAgentLoop(
         messages.map((m) => ({ ...m })),
@@ -2544,6 +2555,8 @@ Deno.serve(async (req) => {
         userId,
         supabase,
         env,
+        undefined,
+        preferAnthropic,
       );
       return json({ ok: true, mode, ...result });
     }
@@ -2564,6 +2577,7 @@ Deno.serve(async (req) => {
       supabase,
       env,
       emitSSE,
+      preferAnthropic,
     ).then((result) => {
       emitSSE({ done: true, content: result.content, toolsUsed: result.toolsUsed, actionsQueued: result.actionsQueued });
       sseWriter.close();
