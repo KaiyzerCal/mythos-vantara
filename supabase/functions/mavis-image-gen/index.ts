@@ -101,6 +101,8 @@ async function generateWithModelsLab(prompt: string, size = "1024x1024"): Promis
     return null;
   }
 }
+
+async function generateWithImagen4(prompt: string, aspectRatio = "1:1"): Promise<string> {
   const res = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/imagen-4.0-generate-preview-06-06:predict?key=${GEMINI_KEY}`,
     {
