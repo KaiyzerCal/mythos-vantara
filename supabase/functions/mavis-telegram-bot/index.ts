@@ -2191,32 +2191,63 @@ async function handleAdvancePipeline(chatId: string | number, uid: string, param
   );
 }
 
+// Wan2.2 and talking_head require ComfyUI (self-hosted). Everything else
+// can go to ModelsLab (cloud) when MODELSLAB_API_KEY is set.
+const COMFYUI_ONLY_TYPES = new Set(["wan_t2v", "wan_i2v", "talking_head", "portrait", "concept"]);
+
 async function handleGenerate(
   chatId: string | number,
   uid: string,
   prompt: string,
   workflowType: string,
+  extraParams: Record<string, string> = {},
 ) {
   if (!prompt) {
     await send(chatId, "What should I generate? e.g. _generate a cyberpunk cityscape at night_");
     return;
   }
-  const typeLabel: Record<string, string> = {
-    txt2img:  "image",
-    portrait: "portrait",
-    concept:  "concept art",
-    txt2vid:  "video",
-  };
-  await send(chatId, `🎨 Generating ${typeLabel[workflowType] ?? "image"}: _${prompt.slice(0, 80)}_\n\nThis may take 30–120 seconds…`);
 
-  const comfyUrl = `${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-comfyui`;
-  const res = await fetch(comfyUrl, {
+  const typeLabel: Record<string, string> = {
+    txt2img:      "image",
+    realtime:     "image (fast)",
+    img2img:      "image variation",
+    portrait:     "portrait",
+    concept:      "concept art",
+    txt2vid:      "video",
+    img2vid:      "video from image",
+    wan_t2v:      "Wan2.2 video",
+    wan_i2v:      "Wan2.2 animated image",
+    talking_head: "talking avatar",
+  };
+
+  const modelsLabKey  = Deno.env.get("MODELSLAB_API_KEY") ?? "";
+  const comfyUrl_env  = Deno.env.get("COMFYUI_URL") ?? "";
+  const isVideoType   = ["txt2vid", "img2vid", "wan_t2v", "wan_i2v", "talking_head"].includes(workflowType);
+
+  // Routing: ComfyUI-only types always go to ComfyUI.
+  // For shared types (txt2img, txt2vid): prefer ModelsLab when key is set.
+  const useModelsLab = modelsLabKey && !COMFYUI_ONLY_TYPES.has(workflowType);
+  const useComfyUI   = !useModelsLab && comfyUrl_env;
+
+  if (!useModelsLab && !useComfyUI) {
+    await send(chatId, "⚠️ No generation provider configured. Set `MODELSLAB_API_KEY` or `COMFYUI_URL` in Supabase secrets.");
+    return;
+  }
+
+  const provider = useModelsLab ? "ModelsLab" : "ComfyUI";
+  await send(chatId, `🎨 Generating ${typeLabel[workflowType] ?? "image"} via *${provider}*: _${prompt.slice(0, 80)}_\n\nThis may take 30–120 seconds…`);
+
+  const fnUrl = useModelsLab
+    ? `${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-modelslab`
+    : `${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-comfyui`;
+
+  const res = await fetch(fnUrl, {
     method:  "POST",
     headers: {
       "Content-Type":  "application/json",
       "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
     },
-    body: JSON.stringify({ prompt, workflow_type: workflowType, user_id: uid }),
+    body: JSON.stringify({ prompt, workflow_type: workflowType, user_id: uid, ...extraParams }),
     signal: AbortSignal.timeout(310_000),
   });
 
@@ -2232,8 +2263,8 @@ async function handleGenerate(
     return;
   }
 
-  const caption = `✅ *${typeLabel[workflowType] ?? "output"}* generated\n_Seed: ${data.seed}_`;
-  if (workflowType === "txt2vid") {
+  const caption = `✅ *${typeLabel[workflowType] ?? "output"}* via ${provider}${data.seed ? `\n_Seed: ${data.seed}_` : ""}`;
+  if (isVideoType) {
     await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendVideo`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },

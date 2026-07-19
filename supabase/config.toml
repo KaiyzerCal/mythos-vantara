@@ -169,6 +169,10 @@ verify_jwt = false
 [functions.mavis-yamete]
 verify_jwt = false
 
+# ModelsLab (Stable Diffusion API) cloud generation — service-role key.
+[functions.mavis-modelslab]
+verify_jwt = false
+
 [functions.mavis-image-gen]
 verify_jwt = true
 
