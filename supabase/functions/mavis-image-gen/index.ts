@@ -103,7 +103,6 @@ async function generateWithDallE3(prompt: string, size: string, quality: string)
       n: 1,
       size: size ?? "1024x1024",
       quality: quality ?? "standard",
-      response_format: "url",
     }),
   });
   if (!res.ok) {
