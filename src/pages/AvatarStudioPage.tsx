@@ -224,7 +224,7 @@ export function AvatarStudioPage() {
     <div className="p-4 md:p-6 max-w-6xl mx-auto">
       <PageHeader
         title="Avatar Studio"
-        subtitle="AI talking-head videos — your face, your voice, your script"
+        subtitle="AI talking-head videos — inspired by HeyGen. Your face, your voice, your script."
         icon={<User size={18} />}
       />
 
