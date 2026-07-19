@@ -227,86 +227,81 @@ serve(async (req) => {
     let imageData: string | null = null;
     let provider = "unknown";
     const revised_prompt = prompt;
+    const notes: string[] = [];
 
-    // ── Explicit provider path ────────────────────────────────────────────
+    // Try explicit provider first (if any); on failure, fall through to cascade.
     if (forced && forced !== "auto") {
-      if (forced === "flux-pro" || forced === "flux") {
-        if (!FAL_KEY) throw new Error("FLUX Pro requires FAL_API_KEY");
-        imageData = await generateWithFluxPro(prompt, effectiveSize);
-        provider = "flux-pro";
-      } else if (forced === "imagen-4" || forced === "imagen") {
-        if (!GEMINI_KEY) throw new Error("Imagen 4 requires GEMINI_API_KEY");
-        imageData = await generateWithImagen4(prompt, aspect_ratio ?? "1:1");
-        provider = "imagen-4";
-      } else if (forced === "openai" || forced === "gpt-image-1" || forced === "dalle") {
-        if (!OPENAI_KEY) throw new Error("OpenAI image requires OPENAI_API");
-        imageData = await generateWithOpenAiImage(prompt, effectiveSize, effectiveQuality);
-        provider = "openai-gpt-image-1";
-      } else if (forced === "modelslab" || forced === "seedream") {
-        if (!MODELSLAB_KEY) throw new Error("ModelsLab requires MODELSLAB_API_KEY");
-        imageData = await generateWithModelsLab(prompt, effectiveSize);
-        provider = "modelslab";
-      } else if (forced === "stable-diffusion" || forced === "sd") {
-        if (!SD_URL) throw new Error("Stable Diffusion requires STABLE_DIFFUSION_URL");
-        const [w, h] = parseDimensions(effectiveSize);
-        imageData = await generateWithStableDiffusion(prompt, w, h);
-        provider = "stable-diffusion";
-      } else if (forced === "pollinations") {
-        const [w, h] = parseDimensions(effectiveSize);
-        const encoded = encodeURIComponent(prompt.trim().slice(0, 500));
-        const seed = Math.floor(Date.now() % 100000);
-        imageData = `https://image.pollinations.ai/prompt/${encoded}?width=${w}&height=${h}&model=flux&nologo=true&enhance=true&seed=${seed}`;
-        provider = "pollinations-flux";
-      } else {
-        throw new Error(`Unknown provider: ${forced}`);
-      }
-      if (!imageData) throw new Error(`${provider} returned no image`);
-    } else {
-      // ── Auto cascade (Tier 0 → 4) ────────────────────────────────────────
-      if (SD_URL) {
-        const [w, h] = parseDimensions(effectiveSize);
-        imageData = await generateWithStableDiffusion(prompt, w, h);
-        if (imageData) provider = "stable-diffusion";
-      }
-      if (!imageData && FAL_KEY) {
-        try {
-          const fluxUrl = await generateWithFluxPro(prompt, effectiveSize);
-          if (fluxUrl) { imageData = fluxUrl; provider = "flux-pro"; }
-        } catch (e: any) { console.warn("FLUX Pro failed:", e.message); }
-      }
-      if (!imageData && MODELSLAB_KEY) {
-        try {
-          const url = await generateWithModelsLab(prompt, effectiveSize);
-          if (url) { imageData = url; provider = "modelslab"; }
-        } catch (e: any) { console.warn("ModelsLab failed:", e.message); }
-      }
-      if (!imageData && GEMINI_KEY) {
-        try {
+      try {
+        if (forced === "flux-pro" || forced === "flux") {
+          if (!FAL_KEY) throw new Error("FAL_API_KEY missing");
+          imageData = await generateWithFluxPro(prompt, effectiveSize);
+          if (imageData) provider = "flux-pro";
+        } else if (forced === "imagen-4" || forced === "imagen") {
+          if (!GEMINI_KEY) throw new Error("GEMINI_API_KEY missing");
           imageData = await generateWithImagen4(prompt, aspect_ratio ?? "1:1");
-          provider = "imagen-4";
-        } catch (e: any) { console.warn("Imagen 4 failed:", e.message); }
-      }
-      if (!imageData && OPENAI_KEY) {
-        try {
+          if (imageData) provider = "imagen-4";
+        } else if (forced === "openai" || forced === "gpt-image-1" || forced === "dalle") {
+          if (!OPENAI_KEY) throw new Error("OPENAI_API missing");
           imageData = await generateWithOpenAiImage(prompt, effectiveSize, effectiveQuality);
-          provider = "openai-gpt-image-1";
-        } catch (e: any) { console.warn("OpenAI image failed:", e.message); }
+          if (imageData) provider = "openai-gpt-image-1";
+        } else if (forced === "modelslab" || forced === "seedream") {
+          if (!MODELSLAB_KEY) throw new Error("MODELSLAB_API_KEY missing");
+          imageData = await generateWithModelsLab(prompt, effectiveSize);
+          if (imageData) provider = "modelslab";
+        } else if (forced === "stable-diffusion" || forced === "sd") {
+          if (!SD_URL) throw new Error("STABLE_DIFFUSION_URL missing");
+          const [w, h] = parseDimensions(effectiveSize);
+          imageData = await generateWithStableDiffusion(prompt, w, h);
+          if (imageData) provider = "stable-diffusion";
+        } else if (forced === "lovable" || forced === "gemini-image") {
+          imageData = await generateWithLovableAI(prompt);
+          if (imageData) provider = "lovable-ai";
+        } else if (forced === "pollinations") {
+          imageData = pollinationsUrl(prompt, effectiveSize);
+          provider = "pollinations-flux";
+        }
+      } catch (e: any) {
+        notes.push(`${forced} unavailable: ${e.message}`);
       }
-      if (!imageData) {
-        const [w, h] = parseDimensions(effectiveSize);
-        const encoded = encodeURIComponent(prompt.trim().slice(0, 500));
-        const seed = Math.floor(Date.now() % 100000);
-        imageData = `https://image.pollinations.ai/prompt/${encoded}?width=${w}&height=${h}&model=flux&nologo=true&enhance=true&seed=${seed}`;
-        provider = "pollinations-flux";
-      }
+      if (!imageData) notes.push(`${forced} failed — falling back`);
     }
 
-
+    // Fallback cascade: free / credit-based first, then paid, then always-free Pollinations.
+    if (!imageData && LOVABLE_KEY) {
+      try { imageData = await generateWithLovableAI(prompt); if (imageData) provider = "lovable-ai"; }
+      catch (e: any) { notes.push(`lovable-ai: ${e.message}`); }
+    }
+    if (!imageData && GEMINI_KEY) {
+      try { imageData = await generateWithImagen4(prompt, aspect_ratio ?? "1:1"); if (imageData) provider = "imagen-4"; }
+      catch (e: any) { notes.push(`imagen-4: ${e.message}`); }
+    }
+    if (!imageData && FAL_KEY) {
+      try { const u = await generateWithFluxPro(prompt, effectiveSize); if (u) { imageData = u; provider = "flux-pro"; } }
+      catch (e: any) { notes.push(`flux-pro: ${e.message}`); }
+    }
+    if (!imageData && MODELSLAB_KEY) {
+      try { const u = await generateWithModelsLab(prompt, effectiveSize); if (u) { imageData = u; provider = "modelslab"; } }
+      catch (e: any) { notes.push(`modelslab: ${e.message}`); }
+    }
+    if (!imageData && OPENAI_KEY) {
+      try { imageData = await generateWithOpenAiImage(prompt, effectiveSize, effectiveQuality); if (imageData) provider = "openai-gpt-image-1"; }
+      catch (e: any) { notes.push(`openai: ${e.message}`); }
+    }
+    if (!imageData && SD_URL) {
+      const [w, h] = parseDimensions(effectiveSize);
+      imageData = await generateWithStableDiffusion(prompt, w, h);
+      if (imageData) provider = "stable-diffusion";
+    }
+    if (!imageData) {
+      imageData = pollinationsUrl(prompt, effectiveSize);
+      provider = "pollinations-flux";
+    }
 
     return new Response(
-      JSON.stringify({ url: imageData, revised_prompt, provider }),
+      JSON.stringify({ url: imageData, revised_prompt, provider, notes }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
+
   } catch (err: any) {
     console.error("mavis-image-gen error:", err.message);
     return new Response(JSON.stringify({ error: err.message }), {
