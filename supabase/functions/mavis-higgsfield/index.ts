@@ -316,6 +316,16 @@ serve(async (req) => {
       // ── LIST MODELS ────────────────────────────────────────────────────────
       case "list_models": {
         const r = await hf("GET", "/v1/models");
+        if (!r.ok && (r.status >= 500 || r.status === 429)) {
+          result = {
+            models: [],
+            camera_presets: CAMERA_PRESETS,
+            status: "higgsfield_unavailable",
+            fallback_providers: fallbackProviders().filter((provider) => provider !== "auto"),
+            message: "Higgsfield is temporarily unavailable. Video generation will use configured fallback providers until it recovers.",
+          };
+          break;
+        }
         if (!r.ok) throw new Error(`Higgsfield models error ${r.status}: ${JSON.stringify(r.data)}`);
         result = {
           models: (r.data as Record<string, unknown>)?.models ?? r.data,
