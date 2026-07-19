@@ -1943,6 +1943,21 @@ function classify(text: string): Classified {
   if (enrichMatch)
     return { intent: "enrich_contact", params: { name: enrichMatch[2].trim() } };
 
+  // Image / video generation
+  const generateMatch = text.match(/^\/?(generate|imagine|draw|create\s+image|make\s+(?:an?\s+)?(?:image|picture|photo|video|art))\s+(.+)$/i);
+  if (generateMatch) {
+    const genPrompt = generateMatch[2].trim();
+    const isVideo   = /\bvideo\b/i.test(generateMatch[1]);
+    const wfType    = isVideo ? "txt2vid"
+      : /\bportrait\b/i.test(genPrompt) ? "portrait"
+      : /\bconcept|art\b/i.test(genPrompt) ? "concept"
+      : "txt2img";
+    return { intent: "generate", params: { prompt: genPrompt, workflow_type: wfType } };
+  }
+  const generateCmd = text.match(/^\/generate\s+(\w+)\s+(.+)$/i);
+  if (generateCmd)
+    return { intent: "generate", params: { prompt: generateCmd[2].trim(), workflow_type: generateCmd[1].toLowerCase() } };
+
   // Bare /name shortcut — e.g. /lilu, /marcus (tries persona then council)
   const bareSlash = text.match(/^\/([a-zA-Z][a-zA-Z0-9_\- ]{1,40})$/);
   if (bareSlash)
@@ -2131,6 +2146,63 @@ async function handleAdvancePipeline(chatId: string | number, uid: string, param
     `*${contact.name}* → ${newPipeline} / *${newStage}*${previousStage}\n\n` +
     `→ "pipeline" to see all stages`
   );
+}
+
+async function handleGenerate(
+  chatId: string | number,
+  uid: string,
+  prompt: string,
+  workflowType: string,
+) {
+  if (!prompt) {
+    await send(chatId, "What should I generate? e.g. _generate a cyberpunk cityscape at night_");
+    return;
+  }
+  const typeLabel: Record<string, string> = {
+    txt2img:  "image",
+    portrait: "portrait",
+    concept:  "concept art",
+    txt2vid:  "video",
+  };
+  await send(chatId, `🎨 Generating ${typeLabel[workflowType] ?? "image"}: _${prompt.slice(0, 80)}_\n\nThis may take 30–120 seconds…`);
+
+  const comfyUrl = `${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-comfyui`;
+  const res = await fetch(comfyUrl, {
+    method:  "POST",
+    headers: {
+      "Content-Type":  "application/json",
+      "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+    },
+    body: JSON.stringify({ prompt, workflow_type: workflowType, user_id: uid }),
+    signal: AbortSignal.timeout(310_000),
+  });
+
+  const data = await res.json();
+  if (!res.ok || data.error) {
+    await send(chatId, `⚠️ Generation failed: ${(data.error ?? "unknown error").slice(0, 200)}`);
+    return;
+  }
+
+  const mediaUrl: string = data.imageUrl ?? data.videoUrl ?? "";
+  if (!mediaUrl) {
+    await send(chatId, "⚠️ Generation completed but no output URL returned.");
+    return;
+  }
+
+  const caption = `✅ *${typeLabel[workflowType] ?? "output"}* generated\n_Seed: ${data.seed}_`;
+  if (workflowType === "txt2vid") {
+    await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendVideo`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ chat_id: chatId, video: mediaUrl, caption, parse_mode: "Markdown" }),
+    });
+  } else {
+    await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendPhoto`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ chat_id: chatId, photo: mediaUrl, caption, parse_mode: "Markdown" }),
+    });
+  }
 }
 
 async function handleEnrichContact(chatId: string | number, uid: string, name: string) {
@@ -3341,6 +3413,7 @@ Deno.serve(async (req) => {
         case "pipeline":         await handlePipeline(chatId, uid); break;
         case "advance_pipeline": await handleAdvancePipeline(chatId, uid, params); break;
         case "enrich_contact":   await handleEnrichContact(chatId, uid, params.name ?? ""); break;
+        case "generate":         await handleGenerate(chatId, uid, params.prompt ?? "", params.workflow_type ?? "txt2img"); break;
         default:                 await handleChat(chatId, uid, text, history, sessionId); break;
       }
     } catch (err) {

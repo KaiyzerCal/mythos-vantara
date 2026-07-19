@@ -1206,6 +1206,34 @@ async function routeActionType(
     case "respond_to_review":      return await executeRespondToReview(actionPayload, userId, adminSb);
     case "create_gbp_post":
     case "create_business_post":   return await executeCreateGBPPost(actionPayload, userId, adminSb);
+    // ── ComfyUI image / video generation ─────────────────────────────────────
+    case "generate_image":
+    case "generate_video": {
+      const comfyRes = await fetch(
+        `${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-comfyui`,
+        {
+          method:  "POST",
+          headers: {
+            "Content-Type":  "application/json",
+            "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+          },
+          body: JSON.stringify({
+            prompt:          actionPayload.prompt ?? actionPayload.description ?? "",
+            workflow_type:   actionType === "generate_video"
+              ? "txt2vid"
+              : (actionPayload.workflow_type ?? "txt2img"),
+            negative_prompt: actionPayload.negative_prompt,
+            width:           actionPayload.width,
+            height:          actionPayload.height,
+            steps:           actionPayload.steps,
+            cfg:             actionPayload.cfg,
+            user_id:         userId,
+          }),
+          signal: AbortSignal.timeout(310_000),
+        },
+      );
+      return await comfyRes.json();
+    }
     default:
       return {
         note: `Action type '${actionType}' requires manual handling.`,

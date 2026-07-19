@@ -157,6 +157,10 @@ verify_jwt = true
 verify_jwt = true
 
 # ── Media generation ──
+# ComfyUI image/video generation — called from telegram-bot and action-executor with service-role key.
+[functions.mavis-comfyui]
+verify_jwt = false
+
 [functions.mavis-image-gen]
 verify_jwt = true
 
