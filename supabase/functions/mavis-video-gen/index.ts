@@ -346,6 +346,8 @@ serve(async (req) => {
       result = await submitRunwayJob(prompt.trim(), resolvedAspect, body.image_url as string | undefined);
     } else if (resolvedProvider === "fal") {
       result = await submitFalJob(prompt.trim(), resolvedDuration, resolvedAspect, model);
+    } else if (resolvedProvider === "modelslab") {
+      result = await submitModelsLabJob(prompt.trim(), resolvedDuration, resolvedAspect);
     } else if (resolvedProvider === "veo") {
       result = await submitVeoJob(prompt.trim(), resolvedAspect);
     } else {
