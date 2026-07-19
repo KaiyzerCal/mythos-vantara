@@ -2,8 +2,9 @@ import { useState, useEffect, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { PageHeader } from "@/components/SharedUI";
-import { Loader2, Image, Music, Video, Globe, Download, ExternalLink, RefreshCw, Grid3X3, Wand2, Send, Sparkles } from "lucide-react";
+import { Loader2, Image, Music, Video, Globe, Download, ExternalLink, RefreshCw, Grid3X3, Wand2, Send, Sparkles, Film, Camera, Upload } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
+
 
 interface MediaItem {
   id: string;
@@ -146,8 +147,16 @@ function ImageGenPanel({ onGenerated }: { onGenerated: (item: MediaItem) => void
     try {
       const s = SIZE_OPTIONS.find(o => o.key === size)!;
       const { data, error } = await (supabase as any).functions.invoke("mavis-image-gen", {
-        body: { prompt: `${prompt.trim()}. Professional quality, high resolution.`, width: s.w, height: s.h },
+        body: {
+          prompt: `${prompt.trim()}. Ultra high detail, sharp focus, professional composition, cinematic lighting, 8k quality.`,
+          width: s.w,
+          height: s.h,
+          size: `${s.w}x${s.h}`,
+          quality: "high",
+          aspect_ratio: s.w === s.h ? "1:1" : s.w > s.h ? "16:9" : "9:16",
+        },
       });
+
       if (error) throw error;
       if (!data?.url) throw new Error(data?.error ?? "No image URL returned");
       setLastUrl(data.url);
