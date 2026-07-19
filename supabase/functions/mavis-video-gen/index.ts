@@ -314,6 +314,9 @@ serve(async (req) => {
       } else if (requestedProvider === "veo") {
         if (!operation_name) return new Response(JSON.stringify({ error: "operation_name required for veo poll" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
         result = await pollVeoOperation(operation_name);
+      } else if (requestedProvider === "modelslab") {
+        if (!request_id) return new Response(JSON.stringify({ error: "request_id required for modelslab poll" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        result = await pollModelsLabJob(request_id);
       } else if (requestedProvider === "omni") {
         result = { status: "queued", message: "Gemini Omni Flash coming soon", provider: "omni" };
       } else {
