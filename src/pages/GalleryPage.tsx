@@ -133,10 +133,20 @@ const SIZE_OPTIONS = [
   { key: "poster",    label: "Poster",   w: 864,  h: 1152, desc: "3:4 — print poster, flyer" },
 ] as const;
 
+const IMAGE_PROVIDERS = [
+  { key: "auto",             label: "Auto",         hint: "smart cascade" },
+  { key: "flux-pro",         label: "FLUX 1.1 Pro", hint: "photoreal, fal.ai" },
+  { key: "imagen-4",         label: "Imagen 4",     hint: "Google, sharp" },
+  { key: "openai",           label: "GPT Image",    hint: "OpenAI, versatile" },
+  { key: "modelslab",        label: "ModelsLab",    hint: "SDXL/FLUX, uncensored" },
+  { key: "pollinations",     label: "Pollinations", hint: "free FLUX" },
+] as const;
+
 function ImageGenPanel({ onGenerated }: { onGenerated: (item: MediaItem) => void }) {
   const { session } = useAuth();
   const [prompt, setPrompt] = useState("");
   const [size, setSize] = useState<typeof SIZE_OPTIONS[number]["key"]>("square");
+  const [imgProvider, setImgProvider] = useState<typeof IMAGE_PROVIDERS[number]["key"]>("auto");
   const [generating, setGenerating] = useState(false);
   const [lastUrl, setLastUrl] = useState<string | null>(null);
 
@@ -154,8 +164,10 @@ function ImageGenPanel({ onGenerated }: { onGenerated: (item: MediaItem) => void
           size: `${s.w}x${s.h}`,
           quality: "high",
           aspect_ratio: s.w === s.h ? "1:1" : s.w > s.h ? "16:9" : "9:16",
+          provider: imgProvider,
         },
       });
+
 
       if (error) throw error;
       if (!data?.url) throw new Error(data?.error ?? "No image URL returned");
@@ -215,6 +227,24 @@ function ImageGenPanel({ onGenerated }: { onGenerated: (item: MediaItem) => void
         </button>
       </div>
 
+      {/* Provider selector */}
+      <div className="flex flex-wrap gap-1.5">
+        {IMAGE_PROVIDERS.map(p => (
+          <button
+            key={p.key}
+            onClick={() => setImgProvider(p.key)}
+            title={p.hint}
+            className={`text-[10px] font-mono px-2 py-1 rounded border transition-colors ${
+              imgProvider === p.key
+                ? "border-primary/50 bg-primary/10 text-primary"
+                : "border-border text-muted-foreground hover:text-foreground hover:border-border/80"
+            }`}
+          >
+            {p.label}
+          </button>
+        ))}
+      </div>
+
       {/* Size selector */}
       <div className="flex flex-wrap gap-1.5">
         {SIZE_OPTIONS.map(o => (
@@ -232,6 +262,7 @@ function ImageGenPanel({ onGenerated }: { onGenerated: (item: MediaItem) => void
           </button>
         ))}
       </div>
+
 
       {/* Preview of last result */}
       {lastUrl && (
@@ -278,6 +309,15 @@ const VIDEO_ASPECTS = [
   { key: "1:1",   label: "Square",    desc: "Feed post" },
 ] as const;
 
+const VIDEO_PROVIDERS = [
+  { key: "higgsfield", label: "Higgsfield",  hint: "cinematic camera control" },
+  { key: "kling",      label: "Kling",       hint: "fal.ai, strong motion" },
+  { key: "fal",        label: "Seedance",    hint: "fal.ai general" },
+  { key: "runway",     label: "Runway",      hint: "Runway Gen-3" },
+  { key: "veo",        label: "Veo",         hint: "Google Veo" },
+  { key: "modelslab",  label: "ModelsLab",   hint: "SDXL video, uncensored" },
+] as const;
+
 function VideoGenPanel({ onGenerated }: { onGenerated: (item: MediaItem) => void }) {
   const { session } = useAuth();
   const [prompt, setPrompt] = useState("");
@@ -285,9 +325,11 @@ function VideoGenPanel({ onGenerated }: { onGenerated: (item: MediaItem) => void
   const [cameraMotion, setCameraMotion] = useState<typeof CAMERA_MOTIONS[number]["key"]>("zoom_in");
   const [aspect, setAspect] = useState<typeof VIDEO_ASPECTS[number]["key"]>("9:16");
   const [duration, setDuration] = useState<4 | 6 | 8>(4);
+  const [videoProvider, setVideoProvider] = useState<typeof VIDEO_PROVIDERS[number]["key"]>("higgsfield");
   const [uploading, setUploading] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [lastUrl, setLastUrl] = useState<string | null>(null);
+
 
   async function handleImageUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -312,22 +354,42 @@ function VideoGenPanel({ onGenerated }: { onGenerated: (item: MediaItem) => void
     setGenerating(true);
     setLastUrl(null);
     try {
-      const { data, error } = await (supabase as any).functions.invoke("mavis-higgsfield", {
-        body: {
-          userId: session?.user?.id,
-          action: "generate_video",
-          prompt: prompt.trim(),
-          image_url: imageUrl || undefined,
-          camera_motion: cameraMotion,
-          aspect_ratio: aspect,
-          duration,
-          max_attempts: 30,
-          poll_interval_ms: 5000,
-        },
-      });
-      if (error) throw error;
-      if (data?.error) throw new Error(data.error);
-      const url = data?.video_url;
+      let data: any; let error: any; let url: string | undefined; let jobId: string | undefined;
+
+      if (videoProvider === "higgsfield") {
+        ({ data, error } = await (supabase as any).functions.invoke("mavis-higgsfield", {
+          body: {
+            userId: session?.user?.id,
+            action: "generate_video",
+            prompt: prompt.trim(),
+            image_url: imageUrl || undefined,
+            camera_motion: cameraMotion,
+            aspect_ratio: aspect,
+            duration,
+            max_attempts: 30,
+            poll_interval_ms: 5000,
+          },
+        }));
+        if (error) throw error;
+        if (data?.error) throw new Error(data.error);
+        url = data?.video_url;
+        jobId = data?.video_id;
+      } else {
+        ({ data, error } = await (supabase as any).functions.invoke("mavis-video-gen", {
+          body: {
+            prompt: `${prompt.trim()}${cameraMotion && cameraMotion !== "static" ? ` — camera: ${cameraMotion}` : ""}`,
+            image_url: imageUrl || undefined,
+            aspect_ratio: aspect,
+            duration,
+            provider: videoProvider,
+          },
+        }));
+        if (error) throw error;
+        if (data?.error) throw new Error(data.error);
+        url = data?.url ?? data?.video_url;
+        jobId = data?.request_id ?? data?.operation_name;
+      }
+
       if (url) {
         setLastUrl(url);
         if (session?.user) {
@@ -337,7 +399,7 @@ function VideoGenPanel({ onGenerated }: { onGenerated: (item: MediaItem) => void
             file_type: "video/mp4",
             file_url: url,
             description: prompt.trim(),
-            tags: ["generated", "higgsfield", cameraMotion, aspect, `${duration}s`],
+            tags: ["generated", videoProvider, cameraMotion, aspect, `${duration}s`],
           });
         }
         onGenerated({
@@ -345,26 +407,45 @@ function VideoGenPanel({ onGenerated }: { onGenerated: (item: MediaItem) => void
           type: "video",
           url,
           title: prompt.trim().slice(0, 80),
-          provider: "higgsfield",
+          provider: videoProvider,
           created_at: new Date().toISOString(),
           extra: { cameraMotion, aspect, duration },
         });
       } else {
-        alert(`Still processing — job id ${data?.video_id}. It will appear in the gallery once ready.`);
+        alert(`Still processing — job id ${jobId ?? "?"}. It will appear in the gallery once ready.`);
       }
     } catch (e: any) {
-      alert(`Video generation failed: ${e?.message ?? "unknown error"}\n\nEnsure HIGGSFIELD_API_KEY is set in Supabase secrets.`);
+      alert(`Video generation failed: ${e?.message ?? "unknown error"}`);
     } finally {
       setGenerating(false);
     }
   }
+
 
   return (
     <div className="rounded-xl border border-border bg-card p-4 flex flex-col gap-3">
       <div className="flex items-center gap-2">
         <Film size={14} className="text-primary" />
         <span className="text-xs font-mono text-foreground font-medium">Generate Video</span>
-        <span className="text-[9px] font-mono text-muted-foreground ml-auto">Higgsfield cinematic engine</span>
+        <span className="text-[9px] font-mono text-muted-foreground ml-auto">{VIDEO_PROVIDERS.find(p => p.key === videoProvider)?.label}</span>
+      </div>
+
+      {/* Provider selector */}
+      <div className="flex flex-wrap gap-1.5">
+        {VIDEO_PROVIDERS.map(p => (
+          <button
+            key={p.key}
+            onClick={() => setVideoProvider(p.key)}
+            title={p.hint}
+            className={`text-[10px] font-mono px-2 py-1 rounded border transition-colors ${
+              videoProvider === p.key
+                ? "border-primary/50 bg-primary/10 text-primary"
+                : "border-border text-muted-foreground hover:text-foreground hover:border-border/80"
+            }`}
+          >
+            {p.label}
+          </button>
+        ))}
       </div>
 
       <div className="flex gap-2">
