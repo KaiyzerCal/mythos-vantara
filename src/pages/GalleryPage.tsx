@@ -258,7 +258,226 @@ function ImageGenPanel({ onGenerated }: { onGenerated: (item: MediaItem) => void
   );
 }
 
+const CAMERA_MOTIONS = [
+  { key: "static",       label: "Static",       hint: "no camera movement" },
+  { key: "zoom_in",      label: "Zoom In",      hint: "slow push toward subject" },
+  { key: "zoom_out",     label: "Zoom Out",     hint: "pull back reveal" },
+  { key: "pan_left",     label: "Pan Left",     hint: "camera pans left" },
+  { key: "pan_right",    label: "Pan Right",    hint: "camera pans right" },
+  { key: "orbit_left",   label: "Orbit L",      hint: "circle subject left" },
+  { key: "orbit_right",  label: "Orbit R",      hint: "circle subject right" },
+  { key: "crane_up",     label: "Crane Up",     hint: "rise from ground" },
+  { key: "handheld",     label: "Handheld",     hint: "organic natural sway" },
+  { key: "dolly_zoom",   label: "Dolly Zoom",   hint: "vertigo effect" },
+] as const;
+
+const VIDEO_ASPECTS = [
+  { key: "9:16",  label: "Vertical",  desc: "Reels, TikTok, Stories" },
+  { key: "16:9",  label: "Widescreen", desc: "YouTube, cinematic" },
+  { key: "1:1",   label: "Square",    desc: "Feed post" },
+] as const;
+
+function VideoGenPanel({ onGenerated }: { onGenerated: (item: MediaItem) => void }) {
+  const { session } = useAuth();
+  const [prompt, setPrompt] = useState("");
+  const [imageUrl, setImageUrl] = useState("");
+  const [motion, setMotion] = useState<typeof CAMERA_MOTIONS[number]["key"]>("push_in" as any);
+  const [aspect, setAspect] = useState<typeof VIDEO_ASPECTS[number]["key"]>("9:16");
+  const [duration, setDuration] = useState<4 | 6 | 8>(4);
+  const [uploading, setUploading] = useState(false);
+  const [generating, setGenerating] = useState(false);
+  const [lastUrl, setLastUrl] = useState<string | null>(null);
+
+  async function handleImageUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file || !session?.user) return;
+    setUploading(true);
+    try {
+      const ext = file.name.split(".").pop() ?? "jpg";
+      const path = `video-refs/${session.user.id}/${Date.now()}.${ext}`;
+      const { error } = await supabase.storage.from("avatars").upload(path, file, { upsert: true });
+      if (error) throw error;
+      const { data } = supabase.storage.from("avatars").getPublicUrl(path);
+      setImageUrl(data.publicUrl);
+    } catch (err: any) {
+      alert(`Upload failed: ${err.message}`);
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  async function generate() {
+    if (!prompt.trim() || generating) return;
+    setGenerating(true);
+    setLastUrl(null);
+    try {
+      const { data, error } = await (supabase as any).functions.invoke("mavis-higgsfield", {
+        body: {
+          userId: session?.user?.id,
+          action: "generate_video",
+          prompt: prompt.trim(),
+          image_url: imageUrl || undefined,
+          camera_motion: motion,
+          aspect_ratio: aspect,
+          duration,
+          max_attempts: 30,
+          poll_interval_ms: 5000,
+        },
+      });
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+      const url = data?.video_url;
+      if (url) {
+        setLastUrl(url);
+        if (session?.user) {
+          await (supabase as any).from("vault_media").insert({
+            user_id: session.user.id,
+            file_name: prompt.trim().slice(0, 80),
+            file_type: "video/mp4",
+            storage_path: url,
+            metadata: { publicUrl: url, provider: "higgsfield", prompt: prompt.trim(), camera_motion: motion, aspect_ratio: aspect, duration },
+          });
+        }
+        onGenerated({
+          id: `vid-${Date.now()}`,
+          type: "video",
+          url,
+          title: prompt.trim().slice(0, 80),
+          provider: "higgsfield",
+          created_at: new Date().toISOString(),
+          extra: { motion, aspect, duration },
+        });
+      } else {
+        alert(`Still processing — job id ${data?.video_id}. It will appear in the gallery once ready.`);
+      }
+    } catch (e: any) {
+      alert(`Video generation failed: ${e?.message ?? "unknown error"}\n\nEnsure HIGGSFIELD_API_KEY is set in Supabase secrets.`);
+    } finally {
+      setGenerating(false);
+    }
+  }
+
+  return (
+    <div className="rounded-xl border border-border bg-card p-4 flex flex-col gap-3">
+      <div className="flex items-center gap-2">
+        <Film size={14} className="text-primary" />
+        <span className="text-xs font-mono text-foreground font-medium">Generate Video</span>
+        <span className="text-[9px] font-mono text-muted-foreground ml-auto">Higgsfield cinematic engine</span>
+      </div>
+
+      <div className="flex gap-2">
+        <textarea
+          value={prompt}
+          onChange={e => setPrompt(e.target.value)}
+          placeholder="Describe the shot… (e.g. a woman walking through neon-lit tokyo at night, film grain, cinematic)"
+          rows={2}
+          className="flex-1 text-xs font-mono bg-muted/30 border border-border rounded-lg px-3 py-2 resize-none outline-none placeholder:text-muted-foreground focus:border-primary/50 transition-colors"
+        />
+        <button
+          onClick={generate}
+          disabled={generating || !prompt.trim()}
+          className="w-10 rounded-lg bg-primary/10 border border-primary/30 text-primary hover:bg-primary/20 disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex items-center justify-center shrink-0"
+        >
+          {generating ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
+        </button>
+      </div>
+
+      {/* Optional reference image */}
+      <div className="flex items-center gap-2">
+        <label className="text-[10px] font-mono px-2 py-1 rounded border border-border text-muted-foreground hover:text-primary hover:border-primary/30 transition-colors flex items-center gap-1 cursor-pointer">
+          <Upload size={10} /> {uploading ? "Uploading…" : "Add reference image (optional)"}
+          <input type="file" accept="image/*" onChange={handleImageUpload} className="hidden" />
+        </label>
+        {imageUrl && (
+          <>
+            <img src={imageUrl} alt="ref" className="w-8 h-8 rounded object-cover border border-border" />
+            <button onClick={() => setImageUrl("")} className="text-[10px] font-mono text-muted-foreground hover:text-primary">clear</button>
+          </>
+        )}
+      </div>
+
+      {/* Camera motion */}
+      <div>
+        <div className="flex items-center gap-1.5 mb-1.5">
+          <Camera size={10} className="text-muted-foreground" />
+          <span className="text-[10px] font-mono text-muted-foreground uppercase tracking-wide">Camera Motion</span>
+        </div>
+        <div className="flex flex-wrap gap-1.5">
+          {CAMERA_MOTIONS.map(m => (
+            <button
+              key={m.key}
+              onClick={() => setMotion(m.key as any)}
+              title={m.hint}
+              className={`text-[10px] font-mono px-2 py-1 rounded border transition-colors ${
+                motion === m.key
+                  ? "border-primary/50 bg-primary/10 text-primary"
+                  : "border-border text-muted-foreground hover:text-foreground hover:border-border/80"
+              }`}
+            >
+              {m.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Aspect + duration */}
+      <div className="flex flex-wrap gap-3">
+        <div className="flex flex-wrap gap-1.5">
+          {VIDEO_ASPECTS.map(a => (
+            <button
+              key={a.key}
+              onClick={() => setAspect(a.key)}
+              title={a.desc}
+              className={`text-[10px] font-mono px-2 py-1 rounded border transition-colors ${
+                aspect === a.key
+                  ? "border-primary/50 bg-primary/10 text-primary"
+                  : "border-border text-muted-foreground hover:text-foreground hover:border-border/80"
+              }`}
+            >
+              {a.label} <span className="opacity-50">{a.key}</span>
+            </button>
+          ))}
+        </div>
+        <div className="flex gap-1.5">
+          {([4, 6, 8] as const).map(d => (
+            <button
+              key={d}
+              onClick={() => setDuration(d)}
+              className={`text-[10px] font-mono px-2 py-1 rounded border transition-colors ${
+                duration === d
+                  ? "border-primary/50 bg-primary/10 text-primary"
+                  : "border-border text-muted-foreground hover:text-foreground hover:border-border/80"
+              }`}
+            >
+              {d}s
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {lastUrl && (
+        <div className="flex gap-3 items-start mt-1">
+          <video src={lastUrl} className="w-24 h-24 rounded-lg object-cover border border-border shrink-0" muted autoPlay loop playsInline />
+          <div className="flex flex-col gap-1.5 min-w-0">
+            <p className="text-[10px] font-mono text-muted-foreground truncate">{prompt}</p>
+            <div className="flex gap-1.5">
+              <a href={lastUrl} target="_blank" rel="noopener noreferrer"
+                className="text-[10px] font-mono px-2 py-0.5 rounded border border-border text-muted-foreground hover:text-primary hover:border-primary/30 transition-colors flex items-center gap-1">
+                <ExternalLink size={9} /> Open
+              </a>
+              <a href={lastUrl} download className="text-[10px] font-mono px-2 py-0.5 rounded border border-border text-muted-foreground hover:text-primary hover:border-primary/30 transition-colors flex items-center gap-1">
+                <Download size={9} /> Download
+              </a>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function GalleryPage() {
+
   const [items, setItems] = useState<MediaItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<FilterType>("all");
