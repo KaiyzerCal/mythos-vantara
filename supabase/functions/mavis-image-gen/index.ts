@@ -168,7 +168,7 @@ serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {
-    const { prompt, size, quality, aspect_ratio, width, height } = await req.json();
+    const { prompt, size, quality, aspect_ratio, width, height, provider: requestedProvider } = await req.json();
     if (!prompt?.trim()) {
       return new Response(JSON.stringify({ error: "prompt is required" }), {
         status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -181,69 +181,85 @@ serve(async (req) => {
       (width && height ? `${width}x${height}` : "1024x1024");
     // Default quality is now "high" for crisper output.
     const effectiveQuality: string = quality ?? "high";
+    const forced = typeof requestedProvider === "string" ? requestedProvider.toLowerCase() : "auto";
 
     let imageData: string | null = null;
     let provider = "unknown";
-    let revised_prompt = prompt;
+    const revised_prompt = prompt;
 
-    // Tier 0 — Self-hosted Stable Diffusion (free, unlimited)
-    if (SD_URL) {
-      const [w, h] = parseDimensions(effectiveSize);
-      imageData = await generateWithStableDiffusion(prompt, w, h);
-      if (imageData) provider = "stable-diffusion";
-    }
-
-    // Tier 1 — FLUX 1.1 Pro (fal.ai) — highest photorealistic quality, run first when available
-    if (!imageData && FAL_KEY) {
-      try {
-        const fluxUrl = await generateWithFluxPro(prompt, effectiveSize);
-        if (fluxUrl) { imageData = fluxUrl; provider = "flux-pro"; }
-      } catch (e: any) {
-        console.warn("FLUX Pro failed, falling back:", e.message);
-      }
-    }
-
-    // Tier 1b — ModelsLab (SDXL/FLUX-based, uncensored-capable)
-    if (!imageData && MODELSLAB_KEY) {
-      try {
-        const url = await generateWithModelsLab(prompt, effectiveSize);
-        if (url) { imageData = url; provider = "modelslab"; }
-      } catch (e: any) {
-        console.warn("ModelsLab failed, falling back:", e.message);
-      }
-    }
-
-
-
-    // Tier 2 — Imagen 4 (Google) — strong quality, free tier
-    if (!imageData && GEMINI_KEY) {
-      try {
+    // ── Explicit provider path ────────────────────────────────────────────
+    if (forced && forced !== "auto") {
+      if (forced === "flux-pro" || forced === "flux") {
+        if (!FAL_KEY) throw new Error("FLUX Pro requires FAL_API_KEY");
+        imageData = await generateWithFluxPro(prompt, effectiveSize);
+        provider = "flux-pro";
+      } else if (forced === "imagen-4" || forced === "imagen") {
+        if (!GEMINI_KEY) throw new Error("Imagen 4 requires GEMINI_API_KEY");
         imageData = await generateWithImagen4(prompt, aspect_ratio ?? "1:1");
         provider = "imagen-4";
-      } catch (e: any) {
-        console.warn("Imagen 4 failed, falling back:", e.message);
-      }
-    }
-
-    // Tier 3 — OpenAI gpt-image-1 (high quality by default now)
-    if (!imageData && OPENAI_KEY) {
-      try {
-        const url = await generateWithOpenAiImage(prompt, effectiveSize, effectiveQuality);
-        imageData = url;
+      } else if (forced === "openai" || forced === "gpt-image-1" || forced === "dalle") {
+        if (!OPENAI_KEY) throw new Error("OpenAI image requires OPENAI_API");
+        imageData = await generateWithOpenAiImage(prompt, effectiveSize, effectiveQuality);
         provider = "openai-gpt-image-1";
-      } catch (e: any) {
-        console.warn("OpenAI image generation failed, falling back:", e.message);
+      } else if (forced === "modelslab" || forced === "seedream") {
+        if (!MODELSLAB_KEY) throw new Error("ModelsLab requires MODELSLAB_API_KEY");
+        imageData = await generateWithModelsLab(prompt, effectiveSize);
+        provider = "modelslab";
+      } else if (forced === "stable-diffusion" || forced === "sd") {
+        if (!SD_URL) throw new Error("Stable Diffusion requires STABLE_DIFFUSION_URL");
+        const [w, h] = parseDimensions(effectiveSize);
+        imageData = await generateWithStableDiffusion(prompt, w, h);
+        provider = "stable-diffusion";
+      } else if (forced === "pollinations") {
+        const [w, h] = parseDimensions(effectiveSize);
+        const encoded = encodeURIComponent(prompt.trim().slice(0, 500));
+        const seed = Math.floor(Date.now() % 100000);
+        imageData = `https://image.pollinations.ai/prompt/${encoded}?width=${w}&height=${h}&model=flux&nologo=true&enhance=true&seed=${seed}`;
+        provider = "pollinations-flux";
+      } else {
+        throw new Error(`Unknown provider: ${forced}`);
+      }
+      if (!imageData) throw new Error(`${provider} returned no image`);
+    } else {
+      // ── Auto cascade (Tier 0 → 4) ────────────────────────────────────────
+      if (SD_URL) {
+        const [w, h] = parseDimensions(effectiveSize);
+        imageData = await generateWithStableDiffusion(prompt, w, h);
+        if (imageData) provider = "stable-diffusion";
+      }
+      if (!imageData && FAL_KEY) {
+        try {
+          const fluxUrl = await generateWithFluxPro(prompt, effectiveSize);
+          if (fluxUrl) { imageData = fluxUrl; provider = "flux-pro"; }
+        } catch (e: any) { console.warn("FLUX Pro failed:", e.message); }
+      }
+      if (!imageData && MODELSLAB_KEY) {
+        try {
+          const url = await generateWithModelsLab(prompt, effectiveSize);
+          if (url) { imageData = url; provider = "modelslab"; }
+        } catch (e: any) { console.warn("ModelsLab failed:", e.message); }
+      }
+      if (!imageData && GEMINI_KEY) {
+        try {
+          imageData = await generateWithImagen4(prompt, aspect_ratio ?? "1:1");
+          provider = "imagen-4";
+        } catch (e: any) { console.warn("Imagen 4 failed:", e.message); }
+      }
+      if (!imageData && OPENAI_KEY) {
+        try {
+          imageData = await generateWithOpenAiImage(prompt, effectiveSize, effectiveQuality);
+          provider = "openai-gpt-image-1";
+        } catch (e: any) { console.warn("OpenAI image failed:", e.message); }
+      }
+      if (!imageData) {
+        const [w, h] = parseDimensions(effectiveSize);
+        const encoded = encodeURIComponent(prompt.trim().slice(0, 500));
+        const seed = Math.floor(Date.now() % 100000);
+        imageData = `https://image.pollinations.ai/prompt/${encoded}?width=${w}&height=${h}&model=flux&nologo=true&enhance=true&seed=${seed}`;
+        provider = "pollinations-flux";
       }
     }
 
-    // Tier 4 — Pollinations.ai (completely free, no API key required)
-    if (!imageData) {
-      const [w, h] = parseDimensions(effectiveSize);
-      const encoded = encodeURIComponent(prompt.trim().slice(0, 500));
-      const seed = Math.floor(Date.now() % 100000);
-      imageData = `https://image.pollinations.ai/prompt/${encoded}?width=${w}&height=${h}&model=flux&nologo=true&enhance=true&seed=${seed}`;
-      provider = "pollinations-flux";
-    }
 
 
     return new Response(
