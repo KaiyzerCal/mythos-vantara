@@ -8,6 +8,7 @@ const corsHeaders = {
 const GEMINI_KEY = Deno.env.get("GEMINI_API_KEY") ?? "";
 const OPENAI_KEY = Deno.env.get("OPENAI_API") ?? Deno.env.get("OPENAI_API_KEY") ?? "";
 const FAL_KEY    = Deno.env.get("FAL_API_KEY") ?? "";
+const MODELSLAB_KEY = Deno.env.get("MODELSLAB_API_KEY") ?? "";
 // Self-hosted Stable Diffusion (AUTOMATIC1111 WebUI or Forge).
 // Deploy: docker run -d -p 7860:7860 --gpus all abhinavsingh/stable-diffusion-webui
 // Set: STABLE_DIFFUSION_URL=http://your-server:7860
@@ -66,6 +67,36 @@ async function generateWithFluxPro(prompt: string, size = "square_hd"): Promise<
     if (!res.ok) return null;
     const data = await res.json();
     return data?.images?.[0]?.url ?? null;
+  } catch {
+    return null;
+  }
+}
+
+// ModelsLab — high-quality SDXL/FLUX-based generation, supports NSFW-friendly base models
+async function generateWithModelsLab(prompt: string, size = "1024x1024"): Promise<string | null> {
+  if (!MODELSLAB_KEY) return null;
+  try {
+    const [w, h] = parseDimensions(size);
+    const res = await fetch("https://modelslab.com/api/v6/realtime/text2img", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        key: MODELSLAB_KEY,
+        prompt: prompt.trim().slice(0, 2000),
+        negative_prompt: "blurry, low quality, watermark, text, deformed",
+        width: String(w),
+        height: String(h),
+        samples: "1",
+        safety_checker: "no",
+        enhance_prompt: "yes",
+      }),
+      signal: AbortSignal.timeout(90_000),
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    if (data?.status === "error") return null;
+    const url = Array.isArray(data?.output) ? data.output[0] : data?.output;
+    return typeof url === "string" ? url : null;
   } catch {
     return null;
   }
@@ -171,6 +202,18 @@ serve(async (req) => {
         console.warn("FLUX Pro failed, falling back:", e.message);
       }
     }
+
+    // Tier 1b — ModelsLab (SDXL/FLUX-based, uncensored-capable)
+    if (!imageData && MODELSLAB_KEY) {
+      try {
+        const url = await generateWithModelsLab(prompt, effectiveSize);
+        if (url) { imageData = url; provider = "modelslab"; }
+      } catch (e: any) {
+        console.warn("ModelsLab failed, falling back:", e.message);
+      }
+    }
+
+
 
     // Tier 2 — Imagen 4 (Google) — strong quality, free tier
     if (!imageData && GEMINI_KEY) {

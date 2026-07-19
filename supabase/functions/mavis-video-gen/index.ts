@@ -7,9 +7,10 @@ const corsHeaders = {
 
 const FAL_KEY    = Deno.env.get("FAL_API_KEY")    ?? "";
 const GEMINI_KEY = Deno.env.get("GEMINI_API_KEY") ?? "";
+const MODELSLAB_KEY = Deno.env.get("MODELSLAB_API_KEY") ?? "";
 
 type AspectRatio = "16:9" | "9:16" | "1:1";
-type Provider = "fal" | "veo" | "omni" | "kling" | "runway" | "auto";
+type Provider = "fal" | "veo" | "omni" | "kling" | "runway" | "modelslab" | "auto";
 
 interface VideoRequest {
   prompt: string;
@@ -163,6 +164,67 @@ async function pollRunwayJob(request_id: string): Promise<{ status: string; url?
   return { status: "processing", provider: "runway" };
 }
 
+// ── ModelsLab video (text-to-video, uncensored-capable) ─────────────────────
+
+async function submitModelsLabJob(
+  prompt: string,
+  duration: number,
+  aspect_ratio: AspectRatio,
+): Promise<{ status: string; request_id?: string; url?: string; provider: string }> {
+  const ratioMap: Record<AspectRatio, [number, number]> = {
+    "16:9": [1024, 576],
+    "9:16": [576, 1024],
+    "1:1":  [768, 768],
+  };
+  const [width, height] = ratioMap[aspect_ratio] ?? [1024, 576];
+  const res = await fetch("https://modelslab.com/api/v6/video/text2video", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      key: MODELSLAB_KEY,
+      prompt: prompt.slice(0, 2000),
+      negative_prompt: "blurry, low quality, watermark, distorted",
+      width, height,
+      num_frames: Math.min(Math.max(duration * 8, 16), 64),
+      num_inference_steps: 20,
+      guidance_scale: 7,
+      output_type: "mp4",
+    }),
+    signal: AbortSignal.timeout(30_000),
+  });
+  if (!res.ok) throw new Error(`ModelsLab submit ${res.status}: ${(await res.text()).slice(0, 300)}`);
+  const data = await res.json();
+  if (data?.status === "success") {
+    const url = Array.isArray(data.output) ? data.output[0] : data.output;
+    return { status: "complete", url, provider: "modelslab" };
+  }
+  if (data?.status === "processing") {
+    return { status: "processing", request_id: String(data.id ?? data.fetch_result ?? ""), provider: "modelslab" };
+  }
+  throw new Error(`ModelsLab error: ${data?.message ?? JSON.stringify(data).slice(0, 200)}`);
+}
+
+async function pollModelsLabJob(request_id: string): Promise<{ status: string; url?: string; provider: string }> {
+  const fetchUrl = request_id.startsWith("http")
+    ? request_id
+    : `https://modelslab.com/api/v6/video/fetch/${request_id}`;
+  const res = await fetch(fetchUrl, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ key: MODELSLAB_KEY }),
+    signal: AbortSignal.timeout(15_000),
+  });
+  if (!res.ok) throw new Error(`ModelsLab poll ${res.status}`);
+  const data = await res.json();
+  if (data?.status === "success") {
+    const url = Array.isArray(data.output) ? data.output[0] : data.output;
+    return { status: "complete", url, provider: "modelslab" };
+  }
+  if (data?.status === "processing") return { status: "processing", provider: "modelslab" };
+  throw new Error(`ModelsLab failed: ${data?.message ?? "unknown"}`);
+}
+
+
 // ── Veo 3.1 via Gemini API ──────────────────────────────────────────────────
 
 async function submitVeoJob(
@@ -215,11 +277,12 @@ async function pollVeoOperation(
 
 // ── Resolve provider ────────────────────────────────────────────────────────
 
-function resolveProvider(requested?: Provider): "fal" | "veo" | "omni" | "kling" | "runway" {
-  if (requested && requested !== "auto") return requested as "fal" | "veo" | "omni" | "kling" | "runway";
+function resolveProvider(requested?: Provider): "fal" | "veo" | "omni" | "kling" | "runway" | "modelslab" {
+  if (requested && requested !== "auto") return requested as "fal" | "veo" | "omni" | "kling" | "runway" | "modelslab";
   if (FAL_KEY) return "fal";
+  if (MODELSLAB_KEY) return "modelslab";
   if (GEMINI_KEY) return "veo";
-  throw new Error("No video generation API key configured (FAL_API_KEY or GEMINI_API_KEY required)");
+  throw new Error("No video generation API key configured (FAL_API_KEY, MODELSLAB_API_KEY, or GEMINI_API_KEY required)");
 }
 
 // ── Handler ─────────────────────────────────────────────────────────────────
@@ -251,6 +314,9 @@ serve(async (req) => {
       } else if (requestedProvider === "veo") {
         if (!operation_name) return new Response(JSON.stringify({ error: "operation_name required for veo poll" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
         result = await pollVeoOperation(operation_name);
+      } else if (requestedProvider === "modelslab") {
+        if (!request_id) return new Response(JSON.stringify({ error: "request_id required for modelslab poll" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        result = await pollModelsLabJob(request_id);
       } else if (requestedProvider === "omni") {
         result = { status: "queued", message: "Gemini Omni Flash coming soon", provider: "omni" };
       } else {
@@ -280,6 +346,8 @@ serve(async (req) => {
       result = await submitRunwayJob(prompt.trim(), resolvedAspect, body.image_url as string | undefined);
     } else if (resolvedProvider === "fal") {
       result = await submitFalJob(prompt.trim(), resolvedDuration, resolvedAspect, model);
+    } else if (resolvedProvider === "modelslab") {
+      result = await submitModelsLabJob(prompt.trim(), resolvedDuration, resolvedAspect);
     } else if (resolvedProvider === "veo") {
       result = await submitVeoJob(prompt.trim(), resolvedAspect);
     } else {
