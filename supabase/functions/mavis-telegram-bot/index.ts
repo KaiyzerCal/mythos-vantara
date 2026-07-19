@@ -1883,7 +1883,7 @@ type Intent = "help" | "quests" | "revenue" | "tasks" | "actions" | "content_mac
             | "list_personas" | "switch_persona" | "reset_persona"
             | "list_council" | "list_agency" | "switch_agency"
             | "threads" | "close_thread" | "pipeline" | "advance_pipeline"
-            | "enrich_contact" | "chat";
+            | "enrich_contact" | "generate" | "vts" | "yamete" | "chat";
 interface Classified { intent: Intent; params: Record<string, string>; }
 
 function classify(text: string): Classified {
@@ -1943,6 +1943,29 @@ function classify(text: string): Classified {
   if (enrichMatch)
     return { intent: "enrich_contact", params: { name: enrichMatch[2].trim() } };
 
+  // VTube Studio control
+  const vtsHotkey = text.match(/^\/vts\s+hotkey\s+(.+)$/i);
+  if (vtsHotkey)
+    return { intent: "vts", params: { action: "trigger_hotkey", hotkey_id: vtsHotkey[1].trim() } };
+  const vtsExpr = text.match(/^\/vts\s+expr(?:ession)?\s+(on|off)\s+(.+)$/i);
+  if (vtsExpr)
+    return { intent: "vts", params: { action: "set_expression", active: vtsExpr[1] === "on" ? "1" : "0", expression_file: vtsExpr[2].trim() } };
+  const vtsMove = text.match(/^\/vts\s+move\s+([-\d.]+)\s+([-\d.]+)$/i);
+  if (vtsMove)
+    return { intent: "vts", params: { action: "move_model", position_x: vtsMove[1], position_y: vtsMove[2] } };
+  const vtsModels = text.match(/^\/vts\s+(?:list\s+)?models?$/i);
+  if (vtsModels)
+    return { intent: "vts", params: { action: "list_models" } };
+  const vtsLoad = text.match(/^\/vts\s+load\s+(.+)$/i);
+  if (vtsLoad)
+    return { intent: "vts", params: { action: "load_model", model_id: vtsLoad[1].trim() } };
+  const vtsHotkeys = text.match(/^\/vts\s+(?:list\s+)?hotkeys?$/i);
+  if (vtsHotkeys)
+    return { intent: "vts", params: { action: "list_hotkeys" } };
+  const vtsToken = text.match(/^\/vts\s+(?:get\s+)?token$/i);
+  if (vtsToken)
+    return { intent: "vts", params: { action: "get_token" } };
+
   // Image / video generation
   const generateMatch = text.match(/^\/?(generate|imagine|draw|create\s+image|make\s+(?:an?\s+)?(?:image|picture|photo|video|art))\s+(.+)$/i);
   if (generateMatch) {
@@ -1957,6 +1980,15 @@ function classify(text: string): Classified {
   const generateCmd = text.match(/^\/generate\s+(\w+)\s+(.+)$/i);
   if (generateCmd)
     return { intent: "generate", params: { prompt: generateCmd[2].trim(), workflow_type: generateCmd[1].toLowerCase() } };
+
+  // Yamete NSFW generation
+  const yameteMatch = text.match(/^\/?(nsfw|hentai|furry|adult|yamete)\s+(.+)$/i);
+  if (yameteMatch) {
+    const style = /hentai/i.test(yameteMatch[1]) ? "hentai"
+      : /furry/i.test(yameteMatch[1]) ? "furry"
+      : "realistic";
+    return { intent: "yamete", params: { prompt: yameteMatch[2].trim(), style } };
+  }
 
   // Bare /name shortcut — e.g. /lilu, /marcus (tries persona then council)
   const bareSlash = text.match(/^\/([a-zA-Z][a-zA-Z0-9_\- ]{1,40})$/);
@@ -2006,7 +2038,18 @@ async function handleHelp(chatId: string | number) {
     `✅ \`done [thread]\` — close a thread\n` +
     `📊 \`pipeline\` — view engagement pipelines\n` +
     `📊 \`advance [name] to [stage]\` — move contact forward\n` +
-    `🔍 \`enrich [name]\` — pull LinkedIn/X data for a contact`,
+    `🔍 \`enrich [name]\` — pull LinkedIn/X data for a contact\n\n` +
+    `🎭 *VTube Studio*\n` +
+    `/vts token — get auth token (approve in VTS first)\n` +
+    `/vts hotkey [name] — trigger a hotkey\n` +
+    `/vts expr on/off [file] — toggle expression\n` +
+    `/vts move [x] [y] — reposition model\n` +
+    `/vts models — list loaded models\n` +
+    `/vts hotkeys — list all hotkeys\n\n` +
+    `🔞 *NSFW Generation (Yamete)*\n` +
+    `nsfw [prompt] — realistic NSFW image\n` +
+    `hentai [prompt] — anime/hentai style\n` +
+    `furry [prompt] — furry style`,
   );
 }
 
@@ -2203,6 +2246,70 @@ async function handleGenerate(
       body: JSON.stringify({ chat_id: chatId, photo: mediaUrl, caption, parse_mode: "Markdown" }),
     });
   }
+}
+
+async function handleVts(chatId: string | number, uid: string, params: Record<string, string>) {
+  const vtsUrl = `${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-vtube-studio`;
+  const headers = {
+    "Content-Type": "application/json",
+    "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+  };
+  await send(chatId, `🎭 VTube Studio: _${params.action}_…`);
+  const res = await fetch(vtsUrl, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ ...params, user_id: uid }),
+    signal: AbortSignal.timeout(12_000),
+  });
+  const data = await res.json();
+  if (!res.ok || data.error) {
+    await send(chatId, `⚠️ VTS error: ${(data.error ?? "unknown").slice(0, 200)}`);
+    return;
+  }
+  const d = data.data ?? {};
+  switch (params.action) {
+    case "get_token":
+      await send(chatId, `🔑 VTube Studio token obtained!\nApprove the plugin in VTube Studio, then set:\n\`VTUBE_AUTH_TOKEN=${d.authenticationToken ?? "pending"}\`\nin Supabase secrets.`);
+      break;
+    case "list_models": {
+      const models = (d.availableModels ?? []).map((m: any) => `• ${m.modelName}`).join("\n") || "No models found";
+      await send(chatId, `🎭 *Available Models:*\n${models}`);
+      break;
+    }
+    case "list_hotkeys": {
+      const keys = (d.availableHotkeys ?? []).map((h: any) => `• \`${h.hotkeyID}\` — ${h.name}`).join("\n") || "No hotkeys";
+      await send(chatId, `⚡ *Hotkeys:*\n${keys}`);
+      break;
+    }
+    default:
+      await send(chatId, `✅ VTS _${params.action}_ done.`);
+  }
+}
+
+async function handleYamete(chatId: string | number, uid: string, prompt: string, style: string) {
+  if (!prompt) {
+    await send(chatId, "What should I generate? e.g. _nsfw a forest nymph_");
+    return;
+  }
+  await send(chatId, `🔞 Generating ${style} image: _${prompt.slice(0, 60)}_…`);
+  const res = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-yamete`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
+    body: JSON.stringify({ action: `generate_${style}`, prompt, user_id: uid }),
+    signal: AbortSignal.timeout(60_000),
+  });
+  const data = await res.json();
+  if (!res.ok || data.error) {
+    await send(chatId, `⚠️ Yamete error: ${(data.error ?? "unknown").slice(0, 200)}`);
+    return;
+  }
+  const url = data.imageUrl ?? data.signedUrl ?? data.url ?? "";
+  if (!url) { await send(chatId, "⚠️ Generation done but no image URL returned."); return; }
+  await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendPhoto`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ chat_id: chatId, photo: url, caption: `✅ ${style} · _${prompt.slice(0,80)}_`, parse_mode: "Markdown" }),
+  });
 }
 
 async function handleEnrichContact(chatId: string | number, uid: string, name: string) {
@@ -3414,6 +3521,8 @@ Deno.serve(async (req) => {
         case "advance_pipeline": await handleAdvancePipeline(chatId, uid, params); break;
         case "enrich_contact":   await handleEnrichContact(chatId, uid, params.name ?? ""); break;
         case "generate":         await handleGenerate(chatId, uid, params.prompt ?? "", params.workflow_type ?? "txt2img"); break;
+        case "vts":              await handleVts(chatId, uid, params); break;
+        case "yamete":           await handleYamete(chatId, uid, params.prompt ?? "", params.style ?? "realistic"); break;
         default:                 await handleChat(chatId, uid, text, history, sessionId); break;
       }
     } catch (err) {

@@ -161,6 +161,14 @@ verify_jwt = true
 [functions.mavis-comfyui]
 verify_jwt = false
 
+# VTube Studio proxy — connects via ngrok/Cloudflare tunnel with service-role key.
+[functions.mavis-vtube-studio]
+verify_jwt = false
+
+# Yamete.gg NSFW generation — called with service-role key.
+[functions.mavis-yamete]
+verify_jwt = false
+
 [functions.mavis-image-gen]
 verify_jwt = true
 
