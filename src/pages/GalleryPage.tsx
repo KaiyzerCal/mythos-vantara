@@ -309,6 +309,15 @@ const VIDEO_ASPECTS = [
   { key: "1:1",   label: "Square",    desc: "Feed post" },
 ] as const;
 
+const VIDEO_PROVIDERS = [
+  { key: "higgsfield", label: "Higgsfield",  hint: "cinematic camera control" },
+  { key: "kling",      label: "Kling",       hint: "fal.ai, strong motion" },
+  { key: "fal",        label: "Seedance",    hint: "fal.ai general" },
+  { key: "runway",     label: "Runway",      hint: "Runway Gen-3" },
+  { key: "veo",        label: "Veo",         hint: "Google Veo" },
+  { key: "modelslab",  label: "ModelsLab",   hint: "SDXL video, uncensored" },
+] as const;
+
 function VideoGenPanel({ onGenerated }: { onGenerated: (item: MediaItem) => void }) {
   const { session } = useAuth();
   const [prompt, setPrompt] = useState("");
@@ -316,9 +325,11 @@ function VideoGenPanel({ onGenerated }: { onGenerated: (item: MediaItem) => void
   const [cameraMotion, setCameraMotion] = useState<typeof CAMERA_MOTIONS[number]["key"]>("zoom_in");
   const [aspect, setAspect] = useState<typeof VIDEO_ASPECTS[number]["key"]>("9:16");
   const [duration, setDuration] = useState<4 | 6 | 8>(4);
+  const [videoProvider, setVideoProvider] = useState<typeof VIDEO_PROVIDERS[number]["key"]>("higgsfield");
   const [uploading, setUploading] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [lastUrl, setLastUrl] = useState<string | null>(null);
+
 
   async function handleImageUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
