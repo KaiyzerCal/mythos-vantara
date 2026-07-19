@@ -158,7 +158,7 @@ function ImageGenPanel({ onGenerated }: { onGenerated: (item: MediaItem) => void
       const s = SIZE_OPTIONS.find(o => o.key === size)!;
       const { data, error } = await (supabase as any).functions.invoke("mavis-image-gen", {
         body: {
-          prompt: `${prompt.trim()}. Ultra high detail, sharp focus, professional composition, cinematic lighting, 8k quality.`,
+          prompt: `${prompt.trim()}, ultra-detailed, razor-sharp focus, natural lighting, cinematic composition, shot on Hasselblad, photographic realism, fine texture detail`,
           width: s.w,
           height: s.h,
           size: `${s.w}x${s.h}`,
