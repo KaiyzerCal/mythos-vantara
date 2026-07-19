@@ -133,10 +133,20 @@ const SIZE_OPTIONS = [
   { key: "poster",    label: "Poster",   w: 864,  h: 1152, desc: "3:4 — print poster, flyer" },
 ] as const;
 
+const IMAGE_PROVIDERS = [
+  { key: "auto",             label: "Auto",         hint: "smart cascade" },
+  { key: "flux-pro",         label: "FLUX 1.1 Pro", hint: "photoreal, fal.ai" },
+  { key: "imagen-4",         label: "Imagen 4",     hint: "Google, sharp" },
+  { key: "openai",           label: "GPT Image",    hint: "OpenAI, versatile" },
+  { key: "modelslab",        label: "ModelsLab",    hint: "SDXL/FLUX, uncensored" },
+  { key: "pollinations",     label: "Pollinations", hint: "free FLUX" },
+] as const;
+
 function ImageGenPanel({ onGenerated }: { onGenerated: (item: MediaItem) => void }) {
   const { session } = useAuth();
   const [prompt, setPrompt] = useState("");
   const [size, setSize] = useState<typeof SIZE_OPTIONS[number]["key"]>("square");
+  const [imgProvider, setImgProvider] = useState<typeof IMAGE_PROVIDERS[number]["key"]>("auto");
   const [generating, setGenerating] = useState(false);
   const [lastUrl, setLastUrl] = useState<string | null>(null);
 
@@ -154,8 +164,10 @@ function ImageGenPanel({ onGenerated }: { onGenerated: (item: MediaItem) => void
           size: `${s.w}x${s.h}`,
           quality: "high",
           aspect_ratio: s.w === s.h ? "1:1" : s.w > s.h ? "16:9" : "9:16",
+          provider: imgProvider,
         },
       });
+
 
       if (error) throw error;
       if (!data?.url) throw new Error(data?.error ?? "No image URL returned");
