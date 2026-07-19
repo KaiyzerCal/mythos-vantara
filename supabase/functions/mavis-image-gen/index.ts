@@ -72,7 +72,35 @@ async function generateWithFluxPro(prompt: string, size = "square_hd"): Promise<
   }
 }
 
-async function generateWithImagen4(prompt: string, aspectRatio = "1:1"): Promise<string> {
+// ModelsLab — high-quality SDXL/FLUX-based generation, supports NSFW-friendly base models
+async function generateWithModelsLab(prompt: string, size = "1024x1024"): Promise<string | null> {
+  if (!MODELSLAB_KEY) return null;
+  try {
+    const [w, h] = parseDimensions(size);
+    const res = await fetch("https://modelslab.com/api/v6/realtime/text2img", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        key: MODELSLAB_KEY,
+        prompt: prompt.trim().slice(0, 2000),
+        negative_prompt: "blurry, low quality, watermark, text, deformed",
+        width: String(w),
+        height: String(h),
+        samples: "1",
+        safety_checker: "no",
+        enhance_prompt: "yes",
+      }),
+      signal: AbortSignal.timeout(90_000),
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    if (data?.status === "error") return null;
+    const url = Array.isArray(data?.output) ? data.output[0] : data?.output;
+    return typeof url === "string" ? url : null;
+  } catch {
+    return null;
+  }
+}
   const res = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/imagen-4.0-generate-preview-06-06:predict?key=${GEMINI_KEY}`,
     {
