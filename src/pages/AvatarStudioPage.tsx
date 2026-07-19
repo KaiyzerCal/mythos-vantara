@@ -184,6 +184,10 @@ export function AvatarStudioPage() {
           voice_id: voiceId,
           still_mode: stillMode,
           use_enhancer: useEnhancer,
+          aspect_ratio: aspect,
+          width: ASPECTS.find(a => a.key === aspect)?.w,
+          height: ASPECTS.find(a => a.key === aspect)?.h,
+
         }),
       });
       const data = await res.json();
