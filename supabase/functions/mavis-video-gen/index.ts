@@ -343,25 +343,45 @@ serve(async (req) => {
     const resolvedDuration = duration ?? 5;
     const resolvedAspect = aspect_ratio ?? "16:9";
 
-    let result: Record<string, unknown>;
+    // Ordered fallback chain — starts with resolved provider, then tries others
+    // when one fails (e.g. FAL 403 "Exhausted balance", ModelsLab quota, Veo unavailable).
+    const chain: string[] = [];
+    const push = (p: string) => { if (!chain.includes(p)) chain.push(p); };
+    push(resolvedProvider);
+    if (FAL_KEY) { push("kling"); push("fal"); push("runway"); }
+    if (MODELSLAB_KEY) push("modelslab");
+    if (GEMINI_KEY) push("veo");
 
-    if (resolvedProvider === "kling") {
-      result = await submitKlingJob(prompt.trim(), resolvedDuration, resolvedAspect);
-    } else if (resolvedProvider === "runway") {
-      result = await submitRunwayJob(prompt.trim(), resolvedAspect, body.image_url as string | undefined);
-    } else if (resolvedProvider === "fal") {
-      result = await submitFalJob(prompt.trim(), resolvedDuration, resolvedAspect, model);
-    } else if (resolvedProvider === "modelslab") {
-      result = await submitModelsLabJob(prompt.trim(), resolvedDuration, resolvedAspect);
-    } else if (resolvedProvider === "veo") {
-      result = await submitVeoJob(prompt.trim(), resolvedAspect);
-    } else {
-      result = { status: "queued", message: "Gemini Omni Flash coming soon", provider: "omni" };
+    const attempts: Array<{ provider: string; error: string }> = [];
+    let result: Record<string, unknown> | null = null;
+
+    for (const p of chain) {
+      try {
+        if (p === "kling") result = await submitKlingJob(prompt.trim(), resolvedDuration, resolvedAspect);
+        else if (p === "runway") result = await submitRunwayJob(prompt.trim(), resolvedAspect, body.image_url as string | undefined);
+        else if (p === "fal") result = await submitFalJob(prompt.trim(), resolvedDuration, resolvedAspect, model);
+        else if (p === "modelslab") result = await submitModelsLabJob(prompt.trim(), resolvedDuration, resolvedAspect);
+        else if (p === "veo") result = await submitVeoJob(prompt.trim(), resolvedAspect);
+        else continue;
+        break;
+      } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : String(e);
+        console.warn(`${p} failed, trying next:`, msg);
+        attempts.push({ provider: p, error: msg });
+      }
     }
 
-    return new Response(JSON.stringify(result), {
+    if (!result) {
+      return new Response(JSON.stringify({
+        error: "All video providers unavailable. Top up fal.ai / ModelsLab, or add another key.",
+        attempts,
+      }), { status: 503, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    return new Response(JSON.stringify({ ...result, attempts }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
+
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
     console.error("mavis-video-gen error:", message);
