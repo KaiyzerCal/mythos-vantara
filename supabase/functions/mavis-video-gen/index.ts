@@ -164,6 +164,67 @@ async function pollRunwayJob(request_id: string): Promise<{ status: string; url?
   return { status: "processing", provider: "runway" };
 }
 
+// ── ModelsLab video (text-to-video, uncensored-capable) ─────────────────────
+
+async function submitModelsLabJob(
+  prompt: string,
+  duration: number,
+  aspect_ratio: AspectRatio,
+): Promise<{ status: string; request_id?: string; url?: string; provider: string }> {
+  const ratioMap: Record<AspectRatio, [number, number]> = {
+    "16:9": [1024, 576],
+    "9:16": [576, 1024],
+    "1:1":  [768, 768],
+  };
+  const [width, height] = ratioMap[aspect_ratio] ?? [1024, 576];
+  const res = await fetch("https://modelslab.com/api/v6/video/text2video", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      key: MODELSLAB_KEY,
+      prompt: prompt.slice(0, 2000),
+      negative_prompt: "blurry, low quality, watermark, distorted",
+      width, height,
+      num_frames: Math.min(Math.max(duration * 8, 16), 64),
+      num_inference_steps: 20,
+      guidance_scale: 7,
+      output_type: "mp4",
+    }),
+    signal: AbortSignal.timeout(30_000),
+  });
+  if (!res.ok) throw new Error(`ModelsLab submit ${res.status}: ${(await res.text()).slice(0, 300)}`);
+  const data = await res.json();
+  if (data?.status === "success") {
+    const url = Array.isArray(data.output) ? data.output[0] : data.output;
+    return { status: "complete", url, provider: "modelslab" };
+  }
+  if (data?.status === "processing") {
+    return { status: "processing", request_id: String(data.id ?? data.fetch_result ?? ""), provider: "modelslab" };
+  }
+  throw new Error(`ModelsLab error: ${data?.message ?? JSON.stringify(data).slice(0, 200)}`);
+}
+
+async function pollModelsLabJob(request_id: string): Promise<{ status: string; url?: string; provider: string }> {
+  const fetchUrl = request_id.startsWith("http")
+    ? request_id
+    : `https://modelslab.com/api/v6/video/fetch/${request_id}`;
+  const res = await fetch(fetchUrl, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ key: MODELSLAB_KEY }),
+    signal: AbortSignal.timeout(15_000),
+  });
+  if (!res.ok) throw new Error(`ModelsLab poll ${res.status}`);
+  const data = await res.json();
+  if (data?.status === "success") {
+    const url = Array.isArray(data.output) ? data.output[0] : data.output;
+    return { status: "complete", url, provider: "modelslab" };
+  }
+  if (data?.status === "processing") return { status: "processing", provider: "modelslab" };
+  throw new Error(`ModelsLab failed: ${data?.message ?? "unknown"}`);
+}
+
+
 // ── Veo 3.1 via Gemini API ──────────────────────────────────────────────────
 
 async function submitVeoJob(
