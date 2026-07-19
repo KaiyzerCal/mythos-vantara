@@ -167,8 +167,9 @@ function ImageGenPanel({ onGenerated }: { onGenerated: (item: MediaItem) => void
           user_id: session.user.id,
           file_name: prompt.trim().slice(0, 80),
           file_type: "image/png",
-          storage_path: data.url,
-          metadata: { publicUrl: data.url, provider: data.provider ?? "ai", prompt: prompt.trim(), width: s.w, height: s.h },
+          file_url: data.url,
+          description: prompt.trim(),
+          tags: ["generated", data.provider ?? "ai", `${s.w}x${s.h}`],
         });
       }
 
@@ -334,8 +335,9 @@ function VideoGenPanel({ onGenerated }: { onGenerated: (item: MediaItem) => void
             user_id: session.user.id,
             file_name: prompt.trim().slice(0, 80),
             file_type: "video/mp4",
-            storage_path: url,
-            metadata: { publicUrl: url, provider: "higgsfield", prompt: prompt.trim(), camera_motion: cameraMotion, aspect_ratio: aspect, duration },
+            file_url: url,
+            description: prompt.trim(),
+            tags: ["generated", "higgsfield", cameraMotion, aspect, `${duration}s`],
           });
         }
         onGenerated({
