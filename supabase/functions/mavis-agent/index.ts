@@ -547,6 +547,7 @@ interface Env {
   tavilyKey: string;
   grokKey: string;
   lovableKey: string;
+  openaiKey: string;
   supabaseUrl: string;
   serviceKey: string;
 }
@@ -1803,16 +1804,47 @@ interface AgentLoopResult {
   content: string;
   toolsUsed: string[];
   actionsQueued: number;
+  provider?: string;
   imageUrl?: string;
   videoUrl?: string;
   imageUrls?: string[];
   videoUrls?: string[];
 }
 
-// Model routing: Gemini (via Lovable gateway, free tier) handles general chat.
-// Requests that need image/video/NSFW generation are pinned to Claude, because
-// Gemini refuses generation regardless of the system-prompt permissions.
+// ── Multi-provider routing table ─────────────────────────────────────────────
+// Every request is classified into a lane; each lane has an ordered provider
+// chain. The first provider with a configured key serves the request; on API
+// failure the next in the chain takes over. Once a provider serves an
+// iteration it is pinned for the rest of that agent loop so multi-step tool
+// conversations stay on one model.
+//
+//   gateway   — Gemini via Lovable gateway (free tier) — default workhorse
+//   anthropic — Claude — generation/NSFW (only model that honors the operator
+//               permission) and code/agentic work
+//   grok      — xAI — live knowledge: news, X/Twitter, markets, trending
+//   openai    — GPT — deep reasoning, analysis, strategy
+type ProviderId = "gateway" | "anthropic" | "openai" | "grok";
+
+const PROVIDER_LANES: Record<string, ProviderId[]> = {
+  generation: ["anthropic", "openai", "gateway", "grok"],
+  code:       ["anthropic", "openai", "gateway", "grok"],
+  realtime:   ["grok", "gateway", "anthropic", "openai"],
+  reasoning:  ["openai", "anthropic", "gateway", "grok"],
+  default:    ["gateway", "anthropic", "openai", "grok"],
+};
+
 const GENERATION_INTENT = /\b(generate|draw|render|imagine|make|create)\b[\s\S]{0,60}\b(image|picture|photo|pic|art|artwork|video|animation|avatar|portrait|wallpaper)\b|\b(image|picture|photo|video)\s+of\b|\b(nsfw|hentai|furry|lewd|nude|naked|sexy|erotic|porn)\b/i;
+const REALTIME_INTENT   = /\b(news|latest|breaking|trending|right now|happening now|current events|stock price|share price|crypto|bitcoin|ethereum|market today|twitter|tweet|on x\b|what('s| is) (going on|happening))\b/i;
+const CODE_INTENT       = /\b(code|coding|debug|refactor|typescript|javascript|python|rust|deno|sql|regex|stack ?trace|compil(e|er)|edge function|git|repo|pull request|bug in|error in|fix (the|my|this) (code|function|script))\b/i;
+const REASONING_INTENT  = /\b(analy[sz]e|analysis|strateg(y|ic|ize)|deep dive|pros and cons|trade-?offs?|evaluate|assess|think through|first principles|framework for|compare\b[\s\S]{0,40}\b(vs|versus|against))\b/i;
+
+function selectLane(text: string): string {
+  if (GENERATION_INTENT.test(text)) return "generation";
+  if (REALTIME_INTENT.test(text))   return "realtime";
+  if (CODE_INTENT.test(text))       return "code";
+  if (REASONING_INTENT.test(text))  return "reasoning";
+  return "default";
+}
 
 async function runAgentLoop(
   messages: Array<{ role: string; content: unknown }>,
@@ -1822,10 +1854,32 @@ async function runAgentLoop(
   supabase: ReturnType<typeof createClient>,
   env: Env,
   onEvent?: (event: Record<string, unknown>) => void,
-  preferAnthropic = false,
+  providerChain: ProviderId[] = ["gateway", "anthropic"],
 ): Promise<AgentLoopResult> {
   const anthropicModel = "claude-sonnet-4-6";
-  const gatewayModel = "google/gemini-2.5-flash";
+  // OpenAI-compatible providers share one request/response shape.
+  // OpenAI's GPT-5 family rejects max_tokens — it requires max_completion_tokens.
+  const compatProviders: Record<string, { url: string; key: string; model: string; tokenParam: string }> = {
+    gateway: {
+      url:        "https://ai.gateway.lovable.dev/v1/chat/completions",
+      key:        env.lovableKey,
+      model:      Deno.env.get("GATEWAY_MODEL") ?? "google/gemini-2.5-flash",
+      tokenParam: "max_tokens",
+    },
+    openai: {
+      url:        "https://api.openai.com/v1/chat/completions",
+      key:        env.openaiKey,
+      model:      Deno.env.get("OPENAI_MODEL") ?? "gpt-5-mini",
+      tokenParam: "max_completion_tokens",
+    },
+    grok: {
+      url:        "https://api.x.ai/v1/chat/completions",
+      key:        env.grokKey,
+      model:      Deno.env.get("GROK_MODEL") ?? "grok-4",
+      tokenParam: "max_tokens",
+    },
+  };
+  let pinnedProvider: ProviderId | null = null;
   let iteration = 0;
   const MAX_ITERATIONS = 10;
   let actionsQueued = 0;
@@ -1836,7 +1890,6 @@ async function runAgentLoop(
   let generatedVideoUrls: string[] | undefined;
 
   while (iteration < MAX_ITERATIONS) {
-    let provider: "gateway" | "anthropic" = "anthropic";
     let stopReason = "end_turn";
     let content: Array<{
       type: string;
@@ -1859,74 +1912,88 @@ async function runAgentLoop(
       return { role: message.role, content: JSON.stringify(message.content) };
     });
 
-    // Gemini-first for general chat (free tier). Generation/NSFW-intent requests
-    // skip the gateway and go straight to Claude when a key is available.
-    if (env.lovableKey && !(preferAnthropic && claudeKey)) {
-      const gatewayRes = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${env.lovableKey}` },
-        body: JSON.stringify({
-          model: gatewayModel,
-          max_tokens: 4096,
-          messages: [{ role: "system", content: system }, ...gatewayMessages],
-          tools: OPENAI_COMPAT_TOOLS,
-          tool_choice: "auto",
-        }),
-        signal: AbortSignal.timeout(90_000),
-      });
+    // Try each provider in the chain until one serves this iteration.
+    // A pinned provider (one that already served) always goes first.
+    const order = pinnedProvider
+      ? [pinnedProvider, ...providerChain.filter((p) => p !== pinnedProvider)]
+      : providerChain;
+    let served = false;
+    const providerErrors: string[] = [];
 
-      if (gatewayRes.ok) {
-        provider = "gateway";
-        const data = await gatewayRes.json();
-        const msg = data.choices?.[0]?.message ?? {};
-        const toolCalls = (msg.tool_calls ?? []) as Array<{ id?: string; function?: { name?: string; arguments?: unknown } }>;
-        if (toolCalls.length > 0) {
-          stopReason = "tool_use";
-          if (msg.content) content.push({ type: "text", text: String(msg.content) });
-          content.push(...toolCalls.map((call, idx) => ({
-            type: "tool_use",
-            id: call.id ?? `gateway_tool_${iteration}_${idx}`,
-            name: call.function?.name ?? "",
-            input: safeParseToolArguments(call.function?.arguments),
-          })));
+    for (const candidate of order) {
+      try {
+        if (candidate === "anthropic") {
+          if (!claudeKey) continue;
+          const res = await fetch("https://api.anthropic.com/v1/messages", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "x-api-key": claudeKey,
+              "anthropic-version": "2023-06-01",
+            },
+            body: JSON.stringify({
+              model: anthropicModel,
+              max_tokens: 4096,
+              system,
+              messages,
+              tools: MAVIS_TOOLS,
+            }),
+            signal: AbortSignal.timeout(90_000),
+          });
+          if (!res.ok) {
+            providerErrors.push(`anthropic ${res.status}: ${(await res.text()).slice(0, 200)}`);
+            continue;
+          }
+          const data = await res.json();
+          stopReason = data.stop_reason ?? "end_turn";
+          content = data.content ?? [];
         } else {
-          stopReason = "end_turn";
-          content = [{ type: "text", text: String(msg.content ?? "") }];
+          const cfg = compatProviders[candidate];
+          if (!cfg?.key) continue;
+          const res = await fetch(cfg.url, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${cfg.key}` },
+            body: JSON.stringify({
+              model: cfg.model,
+              [cfg.tokenParam]: 4096,
+              messages: [{ role: "system", content: system }, ...gatewayMessages],
+              tools: OPENAI_COMPAT_TOOLS,
+              tool_choice: "auto",
+            }),
+            signal: AbortSignal.timeout(90_000),
+          });
+          if (!res.ok) {
+            providerErrors.push(`${candidate} ${res.status}: ${(await res.text()).slice(0, 200)}`);
+            continue;
+          }
+          const data = await res.json();
+          const msg = data.choices?.[0]?.message ?? {};
+          const toolCalls = (msg.tool_calls ?? []) as Array<{ id?: string; function?: { name?: string; arguments?: unknown } }>;
+          if (toolCalls.length > 0) {
+            stopReason = "tool_use";
+            content = [];
+            if (msg.content) content.push({ type: "text", text: String(msg.content) });
+            content.push(...toolCalls.map((call, idx) => ({
+              type: "tool_use",
+              id: call.id ?? `${candidate}_tool_${iteration}_${idx}`,
+              name: call.function?.name ?? "",
+              input: safeParseToolArguments(call.function?.arguments),
+            })));
+          } else {
+            stopReason = "end_turn";
+            content = [{ type: "text", text: String(msg.content ?? "") }];
+          }
         }
-      } else if (!claudeKey) {
-        const errText = await gatewayRes.text();
-        throw new Error(`AI Gateway error ${gatewayRes.status}: ${errText.slice(0, 300)}`);
+        pinnedProvider = candidate;
+        served = true;
+        break;
+      } catch (err) {
+        providerErrors.push(`${candidate}: ${err instanceof Error ? err.message.slice(0, 200) : String(err)}`);
       }
     }
 
-    if (provider !== "gateway") {
-      const res = await fetch("https://api.anthropic.com/v1/messages", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-api-key": claudeKey,
-          "anthropic-version": "2023-06-01",
-        },
-        body: JSON.stringify({
-          model: anthropicModel,
-          max_tokens: 4096,
-          system,
-          messages,
-          tools: MAVIS_TOOLS,
-        }),
-        signal: AbortSignal.timeout(90_000),
-      });
-
-      if (!res.ok) {
-        const errText = await res.text();
-        throw new Error(
-          `Claude API error ${res.status}: ${errText.slice(0, 300)}`,
-        );
-      }
-
-      const data = await res.json();
-      stopReason = data.stop_reason ?? "end_turn";
-      content = data.content ?? [];
+    if (!served) {
+      throw new Error(`All providers failed — ${providerErrors.join(" | ") || "no provider keys configured"}`);
     }
 
     if (stopReason === "end_turn") {
@@ -1939,6 +2006,7 @@ async function runAgentLoop(
         content: text,
         toolsUsed,
         actionsQueued,
+        ...(pinnedProvider     && { provider:  pinnedProvider     }),
         ...(generatedImageUrl  && { imageUrl:  generatedImageUrl  }),
         ...(generatedVideoUrl  && { videoUrl:  generatedVideoUrl  }),
         ...(generatedImageUrls && { imageUrls: generatedImageUrls }),
@@ -2022,6 +2090,7 @@ async function runAgentLoop(
     content: "Agent loop completed.",
     toolsUsed,
     actionsQueued,
+    ...(pinnedProvider     && { provider:  pinnedProvider     }),
     ...(generatedImageUrl  && { imageUrl:  generatedImageUrl  }),
     ...(generatedVideoUrl  && { videoUrl:  generatedVideoUrl  }),
     ...(generatedImageUrls && { imageUrls: generatedImageUrls }),
@@ -2394,17 +2463,19 @@ Deno.serve(async (req) => {
 
     const claudeKey = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
     const lovableKey = Deno.env.get("LOVABLE_API_KEY") ?? "";
-    if (!lovableKey && !claudeKey) {
-      return json({ error: "No AI provider configured" }, 500);
-    }
 
     const env: Env = {
       tavilyKey: Deno.env.get("Tavily_API") ?? Deno.env.get("TAVILY_API_KEY") ?? Deno.env.get("TAVILY_KEY") ?? "",
       grokKey:   Deno.env.get("GROK_API_KEY") ?? Deno.env.get("XAI_API_KEY") ?? Deno.env.get("X_AI_API_KEY") ?? Deno.env.get("GROK_KEY") ?? "",
+      openaiKey: Deno.env.get("OPENAI_API_KEY") ?? Deno.env.get("OPEN_AI_API_KEY") ?? "",
       lovableKey,
       supabaseUrl: SUPABASE_URL,
       serviceKey: SERVICE_KEY,
     };
+
+    if (!lovableKey && !claudeKey && !env.openaiKey && !env.grokKey) {
+      return json({ error: "No AI provider configured" }, 500);
+    }
 
     // ── Semantic memory retrieval ─────────────────────────────────────────────
     // Embed the incoming goal and surface the top-5 most relevant persona memories
@@ -2541,11 +2612,31 @@ Deno.serve(async (req) => {
 
     const wantsStream = body.stream === true;
 
-    // Route generation/NSFW-intent requests to Claude; everything else stays
-    // on the Gemini gateway (free tier). Callers can also force a provider
-    // with body.provider = "anthropic" | "gateway".
-    const preferAnthropic = body.provider === "anthropic" ||
-      (body.provider !== "gateway" && GENERATION_INTENT.test(goalText));
+    // ── Model routing ────────────────────────────────────────────────────────
+    // Classify the request into a lane, then build the provider chain from the
+    // routing table, keeping only providers with configured keys. Callers can
+    // force a provider with body.provider = "anthropic"|"openai"|"grok"|"gateway".
+    const overrideRaw = String(body.provider ?? "").toLowerCase();
+    const override: ProviderId | "" =
+      overrideRaw === "gateway" || overrideRaw === "gemini" ? "gateway"
+      : overrideRaw === "anthropic" || overrideRaw === "claude" ? "anthropic"
+      : overrideRaw === "openai" || overrideRaw === "gpt" ? "openai"
+      : overrideRaw === "grok" || overrideRaw === "xai" ? "grok"
+      : "";
+    const lane = override ? "override" : selectLane(goalText);
+    const baseChain: ProviderId[] = override
+      ? [override, ...PROVIDER_LANES.default.filter((p) => p !== override)]
+      : PROVIDER_LANES[lane] ?? PROVIDER_LANES.default;
+    const keyFor: Record<ProviderId, string> = {
+      gateway:   lovableKey,
+      anthropic: claudeKey,
+      openai:    env.openaiKey,
+      grok:      env.grokKey,
+    };
+    const providerChain = baseChain.filter((p) => keyFor[p]);
+    if (providerChain.length === 0) {
+      return json({ error: "No AI provider configured for this request" }, 500);
+    }
 
     if (!wantsStream) {
       const result = await runAgentLoop(
@@ -2556,9 +2647,9 @@ Deno.serve(async (req) => {
         supabase,
         env,
         undefined,
-        preferAnthropic,
+        providerChain,
       );
-      return json({ ok: true, mode, ...result });
+      return json({ ok: true, mode, lane, ...result });
     }
 
     // SSE streaming — emit tool thinking events and final text as they happen
@@ -2577,9 +2668,9 @@ Deno.serve(async (req) => {
       supabase,
       env,
       emitSSE,
-      preferAnthropic,
+      providerChain,
     ).then((result) => {
-      emitSSE({ done: true, content: result.content, toolsUsed: result.toolsUsed, actionsQueued: result.actionsQueued });
+      emitSSE({ done: true, content: result.content, toolsUsed: result.toolsUsed, actionsQueued: result.actionsQueued, provider: result.provider, lane });
       sseWriter.close();
     }).catch((err: unknown) => {
       emitSSE({ error: err instanceof Error ? err.message : String(err) });
