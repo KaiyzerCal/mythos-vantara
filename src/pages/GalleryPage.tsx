@@ -281,7 +281,7 @@ function VideoGenPanel({ onGenerated }: { onGenerated: (item: MediaItem) => void
   const { session } = useAuth();
   const [prompt, setPrompt] = useState("");
   const [imageUrl, setImageUrl] = useState("");
-  const [motion, setMotion] = useState<typeof CAMERA_MOTIONS[number]["key"]>("zoom_in");
+  const [cameraMotion, setCameraMotion] = useState<typeof CAMERA_MOTIONS[number]["key"]>("zoom_in");
   const [aspect, setAspect] = useState<typeof VIDEO_ASPECTS[number]["key"]>("9:16");
   const [duration, setDuration] = useState<4 | 6 | 8>(4);
   const [uploading, setUploading] = useState(false);
@@ -317,7 +317,7 @@ function VideoGenPanel({ onGenerated }: { onGenerated: (item: MediaItem) => void
           action: "generate_video",
           prompt: prompt.trim(),
           image_url: imageUrl || undefined,
-          camera_motion: motion,
+          camera_motion: cameraMotion,
           aspect_ratio: aspect,
           duration,
           max_attempts: 30,
@@ -335,7 +335,7 @@ function VideoGenPanel({ onGenerated }: { onGenerated: (item: MediaItem) => void
             file_name: prompt.trim().slice(0, 80),
             file_type: "video/mp4",
             storage_path: url,
-            metadata: { publicUrl: url, provider: "higgsfield", prompt: prompt.trim(), camera_motion: motion, aspect_ratio: aspect, duration },
+            metadata: { publicUrl: url, provider: "higgsfield", prompt: prompt.trim(), camera_motion: cameraMotion, aspect_ratio: aspect, duration },
           });
         }
         onGenerated({
@@ -345,7 +345,7 @@ function VideoGenPanel({ onGenerated }: { onGenerated: (item: MediaItem) => void
           title: prompt.trim().slice(0, 80),
           provider: "higgsfield",
           created_at: new Date().toISOString(),
-          extra: { motion, aspect, duration },
+          extra: { cameraMotion, aspect, duration },
         });
       } else {
         alert(`Still processing — job id ${data?.video_id}. It will appear in the gallery once ready.`);
@@ -406,10 +406,10 @@ function VideoGenPanel({ onGenerated }: { onGenerated: (item: MediaItem) => void
           {CAMERA_MOTIONS.map(m => (
             <button
               key={m.key}
-              onClick={() => setMotion(m.key as any)}
+              onClick={() => setCameraMotion(m.key as any)}
               title={m.hint}
               className={`text-[10px] font-mono px-2 py-1 rounded border transition-colors ${
-                motion === m.key
+                cameraMotion === m.key
                   ? "border-primary/50 bg-primary/10 text-primary"
                   : "border-border text-muted-foreground hover:text-foreground hover:border-border/80"
               }`}
