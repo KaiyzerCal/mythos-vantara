@@ -8,6 +8,7 @@ const corsHeaders = {
 const GEMINI_KEY = Deno.env.get("GEMINI_API_KEY") ?? "";
 const OPENAI_KEY = Deno.env.get("OPENAI_API") ?? Deno.env.get("OPENAI_API_KEY") ?? "";
 const FAL_KEY    = Deno.env.get("FAL_API_KEY") ?? "";
+const MODELSLAB_KEY = Deno.env.get("MODELSLAB_API_KEY") ?? "";
 // Self-hosted Stable Diffusion (AUTOMATIC1111 WebUI or Forge).
 // Deploy: docker run -d -p 7860:7860 --gpus all abhinavsingh/stable-diffusion-webui
 // Set: STABLE_DIFFUSION_URL=http://your-server:7860
