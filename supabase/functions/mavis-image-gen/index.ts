@@ -137,12 +137,19 @@ serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {
-    const { prompt, size, quality, aspect_ratio } = await req.json();
+    const { prompt, size, quality, aspect_ratio, width, height } = await req.json();
     if (!prompt?.trim()) {
       return new Response(JSON.stringify({ error: "prompt is required" }), {
         status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
+
+    // Support width/height as an alternative to size string. Default to HD.
+    const effectiveSize: string =
+      size ??
+      (width && height ? `${width}x${height}` : "1024x1024");
+    // Default quality is now "high" for crisper output.
+    const effectiveQuality: string = quality ?? "high";
 
     let imageData: string | null = null;
     let provider = "unknown";
@@ -150,12 +157,22 @@ serve(async (req) => {
 
     // Tier 0 — Self-hosted Stable Diffusion (free, unlimited)
     if (SD_URL) {
-      const [w, h] = parseDimensions(size ?? "512x512");
+      const [w, h] = parseDimensions(effectiveSize);
       imageData = await generateWithStableDiffusion(prompt, w, h);
       if (imageData) provider = "stable-diffusion";
     }
 
-    // Tier 1 — Imagen 4 (Google)
+    // Tier 1 — FLUX 1.1 Pro (fal.ai) — highest photorealistic quality, run first when available
+    if (!imageData && FAL_KEY) {
+      try {
+        const fluxUrl = await generateWithFluxPro(prompt, effectiveSize);
+        if (fluxUrl) { imageData = fluxUrl; provider = "flux-pro"; }
+      } catch (e: any) {
+        console.warn("FLUX Pro failed, falling back:", e.message);
+      }
+    }
+
+    // Tier 2 — Imagen 4 (Google) — strong quality, free tier
     if (!imageData && GEMINI_KEY) {
       try {
         imageData = await generateWithImagen4(prompt, aspect_ratio ?? "1:1");
@@ -165,20 +182,10 @@ serve(async (req) => {
       }
     }
 
-    // Tier 1.5 — FLUX 1.1 Pro (fal.ai, higher quality than DALL-E 3)
-    if (!imageData && FAL_KEY) {
-      try {
-        const fluxUrl = await generateWithFluxPro(prompt, size ?? "1024x1024");
-        if (fluxUrl) { imageData = fluxUrl; provider = "flux-pro"; }
-      } catch (e: any) {
-        console.warn("FLUX Pro failed, falling back:", e.message);
-      }
-    }
-
-    // Tier 2 — OpenAI image generation
+    // Tier 3 — OpenAI gpt-image-1 (high quality by default now)
     if (!imageData && OPENAI_KEY) {
       try {
-        const url = await generateWithOpenAiImage(prompt, size, quality);
+        const url = await generateWithOpenAiImage(prompt, effectiveSize, effectiveQuality);
         imageData = url;
         provider = "openai-gpt-image-1";
       } catch (e: any) {
@@ -186,15 +193,15 @@ serve(async (req) => {
       }
     }
 
-    // Tier 3 — Pollinations.ai (completely free, no API key required)
-    // Runs when none of the above keys are configured; great for dev/demo.
+    // Tier 4 — Pollinations.ai (completely free, no API key required)
     if (!imageData) {
-      const [w, h] = parseDimensions(size ?? "1024x1024");
+      const [w, h] = parseDimensions(effectiveSize);
       const encoded = encodeURIComponent(prompt.trim().slice(0, 500));
       const seed = Math.floor(Date.now() % 100000);
-      imageData = `https://image.pollinations.ai/prompt/${encoded}?width=${w}&height=${h}&model=flux&nologo=true&seed=${seed}`;
+      imageData = `https://image.pollinations.ai/prompt/${encoded}?width=${w}&height=${h}&model=flux&nologo=true&enhance=true&seed=${seed}`;
       provider = "pollinations-flux";
     }
+
 
     return new Response(
       JSON.stringify({ url: imageData, revised_prompt, provider }),
