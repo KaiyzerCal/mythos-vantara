@@ -15,7 +15,7 @@ const SB_URL        = Deno.env.get("SUPABASE_URL")!;
 const SB_SRK        = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const ANTHROPIC_KEY = Deno.env.get("ANTHROPIC_API_KEY")!;
 const BOT_TOKEN     = Deno.env.get("TELEGRAM_BOT_TOKEN")!;
-const OPENAI_KEY    = Deno.env.get("OPENAI_API_KEY") ?? "";
+const OPENAI_KEY    = (Deno.env.get("OPENAI_API_KEY") ?? Deno.env.get("OPENAI_API")) ?? "";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",

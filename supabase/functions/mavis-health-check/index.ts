@@ -115,7 +115,7 @@ Deno.serve(async (req) => {
   // ── AI Providers: live minimal calls ─────────────────────
   const ANTHROPIC_KEY = Deno.env.get("ANTHROPIC_API_KEY");
   const GEMINI_KEY    = Deno.env.get("GEMINI_API_KEY");
-  const OPENAI_KEY    = Deno.env.get("OPENAI_API_KEY");
+  const OPENAI_KEY    = (Deno.env.get("OPENAI_API_KEY") ?? Deno.env.get("OPENAI_API"));
 
   tests.push(
     runTest("ai_anthropic", "Anthropic Claude", "AI Providers", async () => {

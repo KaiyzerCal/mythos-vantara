@@ -13,7 +13,7 @@ const corsHeaders = {
 };
 
 const ANTHROPIC_KEY = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
-const OPENAI_KEY    = Deno.env.get("OPENAI_API") ?? "";
+const OPENAI_KEY    = (Deno.env.get("OPENAI_API") ?? Deno.env.get("OPENAI_API_KEY")) ?? "";
 
 // ─────────────────────────────────────────────────────────────
 // Platform prompt map

@@ -278,7 +278,7 @@ async function execAskMavis(
 }
 
 async function execSearchMemory(userId: string, query: string, limit = 8): Promise<string> {
-  if (!Deno.env.get("OPENAI_API")) {
+  if (!(Deno.env.get("OPENAI_API") ?? Deno.env.get("OPENAI_API_KEY"))) {
     // Fallback: text search in mavis_memory
     const { data } = await sb()
       .from("mavis_memory")
@@ -294,7 +294,7 @@ async function execSearchMemory(userId: string, query: string, limit = 8): Promi
   // Semantic search via OpenAI embeddings + pgvector
   const embedRes = await fetch("https://api.openai.com/v1/embeddings", {
     method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${Deno.env.get("OPENAI_API")}` },
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${(Deno.env.get("OPENAI_API") ?? Deno.env.get("OPENAI_API_KEY"))}` },
     body: JSON.stringify({ model: "text-embedding-3-small", input: query }),
   });
   if (!embedRes.ok) return "Memory search unavailable.";

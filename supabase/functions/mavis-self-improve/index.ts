@@ -641,7 +641,7 @@ serve(async (req) => {
     let openaiJobId: string | null = null;
     let openaiJobTriggered = false;
 
-    if (pairsPassed >= 10 && jsonlContent && Deno.env.get("OPENAI_API")) {
+    if (pairsPassed >= 10 && jsonlContent && (Deno.env.get("OPENAI_API") ?? Deno.env.get("OPENAI_API_KEY"))) {
       try {
         const ftRes = await fetch(`${SB_URL}/functions/v1/mavis-openai-finetune`, {
           method: "POST",

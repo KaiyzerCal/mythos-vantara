@@ -97,7 +97,7 @@ serve(async (req) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
     );
 
-    const openaiApiKey = Deno.env.get("OPENAI_API") ?? "";
+    const openaiApiKey = (Deno.env.get("OPENAI_API") ?? Deno.env.get("OPENAI_API_KEY")) ?? "";
     const canEmbed = generate_embeddings && Boolean(openaiApiKey);
 
     // Prepare all note records

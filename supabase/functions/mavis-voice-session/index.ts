@@ -9,7 +9,7 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
-const OPENAI_KEY  = Deno.env.get("OPENAI_API") ?? "";
+const OPENAI_KEY  = (Deno.env.get("OPENAI_API") ?? Deno.env.get("OPENAI_API_KEY")) ?? "";
 const SB_URL      = Deno.env.get("SUPABASE_URL") ?? "";
 const SB_KEY      = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 

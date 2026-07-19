@@ -16,7 +16,7 @@ const SB_URL = Deno.env.get("SUPABASE_URL")!;
 const SB_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const ANTHROPIC_KEY = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
 // OPENAI_API is a fallback env var name matching the rest of the codebase
-const OPENAI_KEY = Deno.env.get("OPENAI_API") ?? "";
+const OPENAI_KEY = (Deno.env.get("OPENAI_API") ?? Deno.env.get("OPENAI_API_KEY")) ?? "";
 
 const supabase = createClient(SB_URL, SB_KEY, { auth: { persistSession: false } });
 

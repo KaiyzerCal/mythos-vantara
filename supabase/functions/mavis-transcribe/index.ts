@@ -11,7 +11,7 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
-const OPENAI_KEY  = Deno.env.get("OPENAI_API") ?? "";
+const OPENAI_KEY  = (Deno.env.get("OPENAI_API") ?? Deno.env.get("OPENAI_API_KEY")) ?? "";
 // Self-hosted Whisper (faster-whisper FastAPI server). OpenAI-compatible endpoint.
 // Deploy whisper-server/Dockerfile, set WHISPER_URL=http://your-server:9000
 const WHISPER_URL = Deno.env.get("WHISPER_URL");

@@ -588,7 +588,7 @@ verify_jwt = true
 [functions.mavis-market-data]
 verify_jwt = true
 
-[functions.mavis-local-mesh-proxy]
+[functions.local-mesh-proxy]
 verify_jwt = false
 
 [functions.embed-and-search]

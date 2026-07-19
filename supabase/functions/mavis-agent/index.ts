@@ -2467,7 +2467,7 @@ Deno.serve(async (req) => {
     const env: Env = {
       tavilyKey: Deno.env.get("Tavily_API") ?? Deno.env.get("TAVILY_API_KEY") ?? Deno.env.get("TAVILY_KEY") ?? "",
       grokKey:   Deno.env.get("GROK_API_KEY") ?? Deno.env.get("XAI_API_KEY") ?? Deno.env.get("X_AI_API_KEY") ?? Deno.env.get("GROK_KEY") ?? "",
-      openaiKey: Deno.env.get("OPENAI_API_KEY") ?? Deno.env.get("OPEN_AI_API_KEY") ?? "",
+      openaiKey: Deno.env.get("OPENAI_API_KEY") ?? Deno.env.get("OPENAI_API") ?? Deno.env.get("OPEN_AI_API_KEY") ?? "",
       lovableKey,
       supabaseUrl: SUPABASE_URL,
       serviceKey: SERVICE_KEY,

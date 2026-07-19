@@ -19,7 +19,7 @@ const supabase = createClient(
   { auth: { persistSession: false } },
 );
 
-const OPENAI_KEY = Deno.env.get("OPENAI_API") ?? "";
+const OPENAI_KEY = (Deno.env.get("OPENAI_API") ?? Deno.env.get("OPENAI_API_KEY")) ?? "";
 const BOT_TOKEN  = Deno.env.get("TELEGRAM_BOT_TOKEN") ?? "";
 
 // ─────────────────────────────────────────────────────────────
