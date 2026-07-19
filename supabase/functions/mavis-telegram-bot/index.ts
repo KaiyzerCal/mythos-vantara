@@ -2317,29 +2317,49 @@ async function handleVts(chatId: string | number, uid: string, params: Record<st
   }
 }
 
+// ModelsLab model IDs for NSFW styles.
+// Swap these for any model IDs from modelslab.com/models that suit your taste.
+const NSFW_MODELS: Record<string, string> = {
+  realistic: "realistic-vision-v51",
+  hentai:    "anything-v5",
+  furry:     "fluffusion",
+};
+
 async function handleYamete(chatId: string | number, uid: string, prompt: string, style: string) {
   if (!prompt) {
     await send(chatId, "What should I generate? e.g. _nsfw a forest nymph_");
     return;
   }
-  await send(chatId, `🔞 Generating ${style} image: _${prompt.slice(0, 60)}_…`);
-  const res = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-yamete`, {
+  await send(chatId, `🔞 Generating ${style} image via ModelsLab: _${prompt.slice(0, 60)}_…`);
+
+  const modelId = NSFW_MODELS[style] ?? NSFW_MODELS.realistic;
+  const res = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-modelslab`, {
     method: "POST",
     headers: { "Content-Type": "application/json", "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
-    body: JSON.stringify({ action: `generate_${style}`, prompt, user_id: uid }),
-    signal: AbortSignal.timeout(60_000),
+    body: JSON.stringify({
+      workflow_type:    "txt2img",
+      prompt:           prompt + (style === "hentai" ? ", anime, detailed, nsfw" : style === "furry" ? ", furry, anthro, detailed" : ", photorealistic, nsfw"),
+      negative_prompt:  "ugly, deformed, blurry, low quality, watermark, text",
+      model_id:         modelId,
+      width:            512,
+      height:           768,
+      steps:            25,
+      user_id:          uid,
+    }),
+    signal: AbortSignal.timeout(120_000),
   });
+
   const data = await res.json();
   if (!res.ok || data.error) {
-    await send(chatId, `⚠️ Yamete error: ${(data.error ?? "unknown").slice(0, 200)}`);
+    await send(chatId, `⚠️ Generation failed: ${(data.error ?? "unknown").slice(0, 200)}`);
     return;
   }
-  const url = data.imageUrl ?? data.signedUrl ?? data.url ?? "";
+  const url = data.imageUrl ?? "";
   if (!url) { await send(chatId, "⚠️ Generation done but no image URL returned."); return; }
   await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendPhoto`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ chat_id: chatId, photo: url, caption: `✅ ${style} · _${prompt.slice(0,80)}_`, parse_mode: "Markdown" }),
+    body: JSON.stringify({ chat_id: chatId, photo: url, caption: `✅ ${style} · _${prompt.slice(0, 80)}_`, parse_mode: "Markdown" }),
   });
 }
 
