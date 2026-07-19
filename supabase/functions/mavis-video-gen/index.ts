@@ -277,11 +277,12 @@ async function pollVeoOperation(
 
 // ── Resolve provider ────────────────────────────────────────────────────────
 
-function resolveProvider(requested?: Provider): "fal" | "veo" | "omni" | "kling" | "runway" {
-  if (requested && requested !== "auto") return requested as "fal" | "veo" | "omni" | "kling" | "runway";
+function resolveProvider(requested?: Provider): "fal" | "veo" | "omni" | "kling" | "runway" | "modelslab" {
+  if (requested && requested !== "auto") return requested as "fal" | "veo" | "omni" | "kling" | "runway" | "modelslab";
   if (FAL_KEY) return "fal";
+  if (MODELSLAB_KEY) return "modelslab";
   if (GEMINI_KEY) return "veo";
-  throw new Error("No video generation API key configured (FAL_API_KEY or GEMINI_API_KEY required)");
+  throw new Error("No video generation API key configured (FAL_API_KEY, MODELSLAB_API_KEY, or GEMINI_API_KEY required)");
 }
 
 // ── Handler ─────────────────────────────────────────────────────────────────
