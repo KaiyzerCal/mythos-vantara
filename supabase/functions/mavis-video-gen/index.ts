@@ -7,9 +7,10 @@ const corsHeaders = {
 
 const FAL_KEY    = Deno.env.get("FAL_API_KEY")    ?? "";
 const GEMINI_KEY = Deno.env.get("GEMINI_API_KEY") ?? "";
+const MODELSLAB_KEY = Deno.env.get("MODELSLAB_API_KEY") ?? "";
 
 type AspectRatio = "16:9" | "9:16" | "1:1";
-type Provider = "fal" | "veo" | "omni" | "kling" | "runway" | "auto";
+type Provider = "fal" | "veo" | "omni" | "kling" | "runway" | "modelslab" | "auto";
 
 interface VideoRequest {
   prompt: string;
