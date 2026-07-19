@@ -319,7 +319,8 @@ Deno.serve(async (req: Request): Promise<Response> => {
         pluginDeveloper,
         pluginIcon: "",
       });
-      vtsResponse = await vtsRequest(wsUrl, message);
+      // VTS replies only after the operator clicks "Allow" in the GUI — wait up to 60s.
+      vtsResponse = await vtsRequest(wsUrl, message, 60_000);
     } else {
       // All other actions require authenticating on the same connection first.
       let command: Record<string, unknown>;

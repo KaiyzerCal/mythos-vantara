@@ -1853,7 +1853,10 @@ async function runAgentLoop(
       return { role: message.role, content: JSON.stringify(message.content) };
     });
 
-    if (env.lovableKey) {
+    // Claude is the primary provider — the gateway (Gemini) is a fallback only.
+    // Gemini ignores the NSFW/generation permissions in the system prompt and
+    // refuses, so it must never serve requests when a Claude key is available.
+    if (env.lovableKey && !claudeKey) {
       const gatewayRes = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${env.lovableKey}` },

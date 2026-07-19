@@ -2286,11 +2286,12 @@ async function handleVts(chatId: string | number, uid: string, params: Record<st
     "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
   };
   await send(chatId, `🎭 VTube Studio: _${params.action}_…`);
+  // get_token waits for the operator to click "Allow" in the VTube Studio GUI
   const res = await fetch(vtsUrl, {
     method: "POST",
     headers,
     body: JSON.stringify({ ...params, user_id: uid }),
-    signal: AbortSignal.timeout(12_000),
+    signal: AbortSignal.timeout(params.action === "get_token" ? 75_000 : 12_000),
   });
   const data = await res.json();
   if (!res.ok || data.error) {
@@ -2346,7 +2347,8 @@ async function handleYamete(chatId: string | number, uid: string, prompt: string
       steps:            25,
       user_id:          uid,
     }),
-    signal: AbortSignal.timeout(120_000),
+    // mavis-modelslab polls up to 300s for async generations
+    signal: AbortSignal.timeout(310_000),
   });
 
   const data = await res.json();
@@ -3285,7 +3287,9 @@ async function handleChat(
         "Authorization": `Bearer ${SERVICE_KEY}`,
       },
       body: JSON.stringify({ user_id: uid, messages, mode: "TELEGRAM" }),
-      signal: AbortSignal.timeout(90_000),
+      // generate_image inside mavis-agent can take up to 310s (ModelsLab polling);
+      // webhook is already acked via waitUntil so a long wait here is safe.
+      signal: AbortSignal.timeout(320_000),
     });
 
     if (!res.ok) {
@@ -3311,6 +3315,15 @@ async function handleChat(
 
     const imageUrl = String(data.imageUrl ?? "");
     if (imageUrl.startsWith("http")) await sendPhoto(chatId, imageUrl);
+
+    const videoUrl = String(data.videoUrl ?? "");
+    if (videoUrl.startsWith("http")) {
+      await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendVideo`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ chat_id: chatId, video: videoUrl }),
+      });
+    }
 
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
