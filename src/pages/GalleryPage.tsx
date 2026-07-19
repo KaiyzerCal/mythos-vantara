@@ -427,7 +427,25 @@ function VideoGenPanel({ onGenerated }: { onGenerated: (item: MediaItem) => void
       <div className="flex items-center gap-2">
         <Film size={14} className="text-primary" />
         <span className="text-xs font-mono text-foreground font-medium">Generate Video</span>
-        <span className="text-[9px] font-mono text-muted-foreground ml-auto">Higgsfield cinematic engine</span>
+        <span className="text-[9px] font-mono text-muted-foreground ml-auto">{VIDEO_PROVIDERS.find(p => p.key === videoProvider)?.label}</span>
+      </div>
+
+      {/* Provider selector */}
+      <div className="flex flex-wrap gap-1.5">
+        {VIDEO_PROVIDERS.map(p => (
+          <button
+            key={p.key}
+            onClick={() => setVideoProvider(p.key)}
+            title={p.hint}
+            className={`text-[10px] font-mono px-2 py-1 rounded border transition-colors ${
+              videoProvider === p.key
+                ? "border-primary/50 bg-primary/10 text-primary"
+                : "border-border text-muted-foreground hover:text-foreground hover:border-border/80"
+            }`}
+          >
+            {p.label}
+          </button>
+        ))}
       </div>
 
       <div className="flex gap-2">
