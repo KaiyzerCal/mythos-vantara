@@ -43,6 +43,21 @@ const VOICES = [
 
 type GenStatus = "idle" | "tts" | "processing" | "complete" | "error";
 type ImageMode = "upload" | "url";
+type AspectKey = "16:9" | "9:16" | "1:1";
+
+const ASPECTS: { key: AspectKey; label: string; hint: string; w: number; h: number }[] = [
+  { key: "9:16", label: "Vertical",  hint: "Reels, TikTok, Shorts", w: 720,  h: 1280 },
+  { key: "16:9", label: "Widescreen", hint: "YouTube, presentation", w: 1280, h: 720  },
+  { key: "1:1",  label: "Square",    hint: "Feed post, thumbnail",  w: 720,  h: 720  },
+];
+
+const SCRIPT_TEMPLATES: { label: string; text: string }[] = [
+  { label: "Product intro",   text: "Hi, I'm excited to introduce something we've been working on. It's a tool designed to help you move faster, think clearer, and ship the work that matters." },
+  { label: "Course lesson",   text: "Welcome back. In today's lesson, we're going to break down one of the most important ideas in the entire course — and by the end, you'll know exactly how to apply it." },
+  { label: "Sales pitch",     text: "If you've been struggling to grow, you're not alone — and it's not your fault. Let me show you the exact system we use to help clients double their output in half the time." },
+  { label: "Announcement",    text: "Big news. We just launched something I've been dreaming about for months. Here's what it is, why it matters, and what it means for you." },
+  { label: "Personal update", text: "Hey, quick update from me. It's been a wild couple of weeks — here's what I've been learning, what's changed, and where I'm headed next." },
+];
 
 // ─── AvatarStudioPage ────────────────────────────────────────
 
@@ -59,8 +74,10 @@ export function AvatarStudioPage() {
   // Script & voice
   const [script, setScript] = useState("");
   const [voiceId, setVoiceId] = useState("JBFqnCBsd6RMkjVDRZzb");
+  const [aspect, setAspect] = useState<AspectKey>("9:16");
   const [stillMode, setStillMode] = useState(false);
   const [useEnhancer, setUseEnhancer] = useState(true);
+
 
   // Generation
   const [status, setStatus] = useState<GenStatus>("idle");
