@@ -73,7 +73,7 @@ async function generateWithFluxPro(prompt: string, size = "square_hd"): Promise<
 
 async function generateWithImagen4(prompt: string, aspectRatio = "1:1"): Promise<string> {
   const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/imagen-4.0-generate-001:predict?key=${GEMINI_KEY}`,
+    `https://generativelanguage.googleapis.com/v1beta/models/imagen-4.0-generate-preview-06-06:predict?key=${GEMINI_KEY}`,
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -103,7 +103,6 @@ async function generateWithDallE3(prompt: string, size: string, quality: string)
       n: 1,
       size: size ?? "1024x1024",
       quality: quality ?? "standard",
-      response_format: "url",
     }),
   });
   if (!res.ok) {
