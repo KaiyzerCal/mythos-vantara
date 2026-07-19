@@ -1803,6 +1803,10 @@ interface AgentLoopResult {
   content: string;
   toolsUsed: string[];
   actionsQueued: number;
+  imageUrl?: string;
+  videoUrl?: string;
+  imageUrls?: string[];
+  videoUrls?: string[];
 }
 
 async function runAgentLoop(
@@ -1820,6 +1824,10 @@ async function runAgentLoop(
   const MAX_ITERATIONS = 10;
   let actionsQueued = 0;
   const toolsUsed: string[] = [];
+  let generatedImageUrl: string | undefined;
+  let generatedVideoUrl: string | undefined;
+  let generatedImageUrls: string[] | undefined;
+  let generatedVideoUrls: string[] | undefined;
 
   while (iteration < MAX_ITERATIONS) {
     let provider: "gateway" | "anthropic" = "anthropic";
@@ -1919,7 +1927,15 @@ async function runAgentLoop(
         .map((b) => b.text ?? "")
         .join("");
       if (onEvent && text) onEvent({ t: text });
-      return { content: text, toolsUsed, actionsQueued };
+      return {
+        content: text,
+        toolsUsed,
+        actionsQueued,
+        ...(generatedImageUrl  && { imageUrl:  generatedImageUrl  }),
+        ...(generatedVideoUrl  && { videoUrl:  generatedVideoUrl  }),
+        ...(generatedImageUrls && { imageUrls: generatedImageUrls }),
+        ...(generatedVideoUrls && { videoUrls: generatedVideoUrls }),
+      };
     }
 
     if (stopReason === "tool_use") {
@@ -1954,6 +1970,12 @@ async function runAgentLoop(
             const r = result as Record<string, unknown>;
             if (toolName === "queue_action" && r.queued === true) actionsQueued++;
             if (toolName === "codexos_action" && r.executed === true) actionsQueued++;
+            if (toolName === "generate_image" && r.ok === true) {
+              if (typeof r.imageUrl === "string" && r.imageUrl) generatedImageUrl = r.imageUrl;
+              if (typeof r.videoUrl === "string" && r.videoUrl) generatedVideoUrl = r.videoUrl;
+              if (Array.isArray(r.imageUrls)) generatedImageUrls = r.imageUrls as string[];
+              if (Array.isArray(r.videoUrls)) generatedVideoUrls = r.videoUrls as string[];
+            }
           }
 
           // Log tool usage signal (fire-and-forget)
@@ -1988,7 +2010,15 @@ async function runAgentLoop(
     break;
   }
 
-  return { content: "Agent loop completed.", toolsUsed, actionsQueued };
+  return {
+    content: "Agent loop completed.",
+    toolsUsed,
+    actionsQueued,
+    ...(generatedImageUrl  && { imageUrl:  generatedImageUrl  }),
+    ...(generatedVideoUrl  && { videoUrl:  generatedVideoUrl  }),
+    ...(generatedImageUrls && { imageUrls: generatedImageUrls }),
+    ...(generatedVideoUrls && { videoUrls: generatedVideoUrls }),
+  };
 }
 
 // ── System prompt ─────────────────────────────────────────────────────────────
