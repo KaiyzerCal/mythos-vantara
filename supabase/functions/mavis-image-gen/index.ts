@@ -47,7 +47,7 @@ function parseDimensions(size = "1024x1024"): [number, number] {
 }
 
 // FLUX 1.1 Pro — highest-quality photorealistic image generation via fal.ai
-// Inserted between Imagen 4 and DALL-E 3 so it catches failures from either.
+// Inserted between Imagen 4 and OpenAI image generation so it catches failures from either.
 async function generateWithFluxPro(prompt: string, size = "square_hd"): Promise<string | null> {
   if (!FAL_KEY) return null;
   try {
@@ -93,7 +93,23 @@ async function generateWithImagen4(prompt: string, aspectRatio = "1:1"): Promise
   return `data:image/png;base64,${b64}`;
 }
 
-async function generateWithDallE3(prompt: string, size: string, quality: string): Promise<string> {
+function normalizeOpenAiImageSize(size?: string): string {
+  const allowed = new Set(["1024x1024", "1024x1536", "1536x1024", "auto"]);
+  if (size && allowed.has(size)) return size;
+  if (size === "1024x1792") return "1024x1536";
+  if (size === "1792x1024") return "1536x1024";
+  return "1024x1024";
+}
+
+function normalizeOpenAiImageQuality(quality?: string): string {
+  const normalized = (quality ?? "low").toLowerCase();
+  if (["low", "medium", "high", "auto"].includes(normalized)) return normalized;
+  if (normalized === "hd") return "high";
+  if (normalized === "standard") return "low";
+  return "low";
+}
+
+async function generateWithOpenAiImage(prompt: string, size?: string, quality?: string): Promise<string> {
   const res = await fetch("https://api.openai.com/v1/images/generations", {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${OPENAI_KEY}` },
@@ -101,8 +117,8 @@ async function generateWithDallE3(prompt: string, size: string, quality: string)
       model: "gpt-image-1",
       prompt: prompt.trim(),
       n: 1,
-      size: size ?? "1024x1024",
-      quality: quality === "hd" ? "high" : (quality ?? "medium"),
+      size: normalizeOpenAiImageSize(size),
+      quality: normalizeOpenAiImageQuality(quality),
     }),
   });
   if (!res.ok) {
@@ -139,13 +155,13 @@ serve(async (req) => {
       if (imageData) provider = "stable-diffusion";
     }
 
-    // Tier 1 — Imagen 4 (Google, free tier)
+    // Tier 1 — Imagen 4 (Google)
     if (!imageData && GEMINI_KEY) {
       try {
         imageData = await generateWithImagen4(prompt, aspect_ratio ?? "1:1");
         provider = "imagen-4";
       } catch (e: any) {
-        console.warn("Imagen 4 failed, falling back to DALL-E:", e.message);
+        console.warn("Imagen 4 failed, falling back:", e.message);
       }
     }
 
@@ -155,15 +171,19 @@ serve(async (req) => {
         const fluxUrl = await generateWithFluxPro(prompt, size ?? "1024x1024");
         if (fluxUrl) { imageData = fluxUrl; provider = "flux-pro"; }
       } catch (e: any) {
-        console.warn("FLUX Pro failed, falling back to DALL-E 3:", e.message);
+        console.warn("FLUX Pro failed, falling back:", e.message);
       }
     }
 
-    // Tier 2 — DALL-E 3
+    // Tier 2 — OpenAI image generation
     if (!imageData && OPENAI_KEY) {
-      const url = await generateWithDallE3(prompt, size ?? "1024x1024", quality ?? "standard");
-      imageData = url;
-      provider = "dall-e-3";
+      try {
+        const url = await generateWithOpenAiImage(prompt, size, quality);
+        imageData = url;
+        provider = "openai-gpt-image-1";
+      } catch (e: any) {
+        console.warn("OpenAI image generation failed, falling back:", e.message);
+      }
     }
 
     // Tier 3 — Pollinations.ai (completely free, no API key required)
