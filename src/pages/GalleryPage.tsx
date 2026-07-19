@@ -492,9 +492,10 @@ export function GalleryPage() {
       const uid = session.user.id;
 
       // Load from vault_media (file uploads + generated assets)
+      // Load from vault_media (file uploads + generated assets)
       const { data: vaultData, error: vaultErr } = await (supabase as any)
         .from("vault_media")
-        .select("id, file_name, file_type, storage_path, created_at, metadata")
+        .select("id, file_name, file_type, file_url, description, tags, created_at")
         .eq("user_id", uid)
         .order("created_at", { ascending: false })
         .limit(200);
@@ -504,9 +505,9 @@ export function GalleryPage() {
       // Load social posts (generated images for social media)
       const { data: socialData, error: socialErr } = await (supabase as any)
         .from("mavis_social_posts")
-        .select("id, platform, content, image_url, created_at, provider")
+        .select("id, platform, content, media_urls, created_at")
         .eq("user_id", uid)
-        .not("image_url", "is", null)
+        .not("media_urls", "is", null)
         .order("created_at", { ascending: false })
         .limit(100);
 
@@ -517,38 +518,38 @@ export function GalleryPage() {
       // Process vault_media
       for (const item of (vaultData ?? [])) {
         const fileType: string = item.file_type ?? "";
-        const meta = item.metadata ?? {};
-        const publicUrl = meta.publicUrl ?? meta.url ?? item.storage_path ?? "";
+        const publicUrl = item.file_url ?? "";
         if (!publicUrl) continue;
 
         let type: MediaItem["type"] = "image";
         if (fileType.startsWith("audio/") || /\.(mp3|wav|ogg|m4a)$/i.test(publicUrl)) type = "audio";
         else if (fileType.startsWith("video/") || /\.(mp4|webm|mov)$/i.test(publicUrl)) type = "video";
         else if (/\.html?$/i.test(publicUrl)) type = "poster";
-        else if (!fileType.startsWith("image/")) continue; // skip non-media
+        else if (!fileType.startsWith("image/")) continue;
 
         collected.push({
           id: `vault-${item.id}`,
           type,
           url: publicUrl,
           title: item.file_name ?? "untitled",
-          provider: meta.provider as string | undefined,
           created_at: item.created_at,
-          extra: meta,
         });
       }
 
-      // Process social posts with images
+      // Process social posts with media
       for (const post of (socialData ?? [])) {
-        if (!post.image_url) continue;
-        collected.push({
-          id: `social-${post.id}`,
-          type: "image",
-          url: post.image_url,
-          title: post.content?.slice(0, 60) ?? `${post.platform} post`,
-          provider: post.provider ?? post.platform,
-          created_at: post.created_at,
-        });
+        const urls: string[] = Array.isArray(post.media_urls) ? post.media_urls : [];
+        for (const url of urls) {
+          if (!url) continue;
+          collected.push({
+            id: `social-${post.id}-${url}`,
+            type: /\.(mp4|webm|mov)$/i.test(url) ? "video" : "image",
+            url,
+            title: post.content?.slice(0, 60) ?? `${post.platform} post`,
+            provider: post.platform,
+            created_at: post.created_at,
+          });
+        }
       }
 
       // Sort by date descending
