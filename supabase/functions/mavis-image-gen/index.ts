@@ -47,31 +47,37 @@ function parseDimensions(size = "1024x1024"): [number, number] {
   return [w || 512, h || 512];
 }
 
-// FLUX 1.1 Pro — highest-quality photorealistic image generation via fal.ai
-// Inserted between Imagen 4 and OpenAI image generation so it catches failures from either.
-async function generateWithFluxPro(prompt: string, size = "square_hd"): Promise<string | null> {
+// FLUX 1.1 [pro] Ultra — highest-quality photorealistic image generation via fal.ai
+// Ultra endpoint renders up to 2K natively with sharper detail than v1.1 base.
+async function generateWithFluxPro(prompt: string, size = "1024x1024"): Promise<string | null> {
   if (!FAL_KEY) return null;
-  const sizeMap: Record<string, string> = {
-    "1024x1024": "square_hd",
-    "1792x1024": "landscape_16_9",
-    "1024x1792": "portrait_16_9",
-    "768x1344": "portrait_16_9",
-    "1344x768": "landscape_16_9",
-    "864x1152": "portrait_4_3",
-    "1152x864": "landscape_4_3",
-  };
+  // Ultra endpoint uses aspect_ratio strings, not image_size objects.
   const [w, h] = parseDimensions(size);
-  const imageSize = sizeMap[size] ?? { width: w, height: h };
-  const res = await fetch("https://fal.run/fal-ai/flux-pro/v1.1", {
+  const ratio = w === h ? "1:1"
+    : Math.abs(w / h - 16 / 9) < 0.05 ? "16:9"
+    : Math.abs(w / h - 9 / 16) < 0.05 ? "9:16"
+    : Math.abs(w / h - 4 / 3) < 0.05 ? "4:3"
+    : Math.abs(w / h - 3 / 4) < 0.05 ? "3:4"
+    : Math.abs(w / h - 21 / 9) < 0.05 ? "21:9"
+    : w > h ? "16:9" : "9:16";
+  const res = await fetch("https://fal.run/fal-ai/flux-pro/v1.1-ultra", {
     method: "POST",
     headers: { "Authorization": `Key ${FAL_KEY}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ prompt: prompt.trim().slice(0, 2000), image_size: imageSize, num_images: 1, safety_tolerance: "2" }),
-    signal: AbortSignal.timeout(60_000),
+    body: JSON.stringify({
+      prompt: prompt.trim().slice(0, 2000),
+      aspect_ratio: ratio,
+      num_images: 1,
+      safety_tolerance: "6",
+      output_format: "png",
+      raw: false,
+      enable_safety_checker: false,
+    }),
+    signal: AbortSignal.timeout(90_000),
   });
   if (!res.ok) {
     const err = await res.text();
-    console.error("FLUX Pro error:", res.status, err.slice(0, 300));
-    throw new Error(`FLUX Pro ${res.status}: ${err.slice(0, 200)}`);
+    console.error("FLUX Pro Ultra error:", res.status, err.slice(0, 300));
+    throw new Error(`FLUX Pro Ultra ${res.status}: ${err.slice(0, 200)}`);
   }
   const data = await res.json();
   return data?.images?.[0]?.url ?? null;
