@@ -227,6 +227,24 @@ function ImageGenPanel({ onGenerated }: { onGenerated: (item: MediaItem) => void
         </button>
       </div>
 
+      {/* Provider selector */}
+      <div className="flex flex-wrap gap-1.5">
+        {IMAGE_PROVIDERS.map(p => (
+          <button
+            key={p.key}
+            onClick={() => setImgProvider(p.key)}
+            title={p.hint}
+            className={`text-[10px] font-mono px-2 py-1 rounded border transition-colors ${
+              imgProvider === p.key
+                ? "border-primary/50 bg-primary/10 text-primary"
+                : "border-border text-muted-foreground hover:text-foreground hover:border-border/80"
+            }`}
+          >
+            {p.label}
+          </button>
+        ))}
+      </div>
+
       {/* Size selector */}
       <div className="flex flex-wrap gap-1.5">
         {SIZE_OPTIONS.map(o => (
@@ -244,6 +262,7 @@ function ImageGenPanel({ onGenerated }: { onGenerated: (item: MediaItem) => void
           </button>
         ))}
       </div>
+
 
       {/* Preview of last result */}
       {lastUrl && (
