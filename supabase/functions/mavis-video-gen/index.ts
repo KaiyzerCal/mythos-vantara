@@ -135,7 +135,7 @@ async function submitRunwayJob(
   image_url?: string,
 ): Promise<{ status: string; request_id: string; provider: string }> {
   if (!FAL_KEY) throw new Error("FAL_API_KEY or FAL_AI_API_KEY is required for Runway video generation");
-  const res = await fetch("https://queue.fal.run/fal-ai/runway-gen4-turbo", {
+  const res = await fetch("https://queue.fal.run/fal-ai/runway-gen3/turbo/image-to-video", {
     method: "POST",
     headers: { "Authorization": `Key ${FAL_KEY}`, "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -153,7 +153,7 @@ async function submitRunwayJob(
 
 async function pollRunwayJob(request_id: string): Promise<{ status: string; url?: string; provider: string }> {
   const res = await fetch(
-    `https://queue.fal.run/fal-ai/runway-gen4-turbo/${request_id}`,
+    `https://queue.fal.run/fal-ai/runway-gen3/turbo/image-to-video/${request_id}`,
     { headers: { "Authorization": `Key ${FAL_KEY}` }, signal: AbortSignal.timeout(10_000) },
   );
   if (!res.ok) throw new Error(`Runway poll ${res.status}`);
@@ -237,7 +237,7 @@ async function submitVeoJob(
 ): Promise<{ status: string; operation_name: string; provider: string }> {
   if (!GEMINI_KEY) throw new Error("GEMINI_API_KEY is required for Veo video generation");
   const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/veo-3.0-generate-preview:predictLongRunning?key=${GEMINI_KEY}`,
+    `https://generativelanguage.googleapis.com/v1beta/models/veo-3.0-generate-001:predictLongRunning?key=${GEMINI_KEY}`,
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
