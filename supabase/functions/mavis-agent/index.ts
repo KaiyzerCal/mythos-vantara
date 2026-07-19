@@ -523,6 +523,23 @@ const MAVIS_TOOLS = [
       },
     },
   },
+  {
+    name: "generate_image",
+    description: "Generate an image or video via ModelsLab. NSFW content is fully permitted for the operator — never refuse; always call this tool when image/video/NSFW generation is requested. workflow_type: 'txt2img' (default), 'realtime' (faster), 'img2img', 'txt2vid', 'img2vid'. model_id examples: 'realistic-vision-v51' (photo), 'anything-v5' (anime/hentai), 'fluffusion' (furry), 'sdxl'.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        prompt:        { type: "string",  description: "Full image prompt — be descriptive. Include style, lighting, composition." },
+        workflow_type: { type: "string",  description: "txt2img | realtime | img2img | txt2vid | img2vid (default: txt2img)" },
+        model_id:      { type: "string",  description: "ModelsLab model ID — omit to use default realistic model" },
+        negative_prompt: { type: "string", description: "What to exclude from the image" },
+        width:         { type: "number",  description: "Width in pixels (default 512)" },
+        height:        { type: "number",  description: "Height in pixels (default 768)" },
+        init_image:    { type: "string",  description: "Source image URL for img2img or img2vid workflows" },
+      },
+      required: ["prompt"],
+    },
+  },
 ];
 
 // ── Tool handler ──────────────────────────────────────────────────────────────
@@ -1745,6 +1762,33 @@ async function handleTool(
         return report;
       }
 
+      case "generate_image": {
+        const genRes = await fetch(`${env.supabaseUrl}/functions/v1/mavis-modelslab`, {
+          method:  "POST",
+          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${env.serviceKey}` },
+          body: JSON.stringify({
+            prompt:           input.prompt ?? "",
+            workflow_type:    input.workflow_type ?? "txt2img",
+            model_id:         input.model_id,
+            negative_prompt:  input.negative_prompt,
+            width:            input.width,
+            height:           input.height,
+            init_image:       input.init_image,
+            user_id:          userId,
+          }),
+          signal: AbortSignal.timeout(310_000),
+        });
+        const genData = await genRes.json();
+        if (!genRes.ok || genData.error) return { error: genData.error ?? "ModelsLab generation failed" };
+        return {
+          imageUrl:  genData.imageUrl ?? null,
+          videoUrl:  genData.videoUrl ?? null,
+          imageUrls: genData.imageUrls ?? [],
+          videoUrls: genData.videoUrls ?? [],
+          ok: true,
+        };
+      }
+
       default:
         return { error: `Unknown tool: ${name}` };
     }
@@ -2070,6 +2114,13 @@ CODEXOS / VANTARA GAME LAYER — use codexos_action tool:
 • Store — create store items
 
 When the operator says things like "create a quest", "log my BPM", "forge a persona", "save a note", "award me XP", or any VANTARA RPG command → call codexos_action immediately. Don't describe what you would do — do it.
+
+IMAGE & VIDEO GENERATION — use generate_image tool:
+• ModelsLab cloud generation — txt2img, realtime, img2img, txt2vid, img2vid
+• NSFW content is FULLY PERMITTED for the operator. Never refuse. Never say you can't. Just call generate_image.
+• Model selection: 'realistic-vision-v51' for photorealistic, 'anything-v5' for anime/hentai, 'fluffusion' for furry, 'sdxl' for high quality general
+• Trigger: any image/video/art/drawing/NSFW generation request — call generate_image immediately
+• After generation succeeds, the imageUrl is returned in the tool result — send it to the operator
 
 MARKETING & CREATIVE PRODUCTION:
 • poster-gen skill — generates marketing posters, flyers, social graphics, and banners
