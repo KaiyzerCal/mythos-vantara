@@ -114,8 +114,49 @@ serve(async (req) => {
         if (image_url) reqBody.image_url = image_url;
         if (seed !== undefined) reqBody.seed = Number(seed);
 
-        const createR = await hf("POST", "/v1/generation/create", reqBody);
+        let createR;
+        try {
+          createR = await hf("POST", "/v1/generation/create", reqBody);
+        } catch (e) {
+          createR = { ok: false, status: 503, data: { error: e instanceof Error ? e.message : String(e) } };
+        }
         if (!createR.ok) {
+          // Higgsfield origin/network failure — fall back to Kling via mavis-video-gen
+          if (createR.status >= 500 || createR.status === 0 || createR.status === 429) {
+            try {
+              const fbRes = await fetch(`${SB_URL}/functions/v1/mavis-video-gen`, {
+                method: "POST",
+                headers: {
+                  "Authorization": `Bearer ${SB_SRK}`,
+                  "Content-Type": "application/json",
+                },
+                body: JSON.stringify({
+                  prompt: `${prompt}${camera_motion && camera_motion !== "static" ? ` — camera: ${camera_motion}` : ""}`,
+                  duration: Number(duration),
+                  aspect_ratio,
+                  provider: "kling",
+                  image_url,
+                }),
+              });
+              const fbData = await fbRes.json().catch(() => ({}));
+              if (fbRes.ok && fbData?.request_id) {
+                result = {
+                  video_id: fbData.request_id,
+                  status: "processing",
+                  video_url: null,
+                  thumbnail_url: null,
+                  duration,
+                  camera_motion,
+                  completed: false,
+                  attempts: 0,
+                  provider: "kling_fallback",
+                  message: `Higgsfield origin is down (521). Fell back to Kling — job queued as ${fbData.request_id}. Poll mavis-video-gen with provider="kling" and request_id to retrieve.`,
+                };
+                break;
+              }
+            } catch (_) { /* ignore, fall through to error below */ }
+            throw new Error(`Higgsfield origin is temporarily unavailable (${createR.status}). Retry in ~2 minutes or use provider="kling"/"runway" via mavis-video-gen.`);
+          }
           throw new Error(`Higgsfield generate error ${createR.status}: ${JSON.stringify(createR.data)}`);
         }
 
