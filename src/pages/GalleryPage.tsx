@@ -481,6 +481,8 @@ export function GalleryPage() {
   const [items, setItems] = useState<MediaItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<FilterType>("all");
+  const [genMode, setGenMode] = useState<"image" | "video">("image");
+
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -577,7 +579,7 @@ export function GalleryPage() {
     <div className="flex flex-col gap-4">
       <PageHeader
         title="Creative Studio"
-        subtitle="Generate and manage AI-created assets"
+        subtitle="Generate cinematic images and video — inspired by Higgsfield"
         icon={<Wand2 size={18} />}
         actions={
           <button onClick={load} className="text-xs font-mono text-muted-foreground hover:text-primary transition-colors flex items-center gap-1">
@@ -586,8 +588,30 @@ export function GalleryPage() {
         }
       />
 
-      {/* Image Generation Panel */}
-      <ImageGenPanel onGenerated={prependItem} />
+      {/* Mode switcher — Image | Video */}
+      <div className="flex gap-1 bg-muted/20 border border-border rounded-lg p-1 self-start">
+        <button
+          onClick={() => setGenMode("image")}
+          className={`flex items-center gap-1.5 text-xs font-mono px-3 py-1.5 rounded-md transition-colors ${
+            genMode === "image" ? "bg-primary/15 text-primary" : "text-muted-foreground hover:text-foreground"
+          }`}
+        >
+          <Image size={12} /> Image
+        </button>
+        <button
+          onClick={() => setGenMode("video")}
+          className={`flex items-center gap-1.5 text-xs font-mono px-3 py-1.5 rounded-md transition-colors ${
+            genMode === "video" ? "bg-primary/15 text-primary" : "text-muted-foreground hover:text-foreground"
+          }`}
+        >
+          <Film size={12} /> Video
+        </button>
+      </div>
+
+      {genMode === "image"
+        ? <ImageGenPanel onGenerated={prependItem} />
+        : <VideoGenPanel onGenerated={prependItem} />}
+
 
       {/* Filter bar */}
       <div className="flex gap-1 border-b border-border pb-0">
