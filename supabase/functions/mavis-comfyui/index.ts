@@ -8,17 +8,28 @@
 //   SUPABASE_URL
 //   SUPABASE_SERVICE_ROLE_KEY
 //
-// Optional env vars:
+// Optional env vars (images):
 //   COMFYUI_DEFAULT_MODEL    — checkpoint .safetensors filename (default: v1-5-pruned-emaonly.safetensors)
 //   COMFYUI_HQ_MODEL         — higher-quality checkpoint for portrait workflow
 //   COMFYUI_VIDEO_MODEL      — AnimateDiff motion module filename for txt2vid
 //   COMFYUI_API_KEY          — Bearer token if ComfyUI is behind auth proxy
 //
+// Optional env vars (Wan2.2 video):
+//   WAN_T2V_MODEL            — Wan2.2 text-to-video checkpoint (default: wan2.2-T2V-14B-fp8.safetensors)
+//   WAN_I2V_MODEL            — Wan2.2 image-to-video checkpoint (default: wan2.2-I2V-14B-fp8.safetensors)
+//   WAN_S2V_MODEL            — Wan2.2 speech/audio-to-video checkpoint (default: wan2.2-S2V-14B-fp8.safetensors)
+//   WAN_T5_ENCODER           — UMT5 text encoder GGUF (default: umt5-xxl-encoder-Q8_0.gguf)
+//   WAN_VAE                  — Wan VAE (default: wan_2.2_vae.safetensors)
+//   WAN_CLIP                 — CLIP vision encoder (default: clip_vision_h.safetensors)
+//
 // Workflow types:
-//   txt2img  — standard quality image (512–1024px)
-//   portrait — higher quality, portrait-oriented, more steps (DPM++ 2M Karras)
-//   concept  — concept art / illustration style
-//   txt2vid  — short video via AnimateDiff (requires AnimateDiff nodes installed)
+//   txt2img      — standard quality image (512–1024px)
+//   portrait     — higher quality, portrait-oriented, more steps (DPM++ 2M Karras)
+//   concept      — concept art / illustration style
+//   txt2vid      — short video via AnimateDiff (requires ComfyUI-AnimateDiff-Evolved)
+//   wan_t2v      — Wan2.2 text-to-video (requires ComfyUI-WanVideoWrapper)
+//   wan_i2v      — Wan2.2 image-to-video; requires reference_image_url (requires ComfyUI-WanVideoWrapper)
+//   talking_head — Wan2.2 S2V lip-sync from reference image + audio; requires reference_image_url + audio_url
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
@@ -29,6 +40,13 @@ const HQ_MODEL      = Deno.env.get("COMFYUI_HQ_MODEL") ?? DEFAULT_MODEL;
 const VIDEO_MODEL   = Deno.env.get("COMFYUI_VIDEO_MODEL") ?? "mm_sd_v15_v2.ckpt";
 const SUPABASE_URL  = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY   = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+
+const WAN_T2V_MODEL  = Deno.env.get("WAN_T2V_MODEL")  ?? "wan2.2-T2V-14B-fp8.safetensors";
+const WAN_I2V_MODEL  = Deno.env.get("WAN_I2V_MODEL")  ?? "wan2.2-I2V-14B-fp8.safetensors";
+const WAN_S2V_MODEL  = Deno.env.get("WAN_S2V_MODEL")  ?? "wan2.2-S2V-14B-fp8.safetensors";
+const WAN_T5_ENCODER = Deno.env.get("WAN_T5_ENCODER") ?? "umt5-xxl-encoder-Q8_0.gguf";
+const WAN_VAE        = Deno.env.get("WAN_VAE")        ?? "wan_2.2_vae.safetensors";
+const WAN_CLIP       = Deno.env.get("WAN_CLIP")       ?? "clip_vision_h.safetensors";
 
 const sb = createClient(SUPABASE_URL, SERVICE_KEY);
 
@@ -114,7 +132,7 @@ function buildConceptWorkflow(
 
 // AnimateDiff txt2vid — requires the AnimateDiff ComfyUI extension and motion modules.
 // Install: https://github.com/Kosinkadink/ComfyUI-AnimateDiff-Evolved
-function buildTxt2VidWorkflow(
+function buildAnimateDiffWorkflow(
   prompt: string,
   negativePrompt: string,
   seed: number,
@@ -136,6 +154,95 @@ function buildTxt2VidWorkflow(
   };
 }
 
+// Wan2.2 text-to-video — requires ComfyUI-WanVideoWrapper.
+// Install: https://github.com/kijai/ComfyUI-WanVideoWrapper
+function buildWan22T2VWorkflow(
+  prompt: string,
+  negativePrompt: string,
+  width: number,
+  height: number,
+  frames: number,
+  seed: number,
+): Record<string, unknown> {
+  return {
+    "1": { class_type: "WanVideoModelLoader",       inputs: { model: WAN_T2V_MODEL, precision: "fp8_e4m3fn", load_device: "offload_device" } },
+    "2": { class_type: "LoadWanVideoT5TextEncoder", inputs: { t5: WAN_T5_ENCODER, precision: "fp8_e4m3fn", load_device: "offload_device" } },
+    "3": { class_type: "WanVideoTextEncode",        inputs: { positive_prompt: prompt, negative_prompt: negativePrompt, t5: ["2", 0], force_offload: true } },
+    "4": { class_type: "VAELoader",                 inputs: { vae_name: WAN_VAE } },
+    "5": { class_type: "EmptyWanLatentVideo",       inputs: { batch_size: 1, frames, width, height } },
+    "6": { class_type: "WanVideoSampler",           inputs: {
+      steps: 30, cfg: 6.0, shift: 8.0, seed, force_offload: true, scheduler: "unipc",
+      model: ["1", 0], positive: ["3", 0], negative: ["3", 1], latents: ["5", 0],
+    }},
+    "7": { class_type: "WanVideoVAEDecode",   inputs: { enable_vae_tiling: true, auto_tile_size: true, vae: ["4", 0], samples: ["6", 0] } },
+    "8": { class_type: "VHS_VideoCombine",    inputs: { frame_rate: 16, loop_count: 0, filename_prefix: "mavis_wan22_t2v", format: "video/h264-mp4", pingpong: false, save_output: true, images: ["7", 0] } },
+  };
+}
+
+// Wan2.2 image-to-video — requires ComfyUI-WanVideoWrapper.
+// reference_image_url must be a publicly accessible image URL.
+function buildWan22I2VWorkflow(
+  prompt: string,
+  negativePrompt: string,
+  referenceImageUrl: string,
+  width: number,
+  height: number,
+  frames: number,
+  seed: number,
+): Record<string, unknown> {
+  return {
+    "1":  { class_type: "WanVideoModelLoader",          inputs: { model: WAN_I2V_MODEL, precision: "fp8_e4m3fn", load_device: "offload_device" } },
+    "2":  { class_type: "LoadWanVideoT5TextEncoder",    inputs: { t5: WAN_T5_ENCODER, precision: "fp8_e4m3fn", load_device: "offload_device" } },
+    "3":  { class_type: "LoadWanVideoClipImageEncoder", inputs: { clip_name: WAN_CLIP, precision: "fp8_e4m3fn" } },
+    "4":  { class_type: "VAELoader",                    inputs: { vae_name: WAN_VAE } },
+    "5":  { class_type: "LoadImageFromUrl",             inputs: { url: referenceImageUrl } },
+    "6":  { class_type: "WanImageToVideoLatent",        inputs: { width, height, length: frames, batch_size: 1, image: ["5", 0], vae: ["4", 0] } },
+    "7":  { class_type: "WanVideoTextEncode",           inputs: { positive_prompt: prompt, negative_prompt: negativePrompt, t5: ["2", 0], force_offload: true } },
+    "8":  { class_type: "WanVideoImageClipEncode",      inputs: { clip_vision: ["3", 0], image: ["5", 0], vae: ["4", 0], generation_width: width, generation_height: height, length: frames } },
+    "9":  { class_type: "WanVideoSampler",              inputs: {
+      steps: 30, cfg: 6.0, shift: 5.0, seed, force_offload: true, scheduler: "unipc",
+      model: ["1", 0], positive: ["7", 0], negative: ["7", 1], image_embeds: ["8", 0], latents: ["6", 0],
+    }},
+    "10": { class_type: "WanVideoVAEDecode",  inputs: { enable_vae_tiling: true, auto_tile_size: true, vae: ["4", 0], samples: ["9", 0] } },
+    "11": { class_type: "VHS_VideoCombine",   inputs: { frame_rate: 16, loop_count: 0, filename_prefix: "mavis_wan22_i2v", format: "video/h264-mp4", pingpong: false, save_output: true, images: ["10", 0] } },
+  };
+}
+
+// Wan2.2 S2V talking head — lip-syncs a reference image to an audio file.
+// Requires ComfyUI-WanVideoWrapper with S2V support.
+// reference_image_url — publicly accessible portrait/face image URL.
+// audioUrl — URL to audio file (mp3/wav) accessible by ComfyUI, or a path
+//            to a file already present in ComfyUI's input directory.
+function buildTalkingHeadWorkflow(
+  prompt: string,
+  negativePrompt: string,
+  referenceImageUrl: string,
+  audioUrl: string,
+  seed: number,
+): Record<string, unknown> {
+  return {
+    "1":  { class_type: "WanVideoModelLoader",          inputs: { model: WAN_S2V_MODEL, precision: "fp8_e4m3fn", load_device: "offload_device" } },
+    "2":  { class_type: "LoadWanVideoT5TextEncoder",    inputs: { t5: WAN_T5_ENCODER, precision: "fp8_e4m3fn", load_device: "offload_device" } },
+    "3":  { class_type: "LoadWanVideoClipImageEncoder", inputs: { clip_name: WAN_CLIP, precision: "fp8_e4m3fn" } },
+    "4":  { class_type: "VAELoader",                    inputs: { vae_name: WAN_VAE } },
+    "5":  { class_type: "LoadImageFromUrl",             inputs: { url: referenceImageUrl } },
+    "6":  { class_type: "VHS_LoadAudio",                inputs: { audio_file: audioUrl, seek_seconds: 0.0 } },
+    "7":  { class_type: "WanVideoTextEncode",           inputs: {
+      positive_prompt: `${prompt}, talking, natural facial movement, lip sync`,
+      negative_prompt: negativePrompt,
+      t5: ["2", 0],
+      force_offload: true,
+    }},
+    "8":  { class_type: "WanVideoImageClipEncode",      inputs: { clip_vision: ["3", 0], image: ["5", 0], vae: ["4", 0], generation_width: 512, generation_height: 512, length: 81 } },
+    "9":  { class_type: "WanVideoSampler",              inputs: {
+      steps: 30, cfg: 6.0, shift: 5.0, seed, force_offload: true, scheduler: "unipc",
+      model: ["1", 0], positive: ["7", 0], negative: ["7", 1], image_embeds: ["8", 0], audio: ["6", 0],
+    }},
+    "10": { class_type: "WanVideoVAEDecode",  inputs: { enable_vae_tiling: true, auto_tile_size: true, vae: ["4", 0], samples: ["9", 0] } },
+    "11": { class_type: "VHS_VideoCombine",   inputs: { frame_rate: 25, loop_count: 0, filename_prefix: "mavis_talking_head", format: "video/h264-mp4", pingpong: false, save_output: true, images: ["10", 0], audio: ["6", 0] } },
+  };
+}
+
 function selectWorkflow(
   workflowType: string,
   prompt: string,
@@ -145,12 +252,19 @@ function selectWorkflow(
   steps: number,
   cfg: number,
   seed: number,
+  referenceImageUrl?: string,
+  audioUrl?: string,
+  frames?: number,
 ): Record<string, unknown> {
+  const f = frames ?? (workflowType === "txt2vid" || workflowType === "wan_t2v" ? 81 : 0);
   switch (workflowType) {
-    case "portrait": return buildPortraitWorkflow(prompt, negPrompt, seed);
-    case "concept":  return buildConceptWorkflow(prompt, negPrompt, seed);
-    case "txt2vid":  return buildTxt2VidWorkflow(prompt, negPrompt, seed);
-    default:         return buildTxt2ImgWorkflow(prompt, negPrompt, width, height, steps, cfg, DEFAULT_MODEL, seed);
+    case "portrait":     return buildPortraitWorkflow(prompt, negPrompt, seed);
+    case "concept":      return buildConceptWorkflow(prompt, negPrompt, seed);
+    case "txt2vid":      return buildAnimateDiffWorkflow(prompt, negPrompt, seed);
+    case "wan_t2v":      return buildWan22T2VWorkflow(prompt, negPrompt, width || 832, height || 480, f, seed);
+    case "wan_i2v":      return buildWan22I2VWorkflow(prompt, negPrompt, referenceImageUrl ?? "", width || 832, height || 480, f, seed);
+    case "talking_head": return buildTalkingHeadWorkflow(prompt, negPrompt, referenceImageUrl ?? "", audioUrl ?? "", seed);
+    default:             return buildTxt2ImgWorkflow(prompt, negPrompt, width, height, steps, cfg, DEFAULT_MODEL, seed);
   }
 }
 
@@ -281,15 +395,18 @@ Deno.serve(async (req) => {
     }
 
     const body: Record<string, unknown> = await req.json().catch(() => ({}));
-    const prompt         = String(body.prompt ?? "").trim();
-    const workflowType   = String(body.workflow_type ?? "txt2img");
-    const negativePrompt = String(body.negative_prompt ?? DEFAULT_NEGATIVE);
-    const width          = Number(body.width)  || (workflowType === "portrait" ? 768 : 512);
-    const height         = Number(body.height) || (workflowType === "portrait" ? 1024 : 512);
-    const steps          = Number(body.steps)  || 20;
-    const cfg            = Number(body.cfg)    || 7;
-    const userId         = String(body.user_id ?? "anonymous");
-    const seed           = Number(body.seed)   || seedRandom();
+    const prompt            = String(body.prompt ?? "").trim();
+    const workflowType      = String(body.workflow_type ?? "txt2img");
+    const negativePrompt    = String(body.negative_prompt ?? DEFAULT_NEGATIVE);
+    const width             = Number(body.width)  || (workflowType === "portrait" ? 768 : 512);
+    const height            = Number(body.height) || (workflowType === "portrait" ? 1024 : 512);
+    const steps             = Number(body.steps)  || 20;
+    const cfg               = Number(body.cfg)    || 7;
+    const userId            = String(body.user_id ?? "anonymous");
+    const seed              = Number(body.seed)   || seedRandom();
+    const referenceImageUrl = String(body.reference_image_url ?? "");
+    const audioUrl          = String(body.audio_url ?? "");
+    const frames            = Number(body.frames) || undefined;
 
     if (!prompt) {
       return new Response(
@@ -298,10 +415,10 @@ Deno.serve(async (req) => {
       );
     }
 
-    const isVideo = workflowType === "txt2vid";
+    const isVideo = ["txt2vid", "wan_t2v", "wan_i2v", "talking_head"].includes(workflowType);
 
     // Build and submit workflow
-    const workflow = selectWorkflow(workflowType, prompt, negativePrompt, width, height, steps, cfg, seed);
+    const workflow = selectWorkflow(workflowType, prompt, negativePrompt, width, height, steps, cfg, seed, referenceImageUrl, audioUrl, frames);
     const promptId = await submitWorkflow(workflow);
 
     // Poll for completion
@@ -314,8 +431,8 @@ Deno.serve(async (req) => {
     const signedUrl = await uploadToStorage(bytes, contentType, filename, userId);
 
     const result: Record<string, unknown> = {
-      ok:           true,
-      prompt_id:    promptId,
+      ok:            true,
+      prompt_id:     promptId,
       filename,
       workflow_type: workflowType,
       seed,
