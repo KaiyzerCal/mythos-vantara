@@ -51,25 +51,30 @@ function parseDimensions(size = "1024x1024"): [number, number] {
 // Inserted between Imagen 4 and OpenAI image generation so it catches failures from either.
 async function generateWithFluxPro(prompt: string, size = "square_hd"): Promise<string | null> {
   if (!FAL_KEY) return null;
-  try {
-    const sizeMap: Record<string, string> = {
-      "1024x1024": "square_hd",
-      "1792x1024": "landscape_16_9",
-      "1024x1792": "portrait_16_9",
-    };
-    const imageSize = sizeMap[size] ?? size;
-    const res = await fetch("https://fal.run/fal-ai/flux-pro/v1.1", {
-      method: "POST",
-      headers: { "Authorization": `Key ${FAL_KEY}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ prompt: prompt.trim().slice(0, 2000), image_size: imageSize, num_images: 1, safety_tolerance: "2" }),
-      signal: AbortSignal.timeout(60_000),
-    });
-    if (!res.ok) return null;
-    const data = await res.json();
-    return data?.images?.[0]?.url ?? null;
-  } catch {
-    return null;
+  const sizeMap: Record<string, string> = {
+    "1024x1024": "square_hd",
+    "1792x1024": "landscape_16_9",
+    "1024x1792": "portrait_16_9",
+    "768x1344": "portrait_16_9",
+    "1344x768": "landscape_16_9",
+    "864x1152": "portrait_4_3",
+    "1152x864": "landscape_4_3",
+  };
+  const [w, h] = parseDimensions(size);
+  const imageSize = sizeMap[size] ?? { width: w, height: h };
+  const res = await fetch("https://fal.run/fal-ai/flux-pro/v1.1", {
+    method: "POST",
+    headers: { "Authorization": `Key ${FAL_KEY}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ prompt: prompt.trim().slice(0, 2000), image_size: imageSize, num_images: 1, safety_tolerance: "2" }),
+    signal: AbortSignal.timeout(60_000),
+  });
+  if (!res.ok) {
+    const err = await res.text();
+    console.error("FLUX Pro error:", res.status, err.slice(0, 300));
+    throw new Error(`FLUX Pro ${res.status}: ${err.slice(0, 200)}`);
   }
+  const data = await res.json();
+  return data?.images?.[0]?.url ?? null;
 }
 
 // ModelsLab — high-quality SDXL/FLUX-based generation, supports NSFW-friendly base models
