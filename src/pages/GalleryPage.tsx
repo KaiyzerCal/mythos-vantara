@@ -354,22 +354,42 @@ function VideoGenPanel({ onGenerated }: { onGenerated: (item: MediaItem) => void
     setGenerating(true);
     setLastUrl(null);
     try {
-      const { data, error } = await (supabase as any).functions.invoke("mavis-higgsfield", {
-        body: {
-          userId: session?.user?.id,
-          action: "generate_video",
-          prompt: prompt.trim(),
-          image_url: imageUrl || undefined,
-          camera_motion: cameraMotion,
-          aspect_ratio: aspect,
-          duration,
-          max_attempts: 30,
-          poll_interval_ms: 5000,
-        },
-      });
-      if (error) throw error;
-      if (data?.error) throw new Error(data.error);
-      const url = data?.video_url;
+      let data: any; let error: any; let url: string | undefined; let jobId: string | undefined;
+
+      if (videoProvider === "higgsfield") {
+        ({ data, error } = await (supabase as any).functions.invoke("mavis-higgsfield", {
+          body: {
+            userId: session?.user?.id,
+            action: "generate_video",
+            prompt: prompt.trim(),
+            image_url: imageUrl || undefined,
+            camera_motion: cameraMotion,
+            aspect_ratio: aspect,
+            duration,
+            max_attempts: 30,
+            poll_interval_ms: 5000,
+          },
+        }));
+        if (error) throw error;
+        if (data?.error) throw new Error(data.error);
+        url = data?.video_url;
+        jobId = data?.video_id;
+      } else {
+        ({ data, error } = await (supabase as any).functions.invoke("mavis-video-gen", {
+          body: {
+            prompt: `${prompt.trim()}${cameraMotion && cameraMotion !== "static" ? ` — camera: ${cameraMotion}` : ""}`,
+            image_url: imageUrl || undefined,
+            aspect_ratio: aspect,
+            duration,
+            provider: videoProvider,
+          },
+        }));
+        if (error) throw error;
+        if (data?.error) throw new Error(data.error);
+        url = data?.url ?? data?.video_url;
+        jobId = data?.request_id ?? data?.operation_name;
+      }
+
       if (url) {
         setLastUrl(url);
         if (session?.user) {
@@ -379,7 +399,7 @@ function VideoGenPanel({ onGenerated }: { onGenerated: (item: MediaItem) => void
             file_type: "video/mp4",
             file_url: url,
             description: prompt.trim(),
-            tags: ["generated", "higgsfield", cameraMotion, aspect, `${duration}s`],
+            tags: ["generated", videoProvider, cameraMotion, aspect, `${duration}s`],
           });
         }
         onGenerated({
@@ -387,19 +407,20 @@ function VideoGenPanel({ onGenerated }: { onGenerated: (item: MediaItem) => void
           type: "video",
           url,
           title: prompt.trim().slice(0, 80),
-          provider: "higgsfield",
+          provider: videoProvider,
           created_at: new Date().toISOString(),
           extra: { cameraMotion, aspect, duration },
         });
       } else {
-        alert(`Still processing — job id ${data?.video_id}. It will appear in the gallery once ready.`);
+        alert(`Still processing — job id ${jobId ?? "?"}. It will appear in the gallery once ready.`);
       }
     } catch (e: any) {
-      alert(`Video generation failed: ${e?.message ?? "unknown error"}\n\nEnsure HIGGSFIELD_API_KEY is set in Supabase secrets.`);
+      alert(`Video generation failed: ${e?.message ?? "unknown error"}`);
     } finally {
       setGenerating(false);
     }
   }
+
 
   return (
     <div className="rounded-xl border border-border bg-card p-4 flex flex-col gap-3">
