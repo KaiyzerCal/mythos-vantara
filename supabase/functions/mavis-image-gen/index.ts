@@ -203,6 +203,18 @@ serve(async (req) => {
       }
     }
 
+    // Tier 1b — ModelsLab (SDXL/FLUX-based, uncensored-capable)
+    if (!imageData && MODELSLAB_KEY) {
+      try {
+        const url = await generateWithModelsLab(prompt, effectiveSize);
+        if (url) { imageData = url; provider = "modelslab"; }
+      } catch (e: any) {
+        console.warn("ModelsLab failed, falling back:", e.message);
+      }
+    }
+
+
+
     // Tier 2 — Imagen 4 (Google) — strong quality, free tier
     if (!imageData && GEMINI_KEY) {
       try {
