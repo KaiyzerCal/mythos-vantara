@@ -98,21 +98,23 @@ async function generateWithDallE3(prompt: string, size: string, quality: string)
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${OPENAI_KEY}` },
     body: JSON.stringify({
-      model: "dall-e-3",
+      model: "gpt-image-1",
       prompt: prompt.trim(),
       n: 1,
       size: size ?? "1024x1024",
-      quality: quality ?? "standard",
+      quality: quality === "hd" ? "high" : (quality ?? "medium"),
     }),
   });
   if (!res.ok) {
     const err = await res.text();
-    throw new Error(`DALL-E 3 ${res.status}: ${err.slice(0, 200)}`);
+    throw new Error(`gpt-image-1 ${res.status}: ${err.slice(0, 200)}`);
   }
   const data = await res.json();
+  const b64 = data.data?.[0]?.b64_json;
   const url = data.data?.[0]?.url;
-  if (!url) throw new Error("DALL-E 3 returned no URL");
-  return url;
+  if (b64) return `data:image/png;base64,${b64}`;
+  if (url) return url;
+  throw new Error("gpt-image-1 returned no image");
 }
 
 serve(async (req) => {
