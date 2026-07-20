@@ -2502,104 +2502,100 @@ Deno.serve(async (req) => {
       ? flattenContent(rawMessages[rawMessages.length - 1]?.content).slice(0, 300)
       : "");
 
-    if (goalText && userId) {
+    // ── Load context fragments concurrently ──────────────────────────────────
+    // These three lookups are independent; running them in parallel (instead of
+    // sequentially awaiting each) removes ~200-500ms of blocking time before the
+    // first model call. The assembled string order is preserved below.
+    const memoryFragmentP: Promise<string> = (goalText && userId) ? (async () => {
       try {
         // @ts-ignore — Supabase.ai available in edge runtime
         const embedSession = new Supabase.ai.Session("gte-small");
         const embedOutput = await embedSession.run(goalText.slice(0, 512), { mean_pool: true, normalize: true });
         const queryEmbedding: number[] = Array.from(embedOutput.data as Float32Array);
-
         const { data: relatedMemories } = await supabase.rpc("match_persona_memory", {
           query_embedding: JSON.stringify(queryEmbedding),
           match_user_id:   userId,
           match_threshold: 0.3,
           match_count:     6,
         });
-
         if (relatedMemories && (relatedMemories as unknown[]).length > 0) {
           const memLines = (relatedMemories as Array<{ key: string; value: string; category: string; importance: number }>)
             .sort((a, b) => b.importance - a.importance)
             .map((m) => `  [${m.category}] ${m.value}`)
             .join("\n");
-          systemWithContext = SYSTEM_PROMPT +
-            "\n\n═══════════════════════════════════════════\nRELEVANT OPERATOR CONTEXT (auto-recalled)\n═══════════════════════════════════════════\n" +
-            memLines;
+          return "\n\n═══════════════════════════════════════════\nRELEVANT OPERATOR CONTEXT (auto-recalled)\n═══════════════════════════════════════════\n" + memLines;
         }
-      } catch {
-        // Embedding service unavailable — proceed without semantic context
-      }
-    }
+      } catch { /* embedding service unavailable — proceed without */ }
+      return "";
+    })() : Promise.resolve("");
 
-    // ── Load learned behavioral context ──────────────────────────────────────
-    try {
-      const { data: prefs } = await supabase
-        .from("mavis_learned_preferences")
-        .select("preference_type, key, value")
-        .eq("user_id", userId)
-        .in("preference_type", ["active_hours", "tool_frequency", "auto_upgraded_action"])
-        .order("updated_at", { ascending: false })
-        .limit(30);
-
-      if (prefs && (prefs as unknown[]).length > 0) {
-        const prefRows = prefs as Array<{ preference_type: string; key: string; value: Record<string, unknown> }>;
-
-        const activeHours = prefRows
-          .filter(p => p.preference_type === "active_hours")
-          .sort((a, b) => ((b.value?.count as number) ?? 0) - ((a.value?.count as number) ?? 0))
-          .slice(0, 3)
-          .map(p => `${p.key} (${p.value?.pct ?? 0}%)`)
-          .join(", ");
-
-        const topTools = prefRows
-          .filter(p => p.preference_type === "tool_frequency")
-          .sort((a, b) => ((b.value?.total as number) ?? 0) - ((a.value?.total as number) ?? 0))
-          .slice(0, 5)
-          .map(p => `${p.key}(${p.value?.total ?? 0}x)`)
-          .join(", ");
-
-        const autoApproved = prefRows
-          .filter(p => p.preference_type === "auto_upgraded_action")
-          .map(p => `${p.key}→${p.value?.tier}`)
-          .join(", ");
-
-        const lines = [
-          activeHours   ? `Operator is most active during: ${activeHours}.` : "",
-          topTools      ? `Most-used tools: ${topTools}.` : "",
-          autoApproved  ? `Auto-approved actions (execute without asking): ${autoApproved}.` : "",
-        ].filter(Boolean);
-
-        if (lines.length > 0) {
-          systemWithContext +=
-            "\n\n═══════════════════════════════════════════\nLEARNED OPERATOR PATTERNS\n═══════════════════════════════════════════\n" +
-            lines.join("\n");
+    const prefsFragmentP: Promise<string> = (async () => {
+      try {
+        const { data: prefs } = await supabase
+          .from("mavis_learned_preferences")
+          .select("preference_type, key, value")
+          .eq("user_id", userId)
+          .in("preference_type", ["active_hours", "tool_frequency", "auto_upgraded_action"])
+          .order("updated_at", { ascending: false })
+          .limit(30);
+        if (prefs && (prefs as unknown[]).length > 0) {
+          const prefRows = prefs as Array<{ preference_type: string; key: string; value: Record<string, unknown> }>;
+          const activeHours = prefRows
+            .filter(p => p.preference_type === "active_hours")
+            .sort((a, b) => ((b.value?.count as number) ?? 0) - ((a.value?.count as number) ?? 0))
+            .slice(0, 3)
+            .map(p => `${p.key} (${p.value?.pct ?? 0}%)`)
+            .join(", ");
+          const topTools = prefRows
+            .filter(p => p.preference_type === "tool_frequency")
+            .sort((a, b) => ((b.value?.total as number) ?? 0) - ((a.value?.total as number) ?? 0))
+            .slice(0, 5)
+            .map(p => `${p.key}(${p.value?.total ?? 0}x)`)
+            .join(", ");
+          const autoApproved = prefRows
+            .filter(p => p.preference_type === "auto_upgraded_action")
+            .map(p => `${p.key}→${p.value?.tier}`)
+            .join(", ");
+          const lines = [
+            activeHours   ? `Operator is most active during: ${activeHours}.` : "",
+            topTools      ? `Most-used tools: ${topTools}.` : "",
+            autoApproved  ? `Auto-approved actions (execute without asking): ${autoApproved}.` : "",
+          ].filter(Boolean);
+          if (lines.length > 0) {
+            return "\n\n═══════════════════════════════════════════\nLEARNED OPERATOR PATTERNS\n═══════════════════════════════════════════\n" + lines.join("\n");
+          }
         }
-      }
-    } catch { /* non-critical — proceed without behavioral context */ }
+      } catch { /* non-critical */ }
+      return "";
+    })();
 
-    // ── Active Agency Specialist overlay ─────────────────────────────────────
-    // If the operator has activated a specialist from The Agency, prepend their
-    // full spec so MAVIS responds through that specialist's expertise and voice
-    // while keeping all MAVIS tools and memory intact.
-    try {
-      const { data: specialist } = await supabase
-        .from("mavis_active_agency_specialists")
-        .select("agent_name, division, spec_content")
-        .eq("user_id", userId)
-        .maybeSingle();
+    const specialistFragmentP: Promise<string> = (async () => {
+      try {
+        const { data: specialist } = await supabase
+          .from("mavis_active_agency_specialists")
+          .select("agent_name, division, spec_content")
+          .eq("user_id", userId)
+          .maybeSingle();
+        if (specialist?.spec_content) {
+          return "\n\n═══════════════════════════════════════════\n" +
+            `ACTIVE AGENCY SPECIALIST: ${specialist.agent_name} [${specialist.division}]\n` +
+            "═══════════════════════════════════════════\n" +
+            `You are currently operating as ${specialist.agent_name}. Adopt their expertise, ` +
+            "frameworks, terminology, and professional voice in every response. " +
+            `Start every response with a bold specialist tag on its own line: **[${specialist.agent_name}]** — then your response. ` +
+            "You still have all MAVIS tools and memory — but think, reason, and communicate as this specialist.\n\n" +
+            specialist.spec_content.slice(0, 8000) +
+            "\n═══ END SPECIALIST OVERLAY ═══";
+        }
+      } catch { /* non-critical */ }
+      return "";
+    })();
 
-      if (specialist?.spec_content) {
-        systemWithContext +=
-          "\n\n═══════════════════════════════════════════\n" +
-          `ACTIVE AGENCY SPECIALIST: ${specialist.agent_name} [${specialist.division}]\n` +
-          "═══════════════════════════════════════════\n" +
-          `You are currently operating as ${specialist.agent_name}. Adopt their expertise, ` +
-          "frameworks, terminology, and professional voice in every response. " +
-          `Start every response with a bold specialist tag on its own line: **[${specialist.agent_name}]** — then your response. ` +
-          "You still have all MAVIS tools and memory — but think, reason, and communicate as this specialist.\n\n" +
-          specialist.spec_content.slice(0, 8000) +
-          "\n═══ END SPECIALIST OVERLAY ═══";
-      }
-    } catch { /* non-critical */ }
+    const [memoryFragment, prefsFragment, specialistFragment] =
+      await Promise.all([memoryFragmentP, prefsFragmentP, specialistFragmentP]);
+    // Memory fragment replaced the base prompt in the original ordering; keep the
+    // same final composition: SYSTEM_PROMPT + memory + prefs + specialist.
+    systemWithContext = SYSTEM_PROMPT + memoryFragment + prefsFragment + specialistFragment;
 
     // Merge client-provided system prompt with MAVIS core context
     const clientSystemPrompt = String(body.systemPrompt ?? "");
