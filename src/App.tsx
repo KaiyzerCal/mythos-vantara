@@ -164,7 +164,10 @@ function AppContent() {
 
   if (!user) return (
     <Suspense fallback={Spinner}>
-      <AuthPage />
+      <Routes>
+        <Route path="/.lovable/oauth/consent" element={<OAuthConsent />} />
+        <Route path="*" element={<AuthPage />} />
+      </Routes>
     </Suspense>
   );
 
