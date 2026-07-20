@@ -136,6 +136,7 @@ export default function MavisChat() {
   const [agentSteps, setAgentSteps] = useState<Array<{step: string; type?: string; ok?: boolean; count?: number; iteration?: number; preview?: string; label?: string}>>([]);
   const [artifactContent, setArtifactContent] = useState<string | null>(null);
   const [artifactLang, setArtifactLang] = useState<string>("text");
+  const [imageLightbox, setImageLightbox] = useState<string | null>(null);
   const [ttsEnabled, setTtsEnabled] = useState(false);
   const [voiceId, setVoiceId] = useState<string>(DEFAULT_VOICE_BY_GENDER.female);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -2096,12 +2097,19 @@ export default function MavisChat() {
                           )}
                           {(msg as any).imageUrl && (
                             <div className="mt-2">
-                              <img
-                                src={(msg as any).imageUrl}
-                                alt="MAVIS generated image"
-                                className="rounded-lg max-w-full border border-primary/20"
-                                style={{ maxHeight: "420px", objectFit: "contain" }}
-                              />
+                              <button
+                                type="button"
+                                onClick={() => setImageLightbox((msg as any).imageUrl)}
+                                className="block cursor-zoom-in"
+                                title="Click to view full size"
+                              >
+                                <img
+                                  src={(msg as any).imageUrl}
+                                  alt="MAVIS generated image"
+                                  className="rounded-lg max-w-full border border-primary/20 hover:border-primary/40 transition-colors"
+                                  style={{ maxHeight: "420px", objectFit: "contain" }}
+                                />
+                              </button>
                             </div>
                           )}
                           {(msg as any).videoUrl && (
@@ -2593,6 +2601,28 @@ export default function MavisChat() {
         )}
       </div>
     </div>
+
+    {/* Fullscreen lightbox for generated images */}
+    {imageLightbox && (
+      <div
+        className="fixed inset-0 z-[200] bg-black/85 flex items-center justify-center"
+        onClick={() => setImageLightbox(null)}
+      >
+        <button
+          className="absolute top-4 right-4 text-white/70 hover:text-white"
+          onClick={() => setImageLightbox(null)}
+          title="Close"
+        >
+          <X size={24} />
+        </button>
+        <img
+          src={imageLightbox}
+          alt="MAVIS generated image — full size"
+          className="max-w-[90vw] max-h-[85vh] rounded-lg shadow-2xl"
+          onClick={(e) => e.stopPropagation()}
+        />
+      </div>
+    )}
 
     {/* Artifact pane — slides in when content is selected */}
     <AnimatePresence>
