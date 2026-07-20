@@ -84,16 +84,17 @@ async function runHeartbeatForUser(sb: any, userId: string): Promise<Record<stri
     .maybeSingle();
 
   if (integration) {
-    // Delegate to calendar_agent via mavis-actions
-    const calRes = await fetch(`${SB_URL}/functions/v1/mavis-actions`, {
+    // Call mavis-calendar-agent directly (mavis-actions has no calendar_agent type).
+    const calRes = await fetch(`${SB_URL}/functions/v1/mavis-calendar-agent`, {
       method: "POST",
       headers: { "Content-Type": "application/json", "Authorization": `Bearer ${SB_SRK}` },
-      body: JSON.stringify({ userId, actions: [{ type: "calendar_agent", params: { action: "get_all_events", time_min: now.toISOString(), time_max: twoHoursFromNow } }] }),
+      body: JSON.stringify({ userId, action: "get_all_events", time_min: now.toISOString(), time_max: twoHoursFromNow }),
       signal: AbortSignal.timeout(20_000),
     }).catch(() => null);
     if (calRes?.ok) {
       const calData = await calRes.json().catch(() => ({})) as any;
-      const events = calData?.results?.[0]?.data?.events ?? [];
+      // calendar-agent returns { ok, result } where result is Google's list payload
+      const events = calData?.result?.items ?? calData?.result?.events ?? calData?.events ?? [];
       if (events.length) {
         const titles = events.slice(0, 3).map((e: any) => `${e.summary} @ ${new Date(e.start?.dateTime ?? e.start?.date).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })}`).join(", ");
         alerts.push(`📅 <b>Coming Up</b> (next 2h): ${titles}`);
@@ -219,14 +220,19 @@ async function runHeartbeatForUser(sb: any, userId: string): Promise<Record<stri
 
   // ── Send consolidated Telegram alert ──────────────────────────────────────
   if (alerts.length) {
-    // Get user's Telegram chat ID from profile or integrations
-    const { data: profile } = await sb
-      .from("profiles")
-      .select("telegram_chat_id")
-      .eq("id", userId)
+    // Resolve Telegram chat ID from the linked-accounts table, falling back
+    // to the operator env vars. (There is no profiles.telegram_chat_id column.)
+    const { data: linked } = await sb
+      .from("telegram_linked_accounts")
+      .select("telegram_user_id")
+      .eq("user_id", userId)
+      .order("created_at", { ascending: true })
+      .limit(1)
       .maybeSingle();
 
-    const chatId = (profile as any)?.telegram_chat_id;
+    const chatId = (linked as any)?.telegram_user_id
+      ?? Deno.env.get("TELEGRAM_OPERATOR_CHAT_ID")
+      ?? Deno.env.get("TELEGRAM_CHAT_ID");
     if (chatId) {
       const msg = `🤖 <b>MAVIS Heartbeat</b> — ${now.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })} UTC\n\n${alerts.join("\n\n")}`;
       await tgSend(chatId, msg);
@@ -234,14 +240,15 @@ async function runHeartbeatForUser(sb: any, userId: string): Promise<Record<stri
   }
 
   // ── Log heartbeat to mavis_memory ─────────────────────────────────────────
-  await sb.from("mavis_memory").insert({
+  // Schema: session_id, role, content, timestamp all NOT NULL; no tags column.
+  await Promise.resolve(sb.from("mavis_memory").insert({
     user_id: userId,
+    session_id: "heartbeat",
+    role: "system",
     content: `Heartbeat: ${alerts.length} alert(s). ${JSON.stringify(log.checks)}`,
-    importance_score: 1,
-    tags: ["heartbeat", "system"],
     timestamp: Date.now(),
     consolidated: false,
-  }).catch(() => {});
+  })).catch(() => {});
 
   return { ...log, alerts_sent: alerts.length };
 }

@@ -483,10 +483,13 @@ async function runStepLogic(
     // ── store ─────────────────────────────────────────────────────────────────
     case "store": {
       const content = String(input.content ?? "") || step.description;
+      // mavis_memory requires session_id, role, content, timestamp (all NOT NULL).
       const { error: insertErr } = await sb.from("mavis_memory").insert({
         user_id: task.user_id,
+        session_id: `autonomous-${task.id}`,
         role: "assistant",
         content: content.slice(0, 4000),
+        timestamp: Date.now(),
       });
       if (insertErr) throw new Error(`Memory insert failed: ${insertErr.message}`);
       return "stored";
@@ -495,11 +498,14 @@ async function runStepLogic(
     // ── notify ────────────────────────────────────────────────────────────────
     case "notify": {
       const message = String(input.message ?? "") || step.description;
+      // mavis_insights columns are title, content, category, severity, source.
       const { error: insightErr } = await sb.from("mavis_insights").insert({
         user_id: task.user_id,
+        title: step.description.slice(0, 120),
+        content: message.slice(0, 2000),
         category: "autonomous",
-        insight: message.slice(0, 2000),
-        importance_score: 6,
+        severity: "info",
+        source: "autonomous-runner",
       });
       if (insightErr) throw new Error(`Insight insert failed: ${insightErr.message}`);
       return "notified";
@@ -614,16 +620,19 @@ async function executeStep(
         .join("\n") || "  (no steps completed yet)"}`;
 
     // Create approval queue entry — user can review and retry or cancel
-    await sb
+    // mavis_action_queue columns: action_type, action_payload, autonomy_tier,
+    // status, summary, source_system, source_context (no title/description/payload).
+    await Promise.resolve(sb
       .from("mavis_action_queue")
       .insert({
         user_id: task.user_id,
         action_type: "task_step_failure",
-        title: `Task stalled: ${step.description.slice(0, 60)}`,
-        description: approvalDescription,
+        summary: `Task stalled: ${step.description.slice(0, 60)}`,
+        source_system: "autonomous-runner",
+        source_context: approvalDescription.slice(0, 2000),
         status: "pending",
         autonomy_tier: "approve",
-        payload: {
+        action_payload: {
           task_id: task.id,
           step_index: stepIndex,
           step_type: step.type,
@@ -631,7 +640,7 @@ async function executeStep(
           error: lastError,
           attempts: attemptsUsed,
         },
-      })
+      }))
       .catch((e) => console.error("[autonomous-runner] Failed to create approval entry:", e));
 
     // Pause (not fail) the task — it can be resumed after human review
