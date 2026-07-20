@@ -1834,8 +1834,8 @@ const PROVIDER_LANES: Record<string, ProviderId[]> = {
 };
 
 const GENERATION_INTENT = /\b(generate|draw|render|imagine|make|create)\b[\s\S]{0,60}\b(image|picture|photo|pic|art|artwork|video|animation|avatar|portrait|wallpaper)\b|\b(image|picture|photo|video)\s+of\b|\b(nsfw|hentai|furry|lewd|nude|naked|sexy|erotic|porn)\b/i;
-const REALTIME_INTENT   = /\b(news|latest|breaking|trending|right now|happening now|current events|stock price|share price|crypto|bitcoin|ethereum|market today|twitter|tweet|on x\b|what('s| is) (going on|happening))\b/i;
-const CODE_INTENT       = /\b(code|coding|debug|refactor|typescript|javascript|python|rust|deno|sql|regex|stack ?trace|compil(e|er)|edge function|git|repo|pull request|bug in|error in|fix (the|my|this) (code|function|script))\b/i;
+const REALTIME_INTENT   = /\b(breaking news|latest news|in the news|trending|right now|happening now|current events|stock price|share price|crypto price|bitcoin|ethereum|market today|on twitter|latest tweet|on x today|what('s| is) (going on|happening)( (right )?now| today)?)\b/i;
+const CODE_INTENT       = /\b(coding|debug|refactor|typescript|javascript|python code|rust code|deno|sql query|regex|stack ?trace|compil(e|er)|edge function|pull request|bug in (the|my|this)|error in (the|my|this)|fix (the|my|this) (code|function|script|bug))\b/i;
 const REASONING_INTENT  = /\b(analy[sz]e|analysis|strateg(y|ic|ize)|deep dive|pros and cons|trade-?offs?|evaluate|assess|think through|first principles|framework for|compare\b[\s\S]{0,40}\b(vs|versus|against))\b/i;
 
 function selectLane(text: string): string {
@@ -2481,8 +2481,22 @@ Deno.serve(async (req) => {
     // Embed the incoming goal and surface the top-5 most relevant persona memories
     // to inject into the system prompt as grounding context.
     let systemWithContext = SYSTEM_PROMPT;
+    // Derive the routing/embedding text from the latest user turn. Content can
+    // be a string or an array of blocks (text/tool_result) — flatten to text
+    // so lane selection never sees "[object Object]".
+    const flattenContent = (c: unknown): string => {
+      if (typeof c === "string") return c;
+      if (Array.isArray(c)) {
+        return c.map((p: any) =>
+          typeof p === "string" ? p
+          : p?.type === "text" ? (p.text ?? "")
+          : p?.type === "tool_result" ? String(p.content ?? "")
+          : "").join(" ");
+      }
+      return "";
+    };
     const goalText = goal || (rawMessages.length > 0
-      ? String(rawMessages[rawMessages.length - 1]?.content ?? "").slice(0, 300)
+      ? flattenContent(rawMessages[rawMessages.length - 1]?.content).slice(0, 300)
       : "");
 
     if (goalText && userId) {
@@ -2670,7 +2684,7 @@ Deno.serve(async (req) => {
       emitSSE,
       providerChain,
     ).then((result) => {
-      emitSSE({ done: true, content: result.content, toolsUsed: result.toolsUsed, actionsQueued: result.actionsQueued, provider: result.provider, lane });
+      emitSSE({ done: true, content: result.content, toolsUsed: result.toolsUsed, actionsQueued: result.actionsQueued, provider: result.provider, lane, imageUrl: result.imageUrl ?? null, videoUrl: result.videoUrl ?? null, imageUrls: result.imageUrls ?? null, videoUrls: result.videoUrls ?? null });
       sseWriter.close();
     }).catch((err: unknown) => {
       emitSSE({ error: err instanceof Error ? err.message : String(err) });

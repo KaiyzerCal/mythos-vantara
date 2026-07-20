@@ -1138,6 +1138,8 @@ export default function MavisChat() {
             content: agentText,
             mode: chatMode,
             timestamp: new Date(),
+            imageUrl: agentResult.imageUrl ?? (agentResult.fnData as any)?.imageUrl ?? null,
+            videoUrl: (agentResult as any).videoUrl ?? (agentResult.fnData as any)?.videoUrl ?? null,
             _agentMeta: { toolsUsed, actionsQueued },
           };
           setChatMessages((prev) => prev.filter((m) => m.id !== streamingId).concat(agentMsg));
@@ -1359,6 +1361,7 @@ export default function MavisChat() {
         }
       }
       const { cleanText, executionResults, conversationId: newConvoId, searched, imageUrl, fnData } = streamResult;
+      const videoUrl = (streamResult as any).videoUrl ?? (fnData as any)?.videoUrl ?? null;
 
       if (cancelledRef.current) {
         setChatMessages((prev) => prev.filter((m) => m.id !== streamingId));
@@ -1419,10 +1422,11 @@ export default function MavisChat() {
         role: "assistant" as const,
         content: cleanText,
         mode: chatMode,
-        model: (fnData as any)?.model ?? null,
+        model: (fnData as any)?.provider ?? (fnData as any)?.model ?? null,
         searched: searched || agentSources.length > 0,
         actionsExecuted,
         imageUrl: imageUrl ?? undefined,
+        videoUrl: videoUrl ?? undefined,
         sources: agentSources,
         iterations: agentIterations,
         timestamp: new Date(),
@@ -2097,6 +2101,16 @@ export default function MavisChat() {
                                 alt="MAVIS generated image"
                                 className="rounded-lg max-w-full border border-primary/20"
                                 style={{ maxHeight: "420px", objectFit: "contain" }}
+                              />
+                            </div>
+                          )}
+                          {(msg as any).videoUrl && (
+                            <div className="mt-2">
+                              <video
+                                src={(msg as any).videoUrl}
+                                controls
+                                className="rounded-lg max-w-full border border-primary/20"
+                                style={{ maxHeight: "420px" }}
                               />
                             </div>
                           )}

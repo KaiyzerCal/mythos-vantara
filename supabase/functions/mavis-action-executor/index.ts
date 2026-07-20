@@ -334,19 +334,16 @@ async function executeCreateDriveFile(
   const config = integration.config as Record<string, unknown>;
   const accessToken = await refreshGoogleToken(config, adminSb, userId, "gdrive");
 
-  const {
-    title,
-    content = "",
-    mime_type = "application/vnd.google-apps.document",
-    folder_id,
-  } = payload as {
-    title?: string;
-    content?: string;
-    mime_type?: string;
-    folder_id?: string;
-  };
+  // Accept both the tool-schema field names (name/mimeType) and the
+  // executor's canonical snake_case (title/mime_type) so queued Claude
+  // actions and internal callers both work.
+  const p = payload as Record<string, unknown>;
+  const title     = String(p.title ?? p.name ?? "");
+  const content   = String(p.content ?? "");
+  const mime_type = String(p.mime_type ?? p.mimeType ?? "application/vnd.google-apps.document");
+  const folder_id = p.folder_id ?? p.folderId;
 
-  if (!title) throw new Error("create_drive_file payload must include: title");
+  if (!title) throw new Error("create_drive_file payload must include: title (or name)");
 
   // Determine Google Workspace type or plain upload
   const isGoogleDoc = mime_type === "application/vnd.google-apps.document";
@@ -1030,7 +1027,7 @@ async function executeReadPresentation(p: Record<string, unknown>, uid: string, 
 
 // ── CONTACTS: CREATE ──────────────────────────────────────────────────────────
 async function executeCreateContact(p: Record<string, unknown>, uid: string, sb: ReturnType<typeof createClient>) {
-  const token = await getGoogleToken("google_contacts", uid, sb);
+  const token = await getGoogleToken("gcontacts", uid, sb);
   const name = String(p.name ?? ""); if (!name) throw new Error("name required");
   const parts = name.split(" ");
   const person: any = { names: [{ givenName: parts[0], familyName: parts.slice(1).join(" ") }] };
@@ -1045,7 +1042,7 @@ async function executeCreateContact(p: Record<string, unknown>, uid: string, sb:
 
 // ── CONTACTS: LIST ────────────────────────────────────────────────────────────
 async function executeListContacts(p: Record<string, unknown>, uid: string, sb: ReturnType<typeof createClient>) {
-  const token = await getGoogleToken("google_contacts", uid, sb);
+  const token = await getGoogleToken("gcontacts", uid, sb);
   const max = Number(p.max_results ?? 25);
   const data = await fetch(`https://people.googleapis.com/v1/people/me/connections?personFields=names,emailAddresses,phoneNumbers,organizations&pageSize=${max}&sortOrder=LAST_MODIFIED_DESCENDING`,
     { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(15_000) }).then(r => r.json());
@@ -1055,7 +1052,7 @@ async function executeListContacts(p: Record<string, unknown>, uid: string, sb: 
 
 // ── CONTACTS: SEARCH ──────────────────────────────────────────────────────────
 async function executeSearchContacts(p: Record<string, unknown>, uid: string, sb: ReturnType<typeof createClient>) {
-  const token = await getGoogleToken("google_contacts", uid, sb);
+  const token = await getGoogleToken("gcontacts", uid, sb);
   const data = await fetch(`https://people.googleapis.com/v1/people:searchContacts?query=${encodeURIComponent(String(p.query ?? ""))}&readMask=names,emailAddresses,phoneNumbers,organizations&pageSize=10`,
     { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(15_000) }).then(r => r.json());
   const contacts = ((data.results ?? []) as any[]).map((r: any) => {
@@ -1067,7 +1064,7 @@ async function executeSearchContacts(p: Record<string, unknown>, uid: string, sb
 
 // ── CONTACTS: UPDATE ──────────────────────────────────────────────────────────
 async function executeUpdateContact(p: Record<string, unknown>, uid: string, sb: ReturnType<typeof createClient>) {
-  const token = await getGoogleToken("google_contacts", uid, sb);
+  const token = await getGoogleToken("gcontacts", uid, sb);
   const rn = String(p.resource_name ?? ""); if (!rn) throw new Error("resource_name required");
   const current = await fetch(`https://people.googleapis.com/v1/${rn}?personFields=names,emailAddresses,phoneNumbers,organizations,biographies`,
     { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(10_000) }).then(r => r.json());
@@ -1085,7 +1082,7 @@ async function executeUpdateContact(p: Record<string, unknown>, uid: string, sb:
 
 // ── CONTACTS: DELETE ──────────────────────────────────────────────────────────
 async function executeDeleteContact(p: Record<string, unknown>, uid: string, sb: ReturnType<typeof createClient>) {
-  const token = await getGoogleToken("google_contacts", uid, sb);
+  const token = await getGoogleToken("gcontacts", uid, sb);
   const rn = String(p.resource_name ?? ""); if (!rn) throw new Error("resource_name required");
   await fetch(`https://people.googleapis.com/v1/${rn}:deleteContact`, { method: "DELETE", headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(10_000) });
   return { ok: true, resource_name: rn, deleted: true, timestamp: new Date().toISOString() };
@@ -1234,11 +1231,36 @@ async function routeActionType(
       );
       return await comfyRes.json();
     }
+    case "make_call":
+    case "phone_call": {
+      const callRes = await fetch(
+        `${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-phone-call`,
+        {
+          method:  "POST",
+          headers: {
+            "Content-Type":  "application/json",
+            "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+          },
+          body: JSON.stringify({
+            user_id:       userId,
+            to:            actionPayload.to ?? actionPayload.phone ?? actionPayload.number,
+            purpose:       actionPayload.purpose ?? actionPayload.goal ?? actionPayload.reason,
+            caller_name:   actionPayload.caller_name,
+            first_message: actionPayload.first_message,
+          }),
+          signal: AbortSignal.timeout(30_000),
+        },
+      );
+      const callData = await callRes.json();
+      if (!callRes.ok || callData.error) {
+        throw new Error(callData.error ?? `phone call failed (${callRes.status})`);
+      }
+      return callData;
+    }
     default:
-      return {
-        note: `Action type '${actionType}' requires manual handling.`,
-        timestamp: new Date().toISOString(),
-      };
+      // Unroutable action — surface as an error so the queue item is marked
+      // failed, not silently "executed". Prevents false success records.
+      throw new Error(`Action type '${actionType}' is not supported by the executor.`);
   }
 }
 

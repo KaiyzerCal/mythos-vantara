@@ -31,10 +31,14 @@ function json(data: unknown, status = 200) {
   });
 }
 
-async function resolveUserId(req: Request): Promise<string | null> {
+const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+
+async function resolveUserId(req: Request, bodyUserId?: string): Promise<string | null> {
   const auth = req.headers.get("Authorization") ?? "";
   const token = auth.replace(/^Bearer\s+/i, "").trim();
   if (!token) return null;
+  // Service-role callers (e.g. the Telegram bot) pass an explicit user_id.
+  if (token === SERVICE_ROLE_KEY) return bodyUserId?.trim() || null;
   try {
     const { data } = await adminSb.auth.getUser(token);
     return data?.user?.id ?? null;
@@ -225,15 +229,15 @@ serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
   if (req.method !== "POST") return json({ error: "POST only" }, 405);
 
-  const userId = await resolveUserId(req);
-  if (!userId) return json({ error: "Unauthorized" }, 401);
-
-  let body: { url?: string; save_as?: string };
+  let body: { url?: string; save_as?: string; user_id?: string };
   try {
     body = await req.json();
   } catch {
     return json({ error: "Invalid JSON body" }, 400);
   }
+
+  const userId = await resolveUserId(req, body.user_id);
+  if (!userId) return json({ error: "Unauthorized" }, 401);
 
   const url = String(body.url ?? "").trim();
   if (!url) return json({ error: "url is required" }, 400);

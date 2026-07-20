@@ -29,12 +29,29 @@ serve(async (req) => {
 
   try {
     const auth = req.headers.get("Authorization") ?? "";
+    const token = auth.replace("Bearer ", "").trim();
     const sb = createClient(SB_URL, SB_KEY);
-    const { data: { user }, error } = await sb.auth.getUser(auth.replace("Bearer ", ""));
-    if (error || !user) {
-      return new Response(JSON.stringify({ error: "Unauthorized" }), {
-        status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+
+    const body = await req.json().catch(() => ({}));
+
+    // Two callers: the frontend (user JWT) and mavis-action-executor
+    // (service-role key + explicit user_id in the body).
+    let userId: string;
+    if (token && token === SB_KEY) {
+      userId = String(body.user_id ?? body.userId ?? "").trim();
+      if (!userId) {
+        return new Response(JSON.stringify({ error: "user_id required for service-role calls" }), {
+          status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+    } else {
+      const { data: { user }, error } = await sb.auth.getUser(token);
+      if (error || !user) {
+        return new Response(JSON.stringify({ error: "Unauthorized" }), {
+          status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      userId = user.id;
     }
 
     if (!VAPI_KEY || !VAPI_PHONE_ID) {
@@ -44,7 +61,6 @@ serve(async (req) => {
       );
     }
 
-    const body = await req.json().catch(() => ({}));
     const toNumber    = String(body.to ?? "").trim();
     const purpose     = String(body.purpose ?? "").trim();
     const callerName  = String(body.caller_name ?? "MAVIS");
@@ -60,7 +76,7 @@ serve(async (req) => {
     }
 
     // Fetch operator's name for context
-    const { data: profile } = await sb.from("profiles").select("inscribed_name, full_name").eq("id", user.id).single();
+    const { data: profile } = await sb.from("profiles").select("inscribed_name, full_name").eq("id", userId).single();
     const operatorName = profile?.inscribed_name ?? profile?.full_name ?? "Operator";
 
     // Inbound webhook URL for this Supabase project
@@ -110,7 +126,7 @@ serve(async (req) => {
 
     // Log to DB
     const { data: callRow } = await sb.from("mavis_calls").insert({
-      user_id: user.id,
+      user_id: userId,
       vapi_call_id: vapiCallId,
       direction: "outbound",
       to_number: toNumber,

@@ -46,6 +46,7 @@ export interface ChatServiceResult {
   conversationId: string | null;
   searched: boolean;
   imageUrl: string | null;
+  videoUrl?: string | null;
   fnData: Record<string, unknown> | null;
   reflectionNote?: string | null;
 }
@@ -222,7 +223,8 @@ export async function streamAgentMessage(
       executionResults,
       conversationId: (jsonData?.conversationId as string | null) ?? options.conversationId ?? null,
       searched: false,
-      imageUrl: null,
+      imageUrl: (jsonData?.imageUrl as string | null) ?? null,
+      videoUrl: (jsonData?.videoUrl as string | null) ?? null,
       fnData: jsonData as Record<string, unknown> | null,
     };
   }
@@ -272,7 +274,8 @@ export async function streamAgentMessage(
     executionResults,
     conversationId: (metadata.conversationId as string | null) ?? options.conversationId ?? null,
     searched: false,
-    imageUrl: null,
+    imageUrl: (metadata.imageUrl as string | null) ?? null,
+    videoUrl: (metadata.videoUrl as string | null) ?? null,
     fnData: metadata as Record<string, unknown>,
   };
 }

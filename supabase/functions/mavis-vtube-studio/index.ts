@@ -292,22 +292,27 @@ Deno.serve(async (req: Request): Promise<Response> => {
     typeof body.expression_file === "string"
       ? body.expression_file
       : undefined;
-  const active =
-    typeof body.active === "boolean" ? body.active : undefined;
-  const positionX =
-    typeof body.position_x === "number" ? body.position_x : undefined;
-  const positionY =
-    typeof body.position_y === "number" ? body.position_y : undefined;
-  const timeSeconds =
-    typeof body.time_seconds === "number" ? body.time_seconds : undefined;
+  // Callers (e.g. the Telegram bot) send these as strings — coerce so both
+  // native-typed and stringified inputs work.
+  const toBool = (v: unknown): boolean | undefined =>
+    typeof v === "boolean" ? v
+    : v === "1" || v === "true" || v === "on" || v === "yes" ? true
+    : v === "0" || v === "false" || v === "off" || v === "no" ? false
+    : undefined;
+  const toNum = (v: unknown): number | undefined => {
+    if (typeof v === "number") return v;
+    if (typeof v === "string" && v.trim() !== "" && !Number.isNaN(Number(v))) return Number(v);
+    return undefined;
+  };
+  const active      = toBool(body.active);
+  const positionX   = toNum(body.position_x);
+  const positionY   = toNum(body.position_y);
+  const timeSeconds = toNum(body.time_seconds);
   const parameterName =
     typeof body.parameter_name === "string"
       ? body.parameter_name
       : undefined;
-  const parameterValue =
-    typeof body.parameter_value === "number"
-      ? body.parameter_value
-      : undefined;
+  const parameterValue = toNum(body.parameter_value);
 
   try {
     let vtsResponse: Record<string, unknown>;

@@ -259,16 +259,16 @@ async function analyzePhoto(
     );
     if (!imgRes.ok) return null;
     const imgBytes = new Uint8Array(await imgRes.arrayBuffer());
-    const base64   = btoa(String.fromCharCode(...imgBytes));
+    const base64   = bytesToBase64(imgBytes);  // chunked — avoids stack overflow on large photos
     const ext      = filePath.split(".").pop()?.toLowerCase() ?? "jpg";
     const mimeMap: Record<string, string> = { jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", webp: "image/webp", gif: "image/gif" };
     const mediaType = mimeMap[ext] ?? "image/jpeg";
 
-    // Call mavis-vision-agent
+    // Call mavis-vision-agent (field name must be image_base64 — see resolveImage)
     const visionRes = await fetch(`${SUPABASE_URL}/functions/v1/mavis-vision-agent`, {
       method:  "POST",
       headers: { "Content-Type": "application/json", "Authorization": `Bearer ${SERVICE_KEY}` },
-      body:    JSON.stringify({ userId: uid, action: "analyze", image: base64, media_type: mediaType, prompt }),
+      body:    JSON.stringify({ userId: uid, action: "analyze", image_base64: base64, media_type: mediaType, prompt }),
       signal:  AbortSignal.timeout(30000),
     });
     if (!visionRes.ok) return null;
@@ -1897,7 +1897,9 @@ function classify(text: string): Classified {
     const topic = text.replace(/^\/?(content|nora content|video content|post content)\s+/i, "").trim();
     return { intent: "content_machine", params: { topic } };
   }
-  const speakMatch = text.match(/^\/?(speak|tts|say)\s*(.*)?$/i);
+  // Require the trigger to be a whole word followed by content, and don't
+  // swallow "speak as <persona>" (handled by personaMatch below).
+  const speakMatch = text.match(/^\/?(speak|tts|say)\b(?!\s+as\b)\s+(.+)$/i);
   if (speakMatch) return { intent: "speak", params: { args: (speakMatch[2] ?? "").trim() } };
 
   // Persona / council switching
@@ -1924,7 +1926,7 @@ function classify(text: string): Classified {
   const closeThread = text.match(/^\/?(done|close|finished?|resolve)\s+(.+)$/i);
   if (closeThread)
     return { intent: "close_thread", params: { title: closeThread[2].trim() } };
-  const threadCapture = text.match(/^\/?(thread|remember to|remind me to|track|log thread)\s*:?\s*(.+)$/i);
+  const threadCapture = text.match(/^\/?(thread|remember to|remind me to|track|log thread)\b\s*:?\s*(.+)$/i);
   if (threadCapture)
     return { intent: "close_thread", params: { title: threadCapture[2].trim(), save: "1" } };
 
@@ -1966,20 +1968,21 @@ function classify(text: string): Classified {
   if (vtsToken)
     return { intent: "vts", params: { action: "get_token" } };
 
-  // Image / video generation
+  // Image / video generation.
+  // Explicit-type form first: /generate <workflow_type> <prompt>
+  const generateCmd = text.match(/^\/generate\s+(txt2img|img2img|txt2vid|img2vid|wan_t2v|wan_i2v|talking_head|realtime|portrait|concept)\s+(.+)$/i);
+  if (generateCmd)
+    return { intent: "generate", params: { prompt: generateCmd[2].trim(), workflow_type: generateCmd[1].toLowerCase() } };
   const generateMatch = text.match(/^\/?(generate|imagine|draw|create\s+image|make\s+(?:an?\s+)?(?:image|picture|photo|video|art))\s+(.+)$/i);
   if (generateMatch) {
     const genPrompt = generateMatch[2].trim();
     const isVideo   = /\bvideo\b/i.test(generateMatch[1]);
     const wfType    = isVideo ? "txt2vid"
       : /\bportrait\b/i.test(genPrompt) ? "portrait"
-      : /\bconcept|art\b/i.test(genPrompt) ? "concept"
+      : /\bconcept\b|\bart\b/i.test(genPrompt) ? "concept"
       : "txt2img";
     return { intent: "generate", params: { prompt: genPrompt, workflow_type: wfType } };
   }
-  const generateCmd = text.match(/^\/generate\s+(\w+)\s+(.+)$/i);
-  if (generateCmd)
-    return { intent: "generate", params: { prompt: generateCmd[2].trim(), workflow_type: generateCmd[1].toLowerCase() } };
 
   // Yamete NSFW generation
   const yameteMatch = text.match(/^\/?(nsfw|hentai|furry|adult|yamete)\s+(.+)$/i);
@@ -2086,9 +2089,9 @@ async function handleThreads(chatId: string | number, uid: string) {
 
 async function handleCloseThread(chatId: string | number, uid: string, title: string, save = false) {
   if (save) {
-    await sb.from("loose_threads").insert({
+    await Promise.resolve(sb.from("loose_threads").insert({
       user_id: uid, title: title.slice(0, 200), source: "telegram", status: "open",
-    }).catch(() => {});
+    })).catch(() => {});
     await send(chatId, `🧵 Thread saved: _${title.slice(0, 80)}_\n\nSay "threads" to view all open threads.`);
     return;
   }
@@ -2358,11 +2361,9 @@ async function handleYamete(chatId: string | number, uid: string, prompt: string
   }
   const url = data.imageUrl ?? "";
   if (!url) { await send(chatId, "⚠️ Generation done but no image URL returned."); return; }
-  await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendPhoto`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ chat_id: chatId, photo: url, caption: `✅ ${style} · _${prompt.slice(0, 80)}_`, parse_mode: "Markdown" }),
-  });
+  // Plain-text caption via the helper (no parse_mode) so a '*'/'_'/'[' in the
+  // prompt can't break Telegram Markdown parsing and drop the photo.
+  await sendPhoto(chatId, url, `✅ ${style} · ${prompt.slice(0, 80)}`);
 }
 
 async function handleEnrichContact(chatId: string | number, uid: string, name: string) {
