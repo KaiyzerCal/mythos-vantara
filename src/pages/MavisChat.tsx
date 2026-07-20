@@ -1233,19 +1233,15 @@ export default function MavisChat() {
         return;
       }
 
-      // Use fresh Supabase context if available, else fall back to useAppData() data
-      let systemPrompt = await (fullCtx
-        ? buildSystemPromptFromSnapshot(chatMode, fullCtx, archivedMemories, vaultMedia)
-        : buildSystemPromptFromSnapshot(chatMode, ({
-            profile: profile as any,
-            quests: quests as any[], tasks: tasks as any[], skills: skills as any[],
-            rankings: [], transformations: appDataRef.current.transformations as any[],
-            journalEntries: journalEntries as any[], vaultEntries: vaultEntries as any[],
-            councilMembers: appDataRef.current.councils as any[], inventory: appDataRef.current.inventory as any[],
-            storeItems: appDataRef.current.storeItems as any[], energySystems: appDataRef.current.energySystems as any[],
-            bpmSessions: appDataRef.current.bpmSessions as any[], allies: appDataRef.current.allies as any[],
-            rituals: appDataRef.current.rituals as any[], pendingApprovals: [], loadedAt: new Date().toISOString(),
-          } as any), archivedMemories, vaultMedia));
+      // mavis-chat (the backend for this path — non-agent, non-FLOW) only reads
+      // body.systemPrompt when mode === "COUNCIL" (verified: every reference to
+      // clientSystemPrompt in that function is gated by isCouncilMode). This UI
+      // never sends COUNCIL mode, so building the full context-snapshot prompt
+      // here — client-side Supabase queries plus assembling quests/tasks/journal/
+      // vault into a large string — was pure wasted latency on every message,
+      // discarded unread by the backend. Skipped for this path; agent mode below
+      // builds its own systemPrompt separately and that one IS used.
+      let systemPrompt = "";
       if (recallCtxRaw) systemPrompt += `\n\n${recallCtxRaw}`;
       // SuperContext — assembled by mavis-context-scout at session start (OpenHuman pattern)
       if (superContext) systemPrompt += `\n\n${superContext}`;

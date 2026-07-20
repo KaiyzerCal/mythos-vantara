@@ -664,9 +664,34 @@ function claudeSseToTextStream(body: ReadableStream<Uint8Array>): ReadableStream
   });
 }
 
+// Two-stage timeout: fail fast if a provider never responds at all (a true
+// stall — this is what makes fallback trigger promptly), without risking an
+// abort mid-way through a legitimately long streaming reply. A flat short
+// timeout would cut off valid long completions; a flat 90s+ timeout means a
+// hung provider blocks the whole turn. Several of these stream calls (OpenAI,
+// Claude, Groq) had NO timeout at all — an unbounded hang on a dead connection.
+async function fetchStreamWithFailover(
+  url: string,
+  init: RequestInit,
+  { headerTimeoutMs = 15_000, totalTimeoutMs = 60_000 } = {},
+): Promise<Response> {
+  const controller = new AbortController();
+  const headerTimer = setTimeout(() => controller.abort(new Error("no response headers within timeout")), headerTimeoutMs);
+  const totalTimer  = setTimeout(() => controller.abort(new Error("total request timeout exceeded")), totalTimeoutMs);
+  try {
+    const res = await fetch(url, { ...init, signal: controller.signal });
+    clearTimeout(headerTimer); // headers arrived — provider is alive; totalTimer still guards the body read
+    return res;
+  } catch (err) {
+    clearTimeout(headerTimer);
+    clearTimeout(totalTimer);
+    throw err;
+  }
+}
+
 async function callOpenAIStream(messages: any[], system: string, key: string, model = "gpt-4o-mini"): Promise<ReadableStream<string>> {
   const fitted = fitOpenAIRequest(system, messages);
-  const res = await fetch("https://api.openai.com/v1/chat/completions", {
+  const res = await fetchStreamWithFailover("https://api.openai.com/v1/chat/completions", {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
     body: JSON.stringify({ model, messages: [{ role: "system", content: fitted.system }, ...fitted.messages], max_tokens: fitted.maxTokens, temperature: 0.85, stream: true }),
@@ -680,7 +705,7 @@ async function callOpenAIStream(messages: any[], system: string, key: string, mo
 }
 
 async function callClaudeStream(messages: any[], system: string, key: string, model = "claude-haiku-4-5-20251001", useThinking = false): Promise<ReadableStream<string>> {
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
+  const res = await fetchStreamWithFailover("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -775,11 +800,10 @@ async function callGeminiStream(messages: any[], system: string, key: string, op
   if (opts.thinking) body.generationConfig.thinkingConfig = { thinkingBudget: 8192 };
   if (opts.grounding && !opts.thinking) body.tools = [{ googleSearch: {} }];
   else if (opts.codeExec && !opts.thinking) body.tools = [{ codeExecution: {} }];
-  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:streamGenerateContent?key=${key}&alt=sse`, {
+  const res = await fetchStreamWithFailover(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:streamGenerateContent?key=${key}&alt=sse`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
-    signal: AbortSignal.timeout(60000),
   });
   if (!res.ok) {
     const e = await res.text().catch(() => "");
@@ -790,7 +814,7 @@ async function callGeminiStream(messages: any[], system: string, key: string, op
 }
 
 async function callGrokStream(messages: any[], system: string, key: string): Promise<ReadableStream<string>> {
-  const res = await fetch("https://api.x.ai/v1/chat/completions", {
+  const res = await fetchStreamWithFailover("https://api.x.ai/v1/chat/completions", {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
     body: JSON.stringify({ model: "grok-3-mini", messages: [{ role: "system", content: system }, ...messages], max_tokens: 8192, temperature: 0.7, stream: true }),
@@ -825,7 +849,7 @@ async function callGroq(messages: any[], system: string, key: string, model = "l
 }
 
 async function callGroqStream(messages: any[], system: string, key: string, model = "llama-3.3-70b-versatile"): Promise<ReadableStream<string>> {
-  const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+  const res = await fetchStreamWithFailover("https://api.groq.com/openai/v1/chat/completions", {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
     body: JSON.stringify({ model, messages: [{ role: "system", content: system }, ...messages], max_tokens: 8192, temperature: 0.7, stream: true }),
@@ -847,8 +871,13 @@ async function callWithFallbackStream(
   mode = "PRIME",
 ): Promise<{ stream: ReadableStream<string>; provider: string }> {
   const mU = mode.toUpperCase();
+  // Health-key names match callWithFallback's (non-streaming) so a provider
+  // marked unhealthy by one path is also skipped by the other — previously
+  // this cascade never consulted or updated provider health at all, so a
+  // request could keep re-attempting a provider that had just rate-limited
+  // or errored moments earlier on the exact same isolate.
   // Tier 0 — Free Gemini (always attempted first)
-  if (keys.gemini) {
+  if (keys.gemini && !isProviderUnhealthy("gemini")) {
     try {
       const geminiOpts = {
         thinking: mU === "DEEP",
@@ -857,35 +886,56 @@ async function callWithFallbackStream(
       };
       return { stream: await callGeminiStream(messages, system, keys.gemini, geminiOpts), provider: geminiOpts.thinking ? "gemini-2.5-thinking" : "gemini-2.5-flash" };
     }
-    catch (e: any) { console.warn(`[stream-fallback] Gemini 2.5 Flash: ${e.message} → cascading`); }
+    catch (e: any) {
+      if (e instanceof ProviderUnavailableError) markProviderUnhealthy("gemini", e.status === 429 ? 60_000 : 120_000);
+      console.warn(`[stream-fallback] Gemini 2.5 Flash: ${e.message} → cascading`);
+    }
   }
   // Tier 0b — Groq (fast Llama 3.3 70B, ~500 tok/s)
-  if (keys.groq && mU !== "DEEP") {
+  if (keys.groq && mU !== "DEEP" && !isProviderUnhealthy("groq-llama")) {
     try { return { stream: await callGroqStream(messages, system, keys.groq), provider: "groq-llama-70b" }; }
-    catch (e: any) { console.warn(`[stream-fallback] Groq: ${e.message} → cascading`); }
+    catch (e: any) {
+      if (e instanceof ProviderUnavailableError) markProviderUnhealthy("groq-llama", 60_000);
+      console.warn(`[stream-fallback] Groq: ${e.message} → cascading`);
+    }
   }
   // Tier 1 — Mode-designated provider
-  if (primary === "claude" && keys.claude) {
+  if (primary === "claude" && keys.claude && !isProviderUnhealthy("claude")) {
     try {
       const stream = await callClaudeStream(messages, system, keys.claude, "claude-sonnet-4-6", useThinking);
       return { stream, provider: useThinking ? "claude-sonnet-thinking" : "claude-sonnet" };
-    } catch (e: any) { if (!(e instanceof ProviderUnavailableError)) throw e; }
+    } catch (e: any) {
+      if (!(e instanceof ProviderUnavailableError)) throw e;
+      markProviderUnhealthy("claude");
+    }
   }
-  if (primary === "grok" && keys.grok) {
+  if (primary === "grok" && keys.grok && !isProviderUnhealthy("grok")) {
     try { return { stream: await callGrokStream(messages, system, keys.grok), provider: "grok" }; }
-    catch (e: any) { if (!(e instanceof ProviderUnavailableError)) throw e; }
+    catch (e: any) {
+      if (!(e instanceof ProviderUnavailableError)) throw e;
+      markProviderUnhealthy("grok");
+    }
   }
-  if (keys.openai) {
+  if (keys.openai && !isProviderUnhealthy("openai")) {
     try { return { stream: await callOpenAIStream(messages, system, keys.openai), provider: "openai-mini" }; }
-    catch (e: any) { if (!(e instanceof ProviderUnavailableError)) throw e; }
+    catch (e: any) {
+      if (!(e instanceof ProviderUnavailableError)) throw e;
+      markProviderUnhealthy("openai");
+    }
   }
-  if (keys.claude) {
+  if (keys.claude && !isProviderUnhealthy("claude")) {
     try { return { stream: await callClaudeStream(messages, system, keys.claude, "claude-haiku-4-5-20251001", false), provider: "claude-haiku" }; }
-    catch (e: any) { if (!(e instanceof ProviderUnavailableError)) throw e; }
+    catch (e: any) {
+      if (!(e instanceof ProviderUnavailableError)) throw e;
+      markProviderUnhealthy("claude");
+    }
   }
-  if (keys.grok) {
+  if (keys.grok && !isProviderUnhealthy("grok")) {
     try { return { stream: await callGrokStream(messages, system, keys.grok), provider: "grok" }; }
-    catch (e: any) { if (!(e instanceof ProviderUnavailableError)) throw e; }
+    catch (e: any) {
+      if (!(e instanceof ProviderUnavailableError)) throw e;
+      markProviderUnhealthy("grok");
+    }
   }
   throw new Error("All AI providers unavailable for streaming (no funded keys).");
 }
@@ -3522,6 +3572,28 @@ ${telosData
           ? ((lastUserMsg.content as any[]).find((b: any) => b.type === "text")?.text ?? "")
           : "");
 
+    // Shared embedding for lastUserText. knowledgeBlock and semanticMemoryBlock
+    // (further below) each independently fetched their own OpenAI embedding for
+    // the same text — kicked off here once, in parallel with everything else in
+    // this preamble, and reused by both. Each block still applies its own
+    // original gating condition before USING the result, so this changes only
+    // when/how the embedding is fetched, not which block's context gets used.
+    const sharedEmbeddingPromise: Promise<number[] | null> = (openaiKey && lastUserText.length > 0)
+      ? (async () => {
+          try {
+            const embRes = await fetch("https://api.openai.com/v1/embeddings", {
+              method: "POST",
+              headers: { "Content-Type": "application/json", Authorization: `Bearer ${openaiKey}` },
+              body: JSON.stringify({ model: "text-embedding-3-small", input: lastUserText.slice(0, 8000) }),
+              signal: AbortSignal.timeout(8_000),
+            });
+            if (!embRes.ok) return null;
+            const embData = await embRes.json();
+            return embData.data?.[0]?.embedding ?? null;
+          } catch { return null; }
+        })()
+      : Promise.resolve(null);
+
     if (lastUserMsg && tavilyKey && needsWebSearch(lastUserText)) {
       webSearchResults = await tavilySearch(lastUserText, tavilyKey);
     }
@@ -3554,7 +3626,10 @@ ${telosData
                 method: "POST",
                 headers: { "Content-Type": "application/json", Authorization: `Bearer ${serviceKey}` },
                 body: JSON.stringify({ action: "analyze_youtube", url: target }),
-                signal: AbortSignal.timeout(90000),
+                // Was 90s — this already runs in Promise.allSettled alongside the
+                // 25s caption fetch, so 90s only ever mattered as a worst-case cap
+                // on a single blocking turn. 30s still gives Gemini a real window.
+                signal: AbortSignal.timeout(30000),
               }),
             ]);
 
@@ -3646,62 +3721,54 @@ ${telosData
     let knowledgeBlock = "";
     if (lastUserMsg && openaiKey && (mode ?? "PRIME") !== "COUNCIL") {
       try {
-        const embRes = await fetch("https://api.openai.com/v1/embeddings", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", Authorization: `Bearer ${openaiKey}` },
-          body: JSON.stringify({ model: "text-embedding-3-small", input: lastUserMsg.content.slice(0, 8000) }),
-        });
-        if (embRes.ok) {
-          const embData = await embRes.json();
-          const embedding = embData.data?.[0]?.embedding;
-          if (embedding) {
-            const { data: notes } = await sb.rpc("match_mavis_notes", {
-              query_embedding: embedding,
-              match_user_id:   user.id,
-              match_threshold: 0.45,
-              match_count:     5,
+        const embedding = await sharedEmbeddingPromise;
+        if (embedding) {
+          const { data: notes } = await sb.rpc("match_mavis_notes", {
+            query_embedding: embedding,
+            match_user_id:   user.id,
+            match_threshold: 0.45,
+            match_count:     5,
+          });
+          if (notes?.length) {
+            const primaryNotes = notes as any[];
+            const noteLines = primaryNotes.map((n: any) => {
+              const preview = (n.content ?? "").replace(/\n+/g, " ").slice(0, 400);
+              const tags    = Array.isArray(n.tags) && n.tags.length > 0 ? ` [${n.tags.join(", ")}]` : "";
+              const score   = n.similarity != null ? ` (${Math.round(n.similarity * 100)}% match)` : "";
+              return `• ${n.title}${tags}${score}: ${preview}${(n.content?.length ?? 0) > 400 ? "…" : ""}`;
             });
-            if (notes?.length) {
-              const primaryNotes = notes as any[];
-              const noteLines = primaryNotes.map((n: any) => {
-                const preview = (n.content ?? "").replace(/\n+/g, " ").slice(0, 400);
-                const tags    = Array.isArray(n.tags) && n.tags.length > 0 ? ` [${n.tags.join(", ")}]` : "";
-                const score   = n.similarity != null ? ` (${Math.round(n.similarity * 100)}% match)` : "";
-                return `• ${n.title}${tags}${score}: ${preview}${(n.content?.length ?? 0) > 400 ? "…" : ""}`;
-              });
 
-              // One-hop KG link traversal — follow links from retrieved notes
-              try {
-                const primaryIds = primaryNotes.map((n: any) => n.id).filter(Boolean);
-                if (primaryIds.length) {
-                  const { data: links } = await sb
-                    .from("mavis_note_links")
-                    .select("target_note_id")
-                    .in("source_note_id", primaryIds)
-                    .limit(10);
-                  if (links?.length) {
-                    const seenIds = new Set(primaryIds);
-                    const linkedIds = (links as any[]).map((l: any) => l.target_note_id).filter((id: string) => id && !seenIds.has(id));
-                    if (linkedIds.length) {
-                      const { data: linkedNotes } = await sb
-                        .from("mavis_notes")
-                        .select("id,title,content,tags")
-                        .in("id", linkedIds)
-                        .limit(4);
-                      if (linkedNotes?.length) {
-                        for (const n of linkedNotes as any[]) {
-                          const preview = (n.content ?? "").replace(/\n+/g, " ").slice(0, 250);
-                          const tags = Array.isArray(n.tags) && n.tags.length > 0 ? ` [${n.tags.join(", ")}]` : "";
-                          noteLines.push(`• ${n.title}${tags} (linked): ${preview}${(n.content?.length ?? 0) > 250 ? "…" : ""}`);
-                        }
+            // One-hop KG link traversal — follow links from retrieved notes
+            try {
+              const primaryIds = primaryNotes.map((n: any) => n.id).filter(Boolean);
+              if (primaryIds.length) {
+                const { data: links } = await sb
+                  .from("mavis_note_links")
+                  .select("target_note_id")
+                  .in("source_note_id", primaryIds)
+                  .limit(10);
+                if (links?.length) {
+                  const seenIds = new Set(primaryIds);
+                  const linkedIds = (links as any[]).map((l: any) => l.target_note_id).filter((id: string) => id && !seenIds.has(id));
+                  if (linkedIds.length) {
+                    const { data: linkedNotes } = await sb
+                      .from("mavis_notes")
+                      .select("id,title,content,tags")
+                      .in("id", linkedIds)
+                      .limit(4);
+                    if (linkedNotes?.length) {
+                      for (const n of linkedNotes as any[]) {
+                        const preview = (n.content ?? "").replace(/\n+/g, " ").slice(0, 250);
+                        const tags = Array.isArray(n.tags) && n.tags.length > 0 ? ` [${n.tags.join(", ")}]` : "";
+                        noteLines.push(`• ${n.title}${tags} (linked): ${preview}${(n.content?.length ?? 0) > 250 ? "…" : ""}`);
                       }
                     }
                   }
                 }
-              } catch { /* non-fatal */ }
+              }
+            } catch { /* non-fatal */ }
 
-              knowledgeBlock = `\n═══ KNOWLEDGE GRAPH — RELEVANT NOTES ═══\n${noteLines.join("\n")}\n═══ END KNOWLEDGE ═══`;
-            }
+            knowledgeBlock = `\n═══ KNOWLEDGE GRAPH — RELEVANT NOTES ═══\n${noteLines.join("\n")}\n═══ END KNOWLEDGE ═══`;
           }
         }
       } catch { /* non-fatal — proceed without KG context */ }
@@ -4371,16 +4438,8 @@ Always reference dates and times in the entity's own timezone when one is set, o
     let semanticMemoryBlock = "";
     try {
       if (openaiKey && lastUserText.length > 10) {
-        const embedRes = await fetch("https://api.openai.com/v1/embeddings", {
-          method: "POST",
-          headers: { "Authorization": `Bearer ${openaiKey}`, "Content-Type": "application/json" },
-          body: JSON.stringify({ model: "text-embedding-3-small", input: lastUserText.slice(0, 8000) }),
-          signal: AbortSignal.timeout(8_000),
-        });
-        if (embedRes.ok) {
-          const embedData = await embedRes.json();
-          const embedding = embedData.data?.[0]?.embedding;
-          if (embedding) {
+        const embedding = await sharedEmbeddingPromise;
+        if (embedding) {
             const { data: semMems } = await sb.rpc("match_mavis_memories", {
               query_embedding: embedding,
               match_user_id:   user.id,
@@ -4404,7 +4463,6 @@ Always reference dates and times in the entity's own timezone when one is set, o
                 semanticMemoryBlock = `\n═══ RELEVANT MEMORIES (semantic match to this query) ═══\n${lines.join("\n\n")}\n═══ END MEMORIES ═══`;
               }
             }
-          }
         }
       }
     } catch { /* non-critical */ }
