@@ -216,7 +216,14 @@ serve(async (req) => {
     const action = String(body.action ?? "analyze");
     const model  = String(body.model ?? "claude-haiku-4-5-20251001");
 
-    const imageSource = await resolveImage(body, sb);
+    // Actions that operate on video/URL/multi inputs resolve their own sources
+    // internally — only resolve a single image for the image-based actions.
+    const NON_IMAGE_ACTIONS = new Set([
+      "vision_loop", "analyze_video", "analyze_multi", "analyze_youtube",
+    ]);
+    const imageSource = NON_IMAGE_ACTIONS.has(action)
+      ? ({ type: "url", url: "" } as ImageSource)
+      : await resolveImage(body, sb);
 
     switch (action) {
 

@@ -525,9 +525,9 @@ Deno.serve(async (req) => {
             const weekAgo = new Date(now.getTime() - 7 * 86400000).toISOString();
             const { data: related } = await supabase.rpc("match_mavis_notes", {
               query_embedding: embedding,
+              match_user_id: uid,
               match_threshold: 0.65,
               match_count: 3,
-              p_user_id: uid,
             });
 
             const surfaced = (related ?? []).filter((n: any) => n.created_at < weekAgo).slice(0, 1);

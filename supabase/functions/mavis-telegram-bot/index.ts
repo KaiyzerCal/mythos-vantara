@@ -3045,13 +3045,13 @@ async function handleChat(
             fetch(`${SUPABASE_URL}/functions/v1/mavis-youtube-ingest`, {
               method: "POST",
               headers: { "Content-Type": "application/json", "Authorization": `Bearer ${SERVICE_KEY}` },
-              body: JSON.stringify({ url: target, save_as: "note", _preview: true }),
+              body: JSON.stringify({ url: target, save_as: "note", user_id: uid, _preview: true }),
               signal: AbortSignal.timeout(25000),
             }),
             fetch(`${SUPABASE_URL}/functions/v1/mavis-vision-agent`, {
               method: "POST",
               headers: { "Content-Type": "application/json", "Authorization": `Bearer ${SERVICE_KEY}` },
-              body: JSON.stringify({ action: "analyze_youtube", url: target }),
+              body: JSON.stringify({ action: "analyze_youtube", url: target, userId: uid }),
               signal: AbortSignal.timeout(90000),
             }),
           ]);

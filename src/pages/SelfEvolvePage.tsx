@@ -43,7 +43,7 @@ async function invoke(fn: string, body: object): Promise<any> {
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${token}`,
-      apikey: import.meta.env.VITE_SUPABASE_ANON_KEY ?? "",
+      apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY ?? import.meta.env.VITE_SUPABASE_ANON_KEY ?? "",
     },
     body: JSON.stringify(body),
   });
@@ -61,7 +61,7 @@ async function fetchLog(userId: string): Promise<EvolutionResult | null> {
     {
       headers: {
         Authorization: `Bearer ${token}`,
-        apikey: import.meta.env.VITE_SUPABASE_ANON_KEY ?? "",
+        apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY ?? import.meta.env.VITE_SUPABASE_ANON_KEY ?? "",
       },
     },
   );
