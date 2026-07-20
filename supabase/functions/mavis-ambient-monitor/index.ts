@@ -381,16 +381,16 @@ async function checkDormantContacts(
       // rpc may not exist; the migration handles table creation
     });
 
-    // Query dormant high-value contacts from mavis_relationship_intel.
-    // Columns assumed: contact_name, last_contact_date, relationship_strength, shared_history_notes
-    const sixtyDaysAgo = daysAgo(60);
-    const { data: contacts, error } = await sb
-      .from("mavis_relationship_intel" as any)
-      .select("id, contact_name, last_contact_date, relationship_strength, shared_history_notes, context_notes")
+    // Query dormant high-value contacts from mavis_relationship_health
+    // (populated by mavis-relationship-intel). Dormant = 60+ days since contact
+    // and a healthy relationship score (>= 6/10).
+    const { data: rows, error } = await sb
+      .from("mavis_relationship_health")
+      .select("id, contact_name, days_since_contact, health_score, notes, suggested_action")
       .eq("user_id", userId)
-      .lt("last_contact_date", sixtyDaysAgo)
-      .gt("relationship_strength", 0.5)
-      .order("relationship_strength", { ascending: false })
+      .gte("days_since_contact", 60)
+      .gte("health_score", 6)
+      .order("health_score", { ascending: false })
       .limit(3);
 
     if (error) {
@@ -398,7 +398,14 @@ async function checkDormantContacts(
       if (error.code === "42P01" || error.message?.includes("does not exist")) return result;
       return result;
     }
-    if (!contacts || contacts.length === 0) return result;
+    if (!rows || rows.length === 0) return result;
+    // Normalize to the shape the loop below expects.
+    const contacts = rows.map((r: any) => ({
+      id: r.id,
+      contact_name: r.contact_name,
+      days_since_contact: r.days_since_contact,
+      shared_history_notes: r.notes || r.suggested_action || "",
+    }));
 
     // Fetch operator's active quests for personalization context
     const { data: activeQuests } = await sb
@@ -411,10 +418,8 @@ async function checkDormantContacts(
 
     for (const contact of contacts as any[]) {
       try {
-        const daysSince = Math.floor(
-          (Date.now() - new Date(contact.last_contact_date).getTime()) / 86400000,
-        );
-        const historyNotes = contact.shared_history_notes || contact.context_notes || "No specific history recorded.";
+        const daysSince = Number(contact.days_since_contact) || 60;
+        const historyNotes = contact.shared_history_notes || "No specific history recorded.";
 
         const systemPrompt = `You are Mavis, an elite AI personal operating system.
 Draft a warm, genuine, personalized outreach message (2-3 sentences max) from the operator to reconnect with a contact they haven't spoken to in a while.

@@ -116,6 +116,33 @@ serve(async (req) => {
       };
       body = findTextPlain(payload).slice(0, 1000);
 
+      // Parse structured fields for the gmail_messages table.
+      const labelIds: string[] = Array.isArray(msgData.labelIds) ? msgData.labelIds : [];
+      const isRead   = !labelIds.includes("UNREAD");
+      const fromEmail = (from.match(/<(.+?)>/)?.[1] ?? from.match(/(\S+@\S+)/)?.[1] ?? "").toLowerCase();
+      const fromName  = from.match(/^"?([^"<]+)"?\s*</)?.[1]?.trim() ?? "";
+      const receivedAt = msgData.internalDate
+        ? new Date(Number(msgData.internalDate)).toISOString()
+        : (date ? new Date(date).toISOString() : new Date().toISOString());
+
+      // Upsert structured message (read by email-triage + ambient priority scan).
+      await Promise.resolve(adminSb.from("gmail_messages").upsert(
+        {
+          id:          String(msg.id),
+          user_id:     uid,
+          thread_id:   msg.threadId ?? null,
+          subject:     subject.slice(0, 500),
+          from_email:  fromEmail,
+          from_name:   fromName || null,
+          snippet:     String(msgData.snippet ?? "").slice(0, 500),
+          body:        body.slice(0, 4000),
+          labels:      labelIds,
+          is_read:     isRead,
+          received_at: receivedAt,
+        },
+        { onConflict: "id" },
+      )).catch((e: any) => console.error("[mavis-gmail-sync] gmail_messages upsert error:", e?.message ?? e));
+
       // Upsert into mavis_notes
       await adminSb.from("mavis_notes").upsert(
         {
