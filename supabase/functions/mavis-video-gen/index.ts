@@ -5,11 +5,12 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-const FAL_KEY    = Deno.env.get("FAL_API_KEY")    ?? "";
+const FAL_KEY    = Deno.env.get("FAL_API_KEY")    ?? Deno.env.get("FAL_AI_API_KEY") ?? "";
 const GEMINI_KEY = Deno.env.get("GEMINI_API_KEY") ?? "";
+const MODELSLAB_KEY = Deno.env.get("MODELSLAB_API_KEY") ?? "";
 
 type AspectRatio = "16:9" | "9:16" | "1:1";
-type Provider = "fal" | "veo" | "omni" | "kling" | "runway" | "auto";
+type Provider = "fal" | "veo" | "omni" | "kling" | "runway" | "modelslab" | "auto";
 
 interface VideoRequest {
   prompt: string;
@@ -31,6 +32,7 @@ async function submitFalJob(
   aspect_ratio: AspectRatio,
   model?: string
 ): Promise<{ status: string; request_id: string; provider: string; poll_url: string }> {
+  if (!FAL_KEY) throw new Error("FAL_API_KEY or FAL_AI_API_KEY is required for fal.ai video generation");
   const falModel = model ?? "fal-ai/veo3";
   const endpoint = `https://queue.fal.run/${falModel}`;
   const res = await fetch(endpoint, {
@@ -84,6 +86,7 @@ async function submitKlingJob(
   duration: number,
   aspect_ratio: AspectRatio,
 ): Promise<{ status: string; request_id: string; provider: string }> {
+  if (!FAL_KEY) throw new Error("FAL_API_KEY or FAL_AI_API_KEY is required for Kling video generation");
   const endpoint = "https://queue.fal.run/fal-ai/kling-video/v2.1/standard/text-to-video";
   const res = await fetch(endpoint, {
     method: "POST",
@@ -131,7 +134,8 @@ async function submitRunwayJob(
   aspect_ratio: AspectRatio,
   image_url?: string,
 ): Promise<{ status: string; request_id: string; provider: string }> {
-  const res = await fetch("https://queue.fal.run/fal-ai/runway-gen4-turbo", {
+  if (!FAL_KEY) throw new Error("FAL_API_KEY or FAL_AI_API_KEY is required for Runway video generation");
+  const res = await fetch("https://queue.fal.run/fal-ai/runway-gen3/turbo/image-to-video", {
     method: "POST",
     headers: { "Authorization": `Key ${FAL_KEY}`, "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -149,7 +153,7 @@ async function submitRunwayJob(
 
 async function pollRunwayJob(request_id: string): Promise<{ status: string; url?: string; provider: string }> {
   const res = await fetch(
-    `https://queue.fal.run/fal-ai/runway-gen4-turbo/${request_id}`,
+    `https://queue.fal.run/fal-ai/runway-gen3/turbo/image-to-video/${request_id}`,
     { headers: { "Authorization": `Key ${FAL_KEY}` }, signal: AbortSignal.timeout(10_000) },
   );
   if (!res.ok) throw new Error(`Runway poll ${res.status}`);
@@ -163,14 +167,77 @@ async function pollRunwayJob(request_id: string): Promise<{ status: string; url?
   return { status: "processing", provider: "runway" };
 }
 
+// ── ModelsLab video (text-to-video, uncensored-capable) ─────────────────────
+
+async function submitModelsLabJob(
+  prompt: string,
+  duration: number,
+  aspect_ratio: AspectRatio,
+): Promise<{ status: string; request_id?: string; url?: string; provider: string }> {
+  if (!MODELSLAB_KEY) throw new Error("MODELSLAB_API_KEY is required for ModelsLab video generation");
+  const ratioMap: Record<AspectRatio, [number, number]> = {
+    "16:9": [1024, 576],
+    "9:16": [576, 1024],
+    "1:1":  [768, 768],
+  };
+  const [width, height] = ratioMap[aspect_ratio] ?? [1024, 576];
+  const res = await fetch("https://modelslab.com/api/v6/video/text2video", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      key: MODELSLAB_KEY,
+      prompt: prompt.slice(0, 2000),
+      negative_prompt: "blurry, low quality, watermark, distorted",
+      width, height,
+      num_frames: Math.min(Math.max(duration * 8, 16), 64),
+      num_inference_steps: 20,
+      guidance_scale: 7,
+      output_type: "mp4",
+    }),
+    signal: AbortSignal.timeout(30_000),
+  });
+  if (!res.ok) throw new Error(`ModelsLab submit ${res.status}: ${(await res.text()).slice(0, 300)}`);
+  const data = await res.json();
+  if (data?.status === "success") {
+    const url = Array.isArray(data.output) ? data.output[0] : data.output;
+    return { status: "complete", url, provider: "modelslab" };
+  }
+  if (data?.status === "processing") {
+    return { status: "processing", request_id: String(data.id ?? data.fetch_result ?? ""), provider: "modelslab" };
+  }
+  throw new Error(`ModelsLab error: ${data?.message ?? JSON.stringify(data).slice(0, 200)}`);
+}
+
+async function pollModelsLabJob(request_id: string): Promise<{ status: string; url?: string; provider: string }> {
+  const fetchUrl = request_id.startsWith("http")
+    ? request_id
+    : `https://modelslab.com/api/v6/video/fetch/${request_id}`;
+  const res = await fetch(fetchUrl, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ key: MODELSLAB_KEY }),
+    signal: AbortSignal.timeout(15_000),
+  });
+  if (!res.ok) throw new Error(`ModelsLab poll ${res.status}`);
+  const data = await res.json();
+  if (data?.status === "success") {
+    const url = Array.isArray(data.output) ? data.output[0] : data.output;
+    return { status: "complete", url, provider: "modelslab" };
+  }
+  if (data?.status === "processing") return { status: "processing", provider: "modelslab" };
+  throw new Error(`ModelsLab failed: ${data?.message ?? "unknown"}`);
+}
+
+
 // ── Veo 3.1 via Gemini API ──────────────────────────────────────────────────
 
 async function submitVeoJob(
   prompt: string,
   aspect_ratio: AspectRatio
 ): Promise<{ status: string; operation_name: string; provider: string }> {
+  if (!GEMINI_KEY) throw new Error("GEMINI_API_KEY is required for Veo video generation");
   const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/veo-3.0-generate-preview:predictLongRunning?key=${GEMINI_KEY}`,
+    `https://generativelanguage.googleapis.com/v1beta/models/veo-3.0-generate-001:predictLongRunning?key=${GEMINI_KEY}`,
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -215,11 +282,12 @@ async function pollVeoOperation(
 
 // ── Resolve provider ────────────────────────────────────────────────────────
 
-function resolveProvider(requested?: Provider): "fal" | "veo" | "omni" | "kling" | "runway" {
-  if (requested && requested !== "auto") return requested as "fal" | "veo" | "omni" | "kling" | "runway";
+function resolveProvider(requested?: Provider): "fal" | "veo" | "omni" | "kling" | "runway" | "modelslab" {
+  if (requested && requested !== "auto") return requested as "fal" | "veo" | "omni" | "kling" | "runway" | "modelslab";
   if (FAL_KEY) return "fal";
+  if (MODELSLAB_KEY) return "modelslab";
   if (GEMINI_KEY) return "veo";
-  throw new Error("No video generation API key configured (FAL_API_KEY or GEMINI_API_KEY required)");
+  throw new Error("No video generation API key configured (FAL_API_KEY, MODELSLAB_API_KEY, or GEMINI_API_KEY required)");
 }
 
 // ── Handler ─────────────────────────────────────────────────────────────────
@@ -251,6 +319,9 @@ serve(async (req) => {
       } else if (requestedProvider === "veo") {
         if (!operation_name) return new Response(JSON.stringify({ error: "operation_name required for veo poll" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
         result = await pollVeoOperation(operation_name);
+      } else if (requestedProvider === "modelslab") {
+        if (!request_id) return new Response(JSON.stringify({ error: "request_id required for modelslab poll" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        result = await pollModelsLabJob(request_id);
       } else if (requestedProvider === "omni") {
         result = { status: "queued", message: "Gemini Omni Flash coming soon", provider: "omni" };
       } else {
@@ -272,23 +343,45 @@ serve(async (req) => {
     const resolvedDuration = duration ?? 5;
     const resolvedAspect = aspect_ratio ?? "16:9";
 
-    let result: Record<string, unknown>;
+    // Ordered fallback chain — starts with resolved provider, then tries others
+    // when one fails (e.g. FAL 403 "Exhausted balance", ModelsLab quota, Veo unavailable).
+    const chain: string[] = [];
+    const push = (p: string) => { if (!chain.includes(p)) chain.push(p); };
+    push(resolvedProvider);
+    if (FAL_KEY) { push("kling"); push("fal"); push("runway"); }
+    if (MODELSLAB_KEY) push("modelslab");
+    if (GEMINI_KEY) push("veo");
 
-    if (resolvedProvider === "kling") {
-      result = await submitKlingJob(prompt.trim(), resolvedDuration, resolvedAspect);
-    } else if (resolvedProvider === "runway") {
-      result = await submitRunwayJob(prompt.trim(), resolvedAspect, body.image_url as string | undefined);
-    } else if (resolvedProvider === "fal") {
-      result = await submitFalJob(prompt.trim(), resolvedDuration, resolvedAspect, model);
-    } else if (resolvedProvider === "veo") {
-      result = await submitVeoJob(prompt.trim(), resolvedAspect);
-    } else {
-      result = { status: "queued", message: "Gemini Omni Flash coming soon", provider: "omni" };
+    const attempts: Array<{ provider: string; error: string }> = [];
+    let result: Record<string, unknown> | null = null;
+
+    for (const p of chain) {
+      try {
+        if (p === "kling") result = await submitKlingJob(prompt.trim(), resolvedDuration, resolvedAspect);
+        else if (p === "runway") result = await submitRunwayJob(prompt.trim(), resolvedAspect, body.image_url as string | undefined);
+        else if (p === "fal") result = await submitFalJob(prompt.trim(), resolvedDuration, resolvedAspect, model);
+        else if (p === "modelslab") result = await submitModelsLabJob(prompt.trim(), resolvedDuration, resolvedAspect);
+        else if (p === "veo") result = await submitVeoJob(prompt.trim(), resolvedAspect);
+        else continue;
+        break;
+      } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : String(e);
+        console.warn(`${p} failed, trying next:`, msg);
+        attempts.push({ provider: p, error: msg });
+      }
     }
 
-    return new Response(JSON.stringify(result), {
+    if (!result) {
+      return new Response(JSON.stringify({
+        error: "All video providers unavailable. Top up fal.ai / ModelsLab, or add another key.",
+        attempts,
+      }), { status: 503, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    return new Response(JSON.stringify({ ...result, attempts }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
+
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
     console.error("mavis-video-gen error:", message);

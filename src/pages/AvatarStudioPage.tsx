@@ -43,6 +43,21 @@ const VOICES = [
 
 type GenStatus = "idle" | "tts" | "processing" | "complete" | "error";
 type ImageMode = "upload" | "url";
+type AspectKey = "16:9" | "9:16" | "1:1";
+
+const ASPECTS: { key: AspectKey; label: string; hint: string; w: number; h: number }[] = [
+  { key: "9:16", label: "Vertical",  hint: "Reels, TikTok, Shorts", w: 720,  h: 1280 },
+  { key: "16:9", label: "Widescreen", hint: "YouTube, presentation", w: 1280, h: 720  },
+  { key: "1:1",  label: "Square",    hint: "Feed post, thumbnail",  w: 720,  h: 720  },
+];
+
+const SCRIPT_TEMPLATES: { label: string; text: string }[] = [
+  { label: "Product intro",   text: "Hi, I'm excited to introduce something we've been working on. It's a tool designed to help you move faster, think clearer, and ship the work that matters." },
+  { label: "Course lesson",   text: "Welcome back. In today's lesson, we're going to break down one of the most important ideas in the entire course — and by the end, you'll know exactly how to apply it." },
+  { label: "Sales pitch",     text: "If you've been struggling to grow, you're not alone — and it's not your fault. Let me show you the exact system we use to help clients double their output in half the time." },
+  { label: "Announcement",    text: "Big news. We just launched something I've been dreaming about for months. Here's what it is, why it matters, and what it means for you." },
+  { label: "Personal update", text: "Hey, quick update from me. It's been a wild couple of weeks — here's what I've been learning, what's changed, and where I'm headed next." },
+];
 
 // ─── AvatarStudioPage ────────────────────────────────────────
 
@@ -59,8 +74,10 @@ export function AvatarStudioPage() {
   // Script & voice
   const [script, setScript] = useState("");
   const [voiceId, setVoiceId] = useState("JBFqnCBsd6RMkjVDRZzb");
+  const [aspect, setAspect] = useState<AspectKey>("9:16");
   const [stillMode, setStillMode] = useState(false);
   const [useEnhancer, setUseEnhancer] = useState(true);
+
 
   // Generation
   const [status, setStatus] = useState<GenStatus>("idle");
@@ -167,6 +184,10 @@ export function AvatarStudioPage() {
           voice_id: voiceId,
           still_mode: stillMode,
           use_enhancer: useEnhancer,
+          aspect_ratio: aspect,
+          width: ASPECTS.find(a => a.key === aspect)?.w,
+          height: ASPECTS.find(a => a.key === aspect)?.h,
+
         }),
       });
       const data = await res.json();
@@ -203,7 +224,7 @@ export function AvatarStudioPage() {
     <div className="p-4 md:p-6 max-w-6xl mx-auto">
       <PageHeader
         title="Avatar Studio"
-        subtitle="AI talking-head videos — your face, your voice, your script"
+        subtitle="AI talking-head videos — inspired by HeyGen. Your face, your voice, your script."
         icon={<User size={18} />}
       />
 
@@ -303,6 +324,24 @@ export function AvatarStudioPage() {
             <Mic size={12} /> Script & Voice
           </h3>
 
+          {/* Script templates — HeyGen-style quick starters */}
+          <div className="mb-2">
+            <label className="text-xs font-mono text-muted-foreground block mb-1">Templates</label>
+            <div className="flex flex-wrap gap-1.5">
+              {SCRIPT_TEMPLATES.map(t => (
+                <button
+                  key={t.label}
+                  onClick={() => setScript(t.text)}
+                  className="text-[10px] font-mono px-2 py-1 rounded border border-border text-muted-foreground hover:text-primary hover:border-primary/40 transition-colors"
+                >
+                  {t.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+
+
           <textarea
             value={script}
             onChange={(e) => setScript(e.target.value)}
@@ -321,9 +360,31 @@ export function AvatarStudioPage() {
             )}
           </div>
 
+          {/* Aspect ratio — HeyGen-style output framing */}
+          <div className="mb-3">
+            <label className="text-xs font-mono text-muted-foreground block mb-1">Aspect Ratio</label>
+            <div className="flex gap-1.5">
+              {ASPECTS.map(a => (
+                <button
+                  key={a.key}
+                  onClick={() => setAspect(a.key)}
+                  title={a.hint}
+                  className={`flex-1 text-[10px] font-mono px-2 py-1 rounded border transition-colors ${
+                    aspect === a.key
+                      ? "bg-primary/15 border-primary/40 text-primary"
+                      : "border-border text-muted-foreground hover:text-foreground hover:border-border/80"
+                  }`}
+                >
+                  {a.label} <span className="opacity-60">{a.key}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+
           {/* Voice */}
           <div className="mb-3">
             <label className="text-xs font-mono text-muted-foreground block mb-1">Voice</label>
+
             <select
               value={voiceId}
               onChange={(e) => setVoiceId(e.target.value)}

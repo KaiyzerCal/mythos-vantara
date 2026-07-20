@@ -34,6 +34,7 @@ function ThemeColorSync() {
 
 // Pages — lazy-loaded for code splitting
 const AuthPage = lazy(() => import("@/pages/UtilityPages").then(m => ({ default: m.AuthPage })));
+const OAuthConsent = lazy(() => import("@/pages/OAuthConsent"));
 const NotFound = lazy(() => import("@/pages/UtilityPages").then(m => ({ default: m.NotFound })));
 const SettingsPage = lazy(() => import("@/pages/UtilityPages").then(m => ({ default: m.SettingsPage })));
 const Dashboard = lazy(() => import("@/pages/Dashboard"));
@@ -163,7 +164,10 @@ function AppContent() {
 
   if (!user) return (
     <Suspense fallback={Spinner}>
-      <AuthPage />
+      <Routes>
+        <Route path="/.lovable/oauth/consent" element={<OAuthConsent />} />
+        <Route path="*" element={<AuthPage />} />
+      </Routes>
     </Suspense>
   );
 
@@ -177,6 +181,7 @@ function AppContent() {
           <Suspense fallback={Spinner}>
             <Routes>
               <Route path="/" element={<Dashboard />} />
+              <Route path="/.lovable/oauth/consent" element={<OAuthConsent />} />
               <Route path="/index" element={<Dashboard />} />
               <Route path="/character" element={<CharacterPage />} />
               <Route path="/mavis-ui" element={<MavisDemo />} />

@@ -20,6 +20,8 @@ const SB_URL       = Deno.env.get("SUPABASE_URL")!;
 const SB_SRK       = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const HF_KEY       = Deno.env.get("HIGGSFIELD_API_KEY") ?? "";
 const HF_BASE      = "https://api.higgsfield.ai";
+const FAL_KEY      = Deno.env.get("FAL_API_KEY") ?? Deno.env.get("FAL_AI_API_KEY") ?? "";
+const MODELSLAB_KEY = Deno.env.get("MODELSLAB_API_KEY") ?? "";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -68,6 +70,118 @@ const CAMERA_PRESETS = [
   "dolly_zoom",
 ];
 
+function fallbackProviders() {
+  const providers: Array<"kling" | "runway" | "modelslab" | "auto"> = [];
+  if (FAL_KEY) providers.push("kling", "runway");
+  if (MODELSLAB_KEY) providers.push("modelslab");
+  providers.push("auto");
+  return [...new Set(providers)];
+}
+
+async function submitVideoFallback(args: {
+  prompt: unknown;
+  duration: unknown;
+  aspect_ratio: unknown;
+  camera_motion: unknown;
+  image_url: unknown;
+}) {
+  const fallbackPrompt = `${String(args.prompt)}${args.camera_motion && args.camera_motion !== "static" ? ` — camera: ${String(args.camera_motion)}` : ""}`;
+  const lastErrors: string[] = [];
+
+  for (const provider of fallbackProviders()) {
+    try {
+      const fbRes = await fetch(`${SB_URL}/functions/v1/mavis-video-gen`, {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${SB_SRK}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          prompt: fallbackPrompt,
+          duration: Number(args.duration),
+          aspect_ratio: args.aspect_ratio,
+          provider,
+          image_url: args.image_url,
+        }),
+        signal: AbortSignal.timeout(35_000),
+      });
+      const fbText = await fbRes.text();
+      const fbData = fbText ? JSON.parse(fbText) : {};
+      if (!fbRes.ok) {
+        lastErrors.push(`${provider}: ${fbData?.error ?? fbText.slice(0, 180)}`);
+        continue;
+      }
+
+      const requestId = fbData?.request_id ?? fbData?.operation_name ?? null;
+      const videoUrl = fbData?.url ?? fbData?.video_url ?? null;
+      if (requestId || videoUrl) {
+        const resolvedProvider = String(fbData?.provider ?? provider);
+        return {
+          video_id: requestId ? `${resolvedProvider}:${requestId}` : null,
+          status: videoUrl ? "completed" : "processing",
+          video_url: videoUrl,
+          thumbnail_url: null,
+          completed: Boolean(videoUrl),
+          provider: `${resolvedProvider}_fallback`,
+          fallback_provider: resolvedProvider,
+          request_id: requestId,
+          operation_name: fbData?.operation_name ?? null,
+          message: videoUrl
+            ? `Higgsfield is temporarily unavailable. Generated with ${resolvedProvider}.`
+            : `Higgsfield is temporarily unavailable. Queued with ${resolvedProvider}.`,
+        };
+      }
+      lastErrors.push(`${provider}: no request_id or video_url returned`);
+    } catch (err) {
+      lastErrors.push(`${provider}: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
+  return {
+    video_id: null,
+    status: "queued",
+    video_url: null,
+    thumbnail_url: null,
+    completed: false,
+    provider: "fallback_unavailable",
+    message: "Higgsfield is temporarily unavailable and fallback video providers could not queue the job. Try again shortly.",
+    fallback_errors: lastErrors.slice(-3),
+  };
+}
+
+async function pollVideoFallback(video_id: string) {
+  const splitAt = video_id.indexOf(":");
+  if (splitAt <= 0) return null;
+  const provider = video_id.slice(0, splitAt);
+  const request_id = video_id.slice(splitAt + 1);
+  if (!["kling", "runway", "modelslab", "fal", "veo"].includes(provider)) return null;
+
+  const fbRes = await fetch(`${SB_URL}/functions/v1/mavis-video-gen`, {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${SB_SRK}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      action: "poll",
+      provider,
+      request_id: provider === "veo" ? undefined : request_id,
+      operation_name: provider === "veo" ? request_id : undefined,
+    }),
+    signal: AbortSignal.timeout(20_000),
+  });
+  const fbData = await fbRes.json().catch(() => ({}));
+  if (!fbRes.ok) throw new Error(`Fallback status error ${fbRes.status}: ${JSON.stringify(fbData)}`);
+  return {
+    video_id,
+    status: fbData?.status === "complete" ? "completed" : (fbData?.status ?? "processing"),
+    video_url: fbData?.url ?? fbData?.video_url ?? null,
+    thumbnail_url: null,
+    completed: fbData?.status === "complete" || Boolean(fbData?.url ?? fbData?.video_url),
+    provider: `${provider}_fallback`,
+  };
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
@@ -114,8 +228,24 @@ serve(async (req) => {
         if (image_url) reqBody.image_url = image_url;
         if (seed !== undefined) reqBody.seed = Number(seed);
 
-        const createR = await hf("POST", "/v1/generation/create", reqBody);
+        let createR;
+        try {
+          createR = await hf("POST", "/v1/generation/create", reqBody);
+        } catch (e) {
+          createR = { ok: false, status: 503, data: { error: e instanceof Error ? e.message : String(e) } };
+        }
         if (!createR.ok) {
+          // Higgsfield origin/network failure — fall back to Kling via mavis-video-gen
+          if (createR.status >= 500 || createR.status === 0 || createR.status === 429) {
+            result = {
+              ...(await submitVideoFallback({ prompt, duration, aspect_ratio, camera_motion, image_url })),
+              duration,
+              camera_motion,
+              attempts: 0,
+              higgsfield_status: createR.status,
+            };
+            break;
+          }
           throw new Error(`Higgsfield generate error ${createR.status}: ${JSON.stringify(createR.data)}`);
         }
 
@@ -163,6 +293,11 @@ serve(async (req) => {
       case "get_video_status": {
         const { video_id } = p as { video_id: string };
         if (!video_id) throw new Error("video_id required");
+        const fallbackStatus = await pollVideoFallback(video_id);
+        if (fallbackStatus) {
+          result = fallbackStatus;
+          break;
+        }
         const r = await hf("GET", `/v1/generation/${video_id}`);
         if (!r.ok) throw new Error(`Higgsfield status error ${r.status}: ${JSON.stringify(r.data)}`);
         const d = r.data as Record<string, unknown> ?? {};
@@ -181,6 +316,16 @@ serve(async (req) => {
       // ── LIST MODELS ────────────────────────────────────────────────────────
       case "list_models": {
         const r = await hf("GET", "/v1/models");
+        if (!r.ok && (r.status >= 500 || r.status === 429)) {
+          result = {
+            models: [],
+            camera_presets: CAMERA_PRESETS,
+            status: "higgsfield_unavailable",
+            fallback_providers: fallbackProviders().filter((provider) => provider !== "auto"),
+            message: "Higgsfield is temporarily unavailable. Video generation will use configured fallback providers until it recovers.",
+          };
+          break;
+        }
         if (!r.ok) throw new Error(`Higgsfield models error ${r.status}: ${JSON.stringify(r.data)}`);
         result = {
           models: (r.data as Record<string, unknown>)?.models ?? r.data,
