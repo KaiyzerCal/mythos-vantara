@@ -640,14 +640,53 @@ async function executeCreateGoogleTask(
 }
 
 // ── post_social ───────────────────────────────────────────────────────────────
+// Routes to the platform-specific Nora publisher edge functions. Each accepts
+// { user_id, content, ... } with verify_jwt off, so we call with the service key.
+
+const SOCIAL_FN_BY_PLATFORM: Record<string, string> = {
+  twitter:   "mavis-nora-post",
+  x:         "mavis-nora-post",
+  linkedin:  "mavis-nora-linkedin",
+  instagram: "mavis-nora-instagram",
+  ig:        "mavis-nora-instagram",
+  tiktok:    "mavis-nora-tiktok",
+  discord:   "mavis-nora-discord",
+};
 
 async function executePostSocial(
-  _payload: Record<string, unknown>,
+  payload: Record<string, unknown>,
+  userId: string,
 ): Promise<Record<string, unknown>> {
-  return {
-    note: "Social posting requires manual connection. Content saved to draft.",
-    timestamp: new Date().toISOString(),
-  };
+  const platform = String(payload.platform ?? payload.network ?? "twitter").toLowerCase().trim();
+  const fn = SOCIAL_FN_BY_PLATFORM[platform];
+  if (!fn) {
+    throw new Error(`Unsupported social platform '${platform}'. Supported: ${Object.keys(SOCIAL_FN_BY_PLATFORM).join(", ")}`);
+  }
+
+  const content = String(payload.content ?? payload.text ?? payload.message ?? "").trim();
+  const res = await fetch(
+    `${Deno.env.get("SUPABASE_URL")}/functions/v1/${fn}`,
+    {
+      method:  "POST",
+      headers: {
+        "Content-Type":  "application/json",
+        "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+      },
+      body: JSON.stringify({
+        user_id:   userId,
+        content,
+        generate:  content ? false : true,   // let Nora draft if no content given
+        image_url: payload.image_url ?? payload.imageUrl,
+        video_url: payload.video_url ?? payload.videoUrl,
+      }),
+      signal: AbortSignal.timeout(60_000),
+    },
+  );
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || (data as Record<string, unknown>).error) {
+    throw new Error(`${platform} post failed: ${String((data as Record<string, unknown>).error ?? res.status)}`);
+  }
+  return { platform, ...(data as Record<string, unknown>) };
 }
 
 // ── Shared Google token helper ────────────────────────────────────────────────
@@ -1140,7 +1179,7 @@ async function routeActionType(
     case "schedule_event":
     case "create_event":           return await executeScheduleEvent(actionPayload, userId, adminSb);
     case "create_task":            return await executeCreateTask(actionPayload, userId, adminSb);
-    case "post_social":            return await executePostSocial(actionPayload);
+    case "post_social":            return await executePostSocial(actionPayload, userId);
     case "create_drive_file":      return await executeCreateDriveFile(actionPayload, userId, adminSb);
     case "update_drive_file":      return await executeUpdateDriveFile(actionPayload, userId, adminSb);
     case "update_sheet":           return await executeUpdateSheet(actionPayload, userId, adminSb);

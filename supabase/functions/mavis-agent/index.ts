@@ -2670,9 +2670,13 @@ Deno.serve(async (req) => {
     const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>();
     const sseWriter = writable.getWriter();
     const sseEncoder = new TextEncoder();
+    // Swallow write/close rejections: if the client disconnects mid-run, an
+    // unhandled rejection here can kill the isolate before tool execution
+    // finishes (leaving actions half-done with no record).
     const emitSSE = (event: Record<string, unknown>): void => {
-      sseWriter.write(sseEncoder.encode(`data: ${JSON.stringify(event)}\n\n`));
+      sseWriter.write(sseEncoder.encode(`data: ${JSON.stringify(event)}\n\n`)).catch(() => {});
     };
+    const closeSSE = (): void => { sseWriter.close().catch(() => {}); };
 
     runAgentLoop(
       messages.map((m) => ({ ...m })),
@@ -2685,10 +2689,10 @@ Deno.serve(async (req) => {
       providerChain,
     ).then((result) => {
       emitSSE({ done: true, content: result.content, toolsUsed: result.toolsUsed, actionsQueued: result.actionsQueued, provider: result.provider, lane, imageUrl: result.imageUrl ?? null, videoUrl: result.videoUrl ?? null, imageUrls: result.imageUrls ?? null, videoUrls: result.videoUrls ?? null });
-      sseWriter.close();
+      closeSSE();
     }).catch((err: unknown) => {
       emitSSE({ error: err instanceof Error ? err.message : String(err) });
-      sseWriter.close();
+      closeSSE();
     });
 
     return new Response(readable, {
