@@ -2418,29 +2418,32 @@ Deno.serve(async (req) => {
     const goal = body.goal ? String(body.goal) : "";
     const mode = body.mode ? String(body.mode) : "AGENT";
 
-    // ── Auth: extract userId ───────────────────────────────────────────────
-    let userId = String((body.userId ?? body.user_id) ?? "").trim();
+    // ── Auth: derive userId (never trust body.userId from a user token) ─────
+    // Trusted internal callers (telegram bot, cron, other edge functions) send
+    // the service-role key and MAY specify body.userId to act for that operator.
+    // End-user callers send their own JWT; their identity comes from the token,
+    // and any body.userId is ignored so one user can't act as another.
+    const authHeader = req.headers.get("authorization") ?? "";
+    const token = authHeader.replace(/^Bearer\s+/i, "").trim();
+    const bodyUserId = String((body.userId ?? body.user_id) ?? "").trim();
 
-    if (!userId) {
-      const authHeader = req.headers.get("authorization") ?? "";
-      const token = authHeader.replace(/^Bearer\s+/i, "").trim();
-      if (token) {
-        try {
-          const userSb = createClient(SUPABASE_URL, token, {
-            auth: { persistSession: false },
-          });
-          const {
-            data: { user },
-          } = await userSb.auth.getUser();
-          userId = user?.id ?? "";
-        } catch {
-          // fall through — userId remains empty
-        }
+    let userId = "";
+    if (token && token === SERVICE_KEY) {
+      userId = bodyUserId;
+    } else if (token) {
+      try {
+        const userSb = createClient(SUPABASE_URL, token, {
+          auth: { persistSession: false },
+        });
+        const { data: { user } } = await userSb.auth.getUser();
+        userId = user?.id ?? "";
+      } catch {
+        // invalid token — userId stays empty
       }
     }
 
     if (!userId) {
-      return json({ error: "userId required" }, 401);
+      return json({ error: "Unauthorized" }, 401);
     }
 
     // Build initial messages array — always append the current goal to history.
