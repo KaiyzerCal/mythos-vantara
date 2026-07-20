@@ -10,6 +10,7 @@
     "build": "vite build",
     "build:dev": "vite build --mode development",
     "lint": "eslint .",
+    "smoke": "node scripts/smoke-test.mjs",
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
