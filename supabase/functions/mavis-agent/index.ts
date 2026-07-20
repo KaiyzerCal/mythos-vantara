@@ -1846,6 +1846,121 @@ function selectLane(text: string): string {
   return "default";
 }
 
+// Streaming is opt-out via env: set AGENT_STREAMING=off to instantly fall back
+// to the non-streaming path (no code redeploy needed) if it ever misbehaves.
+const AGENT_STREAMING_ENABLED = (Deno.env.get("AGENT_STREAMING") ?? "on").toLowerCase() !== "off";
+
+type ProviderCallResult = { ok: boolean; status?: number; errText?: string; stopReason?: string; content?: any[] };
+
+// Parse an Anthropic streaming (SSE) response, emitting text deltas via onDelta
+// while reconstructing the exact { stopReason, content[] } the non-stream path
+// would have returned (text + tool_use blocks).
+async function streamAnthropicResponse(
+  res: Response,
+  onDelta: (t: string) => void,
+): Promise<ProviderCallResult> {
+  const reader = res.body!.getReader();
+  const decoder = new TextDecoder();
+  let buf = "";
+  const blocks: Array<{ type: string; text?: string; id?: string; name?: string; jsonBuf?: string }> = [];
+  let stopReason = "end_turn";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buf += decoder.decode(value, { stream: true });
+    const lines = buf.split("\n");
+    buf = lines.pop() ?? "";
+    for (const line of lines) {
+      const l = line.trim();
+      if (!l.startsWith("data:")) continue;
+      const payload = l.slice(5).trim();
+      if (!payload || payload === "[DONE]") continue;
+      let ev: any;
+      try { ev = JSON.parse(payload); } catch { continue; }
+      if (ev.type === "content_block_start") {
+        const cb = ev.content_block ?? {};
+        blocks[ev.index] = cb.type === "tool_use"
+          ? { type: "tool_use", id: cb.id, name: cb.name, jsonBuf: "" }
+          : { type: "text", text: "" };
+      } else if (ev.type === "content_block_delta") {
+        const b = blocks[ev.index];
+        if (!b) continue;
+        if (ev.delta?.type === "text_delta") { b.text = (b.text ?? "") + (ev.delta.text ?? ""); onDelta(ev.delta.text ?? ""); }
+        else if (ev.delta?.type === "input_json_delta") { b.jsonBuf = (b.jsonBuf ?? "") + (ev.delta.partial_json ?? ""); }
+      } else if (ev.type === "message_delta") {
+        if (ev.delta?.stop_reason) stopReason = ev.delta.stop_reason;
+      }
+    }
+  }
+
+  const content = blocks.filter(Boolean).map((b) =>
+    b.type === "tool_use"
+      ? { type: "tool_use", id: b.id, name: b.name, input: safeParseToolArguments(b.jsonBuf ?? "{}") }
+      : { type: "text", text: b.text ?? "" });
+  return { ok: true, stopReason, content };
+}
+
+// Parse an OpenAI-compatible streaming (SSE) response (gateway/OpenAI/Grok),
+// emitting text deltas and reconstructing { stopReason, content[] }.
+async function streamCompatResponse(
+  res: Response,
+  onDelta: (t: string) => void,
+  candidate: string,
+  iteration: number,
+): Promise<ProviderCallResult> {
+  const reader = res.body!.getReader();
+  const decoder = new TextDecoder();
+  let buf = "";
+  let textBuf = "";
+  const toolCalls: Array<{ id: string; name: string; argsBuf: string }> = [];
+  let finishReason = "stop";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buf += decoder.decode(value, { stream: true });
+    const lines = buf.split("\n");
+    buf = lines.pop() ?? "";
+    for (const line of lines) {
+      const l = line.trim();
+      if (!l.startsWith("data:")) continue;
+      const payload = l.slice(5).trim();
+      if (!payload || payload === "[DONE]") continue;
+      let chunk: any;
+      try { chunk = JSON.parse(payload); } catch { continue; }
+      const choice = chunk.choices?.[0];
+      if (!choice) continue;
+      const delta = choice.delta ?? {};
+      if (typeof delta.content === "string" && delta.content) { textBuf += delta.content; onDelta(delta.content); }
+      if (Array.isArray(delta.tool_calls)) {
+        for (const tc of delta.tool_calls) {
+          const idx = tc.index ?? 0;
+          toolCalls[idx] = toolCalls[idx] ?? { id: "", name: "", argsBuf: "" };
+          if (tc.id) toolCalls[idx].id = tc.id;
+          if (tc.function?.name) toolCalls[idx].name = tc.function.name;
+          if (tc.function?.arguments) toolCalls[idx].argsBuf += tc.function.arguments;
+        }
+      }
+      if (choice.finish_reason) finishReason = choice.finish_reason;
+    }
+  }
+
+  const realCalls = toolCalls.filter(Boolean);
+  if (realCalls.length > 0) {
+    const content: any[] = [];
+    if (textBuf) content.push({ type: "text", text: textBuf });
+    content.push(...realCalls.map((tc, idx) => ({
+      type: "tool_use",
+      id: tc.id || `${candidate}_tool_${iteration}_${idx}`,
+      name: tc.name,
+      input: safeParseToolArguments(tc.argsBuf || "{}"),
+    })));
+    return { ok: true, stopReason: "tool_use", content };
+  }
+  return { ok: true, stopReason: "end_turn", content: [{ type: "text", text: textBuf }] };
+}
+
 async function runAgentLoop(
   messages: Array<{ role: string; content: unknown }>,
   system: string,
@@ -1919,6 +2034,10 @@ async function runAgentLoop(
       : providerChain;
     let served = false;
     const providerErrors: string[] = [];
+    // When true, text was already emitted incrementally via onEvent({t}) during
+    // streaming, so the end_turn block below must NOT re-emit the full text.
+    let streamedThisCall = false;
+    const useStreaming = AGENT_STREAMING_ENABLED && !!onEvent;
 
     for (const candidate of order) {
       try {
@@ -1937,6 +2056,7 @@ async function runAgentLoop(
               system,
               messages,
               tools: MAVIS_TOOLS,
+              ...(useStreaming ? { stream: true } : {}),
             }),
             signal: AbortSignal.timeout(90_000),
           });
@@ -1944,9 +2064,16 @@ async function runAgentLoop(
             providerErrors.push(`anthropic ${res.status}: ${(await res.text()).slice(0, 200)}`);
             continue;
           }
-          const data = await res.json();
-          stopReason = data.stop_reason ?? "end_turn";
-          content = data.content ?? [];
+          if (useStreaming) {
+            const r = await streamAnthropicResponse(res, (t) => onEvent!({ t }));
+            stopReason = r.stopReason ?? "end_turn";
+            content = r.content ?? [];
+            streamedThisCall = true;
+          } else {
+            const data = await res.json();
+            stopReason = data.stop_reason ?? "end_turn";
+            content = data.content ?? [];
+          }
         } else {
           const cfg = compatProviders[candidate];
           if (!cfg?.key) continue;
@@ -1959,6 +2086,7 @@ async function runAgentLoop(
               messages: [{ role: "system", content: system }, ...gatewayMessages],
               tools: OPENAI_COMPAT_TOOLS,
               tool_choice: "auto",
+              ...(useStreaming ? { stream: true } : {}),
             }),
             signal: AbortSignal.timeout(90_000),
           });
@@ -1966,22 +2094,29 @@ async function runAgentLoop(
             providerErrors.push(`${candidate} ${res.status}: ${(await res.text()).slice(0, 200)}`);
             continue;
           }
-          const data = await res.json();
-          const msg = data.choices?.[0]?.message ?? {};
-          const toolCalls = (msg.tool_calls ?? []) as Array<{ id?: string; function?: { name?: string; arguments?: unknown } }>;
-          if (toolCalls.length > 0) {
-            stopReason = "tool_use";
-            content = [];
-            if (msg.content) content.push({ type: "text", text: String(msg.content) });
-            content.push(...toolCalls.map((call, idx) => ({
-              type: "tool_use",
-              id: call.id ?? `${candidate}_tool_${iteration}_${idx}`,
-              name: call.function?.name ?? "",
-              input: safeParseToolArguments(call.function?.arguments),
-            })));
+          if (useStreaming) {
+            const r = await streamCompatResponse(res, (t) => onEvent!({ t }), candidate, iteration);
+            stopReason = r.stopReason ?? "end_turn";
+            content = r.content ?? [];
+            streamedThisCall = true;
           } else {
-            stopReason = "end_turn";
-            content = [{ type: "text", text: String(msg.content ?? "") }];
+            const data = await res.json();
+            const msg = data.choices?.[0]?.message ?? {};
+            const toolCalls = (msg.tool_calls ?? []) as Array<{ id?: string; function?: { name?: string; arguments?: unknown } }>;
+            if (toolCalls.length > 0) {
+              stopReason = "tool_use";
+              content = [];
+              if (msg.content) content.push({ type: "text", text: String(msg.content) });
+              content.push(...toolCalls.map((call, idx) => ({
+                type: "tool_use",
+                id: call.id ?? `${candidate}_tool_${iteration}_${idx}`,
+                name: call.function?.name ?? "",
+                input: safeParseToolArguments(call.function?.arguments),
+              })));
+            } else {
+              stopReason = "end_turn";
+              content = [{ type: "text", text: String(msg.content ?? "") }];
+            }
           }
         }
         pinnedProvider = candidate;
@@ -2001,7 +2136,8 @@ async function runAgentLoop(
         .filter((b) => b.type === "text")
         .map((b) => b.text ?? "")
         .join("");
-      if (onEvent && text) onEvent({ t: text });
+      // If we streamed, the text already reached the client as deltas.
+      if (onEvent && text && !streamedThisCall) onEvent({ t: text });
       return {
         content: text,
         toolsUsed,
