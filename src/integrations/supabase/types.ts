@@ -1107,6 +1107,66 @@ export type Database = {
         }
         Relationships: []
       }
+      gmail_messages: {
+        Row: {
+          body_html: string | null
+          body_text: string | null
+          created_at: string
+          from_address: string | null
+          gmail_id: string
+          id: string
+          is_read: boolean
+          labels: string[] | null
+          metadata: Json
+          processed: boolean
+          received_at: string | null
+          snippet: string | null
+          subject: string | null
+          thread_id: string | null
+          to_addresses: string[] | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          body_html?: string | null
+          body_text?: string | null
+          created_at?: string
+          from_address?: string | null
+          gmail_id: string
+          id?: string
+          is_read?: boolean
+          labels?: string[] | null
+          metadata?: Json
+          processed?: boolean
+          received_at?: string | null
+          snippet?: string | null
+          subject?: string | null
+          thread_id?: string | null
+          to_addresses?: string[] | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          body_html?: string | null
+          body_text?: string | null
+          created_at?: string
+          from_address?: string | null
+          gmail_id?: string
+          id?: string
+          is_read?: boolean
+          labels?: string[] | null
+          metadata?: Json
+          processed?: boolean
+          received_at?: string | null
+          snippet?: string | null
+          subject?: string | null
+          thread_id?: string | null
+          to_addresses?: string[] | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       health_integration_settings: {
         Row: {
           auto_sync_interval_hours: number | null
@@ -8107,6 +8167,11 @@ export type Database = {
         Args: { p_user_id: string }
         Returns: boolean
       }
+      cron_schedule: {
+        Args: { p_command: string; p_jobname: string; p_schedule: string }
+        Returns: number
+      }
+      cron_unschedule: { Args: { p_jobname: string }; Returns: boolean }
       decay_old_memories: {
         Args: { p_days_threshold?: number; p_user_id: string }
         Returns: number
