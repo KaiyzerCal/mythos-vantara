@@ -136,14 +136,17 @@ export async function streamChatMessage(
     ? await executeActions(parsedActions)
     : [];
 
-  // Quality reflection for significant analytical outputs
-  let reflectionNote: string | null = null;
+  // Quality reflection for significant analytical outputs. This has no
+  // downstream consumer today (nothing reads ChatServiceResult.reflectionNote),
+  // so it's fired-and-forgotten instead of blocking the turn's "done" state —
+  // previously this could add up to 8s of pure wait for an unused value.
   if (accumulated.length > 200 && ["REFLECT", "QUEST", "RESEARCH", "ARCH", "SOVEREIGN"].includes(options.mode?.toUpperCase() ?? "")) {
-    try {
-      const { data: { session: reflectSession } } = await supabase.auth.getSession();
-      if (reflectSession?.access_token) {
+    (async () => {
+      try {
+        const { data: { session: reflectSession } } = await supabase.auth.getSession();
+        if (!reflectSession?.access_token) return;
         const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string;
-        const refRes = await fetch(`${supabaseUrl}/functions/v1/mavis-quality-eval`, {
+        await fetch(`${supabaseUrl}/functions/v1/mavis-quality-eval`, {
           method: "POST",
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${reflectSession.access_token}` },
           body: JSON.stringify({
@@ -153,14 +156,8 @@ export async function streamChatMessage(
           }),
           signal: AbortSignal.timeout(8_000),
         });
-        if (refRes.ok) {
-          const refData = await refRes.json();
-          if (refData.score < 0.6 && refData.critique) {
-            reflectionNote = refData.critique;
-          }
-        }
-      }
-    } catch { /* non-critical */ }
+      } catch { /* non-critical, no consumer to notify */ }
+    })();
   }
 
   return {
@@ -170,8 +167,8 @@ export async function streamChatMessage(
     conversationId: (metadata.conversationId as string | null) ?? options.conversationId ?? null,
     searched: metadata.searched === true,
     imageUrl: (metadata.imageUrl as string | null) ?? null,
-    reflectionNote,
-    fnData: { ...metadata as Record<string, unknown>, reflectionNote },
+    reflectionNote: null,
+    fnData: { ...metadata as Record<string, unknown>, reflectionNote: null },
   };
 }
 
