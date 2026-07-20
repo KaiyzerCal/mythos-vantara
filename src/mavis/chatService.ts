@@ -106,6 +106,10 @@ export async function streamChatMessage(
     try {
       const j = JSON.parse(raw);
       if (j.step && onStep) { onStep(j); }
+      // ReAct synth pass: the backend re-generates a complete answer after
+      // running tools. Reset the buffer so the first-pass prose (already
+      // streamed) is replaced by the final answer instead of duplicated.
+      if (j.step === "actions_start") { accumulated = ""; onToken("", ""); }
       if (j.t) { accumulated += j.t; onToken(j.t, accumulated); }
       if (j.done) metadata = j;
       if (j.error) throw new Error(j.error);
