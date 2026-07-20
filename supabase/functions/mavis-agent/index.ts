@@ -1850,6 +1850,30 @@ function selectLane(text: string): string {
 // to the non-streaming path (no code redeploy needed) if it ever misbehaves.
 const AGENT_STREAMING_ENABLED = (Deno.env.get("AGENT_STREAMING") ?? "on").toLowerCase() !== "off";
 
+// Two-stage timeout: fail over to the next provider quickly if it never sends
+// a response (a true stall), but don't abort a response that's legitimately
+// still being generated/streamed. A single flat AbortSignal.timeout(90s) would
+// force a 90s wait on every stall AND risk cutting off a slow-but-valid long
+// completion if shortened naively — this avoids both failure modes.
+async function fetchWithFailover(
+  url: string,
+  init: RequestInit,
+  { headerTimeoutMs = 20_000, totalTimeoutMs = 90_000 } = {},
+): Promise<Response> {
+  const controller = new AbortController();
+  const headerTimer = setTimeout(() => controller.abort(new Error("no response headers within timeout")), headerTimeoutMs);
+  const totalTimer  = setTimeout(() => controller.abort(new Error("total request timeout exceeded")), totalTimeoutMs);
+  try {
+    const res = await fetch(url, { ...init, signal: controller.signal });
+    clearTimeout(headerTimer); // headers arrived — provider is alive; totalTimer still guards the body read
+    return res;
+  } catch (err) {
+    clearTimeout(headerTimer);
+    clearTimeout(totalTimer);
+    throw err;
+  }
+}
+
 type ProviderCallResult = { ok: boolean; status?: number; errText?: string; stopReason?: string; content?: any[] };
 
 // Parse an Anthropic streaming (SSE) response, emitting text deltas via onDelta
@@ -2043,7 +2067,7 @@ async function runAgentLoop(
       try {
         if (candidate === "anthropic") {
           if (!claudeKey) continue;
-          const res = await fetch("https://api.anthropic.com/v1/messages", {
+          const res = await fetchWithFailover("https://api.anthropic.com/v1/messages", {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
@@ -2058,7 +2082,6 @@ async function runAgentLoop(
               tools: MAVIS_TOOLS,
               ...(useStreaming ? { stream: true } : {}),
             }),
-            signal: AbortSignal.timeout(90_000),
           });
           if (!res.ok) {
             providerErrors.push(`anthropic ${res.status}: ${(await res.text()).slice(0, 200)}`);
@@ -2077,7 +2100,7 @@ async function runAgentLoop(
         } else {
           const cfg = compatProviders[candidate];
           if (!cfg?.key) continue;
-          const res = await fetch(cfg.url, {
+          const res = await fetchWithFailover(cfg.url, {
             method: "POST",
             headers: { "Content-Type": "application/json", Authorization: `Bearer ${cfg.key}` },
             body: JSON.stringify({
@@ -2088,7 +2111,6 @@ async function runAgentLoop(
               tool_choice: "auto",
               ...(useStreaming ? { stream: true } : {}),
             }),
-            signal: AbortSignal.timeout(90_000),
           });
           if (!res.ok) {
             providerErrors.push(`${candidate} ${res.status}: ${(await res.text()).slice(0, 200)}`);
