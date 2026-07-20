@@ -97,3 +97,42 @@ WHERE jobname IN (
   'mavis-goal-review','mavis-learning-engine','mavis-archivist','mavis-so-curator'
 )
 ORDER BY jobname;
+
+-- ============================================================================
+-- 7. MIGRATION: gmail_messages  (email triage + priority-email alerts)
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS public.gmail_messages (
+  id           text        PRIMARY KEY,               -- Gmail message id
+  user_id      uuid        NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  thread_id    text,
+  subject      text        NOT NULL DEFAULT '',
+  from_email   text        NOT NULL DEFAULT '',
+  from_name    text,
+  snippet      text,
+  body         text,
+  labels       text[]      NOT NULL DEFAULT '{}',
+  is_read      boolean     NOT NULL DEFAULT true,
+  received_at  timestamptz NOT NULL DEFAULT now(),
+  created_at   timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_gmail_messages_user_received
+  ON public.gmail_messages (user_id, received_at DESC);
+CREATE INDEX IF NOT EXISTS idx_gmail_messages_user_unread
+  ON public.gmail_messages (user_id, is_read, received_at DESC);
+ALTER TABLE public.gmail_messages ENABLE ROW LEVEL SECURITY;
+DO $$ BEGIN
+  CREATE POLICY "own gmail messages" ON public.gmail_messages
+    FOR ALL USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+-- ============================================================================
+-- 8. VERIFY the tables exist
+-- ============================================================================
+SELECT table_name
+FROM information_schema.tables
+WHERE table_schema = 'public' AND table_name IN ('gmail_messages','mavis_relationship_health')
+ORDER BY table_name;
+
+-- NOTE: the cron_schedule RPC (section 3) and mavis_relationship_health
+-- (already created by migration 20260603000036) cover the rest. Nothing else
+-- to paste — this single file activates cron + all new schema.
