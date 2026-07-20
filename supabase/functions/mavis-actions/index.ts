@@ -52,6 +52,14 @@ async function awardXP(sb: any, userId: string, amount: number) {
 }
 
 // ── Name-based ID resolver ────────────────────────────────
+// Resolves an entry_id from either a direct id or a fuzzy name/title match.
+// THROWS when nothing can be resolved, instead of returning "" — every one of
+// this function's ~35 callers does `if (!entryId) return;` on empty-string
+// failure, which the outer executor then reports as a SUCCESSFUL no-op (no
+// exception = success). That meant "update the X entry" could silently do
+// nothing while MAVIS told the operator it was done. Throwing here makes the
+// existing outer try/catch (in the per-action loop) correctly report
+// success: false with a real error instead.
 async function resolveId(
   sb: any,
   userId: string,
@@ -62,9 +70,13 @@ async function resolveId(
   userColumn = "user_id"
 ): Promise<string> {
   if (idParam) return String(idParam);
-  if (!nameParam) return "";
-  const { data } = await sb.from(table).select("id").eq(userColumn, userId).ilike(nameColumn, String(nameParam)).limit(1).single();
-  return (data?.id as string) || "";
+  if (!nameParam) throw new Error(`${table}: no id or ${nameColumn} provided to identify the entry`);
+  // ilike without wildcards is an exact (case-insensitive) match — casual
+  // references like "the Tax Documents entry" never matched a longer real
+  // title. Substring match is what callers actually intend.
+  const { data } = await sb.from(table).select("id").eq(userColumn, userId).ilike(nameColumn, `%${String(nameParam)}%`).limit(1).maybeSingle();
+  if (!data?.id) throw new Error(`${table}: no entry found matching ${nameColumn} "${nameParam}"`);
+  return data.id as string;
 }
 
 // ── Profile fields MAVIS is allowed to update ─────────────
@@ -362,21 +374,28 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
     }
 
     case "update_vault": {
+      // resolveId can still return an unverified id when the caller passed
+      // entry_id directly (e.g. a stale/wrong id copied from context) — it
+      // only DB-verifies the name-lookup path. .select() + a row-count check
+      // catches that case too: an update matching zero rows must be an error,
+      // not a silent success.
       const entryId = await resolveId(sb, userId, "vault_entries", (p.entry_id || p.id) as string, (p.entry_title || p.title) as string, "title");
-      if (!entryId) return;
       const updates: Record<string, unknown> = {};
       for (const key of ["title", "content", "category", "importance"]) {
         if (p[key] !== undefined) updates[key] = p[key];
       }
       updates.updated_at = new Date().toISOString();
-      await sb.from("vault_entries").update(updates).eq("id", entryId).eq("user_id", userId);
+      const { data: updated, error: updErr } = await sb.from("vault_entries").update(updates).eq("id", entryId).eq("user_id", userId).select("id");
+      if (updErr) throw updErr;
+      if (!updated || updated.length === 0) throw new Error(`vault_entries: update matched no row for id "${entryId}"`);
       return;
     }
 
     case "delete_vault": {
       const entryId = await resolveId(sb, userId, "vault_entries", (p.entry_id || p.id) as string, (p.entry_title || p.title) as string, "title");
-      if (!entryId) return;
-      await sb.from("vault_entries").delete().eq("id", entryId).eq("user_id", userId);
+      const { data: deleted, error: delErr } = await sb.from("vault_entries").delete().eq("id", entryId).eq("user_id", userId).select("id");
+      if (delErr) throw delErr;
+      if (!deleted || deleted.length === 0) throw new Error(`vault_entries: delete matched no row for id "${entryId}"`);
       return;
     }
 
