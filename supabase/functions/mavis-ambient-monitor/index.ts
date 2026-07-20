@@ -751,6 +751,11 @@ serve(async (req) => {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
 
+  // Service-role only — triggered by pg_cron. verify_jwt is off for this
+  // function, so gate here to stop anyone triggering scans / Telegram sends.
+  const bearer = (req.headers.get("Authorization") ?? "").replace(/^Bearer\s+/i, "").trim();
+  if (bearer !== SB_KEY) return json({ error: "Unauthorized" }, 401);
+
   try {
     const sb = createClient(SB_URL, SB_KEY);
 

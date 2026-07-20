@@ -26,9 +26,11 @@ serve(async (req) => {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
 
-  // Require service-role key — this endpoint is admin-only
+  // Require the service-role key exactly — this endpoint is admin-only.
+  // (Previously any header starting "Bearer " passed, leaving it open.)
   const authHeader = req.headers.get("Authorization") ?? "";
-  if (!authHeader.includes(SERVICE_KEY) && !authHeader.startsWith("Bearer ")) {
+  const bearer = authHeader.replace(/^Bearer\s+/i, "").trim();
+  if (bearer !== SERVICE_KEY) {
     return json({ error: "Unauthorized" }, 401);
   }
 
