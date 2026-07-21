@@ -203,23 +203,25 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
 
     case "update_quest": {
       const questId = await resolveId(sb, userId, "quests", p.quest_id as string, (p.quest_name || p.title) as string, "title");
-      if (!questId) return;
       const updates: Record<string, unknown> = {};
       for (const key of ["title", "description", "type", "status", "difficulty", "xp_reward", "progress_current", "progress_target", "real_world_mapping", "category"]) {
         if (p[key] !== undefined) updates[key] = p[key];
       }
       updates.updated_at = new Date().toISOString();
-      const { error } = await sb.from("quests").update(updates).eq("id", questId).eq("user_id", userId);
+      const { data: updated, error } = await sb.from("quests").update(updates).eq("id", questId).eq("user_id", userId).select("id");
       if (error) throw error;
+      if (!updated || updated.length === 0) throw new Error(`quests: update matched no row for id "${questId}"`);
       return;
     }
 
     case "complete_quest": {
       const questId = await resolveId(sb, userId, "quests", (p.quest_id || p.id) as string, (p.quest_name || p.title) as string, "title");
-      if (!questId) return;
-      const { data: quest } = await sb.from("quests").select("xp_reward, title").eq("id", questId).eq("user_id", userId).single();
-      if (!quest) return;
-      await sb.from("quests").update({ status: "completed", updated_at: new Date().toISOString() }).eq("id", questId).eq("user_id", userId);
+      const { data: quest, error: findErr } = await sb.from("quests").select("xp_reward, title").eq("id", questId).eq("user_id", userId).maybeSingle();
+      if (findErr) throw findErr;
+      if (!quest) throw new Error(`quests: no quest found for id "${questId}"`);
+      const { data: updated, error: updErr } = await sb.from("quests").update({ status: "completed", updated_at: new Date().toISOString() }).eq("id", questId).eq("user_id", userId).select("id");
+      if (updErr) throw updErr;
+      if (!updated || updated.length === 0) throw new Error(`quests: complete matched no row for id "${questId}"`);
       await awardXP(sb, userId, Number(quest.xp_reward || 0));
       await logActivity(sb, userId, "quest_completed", `Quest completed: ${quest.title}`, Number(quest.xp_reward || 0));
       return;
@@ -227,9 +229,10 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
 
     case "delete_quest": {
       const questId = await resolveId(sb, userId, "quests", (p.quest_id || p.id) as string, (p.quest_name || p.title) as string, "title");
-      if (!questId) return;
-      const { data: quest } = await sb.from("quests").select("title").eq("id", questId).eq("user_id", userId).single();
-      await sb.from("quests").delete().eq("id", questId).eq("user_id", userId);
+      const { data: quest } = await sb.from("quests").select("title").eq("id", questId).eq("user_id", userId).maybeSingle();
+      const { data: deleted, error: delErr } = await sb.from("quests").delete().eq("id", questId).eq("user_id", userId).select("id");
+      if (delErr) throw delErr;
+      if (!deleted || deleted.length === 0) throw new Error(`quests: delete matched no row for id "${questId}"`);
       await logActivity(sb, userId, "quest_deleted", `Quest deleted: ${quest?.title || "Unknown"}`, 0);
       return;
     }
@@ -289,20 +292,22 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
 
     case "update_skill": {
       const skillId = await resolveId(sb, userId, "skills", (p.skill_id || p.id) as string, (p.skill_name || p.name) as string);
-      if (!skillId) return;
       const updates: Record<string, unknown> = {};
       for (const key of ["name", "description", "category", "energy_type", "tier", "unlocked", "proficiency"]) {
         if (p[key] !== undefined) updates[key] = p[key];
       }
       updates.updated_at = new Date().toISOString();
-      await sb.from("skills").update(updates).eq("id", skillId).eq("user_id", userId);
+      const { data: updated, error } = await sb.from("skills").update(updates).eq("id", skillId).eq("user_id", userId).select("id");
+      if (error) throw error;
+      if (!updated || updated.length === 0) throw new Error(`skills: update matched no row for id "${skillId}"`);
       return;
     }
 
     case "delete_skill": {
       const skillId = await resolveId(sb, userId, "skills", (p.skill_id || p.id) as string, (p.skill_name || p.name) as string);
-      if (!skillId) return;
-      await sb.from("skills").delete().eq("id", skillId).eq("user_id", userId);
+      const { data: deleted, error } = await sb.from("skills").delete().eq("id", skillId).eq("user_id", userId).select("id");
+      if (error) throw error;
+      if (!deleted || deleted.length === 0) throw new Error(`skills: delete matched no row for id "${skillId}"`);
       return;
     }
 
@@ -341,20 +346,22 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
 
     case "update_journal": {
       const entryId = await resolveId(sb, userId, "journal_entries", (p.entry_id || p.id) as string, (p.entry_title || p.title) as string, "title");
-      if (!entryId) return;
       const updates: Record<string, unknown> = {};
       for (const key of ["title", "content", "tags", "category", "importance", "mood"]) {
         if (p[key] !== undefined) updates[key] = key === "tags" ? asStringArray(p[key]) : p[key];
       }
       updates.updated_at = new Date().toISOString();
-      await sb.from("journal_entries").update(updates).eq("id", entryId).eq("user_id", userId);
+      const { data: updated, error } = await sb.from("journal_entries").update(updates).eq("id", entryId).eq("user_id", userId).select("id");
+      if (error) throw error;
+      if (!updated || updated.length === 0) throw new Error(`journal_entries: update matched no row for id "${entryId}"`);
       return;
     }
 
     case "delete_journal": {
       const entryId = await resolveId(sb, userId, "journal_entries", (p.entry_id || p.id) as string, (p.entry_title || p.title) as string, "title");
-      if (!entryId) return;
-      await sb.from("journal_entries").delete().eq("id", entryId).eq("user_id", userId);
+      const { data: deleted, error } = await sb.from("journal_entries").delete().eq("id", entryId).eq("user_id", userId).select("id");
+      if (error) throw error;
+      if (!deleted || deleted.length === 0) throw new Error(`journal_entries: delete matched no row for id "${entryId}"`);
       return;
     }
 
@@ -417,20 +424,22 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
 
     case "update_council_member": {
       const memberId = await resolveId(sb, userId, "councils", (p.member_id || p.id) as string, (p.member_name || p.name) as string);
-      if (!memberId) return;
       const updates: Record<string, unknown> = {};
       for (const key of ["name", "role", "specialty", "class", "notes"]) {
         if (p[key] !== undefined) updates[key] = p[key];
       }
       updates.updated_at = new Date().toISOString();
-      await sb.from("councils").update(updates).eq("id", memberId).eq("user_id", userId);
+      const { data: updated, error } = await sb.from("councils").update(updates).eq("id", memberId).eq("user_id", userId).select("id");
+      if (error) throw error;
+      if (!updated || updated.length === 0) throw new Error(`councils: update matched no row for id "${memberId}"`);
       return;
     }
 
     case "delete_council_member": {
       const memberId = await resolveId(sb, userId, "councils", (p.member_id || p.id) as string, (p.member_name || p.name) as string);
-      if (!memberId) return;
-      await sb.from("councils").delete().eq("id", memberId).eq("user_id", userId);
+      const { data: deleted, error } = await sb.from("councils").delete().eq("id", memberId).eq("user_id", userId).select("id");
+      if (error) throw error;
+      if (!deleted || deleted.length === 0) throw new Error(`councils: delete matched no row for id "${memberId}"`);
       return;
     }
 
@@ -456,20 +465,22 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
 
     case "update_inventory_item": {
       const itemId = await resolveId(sb, userId, "inventory", (p.item_id || p.id) as string, (p.item_name || p.name) as string);
-      if (!itemId) return;
       const updates: Record<string, unknown> = {};
       for (const key of ["name", "description", "type", "rarity", "quantity", "effect", "slot", "tier", "is_equipped", "stat_effects"]) {
         if (p[key] !== undefined) updates[key] = p[key];
       }
-      await sb.from("inventory").update(updates).eq("id", itemId).eq("user_id", userId);
+      const { data: updated, error } = await sb.from("inventory").update(updates).eq("id", itemId).eq("user_id", userId).select("id");
+      if (error) throw error;
+      if (!updated || updated.length === 0) throw new Error(`inventory: update matched no row for id "${itemId}"`);
       await logActivity(sb, userId, "item_updated", `Item updated: ${String(p.name || itemId)}`, 0);
       return;
     }
 
     case "delete_inventory_item": {
       const itemId = await resolveId(sb, userId, "inventory", (p.item_id || p.id) as string, (p.item_name || p.name) as string);
-      if (!itemId) return;
-      await sb.from("inventory").delete().eq("id", itemId).eq("user_id", userId);
+      const { data: deleted, error } = await sb.from("inventory").delete().eq("id", itemId).eq("user_id", userId).select("id");
+      if (error) throw error;
+      if (!deleted || deleted.length === 0) throw new Error(`inventory: delete matched no row for id "${itemId}"`);
       await logActivity(sb, userId, "item_deleted", "Item removed", 0);
       return;
     }
@@ -477,13 +488,14 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
     // ── ENERGY ───────────────────────────────────────────
     case "update_energy": {
       const energyId = await resolveId(sb, userId, "energy_systems", (p.energy_id || p.id) as string, (p.energy_name || p.type || p.name) as string, "type");
-      if (!energyId) return;
       const updates: Record<string, unknown> = {};
       for (const key of ["current_value", "max_value", "status", "description", "color", "type"]) {
         if (p[key] !== undefined) updates[key] = p[key];
       }
       updates.updated_at = new Date().toISOString();
-      await sb.from("energy_systems").update(updates).eq("id", energyId).eq("user_id", userId);
+      const { data: updated, error } = await sb.from("energy_systems").update(updates).eq("id", energyId).eq("user_id", userId).select("id");
+      if (error) throw error;
+      if (!updated || updated.length === 0) throw new Error(`energy_systems: update matched no row for id "${energyId}"`);
       return;
     }
 
@@ -504,8 +516,9 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
 
     case "delete_energy": {
       const energyId = await resolveId(sb, userId, "energy_systems", (p.energy_id || p.id) as string, (p.energy_name || p.type || p.name) as string, "type");
-      if (!energyId) return;
-      await sb.from("energy_systems").delete().eq("id", energyId).eq("user_id", userId);
+      const { data: deleted, error } = await sb.from("energy_systems").delete().eq("id", energyId).eq("user_id", userId).select("id");
+      if (error) throw error;
+      if (!deleted || deleted.length === 0) throw new Error(`energy_systems: delete matched no row for id "${energyId}"`);
       return;
     }
 
@@ -527,19 +540,21 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
 
     case "update_ally": {
       const allyId = await resolveId(sb, userId, "allies", (p.ally_id || p.id) as string, (p.ally_name || p.name) as string);
-      if (!allyId) return;
       const updates: Record<string, unknown> = {};
       for (const key of ["name", "relationship", "level", "specialty", "affinity", "notes"]) {
         if (p[key] !== undefined) updates[key] = p[key];
       }
-      await sb.from("allies").update(updates).eq("id", allyId).eq("user_id", userId);
+      const { data: updated, error } = await sb.from("allies").update(updates).eq("id", allyId).eq("user_id", userId).select("id");
+      if (error) throw error;
+      if (!updated || updated.length === 0) throw new Error(`allies: update matched no row for id "${allyId}"`);
       return;
     }
 
     case "delete_ally": {
       const allyId = await resolveId(sb, userId, "allies", (p.ally_id || p.id) as string, (p.ally_name || p.name) as string);
-      if (!allyId) return;
-      await sb.from("allies").delete().eq("id", allyId).eq("user_id", userId);
+      const { data: deleted, error } = await sb.from("allies").delete().eq("id", allyId).eq("user_id", userId).select("id");
+      if (error) throw error;
+      if (!deleted || deleted.length === 0) throw new Error(`allies: delete matched no row for id "${allyId}"`);
       await logActivity(sb, userId, "ally_deleted", "Ally removed", 0);
       return;
     }
@@ -590,20 +605,22 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
 
     case "update_transformation": {
       const transformId = await resolveId(sb, userId, "transformations", (p.transformation_id || p.id) as string, (p.transformation_name || p.name) as string);
-      if (!transformId) return;
       const updates: Record<string, unknown> = {};
       for (const key of ["name", "tier", "form_order", "bpm_range", "energy", "jjk_grade", "op_tier", "description", "category", "unlocked", "active_buffs", "passive_buffs", "abilities"]) {
         if (p[key] !== undefined) updates[key] = p[key];
       }
-      await sb.from("transformations").update(updates).eq("id", transformId).eq("user_id", userId);
+      const { data: updated, error } = await sb.from("transformations").update(updates).eq("id", transformId).eq("user_id", userId).select("id");
+      if (error) throw error;
+      if (!updated || updated.length === 0) throw new Error(`transformations: update matched no row for id "${transformId}"`);
       await logActivity(sb, userId, "transformation_updated", `Form updated: ${String(p.name || transformId)}`, 0);
       return;
     }
 
     case "delete_transformation": {
       const transformId = await resolveId(sb, userId, "transformations", (p.transformation_id || p.id) as string, (p.transformation_name || p.name) as string);
-      if (!transformId) return;
-      await sb.from("transformations").delete().eq("id", transformId).eq("user_id", userId);
+      const { data: deleted, error } = await sb.from("transformations").delete().eq("id", transformId).eq("user_id", userId).select("id");
+      if (error) throw error;
+      if (!deleted || deleted.length === 0) throw new Error(`transformations: delete matched no row for id "${transformId}"`);
       await logActivity(sb, userId, "transformation_deleted", "Form deleted", 0);
       return;
     }
@@ -629,20 +646,22 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
 
     case "update_store_item": {
       const itemId = await resolveId(sb, userId, "store_items", (p.item_id || p.id) as string, (p.item_name || p.name) as string);
-      if (!itemId) return;
       const updates: Record<string, unknown> = {};
       for (const key of ["name", "description", "price", "currency", "rarity", "category", "effect", "req_level", "req_rank"]) {
         if (p[key] !== undefined) updates[key] = p[key];
       }
       updates.updated_at = new Date().toISOString();
-      await sb.from("store_items").update(updates).eq("id", itemId).eq("user_id", userId);
+      const { data: updated, error } = await sb.from("store_items").update(updates).eq("id", itemId).eq("user_id", userId).select("id");
+      if (error) throw error;
+      if (!updated || updated.length === 0) throw new Error(`store_items: update matched no row for id "${itemId}"`);
       return;
     }
 
     case "delete_store_item": {
       const itemId = await resolveId(sb, userId, "store_items", (p.item_id || p.id) as string, (p.item_name || p.name) as string);
-      if (!itemId) return;
-      await sb.from("store_items").delete().eq("id", itemId).eq("user_id", userId);
+      const { data: deleted, error } = await sb.from("store_items").delete().eq("id", itemId).eq("user_id", userId).select("id");
+      if (error) throw error;
+      if (!deleted || deleted.length === 0) throw new Error(`store_items: delete matched no row for id "${itemId}"`);
       return;
     }
 
@@ -673,14 +692,15 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
     case "update_ranking":
     case "update_ranking_profile": {
       const rankingId = await resolveId(sb, userId, "rankings_profiles", (p.ranking_id || p.profile_id || p.id) as string, (p.ranking_name || p.display_name || p.name) as string, "display_name");
-      if (!rankingId) return;
       const updates: Record<string, unknown> = {};
       for (const key of ["display_name", "role", "rank", "level", "jjk_grade", "op_tier", "gpr", "pvp", "influence", "notes", "is_self"]) {
         if (p[key] !== undefined) updates[key] = p[key];
       }
       if (p.name !== undefined && !updates.display_name) updates.display_name = p.name;
       updates.updated_at = new Date().toISOString();
-      await sb.from("rankings_profiles").update(updates).eq("id", rankingId).eq("user_id", userId);
+      const { data: updated, error } = await sb.from("rankings_profiles").update(updates).eq("id", rankingId).eq("user_id", userId).select("id");
+      if (error) throw error;
+      if (!updated || updated.length === 0) throw new Error(`rankings_profiles: update matched no row for id "${rankingId}"`);
       await logActivity(sb, userId, "ranking_updated", `Ranking updated: ${String(p.display_name || p.name || rankingId)}`, 0);
       return;
     }
@@ -688,8 +708,9 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
     case "delete_ranking":
     case "delete_ranking_profile": {
       const rankingId = await resolveId(sb, userId, "rankings_profiles", (p.ranking_id || p.profile_id || p.id) as string, (p.ranking_name || p.display_name || p.name) as string, "display_name");
-      if (!rankingId) return;
-      await sb.from("rankings_profiles").delete().eq("id", rankingId).eq("user_id", userId);
+      const { data: deleted, error } = await sb.from("rankings_profiles").delete().eq("id", rankingId).eq("user_id", userId).select("id");
+      if (error) throw error;
+      if (!deleted || deleted.length === 0) throw new Error(`rankings_profiles: delete matched no row for id "${rankingId}"`);
       await logActivity(sb, userId, "ranking_deleted", "Ranking removed", 0);
       return;
     }
@@ -726,8 +747,9 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
 
     case "delete_persona": {
       const personaId = await resolveId(sb, userId, "personas", (p.persona_id || p.id) as string, (p.persona_name || p.name) as string);
-      if (!personaId) return;
-      await sb.from("personas").update({ is_active: false }).eq("id", personaId).eq("user_id", userId);
+      const { data: updated, error } = await sb.from("personas").update({ is_active: false }).eq("id", personaId).eq("user_id", userId).select("id");
+      if (error) throw error;
+      if (!updated || updated.length === 0) throw new Error(`personas: archive matched no row for id "${personaId}"`);
       await logActivity(sb, userId, "persona_deleted", `Persona archived: ${String(p.persona_name || p.name || personaId)}`, 0);
       return;
     }
@@ -864,26 +886,27 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
     case "update_note":
     case "edit_note": {
       const noteId = await resolveId(sb, userId, "mavis_notes", (p.note_id || p.id) as string, (p.note_title || p.title) as string, "title");
-      if (!noteId) return;
-      // Snapshot current version before updating
-      const { data: current } = await sb.from("mavis_notes").select("title,content").eq("id", noteId).eq("user_id", userId).single();
-      if (current) {
-        const { data: lastVer } = await sb.from("mavis_note_versions").select("version_number").eq("note_id", noteId).order("version_number", { ascending: false }).limit(1).single();
-        const nextVer = ((lastVer?.version_number as number) ?? 0) + 1;
-        await sb.from("mavis_note_versions").insert({
-          note_id: noteId,
-          title: current.title,
-          content: current.content,
-          version_number: nextVer,
-        });
-      }
+      // Snapshot current version before updating — also serves as existence check.
+      const { data: current, error: findErr } = await sb.from("mavis_notes").select("title,content").eq("id", noteId).eq("user_id", userId).maybeSingle();
+      if (findErr) throw findErr;
+      if (!current) throw new Error(`mavis_notes: no note found for id "${noteId}"`);
+      const { data: lastVer } = await sb.from("mavis_note_versions").select("version_number").eq("note_id", noteId).order("version_number", { ascending: false }).limit(1).maybeSingle();
+      const nextVer = ((lastVer?.version_number as number) ?? 0) + 1;
+      await sb.from("mavis_note_versions").insert({
+        note_id: noteId,
+        title: current.title,
+        content: current.content,
+        version_number: nextVer,
+      });
       const updates: Record<string, unknown> = { updated_at: new Date().toISOString() };
       if (p.title !== undefined) updates.title = String(p.title);
       if (p.content !== undefined) updates.content = String(p.content);
       if (p.tags !== undefined) updates.tags = asStringArray(p.tags);
       if (p.aliases !== undefined) updates.aliases = asStringArray(p.aliases);
       if (p.properties !== undefined && typeof p.properties === "object") updates.properties = p.properties;
-      await sb.from("mavis_notes").update(updates).eq("id", noteId).eq("user_id", userId);
+      const { data: updated, error: updErr } = await sb.from("mavis_notes").update(updates).eq("id", noteId).eq("user_id", userId).select("id");
+      if (updErr) throw updErr;
+      if (!updated || updated.length === 0) throw new Error(`mavis_notes: update matched no row for id "${noteId}"`);
       await logActivity(sb, userId, "note_updated", `Note updated: ${String(p.title || noteId)}`, 0);
       return;
     }
@@ -891,10 +914,11 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
     case "delete_note":
     case "remove_note": {
       const noteId = await resolveId(sb, userId, "mavis_notes", (p.note_id || p.id) as string, (p.note_title || p.title) as string, "title");
-      if (!noteId) return;
       await sb.from("mavis_note_links").delete().or(`source_note_id.eq.${noteId},target_note_id.eq.${noteId}`);
       await sb.from("mavis_note_versions").delete().eq("note_id", noteId);
-      await sb.from("mavis_notes").delete().eq("id", noteId).eq("user_id", userId);
+      const { data: deleted, error } = await sb.from("mavis_notes").delete().eq("id", noteId).eq("user_id", userId).select("id");
+      if (error) throw error;
+      if (!deleted || deleted.length === 0) throw new Error(`mavis_notes: delete matched no row for id "${noteId}"`);
       await logActivity(sb, userId, "note_deleted", `Note deleted: ${String(p.title || noteId)}`, 0);
       return;
     }
@@ -917,15 +941,17 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
     case "unlink_notes":
     case "remove_note_link": {
       const linkId = p.link_id ? String(p.link_id) : null;
+      let deleted: unknown[] | null;
+      let delErr: unknown;
       if (linkId) {
-        await sb.from("mavis_note_links").delete().eq("id", linkId);
+        ({ data: deleted, error: delErr } = await sb.from("mavis_note_links").delete().eq("id", linkId).select("id"));
       } else {
         const sourceId = await resolveId(sb, userId, "mavis_notes", p.source_note_id as string, p.source_note as string, "title");
         const targetId = await resolveId(sb, userId, "mavis_notes", p.target_note_id as string, p.target_note as string, "title");
-        if (sourceId && targetId) {
-          await sb.from("mavis_note_links").delete().eq("source_note_id", sourceId).eq("target_note_id", targetId);
-        }
+        ({ data: deleted, error: delErr } = await sb.from("mavis_note_links").delete().eq("source_note_id", sourceId).eq("target_note_id", targetId).select("id"));
       }
+      if (delErr) throw delErr;
+      if (!deleted || deleted.length === 0) throw new Error("mavis_note_links: no matching link found to remove");
       return;
     }
 
@@ -951,12 +977,13 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
     case "update_contact":
     case "edit_contact": {
       const contactId = await resolveId(sb, userId, "contacts", (p.contact_id || p.id) as string, (p.contact_name || p.name) as string);
-      if (!contactId) return;
       const updates: Record<string, unknown> = { updated_at: new Date().toISOString() };
       for (const key of ["name", "relationship_type", "last_contact_at", "follow_up_date", "notes", "tags", "profile"]) {
         if (p[key] !== undefined) updates[key] = key === "tags" ? asStringArray(p[key]) : p[key];
       }
-      await sb.from("contacts").update(updates).eq("id", contactId).eq("user_id", userId);
+      const { data: updated, error } = await sb.from("contacts").update(updates).eq("id", contactId).eq("user_id", userId).select("id");
+      if (error) throw error;
+      if (!updated || updated.length === 0) throw new Error(`contacts: update matched no row for id "${contactId}"`);
       return;
     }
 
@@ -1639,8 +1666,9 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
       const q = sb.from("mavis_standing_orders").update({ enabled: false }).eq("user_id", userId);
       if (p.order_id) q.eq("id", p.order_id);
       else q.eq("order_text", p.order_text);
-      const { error } = await q;
+      const { data: updated, error } = await q.select("id");
       if (error) throw error;
+      if (!updated || updated.length === 0) throw new Error(`mavis_standing_orders: no matching standing order found`);
       return { ok: true };
     }
 
@@ -1912,20 +1940,22 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
 
     case "update_domain_effect": {
       const effectId = await resolveId(sb, userId, "mavis_domain_effects", (p.effect_id || p.id) as string, (p.effect_name || p.name) as string);
-      if (!effectId) return;
       const updates: Record<string, unknown> = {};
       for (const key of ["name", "description", "effect_type", "stat_modifiers", "area_effects", "is_active", "expires_at", "source"]) {
         if (p[key] !== undefined) updates[key] = p[key];
       }
-      await sb.from("mavis_domain_effects").update(updates).eq("id", effectId).eq("user_id", userId);
+      const { data: updated, error } = await sb.from("mavis_domain_effects").update(updates).eq("id", effectId).eq("user_id", userId).select("id");
+      if (error) throw error;
+      if (!updated || updated.length === 0) throw new Error(`mavis_domain_effects: update matched no row for id "${effectId}"`);
       await logActivity(sb, userId, "domain_effect_updated", `Domain effect updated: ${String(p.name || effectId)}`, 0);
       return;
     }
 
     case "delete_domain_effect": {
       const effectId = await resolveId(sb, userId, "mavis_domain_effects", (p.effect_id || p.id) as string, (p.effect_name || p.name) as string);
-      if (!effectId) return;
-      await sb.from("mavis_domain_effects").delete().eq("id", effectId).eq("user_id", userId);
+      const { data: deleted, error } = await sb.from("mavis_domain_effects").delete().eq("id", effectId).eq("user_id", userId).select("id");
+      if (error) throw error;
+      if (!deleted || deleted.length === 0) throw new Error(`mavis_domain_effects: delete matched no row for id "${effectId}"`);
       await logActivity(sb, userId, "domain_effect_deleted", `Domain effect removed: ${String(p.name || effectId)}`, 0);
       return;
     }
