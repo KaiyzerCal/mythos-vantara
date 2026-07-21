@@ -1985,6 +1985,65 @@ async function streamCompatResponse(
   return { ok: true, stopReason: "end_turn", content: [{ type: "text", text: textBuf }] };
 }
 
+// Standing orders (System Settings → Standing Orders) and autonomy settings
+// (System Settings → Autonomy). mavis-agent previously had zero awareness of
+// either — same fetch/format pattern used by mavis-chat's tacitBlock.
+async function buildSystemSettingsFragment(
+  supabase: ReturnType<typeof createClient>,
+  userId: string,
+): Promise<string> {
+  try {
+    const { data: tacitData } = await supabase
+      .from("mavis_tacit")
+      .select("category,key,value,confidence")
+      .eq("user_id", userId)
+      .order("confidence", { ascending: false })
+      .limit(60);
+    if (!tacitData || (tacitData as unknown[]).length === 0) return "";
+    const tacit = tacitData as Array<{ category: string; key: string; value: unknown; confidence: number }>;
+    const hardRules    = tacit.filter((t) => t.category === "hard_rule");
+    const corrections  = tacit.filter((t) => t.category === "correction");
+    const preferences  = tacit.filter((t) => t.category === "preference");
+    const lessons      = tacit.filter((t) => t.category === "lesson_learned");
+    const habits       = tacit.filter((t) => t.category === "workflow_habit");
+    const autonomyRows = tacit.filter((t) => t.category === "standing_order");
+
+    const lines: string[] = [];
+    if (hardRules.length)   lines.push(`HARD RULES (obey unconditionally):\n${hardRules.map((r) => `  • [${r.key}] ${r.value}`).join("\n")}`);
+    if (corrections.length) lines.push(`CORRECTIONS (operator explicitly flagged these — never repeat the mistake):\n${corrections.slice(0, 10).map((r) => `  • ${r.value}`).join("\n")}`);
+    if (preferences.length) lines.push(`PREFERENCES:\n${preferences.slice(0, 10).map((r) => `  • [${r.key}] ${r.value}`).join("\n")}`);
+    if (lessons.length)     lines.push(`LESSONS LEARNED:\n${lessons.slice(0, 5).map((r) => `  • ${r.value}`).join("\n")}`);
+    if (habits.length)      lines.push(`WORKFLOW HABITS:\n${habits.slice(0, 5).map((r) => `  • [${r.key}] ${r.value}`).join("\n")}`);
+    if (autonomyRows.length) {
+      lines.push(`AUTONOMY (from System Settings):\n${autonomyRows.map((r) => {
+        const v = Array.isArray(r.value) ? (r.value as unknown[]).join(", ") : String(r.value ?? "");
+        return `  • [${r.key}] ${v}`;
+      }).join("\n")}`);
+    }
+    // Scheduler tab — queued/scheduled social posts. Previously read by no chat
+    // surface at all.
+    try {
+      const { data: posts } = await supabase
+        .from("mavis_social_posts")
+        .select("content, platform, status, scheduled_at")
+        .eq("user_id", userId)
+        .in("status", ["queued", "scheduled", "requires_confirmation"])
+        .order("scheduled_at", { ascending: true })
+        .limit(10);
+      if (posts && (posts as unknown[]).length > 0) {
+        const postLines = (posts as Array<{ content: string; platform: string; status: string; scheduled_at: string | null }>)
+          .map((p) => `  • [${p.platform}/${p.status}]${p.scheduled_at ? ` ${p.scheduled_at}` : ""} — ${String(p.content ?? "").slice(0, 100)}`);
+        lines.push(`SCHEDULER — queued/upcoming posts:\n${postLines.join("\n")}`);
+      }
+    } catch { /* non-critical */ }
+
+    if (lines.length === 0) return "";
+    return "\n\n═══════════════════════════════════════════\nOPERATOR STANDING ORDERS & SYSTEM SETTINGS\n═══════════════════════════════════════════\n" + lines.join("\n\n");
+  } catch {
+    return "";
+  }
+}
+
 async function runAgentLoop(
   messages: Array<{ role: string; content: unknown }>,
   system: string,
@@ -2749,11 +2808,44 @@ Deno.serve(async (req) => {
       return "";
     })();
 
-    const [memoryFragment, prefsFragment, specialistFragment] =
-      await Promise.all([memoryFragmentP, prefsFragmentP, specialistFragmentP]);
+    // Temporal awareness — mavis-agent previously had NO date/time in its system
+    // prompt and no tool to fetch it, so it had no way to know "today" unless the
+    // operator stated it. Uses the operator's profile timezone, same pattern as
+    // mavis-chat's timeBlock.
+    const timeFragmentP: Promise<string> = (async () => {
+      try {
+        const { data: profileRow } = await supabase
+          .from("profiles")
+          .select("timezone")
+          .eq("id", userId)
+          .maybeSingle();
+        const tz = (profileRow as any)?.timezone || "UTC";
+        const now = new Date();
+        let dateStr: string, timeStr: string;
+        try {
+          dateStr = now.toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric", timeZone: tz });
+          timeStr = now.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", timeZoneName: "short", timeZone: tz });
+        } catch {
+          dateStr = now.toDateString();
+          timeStr = now.toUTCString();
+        }
+        return `\n\n═══════════════════════════════════════════\nTEMPORAL CONTEXT\n═══════════════════════════════════════════\nLOCAL: ${dateStr}, ${timeStr} [${tz}]\nISO/UTC: ${now.toISOString()}`;
+      } catch {
+        const now = new Date();
+        return `\n\n═══════════════════════════════════════════\nTEMPORAL CONTEXT\n═══════════════════════════════════════════\nISO/UTC: ${now.toISOString()}`;
+      }
+    })();
+
+    // System settings — the operator's Standing Orders (mavis_tacit) and Autonomy
+    // (auto-execute types) from the System Settings page. mavis-agent previously
+    // had zero awareness of either.
+    const systemSettingsFragmentP: Promise<string> = buildSystemSettingsFragment(supabase, userId);
+
+    const [memoryFragment, prefsFragment, specialistFragment, timeFragment, systemSettingsFragment] =
+      await Promise.all([memoryFragmentP, prefsFragmentP, specialistFragmentP, timeFragmentP, systemSettingsFragmentP]);
     // Memory fragment replaced the base prompt in the original ordering; keep the
-    // same final composition: SYSTEM_PROMPT + memory + prefs + specialist.
-    systemWithContext = SYSTEM_PROMPT + memoryFragment + prefsFragment + specialistFragment;
+    // same final composition: SYSTEM_PROMPT + memory + prefs + specialist + time + settings.
+    systemWithContext = SYSTEM_PROMPT + memoryFragment + prefsFragment + specialistFragment + timeFragment + systemSettingsFragment;
 
     // Merge client-provided system prompt with MAVIS core context
     const clientSystemPrompt = String(body.systemPrompt ?? "");

@@ -3240,6 +3240,11 @@ serve(async (req) => {
         const preferences = tacit.filter((t: any) => t.category === "preference");
         const lessons     = tacit.filter((t: any) => t.category === "lesson_learned");
         const habits      = tacit.filter((t: any) => t.category === "workflow_habit");
+        // System Settings → Autonomy tab writes here as category "standing_order",
+        // key "auto_execute_types" — this bucketing previously had no branch for
+        // it, so rows were fetched but silently dropped from every prompt. MAVIS
+        // never actually saw the operator's auto-execute settings.
+        const autonomyRows = tacit.filter((t: any) => t.category === "standing_order");
 
         const lines: string[] = [];
         if (hardRules.length)   lines.push(`HARD RULES (obey unconditionally):\n${hardRules.map((r: any) => `  • [${r.key}] ${r.value}`).join("\n")}`);
@@ -3247,10 +3252,32 @@ serve(async (req) => {
         if (preferences.length) lines.push(`PREFERENCES:\n${preferences.slice(0, 10).map((r: any) => `  • [${r.key}] ${r.value}`).join("\n")}`);
         if (lessons.length)     lines.push(`LESSONS LEARNED:\n${lessons.slice(0, 5).map((r: any) => `  • ${r.value}`).join("\n")}`);
         if (habits.length)      lines.push(`WORKFLOW HABITS:\n${habits.slice(0, 5).map((r: any) => `  • [${r.key}] ${r.value}`).join("\n")}`);
+        if (autonomyRows.length) {
+          lines.push(`AUTONOMY (from System Settings):\n${autonomyRows.map((r: any) => {
+            const v = Array.isArray(r.value) ? r.value.join(", ") : String(r.value ?? "");
+            return `  • [${r.key}] ${v}`;
+          }).join("\n")}`);
+        }
 
         if (lines.length) {
           tacitBlock = `\n═══ STANDING ORDERS & OPERATOR PREFERENCES ═══\n${lines.join("\n\n")}\n═══ END STANDING ORDERS ═══`;
         }
+      }
+    } catch { /* non-critical */ }
+
+    // Scheduler tab — queued/upcoming social posts. Previously read by no chat
+    // surface at all.
+    try {
+      const { data: posts } = await sb
+        .from("mavis_social_posts")
+        .select("content, platform, status, scheduled_at")
+        .eq("user_id", user.id)
+        .in("status", ["queued", "scheduled", "requires_confirmation"])
+        .order("scheduled_at", { ascending: true })
+        .limit(10);
+      if (posts && (posts as any[]).length > 0) {
+        const postLines = (posts as any[]).map((p) => `  • [${p.platform}/${p.status}]${p.scheduled_at ? ` ${p.scheduled_at}` : ""} — ${String(p.content ?? "").slice(0, 100)}`);
+        tacitBlock += `\n\n═══ SCHEDULER — queued/upcoming posts ═══\n${postLines.join("\n")}\n═══ END SCHEDULER ═══`;
       }
     } catch { /* non-critical */ }
 
@@ -3719,7 +3746,7 @@ ${telosData
     // Embed the user's message and pull the most relevant notes from the
     // second brain — inject as grounded knowledge context in the prompt.
     let knowledgeBlock = "";
-    if (lastUserMsg && openaiKey && (mode ?? "PRIME") !== "COUNCIL") {
+    if (lastUserMsg && openaiKey) {
       try {
         const embedding = await sharedEmbeddingPromise;
         if (embedding) {
@@ -3833,7 +3860,7 @@ ${telosData
     // This makes standing orders created in the UI immediately effective in chat.
     let dynamicSOBlock = "";
     const isCouncilMode = (mode ?? "").toUpperCase() === "COUNCIL";
-    if (!isCouncilMode) {
+    {
       try {
         const { data: soTemplates } = await sb
           .from("standing_order_templates")
@@ -4007,7 +4034,7 @@ ${telosData
     // Reads from all sources: persona memory, 1-on-1 conversations, group council
     // sessions, and relationship bond/mood states. MAVIS sees the full picture.
     let crossRelationshipBlock = "";
-    if (!isCouncilMode) {
+    {
       try {
         const [memRes, convRes, groupMsgRes, relStatesRes] = await Promise.allSettled([
           sb.from("mavis_persona_memory")
@@ -4088,7 +4115,7 @@ ${telosData
     // pull their FULL recent conversation (both sides) so MAVIS can
     // accurately relay what was said — not just 3-sentence snippets.
     let targetedPersonaBlock = "";
-    if ((!isCouncilMode || !!personaId) && lastUserText.length > 10) {
+    if (lastUserText.length > 10) {
       try {
         // 1. Load all known entity names in one shot
         const [pRes, cRes] = await Promise.all([
@@ -4522,16 +4549,14 @@ Always reference dates and times in the entity's own timezone when one is set, o
         ].filter(Boolean).join("\n")
       : "";
 
-    // ── COUNCIL mode: slim context to avoid 60s non-streaming timeout ──────────
-    // Council chat is non-streaming (supabase.functions.invoke), so the full
-    // 40-80KB authoritative context + LLM call must complete within ~55s.
-    // Council members only need personality + a light profile summary + their
-    // own persona memory (already in systemWithPersonaMemory). Skip the heavy
-    // app-state blocks (agentConfig, full authoritativeContext, NAVI, KG, world
-    // intel) so the prompt is lean and the LLM call succeeds reliably.
-    const councilSlimContext = isCouncilMode
-      ? `\n═══ OPERATOR CONTEXT ═══\n${profile.inscribed_name} | Lv${profile.level}[${profile.rank}] | ${profile.current_form} | Arc: ${profile.arc_story}\nActive quests: ${dbState.quests.filter((q: any) => q.status === "active").length} | Skills: ${dbState.skills.length} | GPR: ${profile.gpr}${telosData?.mission ? `\nMission: ${String(telosData.mission).slice(0, 150)}` : ""}\n═══ END OPERATOR CONTEXT ═══`
-      : "";
+    // Council mode previously used a 4-line slim summary here instead of the
+    // full authoritativeContext, justified by a "60s non-streaming timeout"
+    // that no longer applies — both live council entry points (CouncilChat text
+    // UI and voice) send stream: true. The full authoritativeContext (same data
+    // PRIME mode gets) is already fetched above regardless of mode, so this was
+    // pure waste: real data fetched, then thrown away. Council members now see
+    // the same operator data PRIME mode does — they're advisors to the same
+    // person and need it to give real advice, not generic answers.
 
     // ── Council 3-round debate protocol (LifeOS pattern) ───────────────────────
     // When in COUNCIL mode, each member structures their response in 3 phases:
@@ -4541,28 +4566,33 @@ Always reference dates and times in the entity's own timezone when one is set, o
       ? `\n═══ COUNCIL RESPONSE PROTOCOL (3-Round Debate Format) ═══\nFor any strategic question, decision, or trade-off, structure your response in exactly 3 labeled rounds:\n\n**[POSITION]** — Your initial stance. 1-3 sentences. State it directly; don't hedge.\n**[CHALLENGE]** — The strongest counter-argument to your own position. What would your sharpest critic say? Be honest — if your position has a real flaw, name it.\n**[SYNTHESIS]** — Your final recommendation after accounting for the challenge. Be decisive. End with a concrete action or verdict.\n\nFor simple questions (status updates, factual lookups, quick clarifications), skip the 3-round format entirely and answer directly — the format is for decisions and strategy only.\n═══ END PROTOCOL ═══`
       : "";
 
+    // Council mode still skips agentConfigBlock (MAVIS's own personality/voice
+    // "constitution" — wrong to inject into a different council member's voice)
+    // and skillInjection (action-triggering custom skills; council members
+    // advise, they don't execute). Everything else below is operator data/
+    // context that a council advisor genuinely needs to give real advice.
     const fullPrompt = [
       systemWithPersonaMemory,
       isCouncilMode ? "" : agentConfigBlock,
       agentFoldersBlock,
       isCouncilMode ? "" : skillInjection,
       timeBlock,
-      isCouncilMode ? councilSlimContext : authoritativeContext,
+      authoritativeContext,
       councilDebateBlock,
-      isCouncilMode ? "" : compressBlock(userModelBlock),
+      compressBlock(userModelBlock),
       compressBlock(tacitBlock),
       daIdentityBlock,
-      isCouncilMode ? "" : worldModelBlock,
-      isCouncilMode ? "" : compressBlock(naviBlock),
-      isCouncilMode ? "" : compressBlock(knowledgeBlock),
-      isCouncilMode ? "" : worldIntelBlock,
-      isCouncilMode ? "" : crossRelationshipBlock,
-      isCouncilMode ? "" : targetedPersonaBlock,
+      worldModelBlock,
+      compressBlock(naviBlock),
+      compressBlock(knowledgeBlock),
+      worldIntelBlock,
+      crossRelationshipBlock,
+      targetedPersonaBlock,
       a2aBlock,
       semanticMemoryBlock,
       attachmentsBlock,
-      isCouncilMode ? "" : proactiveBlock,
-      isCouncilMode ? "" : plansBlock,
+      proactiveBlock,
+      plansBlock,
       urlContent,
       webSearchResults ? `\n---\nWEB SEARCH:\n${webSearchResults}\n---` : "",
       // Inline image rendering directive (Prymal pattern)

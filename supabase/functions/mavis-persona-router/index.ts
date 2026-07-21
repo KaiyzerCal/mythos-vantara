@@ -331,7 +331,8 @@ serve(async (req) => {
 
     // Load relationship state, conversation history, attachments, AND full app context in parallel.
     // Memory query is intentionally excluded here — it runs after embedding resolves.
-    const [queryEmbedding, relRes, histRes, attRes, profileRes, questsRes, skillsRes, journalRes, vaultRes, inventoryRes, energyRes, transformationsRes, rankingsRes, councilsRes, alliesRes, ritualsRes] = await Promise.all([
+    const [queryEmbedding, relRes, histRes, attRes, profileRes, questsRes, skillsRes, journalRes, vaultRes, inventoryRes, energyRes, transformationsRes, rankingsRes, councilsRes, alliesRes, ritualsRes,
+      tasksRes, contactsRes, calendarRes, meetingRes, healthRes, expensesRes, competitorsRes, goalsRes, bpmRes, storeRes, currenciesRes, activityRes, vaultMediaRes] = await Promise.all([
       embedMessagePromise,
       supabase.from("relationship_states").select("*").eq("persona_id", persona_id).eq("user_id", user_id).single(),
       supabase.from("persona_conversations").select("role, content").eq("persona_id", persona_id).eq("user_id", user_id).order("created_at", { ascending: false }).limit(50),
@@ -350,6 +351,21 @@ serve(async (req) => {
       supabase.from("councils").select("id,name,role,class,specialty").eq("user_id", user_id),
       supabase.from("allies").select("id,name,relationship,level,specialty,affinity").eq("user_id", user_id).limit(15),
       supabase.from("rituals").select("id,name,type,streak,completed").eq("user_id", user_id),
+      // Previously missing vs. PRIME-mode MAVIS chat — personas had no visibility
+      // into the operator's "life-admin" layer at all.
+      supabase.from("tasks").select("id,title,description,type,status,recurrence,streak").eq("user_id", user_id).order("created_at", { ascending: false }).limit(15),
+      supabase.from("contacts").select("id,name,relationship_type,notes,last_contact_at").eq("user_id", user_id).order("created_at", { ascending: false }).limit(15),
+      supabase.from("calendar_events").select("id,title,description,start_at,end_at,location").eq("user_id", user_id).order("start_at", { ascending: true }).limit(15),
+      supabase.from("meeting_notes").select("id,title,summary,attendees,decisions,action_items,created_at").eq("user_id", user_id).order("created_at", { ascending: false }).limit(8),
+      supabase.from("health_metrics").select("id,date,source,sleep_duration_minutes,sleep_efficiency,hrv_avg,resting_hr,readiness_score").eq("user_id", user_id).order("date", { ascending: false }).limit(8),
+      supabase.from("mavis_expenses").select("id,amount,currency,category,description,date").eq("user_id", user_id).order("date", { ascending: false }).limit(10),
+      supabase.from("mavis_competitors").select("id,name,url,notes,updated_at").eq("user_id", user_id).limit(10),
+      supabase.from("mavis_goals").select("id,objective,context,status,created_at").eq("user_id", user_id).order("created_at", { ascending: false }).limit(10),
+      supabase.from("bpm_sessions").select("id,bpm,form,duration,mood").eq("user_id", user_id).order("created_at", { ascending: false }).limit(8),
+      supabase.from("store_items").select("id,name,description,price,currency,rarity,category").eq("user_id", user_id).limit(10),
+      supabase.from("currencies").select("name,amount,icon").eq("user_id", user_id),
+      supabase.from("activity_log").select("event_type,xp_amount,description,created_at").eq("user_id", user_id).order("created_at", { ascending: false }).limit(8),
+      supabase.from("vault_media").select("id,file_name,file_type,description,vault_entry_id").eq("user_id", user_id).order("created_at", { ascending: false }).limit(8),
     ]);
 
     const relState = relRes.data;
@@ -434,6 +450,44 @@ ${(alliesRes.data || []).map((a: any) => `  • ${a.name} (${a.relationship}, Lv
 
 RITUALS:
 ${(ritualsRes.data || []).map((r: any) => `  • ${r.name} [${r.type}] streak:${r.streak}${r.completed ? " ✓" : ""}`).join("\n") || "  None"}
+
+TASKS (${(tasksRes.data || []).length}):
+${(tasksRes.data || []).map((t: any) => `  • [${t.id}] "${t.title}" [${t.status}/${t.type}]${t.streak ? ` streak:${t.streak}` : ""}${t.description ? ` — ${t.description.slice(0, 100)}` : ""}`).join("\n") || "  None"}
+
+CONTACTS:
+${(contactsRes.data || []).map((c: any) => `  • ${c.name} (${c.relationship_type})${c.last_contact_at ? ` — last contact ${String(c.last_contact_at).slice(0, 10)}` : ""}${c.notes ? ` — ${c.notes.slice(0, 100)}` : ""}`).join("\n") || "  None"}
+
+CALENDAR EVENTS:
+${(calendarRes.data || []).map((e: any) => `  • "${e.title}" ${e.start_at ? String(e.start_at).slice(0, 16).replace("T", " ") : ""}${e.location ? ` @ ${e.location}` : ""}`).join("\n") || "  None"}
+
+MEETING NOTES:
+${(meetingRes.data || []).map((m: any) => `  • [${m.id}] "${m.title}"${m.summary ? ` — ${m.summary.slice(0, 150)}` : ""}`).join("\n") || "  None"}
+
+HEALTH METRICS (recent):
+${(healthRes.data || []).map((h: any) => `  • ${h.date}: sleep ${h.sleep_duration_minutes ?? "?"}min (${h.sleep_efficiency ?? "?"}%), HRV ${h.hrv_avg ?? "?"}, RHR ${h.resting_hr ?? "?"}, readiness ${h.readiness_score ?? "?"}`).join("\n") || "  None"}
+
+FINANCE (recent expenses):
+${(expensesRes.data || []).map((e: any) => `  • ${e.date}: ${e.amount} ${e.currency} [${e.category}]${e.description ? ` — ${e.description.slice(0, 80)}` : ""}`).join("\n") || "  None"}
+
+COMPETITORS TRACKED:
+${(competitorsRes.data || []).map((c: any) => `  • ${c.name}${c.notes ? ` — ${c.notes.slice(0, 100)}` : ""}`).join("\n") || "  None"}
+
+GOALS:
+${(goalsRes.data || []).map((g: any) => `  • [${g.id}] ${g.objective} [${g.status}]`).join("\n") || "  None"}
+
+BPM SESSIONS (recent):
+${(bpmRes.data || []).map((b: any) => `  • ${b.bpm}bpm, ${b.form}, ${b.duration}min${b.mood ? `, mood:${b.mood}` : ""}`).join("\n") || "  None"}
+
+STORE ITEMS:
+${(storeRes.data || []).map((s: any) => `  • ${s.name} [${s.rarity}/${s.category}] ${s.price} ${s.currency}`).join("\n") || "  None"}
+
+CURRENCIES: ${(currenciesRes.data || []).map((c: any) => `${c.name}:${c.amount}`).join(" | ") || "None"}
+
+RECENT ACTIVITY:
+${(activityRes.data || []).map((a: any) => `  • ${a.description || a.event_type}${a.xp_amount ? ` (+${a.xp_amount}xp)` : ""}`).join("\n") || "  None"}
+
+VAULT MEDIA:
+${(vaultMediaRes.data || []).map((v: any) => `  • ${v.file_name} [${v.file_type}]${v.description ? ` — ${v.description.slice(0, 80)}` : ""}`).join("\n") || "  None"}
 ═══ END APP CONTEXT ═══
 ` : "";
 
@@ -461,7 +515,52 @@ You always know the current date and time without being told. Reference it natur
 ═══ END TEMPORAL AWARENESS ═══
 `;
 
-    const systemPrompt = buildSystemPrompt(persona, relState, memoryContext, channel) + timeBlock + appCtx + attBlock + archivedBlock;
+    // Standing orders / autonomy settings from the System Settings page —
+    // personas previously had zero visibility into these.
+    let settingsBlock = "";
+    try {
+      const { data: tacitData } = await supabase
+        .from("mavis_tacit")
+        .select("category,key,value,confidence")
+        .eq("user_id", user_id)
+        .order("confidence", { ascending: false })
+        .limit(60);
+      if (tacitData?.length) {
+        const tacit = tacitData as any[];
+        const hardRules   = tacit.filter((t: any) => t.category === "hard_rule");
+        const preferences = tacit.filter((t: any) => t.category === "preference");
+        const autonomyRows = tacit.filter((t: any) => t.category === "standing_order");
+        const lines: string[] = [];
+        if (hardRules.length)   lines.push(`HARD RULES (obey unconditionally):\n${hardRules.map((r: any) => `  • [${r.key}] ${r.value}`).join("\n")}`);
+        if (preferences.length) lines.push(`PREFERENCES:\n${preferences.slice(0, 10).map((r: any) => `  • [${r.key}] ${r.value}`).join("\n")}`);
+        if (autonomyRows.length) {
+          lines.push(`AUTONOMY (from System Settings):\n${autonomyRows.map((r: any) => {
+            const v = Array.isArray(r.value) ? r.value.join(", ") : String(r.value ?? "");
+            return `  • [${r.key}] ${v}`;
+          }).join("\n")}`);
+        }
+        if (lines.length) {
+          settingsBlock = `\n═══ STANDING ORDERS & OPERATOR PREFERENCES ═══\n${lines.join("\n\n")}\n═══ END STANDING ORDERS ═══\n`;
+        }
+      }
+    } catch { /* non-critical */ }
+
+    // Scheduler tab — queued/upcoming social posts.
+    try {
+      const { data: posts } = await supabase
+        .from("mavis_social_posts")
+        .select("content, platform, status, scheduled_at")
+        .eq("user_id", user_id)
+        .in("status", ["queued", "scheduled", "requires_confirmation"])
+        .order("scheduled_at", { ascending: true })
+        .limit(10);
+      if (posts && (posts as any[]).length > 0) {
+        const postLines = (posts as any[]).map((p) => `  • [${p.platform}/${p.status}]${p.scheduled_at ? ` ${p.scheduled_at}` : ""} — ${String(p.content ?? "").slice(0, 100)}`);
+        settingsBlock += `\n═══ SCHEDULER — queued/upcoming posts ═══\n${postLines.join("\n")}\n═══ END SCHEDULER ═══\n`;
+      }
+    } catch { /* non-critical */ }
+
+    const systemPrompt = buildSystemPrompt(persona, relState, memoryContext, channel) + timeBlock + appCtx + settingsBlock + attBlock + archivedBlock;
 
     const llmMessages = [
       ...history.map((h: any) => ({ role: h.role, content: h.content })),
