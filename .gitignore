@@ -19,6 +19,13 @@ dist
 dist-ssr
 *.local
 
+# Package manager — bun is authoritative (bun.lock is committed); ignore
+# lockfiles from other package managers so they don't silently reappear.
+bun.lockb
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
