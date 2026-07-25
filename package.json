@@ -19,6 +19,8 @@
   },
   "dependencies": {
     "@capacitor/android": "^8.3.0",
+    "@capacitor/preferences": "^8.0.1",
+    "@capacitor/push-notifications": "^8.1.2",
     "@codesandbox/sandpack-react": "^2.20.0",
     "@hookform/resolvers": "^3.10.0",
     "@lovable.dev/mcp-js": "^0.23.0",
