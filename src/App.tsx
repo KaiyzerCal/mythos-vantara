@@ -12,10 +12,11 @@ import AppSidebar from "@/components/AppSidebar";
 import { MavisPageControl } from "@/components/MavisPageControl";
 import { Loader2 } from "lucide-react";
 import { useMavisNotifications } from "@/hooks/useMavisNotifications";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 
 
 /** Sync browser chrome color + ensure <html> has the correct class on every theme change. */
-function ThemeColorSync() {
+function ThemeColorSync(): null {
   const { resolvedTheme } = useTheme();
   useEffect(() => {
     const isDark = resolvedTheme !== "light";
@@ -163,12 +164,14 @@ function AppContent() {
   }
 
   if (!user) return (
-    <Suspense fallback={Spinner}>
-      <Routes>
-        <Route path="/.lovable/oauth/consent" element={<OAuthConsent />} />
-        <Route path="*" element={<AuthPage />} />
-      </Routes>
-    </Suspense>
+    <ErrorBoundary key={location.pathname} boundary={`route:${location.pathname}`}>
+      <Suspense fallback={Spinner}>
+        <Routes>
+          <Route path="/.lovable/oauth/consent" element={<OAuthConsent />} />
+          <Route path="*" element={<AuthPage />} />
+        </Routes>
+      </Suspense>
+    </ErrorBoundary>
   );
 
   return (
@@ -178,6 +181,10 @@ function AppContent() {
         <AppSidebar />
 
         <main className={`flex-1 min-w-0 h-full ${["/mavis", "/mavis-ui", "/demo", "/factory", "/world-monitor", "/voice-lab", "/prompt-vault", "/agency", "/notebook", "/code-studio", "/agent-console"].includes(location.pathname) ? "overflow-hidden" : "overflow-y-auto p-5"}`}>
+          {/* Keyed by pathname so navigating to a different page after a crash
+              remounts a fresh boundary instead of staying stuck on the fallback —
+              the sidebar/nav shell (siblings of this <main>) is unaffected either way. */}
+          <ErrorBoundary key={location.pathname} boundary={`route:${location.pathname}`}>
           <Suspense fallback={Spinner}>
             <Routes>
               <Route path="/" element={<Dashboard />} />
@@ -274,6 +281,7 @@ function AppContent() {
               <Route path="*" element={<NotFound />} />
             </Routes>
           </Suspense>
+          </ErrorBoundary>
         </main>
         <MavisPageControl />
       </div>
@@ -283,20 +291,22 @@ function AppContent() {
 }
 
 const App = () => (
-  <QueryClientProvider client={queryClient}>
-    <ThemeProvider attribute="class" defaultTheme="dark" enableSystem={false} storageKey="vantara-theme">
-      <TooltipProvider>
-        <ThemeColorSync />
-        <Toaster />
-        <SonnerToaster position="bottom-right" theme="dark" />
-        <BrowserRouter>
-          <AuthProvider>
-            <AppContent />
-          </AuthProvider>
-        </BrowserRouter>
-      </TooltipProvider>
-    </ThemeProvider>
-  </QueryClientProvider>
+  <ErrorBoundary boundary="app-root">
+    <QueryClientProvider client={queryClient}>
+      <ThemeProvider attribute="class" defaultTheme="dark" enableSystem={false} storageKey="vantara-theme">
+        <TooltipProvider>
+          <ThemeColorSync />
+          <Toaster />
+          <SonnerToaster position="bottom-right" theme="dark" />
+          <BrowserRouter>
+            <AuthProvider>
+              <AppContent />
+            </AuthProvider>
+          </BrowserRouter>
+        </TooltipProvider>
+      </ThemeProvider>
+    </QueryClientProvider>
+  </ErrorBoundary>
 );
 
 export default App;

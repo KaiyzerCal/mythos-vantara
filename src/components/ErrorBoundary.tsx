@@ -1,9 +1,12 @@
 import { Component, ErrorInfo, ReactNode } from "react";
 import { AlertTriangle } from "lucide-react";
+import * as Sentry from "@sentry/react";
 
 interface Props {
   children: ReactNode;
   fallback?: ReactNode;
+  /** Label shown in Sentry to identify which boundary caught the error (e.g. "app-root", "route:chat"). */
+  boundary?: string;
 }
 
 interface State {
@@ -23,6 +26,10 @@ export class ErrorBoundary extends Component<Props, State> {
 
   componentDidCatch(error: Error, info: ErrorInfo) {
     console.error("[ErrorBoundary] Uncaught render error:", error, info.componentStack);
+    Sentry.captureException(error, {
+      tags: { boundary: this.props.boundary ?? "unlabeled" },
+      contexts: { react: { componentStack: info.componentStack } },
+    });
   }
 
   reset = () => this.setState({ hasError: false, error: null });
@@ -39,15 +46,24 @@ export class ErrorBoundary extends Component<Props, State> {
               {this.state.error.message}
             </p>
           )}
-          <button
-            onClick={this.reset}
-            className="mt-2 text-xs text-primary underline underline-offset-2 hover:opacity-80"
-          >
-            Try again
-          </button>
+          <div className="flex gap-3 mt-2">
+            <button
+              onClick={this.reset}
+              className="text-xs text-primary underline underline-offset-2 hover:opacity-80"
+            >
+              Try again
+            </button>
+            <button
+              onClick={() => window.location.reload()}
+              className="text-xs text-muted-foreground underline underline-offset-2 hover:opacity-80"
+            >
+              Reload page
+            </button>
+          </div>
         </div>
       );
     }
     return this.props.children;
   }
 }
+
