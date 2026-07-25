@@ -38,4 +38,8 @@
     <!-- Permissions -->
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Required on Android 13+ (API 33) to actually display push notifications;
+         @capacitor/push-notifications' registration/permission flow needs this
+         declared even though the runtime prompt is what the user sees. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 </manifest>

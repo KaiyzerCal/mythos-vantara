@@ -5,9 +5,10 @@
 import { useState, useEffect, useCallback } from "react";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { motion, AnimatePresence } from "framer-motion";
-import { Bell, CheckCircle2, Eye, Trash2, Loader2, RefreshCw, AlertTriangle, Info, Zap, Activity, Lightbulb } from "lucide-react";
+import { Bell, CheckCircle2, Eye, Trash2, Loader2, RefreshCw, AlertTriangle, Info, Zap, Activity, Lightbulb, Smartphone } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
+import { canRegisterForPush, getPushPermissionState, requestPushRegistration } from "@/mavis/pushNotifications";
 import { useAppData } from "@/contexts/AppDataContext";
 import { PageHeader, HudCard } from "@/components/SharedUI";
 import { toast } from "sonner";
@@ -70,6 +71,24 @@ export function NotificationsPage() {
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<"all" | "unread">("unread");
   const [confirmDelete, setConfirmDelete] = useState<{ id: string; label: string } | null>(null);
+
+  // Native push registration (Stabilization Brief Phase 2.9) — this is the
+  // "appropriate point in onboarding" the brief asked for: the operator has
+  // explicitly navigated to notification settings, showing real intent,
+  // rather than the OS permission prompt firing cold on first app launch.
+  const [pushState, setPushState] = useState<"unsupported" | "granted" | "denied" | "prompt" | "checking">("checking");
+  useEffect(() => {
+    if (!canRegisterForPush()) { setPushState("unsupported"); return; }
+    getPushPermissionState().then(setPushState).catch(() => setPushState("unsupported"));
+  }, []);
+  async function enablePush() {
+    if (!session?.user?.id) return;
+    setPushState("checking");
+    const result = await requestPushRegistration(session.user.id);
+    if (result.status === "registered") setPushState("granted");
+    else if (result.status === "denied") setPushState("denied");
+    else { setPushState("prompt"); if (result.status === "error") toast.error(`Push registration failed: ${result.message}`); }
+  }
 
   const load = useCallback(async () => {
     if (!session) { setLoading(false); return; }
@@ -167,6 +186,34 @@ export function NotificationsPage() {
           </div>
         }
       />
+
+      {/* Native push notifications — only shown inside a Capacitor build */}
+      {pushState !== "unsupported" && (
+        <HudCard>
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <Smartphone size={16} className="text-primary shrink-0" />
+              <div>
+                <p className="text-xs font-mono text-foreground">Push notifications</p>
+                <p className="text-[11px] text-muted-foreground">
+                  {pushState === "granted" && "Enabled — proactive nudges reach this device directly."}
+                  {pushState === "denied" && "Denied in device settings. Enable in your phone's app permissions."}
+                  {pushState === "prompt" && "Get MAVIS's proactive nudges on this device, not just Telegram."}
+                  {pushState === "checking" && "Checking permission…"}
+                </p>
+              </div>
+            </div>
+            {pushState === "prompt" && (
+              <button
+                onClick={enablePush}
+                className="shrink-0 px-3 py-1.5 text-xs font-mono bg-primary/10 border border-primary/30 text-primary rounded hover:bg-primary/20 transition-colors"
+              >
+                Enable
+              </button>
+            )}
+          </div>
+        </HudCard>
+      )}
 
       {/* Filter tabs */}
       <div className="flex items-center gap-1">

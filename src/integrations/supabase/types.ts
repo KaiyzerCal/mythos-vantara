@@ -957,6 +957,42 @@ export type Database = {
         }
         Relationships: []
       }
+      device_push_tokens: {
+        Row: {
+          active: boolean
+          created_at: string | null
+          device_name: string | null
+          error_count: number
+          id: string
+          last_used_at: string | null
+          platform: string
+          token: string
+          user_id: string
+        }
+        Insert: {
+          active?: boolean
+          created_at?: string | null
+          device_name?: string | null
+          error_count?: number
+          id?: string
+          last_used_at?: string | null
+          platform: string
+          token: string
+          user_id: string
+        }
+        Update: {
+          active?: boolean
+          created_at?: string | null
+          device_name?: string | null
+          error_count?: number
+          id?: string
+          last_used_at?: string | null
+          platform?: string
+          token?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       energy_systems: {
         Row: {
           color: string
