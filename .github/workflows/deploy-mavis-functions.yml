@@ -2,7 +2,7 @@ name: Deploy VANTARA (Mavis) Edge Functions
 
 on:
   push:
-    branches: ["main"]
+    branches: ["main", "staging"]
     paths:
       - "supabase/functions/**"
       - "supabase/config.toml"
@@ -12,12 +12,23 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    # GitHub Environments let SUPABASE_ACCESS_TOKEN / SUPABASE_PROJECT_REF hold
+    # DIFFERENT values per environment under the same secret names — main
+    # deploys against the "production" environment's secrets, staging against
+    # "staging"'s. See DEPLOYMENT.md for how to set up the staging project and
+    # these environment-scoped secrets (Stabilization Brief Phase 2.10).
+    environment: ${{ github.ref == 'refs/heads/staging' && 'staging' || 'production' }}
     env:
       SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
       PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
     steps:
       - uses: actions/checkout@v4
       - uses: supabase/setup-cli@v1
+
+      - name: Report target environment
+        run: |
+          TARGET="${{ github.ref == 'refs/heads/staging' && 'STAGING' || 'PRODUCTION' }}"
+          echo "Deploying to $TARGET (project ref: $PROJECT_REF)"
 
       # ── Core functions — deployed serially, fail-fast ─────────────────────────
       # If any of these fail the entire workflow stops.
