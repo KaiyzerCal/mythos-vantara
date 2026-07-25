@@ -539,7 +539,7 @@ export default function MavisDemo() {
       })(),
       userId ? gatherProviderContext(userId, content).catch(() => "") : Promise.resolve(""),
       Promise.resolve(null),
-      userId ? buildRecallContext(userId, content, 3).catch(() => null) : Promise.resolve(null),
+      userId ? buildRecallContext(userId, content, 3).catch((): any => null) : Promise.resolve(null),
     ]);
 
     const archivedMemories = memoriesRes as string;
@@ -579,7 +579,7 @@ export default function MavisDemo() {
         setChatMessages((prev: any[]) => prev.map((m: any) => m.id === sid ? { ...m, content: accumulated } : m));
       };
 
-      const opts = { mode: chatMode, conversationId: convoId, appState: compactState, chatKind: "mavis", threadRef: "main", attachmentIds: [] };
+      const opts = { mode: chatMode, conversationId: convoId, appState: compactState, chatKind: "mavis", threadRef: "main", attachmentIds: [] as string[] };
       const result =
         chatMode === "AGENT"
           ? await streamAgentMessage(content, systemPrompt, history, opts, onToken, () => {}, abortController.signal)

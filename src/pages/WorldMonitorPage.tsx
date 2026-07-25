@@ -140,7 +140,7 @@ async function fetchGdeltFallback(): Promise<GlobeEvent[]> {
     ]);
     for (const [r, cat, prefix] of [[r1,"conflict","gc"],[r2,"news","gn"]] as const) {
       if (r.status !== "fulfilled" || !r.value.ok) continue;
-      const d = await r.value.json().catch(()=>null);
+      const d = await r.value.json().catch((): any =>null);
       for (const a of (d?.articles ?? [])) {
         const cc = (a.sourcecountry ?? "").toUpperCase();
         const coords = FIPS[cc] ?? kwCoords(a.title ?? "");

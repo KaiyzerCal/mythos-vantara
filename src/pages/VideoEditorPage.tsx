@@ -1280,7 +1280,7 @@ export default function VideoEditorPage() {
         await seekTo(start);
         await new Promise(r => setTimeout(r, 100));
 
-        const playErr = await vid.play().then(() => null).catch((e: any) => e);
+        const playErr = await vid.play().then((): any => null).catch((e: any) => e);
         if (playErr) {
           cleanup();
           recorder.stop();

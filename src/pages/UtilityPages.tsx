@@ -134,7 +134,7 @@ function AutomationRulesSection() {
     (supabase as any)
       .from("mavis_automation_rules")
       .select("id, name, trigger_event, action_type, enabled, trigger_count")
-      .then(({ data }) => {
+      .then(({ data }: any) => {
         if (data) {
           setRules(
             data.map((r: any) => ({

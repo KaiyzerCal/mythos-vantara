@@ -31,10 +31,10 @@ const supabase = _supabase as any;
 const LANGS = [
   { id: "javascript", label: "JavaScript",  ext: "js",  cm: () => javascript({ jsx: false }) },
   { id: "typescript", label: "TypeScript",  ext: "ts",  cm: () => javascript({ typescript: true }) },
-  { id: "python",     label: "Python",      ext: "py",  cm: () => null },
+  { id: "python",     label: "Python",      ext: "py",  cm: (): any => null },
   { id: "html",       label: "HTML",        ext: "html", cm: () => html() },
   { id: "css",        label: "CSS",         ext: "css",  cm: () => css() },
-  { id: "bash",       label: "Bash",        ext: "sh",   cm: () => null },
+  { id: "bash",       label: "Bash",        ext: "sh",   cm: (): any => null },
 ] as const;
 
 type LangId = (typeof LANGS)[number]["id"];

@@ -595,7 +595,7 @@ function RelationshipsPanel() {
 
   useEffect(() => {
     supabase.from("mavis_relationship_health").select("*").order("days_since_contact", { ascending: false }).limit(30)
-      .then(({ data }) => { setRelationships(data ?? []); setLoading(false); });
+      .then(({ data }: any) => { setRelationships(data ?? []); setLoading(false); });
   }, []);
 
   function healthColor(score: number): string {
@@ -661,7 +661,7 @@ function StrategyCouncilPanel({ token }: { token: string }) {
 
   useEffect(() => {
     supabase.from("mavis_strategy_memos").select("id,question,recommendation,confidence,created_at").order("created_at", { ascending: false }).limit(10)
-      .then(({ data }) => { setMemos(data ?? []); setMemosLoading(false); });
+      .then(({ data }: any) => { setMemos(data ?? []); setMemosLoading(false); });
   }, []);
 
   async function submit() {

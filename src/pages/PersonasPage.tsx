@@ -91,10 +91,10 @@ function EditPersonaPanel({ persona, onSaved, onCancel }: EditPersonaPanelProps)
   const [isSaving, setIsSaving] = useState(false);
   // ElizaOS character.json fields
   const [bio, setBio] = useState((persona as any).bio ?? "");
-  const [loreText, setLoreText] = useState(((persona as any).lore ?? []).join("\n"));
-  const [domains, setDomains] = useState(((persona as any).knowledge_domains ?? []).join(", "));
-  const [adjectives, setAdjectives] = useState(((persona as any).adjectives ?? []).join(", "));
-  const [topics, setTopics] = useState(((persona as any).topics ?? []).join(", "));
+  const [loreText, setLoreText] = useState<string>(((persona as any).lore ?? []).join("\n"));
+  const [domains, setDomains] = useState<string>(((persona as any).knowledge_domains ?? []).join(", "));
+  const [adjectives, setAdjectives] = useState<string>(((persona as any).adjectives ?? []).join(", "));
+  const [topics, setTopics] = useState<string>(((persona as any).topics ?? []).join(", "));
   const [msgExamplesText, setMsgExamplesText] = useState(
     JSON.stringify((persona as any).message_examples ?? [], null, 2)
   );

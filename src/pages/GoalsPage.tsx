@@ -153,18 +153,18 @@ export function GoalsPage() {
           body: JSON.stringify({
             action: { type: "goal", params: { objective: createForm.objective, context: createForm.context } },
           }),
-        }).catch(() => undefined);
+        }).catch((): any => undefined);
         // Auto-link quest and skill chains for this user
         fetch(`${SUPABASE_URL}/functions/v1/mavis-chain-builder`, {
           method: "POST",
           headers: { Authorization: `Bearer ${jwt}`, "Content-Type": "application/json" },
           body: JSON.stringify({ action: "auto_link_quest_chains", user_id: user.id }),
-        }).catch(() => undefined);
+        }).catch((): any => undefined);
         fetch(`${SUPABASE_URL}/functions/v1/mavis-chain-builder`, {
           method: "POST",
           headers: { Authorization: `Bearer ${jwt}`, "Content-Type": "application/json" },
           body: JSON.stringify({ action: "auto_link_skill_chains", user_id: user.id }),
-        }).catch(() => undefined);
+        }).catch((): any => undefined);
       }
     } catch {
       // Silently ignore — agentic triggers are best-effort

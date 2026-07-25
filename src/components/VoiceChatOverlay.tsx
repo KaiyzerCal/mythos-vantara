@@ -545,7 +545,7 @@ export function VoiceChatOverlay({
         // ScriptProcessor is deprecated but has the widest support without extra deps
         const processor = audioCtx.createScriptProcessor(4096, 1, 1);
         liveScriptProcessorRef.current = processor;
-        processor.onaudioprocess = (e) => {
+        processor.onaudioprocess = (e: AudioProcessingEvent) => {
           if (ws.readyState !== WebSocket.OPEN) return;
           const inputData = e.inputBuffer.getChannelData(0);
           // Convert Float32 PCM → Int16 PCM
