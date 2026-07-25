@@ -1,5 +1,6 @@
 import type { ParsedAction, ExecutionResult, ActionClassification } from "./types";
 import { ActionSchema } from "./actionSchemas";
+import { logEvent } from "./logEvent";
 
 const ALWAYS_CONFIRM = new Set([
   "delete_quest", "delete_task", "delete_skill", "delete_journal",
@@ -46,11 +47,14 @@ export async function executeAction(action: ParsedAction): Promise<ExecutionResu
     if (defaultHandler) {
       try {
         await defaultHandler(action.payload);
+        logEvent("action_executed", { type: action.type, classification: "legacy", status: "success" });
         return { status: "success", action };
       } catch (err) {
+        logEvent("action_executed", { type: action.type, classification: "legacy", status: "error" });
         return { status: "error", action, message: err instanceof Error ? err.message : String(err) };
       }
     }
+    logEvent("action_executed", { type: action.type, classification: "invalid", status: "error" });
     return {
       status: "error",
       action,
@@ -60,6 +64,7 @@ export async function executeAction(action: ParsedAction): Promise<ExecutionResu
 
   const classification = classifyAction(action);
   if (classification === "CONFIRM") {
+    logEvent("action_executed", { type: action.type, classification, status: "pending_confirmation" });
     return {
       status: "pending_confirmation",
       action,
@@ -69,13 +74,16 @@ export async function executeAction(action: ParsedAction): Promise<ExecutionResu
 
   const handler = actionHandlers[action.type] ?? defaultHandler;
   if (!handler) {
+    logEvent("action_executed", { type: action.type, classification, status: "error", reason: "no_handler" });
     return { status: "error", action, message: `No handler registered for action type: ${action.type}` };
   }
 
   try {
     await handler(action.payload);
+    logEvent("action_executed", { type: action.type, classification, status: "success" });
     return { status: "success", action };
   } catch (err) {
+    logEvent("action_executed", { type: action.type, classification, status: "error" });
     return { status: "error", action, message: err instanceof Error ? err.message : String(err) };
   }
 }
