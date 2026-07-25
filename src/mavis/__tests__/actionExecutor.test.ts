@@ -127,7 +127,13 @@ describe("executeAction — legacy params format fallback", () => {
 
 describe("executeActions — batch", () => {
   it("runs all actions and returns results array", async () => {
-    registerActionHandler("create_journal", vi.fn().mockResolvedValue(undefined));
+    // create_journal is CONFIRM-gated (ALWAYS_CONFIRM in actionExecutor.ts —
+    // journal entries can hold sensitive personal content), so it correctly
+    // returns pending_confirmation without calling the handler. log_bpm is
+    // AUTO and executes normally. This test previously asserted both were
+    // "success", which no longer matches actionExecutor's actual gating.
+    const journalHandler = vi.fn().mockResolvedValue(undefined);
+    registerActionHandler("create_journal", journalHandler);
     registerActionHandler("log_bpm", vi.fn().mockResolvedValue(undefined));
 
     const actions: ParsedAction[] = [
@@ -137,6 +143,8 @@ describe("executeActions — batch", () => {
 
     const results = await executeActions(actions);
     expect(results).toHaveLength(2);
-    expect(results.every((r) => r.status === "success")).toBe(true);
+    expect(results[0].status).toBe("pending_confirmation");
+    expect(journalHandler).not.toHaveBeenCalled();
+    expect(results[1].status).toBe("success");
   });
 });
