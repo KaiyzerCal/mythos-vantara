@@ -1,8 +1,8 @@
-import { useState, useRef, useEffect, useCallback, useMemo } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo, type Dispatch, type SetStateAction } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { Send, Square, Cpu, Copy, Check, ChevronDown, Zap, Brain, Target, Crown, Flame, Database, Mic, MicOff, Users, Search, FileCode, X, Download, Gamepad2, Layers, Globe, ThumbsUp, ThumbsDown, AlertTriangle, RefreshCw, Pencil, BookOpen, Plus } from "lucide-react";
-import { useAppData } from "@/contexts/AppDataContext";
+import { useAppData, type ChatMessage } from "@/contexts/AppDataContext";
 import { supabase as _supabase } from "@/integrations/supabase/client";
 const supabase = _supabase as any;
 import { PageHeader, HudCard } from "@/components/SharedUI";
@@ -33,7 +33,7 @@ import { loadRuntimeSkills } from "@/mavis/skills/_registry";
 import { gatherProviderContext } from "@/mavis/contextProviders";
 import { buildRecallContext } from "@/mavis/proactiveRecall";
 import { captureProceduralMemory } from "@/mavis/proceduralMemory";
-import { autoCrewDispatch } from "@/mavis/crewCoordinator";
+import { autoCrewDispatch, type CrewResult } from "@/mavis/crewCoordinator";
 import { dispatchToSpecialist } from "@/mavis/specialistDispatcher";
 import { getCustomOrders, addStandingOrder, removeStandingOrder } from "@/mavis/standingOrders";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
@@ -107,10 +107,16 @@ export default function MavisChat() {
   const _appData = useAppData() as any;
   const {
     profile, quests, tasks, skills, journalEntries, vaultEntries,
-    chatMessages, setChatMessages, conversationId, setConversationId,
+    conversationId, setConversationId,
     chatMode, setChatMode, refetchAll,
     rituals, councils, energySystems, inventory, allies, bpmSessions, storeItems, transformations,
   } = _appData;
+  // Explicitly typed (unlike the rest of _appData, cast wholesale to `any`
+  // above) — this pair drives ~80 downstream setChatMessages(prev => ...)
+  // callbacks throughout this file; restoring their real type here restores
+  // contextual inference for all of them instead of annotating each site.
+  const chatMessages: ChatMessage[] = _appData.chatMessages;
+  const setChatMessages: Dispatch<SetStateAction<ChatMessage[]>> = _appData.setChatMessages;
   const appDataRef = useRef({ councils, energySystems, inventory, allies, bpmSessions, storeItems, transformations, rituals });
   useEffect(() => {
     appDataRef.current = { councils, energySystems, inventory, allies, bpmSessions, storeItems, transformations, rituals };
@@ -677,13 +683,13 @@ export default function MavisChat() {
 
       const snapshotData = {
         profile: { ...(profile ?? {}) },
-        quests: (quests ?? []).map(q => ({ id: q.id, title: q.title, status: q.status, type: q.type, xp_reward: q.xp_reward })),
-        skills: (skills ?? []).map(s => ({ id: s.id, name: s.name, category: s.category, tier: s.tier, proficiency: s.proficiency })),
-        energySystems: (energySystems ?? []).map(e => ({ id: e.id, type: e.type, current_value: e.current_value, max_value: e.max_value })),
-        councils: (councils ?? []).map(c => ({ id: c.id, name: c.name, role: c.role, class: c.class })),
-        allies: (allies ?? []).map(a => ({ id: a.id, name: a.name, relationship: a.relationship, affinity: a.affinity })),
-        inventory: (inventory ?? []).map(i => ({ id: i.id, name: i.name, type: i.type, rarity: i.rarity, quantity: i.quantity })),
-        rituals: (rituals ?? []).map(r => ({ id: r.id, name: r.name, streak: r.streak, completed: r.completed })),
+        quests: (quests ?? []).map((q: any) => ({ id: q.id, title: q.title, status: q.status, type: q.type, xp_reward: q.xp_reward })),
+        skills: (skills ?? []).map((s: any) => ({ id: s.id, name: s.name, category: s.category, tier: s.tier, proficiency: s.proficiency })),
+        energySystems: (energySystems ?? []).map((e: any) => ({ id: e.id, type: e.type, current_value: e.current_value, max_value: e.max_value })),
+        councils: (councils ?? []).map((c: any) => ({ id: c.id, name: c.name, role: c.role, class: c.class })),
+        allies: (allies ?? []).map((a: any) => ({ id: a.id, name: a.name, relationship: a.relationship, affinity: a.affinity })),
+        inventory: (inventory ?? []).map((i: any) => ({ id: i.id, name: i.name, type: i.type, rarity: i.rarity, quantity: i.quantity })),
+        rituals: (rituals ?? []).map((r: any) => ({ id: r.id, name: r.name, streak: r.streak, completed: r.completed })),
         journalCount: (journalEntries ?? []).length,
         vaultCount: (vaultEntries ?? []).length,
         storeItemCount: (storeItems ?? []).length,
@@ -691,7 +697,7 @@ export default function MavisChat() {
         timestamp: new Date().toISOString(),
       };
 
-      const summary = `OmniSync @ Lv${profile?.level ?? "-"} [${profile?.rank ?? "-"}] | ${(quests ?? []).filter(q => q.status === "active").length} active quests | ${(skills ?? []).length} skills | ${(chatMessages ?? []).length - 1} msgs in thread`;
+      const summary = `OmniSync @ Lv${profile?.level ?? "-"} [${profile?.rank ?? "-"}] | ${(quests ?? []).filter((q: any) => q.status === "active").length} active quests | ${(skills ?? []).length} skills | ${(chatMessages ?? []).length - 1} msgs in thread`;
 
       const { error } = await supabase.from("omnisync_snapshots").insert({
         user_id: session.user.id,
@@ -816,7 +822,7 @@ export default function MavisChat() {
       // pre-warm provider cache so buildSystemPromptFromSnapshot gets instant results
       userId ? gatherProviderContext(userId, content).catch(() => "") : Promise.resolve(""),
       // proactive recall runs in parallel too
-      userId ? buildRecallContext(userId, content, 3).catch(() => null) : Promise.resolve(null),
+      userId ? buildRecallContext(userId, content, 3).catch((): any => null) : Promise.resolve(null),
     ]);
 
     const archivedMemories = memoriesRes as string;
@@ -2355,7 +2361,7 @@ export default function MavisChat() {
                         setCrewRunning(true); setCrewResult("");
                         const { data: { session: s } } = await supabase.auth.getSession();
                         if (!s?.user) { setCrewRunning(false); return; }
-                        const res = await autoCrewDispatch(crewGoal.trim(), s.user.id).catch((err) => ({ output: `Error: ${err.message}`, agentResults: [] }));
+                        const res = await autoCrewDispatch(crewGoal.trim(), s.user.id).catch((err) => ({ output: `Error: ${err.message}`, agentResults: [] as CrewResult["agentResults"] }));
                         setCrewResult((res as any).output);
                         setChatMessages((prev) => [...prev, { id: `crew-${Date.now()}`, role: "assistant" as const, content: `**[CREW COMPLETE]**\n\n${(res as any).output}`, mode: "AGENT", timestamp: new Date() }]);
                         setCrewRunning(false);
@@ -2369,7 +2375,7 @@ export default function MavisChat() {
                     setCrewRunning(true); setCrewResult("");
                     const { data: { session: s } } = await supabase.auth.getSession();
                     if (!s?.user) { setCrewRunning(false); return; }
-                    const res = await autoCrewDispatch(crewGoal.trim(), s.user.id).catch((err) => ({ output: `Error: ${err.message}`, agentResults: [] }));
+                    const res = await autoCrewDispatch(crewGoal.trim(), s.user.id).catch((err) => ({ output: `Error: ${err.message}`, agentResults: [] as CrewResult["agentResults"] }));
                     setCrewResult((res as any).output);
                     setChatMessages((prev) => [...prev, { id: `crew-${Date.now()}`, role: "assistant" as const, content: `**[CREW COMPLETE]**\n\n${(res as any).output}`, mode: "AGENT", timestamp: new Date() }]);
                     setCrewRunning(false);
