@@ -118,11 +118,11 @@ class PluginRegistry {
       .select("name, enabled, config")
       .eq("user_id", userId)
       .eq("enabled", true)
-      .then(({ data }) => {
+      .then(({ data }: any) => {
         if (!data) return [];
         return data
-          .map(row => this.plugins.get(row.name))
-          .filter((p): p is MavisPlugin => !!p);
+          .map((row: any) => this.plugins.get(row.name))
+          .filter((p: any): p is MavisPlugin => !!p);
       });
   }
 

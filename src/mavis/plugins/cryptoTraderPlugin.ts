@@ -152,7 +152,7 @@ async function queueCryptoApproval(
     })
     .select("id")
     .single()
-    .catch(() => ({ data: null }));
+    .catch(() => ({ data: null as any }));
 
   return data?.id ?? "unknown";
 }

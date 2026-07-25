@@ -282,7 +282,7 @@ async function fetchSources(
       .eq("user_id", userId)
       .order("created_at", { ascending: false })
       .limit(limit);
-    docs.push(...(data ?? []).map(n => ({
+    docs.push(...(data ?? []).map((n: any) => ({
       id: n.id, title: n.title, content: String(n.content ?? ""),
       source: "notes" as const, date: n.created_at, tags: n.tags ?? [],
     })));
@@ -295,7 +295,7 @@ async function fetchSources(
       .eq("user_id", userId)
       .order("created_at", { ascending: false })
       .limit(limit);
-    docs.push(...(data ?? []).map(j => ({
+    docs.push(...(data ?? []).map((j: any) => ({
       id: j.id, title: j.title ?? "Journal Entry", content: String(j.content ?? ""),
       source: "journal" as const, date: j.created_at,
     })));
@@ -308,7 +308,7 @@ async function fetchSources(
       .eq("user_id", userId)
       .order("created_at", { ascending: false })
       .limit(limit)
-      .catch(() => ({ data: null }));
+      .catch(() => ({ data: null as any }));
     if (data) {
       docs.push(...data.map((v: Record<string, unknown>) => ({
         id: v.id as string,

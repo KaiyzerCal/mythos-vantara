@@ -360,7 +360,7 @@ async function queuePendingOp(
     .eq("id", sessionId)
     .eq("user_id", userId)
     .single()
-    .catch(() => ({ data: null }));
+    .catch(() => ({ data: null as any }));
 
   const existing = (session?.pending_ops as PendingOp[]) ?? [];
   await supabase.from("mavis_workspace_sessions").update({
@@ -384,7 +384,7 @@ async function resolveOp(
     .eq("id", sessionId)
     .eq("user_id", userId)
     .single()
-    .catch(() => ({ data: null }));
+    .catch(() => ({ data: null as any }));
 
   if (!session) return;
 

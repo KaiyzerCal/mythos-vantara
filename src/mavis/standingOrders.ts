@@ -71,7 +71,7 @@ export async function loadCustomOrders(userId: string): Promise<void> {
     .eq("user_id", userId)
     .eq("enabled", true)
     .order("created_at", { ascending: true })
-    .catch(() => ({ data: null }));
+    .catch(() => ({ data: null as any }));
 
   if (!data) return;
   _customOrders = data.map((r: { order_text: string }) => r.order_text);

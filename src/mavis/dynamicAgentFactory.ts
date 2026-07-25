@@ -188,7 +188,7 @@ export async function createAgent(
     })
     .select("id")
     .single()
-    .catch(() => ({ data: null }));
+    .catch(() => ({ data: null as any }));
 
   return {
     id: agentUuid,

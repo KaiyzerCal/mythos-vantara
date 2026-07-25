@@ -212,7 +212,7 @@ export async function streamAgentMessage(
   // mavis-agent returns plain JSON (not SSE) — detect and handle both response types.
   const agentContentType = res.headers.get("content-type") ?? "";
   if (!agentContentType.includes("text/event-stream")) {
-    const jsonData = await res.json().catch(() => null);
+    const jsonData: any = await res.json().catch((): any => null);
     const text: string = jsonData?.content ?? jsonData?.response ?? jsonData?.result ?? jsonData?.output
       ?? (jsonData ? JSON.stringify(jsonData) : "MAVIS returned no response.");
     if (text) onToken(text, text);

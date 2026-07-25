@@ -82,12 +82,12 @@ class AgentInbox {
           table: "mavis_agent_messages",
           filter: `to_agent_id=eq.${agentId}`,
         },
-        (payload) => {
+        (payload: any) => {
           const row = payload.new as Record<string, unknown>;
           this._dispatch(agentId, this._rowToMessage(row));
         }
       )
-      .subscribe((status) => {
+      .subscribe((status: string) => {
         if (status === "CHANNEL_ERROR") {
           this._startPolling(agentId, userId);
         }
@@ -111,7 +111,7 @@ class AgentInbox {
         .order("created_at", { ascending: true });
 
       lastChecked = new Date().toISOString();
-      (data ?? []).forEach(row => this._dispatch(agentId, this._rowToMessage(row)));
+      (data ?? []).forEach((row: any) => this._dispatch(agentId, this._rowToMessage(row)));
     }, 10_000);
 
     this.pollIntervals.set(agentId, interval);
@@ -178,7 +178,7 @@ class AgentInbox {
       .eq("delivered", false)
       .order("created_at", { ascending: true });
 
-    return (data ?? []).map(row => this._rowToMessage(row));
+    return (data ?? []).map((row: any) => this._rowToMessage(row));
   }
 }
 

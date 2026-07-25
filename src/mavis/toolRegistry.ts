@@ -385,7 +385,7 @@ toolRegistry.register({
         .textSearch("content", query.replace(/\s+/g, " & "), { type: "plain" })
         .limit(limit);
       if (data?.length) {
-        sections.push(`Notes:\n${data.map(n => `  [${n.title}] ${String(n.content).slice(0, 200)}`).join("\n")}`);
+        sections.push(`Notes:\n${data.map((n: any) => `  [${n.title}] ${String(n.content).slice(0, 200)}`).join("\n")}`);
       }
     }
 
@@ -398,7 +398,7 @@ toolRegistry.register({
         .order("created_at", { ascending: false })
         .limit(limit);
       if (data?.length) {
-        sections.push(`Journal:\n${data.map(j => `  [${j.title}] ${String(j.content).slice(0, 200)}`).join("\n")}`);
+        sections.push(`Journal:\n${data.map((j: any) => `  [${j.title}] ${String(j.content).slice(0, 200)}`).join("\n")}`);
       }
     }
 

@@ -41,7 +41,7 @@ export async function getRevenueTotal(userId: string): Promise<number> {
       .from("mavis_revenue")
       .select("amount")
       .eq("user_id", userId);
-    return (data ?? []).reduce((sum, r) => sum + Number(r.amount), 0);
+    return (data ?? []).reduce((sum: number, r: any) => sum + Number(r.amount), 0);
   } catch { return 0; }
 }
 

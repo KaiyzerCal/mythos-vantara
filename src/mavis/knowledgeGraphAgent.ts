@@ -386,7 +386,7 @@ export async function federatedSearch(
     searches.push(
       supabase.from("mavis_notes").select("id, title, content, created_at, tags")
         .eq("user_id", userId).ilike("content", `%${queryWords[0]}%`).limit(limit)
-        .then(({ data }) => {
+        .then(({ data }: any) => {
           (data ?? []).forEach((n: Record<string, unknown>) => {
             const score = scoreText(`${n.title} ${n.content}`);
             if (score > 0) results.push({
@@ -403,7 +403,7 @@ export async function federatedSearch(
     searches.push(
       supabase.from("mavis_journal").select("id, title, content, created_at")
         .eq("user_id", userId).ilike("content", `%${queryWords[0]}%`).limit(limit)
-        .then(({ data }) => {
+        .then(({ data }: any) => {
           (data ?? []).forEach((j: Record<string, unknown>) => {
             const score = scoreText(`${j.title} ${j.content}`);
             if (score > 0) results.push({
@@ -420,7 +420,7 @@ export async function federatedSearch(
     searches.push(
       supabase.from("mavis_agent_memories").select("id, agent_name, content, summary, created_at, tags")
         .eq("user_id", userId).eq("status", "active").ilike("content", `%${queryWords[0]}%`).limit(limit)
-        .then(({ data }) => {
+        .then(({ data }: any) => {
           (data ?? []).forEach((m: Record<string, unknown>) => {
             const score = scoreText(`${m.content} ${m.summary}`);
             if (score > 0) results.push({

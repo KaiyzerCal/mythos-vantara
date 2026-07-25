@@ -40,7 +40,7 @@ export function addMessage(msg: MavisMessage): void {
       role: msg.role,
       content: msg.content,
       timestamp: msg.timestamp,
-    }).then(({ error }) => {
+    }).then(({ error }: any) => {
       if (error) console.warn("[Memory L2] Persist failed:", error.message);
     });
   }
@@ -80,7 +80,7 @@ export async function loadSession(sessionId: string): Promise<MavisMessage[]> {
       .eq("user_id", _userId)
       .eq("session_id", sessionId)
       .order("timestamp", { ascending: true });
-    return (data ?? []).map(r => ({
+    return (data ?? []).map((r: any) => ({
       id: r.id, role: r.role as MavisMessage["role"],
       content: r.content, timestamp: r.timestamp,
     }));
@@ -95,7 +95,7 @@ export async function loadRecentMemory(limit = 50): Promise<MavisMessage[]> {
       .eq("user_id", _userId)
       .order("timestamp", { ascending: false })
       .limit(limit);
-    return (data ?? []).reverse().map(r => ({
+    return (data ?? []).reverse().map((r: any) => ({
       id: r.id, role: r.role as MavisMessage["role"],
       content: r.content, timestamp: r.timestamp,
     }));

@@ -147,7 +147,7 @@ const ROUTES: Route[] = [
       // Also get decision signal
       const { data: signalData } = await supabase.functions.invoke("mavis-stock-analysis", {
         body: { action: "decision_signals", stocks: [ticker] },
-      }).catch(() => ({ data: null }));
+      }).catch(() => ({ data: null as any }));
       const signal = signalData?.signals?.[0];
       const signalLine = signal ? `\n\n**Signal:** ${signal.signal.toUpperCase()} (${(signal.strength * 100).toFixed(0)}% confidence) — ${signal.reason}` : "";
       return persona(specialist,

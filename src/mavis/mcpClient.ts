@@ -176,7 +176,7 @@ export class MCPClient {
 
   async listResources(): Promise<MCPResource[]> {
     if (!this._initialized) await this.initialize();
-    const result = await this.send<{ resources: MCPResource[] }>("resources/list").catch(() => ({ resources: [] }));
+    const result = await this.send<{ resources: MCPResource[] }>("resources/list").catch(() => ({ resources: [] as MCPResource[] }));
     this.resources = result.resources ?? [];
     return this.resources;
   }
@@ -213,8 +213,8 @@ class MCPRegistry {
     }
 
     const [tools, resources] = await Promise.all([
-      client.listTools().catch(() => []),
-      client.listResources().catch(() => []),
+      client.listTools().catch(() => [] as MCPTool[]),
+      client.listResources().catch(() => [] as MCPResource[]),
     ]);
 
     this.clients.set(config.name, client);

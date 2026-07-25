@@ -134,7 +134,7 @@ export async function recallMemories(
     content: row.content as string,
     summary: row.summary as string | undefined,
     tags: (row.tags as string[]) ?? [],
-    wikilinks: [],
+    wikilinks: [] as string[],
     importance: row.importance as number,
     confidence: 7,
     createdAt: row.created_at as string,
@@ -382,7 +382,7 @@ export async function recallContext(
       .ilike("content", `%${query}%`)
       .order("importance", { ascending: false })
       .limit(6)
-      .catch(() => ({ data: null }));
+      .catch(() => ({ data: null as any }));
     for (const row of kwData ?? []) {
       results.push({
         source: "agent_memories",
@@ -404,7 +404,7 @@ export async function recallContext(
     .gte("importance_score", 5)
     .order("created_at", { ascending: false })
     .limit(4)
-    .catch(() => ({ data: null }));
+    .catch(() => ({ data: null as any }));
   for (const row of sessionData ?? []) {
     results.push({
       source: "session_log",
@@ -423,7 +423,7 @@ export async function recallContext(
     .eq("user_id", userId)
     .ilike("value", `%${query}%`)
     .limit(3)
-    .catch(() => ({ data: null }));
+    .catch(() => ({ data: null as any }));
   for (const row of tacitData ?? []) {
     const ruleText = `${row.key}: ${row.value}`;
     results.push({

@@ -70,7 +70,7 @@ async function getSnapshot(url: string, userId: string): Promise<PageSnapshot | 
     .eq("user_id", userId)
     .eq("url", url)
     .single()
-    .catch(() => ({ data: null }));
+    .catch(() => ({ data: null as any }));
 
   if (cached) {
     const age = (Date.now() - new Date(cached.fetched_at as string).getTime()) / 1000;
@@ -329,7 +329,7 @@ const browserContextProvider = {
       .eq("user_id", ctx.userId)
       .order("fetched_at", { ascending: false })
       .limit(5)
-      .catch(() => ({ data: null }));
+      .catch(() => ({ data: null as any }));
 
     if (!data?.length) return "";
     return `Recent web context:\n${data.map((s: Record<string, unknown>) => `  • [${s.title}](${s.url})`).join("\n")}`;

@@ -169,7 +169,7 @@ class GestureCommandMapper {
       .select("*")
       .eq("user_id", userId)
       .eq("enabled", true)
-      .catch(() => ({ data: null }));
+      .catch(() => ({ data: null as any }));
 
     if (!data) return;
     for (const row of data) {
