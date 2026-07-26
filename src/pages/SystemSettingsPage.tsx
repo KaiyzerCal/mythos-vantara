@@ -28,6 +28,9 @@ import {
   Laptop,
   Smartphone,
   Globe,
+  Copy,
+  Zap,
+  Play,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
