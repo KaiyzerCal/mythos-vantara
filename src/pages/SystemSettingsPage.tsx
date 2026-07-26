@@ -1204,9 +1204,9 @@ function CustomSkillsTab() {
             New Custom Skill
           </p>
           <SkillForm
-            initial={{ ...EMPTY_SKILL }}
+            initial={newDraft}
             onSave={handleAdd}
-            onCancel={() => setShowAdd(false)}
+            onCancel={() => { setShowAdd(false); setNewDraft({ ...EMPTY_SKILL }); }}
             saving={savingNew}
           />
         </HudCard>
