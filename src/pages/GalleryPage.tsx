@@ -44,7 +44,9 @@ function MediaCard({ item, onSendToVideo }: { item: MediaItem; onSendToVideo?: (
     <motion.div
       initial={{ opacity: 0, scale: 0.95 }}
       animate={{ opacity: 1, scale: 1 }}
-      className="group relative rounded-lg border border-border overflow-hidden bg-card hover:border-primary/30 transition-all"
+      whileHover={{ y: -4 }}
+      transition={{ type: "spring", stiffness: 300, damping: 20 }}
+      className="group relative rounded-lg border border-border overflow-hidden bg-card hover:border-primary/50 hover:shadow-[0_8px_30px_-8px_hsl(var(--primary)/0.35)] transition-all"
     >
       {/* Preview area */}
       <div className="relative bg-muted/20 aspect-square overflow-hidden">
