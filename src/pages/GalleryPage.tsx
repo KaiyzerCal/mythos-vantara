@@ -581,6 +581,15 @@ export function GalleryPage() {
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<FilterType>("all");
   const [genMode, setGenMode] = useState<"image" | "video">("image");
+  const [seedImageUrl, setSeedImageUrl] = useState<string | null>(null);
+
+  const handleSendToVideo = useCallback((url: string) => {
+    setSeedImageUrl(url);
+    setGenMode("video");
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }, []);
+
+
 
 
   const load = useCallback(async () => {
@@ -710,7 +719,8 @@ export function GalleryPage() {
 
       {genMode === "image"
         ? <ImageGenPanel onGenerated={prependItem} />
-        : <VideoGenPanel onGenerated={prependItem} />}
+        : <VideoGenPanel onGenerated={prependItem} seedImageUrl={seedImageUrl} />}
+
 
 
       {/* Filter bar */}
@@ -736,10 +746,9 @@ export function GalleryPage() {
       </div>
 
       {loading ? (
-        <div className="flex items-center justify-center py-16">
-          <Loader2 size={20} className="animate-spin text-primary/50" />
-        </div>
+        <LoadingState label="Loading gallery…" size="lg" />
       ) : visible.length === 0 ? (
+
         <div className="text-center py-16">
           <p className="text-xs font-mono text-muted-foreground">No {filter === "all" ? "assets" : filter} found.</p>
           <p className="text-[10px] font-mono text-muted-foreground mt-1">
@@ -750,7 +759,7 @@ export function GalleryPage() {
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
           <AnimatePresence>
             {visible.map((item) => (
-              <MediaCard key={item.id} item={item} />
+              <MediaCard key={item.id} item={item} onSendToVideo={handleSendToVideo} />
             ))}
           </AnimatePresence>
         </div>
@@ -758,3 +767,4 @@ export function GalleryPage() {
     </div>
   );
 }
+
