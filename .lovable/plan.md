@@ -1,74 +1,77 @@
-# MAVIS Full-Sweep Build
+# MAVIS Full-Sweep — Remaining Work
 
-Three tracks, executed end-to-end.
+## What we just shipped
+- **Autonomy Orchestrator** page (`/autonomy`) + edge function are live and wired into the sidebar.
+- **Gallery** handoff: images can be seeded into the video generator.
+- **Inbox** gained a Gmail/Messages tab with unread badges and read-state sync.
+- Build passes and the preview is clean.
 
----
+## What still needs to be done
 
-## Track 1 — UX polish sweep
+### 1. Complete UX polish across the highest-traffic surfaces
 
-Adopt `LoadingState` / `ErrorState` / `EmptyState` across the highest-traffic surfaces and fix any lingering light-mode readability.
+Finish adopting the `LoadingState` / `ErrorState` / `EmptyState` primitives that were started in AutonomyPage, Gallery, and Inbox.
 
-Surfaces to touch:
-- `src/pages/MavisChat.tsx` — replace bare spinners; error state when stream fails; light-mode text check.
-- `src/pages/PersonasPage.tsx` — loading, empty (no personas), error (fetch failed).
-- `src/pages/CouncilPage.tsx` — loading + empty for members/messages.
-- `src/pages/Inbox.tsx` — already partly done; audit approvals/tasks empty states.
-- `src/pages/IntelligencePage.tsx` — loading states.
-- `src/pages/Dashboard.tsx` — loading skeleton.
-- `src/index.css` — sweep for any `text-white` / hardcoded darks that break in light mode.
+Pages to fix:
+- **`src/pages/MavisChat.tsx`** — replace bare spinners (e.g. initial load, attachment upload, mode switching); add a non-blocking error state when the stream fails; ensure the "thinking" UI is consistent.
+- **`src/pages/PersonasPage.tsx`** — replace `Loader2` / `isForging` inline spinners with `LoadingState`; add `EmptyState` when no personas exist; add `ErrorState` when persona fetch fails.
+- **`src/pages/FeaturePages.tsx` (CouncilsPage)** — replace bare `Loader2` spinners with `LoadingState`; add empty/error states for member list and council messages.
+- **`src/pages/Dashboard.tsx`** — replace the `<div className="animate-pulse text-muted-foreground font-mono text-sm">Loading...</div>` placeholder with `LoadingState`; ensure the skeleton cards are replaced by the `LoadingState` primitive during the heavy initial load.
+- **`src/pages/IntelligencePage.tsx`** — replace inline `Loader2` usage in each panel with `LoadingState`; add `ErrorState` panels for failed tab loads.
 
-Deliverable: consistent loading/empty/error primitives, no invisible text in light mode.
+Deliverable: every major page has a single consistent loading, empty, and error experience.
 
----
+### 2. Fix light-mode readability issues
 
-## Track 2 — Wire the 6 static-ish pages
+The codebase still contains hardcoded dark values that render invisible text when the app is toggled to light mode.
 
-For each, verify what already exists and finish the gap.
+Sweep targets:
+- **`src/pages/IntelligencePage.tsx`** — remove `bg-zinc-900/60`, `text-zinc-400`, `text-white`, `text-zinc-300`, `bg-zinc-700/50`, `border-zinc-700/50`, etc. Replace with semantic tokens: `bg-card`, `text-card-foreground`, `text-foreground`, `text-muted-foreground`, `border-border`, `bg-muted`.
+- **`src/pages/MavisChat.tsx`** — audit message bubbles, code blocks, and attachment UI for hardcoded `text-white` or `bg-[#...]` that breaks light mode.
+- **`src/pages/PersonasPage.tsx`** — verify the persona cards and chat UI use `text-foreground` / `bg-card` instead of hardcoded darks.
+- **`src/index.css`** — search for any remaining `text-white` or literal dark hex values that should be theme tokens.
 
-| Page | Action |
-|---|---|
-| `AgentConsolePage` | Confirm live agent activity feed (mavis_activities); add empty/error states. |
-| `AlliesAndStore` | Note: memory says "Allies removed"; will confirm and either hide or repurpose as Store-only. |
-| `BpmPage` | Wire `bpm_sessions` history + start/stop control. |
-| `CharacterPage` | Surface RPG stats from `profiles` + `skills` + `quests`. |
-| `MyAgents` | List `mavis_letta_agents` + `customer_agents` with create/delete. |
-| `RankingsPage` | Load `rankings_profiles` leaderboard. |
+Deliverable: no invisible text in light mode across the five pages above.
 
-For any page whose scope isn't clear, I'll build the minimum meaningful data view and note follow-ups in the summary.
+### 3. Add real-time subscriptions to live data surfaces
 
----
+Several pages load data once but do not reflect backend changes until the user manually refreshes.
 
-## Track 3 — Autonomy Orchestrator
+Add Supabase realtime subscriptions:
+- **`mavis_autonomous_runs` / `mavis_plans` / `mavis_plan_steps` / `mavis_action_queue`** in `AutonomyPage` — auto-refresh when a plan or step changes.
+- **`mavis_activities`** in `AgentConsolePage` / `AgentDashboardPage` — live activity feed.
+- **`persona_conversations`** in `PersonasPage` — live persona chat updates.
+- **`gmail_messages`** in `Inbox` messages tab — new emails appear automatically.
 
-New unified control surface for the existing autonomy stack.
+Deliverable: the listed pages update within seconds of backend changes without a manual refresh.
 
-**Frontend:** `src/pages/AutonomyPage.tsx` (route `/autonomy`, sidebar entry)
-- Live view of `mavis_autonomous_runs`, `mavis_plans` + `mavis_plan_steps`, `mavis_action_queue`.
-- Goal input → creates a plan via edge function.
-- Per-run timeline: goal → plan → steps → actions → outcomes.
-- Manual "Run cycle now" button.
+### 4. Wire Autonomy Orchestrator into MavisChat
 
-**Backend:** `supabase/functions/mavis-autonomy-orchestrator/index.ts`
-- POST `{ goal }` → creates row in `mavis_plans`, invokes `mavis-autonomous-engine` for planning, queues resulting steps into `mavis_action_queue`.
-- GET → returns recent runs + active plans + queued actions for the current user.
-- Wraps (does not replace) `mavis-autonomous-engine` / `mavis-autonomous-runner` / `mavis-crew-orchestrator`.
+The new orchestrator should be reachable from the main chat so the user can delegate goals conversationally.
 
-**Migration (if needed):** add `goal` + `status` columns to `mavis_autonomous_runs` only if missing after schema check. Will run schema check first in build mode; migration only if a column is genuinely absent.
+Actions:
+- In `MavisChat`, add a quick action chip or slash command (`/autonomy <goal>`) that calls `mavis-autonomy-orchestrator` with `{ action: "plan", goal: ... }`.
+- Surface the created plan ID and a link to `/autonomy` in the assistant response.
+- If the agent-mode action executor detects a `create_plan` intent, route it to the orchestrator instead of returning an error.
 
----
+Deliverable: users can turn a chat goal into a tracked autonomous plan in one click.
 
-## Order of execution
+### 5. End-to-end verification and deploy
 
-1. Schema check on autonomy tables (read-only, no migration unless needed).
-2. Track 1 UX polish (parallel file edits).
-3. Track 2 page wiring (parallel file edits per page).
-4. Track 3 orchestrator: edge function + page + sidebar entry.
-5. Deploy new/changed edge functions.
-6. Typecheck; report per-page status and any pages that need product decisions rather than more code.
+- Run a full `bun run build`.
+- Run the typecheck guard (`tsgo` or `tsc --noEmit`).
+- Verify the `/autonomy` route loads, creates a plan, and shows steps in the preview.
+- Deploy any changed edge functions.
+- Update `journal.md` with the completed track entries.
 
 ## Explicit non-goals
-
+- No new backend migrations unless a schema gap is discovered during verification.
 - No NSFW capability (previously declined; stays declined).
-- Won't rebuild `mavis-autonomous-engine` — orchestrator wraps it.
-- Won't touch `supabase/migrations/` unless a column is genuinely missing.
-- Won't re-add "Tasks & Habits" or "Allies" as first-class navigation (per memory).
+- No rewrite of `mavis-autonomous-engine` — the orchestrator wraps it.
+
+## Order of work
+1. Light-mode color sweep (IntelligencePage is the worst offender; fixing it first removes the biggest class of bugs).
+2. UX polish sweep (parallel per page: MavisChat, PersonasPage, CouncilsPage, Dashboard, IntelligencePage).
+3. Real-time subscriptions (page-by-page after their polish is done).
+4. Autonomy ↔ MavisChat wiring.
+5. Verification, build, deploy.
