@@ -1167,7 +1167,7 @@ function CustomSkillsTab() {
 
       {/* Templates */}
       {!showAdd && skills.length === 0 && !search && !loading && (
-        <HudCard glowColor="blue">
+        <HudCard glowColor="purple">
           <p className="text-xs font-mono text-primary uppercase tracking-widest mb-3">
             Quick Start Templates
           </p>
