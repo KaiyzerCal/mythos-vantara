@@ -2982,6 +2982,25 @@ Nothing stays unclassified. Nothing is deferred without a schedule. Inbox zero i
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
+  // Lightweight health / key-presence probe (no LLM call, no DB write)
+  const url = new URL(req.url);
+  if (req.method === "GET" && (url.pathname.endsWith("/health") || url.searchParams.get("health") === "1")) {
+    const keys = {
+      ANTHROPIC_API_KEY: !!Deno.env.get("ANTHROPIC_API_KEY"),
+      OPENAI_API_KEY: !!(Deno.env.get("OPENAI_API_KEY") || Deno.env.get("OPENAI_API")),
+      GEMINI_API_KEY: !!Deno.env.get("GEMINI_API_KEY"),
+      GROK_API_KEY: !!Deno.env.get("GROK_API_KEY"),
+      TAVILY_API_KEY: !!Deno.env.get("TAVILY_API_KEY"),
+      JINA_API_KEY: !!Deno.env.get("JINA_API_KEY"),
+    };
+    const missing = Object.entries(keys).filter(([_, present]) => !present).map(([name]) => name);
+    return new Response(JSON.stringify({
+      status: missing.length === 0 ? "ok" : "degraded",
+      missing_keys: missing,
+      keys_present: Object.keys(keys).filter(k => keys[k as keyof typeof keys]),
+    }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+  }
+
   try {
     const authHeader = req.headers.get("Authorization");
     if (!authHeader?.startsWith("Bearer ")) {
