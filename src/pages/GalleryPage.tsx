@@ -54,7 +54,7 @@ function MediaCard({ item, onSendToVideo }: { item: MediaItem; onSendToVideo?: (
           <img
             src={item.url}
             alt={item.title}
-            className="w-full h-full object-cover"
+            className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
             onError={() => setImgError(true)}
           />
         )}
