@@ -989,6 +989,7 @@ function CustomSkillsTab() {
   const [savingNew, setSavingNew] = useState(false);
   const [search, setSearch] = useState("");
   const [testSkill, setTestSkill] = useState<CustomSkill | null>(null);
+  const [newDraft, setNewDraft] = useState<Omit<CustomSkill, "id" | "user_id" | "created_at">>({ ...EMPTY_SKILL });
 
   const load = useCallback(async () => {
     if (!user) return;
