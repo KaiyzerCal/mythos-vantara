@@ -458,6 +458,16 @@ export default function MavisChat() {
           .then(({ data }: any) => { if (!cancelled && data) setActiveSpecialist(data); })
           .catch(() => {});
 
+        // Load custom skills for trigger matching
+        supabase.from("mavis_custom_skills")
+          .select("id, name, trigger_phrase, system_prompt, modes, enabled")
+          .eq("user_id", userId)
+          .eq("enabled", true)
+          .then(({ data, error }: any) => {
+            if (!cancelled && data && !error) setCustomSkills(data);
+          })
+          .catch(() => {});
+
         const { data: convos } = await supabase
           .from("chat_conversations")
           .select("id, title")
