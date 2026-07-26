@@ -381,8 +381,8 @@ async function callGemini(messages: any[], system: string, key: string, opts: { 
   }));
   // Use opts.model if provided; thinking requires the 2.5 preview model.
   const geminiModel = opts.thinking
-    ? "gemini-2.5-flash-preview-05-20"
-    : (opts.model ?? "gemini-2.5-flash-preview-05-20");
+    ? "gemini-2.5-flash"
+    : (opts.model ?? "gemini-2.5-flash");
   const body: any = {
     systemInstruction: { parts: [{ text: system }] },
     contents,
@@ -755,7 +755,7 @@ async function callGeminiStream(messages: any[], system: string, key: string, op
   if (opts.thinking) body.generationConfig.thinkingConfig = { thinkingBudget: 8192 };
   if (opts.grounding && !opts.thinking) body.tools = [{ googleSearch: {} }];
   else if (opts.codeExec && !opts.thinking) body.tools = [{ codeExecution: {} }];
-  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:streamGenerateContent?key=${key}&alt=sse`, {
+  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:streamGenerateContent?key=${key}&alt=sse`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
