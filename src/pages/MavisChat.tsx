@@ -200,6 +200,10 @@ export default function MavisChat() {
   // ── Skill catalog drawer ──
   const [showSkillCatalog, setShowSkillCatalog] = useState(false);
 
+  // ── Custom skills (from mavis_custom_skills) ──
+  const [customSkills, setCustomSkills] = useState<Array<{ id: string; name: string; trigger_phrase: string; system_prompt: string; modes: string[]; enabled: boolean }>>([]);
+  const [activeCustomSkill, setActiveCustomSkill] = useState<{ name: string; trigger_phrase: string } | null>(null);
+
   // ── Header collapse ──
   const [headerCollapsed, setHeaderCollapsed] = useState(false);
 
