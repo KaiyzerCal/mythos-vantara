@@ -589,12 +589,8 @@ export default function PersonasPage() {
 
       {/* Persona roster */}
       {isLoading ? (
-        <div className="flex items-center justify-center py-12">
-          <div className="text-center">
-            <Loader2 className="animate-spin text-primary mx-auto mb-2" size={24} />
-            <p className="text-xs font-mono text-muted-foreground">Loading personas...</p>
-          </div>
-        </div>
+        <LoadingState label="Loading personas…" size="lg" />
+
       ) : personas.length === 0 ? (
         <HudCard>
           <div className="text-center py-8">
