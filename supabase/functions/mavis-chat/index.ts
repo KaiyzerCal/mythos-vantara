@@ -4920,15 +4920,15 @@ Always reference dates and times in the entity's own timezone when one is set, o
 
               // ── LLM cost telemetry (OpenJarvis pattern) ─────────────────
               const _streamCost = estimateLlmCost(streamProv ?? provider, fullPrompt.length + lastUserText.length, accumulated.length);
-              sb.from("mavis_llm_calls").insert({
+              Promise.resolve(sb.from("mavis_llm_calls").insert({
                 user_id:            user.id,
                 provider:           streamProv ?? provider,
                 mode:               modeUpper,
                 latency_ms:         Date.now() - ts,
                 estimated_cost_usd: _streamCost,
                 success:            true,
-              }).catch(() => {});
-              sb.from("mavis_usage_log").insert({
+              })).catch(() => {});
+              Promise.resolve(sb.from("mavis_usage_log").insert({
                 user_id:            user.id,
                 persona_id:         personaId ?? null,
                 session_type:       isCouncilMode ? "council" : "mavis",
@@ -4936,7 +4936,7 @@ Always reference dates and times in the entity's own timezone when one is set, o
                 input_tokens:       Math.ceil((fullPrompt.length + lastUserText.length) / 4),
                 output_tokens:      Math.ceil(accumulated.length / 4),
                 estimated_cost_usd: _streamCost,
-              }).catch(() => {});
+              })).catch(() => {});
 
               // ── Persona memory persistence (COUNCIL mode) ────────────────
               if (isCouncilMode && personaId && accumulated.length > 10) {
@@ -5392,15 +5392,15 @@ Respond with ONLY a JSON array (may be empty []):
 
     // ── LLM cost telemetry (OpenJarvis pattern) ────────────────────────
     const _nonStreamCost = estimateLlmCost(usedProvider, fullPrompt.length + lastUserContent.length, content.length);
-    sb.from("mavis_llm_calls").insert({
+    Promise.resolve(sb.from("mavis_llm_calls").insert({
       user_id:            user.id,
       provider:           usedProvider,
       mode:               modeUpper,
       latency_ms:         null,
       estimated_cost_usd: _nonStreamCost,
       success:            true,
-    }).catch(() => {});
-    sb.from("mavis_usage_log").insert({
+    })).catch(() => {});
+    Promise.resolve(sb.from("mavis_usage_log").insert({
       user_id:            user.id,
       persona_id:         personaId ?? null,
       session_type:       isCouncilMode ? "council" : "mavis",
@@ -5408,7 +5408,7 @@ Respond with ONLY a JSON array (may be empty []):
       input_tokens:       Math.ceil((fullPrompt.length + lastUserContent.length) / 4),
       output_tokens:      Math.ceil(content.length / 4),
       estimated_cost_usd: _nonStreamCost,
-    }).catch(() => {});
+    })).catch(() => {});
 
     return new Response(
       JSON.stringify({ content, mode, conversationId, searched: !!webSearchResults, provider: usedProvider, imageUrl }),
