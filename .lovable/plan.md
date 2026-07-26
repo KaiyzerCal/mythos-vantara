@@ -1,48 +1,63 @@
-# Full App Audit & Polish — MAVIS Ultimate Copilot
+# Skill Catalog Overhaul Plan
 
-Goal: end-to-end sweep so the app runs smooth, feels premium, and every surface earns its place as your personal AI copilot.
+## Goal
+Make the skill catalog a first-class surface of MAVIS — fully discoverable, reliable, extensible, and deeply wired into chat so custom and built-in skills feel like native capabilities.
 
-## Track 1 — Health & Stability Audit (read-only first)
-- Map every route in `src/App.tsx` → confirm each page mounts, has data wiring, loading/empty/error states, and no dead links.
-- Sidebar audit (`AppSidebar.tsx`): remove stale entries, group by domain (Command, Intelligence, Studio, Ops, Settings), add icons + section labels.
-- Console + network sweep on each major page; log runtime errors, 404s, RLS denials, slow edge calls.
-- Edge function health: ping the 12 most-used functions (`mavis-chat`, `mavis-agent`, `mavis-actions`, `mavis-image-gen`, `mavis-video-gen`, `mavis-autonomy-orchestrator`, `mavis-persona-router`, `mavis-telegram-bot`, `mavis-health-check`, `mavis-a2a-gateway`, `mavis-llm-router`, `mavis-action-executor`). Fix any 4xx/5xx.
-- Type/build check across the project; resolve any remaining TS noise.
+## Current State (verified)
+- **System Settings → Custom Skills tab**: CRUD for user-created skills (`mavis_custom_skills` table) with name, trigger phrase, system prompt, description, modes, and enabled flag.
+- **MavisChat Skill Catalog Drawer**: side panel showing all registered skills grouped into Creative, Intelligence, Business, Personal, System.
+- **Registry**: `src/mavis/skills/_registry.ts` registers built-in skills via `registerSkill()` and supports runtime DB-backed skills (`mavis_skill_definitions`) and custom skills (`mavis_custom_skills`).
+- **Skill count**: 300+ skill directories under `src/mavis/skills/`.
+- **Built-in skill examples**: `image-gen`, `video-gen`, `logo-gen`, `music-gen`, `world-monitor`, `economics-calendar`, `revenue-report`, `daily-brief`, `agent-builder`, `code-delegate`, `persona-forge`, `capability-manifest`, `skill-catalog-browse`.
 
-## Track 2 — UX Polish Sweep (consistent, premium feel)
-- Global primitives everywhere: `LoadingState`, `EmptyState`, `ErrorState`, `ScrollKit` — replace every raw `Loader2` / "Loading…" / bare error toast.
-- Card system: unify padding, radius, border, hover elevation. Kill hardcoded `zinc-*`, `text-white`, `bg-black`; enforce semantic tokens.
-- Typography rhythm: Orbitron for section headers, Rajdhani body, Share Tech Mono for data — audit for accidental default sans.
-- Motion pass: `animate-fade-in` on route mount, `hover-scale` on interactive cards, subtle `pulse-glow` on live/streaming indicators, `scan` overlay only on hero HUD panels (not everywhere).
-- Light-mode contrast pass on all pages — anything reported invisible in light theme gets a token fix.
-- Mobile pass: sidebar sheet, 44px tap targets, `h-dvh` for full-height views.
-- Focus states + keyboard nav on primary CTAs.
+## Workstreams
 
-## Track 3 — Command Surface Upgrades
-- **MavisChat**: message actions (copy/retry/branch) via AI Elements `MessageResponse`, tool-call accordions, slash-command palette (`/autonomy`, `/persona`, `/council`, `/image`, `/video`, `/search`), sticky composer with attachment tray already present — polish spacing + focus retention.
-- **Dashboard**: reorder to Today → Autonomy pulse → Inbox digest → Streaks → Quick actions. Replace static tiles with live counts.
-- **Autonomy**: add plan progress bars, step-level status chips, "approve/pause/cancel" inline controls, empty state that offers a starter goal.
-- **Command Palette** (`Cmd+K`): ensure it lists every route + top actions; wire fuzzy search across personas, councils, quests.
+### 1. Audit Existing Skills
+- Inventory every `src/mavis/skills/**/index.ts` and confirm each calls `registerSkill()` with name, description, and keywords.
+- Build a small test harness that invokes each skill via `supabase.functions.invoke("mavis-chat")` or direct skill handler and records success/failure.
+- Categorize failures: missing edge function, broken API key, stale model ID, invalid imports, empty handler.
+- Fix the highest-impact broken skills first (e.g., `image-gen`, `video-gen`, `world-monitor`, `web-search`, `telegram-send`).
+- Add a `skill-health` edge function or a health page row so the user can see skill status at a glance.
 
-## Track 4 — Intelligence & Studio Polish
-- **IntelligencePage**: convert stat tiles to sparkline cards; group by domain (Signals / World Model / Patterns / Health).
-- **Gallery / Creative Studio**: masonry grid, hover overlay with prompt + provider badge, one-click "remix" and "animate this image", provider fallback status chip.
-- **Avatar Studio**: template gallery hero, generation queue side rail.
-- **Personas / Councils**: hero avatar strip, unread badge, last-message preview, realtime typing indicator.
+### 2. Improve the Skill Catalog UI/UX
+- **System Settings → Custom Skills tab**:
+  - Add inline search/filter.
+  - Show which skills are enabled/disabled with a clearer toggle.
+  - Add a "Test Skill" button that sends a quick prompt through the skill.
+  - Add a duplicate/clone action.
+  - Add a suggested template picker (e.g., "Sales email drafter", "Daily standup summary").
+- **Skill Catalog Drawer (MavisChat)**:
+  - Add live skill count and recently used section.
+  - Add favorites / pin skills.
+  - Show skill status indicators (working, deprecated, needs API key).
+  - Add keyboard shortcut `/` to open the drawer.
+- **Shared**:
+  - Consistent empty/loading/error states using `EmptyState`, `LoadingState`, `ErrorState`.
+  - Add category iconography and color coding.
 
-## Track 5 — Ops & Safety
-- Verify RLS + grants on any table touched during audit; run linter, resolve warnings.
-- Confirm all persistence: Mavis chat, personas, councils, quests, inventory, forms, gallery, autonomy — reload each and verify data survives.
-- Verify Telegram bridge round-trip for MAVIS, personas, councils.
+### 3. Add More Built-In Skills
+Add missing high-value skills that fit the "ultimate AI agent copilot" vision:
+- **Productivity**: `meeting-brief`, `weekly-retro`, `travel-planner`, `expense-report`.
+- **Intelligence**: `reddit-sentiment`, `sec-filing-summarizer`, `patent-search`, `job-market-scan`.
+- **Creative**: `meme-gen`, `thumbnail-gen`, `ad-copy-gen`, `voice-clone`.
+- **Business**: `invoice-generator`, `contract-review`, `proposal-score`, `crm-enrichment`.
+- **System**: `skill-health`, `cost-tracker`, `prompt-optimizer`, `model-recommender`.
+Each new skill will follow the existing pattern in `src/mavis/skills/**/index.ts` and register itself with relevant keywords.
 
-## Deliverable
-- Short audit report at the end (what was found + fixed).
-- All fixes shipped in the same run — no half-done tracks.
+### 4. Wire Custom Skills Deeper into Chat
+- Ensure `mavis-chat` and `mavis-agent` edge functions check `mavis_custom_skills` for the user's triggers and prepend the custom system prompt when matched.
+- Add a visual indicator in MavisChat when a custom skill is active (e.g., badge in the composer or message header).
+- Render custom skill output with the same markdown/code/media support as built-in skills.
+- Add a `/skills` slash command in the composer that opens the catalog drawer or lists available skills.
+- Persist skill invocation history so the user can see which skills were used and when.
 
-## Non-goals
-- No NSFW capabilities.
-- No new backend features beyond what's needed to fix broken wiring.
-- No framework/library swaps.
+## Deliverables
+1. `SKILL_AUDIT_REPORT.md` with skill inventory, health status, and fixed items.
+2. Updated `src/pages/SystemSettingsPage.tsx` with improved Custom Skills UI.
+3. Updated `src/components/chat/SkillCatalogDrawer.tsx` with search, favorites, status, and keyboard shortcut.
+4. New skill files under `src/mavis/skills/` for the selected high-value skills.
+5. Updated `mavis-chat` edge function to integrate custom skills and `/skills` slash command.
+6. Health/status badge or page row showing skill system status.
 
-## Notes
-Executed as one continuous sweep. If a track uncovers a bigger issue (e.g. a broken edge function), it gets fixed inline, not deferred.
+## Next Step
+Approve this plan and I'll start with the audit inventory so we know exactly which skills are real, broken, or missing before building the UI and new skills.
