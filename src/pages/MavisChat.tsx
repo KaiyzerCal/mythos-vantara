@@ -200,6 +200,10 @@ export default function MavisChat() {
   // ── Skill catalog drawer ──
   const [showSkillCatalog, setShowSkillCatalog] = useState(false);
 
+  // ── Custom skills (from mavis_custom_skills) ──
+  const [customSkills, setCustomSkills] = useState<Array<{ id: string; name: string; trigger_phrase: string; system_prompt: string; modes: string[]; enabled: boolean }>>([]);
+  const [activeCustomSkill, setActiveCustomSkill] = useState<{ name: string; trigger_phrase: string } | null>(null);
+
   // ── Header collapse ──
   const [headerCollapsed, setHeaderCollapsed] = useState(false);
 
@@ -320,6 +324,20 @@ export default function MavisChat() {
   useEffect(() => { localStorage.setItem("mavis-voice-id", voiceId); }, [voiceId]);
   useEffect(() => { localStorage.setItem("mavis-voice-enabled", String(ttsEnabled)); }, [ttsEnabled]);
 
+  // Keyboard shortcut: `/` opens skill catalog when not typing in an input
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "/" && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        const target = e.target as HTMLElement;
+        if (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable) return;
+        e.preventDefault();
+        setShowSkillCatalog(true);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
   // ── Speech Recognition (STT) ────────────────────────────
   const startListening = useCallback(() => {
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
@@ -438,6 +456,16 @@ export default function MavisChat() {
           .eq("user_id", userId)
           .maybeSingle()
           .then(({ data }: any) => { if (!cancelled && data) setActiveSpecialist(data); })
+          .catch(() => {});
+
+        // Load custom skills for trigger matching
+        supabase.from("mavis_custom_skills")
+          .select("id, name, trigger_phrase, system_prompt, modes, enabled")
+          .eq("user_id", userId)
+          .eq("enabled", true)
+          .then(({ data, error }: any) => {
+            if (!cancelled && data && !error) setCustomSkills(data);
+          })
           .catch(() => {});
 
         const { data: convos } = await supabase
@@ -1282,6 +1310,20 @@ export default function MavisChat() {
       else if (responseLength === "detailed") systemPrompt += "\n\n[RESPONSE LENGTH: Be thorough and detailed — elaborate with examples where useful.]";
       if (selectedPersonaPrompt) systemPrompt += `\n\n--- ACTIVE PERSONA ---\n${selectedPersonaPrompt}\n---`;
 
+      // Custom skill trigger matching
+      const matchedCustom = customSkills.find((s) => {
+        const trigger = s.trigger_phrase?.trim().toLowerCase();
+        if (!trigger) return false;
+        const lowerContent = content.toLowerCase();
+        return lowerContent.startsWith(trigger) || lowerContent.includes(trigger);
+      });
+      if (matchedCustom) {
+        setActiveCustomSkill({ name: matchedCustom.name, trigger_phrase: matchedCustom.trigger_phrase });
+        systemPrompt += `\n\n--- CUSTOM SKILL: ${matchedCustom.name} ---\n${matchedCustom.system_prompt}\n---`;
+      } else {
+        setActiveCustomSkill(null);
+      }
+
       // In text-only modes, stop MAVIS from promising executions it can't deliver
       const NON_AGENT_MODES = ["PRIME", "ENRYU", "SOVEREIGN", "QUEST", "FORGE", "WATCHTOWER", "SALES", "MARKET", "GAME_MASTER", "WEBMASTER"];
       const ACTION_KEYWORDS = /\b(execute|run|perform|analyze my (setup|system|app|account|data)|check my (setup|data|account|stats)|access|audit|search (the )?web|browse|fetch|build me|deploy|take action|do (that|this|it)|carry out|make it happen|generate and)\b/i;
@@ -2010,6 +2052,9 @@ export default function MavisChat() {
       <div className="flex items-center gap-1 shrink-0">
         {selectedPersonaName && (
           <span className="text-xs font-mono px-2 py-1 rounded bg-primary/10 border border-primary/30 text-primary">{selectedPersonaName}</span>
+        )}
+        {activeCustomSkill && (
+          <span className="text-xs font-mono px-2 py-1 rounded bg-amber-500/10 border border-amber-500/30 text-amber-500" title="Custom skill active">⚡ {activeCustomSkill.name}</span>
         )}
         <button onClick={() => setShowPersonaPicker((v) => !v)} title="Inject persona context"
           className="p-2 rounded border border-border/50 text-muted-foreground hover:text-primary hover:border-primary/30 transition-colors text-xs font-mono">
