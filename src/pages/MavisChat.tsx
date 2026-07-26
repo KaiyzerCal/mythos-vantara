@@ -736,9 +736,41 @@ export default function MavisChat() {
     const content = (text ?? input).trim();
     if (!content || isLoading) return;
     cancelledRef.current = false;
+
+    // ── /autonomy <goal> — delegate to Autonomy Orchestrator ──
+    if (content.toLowerCase().startsWith("/autonomy ")) {
+      const goal = content.slice(10).trim();
+      if (goal) {
+        setInput("");
+        const convoIdEarly = await ensureConversation();
+        const userMsg = { id: `u-${Date.now()}`, role: "user" as const, content, mode: chatMode, timestamp: new Date() };
+        setChatMessages((prev) => [...prev, userMsg]);
+        if (convoIdEarly) persistMessage({ role: "user", content, mode: chatMode }, convoIdEarly).catch(() => {});
+        setIsLoading(true);
+        try {
+          const { data, error } = await supabase.functions.invoke("mavis-autonomy-orchestrator", {
+            body: { action: "plan", goal },
+          });
+          if (error) throw error;
+          const planId = data?.plan?.id ?? data?.plan_id ?? "unknown";
+          const reply = `Plan created (id: \`${planId}\`). Track it on the [Autonomy](/autonomy) page.`;
+          const asstMsg = { id: `a-${Date.now()}`, role: "assistant" as const, content: reply, mode: chatMode, timestamp: new Date() };
+          setChatMessages((prev) => [...prev, asstMsg]);
+          if (convoIdEarly) persistMessage({ role: "assistant", content: reply, mode: chatMode }, convoIdEarly).catch(() => {});
+        } catch (e: any) {
+          const errMsg = { id: `a-${Date.now()}`, role: "assistant" as const, content: `Autonomy orchestrator error: ${e?.message ?? "unknown"}`, mode: chatMode, timestamp: new Date() };
+          setChatMessages((prev) => [...prev, errMsg]);
+        } finally {
+          setIsLoading(false);
+        }
+        return;
+      }
+    }
+
     setInput("");
     setActionStatus(null);
     setAgentSteps([]);
+
 
     const abortController = new AbortController();
     abortRef.current = abortController;

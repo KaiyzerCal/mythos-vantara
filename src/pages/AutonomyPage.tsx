@@ -112,6 +112,19 @@ export default function AutonomyPage() {
 
   useEffect(() => { load(); }, [load]);
 
+  // ── Realtime: reload when plans / steps / queue / runs change ──
+  useEffect(() => {
+    const channel = supabase
+      .channel("autonomy-live")
+      .on("postgres_changes", { event: "*", schema: "public", table: "mavis_plans" }, () => load())
+      .on("postgres_changes", { event: "*", schema: "public", table: "mavis_plan_steps" }, () => load())
+      .on("postgres_changes", { event: "*", schema: "public", table: "mavis_action_queue" }, () => load())
+      .on("postgres_changes", { event: "*", schema: "public", table: "mavis_autonomous_runs" }, () => load())
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [load]);
+
+
   async function createPlan() {
     if (!goal.trim() || creating) return;
     setCreating(true);
