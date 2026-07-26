@@ -2053,6 +2053,9 @@ export default function MavisChat() {
         {selectedPersonaName && (
           <span className="text-xs font-mono px-2 py-1 rounded bg-primary/10 border border-primary/30 text-primary">{selectedPersonaName}</span>
         )}
+        {activeCustomSkill && (
+          <span className="text-xs font-mono px-2 py-1 rounded bg-amber-500/10 border border-amber-500/30 text-amber-500" title="Custom skill active">⚡ {activeCustomSkill.name}</span>
+        )}
         <button onClick={() => setShowPersonaPicker((v) => !v)} title="Inject persona context"
           className="p-2 rounded border border-border/50 text-muted-foreground hover:text-primary hover:border-primary/30 transition-colors text-xs font-mono">
           <Users size={12} />
