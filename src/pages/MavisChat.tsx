@@ -320,6 +320,20 @@ export default function MavisChat() {
   useEffect(() => { localStorage.setItem("mavis-voice-id", voiceId); }, [voiceId]);
   useEffect(() => { localStorage.setItem("mavis-voice-enabled", String(ttsEnabled)); }, [ttsEnabled]);
 
+  // Keyboard shortcut: `/` opens skill catalog when not typing in an input
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "/" && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        const target = e.target as HTMLElement;
+        if (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable) return;
+        e.preventDefault();
+        setShowSkillCatalog(true);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
   // ── Speech Recognition (STT) ────────────────────────────
   const startListening = useCallback(() => {
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
