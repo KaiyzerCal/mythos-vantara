@@ -254,7 +254,26 @@ export default function AutonomyPage() {
           <div className="lg:col-span-2 flex flex-col gap-2">
             <p className="text-[10px] font-mono uppercase text-muted-foreground">Plans</p>
             {plans.length === 0 ? (
-              <p className="text-xs font-mono text-muted-foreground text-center py-8">No plans yet — create one above.</p>
+              <div className="border border-dashed border-border rounded-lg py-8 px-4 text-center space-y-3">
+                <Target size={20} className="mx-auto text-primary/60" />
+                <p className="text-xs font-mono text-muted-foreground">No plans yet. Start with one of these:</p>
+                <div className="flex flex-wrap justify-center gap-1.5">
+                  {[
+                    "Launch a lead-gen campaign this week",
+                    "Audit my top 3 offers and refine positioning",
+                    "Prep a 5-post content sprint from my recent notes",
+                    "Cold-outreach 20 aligned prospects",
+                  ].map((g) => (
+                    <button
+                      key={g}
+                      onClick={() => setGoal(g)}
+                      className="text-[10px] font-mono px-2.5 py-1 rounded border border-primary/30 bg-primary/5 text-primary hover:bg-primary/15 transition-colors"
+                    >
+                      {g}
+                    </button>
+                  ))}
+                </div>
+              </div>
             ) : (
               plans.map(p => {
                 const planSteps = stepsByPlan[p.id] ?? [];
