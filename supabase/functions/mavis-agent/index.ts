@@ -1770,14 +1770,23 @@ async function runAgentLoop(
   env: Env,
   onEvent?: (event: Record<string, unknown>) => void,
 ): Promise<AgentLoopResult> {
-  const anthropicModel = "claude-sonnet-4-6";
-  const gatewayModel = "google/gemini-2.5-flash";
+  const anthropicModel = "claude-haiku-4-5-20251001";
+  const gatewayModel = "google/gemini-3.6-flash";
   let iteration = 0;
-  const MAX_ITERATIONS = 10;
+  const MAX_ITERATIONS = 4;
+  const deadlineAt = Date.now() + 55_000;
   let actionsQueued = 0;
   const toolsUsed: string[] = [];
 
   while (iteration < MAX_ITERATIONS) {
+    if (Date.now() > deadlineAt) {
+      return {
+        content: "I hit the agent time limit before finishing the full tool loop. Send the next command and I’ll continue from here.",
+        toolsUsed,
+        actionsQueued,
+      };
+    }
+
     let provider: "gateway" | "anthropic" = "anthropic";
     let stopReason = "end_turn";
     let content: Array<{
@@ -1802,40 +1811,45 @@ async function runAgentLoop(
     });
 
     if (env.lovableKey) {
-      const gatewayRes = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${env.lovableKey}` },
-        body: JSON.stringify({
-          model: gatewayModel,
-          max_tokens: 4096,
-          messages: [{ role: "system", content: system }, ...gatewayMessages],
-          tools: OPENAI_COMPAT_TOOLS,
-          tool_choice: "auto",
-        }),
-        signal: AbortSignal.timeout(90_000),
-      });
+      try {
+        const gatewayRes = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "Lovable-API-Key": env.lovableKey },
+          body: JSON.stringify({
+            model: gatewayModel,
+            max_tokens: 2048,
+            messages: [{ role: "system", content: system }, ...gatewayMessages],
+            tools: OPENAI_COMPAT_TOOLS,
+            tool_choice: "auto",
+          }),
+          signal: AbortSignal.timeout(25_000),
+        });
 
-      if (gatewayRes.ok) {
-        provider = "gateway";
-        const data = await gatewayRes.json();
-        const msg = data.choices?.[0]?.message ?? {};
-        const toolCalls = (msg.tool_calls ?? []) as Array<{ id?: string; function?: { name?: string; arguments?: unknown } }>;
-        if (toolCalls.length > 0) {
-          stopReason = "tool_use";
-          if (msg.content) content.push({ type: "text", text: String(msg.content) });
-          content.push(...toolCalls.map((call, idx) => ({
-            type: "tool_use",
-            id: call.id ?? `gateway_tool_${iteration}_${idx}`,
-            name: call.function?.name ?? "",
-            input: safeParseToolArguments(call.function?.arguments),
-          })));
-        } else {
-          stopReason = "end_turn";
-          content = [{ type: "text", text: String(msg.content ?? "") }];
+        if (gatewayRes.ok) {
+          provider = "gateway";
+          const data = await gatewayRes.json();
+          const msg = data.choices?.[0]?.message ?? {};
+          const toolCalls = (msg.tool_calls ?? []) as Array<{ id?: string; function?: { name?: string; arguments?: unknown } }>;
+          if (toolCalls.length > 0) {
+            stopReason = "tool_use";
+            if (msg.content) content.push({ type: "text", text: String(msg.content) });
+            content.push(...toolCalls.map((call, idx) => ({
+              type: "tool_use",
+              id: call.id ?? `gateway_tool_${iteration}_${idx}`,
+              name: call.function?.name ?? "",
+              input: safeParseToolArguments(call.function?.arguments),
+            })));
+          } else {
+            stopReason = "end_turn";
+            content = [{ type: "text", text: String(msg.content ?? "") }];
+          }
+        } else if (!claudeKey) {
+          const errText = await gatewayRes.text();
+          throw new Error(`AI Gateway error ${gatewayRes.status}: ${errText.slice(0, 300)}`);
         }
-      } else if (!claudeKey) {
-        const errText = await gatewayRes.text();
-        throw new Error(`AI Gateway error ${gatewayRes.status}: ${errText.slice(0, 300)}`);
+      } catch (err) {
+        if (!claudeKey) throw err;
+        console.warn("[mavis-agent] gateway fallback", err instanceof Error ? err.message : String(err));
       }
     }
 
@@ -1849,12 +1863,12 @@ async function runAgentLoop(
         },
         body: JSON.stringify({
           model: anthropicModel,
-          max_tokens: 4096,
+          max_tokens: 2048,
           system,
           messages,
           tools: MAVIS_TOOLS,
         }),
-        signal: AbortSignal.timeout(90_000),
+        signal: AbortSignal.timeout(25_000),
       });
 
       if (!res.ok) {
