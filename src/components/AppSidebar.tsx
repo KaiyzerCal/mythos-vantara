@@ -48,6 +48,7 @@ const PRIMARY_NAV = [
   { to: "/receptionist", icon: PhoneCall, label: "AI Receptionist" },
   { to: "/sms", icon: MessageSquare, label: "SMS & WhatsApp" },
   { to: "/inbox", icon: Inbox, label: "Inbox" },
+  { to: "/autonomy", icon: Radio, label: "Autonomy" },
   { to: "/quests", icon: Target, label: "Quests" },
   { to: "/councils", icon: Users, label: "Councils" },
 ];
