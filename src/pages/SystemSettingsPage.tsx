@@ -832,6 +832,145 @@ function SkillForm({
   );
 }
 
+const SKILL_TEMPLATES: Array<{ label: string; icon: string; draft: Omit<CustomSkill, "id" | "user_id" | "created_at"> }> = [
+  {
+    label: "Daily Standup",
+    icon: "📅",
+    draft: {
+      name: "Daily Standup",
+      description: "Summarize yesterday, today, and blockers from your data.",
+      trigger_phrase: "/standup",
+      system_prompt: "You are a concise daily standup assistant. Ask: What did you accomplish yesterday? What's today? Any blockers? Summarize the user's answers into a brief standup format they can paste into Slack/Discord.",
+      modes: ["PRIME", "SOVEREIGN"],
+      enabled: true,
+    },
+  },
+  {
+    label: "Idea Expander",
+    icon: "💡",
+    draft: {
+      name: "Idea Expander",
+      description: "Take a half-baked idea and expand it into a full plan.",
+      trigger_phrase: "/expand",
+      system_prompt: "You are a creative expansion assistant. When the user shares an idea, expand it into: concept, target audience, key features, risks, next steps, and a one-liner pitch. Be encouraging but honest about trade-offs.",
+      modes: ["FORGE", "PRIME", "SOVEREIGN"],
+      enabled: true,
+    },
+  },
+  {
+    label: "Reply Rewriter",
+    icon: "✍️",
+    draft: {
+      name: "Reply Rewriter",
+      description: "Rewrite a draft message in different tones.",
+      trigger_phrase: "/rewrite",
+      system_prompt: "You are a communication coach. Rewrite the user's message in: professional, friendly, concise, and diplomatic tones. Ask which tone they prefer if they don't specify.",
+      modes: ["PRIME", "SALES"],
+      enabled: true,
+    },
+  },
+  {
+    label: "Code Reviewer",
+    icon: "🧑‍💻",
+    draft: {
+      name: "Code Reviewer",
+      description: "Review pasted code for bugs, style, and improvements.",
+      trigger_phrase: "/review",
+      system_prompt: "You are a senior code reviewer. Analyze pasted code for: bugs, edge cases, performance issues, readability, and security. Provide specific line-by-line feedback and a summary of recommended changes.",
+      modes: ["CODEX"],
+      enabled: true,
+    },
+  },
+];
+
+function TestSkillDialog({
+  open,
+  onClose,
+  skill,
+}: {
+  open: boolean;
+  onClose: () => void;
+  skill: CustomSkill | null;
+}) {
+  const [input, setInput] = useState("");
+  const [output, setOutput] = useState("");
+  const [testing, setTesting] = useState(false);
+
+  useEffect(() => {
+    if (!open) {
+      setInput("");
+      setOutput("");
+    }
+  }, [open]);
+
+  async function runTest() {
+    if (!skill || !input.trim()) return;
+    setTesting(true);
+    setOutput("");
+    try {
+      const { data, error } = await (supabase as any).functions.invoke("mavis-chat", {
+        body: {
+          messages: [{ role: "user", content: input }],
+          systemPrompt: `${skill.system_prompt || ""}\n\n[USER REQUEST]\n`,
+          mode: "PRIME",
+        },
+      });
+      if (error) throw error;
+      setOutput(data?.content ?? "[No response]");
+    } catch (err: any) {
+      setOutput(`[Error] ${err.message || String(err)}`);
+    } finally {
+      setTesting(false);
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onClose}>
+      <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle className="text-sm font-mono">Test Skill: {skill?.name}</DialogTitle>
+          <DialogDescription className="text-xs font-mono">
+            Send a test message through the skill's system prompt.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-3 pt-2">
+          <div>
+            <label className="text-xs font-mono text-muted-foreground uppercase tracking-widest mb-1.5 block">
+              Test Input
+            </label>
+            <Textarea
+              className="text-xs font-mono resize-none"
+              rows={3}
+              placeholder={`Try the trigger: ${skill?.trigger_phrase || "..."}`}
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+            />
+          </div>
+          <div className="flex justify-end">
+            <Button
+              size="sm"
+              className="text-xs font-mono gap-1.5"
+              onClick={runTest}
+              disabled={testing || !input.trim()}
+            >
+              {testing ? <Loader2 size={11} className="animate-spin" /> : <Play size={11} />}
+              Run Test
+            </Button>
+          </div>
+          {output && (
+            <div className="border border-border rounded-lg bg-card p-3">
+              <p className="text-xs font-mono text-muted-foreground uppercase tracking-widest mb-1.5">
+                Output
+              </p>
+              <pre className="text-xs font-mono whitespace-pre-wrap text-foreground">{output}</pre>
+            </div>
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function CustomSkillsTab() {
   const { user } = useAuth();
 
@@ -844,6 +983,8 @@ function CustomSkillsTab() {
   const [savingEdit, setSavingEdit] = useState(false);
   const [showAdd, setShowAdd] = useState(false);
   const [savingNew, setSavingNew] = useState(false);
+  const [search, setSearch] = useState("");
+  const [testSkill, setTestSkill] = useState<CustomSkill | null>(null);
 
   const load = useCallback(async () => {
     if (!user) return;
@@ -865,6 +1006,17 @@ function CustomSkillsTab() {
   useEffect(() => {
     load();
   }, [load]);
+
+  const filteredSkills = useMemo(() => {
+    if (!search.trim()) return skills;
+    const q = search.toLowerCase();
+    return skills.filter(
+      (s) =>
+        s.name.toLowerCase().includes(q) ||
+        (s.description ?? "").toLowerCase().includes(q) ||
+        (s.trigger_phrase ?? "").toLowerCase().includes(q)
+    );
+  }, [skills, search]);
 
   // ── Toggle enabled ────────────────────────────────────────
   async function handleToggle(skill: CustomSkill) {
@@ -950,27 +1102,95 @@ function CustomSkillsTab() {
     setSavingNew(false);
   }
 
+  // ── Duplicate ───────────────────────────────────────────────
+  async function handleDuplicate(skill: CustomSkill) {
+    if (!user) return;
+    const draft = {
+      name: `${skill.name} Copy`,
+      description: skill.description,
+      trigger_phrase: skill.trigger_phrase,
+      system_prompt: skill.system_prompt,
+      modes: skill.modes ?? [],
+      enabled: skill.enabled,
+    };
+    const { data, error } = await (supabase as any)
+      .from("mavis_custom_skills")
+      .insert({ ...draft, user_id: user.id })
+      .select()
+      .single();
+
+    if (error) {
+      toast.error("Duplicate failed");
+    } else {
+      toast.success("Skill duplicated");
+      setSkills((prev) => [data as CustomSkill, ...prev]);
+    }
+  }
+
   // ─── Render ───────────────────────────────────────────────
   return (
     <div className="space-y-5">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <p className="text-xs font-mono text-muted-foreground">
-          Custom behaviors MAVIS can invoke via trigger phrase or mode context.
-        </p>
-        <Button
-          size="sm"
-          variant="outline"
-          className="text-xs font-mono gap-1.5"
-          onClick={() => {
-            setShowAdd((v) => !v);
-            setEditingId(null);
-          }}
-        >
-          <Plus size={12} />
-          {showAdd ? "Cancel" : "New Skill"}
-        </Button>
+      <div className="flex flex-col gap-4">
+        <div className="flex items-center justify-between">
+          <p className="text-xs font-mono text-muted-foreground">
+            Custom behaviors MAVIS can invoke via trigger phrase or mode context.
+          </p>
+          <Button
+            size="sm"
+            variant="outline"
+            className="text-xs font-mono gap-1.5"
+            onClick={() => {
+              setShowAdd((v) => !v);
+              setEditingId(null);
+            }}
+          >
+            <Plus size={12} />
+            {showAdd ? "Cancel" : "New Skill"}
+          </Button>
+        </div>
+
+        <div className="relative">
+          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            className="pl-9 text-xs font-mono h-9"
+            placeholder="Search custom skills by name, trigger, or description..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+        </div>
       </div>
+
+      {/* Templates */}
+      {!showAdd && skills.length === 0 && !search && !loading && (
+        <HudCard glowColor="blue">
+          <p className="text-xs font-mono text-primary uppercase tracking-widest mb-3">
+            Quick Start Templates
+          </p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            {SKILL_TEMPLATES.map((t) => (
+              <button
+                key={t.label}
+                onClick={() => {
+                  setShowAdd(true);
+                  // Seed the form by temporarily storing the template; the form will pick it up on next render via a small hack
+                  setTimeout(() => {
+                    const evt = new CustomEvent("mavis-skill-template", { detail: t.draft });
+                    window.dispatchEvent(evt);
+                  }, 0);
+                }}
+                className="text-left border border-border rounded-lg p-3 hover:border-primary/30 hover:bg-primary/5 transition-all"
+              >
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="text-sm">{t.icon}</span>
+                  <span className="text-xs font-mono text-foreground">{t.label}</span>
+                </div>
+                <p className="text-xs font-mono text-muted-foreground">{t.description}</p>
+              </button>
+            ))}
+          </div>
+        </HudCard>
+      )}
 
       {/* Add form */}
       {showAdd && (
@@ -994,7 +1214,7 @@ function CustomSkillsTab() {
         </div>
       ) : (
         <div className="space-y-2">
-          {skills.map((skill) =>
+          {filteredSkills.map((skill) =>
             editingId === skill.id ? (
               <HudCard key={skill.id} glowColor="purple">
                 <p className="text-xs font-mono text-purple-400 uppercase tracking-widest mb-3">
@@ -1065,6 +1285,20 @@ function CustomSkillsTab() {
                   {/* Actions */}
                   <div className="flex items-center gap-1 shrink-0">
                     <button
+                      onClick={() => setTestSkill(skill)}
+                      className="p-1.5 rounded hover:bg-primary/10 text-muted-foreground hover:text-primary transition-all"
+                      title="Test skill"
+                    >
+                      <Play size={12} />
+                    </button>
+                    <button
+                      onClick={() => handleDuplicate(skill)}
+                      className="p-1.5 rounded hover:bg-muted/40 text-muted-foreground hover:text-foreground transition-all"
+                      title="Duplicate"
+                    >
+                      <Copy size={12} />
+                    </button>
+                    <button
                       onClick={() => {
                         setEditingId(skill.id);
                         setShowAdd(false);
@@ -1092,17 +1326,25 @@ function CustomSkillsTab() {
             )
           )}
 
-          {skills.length === 0 && !showAdd && (
+          {filteredSkills.length === 0 && !showAdd && (
             <div className="text-center py-12 text-muted-foreground">
               <Wrench size={24} className="mx-auto mb-3 opacity-30" />
-              <p className="text-xs font-mono">No custom skills yet.</p>
+              <p className="text-xs font-mono">
+                {search ? "No skills match your search." : "No custom skills yet."}
+              </p>
               <p className="text-xs font-mono mt-1 opacity-60">
-                Create your first skill above.
+                {search ? "Try a different query." : "Create your first skill above."}
               </p>
             </div>
           )}
         </div>
       )}
+
+      <TestSkillDialog
+        open={testSkill !== null}
+        onClose={() => setTestSkill(null)}
+        skill={testSkill}
+      />
 
       <ConfirmDialog
         open={confirmDeleteSkill !== null}
