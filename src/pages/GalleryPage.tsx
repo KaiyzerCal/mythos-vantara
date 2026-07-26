@@ -37,7 +37,7 @@ const FILTER_ICONS: Record<FilterType, React.ReactNode> = {
   poster: <Globe size={12} />,
 };
 
-function MediaCard({ item }: { item: MediaItem }) {
+function MediaCard({ item, onSendToVideo }: { item: MediaItem; onSendToVideo?: (url: string) => void }) {
   const [imgError, setImgError] = useState(false);
 
   return (
@@ -103,6 +103,16 @@ function MediaCard({ item }: { item: MediaItem }) {
           >
             <Download size={13} />
           </a>
+          {item.type === "image" && onSendToVideo && (
+            <button
+              type="button"
+              onClick={(e) => { e.preventDefault(); e.stopPropagation(); onSendToVideo(item.url); }}
+              className="w-8 h-8 rounded-full bg-primary/30 border border-primary/50 flex items-center justify-center text-white hover:bg-primary/50 transition-colors"
+              title="Animate → Video"
+            >
+              <Play size={13} />
+            </button>
+          )}
         </div>
 
         {/* Type badge */}
