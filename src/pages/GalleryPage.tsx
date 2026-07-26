@@ -2,7 +2,8 @@ import { useState, useEffect, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { PageHeader } from "@/components/SharedUI";
-import { Loader2, Image, Music, Video, Globe, Download, ExternalLink, RefreshCw, Grid3X3, Wand2, Send, Sparkles, Film, Camera, Upload } from "lucide-react";
+import { LoadingState } from "@/components/LoadingState";
+import { Loader2, Image, Music, Video, Globe, Download, ExternalLink, RefreshCw, Grid3X3, Wand2, Send, Sparkles, Film, Camera, Upload, Play } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
 
@@ -36,7 +37,7 @@ const FILTER_ICONS: Record<FilterType, React.ReactNode> = {
   poster: <Globe size={12} />,
 };
 
-function MediaCard({ item }: { item: MediaItem }) {
+function MediaCard({ item, onSendToVideo }: { item: MediaItem; onSendToVideo?: (url: string) => void }) {
   const [imgError, setImgError] = useState(false);
 
   return (
@@ -102,6 +103,16 @@ function MediaCard({ item }: { item: MediaItem }) {
           >
             <Download size={13} />
           </a>
+          {item.type === "image" && onSendToVideo && (
+            <button
+              type="button"
+              onClick={(e) => { e.preventDefault(); e.stopPropagation(); onSendToVideo(item.url); }}
+              className="w-8 h-8 rounded-full bg-primary/30 border border-primary/50 flex items-center justify-center text-white hover:bg-primary/50 transition-colors"
+              title="Animate → Video"
+            >
+              <Play size={13} />
+            </button>
+          )}
         </div>
 
         {/* Type badge */}
@@ -318,7 +329,7 @@ const VIDEO_PROVIDERS = [
   { key: "modelslab",  label: "ModelsLab",   hint: "SDXL video, uncensored" },
 ] as const;
 
-function VideoGenPanel({ onGenerated }: { onGenerated: (item: MediaItem) => void }) {
+function VideoGenPanel({ onGenerated, seedImageUrl }: { onGenerated: (item: MediaItem) => void; seedImageUrl?: string | null }) {
   const { session } = useAuth();
   const [prompt, setPrompt] = useState("");
   const [imageUrl, setImageUrl] = useState("");
@@ -329,6 +340,11 @@ function VideoGenPanel({ onGenerated }: { onGenerated: (item: MediaItem) => void
   const [uploading, setUploading] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [lastUrl, setLastUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (seedImageUrl) setImageUrl(seedImageUrl);
+  }, [seedImageUrl]);
+
 
 
   async function handleImageUpload(e: React.ChangeEvent<HTMLInputElement>) {
@@ -565,6 +581,15 @@ export function GalleryPage() {
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<FilterType>("all");
   const [genMode, setGenMode] = useState<"image" | "video">("image");
+  const [seedImageUrl, setSeedImageUrl] = useState<string | null>(null);
+
+  const handleSendToVideo = useCallback((url: string) => {
+    setSeedImageUrl(url);
+    setGenMode("video");
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }, []);
+
+
 
 
   const load = useCallback(async () => {
@@ -694,7 +719,8 @@ export function GalleryPage() {
 
       {genMode === "image"
         ? <ImageGenPanel onGenerated={prependItem} />
-        : <VideoGenPanel onGenerated={prependItem} />}
+        : <VideoGenPanel onGenerated={prependItem} seedImageUrl={seedImageUrl} />}
+
 
 
       {/* Filter bar */}
@@ -720,10 +746,9 @@ export function GalleryPage() {
       </div>
 
       {loading ? (
-        <div className="flex items-center justify-center py-16">
-          <Loader2 size={20} className="animate-spin text-primary/50" />
-        </div>
+        <LoadingState label="Loading gallery…" size="lg" />
       ) : visible.length === 0 ? (
+
         <div className="text-center py-16">
           <p className="text-xs font-mono text-muted-foreground">No {filter === "all" ? "assets" : filter} found.</p>
           <p className="text-[10px] font-mono text-muted-foreground mt-1">
@@ -734,7 +759,7 @@ export function GalleryPage() {
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
           <AnimatePresence>
             {visible.map((item) => (
-              <MediaCard key={item.id} item={item} />
+              <MediaCard key={item.id} item={item} onSendToVideo={handleSendToVideo} />
             ))}
           </AnimatePresence>
         </div>
@@ -742,3 +767,4 @@ export function GalleryPage() {
     </div>
   );
 }
+

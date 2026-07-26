@@ -2,7 +2,8 @@ import { useState, useEffect, useCallback } from "react";
 import ReactMarkdown from "react-markdown";
 import { supabase } from "@/integrations/supabase/client";
 import { PageHeader } from "@/components/SharedUI";
-import { Inbox as InboxIcon, Eye, CheckCircle, Clock, AlertCircle, BookOpen, ListTodo, XCircle, Loader2, Mail, MailX, MailCheck } from "lucide-react";
+import { LoadingState } from "@/components/LoadingState";
+import { Inbox as InboxIcon, Eye, CheckCircle, Clock, AlertCircle, BookOpen, ListTodo, XCircle, Loader2, Mail, MailX, MailCheck, MessageSquare } from "lucide-react";
 import { toast } from "sonner";
 import { motion, AnimatePresence } from "framer-motion";
 
@@ -52,7 +53,19 @@ interface EmailWatch {
   triggered_at: string | null;
 }
 
-type InboxTab = "approvals" | "briefs" | "tasks" | "email-watches";
+interface GmailMessage {
+  id: string;
+  gmail_id: string | null;
+  from_address: string | null;
+  subject: string | null;
+  snippet: string | null;
+  body_text: string | null;
+  received_at: string | null;
+  is_read: boolean;
+  labels: string[] | null;
+}
+
+type InboxTab = "approvals" | "briefs" | "tasks" | "messages" | "email-watches";
 
 function timeAgo(iso: string): string {
   const diff = Date.now() - new Date(iso).getTime();
@@ -92,6 +105,7 @@ export default function Inbox() {
   const [briefs, setBriefs] = useState<WatchtowerBrief[]>([]);
   const [tasks, setTasks] = useState<MavisTask[]>([]);
   const [emailWatches, setEmailWatches] = useState<EmailWatch[]>([]);
+  const [messages, setMessages] = useState<GmailMessage[]>([]);
   const [loading, setLoading] = useState(true);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [cancellingId, setCancellingId] = useState<string | null>(null);
@@ -106,7 +120,7 @@ export default function Inbox() {
       if (!session?.user) return;
       const uid = session.user.id;
 
-      const [approvalsRes, briefsRes, tasksRes, watchesRes] = await Promise.all([
+      const [approvalsRes, briefsRes, tasksRes, watchesRes, messagesRes] = await Promise.all([
         supabase
           .from("approvals")
           .select("*")
@@ -131,6 +145,12 @@ export default function Inbox() {
           .eq("user_id", uid)
           .order("created_at", { ascending: false })
           .limit(50),
+        (supabase as any)
+          .from("gmail_messages")
+          .select("id, gmail_id, from_address, subject, snippet, body_text, received_at, is_read, labels")
+          .eq("user_id", uid)
+          .order("received_at", { ascending: false })
+          .limit(50),
       ]);
 
       if (approvalsRes.error) console.warn("[Inbox] approvals:", approvalsRes.error.message);
@@ -143,6 +163,9 @@ export default function Inbox() {
       else setTasks((tasksRes.data ?? []) as MavisTask[]);
 
       if (!watchesRes.error) setEmailWatches((watchesRes.data ?? []) as EmailWatch[]);
+
+      if (messagesRes && !messagesRes.error) setMessages((messagesRes.data ?? []) as GmailMessage[]);
+      else if (messagesRes?.error) console.warn("[Inbox] messages:", messagesRes.error.message);
     } catch (err) {
       console.error("[Inbox] load error:", err);
     } finally {
@@ -299,6 +322,7 @@ export default function Inbox() {
   const unreadBriefs = briefs.filter(b => !b.read).length;
   const pendingApprovals = approvals.filter(a => a.status === "pending").length;
   const activeTasks = tasks.filter(t => t.status === "pending" || t.status === "running" || t.status === "requires_confirmation").length;
+  const unreadMessages = messages.filter(m => !m.is_read).length;
 
   return (
     <div className="flex flex-col gap-4">
@@ -349,6 +373,17 @@ export default function Inbox() {
           )}
         </button>
         <button
+          onClick={() => setTab("messages")}
+          className={`px-4 py-2 text-xs font-mono border-b-2 transition-colors ${tab === "messages" ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"}`}
+        >
+          Messages
+          {unreadMessages > 0 && (
+            <span className="ml-2 px-1.5 py-0.5 rounded-full bg-cyan-500/20 text-cyan-400 text-xs">
+              {unreadMessages}
+            </span>
+          )}
+        </button>
+        <button
           onClick={() => setTab("email-watches")}
           className={`px-4 py-2 text-xs font-mono border-b-2 transition-colors ${tab === "email-watches" ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"}`}
         >
@@ -363,9 +398,7 @@ export default function Inbox() {
 
       {/* Content */}
       {loading ? (
-        <div className="flex items-center justify-center py-16">
-          <span className="w-5 h-5 rounded-full border-2 border-primary border-t-transparent animate-spin" />
-        </div>
+        <LoadingState label="Loading inbox…" size="lg" />
       ) : (
         <AnimatePresence mode="wait">
           {tab === "approvals" && (
@@ -629,6 +662,73 @@ export default function Inbox() {
                 );})}
                 </>;
               })()}
+            </motion.div>
+          )}
+          {tab === "messages" && (
+            <motion.div key="messages" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="flex flex-col gap-2">
+              {messages.length === 0 ? (
+                <div className="text-center py-12">
+                  <MessageSquare size={20} className="text-muted-foreground mx-auto mb-2" />
+                  <p className="text-xs font-mono text-muted-foreground">No messages yet.</p>
+                  <p className="text-[10px] font-mono text-muted-foreground mt-1">
+                    Gmail messages synced by MAVIS will appear here.
+                  </p>
+                </div>
+              ) : (
+                messages.map((m) => (
+                  <motion.div
+                    key={m.id}
+                    layout
+                    className={`border rounded-lg overflow-hidden transition-colors ${m.is_read ? "border-border" : "border-cyan-500/30"}`}
+                  >
+                    <button
+                      onClick={async () => {
+                        setExpandedId(expandedId === m.id ? null : m.id);
+                        if (!m.is_read) {
+                          setMessages(prev => prev.map(x => x.id === m.id ? { ...x, is_read: true } : x));
+                          await (supabase as any).from("gmail_messages").update({ is_read: true }).eq("id", m.id);
+                        }
+                      }}
+                      className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-muted/20 transition-colors"
+                    >
+                      <Mail size={14} className={m.is_read ? "text-muted-foreground shrink-0" : "text-cyan-400 shrink-0"} />
+                      <div className="flex-1 min-w-0">
+                        <p className={`text-xs font-mono font-medium truncate ${m.is_read ? "text-muted-foreground" : "text-foreground"}`}>
+                          {m.subject || "(no subject)"}
+                        </p>
+                        <p className="text-xs font-mono text-muted-foreground truncate">
+                          {m.from_address || "unknown"} · {m.received_at ? timeAgo(m.received_at) : ""}
+                        </p>
+                        {m.snippet && (
+                          <p className="text-[10px] font-mono text-muted-foreground mt-0.5 line-clamp-1">{m.snippet}</p>
+                        )}
+                      </div>
+                      {!m.is_read && <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 shrink-0" />}
+                    </button>
+                    <AnimatePresence>
+                      {expandedId === m.id && (
+                        <motion.div
+                          initial={{ height: 0 }} animate={{ height: "auto" }} exit={{ height: 0 }}
+                          className="overflow-hidden border-t border-border"
+                        >
+                          <div className="px-4 py-3 space-y-2">
+                            {m.labels && m.labels.length > 0 && (
+                              <div className="flex flex-wrap gap-1">
+                                {m.labels.slice(0, 6).map((l, i) => (
+                                  <span key={i} className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-muted/30 text-muted-foreground border border-border">{l}</span>
+                                ))}
+                              </div>
+                            )}
+                            <pre className="text-xs font-mono text-foreground/90 bg-muted/10 rounded p-2 overflow-x-auto whitespace-pre-wrap max-h-96">
+                              {m.body_text || m.snippet || "(no body)"}
+                            </pre>
+                          </div>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </motion.div>
+                ))
+              )}
             </motion.div>
           )}
           {tab === "email-watches" && (
