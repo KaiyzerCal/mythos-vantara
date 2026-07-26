@@ -2,7 +2,8 @@ import { useState, useEffect, useCallback } from "react";
 import ReactMarkdown from "react-markdown";
 import { supabase } from "@/integrations/supabase/client";
 import { PageHeader } from "@/components/SharedUI";
-import { Inbox as InboxIcon, Eye, CheckCircle, Clock, AlertCircle, BookOpen, ListTodo, XCircle, Loader2, Mail, MailX, MailCheck } from "lucide-react";
+import { LoadingState } from "@/components/LoadingState";
+import { Inbox as InboxIcon, Eye, CheckCircle, Clock, AlertCircle, BookOpen, ListTodo, XCircle, Loader2, Mail, MailX, MailCheck, MessageSquare } from "lucide-react";
 import { toast } from "sonner";
 import { motion, AnimatePresence } from "framer-motion";
 
@@ -52,7 +53,19 @@ interface EmailWatch {
   triggered_at: string | null;
 }
 
-type InboxTab = "approvals" | "briefs" | "tasks" | "email-watches";
+interface GmailMessage {
+  id: string;
+  gmail_id: string | null;
+  from_address: string | null;
+  subject: string | null;
+  snippet: string | null;
+  body_text: string | null;
+  received_at: string | null;
+  is_read: boolean;
+  labels: string[] | null;
+}
+
+type InboxTab = "approvals" | "briefs" | "tasks" | "messages" | "email-watches";
 
 function timeAgo(iso: string): string {
   const diff = Date.now() - new Date(iso).getTime();
