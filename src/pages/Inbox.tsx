@@ -105,6 +105,7 @@ export default function Inbox() {
   const [briefs, setBriefs] = useState<WatchtowerBrief[]>([]);
   const [tasks, setTasks] = useState<MavisTask[]>([]);
   const [emailWatches, setEmailWatches] = useState<EmailWatch[]>([]);
+  const [messages, setMessages] = useState<GmailMessage[]>([]);
   const [loading, setLoading] = useState(true);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [cancellingId, setCancellingId] = useState<string | null>(null);
@@ -119,7 +120,7 @@ export default function Inbox() {
       if (!session?.user) return;
       const uid = session.user.id;
 
-      const [approvalsRes, briefsRes, tasksRes, watchesRes] = await Promise.all([
+      const [approvalsRes, briefsRes, tasksRes, watchesRes, messagesRes] = await Promise.all([
         supabase
           .from("approvals")
           .select("*")
@@ -144,6 +145,12 @@ export default function Inbox() {
           .eq("user_id", uid)
           .order("created_at", { ascending: false })
           .limit(50),
+        (supabase as any)
+          .from("gmail_messages")
+          .select("id, gmail_id, from_address, subject, snippet, body_text, received_at, is_read, labels")
+          .eq("user_id", uid)
+          .order("received_at", { ascending: false })
+          .limit(50),
       ]);
 
       if (approvalsRes.error) console.warn("[Inbox] approvals:", approvalsRes.error.message);
@@ -156,6 +163,9 @@ export default function Inbox() {
       else setTasks((tasksRes.data ?? []) as MavisTask[]);
 
       if (!watchesRes.error) setEmailWatches((watchesRes.data ?? []) as EmailWatch[]);
+
+      if (messagesRes && !messagesRes.error) setMessages((messagesRes.data ?? []) as GmailMessage[]);
+      else if (messagesRes?.error) console.warn("[Inbox] messages:", messagesRes.error.message);
     } catch (err) {
       console.error("[Inbox] load error:", err);
     } finally {
