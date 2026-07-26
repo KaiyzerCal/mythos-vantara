@@ -322,6 +322,7 @@ export default function Inbox() {
   const unreadBriefs = briefs.filter(b => !b.read).length;
   const pendingApprovals = approvals.filter(a => a.status === "pending").length;
   const activeTasks = tasks.filter(t => t.status === "pending" || t.status === "running" || t.status === "requires_confirmation").length;
+  const unreadMessages = messages.filter(m => !m.is_read).length;
 
   return (
     <div className="flex flex-col gap-4">
@@ -372,6 +373,17 @@ export default function Inbox() {
           )}
         </button>
         <button
+          onClick={() => setTab("messages")}
+          className={`px-4 py-2 text-xs font-mono border-b-2 transition-colors ${tab === "messages" ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"}`}
+        >
+          Messages
+          {unreadMessages > 0 && (
+            <span className="ml-2 px-1.5 py-0.5 rounded-full bg-cyan-500/20 text-cyan-400 text-xs">
+              {unreadMessages}
+            </span>
+          )}
+        </button>
+        <button
           onClick={() => setTab("email-watches")}
           className={`px-4 py-2 text-xs font-mono border-b-2 transition-colors ${tab === "email-watches" ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"}`}
         >
@@ -386,9 +398,7 @@ export default function Inbox() {
 
       {/* Content */}
       {loading ? (
-        <div className="flex items-center justify-center py-16">
-          <span className="w-5 h-5 rounded-full border-2 border-primary border-t-transparent animate-spin" />
-        </div>
+        <LoadingState label="Loading inbox…" size="lg" />
       ) : (
         <AnimatePresence mode="wait">
           {tab === "approvals" && (
