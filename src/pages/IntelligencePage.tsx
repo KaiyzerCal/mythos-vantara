@@ -887,8 +887,8 @@ export default function IntelligencePage() {
   };
 
   return (
-    <div className="flex flex-col h-full bg-zinc-950 text-foreground overflow-hidden">
-      <div className="flex items-center gap-3 px-6 py-4 border-b border-zinc-800/60 shrink-0">
+    <div className="flex flex-col h-full bg-background text-foreground overflow-hidden">
+      <div className="flex items-center gap-3 px-6 py-4 border-b border-border shrink-0">
         <div className="w-9 h-9 rounded-xl bg-indigo-500/20 border border-indigo-500/40 flex items-center justify-center">
           <Brain size={18} className="text-indigo-400" />
         </div>
