@@ -2603,7 +2603,7 @@ export default function MavisChat() {
           }}
           placeholder={isListening ? "Listening... speak now" : `MAVIS-${currentMode.label} awaiting input...`}
           rows={2}
-          className={`flex-1 bg-card border rounded-lg px-3 py-2.5 text-sm font-body resize-none focus:outline-none focus:border-primary/50 placeholder:text-muted-foreground placeholder:font-mono placeholder:text-xs ${
+          className={`flex-1 bg-card border rounded-lg px-3 py-2.5 text-sm font-body resize-none focus:outline-none focus:border-primary/60 focus:shadow-[0_0_0_3px_hsl(var(--primary)/0.12)] placeholder:text-muted-foreground placeholder:font-mono placeholder:text-xs transition-all ${
             isListening ? "border-destructive/40" : "border-border"
           }`}
         />
