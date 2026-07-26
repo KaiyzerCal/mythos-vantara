@@ -58,7 +58,7 @@ function estimateLlmCost(provider: string, inputChars: number, outputChars: numb
   const RATES: Record<string, [number, number]> = {
     "gemini-2.0-flash":       [0.0,    0.0  ],  // free tier
     "gemini-2.0-flash-lite":  [0.0,    0.0  ],  // free tier
-    "gemini-2.5-flash":       [0.075,  0.30 ],
+    "gemini-flash-latest":       [0.075,  0.30 ],
     "gemini-2.5-thinking":    [3.5,   10.50 ],
     "openai-mini":            [0.15,   0.60 ],
     "claude-haiku":           [0.25,   1.25 ],
@@ -381,8 +381,8 @@ async function callGemini(messages: any[], system: string, key: string, opts: { 
   }));
   // Use opts.model if provided; thinking requires the 2.5 preview model.
   const geminiModel = opts.thinking
-    ? "gemini-2.5-flash"
-    : (opts.model ?? "gemini-2.5-flash");
+    ? "gemini-flash-latest"
+    : (opts.model ?? "gemini-flash-latest");
   const body: any = {
     systemInstruction: { parts: [{ text: system }] },
     contents,
@@ -469,7 +469,7 @@ async function callWithFallback(
         grounding: ["WATCHTOWER", "GROUNDED"].includes(mU),
         codeExec:  ["DATA", "CODEX", "RESEARCH"].includes(mU),
       };
-      return { content: await callGemini(messages, system, keys.gemini, geminiOpts), provider: geminiOpts.thinking ? "gemini-2.5-thinking" : "gemini-2.5-flash" };
+      return { content: await callGemini(messages, system, keys.gemini, geminiOpts), provider: geminiOpts.thinking ? "gemini-2.5-thinking" : "gemini-flash-latest" };
     } catch (err: any) {
       if (err instanceof ProviderUnavailableError) markProviderUnhealthy("gemini");
       console.warn(`[fallback] Gemini 2.5 Flash failed (${err.message}) → cascading`);
@@ -755,7 +755,7 @@ async function callGeminiStream(messages: any[], system: string, key: string, op
   if (opts.thinking) body.generationConfig.thinkingConfig = { thinkingBudget: 8192 };
   if (opts.grounding && !opts.thinking) body.tools = [{ googleSearch: {} }];
   else if (opts.codeExec && !opts.thinking) body.tools = [{ codeExecution: {} }];
-  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:streamGenerateContent?key=${key}&alt=sse`, {
+  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:streamGenerateContent?key=${key}&alt=sse`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
@@ -835,7 +835,7 @@ async function callWithFallbackStream(
         grounding: ["WATCHTOWER", "GROUNDED"].includes(mU),
         codeExec: ["DATA", "CODEX", "RESEARCH"].includes(mU),
       };
-      return { stream: await callGeminiStream(messages, system, keys.gemini, geminiOpts), provider: geminiOpts.thinking ? "gemini-2.5-thinking" : "gemini-2.5-flash" };
+      return { stream: await callGeminiStream(messages, system, keys.gemini, geminiOpts), provider: geminiOpts.thinking ? "gemini-2.5-thinking" : "gemini-flash-latest" };
     }
     catch (e: any) { console.warn(`[stream-fallback] Gemini 2.5 Flash: ${e.message} → cascading`); }
   }
