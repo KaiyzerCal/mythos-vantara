@@ -18,6 +18,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { MavisActivityFeed } from "@/components/MavisActivityFeed";
 import { ApprovalQueue } from "@/components/ApprovalQueue";
 import { CausalInsights } from "@/components/CausalInsights";
+import { LoadingState } from "@/components/LoadingState";
 import { StandingOrdersWidget } from "@/components/StandingOrdersWidget";
 import { toast } from "sonner";
 
