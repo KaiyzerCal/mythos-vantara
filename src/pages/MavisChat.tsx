@@ -1310,6 +1310,20 @@ export default function MavisChat() {
       else if (responseLength === "detailed") systemPrompt += "\n\n[RESPONSE LENGTH: Be thorough and detailed — elaborate with examples where useful.]";
       if (selectedPersonaPrompt) systemPrompt += `\n\n--- ACTIVE PERSONA ---\n${selectedPersonaPrompt}\n---`;
 
+      // Custom skill trigger matching
+      const matchedCustom = customSkills.find((s) => {
+        const trigger = s.trigger_phrase?.trim().toLowerCase();
+        if (!trigger) return false;
+        const lowerContent = content.toLowerCase();
+        return lowerContent.startsWith(trigger) || lowerContent.includes(trigger);
+      });
+      if (matchedCustom) {
+        setActiveCustomSkill({ name: matchedCustom.name, trigger_phrase: matchedCustom.trigger_phrase });
+        systemPrompt += `\n\n--- CUSTOM SKILL: ${matchedCustom.name} ---\n${matchedCustom.system_prompt}\n---`;
+      } else {
+        setActiveCustomSkill(null);
+      }
+
       // In text-only modes, stop MAVIS from promising executions it can't deliver
       const NON_AGENT_MODES = ["PRIME", "ENRYU", "SOVEREIGN", "QUEST", "FORGE", "WATCHTOWER", "SALES", "MARKET", "GAME_MASTER", "WEBMASTER"];
       const ACTION_KEYWORDS = /\b(execute|run|perform|analyze my (setup|system|app|account|data)|check my (setup|data|account|stats)|access|audit|search (the )?web|browse|fetch|build me|deploy|take action|do (that|this|it)|carry out|make it happen|generate and)\b/i;
