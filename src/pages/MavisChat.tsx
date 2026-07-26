@@ -2530,6 +2530,29 @@ export default function MavisChat() {
         </div>
       )}
 
+      {/* Slash-command hint chips */}
+      {!input && !isLoading && (
+        <div className="flex flex-wrap items-center gap-1.5 px-1 mb-1.5">
+          <span className="text-[9px] font-mono uppercase tracking-widest text-muted-foreground/60">try</span>
+          {[
+            { label: "/autonomy", hint: "spawn a plan" },
+            { label: "/image", hint: "generate art" },
+            { label: "/video", hint: "generate motion" },
+            { label: "/journal", hint: "capture a thought" },
+          ].map((c) => (
+            <button
+              key={c.label}
+              type="button"
+              onClick={() => { setInput(c.label + " "); inputRef.current?.focus(); }}
+              className="text-[10px] font-mono px-2 py-0.5 rounded-full border border-border/70 text-muted-foreground hover:text-primary hover:border-primary/40 hover:bg-primary/5 transition-all"
+              title={c.hint}
+            >
+              {c.label}
+            </button>
+          ))}
+        </div>
+      )}
+
       {/* Input — pinned to bottom with safe-area padding for mobile */}
       <div className="flex gap-2 mt-auto pt-1 pb-[max(env(safe-area-inset-bottom),0.25rem)]">
         <AttachButton
@@ -2580,7 +2603,7 @@ export default function MavisChat() {
           }}
           placeholder={isListening ? "Listening... speak now" : `MAVIS-${currentMode.label} awaiting input...`}
           rows={2}
-          className={`flex-1 bg-card border rounded-lg px-3 py-2.5 text-sm font-body resize-none focus:outline-none focus:border-primary/50 placeholder:text-muted-foreground placeholder:font-mono placeholder:text-xs ${
+          className={`flex-1 bg-card border rounded-lg px-3 py-2.5 text-sm font-body resize-none focus:outline-none focus:border-primary/60 focus:shadow-[0_0_0_3px_hsl(var(--primary)/0.12)] placeholder:text-muted-foreground placeholder:font-mono placeholder:text-xs transition-all ${
             isListening ? "border-destructive/40" : "border-border"
           }`}
         />

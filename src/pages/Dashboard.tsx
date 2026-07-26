@@ -235,6 +235,43 @@ export default function Dashboard() {
     <div className="space-y-6">
       {user && <OnboardingWidget userId={user.id} />}
 
+      {/* Time-of-day greeting */}
+      <motion.div {...fadeIn(0)} className="flex items-center justify-between">
+        <div>
+          <p className="text-[10px] font-mono uppercase tracking-[0.2em] text-primary/60">
+            {(() => {
+              const h = new Date().getHours();
+              if (h < 5) return "// Deep Night Cycle";
+              if (h < 12) return "// Dawn Protocol";
+              if (h < 17) return "// Solar Ascendancy";
+              if (h < 21) return "// Twilight Phase";
+              return "// Night Watch";
+            })()}
+          </p>
+          <h1 className="font-display text-2xl md:text-3xl mt-1" style={{ color: rankColor }}>
+            {(() => {
+              const h = new Date().getHours();
+              const name = profile.inscribed_name?.split(" ")[0] ?? "Monarch";
+              if (h < 12) return `Rise, ${name}.`;
+              if (h < 17) return `Onward, ${name}.`;
+              if (h < 21) return `Hold the line, ${name}.`;
+              return `The realm is yours, ${name}.`;
+            })()}
+          </h1>
+          <p className="text-xs font-mono text-muted-foreground mt-0.5">
+            {new Date().toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })}
+          </p>
+        </div>
+        <div className="hidden md:flex flex-col items-end">
+          <div className="flex items-center gap-1.5 text-[10px] font-mono text-green-400">
+            <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
+            MAVIS ONLINE
+          </div>
+          <p className="text-[10px] font-mono text-muted-foreground mt-0.5">CodexOS v21.1</p>
+        </div>
+      </motion.div>
+
+
       <PageHeader
         title="Black Sun Monarch"
         subtitle="CodexOS v21.1 // VANTARA.EXE"
