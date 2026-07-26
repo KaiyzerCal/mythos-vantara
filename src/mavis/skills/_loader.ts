@@ -384,6 +384,9 @@ import "./summarise/index";
 import "./pipeline-run/index";
 import "./hire-specialist/index";
 import "./bioneer-protocol/index";
+import "./travel-planner/index";
+import "./reddit-sentiment/index";
+import "./invoice-generator/index";
 
 // ── Messaging ─────────────────────────────────────────────────────────────────
 import "./whatsapp-send/index";
