@@ -21,10 +21,10 @@ function ConfidenceBar({ confidence }: { confidence: number }) {
   const color = pct >= 80 ? "bg-emerald-500" : pct >= 60 ? "bg-indigo-500" : "bg-amber-500";
   return (
     <div className="flex items-center gap-2">
-      <div className="flex-1 h-1.5 bg-zinc-700/60 rounded-full overflow-hidden">
+      <div className="flex-1 h-1.5 bg-muted/60 rounded-full overflow-hidden">
         <div className={`h-full rounded-full ${color}`} style={{ width: `${pct}%` }} />
       </div>
-      <span className="text-xs text-zinc-400 w-8 text-right">{pct}%</span>
+      <span className="text-xs text-muted-foreground w-8 text-right">{pct}%</span>
     </div>
   );
 }
@@ -156,13 +156,13 @@ function IntelFeedPanel() {
     return (
       <div className="space-y-3">
         {[1,2,3,4].map(i => (
-          <div key={i} className="bg-zinc-900/60 border border-zinc-700/50 rounded-xl p-4 animate-pulse">
+          <div key={i} className="bg-card border border-border rounded-xl p-4 animate-pulse">
             <div className="flex items-start gap-3">
-              <div className="w-8 h-8 bg-zinc-700/50 rounded-lg shrink-0" />
+              <div className="w-8 h-8 bg-muted/50 rounded-lg shrink-0" />
               <div className="flex-1 space-y-2">
-                <div className="h-3 w-24 bg-zinc-700/50 rounded" />
-                <div className="h-3 w-full bg-zinc-700/30 rounded" />
-                <div className="h-3 w-3/4 bg-zinc-700/20 rounded" />
+                <div className="h-3 w-24 bg-muted/50 rounded" />
+                <div className="h-3 w-full bg-muted/30 rounded" />
+                <div className="h-3 w-3/4 bg-muted/20 rounded" />
               </div>
             </div>
           </div>
@@ -175,12 +175,12 @@ function IntelFeedPanel() {
     return (
       <div className="flex flex-col items-center py-16 gap-3">
         <CheckCheck size={36} className="text-emerald-500/40" />
-        <p className="text-sm font-mono text-zinc-400">Intel feed is clear</p>
-        <p className="text-xs text-zinc-600 text-center max-w-xs">
+        <p className="text-sm font-mono text-muted-foreground">Intel feed is clear</p>
+        <p className="text-xs text-muted-foreground/70 text-center max-w-xs">
           MAVIS pushes predictions, patterns, completed actions, and daily briefs here.
           They accumulate as the autonomous engines run.
         </p>
-        <button onClick={load} className="mt-2 flex items-center gap-1.5 text-xs text-zinc-500 hover:text-zinc-300 font-mono">
+        <button onClick={load} className="mt-2 flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground font-mono">
           <RefreshCw size={11} /> Refresh
         </button>
       </div>
@@ -192,13 +192,13 @@ function IntelFeedPanel() {
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <Bell size={14} className="text-indigo-400" />
-          <span className="text-xs font-mono text-zinc-400">{items.length} signal{items.length !== 1 ? "s" : ""} from autonomous engines</span>
+          <span className="text-xs font-mono text-muted-foreground">{items.length} signal{items.length !== 1 ? "s" : ""} from autonomous engines</span>
         </div>
         <div className="flex items-center gap-2">
-          <button onClick={load} className="text-xs font-mono text-zinc-500 hover:text-zinc-300 flex items-center gap-1">
+          <button onClick={load} className="text-xs font-mono text-muted-foreground hover:text-foreground flex items-center gap-1">
             <RefreshCw size={10} /> Refresh
           </button>
-          <button onClick={dismissAll} className="text-xs font-mono text-zinc-500 hover:text-zinc-300 flex items-center gap-1">
+          <button onClick={dismissAll} className="text-xs font-mono text-muted-foreground hover:text-foreground flex items-center gap-1">
             <CheckCheck size={10} /> Clear all
           </button>
         </div>
@@ -216,7 +216,7 @@ function IntelFeedPanel() {
             initial={{ opacity: 0, x: -8 }}
             animate={{ opacity: isDismissing ? 0 : 1, x: 0 }}
             exit={{ opacity: 0, height: 0 }}
-            className="bg-zinc-900/60 border border-zinc-700/50 rounded-xl p-4 hover:border-zinc-600/60 transition-colors"
+            className="bg-card border border-border rounded-xl p-4 hover:border-border transition-colors"
           >
             <div className="flex items-start gap-3">
               <div className={`w-8 h-8 rounded-lg border flex items-center justify-center shrink-0 mt-0.5 ${cfg.bg}`}>
@@ -228,17 +228,17 @@ function IntelFeedPanel() {
                     <span className={`text-[10px] font-mono font-bold uppercase tracking-widest px-1.5 py-0.5 rounded border ${cfg.bg} ${cfg.color}`}>
                       {cfg.label}
                     </span>
-                    <span className="text-sm font-medium text-white capitalize">{item.title}</span>
+                    <span className="text-sm font-medium text-foreground capitalize">{item.title}</span>
                     {item.confidence !== undefined && (
-                      <span className="text-[10px] font-mono text-zinc-500">{Math.round(item.confidence * 100)}% conf.</span>
+                      <span className="text-[10px] font-mono text-muted-foreground">{Math.round(item.confidence * 100)}% conf.</span>
                     )}
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
-                    <span className="text-[10px] font-mono text-zinc-600">{fmtTime(item.timestamp)}</span>
+                    <span className="text-[10px] font-mono text-muted-foreground/70">{fmtTime(item.timestamp)}</span>
                     <button
                       onClick={() => dismiss(item)}
                       disabled={isDismissing}
-                      className="p-1 hover:bg-zinc-700/50 rounded text-zinc-600 hover:text-zinc-400 transition-colors"
+                      className="p-1 hover:bg-muted/50 rounded text-muted-foreground/70 hover:text-muted-foreground transition-colors"
                       title="Dismiss"
                     >
                       <CheckCircle2 size={12} />
@@ -246,7 +246,7 @@ function IntelFeedPanel() {
                   </div>
                 </div>
                 {item.body && (
-                  <p className="text-xs text-zinc-400 leading-relaxed line-clamp-4">{item.body}</p>
+                  <p className="text-xs text-muted-foreground leading-relaxed line-clamp-4">{item.body}</p>
                 )}
               </div>
             </div>
@@ -296,12 +296,12 @@ function WorldModelPanel({ token }: { token: string }) {
     }
   }
 
-  if (loading) return <div className="flex justify-center py-12"><Loader2 size={24} className="animate-spin text-zinc-500" /></div>;
+  if (loading) return <div className="flex justify-center py-12"><Loader2 size={24} className="animate-spin text-muted-foreground" /></div>;
 
   if (!model) return (
     <div className="text-center py-12">
-      <Globe size={40} className="mx-auto mb-3 text-zinc-600" />
-      <p className="text-sm text-zinc-500">No world model yet.</p>
+      <Globe size={40} className="mx-auto mb-3 text-muted-foreground/70" />
+      <p className="text-sm text-muted-foreground">No world model yet.</p>
       <button onClick={rebuild} disabled={building} className="mt-3 flex items-center gap-2 mx-auto bg-indigo-500/20 border border-indigo-500/40 text-indigo-300 px-4 py-2 rounded-xl text-sm hover:bg-indigo-500/30">
         {building ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />} Build World Model
       </button>
@@ -316,28 +316,28 @@ function WorldModelPanel({ token }: { token: string }) {
   return (
     <div className="space-y-5">
       <div className="flex items-center justify-between">
-        <p className="text-xs text-zinc-500">Last updated: {model.created_at ? new Date(model.created_at).toLocaleDateString() : "unknown"}</p>
+        <p className="text-xs text-muted-foreground">Last updated: {model.created_at ? new Date(model.created_at).toLocaleDateString() : "unknown"}</p>
         <button onClick={rebuild} disabled={building} className="flex items-center gap-1.5 text-xs text-indigo-400 hover:text-indigo-300">
           {building ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />} Rebuild
         </button>
       </div>
 
-      <div className="bg-zinc-900/60 border border-zinc-700/50 rounded-xl p-5">
-        <h3 className="text-sm font-semibold text-white mb-2 flex items-center gap-2"><Globe size={14} className="text-indigo-400" /> Current State</h3>
-        <p className="text-sm text-zinc-300 leading-relaxed">{model.summary}</p>
+      <div className="bg-card border border-border rounded-xl p-5">
+        <h3 className="text-sm font-semibold text-foreground mb-2 flex items-center gap-2"><Globe size={14} className="text-indigo-400" /> Current State</h3>
+        <p className="text-sm text-foreground leading-relaxed">{model.summary}</p>
       </div>
 
-      <div className="bg-zinc-900/60 border border-zinc-700/50 rounded-xl p-5">
-        <h3 className="text-sm font-semibold text-white mb-2 flex items-center gap-2"><TrendingUp size={14} className="text-emerald-400" /> Trajectory</h3>
-        <p className="text-sm text-zinc-300 leading-relaxed">{model.trajectory}</p>
+      <div className="bg-card border border-border rounded-xl p-5">
+        <h3 className="text-sm font-semibold text-foreground mb-2 flex items-center gap-2"><TrendingUp size={14} className="text-emerald-400" /> Trajectory</h3>
+        <p className="text-sm text-foreground leading-relaxed">{model.trajectory}</p>
       </div>
 
       {insights.length > 0 && (
-        <div className="bg-zinc-900/60 border border-zinc-700/50 rounded-xl p-5">
-          <h3 className="text-sm font-semibold text-white mb-3 flex items-center gap-2"><Lightbulb size={14} className="text-amber-400" /> Key Insights</h3>
+        <div className="bg-card border border-border rounded-xl p-5">
+          <h3 className="text-sm font-semibold text-foreground mb-3 flex items-center gap-2"><Lightbulb size={14} className="text-amber-400" /> Key Insights</h3>
           <div className="space-y-2">
             {insights.map((i: string, idx: number) => (
-              <div key={idx} className="flex items-start gap-2 text-sm text-zinc-300">
+              <div key={idx} className="flex items-start gap-2 text-sm text-foreground">
                 <Sparkles size={12} className="text-amber-400 mt-1 shrink-0" />
                 {i}
               </div>
@@ -351,7 +351,7 @@ function WorldModelPanel({ token }: { token: string }) {
           <div className="bg-emerald-500/5 border border-emerald-500/30 rounded-xl p-4">
             <h3 className="text-sm font-semibold text-emerald-400 mb-3 flex items-center gap-2"><Zap size={14} /> Opportunities</h3>
             <div className="space-y-2">
-              {opportunities.map((o: string, i: number) => <p key={i} className="text-xs text-zinc-300">• {o}</p>)}
+              {opportunities.map((o: string, i: number) => <p key={i} className="text-xs text-foreground">• {o}</p>)}
             </div>
           </div>
         )}
@@ -359,7 +359,7 @@ function WorldModelPanel({ token }: { token: string }) {
           <div className="bg-red-500/5 border border-red-500/30 rounded-xl p-4">
             <h3 className="text-sm font-semibold text-red-400 mb-3 flex items-center gap-2"><AlertTriangle size={14} /> Risks</h3>
             <div className="space-y-2">
-              {risks.map((r: string, i: number) => <p key={i} className="text-xs text-zinc-300">• {r}</p>)}
+              {risks.map((r: string, i: number) => <p key={i} className="text-xs text-foreground">• {r}</p>)}
             </div>
           </div>
         )}
@@ -395,9 +395,9 @@ function PredictionsPanel() {
     health_insight: "border-blue-500/50 text-blue-400 bg-blue-500/10",
   };
 
-  if (loading) return <div className="flex justify-center py-12"><Loader2 size={24} className="animate-spin text-zinc-500" /></div>;
+  if (loading) return <div className="flex justify-center py-12"><Loader2 size={24} className="animate-spin text-muted-foreground" /></div>;
   if (!predictions.length) return (
-    <div className="text-center py-12 text-zinc-500">
+    <div className="text-center py-12 text-muted-foreground">
       <Brain size={40} className="mx-auto mb-3 opacity-30" />
       <p className="text-sm">No active predictions.</p>
       <p className="text-xs mt-1">MAVIS will generate predictions after analyzing your behavioral patterns.</p>
@@ -407,15 +407,15 @@ function PredictionsPanel() {
   return (
     <div className="space-y-3">
       {predictions.map(p => (
-        <div key={p.id} className="bg-zinc-900/60 border border-zinc-700/50 rounded-xl p-4 space-y-3">
+        <div key={p.id} className="bg-card border border-border rounded-xl p-4 space-y-3">
           <div className="flex items-start justify-between gap-3">
             <div className="flex items-center gap-2 flex-wrap">
-              <TypeBadge type={p.prediction_type} colors={typeColors[p.prediction_type] ?? "border-zinc-600 text-zinc-400"} />
-              <span className="text-sm font-medium text-white">{p.title}</span>
+              <TypeBadge type={p.prediction_type} colors={typeColors[p.prediction_type] ?? "border-border text-muted-foreground"} />
+              <span className="text-sm font-medium text-foreground">{p.title}</span>
             </div>
-            <button onClick={() => dismiss(p.id)} className="text-xs text-zinc-600 hover:text-zinc-400 shrink-0">dismiss</button>
+            <button onClick={() => dismiss(p.id)} className="text-xs text-muted-foreground/70 hover:text-muted-foreground shrink-0">dismiss</button>
           </div>
-          <p className="text-sm text-zinc-400">{p.content}</p>
+          <p className="text-sm text-muted-foreground">{p.content}</p>
           <ConfidenceBar confidence={p.confidence ?? 0.7} />
         </div>
       ))}
@@ -469,7 +469,7 @@ function OpportunitiesPanel({ token }: { token: string }) {
     health_performance: "border-red-500/50 text-red-400 bg-red-500/10",
   };
 
-  if (loading) return <div className="flex justify-center py-12"><Loader2 size={24} className="animate-spin text-zinc-500" /></div>;
+  if (loading) return <div className="flex justify-center py-12"><Loader2 size={24} className="animate-spin text-muted-foreground" /></div>;
 
   return (
     <div className="space-y-4">
@@ -479,40 +479,40 @@ function OpportunitiesPanel({ token }: { token: string }) {
         </button>
       </div>
       {!opps.length ? (
-        <div className="text-center py-12 text-zinc-500">
+        <div className="text-center py-12 text-muted-foreground">
           <Lightbulb size={40} className="mx-auto mb-3 opacity-30" />
           <p className="text-sm">No opportunities found yet.</p>
         </div>
       ) : opps.map(o => (
-        <div key={o.id} className="bg-zinc-900/60 border border-zinc-700/50 rounded-xl overflow-hidden">
+        <div key={o.id} className="bg-card border border-border rounded-xl overflow-hidden">
           <button
             onClick={() => setExpanded(ex => ex === o.id ? null : o.id)}
-            className="w-full flex items-start justify-between p-4 text-left hover:bg-zinc-800/30"
+            className="w-full flex items-start justify-between p-4 text-left hover:bg-muted/30"
           >
             <div className="flex items-start gap-3">
               <div>
                 <div className="flex items-center gap-2 mb-1">
-                  <TypeBadge type={o.opportunity_type} colors={typeColors[o.opportunity_type] ?? "border-zinc-600 text-zinc-400"} />
+                  <TypeBadge type={o.opportunity_type} colors={typeColors[o.opportunity_type] ?? "border-border text-muted-foreground"} />
                 </div>
-                <p className="text-sm font-medium text-white">{o.title}</p>
-                <p className="text-xs text-zinc-400 mt-1">{o.description.slice(0, 120)}{o.description.length > 120 ? "..." : ""}</p>
+                <p className="text-sm font-medium text-foreground">{o.title}</p>
+                <p className="text-xs text-muted-foreground mt-1">{o.description.slice(0, 120)}{o.description.length > 120 ? "..." : ""}</p>
               </div>
             </div>
             <div className="flex items-center gap-2 shrink-0">
-              <span className="text-xs text-zinc-500">{Math.round((o.confidence ?? 0.7) * 100)}%</span>
-              {expanded === o.id ? <ChevronUp size={14} className="text-zinc-500" /> : <ChevronDown size={14} className="text-zinc-500" />}
+              <span className="text-xs text-muted-foreground">{Math.round((o.confidence ?? 0.7) * 100)}%</span>
+              {expanded === o.id ? <ChevronUp size={14} className="text-muted-foreground" /> : <ChevronDown size={14} className="text-muted-foreground" />}
             </div>
           </button>
           <AnimatePresence>
             {expanded === o.id && (
-              <motion.div initial={{ height: 0 }} animate={{ height: "auto" }} exit={{ height: 0 }} className="border-t border-zinc-700/40 px-4 py-4 space-y-3">
-                <p className="text-sm text-zinc-300">{o.description}</p>
+              <motion.div initial={{ height: 0 }} animate={{ height: "auto" }} exit={{ height: 0 }} className="border-t border-border/60 px-4 py-4 space-y-3">
+                <p className="text-sm text-foreground">{o.description}</p>
                 {o.potential_value && <p className="text-xs text-emerald-400">Potential: {o.potential_value}</p>}
                 {Array.isArray(o.action_steps) && o.action_steps.length > 0 && (
                   <div>
-                    <p className="text-xs text-zinc-500 mb-2">Action Steps:</p>
+                    <p className="text-xs text-muted-foreground mb-2">Action Steps:</p>
                     {o.action_steps.map((s: string, i: number) => (
-                      <div key={i} className="flex items-start gap-2 text-xs text-zinc-300">
+                      <div key={i} className="flex items-start gap-2 text-xs text-foreground">
                         <ArrowRight size={10} className="text-indigo-400 mt-0.5 shrink-0" />
                         {s}
                       </div>
@@ -562,25 +562,25 @@ function EntityGraphPanel() {
   return (
     <div className="space-y-4">
       <div className="flex gap-3">
-        <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search entities..." className="flex-1 bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white" />
-        <select value={filter} onChange={e => setFilter(e.target.value)} className="bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white">
+        <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search entities..." className="flex-1 bg-muted border border-border rounded-lg px-3 py-2 text-sm text-foreground" />
+        <select value={filter} onChange={e => setFilter(e.target.value)} className="bg-muted border border-border rounded-lg px-3 py-2 text-sm text-foreground">
           {["all","person","company","project","place","concept","product","event"].map(t => <option key={t} value={t}>{t.charAt(0).toUpperCase() + t.slice(1)}</option>)}
         </select>
       </div>
-      {loading ? <div className="flex justify-center py-8"><Loader2 size={24} className="animate-spin text-zinc-500" /></div>
-        : !entities.length ? <div className="text-center py-12 text-zinc-500"><Network size={40} className="mx-auto mb-3 opacity-30" /><p className="text-sm">No entities yet. Use MAVIS more to build your knowledge graph.</p></div>
+      {loading ? <div className="flex justify-center py-8"><Loader2 size={24} className="animate-spin text-muted-foreground" /></div>
+        : !entities.length ? <div className="text-center py-12 text-muted-foreground"><Network size={40} className="mx-auto mb-3 opacity-30" /><p className="text-sm">No entities yet. Use MAVIS more to build your knowledge graph.</p></div>
         : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             {entities.map(e => (
-              <div key={e.id} className="bg-zinc-900/60 border border-zinc-700/50 rounded-xl p-3">
+              <div key={e.id} className="bg-card border border-border rounded-xl p-3">
                 <div className="flex items-center justify-between mb-1">
-                  <span className="text-sm font-medium text-white">{e.name}</span>
+                  <span className="text-sm font-medium text-foreground">{e.name}</span>
                   <div className="flex items-center gap-2">
-                    <span className="text-xs text-zinc-500">{e.mention_count}x</span>
-                    <TypeBadge type={e.entity_type} colors={typeColors[e.entity_type] ?? "border-zinc-600 text-zinc-400"} />
+                    <span className="text-xs text-muted-foreground">{e.mention_count}x</span>
+                    <TypeBadge type={e.entity_type} colors={typeColors[e.entity_type] ?? "border-border text-muted-foreground"} />
                   </div>
                 </div>
-                {e.description && <p className="text-xs text-zinc-400 truncate">{e.description}</p>}
+                {e.description && <p className="text-xs text-muted-foreground truncate">{e.description}</p>}
               </div>
             ))}
           </div>
@@ -604,9 +604,9 @@ function RelationshipsPanel() {
     return "text-red-400";
   }
 
-  if (loading) return <div className="flex justify-center py-12"><Loader2 size={24} className="animate-spin text-zinc-500" /></div>;
+  if (loading) return <div className="flex justify-center py-12"><Loader2 size={24} className="animate-spin text-muted-foreground" /></div>;
   if (!relationships.length) return (
-    <div className="text-center py-12 text-zinc-500">
+    <div className="text-center py-12 text-muted-foreground">
       <Users size={40} className="mx-auto mb-3 opacity-30" />
       <p className="text-sm">No relationship data yet.</p>
       <p className="text-xs mt-1">Add contacts and interactions to track relationship health.</p>
@@ -616,20 +616,20 @@ function RelationshipsPanel() {
   return (
     <div className="space-y-3">
       {relationships.map(r => (
-        <div key={r.id} className="bg-zinc-900/60 border border-zinc-700/50 rounded-xl p-4">
+        <div key={r.id} className="bg-card border border-border rounded-xl p-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-full bg-zinc-700/60 flex items-center justify-center text-sm font-bold text-zinc-300">
+              <div className="w-8 h-8 rounded-full bg-muted/60 flex items-center justify-center text-sm font-bold text-foreground">
                 {r.contact_name.charAt(0).toUpperCase()}
               </div>
               <div>
-                <p className="text-sm font-medium text-white">{r.contact_name}</p>
-                <p className="text-xs text-zinc-500">{r.interaction_frequency} · {r.days_since_contact}d ago</p>
+                <p className="text-sm font-medium text-foreground">{r.contact_name}</p>
+                <p className="text-xs text-muted-foreground">{r.interaction_frequency} · {r.days_since_contact}d ago</p>
               </div>
             </div>
             <div className="text-right">
               <p className={`text-lg font-bold ${healthColor(r.health_score)}`}>{r.health_score}/10</p>
-              <p className="text-xs text-zinc-500">health</p>
+              <p className="text-xs text-muted-foreground">health</p>
             </div>
           </div>
           {r.suggested_action && (
@@ -637,7 +637,7 @@ function RelationshipsPanel() {
               r.action_urgency === "critical" ? "bg-red-500/10 text-red-400" :
               r.action_urgency === "high" ? "bg-orange-500/10 text-orange-400" :
               r.action_urgency === "medium" ? "bg-amber-500/10 text-amber-400" :
-              "bg-zinc-800/60 text-zinc-400"
+              "bg-muted/60 text-muted-foreground"
             }`}>
               <AlertTriangle size={12} className="mt-0.5 shrink-0" />
               {r.suggested_action}
@@ -686,7 +686,7 @@ function StrategyCouncilPanel({ token }: { token: string }) {
   return (
     <div className="space-y-5">
       <div className="flex items-center justify-between">
-        <p className="text-xs text-zinc-500">Claude Opus 4 + 16K extended thinking · 5-advisor board simulation</p>
+        <p className="text-xs text-muted-foreground">Claude Opus 4 + 16K extended thinking · 5-advisor board simulation</p>
         <button onClick={() => setShowForm(s => !s)} className="flex items-center gap-2 bg-indigo-500/20 border border-indigo-500/40 text-indigo-300 hover:bg-indigo-500/30 rounded-xl px-4 py-2 text-sm">
           <Brain size={14} /> Ask Council
         </button>
@@ -695,23 +695,23 @@ function StrategyCouncilPanel({ token }: { token: string }) {
       <AnimatePresence>
         {showForm && (
           <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden">
-            <div className="bg-zinc-900/60 border border-indigo-500/30 rounded-xl p-5 space-y-4">
+            <div className="bg-card border border-indigo-500/30 rounded-xl p-5 space-y-4">
               <div>
-                <label className="text-xs text-zinc-500 mb-1 block">Strategic Question *</label>
-                <textarea value={question} onChange={e => setQuestion(e.target.value)} placeholder="Should I raise prices by 30%? Should I hire or stay lean? Is this the right time to pivot?" rows={3} className="w-full bg-zinc-800 border border-zinc-600 rounded-lg px-3 py-2 text-sm text-white resize-none" />
+                <label className="text-xs text-muted-foreground mb-1 block">Strategic Question *</label>
+                <textarea value={question} onChange={e => setQuestion(e.target.value)} placeholder="Should I raise prices by 30%? Should I hire or stay lean? Is this the right time to pivot?" rows={3} className="w-full bg-muted border border-border rounded-lg px-3 py-2 text-sm text-foreground resize-none" />
               </div>
               <div>
-                <label className="text-xs text-zinc-500 mb-1 block">Context (optional)</label>
-                <textarea value={context} onChange={e => setContext(e.target.value)} placeholder="Any relevant background..." rows={2} className="w-full bg-zinc-800 border border-zinc-600 rounded-lg px-3 py-2 text-sm text-white resize-none" />
+                <label className="text-xs text-muted-foreground mb-1 block">Context (optional)</label>
+                <textarea value={context} onChange={e => setContext(e.target.value)} placeholder="Any relevant background..." rows={2} className="w-full bg-muted border border-border rounded-lg px-3 py-2 text-sm text-foreground resize-none" />
               </div>
               <div className="flex gap-3">
-                <button onClick={() => setShowForm(false)} className="flex-1 bg-zinc-800 text-zinc-300 rounded-lg py-2 text-sm hover:bg-zinc-700">Cancel</button>
-                <button onClick={submit} disabled={running || !question.trim()} className="flex-1 flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white rounded-lg py-2 text-sm">
+                <button onClick={() => setShowForm(false)} className="flex-1 bg-muted text-foreground rounded-lg py-2 text-sm hover:bg-muted">Cancel</button>
+                <button onClick={submit} disabled={running || !question.trim()} className="flex-1 flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-foreground rounded-lg py-2 text-sm">
                   {running ? <><Loader2 size={14} className="animate-spin" /> Consulting council...</> : <><Send size={14} /> Submit</>}
                 </button>
               </div>
               {running && (
-                <div className="text-xs text-zinc-500 text-center animate-pulse">
+                <div className="text-xs text-muted-foreground text-center animate-pulse">
                   5 advisors deliberating · Opus synthesis in progress · ~60-90 seconds
                 </div>
               )}
@@ -721,29 +721,29 @@ function StrategyCouncilPanel({ token }: { token: string }) {
       </AnimatePresence>
 
       {result && (
-        <div className="bg-zinc-900/60 border border-indigo-500/30 rounded-xl p-5 space-y-4">
-          <h3 className="text-sm font-semibold text-white">Latest Council Output</h3>
-          <div className="bg-zinc-800/60 rounded-lg p-4">
-            <p className="text-xs text-zinc-500 mb-1">Synthesis</p>
-            <p className="text-sm text-zinc-300 leading-relaxed">{result.synthesis}</p>
+        <div className="bg-card border border-indigo-500/30 rounded-xl p-5 space-y-4">
+          <h3 className="text-sm font-semibold text-foreground">Latest Council Output</h3>
+          <div className="bg-muted/60 rounded-lg p-4">
+            <p className="text-xs text-muted-foreground mb-1">Synthesis</p>
+            <p className="text-sm text-foreground leading-relaxed">{result.synthesis}</p>
           </div>
           <div className="bg-indigo-500/10 border border-indigo-500/30 rounded-lg p-4">
             <p className="text-xs text-indigo-400 mb-1">Recommendation</p>
-            <p className="text-sm text-white">{result.recommendation}</p>
+            <p className="text-sm text-foreground">{result.recommendation}</p>
           </div>
           <ConfidenceBar confidence={result.confidence ?? 0.8} />
           {result.advisor_outputs?.length > 0 && (
             <div>
-              <button onClick={() => setExpanded(ex => ex === "advisors" ? null : "advisors")} className="text-xs text-zinc-500 hover:text-zinc-300 flex items-center gap-1">
+              <button onClick={() => setExpanded(ex => ex === "advisors" ? null : "advisors")} className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1">
                 {expanded === "advisors" ? <ChevronUp size={12} /> : <ChevronDown size={12} />} View advisor breakdowns
               </button>
               <AnimatePresence>
                 {expanded === "advisors" && (
                   <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="mt-3 space-y-3">
                     {result.advisor_outputs.map((a: any) => (
-                      <div key={a.role} className="bg-zinc-800/40 rounded-lg p-3">
-                        <p className="text-xs font-bold text-zinc-400 mb-1">{a.role}</p>
-                        <p className="text-xs text-zinc-400">{a.analysis}</p>
+                      <div key={a.role} className="bg-muted/40 rounded-lg p-3">
+                        <p className="text-xs font-bold text-muted-foreground mb-1">{a.role}</p>
+                        <p className="text-xs text-muted-foreground">{a.analysis}</p>
                       </div>
                     ))}
                   </motion.div>
@@ -756,14 +756,14 @@ function StrategyCouncilPanel({ token }: { token: string }) {
 
       {!memosLoading && memos.length > 0 && (
         <div className="space-y-3">
-          <h3 className="text-sm font-semibold text-zinc-400">Past Memos</h3>
+          <h3 className="text-sm font-semibold text-muted-foreground">Past Memos</h3>
           {memos.map(memo => (
-            <div key={memo.id} className="bg-zinc-900/40 border border-zinc-700/40 rounded-xl p-4">
+            <div key={memo.id} className="bg-card/60 border border-border/60 rounded-xl p-4">
               <div className="flex items-start justify-between">
-                <p className="text-sm text-white">{memo.question}</p>
-                <span className="text-xs text-zinc-500 shrink-0 ml-2">{new Date(memo.created_at).toLocaleDateString()}</span>
+                <p className="text-sm text-foreground">{memo.question}</p>
+                <span className="text-xs text-muted-foreground shrink-0 ml-2">{new Date(memo.created_at).toLocaleDateString()}</span>
               </div>
-              {memo.recommendation && <p className="text-xs text-zinc-400 mt-2">{memo.recommendation.slice(0, 150)}{memo.recommendation.length > 150 ? "..." : ""}</p>}
+              {memo.recommendation && <p className="text-xs text-muted-foreground mt-2">{memo.recommendation.slice(0, 150)}{memo.recommendation.length > 150 ? "..." : ""}</p>}
               <ConfidenceBar confidence={memo.confidence ?? 0.8} />
             </div>
           ))}
@@ -815,7 +815,7 @@ function PolymarketPanel({ token }: { token: string }) {
           value={query}
           onChange={e => setQuery(e.target.value)}
           placeholder="Search prediction markets…"
-          className="flex-1 bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500/50"
+          className="flex-1 bg-muted border border-border rounded-lg px-3 py-2 text-sm text-foreground focus:outline-none focus:border-indigo-500/50"
         />
         <button type="submit" disabled={loading} className="flex items-center gap-1.5 px-3 py-2 bg-indigo-500/20 border border-indigo-500/40 text-indigo-300 rounded-lg text-sm hover:bg-indigo-500/30 disabled:opacity-50">
           {loading ? <Loader2 size={14} className="animate-spin" /> : <Search size={14} />}
@@ -824,11 +824,11 @@ function PolymarketPanel({ token }: { token: string }) {
       </form>
 
       {loading && !loaded && (
-        <div className="flex justify-center py-12"><Loader2 size={24} className="animate-spin text-zinc-500" /></div>
+        <div className="flex justify-center py-12"><Loader2 size={24} className="animate-spin text-muted-foreground" /></div>
       )}
 
       {!loading && markets.length === 0 && loaded && (
-        <div className="text-center py-12 text-zinc-500">
+        <div className="text-center py-12 text-muted-foreground">
           <DollarSign size={40} className="mx-auto mb-3 opacity-30" />
           <p className="text-sm">No markets found.</p>
         </div>
@@ -836,18 +836,18 @@ function PolymarketPanel({ token }: { token: string }) {
 
       <div className="space-y-3">
         {markets.map((m: any) => (
-          <div key={m.id} className="bg-zinc-900/60 border border-zinc-700/50 rounded-xl p-4">
+          <div key={m.id} className="bg-card border border-border rounded-xl p-4">
             <div className="flex items-start justify-between gap-3 mb-3">
-              <p className="text-sm font-medium text-white leading-snug">{m.question}</p>
-              <a href={m.url} target="_blank" rel="noopener noreferrer" className="shrink-0 text-zinc-500 hover:text-zinc-300">
+              <p className="text-sm font-medium text-foreground leading-snug">{m.question}</p>
+              <a href={m.url} target="_blank" rel="noopener noreferrer" className="shrink-0 text-muted-foreground hover:text-foreground">
                 <ExternalLink size={13} />
               </a>
             </div>
             {m.outcomes?.length > 0 && (
               <div className="flex flex-wrap gap-2 mb-2">
                 {m.outcomes.map((o: any) => (
-                  <div key={o.name} className="flex items-center gap-1.5 bg-zinc-800/60 rounded-lg px-2.5 py-1">
-                    <span className="text-xs text-zinc-400">{o.name}</span>
+                  <div key={o.name} className="flex items-center gap-1.5 bg-muted/60 rounded-lg px-2.5 py-1">
+                    <span className="text-xs text-muted-foreground">{o.name}</span>
                     {o.probability !== null && (
                       <span className={`text-xs font-bold font-mono ${probColor(o.probability)}`}>
                         {Math.round(o.probability * 100)}%
@@ -857,11 +857,11 @@ function PolymarketPanel({ token }: { token: string }) {
                 ))}
               </div>
             )}
-            <div className="flex items-center gap-4 text-xs text-zinc-500">
+            <div className="flex items-center gap-4 text-xs text-muted-foreground">
               {m.volume_usd > 0 && <span>Vol: ${(m.volume_usd / 1000).toFixed(0)}K</span>}
               {m.category && <span className="capitalize">{m.category}</span>}
               {m.end_date && <span>Ends {new Date(m.end_date).toLocaleDateString()}</span>}
-              {m.resolved && <span className="text-zinc-600">Resolved</span>}
+              {m.resolved && <span className="text-muted-foreground/70">Resolved</span>}
             </div>
           </div>
         ))}
@@ -887,14 +887,14 @@ export default function IntelligencePage() {
   };
 
   return (
-    <div className="flex flex-col h-full bg-zinc-950 text-white overflow-hidden">
+    <div className="flex flex-col h-full bg-zinc-950 text-foreground overflow-hidden">
       <div className="flex items-center gap-3 px-6 py-4 border-b border-zinc-800/60 shrink-0">
         <div className="w-9 h-9 rounded-xl bg-indigo-500/20 border border-indigo-500/40 flex items-center justify-center">
           <Brain size={18} className="text-indigo-400" />
         </div>
         <div>
-          <h1 className="text-lg font-bold text-white">Intelligence</h1>
-          <p className="text-xs text-zinc-500">MAVIS world model, predictions, and strategic intelligence</p>
+          <h1 className="text-lg font-bold text-foreground">Intelligence</h1>
+          <p className="text-xs text-muted-foreground">MAVIS world model, predictions, and strategic intelligence</p>
         </div>
       </div>
 
@@ -906,7 +906,7 @@ export default function IntelligencePage() {
               key={t}
               onClick={() => setTab(t)}
               className={`flex items-center gap-1.5 px-3 py-2 rounded-t-lg text-xs font-medium transition-colors whitespace-nowrap ${
-                tab === t ? "text-white bg-zinc-800/80 border border-zinc-700/50 border-b-transparent" : "text-zinc-500 hover:text-zinc-300"
+                tab === t ? "text-foreground bg-muted/80 border border-border border-b-transparent" : "text-muted-foreground hover:text-foreground"
               }`}
             >
               <Icon size={12} />
