@@ -498,6 +498,21 @@ export default function PersonasPage() {
     return () => { supabase.removeChannel(channel); };
   }, [user]);
 
+  // Realtime: persona conversations — live updates when persona chats change
+  useEffect(() => {
+    if (!user) return;
+    const channel = supabase
+      .channel(`persona-conversations-${user.id}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "persona_conversations", filter: `user_id=eq.${user.id}` },
+        () => { loadPersonas(); },
+      )
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [user, loadPersonas]);
+
+
   const handleNotificationRead = useCallback(async (notifId: string) => {
     await (supabase as any).from("navi_notifications").update({ is_read: true }).eq("id", notifId);
     setNotifications((prev) => {
