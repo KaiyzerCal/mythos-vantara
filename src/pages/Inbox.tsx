@@ -664,6 +664,73 @@ export default function Inbox() {
               })()}
             </motion.div>
           )}
+          {tab === "messages" && (
+            <motion.div key="messages" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="flex flex-col gap-2">
+              {messages.length === 0 ? (
+                <div className="text-center py-12">
+                  <MessageSquare size={20} className="text-muted-foreground mx-auto mb-2" />
+                  <p className="text-xs font-mono text-muted-foreground">No messages yet.</p>
+                  <p className="text-[10px] font-mono text-muted-foreground mt-1">
+                    Gmail messages synced by MAVIS will appear here.
+                  </p>
+                </div>
+              ) : (
+                messages.map((m) => (
+                  <motion.div
+                    key={m.id}
+                    layout
+                    className={`border rounded-lg overflow-hidden transition-colors ${m.is_read ? "border-border" : "border-cyan-500/30"}`}
+                  >
+                    <button
+                      onClick={async () => {
+                        setExpandedId(expandedId === m.id ? null : m.id);
+                        if (!m.is_read) {
+                          setMessages(prev => prev.map(x => x.id === m.id ? { ...x, is_read: true } : x));
+                          await (supabase as any).from("gmail_messages").update({ is_read: true }).eq("id", m.id);
+                        }
+                      }}
+                      className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-muted/20 transition-colors"
+                    >
+                      <Mail size={14} className={m.is_read ? "text-muted-foreground shrink-0" : "text-cyan-400 shrink-0"} />
+                      <div className="flex-1 min-w-0">
+                        <p className={`text-xs font-mono font-medium truncate ${m.is_read ? "text-muted-foreground" : "text-foreground"}`}>
+                          {m.subject || "(no subject)"}
+                        </p>
+                        <p className="text-xs font-mono text-muted-foreground truncate">
+                          {m.from_address || "unknown"} · {m.received_at ? timeAgo(m.received_at) : ""}
+                        </p>
+                        {m.snippet && (
+                          <p className="text-[10px] font-mono text-muted-foreground mt-0.5 line-clamp-1">{m.snippet}</p>
+                        )}
+                      </div>
+                      {!m.is_read && <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 shrink-0" />}
+                    </button>
+                    <AnimatePresence>
+                      {expandedId === m.id && (
+                        <motion.div
+                          initial={{ height: 0 }} animate={{ height: "auto" }} exit={{ height: 0 }}
+                          className="overflow-hidden border-t border-border"
+                        >
+                          <div className="px-4 py-3 space-y-2">
+                            {m.labels && m.labels.length > 0 && (
+                              <div className="flex flex-wrap gap-1">
+                                {m.labels.slice(0, 6).map((l, i) => (
+                                  <span key={i} className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-muted/30 text-muted-foreground border border-border">{l}</span>
+                                ))}
+                              </div>
+                            )}
+                            <pre className="text-xs font-mono text-foreground/90 bg-muted/10 rounded p-2 overflow-x-auto whitespace-pre-wrap max-h-96">
+                              {m.body_text || m.snippet || "(no body)"}
+                            </pre>
+                          </div>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </motion.div>
+                ))
+              )}
+            </motion.div>
+          )}
           {tab === "email-watches" && (
             <motion.div key="email-watches" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="flex flex-col gap-2">
               {emailWatches.length === 0 ? (
