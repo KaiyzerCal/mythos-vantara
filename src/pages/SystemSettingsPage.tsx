@@ -1177,12 +1177,8 @@ function CustomSkillsTab() {
               <button
                 key={t.label}
                 onClick={() => {
+                  setNewDraft(t.draft);
                   setShowAdd(true);
-                  // Seed the form by temporarily storing the template; the form will pick it up on next render via a small hack
-                  setTimeout(() => {
-                    const evt = new CustomEvent("mavis-skill-template", { detail: t.draft });
-                    window.dispatchEvent(evt);
-                  }, 0);
                 }}
                 className="text-left border border-border rounded-lg p-3 hover:border-primary/30 hover:bg-primary/5 transition-all"
               >
