@@ -8,6 +8,7 @@ import { PageHeader, HudCard } from "@/components/SharedUI";
 import { PersonaCard } from "@/components/persona/PersonaCard";
 import { PersonaChat } from "@/components/persona/PersonaChat";
 import { usePersonaForge } from "@/hooks/usePersonaForge";
+import { LoadingState } from "@/components/LoadingState";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import type { ForgedPersona } from "@/hooks/usePersonaForge";
