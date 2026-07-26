@@ -1,44 +1,74 @@
-## Goal
-Execute all three post-audit tracks to bring MAVIS to "supreme intelligence lifeOS copilot" state: wire dead pages, polish UX, and build the next-tier autonomous features.
+# MAVIS Full-Sweep Build
 
-## Track 1 — Wire the 6 static pages to live data
+Three tracks, executed end-to-end.
 
-- **AgentConsolePage** → live view of `mavis_agent_traces`, `mavis_action_queue`, `mavis_autonomous_runs` with pause/resume + approval controls.
-- **AlliesAndStore** → `store_items` catalog + `contacts` (allies) with purchase/interact actions.
-- **BpmPage** → wire to `bpm_sessions`; add start/stop session, history chart.
-- **CharacterPage** → aggregate `profiles`, `skills`, `user_difficulty_profile`, `rankings_profiles`, `quests` for the RPG character sheet.
-- **MyAgents** → list `customer_agents` + `mavis_letta_agents` with create/edit/delete.
-- **RankingsPage** → live leaderboard from `rankings_profiles` + `mavis_daily_scores`.
+---
 
-Each: loading skeleton, empty state, error toast, mobile-safe, light-mode readable.
+## Track 1 — UX polish sweep
 
-## Track 2 — UX polish pass
+Adopt `LoadingState` / `ErrorState` / `EmptyState` across the highest-traffic surfaces and fix any lingering light-mode readability.
 
-- Standardize `<LoadingState />`, `<EmptyState />`, `<ErrorState />` primitives; adopt across chat, council, persona, creative studio, gallery, avatar studio.
-- Light-mode audit sweep: replace remaining hardcoded `text-white`/`bg-black` with semantic tokens; verify prose readability on light bg.
-- Chat streaming: consistent typing indicator, retry button on failed messages, auto-scroll lock when user scrolls up.
-- Creative Studio: progress bar during generation, provider fallback badge ("generated via Pollinations after FLUX failed"), one-click regenerate.
-- Mobile: bottom-safe-area padding, tap-target sizing on council/persona cards.
+Surfaces to touch:
+- `src/pages/MavisChat.tsx` — replace bare spinners; error state when stream fails; light-mode text check.
+- `src/pages/PersonasPage.tsx` — loading, empty (no personas), error (fetch failed).
+- `src/pages/CouncilPage.tsx` — loading + empty for members/messages.
+- `src/pages/Inbox.tsx` — already partly done; audit approvals/tasks empty states.
+- `src/pages/IntelligencePage.tsx` — loading states.
+- `src/pages/Dashboard.tsx` — loading skeleton.
+- `src/index.css` — sweep for any `text-white` / hardcoded darks that break in light mode.
 
-## Track 3 — Supreme-intelligence roadmap
+Deliverable: consistent loading/empty/error primitives, no invisible text in light mode.
 
-1. **Autonomous loop upgrade** — new `mavis-autonomy-orchestrator` function that reads `mavis_goals` + `mavis_telos`, plans via `mavis_plans`/`mavis_plan_steps`, dispatches to `mavis-agent`, logs to `mavis_autonomous_runs`. Cron every 15 min.
-2. **Unified cross-service memory** — consolidate `mavis_memory`, `mavis_agent_memories`, `mavis_persona_memory`, `memories` behind a single `memory-service` edge function with hybrid semantic+keyword search. Inject top-K into every chat/agent call.
-3. **Unified inbox** — new `/inbox` page merging `gmail_messages`, Telegram threads, `chat_messages`, `council_chat_messages`, `mavis_action_queue` approvals. Single triage surface with keyboard shortcuts.
-4. **Advanced creative tools** — image-to-video handoff (Gallery → Video tab prefilled), style presets library saved to `mavis_design_tokens`, batch generation queue in `mavis_scrape_queue` pattern.
-5. **Cross-app context bridge** — MCP tools already live; add `get_inbox`, `get_today_brief`, `run_autonomous_step` so external agents can drive MAVIS.
+---
 
-## Execution order & checkpoints
+## Track 2 — Wire the 6 static-ish pages
 
-1. Track 2 primitives first (small, unblocks everything).
-2. Track 1 pages in parallel batches of 2 (Agent Console + My Agents → Character + Rankings → BPM + Allies).
-3. Track 3 in order: memory-service → autonomy-orchestrator → unified inbox → creative upgrades → new MCP tools.
+For each, verify what already exists and finish the gap.
 
-Checkpoint after each track for review before moving on. Deploy edge functions as we go; no big-bang deploy at the end.
+| Page | Action |
+|---|---|
+| `AgentConsolePage` | Confirm live agent activity feed (mavis_activities); add empty/error states. |
+| `AlliesAndStore` | Note: memory says "Allies removed"; will confirm and either hide or repurpose as Store-only. |
+| `BpmPage` | Wire `bpm_sessions` history + start/stop control. |
+| `CharacterPage` | Surface RPG stats from `profiles` + `skills` + `quests`. |
+| `MyAgents` | List `mavis_letta_agents` + `customer_agents` with create/delete. |
+| `RankingsPage` | Load `rankings_profiles` leaderboard. |
 
-## Technical notes
+For any page whose scope isn't clear, I'll build the minimum meaningful data view and note follow-ups in the summary.
 
-- Reuse `AppDataContext` null-guard pattern for new layouts.
-- All new tables get `GRANT` + RLS in the same migration.
-- New edge functions use `npm:` specifiers, `Deno.serve`, shared CORS, Zod validation, 25s AbortSignal timeouts, Lovable AI Gateway with `gemini-flash-latest`.
-- New pages honor cyberpunk theme (Orbitron/Rajdhani, dark default, light-mode tested).
+---
+
+## Track 3 — Autonomy Orchestrator
+
+New unified control surface for the existing autonomy stack.
+
+**Frontend:** `src/pages/AutonomyPage.tsx` (route `/autonomy`, sidebar entry)
+- Live view of `mavis_autonomous_runs`, `mavis_plans` + `mavis_plan_steps`, `mavis_action_queue`.
+- Goal input → creates a plan via edge function.
+- Per-run timeline: goal → plan → steps → actions → outcomes.
+- Manual "Run cycle now" button.
+
+**Backend:** `supabase/functions/mavis-autonomy-orchestrator/index.ts`
+- POST `{ goal }` → creates row in `mavis_plans`, invokes `mavis-autonomous-engine` for planning, queues resulting steps into `mavis_action_queue`.
+- GET → returns recent runs + active plans + queued actions for the current user.
+- Wraps (does not replace) `mavis-autonomous-engine` / `mavis-autonomous-runner` / `mavis-crew-orchestrator`.
+
+**Migration (if needed):** add `goal` + `status` columns to `mavis_autonomous_runs` only if missing after schema check. Will run schema check first in build mode; migration only if a column is genuinely absent.
+
+---
+
+## Order of execution
+
+1. Schema check on autonomy tables (read-only, no migration unless needed).
+2. Track 1 UX polish (parallel file edits).
+3. Track 2 page wiring (parallel file edits per page).
+4. Track 3 orchestrator: edge function + page + sidebar entry.
+5. Deploy new/changed edge functions.
+6. Typecheck; report per-page status and any pages that need product decisions rather than more code.
+
+## Explicit non-goals
+
+- No NSFW capability (previously declined; stays declined).
+- Won't rebuild `mavis-autonomous-engine` — orchestrator wraps it.
+- Won't touch `supabase/migrations/` unless a column is genuinely missing.
+- Won't re-add "Tasks & Habits" or "Allies" as first-class navigation (per memory).

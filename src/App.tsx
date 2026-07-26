@@ -59,6 +59,7 @@ const ActivityLogPage = lazy(() => import("@/pages/ActivityLogPage"));
 const PersonasPage = lazy(() => import("@/pages/PersonasPage"));
 const PersonaRelationshipsPage = lazy(() => import("@/pages/PersonaRelationshipsPage"));
 const Inbox = lazy(() => import("@/pages/Inbox"));
+const AutonomyPage = lazy(() => import("@/pages/AutonomyPage"));
 const CouncilBoard = lazy(() => import("@/pages/CouncilBoard"));
 const KnowledgeGraph = lazy(() => import("@/pages/KnowledgeGraph"));
 const ContactsPage = lazy(() => import("@/pages/ContactsPage").then(m => ({ default: m.ContactsPage })));
@@ -212,6 +213,7 @@ function AppContent() {
               <Route path="/persona-relationships" element={<PersonaRelationshipsPage />} />
               <Route path="/settings" element={<SettingsPage />} />
               <Route path="/inbox" element={<Inbox />} />
+              <Route path="/autonomy" element={<AutonomyPage />} />
               <Route path="/council-board" element={<CouncilBoard />} />
               <Route path="/knowledge" element={<KnowledgeGraph />} />
               <Route path="/contacts" element={<ContactsPage />} />
