@@ -296,6 +296,7 @@ async function callOpenAI(messages: any[], system: string, key: string, model = 
       max_tokens: fitted.maxTokens,
       temperature: 0.85,
     }),
+    signal: AbortSignal.timeout(30_000),
   });
   if (!res.ok) {
     const errText = await res.text();
@@ -336,6 +337,7 @@ async function callClaude(messages: any[], system: string, key: string, model = 
       system,
       messages: merged.map((m: any) => ({ role: m.role, content: m.content })),
     }),
+    signal: AbortSignal.timeout(useThinking ? 60_000 : 45_000),
   });
   if (!res.ok) {
     const errText = await res.text();
@@ -362,6 +364,7 @@ async function callGrok(messages: any[], system: string, key: string): Promise<s
       max_tokens: 8192,
       temperature: 0.7,
     }),
+    signal: AbortSignal.timeout(30_000),
   });
   if (!res.ok) {
     const errText = await res.text();
@@ -395,6 +398,7 @@ async function callGemini(messages: any[], system: string, key: string, opts: { 
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
+    signal: AbortSignal.timeout(opts.thinking ? 60_000 : 30_000),
   });
   if (!res.ok) {
     const errText = await res.text();
@@ -650,6 +654,7 @@ async function callOpenAIStream(messages: any[], system: string, key: string, mo
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
     body: JSON.stringify({ model, messages: [{ role: "system", content: fitted.system }, ...fitted.messages], max_tokens: fitted.maxTokens, temperature: 0.85, stream: true }),
+    signal: AbortSignal.timeout(30_000),
   });
   if (!res.ok) {
     const e = await res.text();
@@ -678,6 +683,7 @@ async function callClaudeStream(messages: any[], system: string, key: string, mo
       messages: messages.map((m: any) => ({ role: m.role, content: m.content })),
       stream: true,
     }),
+    signal: AbortSignal.timeout(useThinking ? 60_000 : 45_000),
   });
   if (!res.ok) {
     const e = await res.text();
@@ -774,6 +780,7 @@ async function callGrokStream(messages: any[], system: string, key: string): Pro
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
     body: JSON.stringify({ model: "grok-3-mini", messages: [{ role: "system", content: system }, ...messages], max_tokens: 8192, temperature: 0.7, stream: true }),
+    signal: AbortSignal.timeout(30_000),
   });
   if (!res.ok) {
     const e = await res.text();
@@ -794,6 +801,7 @@ async function callGroq(messages: any[], system: string, key: string, model = "l
       max_tokens: 8192,
       temperature: 0.7,
     }),
+    signal: AbortSignal.timeout(20_000),
   });
   if (!res.ok) {
     const e = await res.text();
@@ -809,6 +817,7 @@ async function callGroqStream(messages: any[], system: string, key: string, mode
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
     body: JSON.stringify({ model, messages: [{ role: "system", content: system }, ...messages], max_tokens: 8192, temperature: 0.7, stream: true }),
+    signal: AbortSignal.timeout(20_000),
   });
   if (!res.ok) {
     const e = await res.text();
@@ -828,7 +837,7 @@ async function callWithFallbackStream(
 ): Promise<{ stream: ReadableStream<string>; provider: string }> {
   const mU = mode.toUpperCase();
   // Tier 0 — Free Gemini (always attempted first)
-  if (keys.gemini) {
+  if (keys.gemini && !isProviderUnhealthy("gemini-stream")) {
     try {
       const geminiOpts = {
         thinking: mU === "DEEP",
@@ -837,35 +846,35 @@ async function callWithFallbackStream(
       };
       return { stream: await callGeminiStream(messages, system, keys.gemini, geminiOpts), provider: geminiOpts.thinking ? "gemini-2.5-thinking" : "gemini-flash-latest" };
     }
-    catch (e: any) { console.warn(`[stream-fallback] Gemini 2.5 Flash: ${e.message} → cascading`); }
+    catch (e: any) { markProviderUnhealthy("gemini-stream", 60_000); console.warn(`[stream-fallback] Gemini 2.5 Flash: ${e.message} → cascading`); }
   }
   // Tier 0b — Groq (fast Llama 3.3 70B, ~500 tok/s)
-  if (keys.groq && mU !== "DEEP") {
+  if (keys.groq && mU !== "DEEP" && !isProviderUnhealthy("groq-stream")) {
     try { return { stream: await callGroqStream(messages, system, keys.groq), provider: "groq-llama-70b" }; }
-    catch (e: any) { console.warn(`[stream-fallback] Groq: ${e.message} → cascading`); }
+    catch (e: any) { markProviderUnhealthy("groq-stream", 60_000); console.warn(`[stream-fallback] Groq: ${e.message} → cascading`); }
   }
   // Tier 1 — Mode-designated provider
-  if (primary === "claude" && keys.claude) {
+  if (primary === "claude" && keys.claude && !isProviderUnhealthy("claude-stream")) {
     try {
       const stream = await callClaudeStream(messages, system, keys.claude, "claude-sonnet-4-6", useThinking);
       return { stream, provider: useThinking ? "claude-sonnet-thinking" : "claude-sonnet" };
-    } catch (e: any) { if (!(e instanceof ProviderUnavailableError)) throw e; }
+    } catch (e: any) { markProviderUnhealthy("claude-stream", 60_000); if (!(e instanceof ProviderUnavailableError)) throw e; }
   }
-  if (primary === "grok" && keys.grok) {
+  if (primary === "grok" && keys.grok && !isProviderUnhealthy("grok-stream")) {
     try { return { stream: await callGrokStream(messages, system, keys.grok), provider: "grok" }; }
-    catch (e: any) { if (!(e instanceof ProviderUnavailableError)) throw e; }
+    catch (e: any) { markProviderUnhealthy("grok-stream", 60_000); if (!(e instanceof ProviderUnavailableError)) throw e; }
   }
-  if (keys.openai) {
+  if (keys.openai && !isProviderUnhealthy("openai-stream")) {
     try { return { stream: await callOpenAIStream(messages, system, keys.openai), provider: "openai-mini" }; }
-    catch (e: any) { if (!(e instanceof ProviderUnavailableError)) throw e; }
+    catch (e: any) { markProviderUnhealthy("openai-stream", 60_000); if (!(e instanceof ProviderUnavailableError)) throw e; }
   }
-  if (keys.claude) {
+  if (keys.claude && !isProviderUnhealthy("claude-haiku-stream")) {
     try { return { stream: await callClaudeStream(messages, system, keys.claude, "claude-haiku-4-5-20251001", false), provider: "claude-haiku" }; }
-    catch (e: any) { if (!(e instanceof ProviderUnavailableError)) throw e; }
+    catch (e: any) { markProviderUnhealthy("claude-haiku-stream", 60_000); if (!(e instanceof ProviderUnavailableError)) throw e; }
   }
-  if (keys.grok) {
+  if (keys.grok && !isProviderUnhealthy("grok-last-stream")) {
     try { return { stream: await callGrokStream(messages, system, keys.grok), provider: "grok" }; }
-    catch (e: any) { if (!(e instanceof ProviderUnavailableError)) throw e; }
+    catch (e: any) { markProviderUnhealthy("grok-last-stream", 60_000); if (!(e instanceof ProviderUnavailableError)) throw e; }
   }
   throw new Error("All AI providers unavailable for streaming (no funded keys).");
 }
@@ -4628,6 +4637,7 @@ Always reference dates and times in the entity's own timezone when one is set, o
               let reactIter        = 0;
               let totalActions     = 0;
               let actionsSucceeded = 0;
+              let actionsRan = false;
               let reactMessages    = [...callMessages];
 
               while (reactIter < REACT_MAX_ITER && totalActions < REACT_MAX_ACTIONS) {
@@ -4653,6 +4663,7 @@ Always reference dates and times in the entity's own timezone when one is set, o
                   }
                   toolResults.push({ type: block.type, ok, result });
                   totalActions++;
+                  actionsRan = true;
                   if (ok) actionsSucceeded++;
                   sb.from("mavis_agent_traces").insert({ user_id: user.id, session_id: conversationId ?? "streaming", iteration: reactIter + 1, action_type: block.type, params: block.params as any, result: result as any, ok, duration_ms: Date.now() - _traceStartStream }).then(() => {}, () => {});
                   controller.enqueue(enc.encode(`data: ${JSON.stringify({ step: "result", type: block.type, ok, preview: JSON.stringify(result).slice(0, 300) })}\n\n`));
@@ -4757,7 +4768,7 @@ Always reference dates and times in the entity's own timezone when one is set, o
                 } catch { /* non-critical */ }
               }
             }
-            controller.enqueue(enc.encode(`data: ${JSON.stringify({ done: true, provider: streamProv, conversationId, searched: !!webSearchResults, imageUrl: imgUrl, imageMediaId, actionsRan: actionsSucceeded > 0 })}\n\n`));
+            controller.enqueue(enc.encode(`data: ${JSON.stringify({ done: true, provider: streamProv, conversationId, searched: !!webSearchResults, imageUrl: imgUrl, imageMediaId, actionsRan, actionsSucceeded })}\n\n`));
           } catch (e: any) {
             controller.enqueue(enc.encode(`data: ${JSON.stringify({ error: e.message ?? "Stream error" })}\n\n`));
           } finally {
