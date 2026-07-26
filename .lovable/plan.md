@@ -1,78 +1,44 @@
+## Goal
+Execute all three post-audit tracks to bring MAVIS to "supreme intelligence lifeOS copilot" state: wire dead pages, polish UX, and build the next-tier autonomous features.
 
-# MAVIS Supreme Intelligence — Exhaustive System Audit
+## Track 1 — Wire the 6 static pages to live data
 
-Given the size (308 edge functions, 170+ tables, ~50 pages), a single-pass audit is not tractable in one turn. This plan runs the audit as **6 sequential phases**, each ending with a checkpoint report so you can steer before the next phase burns credits.
+- **AgentConsolePage** → live view of `mavis_agent_traces`, `mavis_action_queue`, `mavis_autonomous_runs` with pause/resume + approval controls.
+- **AlliesAndStore** → `store_items` catalog + `contacts` (allies) with purchase/interact actions.
+- **BpmPage** → wire to `bpm_sessions`; add start/stop session, history chart.
+- **CharacterPage** → aggregate `profiles`, `skills`, `user_difficulty_profile`, `rankings_profiles`, `quests` for the RPG character sheet.
+- **MyAgents** → list `customer_agents` + `mavis_letta_agents` with create/edit/delete.
+- **RankingsPage** → live leaderboard from `rankings_profiles` + `mavis_daily_scores`.
 
-## Phase 0 — Inventory & Map (read-only, 1 turn)
+Each: loading skeleton, empty state, error toast, mobile-safe, light-mode readable.
 
-Build the ground-truth map so every later phase has a target list. No fixes yet.
+## Track 2 — UX polish pass
 
-- Enumerate all `supabase/functions/*` → classify: user-facing / cron / webhook / internal / orphan.
-- Enumerate all `src/pages/*` and top-level routes in `App.tsx`.
-- Enumerate all public tables + RLS status (from `supabase--linter` + `read_query`).
-- Cross-reference: which function is called by which page/hook; which table is read by which function.
-- Output: `AUDIT_MAP.md` — a single document listing every function with its trigger, caller, tables, and status (WIRED / ORPHAN / DEAD / UNKNOWN).
+- Standardize `<LoadingState />`, `<EmptyState />`, `<ErrorState />` primitives; adopt across chat, council, persona, creative studio, gallery, avatar studio.
+- Light-mode audit sweep: replace remaining hardcoded `text-white`/`bg-black` with semantic tokens; verify prose readability on light bg.
+- Chat streaming: consistent typing indicator, retry button on failed messages, auto-scroll lock when user scrolls up.
+- Creative Studio: progress bar during generation, provider fallback badge ("generated via Pollinations after FLUX failed"), one-click regenerate.
+- Mobile: bottom-safe-area padding, tap-target sizing on council/persona cards.
 
-## Phase 1 — Backend Health Sweep (2 turns)
+## Track 3 — Supreme-intelligence roadmap
 
-- Run `supabase--linter`, `supabase--db_health`, `supabase--slow_queries`, `security--run_security_scan`.
-- Pull last 7 days of `ai_gateway_logs` — flag models returning >5% errors, functions with runaway costs.
-- Spot-check `edge_function_logs` for the 30 most-invoked functions; flag any with recent 500s.
-- Auto-fix: obviously broken model IDs, missing CORS, dead imports, undeployed functions.
-- Flag: RLS gaps, slow queries, security findings.
+1. **Autonomous loop upgrade** — new `mavis-autonomy-orchestrator` function that reads `mavis_goals` + `mavis_telos`, plans via `mavis_plans`/`mavis_plan_steps`, dispatches to `mavis-agent`, logs to `mavis_autonomous_runs`. Cron every 15 min.
+2. **Unified cross-service memory** — consolidate `mavis_memory`, `mavis_agent_memories`, `mavis_persona_memory`, `memories` behind a single `memory-service` edge function with hybrid semantic+keyword search. Inject top-K into every chat/agent call.
+3. **Unified inbox** — new `/inbox` page merging `gmail_messages`, Telegram threads, `chat_messages`, `council_chat_messages`, `mavis_action_queue` approvals. Single triage surface with keyboard shortcuts.
+4. **Advanced creative tools** — image-to-video handoff (Gallery → Video tab prefilled), style presets library saved to `mavis_design_tokens`, batch generation queue in `mavis_scrape_queue` pattern.
+5. **Cross-app context bridge** — MCP tools already live; add `get_inbox`, `get_today_brief`, `run_autonomous_step` so external agents can drive MAVIS.
 
-## Phase 2 — Critical-Path Live Tests (1 turn)
+## Execution order & checkpoints
 
-Curl-test every user-facing function group and confirm 200/expected-4xx:
-- Chat: `mavis-chat`, `mavis-agent`, `mavis-persona-router`, `mavis-council-*`
-- Actions: `mavis-actions`, `mavis-action-executor`, `mavis-autonomous-runner`
-- Creative: `mavis-image-gen`, `mavis-video-gen`, `mavis-tts`, `mavis-transcribe`
-- Integrations: `mavis-telegram-bot`, `mavis-slack-bot`, `mavis-phone-call`, gmail/calendar/drive
-- Memory: `embed-and-search`, `mavis-memory-agent`, `mavis-entity-graph`
-- MCP: `mcp` server + tool endpoints
+1. Track 2 primitives first (small, unblocks everything).
+2. Track 1 pages in parallel batches of 2 (Agent Console + My Agents → Character + Rankings → BPM + Allies).
+3. Track 3 in order: memory-service → autonomy-orchestrator → unified inbox → creative upgrades → new MCP tools.
 
-Auto-fix small failures (model IDs, headers, timeouts). Flag deeper breaks.
+Checkpoint after each track for review before moving on. Deploy edge functions as we go; no big-bang deploy at the end.
 
-## Phase 3 — Frontend Wiring Audit (2 turns)
+## Technical notes
 
-For each page in `src/pages/`:
-- Does it actually call the backend functions it should?
-- Are hooks (`use*`) subscribed to the right realtime channels?
-- Are there dead buttons (onClick → nothing / TODO / console.log)?
-- Are there orphan pages (routed but no nav entry) or orphan features (built but never routed)?
-
-Auto-fix: missing loading spinners, missing error toasts, missing empty states, dead imports.
-Flag: features present in backend with no UI, or UI with no backend.
-
-## Phase 4 — UX Polish Pass on Rough Surfaces (1-2 turns)
-
-Only surfaces identified as "rough" in Phase 3:
-- Add loading / error / empty states.
-- Fix light-mode readability gaps.
-- Ensure card-expansion + click-through rules (per project memory).
-- Ensure chat textareas keep focus (per chat-agent-ui contract).
-- No visual redesign; no changes to healthy surfaces.
-
-## Phase 5 — Final Report & Roadmap (1 turn)
-
-- Delivered fixes list (files changed, functions redeployed).
-- Flagged issues sorted by severity, each with a proposed remedy and effort estimate.
-- Recommended next-build roadmap for turning MAVIS into the "supreme intelligence lifeOS" (missing capabilities, redundant systems to consolidate, architectural refactors).
-
----
-
-## Technical Details
-
-- **Tools used per phase**: Phase 0-1: `read_query`, `linter`, `db_health`, `slow_queries`, `security--run_security_scan`, `ai_gateway_logs`. Phase 2: `curl_edge_functions`, `edge_function_logs`. Phase 3-4: `code--view`, `line_replace`, `write`. Phase 5: report only.
-- **Parallelization**: Every phase batches independent reads/curls in parallel.
-- **Deployments**: Functions changed in a phase are deployed at end of that phase (batched via `deploy_edge_functions`).
-- **Cost control**: Each phase ends with a checkpoint. You can stop, redirect, or continue. No blind full-runs.
-- **Off-limits (respected)**: no touching `supabase/migrations/*` without asking, no pushes to `main`, no edits to auto-generated Supabase client files, no NSFW work.
-
-## Checkpoints
-
-After each phase I'll post a short summary: what was fixed, what was flagged, what's queued for the next phase. You approve or redirect before Phase N+1.
-
-## Starting Point
-
-Phase 0 begins immediately on approval — it's pure read/mapping, low cost, and produces the artifact that every later phase depends on.
+- Reuse `AppDataContext` null-guard pattern for new layouts.
+- All new tables get `GRANT` + RLS in the same migration.
+- New edge functions use `npm:` specifiers, `Deno.serve`, shared CORS, Zod validation, 25s AbortSignal timeouts, Lovable AI Gateway with `gemini-flash-latest`.
+- New pages honor cyberpunk theme (Orbitron/Rajdhani, dark default, light-mode tested).
