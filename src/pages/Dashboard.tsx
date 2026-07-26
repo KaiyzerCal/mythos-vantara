@@ -18,6 +18,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { MavisActivityFeed } from "@/components/MavisActivityFeed";
 import { ApprovalQueue } from "@/components/ApprovalQueue";
 import { CausalInsights } from "@/components/CausalInsights";
+import { LoadingState } from "@/components/LoadingState";
 import { StandingOrdersWidget } from "@/components/StandingOrdersWidget";
 import { toast } from "sonner";
 
@@ -61,9 +62,10 @@ export default function Dashboard() {
 
   if (!profile) return (
     <div className="flex items-center justify-center h-full">
-      <div className="animate-pulse text-muted-foreground font-mono text-sm">Loading...</div>
+      <LoadingState label="Loading profile…" size="lg" />
     </div>
   );
+
 
   const rankColor = RANK_COLORS[profile.rank as keyof typeof RANK_COLORS] ?? "#FFD700";
   const xpPct = profile.xp_to_next_level > 0

@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase as supabaseTyped } from "@/integrations/supabase/client";
+import { LoadingState } from "@/components/LoadingState";
 const supabase: any = supabaseTyped;
 
 const SB_URL = import.meta.env.VITE_SUPABASE_URL ?? "";
@@ -296,7 +297,7 @@ function WorldModelPanel({ token }: { token: string }) {
     }
   }
 
-  if (loading) return <div className="flex justify-center py-12"><Loader2 size={24} className="animate-spin text-muted-foreground" /></div>;
+  if (loading) return <LoadingState size="lg" />;
 
   if (!model) return (
     <div className="text-center py-12">
@@ -395,7 +396,7 @@ function PredictionsPanel() {
     health_insight: "border-blue-500/50 text-blue-400 bg-blue-500/10",
   };
 
-  if (loading) return <div className="flex justify-center py-12"><Loader2 size={24} className="animate-spin text-muted-foreground" /></div>;
+  if (loading) return <LoadingState size="lg" />;
   if (!predictions.length) return (
     <div className="text-center py-12 text-muted-foreground">
       <Brain size={40} className="mx-auto mb-3 opacity-30" />
@@ -469,7 +470,7 @@ function OpportunitiesPanel({ token }: { token: string }) {
     health_performance: "border-red-500/50 text-red-400 bg-red-500/10",
   };
 
-  if (loading) return <div className="flex justify-center py-12"><Loader2 size={24} className="animate-spin text-muted-foreground" /></div>;
+  if (loading) return <LoadingState size="lg" />;
 
   return (
     <div className="space-y-4">
@@ -567,7 +568,7 @@ function EntityGraphPanel() {
           {["all","person","company","project","place","concept","product","event"].map(t => <option key={t} value={t}>{t.charAt(0).toUpperCase() + t.slice(1)}</option>)}
         </select>
       </div>
-      {loading ? <div className="flex justify-center py-8"><Loader2 size={24} className="animate-spin text-muted-foreground" /></div>
+      {loading ? <LoadingState size="lg" />
         : !entities.length ? <div className="text-center py-12 text-muted-foreground"><Network size={40} className="mx-auto mb-3 opacity-30" /><p className="text-sm">No entities yet. Use MAVIS more to build your knowledge graph.</p></div>
         : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -604,7 +605,7 @@ function RelationshipsPanel() {
     return "text-red-400";
   }
 
-  if (loading) return <div className="flex justify-center py-12"><Loader2 size={24} className="animate-spin text-muted-foreground" /></div>;
+  if (loading) return <LoadingState size="lg" />;
   if (!relationships.length) return (
     <div className="text-center py-12 text-muted-foreground">
       <Users size={40} className="mx-auto mb-3 opacity-30" />
@@ -824,7 +825,7 @@ function PolymarketPanel({ token }: { token: string }) {
       </form>
 
       {loading && !loaded && (
-        <div className="flex justify-center py-12"><Loader2 size={24} className="animate-spin text-muted-foreground" /></div>
+        <LoadingState size="lg" />
       )}
 
       {!loading && markets.length === 0 && loaded && (

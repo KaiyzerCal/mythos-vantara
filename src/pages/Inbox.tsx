@@ -175,6 +175,18 @@ export default function Inbox() {
 
   useEffect(() => { load(); }, [load]);
 
+  // Realtime: new gmail messages and approval/task changes → auto-refresh
+  useEffect(() => {
+    const channel = supabase
+      .channel("inbox-live")
+      .on("postgres_changes", { event: "*", schema: "public", table: "gmail_messages" }, () => load())
+      .on("postgres_changes", { event: "*", schema: "public", table: "approvals" }, () => load())
+      .on("postgres_changes", { event: "*", schema: "public", table: "mavis_tasks" }, () => load())
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [load]);
+
+
   const markBriefRead = async (id: string) => {
     setBriefs(prev => prev.map(b => b.id === id ? { ...b, read: true } : b));
     await supabase.from("watchtower_briefs").update({ read: true }).eq("id", id);
