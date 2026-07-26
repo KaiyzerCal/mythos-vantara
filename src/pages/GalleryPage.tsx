@@ -329,7 +329,7 @@ const VIDEO_PROVIDERS = [
   { key: "modelslab",  label: "ModelsLab",   hint: "SDXL video, uncensored" },
 ] as const;
 
-function VideoGenPanel({ onGenerated }: { onGenerated: (item: MediaItem) => void }) {
+function VideoGenPanel({ onGenerated, seedImageUrl }: { onGenerated: (item: MediaItem) => void; seedImageUrl?: string | null }) {
   const { session } = useAuth();
   const [prompt, setPrompt] = useState("");
   const [imageUrl, setImageUrl] = useState("");
@@ -340,6 +340,11 @@ function VideoGenPanel({ onGenerated }: { onGenerated: (item: MediaItem) => void
   const [uploading, setUploading] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [lastUrl, setLastUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (seedImageUrl) setImageUrl(seedImageUrl);
+  }, [seedImageUrl]);
+
 
 
   async function handleImageUpload(e: React.ChangeEvent<HTMLInputElement>) {
