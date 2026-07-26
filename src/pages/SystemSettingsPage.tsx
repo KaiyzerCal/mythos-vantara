@@ -832,10 +832,11 @@ function SkillForm({
   );
 }
 
-const SKILL_TEMPLATES: Array<{ label: string; icon: string; draft: Omit<CustomSkill, "id" | "user_id" | "created_at"> }> = [
+const SKILL_TEMPLATES: Array<{ label: string; icon: string; description: string; draft: Omit<CustomSkill, "id" | "user_id" | "created_at"> }> = [
   {
     label: "Daily Standup",
     icon: "📅",
+    description: "Summarize yesterday, today, and blockers from your data.",
     draft: {
       name: "Daily Standup",
       description: "Summarize yesterday, today, and blockers from your data.",
@@ -848,6 +849,7 @@ const SKILL_TEMPLATES: Array<{ label: string; icon: string; draft: Omit<CustomSk
   {
     label: "Idea Expander",
     icon: "💡",
+    description: "Take a half-baked idea and expand it into a full plan.",
     draft: {
       name: "Idea Expander",
       description: "Take a half-baked idea and expand it into a full plan.",
@@ -860,6 +862,7 @@ const SKILL_TEMPLATES: Array<{ label: string; icon: string; draft: Omit<CustomSk
   {
     label: "Reply Rewriter",
     icon: "✍️",
+    description: "Rewrite a draft message in different tones.",
     draft: {
       name: "Reply Rewriter",
       description: "Rewrite a draft message in different tones.",
@@ -872,6 +875,7 @@ const SKILL_TEMPLATES: Array<{ label: string; icon: string; draft: Omit<CustomSk
   {
     label: "Code Reviewer",
     icon: "🧑‍💻",
+    description: "Review pasted code for bugs, style, and improvements.",
     draft: {
       name: "Code Reviewer",
       description: "Review pasted code for bugs, style, and improvements.",
