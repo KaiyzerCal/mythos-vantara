@@ -2,7 +2,7 @@
 // VANTARA.EXE — SystemSettingsPage
 // Standing Orders · Custom Skills · LLM Analytics
 // ============================================================
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import {
   Loader2,
   Trash2,
