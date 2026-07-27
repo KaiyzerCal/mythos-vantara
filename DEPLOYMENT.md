@@ -284,3 +284,58 @@ Both pushes trigger the same workflow; only the target environment differs.
 - Migrations are not auto-applied by this workflow — `supabase/migrations/`
   changes need `supabase db push` run manually (or via a separate CI step)
   against whichever project you're promoting to.
+
+---
+
+## HYPERFRAMES RENDER SERVICE (HTML→MP4 video generation)
+
+`supabase/functions/mavis-hyperframes/index.ts` lets MAVIS render short MP4
+videos (quest recaps, stats reels, persona clips) from an HTML/CSS composition
+it writes itself, using [HyperFrames](https://github.com/KaiyzerCal/hyperframes)
+— an open-source "write HTML, render video" framework.
+
+**What this session could NOT do:** HyperFrames needs headless Chrome, a real
+FFmpeg binary, and a persistent Node process — none of which a Supabase Deno
+edge function can host. `mavis-hyperframes` is only a thin proxy; the actual
+rendering has to run somewhere else, on infrastructure you stand up and pay
+for. Nothing renders until that piece exists.
+
+### One-time setup
+
+1. **Stand up a small Node service** that wraps HyperFrames' `@hyperframes/engine`/
+   `@hyperframes/producer` packages behind two HTTP endpoints (HyperFrames
+   itself ships as a CLI/library, not a server — you write this wrapper):
+   - `POST /render` — body `{ html, assets, width, height, fps }` → `{ job_id }`
+   - `GET /render/:job_id` → `{ status: "queued"|"rendering"|"done"|"error", output_url?, error? }`
+   - Require a shared-secret header (`X-Render-Key`) on both routes.
+   - Needs Chrome + FFmpeg preinstalled. A small always-on container (Fly.io,
+     Railway, Render.com, or any VPS) is simplest to start; HyperFrames' own
+     AWS Lambda deployment mode is the alternative if you want it serverless.
+   - The service needs somewhere durable to put the finished MP4 (its own
+     storage, S3, etc.) and return a URL for `output_url` — `mavis-hyperframes`
+     just stores whatever URL comes back, it doesn't re-host the file.
+
+2. **Set two Supabase Edge Function secrets**:
+   - `HYPERFRAMES_RENDER_URL` — base URL of the service above (no trailing slash)
+   - `HYPERFRAMES_API_KEY` — the same shared secret the service checks for `X-Render-Key`
+
+3. Run the `hyperframes_renders` migration
+   (`supabase/migrations/20260727000000_hyperframes_renders.sql`) against your
+   project if it hasn't auto-applied — job tracking lives there, separate from
+   the video-editor's clip-centric `video_clips`/`video_render_jobs` tables
+   since these are ad-hoc generated videos, not editor timeline clips.
+
+### How it's used
+
+MAVIS has two tools registered — `render_video` (writes the HTML composition
+itself and submits the job) and `check_video_render` (polls for the finished
+URL). Rendering is async — `render_video` returns a `render_id` immediately,
+not a finished video; MAVIS is expected to check back with `check_video_render`
+a bit later or on a follow-up turn.
+
+### What's still manual after this setup
+
+- No template library exists yet — MAVIS writes each composition's HTML from
+  scratch per request. If a recurring format (e.g. a weekly stats reel) turns
+  out to be common, a reusable template is worth adding to `mavis-hyperframes`
+  directly rather than re-deriving it in the prompt every time.

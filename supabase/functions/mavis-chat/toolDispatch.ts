@@ -496,6 +496,25 @@ export const MAVIS_TOOL_DEFS: MavToolDef[] = [
       resource_name: { type: "string", desc: "Contact resource name (e.g. people/c12345)", required: true },
     },
   },
+  // ── HyperFrames video rendering ─────────────────────────────────────────
+  {
+    name: "render_video",
+    description: "Render a short MP4 video from an HTML/CSS composition (e.g. a quest-completion recap, a weekly-stats reel, a persona clip). Write the composition yourself as a single HTML fragment using HyperFrames conventions: a root element with data-composition-id/data-width/data-height, and child elements (video/img/div) with data-start and data-duration (seconds) marking when each appears. This submits an async render job — it does NOT return the finished video immediately; call check_video_render afterward (or on a later turn) with the returned render_id to get the final URL. Only use when the operator actually wants a rendered video, not for describing one.",
+    params: {
+      composition_html: { type: "string", desc: "The full HTML composition to render, using HyperFrames data-* timing attributes", required: true },
+      assets:           { type: "string", desc: "Comma-separated URLs of any images/video/audio referenced by the composition" },
+      width:            { type: "number", desc: "Output width in pixels (default 1920)" },
+      height:           { type: "number", desc: "Output height in pixels (default 1080)" },
+      fps:              { type: "number", desc: "Output frame rate (default 30)" },
+    },
+  },
+  {
+    name: "check_video_render",
+    description: "Check the status of a video render previously started with render_video. Returns 'rendering', 'ready' (with the final video URL), or 'failed'.",
+    params: {
+      render_id: { type: "string", desc: "The render_id returned by render_video", required: true },
+    },
+  },
   // ── Deep web research ──────────────────────────────────────────────────
   {
     name: "deep_research",
@@ -671,6 +690,7 @@ export function hasActionIntent(text: string): boolean {
     "vault entry","journal entry","council member",
     "award xp","give xp","add xp",
     "generate image","create image","forge persona","create persona",
+    "render a video","render video","make a video","create a video","video recap","recap video",
     // A2A / cross-entity (explicit names)
     "ask ","consult ","what does","what would","'s thoughts","'s take","'s opinion","'s perspective",
     "have them discuss","get their take","what do they think","let them weigh in",
@@ -740,6 +760,23 @@ async function runDeepResearch(
   }
 }
 
+async function callHyperframes(
+  supabaseUrl: string,
+  serviceKey: string,
+  userId: string,
+  body: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  const res = await fetch(`${supabaseUrl}/functions/v1/mavis-hyperframes`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${serviceKey}` },
+    body: JSON.stringify({ ...body, user_id: userId }),
+    signal: AbortSignal.timeout(15_000),
+  });
+  const data = await res.json().catch(() => ({})) as Record<string, unknown>;
+  if (!res.ok) throw new Error(String(data.error ?? `mavis-hyperframes ${res.status}`));
+  return data;
+}
+
 export async function resolveActionsNative(
   messages: any[],
   system: string,
@@ -761,6 +798,34 @@ export async function resolveActionsNative(
   const lines: string[] = [];
   for (const call of calls.slice(0, 6)) {
     try {
+      // render_video / check_video_render are handled inline — call mavis-hyperframes directly
+      if (call.name === "render_video") {
+        const html = String(call.args.composition_html ?? "").trim();
+        if (!html) continue;
+        try {
+          const result = await callHyperframes(supabaseUrl, serviceKey, userId, {
+            action: "render",
+            composition_html: html,
+            assets: String(call.args.assets ?? "").split(",").map(s => s.trim()).filter(Boolean),
+            width: call.args.width, height: call.args.height, fps: call.args.fps,
+          });
+          lines.push(`✓ render_video: started (render_id=${result.id}). Rendering in the background — call check_video_render(render_id="${result.id}") in a bit to get the finished video.`);
+        } catch (e: any) {
+          lines.push(`✗ render_video: ${e.message ?? "failed to start"}`);
+        }
+        continue;
+      }
+      if (call.name === "check_video_render") {
+        const renderId = String(call.args.render_id ?? "").trim();
+        if (!renderId) continue;
+        try {
+          const result = await callHyperframes(supabaseUrl, serviceKey, userId, { action: "status", id: renderId });
+          lines.push(`✓ check_video_render(${renderId}): status=${result.status}${result.render_url ? ` url=${result.render_url}` : ""}${result.error_message ? ` error=${result.error_message}` : ""}`);
+        } catch (e: any) {
+          lines.push(`✗ check_video_render(${renderId}): ${e.message ?? "failed"}`);
+        }
+        continue;
+      }
       // deep_research is handled inline — calls mavis-deep-research directly, never reaches executor
       if (call.name === "deep_research") {
         const query = String(call.args.query ?? "").trim();
