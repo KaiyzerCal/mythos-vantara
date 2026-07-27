@@ -1236,6 +1236,48 @@ export type Database = {
         }
         Relationships: []
       }
+      hyperframes_renders: {
+        Row: {
+          id: string
+          user_id: string
+          provider_job_id: string | null
+          status: string
+          width: number
+          height: number
+          fps: number
+          render_url: string | null
+          error_message: string | null
+          created_at: string
+          completed_at: string | null
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          provider_job_id?: string | null
+          status?: string
+          width?: number
+          height?: number
+          fps?: number
+          render_url?: string | null
+          error_message?: string | null
+          created_at?: string
+          completed_at?: string | null
+        }
+        Update: {
+          id?: string
+          user_id?: string
+          provider_job_id?: string | null
+          status?: string
+          width?: number
+          height?: number
+          fps?: number
+          render_url?: string | null
+          error_message?: string | null
+          created_at?: string
+          completed_at?: string | null
+        }
+        Relationships: []
+      }
       inventory: {
         Row: {
           description: string
