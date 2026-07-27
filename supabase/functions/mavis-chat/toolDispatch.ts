@@ -496,6 +496,15 @@ export const MAVIS_TOOL_DEFS: MavToolDef[] = [
       resource_name: { type: "string", desc: "Contact resource name (e.g. people/c12345)", required: true },
     },
   },
+  // ── Deep web research ──────────────────────────────────────────────────
+  {
+    name: "deep_research",
+    description: "Run a multi-angle deep web research pass — plans several distinct search angles, searches each, and synthesizes a structured, cited report. Use for questions that need real investigation (a topic, product, company, technology, claim, current event) rather than a quick fact lookup — especially when the operator wants a thorough breakdown or to be taught about something in depth. Slower than a normal reply (10-25s); do not use for simple questions you already know the answer to.",
+    params: {
+      query: { type: "string", desc: "The research question or topic, phrased as a complete, specific query", required: true },
+      depth: { type: "number", desc: "Number of distinct search angles to explore, 1-5 (default 3). Use 4-5 for genuinely broad/complex topics." },
+    },
+  },
   // ── A2A: consult another entity ───────────────────────────────────────────
   {
     name: "consult_entity",
@@ -636,9 +645,26 @@ export async function callClaudeForTools(
   } catch { return []; }
 }
 
+// Phrases that suggest the operator wants real investigation, not a quick reply —
+// shared between hasActionIntent (gates whether the tool pre-pass runs at all) and
+// hasResearchIntent (grants deep_research a longer pre-pass timeout budget in index.ts,
+// since a real multi-angle research pass routinely runs well past the default 12s).
+const RESEARCH_KWS = [
+  "research ", "deep dive", "look into", "investigate", "dig into",
+  "comprehensive report on", "everything about", "everything on",
+  "teach me about", "teach me everything", "break down", "breakdown of",
+  "analyze this", "analyze the", "full analysis", "in-depth", "thorough analysis",
+];
+
+export function hasResearchIntent(text: string): boolean {
+  const lower = text.toLowerCase();
+  return RESEARCH_KWS.some(kw => lower.includes(kw));
+}
+
 export function hasActionIntent(text: string): boolean {
   const lower = text.toLowerCase();
   const kws = [
+    ...RESEARCH_KWS,
     "create ","add a ","make a ","log ","track ","record ","save to ",
     "complete ","finish ","mark as done","done with",
     "new quest","new note","new journal","new goal","new skill","new ally",
@@ -670,6 +696,50 @@ export function hasActionIntent(text: string): boolean {
   return kws.some(kw => lower.includes(kw));
 }
 
+// mavis-deep-research always responds as an SSE stream (even on its own error/config
+// paths) — this drains it server-side and concatenates the `token` fields into one report.
+async function runDeepResearch(
+  supabaseUrl: string,
+  serviceKey: string,
+  userId: string,
+  query: string,
+  depth: number,
+): Promise<string> {
+  try {
+    const res = await fetch(`${supabaseUrl}/functions/v1/mavis-deep-research`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${serviceKey}` },
+      body: JSON.stringify({ query, depth, user_id: userId }),
+      signal: AbortSignal.timeout(25_000),
+    });
+    if (!res.ok || !res.body) return "";
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let report = "";
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() ?? "";
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed.startsWith("data:")) continue;
+        const payload = trimmed.slice(5).trim();
+        if (payload === "[DONE]") continue;
+        try {
+          const evt = JSON.parse(payload);
+          if (typeof evt.token === "string") report += evt.token;
+        } catch { /* skip malformed event */ }
+      }
+    }
+    return report.trim();
+  } catch {
+    return "";
+  }
+}
+
 export async function resolveActionsNative(
   messages: any[],
   system: string,
@@ -691,6 +761,20 @@ export async function resolveActionsNative(
   const lines: string[] = [];
   for (const call of calls.slice(0, 6)) {
     try {
+      // deep_research is handled inline — calls mavis-deep-research directly, never reaches executor
+      if (call.name === "deep_research") {
+        const query = String(call.args.query ?? "").trim();
+        if (!query) continue;
+        const rawDepth = Number(call.args.depth ?? 3);
+        const depth = Math.max(1, Math.min(5, isNaN(rawDepth) ? 3 : rawDepth));
+        const report = await runDeepResearch(supabaseUrl, serviceKey, userId, query, depth);
+        if (report) {
+          lines.push(`✓ deep_research("${query}"):\n${report.slice(0, 6000)}\n[This is a real, cited multi-source research report — synthesize it into a complete, well-organized answer for the operator, don't just paste it verbatim or summarize in one sentence.]`);
+        } else {
+          lines.push(`✗ deep_research("${query}"): no results (web search may not be configured, or the research pass timed out — tell the operator and offer to try again or answer from existing knowledge)`);
+        }
+        continue;
+      }
       // consult_entity is handled inline — calls the entity's LLM, never reaches executor
       if (call.name === "consult_entity") {
         const entityName = String(call.args.name ?? "");
