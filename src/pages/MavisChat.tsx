@@ -207,6 +207,10 @@ export default function MavisChat() {
   // ── Skill catalog drawer ──
   const [showSkillCatalog, setShowSkillCatalog] = useState(false);
 
+  // ── Custom skills (from mavis_custom_skills) ──
+  const [customSkills, setCustomSkills] = useState<Array<{ id: string; name: string; trigger_phrase: string; system_prompt: string; modes: string[]; enabled: boolean }>>([]);
+  const [activeCustomSkill, setActiveCustomSkill] = useState<{ name: string; trigger_phrase: string } | null>(null);
+
   // ── Header collapse ──
   const [headerCollapsed, setHeaderCollapsed] = useState(false);
 
@@ -327,6 +331,20 @@ export default function MavisChat() {
   useEffect(() => { localStorage.setItem("mavis-voice-id", voiceId); }, [voiceId]);
   useEffect(() => { localStorage.setItem("mavis-voice-enabled", String(ttsEnabled)); }, [ttsEnabled]);
 
+  // Keyboard shortcut: `/` opens skill catalog when not typing in an input
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "/" && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        const target = e.target as HTMLElement;
+        if (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable) return;
+        e.preventDefault();
+        setShowSkillCatalog(true);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
   // ── Speech Recognition (STT) ────────────────────────────
   const startListening = useCallback(() => {
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
@@ -445,6 +463,16 @@ export default function MavisChat() {
           .eq("user_id", userId)
           .maybeSingle()
           .then(({ data }: any) => { if (!cancelled && data) setActiveSpecialist(data); })
+          .catch(() => {});
+
+        // Load custom skills for trigger matching
+        supabase.from("mavis_custom_skills")
+          .select("id, name, trigger_phrase, system_prompt, modes, enabled")
+          .eq("user_id", userId)
+          .eq("enabled", true)
+          .then(({ data, error }: any) => {
+            if (!cancelled && data && !error) setCustomSkills(data);
+          })
           .catch(() => {});
 
         const { data: convos } = await supabase
@@ -743,9 +771,41 @@ export default function MavisChat() {
     const content = (text ?? input).trim();
     if (!content || isLoading) return;
     cancelledRef.current = false;
+
+    // ── /autonomy <goal> — delegate to Autonomy Orchestrator ──
+    if (content.toLowerCase().startsWith("/autonomy ")) {
+      const goal = content.slice(10).trim();
+      if (goal) {
+        setInput("");
+        const convoIdEarly = await ensureConversation();
+        const userMsg = { id: `u-${Date.now()}`, role: "user" as const, content, mode: chatMode, timestamp: new Date() };
+        setChatMessages((prev) => [...prev, userMsg]);
+        if (convoIdEarly) persistMessage({ role: "user", content, mode: chatMode }, convoIdEarly).catch(() => {});
+        setIsLoading(true);
+        try {
+          const { data, error } = await supabase.functions.invoke("mavis-autonomy-orchestrator", {
+            body: { action: "plan", goal },
+          });
+          if (error) throw error;
+          const planId = data?.plan?.id ?? data?.plan_id ?? "unknown";
+          const reply = `Plan created (id: \`${planId}\`). Track it on the [Autonomy](/autonomy) page.`;
+          const asstMsg = { id: `a-${Date.now()}`, role: "assistant" as const, content: reply, mode: chatMode, timestamp: new Date() };
+          setChatMessages((prev) => [...prev, asstMsg]);
+          if (convoIdEarly) persistMessage({ role: "assistant", content: reply, mode: chatMode }, convoIdEarly).catch(() => {});
+        } catch (e: any) {
+          const errMsg = { id: `a-${Date.now()}`, role: "assistant" as const, content: `Autonomy orchestrator error: ${e?.message ?? "unknown"}`, mode: chatMode, timestamp: new Date() };
+          setChatMessages((prev) => [...prev, errMsg]);
+        } finally {
+          setIsLoading(false);
+        }
+        return;
+      }
+    }
+
     setInput("");
     setActionStatus(null);
     setAgentSteps([]);
+
 
     const abortController = new AbortController();
     abortRef.current = abortController;
@@ -1254,6 +1314,20 @@ export default function MavisChat() {
       if (responseLength === "concise") systemPrompt += "\n\n[RESPONSE LENGTH: Be concise — 2-4 sentences unless more is genuinely needed.]";
       else if (responseLength === "detailed") systemPrompt += "\n\n[RESPONSE LENGTH: Be thorough and detailed — elaborate with examples where useful.]";
       if (selectedPersonaPrompt) systemPrompt += `\n\n--- ACTIVE PERSONA ---\n${selectedPersonaPrompt}\n---`;
+
+      // Custom skill trigger matching
+      const matchedCustom = customSkills.find((s) => {
+        const trigger = s.trigger_phrase?.trim().toLowerCase();
+        if (!trigger) return false;
+        const lowerContent = content.toLowerCase();
+        return lowerContent.startsWith(trigger) || lowerContent.includes(trigger);
+      });
+      if (matchedCustom) {
+        setActiveCustomSkill({ name: matchedCustom.name, trigger_phrase: matchedCustom.trigger_phrase });
+        systemPrompt += `\n\n--- CUSTOM SKILL: ${matchedCustom.name} ---\n${matchedCustom.system_prompt}\n---`;
+      } else {
+        setActiveCustomSkill(null);
+      }
 
       // In text-only modes, stop MAVIS from promising executions it can't deliver
       const NON_AGENT_MODES = ["PRIME", "ENRYU", "SOVEREIGN", "QUEST", "FORGE", "WATCHTOWER", "SALES", "MARKET", "GAME_MASTER", "WEBMASTER"];
@@ -1986,6 +2060,9 @@ export default function MavisChat() {
         {selectedPersonaName && (
           <span className="text-xs font-mono px-2 py-1 rounded bg-primary/10 border border-primary/30 text-primary">{selectedPersonaName}</span>
         )}
+        {activeCustomSkill && (
+          <span className="text-xs font-mono px-2 py-1 rounded bg-amber-500/10 border border-amber-500/30 text-amber-500" title="Custom skill active">⚡ {activeCustomSkill.name}</span>
+        )}
         <button onClick={() => setShowPersonaPicker((v) => !v)} title="Inject persona context"
           className="p-2 rounded border border-border/50 text-muted-foreground hover:text-primary hover:border-primary/30 transition-colors text-xs font-mono">
           <Users size={12} />
@@ -2522,6 +2599,29 @@ export default function MavisChat() {
         </div>
       )}
 
+      {/* Slash-command hint chips */}
+      {!input && !isLoading && (
+        <div className="flex flex-wrap items-center gap-1.5 px-1 mb-1.5">
+          <span className="text-[9px] font-mono uppercase tracking-widest text-muted-foreground/60">try</span>
+          {[
+            { label: "/autonomy", hint: "spawn a plan" },
+            { label: "/image", hint: "generate art" },
+            { label: "/video", hint: "generate motion" },
+            { label: "/journal", hint: "capture a thought" },
+          ].map((c) => (
+            <button
+              key={c.label}
+              type="button"
+              onClick={() => { setInput(c.label + " "); inputRef.current?.focus(); }}
+              className="text-[10px] font-mono px-2 py-0.5 rounded-full border border-border/70 text-muted-foreground hover:text-primary hover:border-primary/40 hover:bg-primary/5 transition-all"
+              title={c.hint}
+            >
+              {c.label}
+            </button>
+          ))}
+        </div>
+      )}
+
       {/* Input — pinned to bottom with safe-area padding for mobile */}
       <div className="flex gap-2 mt-auto pt-1 pb-[max(env(safe-area-inset-bottom),0.25rem)]">
         <AttachButton
@@ -2572,7 +2672,7 @@ export default function MavisChat() {
           }}
           placeholder={isListening ? "Listening... speak now" : `MAVIS-${currentMode.label} awaiting input...`}
           rows={2}
-          className={`flex-1 bg-card border rounded-lg px-3 py-2.5 text-sm font-body resize-none focus:outline-none focus:border-primary/50 placeholder:text-muted-foreground placeholder:font-mono placeholder:text-xs ${
+          className={`flex-1 bg-card border rounded-lg px-3 py-2.5 text-sm font-body resize-none focus:outline-none focus:border-primary/60 focus:shadow-[0_0_0_3px_hsl(var(--primary)/0.12)] placeholder:text-muted-foreground placeholder:font-mono placeholder:text-xs transition-all ${
             isListening ? "border-destructive/40" : "border-border"
           }`}
         />

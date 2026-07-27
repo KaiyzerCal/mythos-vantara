@@ -241,7 +241,50 @@ Deno.serve(async (req) => {
     skip:  results.filter((r) => r.status === "skip").length,
   };
 
-  return new Response(JSON.stringify({ results, summary, ran_at: new Date().toISOString() }), {
+  // ── Telegram alerting: notify operator on failures ───────
+  // Triggered only when at least one test fails, or when caller
+  // passes { alert: "always" } in the request body.
+  let alertSent: null | { ok: boolean; message?: string } = null;
+  try {
+    const body = req.headers.get("content-length") && req.body
+      ? await req.clone().json().catch(() => ({}))
+      : {};
+    const alertMode = (body as any)?.alert ?? "on_failure";
+    const shouldAlert = alertMode === "always" || (alertMode !== "never" && summary.fail > 0);
+
+    if (shouldAlert) {
+      const BOT = Deno.env.get("TELEGRAM_BOT_TOKEN");
+      const CHAT = (body as any)?.telegram_chat_id
+        ?? Deno.env.get("TELEGRAM_CHAT_ID")
+        ?? Deno.env.get("TELEGRAM_OPERATOR_CHAT_ID")
+        ?? "";
+      if (!BOT || !CHAT) {
+        alertSent = { ok: false, message: "TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID not configured" };
+      } else {
+        const fails = results.filter((r) => r.status === "fail");
+        const warns = results.filter((r) => r.status === "warn");
+        const icon = summary.fail > 0 ? "🚨" : "✅";
+        const header = `${icon} MAVIS Health Check\n${summary.pass}/${summary.total} pass · ${summary.fail} fail · ${summary.warn} warn`;
+        const failList = fails.length
+          ? "\n\n❌ Failures:\n" + fails.map((r) => `• ${r.category}/${r.name}: ${r.message}`).join("\n")
+          : "";
+        const warnList = warns.length && summary.fail > 0
+          ? "\n\n⚠️ Warnings:\n" + warns.slice(0, 5).map((r) => `• ${r.name}: ${r.message}`).join("\n")
+          : "";
+        const text = (header + failList + warnList).slice(0, 4000);
+        const tgRes = await fetch(`https://api.telegram.org/bot${BOT}/sendMessage`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ chat_id: CHAT, text, disable_web_page_preview: true }),
+        });
+        alertSent = { ok: tgRes.ok, message: tgRes.ok ? "sent" : `HTTP ${tgRes.status}` };
+      }
+    }
+  } catch (e: any) {
+    alertSent = { ok: false, message: e?.message ?? "alert error" };
+  }
+
+  return new Response(JSON.stringify({ results, summary, alert: alertSent, ran_at: new Date().toISOString() }), {
     headers: { ...CORS, "Content-Type": "application/json" },
   });
 });

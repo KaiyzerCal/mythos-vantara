@@ -40,6 +40,25 @@ const DEV_MODE = Object.keys(BOUND_OPERATORS).length === 0;
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
+  // Lightweight health / key-presence probe (no LLM call, no DB write)
+  const url = new URL(req.url);
+  if (req.method === "GET" && (url.pathname.endsWith("/health") || url.searchParams.get("health") === "1")) {
+    const keys = {
+      ANTHROPIC_API_KEY: !!Deno.env.get("ANTHROPIC_API_KEY"),
+      OPENAI_API_KEY: !!(Deno.env.get("OPENAI_API_KEY") || Deno.env.get("OPENAI_API")),
+      GEMINI_API_KEY: !!Deno.env.get("GEMINI_API_KEY"),
+      GROK_API_KEY: !!Deno.env.get("GROK_API_KEY"),
+      TAVILY_API_KEY: !!Deno.env.get("TAVILY_API_KEY"),
+      JINA_API_KEY: !!Deno.env.get("JINA_API_KEY"),
+    };
+    const missing = Object.entries(keys).filter(([_, present]) => !present).map(([name]) => name);
+    return new Response(JSON.stringify({
+      status: missing.length === 0 ? "ok" : "degraded",
+      missing_keys: missing,
+      keys_present: Object.keys(keys).filter(k => keys[k as keyof typeof keys]),
+    }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+  }
+
   try {
     const authHeader = req.headers.get("Authorization");
     if (!authHeader?.startsWith("Bearer ")) {
@@ -1659,6 +1678,7 @@ Always reference dates and times in the entity's own timezone when one is set, o
         async start(controller) {
           let accumulated = "";
           let actionsSucceeded = 0; // top-level so try/catch/finally can all reach it
+          let actionsRan = false; // same reason — the final `done` event needs both after the react loop's block scope ends
           // ── Hidden-block stream filter ──────────────────────────────────────
           // Buffers ::: sequences; passes :::ACTION{...}::: through, queues
           // :::CONSULT_ENTITY{...}::: for post-stream resolution, drops all others.
@@ -1744,6 +1764,7 @@ Always reference dates and times in the entity's own timezone when one is set, o
                   }
                   toolResults.push({ type: block.type, ok, result });
                   totalActions++;
+                  actionsRan = true;
                   if (ok) actionsSucceeded++;
                   sb.from("mavis_agent_traces").insert({ user_id: user.id, session_id: conversationId ?? "streaming", iteration: reactIter + 1, action_type: block.type, params: block.params as any, result: result as any, ok, duration_ms: Date.now() - _traceStartStream }).then(() => {}, () => {});
                   controller.enqueue(enc.encode(`data: ${JSON.stringify({ step: "result", type: block.type, ok, preview: JSON.stringify(result).slice(0, 300) })}\n\n`));
@@ -1848,7 +1869,7 @@ Always reference dates and times in the entity's own timezone when one is set, o
                 } catch { /* non-critical */ }
               }
             }
-            controller.enqueue(enc.encode(`data: ${JSON.stringify({ done: true, provider: streamProv, conversationId, searched: !!webSearchResults, imageUrl: imgUrl, imageMediaId, actionsRan: actionsSucceeded > 0 })}\n\n`));
+            controller.enqueue(enc.encode(`data: ${JSON.stringify({ done: true, provider: streamProv, conversationId, searched: !!webSearchResults, imageUrl: imgUrl, imageMediaId, actionsRan, actionsSucceeded })}\n\n`));
           } catch (e: any) {
             controller.enqueue(enc.encode(`data: ${JSON.stringify({ error: e.message ?? "Stream error" })}\n\n`));
           } finally {
@@ -2011,15 +2032,15 @@ Always reference dates and times in the entity's own timezone when one is set, o
 
               // ── LLM cost telemetry (OpenJarvis pattern) ─────────────────
               const _streamCost = estimateLlmCost(streamProv ?? provider, fullPrompt.length + lastUserText.length, accumulated.length);
-              sb.from("mavis_llm_calls").insert({
+              Promise.resolve(sb.from("mavis_llm_calls").insert({
                 user_id:            user.id,
                 provider:           streamProv ?? provider,
                 mode:               modeUpper,
                 latency_ms:         Date.now() - ts,
                 estimated_cost_usd: _streamCost,
                 success:            true,
-              }).catch(() => {});
-              sb.from("mavis_usage_log").insert({
+              })).catch(() => {});
+              Promise.resolve(sb.from("mavis_usage_log").insert({
                 user_id:            user.id,
                 persona_id:         personaId ?? null,
                 session_type:       isCouncilMode ? "council" : "mavis",
@@ -2027,7 +2048,7 @@ Always reference dates and times in the entity's own timezone when one is set, o
                 input_tokens:       Math.ceil((fullPrompt.length + lastUserText.length) / 4),
                 output_tokens:      Math.ceil(accumulated.length / 4),
                 estimated_cost_usd: _streamCost,
-              }).catch(() => {});
+              })).catch(() => {});
 
               // ── Persona memory persistence (COUNCIL mode) ────────────────
               if (isCouncilMode && personaId && accumulated.length > 10) {
@@ -2483,15 +2504,15 @@ Respond with ONLY a JSON array (may be empty []):
 
     // ── LLM cost telemetry (OpenJarvis pattern) ────────────────────────
     const _nonStreamCost = estimateLlmCost(usedProvider, fullPrompt.length + lastUserContent.length, content.length);
-    sb.from("mavis_llm_calls").insert({
+    Promise.resolve(sb.from("mavis_llm_calls").insert({
       user_id:            user.id,
       provider:           usedProvider,
       mode:               modeUpper,
       latency_ms:         null,
       estimated_cost_usd: _nonStreamCost,
       success:            true,
-    }).catch(() => {});
-    sb.from("mavis_usage_log").insert({
+    })).catch(() => {});
+    Promise.resolve(sb.from("mavis_usage_log").insert({
       user_id:            user.id,
       persona_id:         personaId ?? null,
       session_type:       isCouncilMode ? "council" : "mavis",
@@ -2499,7 +2520,7 @@ Respond with ONLY a JSON array (may be empty []):
       input_tokens:       Math.ceil((fullPrompt.length + lastUserContent.length) / 4),
       output_tokens:      Math.ceil(content.length / 4),
       estimated_cost_usd: _nonStreamCost,
-    }).catch(() => {});
+    })).catch(() => {});
 
     return new Response(
       JSON.stringify({ content, mode, conversationId, searched: !!webSearchResults, provider: usedProvider, imageUrl }),
