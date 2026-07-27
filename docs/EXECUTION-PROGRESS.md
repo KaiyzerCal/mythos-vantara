@@ -20,36 +20,24 @@ before closing out Stage A.
 
 ## Blocked / needs Calvin's decision
 
-1. **`.env` is tracked again — and it will keep coming back.** A prior
-   session (2026-07-11) ran `git filter-repo` to strip `.env` from all
-   history + patched `.gitignore`. Two days later (2026-07-13), Lovable's
-   own sync bot (`gpt-engineer-app[bot]`, commit `446132f`) AND a separate
-   Claude session (commit `1902ad9`) both independently re-added `.env`
-   and rewrote `.gitignore` with the comment `# .env committed for Vite
-   build`. Content is still safe (verified twice — JWT decodes to
-   `role: anon`, just the public anon key + project URL, no
-   `service_role` or private secret). But this means the "fix" already
-   regressed once on its own, apparently because Lovable's build pipeline
-   expects `.env` present. **Before redoing the filter-repo + force-push:
-   does Lovable's hosted build actually require `.env` committed (no env
-   var UI on their platform), or is there another way to inject
-   `VITE_*` vars there?** If Lovable genuinely needs it, stripping it
-   again is a self-defeating exercise that'll just regress on the next
-   Lovable sync and cost you disruptive force-pushes. If there's a
-   Lovable project-settings alternative, this stage's original plan
-   stands and I'll redo it properly.
+1. ~~`.env` tracked again~~ — **RESOLVED 2026-07-27**: Calvin confirmed
+   Lovable's build genuinely needs `.env` committed. Leaving it as-is,
+   not rewriting history. `.gitignore`'s existing `# .env committed for
+   Vite build` comment already documents this; no further action.
 
-2. **Supabase MCP tool calls are blocked pending your approval** (`MCP
+2. **Supabase MCP tool calls are still blocked pending approval** (`MCP
    error -32003: MCP tool call requires approval` on `list_projects` and
-   `get_advisors` against `wlygujlvsfimhtqsdxrx`). I can't run live
-   security advisors or confirm live RLS status without this. Please
-   grant approval (or tell me how) so Stage A's live verification and
-   Stage B's live cron/table checks can actually happen — this blueprint
-   is built around live-database ground truth, not just static repo
-   analysis.
+   `get_advisors` against `wlygujlvsfimhtqsdxrx` — re-tried 2026-07-27,
+   same result). Still can't run live security advisors, confirm live
+   RLS status, or pull the live `cron.job` table Stage B needs as its
+   ground truth. Needs Calvin to grant this (unclear from this session
+   whether that's a client-side prompt to click through, a permission
+   mode setting, or something else — the error returns immediately each
+   time rather than hanging, so it doesn't look like a pending
+   interactive prompt).
 
 3. **`mavis-yamete`** — untouched, flagged per ground rules. Still needs
-   your call on what it is / what to do with it.
+   Calvin's call on what it is / what to do with it.
 
 ## Findings log (append, never overwrite)
 
@@ -112,6 +100,11 @@ before closing out Stage A.
   project ("PrymalAI") are sitting in `supabase/migrations/`. Not
   touched (migrations are off-limits without explicit instruction), but
   Calvin should know these are here and decide whether they belong.
+- 2026-07-27: Calvin confirmed `.env` must stay committed for Lovable's
+  build. No history rewrite. Decision item 1 closed.
+- 2026-07-27: Re-attempted Supabase MCP call (`get_advisors`) after
+  Calvin's reply — still `MCP error -32003: MCP tool call requires
+  approval`. Decision item 2 still open.
 - 2026-07-27: verify_jwt audit — `supabase/config.toml` has **112**
   functions with `verify_jwt = false`, not the 22 the 2026-07-11 session
   audited. Full list captured. **Did not attempt to audit all 112
