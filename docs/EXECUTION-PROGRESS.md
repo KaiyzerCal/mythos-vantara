@@ -3,20 +3,27 @@
 Last updated: 2026-07-27, session 1
 
 ## Stage status
-- [~] Stage A — Security cleanup (mostly done, 2 items need Calvin's decision — see below)
-- [ ] Stage B — Phase 0: Ground truth inventory
-- [ ] Stage C — Phase 1: Fix what's broken
+- [~] Stage A — Security cleanup (functionally done; 1 item still needs
+  live Supabase confirmation, see below)
+- [~] Stage B — Phase 0: Ground truth inventory (`docs/capability-inventory.md`
+  written, all 314 functions classified via static analysis; live
+  `cron.job`/secrets confirmation still blocked)
+- [ ] Stage C — Phase 1: Fix what's broken (2 urgent items already fixed
+  out of sequence — see findings log — rest not started)
 - [ ] Stage D — Phase 2: Orphan triage
 - [ ] Stage E — Phase 3: Capabilities Hub + drift-proofing
 - [ ] Stage F — Phase 4: Smoke tests
 - [ ] Stage G — Phase 5: Composio (Track A / Track B — track separately)
 
 ## Currently in progress
-Stage A checkpoint reached. Stopped per the blueprint's own rule ("if a
-stage's real scope turns out much bigger than expected, stop and report")
-— the verify_jwt audit surface is 112 functions, not the 22 a prior
-session (2026-07-11) found. Waiting on Calvin for two decisions (below)
-before closing out Stage A.
+Calvin said to keep going and finish everything rather than stop at every
+checkpoint — proceeding continuously through the stages now, still
+flagging anything destructive or genuinely blocked rather than plowing
+through those. Stage B's static analysis is done (`docs/capability-
+inventory.md`); moving into Stage C fixes next. Live Supabase MCP access
+is still blocked (see below) — Stage B's live-verification items and
+Stage F's live smoke-test requirement will stay marked unverified until
+that's resolved; not stalling the rest of the work on it.
 
 ## Blocked / needs Calvin's decision
 
@@ -107,10 +114,62 @@ before closing out Stage A.
   approval`. Decision item 2 still open.
 - 2026-07-27: verify_jwt audit — `supabase/config.toml` has **112**
   functions with `verify_jwt = false`, not the 22 the 2026-07-11 session
-  audited. Full list captured. **Did not attempt to audit all 112
-  individually this session** — that's a real, separate body of work
-  (confirming each has a legitimate non-JWT auth path: cron-only, HMAC
-  webhook signature, service-role-only caller, etc.) and rushing it to
-  close out Stage A in one pass risked missing something real. Stopping
-  here per the blueprint's explicit "stage bigger than expected, stop
-  and report" rule rather than doing a shallow pass.
+  audited. Full list captured. At the time this was written, decided not
+  to rush a full audit to close Stage A in one pass — see below, this got
+  done properly as part of Stage B instead.
+- 2026-07-27: Calvin: "keep making progress and finish everything." Ran 3
+  parallel research agents to build Stage B's ground-truth inventory
+  (function caller map, cron/webhook reconciliation, task-type + autonomy
+  pathway tracing). Full results synthesized into `docs/capability-
+  inventory.md` — see that file for the complete table and findings.
+  Headlines:
+  - **`mavis-stripe-webhook` had zero signature verification** (real gap —
+    fixed immediately, out of stage sequence, given it's an active
+    exploitable hole on a payment webhook: anyone with the URL could POST
+    a forged `invoice.paid`/`payment_intent.succeeded` event with an
+    arbitrary `user_id` and it would be logged as real revenue. Added the
+    same HMAC-SHA256 check `stripe-widget-webhook` already uses. Commit
+    `929bd8a`, pushed.
+  - `mavis-gumroad-webhook`'s seller-ID check silently no-op'd when
+    `GUMROAD_SELLER_ID` wasn't set — same commit, now logs
+    `fallback_triggered` instead of silently skipping (Gumroad's webhooks
+    don't support real HMAC signing, so seller-ID comparison genuinely is
+    the best available check, just wasn't being enforced loudly).
+  - 3 more webhook-shaped functions (`mavis-gmail-webhook`,
+    `mavis-inbound-webhook`, `mavis-webhook-calendar`) look genuinely
+    dead — named as inbound receivers, no caller anywhere, and
+    `verify_jwt=true` (which would reject the real external webhook calls
+    they're presumably meant to receive). Flagged for Stage D, not
+    touched.
+  - cron.schedule() reconciliation: 0 dead/renamed targets. But: a
+    possible vault-secret-name mismatch on the 5-minute trigger-engine
+    job (`SERVICE_ROLE_KEY` vs the `SUPABASE_SERVICE_ROLE_KEY` used
+    everywhere else — can't confirm live), a whole `mavis_cron_config`
+    table-driven scheduling tier that silently never activated for ~7
+    functions because its activation RPC didn't exist until 2026-07-20,
+    and `mavis-proactive-nudge` now has two different schedules registered
+    through two different mechanisms.
+  - `mavis-goal-review`'s triple-definition conflict resolved: the real,
+    currently-live registration (latest migration wins) is Monday 09:00
+    UTC — but it authenticates with the anon key, inconsistent with every
+    other cron job in the repo, worth a deliberate look.
+  - `mavis_tasks` seeded task types: clean, no mismatch — corrected one
+    assumption in the blueprint's own wording (the executor's dispatch is
+    a `HANDLERS` lookup object, not a `switch`).
+  - Autonomy pathway classification: 7 of 9 pathways CONNECTED end-to-end.
+    `mavis-proactive-agent` is PARTIAL/BROKEN — despite the name, has no
+    autonomous trigger at all, only a manual dashboard button and a chat
+    keyword match. `mavis-streak-alerts`/`mavis-quest-nudge` are
+    CONNECTED but record no outcome anywhere (fire a Telegram message and
+    nothing else).
+  - **The self-improvement/outcome loop is not actually wired.**
+    `mavis_outcome_events` — the table the whole outcome-tracking system
+    is meant to learn from — has no producer anywhere in the codebase.
+    Every individual piece (goal-review, proactive-agent, outcome-tracker,
+    self-evolve) is real code, but "act → observe outcome → learn" isn't
+    actually connected end to end.
+  - Compile check: all 314 functions esbuild-bundle clean, zero failures
+    — real, verified data (not a live-deploy guarantee, but catches
+    syntax/import errors).
+  Full detail, methodology, and the complete 314-row table are in
+  `docs/capability-inventory.md` — not duplicated here.
