@@ -129,6 +129,7 @@ const UTILITY_NAV = [
   { to: "/stripe", icon: CreditCard, label: "Stripe" },
   { to: "/import", icon: Upload, label: "Import Data" },
   { to: "/system-health", icon: Stethoscope, label: "System Health" },
+  { to: "/capabilities", icon: Zap, label: "Capabilities Hub" },
   { to: "/system-settings", icon: SlidersHorizontal, label: "System Settings" },
   { to: "/settings", icon: Settings, label: "Settings" },
 ];

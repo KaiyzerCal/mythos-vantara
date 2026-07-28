@@ -11,6 +11,8 @@
     "build:dev": "vite build --mode development",
     "lint": "eslint .",
     "smoke": "node scripts/smoke-test.mjs",
+    "generate:capabilities": "node scripts/generate-capabilities-manifest.mjs",
+    "check:capabilities": "node scripts/generate-capabilities-manifest.mjs --check",
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",

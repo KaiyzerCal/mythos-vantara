@@ -120,6 +120,7 @@ const BehavioralModelPage = lazy(() => import("@/pages/BehavioralModelPage").the
 const MyAgents = lazy(() => import("@/pages/MyAgents"));
 const RSSReaderPage = lazy(() => import("@/pages/RSSReaderPage").then(m => ({ default: m.RSSReaderPage })));
 const SystemHealthPage = lazy(() => import("@/pages/SystemHealthPage").then(m => ({ default: m.SystemHealthPage })));
+const CapabilitiesHubPage = lazy(() => import("@/pages/CapabilitiesHubPage").then(m => ({ default: m.CapabilitiesHubPage })));
 const WpcomCallbackPage = lazy(() => import("@/pages/WpcomCallbackPage"));
 const CodeStudioPage = lazy(() => import("@/pages/CodeStudioPage"));
 const AgentConsolePage = lazy(() => import("@/pages/AgentConsolePage"));
@@ -273,6 +274,7 @@ function AppContent() {
               <Route path="/gallery" element={<GalleryPage />} />
               <Route path="/system-settings" element={<SystemSettingsPage />} />
               <Route path="/system-health" element={<SystemHealthPage />} />
+              <Route path="/capabilities" element={<CapabilitiesHubPage />} />
               <Route path="/behavioral-model" element={<BehavioralModelPage />} />
               <Route path="/my-agents" element={<MyAgents />} />
               <Route path="/rss-reader" element={<RSSReaderPage />} />

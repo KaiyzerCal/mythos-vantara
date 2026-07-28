@@ -23,7 +23,10 @@ Last updated: 2026-07-28, session 1 (continued)
   correctly external-only. Orphan count is at zero for anything with a
   clear disposition — the 5 flagged items are the only open loop, and
   that's a "needs a product decision" state, not unfinished triage.
-- [ ] Stage E — Phase 3: Capabilities Hub + drift-proofing
+- [x] Stage E — Phase 3: Capabilities Hub + drift-proofing. `/capabilities`
+  page live, generated manifest, CI drift check wired in and empirically
+  verified both directions (added a fake function → check failed;
+  removed it → check passed again, per the blueprint's own instruction).
 - [ ] Stage F — Phase 4: Smoke tests
 - [ ] Stage G — Phase 5: Composio (Track A / Track B — track separately)
 
@@ -248,3 +251,44 @@ that's resolved; not stalling the rest of the work on it.
     `mcp`, `mavis-mcp-server`, `telegram-setup`.
   All changes esbuild-verified, vitest suite still 53/53, workflow YAML
   re-validated. Committing next.
+- 2026-07-28: Stage E. Built `scripts/generate-capabilities-manifest.mjs`
+  (Node, no dependencies) — regenerates `src/mavis/
+  capabilitiesManifest.generated.ts` from the actual repo: function list
+  from `supabase/functions/` on disk (excluding `_archive`), category/
+  purpose parsed out of `SHARD.md`'s own tables (not hand-copied), cron
+  targets from `supabase/migrations/*.sql`, `verify_jwt` from
+  `supabase/config.toml`, and frontend/backend caller detection via the
+  same regex approach the Stage B research agents used by hand. One
+  exception, clearly labeled in the generator: the 9 Autonomy & Proactive
+  pathway CONNECTED/PARTIAL classifications can't be derived from regex
+  (needs judgment — does it actually record an outcome, is a "trigger"
+  real) — kept as an explicit, labeled manual annotation layer sourced
+  from Stage B's analysis, not silently presented as auto-derived.
+  Cross-checked the generator's automated classification against Stage
+  B/D's manual numbers: 277 ACTIVE / 15 WEBHOOK / 11 CRON_ONLY / 6
+  ORPHANED / 1 NEEDS_DECISION out of 310 — the ORPHANED count (6) exactly
+  matches Stage B's 13 minus the 4 archived minus the 3 moved to WEBHOOK
+  by Stage D's verify_jwt fixes, confirming the two methods agree.
+  Built `/capabilities` (`src/pages/CapabilitiesHubPage.tsx`), wired into
+  `App.tsx` routing and `AppSidebar.tsx` nav: search/filter by status, a
+  distinct Autonomy & Proactive section surfacing the 9 pathways with
+  their notes, and a generic JSON-body invoke form per function (with a
+  confirm-before-calling guard, since this hits the live function for
+  real). Grouped by SHARD.md category; 11 functions came back
+  "Uncategorized" (mostly recently-added ones SHARD.md hasn't caught up
+  to yet, including things from this very session) — left visible as its
+  own group rather than hidden, since that's useful drift signal too.
+  CI: added `.github/workflows/capabilities-drift-check.yml` running
+  `npm run check:capabilities` on push/PR to main/staging. **Verified the
+  drift check actually works, per the blueprint's explicit instruction**:
+  created a throwaway `supabase/functions/mavis-fake-test-function/`,
+  confirmed `check:capabilities` failed with a clear message and non-zero
+  exit, deleted it, confirmed the check passed again. tsc --noEmit clean,
+  vitest 53/53, full `vite build` succeeds with the new page code-split
+  into its own ~96KB chunk. Tried to visually verify the page in a
+  browser (dev server actually started this time, bound to 127.0.0.1)
+  but the app requires real auth to reach any page past login, which
+  this sandbox can't provide — confirmed via headless Chromium that the
+  app shell loads with no JS crash, but couldn't see the page's actual
+  rendered content. Same environment limitation noted earlier this
+  session for other UI work.

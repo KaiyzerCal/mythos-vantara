@@ -1,0 +1,27 @@
+name: Capabilities Manifest Drift Check
+
+# Execution Blueprint Stage E: fails the build if a function exists in
+# supabase/functions/ (or is registered in config.toml/migrations/SHARD.md)
+# but the generated manifest doesn't reflect it, or vice versa — the
+# Capabilities Hub (/capabilities) is only trustworthy if this can't drift
+# silently. Regenerate locally with `npm run generate:capabilities` and
+# commit the result.
+
+on:
+  push:
+    branches: ["main", "staging"]
+  pull_request:
+    branches: ["main", "staging"]
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Check capabilities manifest is up to date
+        run: node scripts/generate-capabilities-manifest.mjs --check
