@@ -230,6 +230,20 @@ export const BrowsePageSchema = z.object({
   selector: z.string().optional(),
 });
 
+// COMPOSIO ACTION — any third-party integration routed through Composio
+// (mavis-composio-agent), instead of a new bespoke edge function. Execution
+// Blueprint Stage G: "from this point forward, new third-party integrations
+// MAVIS needs get built through mavis-composio-agent + this action type, not
+// as a new bespoke edge function." Generic on purpose — Composio exposes
+// 1000+ toolkit actions and this schema isn't meant to enumerate them; it
+// validates the envelope (which tool, what arguments), classifyAction()
+// below decides AUTO vs CONFIRM per the tool_slug's implied verb.
+export const ComposioActionSchema = z.object({
+  type: z.literal("composio_action"),
+  tool_slug: z.string().min(1),        // e.g. "GITHUB_CREATE_ISSUE"
+  params: z.record(z.string(), z.unknown()).default({}),
+});
+
 // UNION — ALL SCHEMAS
 export const ActionSchema = z.discriminatedUnion("type", [
   CreateQuestSchema, UpdateQuestSchema, DeleteQuestSchema,
@@ -264,6 +278,7 @@ export const ActionSchema = z.discriminatedUnion("type", [
   EditFileSchema,
   GitOperationSchema,
   BrowsePageSchema,
+  ComposioActionSchema,
 ]);
 
 export type ValidatedAction = z.infer<typeof ActionSchema>;

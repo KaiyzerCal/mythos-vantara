@@ -361,3 +361,74 @@ a bit later or on a follow-up turn.
   scratch per request. If a recurring format (e.g. a weekly stats reel) turns
   out to be common, a reusable template is worth adding to `mavis-hyperframes`
   directly rather than re-deriving it in the prompt every time.
+
+---
+
+## COMPOSIO INTEGRATION (Execution Blueprint Stage G)
+
+`supabase/functions/mavis-composio-agent/index.ts` is a generic proxy to
+[Composio](https://composio.dev) — from now on, a new third-party integration
+MAVIS needs should go through this + the `composio_action` action type
+(`src/mavis/actionSchemas.ts`), not a new bespoke edge function per service.
+
+**What this session could NOT do:** create a Composio account or generate an
+API key — that's an account-level action only Calvin can take. The function
+is built and wired through the same CONFIRM/AUTO approval gate every other
+action goes through (`src/mavis/actionExecutor.ts`'s `classifyAction()`),
+but is untested against a real Composio account, because none exists yet.
+
+**Confidence note on the integration itself:** Composio's docs site and API
+host both blocked automated fetches while building this (403s), so the exact
+request/response shape in `mavis-composio-agent` is assembled from their
+public TypeScript SDK's confirmed method signature and a sibling endpoint
+path, not a first-hand read of the v3 REST reference for this specific
+endpoint. The auth header name (`x-api-key`) and the v3-only requirement
+(v1/v2 now return 410) are independently confirmed. **Before trusting this
+for anything real**, smoke-test one simple read-only action (a `*_LIST_*` or
+`*_GET_*` slug) against a real account first.
+
+### One-time setup
+
+1. Create a Composio account at composio.dev, then Projects → API Keys →
+   create a new key (starts with `sk_...`).
+2. Set `COMPOSIO_API_KEY` in Supabase Edge Function secrets.
+3. Connect whichever third-party accounts MAVIS should act on behalf of
+   (Composio calls this a "connected account" per app/toolkit) via the
+   Composio dashboard.
+4. Smoke-test a read-only action first (see confidence note above) before
+   relying on anything that writes.
+
+### How it's used
+
+MAVIS emits a `composio_action` with `{ tool_slug, params }` — e.g.
+`GITHUB_CREATE_ISSUE` with `{ owner, repo, title, body }`. Classification is
+verb-based, not per-action like the rest of `actionExecutor.ts` (Composio
+exposes 1000+ toolkit actions, no fixed list to special-case): any slug
+containing a mutating verb (`CREATE`, `UPDATE`, `DELETE`, `SEND`, `POST`,
+etc.) requires confirmation; only a slug matching a known read-only verb
+(`GET`, `LIST`, `SEARCH`, etc.) with nothing mutating auto-executes.
+Unrecognized shapes default to CONFIRM — same "ask when unsure" posture as
+everything else in that file.
+
+### Track B — replacing existing hand-rolled integrations (not started)
+
+The blueprint's Track B asks for a shortlist of `ACTIVE` + fragile/high-
+maintenance integrations that are Composio-replacement candidates, with a
+**per-integration replace/keep recommendation presented before touching
+anything — one at a time, never bulk.** This session built the shortlist
+below from the capabilities manifest (every one is `ACTIVE` — real usage,
+not dead code) but did **not** cut over, remove, or archive any of them —
+that needs Calvin's per-item sign-off, and can't be verified equivalent
+without a real Composio account to test against anyway:
+
+`mavis-linear-agent`, `mavis-notion-agent`, `mavis-notion-sync`,
+`mavis-slack-agent`, `mavis-discord-agent`, `mavis-github-sync`,
+`mavis-twitter-agent`, `mavis-shopify-agent`, `mavis-airtable-agent`,
+`mavis-salesforce`, `mavis-reddit-agent`, `mavis-instagram-agent`,
+`mavis-spotify-agent`, `mavis-calendly-agent`, `mavis-vercel-agent`,
+`mavis-sentry-agent` — one hand-rolled function per third-party service,
+exactly the pattern Composio's toolkit catalog exists to replace. This is a
+first-pass list by pattern-match (single-service API integration, real
+usage), not a rigorous per-function fragility audit — some of these may be
+working perfectly well and not worth touching. Each needs its own look
+before any decision, per the blueprint's own explicit instruction.

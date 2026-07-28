@@ -809,6 +809,19 @@ export const CAPABILITIES_MANIFEST: CapabilityEntry[] = [
     "autonomyPathway": null
   },
   {
+    "name": "mavis-composio-agent",
+    "category": "Uncategorized",
+    "purpose": null,
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/pages/MavisChat.tsx"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
     "name": "mavis-compound-learning",
     "category": "Memory & Learning",
     "purpose": "Extracts compound learning patterns across sessions",

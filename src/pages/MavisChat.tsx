@@ -319,6 +319,19 @@ export default function MavisChat() {
       } as any, { onConflict: "user_id,name" });
       if (error) throw error;
     });
+
+    // composio_action — any third-party integration routed through Composio
+    // (Execution Blueprint Stage G), not mavis-actions' own switch dispatcher.
+    registerActionHandler("composio_action", async (payload) => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) throw new Error("Not authenticated — please sign in again");
+      const { data, error } = await supabase.functions.invoke("mavis-composio-agent", {
+        body: { tool_slug: payload.tool_slug, params: payload.params ?? {} },
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      });
+      if (error) throw error;
+      if (data?.successful === false) throw new Error(data?.error || "Composio action failed");
+    });
   }, []);
 
   // Persist voice preference in localStorage so it survives reloads

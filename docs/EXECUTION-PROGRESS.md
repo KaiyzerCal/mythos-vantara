@@ -30,7 +30,11 @@ Last updated: 2026-07-28, session 1 (continued)
 - [~] Stage F — Phase 4: Smoke tests. Scope note below — full "every ACTIVE
   function" coverage exists but is deliberately opt-in, not blindly wired
   into CI. See findings log for why.
-- [ ] Stage G — Phase 5: Composio (Track A / Track B — track separately)
+- [~] Stage G — Phase 5: Composio. Track A code built and wired through the
+  approval gate (items 2-4), but item 1 (create the account, get an API
+  key) is Calvin's to do — untested against a real account. Track B has a
+  shortlist, no cutovers done (needs per-item sign-off, per the
+  blueprint's own instruction).
 
 ## Currently in progress
 Calvin said to keep going and finish everything rather than stop at every
@@ -342,3 +346,72 @@ that's resolved; not stalling the rest of the work on it.
     (confirmed 277 ACTIVE functions load correctly), workflow YAML,
     drift-check still passes both directions after the JSON-output
     change, tsc/vitest/build all clean.
+- 2026-07-28: Stage G. Track A step 1 (create a Composio account, generate
+  an API key) is a real, hard blocker this session cannot clear — it's
+  Calvin's account to create. Built everything that doesn't depend on it:
+  - `src/mavis/actionSchemas.ts`: new `composio_action` schema
+    (`{ tool_slug, params }`) — generic on purpose, Composio exposes
+    1000+ toolkit actions, not something to enumerate per-action.
+  - `src/mavis/actionExecutor.ts`: `classifyComposioAction()` — verb-based
+    classification since there's no fixed action list to special-case.
+    Any slug with a mutating verb (CREATE/UPDATE/DELETE/SEND/...) forces
+    CONFIRM even if a read verb also appears (safety wins ties);
+    unrecognized shapes default to CONFIRM too. **This is the blueprint's
+    own "single most important requirement" for this stage** — routing
+    through the existing gate rather than a parallel path — done.
+  - `src/pages/MavisChat.tsx`: registered the `composio_action` handler,
+    calling the new edge function with the session's real access token.
+  - `supabase/functions/mavis-composio-agent/index.ts`: generic proxy to
+    Composio's v3 REST API. **Confidence caveat, prominent in the file's
+    own header comment**: docs.composio.dev and backend.composio.dev both
+    blocked automated fetches while building this (403s — likely bot
+    protection), so the exact request/response shape is assembled from
+    their public TS SDK's confirmed method signature and a sibling
+    endpoint path, not a first-hand read of the v3 REST reference for
+    this specific endpoint. Auth header name (`x-api-key`) and the v3-
+    only requirement (v1/v2 now return 410) are independently confirmed.
+    Needs a real account to actually verify — do not treat as trustworthy
+    until smoke-tested against one.
+  - 22 new tests (`src/mavis/__tests__/composioAction.test.ts`) covering
+    the classification heuristic specifically, including a deliberately
+    contrived slug with both a read and a mutating verb present (safety-
+    wins-ties case) — this heuristic is the actual safety net here, so it
+    got the most scrutiny, not just "does it execute."
+  - Track B: built the candidate shortlist from the capabilities manifest
+    (16 functions — one hand-rolled integration per third-party service,
+    the exact pattern Composio's toolkit catalog exists to replace, all
+    confirmed `ACTIVE` = real usage). Documented in `DEPLOYMENT.md`. **No
+    cutovers performed** — per the blueprint's own explicit instruction
+    ("present a replace/keep recommendation per integration before
+    touching it — one at a time, never bulk") and because nothing can be
+    verified equivalent without a real Composio account to test against.
+    This is a first-pass list by pattern-match, not a rigorous per-
+    function fragility audit.
+  All verified: tsc --noEmit clean, vitest 75/75 (53 pre-existing + 22
+  new), esbuild on the new function, capabilities manifest regenerated
+  and drift-check passes, full `vite build` succeeds.
+
+## Where this leaves the blueprint
+
+All 7 stages have real, verified work done. Nothing was faked or rubber-
+stamped closed — every `[~]` above means "did everything checkable without
+live Supabase/Composio access," not "fully done." What's left, all
+requiring Calvin directly (nothing here is more static analysis this
+session could do):
+- Grant Supabase MCP tool approval so Stage A/B/C/F's live-verification
+  items can actually happen (live `cron.job` table, live security
+  advisors, live secrets confirmation) — flagged repeatedly, never
+  resolved this session.
+- Apply the two Stage C corrective migrations
+  (`20260728000000_fix_trigger_engine_cron.sql`,
+  `20260728000001_activate_stranded_cron_jobs.sql`) to the live project.
+- Decide on the 5 Stage D items flagged as real feature work
+  (`mavis-team`, `agent-telegram-gateway`, `local-mesh-proxy`,
+  `mavis-event-router`, `mavis-demo`).
+- Decide on `mavis-yamete` (untouched all session, per ground rules).
+- Set up the staging GitHub Environment secrets so Stage F's smoke-test
+  gate actually runs (documented in `DEPLOYMENT.md`).
+- Create the Composio account / API key (Stage G Track A step 1), then
+  smoke-test `mavis-composio-agent` for real before trusting it.
+- Review the Stage G Track B shortlist and decide per-integration,
+  one at a time.

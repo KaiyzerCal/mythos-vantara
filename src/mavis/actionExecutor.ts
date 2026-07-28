@@ -16,6 +16,23 @@ const ALWAYS_CONFIRM = new Set([
 const IDENTITY_FIELDS = ["codex_name", "title"];
 const LARGE_XP_THRESHOLD = 500;
 
+// Composio exposes 1000+ toolkit actions (GITHUB_CREATE_ISSUE, SLACK_SEND_MESSAGE,
+// NOTION_SEARCH_PAGE, ...) — there's no fixed list to special-case per action the
+// way the rest of this file does. Classify by the verb implied in tool_slug
+// instead: any mutating-sounding verb anywhere in the name forces CONFIRM, even
+// if a read-y verb also appears (safety wins ties). Only a slug matching a known
+// read-only verb AND nothing mutating is AUTO. Unrecognized shapes default to
+// CONFIRM — same "when in doubt, ask" posture as everything else here.
+const COMPOSIO_MUTATING_VERBS = /_(CREATE|UPDATE|DELETE|REMOVE|SEND|POST|PUBLISH|WRITE|UPLOAD|EXECUTE|RUN|INVITE|SHARE|ADD|SET|ARCHIVE|CANCEL|APPROVE|MERGE|CLOSE|PAY|REFUND|TRANSFER)_/;
+const COMPOSIO_READONLY_VERBS = /_(GET|LIST|SEARCH|FETCH|FIND|READ|QUERY|VIEW)_/;
+
+function classifyComposioAction(payload: Record<string, unknown>): ActionClassification {
+  const slug = `_${String(payload.tool_slug ?? "").toUpperCase()}_`;
+  if (COMPOSIO_MUTATING_VERBS.test(slug)) return "CONFIRM";
+  if (COMPOSIO_READONLY_VERBS.test(slug)) return "AUTO";
+  return "CONFIRM";
+}
+
 function classifyAction(action: ParsedAction): ActionClassification {
   const { type, payload } = action;
   if (ALWAYS_CONFIRM.has(type)) return "CONFIRM";
@@ -25,6 +42,7 @@ function classifyAction(action: ParsedAction): ActionClassification {
   if (type === "update_ranking" && "tier" in payload) return "CONFIRM";
   // Git write operations require confirmation; read-only ops (status, diff, log) do not
   if (type === "git_operation" && ["commit", "push"].includes(String(payload.operation))) return "CONFIRM";
+  if (type === "composio_action") return classifyComposioAction(payload);
   return "AUTO";
 }
 
