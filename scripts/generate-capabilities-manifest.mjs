@@ -17,6 +17,9 @@ import { fileURLToPath } from "node:url";
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const FUNCTIONS_DIR = join(ROOT, "supabase/functions");
 const OUT_PATH = join(ROOT, "src/mavis/capabilitiesManifest.generated.ts");
+// Plain-JSON sibling — same data, importable by any Node script (e.g.
+// scripts/smoke-test.mjs) without a TypeScript loader.
+const JSON_OUT_PATH = join(ROOT, "src/mavis/capabilitiesManifest.generated.json");
 const CHECK_ONLY = process.argv.includes("--check");
 
 function walk(dir, exts, out = []) {
@@ -181,15 +184,16 @@ export interface CapabilityEntry {
 
 export const CAPABILITIES_MANIFEST: CapabilityEntry[] = `;
 
-const body = JSON.stringify(manifest, null, 2) + ";\n";
-const output = header + body;
+const jsonBody = JSON.stringify(manifest, null, 2) + "\n";
+const output = header + JSON.stringify(manifest, null, 2) + ";\n";
 
 if (CHECK_ONLY) {
   const existing = existsSync(OUT_PATH) ? readFileSync(OUT_PATH, "utf8") : "";
-  if (existing !== output) {
+  const existingJson = existsSync(JSON_OUT_PATH) ? readFileSync(JSON_OUT_PATH, "utf8") : "";
+  if (existing !== output || existingJson !== jsonBody) {
     console.error(
       `capabilities manifest is stale (${functionNames.length} functions on disk don't match ` +
-      `src/mavis/capabilitiesManifest.generated.ts). Run: node scripts/generate-capabilities-manifest.mjs`
+      `src/mavis/capabilitiesManifest.generated.{ts,json}). Run: node scripts/generate-capabilities-manifest.mjs`
     );
     process.exit(1);
   }
@@ -198,4 +202,5 @@ if (CHECK_ONLY) {
 }
 
 writeFileSync(OUT_PATH, output);
-console.log(`Wrote ${OUT_PATH} (${functionNames.length} functions).`);
+writeFileSync(JSON_OUT_PATH, jsonBody);
+console.log(`Wrote ${OUT_PATH} and ${JSON_OUT_PATH} (${functionNames.length} functions).`);

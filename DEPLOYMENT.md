@@ -257,6 +257,15 @@ access) to complete once.
    Environment protection rules apply automatically to any job that
    references that environment.
 
+   For the smoke-test gate (Execution Blueprint Stage F) to actually run,
+   the `staging` Environment also needs three more secrets: `SUPABASE_URL`
+   (the staging project's URL), `SUPABASE_SERVICE_ROLE_KEY` (its service
+   role key), and `OPERATOR_USER_ID` (a real `auth.users` id on the staging
+   project — create a test operator account there rather than reusing a
+   production user id). Without these, the deploy still succeeds — the
+   smoke-test step logs a warning and skips itself rather than failing the
+   whole deploy over an optional gate.
+
 4. **Create the `staging` branch** in this repo (`git checkout -b staging &&
    git push -u origin staging`) if it doesn't exist yet.
 
@@ -273,6 +282,19 @@ Day to day: push/merge to `staging` first, confirm the change behaves
 correctly against the staging project (Telegram bot, chat, cron jobs —
 whatever the change touches), then merge `staging` into `main` to promote.
 Both pushes trigger the same workflow; only the target environment differs.
+A staging deploy also runs `scripts/smoke-test.mjs` automatically (if the
+three secrets above are set) — a red smoke-test run is a signal not to
+promote to `main` yet, even though nothing currently blocks the merge
+automatically.
+
+To run a broader check manually against staging (never against
+production): `SUPABASE_URL=... SERVICE_ROLE_KEY=... OPERATOR_USER_ID=...
+node scripts/smoke-test.mjs --all-active` probes every `ACTIVE` function
+from the generated capabilities manifest, not just the curated core set —
+see the script's own header comment for why this is opt-in rather than
+part of the default/CI run (several ACTIVE functions are genuinely
+side-effecting — sends, writes, external API calls — and haven't been
+individually vetted for what an empty/minimal payload does to them).
 
 ### What's still manual after this setup
 

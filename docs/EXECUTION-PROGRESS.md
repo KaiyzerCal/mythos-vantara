@@ -27,7 +27,9 @@ Last updated: 2026-07-28, session 1 (continued)
   page live, generated manifest, CI drift check wired in and empirically
   verified both directions (added a fake function → check failed;
   removed it → check passed again, per the blueprint's own instruction).
-- [ ] Stage F — Phase 4: Smoke tests
+- [~] Stage F — Phase 4: Smoke tests. Scope note below — full "every ACTIVE
+  function" coverage exists but is deliberately opt-in, not blindly wired
+  into CI. See findings log for why.
 - [ ] Stage G — Phase 5: Composio (Track A / Track B — track separately)
 
 ## Currently in progress
@@ -292,3 +294,51 @@ that's resolved; not stalling the rest of the work on it.
   app shell loads with no JS crash, but couldn't see the page's actual
   rendered content. Same environment limitation noted earlier this
   session for other UI work.
+- 2026-07-28: Stage F. Important scope correction to the blueprint's own
+  wording before describing what got built: "for every ACTIVE function:
+  minimal smoke test... no 500" cannot be safely automated as a blind
+  sweep across all 277 ACTIVE functions. Many are genuinely side-effecting
+  for real — sends a Telegram message, sends an email, writes a revenue
+  row, posts to social media — and an empty/minimal POST isn't guaranteed
+  harmless just because it's framed as "just a smoke test." Rather than
+  either (a) skip this or (b) silently build something that could spam
+  Calvin's real Telegram/email/socials the first time CI runs it, built it
+  as an explicit, loud, opt-in capability instead — consistent with the
+  "no silent fallback" ground rule.
+  - `scripts/generate-capabilities-manifest.mjs` now also emits
+    `src/mavis/capabilitiesManifest.generated.json` (plain JSON sibling of
+    the `.ts` file) so a Node script can read it without a TS loader.
+    Drift check extended to cover both files; re-verified the fake-
+    function test still catches drift correctly with both outputs.
+  - `scripts/smoke-test.mjs` extended with a real Autonomy & Proactive
+    trigger tier: fires `mavis-goal-review`, `mavis-autonomous-engine`,
+    `mavis-trigger-engine`, `mavis-signal-watcher`, `mavis-proactive-
+    nudge`, `mavis-streak-alerts`, `mavis-quest-nudge`, `mavis-so-
+    scheduler` with the **exact same payload their real pg_cron job
+    posts** (cross-checked against `supabase/migrations/*.sql`, not
+    guessed) — this is not new risk, it's the same call each already
+    receives automatically on schedule. Confirms trigger→non-5xx-response
+    only; confirming the DB-side outcome actually got recorded needs a
+    live follow-up read, not done here (same MCP-access blocker as
+    everywhere else this session).
+  - Added a manifest-driven `--all-active` sweep (opt-in flag, NOT run in
+    CI, NOT the default) that probes every ACTIVE function not already
+    covered by a dedicated test. Script header and `DEPLOYMENT.md` both
+    document plainly: staging only, and only once you've spot-checked
+    what a given function actually does with a near-empty payload.
+  - Wired a staging-only smoke-test gate into
+    `.github/workflows/deploy-mavis-functions.yml` (runs the curated +
+    autonomy-trigger tests, not `--all-active`, after a staging deploy).
+    Needs 3 more secrets on the `staging` GitHub Environment
+    (`SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `OPERATOR_USER_ID`) that
+    don't exist yet — documented in `DEPLOYMENT.md`; the step skips
+    itself gracefully with a warning if they're unset rather than failing
+    the whole deploy over an optional gate.
+  - Could not actually run any of this against live infrastructure to
+    verify real HTTP behavior — no live Supabase credentials available in
+    this session (same blocker as the rest of Stage F/live-verification
+    work). Verified everything that's checkable without live access:
+    script syntax, the manifest-loading/filtering logic in isolation
+    (confirmed 277 ACTIVE functions load correctly), workflow YAML,
+    drift-check still passes both directions after the JSON-output
+    change, tsc/vitest/build all clean.
