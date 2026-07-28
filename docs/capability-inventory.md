@@ -23,8 +23,11 @@ not obviously webhook-named — needs a human look, not a firm verdict) ·
 genuinely no invocation path found) · `NEEDS-DECISION` (`mavis-yamete`,
 per the blueprint's explicit instruction — untouched, flagged only).
 
-**Status counts**: 275 ACTIVE · 13 ORPHANED · 10 WEBHOOK · 8 CRON-ONLY ·
-7 WEBHOOK? · 1 NEEDS-DECISION (314 total).
+**Status counts**: 276 ACTIVE · 13 ORPHANED · 10 WEBHOOK · 8 CRON-ONLY ·
+6 WEBHOOK? · 1 NEEDS-DECISION (314 total). (Corrected post-publish:
+`mavis-attachment-process` was a false negative in the automated caller
+sweep — genuinely called from `useChatAttachments.ts`, moved from
+WEBHOOK? to ACTIVE.)
 
 ---
 
@@ -181,7 +184,7 @@ individual piece existing in code.
 | mavis-archivist | Yes: index.ts | No | webhook | Yes | not verified | **ACTIVE** |
 | mavis-article-extractor | Yes: NotebookPage.tsx, index.ts | No | - | Yes | not verified | **ACTIVE** |
 | mavis-arxiv | Yes: KnowledgeGraph.tsx, index.ts | No | - | Yes | not verified | **ACTIVE** |
-| mavis-attachment-process | No | No | webhook | Yes | not verified | **WEBHOOK?** |
+| mavis-attachment-process | Yes: useChatAttachments.ts | No | webhook | Yes | not verified | **ACTIVE** |
 | mavis-auto-journal | Yes: index.ts | No | cron | Yes | not verified | **ACTIVE** |
 | mavis-autonomous-actions | No | No | cron | Yes | not verified | **CRON-ONLY** |
 | mavis-autonomous-engine | No | Yes: mavis-autonomy-orchestrator | webhook | Yes | not verified | **ACTIVE** |
