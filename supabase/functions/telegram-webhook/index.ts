@@ -873,9 +873,17 @@ function isLargeXp(payload: Record<string, unknown>): boolean {
   return payload.type === "award_xp" && typeof payload.amount === "number" && (payload.amount as number) >= 500;
 }
 
+// Explicit-mode image generation (PromptChan, via mavis-image-gen) needs
+// confirmation here too — this file's action dispatch is a separate
+// implementation from src/mavis/actionExecutor.ts (the web app's gate),
+// not shared code, so a fix on one side doesn't cover the other.
+function isNsfwImageGen(payload: Record<string, unknown>): boolean {
+  return payload.type === "generate_image" && payload.nsfw === true;
+}
+
 function needsConfirm(payload: Record<string, unknown>): boolean {
   const type = String(payload.type ?? "");
-  return ALWAYS_CONFIRM.has(type) || isLargeXp(payload);
+  return ALWAYS_CONFIRM.has(type) || isLargeXp(payload) || isNsfwImageGen(payload);
 }
 
 interface ParsedAction { payload: Record<string, unknown>; raw: string }

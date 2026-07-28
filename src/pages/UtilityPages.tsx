@@ -298,6 +298,31 @@ export function SettingsPage() {
         </div>
       </HudCard>
 
+      {/* Content generation */}
+      <HudCard className="border-destructive/20">
+        <h3 className="text-xs font-mono text-muted-foreground uppercase tracking-widest mb-3 flex items-center gap-2">
+          <Shield size={10} className="text-destructive" /> Content Generation
+        </h3>
+        <div className="space-y-3">
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <span className="text-xs font-mono block">NSFW Image Generation</span>
+              <span className="text-[10px] font-mono text-muted-foreground block mt-0.5 max-w-sm">
+                Enables explicit-mode image generation via PromptChan, both from the Gallery generator
+                and from MAVIS chat (which additionally asks you to confirm each request). Off by default.
+                Requires PROMPTCHAN_API_KEY / PROMPTCHAN_API_BASE to also be configured in Supabase secrets.
+              </span>
+            </div>
+            <button
+              onClick={() => updateProfile({ nsfw_generation_enabled: !profile.nsfw_generation_enabled })}
+              className={`w-10 h-5 rounded-full transition-all relative shrink-0 ${profile.nsfw_generation_enabled ? "bg-destructive/40" : "bg-muted"}`}
+            >
+              <span className={`absolute top-0.5 w-4 h-4 rounded-full transition-all ${profile.nsfw_generation_enabled ? "left-5 bg-destructive" : "left-0.5 bg-muted-foreground"}`} />
+            </button>
+          </div>
+        </div>
+      </HudCard>
+
       {/* Theme */}
       <HudCard>
         <h3 className="text-xs font-mono text-muted-foreground uppercase tracking-widest mb-3 flex items-center gap-2">

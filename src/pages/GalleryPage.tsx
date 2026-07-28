@@ -1,9 +1,10 @@
 import { useState, useEffect, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
+import { useAppData } from "@/contexts/AppDataContext";
 import { PageHeader } from "@/components/SharedUI";
 import { LoadingState } from "@/components/LoadingState";
-import { Loader2, Image, Music, Video, Globe, Download, ExternalLink, RefreshCw, Grid3X3, Wand2, Send, Sparkles, Film, Camera, Upload, Play } from "lucide-react";
+import { Loader2, Image, Music, Video, Globe, Download, ExternalLink, RefreshCw, Grid3X3, Wand2, Send, Sparkles, Film, Camera, Upload, Play, ShieldAlert } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
 
@@ -157,9 +158,11 @@ const IMAGE_PROVIDERS = [
 
 function ImageGenPanel({ onGenerated }: { onGenerated: (item: MediaItem) => void }) {
   const { session } = useAuth();
+  const { profile } = useAppData();
   const [prompt, setPrompt] = useState("");
   const [size, setSize] = useState<typeof SIZE_OPTIONS[number]["key"]>("square");
   const [imgProvider, setImgProvider] = useState<typeof IMAGE_PROVIDERS[number]["key"]>("auto");
+  const [nsfw, setNsfw] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [lastUrl, setLastUrl] = useState<string | null>(null);
 
@@ -170,15 +173,22 @@ function ImageGenPanel({ onGenerated }: { onGenerated: (item: MediaItem) => void
     try {
       const s = SIZE_OPTIONS.find(o => o.key === size)!;
       const { data, error } = await (supabase as any).functions.invoke("mavis-image-gen", {
-        body: {
-          prompt: `${prompt.trim()}, ultra-detailed, razor-sharp focus, natural lighting, cinematic composition, shot on Hasselblad, photographic realism, fine texture detail`,
-          width: s.w,
-          height: s.h,
-          size: `${s.w}x${s.h}`,
-          quality: "high",
-          aspect_ratio: s.w === s.h ? "1:1" : s.w > s.h ? "16:9" : "9:16",
-          provider: imgProvider,
-        },
+        body: nsfw
+          // Explicit mode: PromptChan doesn't take the SFW cascade's
+          // photographic-realism prompt suffix or the provider param —
+          // mavis-image-gen routes nsfw:true straight to PromptChan
+          // regardless of what "provider" says.
+          ? { prompt: prompt.trim(), nsfw: true }
+          : {
+              prompt: `${prompt.trim()}, ultra-detailed, razor-sharp focus, natural lighting, cinematic composition, shot on Hasselblad, photographic realism, fine texture detail`,
+              width: s.w,
+              height: s.h,
+              size: `${s.w}x${s.h}`,
+              quality: "high",
+              aspect_ratio: s.w === s.h ? "1:1" : s.w > s.h ? "16:9" : "9:16",
+              provider: imgProvider,
+            },
+        headers: session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : undefined,
       });
 
 
@@ -240,7 +250,25 @@ function ImageGenPanel({ onGenerated }: { onGenerated: (item: MediaItem) => void
         </button>
       </div>
 
+      {/* NSFW toggle — only usable once enabled in Settings; PromptChan is
+          the sole provider used when this is on, so it replaces the
+          provider/size selectors below rather than combining with them. */}
+      <button
+        onClick={() => profile.nsfw_generation_enabled && setNsfw(v => !v)}
+        disabled={!profile.nsfw_generation_enabled}
+        title={profile.nsfw_generation_enabled ? "Toggle explicit-mode generation via PromptChan" : "Enable NSFW Image Generation in Settings first"}
+        className={`self-start flex items-center gap-1.5 text-[10px] font-mono px-2 py-1 rounded border transition-colors ${
+          nsfw
+            ? "border-destructive/50 bg-destructive/10 text-destructive"
+            : "border-border text-muted-foreground hover:text-foreground hover:border-border/80"
+        } ${!profile.nsfw_generation_enabled ? "opacity-40 cursor-not-allowed" : ""}`}
+      >
+        <ShieldAlert size={10} />
+        {nsfw ? "NSFW mode ON (PromptChan)" : profile.nsfw_generation_enabled ? "NSFW mode off" : "NSFW disabled — enable in Settings"}
+      </button>
+
       {/* Provider selector */}
+      {!nsfw && (<>
       <div className="flex flex-wrap gap-1.5">
         {IMAGE_PROVIDERS.map(p => (
           <button
@@ -275,7 +303,7 @@ function ImageGenPanel({ onGenerated }: { onGenerated: (item: MediaItem) => void
           </button>
         ))}
       </div>
-
+      </>)}
 
       {/* Preview of last result */}
       {lastUrl && (
