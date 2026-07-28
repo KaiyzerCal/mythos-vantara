@@ -325,7 +325,7 @@ ALLIES:
 :::ACTION{"type":"update_ally","params":{"ally_id":"...","affinity":75,"notes":"..."}}:::
 :::ACTION{"type":"delete_ally","params":{"ally_id":"..."}}:::
 RITUALS:
-:::ACTION{"type":"create_ritual","params":{"name":"...","description":"...","type":"fitness|business|self_care|legal|other","xp_reward":25}}:::
+:::ACTION{"type":"create_ritual","params":{"name":"...","description":"...","ritual_type":"fitness|business|self_care|legal|other","xp_reward":25}}:::
 :::ACTION{"type":"update_ritual","params":{"ritual_id":"...","name":"...","xp_reward":25}}:::
 :::ACTION{"type":"complete_ritual","params":{"ritual_id":"..."}}:::
 :::ACTION{"type":"delete_ritual","params":{"ritual_id":"..."}}:::

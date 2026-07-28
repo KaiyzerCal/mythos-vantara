@@ -446,6 +446,40 @@ export default function MavisDemo() {
       if (!session?.user) throw new Error("Not authenticated");
       await supabase.from("mavis_skill_definitions").upsert({ user_id: session.user.id, name: payload.name, description: payload.description, keywords: payload.keywords, prompt_template: payload.prompt_template, is_active: true, updated_at: new Date().toISOString() } as any, { onConflict: "user_id,name" });
     });
+
+    // mavis-plans / mavis-chain-builder / mavis-signal-watcher — same fix as
+    // MavisChat.tsx: these edge functions expect {userId, action, ...params}
+    // rather than mavis-actions' {actions: [...]} shape, so the generic
+    // defaultHandler above can never reach them. Without this, every
+    // create_plan/create_quest_chain/upsert_signal_config (etc.) action
+    // fails with "unknown action type" on this page too.
+    const registerEdgeFunctionProxy = (edgeFunction: string, actionTypes: string[]) => {
+      for (const actionType of actionTypes) {
+        registerActionHandler(actionType, async (payload) => {
+          const { data: { session } } = await supabase.auth.getSession();
+          if (!session?.user) throw new Error("Not authenticated — please sign in again");
+          const { type: _type, ...params } = payload;
+          const { data, error } = await supabase.functions.invoke(edgeFunction, {
+            body: { userId: session.user.id, action: actionType, ...params },
+            headers: { Authorization: `Bearer ${session.access_token}` },
+          });
+          if (error) throw error;
+          if (data?.error) throw new Error(data.error);
+        });
+      }
+    };
+    registerEdgeFunctionProxy("mavis-plans", [
+      "generate_plan", "create_plan", "get_plans", "get_plan", "update_plan",
+      "advance_step", "update_session", "complete_plan", "delete_plan",
+    ]);
+    registerEdgeFunctionProxy("mavis-chain-builder", [
+      "auto_link_quest_chains", "auto_link_skill_chains", "get_quest_chains", "get_skill_chains",
+      "create_quest_chain", "create_skill_chain", "update_quest_chain", "update_skill_chain",
+      "delete_quest_chain", "delete_skill_chain", "add_quest_to_chain", "add_skill_to_chain", "remove_from_chain",
+    ]);
+    registerEdgeFunctionProxy("mavis-signal-watcher", [
+      "get_signal_configs", "upsert_signal_config", "delete_signal_config",
+    ]);
   }, []);
 
   // ── Init session + load conversation from DB ──────────────

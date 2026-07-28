@@ -582,6 +582,54 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
       return;
     }
 
+    // ── RITUALS ──────────────────────────────────────────
+    // create_ritual/update_ritual/delete_ritual had NO handler here at all
+    // despite promptBuilder.ts, mavis-persona-router, and telegram-webhook
+    // all documenting them as real action types — every real call has always
+    // returned "unknown action type". complete_ritual already works, but via
+    // an entirely different mechanism (toolDispatch.ts's native Claude
+    // tool-calling, not this :::ACTION{}::: + mavis-actions pipeline).
+    // Found via vantara-crud-update-fix-brief.md follow-up ("fix all
+    // problems" sweep, out-of-scope items).
+    case "create_ritual": {
+      const { error } = await sb.from("rituals").insert({
+        user_id: userId,
+        name: String(p.name || "New Ritual"),
+        description: p.description ? String(p.description) : "",
+        // ritual_type is the flat-dispatch-safe alternate name for "type" —
+        // see the comment on create_quest above for why "type" itself
+        // can't be used as a params key.
+        type: String(p.ritual_type || p.type || "other"),
+        category: p.category ? String(p.category) : null,
+        xp_reward: Number(p.xp_reward ?? 25),
+      });
+      if (error) throw error;
+      await logActivity(sb, userId, "ritual_created", `Ritual created: ${String(p.name || "New Ritual")}`, 0);
+      return;
+    }
+
+    case "update_ritual": {
+      const ritualId = await resolveId(sb, userId, "rituals", (p.ritual_id || p.id) as string, (p.ritual_name || p.name) as string, "name");
+      const updates: Record<string, unknown> = {};
+      for (const key of ["name", "description", "type", "category", "xp_reward"]) {
+        if (p[key] !== undefined) updates[key] = p[key];
+      }
+      if (p.ritual_type !== undefined && updates.type === undefined) updates.type = p.ritual_type;
+      const { data: updated, error } = await sb.from("rituals").update(updates).eq("id", ritualId).eq("user_id", userId).select("id");
+      if (error) throw error;
+      if (!updated || updated.length === 0) throw new Error(`rituals: update matched no row for id "${ritualId}"`);
+      return;
+    }
+
+    case "delete_ritual": {
+      const ritualId = await resolveId(sb, userId, "rituals", (p.ritual_id || p.id) as string, (p.ritual_name || p.name) as string, "name");
+      const { data: deleted, error } = await sb.from("rituals").delete().eq("id", ritualId).eq("user_id", userId).select("id");
+      if (error) throw error;
+      if (!deleted || deleted.length === 0) throw new Error(`rituals: delete matched no row for id "${ritualId}"`);
+      await logActivity(sb, userId, "ritual_deleted", "Ritual removed", 0);
+      return;
+    }
+
     // ── PROFILE ──────────────────────────────────────────
     case "update_profile": {
       const updates: Record<string, unknown> = {};
@@ -983,9 +1031,21 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
     }
 
     // ── CONTACTS ─────────────────────────────────────────────────────────
+    // The contacts table (20260517200000_new_features.sql) has no email/
+    // phone/company/role columns, but promptBuilder.ts's create_contact
+    // example documents all four — they used to validate but silently drop
+    // on the floor. Rather than a migration (off-limits without explicit
+    // instruction — see CLAUDE.md), they're folded into the existing
+    // "profile" jsonb column instead, which the UI can already read.
     case "create_contact":
     case "add_contact":
     case "new_contact": {
+      const suppliedProfile = (p.profile && typeof p.profile === "object") ? p.profile as Record<string, unknown> : {};
+      const profile: Record<string, unknown> = { ...suppliedProfile };
+      if (p.email !== undefined) profile.email = p.email;
+      if (p.phone !== undefined) profile.phone = p.phone;
+      if (p.company !== undefined) profile.company = p.company;
+      if (p.role !== undefined) profile.role = p.role;
       const { error } = await sb.from("contacts").insert({
         user_id: userId,
         name: String(p.name || "New Contact"),
@@ -994,7 +1054,7 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
         follow_up_date: p.follow_up_date ? String(p.follow_up_date) : null,
         notes: String(p.notes || ""),
         tags: asStringArray(p.tags),
-        profile: (p.profile && typeof p.profile === "object") ? p.profile : {},
+        profile,
       });
       if (error) throw error;
       await logActivity(sb, userId, "contact_created", `Contact added: ${String(p.name || "New Contact")}`, 0);
@@ -1004,6 +1064,15 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
     case "update_contact":
     case "edit_contact": {
       const contactId = await resolveId(sb, userId, "contacts", (p.contact_id || p.id) as string, (p.contact_name || p.name) as string);
+      if (p.email !== undefined || p.phone !== undefined || p.company !== undefined || p.role !== undefined) {
+        const { data: existing } = await sb.from("contacts").select("profile").eq("id", contactId).eq("user_id", userId).maybeSingle();
+        const mergedProfile: Record<string, unknown> = { ...((existing?.profile && typeof existing.profile === "object") ? existing.profile : {}) };
+        if (p.email !== undefined) mergedProfile.email = p.email;
+        if (p.phone !== undefined) mergedProfile.phone = p.phone;
+        if (p.company !== undefined) mergedProfile.company = p.company;
+        if (p.role !== undefined) mergedProfile.role = p.role;
+        p.profile = mergedProfile;
+      }
       const updates: Record<string, unknown> = { updated_at: new Date().toISOString() };
       for (const key of ["name", "relationship_type", "last_contact_at", "follow_up_date", "notes", "tags", "profile"]) {
         if (p[key] !== undefined) updates[key] = key === "tags" ? asStringArray(p[key]) : p[key];

@@ -585,6 +585,185 @@ export const LogBpmSessionSchema = z.object({
   notes: z.string().optional(),
 });
 
+// RITUAL — create_ritual/update_ritual/delete_ritual had ZERO backend
+// implementation despite being documented in promptBuilder.ts,
+// mavis-persona-router, and telegram-webhook — every real call has always
+// returned "unknown action type". complete_ritual already works (a separate
+// mechanism — toolDispatch.ts's native Claude tool-calling). Real handlers
+// added to mavis-actions/index.ts alongside these schemas.
+export const CreateRitualSchema = z.object({
+  type: z.literal("create_ritual"),
+  name: z.string().min(1),
+  description: z.string().optional(),
+  ritual_type: z.enum(["fitness", "business", "self_care", "legal", "other"]).optional(), // maps to the real "type" column
+  category: z.string().optional(),
+  xp_reward: z.number().int().nonnegative().optional(),
+});
+export const UpdateRitualSchema = z.object({
+  type: z.literal("update_ritual"),
+  ritual_id: z.string().min(1).optional(),
+  id: z.string().min(1).optional(),
+  ritual_name: z.string().min(1).optional(),
+  name: z.string().optional(),
+  description: z.string().optional(),
+  ritual_type: z.enum(["fitness", "business", "self_care", "legal", "other"]).optional(),
+  category: z.string().optional(),
+  xp_reward: z.number().int().nonnegative().optional(),
+}).refine(
+  (v) => v.ritual_id || v.id || v.ritual_name || v.name,
+  { message: "ritual_id or ritual_name (or id/name) is required to identify the ritual" },
+);
+export const DeleteRitualSchema = z.object({
+  type: z.literal("delete_ritual"),
+  ritual_id: z.string().min(1).optional(),
+  id: z.string().min(1).optional(),
+  ritual_name: z.string().min(1).optional(),
+  name: z.string().min(1).optional(),
+}).refine(
+  (v) => v.ritual_id || v.id || v.ritual_name || v.name,
+  { message: "ritual_id or ritual_name (or id/name) is required to identify the ritual" },
+);
+
+// PERSISTENT PLANS — mavis-plans edge function. Discovered to be
+// completely unreachable from chat: every real call fell through
+// actionExecutor.ts's legacy path to the generic mavis-actions
+// defaultHandler, which has no cases for any of these types, so they've
+// always failed with "unknown action type" despite mavis-plans being a
+// fully-built, working edge function. Fixed by adding these schemas AND
+// registering dedicated proxy handlers in MavisChat.tsx that route to
+// mavis-plans instead of mavis-actions (same pattern already used for
+// composio_action → mavis-composio-agent).
+const PlanStepSchema = z.object({ step: z.string(), notes: z.string().optional() });
+export const GeneratePlanSchema = z.object({
+  type: z.literal("generate_plan"),
+  goal: z.string().min(1),
+  context: z.string().optional(),
+  timeframe: z.string().optional(),
+});
+export const CreatePlanSchema = z.object({
+  type: z.literal("create_plan"),
+  title: z.string().optional(),
+  goal: z.string().optional(),
+  steps: z.array(PlanStepSchema).optional(),
+});
+export const GetPlansSchema = z.object({
+  type: z.literal("get_plans"),
+  status: z.enum(["active", "paused", "completed", "abandoned", "all"]).optional(),
+});
+export const GetPlanSchema = z.object({
+  type: z.literal("get_plan"),
+  plan_id: z.string().min(1),
+});
+export const UpdatePlanSchema = z.object({
+  type: z.literal("update_plan"),
+  plan_id: z.string().min(1),
+  title: z.string().optional(),
+  goal: z.string().optional(),
+  steps: z.array(PlanStepSchema).optional(),
+  current_step: z.number().int().nonnegative().optional(),
+  status: z.enum(["active", "paused", "completed", "abandoned"]).optional(),
+  context: z.string().optional(),
+});
+export const AdvanceStepSchema = z.object({
+  type: z.literal("advance_step"),
+  plan_id: z.string().min(1),
+  notes: z.string().optional(),
+});
+export const UpdateSessionSchema = z.object({
+  type: z.literal("update_session"),
+  plan_id: z.string().min(1),
+  summary: z.string().optional(),
+});
+export const CompletePlanSchema = z.object({
+  type: z.literal("complete_plan"),
+  plan_id: z.string().min(1),
+});
+export const DeletePlanSchema = z.object({
+  type: z.literal("delete_plan"),
+  plan_id: z.string().min(1),
+});
+
+// QUEST CHAINS / SKILL CHAINS — mavis-chain-builder edge function. Same
+// "fully built but unreachable from chat" gap as PERSISTENT PLANS above.
+export const AutoLinkQuestChainsSchema = z.object({ type: z.literal("auto_link_quest_chains") });
+export const AutoLinkSkillChainsSchema = z.object({ type: z.literal("auto_link_skill_chains") });
+export const GetQuestChainsSchema = z.object({ type: z.literal("get_quest_chains") });
+export const GetSkillChainsSchema = z.object({ type: z.literal("get_skill_chains") });
+export const CreateQuestChainSchema = z.object({
+  type: z.literal("create_quest_chain"),
+  title: z.string().optional(),
+  description: z.string().optional(),
+  category: z.string().optional(),
+  quest_ids: z.array(z.string()).optional(),
+});
+export const CreateSkillChainSchema = z.object({
+  type: z.literal("create_skill_chain"),
+  title: z.string().optional(),
+  description: z.string().optional(),
+  category: z.string().optional(),
+  skill_ids: z.array(z.string()).optional(),
+});
+export const UpdateQuestChainSchema = z.object({
+  type: z.literal("update_quest_chain"),
+  chain_id: z.string().min(1),
+  title: z.string().optional(),
+  description: z.string().optional(),
+  category: z.string().optional(),
+  status: z.string().optional(),
+});
+export const UpdateSkillChainSchema = z.object({
+  type: z.literal("update_skill_chain"),
+  chain_id: z.string().min(1),
+  title: z.string().optional(),
+  description: z.string().optional(),
+  category: z.string().optional(),
+});
+export const DeleteQuestChainSchema = z.object({
+  type: z.literal("delete_quest_chain"),
+  chain_id: z.string().min(1),
+});
+export const DeleteSkillChainSchema = z.object({
+  type: z.literal("delete_skill_chain"),
+  chain_id: z.string().min(1),
+});
+export const AddQuestToChainSchema = z.object({
+  type: z.literal("add_quest_to_chain"),
+  chain_id: z.string().min(1),
+  quest_id: z.string().min(1),
+  position: z.number().int().nonnegative().optional(),
+});
+export const AddSkillToChainSchema = z.object({
+  type: z.literal("add_skill_to_chain"),
+  chain_id: z.string().min(1),
+  skill_id: z.string().min(1),
+  position: z.number().int().nonnegative().optional(),
+});
+export const RemoveFromChainSchema = z.object({
+  type: z.literal("remove_from_chain"),
+  item_id: z.string().min(1),
+  chain_type: z.enum(["quest", "skill"]).optional(),
+});
+
+// SIGNAL CONFIGS — mavis-signal-watcher edge function. Same "fully built
+// but unreachable from chat" gap as PERSISTENT PLANS above. "watch_signals"
+// deliberately has no schema — it's the pg_cron entry point, never emitted
+// by the LLM (not in promptBuilder.ts).
+export const GetSignalConfigsSchema = z.object({ type: z.literal("get_signal_configs") });
+export const UpsertSignalConfigSchema = z.object({
+  type: z.literal("upsert_signal_config"),
+  id: z.string().optional(), // present → update, absent → insert
+  signal_type: z.enum(["rss", "market_move", "keyword_email", "keyword_telegram"]),
+  name: z.string().min(1),
+  source: z.string().min(1),
+  threshold: z.record(z.string(), z.unknown()).optional(),
+  is_active: z.boolean().optional(),
+  cooldown_hours: z.number().int().positive().optional(),
+});
+export const DeleteSignalConfigSchema = z.object({
+  type: z.literal("delete_signal_config"),
+  id: z.string().min(1),
+});
+
 // UPDATE PROFILE
 // Was {display_name, bio, avatar_url, codex_name, title} — bio/codex_name/
 // title are not real profiles columns at all (not in PROFILE_ALLOWED);
@@ -854,12 +1033,12 @@ export const DeleteNoteSchema = z.object({
 
 // CONTACT — same missing-schema bug as PERSONA/NOTE above. promptBuilder.ts's
 // create_contact example documents email/phone/company/role, but the
-// contacts table (20260517200000_new_features.sql) has no such columns —
-// they don't persist anywhere unless nested inside the "profile" jsonb
-// field, which the LLM isn't told to do. Accepted-but-ignored here (same
-// treatment as create_task's "recurrence"); a real fix needs a product
-// decision (add columns, or change the prompt to nest them in profile), not
-// a schema change.
+// contacts table (20260517200000_new_features.sql) has no such columns.
+// Rather than a migration (off-limits without explicit instruction — see
+// CLAUDE.md) or leaving them silently dropped, mavis-actions/index.ts now
+// folds all four into the existing "profile" jsonb column on both create
+// and update (update reads-merges-writes so partial updates don't clobber
+// previously-saved fields).
 export const CreateContactSchema = z.object({
   type: z.literal("create_contact"),
   name: z.string().min(1),
@@ -870,10 +1049,10 @@ export const CreateContactSchema = z.object({
   notes: z.string().optional(),
   tags: z.array(z.string()).optional(),
   profile: z.record(z.string(), z.unknown()).optional(),
-  email: z.string().optional(),   // not persisted — see comment above
-  phone: z.string().optional(),   // not persisted — see comment above
-  company: z.string().optional(), // not persisted — see comment above
-  role: z.string().optional(),    // not persisted — see comment above
+  email: z.string().optional(),
+  phone: z.string().optional(),
+  company: z.string().optional(),
+  role: z.string().optional(),
 });
 export const UpdateContactSchema = z.object({
   type: z.literal("update_contact"),
@@ -888,6 +1067,10 @@ export const UpdateContactSchema = z.object({
   notes: z.string().optional(),
   tags: z.array(z.string()).optional(),
   profile: z.record(z.string(), z.unknown()).optional(),
+  email: z.string().optional(),
+  phone: z.string().optional(),
+  company: z.string().optional(),
+  role: z.string().optional(),
 }).refine(
   (v) => v.contact_id || v.id || v.contact_name || v.name,
   { message: "contact_id or contact_name (or id/name) is required to identify the contact" },
@@ -961,6 +1144,13 @@ export const ActionSchema = z.discriminatedUnion("type", [
   CreateTransformationSchema, UpdateTransformationSchema, DeleteTransformationSchema,
   CreateRankingSchema, UpdateRankingSchema, DeleteRankingSchema,
   CreateStoreItemSchema, UpdateStoreItemSchema, DeleteStoreItemSchema,
+  CreateRitualSchema, UpdateRitualSchema, DeleteRitualSchema,
+  GeneratePlanSchema, CreatePlanSchema, GetPlansSchema, GetPlanSchema, UpdatePlanSchema,
+  AdvanceStepSchema, UpdateSessionSchema, CompletePlanSchema, DeletePlanSchema,
+  AutoLinkQuestChainsSchema, AutoLinkSkillChainsSchema, GetQuestChainsSchema, GetSkillChainsSchema,
+  CreateQuestChainSchema, CreateSkillChainSchema, UpdateQuestChainSchema, UpdateSkillChainSchema,
+  DeleteQuestChainSchema, DeleteSkillChainSchema, AddQuestToChainSchema, AddSkillToChainSchema, RemoveFromChainSchema,
+  GetSignalConfigsSchema, UpsertSignalConfigSchema, DeleteSignalConfigSchema,
   LogBpmSchema,
   LogBpmSessionSchema,
   UpdateProfileSchema,

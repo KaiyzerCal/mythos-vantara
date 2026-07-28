@@ -332,6 +332,42 @@ export default function MavisChat() {
       if (error) throw error;
       if (data?.successful === false) throw new Error(data?.error || "Composio action failed");
     });
+
+    // mavis-plans / mavis-chain-builder / mavis-signal-watcher — three
+    // fully-built edge functions that were completely unreachable from chat
+    // until now: the generic mavis-actions defaultHandler above has no
+    // cases for any of these action types, so every real call always failed
+    // with "unknown action type". Each of these functions expects
+    // {userId, action, ...params} rather than mavis-actions' {actions: [...]}
+    // shape, so they need their own routing — same pattern as composio_action
+    // above, just applied to a whole family of types at once instead of one.
+    const registerEdgeFunctionProxy = (edgeFunction: string, actionTypes: string[]) => {
+      for (const actionType of actionTypes) {
+        registerActionHandler(actionType, async (payload) => {
+          const { data: { session } } = await supabase.auth.getSession();
+          if (!session?.user) throw new Error("Not authenticated — please sign in again");
+          const { type: _type, ...params } = payload;
+          const { data, error } = await supabase.functions.invoke(edgeFunction, {
+            body: { userId: session.user.id, action: actionType, ...params },
+            headers: { Authorization: `Bearer ${session.access_token}` },
+          });
+          if (error) throw error;
+          if (data?.error) throw new Error(data.error);
+        });
+      }
+    };
+    registerEdgeFunctionProxy("mavis-plans", [
+      "generate_plan", "create_plan", "get_plans", "get_plan", "update_plan",
+      "advance_step", "update_session", "complete_plan", "delete_plan",
+    ]);
+    registerEdgeFunctionProxy("mavis-chain-builder", [
+      "auto_link_quest_chains", "auto_link_skill_chains", "get_quest_chains", "get_skill_chains",
+      "create_quest_chain", "create_skill_chain", "update_quest_chain", "update_skill_chain",
+      "delete_quest_chain", "delete_skill_chain", "add_quest_to_chain", "add_skill_to_chain", "remove_from_chain",
+    ]);
+    registerEdgeFunctionProxy("mavis-signal-watcher", [
+      "get_signal_configs", "upsert_signal_config", "delete_signal_config",
+    ]);
   }, []);
 
   // Persist voice preference in localStorage so it survives reloads

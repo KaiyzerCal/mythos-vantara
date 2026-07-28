@@ -278,6 +278,71 @@ describe("alias normalization — CONFIRM-gate regression for delete_* aliases",
   });
 });
 
+// Out-of-scope items from the earlier CRUD brief follow-up, now fixed:
+// create_ritual/update_ritual/delete_ritual had zero backend implementation
+// at all (real handlers added to mavis-actions/index.ts), and delete_plan/
+// delete_quest_chain/delete_skill_chain/delete_signal_config are three
+// whole feature areas (mavis-plans, mavis-chain-builder, mavis-signal-
+// watcher) that were fully built but completely unreachable from chat —
+// MavisChat.tsx's defaultHandler unconditionally targeted mavis-actions,
+// which never had cases for any of them. Both classes of bug are proven
+// fixed the same way: realistic payload validates AND is CONFIRM-gated.
+describe("delete_ritual / delete_plan / delete_quest_chain / delete_skill_chain / delete_signal_config — CONFIRM-gate regression", () => {
+  const cases: Array<{ type: string; payload: Record<string, unknown> }> = [
+    { type: "delete_ritual", payload: { type: "delete_ritual", ritual_id: "ritual-1" } },
+    { type: "delete_plan", payload: { type: "delete_plan", plan_id: "plan-1" } },
+    { type: "delete_quest_chain", payload: { type: "delete_quest_chain", chain_id: "chain-1" } },
+    { type: "delete_skill_chain", payload: { type: "delete_skill_chain", chain_id: "chain-1" } },
+    { type: "delete_signal_config", payload: { type: "delete_signal_config", id: "signal-1" } },
+  ];
+
+  for (const { type, payload } of cases) {
+    it(`${type}: realistic payload parses AND is CONFIRM-gated (never auto-executes)`, async () => {
+      expect(ActionSchema.safeParse(payload).success).toBe(true);
+
+      const handler = vi.fn().mockResolvedValue(undefined);
+      registerActionHandler(type, handler);
+
+      const result = await executeAction(makeAction(payload));
+      expect(result.status).toBe("pending_confirmation");
+      expect(handler).not.toHaveBeenCalled();
+    });
+  }
+});
+
+describe("create_ritual / update_plan / upsert_signal_config — AUTO path, previously unreachable", () => {
+  it("create_ritual with ritual_type (not the colliding 'type') validates and auto-executes", async () => {
+    const result = ActionSchema.safeParse({ type: "create_ritual", name: "Cold Shower", ritual_type: "self_care" });
+    expect(result.success).toBe(true);
+
+    const handler = vi.fn().mockResolvedValue(undefined);
+    registerActionHandler("create_ritual", handler);
+    const execResult = await executeAction(makeAction({ type: "create_ritual", name: "Cold Shower" }));
+    expect(execResult.status).toBe("success");
+    expect(handler).toHaveBeenCalledOnce();
+  });
+
+  it("update_plan (previously always fell through to mavis-actions and failed with 'unknown action type') auto-executes via its registered handler", async () => {
+    const handler = vi.fn().mockResolvedValue(undefined);
+    registerActionHandler("update_plan", handler);
+
+    const result = await executeAction(makeAction({ type: "update_plan", plan_id: "plan-1", status: "paused" }));
+    expect(result.status).toBe("success");
+    expect(handler).toHaveBeenCalledOnce();
+  });
+
+  it("upsert_signal_config requires signal_type/name/source", () => {
+    expect(ActionSchema.safeParse({
+      type: "upsert_signal_config",
+      signal_type: "rss",
+      name: "TechCrunch AI",
+      source: "https://techcrunch.com/feed/",
+    }).success).toBe(true);
+
+    expect(ActionSchema.safeParse({ type: "upsert_signal_config", name: "Missing fields" }).success).toBe(false);
+  });
+});
+
 describe("delete_vault", () => {
   it("is CONFIRM-gated — never auto-executes", async () => {
     const handler = vi.fn().mockResolvedValue(undefined);
