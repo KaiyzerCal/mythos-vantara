@@ -65,26 +65,40 @@ cron-targeted. But:
   `SERVICE_ROLE_KEY`, while the 10-minute job it replaced used
   `SUPABASE_SERVICE_ROLE_KEY`. If the vault secret is actually named
   `SUPABASE_SERVICE_ROLE_KEY` (which is the name used everywhere else in
-  this codebase), **this cron job silently fails every 5 minutes** — can't
-  confirm without live vault access.
+  this codebase), the 5-minute registration silently never happened. A
+  later migration (`20260720112103`) separately registered a third,
+  differently-named job for the same function (`mavis-trigger-engine`,
+  every 10 minutes, anon-key auth) — so the pathway is likely still
+  running, just at half the intended frequency with weaker auth than
+  every other cron-triggered internal function. **Fixed**:
+  `supabase/migrations/20260728000000_fix_trigger_engine_cron.sql`
+  consolidates all three possible job-name variants down to one, correct,
+  5-minute, service-role-authenticated registration. Not yet applied —
+  same caveat as below.
 - **`mavis-proactive-nudge` has two different schedules registered through
   two different mechanisms**: a real, working `cron.schedule()` at
   `0 12 * * *`, and a separate `mavis_cron_config` table row intending
   `0 */4 * * *` — see next finding for why the second one likely never
   fired, but if it ever does get activated there'd be two competing
   schedules for the same function.
-- **A whole parallel scheduling tier silently never activated.** A
-  `mavis_cron_config` table (seeded across 8 migrations) was meant to be
+- **A whole parallel scheduling tier silently never activated — now fixed.**
+  A `mavis_cron_config` table (seeded across 8 migrations) was meant to be
   turned into real `cron.job` entries by `mavis-cron-setup` calling an RPC
-  (`cron_schedule`) that **did not exist until `20260720000000`**. Every
-  function that was *only* ever scheduled through this table-driven path —
+  (`cron_schedule`) that **did not exist until `20260720000000`**. Six
+  functions were confirmed to have *only* ever been scheduled through this
+  table-driven path, with no direct `cron.schedule()` anywhere else:
   `mavis-capability-audit`, `mavis-health-monitor`, `mavis-learning-engine`,
-  `mavis-archivist`, `mavis-goal-judge`, `mavis-so-curator`,
-  `mavis-user-model-refresh` — has likely never run on a schedule at all,
-  silently, this whole time. (`mavis-proactive-nudge`, `mavis-goal-review`,
-  and `mavis-autonomous-engine` also had table-driven entries, but all
-  three turned out to have separate real `cron.schedule()` registrations
-  elsewhere too, so they're fine — see above/below.)
+  `mavis-archivist`, `mavis-goal-judge`, `mavis-user-model-refresh` — these
+  have likely never run on a schedule at all, silently, this whole time.
+  (`mavis-so-curator`, `mavis-proactive-nudge`, `mavis-goal-review`, and
+  `mavis-autonomous-engine` also had table-driven entries, but all four
+  turned out to have a separate, real `cron.schedule()` registration
+  elsewhere too, so they're fine.) **Fixed**: `supabase/migrations/
+  20260728000001_activate_stranded_cron_jobs.sql` registers all six
+  directly, using each one's originally-intended schedule/payload. Not yet
+  applied to the live project — needs `supabase db push` (or however
+  migrations reach this project) and, ideally, a live confirmation once
+  Supabase MCP access is unblocked.
 
 ### 4. mavis-goal-review's triple-definition conflict — resolved statically
 Chronological reconstruction (full detail in `EXECUTION-PROGRESS.md`
