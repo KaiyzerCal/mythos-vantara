@@ -202,6 +202,82 @@ describe("update_vault", () => {
   });
 });
 
+// "fix all problems" follow-up to the vantara-crud-update-fix-brief.md work
+// above: EVERY Delete*Schema required a bare "id" field, but promptBuilder.ts
+// only ever documents table-specific id fields (quest_id, skill_id,
+// member_id, item_id, ally_id, transformation_id, ranking_id, store_item_id,
+// energy_id — never bare "id"). Since every delete_* type is
+// ALWAYS_CONFIRM-gated, this meant every real deletion in the app has been
+// silently auto-executing with no confirmation, the entire time — the single
+// most severe bug found this session. This sweep proves the fix: the exact
+// realistic, table-specific-id payload promptBuilder.ts tells the LLM to
+// send is now (a) valid Zod input and (b) still CONFIRM-gated.
+describe("delete_* CONFIRM-gate regression — realistic table-specific id payloads (not bare id)", () => {
+  const cases: Array<{ type: string; payload: Record<string, unknown> }> = [
+    { type: "delete_quest", payload: { type: "delete_quest", quest_id: "quest-1" } },
+    { type: "delete_task", payload: { type: "delete_task", task_id: "task-1" } },
+    { type: "delete_skill", payload: { type: "delete_skill", skill_id: "skill-1" } },
+    { type: "delete_journal", payload: { type: "delete_journal", entry_id: "entry-1" } },
+    { type: "delete_council_member", payload: { type: "delete_council_member", member_id: "member-1" } },
+    { type: "delete_inventory_item", payload: { type: "delete_inventory_item", item_id: "item-1" } },
+    { type: "delete_energy", payload: { type: "delete_energy", energy_id: "energy-1" } },
+    { type: "delete_ally", payload: { type: "delete_ally", ally_id: "ally-1" } },
+    { type: "delete_transformation", payload: { type: "delete_transformation", transformation_id: "form-1" } },
+    { type: "delete_ranking", payload: { type: "delete_ranking", ranking_id: "rank-1" } },
+    { type: "delete_store_item", payload: { type: "delete_store_item", store_item_id: "store-1" } },
+  ];
+
+  for (const { type, payload } of cases) {
+    it(`${type}: realistic payload parses AND is CONFIRM-gated (never auto-executes)`, async () => {
+      expect(ActionSchema.safeParse(payload).success).toBe(true);
+
+      const handler = vi.fn().mockResolvedValue(undefined);
+      registerActionHandler(type, handler);
+
+      const result = await executeAction(makeAction(payload));
+      expect(result.status).toBe("pending_confirmation");
+      expect(handler).not.toHaveBeenCalled();
+    });
+  }
+});
+
+// mavis-actions/index.ts's ACTION_ALIASES normalizes alternate type
+// spellings (e.g. "remove_quest" → "delete_quest") — but only on the
+// backend, AFTER this frontend gate. actionExecutor.ts now mirrors that
+// normalization before Zod validation and classification (see its own
+// ACTION_ALIASES comment) specifically so aliases can't bypass the CONFIRM
+// gate the way missing lookup fields used to. delete_ranking_profile is the
+// one confirmed live case: promptBuilder.ts documents it — never
+// "delete_ranking" — as what the LLM should actually send.
+describe("alias normalization — CONFIRM-gate regression for delete_* aliases", () => {
+  it("delete_ranking_profile (the type promptBuilder.ts actually documents) is CONFIRM-gated exactly like delete_ranking", async () => {
+    const handler = vi.fn().mockResolvedValue(undefined);
+    registerActionHandler("delete_ranking", handler);
+
+    const result = await executeAction(makeAction({ type: "delete_ranking_profile", ranking_id: "rank-1" }));
+    expect(result.status).toBe("pending_confirmation");
+    expect(handler).not.toHaveBeenCalled();
+  });
+
+  it("remove_quest (alias) is CONFIRM-gated exactly like delete_quest", async () => {
+    const handler = vi.fn().mockResolvedValue(undefined);
+    registerActionHandler("delete_quest", handler);
+
+    const result = await executeAction(makeAction({ type: "remove_quest", quest_id: "quest-1" }));
+    expect(result.status).toBe("pending_confirmation");
+    expect(handler).not.toHaveBeenCalled();
+  });
+
+  it("remove_ally (alias) is CONFIRM-gated exactly like delete_ally", async () => {
+    const handler = vi.fn().mockResolvedValue(undefined);
+    registerActionHandler("delete_ally", handler);
+
+    const result = await executeAction(makeAction({ type: "remove_ally", ally_id: "ally-1" }));
+    expect(result.status).toBe("pending_confirmation");
+    expect(handler).not.toHaveBeenCalled();
+  });
+});
+
 describe("delete_vault", () => {
   it("is CONFIRM-gated — never auto-executes", async () => {
     const handler = vi.fn().mockResolvedValue(undefined);

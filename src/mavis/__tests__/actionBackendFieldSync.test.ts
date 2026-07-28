@@ -39,16 +39,23 @@ const DECLARED_UPDATE_FIELDS = {
   // "type" deliberately excluded — see the comment above UpdateInventorySchema
   // in actionSchemas.ts for why it can't be represented in this action shape.
   update_inventory_item: ["name", "description", "rarity", "quantity", "effect", "slot", "tier", "is_equipped", "stat_effects"],
+  // "type" deliberately excluded — see UpdateQuestSchema's quest_type comment.
+  update_quest: ["title", "description", "status", "difficulty", "xp_reward", "progress_current", "progress_target", "real_world_mapping", "category"],
+  // "type" deliberately excluded — see UpdateEnergySchema's energy_type comment.
+  update_energy: ["current_value", "max_value", "status", "description", "color"],
 } as const;
 
-// update_inventory_item's backend allowlist includes "type" (the item's own
-// type column), which can't appear in UpdateInventorySchema — the Zod
-// discriminant for that schema is itself named "type". This is a documented,
-// intentional, structural gap (see the comment above UpdateInventorySchema
-// in actionSchemas.ts), not drift — excluded from the comparison here on
-// that basis, not swept under the rug.
+// Several update handlers' backend allowlists include "type" (the row's own
+// type column), which can't appear in the corresponding UpdateXSchema — the
+// Zod discriminant for every action schema is itself named "type". Each of
+// these has a renamed fallback field (quest_type/item_type/energy_type) that
+// the handler reads instead — a documented, intentional, structural gap (see
+// each schema's own comment in actionSchemas.ts), not drift — excluded from
+// the comparison here on that basis, not swept under the rug.
 const KNOWN_UNREPRESENTABLE: Record<string, string[]> = {
   update_inventory_item: ["type"],
+  update_quest: ["type"],
+  update_energy: ["type"],
 };
 
 describe("update schema fields stay in sync with mavis-actions' real allowlists", () => {

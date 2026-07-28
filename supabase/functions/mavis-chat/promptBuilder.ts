@@ -285,12 +285,12 @@ CODEXOS WRITE ACCESS — FULL SPECTRUM
 Embed action tags invisibly. Never show them. Always confirm in visible text what you did. Use exact IDs from the state above.
 
 QUESTS:
-:::ACTION{"type":"create_quest","params":{"title":"...","description":"...","type":"daily|side|main|epic","difficulty":"Easy|Normal|Hard|Extreme|Impossible","xp_reward":100,"real_world_mapping":"...","progress_target":1}}:::
-:::ACTION{"type":"update_quest","params":{"quest_id":"...","title":"...","status":"active|completed|failed","progress_current":0,"progress_target":1}}:::
+:::ACTION{"type":"create_quest","params":{"title":"...","description":"...","quest_type":"daily|side|main|epic","difficulty":"Easy|Normal|Hard|Extreme|Impossible","xp_reward":100,"real_world_mapping":"...","progress_target":1}}:::
+:::ACTION{"type":"update_quest","params":{"quest_id":"...","title":"...","quest_type":"daily|side|main|epic","status":"active|completed|failed","progress_current":0,"progress_target":1}}:::
 :::ACTION{"type":"complete_quest","params":{"quest_id":"..."}}:::
 :::ACTION{"type":"delete_quest","params":{"quest_id":"..."}}:::
 TASKS:
-:::ACTION{"type":"create_task","params":{"title":"...","description":"...","type":"task|habit","recurrence":"once|daily|weekly|monthly","xp_reward":25}}:::
+:::ACTION{"type":"create_task","params":{"title":"...","description":"...","quest_type":"task|habit","xp_reward":25}}:::
 :::ACTION{"type":"complete_task","params":{"task_id":"..."}}:::
 :::ACTION{"type":"delete_task","params":{"task_id":"..."}}:::
 SKILLS — actions execute in order, so create the parent skill FIRST, then sub-skills using parent_skill_name to link them:
@@ -312,13 +312,13 @@ COUNCIL:
 :::ACTION{"type":"update_council_member","params":{"member_id":"...","notes":"..."}}:::
 :::ACTION{"type":"delete_council_member","params":{"member_id":"..."}}:::
 INVENTORY:
-:::ACTION{"type":"create_inventory_item","params":{"name":"...","description":"...","type":"equipment|weapon|artifact|consumable|material","rarity":"common|rare|epic|legendary|mythic","quantity":1,"slot":"...","tier":"...","effect":"...","stat_effects":[{"label":"STR","value":5,"unit":""},{"label":"VIT","value":3,"unit":"%"}],"is_equipped":false}}:::
-:::ACTION{"type":"update_inventory_item","params":{"item_id":"...","name":"...","quantity":1,"is_equipped":true,"effect":"...","stat_effects":[{"label":"AGI","value":10,"unit":""}]}}:::
+:::ACTION{"type":"create_inventory_item","params":{"name":"...","description":"...","item_type":"equipment|weapon|artifact|consumable|material","rarity":"common|rare|epic|legendary|mythic","quantity":1,"slot":"...","tier":"...","effect":"...","stat_effects":[{"label":"STR","value":5,"unit":""},{"label":"VIT","value":3,"unit":"%"}],"is_equipped":false}}:::
+:::ACTION{"type":"update_inventory_item","params":{"item_id":"...","name":"...","item_type":"equipment|weapon|artifact|consumable|material","quantity":1,"is_equipped":true,"effect":"...","stat_effects":[{"label":"AGI","value":10,"unit":""}]}}:::
 :::ACTION{"type":"delete_inventory_item","params":{"item_id":"..."}}:::
-stat_effects format: array of {label: "STR"|"AGI"|"VIT"|"INT"|"WIS"|"CHA"|"LCK", value: number (negative for penalties), unit: ""|"%"}. These display on the Character Sheet and are summed into effective stats. type "weapon" is valid for bladed/ranged/energy weapons.
+stat_effects format: array of {label: "STR"|"AGI"|"VIT"|"INT"|"WIS"|"CHA"|"LCK", value: number (negative for penalties), unit: ""|"%"}. These display on the Character Sheet and are summed into effective stats. item_type "weapon" is valid for bladed/ranged/energy weapons.
 ENERGY:
-:::ACTION{"type":"create_energy_system","params":{"type":"...","current_value":100,"max_value":100,"color":"#08C284","description":"...","status":"developing|mastered|locked"}}:::
-:::ACTION{"type":"update_energy","params":{"energy_id":"...","current_value":100}}:::
+:::ACTION{"type":"create_energy_system","params":{"name":"...","current_value":100,"max_value":100,"color":"#08C284","description":"...","status":"developing|mastered|locked"}}:::
+:::ACTION{"type":"update_energy","params":{"energy_id":"...","energy_type":"...","current_value":100}}:::
 :::ACTION{"type":"delete_energy","params":{"energy_id":"..."}}:::
 ALLIES:
 :::ACTION{"type":"create_ally","params":{"name":"...","relationship":"ally|council|rival","specialty":"...","affinity":50,"notes":"..."}}:::

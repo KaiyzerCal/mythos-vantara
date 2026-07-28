@@ -89,6 +89,10 @@ const PROFILE_ALLOWED = [
   "aura_power", "display_name", "operator_level", "operator_xp",
   "notification_settings",
   "rank", "level", "xp", "xp_to_next_level", "pvp_rating", "gpr",
+  // avatar_url is a real column (20260425192033) but was missing here,
+  // so UpdateProfileSchema's own avatar_url field validated but never
+  // persisted. Found via vantara-crud-update-fix-brief.md follow-up.
+  "avatar_url",
 ] as const;
 
 // ── Alias normalization ─────────────────────────────────────
@@ -179,11 +183,17 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
 
     // ── QUESTS ───────────────────────────────────────────
     case "create_quest": {
+      // p.type is never set here when called through actionExecutor.ts's
+      // flat-object dispatch (its own "type" is the outer action
+      // discriminant, stripped before reaching p) — quest_type is the
+      // accepted alternate name for exactly that path. Same structural
+      // issue as update_inventory_item's "type" field, fixed here since
+      // the fallback name doesn't collide with anything.
       const { error } = await sb.from("quests").insert({
         user_id: userId,
         title: String(p.title || "New Quest"),
         description: String(p.description || ""),
-        type: String(p.type || "daily"),
+        type: String(p.type || p.quest_type || "daily"),
         status: String(p.status || "active"),
         difficulty: String(p.difficulty || "Normal"),
         xp_reward: Number(p.xp_reward || 100),
@@ -202,11 +212,18 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
     }
 
     case "update_quest": {
-      const questId = await resolveId(sb, userId, "quests", p.quest_id as string, (p.quest_name || p.title) as string, "title");
+      // was p.quest_id only (no || p.id fallback), unlike every other
+      // resolveId call in this file — a real caller-facing gap, since
+      // update_task aliases here too and its documented id field is
+      // task_id. Found via vantara-crud-update-fix-brief.md follow-up.
+      const questId = await resolveId(sb, userId, "quests", (p.quest_id || p.task_id || p.id) as string, (p.quest_name || p.title) as string, "title");
       const updates: Record<string, unknown> = {};
       for (const key of ["title", "description", "type", "status", "difficulty", "xp_reward", "progress_current", "progress_target", "real_world_mapping", "category"]) {
         if (p[key] !== undefined) updates[key] = p[key];
       }
+      // quest_type is the flat-dispatch-safe alternate name for "type" —
+      // see the comment on create_quest above.
+      if (p.quest_type !== undefined && updates.type === undefined) updates.type = p.quest_type;
       updates.updated_at = new Date().toISOString();
       const { data: updated, error } = await sb.from("quests").update(updates).eq("id", questId).eq("user_id", userId).select("id");
       if (error) throw error;
@@ -228,7 +245,8 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
     }
 
     case "delete_quest": {
-      const questId = await resolveId(sb, userId, "quests", (p.quest_id || p.id) as string, (p.quest_name || p.title) as string, "title");
+      // delete_task aliases here too — its documented id field is task_id.
+      const questId = await resolveId(sb, userId, "quests", (p.quest_id || p.task_id || p.id) as string, (p.quest_name || p.title) as string, "title");
       const { data: quest } = await sb.from("quests").select("title").eq("id", questId).eq("user_id", userId).maybeSingle();
       const { data: deleted, error: delErr } = await sb.from("quests").delete().eq("id", questId).eq("user_id", userId).select("id");
       if (delErr) throw delErr;
@@ -445,11 +463,13 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
 
     // ── INVENTORY ────────────────────────────────────────
     case "create_inventory_item": {
+      // item_type is the flat-dispatch-safe alternate name for "type" — see
+      // the identical comment on create_quest for why this is needed.
       const { error } = await sb.from("inventory").insert({
         user_id: userId,
         name: String(p.name || "New Item"),
         description: String(p.description || ""),
-        type: String(p.type || "equipment"),
+        type: String(p.type || p.item_type || "equipment"),
         rarity: String(p.rarity || "common"),
         quantity: Number(p.quantity || 1),
         effect: p.effect ? String(p.effect) : null,
@@ -469,6 +489,7 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
       for (const key of ["name", "description", "type", "rarity", "quantity", "effect", "slot", "tier", "is_equipped", "stat_effects"]) {
         if (p[key] !== undefined) updates[key] = p[key];
       }
+      if (p.item_type !== undefined && updates.type === undefined) updates.type = p.item_type;
       const { data: updated, error } = await sb.from("inventory").update(updates).eq("id", itemId).eq("user_id", userId).select("id");
       if (error) throw error;
       if (!updated || updated.length === 0) throw new Error(`inventory: update matched no row for id "${itemId}"`);
@@ -487,11 +508,13 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
 
     // ── ENERGY ───────────────────────────────────────────
     case "update_energy": {
-      const energyId = await resolveId(sb, userId, "energy_systems", (p.energy_id || p.id) as string, (p.energy_name || p.type || p.name) as string, "type");
+      const energyId = await resolveId(sb, userId, "energy_systems", (p.energy_id || p.id) as string, (p.energy_name || p.energy_type || p.type || p.name) as string, "type");
       const updates: Record<string, unknown> = {};
       for (const key of ["current_value", "max_value", "status", "description", "color", "type"]) {
         if (p[key] !== undefined) updates[key] = p[key];
       }
+      // energy_type is the flat-dispatch-safe alternate name for "type".
+      if (p.energy_type !== undefined && updates.type === undefined) updates.type = p.energy_type;
       updates.updated_at = new Date().toISOString();
       const { data: updated, error } = await sb.from("energy_systems").update(updates).eq("id", energyId).eq("user_id", userId).select("id");
       if (error) throw error;
@@ -645,7 +668,11 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
     }
 
     case "update_store_item": {
-      const itemId = await resolveId(sb, userId, "store_items", (p.item_id || p.id) as string, (p.item_name || p.name) as string);
+      // promptBuilder.ts documents "store_item_id" (not "item_id") for this
+      // action — was missing here, so real update_store_item calls fell
+      // back to (usually failing) name matching. Found via
+      // vantara-crud-update-fix-brief.md follow-up.
+      const itemId = await resolveId(sb, userId, "store_items", (p.item_id || p.store_item_id || p.id) as string, (p.item_name || p.name) as string);
       const updates: Record<string, unknown> = {};
       for (const key of ["name", "description", "price", "currency", "rarity", "category", "effect", "req_level", "req_rank"]) {
         if (p[key] !== undefined) updates[key] = p[key];
@@ -658,7 +685,7 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
     }
 
     case "delete_store_item": {
-      const itemId = await resolveId(sb, userId, "store_items", (p.item_id || p.id) as string, (p.item_name || p.name) as string);
+      const itemId = await resolveId(sb, userId, "store_items", (p.item_id || p.store_item_id || p.id) as string, (p.item_name || p.name) as string);
       const { data: deleted, error } = await sb.from("store_items").delete().eq("id", itemId).eq("user_id", userId).select("id");
       if (error) throw error;
       if (!deleted || deleted.length === 0) throw new Error(`store_items: delete matched no row for id "${itemId}"`);

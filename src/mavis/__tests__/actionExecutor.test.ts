@@ -45,7 +45,13 @@ describe("executeAction — AUTO path", () => {
   });
 
   it("returns error when handler throws", async () => {
-    registerActionHandler("update_task", vi.fn().mockRejectedValue(new Error("DB timeout")));
+    // "update_task" is an alias that now normalizes to the canonical
+    // "update_quest" before handler lookup (mirroring mavis-actions/index.ts's
+    // own ACTION_ALIASES — tasks are quests with quest_type "task"/"habit",
+    // there's no separate handler). The handler must be registered under
+    // the canonical name to be found; this also doubles as the regression
+    // test proving alias normalization reaches the right handler.
+    registerActionHandler("update_quest", vi.fn().mockRejectedValue(new Error("DB timeout")));
 
     const action = makeAction({ payload: { type: "update_task", id: "abc-123" } });
     const result = await executeAction(action);
@@ -81,7 +87,10 @@ describe("executeAction — CONFIRM gate", () => {
   });
 
   it("returns pending_confirmation when update_profile targets identity fields", async () => {
-    const action = makeAction({ payload: { type: "update_profile", codex_name: "Vantara" } });
+    // codex_name/title were never real PROFILE_ALLOWED columns (see
+    // IDENTITY_FIELDS's own comment in actionExecutor.ts) — this now uses
+    // inscribed_name, one of the real identity-shaped columns.
+    const action = makeAction({ payload: { type: "update_profile", inscribed_name: "Vantara" } });
     const result = await executeAction(action);
 
     expect(result.status).toBe("pending_confirmation");
@@ -91,7 +100,7 @@ describe("executeAction — CONFIRM gate", () => {
     const handler = vi.fn().mockResolvedValue(undefined);
     registerActionHandler("update_profile", handler);
 
-    const action = makeAction({ payload: { type: "update_profile", bio: "Updated bio" } });
+    const action = makeAction({ payload: { type: "update_profile", aura: "Emerald Sovereign Aura" } });
     const result = await executeAction(action);
 
     expect(result.status).toBe("success");

@@ -13,6 +13,9 @@ describe("ActionSchema discriminated union", () => {
   });
 
   it("validates a create_task action with optional fields", () => {
+    // priority/due_date are not real create_task fields (never were — see
+    // CreateTaskSchema's own comment); a non-strict object still accepts
+    // the payload and just strips them, so this stays a valid parse.
     const result = ActionSchema.safeParse({
       type: "create_task",
       title: "Write docs",
@@ -22,8 +25,11 @@ describe("ActionSchema discriminated union", () => {
     expect(result.success).toBe(true);
   });
 
-  it("rejects create_task with invalid priority", () => {
-    const result = ActionSchema.safeParse({ type: "create_task", title: "Task", priority: "extreme" });
+  it("rejects create_task with invalid difficulty", () => {
+    // Replaces a stale test asserting an invalid "priority" was rejected —
+    // priority was never a real field, so nothing ever actually rejected
+    // it. difficulty is the real enum-constrained field the handler reads.
+    const result = ActionSchema.safeParse({ type: "create_task", title: "Task", difficulty: "extreme" });
     expect(result.success).toBe(false);
   });
 
@@ -55,20 +61,26 @@ describe("ActionSchema discriminated union", () => {
   });
 
   it("validates create_ranking and rejects transformation fields", () => {
-    const valid = ActionSchema.safeParse({ type: "create_ranking", title: "Elite" });
+    // title/phase were never real create_ranking fields (real fields are
+    // display_name and rank — see CreateRankingSchema's own comment).
+    const valid = ActionSchema.safeParse({ type: "create_ranking", display_name: "Elite" });
     expect(valid.success).toBe(true);
 
-    // Ranking must not accept transformation-only fields
-    const contaminated = ActionSchema.safeParse({ type: "create_ranking", title: "Elite", phase: "Ascension" });
+    // Ranking must not accept transformation-only fields (phase is
+    // explicitly typed z.undefined() on this schema to enforce that)
+    const contaminated = ActionSchema.safeParse({ type: "create_ranking", display_name: "Elite", phase: "Ascension" });
     expect(contaminated.success).toBe(false);
   });
 
   it("validates create_transformation and rejects ranking fields", () => {
-    const valid = ActionSchema.safeParse({ type: "create_transformation", title: "Shadow Form" });
+    // title was never a real create_transformation field (real field is
+    // "name" — see CreateTransformationSchema's own comment).
+    const valid = ActionSchema.safeParse({ type: "create_transformation", name: "Shadow Form" });
     expect(valid.success).toBe(true);
 
-    // Transformation must not accept ranking-only fields
-    const contaminated = ActionSchema.safeParse({ type: "create_transformation", title: "Shadow Form", rank: "S" });
+    // Transformation must not accept ranking-only fields (rank is
+    // explicitly typed z.undefined() on this schema to enforce that)
+    const contaminated = ActionSchema.safeParse({ type: "create_transformation", name: "Shadow Form", rank: "S" });
     expect(contaminated.success).toBe(false);
   });
 
@@ -87,11 +99,16 @@ describe("ActionSchema discriminated union", () => {
     expect(ActionSchema.safeParse({ type: "create_skill", description: "no name given" }).success).toBe(false);
   });
 
-  it("validates create_ally with trust_level bounds", () => {
-    const valid = ActionSchema.safeParse({ type: "create_ally", name: "Cipher", trust_level: 7 });
+  it("validates create_ally with affinity bounds", () => {
+    // trust_level is not a real allies column (fabricated — see
+    // CreateAllySchema's own comment); the real 0-100 bounded field is
+    // "affinity". A stray trust_level key doesn't fail validation, it's
+    // just silently stripped, which is why the old bounds test here never
+    // actually caught anything.
+    const valid = ActionSchema.safeParse({ type: "create_ally", name: "Cipher", affinity: 70 });
     expect(valid.success).toBe(true);
 
-    const overMax = ActionSchema.safeParse({ type: "create_ally", name: "Cipher", trust_level: 11 });
+    const overMax = ActionSchema.safeParse({ type: "create_ally", name: "Cipher", affinity: 101 });
     expect(overMax.success).toBe(false);
   });
 
