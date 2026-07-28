@@ -2061,7 +2061,7 @@ async function runAgentLoop(
     gateway: {
       url:        "https://ai.gateway.lovable.dev/v1/chat/completions",
       key:        env.lovableKey,
-      model:      Deno.env.get("GATEWAY_MODEL") ?? "google/gemini-2.5-flash",
+      model:      Deno.env.get("GATEWAY_MODEL") ?? "google/gemini-3.6-flash",
       tokenParam: "max_tokens",
     },
     openai: {
@@ -2079,7 +2079,8 @@ async function runAgentLoop(
   };
   let pinnedProvider: ProviderId | null = null;
   let iteration = 0;
-  const MAX_ITERATIONS = 10;
+  const MAX_ITERATIONS = 4;
+  const deadlineAt = Date.now() + 55_000;
   let actionsQueued = 0;
   const toolsUsed: string[] = [];
   let generatedImageUrl: string | undefined;
@@ -2088,6 +2089,14 @@ async function runAgentLoop(
   let generatedVideoUrls: string[] | undefined;
 
   while (iteration < MAX_ITERATIONS) {
+    if (Date.now() > deadlineAt) {
+      return {
+        content: "I hit the agent time limit before finishing the full tool loop. Send the next command and I’ll continue from here.",
+        toolsUsed,
+        actionsQueued,
+      };
+    }
+
     let stopReason = "end_turn";
     let content: Array<{
       type: string;
@@ -2159,9 +2168,15 @@ async function runAgentLoop(
         } else {
           const cfg = compatProviders[candidate];
           if (!cfg?.key) continue;
+          // The Lovable AI Gateway authenticates via a dedicated header, not Bearer auth
+          // (confirmed by mavis-autonomy-orchestrator, the newest Lovable-gateway caller
+          // in the codebase) — every other OpenAI-compatible provider still uses Bearer.
+          const authHeader = candidate === "gateway"
+            ? { "Lovable-API-Key": cfg.key }
+            : { Authorization: `Bearer ${cfg.key}` };
           const res = await fetchWithFailover(cfg.url, {
             method: "POST",
-            headers: { "Content-Type": "application/json", Authorization: `Bearer ${cfg.key}` },
+            headers: { "Content-Type": "application/json", ...authHeader },
             body: JSON.stringify({
               model: cfg.model,
               [cfg.tokenParam]: 4096,

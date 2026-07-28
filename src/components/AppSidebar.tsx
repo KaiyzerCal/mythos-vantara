@@ -48,6 +48,7 @@ const PRIMARY_NAV = [
   { to: "/receptionist", icon: PhoneCall, label: "AI Receptionist" },
   { to: "/sms", icon: MessageSquare, label: "SMS & WhatsApp" },
   { to: "/inbox", icon: Inbox, label: "Inbox" },
+  { to: "/autonomy", icon: Radio, label: "Autonomy" },
   { to: "/quests", icon: Target, label: "Quests" },
   { to: "/councils", icon: Users, label: "Councils" },
 ];
@@ -128,6 +129,7 @@ const UTILITY_NAV = [
   { to: "/stripe", icon: CreditCard, label: "Stripe" },
   { to: "/import", icon: Upload, label: "Import Data" },
   { to: "/system-health", icon: Stethoscope, label: "System Health" },
+  { to: "/capabilities", icon: Zap, label: "Capabilities Hub" },
   { to: "/system-settings", icon: SlidersHorizontal, label: "System Settings" },
   { to: "/settings", icon: Settings, label: "Settings" },
 ];

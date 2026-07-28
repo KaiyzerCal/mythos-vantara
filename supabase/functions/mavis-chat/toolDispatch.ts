@@ -187,6 +187,15 @@ export const MAVIS_TOOL_DEFS: MavToolDef[] = [
     params: {
       prompt:       { type: "string", desc: "Image description / prompt", required: true },
       aspect_ratio: { type: "string", desc: "Aspect ratio",               enum: ["1:1","16:9","9:16"] },
+      // nsfw is deliberately NOT exposed here. Native tool-calling
+      // (resolveActionsNative → executeAgentAction) resolves server-side
+      // and calls mavis-actions directly — it never passes through
+      // actionExecutor.ts's classifyAction() CONFIRM gate at all (that
+      // gate only exists in the frontend). Exposing nsfw here would let
+      // the model generate explicit content with zero confirmation step,
+      // regardless of the account-level toggle. The properly-gated route
+      // is the :::ACTION{"type":"generate_image",...}::: text-tag path
+      // (see promptBuilder.ts), which does go through actionExecutor.ts.
     },
   },
   {
@@ -496,6 +505,34 @@ export const MAVIS_TOOL_DEFS: MavToolDef[] = [
       resource_name: { type: "string", desc: "Contact resource name (e.g. people/c12345)", required: true },
     },
   },
+  // ── HyperFrames video rendering ─────────────────────────────────────────
+  {
+    name: "render_video",
+    description: "Render a short MP4 video from an HTML/CSS composition (e.g. a quest-completion recap, a weekly-stats reel, a persona clip). Write the composition yourself as a single HTML fragment using HyperFrames conventions: a root element with data-composition-id/data-width/data-height, and child elements (video/img/div) with data-start and data-duration (seconds) marking when each appears. This submits an async render job — it does NOT return the finished video immediately; call check_video_render afterward (or on a later turn) with the returned render_id to get the final URL. Only use when the operator actually wants a rendered video, not for describing one.",
+    params: {
+      composition_html: { type: "string", desc: "The full HTML composition to render, using HyperFrames data-* timing attributes", required: true },
+      assets:           { type: "string", desc: "Comma-separated URLs of any images/video/audio referenced by the composition" },
+      width:            { type: "number", desc: "Output width in pixels (default 1920)" },
+      height:           { type: "number", desc: "Output height in pixels (default 1080)" },
+      fps:              { type: "number", desc: "Output frame rate (default 30)" },
+    },
+  },
+  {
+    name: "check_video_render",
+    description: "Check the status of a video render previously started with render_video. Returns 'rendering', 'ready' (with the final video URL), or 'failed'.",
+    params: {
+      render_id: { type: "string", desc: "The render_id returned by render_video", required: true },
+    },
+  },
+  // ── Deep web research ──────────────────────────────────────────────────
+  {
+    name: "deep_research",
+    description: "Run a multi-angle deep web research pass — plans several distinct search angles, searches each, and synthesizes a structured, cited report. Use for questions that need real investigation (a topic, product, company, technology, claim, current event) rather than a quick fact lookup — especially when the operator wants a thorough breakdown or to be taught about something in depth. Slower than a normal reply (10-25s); do not use for simple questions you already know the answer to.",
+    params: {
+      query: { type: "string", desc: "The research question or topic, phrased as a complete, specific query", required: true },
+      depth: { type: "number", desc: "Number of distinct search angles to explore, 1-5 (default 3). Use 4-5 for genuinely broad/complex topics." },
+    },
+  },
   // ── A2A: consult another entity ───────────────────────────────────────────
   {
     name: "consult_entity",
@@ -548,7 +585,7 @@ export function toGeminiFunctions(defs: MavToolDef[]): object[] {
         type: "OBJECT",
         properties: Object.fromEntries(
           Object.entries(d.params).map(([k, v]) => [k, {
-            type: v.type === "number" ? "NUMBER" : "STRING",
+            type: v.type === "number" ? "NUMBER" : v.type === "boolean" ? "BOOLEAN" : "STRING",
             description: v.desc,
             ...(v.enum ? { enum: v.enum } : {}),
           }])
@@ -636,15 +673,33 @@ export async function callClaudeForTools(
   } catch { return []; }
 }
 
+// Phrases that suggest the operator wants real investigation, not a quick reply —
+// shared between hasActionIntent (gates whether the tool pre-pass runs at all) and
+// hasResearchIntent (grants deep_research a longer pre-pass timeout budget in index.ts,
+// since a real multi-angle research pass routinely runs well past the default 12s).
+const RESEARCH_KWS = [
+  "research ", "deep dive", "look into", "investigate", "dig into",
+  "comprehensive report on", "everything about", "everything on",
+  "teach me about", "teach me everything", "break down", "breakdown of",
+  "analyze this", "analyze the", "full analysis", "in-depth", "thorough analysis",
+];
+
+export function hasResearchIntent(text: string): boolean {
+  const lower = text.toLowerCase();
+  return RESEARCH_KWS.some(kw => lower.includes(kw));
+}
+
 export function hasActionIntent(text: string): boolean {
   const lower = text.toLowerCase();
   const kws = [
+    ...RESEARCH_KWS,
     "create ","add a ","make a ","log ","track ","record ","save to ",
     "complete ","finish ","mark as done","done with",
     "new quest","new note","new journal","new goal","new skill","new ally",
     "vault entry","journal entry","council member",
     "award xp","give xp","add xp",
     "generate image","create image","forge persona","create persona",
+    "render a video","render video","make a video","create a video","video recap","recap video",
     // A2A / cross-entity (explicit names)
     "ask ","consult ","what does","what would","'s thoughts","'s take","'s opinion","'s perspective",
     "have them discuss","get their take","what do they think","let them weigh in",
@@ -670,6 +725,67 @@ export function hasActionIntent(text: string): boolean {
   return kws.some(kw => lower.includes(kw));
 }
 
+// mavis-deep-research always responds as an SSE stream (even on its own error/config
+// paths) — this drains it server-side and concatenates the `token` fields into one report.
+async function runDeepResearch(
+  supabaseUrl: string,
+  serviceKey: string,
+  userId: string,
+  query: string,
+  depth: number,
+): Promise<string> {
+  try {
+    const res = await fetch(`${supabaseUrl}/functions/v1/mavis-deep-research`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${serviceKey}` },
+      body: JSON.stringify({ query, depth, user_id: userId }),
+      signal: AbortSignal.timeout(25_000),
+    });
+    if (!res.ok || !res.body) return "";
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let report = "";
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() ?? "";
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed.startsWith("data:")) continue;
+        const payload = trimmed.slice(5).trim();
+        if (payload === "[DONE]") continue;
+        try {
+          const evt = JSON.parse(payload);
+          if (typeof evt.token === "string") report += evt.token;
+        } catch { /* skip malformed event */ }
+      }
+    }
+    return report.trim();
+  } catch {
+    return "";
+  }
+}
+
+async function callHyperframes(
+  supabaseUrl: string,
+  serviceKey: string,
+  userId: string,
+  body: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  const res = await fetch(`${supabaseUrl}/functions/v1/mavis-hyperframes`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${serviceKey}` },
+    body: JSON.stringify({ ...body, user_id: userId }),
+    signal: AbortSignal.timeout(15_000),
+  });
+  const data = await res.json().catch(() => ({})) as Record<string, unknown>;
+  if (!res.ok) throw new Error(String(data.error ?? `mavis-hyperframes ${res.status}`));
+  return data;
+}
+
 export async function resolveActionsNative(
   messages: any[],
   system: string,
@@ -691,6 +807,48 @@ export async function resolveActionsNative(
   const lines: string[] = [];
   for (const call of calls.slice(0, 6)) {
     try {
+      // render_video / check_video_render are handled inline — call mavis-hyperframes directly
+      if (call.name === "render_video") {
+        const html = String(call.args.composition_html ?? "").trim();
+        if (!html) continue;
+        try {
+          const result = await callHyperframes(supabaseUrl, serviceKey, userId, {
+            action: "render",
+            composition_html: html,
+            assets: String(call.args.assets ?? "").split(",").map(s => s.trim()).filter(Boolean),
+            width: call.args.width, height: call.args.height, fps: call.args.fps,
+          });
+          lines.push(`✓ render_video: started (render_id=${result.id}). Rendering in the background — call check_video_render(render_id="${result.id}") in a bit to get the finished video.`);
+        } catch (e: any) {
+          lines.push(`✗ render_video: ${e.message ?? "failed to start"}`);
+        }
+        continue;
+      }
+      if (call.name === "check_video_render") {
+        const renderId = String(call.args.render_id ?? "").trim();
+        if (!renderId) continue;
+        try {
+          const result = await callHyperframes(supabaseUrl, serviceKey, userId, { action: "status", id: renderId });
+          lines.push(`✓ check_video_render(${renderId}): status=${result.status}${result.render_url ? ` url=${result.render_url}` : ""}${result.error_message ? ` error=${result.error_message}` : ""}`);
+        } catch (e: any) {
+          lines.push(`✗ check_video_render(${renderId}): ${e.message ?? "failed"}`);
+        }
+        continue;
+      }
+      // deep_research is handled inline — calls mavis-deep-research directly, never reaches executor
+      if (call.name === "deep_research") {
+        const query = String(call.args.query ?? "").trim();
+        if (!query) continue;
+        const rawDepth = Number(call.args.depth ?? 3);
+        const depth = Math.max(1, Math.min(5, isNaN(rawDepth) ? 3 : rawDepth));
+        const report = await runDeepResearch(supabaseUrl, serviceKey, userId, query, depth);
+        if (report) {
+          lines.push(`✓ deep_research("${query}"):\n${report.slice(0, 6000)}\n[This is a real, cited multi-source research report — synthesize it into a complete, well-organized answer for the operator, don't just paste it verbatim or summarize in one sentence.]`);
+        } else {
+          lines.push(`✗ deep_research("${query}"): no results (web search may not be configured, or the research pass timed out — tell the operator and offer to try again or answer from existing knowledge)`);
+        }
+        continue;
+      }
       // consult_entity is handled inline — calls the entity's LLM, never reaches executor
       if (call.name === "consult_entity") {
         const entityName = String(call.args.name ?? "");

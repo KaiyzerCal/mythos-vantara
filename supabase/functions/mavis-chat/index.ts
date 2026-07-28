@@ -3,7 +3,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 
 import { scoreImportance, compressBlock, isHighStakesQuery, estimateLlmCost, detectFacets } from "./utils.ts";
 import { trimToFit, routeToProvider, callClaude, callGemini, callWithFallback, callWithFallbackStream } from "./providers.ts";
-import { parseActionBlocks, executeAgentAction, formatToolResults, hasActionIntent, resolveActionsNative } from "./toolDispatch.ts";
+import { parseActionBlocks, executeAgentAction, formatToolResults, hasActionIntent, hasResearchIntent, resolveActionsNative } from "./toolDispatch.ts";
 import { tavilySearch, needsWebSearch, buildMavisPrompt } from "./promptBuilder.ts";
 
 const corsHeaders = {
@@ -39,6 +39,25 @@ const DEV_MODE = Object.keys(BOUND_OPERATORS).length === 0;
 // ============================================================
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
+
+  // Lightweight health / key-presence probe (no LLM call, no DB write)
+  const url = new URL(req.url);
+  if (req.method === "GET" && (url.pathname.endsWith("/health") || url.searchParams.get("health") === "1")) {
+    const keys = {
+      ANTHROPIC_API_KEY: !!Deno.env.get("ANTHROPIC_API_KEY"),
+      OPENAI_API_KEY: !!(Deno.env.get("OPENAI_API_KEY") || Deno.env.get("OPENAI_API")),
+      GEMINI_API_KEY: !!Deno.env.get("GEMINI_API_KEY"),
+      GROK_API_KEY: !!Deno.env.get("GROK_API_KEY"),
+      TAVILY_API_KEY: !!Deno.env.get("TAVILY_API_KEY"),
+      JINA_API_KEY: !!Deno.env.get("JINA_API_KEY"),
+    };
+    const missing = Object.entries(keys).filter(([_, present]) => !present).map(([name]) => name);
+    return new Response(JSON.stringify({
+      status: missing.length === 0 ? "ok" : "degraded",
+      missing_keys: missing,
+      keys_present: Object.keys(keys).filter(k => keys[k as keyof typeof keys]),
+    }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+  }
 
   try {
     const authHeader = req.headers.get("Authorization");
@@ -1341,7 +1360,6 @@ ${telosData
 
     // ── Attachments uploaded to this thread ────────────────
     let attachmentsBlock = "";
-    const visionImages: { url: string; mime: string }[] = [];
     try {
       let q = sb.from("chat_attachments")
         .select("id,file_name,mime_type,file_url,extracted_text,processing_status,created_at")
@@ -1357,27 +1375,19 @@ ${telosData
       }
       const { data: atts } = await q;
       if (atts && atts.length > 0) {
-        for (const a of atts as any[]) {
-          // Collect image URLs for multimodal vision pass-through
-          if (a.mime_type?.startsWith("image/") && a.file_url) {
-            visionImages.push({ url: a.file_url, mime: a.mime_type });
-          }
-        }
         attachmentsBlock = "\n═══ FILES UPLOADED TO THIS CHAT (read & analyze) ═══\n" +
           (atts as any[]).map((a: any) => {
             const status = a.processing_status === "done" ? "" : ` [${a.processing_status}]`;
-            const isImage = a.mime_type?.startsWith("image/");
             const txt = (a.extracted_text || "").slice(0, 6000);
-            // Always include extracted text — for images this is the AI-generated description.
-            // Vision URL is also injected into the message separately (additive, not a replacement).
-            const visionNote = isImage && visionImages.length > 0
-              ? "\n[Also injected as direct vision input to the model — you can both read the description and visually analyze the image]"
-              : "";
+            // extracted_text is a real AI-generated description/transcript/OCR produced at
+            // upload time by mavis-attachment-process (Gemini/Claude/GPT-4o vision cascade for
+            // images, Gemini Files API for video, native PDF reading) — this is the actual
+            // analysis, not a placeholder.
             const body = txt
-              ? txt + visionNote
+              ? txt
               : (a.processing_status === "pending" || a.processing_status === "processing"
                   ? "(file is still being processed — the operator should wait a moment and retry)"
-                  : "(no content extracted)" + visionNote);
+                  : "(no content extracted)");
             return `\n📎 ${a.file_name} (${a.mime_type})${status}\n${body}\n---`;
           }).join("");
       }
@@ -1592,6 +1602,11 @@ Always reference dates and times in the entity's own timezone when one is set, o
       plansBlock,
       urlContent,
       webSearchResults ? `\n---\nWEB SEARCH:\n${webSearchResults}\n---` : "",
+      // Depth directive — only when there's actually ingested media/research context to
+      // teach from (attachments, a pasted URL/YouTube video, or web search results).
+      (attachmentsBlock || urlContent || webSearchResults)
+        ? `\n═══ ANALYSIS DEPTH ═══\nThe context above includes uploaded file(s), a linked URL/video, and/or web search results — real analysis, not a placeholder. When responding to it, go deep: don't just acknowledge or summarize in one line. Explain what it actually is, break down its key parts/claims/structure, surface what's notable or non-obvious, and connect it to what the operator actually asked. If the operator's message reads like they want to understand or learn the material (e.g. "explain", "break this down", "teach me", "what is this", or just pasting a link/file with no other comment), treat the response as a genuine lesson: structured, complete, at a level where they could explain it back to someone else afterward — not a surface-level gloss.\n═══ END ANALYSIS DEPTH ═══`
+        : "",
       // Inline image rendering directive (Prymal pattern)
       `\n═══ INLINE MEDIA RENDERING ═══\nWhen tool results contain file_url, thumbnail_url, image_url, or drive links pointing to images, render them inline as markdown: ![description](url). The chat interface renders these as <img> tags — always show images directly rather than describing them separately.\n═══ END MEDIA ═══`,
       // Verification doctrine (LifeOS pattern)
@@ -1600,26 +1615,7 @@ Always reference dates and times in the entity's own timezone when one is set, o
       `\n═══ A2A ENTITY NETWORK ═══\nYou exist within an ecosystem of AI entities — personas and council members — each with their own knowledge, personality, and expertise.\n\nHOW A2A WORKS:\n• When the operator asks about another entity, the system fetches their LIVE response BEFORE you generate your reply. It appears in your context as ═══ LIVE A2A RESULT ═══.\n• If you SEE that block above: the entity's response is already there. You MUST share it immediately — do NOT say "I've sent the query" or "their response is coming" — it is already there. Just relay what they said.\n• If you do NOT see that block: the operator's message didn't trigger auto-detection. You can still ask naturally: "I'll loop in [name] on that — let me pull their take." The system will detect this intent on the next turn and inject their live response.\n\nENTITY AWARENESS:\n• You know the full roster of personas and council members from the LIVE BACKEND STATE block above.\n• When something falls squarely in another entity's domain and their perspective would add real value, proactively suggest the consultation — don't wait for the operator to ask.\n• Each entity has their own agent_folders (identity, memory notes, behavior directives, knowledge, references) that define their expertise and personality. They are not generic chatbots — they are fully realized specialists.\n\nCRITICAL:\n• NEVER emit :::CREATE_JOURNAL:::, :::CREATE_VAULT:::, :::CONSULT_ENTITY:::, :::PROPOSE_ACTION::: or any ::: block to simulate A2A. Those write to the database and will corrupt data.\n• NEVER roleplay "initiating protocol" or "transmitting query" — you either have the answer right now or you don't.\n═══ END A2A ═══`,
     ].filter(Boolean).join("\n\n");
 
-    // ── Vision: inject image URLs into last user message ────
-    // Promotes text-only messages to multimodal when image attachments exist.
     let callMessages = [...(messages || [])];
-    if (visionImages.length > 0) {
-      const lastIdx = callMessages.map((m: any) => m.role).lastIndexOf("user");
-      if (lastIdx >= 0) {
-        const lastMsg = callMessages[lastIdx];
-        const textContent = typeof lastMsg.content === "string" ? lastMsg.content : "";
-        callMessages[lastIdx] = {
-          ...lastMsg,
-          content: [
-            { type: "text", text: textContent },
-            ...visionImages.map((img: any) => ({
-              type: "image_url",
-              image_url: { url: img.url },
-            })),
-          ],
-        };
-      }
-    }
 
     // ── Tool output pruning (token saving pre-pass) ─────────
     // Replace content of old tool-role messages (outside last 4) with a stub.
@@ -1654,9 +1650,13 @@ Always reference dates and times in the entity's own timezone when one is set, o
     // In persona mode always run the pre-pass — persona chats need A2A even when intent isn't explicit
     if ((!isCouncilMode || !!personaId) && (!!personaId || hasActionIntent(lastUserText)) && (geminiKey || claudeKey)) {
       try {
+        // A real deep_research pass (multi-angle search + synthesis) routinely runs past
+        // the default 12s tool-call budget — give it more room when the message looks
+        // research-worthy, without slowing down the common case (quick CRUD/A2A actions).
+        const prePassBudgetMs = hasResearchIntent(lastUserText) ? 28_000 : 12_000;
         const nativeBlock = await Promise.race([
           resolveActionsNative(callMessages, systemWithPersonaMemory, aiKeys, supabaseUrl, serviceKey, user.id),
-          new Promise<string>((resolve) => setTimeout(() => resolve(""), 12_000)),
+          new Promise<string>((resolve) => setTimeout(() => resolve(""), prePassBudgetMs)),
         ]);
         if (nativeBlock) fullPromptFinal = fullPrompt + nativeBlock;
       } catch { /* non-critical */ }
@@ -1678,6 +1678,7 @@ Always reference dates and times in the entity's own timezone when one is set, o
         async start(controller) {
           let accumulated = "";
           let actionsSucceeded = 0; // top-level so try/catch/finally can all reach it
+          let actionsRan = false; // same reason — the final `done` event needs both after the react loop's block scope ends
           // ── Hidden-block stream filter ──────────────────────────────────────
           // Buffers ::: sequences; passes :::ACTION{...}::: through, queues
           // :::CONSULT_ENTITY{...}::: for post-stream resolution, drops all others.
@@ -1763,6 +1764,7 @@ Always reference dates and times in the entity's own timezone when one is set, o
                   }
                   toolResults.push({ type: block.type, ok, result });
                   totalActions++;
+                  actionsRan = true;
                   if (ok) actionsSucceeded++;
                   sb.from("mavis_agent_traces").insert({ user_id: user.id, session_id: conversationId ?? "streaming", iteration: reactIter + 1, action_type: block.type, params: block.params as any, result: result as any, ok, duration_ms: Date.now() - _traceStartStream }).then(() => {}, () => {});
                   controller.enqueue(enc.encode(`data: ${JSON.stringify({ step: "result", type: block.type, ok, preview: JSON.stringify(result).slice(0, 300) })}\n\n`));
@@ -1867,7 +1869,7 @@ Always reference dates and times in the entity's own timezone when one is set, o
                 } catch { /* non-critical */ }
               }
             }
-            controller.enqueue(enc.encode(`data: ${JSON.stringify({ done: true, provider: streamProv, conversationId, searched: !!webSearchResults, imageUrl: imgUrl, imageMediaId, actionsRan: actionsSucceeded > 0 })}\n\n`));
+            controller.enqueue(enc.encode(`data: ${JSON.stringify({ done: true, provider: streamProv, conversationId, searched: !!webSearchResults, imageUrl: imgUrl, imageMediaId, actionsRan, actionsSucceeded })}\n\n`));
           } catch (e: any) {
             controller.enqueue(enc.encode(`data: ${JSON.stringify({ error: e.message ?? "Stream error" })}\n\n`));
           } finally {
@@ -2030,15 +2032,15 @@ Always reference dates and times in the entity's own timezone when one is set, o
 
               // ── LLM cost telemetry (OpenJarvis pattern) ─────────────────
               const _streamCost = estimateLlmCost(streamProv ?? provider, fullPrompt.length + lastUserText.length, accumulated.length);
-              sb.from("mavis_llm_calls").insert({
+              Promise.resolve(sb.from("mavis_llm_calls").insert({
                 user_id:            user.id,
                 provider:           streamProv ?? provider,
                 mode:               modeUpper,
                 latency_ms:         Date.now() - ts,
                 estimated_cost_usd: _streamCost,
                 success:            true,
-              }).catch(() => {});
-              sb.from("mavis_usage_log").insert({
+              })).catch(() => {});
+              Promise.resolve(sb.from("mavis_usage_log").insert({
                 user_id:            user.id,
                 persona_id:         personaId ?? null,
                 session_type:       isCouncilMode ? "council" : "mavis",
@@ -2046,7 +2048,7 @@ Always reference dates and times in the entity's own timezone when one is set, o
                 input_tokens:       Math.ceil((fullPrompt.length + lastUserText.length) / 4),
                 output_tokens:      Math.ceil(accumulated.length / 4),
                 estimated_cost_usd: _streamCost,
-              }).catch(() => {});
+              })).catch(() => {});
 
               // ── Persona memory persistence (COUNCIL mode) ────────────────
               if (isCouncilMode && personaId && accumulated.length > 10) {
@@ -2502,15 +2504,15 @@ Respond with ONLY a JSON array (may be empty []):
 
     // ── LLM cost telemetry (OpenJarvis pattern) ────────────────────────
     const _nonStreamCost = estimateLlmCost(usedProvider, fullPrompt.length + lastUserContent.length, content.length);
-    sb.from("mavis_llm_calls").insert({
+    Promise.resolve(sb.from("mavis_llm_calls").insert({
       user_id:            user.id,
       provider:           usedProvider,
       mode:               modeUpper,
       latency_ms:         null,
       estimated_cost_usd: _nonStreamCost,
       success:            true,
-    }).catch(() => {});
-    sb.from("mavis_usage_log").insert({
+    })).catch(() => {});
+    Promise.resolve(sb.from("mavis_usage_log").insert({
       user_id:            user.id,
       persona_id:         personaId ?? null,
       session_type:       isCouncilMode ? "council" : "mavis",
@@ -2518,7 +2520,7 @@ Respond with ONLY a JSON array (may be empty []):
       input_tokens:       Math.ceil((fullPrompt.length + lastUserContent.length) / 4),
       output_tokens:      Math.ceil(content.length / 4),
       estimated_cost_usd: _nonStreamCost,
-    }).catch(() => {});
+    })).catch(() => {});
 
     return new Response(
       JSON.stringify({ content, mode, conversationId, searched: !!webSearchResults, provider: usedProvider, imageUrl }),

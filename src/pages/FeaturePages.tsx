@@ -33,7 +33,7 @@ function SubQuestRow({ sq, onComplete, onDelete }: { sq: any; onComplete: (id: s
         onClick={() => onComplete(sq.id)}
         className={`w-4 h-4 rounded-full border flex-shrink-0 flex items-center justify-center transition-colors ${sq.status === 'completed' ? 'bg-green-500 border-green-500' : 'border-gray-500 hover:border-purple-400'}`}
       >
-        {sq.status === 'completed' && <Check className="w-2.5 h-2.5 text-white" />}
+        {sq.status === 'completed' && <Check className="w-2.5 h-2.5 text-foreground" />}
       </button>
       <span className={`text-sm flex-1 ${sq.status === 'completed' ? 'line-through text-muted-foreground' : 'text-foreground'}`}>
         {sq.title}

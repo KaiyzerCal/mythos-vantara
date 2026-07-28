@@ -78,11 +78,23 @@ async function hueSetLight(lightId: string, state: Record<string, unknown>): Pro
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
-  // Auth
+  // Auth — service-role callers (e.g. mavis-actions dispatching a smart_home/
+  // iot_control action) pass an explicit user_id, same trust pattern used
+  // elsewhere in this codebase (mavis-youtube-ingest, mavis-deep-research).
   const auth = req.headers.get("Authorization") ?? "";
   const sb = createClient(SB_URL, SB_KEY, { auth: { persistSession: false } });
-  const { data: { user }, error: authErr } = await sb.auth.getUser(auth.replace("Bearer ", ""));
-  if (authErr || !user) return json({ error: "Unauthorized" }, 401);
+
+  let body: any;
+  try { body = await req.json(); } catch { return json({ error: "Invalid JSON" }, 400); }
+
+  let userId: string | null = null;
+  if (auth === `Bearer ${SB_KEY}`) {
+    userId = String(body.userId ?? body.user_id ?? "").trim() || null;
+  } else {
+    const { data: { user }, error: authErr } = await sb.auth.getUser(auth.replace("Bearer ", ""));
+    if (!authErr && user) userId = user.id;
+  }
+  if (!userId) return json({ error: "Unauthorized" }, 401);
 
   // Config check
   if (!HA_URL && !HUE_BRIDGE) {
@@ -92,9 +104,6 @@ serve(async (req) => {
       configured: false,
     });
   }
-
-  let body: any;
-  try { body = await req.json(); } catch { return json({ error: "Invalid JSON" }, 400); }
 
   const { action } = body as { action: string; entity_id?: string; service?: string; domain?: string; state?: Record<string, unknown>; light_id?: string };
 

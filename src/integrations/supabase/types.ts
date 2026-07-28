@@ -1236,6 +1236,48 @@ export type Database = {
         }
         Relationships: []
       }
+      hyperframes_renders: {
+        Row: {
+          id: string
+          user_id: string
+          provider_job_id: string | null
+          status: string
+          width: number
+          height: number
+          fps: number
+          render_url: string | null
+          error_message: string | null
+          created_at: string
+          completed_at: string | null
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          provider_job_id?: string | null
+          status?: string
+          width?: number
+          height?: number
+          fps?: number
+          render_url?: string | null
+          error_message?: string | null
+          created_at?: string
+          completed_at?: string | null
+        }
+        Update: {
+          id?: string
+          user_id?: string
+          provider_job_id?: string | null
+          status?: string
+          width?: number
+          height?: number
+          fps?: number
+          render_url?: string | null
+          error_message?: string | null
+          created_at?: string
+          completed_at?: string | null
+        }
+        Relationships: []
+      }
       inventory: {
         Row: {
           description: string
@@ -6099,6 +6141,133 @@ export type Database = {
           user_id?: string
         }
         Relationships: []
+      }
+      receptionist_businesses: {
+        Row: {
+          created_at: string
+          description: string | null
+          greeting: string | null
+          hours: Json | null
+          id: string
+          industry: string
+          is_active: boolean
+          name: string
+          plan: string | null
+          timezone: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          description?: string | null
+          greeting?: string | null
+          hours?: Json | null
+          id?: string
+          industry?: string
+          is_active?: boolean
+          name: string
+          plan?: string | null
+          timezone?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          description?: string | null
+          greeting?: string | null
+          hours?: Json | null
+          id?: string
+          industry?: string
+          is_active?: boolean
+          name?: string
+          plan?: string | null
+          timezone?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      receptionist_calls: {
+        Row: {
+          business_id: string
+          caller_number: string | null
+          created_at: string
+          duration_seconds: number | null
+          id: string
+          metadata: Json | null
+          summary: string | null
+          transcript: string | null
+          user_id: string
+        }
+        Insert: {
+          business_id: string
+          caller_number?: string | null
+          created_at?: string
+          duration_seconds?: number | null
+          id?: string
+          metadata?: Json | null
+          summary?: string | null
+          transcript?: string | null
+          user_id: string
+        }
+        Update: {
+          business_id?: string
+          caller_number?: string | null
+          created_at?: string
+          duration_seconds?: number | null
+          id?: string
+          metadata?: Json | null
+          summary?: string | null
+          transcript?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "receptionist_calls_business_id_fkey"
+            columns: ["business_id"]
+            isOneToOne: false
+            referencedRelation: "receptionist_businesses"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      receptionist_phone_numbers: {
+        Row: {
+          business_id: string
+          created_at: string
+          id: string
+          is_active: boolean
+          phone_number: string
+          user_id: string
+          vapi_phone_number_id: string | null
+        }
+        Insert: {
+          business_id: string
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          phone_number: string
+          user_id: string
+          vapi_phone_number_id?: string | null
+        }
+        Update: {
+          business_id?: string
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          phone_number?: string
+          user_id?: string
+          vapi_phone_number_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "receptionist_phone_numbers_business_id_fkey"
+            columns: ["business_id"]
+            isOneToOne: false
+            referencedRelation: "receptionist_businesses"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       reclaim_schedule_blocks: {
         Row: {

@@ -87,7 +87,9 @@ jobs:
           )
           printf '%s\n' "${CORE[@]}" > /tmp/core-fns.txt
 
-          mapfile -t REMAINING < <(ls supabase/functions/ | grep -vxFf /tmp/core-fns.txt)
+          # _archive/ holds retired functions (Execution Blueprint Stage D) — not
+          # a deployable function itself, exclude it from the sweep.
+          mapfile -t REMAINING < <(ls supabase/functions/ | grep -vxFf /tmp/core-fns.txt | grep -vx '_archive')
           echo "Deploying ${#REMAINING[@]} non-core functions with 8 parallel workers..."
 
           FAILURES=/tmp/deploy-failures.txt
@@ -116,3 +118,36 @@ jobs:
             echo "::warning::$FAIL_COUNT non-core function(s) failed to deploy:"
             cat "$FAILURES"
           fi
+
+      # ── Smoke tests — staging only (Execution Blueprint Stage F) ─────────────
+      # Deliberately NOT run against production: it fires real autonomy-pathway
+      # triggers (the exact same payload their pg_cron job already posts, so
+      # not new risk) plus a small curated set of core functions — never the
+      # full --all-active sweep, which isn't vetted for side effects. This is
+      # the "staging deploy → smoke tests → promote to production" gate from
+      # DEPLOYMENT.md's promotion path: if this fails, staging isn't healthy
+      # and staging shouldn't be merged into main yet.
+      #
+      # Needs three secrets on the "staging" GitHub Environment that don't
+      # exist yet by default: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY,
+      # OPERATOR_USER_ID (a real auth.users id on the staging project). The
+      # step is skipped gracefully if they're not set, rather than failing
+      # the whole deploy over missing optional gate secrets.
+      - name: Set up Node
+        if: github.ref == 'refs/heads/staging'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Run smoke tests against staging
+        if: github.ref == 'refs/heads/staging'
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          OPERATOR_USER_ID: ${{ secrets.OPERATOR_USER_ID }}
+        run: |
+          if [ -z "$SUPABASE_URL" ] || [ -z "$SERVICE_ROLE_KEY" ]; then
+            echo "::warning::Skipping smoke tests — SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY not set on the staging Environment yet. See DEPLOYMENT.md."
+            exit 0
+          fi
+          node scripts/smoke-test.mjs

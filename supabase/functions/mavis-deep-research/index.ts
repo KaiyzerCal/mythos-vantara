@@ -13,7 +13,9 @@ const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const ANTHROPIC_KEY = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
 const GEMINI_KEY    = Deno.env.get("GEMINI_API_KEY") ?? "";
-const TAVILY_KEY    = Deno.env.get("Tavily_API") ?? "";
+// TAVILY_API_KEY is canonical (matches mavis-chat's auto web-search); Tavily_API kept as a
+// fallback read since it may already be set under that name in the secrets vault.
+const TAVILY_KEY    = Deno.env.get("TAVILY_API_KEY") ?? Deno.env.get("Tavily_API") ?? "";
 // Self-hosted SearXNG meta-search engine. No API key needed.
 // Deploy: docker run -d -p 8888:8080 searxng/searxng  |  set SEARXNG_URL=http://your-server:8888
 const SEARXNG_URL   = Deno.env.get("SEARXNG_URL") ?? "";
@@ -21,11 +23,14 @@ const SEARXNG_URL   = Deno.env.get("SEARXNG_URL") ?? "";
 const supabase = createClient(SUPABASE_URL, SERVICE_KEY);
 
 // ── JWT auth ───────────────────────────────────────────────────
-async function getUserId(req: Request): Promise<string | null> {
+async function getUserId(req: Request, bodyUserId?: string): Promise<string | null> {
   try {
     const auth  = req.headers.get("Authorization") ?? "";
     const token = auth.replace(/^Bearer\s+/i, "").trim();
     if (!token) return null;
+    // Service-role callers (e.g. mavis-chat's tool dispatch) pass an explicit user_id —
+    // same trust pattern as mavis-youtube-ingest.
+    if (token === SERVICE_KEY) return bodyUserId?.trim() || null;
     const parts = token.split(".");
     if (parts.length !== 3) return null;
 
@@ -170,20 +175,20 @@ serve(async (req) => {
     return new Response(null, { headers: corsHeaders });
   }
 
-  const userId = await getUserId(req);
-  if (!userId) {
-    return new Response(JSON.stringify({ error: "Unauthorized" }), {
-      status: 401,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
-  }
-
   let body: Record<string, unknown> = {};
   try {
     body = await req.json();
   } catch {
     return new Response(JSON.stringify({ error: "Invalid JSON body" }), {
       status: 400,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
+
+  const userId = await getUserId(req, typeof body.user_id === "string" ? body.user_id : undefined);
+  if (!userId) {
+    return new Response(JSON.stringify({ error: "Unauthorized" }), {
+      status: 401,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }
@@ -201,7 +206,7 @@ serve(async (req) => {
 
   // Require at least one search provider
   if (!TAVILY_KEY && !SEARXNG_URL) {
-    const note = "Web search isn't configured. Add Tavily_API (cloud) or SEARXNG_URL (self-hosted) to enable deep research.";
+    const note = "Web search isn't configured. Add TAVILY_API_KEY (cloud) or SEARXNG_URL (self-hosted) to enable deep research.";
     const stream = new ReadableStream({
       start(controller) {
         const enc = new TextEncoder();

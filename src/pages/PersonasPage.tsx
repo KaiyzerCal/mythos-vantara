@@ -8,6 +8,7 @@ import { PageHeader, HudCard } from "@/components/SharedUI";
 import { PersonaCard } from "@/components/persona/PersonaCard";
 import { PersonaChat } from "@/components/persona/PersonaChat";
 import { usePersonaForge } from "@/hooks/usePersonaForge";
+import { LoadingState } from "@/components/LoadingState";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import type { ForgedPersona } from "@/hooks/usePersonaForge";
@@ -497,6 +498,21 @@ export default function PersonasPage() {
     return () => { supabase.removeChannel(channel); };
   }, [user]);
 
+  // Realtime: persona conversations — live updates when persona chats change
+  useEffect(() => {
+    if (!user) return;
+    const channel = supabase
+      .channel(`persona-conversations-${user.id}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "persona_conversations", filter: `user_id=eq.${user.id}` },
+        () => { loadPersonas(); },
+      )
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [user, loadPersonas]);
+
+
   const handleNotificationRead = useCallback(async (notifId: string) => {
     await (supabase as any).from("navi_notifications").update({ is_read: true }).eq("id", notifId);
     setNotifications((prev) => {
@@ -589,12 +605,8 @@ export default function PersonasPage() {
 
       {/* Persona roster */}
       {isLoading ? (
-        <div className="flex items-center justify-center py-12">
-          <div className="text-center">
-            <Loader2 className="animate-spin text-primary mx-auto mb-2" size={24} />
-            <p className="text-xs font-mono text-muted-foreground">Loading personas...</p>
-          </div>
-        </div>
+        <LoadingState label="Loading personas…" size="lg" />
+
       ) : personas.length === 0 ? (
         <HudCard>
           <div className="text-center py-8">

@@ -1,0 +1,4398 @@
+[
+  {
+    "name": "agent-telegram-gateway",
+    "category": "Telegram",
+    "purpose": "Routes agent outputs to Telegram",
+    "status": "WEBHOOK",
+    "calledFromFrontend": [],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": false,
+    "autonomyPathway": null
+  },
+  {
+    "name": "embed-and-search",
+    "category": "Infrastructure",
+    "purpose": "Vector embedding + semantic search",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/proactiveRecall.ts"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "local-mesh-proxy",
+    "category": "Infrastructure",
+    "purpose": "Local device mesh network proxy",
+    "status": "WEBHOOK",
+    "calledFromFrontend": [],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": false,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-a2a",
+    "category": "Agent Systems",
+    "purpose": "Agent-to-Agent protocol endpoint",
+    "status": "WEBHOOK",
+    "calledFromFrontend": [],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": false,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-achievement-check",
+    "category": "Goals & Quests",
+    "purpose": "Checks for unlocked achievements and awards XP",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/achievement-check/index.ts"
+    ],
+    "calledFromBackend": [
+      "mavis-chat"
+    ],
+    "isCronTarget": false,
+    "requiresJwt": false,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-action-executor",
+    "category": "Action Execution",
+    "purpose": "Google Workspace direct executor (Drive/Sheets/Tasks) with OAuth token management",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/pages/AgentDashboardPage.tsx"
+    ],
+    "calledFromBackend": [
+      "mavis-agent",
+      "telegram-webhook"
+    ],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-actions",
+    "category": "Action Execution",
+    "purpose": "Primary action router — reads `body.actions[]` array, executes create/update/delete across all CODEXOS tables",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/pages/GoalsPage.tsx",
+      "src/pages/Inbox.tsx",
+      "src/pages/MavisChat.tsx",
+      "src/pages/MavisDemo.tsx"
+    ],
+    "calledFromBackend": [
+      "mavis-a2a",
+      "mavis-agent",
+      "mavis-chat",
+      "mavis-council-heartbeat",
+      "mavis-director",
+      "mavis-heartbeat",
+      "mavis-persona-router",
+      "mavis-task-executor",
+      "mavis-webhook",
+      "telegram-webhook"
+    ],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-agent",
+    "category": "Agent Systems",
+    "purpose": "ReAct tool-use agent (Gemini Pro) — web search, code exec, file ops, API calls",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/components/AgentBuilderSection.tsx",
+      "src/components/persona/PersonaChat.tsx",
+      "src/mavis/chatService.ts",
+      "src/pages/AgentReachPage.tsx",
+      "src/pages/FeaturePages.tsx"
+    ],
+    "calledFromBackend": [
+      "mavis-actions",
+      "mavis-agent-builder",
+      "mavis-campaign-runner",
+      "mavis-gmail-webhook",
+      "mavis-goal-agent",
+      "mavis-mcp-server",
+      "mavis-orchestrator",
+      "mavis-telegram-bot",
+      "mavis-trigger-engine",
+      "prymal-widget-loader",
+      "telegram-webhook"
+    ],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-agent-builder",
+    "category": "Agent Systems",
+    "purpose": "Creates new AI agents dynamically from a description",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/components/AgentBuilderSection.tsx",
+      "src/mavis/skills/agent-builder/index.ts"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-agent-identity",
+    "category": "Agent Systems",
+    "purpose": "Manages agent persona identity files (agent_folders: identity/ops/refs/evals)",
+    "status": "ACTIVE",
+    "calledFromFrontend": [],
+    "calledFromBackend": [
+      "mavis-actions"
+    ],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-agent-reach",
+    "category": "Agent Systems",
+    "purpose": "Dispatches a task to a remote agent or persona over HTTP",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/specialistDispatcher.ts",
+      "src/pages/AgentReachPage.tsx"
+    ],
+    "calledFromBackend": [
+      "mavis-actions"
+    ],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-agent-serve",
+    "category": "Agent Systems",
+    "purpose": "Serves agent capabilities over a REST endpoint (A2A pattern)",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/components/AgentBuilderSection.tsx"
+    ],
+    "calledFromBackend": [
+      "mavis-agent-builder",
+      "prymal-widget-loader"
+    ],
+    "isCronTarget": false,
+    "requiresJwt": false,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-airtable-agent",
+    "category": "Notes & Knowledge Management",
+    "purpose": "Airtable data management",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/airtable-agent/index.ts",
+      "src/pages/AirtablePage.tsx"
+    ],
+    "calledFromBackend": [
+      "mavis-agent"
+    ],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-ambient-monitor",
+    "category": "Devices, Vision & Ambient",
+    "purpose": "Ambient signal monitoring",
+    "status": "CRON_ONLY",
+    "calledFromFrontend": [],
+    "calledFromBackend": [],
+    "isCronTarget": true,
+    "requiresJwt": false,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-announce",
+    "category": "Triggers & Autonomy",
+    "purpose": "Broadcasts system announcements",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/announce/index.ts"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": false,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-api-gateway",
+    "category": "Infrastructure",
+    "purpose": "Central API gateway with auth and rate limiting",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/pages/ApiKeysPage.tsx"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": false,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-apify",
+    "category": "Platform Integrations (added)",
+    "purpose": "Apify actor proxy",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/audio-transcribe-actor/index.ts",
+      "src/mavis/skills/backlink-build/index.ts",
+      "src/mavis/skills/coinmarketcap-data/index.ts",
+      "src/mavis/skills/company-research/index.ts",
+      "src/mavis/skills/content-processor/index.ts",
+      "src/mavis/skills/cot-report/index.ts",
+      "src/mavis/skills/crypto-intel/index.ts",
+      "src/mavis/skills/earnings-predict/index.ts",
+      "src/mavis/skills/economics-calendar/index.ts",
+      "src/mavis/skills/email-finder/index.ts",
+      "src/mavis/skills/explorium-intel/index.ts",
+      "src/mavis/skills/figma-export/index.ts",
+      "src/mavis/skills/financial-datasets-mcp/index.ts",
+      "src/mavis/skills/funding-intel/index.ts",
+      "src/mavis/skills/ga4-report/index.ts",
+      "src/mavis/skills/global-markets/index.ts",
+      "src/mavis/skills/gsc-report/index.ts",
+      "src/mavis/skills/home-assistant/index.ts",
+      "src/mavis/skills/hubspot-crm/index.ts",
+      "src/mavis/skills/influencer-research/index.ts",
+      "src/mavis/skills/insider-trading/index.ts",
+      "src/mavis/skills/invoice-collect/index.ts",
+      "src/mavis/skills/job-search-agent/index.ts",
+      "src/mavis/skills/mindmap-gen/index.ts",
+      "src/mavis/skills/newsletter-gen-actor/index.ts",
+      "src/mavis/skills/reddit-sentiment/index.ts",
+      "src/mavis/skills/reddit-user/index.ts",
+      "src/mavis/skills/slidespeak/index.ts",
+      "src/mavis/skills/social-email-scrape/index.ts",
+      "src/mavis/skills/web-scrape/index.ts",
+      "src/mavis/skills/whatsapp-cloud/index.ts",
+      "src/mavis/skills/youtube-intel/index.ts",
+      "src/mavis/skills/zendesk-agent/index.ts"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-archivist",
+    "category": "Memory & Learning",
+    "purpose": "Long-term archival — moves low-importance memories to cold storage",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/archivist/index.ts"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": false,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-article-extractor",
+    "category": "Research & Web",
+    "purpose": "Extracts structured content from articles",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/article-extract/index.ts",
+      "src/pages/NotebookPage.tsx"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-arxiv",
+    "category": "Research & Web",
+    "purpose": "ArXiv paper search and summarization",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/arxiv/index.ts",
+      "src/pages/KnowledgeGraph.tsx"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-attachment-process",
+    "category": "Ingestion & Knowledge Intake",
+    "purpose": "Processes chat attachments — doc text extraction, audio/video transcription",
+    "status": "WEBHOOK",
+    "calledFromFrontend": [],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": false,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-auto-journal",
+    "category": "Notes & Knowledge Management",
+    "purpose": "Auto-generates journal entries from context",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/auto-journal/index.ts"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": true,
+    "requiresJwt": false,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-autonomous-actions",
+    "category": "Action Execution",
+    "purpose": "Queues actions that require operator approval before execution",
+    "status": "CRON_ONLY",
+    "calledFromFrontend": [],
+    "calledFromBackend": [],
+    "isCronTarget": true,
+    "requiresJwt": false,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-autonomous-engine",
+    "category": "Action Execution",
+    "purpose": "Background autonomous decision loop — evaluates standing orders, triggers proactive actions",
+    "status": "ACTIVE",
+    "calledFromFrontend": [],
+    "calledFromBackend": [
+      "mavis-autonomy-orchestrator"
+    ],
+    "isCronTarget": false,
+    "requiresJwt": false,
+    "autonomyPathway": {
+      "status": "CONNECTED",
+      "note": "Cron */5m → evaluates due workflows → logs to mavis_autonomous_runs."
+    }
+  },
+  {
+    "name": "mavis-autonomous-runner",
+    "category": "Action Execution",
+    "purpose": "Scheduled autonomous run executor; fires from cron, executes queued plans",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/autonomous-task/index.ts"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": true,
+    "requiresJwt": false,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-autonomy-orchestrator",
+    "category": "Uncategorized",
+    "purpose": null,
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/pages/AutonomyPage.tsx",
+      "src/pages/MavisChat.tsx"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-avatar-video",
+    "category": "Media Generation",
+    "purpose": "Talking avatar video synthesis",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/avatar-video/index.ts",
+      "src/pages/AvatarStudioPage.tsx"
+    ],
+    "calledFromBackend": [
+      "mavis-actions"
+    ],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-beehiiv-agent",
+    "category": "Content, Marketing & Commerce",
+    "purpose": "Beehiiv newsletter management",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/beehiiv-agent/index.ts"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-blotato",
+    "category": "Social Media",
+    "purpose": "Blotato social media management integration",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/blotato/index.ts"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-booking",
+    "category": "CRM & Business",
+    "purpose": "Booking and scheduling management",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/booking/index.ts"
+    ],
+    "calledFromBackend": [
+      "mavis-actions"
+    ],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-brain-consolidate",
+    "category": "Memory & Learning",
+    "purpose": "Deep memory consolidation — extracts durable knowledge from episodic memories",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/brain-consolidate/index.ts"
+    ],
+    "calledFromBackend": [
+      "mavis-actions"
+    ],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-brand-voice",
+    "category": "Content, Marketing & Commerce",
+    "purpose": "Brand voice definition and enforcement",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/brand-identity/index.ts",
+      "src/mavis/specialistDispatcher.ts"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-browser",
+    "category": "Dev & Code",
+    "purpose": "Browser automation (Playwright)",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/plugins/stagehandPlugin.ts",
+      "src/mavis/skills/cloud-browser/index.ts"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-browser-agent",
+    "category": "Dev & Code",
+    "purpose": "Conversational browser agent",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/browser-agent/index.ts"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-calendar-agent",
+    "category": "Calendar",
+    "purpose": "Conversational calendar management",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/calendar-manage/index.ts"
+    ],
+    "calledFromBackend": [
+      "mavis-booking",
+      "mavis-heartbeat"
+    ],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-calendar-manage",
+    "category": "Calendar",
+    "purpose": "CRUD for calendar events",
+    "status": "ACTIVE",
+    "calledFromFrontend": [],
+    "calledFromBackend": [
+      "mavis-director"
+    ],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-calendar-sync",
+    "category": "Calendar",
+    "purpose": "Bidirectional Google Calendar sync",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/calendar-sync/index.ts",
+      "src/pages/HealthPage.tsx"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": false,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-calendly-agent",
+    "category": "CRM & Business",
+    "purpose": "Calendly scheduling management",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/calendly-agent/index.ts"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-campaign-runner",
+    "category": "Content, Marketing & Commerce",
+    "purpose": "Runs multi-step marketing campaigns",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/campaign-runner/index.ts"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": true,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-capability-audit",
+    "category": "Ops & Quality",
+    "purpose": "Audits MAVIS's available capabilities",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/capability-audit/index.ts"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": false,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-causal-engine",
+    "category": "Planning & Autonomous Execution",
+    "purpose": "Causal reasoning over events and decisions",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/causal-engine/index.ts"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": true,
+    "requiresJwt": false,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-chain-builder",
+    "category": "Planning & Autonomous Execution",
+    "purpose": "AI-powered quest and skill chain linking",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/chain-builder/index.ts",
+      "src/pages/ContentPages.tsx",
+      "src/pages/FeaturePages.tsx",
+      "src/pages/GoalsPage.tsx"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-chat",
+    "category": "Chat & Council",
+    "purpose": "Primary LLM gateway — streaming SSE, multi-provider waterfall (Gemini→Groq→OpenAI→Claude→Grok), ReAct agentic loop, 30+ tool types, memory recall, web search",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/hooks/useInlineCompose.ts",
+      "src/mavis/chatService.ts",
+      "src/mavis/commandMesh.ts",
+      "src/mavis/skills/_registry.ts",
+      "src/mavis/skills/bioneer-protocol/index.ts",
+      "src/mavis/skills/code-review/index.ts",
+      "src/mavis/skills/company-research/index.ts",
+      "src/mavis/skills/content-machine/index.ts",
+      "src/mavis/skills/crypto-intel/index.ts",
+      "src/mavis/skills/data-analysis/index.ts",
+      "src/mavis/skills/debate/index.ts",
+      "src/mavis/skills/deep-focus/index.ts",
+      "src/mavis/skills/doc-gen/index.ts",
+      "src/mavis/skills/email-draft/index.ts",
+      "src/mavis/skills/github-triage/index.ts",
+      "src/mavis/skills/hire-specialist/index.ts",
+      "src/mavis/skills/influencer-research/index.ts",
+      "src/mavis/skills/invoice-generator/index.ts",
+      "src/mavis/skills/pdf-qa/index.ts",
+      "src/mavis/skills/pipeline-run/index.ts",
+      "src/mavis/skills/proposal-gen/index.ts",
+      "src/mavis/skills/resume-screen/index.ts",
+      "src/mavis/skills/social-content/index.ts",
+      "src/mavis/skills/summarise/index.ts",
+      "src/mavis/skills/travel-planner/index.ts",
+      "src/mavis/skills/web-scrape/index.ts",
+      "src/mavis/skills/youtube-intel/index.ts",
+      "src/pages/CodeStudioPage.tsx",
+      "src/pages/FeaturePages.tsx",
+      "src/pages/Inbox.tsx",
+      "src/pages/SystemSettingsPage.tsx"
+    ],
+    "calledFromBackend": [
+      "mavis-api-gateway",
+      "mavis-finance",
+      "mavis-skill-catalog"
+    ],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-code-agent",
+    "category": "Dev & Code",
+    "purpose": "AI coding agent with file system access",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/code-review/index.ts",
+      "src/mavis/skills/doc-gen/index.ts",
+      "src/pages/CodeStudioPage.tsx",
+      "src/pages/MavisChat.tsx"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-code-delegate",
+    "category": "Dev & Code",
+    "purpose": "Delegates code tasks to specialized agents",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/code-delegate/index.ts"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-code-deploy",
+    "category": "Dev & Code",
+    "purpose": "Handles deployment pipelines",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/code-deploy/index.ts"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-code-exec",
+    "category": "Dev & Code",
+    "purpose": "Executes code snippets in sandbox",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/components/AgentConsole.tsx",
+      "src/mavis/skills/code-exec/index.ts",
+      "src/mavis/specialistDispatcher.ts",
+      "src/pages/CodeStudioPage.tsx"
+    ],
+    "calledFromBackend": [
+      "mavis-actions"
+    ],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-comfyui",
+    "category": "Uncategorized",
+    "purpose": null,
+    "status": "ACTIVE",
+    "calledFromFrontend": [],
+    "calledFromBackend": [
+      "mavis-action-executor",
+      "mavis-telegram-bot"
+    ],
+    "isCronTarget": false,
+    "requiresJwt": false,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-comic-agent",
+    "category": "Media Generation",
+    "purpose": "Comic/graphic novel generation",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/comic-gen/index.ts"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-competitor-monitor",
+    "category": "Content, Marketing & Commerce",
+    "purpose": "Monitors competitors",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/competitive-intelligence/index.ts",
+      "src/mavis/skills/competitor-track/index.ts",
+      "src/pages/CompetitorIntelPage.tsx"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-composio-agent",
+    "category": "Uncategorized",
+    "purpose": null,
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/pages/MavisChat.tsx"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-compound-learning",
+    "category": "Memory & Learning",
+    "purpose": "Extracts compound learning patterns across sessions",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/compound-learn/index.ts"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": true,
+    "requiresJwt": false,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-computer-use",
+    "category": "Devices, Vision & Ambient",
+    "purpose": "OpenAI Responses API with Computer Use tool",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/computer-use/index.ts"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-consolidate",
+    "category": "Memory & Learning",
+    "purpose": "General-purpose consolidation runner",
+    "status": "CRON_ONLY",
+    "calledFromFrontend": [],
+    "calledFromBackend": [],
+    "isCronTarget": true,
+    "requiresJwt": false,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-contact-enrich",
+    "category": "Uncategorized",
+    "purpose": null,
+    "status": "ACTIVE",
+    "calledFromFrontend": [],
+    "calledFromBackend": [
+      "mavis-telegram-bot"
+    ],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-content-pipeline",
+    "category": "Content, Marketing & Commerce",
+    "purpose": "Autonomous NORA Vale content engine (Genviral/Outstand MCP)",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/proposal-gen/index.ts",
+      "src/mavis/specialistDispatcher.ts"
+    ],
+    "calledFromBackend": [
+      "mavis-director"
+    ],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-context-scout",
+    "category": "Ingestion & Knowledge Intake",
+    "purpose": "SuperContext pattern — scouts relevant context for a task",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/context-scout/index.ts",
+      "src/pages/MavisChat.tsx"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-council-heartbeat",
+    "category": "Chat & Council",
+    "purpose": "Keeps council session alive; triggers proactive nudges from council members",
+    "status": "ACTIVE",
+    "calledFromFrontend": [],
+    "calledFromBackend": [
+      "telegram-webhook"
+    ],
+    "isCronTarget": true,
+    "requiresJwt": false,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-council-session",
+    "category": "Chat & Council",
+    "purpose": "Structured 3-round council debate (POSITION→CHALLENGE→SYNTHESIS) — streams each member's LLM response live",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/components/CouncilGroupVoice.tsx",
+      "src/mavis/skills/council-session/index.ts"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-crew-orchestrator",
+    "category": "Agent Systems",
+    "purpose": "CrewAI-style multi-agent orchestration",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/crew-orchestrate/index.ts"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-critic-agent",
+    "category": "Planning & Autonomous Execution",
+    "purpose": "Critiques plans/outputs before execution",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/critic-agent/index.ts"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-crm-agent",
+    "category": "CRM & Business",
+    "purpose": "CRM data management and queries",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/crm-lookup/index.ts",
+      "src/mavis/specialistDispatcher.ts"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-crm-nudge",
+    "category": "CRM & Business",
+    "purpose": "CRM follow-up nudge generation",
+    "status": "CRON_ONLY",
+    "calledFromFrontend": [],
+    "calledFromBackend": [],
+    "isCronTarget": true,
+    "requiresJwt": false,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-cron-setup",
+    "category": "Triggers & Autonomy",
+    "purpose": "Registers and manages Supabase cron jobs",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/cron-setup/index.ts"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": true,
+    "requiresJwt": false,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-daily-notes",
+    "category": "Notes & Knowledge Management",
+    "purpose": "Generates daily notes automatically",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/daily-notes/index.ts"
+    ],
+    "calledFromBackend": [
+      "telegram-webhook"
+    ],
+    "isCronTarget": true,
+    "requiresJwt": false,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-data-export",
+    "category": "Ingestion & Knowledge Intake",
+    "purpose": "Exports key tables as JSON to Supabase storage for backup",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/data-export/index.ts"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": true,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-deep-research",
+    "category": "Research & Web",
+    "purpose": "Multi-step research synthesis with web evidence",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/chatService.ts",
+      "src/mavis/skills/deep-research/index.ts",
+      "src/mavis/skills/market-research/index.ts"
+    ],
+    "calledFromBackend": [
+      "mavis-chat"
+    ],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-demand-scan",
+    "category": "Planning & Autonomous Execution",
+    "purpose": "Market/demand scanning",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/demand-scan/index.ts"
+    ],
+    "calledFromBackend": [
+      "mavis-task-executor",
+      "telegram-webhook"
+    ],
+    "isCronTarget": false,
+    "requiresJwt": false,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-demo",
+    "category": "Misc (added)",
+    "purpose": "Demo/response-type classification endpoint",
+    "status": "WEBHOOK",
+    "calledFromFrontend": [],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": false,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-deploy",
+    "category": "Dev & Code",
+    "purpose": "General deployment orchestrator",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/deploy-check/index.ts",
+      "src/pages/WebsiteBuilderPage.tsx"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": false,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-design-engine",
+    "category": "Web Building & Design (added)",
+    "purpose": "Design generation engine",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/design/designEngine.ts"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-design-system-gen",
+    "category": "Web Building & Design (added)",
+    "purpose": "Generates design systems",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/design-system/index.ts",
+      "src/pages/DesignStudio.tsx"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-device-bridge",
+    "category": "Devices, Vision & Ambient",
+    "purpose": "Bridges local devices to MAVIS",
+    "status": "ACTIVE",
+    "calledFromFrontend": [],
+    "calledFromBackend": [
+      "mavis-actions"
+    ],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-director",
+    "category": "Agent Systems",
+    "purpose": "High-level director agent — decomposes goals into sub-agent tasks",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/director/index.ts"
+    ],
+    "calledFromBackend": [
+      "mavis-autonomous-runner"
+    ],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-discord-agent",
+    "category": "Platform Integrations (added)",
+    "purpose": "Discord agent",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/discord-send/index.ts"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-discourse-runner",
+    "category": "Chat & Council",
+    "purpose": "Multi-member group discourse — routes each message to all relevant members in parallel",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/discourse-runner/index.ts",
+      "src/pages/CouncilBoard.tsx"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-doc-extract",
+    "category": "Ingestion & Knowledge Intake",
+    "purpose": "Extracts text from uploaded documents, creates knowledge embeddings",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/pdf-qa/index.ts",
+      "src/pages/ContentPages.tsx"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-dream",
+    "category": "Memory & Learning",
+    "purpose": "Nightly 3-phase memory processing: Light (dedup) → REM (cross-session patterns → mavis_knowledge) → Deep (importance decay + archive). Cron: 03:30 UTC",
+    "status": "CRON_ONLY",
+    "calledFromFrontend": [],
+    "calledFromBackend": [],
+    "isCronTarget": true,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-e2b-sandbox",
+    "category": "Dev & Code",
+    "purpose": "E2B code execution sandbox",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/e2b-sandbox/index.ts"
+    ],
+    "calledFromBackend": [
+      "mavis-code-agent"
+    ],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-email-inbound",
+    "category": "Email & Gmail",
+    "purpose": "Processes inbound emails from any provider",
+    "status": "WEBHOOK",
+    "calledFromFrontend": [],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": false,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-email-send",
+    "category": "Email & Gmail",
+    "purpose": "Sends emails with approval gate",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/email-draft/index.ts",
+      "src/pages/EmailPage.tsx"
+    ],
+    "calledFromBackend": [
+      "mavis-director",
+      "mavis-task-executor",
+      "mavis-workflow-run"
+    ],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-email-triage",
+    "category": "Email & Gmail",
+    "purpose": "AI-powered email triage — categorizes and prioritizes inbox",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/email-triage/index.ts"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-emotion-engine",
+    "category": "Persona & Identity",
+    "purpose": "Analyzes emotional state from conversation; updates relationship_states",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/hooks/usePersona.ts",
+      "src/mavis/skills/emotion-analysis/index.ts"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-emotion-tag",
+    "category": "Persona & Identity",
+    "purpose": "Tags memories and journal entries with emotional context",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/emotion-tag/index.ts"
+    ],
+    "calledFromBackend": [
+      "mavis-actions"
+    ],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-entity-graph",
+    "category": "Ingestion & Knowledge Intake",
+    "purpose": "Builds entity relationship graph from knowledge",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/entity-graph/index.ts"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": true,
+    "requiresJwt": false,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-eval",
+    "category": "Ops & Quality",
+    "purpose": "Evaluates response quality",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/agent-eval/index.ts"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": true,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-event-dispatcher",
+    "category": "Triggers & Autonomy",
+    "purpose": "Dispatches events to subscribed handlers",
+    "status": "CRON_ONLY",
+    "calledFromFrontend": [],
+    "calledFromBackend": [],
+    "isCronTarget": true,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-event-router",
+    "category": "Triggers & Autonomy",
+    "purpose": "Routes events by type to the correct function",
+    "status": "ORPHANED",
+    "calledFromFrontend": [],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-exa-agent",
+    "category": "Research & Web",
+    "purpose": "Exa.ai semantic web search",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/exa-search/index.ts"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-expense-categorize",
+    "category": "Finance",
+    "purpose": "Expense categorization from transactions",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/expense-track/index.ts",
+      "src/pages/FinancePage.tsx"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-finance",
+    "category": "Finance",
+    "purpose": "Personal finance management and analysis",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/specialistDispatcher.ts"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-fine-tune-export",
+    "category": "Fine-Tuning",
+    "purpose": "Exports MAVIS conversations for Ollama fine-tuning",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/finetune-export/index.ts"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-firecrawl-agent",
+    "category": "Research & Web",
+    "purpose": "Firecrawl web scraping",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/firecrawl/index.ts"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-flashcard-agent",
+    "category": "Learning & Tutoring",
+    "purpose": "Flashcard generation and review",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/flashcard-gen/index.ts"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-flowise",
+    "category": "Infrastructure",
+    "purpose": "Flowise flow execution",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/flowise/index.ts",
+      "src/pages/MavisChat.tsx"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-form-submit",
+    "category": "Web Building & Design (added)",
+    "purpose": "Handles form submissions",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/form-submit/index.ts"
+    ],
+    "calledFromBackend": [
+      "mavis-web-builder"
+    ],
+    "isCronTarget": false,
+    "requiresJwt": false,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-galaxy-ring",
+    "category": "Devices, Vision & Ambient",
+    "purpose": "Samsung Galaxy Ring biometrics",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/galaxy-ring/index.ts"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": false,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-gcontacts-sync",
+    "category": "Google Integrations",
+    "purpose": "Google Contacts sync",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/gcontacts-sync/index.ts"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": false,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-gdrive-sync",
+    "category": "Google Integrations",
+    "purpose": "Google Drive file sync",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/gdrive-sync/index.ts"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": true,
+    "requiresJwt": false,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-github-sync",
+    "category": "Google Integrations",
+    "purpose": "GitHub repo sync and monitoring",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/github-sync/index.ts"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": true,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-gmail-sync",
+    "category": "Email & Gmail",
+    "purpose": "Syncs Gmail inbox to local tables",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/gmail-sync/index.ts"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": false,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-gmail-watch",
+    "category": "Email & Gmail",
+    "purpose": "Registers Gmail push watch subscription",
+    "status": "CRON_ONLY",
+    "calledFromFrontend": [],
+    "calledFromBackend": [],
+    "isCronTarget": true,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-gmail-webhook",
+    "category": "Email & Gmail",
+    "purpose": "Receives Gmail push notifications via Cloud Pub/Sub",
+    "status": "ACTIVE",
+    "calledFromFrontend": [],
+    "calledFromBackend": [
+      "mavis-gmail-watch"
+    ],
+    "isCronTarget": false,
+    "requiresJwt": false,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-gmb-agent",
+    "category": "CRM & Business",
+    "purpose": "Google My Business management",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/gmb-agent/index.ts"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-goal-agent",
+    "category": "Goals & Quests",
+    "purpose": "Conversational goal-setting and refinement agent",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/goal-engine/index.ts"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": true,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-goal-engine",
+    "category": "Goals & Quests",
+    "purpose": "Core goal processing — evaluates active goals, calculates progress",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/goal-decompose/index.ts"
+    ],
+    "calledFromBackend": [
+      "mavis-actions"
+    ],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-goal-judge",
+    "category": "Goals & Quests",
+    "purpose": "Judges whether a goal completion criterion has been met",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/goal-judge/index.ts"
+    ],
+    "calledFromBackend": [
+      "mavis-chat"
+    ],
+    "isCronTarget": false,
+    "requiresJwt": false,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-goal-loop",
+    "category": "Goals & Quests",
+    "purpose": "Scheduled goal loop — runs nightly goal assessments",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/goal-loop/index.ts",
+      "src/pages/MavisChat.tsx"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-goal-review",
+    "category": "Goals & Quests",
+    "purpose": "Generates weekly goal review report",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/goal-review/index.ts"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": true,
+    "requiresJwt": true,
+    "autonomyPathway": {
+      "status": "CONNECTED",
+      "note": "Cron Mon 09:00 UTC → evaluates active goals → updates mavis_goals + proposes replacement quests."
+    }
+  },
+  {
+    "name": "mavis-google-agent",
+    "category": "Google Integrations",
+    "purpose": "Conversational Google Workspace agent",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/google-workspace/index.ts"
+    ],
+    "calledFromBackend": [
+      "mavis-memory-agent",
+      "mavis-reddit-agent",
+      "mavis-security-scanner"
+    ],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-google-oauth",
+    "category": "Google Integrations",
+    "purpose": "OAuth flow for Google services",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/pages/IntegrationsPage.tsx"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": false,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-google-tasks-sync",
+    "category": "Google Integrations",
+    "purpose": "Google Tasks bidirectional sync",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/google-tasks/index.ts"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": true,
+    "requiresJwt": false,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-gumroad",
+    "category": "Finance",
+    "purpose": "Gumroad product and sales management",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/gumroad/index.ts"
+    ],
+    "calledFromBackend": [
+      "mavis-gumroad-webhook"
+    ],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-gumroad-webhook",
+    "category": "Finance",
+    "purpose": "Gumroad event webhook handler",
+    "status": "WEBHOOK",
+    "calledFromFrontend": [],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": false,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-health-check",
+    "category": "Health & Biometrics",
+    "purpose": "System health check (not user health)",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/pages/SystemHealthPage.tsx"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-health-monitor",
+    "category": "Health & Biometrics",
+    "purpose": "Health metric monitoring and alerts",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/health-monitor/index.ts"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": false,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-health-protocol",
+    "category": "Health & Biometrics",
+    "purpose": "Generates personalized health recommendations from biometrics",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/health-protocol/index.ts"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-heartbeat",
+    "category": "Triggers & Autonomy",
+    "purpose": "Keep-alive cron — checks flag table, triggers LLM work only when flagged (fast/cheap pattern)",
+    "status": "CRON_ONLY",
+    "calledFromFrontend": [],
+    "calledFromBackend": [],
+    "isCronTarget": true,
+    "requiresJwt": false,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-heygen",
+    "category": "Media Generation",
+    "purpose": "HeyGen avatar video generation",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/heygen-simple/index.ts"
+    ],
+    "calledFromBackend": [
+      "mavis-actions"
+    ],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-heygen-agent",
+    "category": "Media Generation",
+    "purpose": "HeyGen agent with conversational interface",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/heygen-video/index.ts"
+    ],
+    "calledFromBackend": [
+      "mavis-actions"
+    ],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-higgsfield",
+    "category": "Media Generation",
+    "purpose": "Higgsfield AI video generation",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/higgsfield-video/index.ts",
+      "src/pages/GalleryPage.tsx"
+    ],
+    "calledFromBackend": [
+      "mavis-actions"
+    ],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-hn-digest",
+    "category": "Platform Integrations (added)",
+    "purpose": "Hacker News digest",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/hn-digest/index.ts"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": true,
+    "requiresJwt": false,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-home",
+    "category": "Devices, Vision & Ambient",
+    "purpose": "Smart home / IoT integration",
+    "status": "ACTIVE",
+    "calledFromFrontend": [],
+    "calledFromBackend": [
+      "mavis-actions"
+    ],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-hyperframes",
+    "category": "Uncategorized",
+    "purpose": null,
+    "status": "ACTIVE",
+    "calledFromFrontend": [],
+    "calledFromBackend": [
+      "mavis-chat"
+    ],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-identity-bootstrap",
+    "category": "Uncategorized",
+    "purpose": null,
+    "status": "ORPHANED",
+    "calledFromFrontend": [],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-image-gen",
+    "category": "Media Generation",
+    "purpose": "Image generation (DALL-E / Flux / Stability)",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/image-gen/index.ts",
+      "src/mavis/specialistDispatcher.ts",
+      "src/pages/GalleryPage.tsx",
+      "src/pages/MavisChat.tsx"
+    ],
+    "calledFromBackend": [
+      "mavis-chat",
+      "mavis-web-builder",
+      "telegram-webhook"
+    ],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-import",
+    "category": "Ingestion & Knowledge Intake",
+    "purpose": "Bulk data import",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/notes-import/index.ts",
+      "src/pages/ImportPage.tsx"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-ingest",
+    "category": "Ingestion & Knowledge Intake",
+    "purpose": "URL / text / clip intake pipeline into knowledge base",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/pages/ContentPages.tsx"
+    ],
+    "calledFromBackend": [
+      "telegram-webhook"
+    ],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-ingest-url",
+    "category": "Ingestion & Knowledge Intake",
+    "purpose": "Ingests a web article/page URL into the MAVIS knowledge base",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/ingest-url/index.ts",
+      "src/pages/ContentPages.tsx"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-instagram-agent",
+    "category": "Social Media",
+    "purpose": "Instagram agent",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/instagram-manage/index.ts"
+    ],
+    "calledFromBackend": [
+      "mavis-instagram-trends"
+    ],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-instagram-trends",
+    "category": "Social Media",
+    "purpose": "Instagram trend monitoring",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/instagram-trends/index.ts"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-khanmigo",
+    "category": "Learning & Tutoring",
+    "purpose": "Socratic tutoring engine",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/ai-tutor/index.ts"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-knowledge",
+    "category": "Memory & Learning",
+    "purpose": "Stores and retrieves structured knowledge facts",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/knowledge-base/index.ts",
+      "src/pages/KnowledgeGraph.tsx"
+    ],
+    "calledFromBackend": [
+      "mavis-api-gateway",
+      "mavis-attachment-process",
+      "mavis-chat",
+      "mavis-ingest",
+      "telegram-webhook"
+    ],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-lead-gen",
+    "category": "CRM & Business",
+    "purpose": "Lead generation and qualification",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/lead-gen/index.ts",
+      "src/mavis/specialistDispatcher.ts",
+      "src/pages/LeadGenPage.tsx"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-learning-engine",
+    "category": "Memory & Learning",
+    "purpose": "Identifies learning opportunities from conversation history",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/learning-engine/index.ts"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": false,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-letta",
+    "category": "Persona & Identity",
+    "purpose": "Letta (MemGPT) integration for persistent persona memory",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/letta-memory/index.ts"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-linear-agent",
+    "category": "Platform Integrations (added)",
+    "purpose": "Linear issue tracking agent",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/linear-agent/index.ts"
+    ],
+    "calledFromBackend": [
+      "mavis-sentry-agent",
+      "mavis-slack-bot"
+    ],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-live-voice",
+    "category": "Voice",
+    "purpose": "WebRTC live voice session handler",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/components/VoiceChatOverlay.tsx",
+      "src/mavis/skills/live-voice/index.ts"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": false,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-llm-router",
+    "category": "Infrastructure",
+    "purpose": "Routes requests to optimal LLM by cost/capability",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/llm-router/index.ts",
+      "src/pages/NotebookPage.tsx"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-logo-gen",
+    "category": "Media Generation",
+    "purpose": "Logo generation",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/logo-gen/index.ts"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-maps",
+    "category": "CRM & Business",
+    "purpose": "Google Maps data and local search",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/maps/index.ts"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-market-data",
+    "category": "Finance",
+    "purpose": "Market data fetching (prices, indicators)",
+    "status": "ACTIVE",
+    "calledFromFrontend": [],
+    "calledFromBackend": [
+      "mavis-actions"
+    ],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-market-radar",
+    "category": "Finance",
+    "purpose": "Market signal monitoring",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/market-radar/index.ts",
+      "src/pages/FinancePage.tsx"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": true,
+    "requiresJwt": false,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-mcp-server",
+    "category": "Infrastructure",
+    "purpose": "Alternative MCP server endpoint",
+    "status": "WEBHOOK",
+    "calledFromFrontend": [],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": false,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-media-analyst",
+    "category": "Content, Marketing & Commerce",
+    "purpose": "Analyzes reference content from HeyGen/Higgsfield/Canva",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/media-analyst/index.ts",
+      "src/pages/ProductionIntelligence.tsx"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-meeting-brief",
+    "category": "Uncategorized",
+    "purpose": null,
+    "status": "CRON_ONLY",
+    "calledFromFrontend": [],
+    "calledFromBackend": [],
+    "isCronTarget": true,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-meeting-notes",
+    "category": "Notes & Knowledge Management",
+    "purpose": "Extracts and saves meeting notes",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/meeting-brief/index.ts",
+      "src/mavis/skills/meeting-notes/index.ts",
+      "src/pages/MeetingNotesPage.tsx"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-meeting-prep",
+    "category": "Notes & Knowledge Management",
+    "purpose": "Pre-meeting briefing generation",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/meeting-prep/index.ts"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": true,
+    "requiresJwt": false,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-meeting-transcribe",
+    "category": "Notes & Knowledge Management",
+    "purpose": "Real-time meeting transcription",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/meeting-transcribe/index.ts"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-mem0",
+    "category": "Persona & Identity",
+    "purpose": "Mem0 memory layer for personas",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/proactiveRecall.ts",
+      "src/mavis/skills/mem0/index.ts"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-memory-agent",
+    "category": "Memory & Learning",
+    "purpose": "Conversational interface for querying and managing memory",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/memory-agent/index.ts"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-memory-consolidate",
+    "category": "Memory & Learning",
+    "purpose": "Merges related memories, removes redundancy",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/memory-consolidate/index.ts"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-memory-embed",
+    "category": "Memory & Learning",
+    "purpose": "Embeds text into vector memory (pgvector) for semantic recall",
+    "status": "ACTIVE",
+    "calledFromFrontend": [],
+    "calledFromBackend": [
+      "mavis-capability-audit"
+    ],
+    "isCronTarget": true,
+    "requiresJwt": false,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-mini-agent",
+    "category": "Agent Systems",
+    "purpose": "Lightweight single-task agent for Google, social, and task routing",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/components/AgentWidget.tsx",
+      "src/mavis/skills/mini-agent/index.ts"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": false,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-modelslab",
+    "category": "Uncategorized",
+    "purpose": null,
+    "status": "ACTIVE",
+    "calledFromFrontend": [],
+    "calledFromBackend": [
+      "mavis-agent",
+      "mavis-telegram-bot"
+    ],
+    "isCronTarget": false,
+    "requiresJwt": false,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-morning-brief",
+    "category": "Reviews & Reflection",
+    "purpose": "Generates Calvin's morning brief (goals/quests/calendar/health)",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/morning-brief/index.ts",
+      "src/pages/Dashboard.tsx"
+    ],
+    "calledFromBackend": [
+      "telegram-webhook"
+    ],
+    "isCronTarget": true,
+    "requiresJwt": false,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-morning-digest",
+    "category": "Reviews & Reflection",
+    "purpose": "Abbreviated morning digest",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/news-brief/index.ts"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": true,
+    "requiresJwt": false,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-multi-provider",
+    "category": "Infrastructure",
+    "purpose": "Multi-provider LLM routing (OpenClaude pattern)",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/multi-provider/index.ts",
+      "src/pages/ProvidersPage.tsx"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-music-gen",
+    "category": "Media Generation",
+    "purpose": "Music generation via Suno/Udio",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/music-gen/index.ts"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-narrative-engine",
+    "category": "Persona & Identity",
+    "purpose": "Generates narrative arcs and story continuity for personas",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/narrative-engine/index.ts"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": true,
+    "requiresJwt": false,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-netlify",
+    "category": "Dev & Code",
+    "purpose": "Netlify deployment management",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/netlify-deploy/index.ts"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": false,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-nora-discord",
+    "category": "Social Media",
+    "purpose": "Discord community engagement",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/nora-discord/index.ts"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": false,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-nora-engage",
+    "category": "Social Media",
+    "purpose": "NORA engagement responses (replies/comments)",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/nora-engage/index.ts"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": true,
+    "requiresJwt": false,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-nora-instagram",
+    "category": "Social Media",
+    "purpose": "Instagram content and engagement",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/instagram-post/index.ts"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": false,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-nora-linkedin",
+    "category": "Social Media",
+    "purpose": "LinkedIn-specific content and engagement",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/linkedin-post/index.ts"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": false,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-nora-post",
+    "category": "Social Media",
+    "purpose": "NORA social post generator",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/social-content/index.ts"
+    ],
+    "calledFromBackend": [
+      "mavis-social-scheduler",
+      "mavis-task-executor"
+    ],
+    "isCronTarget": false,
+    "requiresJwt": false,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-nora-tiktok",
+    "category": "Social Media",
+    "purpose": "TikTok content strategy",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/tiktok-post/index.ts"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": false,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-notebook-embed",
+    "category": "Research & Web",
+    "purpose": "Ingests documents into Open Notebook knowledge base",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/notebook-embed/index.ts",
+      "src/pages/NotebookPage.tsx"
+    ],
+    "calledFromBackend": [
+      "mavis-agent"
+    ],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-notebook-podcast",
+    "category": "Research & Web",
+    "purpose": "Generates multi-speaker podcast from notebook content",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/podcast-gen/index.ts",
+      "src/pages/NotebookPage.tsx"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-notion-agent",
+    "category": "Notes & Knowledge Management",
+    "purpose": "Notion database management",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/notion-sync/index.ts"
+    ],
+    "calledFromBackend": [
+      "mavis-actions"
+    ],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-notion-sync",
+    "category": "Notes & Knowledge Management",
+    "purpose": "Notion bidirectional sync",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/notion-sync-raw/index.ts"
+    ],
+    "calledFromBackend": [
+      "mavis-actions"
+    ],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-obsidian-export",
+    "category": "Notes & Knowledge Management",
+    "purpose": "Exports knowledge to Obsidian vault",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/obsidian-export/index.ts",
+      "src/pages/ExportPage.tsx"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-openai-finetune",
+    "category": "Fine-Tuning",
+    "purpose": "OpenAI fine-tune job management",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/openai-finetune/index.ts"
+    ],
+    "calledFromBackend": [
+      "mavis-self-improve"
+    ],
+    "isCronTarget": false,
+    "requiresJwt": false,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-opportunity-scanner",
+    "category": "Planning & Autonomous Execution",
+    "purpose": "Scans signals for opportunities",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/opportunity-scan/index.ts",
+      "src/pages/IntelligencePage.tsx"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": true,
+    "requiresJwt": false,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-orchestrator",
+    "category": "Agent Systems",
+    "purpose": "Main routing orchestrator — classifies intent and dispatches to specialist functions",
+    "status": "ORPHANED",
+    "calledFromFrontend": [],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-oura-sync",
+    "category": "Health & Biometrics",
+    "purpose": "Oura ring data sync (sleep/HRV/readiness)",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/oura-stats/index.ts",
+      "src/pages/HealthPage.tsx"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": true,
+    "requiresJwt": false,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-outcome-tracker",
+    "category": "Reviews & Reflection",
+    "purpose": "Tracks outcome of past decisions and predictions",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/outcome-tracker/index.ts"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": true,
+    "requiresJwt": false,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-page-agent",
+    "category": "Web Building & Design (added)",
+    "purpose": "Page-level content agent",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/hooks/usePageAgent.ts"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-pattern-insights",
+    "category": "Reviews & Reflection",
+    "purpose": "Detects behavioral patterns across all data",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/data-analysis/index.ts",
+      "src/mavis/skills/pattern-insights/index.ts",
+      "src/pages/AnalyticsPage.tsx"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": true,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-pdf-gen",
+    "category": "Web Building & Design (added)",
+    "purpose": "Renders professional PDFs from templates or raw HTML",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/pdf-gen/index.ts"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-performance-science",
+    "category": "Health & Biometrics",
+    "purpose": "Performance science analysis",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/performance-science/index.ts",
+      "src/pages/FinancePage.tsx"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": true,
+    "requiresJwt": false,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-periodic-review",
+    "category": "Reviews & Reflection",
+    "purpose": "Periodic life review (monthly/quarterly)",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/periodic-review/index.ts"
+    ],
+    "calledFromBackend": [
+      "telegram-webhook"
+    ],
+    "isCronTarget": true,
+    "requiresJwt": false,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-persona-forge",
+    "category": "Persona & Identity",
+    "purpose": "Creates a new AI persona (name/archetype/personality/voice) and stores agent_folders",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/hooks/usePersonaForge.ts",
+      "src/mavis/skills/persona-forge/index.ts"
+    ],
+    "calledFromBackend": [
+      "mavis-actions"
+    ],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-persona-router",
+    "category": "Persona & Identity",
+    "purpose": "Routes a message to the appropriate persona based on context",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/components/VoiceChatOverlay.tsx",
+      "src/hooks/usePersona.ts",
+      "src/mavis/skills/persona-router/index.ts"
+    ],
+    "calledFromBackend": [
+      "telegram-webhook"
+    ],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-persona-social",
+    "category": "Social Media",
+    "purpose": "Posts as a specific persona",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/persona-social/index.ts"
+    ],
+    "calledFromBackend": [
+      "mavis-actions"
+    ],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-personaplex",
+    "category": "Persona & Identity",
+    "purpose": "Multi-persona management and switching",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/hooks/useElevenLabsTts.ts",
+      "src/mavis/skills/personaplex/index.ts"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-phone-call",
+    "category": "Voice",
+    "purpose": "Outbound phone call via Twilio",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/phone-call/index.ts",
+      "src/pages/PhoneCallsPage.tsx"
+    ],
+    "calledFromBackend": [
+      "mavis-action-executor"
+    ],
+    "isCronTarget": false,
+    "requiresJwt": false,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-plaid",
+    "category": "Finance",
+    "purpose": "Plaid bank account data sync",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/bank-connect/index.ts",
+      "src/pages/FinancePage.tsx"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-planner",
+    "category": "Planning & Autonomous Execution",
+    "purpose": "Task/goal planning engine",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/planner/index.ts",
+      "src/pages/PlanBoard.tsx"
+    ],
+    "calledFromBackend": [
+      "mavis-actions"
+    ],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-plans",
+    "category": "Planning & Autonomous Execution",
+    "purpose": "Persistent multi-session goal planning",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/plans/index.ts"
+    ],
+    "calledFromBackend": [
+      "mavis-chat",
+      "mavis-heartbeat"
+    ],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-polymarket",
+    "category": "Finance",
+    "purpose": "Prediction market monitoring",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/polymarket/index.ts",
+      "src/pages/IntelligencePage.tsx"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-post-meeting",
+    "category": "Uncategorized",
+    "purpose": null,
+    "status": "CRON_ONLY",
+    "calledFromFrontend": [],
+    "calledFromBackend": [],
+    "isCronTarget": true,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-poster-gen",
+    "category": "Media Generation",
+    "purpose": "Marketing poster generation",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/poster-gen/index.ts"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-predictive-engine",
+    "category": "Planning & Autonomous Execution",
+    "purpose": "Predicts outcomes/needs from patterns",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/predict/index.ts"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": true,
+    "requiresJwt": false,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-proactive-agent",
+    "category": "Triggers & Autonomy",
+    "purpose": "Proactively messages Calvin when conditions warrant (standing orders, streak breaks, goal blockers)",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/proactive-brief/index.ts",
+      "src/pages/AgentDashboardPage.tsx"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": {
+      "status": "PARTIAL",
+      "note": "Fully built, but no cron/autonomous trigger exists — only reachable via a manual dashboard button or a chat keyword match. Not actually autonomous today."
+    }
+  },
+  {
+    "name": "mavis-proactive-nudge",
+    "category": "Triggers & Autonomy",
+    "purpose": "Sends a targeted nudge based on current state",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/proactive-nudge/index.ts"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": true,
+    "requiresJwt": false,
+    "autonomyPathway": {
+      "status": "CONNECTED",
+      "note": "Cron every 4h → 11 urgency checks → notification_stages + mavis_insights + Telegram."
+    }
+  },
+  {
+    "name": "mavis-product-creator",
+    "category": "Content, Marketing & Commerce",
+    "purpose": "Creates digital products",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/product-creator/index.ts"
+    ],
+    "calledFromBackend": [
+      "mavis-task-executor"
+    ],
+    "isCronTarget": false,
+    "requiresJwt": false,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-profile-updater",
+    "category": "Planning & Autonomous Execution",
+    "purpose": "Hermes-style user profile synthesis",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/profile-update/index.ts"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-prompt-vault",
+    "category": "Ingestion & Knowledge Intake",
+    "purpose": "Stores and retrieves reusable prompts",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/prompt-vault/index.ts",
+      "src/pages/PromptVaultPage.tsx"
+    ],
+    "calledFromBackend": [
+      "mavis-actions"
+    ],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-push-notify",
+    "category": "Triggers & Autonomy",
+    "purpose": "Sends push notifications via web push or FCM",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/push-notify/index.ts"
+    ],
+    "calledFromBackend": [
+      "mavis-predictive-engine",
+      "mavis-relationship-intel"
+    ],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-python-exec",
+    "category": "Dev & Code",
+    "purpose": "Python code execution",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/python-run/index.ts"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-quality-eval",
+    "category": "Ops & Quality",
+    "purpose": "Scores response quality (score < 0.6 → adds critique note)",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/chatService.ts",
+      "src/mavis/skills/quality-eval/index.ts",
+      "src/mavis/specialistDispatcher.ts"
+    ],
+    "calledFromBackend": [
+      "mavis-morning-digest",
+      "mavis-self-improve"
+    ],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-quest-calendar",
+    "category": "Goals & Quests",
+    "purpose": "Syncs quests to calendar as time blocks",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/quest-calendar/index.ts"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": true,
+    "requiresJwt": false,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-quest-nudge",
+    "category": "Goals & Quests",
+    "purpose": "Nudges Calvin toward active quests based on context",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/quest-nudge/index.ts"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": true,
+    "requiresJwt": false,
+    "autonomyPathway": {
+      "status": "CONNECTED",
+      "note": "Cron daily (morning+evening) → deadline alerts, same no-outcome-record caveat as streak-alerts."
+    }
+  },
+  {
+    "name": "mavis-readwise-import",
+    "category": "Notes & Knowledge Management",
+    "purpose": "Imports Readwise highlights",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/readwise/index.ts",
+      "src/pages/ReadwisePage.tsx"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-realtime-v2",
+    "category": "Devices, Vision & Ambient",
+    "purpose": "OpenAI Realtime API v2 WebSocket proxy",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/realtime-v2/index.ts"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": false,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-receptionist-config",
+    "category": "Persona & Identity",
+    "purpose": "Configures receptionist persona settings",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/receptionist-config/index.ts",
+      "src/pages/ReceptionistPage.tsx"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-receptionist-inbound",
+    "category": "Persona & Identity",
+    "purpose": "Handles inbound calls/messages and routes to correct persona",
+    "status": "ACTIVE",
+    "calledFromFrontend": [],
+    "calledFromBackend": [
+      "mavis-receptionist-provision"
+    ],
+    "isCronTarget": false,
+    "requiresJwt": false,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-receptionist-provision",
+    "category": "Persona & Identity",
+    "purpose": "Provisions a new receptionist endpoint",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/receptionist-provision/index.ts",
+      "src/pages/ReceptionistPage.tsx"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-reclaim",
+    "category": "Calendar",
+    "purpose": "Reclaim.ai integration for AI time blocking",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/reclaim-ai/index.ts"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": false,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-reddit-agent",
+    "category": "Platform Integrations (added)",
+    "purpose": "Reddit agent",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/reddit/index.ts"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-reflection-agent",
+    "category": "Reviews & Reflection",
+    "purpose": "Deep reflection and insight generation",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/reflection-agent/index.ts"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-relationship-intel",
+    "category": "CRM & Business",
+    "purpose": "Relationship intelligence — tracks people and interactions",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/relationship-intel/index.ts"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": true,
+    "requiresJwt": false,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-repurpose",
+    "category": "Content, Marketing & Commerce",
+    "purpose": "Content repurposing across surfaces",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/repurpose-content/index.ts",
+      "src/pages/RepurposePage.tsx"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-rss-monitor",
+    "category": "Platform Integrations (added)",
+    "purpose": "Proactive RSS/Atom feed monitoring → mavis_notes",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/news-brief/index.ts",
+      "src/mavis/skills/rss-monitor/index.ts",
+      "src/pages/RSSReaderPage.tsx"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": false,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-run-doctor",
+    "category": "Ops & Quality",
+    "purpose": "Diagnoses MAVIS system issues",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/run-doctor/index.ts",
+      "src/pages/SystemSettingsPage.tsx"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-ruview-bridge",
+    "category": "Health & Biometrics",
+    "purpose": "RuView ESP32 presence/vitals bridge",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/pages/IntegrationsPage.tsx",
+      "src/pages/ScouterPage.tsx"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": false,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-salesforce",
+    "category": "CRM & Business",
+    "purpose": "Salesforce CRM integration",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/salesforce/index.ts"
+    ],
+    "calledFromBackend": [
+      "mavis-actions"
+    ],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-screenpipe",
+    "category": "Devices, Vision & Ambient",
+    "purpose": "Local desktop lifelogging context capture",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/screenpipe/index.ts"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-sec-agent",
+    "category": "Finance",
+    "purpose": "SEC filing analysis",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/sec-filings/index.ts"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-security-scanner",
+    "category": "Ops & Quality",
+    "purpose": "Security vulnerability scanning",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/security-scan/index.ts",
+      "src/mavis/specialistDispatcher.ts"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-self-evolve",
+    "category": "Reviews & Reflection",
+    "purpose": "Applies self-improvement changes autonomously",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/self-evolve/index.ts",
+      "src/pages/SelfEvolvePage.tsx"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": true,
+    "requiresJwt": false,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-self-improve",
+    "category": "Reviews & Reflection",
+    "purpose": "Identifies self-improvement opportunities",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/self-improve/index.ts"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": true,
+    "requiresJwt": false,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-self-reflect",
+    "category": "Reviews & Reflection",
+    "purpose": "MAVIS self-reflection on recent performance",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/self-reflect/index.ts"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": true,
+    "requiresJwt": false,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-sentry-agent",
+    "category": "Ops & Quality",
+    "purpose": "Sentry error monitoring integration",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/sentry/index.ts"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-seo-engine",
+    "category": "Content, Marketing & Commerce",
+    "purpose": "SEO analysis and optimization",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/seo-audit/index.ts"
+    ],
+    "calledFromBackend": [
+      "mavis-web-builder"
+    ],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-sheets-agent",
+    "category": "Google Integrations",
+    "purpose": "Google Sheets read/write agent",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/sheets-agent/index.ts"
+    ],
+    "calledFromBackend": [
+      "mavis-flashcard-agent",
+      "mavis-gmb-agent",
+      "mavis-google-agent",
+      "mavis-reddit-agent"
+    ],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-shopify-agent",
+    "category": "Platform Integrations (added)",
+    "purpose": "Shopify store agent",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/shopify-agent/index.ts"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-shortform-ingest",
+    "category": "Ingestion & Knowledge Intake",
+    "purpose": "Transcribes short-form video (TikTok, Reels, X) and ingests",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/shortform-ingest/index.ts"
+    ],
+    "calledFromBackend": [
+      "mavis-chat",
+      "mavis-telegram-bot"
+    ],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-signal-watcher",
+    "category": "Triggers & Autonomy",
+    "purpose": "Monitors signals (RSS, webhooks, APIs) for trigger conditions",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/signal-watch/index.ts"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": true,
+    "requiresJwt": true,
+    "autonomyPathway": {
+      "status": "CONNECTED",
+      "note": "Cron */15m → RSS/market/keyword signals → LLM briefing → mavis_memory + Telegram."
+    }
+  },
+  {
+    "name": "mavis-site-editor",
+    "category": "Web Building & Design (added)",
+    "purpose": "Edits any uploaded HTML website file",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/site-editor/index.ts",
+      "src/pages/DesignStudio.tsx"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-skill-catalog",
+    "category": "Misc (added)",
+    "purpose": "Browseable, installable skill catalog (OpenClaw/Hermes pattern)",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/skill-catalog-browse/index.ts",
+      "src/pages/SystemSettingsPage.tsx"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-slack-agent",
+    "category": "Platform Integrations (added)",
+    "purpose": "Slack workspace agent",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/slack-send/index.ts"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-slack-bot",
+    "category": "Platform Integrations (added)",
+    "purpose": "Slack bot with HMAC request verification",
+    "status": "WEBHOOK",
+    "calledFromFrontend": [],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": false,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-sleep-coach",
+    "category": "Health & Biometrics",
+    "purpose": "Sleep optimization coaching",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/sleep-coach/index.ts"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": true,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-sms",
+    "category": "Platform Integrations (added)",
+    "purpose": "SMS send/receive",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/sms-send/index.ts",
+      "src/pages/SMSPage.tsx"
+    ],
+    "calledFromBackend": [
+      "mavis-api-gateway"
+    ],
+    "isCronTarget": false,
+    "requiresJwt": false,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-so-curator",
+    "category": "Research & Web",
+    "purpose": "Stack Overflow knowledge curation",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/so-curator/index.ts"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": false,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-so-scheduler",
+    "category": "Research & Web",
+    "purpose": "Schedules SO content digests",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/components/StandingOrdersWidget.tsx",
+      "src/mavis/skills/standing-orders/index.ts"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": true,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-social-publisher",
+    "category": "Social Media",
+    "purpose": "Multi-platform social publishing",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/social-publish/index.ts"
+    ],
+    "calledFromBackend": [
+      "mavis-director"
+    ],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-social-scheduler",
+    "category": "Social Media",
+    "purpose": "Schedules social content across platforms",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/social-scheduler/index.ts"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": true,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-spaced-repetition",
+    "category": "Memory & Learning",
+    "purpose": "Surfaces memories and notes on spaced-repetition schedule",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/spaced-repetition/index.ts"
+    ],
+    "calledFromBackend": [
+      "telegram-webhook"
+    ],
+    "isCronTarget": true,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-spotify-agent",
+    "category": "Platform Integrations (added)",
+    "purpose": "Spotify conversational agent",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/spotify-agent/index.ts"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-spotify-control",
+    "category": "Platform Integrations (added)",
+    "purpose": "Spotify playback control",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/components/SpotifyWidget.tsx",
+      "src/mavis/skills/spotify-control/index.ts",
+      "src/pages/MavisDemo.tsx"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": false,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-spotify-sync",
+    "category": "Platform Integrations (added)",
+    "purpose": "Spotify listening data sync",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/spotify-sync/index.ts"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": false,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-stock-analysis",
+    "category": "Finance",
+    "purpose": "Stock analysis and screening",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/stock-research/index.ts",
+      "src/mavis/specialistDispatcher.ts",
+      "src/pages/StockAnalysisPage.tsx"
+    ],
+    "calledFromBackend": [
+      "mavis-actions"
+    ],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-story-agent",
+    "category": "Learning & Tutoring",
+    "purpose": "Story generation agent",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/story-gen/index.ts"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-strategy-council",
+    "category": "Chat & Council",
+    "purpose": "5-advisor panel + Claude Opus synthesis with 20K thinking budget",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/debate/index.ts",
+      "src/mavis/skills/strategy-council/index.ts",
+      "src/mavis/specialistDispatcher.ts",
+      "src/pages/IntelligencePage.tsx"
+    ],
+    "calledFromBackend": [
+      "telegram-webhook"
+    ],
+    "isCronTarget": false,
+    "requiresJwt": false,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-strava-sync",
+    "category": "Health & Biometrics",
+    "purpose": "Strava activity sync",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/strava-activity/index.ts"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": true,
+    "requiresJwt": false,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-streak-alerts",
+    "category": "Goals & Quests",
+    "purpose": "Fires alerts when streaks are at risk or broken",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/streak-alert/index.ts"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": true,
+    "requiresJwt": false,
+    "autonomyPathway": {
+      "status": "CONNECTED",
+      "note": "Cron daily 08:00 UTC → fires a Telegram message, but no table records that it ran (no outcome trace)."
+    }
+  },
+  {
+    "name": "mavis-stripe-webhook",
+    "category": "Finance",
+    "purpose": "Stripe payment event handler",
+    "status": "WEBHOOK",
+    "calledFromFrontend": [],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": false,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-tacit-prune",
+    "category": "Memory & Learning",
+    "purpose": "Prunes redundant tacit learning entries",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/tacit-prune/index.ts"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": true,
+    "requiresJwt": false,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-task-executor",
+    "category": "Planning & Autonomous Execution",
+    "purpose": "The autonomous worker — executes queued tasks",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/pages/Inbox.tsx"
+    ],
+    "calledFromBackend": [
+      "mavis-heartbeat",
+      "telegram-webhook"
+    ],
+    "isCronTarget": true,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-team",
+    "category": "Misc (added)",
+    "purpose": "Manages teams and shared workspaces",
+    "status": "ORPHANED",
+    "calledFromFrontend": [],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-telegram-bot",
+    "category": "Telegram",
+    "purpose": "Alternative Telegram bot handler (streaming path)",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/telegram-send/index.ts"
+    ],
+    "calledFromBackend": [
+      "telegram-setup"
+    ],
+    "isCronTarget": false,
+    "requiresJwt": false,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-terminal",
+    "category": "Dev & Code",
+    "purpose": "Terminal command execution",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/terminal/index.ts",
+      "src/pages/MavisDemo.tsx"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": false,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-transcribe",
+    "category": "Voice",
+    "purpose": "Audio transcription via Whisper",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/components/VoiceMemo.tsx",
+      "src/mavis/skills/transcribe/index.ts",
+      "src/pages/ContentPages.tsx"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-transcribe-memo",
+    "category": "Voice",
+    "purpose": "Transcribes voice memos and saves to journal",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/components/VoiceMemo.tsx",
+      "src/mavis/skills/transcribe-memo/index.ts"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-translate",
+    "category": "Platform Integrations (added)",
+    "purpose": "Translation via LibreTranslate",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/translate/index.ts"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-trigger-engine",
+    "category": "Triggers & Autonomy",
+    "purpose": "Event-based trigger evaluation — fires functions when conditions are met",
+    "status": "CRON_ONLY",
+    "calledFromFrontend": [],
+    "calledFromBackend": [],
+    "isCronTarget": true,
+    "requiresJwt": true,
+    "autonomyPathway": {
+      "status": "CONNECTED",
+      "note": "Cron */5m → email/calendar/task triggers → mavis-agent (TRIGGER mode) → logs to mavis_trigger_log."
+    }
+  },
+  {
+    "name": "mavis-tts",
+    "category": "Voice",
+    "purpose": "Text-to-speech synthesis",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/components/CouncilGroupVoice.tsx",
+      "src/components/VoiceChatOverlay.tsx",
+      "src/hooks/useElevenLabsTts.ts",
+      "src/mavis/skills/tts/index.ts",
+      "src/pages/NotebookPage.tsx"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-twilio-agent",
+    "category": "Platform Integrations (added)",
+    "purpose": "Twilio voice/SMS agent",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/whatsapp-send/index.ts"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-twitter-agent",
+    "category": "Social Media",
+    "purpose": "X/Twitter agent",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/twitter-post/index.ts"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-user-model-refresh",
+    "category": "Memory & Learning",
+    "purpose": "Rebuilds the user model from recent interactions",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/user-model/index.ts",
+      "src/pages/BehavioralModelPage.tsx"
+    ],
+    "calledFromBackend": [
+      "mavis-chat"
+    ],
+    "isCronTarget": false,
+    "requiresJwt": false,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-vapi-webhook",
+    "category": "Voice",
+    "purpose": "VAPI voice AI webhook handler",
+    "status": "ACTIVE",
+    "calledFromFrontend": [],
+    "calledFromBackend": [
+      "mavis-phone-call"
+    ],
+    "isCronTarget": false,
+    "requiresJwt": false,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-vercel-agent",
+    "category": "Dev & Code",
+    "purpose": "Vercel deployment management",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/vercel-deploy/index.ts"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-video-download",
+    "category": "Media Generation",
+    "purpose": "Downloads video from URL",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/video-download/index.ts",
+      "src/pages/VideoEditorPage.tsx"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": false,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-video-editor",
+    "category": "Media Generation",
+    "purpose": "AI video editing",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/video-edit/index.ts",
+      "src/pages/VideoEditorPage.tsx"
+    ],
+    "calledFromBackend": [
+      "mavis-actions"
+    ],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-video-gen",
+    "category": "Media Generation",
+    "purpose": "Video generation orchestrator",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/video-gen/index.ts",
+      "src/pages/GalleryPage.tsx"
+    ],
+    "calledFromBackend": [
+      "mavis-actions",
+      "mavis-higgsfield"
+    ],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-video-narrator",
+    "category": "Media Generation",
+    "purpose": "Adds AI narration to video",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/video-narrator/index.ts"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-video-render",
+    "category": "Media Generation",
+    "purpose": "Renders final video output",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/video-render/index.ts",
+      "src/pages/VideoEditorPage.tsx"
+    ],
+    "calledFromBackend": [
+      "mavis-actions"
+    ],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-vision-agent",
+    "category": "Devices, Vision & Ambient",
+    "purpose": "Image/vision analysis agent",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/vision-agent/index.ts"
+    ],
+    "calledFromBackend": [
+      "mavis-chat",
+      "mavis-telegram-bot"
+    ],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-voice-session",
+    "category": "Voice",
+    "purpose": "Manages voice session state and history",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/components/MavisRealtimeVoice.tsx",
+      "src/mavis/skills/voice-session/index.ts"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-voicebox",
+    "category": "Voice",
+    "purpose": "Primary TTS endpoint — routes to ElevenLabs or Cartesia",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/voicebox/index.ts"
+    ],
+    "calledFromBackend": [
+      "mavis-actions"
+    ],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-vtube-studio",
+    "category": "Uncategorized",
+    "purpose": null,
+    "status": "ACTIVE",
+    "calledFromFrontend": [],
+    "calledFromBackend": [
+      "mavis-telegram-bot"
+    ],
+    "isCronTarget": false,
+    "requiresJwt": false,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-wearable-overlay",
+    "category": "Health & Biometrics",
+    "purpose": "Aggregates wearable data across devices",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/wearable-data/index.ts",
+      "src/mavis/wearableAdapters.ts"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": false,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-weather",
+    "category": "Platform Integrations (added)",
+    "purpose": "Weather data",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/weather/index.ts"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-web-builder",
+    "category": "Web Building & Design (added)",
+    "purpose": "Builds websites",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/web-builder/index.ts",
+      "src/pages/WebsiteBuilderPage.tsx"
+    ],
+    "calledFromBackend": [
+      "mavis-actions"
+    ],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-web-crawler",
+    "category": "Research & Web",
+    "purpose": "General web crawler",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/web-crawl/index.ts"
+    ],
+    "calledFromBackend": [
+      "mavis-director"
+    ],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-web-scraper",
+    "category": "Research & Web",
+    "purpose": "Web scraping with structured extraction",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/web-scrape-deep/index.ts"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-webhook",
+    "category": "Infrastructure",
+    "purpose": "Generic webhook receiver",
+    "status": "WEBHOOK",
+    "calledFromFrontend": [],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": false,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-webhook-dispatch",
+    "category": "Infrastructure",
+    "purpose": "Routes webhooks to correct handlers",
+    "status": "WEBHOOK",
+    "calledFromFrontend": [],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": false,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-webhook-dispatcher",
+    "category": "Infrastructure",
+    "purpose": "Webhook fan-out dispatcher",
+    "status": "ORPHANED",
+    "calledFromFrontend": [],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-website-qa",
+    "category": "Ingestion & Knowledge Intake",
+    "purpose": "Live website crawl-and-answer without external APIs",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/website-qa/index.ts"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-weekly-retro",
+    "category": "Reviews & Reflection",
+    "purpose": "Weekly retrospective and performance review",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/weekly-retro/index.ts"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": true,
+    "requiresJwt": false,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-whoop-sync",
+    "category": "Health & Biometrics",
+    "purpose": "WHOOP data sync",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/whoop-stats/index.ts"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": false,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-widget-api",
+    "category": "Widgets",
+    "purpose": "Widget API with per-widget rate limiting",
+    "status": "ACTIVE",
+    "calledFromFrontend": [],
+    "calledFromBackend": [
+      "mavis-widget-gen"
+    ],
+    "isCronTarget": false,
+    "requiresJwt": false,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-widget-gen",
+    "category": "Widgets",
+    "purpose": "Generates embeddable widgets",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/widget-gen/index.ts",
+      "src/pages/WidgetBuilderPage.tsx"
+    ],
+    "calledFromBackend": [
+      "mavis-actions"
+    ],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-widget-plugin",
+    "category": "Widgets",
+    "purpose": "Widget plugin loader",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/pages/WidgetBuilderPage.tsx"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": false,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-wordpress",
+    "category": "Platform Integrations (added)",
+    "purpose": "WordPress publishing",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/wordpress/index.ts"
+    ],
+    "calledFromBackend": [
+      "mavis-actions",
+      "mavis-web-builder"
+    ],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-workflow-run",
+    "category": "Planning & Autonomous Execution",
+    "purpose": "Workflow runner",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/workflow-run/index.ts",
+      "src/pages/WorkflowsPage.tsx"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-world-model",
+    "category": "Planning & Autonomous Execution",
+    "purpose": "Maintains world-state model for planning",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/world-model/index.ts",
+      "src/pages/IntelligencePage.tsx"
+    ],
+    "calledFromBackend": [
+      "mavis-event-router"
+    ],
+    "isCronTarget": true,
+    "requiresJwt": false,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-worldmonitor",
+    "category": "Research & Web",
+    "purpose": "Monitors world events and news signals",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/world-monitor/index.ts",
+      "src/pages/WorldMonitorPage.tsx"
+    ],
+    "calledFromBackend": [
+      "mavis-actions",
+      "mavis-chat"
+    ],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-wpcom-oauth",
+    "category": "Platform Integrations (added)",
+    "purpose": "WordPress.com OAuth flow",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/pages/WebsiteBuilderPage.tsx",
+      "src/pages/WpcomCallbackPage.tsx"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": false,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-yamete",
+    "category": "Uncategorized",
+    "purpose": null,
+    "status": "NEEDS_DECISION",
+    "calledFromFrontend": [],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": false,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-youtube-agent",
+    "category": "Platform Integrations (added)",
+    "purpose": "YouTube channel/content agent",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/youtube-agent/index.ts"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-youtube-ingest",
+    "category": "Ingestion & Knowledge Intake",
+    "purpose": "Extracts YouTube video transcript and ingests it",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/youtube-ingest/index.ts"
+    ],
+    "calledFromBackend": [
+      "mavis-chat",
+      "mavis-telegram-bot"
+    ],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mcp",
+    "category": "Uncategorized",
+    "purpose": null,
+    "status": "ORPHANED",
+    "calledFromFrontend": [],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "navi-finetune-check",
+    "category": "NAVI (sub-system)",
+    "purpose": "Checks NAVI fine-tune status",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/hooks/usePersona.ts",
+      "src/mavis/skills/navi-finetune-check/index.ts"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": false,
+    "autonomyPathway": null
+  },
+  {
+    "name": "navi-finetune-pipeline",
+    "category": "NAVI (sub-system)",
+    "purpose": "NAVI fine-tune data pipeline",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/hooks/usePersona.ts",
+      "src/mavis/skills/navi-finetune/index.ts"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": false,
+    "autonomyPathway": null
+  },
+  {
+    "name": "navi-heartbeat",
+    "category": "NAVI (sub-system)",
+    "purpose": "NAVI keep-alive",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/navi-heartbeat/index.ts"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": false,
+    "autonomyPathway": null
+  },
+  {
+    "name": "navi-memory-consolidator",
+    "category": "NAVI (sub-system)",
+    "purpose": "NAVI memory consolidation",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/navi-memory/index.ts"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": false,
+    "autonomyPathway": null
+  },
+  {
+    "name": "prymal-approval-flow",
+    "category": "Prymal (brand sub-system)",
+    "purpose": "Prymal content approval flow",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/prymal-approve/index.ts"
+    ],
+    "calledFromBackend": [
+      "prymal-brand-agent",
+      "prymal-google-agent"
+    ],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "prymal-brand-agent",
+    "category": "Prymal (brand sub-system)",
+    "purpose": "Prymal brand voice and content",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/prymal-brand/index.ts"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "prymal-google-agent",
+    "category": "Prymal (brand sub-system)",
+    "purpose": "Prymal Google Workspace agent",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/prymal-google/index.ts"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "prymal-intel-agent",
+    "category": "Prymal (brand sub-system)",
+    "purpose": "Prymal competitive intelligence",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/prymal-intel/index.ts"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": true,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "prymal-onboard",
+    "category": "Prymal (brand sub-system)",
+    "purpose": "Prymal user onboarding",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/mavis/skills/prymal-onboard/index.ts"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "prymal-widget-loader",
+    "category": "Prymal (brand sub-system)",
+    "purpose": "Loads Prymal widget on client sites",
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/components/AgentBuilderSection.tsx"
+    ],
+    "calledFromBackend": [
+      "mavis-agent-builder"
+    ],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "stripe-widget-webhook",
+    "category": "Widgets",
+    "purpose": "Stripe webhook for widget payments",
+    "status": "WEBHOOK",
+    "calledFromFrontend": [],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": false,
+    "autonomyPathway": null
+  },
+  {
+    "name": "telegram-sender",
+    "category": "Telegram",
+    "purpose": "Sends outbound Telegram messages without handling inbound",
+    "status": "ACTIVE",
+    "calledFromFrontend": [],
+    "calledFromBackend": [
+      "mavis-director"
+    ],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "telegram-setup",
+    "category": "Telegram",
+    "purpose": "Registers the Telegram webhook URL with BotFather API",
+    "status": "WEBHOOK",
+    "calledFromFrontend": [],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": false,
+    "autonomyPathway": null
+  },
+  {
+    "name": "telegram-webhook",
+    "category": "Telegram",
+    "purpose": "Primary Telegram interface — handles all messages, inline queries, callback buttons, approval flows",
+    "status": "WEBHOOK",
+    "calledFromFrontend": [],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": false,
+    "autonomyPathway": null
+  }
+]

@@ -59,7 +59,7 @@ export function estimateLlmCost(provider: string, inputChars: number, outputChar
   const RATES: Record<string, [number, number]> = {
     "gemini-2.0-flash":       [0.0,    0.0  ],  // free tier
     "gemini-2.0-flash-lite":  [0.0,    0.0  ],  // free tier
-    "gemini-2.5-flash":       [0.075,  0.30 ],
+    "gemini-flash-latest":    [0.075,  0.30 ],
     "gemini-2.5-thinking":    [3.5,   10.50 ],
     "openai-mini":            [0.15,   0.60 ],
     "claude-haiku":           [0.25,   1.25 ],

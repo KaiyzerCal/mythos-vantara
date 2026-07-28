@@ -257,6 +257,15 @@ access) to complete once.
    Environment protection rules apply automatically to any job that
    references that environment.
 
+   For the smoke-test gate (Execution Blueprint Stage F) to actually run,
+   the `staging` Environment also needs three more secrets: `SUPABASE_URL`
+   (the staging project's URL), `SUPABASE_SERVICE_ROLE_KEY` (its service
+   role key), and `OPERATOR_USER_ID` (a real `auth.users` id on the staging
+   project — create a test operator account there rather than reusing a
+   production user id). Without these, the deploy still succeeds — the
+   smoke-test step logs a warning and skips itself rather than failing the
+   whole deploy over an optional gate.
+
 4. **Create the `staging` branch** in this repo (`git checkout -b staging &&
    git push -u origin staging`) if it doesn't exist yet.
 
@@ -273,6 +282,19 @@ Day to day: push/merge to `staging` first, confirm the change behaves
 correctly against the staging project (Telegram bot, chat, cron jobs —
 whatever the change touches), then merge `staging` into `main` to promote.
 Both pushes trigger the same workflow; only the target environment differs.
+A staging deploy also runs `scripts/smoke-test.mjs` automatically (if the
+three secrets above are set) — a red smoke-test run is a signal not to
+promote to `main` yet, even though nothing currently blocks the merge
+automatically.
+
+To run a broader check manually against staging (never against
+production): `SUPABASE_URL=... SERVICE_ROLE_KEY=... OPERATOR_USER_ID=...
+node scripts/smoke-test.mjs --all-active` probes every `ACTIVE` function
+from the generated capabilities manifest, not just the curated core set —
+see the script's own header comment for why this is opt-in rather than
+part of the default/CI run (several ACTIVE functions are genuinely
+side-effecting — sends, writes, external API calls — and haven't been
+individually vetted for what an empty/minimal payload does to them).
 
 ### What's still manual after this setup
 
@@ -284,3 +306,129 @@ Both pushes trigger the same workflow; only the target environment differs.
 - Migrations are not auto-applied by this workflow — `supabase/migrations/`
   changes need `supabase db push` run manually (or via a separate CI step)
   against whichever project you're promoting to.
+
+---
+
+## HYPERFRAMES RENDER SERVICE (HTML→MP4 video generation)
+
+`supabase/functions/mavis-hyperframes/index.ts` lets MAVIS render short MP4
+videos (quest recaps, stats reels, persona clips) from an HTML/CSS composition
+it writes itself, using [HyperFrames](https://github.com/KaiyzerCal/hyperframes)
+— an open-source "write HTML, render video" framework.
+
+**What this session could NOT do:** HyperFrames needs headless Chrome, a real
+FFmpeg binary, and a persistent Node process — none of which a Supabase Deno
+edge function can host. `mavis-hyperframes` is only a thin proxy; the actual
+rendering has to run somewhere else, on infrastructure you stand up and pay
+for. Nothing renders until that piece exists.
+
+### One-time setup
+
+1. **Stand up a small Node service** that wraps HyperFrames' `@hyperframes/engine`/
+   `@hyperframes/producer` packages behind two HTTP endpoints (HyperFrames
+   itself ships as a CLI/library, not a server — you write this wrapper):
+   - `POST /render` — body `{ html, assets, width, height, fps }` → `{ job_id }`
+   - `GET /render/:job_id` → `{ status: "queued"|"rendering"|"done"|"error", output_url?, error? }`
+   - Require a shared-secret header (`X-Render-Key`) on both routes.
+   - Needs Chrome + FFmpeg preinstalled. A small always-on container (Fly.io,
+     Railway, Render.com, or any VPS) is simplest to start; HyperFrames' own
+     AWS Lambda deployment mode is the alternative if you want it serverless.
+   - The service needs somewhere durable to put the finished MP4 (its own
+     storage, S3, etc.) and return a URL for `output_url` — `mavis-hyperframes`
+     just stores whatever URL comes back, it doesn't re-host the file.
+
+2. **Set two Supabase Edge Function secrets**:
+   - `HYPERFRAMES_RENDER_URL` — base URL of the service above (no trailing slash)
+   - `HYPERFRAMES_API_KEY` — the same shared secret the service checks for `X-Render-Key`
+
+3. Run the `hyperframes_renders` migration
+   (`supabase/migrations/20260727000000_hyperframes_renders.sql`) against your
+   project if it hasn't auto-applied — job tracking lives there, separate from
+   the video-editor's clip-centric `video_clips`/`video_render_jobs` tables
+   since these are ad-hoc generated videos, not editor timeline clips.
+
+### How it's used
+
+MAVIS has two tools registered — `render_video` (writes the HTML composition
+itself and submits the job) and `check_video_render` (polls for the finished
+URL). Rendering is async — `render_video` returns a `render_id` immediately,
+not a finished video; MAVIS is expected to check back with `check_video_render`
+a bit later or on a follow-up turn.
+
+### What's still manual after this setup
+
+- No template library exists yet — MAVIS writes each composition's HTML from
+  scratch per request. If a recurring format (e.g. a weekly stats reel) turns
+  out to be common, a reusable template is worth adding to `mavis-hyperframes`
+  directly rather than re-deriving it in the prompt every time.
+
+---
+
+## COMPOSIO INTEGRATION (Execution Blueprint Stage G)
+
+`supabase/functions/mavis-composio-agent/index.ts` is a generic proxy to
+[Composio](https://composio.dev) — from now on, a new third-party integration
+MAVIS needs should go through this + the `composio_action` action type
+(`src/mavis/actionSchemas.ts`), not a new bespoke edge function per service.
+
+**What this session could NOT do:** create a Composio account or generate an
+API key — that's an account-level action only Calvin can take. The function
+is built and wired through the same CONFIRM/AUTO approval gate every other
+action goes through (`src/mavis/actionExecutor.ts`'s `classifyAction()`),
+but is untested against a real Composio account, because none exists yet.
+
+**Confidence note on the integration itself:** Composio's docs site and API
+host both blocked automated fetches while building this (403s), so the exact
+request/response shape in `mavis-composio-agent` is assembled from their
+public TypeScript SDK's confirmed method signature and a sibling endpoint
+path, not a first-hand read of the v3 REST reference for this specific
+endpoint. The auth header name (`x-api-key`) and the v3-only requirement
+(v1/v2 now return 410) are independently confirmed. **Before trusting this
+for anything real**, smoke-test one simple read-only action (a `*_LIST_*` or
+`*_GET_*` slug) against a real account first.
+
+### One-time setup
+
+1. Create a Composio account at composio.dev, then Projects → API Keys →
+   create a new key (starts with `sk_...`).
+2. Set `COMPOSIO_API_KEY` in Supabase Edge Function secrets.
+3. Connect whichever third-party accounts MAVIS should act on behalf of
+   (Composio calls this a "connected account" per app/toolkit) via the
+   Composio dashboard.
+4. Smoke-test a read-only action first (see confidence note above) before
+   relying on anything that writes.
+
+### How it's used
+
+MAVIS emits a `composio_action` with `{ tool_slug, params }` — e.g.
+`GITHUB_CREATE_ISSUE` with `{ owner, repo, title, body }`. Classification is
+verb-based, not per-action like the rest of `actionExecutor.ts` (Composio
+exposes 1000+ toolkit actions, no fixed list to special-case): any slug
+containing a mutating verb (`CREATE`, `UPDATE`, `DELETE`, `SEND`, `POST`,
+etc.) requires confirmation; only a slug matching a known read-only verb
+(`GET`, `LIST`, `SEARCH`, etc.) with nothing mutating auto-executes.
+Unrecognized shapes default to CONFIRM — same "ask when unsure" posture as
+everything else in that file.
+
+### Track B — replacing existing hand-rolled integrations (not started)
+
+The blueprint's Track B asks for a shortlist of `ACTIVE` + fragile/high-
+maintenance integrations that are Composio-replacement candidates, with a
+**per-integration replace/keep recommendation presented before touching
+anything — one at a time, never bulk.** This session built the shortlist
+below from the capabilities manifest (every one is `ACTIVE` — real usage,
+not dead code) but did **not** cut over, remove, or archive any of them —
+that needs Calvin's per-item sign-off, and can't be verified equivalent
+without a real Composio account to test against anyway:
+
+`mavis-linear-agent`, `mavis-notion-agent`, `mavis-notion-sync`,
+`mavis-slack-agent`, `mavis-discord-agent`, `mavis-github-sync`,
+`mavis-twitter-agent`, `mavis-shopify-agent`, `mavis-airtable-agent`,
+`mavis-salesforce`, `mavis-reddit-agent`, `mavis-instagram-agent`,
+`mavis-spotify-agent`, `mavis-calendly-agent`, `mavis-vercel-agent`,
+`mavis-sentry-agent` — one hand-rolled function per third-party service,
+exactly the pattern Composio's toolkit catalog exists to replace. This is a
+first-pass list by pattern-match (single-service API integration, real
+usage), not a rigorous per-function fragility audit — some of these may be
+working perfectly well and not worth touching. Each needs its own look
+before any decision, per the blueprint's own explicit instruction.

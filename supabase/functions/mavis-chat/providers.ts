@@ -188,6 +188,7 @@ export async function callOpenAI(messages: any[], system: string, key: string, m
       max_tokens: fitted.maxTokens,
       temperature: 0.85,
     }),
+    signal: AbortSignal.timeout(30_000),
   });
   if (!res.ok) {
     const errText = await res.text();
@@ -228,6 +229,7 @@ export async function callClaude(messages: any[], system: string, key: string, m
       system,
       messages: merged.map((m: any) => ({ role: m.role, content: m.content })),
     }),
+    signal: AbortSignal.timeout(useThinking ? 60_000 : 45_000),
   });
   if (!res.ok) {
     const errText = await res.text();
@@ -254,6 +256,7 @@ export async function callGrok(messages: any[], system: string, key: string): Pr
       max_tokens: 8192,
       temperature: 0.7,
     }),
+    signal: AbortSignal.timeout(30_000),
   });
   if (!res.ok) {
     const errText = await res.text();
@@ -273,8 +276,8 @@ export async function callGemini(messages: any[], system: string, key: string, o
   }));
   // Use opts.model if provided; thinking requires the 2.5 preview model.
   const geminiModel = opts.thinking
-    ? "gemini-2.5-flash-preview-05-20"
-    : (opts.model ?? "gemini-2.5-flash-preview-05-20");
+    ? "gemini-flash-latest"
+    : (opts.model ?? "gemini-flash-latest");
   const body: any = {
     systemInstruction: { parts: [{ text: system }] },
     contents,
@@ -287,6 +290,7 @@ export async function callGemini(messages: any[], system: string, key: string, o
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
+    signal: AbortSignal.timeout(opts.thinking ? 60_000 : 30_000),
   });
   if (!res.ok) {
     const errText = await res.text();
@@ -361,7 +365,7 @@ export async function callWithFallback(
         grounding: ["WATCHTOWER", "GROUNDED"].includes(mU),
         codeExec:  ["DATA", "CODEX", "RESEARCH"].includes(mU),
       };
-      return { content: await callGemini(messages, system, keys.gemini, geminiOpts), provider: geminiOpts.thinking ? "gemini-2.5-thinking" : "gemini-2.5-flash" };
+      return { content: await callGemini(messages, system, keys.gemini, geminiOpts), provider: geminiOpts.thinking ? "gemini-2.5-thinking" : "gemini-flash-latest" };
     } catch (err: any) {
       if (err instanceof ProviderUnavailableError) markProviderUnhealthy("gemini");
       console.warn(`[fallback] Gemini 2.5 Flash failed (${err.message}) → cascading`);
@@ -672,7 +676,7 @@ export async function callGeminiStream(messages: any[], system: string, key: str
   if (opts.thinking) body.generationConfig.thinkingConfig = { thinkingBudget: 8192 };
   if (opts.grounding && !opts.thinking) body.tools = [{ googleSearch: {} }];
   else if (opts.codeExec && !opts.thinking) body.tools = [{ codeExecution: {} }];
-  const res = await fetchStreamWithFailover(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:streamGenerateContent?key=${key}&alt=sse`, {
+  const res = await fetchStreamWithFailover(`https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:streamGenerateContent?key=${key}&alt=sse`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
@@ -710,6 +714,7 @@ export async function callGroq(messages: any[], system: string, key: string, mod
       max_tokens: 8192,
       temperature: 0.7,
     }),
+    signal: AbortSignal.timeout(20_000),
   });
   if (!res.ok) {
     const e = await res.text();
@@ -756,7 +761,7 @@ export async function callWithFallbackStream(
         grounding: ["WATCHTOWER", "GROUNDED"].includes(mU),
         codeExec: ["DATA", "CODEX", "RESEARCH"].includes(mU),
       };
-      return { stream: await callGeminiStream(messages, system, keys.gemini, geminiOpts), provider: geminiOpts.thinking ? "gemini-2.5-thinking" : "gemini-2.5-flash" };
+      return { stream: await callGeminiStream(messages, system, keys.gemini, geminiOpts), provider: geminiOpts.thinking ? "gemini-2.5-thinking" : "gemini-flash-latest" };
     }
     catch (e: any) {
       if (e instanceof ProviderUnavailableError) markProviderUnhealthy("gemini", e.status === 429 ? 60_000 : 120_000);

@@ -48,6 +48,11 @@ export interface ProfileData {
     xpMilestones: boolean;
     dailySummary: boolean;
   };
+  // Server-side gate for PromptChan explicit-mode image generation
+  // (mavis-image-gen) — off by default, checked in the edge function
+  // before it will ever call PromptChan. See
+  // supabase/migrations/20260728000002_nsfw_generation_toggle.sql.
+  nsfw_generation_enabled: boolean;
 }
 
 const defaults: ProfileData = {
@@ -91,6 +96,7 @@ const defaults: ProfileData = {
     xpMilestones: false,
     dailySummary: true,
   },
+  nsfw_generation_enabled: false,
 };
 
 export function useProfile() {

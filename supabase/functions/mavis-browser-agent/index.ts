@@ -13,7 +13,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 const SB_URL = Deno.env.get("SUPABASE_URL")!;
 const SB_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const ANTHROPIC_KEY = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
-const TAVILY_KEY = Deno.env.get("Tavily_API") ?? "";
+const TAVILY_KEY = Deno.env.get("TAVILY_API_KEY") ?? Deno.env.get("Tavily_API") ?? "";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 const DEFAULT_MAX_TURNS = 6;

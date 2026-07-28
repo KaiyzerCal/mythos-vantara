@@ -89,6 +89,10 @@ const PROFILE_ALLOWED = [
   "aura_power", "display_name", "operator_level", "operator_xp",
   "notification_settings",
   "rank", "level", "xp", "xp_to_next_level", "pvp_rating", "gpr",
+  // avatar_url is a real column (20260425192033) but was missing here,
+  // so UpdateProfileSchema's own avatar_url field validated but never
+  // persisted. Found via vantara-crud-update-fix-brief.md follow-up.
+  "avatar_url",
 ] as const;
 
 // ── Alias normalization ─────────────────────────────────────
@@ -179,11 +183,17 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
 
     // ── QUESTS ───────────────────────────────────────────
     case "create_quest": {
+      // p.type is never set here when called through actionExecutor.ts's
+      // flat-object dispatch (its own "type" is the outer action
+      // discriminant, stripped before reaching p) — quest_type is the
+      // accepted alternate name for exactly that path. Same structural
+      // issue as update_inventory_item's "type" field, fixed here since
+      // the fallback name doesn't collide with anything.
       const { error } = await sb.from("quests").insert({
         user_id: userId,
         title: String(p.title || "New Quest"),
         description: String(p.description || ""),
-        type: String(p.type || "daily"),
+        type: String(p.type || p.quest_type || "daily"),
         status: String(p.status || "active"),
         difficulty: String(p.difficulty || "Normal"),
         xp_reward: Number(p.xp_reward || 100),
@@ -202,11 +212,18 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
     }
 
     case "update_quest": {
-      const questId = await resolveId(sb, userId, "quests", p.quest_id as string, (p.quest_name || p.title) as string, "title");
+      // was p.quest_id only (no || p.id fallback), unlike every other
+      // resolveId call in this file — a real caller-facing gap, since
+      // update_task aliases here too and its documented id field is
+      // task_id. Found via vantara-crud-update-fix-brief.md follow-up.
+      const questId = await resolveId(sb, userId, "quests", (p.quest_id || p.task_id || p.id) as string, (p.quest_name || p.title) as string, "title");
       const updates: Record<string, unknown> = {};
       for (const key of ["title", "description", "type", "status", "difficulty", "xp_reward", "progress_current", "progress_target", "real_world_mapping", "category"]) {
         if (p[key] !== undefined) updates[key] = p[key];
       }
+      // quest_type is the flat-dispatch-safe alternate name for "type" —
+      // see the comment on create_quest above.
+      if (p.quest_type !== undefined && updates.type === undefined) updates.type = p.quest_type;
       updates.updated_at = new Date().toISOString();
       const { data: updated, error } = await sb.from("quests").update(updates).eq("id", questId).eq("user_id", userId).select("id");
       if (error) throw error;
@@ -228,7 +245,8 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
     }
 
     case "delete_quest": {
-      const questId = await resolveId(sb, userId, "quests", (p.quest_id || p.id) as string, (p.quest_name || p.title) as string, "title");
+      // delete_task aliases here too — its documented id field is task_id.
+      const questId = await resolveId(sb, userId, "quests", (p.quest_id || p.task_id || p.id) as string, (p.quest_name || p.title) as string, "title");
       const { data: quest } = await sb.from("quests").select("title").eq("id", questId).eq("user_id", userId).maybeSingle();
       const { data: deleted, error: delErr } = await sb.from("quests").delete().eq("id", questId).eq("user_id", userId).select("id");
       if (delErr) throw delErr;
@@ -445,11 +463,13 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
 
     // ── INVENTORY ────────────────────────────────────────
     case "create_inventory_item": {
+      // item_type is the flat-dispatch-safe alternate name for "type" — see
+      // the identical comment on create_quest for why this is needed.
       const { error } = await sb.from("inventory").insert({
         user_id: userId,
         name: String(p.name || "New Item"),
         description: String(p.description || ""),
-        type: String(p.type || "equipment"),
+        type: String(p.type || p.item_type || "equipment"),
         rarity: String(p.rarity || "common"),
         quantity: Number(p.quantity || 1),
         effect: p.effect ? String(p.effect) : null,
@@ -469,6 +489,7 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
       for (const key of ["name", "description", "type", "rarity", "quantity", "effect", "slot", "tier", "is_equipped", "stat_effects"]) {
         if (p[key] !== undefined) updates[key] = p[key];
       }
+      if (p.item_type !== undefined && updates.type === undefined) updates.type = p.item_type;
       const { data: updated, error } = await sb.from("inventory").update(updates).eq("id", itemId).eq("user_id", userId).select("id");
       if (error) throw error;
       if (!updated || updated.length === 0) throw new Error(`inventory: update matched no row for id "${itemId}"`);
@@ -487,11 +508,13 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
 
     // ── ENERGY ───────────────────────────────────────────
     case "update_energy": {
-      const energyId = await resolveId(sb, userId, "energy_systems", (p.energy_id || p.id) as string, (p.energy_name || p.type || p.name) as string, "type");
+      const energyId = await resolveId(sb, userId, "energy_systems", (p.energy_id || p.id) as string, (p.energy_name || p.energy_type || p.type || p.name) as string, "type");
       const updates: Record<string, unknown> = {};
       for (const key of ["current_value", "max_value", "status", "description", "color", "type"]) {
         if (p[key] !== undefined) updates[key] = p[key];
       }
+      // energy_type is the flat-dispatch-safe alternate name for "type".
+      if (p.energy_type !== undefined && updates.type === undefined) updates.type = p.energy_type;
       updates.updated_at = new Date().toISOString();
       const { data: updated, error } = await sb.from("energy_systems").update(updates).eq("id", energyId).eq("user_id", userId).select("id");
       if (error) throw error;
@@ -556,6 +579,54 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
       if (error) throw error;
       if (!deleted || deleted.length === 0) throw new Error(`allies: delete matched no row for id "${allyId}"`);
       await logActivity(sb, userId, "ally_deleted", "Ally removed", 0);
+      return;
+    }
+
+    // ── RITUALS ──────────────────────────────────────────
+    // create_ritual/update_ritual/delete_ritual had NO handler here at all
+    // despite promptBuilder.ts, mavis-persona-router, and telegram-webhook
+    // all documenting them as real action types — every real call has always
+    // returned "unknown action type". complete_ritual already works, but via
+    // an entirely different mechanism (toolDispatch.ts's native Claude
+    // tool-calling, not this :::ACTION{}::: + mavis-actions pipeline).
+    // Found via vantara-crud-update-fix-brief.md follow-up ("fix all
+    // problems" sweep, out-of-scope items).
+    case "create_ritual": {
+      const { error } = await sb.from("rituals").insert({
+        user_id: userId,
+        name: String(p.name || "New Ritual"),
+        description: p.description ? String(p.description) : "",
+        // ritual_type is the flat-dispatch-safe alternate name for "type" —
+        // see the comment on create_quest above for why "type" itself
+        // can't be used as a params key.
+        type: String(p.ritual_type || p.type || "other"),
+        category: p.category ? String(p.category) : null,
+        xp_reward: Number(p.xp_reward ?? 25),
+      });
+      if (error) throw error;
+      await logActivity(sb, userId, "ritual_created", `Ritual created: ${String(p.name || "New Ritual")}`, 0);
+      return;
+    }
+
+    case "update_ritual": {
+      const ritualId = await resolveId(sb, userId, "rituals", (p.ritual_id || p.id) as string, (p.ritual_name || p.name) as string, "name");
+      const updates: Record<string, unknown> = {};
+      for (const key of ["name", "description", "type", "category", "xp_reward"]) {
+        if (p[key] !== undefined) updates[key] = p[key];
+      }
+      if (p.ritual_type !== undefined && updates.type === undefined) updates.type = p.ritual_type;
+      const { data: updated, error } = await sb.from("rituals").update(updates).eq("id", ritualId).eq("user_id", userId).select("id");
+      if (error) throw error;
+      if (!updated || updated.length === 0) throw new Error(`rituals: update matched no row for id "${ritualId}"`);
+      return;
+    }
+
+    case "delete_ritual": {
+      const ritualId = await resolveId(sb, userId, "rituals", (p.ritual_id || p.id) as string, (p.ritual_name || p.name) as string, "name");
+      const { data: deleted, error } = await sb.from("rituals").delete().eq("id", ritualId).eq("user_id", userId).select("id");
+      if (error) throw error;
+      if (!deleted || deleted.length === 0) throw new Error(`rituals: delete matched no row for id "${ritualId}"`);
+      await logActivity(sb, userId, "ritual_deleted", "Ritual removed", 0);
       return;
     }
 
@@ -645,7 +716,11 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
     }
 
     case "update_store_item": {
-      const itemId = await resolveId(sb, userId, "store_items", (p.item_id || p.id) as string, (p.item_name || p.name) as string);
+      // promptBuilder.ts documents "store_item_id" (not "item_id") for this
+      // action — was missing here, so real update_store_item calls fell
+      // back to (usually failing) name matching. Found via
+      // vantara-crud-update-fix-brief.md follow-up.
+      const itemId = await resolveId(sb, userId, "store_items", (p.item_id || p.store_item_id || p.id) as string, (p.item_name || p.name) as string);
       const updates: Record<string, unknown> = {};
       for (const key of ["name", "description", "price", "currency", "rarity", "category", "effect", "req_level", "req_rank"]) {
         if (p[key] !== undefined) updates[key] = p[key];
@@ -658,7 +733,7 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
     }
 
     case "delete_store_item": {
-      const itemId = await resolveId(sb, userId, "store_items", (p.item_id || p.id) as string, (p.item_name || p.name) as string);
+      const itemId = await resolveId(sb, userId, "store_items", (p.item_id || p.store_item_id || p.id) as string, (p.item_name || p.name) as string);
       const { data: deleted, error } = await sb.from("store_items").delete().eq("id", itemId).eq("user_id", userId).select("id");
       if (error) throw error;
       if (!deleted || deleted.length === 0) throw new Error(`store_items: delete matched no row for id "${itemId}"`);
@@ -956,9 +1031,21 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
     }
 
     // ── CONTACTS ─────────────────────────────────────────────────────────
+    // The contacts table (20260517200000_new_features.sql) has no email/
+    // phone/company/role columns, but promptBuilder.ts's create_contact
+    // example documents all four — they used to validate but silently drop
+    // on the floor. Rather than a migration (off-limits without explicit
+    // instruction — see CLAUDE.md), they're folded into the existing
+    // "profile" jsonb column instead, which the UI can already read.
     case "create_contact":
     case "add_contact":
     case "new_contact": {
+      const suppliedProfile = (p.profile && typeof p.profile === "object") ? p.profile as Record<string, unknown> : {};
+      const profile: Record<string, unknown> = { ...suppliedProfile };
+      if (p.email !== undefined) profile.email = p.email;
+      if (p.phone !== undefined) profile.phone = p.phone;
+      if (p.company !== undefined) profile.company = p.company;
+      if (p.role !== undefined) profile.role = p.role;
       const { error } = await sb.from("contacts").insert({
         user_id: userId,
         name: String(p.name || "New Contact"),
@@ -967,7 +1054,7 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
         follow_up_date: p.follow_up_date ? String(p.follow_up_date) : null,
         notes: String(p.notes || ""),
         tags: asStringArray(p.tags),
-        profile: (p.profile && typeof p.profile === "object") ? p.profile : {},
+        profile,
       });
       if (error) throw error;
       await logActivity(sb, userId, "contact_created", `Contact added: ${String(p.name || "New Contact")}`, 0);
@@ -977,6 +1064,15 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
     case "update_contact":
     case "edit_contact": {
       const contactId = await resolveId(sb, userId, "contacts", (p.contact_id || p.id) as string, (p.contact_name || p.name) as string);
+      if (p.email !== undefined || p.phone !== undefined || p.company !== undefined || p.role !== undefined) {
+        const { data: existing } = await sb.from("contacts").select("profile").eq("id", contactId).eq("user_id", userId).maybeSingle();
+        const mergedProfile: Record<string, unknown> = { ...((existing?.profile && typeof existing.profile === "object") ? existing.profile : {}) };
+        if (p.email !== undefined) mergedProfile.email = p.email;
+        if (p.phone !== undefined) mergedProfile.phone = p.phone;
+        if (p.company !== undefined) mergedProfile.company = p.company;
+        if (p.role !== undefined) mergedProfile.role = p.role;
+        p.profile = mergedProfile;
+      }
       const updates: Record<string, unknown> = { updated_at: new Date().toISOString() };
       for (const key of ["name", "relationship_type", "last_contact_at", "follow_up_date", "notes", "tags", "profile"]) {
         if (p[key] !== undefined) updates[key] = key === "tags" ? asStringArray(p[key]) : p[key];
@@ -1085,42 +1181,48 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
 
       const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
       const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-      const geminiKey = Deno.env.get("GEMINI_API_KEY") ?? "";
+      const wantsNsfw = p.nsfw === true;
 
       let imageUrl = "";
       let imageb64 = "";
       let note = "";
 
-      // Try Gemini Imagen first
-      if (geminiKey) {
-        try {
-          const imgRes = await fetch(
-            `https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-generate-001:predict?key=${geminiKey}`,
-            {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                instances: [{ prompt }],
-                parameters: { sampleCount: 1, aspectRatio },
-              }),
-              signal: AbortSignal.timeout(45_000),
-            }
-          );
-          if (imgRes.ok) {
-            const imgData = await imgRes.json();
-            imageb64 = imgData?.predictions?.[0]?.bytesBase64Encoded ?? "";
-            if (imageb64) {
-              imageUrl = `data:image/png;base64,${imageb64}`;
-            }
+      // Delegates actual pixel generation to mavis-image-gen, which has a
+      // full multi-provider cascade (Lovable/Imagen4/FluxPro/ModelsLab/
+      // OpenAI/StableDiffusion/Pollinations — Pollinations is always
+      // available with zero keys configured, so this practically always
+      // succeeds now) plus PromptChan when nsfw:true and the account has
+      // opted in via profiles.nsfw_generation_enabled. This used to call
+      // Gemini Imagen directly and inline, which meant this action never
+      // benefited from any of mavis-image-gen's other providers and
+      // degraded to "just save the prompt as text" whenever
+      // GEMINI_API_KEY wasn't set.
+      try {
+        const genRes = await fetch(`${supabaseUrl}/functions/v1/mavis-image-gen`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${serviceKey}` },
+          body: JSON.stringify({ prompt, aspect_ratio: aspectRatio, nsfw: wantsNsfw, userId }),
+          signal: AbortSignal.timeout(120_000),
+        });
+        if (genRes.ok) {
+          const genData = await genRes.json();
+          const url = String(genData?.url ?? "");
+          if (url.startsWith("data:image/")) {
+            imageb64 = url.split(",")[1] ?? "";
+            imageUrl = url;
+          } else if (url) {
+            imageUrl = url;
           }
-        } catch {
-          // fall through to vault fallback
         }
+      } catch {
+        // fall through to vault fallback
       }
 
       // Fallback: save prompt to vault for manual creation
       if (!imageUrl) {
-        note = "Image generation requires Imagen API access. Prompt saved to vault.";
+        note = wantsNsfw
+          ? "NSFW generation is disabled for this account (or PromptChan is unavailable). Prompt saved to vault."
+          : "Image generation is currently unavailable. Prompt saved to vault.";
         if (saveToVault) {
           await sb.from("vault_entries").insert({
             user_id: userId,
@@ -1957,6 +2059,68 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
       if (error) throw error;
       if (!deleted || deleted.length === 0) throw new Error(`mavis_domain_effects: delete matched no row for id "${effectId}"`);
       await logActivity(sb, userId, "domain_effect_deleted", `Domain effect removed: ${String(p.name || effectId)}`, 0);
+      return;
+    }
+
+    // ── AGENT IDENTITY (cryptographic action signing) ───
+    // mavis-agent-identity was fully built (mavis_agent_identity table,
+    // mavis_agent_traces.signature column) and the chat system prompt already
+    // told the LLM it could call these — but nothing here ever handled them,
+    // so every attempt returned "unknown action". Found via Execution
+    // Blueprint Stage D triage.
+    case "generate_keypair":
+    case "sign_action":
+    case "verify_action":
+    case "get_identity": {
+      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+      const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+      const res = await fetch(`${supabaseUrl}/functions/v1/mavis-agent-identity`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${serviceRoleKey}` },
+        body: JSON.stringify({ ...p, action: actionType, userId }),
+        signal: AbortSignal.timeout(30_000),
+      });
+      if (!res.ok) throw new Error(`mavis-agent-identity failed (${res.status}): ${await res.text()}`);
+      return;
+    }
+
+    // ── SMART HOME (Home Assistant / Philips Hue) ───────
+    // mavis-home is fully implemented and mavis_capabilities already lists
+    // smart_home/iot_control as pointing here — but nothing dispatched to it.
+    // The sub-action (get_states/call_service/turn_on/turn_off/toggle/
+    // set_scene/get_hue_lights/set_hue_light/status) must be included in
+    // params as `action`. Found via Execution Blueprint Stage D triage.
+    case "smart_home":
+    case "iot_control": {
+      if (!p.action) throw new Error("smart_home requires an 'action' parameter (e.g. turn_on, get_states, set_scene)");
+      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+      const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+      const res = await fetch(`${supabaseUrl}/functions/v1/mavis-home`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${serviceRoleKey}` },
+        body: JSON.stringify({ ...p, userId }),
+        signal: AbortSignal.timeout(20_000),
+      });
+      if (!res.ok) throw new Error(`mavis-home failed (${res.status}): ${await res.text()}`);
+      return;
+    }
+
+    // ── MARKET DATA (stocks / crypto) ───────────────────
+    // Same situation as smart_home above — fully built, listed in
+    // mavis_capabilities, never dispatched. Found via Execution Blueprint
+    // Stage D triage.
+    case "get_market_data": {
+      const symbols = p.symbols ?? (p.symbol ? [p.symbol] : undefined);
+      if (!symbols) throw new Error("get_market_data requires a 'symbols' array (or a single 'symbol')");
+      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+      const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+      const res = await fetch(`${supabaseUrl}/functions/v1/mavis-market-data`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${serviceRoleKey}` },
+        body: JSON.stringify({ type: p.type ?? "stock", symbols, userId }),
+        signal: AbortSignal.timeout(20_000),
+      });
+      if (!res.ok) throw new Error(`mavis-market-data failed (${res.status}): ${await res.text()}`);
       return;
     }
 

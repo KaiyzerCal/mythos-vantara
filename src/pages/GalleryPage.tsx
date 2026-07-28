@@ -1,8 +1,10 @@
 import { useState, useEffect, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
+import { useAppData } from "@/contexts/AppDataContext";
 import { PageHeader } from "@/components/SharedUI";
-import { Loader2, Image, Music, Video, Globe, Download, ExternalLink, RefreshCw, Grid3X3, Wand2, Send, Sparkles, Film, Camera, Upload } from "lucide-react";
+import { LoadingState } from "@/components/LoadingState";
+import { Loader2, Image, Music, Video, Globe, Download, ExternalLink, RefreshCw, Grid3X3, Wand2, Send, Sparkles, Film, Camera, Upload, Play, ShieldAlert } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
 
@@ -36,14 +38,16 @@ const FILTER_ICONS: Record<FilterType, React.ReactNode> = {
   poster: <Globe size={12} />,
 };
 
-function MediaCard({ item }: { item: MediaItem }) {
+function MediaCard({ item, onSendToVideo }: { item: MediaItem; onSendToVideo?: (url: string) => void }) {
   const [imgError, setImgError] = useState(false);
 
   return (
     <motion.div
       initial={{ opacity: 0, scale: 0.95 }}
       animate={{ opacity: 1, scale: 1 }}
-      className="group relative rounded-lg border border-border overflow-hidden bg-card hover:border-primary/30 transition-all"
+      whileHover={{ y: -4 }}
+      transition={{ type: "spring", stiffness: 300, damping: 20 }}
+      className="group relative rounded-lg border border-border overflow-hidden bg-card hover:border-primary/50 hover:shadow-[0_8px_30px_-8px_hsl(var(--primary)/0.35)] transition-all"
     >
       {/* Preview area */}
       <div className="relative bg-muted/20 aspect-square overflow-hidden">
@@ -51,7 +55,7 @@ function MediaCard({ item }: { item: MediaItem }) {
           <img
             src={item.url}
             alt={item.title}
-            className="w-full h-full object-cover"
+            className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
             onError={() => setImgError(true)}
           />
         )}
@@ -102,6 +106,16 @@ function MediaCard({ item }: { item: MediaItem }) {
           >
             <Download size={13} />
           </a>
+          {item.type === "image" && onSendToVideo && (
+            <button
+              type="button"
+              onClick={(e) => { e.preventDefault(); e.stopPropagation(); onSendToVideo(item.url); }}
+              className="w-8 h-8 rounded-full bg-primary/30 border border-primary/50 flex items-center justify-center text-white hover:bg-primary/50 transition-colors"
+              title="Animate → Video"
+            >
+              <Play size={13} />
+            </button>
+          )}
         </div>
 
         {/* Type badge */}
@@ -144,9 +158,11 @@ const IMAGE_PROVIDERS = [
 
 function ImageGenPanel({ onGenerated }: { onGenerated: (item: MediaItem) => void }) {
   const { session } = useAuth();
+  const { profile } = useAppData();
   const [prompt, setPrompt] = useState("");
   const [size, setSize] = useState<typeof SIZE_OPTIONS[number]["key"]>("square");
   const [imgProvider, setImgProvider] = useState<typeof IMAGE_PROVIDERS[number]["key"]>("auto");
+  const [nsfw, setNsfw] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [lastUrl, setLastUrl] = useState<string | null>(null);
 
@@ -157,15 +173,22 @@ function ImageGenPanel({ onGenerated }: { onGenerated: (item: MediaItem) => void
     try {
       const s = SIZE_OPTIONS.find(o => o.key === size)!;
       const { data, error } = await (supabase as any).functions.invoke("mavis-image-gen", {
-        body: {
-          prompt: `${prompt.trim()}, ultra-detailed, razor-sharp focus, natural lighting, cinematic composition, shot on Hasselblad, photographic realism, fine texture detail`,
-          width: s.w,
-          height: s.h,
-          size: `${s.w}x${s.h}`,
-          quality: "high",
-          aspect_ratio: s.w === s.h ? "1:1" : s.w > s.h ? "16:9" : "9:16",
-          provider: imgProvider,
-        },
+        body: nsfw
+          // Explicit mode: PromptChan doesn't take the SFW cascade's
+          // photographic-realism prompt suffix or the provider param —
+          // mavis-image-gen routes nsfw:true straight to PromptChan
+          // regardless of what "provider" says.
+          ? { prompt: prompt.trim(), nsfw: true }
+          : {
+              prompt: `${prompt.trim()}, ultra-detailed, razor-sharp focus, natural lighting, cinematic composition, shot on Hasselblad, photographic realism, fine texture detail`,
+              width: s.w,
+              height: s.h,
+              size: `${s.w}x${s.h}`,
+              quality: "high",
+              aspect_ratio: s.w === s.h ? "1:1" : s.w > s.h ? "16:9" : "9:16",
+              provider: imgProvider,
+            },
+        headers: session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : undefined,
       });
 
 
@@ -227,7 +250,25 @@ function ImageGenPanel({ onGenerated }: { onGenerated: (item: MediaItem) => void
         </button>
       </div>
 
+      {/* NSFW toggle — only usable once enabled in Settings; PromptChan is
+          the sole provider used when this is on, so it replaces the
+          provider/size selectors below rather than combining with them. */}
+      <button
+        onClick={() => profile.nsfw_generation_enabled && setNsfw(v => !v)}
+        disabled={!profile.nsfw_generation_enabled}
+        title={profile.nsfw_generation_enabled ? "Toggle explicit-mode generation via PromptChan" : "Enable NSFW Image Generation in Settings first"}
+        className={`self-start flex items-center gap-1.5 text-[10px] font-mono px-2 py-1 rounded border transition-colors ${
+          nsfw
+            ? "border-destructive/50 bg-destructive/10 text-destructive"
+            : "border-border text-muted-foreground hover:text-foreground hover:border-border/80"
+        } ${!profile.nsfw_generation_enabled ? "opacity-40 cursor-not-allowed" : ""}`}
+      >
+        <ShieldAlert size={10} />
+        {nsfw ? "NSFW mode ON (PromptChan)" : profile.nsfw_generation_enabled ? "NSFW mode off" : "NSFW disabled — enable in Settings"}
+      </button>
+
       {/* Provider selector */}
+      {!nsfw && (<>
       <div className="flex flex-wrap gap-1.5">
         {IMAGE_PROVIDERS.map(p => (
           <button
@@ -262,7 +303,7 @@ function ImageGenPanel({ onGenerated }: { onGenerated: (item: MediaItem) => void
           </button>
         ))}
       </div>
-
+      </>)}
 
       {/* Preview of last result */}
       {lastUrl && (
@@ -318,7 +359,7 @@ const VIDEO_PROVIDERS = [
   { key: "modelslab",  label: "ModelsLab",   hint: "SDXL video, uncensored" },
 ] as const;
 
-function VideoGenPanel({ onGenerated }: { onGenerated: (item: MediaItem) => void }) {
+function VideoGenPanel({ onGenerated, seedImageUrl }: { onGenerated: (item: MediaItem) => void; seedImageUrl?: string | null }) {
   const { session } = useAuth();
   const [prompt, setPrompt] = useState("");
   const [imageUrl, setImageUrl] = useState("");
@@ -329,6 +370,11 @@ function VideoGenPanel({ onGenerated }: { onGenerated: (item: MediaItem) => void
   const [uploading, setUploading] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [lastUrl, setLastUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (seedImageUrl) setImageUrl(seedImageUrl);
+  }, [seedImageUrl]);
+
 
 
   async function handleImageUpload(e: React.ChangeEvent<HTMLInputElement>) {
@@ -565,6 +611,15 @@ export function GalleryPage() {
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<FilterType>("all");
   const [genMode, setGenMode] = useState<"image" | "video">("image");
+  const [seedImageUrl, setSeedImageUrl] = useState<string | null>(null);
+
+  const handleSendToVideo = useCallback((url: string) => {
+    setSeedImageUrl(url);
+    setGenMode("video");
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }, []);
+
+
 
 
   const load = useCallback(async () => {
@@ -694,7 +749,8 @@ export function GalleryPage() {
 
       {genMode === "image"
         ? <ImageGenPanel onGenerated={prependItem} />
-        : <VideoGenPanel onGenerated={prependItem} />}
+        : <VideoGenPanel onGenerated={prependItem} seedImageUrl={seedImageUrl} />}
+
 
 
       {/* Filter bar */}
@@ -720,10 +776,9 @@ export function GalleryPage() {
       </div>
 
       {loading ? (
-        <div className="flex items-center justify-center py-16">
-          <Loader2 size={20} className="animate-spin text-primary/50" />
-        </div>
+        <LoadingState label="Loading gallery…" size="lg" />
       ) : visible.length === 0 ? (
+
         <div className="text-center py-16">
           <p className="text-xs font-mono text-muted-foreground">No {filter === "all" ? "assets" : filter} found.</p>
           <p className="text-[10px] font-mono text-muted-foreground mt-1">
@@ -734,7 +789,7 @@ export function GalleryPage() {
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
           <AnimatePresence>
             {visible.map((item) => (
-              <MediaCard key={item.id} item={item} />
+              <MediaCard key={item.id} item={item} onSendToVideo={handleSendToVideo} />
             ))}
           </AnimatePresence>
         </div>
@@ -742,3 +797,4 @@ export function GalleryPage() {
     </div>
   );
 }
+

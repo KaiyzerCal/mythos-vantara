@@ -176,6 +176,201 @@ describe("update_vault", () => {
     expect(result.status).toBe("pending_confirmation");
     expect(handler).not.toHaveBeenCalled();
   });
+
+  it("is CONFIRM-gated for the realistic entry_id-shaped payload the LLM actually sends (vantara-crud-update-fix-brief.md regression)", async () => {
+    // The test above used a bare "id" field, which happened to satisfy the
+    // OLD (buggy) UpdateVaultSchema's single required "id" field — but
+    // promptBuilder.ts has only ever told the LLM to send "entry_id", never
+    // "id". Every real update_vault action therefore failed
+    // ActionSchema.safeParse and fell through actionExecutor.ts's legacy
+    // path, which calls defaultHandler directly WITHOUT ever consulting
+    // classifyAction() — silently bypassing the CONFIRM gate for every real
+    // vault edit, the whole time the schema bug existed. This is the test
+    // that actually proves the fix: a realistic payload, still gated.
+    const handler = vi.fn().mockResolvedValue(undefined);
+    registerActionHandler("update_vault", handler);
+
+    const result = await executeAction(makeAction({
+      type: "update_vault",
+      entry_id: "vault-1",
+      content: "Revised",
+      category: "legal",
+    }));
+
+    expect(result.status).toBe("pending_confirmation");
+    expect(handler).not.toHaveBeenCalled();
+  });
+});
+
+// "fix all problems" follow-up to the vantara-crud-update-fix-brief.md work
+// above: EVERY Delete*Schema required a bare "id" field, but promptBuilder.ts
+// only ever documents table-specific id fields (quest_id, skill_id,
+// member_id, item_id, ally_id, transformation_id, ranking_id, store_item_id,
+// energy_id — never bare "id"). Since every delete_* type is
+// ALWAYS_CONFIRM-gated, this meant every real deletion in the app has been
+// silently auto-executing with no confirmation, the entire time — the single
+// most severe bug found this session. This sweep proves the fix: the exact
+// realistic, table-specific-id payload promptBuilder.ts tells the LLM to
+// send is now (a) valid Zod input and (b) still CONFIRM-gated.
+describe("delete_* CONFIRM-gate regression — realistic table-specific id payloads (not bare id)", () => {
+  const cases: Array<{ type: string; payload: Record<string, unknown> }> = [
+    { type: "delete_quest", payload: { type: "delete_quest", quest_id: "quest-1" } },
+    { type: "delete_task", payload: { type: "delete_task", task_id: "task-1" } },
+    { type: "delete_skill", payload: { type: "delete_skill", skill_id: "skill-1" } },
+    { type: "delete_journal", payload: { type: "delete_journal", entry_id: "entry-1" } },
+    { type: "delete_council_member", payload: { type: "delete_council_member", member_id: "member-1" } },
+    { type: "delete_inventory_item", payload: { type: "delete_inventory_item", item_id: "item-1" } },
+    { type: "delete_energy", payload: { type: "delete_energy", energy_id: "energy-1" } },
+    { type: "delete_ally", payload: { type: "delete_ally", ally_id: "ally-1" } },
+    { type: "delete_transformation", payload: { type: "delete_transformation", transformation_id: "form-1" } },
+    { type: "delete_ranking", payload: { type: "delete_ranking", ranking_id: "rank-1" } },
+    { type: "delete_store_item", payload: { type: "delete_store_item", store_item_id: "store-1" } },
+  ];
+
+  for (const { type, payload } of cases) {
+    it(`${type}: realistic payload parses AND is CONFIRM-gated (never auto-executes)`, async () => {
+      expect(ActionSchema.safeParse(payload).success).toBe(true);
+
+      const handler = vi.fn().mockResolvedValue(undefined);
+      registerActionHandler(type, handler);
+
+      const result = await executeAction(makeAction(payload));
+      expect(result.status).toBe("pending_confirmation");
+      expect(handler).not.toHaveBeenCalled();
+    });
+  }
+});
+
+// mavis-actions/index.ts's ACTION_ALIASES normalizes alternate type
+// spellings (e.g. "remove_quest" → "delete_quest") — but only on the
+// backend, AFTER this frontend gate. actionExecutor.ts now mirrors that
+// normalization before Zod validation and classification (see its own
+// ACTION_ALIASES comment) specifically so aliases can't bypass the CONFIRM
+// gate the way missing lookup fields used to. delete_ranking_profile is the
+// one confirmed live case: promptBuilder.ts documents it — never
+// "delete_ranking" — as what the LLM should actually send.
+describe("alias normalization — CONFIRM-gate regression for delete_* aliases", () => {
+  it("delete_ranking_profile (the type promptBuilder.ts actually documents) is CONFIRM-gated exactly like delete_ranking", async () => {
+    const handler = vi.fn().mockResolvedValue(undefined);
+    registerActionHandler("delete_ranking", handler);
+
+    const result = await executeAction(makeAction({ type: "delete_ranking_profile", ranking_id: "rank-1" }));
+    expect(result.status).toBe("pending_confirmation");
+    expect(handler).not.toHaveBeenCalled();
+  });
+
+  it("remove_quest (alias) is CONFIRM-gated exactly like delete_quest", async () => {
+    const handler = vi.fn().mockResolvedValue(undefined);
+    registerActionHandler("delete_quest", handler);
+
+    const result = await executeAction(makeAction({ type: "remove_quest", quest_id: "quest-1" }));
+    expect(result.status).toBe("pending_confirmation");
+    expect(handler).not.toHaveBeenCalled();
+  });
+
+  it("remove_ally (alias) is CONFIRM-gated exactly like delete_ally", async () => {
+    const handler = vi.fn().mockResolvedValue(undefined);
+    registerActionHandler("delete_ally", handler);
+
+    const result = await executeAction(makeAction({ type: "remove_ally", ally_id: "ally-1" }));
+    expect(result.status).toBe("pending_confirmation");
+    expect(handler).not.toHaveBeenCalled();
+  });
+});
+
+// Out-of-scope items from the earlier CRUD brief follow-up, now fixed:
+// create_ritual/update_ritual/delete_ritual had zero backend implementation
+// at all (real handlers added to mavis-actions/index.ts), and delete_plan/
+// delete_quest_chain/delete_skill_chain/delete_signal_config are three
+// whole feature areas (mavis-plans, mavis-chain-builder, mavis-signal-
+// watcher) that were fully built but completely unreachable from chat —
+// MavisChat.tsx's defaultHandler unconditionally targeted mavis-actions,
+// which never had cases for any of them. Both classes of bug are proven
+// fixed the same way: realistic payload validates AND is CONFIRM-gated.
+describe("delete_ritual / delete_plan / delete_quest_chain / delete_skill_chain / delete_signal_config — CONFIRM-gate regression", () => {
+  const cases: Array<{ type: string; payload: Record<string, unknown> }> = [
+    { type: "delete_ritual", payload: { type: "delete_ritual", ritual_id: "ritual-1" } },
+    { type: "delete_plan", payload: { type: "delete_plan", plan_id: "plan-1" } },
+    { type: "delete_quest_chain", payload: { type: "delete_quest_chain", chain_id: "chain-1" } },
+    { type: "delete_skill_chain", payload: { type: "delete_skill_chain", chain_id: "chain-1" } },
+    { type: "delete_signal_config", payload: { type: "delete_signal_config", id: "signal-1" } },
+  ];
+
+  for (const { type, payload } of cases) {
+    it(`${type}: realistic payload parses AND is CONFIRM-gated (never auto-executes)`, async () => {
+      expect(ActionSchema.safeParse(payload).success).toBe(true);
+
+      const handler = vi.fn().mockResolvedValue(undefined);
+      registerActionHandler(type, handler);
+
+      const result = await executeAction(makeAction(payload));
+      expect(result.status).toBe("pending_confirmation");
+      expect(handler).not.toHaveBeenCalled();
+    });
+  }
+});
+
+describe("create_ritual / update_plan / upsert_signal_config — AUTO path, previously unreachable", () => {
+  it("create_ritual with ritual_type (not the colliding 'type') validates and auto-executes", async () => {
+    const result = ActionSchema.safeParse({ type: "create_ritual", name: "Cold Shower", ritual_type: "self_care" });
+    expect(result.success).toBe(true);
+
+    const handler = vi.fn().mockResolvedValue(undefined);
+    registerActionHandler("create_ritual", handler);
+    const execResult = await executeAction(makeAction({ type: "create_ritual", name: "Cold Shower" }));
+    expect(execResult.status).toBe("success");
+    expect(handler).toHaveBeenCalledOnce();
+  });
+
+  it("update_plan (previously always fell through to mavis-actions and failed with 'unknown action type') auto-executes via its registered handler", async () => {
+    const handler = vi.fn().mockResolvedValue(undefined);
+    registerActionHandler("update_plan", handler);
+
+    const result = await executeAction(makeAction({ type: "update_plan", plan_id: "plan-1", status: "paused" }));
+    expect(result.status).toBe("success");
+    expect(handler).toHaveBeenCalledOnce();
+  });
+
+  it("upsert_signal_config requires signal_type/name/source", () => {
+    expect(ActionSchema.safeParse({
+      type: "upsert_signal_config",
+      signal_type: "rss",
+      name: "TechCrunch AI",
+      source: "https://techcrunch.com/feed/",
+    }).success).toBe(true);
+
+    expect(ActionSchema.safeParse({ type: "upsert_signal_config", name: "Missing fields" }).success).toBe(false);
+  });
+});
+
+// PromptChan integration — generate_image gained an optional nsfw flag.
+// The real safety gate lives server-side in mavis-image-gen (fail-closed on
+// profiles.nsfw_generation_enabled), but this is the client-side layer:
+// nsfw:true must always require confirmation, exactly like every other
+// sensitive action in this file, regardless of what the backend gate does.
+describe("generate_image — nsfw flag CONFIRM gate", () => {
+  it("nsfw:true requires confirmation — never auto-executes", async () => {
+    const handler = vi.fn().mockResolvedValue(undefined);
+    registerActionHandler("generate_image", handler);
+
+    const result = await executeAction(makeAction({ type: "generate_image", prompt: "a portrait", nsfw: true }));
+    expect(result.status).toBe("pending_confirmation");
+    expect(handler).not.toHaveBeenCalled();
+  });
+
+  it("without nsfw (or nsfw:false) generate_image stays AUTO", async () => {
+    const handler = vi.fn().mockResolvedValue(undefined);
+    registerActionHandler("generate_image", handler);
+
+    const result = await executeAction(makeAction({ type: "generate_image", prompt: "a landscape" }));
+    expect(result.status).toBe("success");
+    expect(handler).toHaveBeenCalledOnce();
+  });
+
+  it("Zod accepts the nsfw field", () => {
+    expect(ActionSchema.safeParse({ type: "generate_image", prompt: "x", nsfw: true }).success).toBe(true);
+    expect(ActionSchema.safeParse({ type: "generate_image", prompt: "x" }).success).toBe(true);
+  });
 });
 
 describe("delete_vault", () => {

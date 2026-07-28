@@ -258,57 +258,89 @@ async function handleNewsBrief(sb: any): Promise<any> {
   const cached = await getCache(sb, "news_brief");
   if (cached) return json(cached);
 
+  // GDELT rate-limits to ~1 req / 5s. Sequence with delays; send UA.
   const queries = ["conflict war military", "economy sanctions trade", "geopolitics diplomacy nato"];
-  const results = await Promise.allSettled(
-    queries.map(q => safeFetch(`https://api.gdeltproject.org/api/v2/doc/doc?mode=artlist&format=json&query=${encodeURIComponent(q)}&maxrecords=20&sort=DateDesc&language=English`))
-  );
-
-  const seen = new Set<string>();
+  const gdeltHeaders = { headers: { "User-Agent": "Mozilla/5.0 (MAVIS WorldMonitor)" } };
   const articles: any[] = [];
-  for (const r of results) {
-    if (r.status !== "fulfilled" || !r.value?.articles) continue;
-    for (const a of r.value.articles) {
+  const seen = new Set<string>();
+  for (let i = 0; i < queries.length; i++) {
+    if (i > 0) await new Promise((r) => setTimeout(r, 5200));
+    const url = `https://api.gdeltproject.org/api/v2/doc/doc?mode=artlist&format=json&query=${encodeURIComponent(queries[i])}&maxrecords=20&sort=DateDesc&language=English`;
+    const data = await safeFetch(url, gdeltHeaders);
+    for (const a of (data?.articles ?? [])) {
       const key = (a.title ?? "").slice(0, 40);
-      if (seen.has(key)) continue;
+      if (!key || seen.has(key)) continue;
       seen.add(key);
       articles.push(a);
     }
   }
 
-  const apiKey = Deno.env.get("ANTHROPIC_API_KEY");
-  if (!apiKey || articles.length === 0) {
-    const fallback = { headline: "No data available", body: "Could not fetch intelligence data at this time.", risk_level: "low", key_themes: [], generated_at: new Date().toISOString() };
+  // Prefer Lovable AI Gateway; fall back to Anthropic if only that is set.
+  const lovableKey = Deno.env.get("LOVABLE_API_KEY");
+  const anthropicKey = Deno.env.get("ANTHROPIC_API_KEY");
+  if ((!lovableKey && !anthropicKey) || articles.length === 0) {
+    const fallback = {
+      headline: articles.length === 0 ? "News feed cooling down" : "Intelligence synthesis unavailable",
+      body: articles.length === 0
+        ? "GDELT rate-limited or returned no articles. Retrying automatically on next cache cycle."
+        : "No LLM key configured (LOVABLE_API_KEY or ANTHROPIC_API_KEY).",
+      risk_level: "low",
+      key_themes: [],
+      generated_at: new Date().toISOString(),
+    };
     return json(fallback);
   }
 
-  const articleList = articles.slice(0, 30).map(a =>
+  const articleList = articles.slice(0, 30).map((a) =>
     `- ${a.title} [${a.domain}, ${a.sourcecountry}, ${a.seendate ? parseGdeltDate(a.seendate) : "unknown"}]`
   ).join("\n");
 
-  const prompt = `You are MAVIS, a global intelligence analyst. Synthesize these recent news articles into a concise intelligence brief for the operator.\n\nArticles:\n${articleList}\n\nRespond in JSON only:\n{\n  "headline": "One sentence capturing the most critical global development",\n  "body": "Three paragraphs: (1) geopolitical landscape, (2) economic/market context, (3) emerging risks or opportunities",\n  "risk_level": "low|moderate|elevated|high|critical",\n  "key_themes": ["array", "of", "3-5", "themes"]\n}`;
+  const prompt = `You are MAVIS, a global intelligence analyst. Synthesize these recent news articles into a concise intelligence brief for the operator.\n\nArticles:\n${articleList}\n\nRespond in JSON only (no markdown fences):\n{\n  "headline": "One sentence capturing the most critical global development",\n  "body": "Three paragraphs: (1) geopolitical landscape, (2) economic/market context, (3) emerging risks or opportunities",\n  "risk_level": "low|moderate|elevated|high|critical",\n  "key_themes": ["array", "of", "3-5", "themes"]\n}`;
 
   let brief: any = null;
   try {
-    const claudeRes = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      signal: AbortSignal.timeout(30000),
-      headers: { "x-api-key": apiKey, "anthropic-version": "2023-06-01", "content-type": "application/json" },
-      body: JSON.stringify({ model: "claude-sonnet-4-6", max_tokens: 1024, messages: [{ role: "user", content: prompt }] }),
-    });
-    const claudeData = await claudeRes.json();
-    const text = claudeData?.content?.[0]?.text ?? "";
-    const match = text.match(/\{[\s\S]*\}/);
-    if (match) brief = JSON.parse(match[0]);
+    if (lovableKey) {
+      const res = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+        method: "POST",
+        signal: AbortSignal.timeout(30000),
+        headers: { "Lovable-API-Key": lovableKey, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: "google/gemini-2.5-flash",
+          messages: [{ role: "user", content: prompt }],
+        }),
+      });
+      const data = await res.json();
+      const text = data?.choices?.[0]?.message?.content ?? "";
+      const match = text.replace(/```json|```/g, "").match(/\{[\s\S]*\}/);
+      if (match) brief = JSON.parse(match[0]);
+    } else if (anthropicKey) {
+      const res = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        signal: AbortSignal.timeout(30000),
+        headers: { "x-api-key": anthropicKey, "anthropic-version": "2023-06-01", "content-type": "application/json" },
+        body: JSON.stringify({ model: "claude-3-5-sonnet-latest", max_tokens: 1024, messages: [{ role: "user", content: prompt }] }),
+      });
+      const data = await res.json();
+      const text = data?.content?.[0]?.text ?? "";
+      const match = text.replace(/```json|```/g, "").match(/\{[\s\S]*\}/);
+      if (match) brief = JSON.parse(match[0]);
+    }
   } catch { /* fall through */ }
 
   if (!brief) {
-    brief = { headline: "Intelligence synthesis unavailable", body: "Claude synthesis failed. Raw data was fetched but could not be processed.", risk_level: "low", key_themes: [] };
+    brief = {
+      headline: articles[0]?.title ?? "Global feed active",
+      body: `Synthesis engine returned no structured output. ${articles.length} raw articles collected across ${queries.length} feeds; showing top headline.`,
+      risk_level: "moderate",
+      key_themes: [],
+    };
   }
 
   const result = { ...brief, generated_at: new Date().toISOString() };
   await setCache(sb, "news_brief", result, 3600);
   return json(result);
 }
+
 
 // --- market_brief ---
 async function handleMarketBrief(sb: any): Promise<any> {
