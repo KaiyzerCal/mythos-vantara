@@ -176,6 +176,30 @@ describe("update_vault", () => {
     expect(result.status).toBe("pending_confirmation");
     expect(handler).not.toHaveBeenCalled();
   });
+
+  it("is CONFIRM-gated for the realistic entry_id-shaped payload the LLM actually sends (vantara-crud-update-fix-brief.md regression)", async () => {
+    // The test above used a bare "id" field, which happened to satisfy the
+    // OLD (buggy) UpdateVaultSchema's single required "id" field — but
+    // promptBuilder.ts has only ever told the LLM to send "entry_id", never
+    // "id". Every real update_vault action therefore failed
+    // ActionSchema.safeParse and fell through actionExecutor.ts's legacy
+    // path, which calls defaultHandler directly WITHOUT ever consulting
+    // classifyAction() — silently bypassing the CONFIRM gate for every real
+    // vault edit, the whole time the schema bug existed. This is the test
+    // that actually proves the fix: a realistic payload, still gated.
+    const handler = vi.fn().mockResolvedValue(undefined);
+    registerActionHandler("update_vault", handler);
+
+    const result = await executeAction(makeAction({
+      type: "update_vault",
+      entry_id: "vault-1",
+      content: "Revised",
+      category: "legal",
+    }));
+
+    expect(result.status).toBe("pending_confirmation");
+    expect(handler).not.toHaveBeenCalled();
+  });
 });
 
 describe("delete_vault", () => {

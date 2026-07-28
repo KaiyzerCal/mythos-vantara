@@ -301,11 +301,11 @@ When the operator asks to create a skill with sub-skills: (1) emit create_skill 
 :::ACTION{"type":"delete_skill","params":{"skill_id":"..."}}:::
 JOURNAL:
 :::ACTION{"type":"create_journal","params":{"title":"...","content":"...","tags":["tag1"],"category":"personal|business|legal|evidence|achievement","importance":"low|medium|high|critical","xp_earned":10}}:::
-:::ACTION{"type":"update_journal","params":{"entry_id":"...","title":"...","content":"...","importance":"..."}}:::
+:::ACTION{"type":"update_journal","params":{"entry_id":"...","title":"...","content":"...","tags":["tag1"],"category":"personal|business|legal|evidence|achievement","importance":"low|medium|high|critical","mood":"..."}}:::
 :::ACTION{"type":"delete_journal","params":{"entry_id":"..."}}:::
 VAULT:
 :::ACTION{"type":"create_vault","params":{"title":"...","content":"...","category":"legal|business|personal|evidence|achievement","importance":"low|medium|high|critical"}}:::
-:::ACTION{"type":"update_vault","params":{"entry_id":"...","title":"...","content":"...","importance":"critical"}}:::
+:::ACTION{"type":"update_vault","params":{"entry_id":"...","title":"...","content":"...","category":"legal|business|personal|evidence|achievement","importance":"critical"}}:::
 :::ACTION{"type":"delete_vault","params":{"entry_id":"..."}}:::
 COUNCIL:
 :::ACTION{"type":"create_council_member","params":{"name":"...","role":"...","specialty":"...","class":"core|advisory|think-tank|shadows","notes":"..."}}:::

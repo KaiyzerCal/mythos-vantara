@@ -93,3 +93,161 @@ describe("ActionSchema discriminated union", () => {
     expect(result.success).toBe(false);
   });
 });
+
+// CRUD update-path accuracy fix (vantara-crud-update-fix-brief.md) — these
+// are the regression tests that would have caught the original drift
+// between what promptBuilder.ts documents, what actionSchemas.ts validates,
+// and what mavis-actions/index.ts's handlers + the real table columns
+// actually accept. Positive cases are copy-pasted from the exact
+// :::ACTION{...}::: examples in promptBuilder.ts, not paraphrased — the bug
+// this closes was specifically "the documented example doesn't pass its own
+// validator."
+describe("update_skill — matches promptBuilder.ts example + real skills columns", () => {
+  it("accepts the exact promptBuilder.ts example shape", () => {
+    const result = ActionSchema.safeParse({
+      type: "update_skill",
+      skill_id: "abc-123",
+      proficiency: 50,
+      tier: 1,
+      unlocked: true,
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("accepts skill_name-based lookup with a rename", () => {
+    const result = ActionSchema.safeParse({
+      type: "update_skill",
+      skill_name: "Old Name",
+      name: "New Name",
+      category: "Combat",
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("level and title are not real fields — a regression back to validating them would need a conscious schema change", () => {
+    // {id, level, title} still PARSES under the new schema too — id alone
+    // satisfies the lookup refinement, and non-strict z.object() tolerates
+    // unrecognized extra keys rather than rejecting them, so a "rejects the
+    // old shape" test would be misleading (it was never really rejected by
+    // Zod for having those keys; it failed because it lacked entry-style
+    // lookup fields the LLM never actually sends this way). The real
+    // regression guard: confirm level/title are NOT part of this schema's
+    // validated output — if someone reintroduces `level` thinking it's a
+    // real skills column, this assertion breaks and forces them to look at
+    // why, rather than the mistake silently reappearing.
+    const result = ActionSchema.safeParse({ type: "update_skill", id: "abc-123", level: 5, title: "Fireball" });
+    expect(result.success).toBe(true);
+    if (result.success && result.data.type === "update_skill") {
+      expect("level" in result.data).toBe(false);
+      expect("title" in result.data).toBe(false);
+    }
+  });
+
+  it("rejects update_skill with no lookup field at all", () => {
+    const result = ActionSchema.safeParse({ type: "update_skill", proficiency: 50 });
+    expect(result.success).toBe(false);
+  });
+});
+
+describe("update_journal — matches promptBuilder.ts example + real journal_entries columns", () => {
+  it("accepts the exact promptBuilder.ts example shape", () => {
+    const result = ActionSchema.safeParse({
+      type: "update_journal",
+      entry_id: "abc-123",
+      title: "Breakthrough",
+      content: "...",
+      tags: ["tag1"],
+      category: "personal",
+      importance: "high",
+      mood: "relieved",
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("accepts entry_title-based lookup (no entry_id)", () => {
+    const result = ActionSchema.safeParse({ type: "update_journal", entry_title: "Yesterday", mood: "relieved" });
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects update_journal with no lookup field at all", () => {
+    const result = ActionSchema.safeParse({ type: "update_journal", mood: "relieved" });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects a non-array tags field", () => {
+    const result = ActionSchema.safeParse({ type: "update_journal", entry_id: "x", tags: "not-an-array" });
+    expect(result.success).toBe(false);
+  });
+});
+
+describe("update_vault — matches promptBuilder.ts example, confidential removed", () => {
+  it("accepts the exact promptBuilder.ts example shape", () => {
+    const result = ActionSchema.safeParse({
+      type: "update_vault",
+      entry_id: "abc-123",
+      title: "Contract",
+      content: "...",
+      category: "legal",
+      importance: "critical",
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects update_vault with no lookup field at all — this is the real gate-bypass bug", () => {
+    // The old schema required a plain "id" field, but promptBuilder.ts has
+    // only ever told the LLM to send "entry_id". Every real update_vault
+    // action therefore failed ActionSchema.safeParse and silently fell
+    // through actionExecutor.ts's legacy path — which calls defaultHandler
+    // directly, WITHOUT ever consulting classifyAction(). Since update_vault
+    // is CONFIRM-gated by rule, this meant real vault edits were
+    // auto-executing with no confirmation, the entire time. This test
+    // guards the Zod shape; the CONFIRM-gate regression test lives in
+    // highConsequenceActions.test.ts.
+    const result = ActionSchema.safeParse({ type: "update_vault", content: "Revised" });
+    expect(result.success).toBe(false);
+  });
+
+  it("confidential is accepted-but-ignored, not rejected (non-strict object, matches backend which also just ignores it)", () => {
+    // Explicitly NOT asserting rejection here: confidential was removed
+    // from the schema definition, but z.object() is non-strict by default,
+    // so a stray confidential key doesn't fail validation — it's simply
+    // never read by anything downstream (same as before, minus the false
+    // impression that it did something).
+    const result = ActionSchema.safeParse({ type: "update_vault", entry_id: "x", confidential: true });
+    expect(result.success).toBe(true);
+  });
+});
+
+describe("update_inventory_item — matches promptBuilder.ts example + real inventory columns", () => {
+  it("accepts the exact promptBuilder.ts example shape", () => {
+    const result = ActionSchema.safeParse({
+      type: "update_inventory_item",
+      item_id: "abc-123",
+      name: "Health Potion",
+      quantity: 3,
+      is_equipped: true,
+      effect: "Restores 50 HP",
+      stat_effects: [{ label: "AGI", value: 10, unit: "" }],
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("accepts item_name-based lookup", () => {
+    const result = ActionSchema.safeParse({ type: "update_inventory_item", item_name: "Health Potion", quantity: 3 });
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects update_inventory_item with no lookup field at all", () => {
+    const result = ActionSchema.safeParse({ type: "update_inventory_item", quantity: 3 });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects a malformed stat_effects entry (missing label)", () => {
+    const result = ActionSchema.safeParse({
+      type: "update_inventory_item",
+      item_id: "x",
+      stat_effects: [{ value: 10 }],
+    });
+    expect(result.success).toBe(false);
+  });
+});

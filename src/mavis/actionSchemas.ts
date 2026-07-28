@@ -16,17 +16,63 @@ export const DeleteTaskSchema = z.object({ type: z.literal("delete_task"), id: z
 
 // SKILL
 export const CreateSkillSchema = z.object({ type: z.literal("create_skill"), title: TitleField, category: z.string().optional(), level: z.number().int().min(1).max(100).optional(), description: DescField });
-export const UpdateSkillSchema = z.object({ type: z.literal("update_skill"), id: z.string().min(1), level: z.number().int().min(1).max(100).optional(), title: z.string().optional() });
+export const UpdateSkillSchema = z.object({
+  type: z.literal("update_skill"),
+  skill_id: z.string().min(1).optional(),
+  id: z.string().min(1).optional(),
+  skill_name: z.string().min(1).optional(),
+  name: z.string().optional(),
+  description: z.string().optional(),
+  category: z.string().optional(),
+  energy_type: z.string().optional(),
+  tier: z.number().int().optional(),
+  unlocked: z.boolean().optional(),
+  proficiency: z.number().int().min(0).max(100).optional(),
+}).refine(
+  (v) => v.skill_id || v.id || v.skill_name || v.name,
+  { message: "skill_id or skill_name (or id/name) is required to identify the skill" },
+);
 export const DeleteSkillSchema = z.object({ type: z.literal("delete_skill"), id: z.string().min(1) });
 
 // JOURNAL
 export const CreateJournalSchema = z.object({ type: z.literal("create_journal"), title: TitleField, content: z.string().min(1), mood: z.string().optional(), tags: z.array(z.string()).optional() });
-export const UpdateJournalSchema = z.object({ type: z.literal("update_journal"), id: z.string().min(1), title: z.string().optional(), content: z.string().optional() });
+export const UpdateJournalSchema = z.object({
+  type: z.literal("update_journal"),
+  entry_id: z.string().min(1).optional(),
+  id: z.string().min(1).optional(),
+  entry_title: z.string().min(1).optional(),
+  title: z.string().optional(),
+  content: z.string().optional(),
+  tags: z.array(z.string()).optional(),
+  category: z.string().optional(),
+  importance: z.string().optional(),
+  mood: z.string().optional(),
+}).refine(
+  (v) => v.entry_id || v.id || v.entry_title || v.title,
+  { message: "entry_id or entry_title (or id/title) is required to identify the journal entry" },
+);
 export const DeleteJournalSchema = z.object({ type: z.literal("delete_journal"), id: z.string().min(1) });
 
 // VAULT
 export const CreateVaultSchema = z.object({ type: z.literal("create_vault"), title: TitleField, content: z.string().min(1), category: z.string().optional(), confidential: z.boolean().optional() });
-export const UpdateVaultSchema = z.object({ type: z.literal("update_vault"), id: z.string().min(1), title: z.string().optional(), content: z.string().optional(), confidential: z.boolean().optional() });
+export const UpdateVaultSchema = z.object({
+  type: z.literal("update_vault"),
+  entry_id: z.string().min(1).optional(),
+  id: z.string().min(1).optional(),
+  entry_title: z.string().min(1).optional(),
+  title: z.string().optional(),
+  content: z.string().optional(),
+  category: z.string().optional(),
+  importance: z.string().optional(),
+  // confidential intentionally removed — not a real column, not accepted by
+  // mavis-actions' update_vault handler, not in what promptBuilder.ts tells
+  // the LLM to send. See docs/EXECUTION-PROGRESS.md for the repo-wide grep
+  // confirming CreateVaultSchema has the same unused field (out of scope
+  // for this fix — flagged, not touched).
+}).refine(
+  (v) => v.entry_id || v.id || v.entry_title || v.title,
+  { message: "entry_id or entry_title (or id/title) is required to identify the vault entry" },
+);
 export const DeleteVaultSchema = z.object({ type: z.literal("delete_vault"), id: z.string().min(1) });
 
 // COUNCIL MEMBER
@@ -36,7 +82,33 @@ export const DeleteCouncilMemberSchema = z.object({ type: z.literal("delete_coun
 
 // INVENTORY — type names match mavis-chat system prompt and mavis-actions switch
 export const CreateInventorySchema = z.object({ type: z.literal("create_inventory_item"), name: z.string().min(1), quantity: z.number().int().min(0).optional(), category: z.string().optional(), description: DescField, rarity: z.string().optional(), slot: z.string().optional(), tier: z.string().optional(), effect: z.string().optional(), is_equipped: z.boolean().optional() });
-export const UpdateInventorySchema = z.object({ type: z.literal("update_inventory_item"), id: z.string().min(1).optional(), item_id: z.string().min(1).optional(), quantity: z.number().int().min(0).optional(), name: z.string().optional(), is_equipped: z.boolean().optional(), effect: z.string().optional() });
+// Note: mavis-actions' update_inventory_item handler also accepts a "type"
+// field (the item's own type column, e.g. "weapon"/"armor") — deliberately
+// NOT included here. It can't be: the Zod discriminant for this schema is
+// itself named "type" ("update_inventory_item"), and a flat object can't
+// have two keys with the same name. CreateInventorySchema has the same
+// structural omission for the same reason — this isn't new, just newly
+// documented. Updating an item's type isn't representable through this
+// action shape today; would need a real fix (e.g. a differently-named
+// field like item_type) to close, out of scope for this brief.
+export const UpdateInventorySchema = z.object({
+  type: z.literal("update_inventory_item"),
+  item_id: z.string().min(1).optional(),
+  id: z.string().min(1).optional(),
+  item_name: z.string().min(1).optional(),
+  name: z.string().optional(),
+  description: z.string().optional(),
+  rarity: z.string().optional(),
+  quantity: z.number().int().min(0).optional(),
+  effect: z.string().optional(),
+  slot: z.string().optional(),
+  tier: z.string().optional(),
+  is_equipped: z.boolean().optional(),
+  stat_effects: z.array(z.object({ label: z.string(), value: z.union([z.string(), z.number()]), unit: z.string().optional() })).optional(),
+}).refine(
+  (v) => v.item_id || v.id || v.item_name || v.name,
+  { message: "item_id or item_name (or id/name) is required to identify the inventory item" },
+);
 export const DeleteInventorySchema = z.object({ type: z.literal("delete_inventory_item"), id: z.string().min(1).optional(), item_id: z.string().min(1).optional() });
 
 // ENERGY
