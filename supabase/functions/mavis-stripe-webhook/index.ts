@@ -12,9 +12,41 @@ const supabase = createClient(
 
 // Falls back to operator ID since invoice.paid won't always carry metadata.user_id
 const OPERATOR_UID = Deno.env.get("MAVIS_OPERATOR_MAIN_ID") ?? "";
+const STRIPE_WEBHOOK_SECRET = Deno.env.get("STRIPE_WEBHOOK_SECRET") ?? "";
 
 function minutesFromNow(n: number): string {
   return new Date(Date.now() + n * 60 * 1000).toISOString();
+}
+
+// Same verified HMAC-SHA256 signature check as stripe-widget-webhook — this
+// function previously parsed req.json() directly with no verification at
+// all, meaning anyone who found the URL could POST a forged invoice.paid /
+// payment_intent.succeeded event with an arbitrary user_id and amount.
+async function verifyStripeSignature(body: string, sigHeader: string, secret: string): Promise<boolean> {
+  if (!secret || !sigHeader) return false;
+  const parts = sigHeader.split(",").reduce((acc, part) => {
+    const [k, v] = part.split("=");
+    acc[k] = v;
+    return acc;
+  }, {} as Record<string, string>);
+  const timestamp = parts["t"];
+  const signature = parts["v1"];
+  if (!timestamp || !signature) return false;
+  // Reject timestamps older than 5 minutes (replay protection)
+  if (Math.abs(Date.now() / 1000 - parseInt(timestamp)) > 300) return false;
+  const payload = `${timestamp}.${body}`;
+  const key = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  const signatureBuffer = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(payload));
+  const computed = Array.from(new Uint8Array(signatureBuffer))
+    .map(b => b.toString(16).padStart(2, "0"))
+    .join("");
+  return computed === signature;
 }
 
 Deno.serve(async (req) => {
@@ -23,8 +55,26 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const body = await req.json();
-    const event = body;
+    const rawBody = await req.text();
+    const sig = req.headers.get("stripe-signature") ?? "";
+
+    if (STRIPE_WEBHOOK_SECRET) {
+      const valid = await verifyStripeSignature(rawBody, sig, STRIPE_WEBHOOK_SECRET);
+      if (!valid) {
+        console.error("[StripeWebhook] Invalid or missing signature — rejecting");
+        return new Response(JSON.stringify({ error: "Invalid signature" }), { status: 400 });
+      }
+    } else {
+      // No silent fallback — surfaces in mavis_events so a misconfigured secret
+      // doesn't stay invisible.
+      console.error("[StripeWebhook] STRIPE_WEBHOOK_SECRET not set — accepting UNVERIFIED payload");
+      await supabase.from("mavis_events").insert({
+        event_name: "fallback_triggered",
+        metadata: { function: "mavis-stripe-webhook", reason: "STRIPE_WEBHOOK_SECRET not set — signature verification skipped" },
+      }).then(() => {}, () => {});
+    }
+
+    const event = JSON.parse(rawBody);
 
     // ── invoice.paid — log revenue + trigger welcome sequence ─────────────────
     if (event.type === "invoice.paid") {
