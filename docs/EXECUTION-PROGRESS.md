@@ -8,8 +8,14 @@ Last updated: 2026-07-27, session 1
 - [~] Stage B — Phase 0: Ground truth inventory (`docs/capability-inventory.md`
   written, all 314 functions classified via static analysis; live
   `cron.job`/secrets confirmation still blocked)
-- [ ] Stage C — Phase 1: Fix what's broken (2 urgent items already fixed
-  out of sequence — see findings log — rest not started)
+- [~] Stage C — Phase 1: Fix what's broken. Everything statically fixable
+  is done (2 webhook security gaps, trigger-engine cron consolidation, 6
+  stranded cron jobs activated). The blueprint's own "9 broken cron jobs
+  from the original audit" premise didn't match what static reconciliation
+  found (0 dead/renamed targets) — the real issues were different ones,
+  documented above and in capability-inventory.md. Remaining items (env
+  var confirmation, live cron re-check) are blocked on Supabase MCP
+  access, not further static work.
 - [ ] Stage D — Phase 2: Orphan triage
 - [ ] Stage E — Phase 3: Capabilities Hub + drift-proofing
 - [ ] Stage F — Phase 4: Smoke tests
@@ -173,3 +179,22 @@ that's resolved; not stalling the rest of the work on it.
     syntax/import errors).
   Full detail, methodology, and the complete 314-row table are in
   `docs/capability-inventory.md` — not duplicated here.
+- 2026-07-27: Stage C. Two new corrective migrations (never editing
+  existing ones): `20260728000000_fix_trigger_engine_cron.sql`
+  consolidates mavis-trigger-engine's three accumulated cron registrations
+  (a typo'd vault secret name left the intended 5-minute job unregistered;
+  a later migration separately added a 10-minute anon-key-authenticated
+  duplicate) down to one correct 5-minute, service-role-authenticated job.
+  `20260728000001_activate_stranded_cron_jobs.sql` registers 6 functions
+  that were only ever seeded into `mavis_cron_config` (a table whose
+  activation RPC didn't exist until 2026-07-20): mavis-capability-audit,
+  mavis-health-monitor, mavis-learning-engine, mavis-archivist,
+  mavis-goal-judge, mavis-user-model-refresh. Both migrations are
+  idempotent and committed, but **not yet applied to the live project** —
+  need a migration push, and ideally live confirmation once MCP access is
+  unblocked. Corrected one error from the prior commit: mavis-so-curator
+  was miscategorized as stranded — it actually has a separate, working
+  registration and didn't need touching.
+- 2026-07-27: Stage C's remaining items (env-var-set confirmation, live
+  cron.job re-check) are blocked on Supabase MCP access, not further
+  static work — moving to Stage D (orphan triage) rather than stalling.
